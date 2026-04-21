@@ -1,18 +1,34 @@
-# Dungeon Crawler Content
+# DungeonCrawler Content
 
-Structured Pathfinder 2E rules data and game content.
+Pathfinder 2E adventure content types, encounters, and character sheets for DungeonCrawler.
 
-## Status
+## Features
 
-📋 **Phase 4: Reference Content** — Content extraction planned
+- Adventure and campaign content types
+- Encounter definitions and monsters
+- Character sheet storage and management
+- Spell and ability references
+- Loot and treasure tracking
 
-## Contents
+## Installation
 
-- Game rules data
-- Character sheets
-- Creature reference
-- Item definitions
+```bash
+composer require forseti-life/dungeoncrawler-content
+drush pm:enable dungeoncrawler_content
+```
+
+## Content Types
+
+- **Adventure** — Campaign and adventure modules
+- **Encounter** — Combat encounters and challenges
+- **Character** — Player and NPC character data
+- **Creature** — Monster and NPC definitions
+- **Spell** — Spell and ability reference
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## License
 
-MIT — See LICENSE file
+MIT License
