@@ -1,0 +1,143 @@
+{#
+/**
+ * @file
+ * Template for the credits/attribution page.
+ *
+ * Available variables:
+ * - credits: Array of credit categories and their entries
+ */
+#}
+
+<div class="credits-container credits-container--illustrated">
+  <div class="credits-header">
+    <h1>{{ 'Credits & Attribution'|t }}</h1>
+    <p class="credits-intro">
+      {{ 'This project is made possible by the generous contributions of open source developers, artists, and musicians. We are grateful for their work and proud to acknowledge their contributions.'|t }}
+    </p>
+  </div>
+
+  <div class="credits-content">
+    {% if credits.rendering is not empty %}
+      <section class="credit-category credit-category--rendering">
+        <h2>
+          {{ 'Rendering Engine'|t }}
+        </h2>
+        <div class="credit-items">
+          {% for item in credits.rendering %}
+            <div class="credit-item">
+              <h3 class="credit-name">
+                <a href="{{ item.url }}" target="_blank" rel="noopener">{{ item.name }}</a>
+                {% if item.version %}
+                  <span class="credit-version">v{{ item.version }}</span>
+                {% endif %}
+              </h3>
+              <p class="credit-creator">{{ 'by'|t }} {{ item.creator }}</p>
+              <p class="credit-usage">{{ item.usage }}</p>
+              <p class="credit-license">
+                <strong>{{ 'License:'|t }}</strong> {{ item.license }}
+              </p>
+            </div>
+          {% endfor %}
+        </div>
+      </section>
+    {% endif %}
+
+    {% if credits.music is not empty %}
+      <section class="credit-category credit-category--music">
+        <h2>
+          {{ 'Music & Audio'|t }}
+        </h2>
+        <div class="credit-items">
+          {% for item in credits.music %}
+            <div class="credit-item {% if item.status == 'planned' %}credit-planned{% endif %}">
+              {% if item.status == 'planned' %}
+                <span class="status-badge">{{ 'Planned'|t }}</span>
+              {% endif %}
+              <h3 class="credit-name">
+                <a href="{{ item.url }}" target="_blank" rel="noopener">{{ item.name }}</a>
+              </h3>
+              <p class="credit-creator">{{ 'by'|t }} {{ item.creator }}</p>
+              <p class="credit-usage">{{ item.usage }}</p>
+              <p class="credit-license">
+                <strong>{{ 'License:'|t }}</strong> {{ item.license }}
+              </p>
+            </div>
+          {% endfor %}
+        </div>
+      </section>
+    {% endif %}
+
+    {% if credits.sprites is not empty %}
+      <section class="credit-category credit-category--sprites">
+        <h2>
+          {{ 'Sprites & Characters'|t }}
+        </h2>
+        <div class="credit-items">
+          {% for item in credits.sprites %}
+            <div class="credit-item">
+              <h3 class="credit-name">
+                <a href="{{ item.url }}" target="_blank" rel="noopener">{{ item.name }}</a>
+              </h3>
+              <p class="credit-creator">{{ 'by'|t }} {{ item.creator }}</p>
+              <p class="credit-usage">{{ item.usage }}</p>
+              <p class="credit-license">
+                <strong>{{ 'License:'|t }}</strong> {{ item.license }}
+              </p>
+            </div>
+          {% endfor %}
+        </div>
+      </section>
+    {% else %}
+      <section class="credit-category credit-category--sprites credit-empty">
+        <h2>
+          {{ 'Sprites & Characters'|t }}
+        </h2>
+        <p class="empty-message">{{ 'No sprite assets added yet. Placeholder graphics currently used.'|t }}</p>
+      </section>
+    {% endif %}
+
+    {% if credits.tiles is not empty %}
+      <section class="credit-category credit-category--tiles">
+        <h2>
+          {{ 'Tiles & Terrain'|t }}
+        </h2>
+        <div class="credit-items">
+          {% for item in credits.tiles %}
+            <div class="credit-item">
+              <h3 class="credit-name">
+                <a href="{{ item.url }}" target="_blank" rel="noopener">{{ item.name }}</a>
+              </h3>
+              <p class="credit-creator">{{ 'by'|t }} {{ item.creator }}</p>
+              <p class="credit-usage">{{ item.usage }}</p>
+              <p class="credit-license">
+                <strong>{{ 'License:'|t }}</strong> {{ item.license }}
+              </p>
+            </div>
+          {% endfor %}
+        </div>
+      </section>
+    {% else %}
+      <section class="credit-category credit-category--tiles credit-empty">
+        <h2>
+          {{ 'Tiles & Terrain'|t }}
+        </h2>
+        <p class="empty-message">{{ 'No tile assets added yet. Procedurally generated hexagons currently used.'|t }}</p>
+      </section>
+    {% endif %}
+  </div>
+
+  <div class="credits-footer">
+    <h2>{{ 'Additional Thanks'|t }}</h2>
+    <p>
+      {{ 'Special thanks to the Pathfinder 2nd Edition community, the Drupal community, and all contributors to open source game development resources.'|t }}
+    </p>
+    <p class="assets-location">
+      <strong>{{ 'Asset Location:'|t }}</strong>
+      {{ 'Game assets are stored in'|t }} <code>/sites/dungeoncrawler/assets/</code>
+    </p>
+    <p class="contribute-info">
+      {{ 'Found an attribution error or have assets to contribute? Please'|t }}
+      <a href="https://www.drupal.org/project/dungeoncrawler_content/issues" target="_blank" rel="noopener">{{ 'open an issue on Drupal.org'|t }}</a>.
+    </p>
+  </div>
+</div>

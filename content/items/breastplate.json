@@ -1,0 +1,30 @@
+{
+  "schema_version": "1.0.0",
+  "item_id": "breastplate",
+  "name": "Breastplate",
+  "item_type": "armor",
+  "level": 0,
+  "rarity": "common",
+  "traits": [],
+  "description": "A fitted metal plate covering the chest and back, worn over padding. The breastplate offers strong protection for the torso while leaving the limbs relatively free.",
+  "price": {
+    "cp": 0,
+    "sp": 0,
+    "gp": 8,
+    "pp": 0
+  },
+  "bulk": "2",
+  "hands": null,
+  "armor_stats": {
+    "category": "medium",
+    "group": "plate",
+    "ac_bonus": 4,
+    "dex_cap": 1,
+    "check_penalty": -2,
+    "speed_penalty": -5,
+    "strength": 16
+  },
+  "created_at": "2026-03-01T00:00:00Z",
+  "updated_at": "2026-03-01T00:00:00Z",
+  "item_category": "armor"
+}

@@ -1,0 +1,140 @@
+{
+  "$schema": "../schemas/obstacle_object_catalog.schema.json",
+  "schema_version": "1.0.0",
+  "created_at": "2026-02-17T21:56:00Z",
+  "updated_at": "2026-02-17T21:56:00Z",
+  "metadata": {
+    "description": "Example obstacle catalog demonstrating enhanced optional fields (size, weight, interaction, visual)",
+    "theme": "dungeon-mixed",
+    "usage": "Demonstrates the full capability of the obstacle_object_catalog schema with optional enrichment fields"
+  },
+  "objects": [
+    {
+      "object_id": "iron_gate",
+      "label": "Iron Gate",
+      "category": "door",
+      "description": "Heavy iron gate blocking passage. Can be forced open with sufficient strength or unlocked with the proper key.",
+      "movable": false,
+      "stackable": false,
+      "movement": {
+        "passable": false,
+        "blocks_movement": true,
+        "cost_multiplier": 999
+      },
+      "tags": ["door", "transition", "locked"],
+      "size": "large",
+      "weight": "20",
+      "interaction": {
+        "can_open": true,
+        "can_close": true,
+        "requires_key": true,
+        "athletics_dc": 25,
+        "thievery_dc": 20
+      },
+      "visual": {
+        "sprite_id": "gate_iron_rusty",
+        "color": "#4A4A4A",
+        "rotation": 0
+      }
+    },
+    {
+      "object_id": "wooden_barrel",
+      "label": "Wooden Barrel",
+      "category": "crate",
+      "description": "Medium wooden barrel that can be moved or stacked with other storage containers. Provides light cover when used as concealment during combat.",
+      "movable": true,
+      "stackable": true,
+      "movement": {
+        "passable": false,
+        "blocks_movement": true,
+        "cost_multiplier": 2
+      },
+      "tags": ["crate", "storage", "stack"],
+      "size": "medium",
+      "weight": "5",
+      "interaction": {
+        "can_open": false,
+        "can_close": false,
+        "requires_key": false,
+        "athletics_dc": 10
+      },
+      "visual": {
+        "sprite_id": "barrel_wood_01",
+        "color": "#8B4513"
+      }
+    },
+    {
+      "object_id": "ornate_chest",
+      "label": "Ornate Chest",
+      "category": "crate",
+      "description": "Decorative wooden chest with intricate lock. Contains valuable items but requires skill to open without damaging contents.",
+      "movable": true,
+      "stackable": false,
+      "movement": {
+        "passable": false,
+        "blocks_movement": true,
+        "cost_multiplier": 3
+      },
+      "tags": ["storage", "locked", "treasure"],
+      "size": "medium",
+      "weight": "10",
+      "interaction": {
+        "can_open": true,
+        "can_close": true,
+        "requires_key": false,
+        "athletics_dc": 20,
+        "thievery_dc": 15
+      },
+      "visual": {
+        "sprite_id": "chest_ornate_locked",
+        "color": "#8B4513"
+      }
+    },
+    {
+      "object_id": "stone_pillar",
+      "label": "Stone Pillar",
+      "category": "decor",
+      "description": "Large stone pillar supporting the ceiling. Cannot be moved and provides substantial cover during combat.",
+      "movable": false,
+      "stackable": false,
+      "movement": {
+        "passable": false,
+        "blocks_movement": true,
+        "cost_multiplier": 999
+      },
+      "tags": ["decor", "fixture", "cover"],
+      "size": "large",
+      "visual": {
+        "sprite_id": "pillar_stone_cracked",
+        "color": "#808080"
+      }
+    },
+    {
+      "object_id": "brazier_lit",
+      "label": "Lit Brazier",
+      "category": "decor",
+      "description": "Iron brazier with burning coals providing light and warmth. Can be moved carefully but increases movement cost due to heat.",
+      "movable": true,
+      "stackable": false,
+      "movement": {
+        "passable": true,
+        "blocks_movement": false,
+        "cost_multiplier": 2
+      },
+      "tags": ["decor", "light_source", "fire"],
+      "size": "small",
+      "weight": "5",
+      "interaction": {
+        "can_open": false,
+        "can_close": false,
+        "requires_key": false,
+        "athletics_dc": 15
+      },
+      "visual": {
+        "sprite_id": "brazier_iron_lit",
+        "color": "#FFA500",
+        "rotation": 0
+      }
+    }
+  ]
+}

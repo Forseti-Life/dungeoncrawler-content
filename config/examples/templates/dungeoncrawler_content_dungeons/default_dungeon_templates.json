@@ -1,0 +1,77 @@
+{
+  "rows": [
+    {
+      "dungeon_id": "tpl_dungeon_tavern_basement",
+      "name": "Tavern Basement Intro",
+      "description": "Small starter dungeon template.",
+      "theme": "classic_dungeon",
+      "dungeon_data": {
+        "levels": 1,
+        "entry_room": "tpl_room_tavern_entrance"
+      }
+    },
+    {
+      "dungeon_id": "tpl_dungeon_goblin_warrens",
+      "name": "Goblin Warrens",
+      "description": "Narrow passages and ambush loops.",
+      "theme": "goblin_warrens",
+      "dungeon_data": {"levels": 2, "entry_room": "tpl_room_goblin_scout_post"}
+    },
+    {
+      "dungeon_id": "tpl_dungeon_crypt_of_ashes",
+      "name": "Crypt of Ashes",
+      "description": "Undead-heavy burial complex.",
+      "theme": "ancient_catacombs",
+      "dungeon_data": {"levels": 2, "entry_room": "tpl_room_crypt_anteroom"}
+    },
+    {
+      "dungeon_id": "tpl_dungeon_halls_of_spears",
+      "name": "Halls of Spear Traps",
+      "description": "Corridor network of mechanical hazards.",
+      "theme": "trap_complex",
+      "dungeon_data": {"levels": 1, "entry_room": "tpl_room_hall_spear_trap"}
+    },
+    {
+      "dungeon_id": "tpl_dungeon_sunken_cistern",
+      "name": "Sunken Cistern",
+      "description": "Flooded rooms and low-visibility engagements.",
+      "theme": "water_ruins",
+      "dungeon_data": {"levels": 2, "entry_room": "tpl_room_flooded_cistern"}
+    },
+    {
+      "dungeon_id": "tpl_dungeon_alchemical_annex",
+      "name": "Alchemical Annex",
+      "description": "Unstable reagents and ooze contamination.",
+      "theme": "alchemy_ruins",
+      "dungeon_data": {"levels": 1, "entry_room": "tpl_room_alchemy_lab"}
+    },
+    {
+      "dungeon_id": "tpl_dungeon_ruined_basilica",
+      "name": "Ruined Basilica",
+      "description": "Collapsed halls with ranged sightlines.",
+      "theme": "ruined_hall",
+      "dungeon_data": {"levels": 2, "entry_room": "tpl_room_ruined_hall"}
+    },
+    {
+      "dungeon_id": "tpl_dungeon_frozen_reliquary",
+      "name": "Frozen Reliquary",
+      "description": "Arctic shrine overrun by elemental frost.",
+      "theme": "arctic_ruins",
+      "dungeon_data": {"levels": 3, "entry_room": "tpl_room_frozen_shrine"}
+    },
+    {
+      "dungeon_id": "tpl_dungeon_clockwork_foundry",
+      "name": "Clockwork Foundry",
+      "description": "Industrial dungeon with construct defenders.",
+      "theme": "clockwork_city",
+      "dungeon_data": {"levels": 2, "entry_room": "tpl_room_clockwork_foundry"}
+    },
+    {
+      "dungeon_id": "tpl_dungeon_storm_citadel",
+      "name": "Storm Citadel Summit",
+      "description": "High-tier storm-boss arena progression.",
+      "theme": "mythic_thunder_peak",
+      "dungeon_data": {"levels": 1, "entry_room": "tpl_room_summit_storm_dais"}
+    }
+  ]
+}

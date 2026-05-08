@@ -1,0 +1,33 @@
+{
+  "schema_version": "1.0.0",
+  "item_id": "chain_mail",
+  "name": "Chain Mail",
+  "item_type": "armor",
+  "level": 0,
+  "rarity": "common",
+  "traits": [
+    "flexible",
+    "noisy"
+  ],
+  "description": "A full suit of interlocking metal rings covering the torso and limbs. Chain mail offers excellent protection and some flexibility, though the jingling links make stealth nearly impossible.",
+  "price": {
+    "cp": 0,
+    "sp": 0,
+    "gp": 6,
+    "pp": 0
+  },
+  "bulk": "2",
+  "hands": null,
+  "armor_stats": {
+    "category": "medium",
+    "group": "chain",
+    "ac_bonus": 4,
+    "dex_cap": 1,
+    "check_penalty": -2,
+    "speed_penalty": -5,
+    "strength": 16
+  },
+  "created_at": "2026-03-01T00:00:00Z",
+  "updated_at": "2026-03-01T00:00:00Z",
+  "item_category": "armor"
+}

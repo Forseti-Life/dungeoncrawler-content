@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0.0",
+  "item_id": "signal_whistle",
+  "name": "Signal Whistle",
+  "item_type": "adventuring_gear",
+  "level": 0,
+  "rarity": "common",
+  "traits": [],
+  "description": "A small whistle that produces a shrill tone audible at great distances, useful for signaling allies.",
+  "price": { "cp": 0, "sp": 8, "gp": 0, "pp": 0 },
+  "bulk": "0",
+  "hands": 1,
+  "created_at": "2026-03-01T00:00:00Z",
+  "updated_at": "2026-03-01T00:00:00Z",
+  "item_category": "adventuring_gear"
+}

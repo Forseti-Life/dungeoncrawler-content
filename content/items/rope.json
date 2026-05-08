@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.0.0",
+  "item_id": "rope",
+  "name": "Rope",
+  "item_type": "adventuring_gear",
+  "level": 0,
+  "rarity": "common",
+  "traits": [],
+  "description": "50 feet of hemp rope. Useful for climbing, binding, and countless other adventuring applications. Can hold up to 3,000 pounds.",
+  "price": {
+    "cp": 0,
+    "sp": 5,
+    "gp": 0,
+    "pp": 0
+  },
+  "bulk": "L",
+  "hands": null,
+  "created_at": "2026-03-01T00:00:00Z",
+  "updated_at": "2026-03-01T00:00:00Z",
+  "item_category": "adventuring_gear"
+}

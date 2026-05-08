@@ -1,0 +1,111 @@
+{
+  "name": "Test Wizard",
+  "level": 1,
+  "ancestry": {
+    "id": "elf",
+    "name": "Elf",
+    "hp_bonus": 0,
+    "size": "Medium",
+    "speed": 30
+  },
+  "background": {
+    "id": "scholar",
+    "name": "Scholar",
+    "ability_boosts": ["INT", "WIS"]
+  },
+  "class": {
+    "id": "wizard",
+    "name": "Wizard",
+    "hp": 6,
+    "key_abilities": ["INT"]
+  },
+  "ability_scores": {
+    "strength": 8,
+    "dexterity": 14,
+    "constitution": 12,
+    "intelligence": 18,
+    "wisdom": 14,
+    "charisma": 10
+  },
+  "ability_modifiers": {
+    "strength": -1,
+    "dexterity": 2,
+    "constitution": 1,
+    "intelligence": 4,
+    "wisdom": 2,
+    "charisma": 0
+  },
+  "calculated_stats": {
+    "max_hp": 7,
+    "hp_breakdown": {
+      "class_base": 6,
+      "con_modifier": 1,
+      "ancestry_bonus": 0,
+      "other": 0
+    },
+    "armor_class": 14,
+    "ac_breakdown": {
+      "base": 10,
+      "dex_modifier": 2,
+      "armor": 2,
+      "shield": 0,
+      "other": 0
+    }
+  },
+  "proficiencies": {
+    "perception": "trained",
+    "fortitude": "trained",
+    "reflex": "trained",
+    "will": "expert"
+  },
+  "skills": {
+    "arcana": "trained",
+    "nature": "trained",
+    "occultism": "trained",
+    "religion": "trained"
+  },
+  "spellcasting": {
+    "tradition": "arcane",
+    "spell_attack": 8,
+    "spell_dc": 18,
+    "cantrips": ["detect_magic", "electric_arc", "shield"],
+    "level_1_slots": 2,
+    "level_1_spells": ["magic_missile", "mage_armor"]
+  },
+  "equipment": [
+    {
+      "name": "Explorer's Clothing",
+      "type": "armor",
+      "ac_bonus": 2
+    },
+    {
+      "name": "Staff",
+      "type": "weapon",
+      "damage": "1d4",
+      "traits": ["two-hand d8"]
+    },
+    {
+      "name": "Spellbook",
+      "type": "equipment"
+    }
+  ],
+  "description": "Standard level 1 wizard for testing low HP and spellcasting",
+  "test_cases": {
+    "hp_calculation": {
+      "expected": 7,
+      "formula": "6 (class) + 1 (CON mod) + 0 (ancestry)"
+    },
+    "ac_calculation": {
+      "expected": 14,
+      "formula": "10 + 2 (DEX) + 2 (armor)"
+    },
+    "spell_attack": {
+      "expected": 8,
+      "formula": "4 (INT) + 2 (trained) + 1 (level) + 1 (item)"
+    },
+    "spell_dc": {
+      "expected": 18,
+      "formula": "10 + 4 (INT) + 2 (trained) + 1 (level) + 1 (item)"
+    }
+  }
+}

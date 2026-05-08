@@ -1,0 +1,154 @@
+{
+  "rows": [
+    {
+      "uuid": "11111111-1111-1111-1111-111111111111",
+      "uid": 1,
+      "name": "Otari Beginner Delve",
+      "status": "draft",
+      "theme": "classic_dungeon",
+      "difficulty": "normal",
+      "campaign_data": {
+        "template": true,
+        "party_level": 1,
+        "recommended_party_size": 4,
+        "setting": "coastal_town",
+        "notes": "Level 1 tutorial dungeon arc with social and combat beats."
+      }
+    },
+    {
+      "uuid": "22222222-2222-2222-2222-222222222222",
+      "uid": 1,
+      "name": "Abomination Vaults Style Starter",
+      "status": "published",
+      "theme": "ruined_keep",
+      "difficulty": "normal",
+      "campaign_data": {
+        "template": true,
+        "party_level": 1,
+        "recommended_party_size": 4,
+        "setting": "haunted_ruins",
+        "notes": "Classic exploration-heavy progression with escalating undead threats."
+      }
+    },
+    {
+      "uuid": "33333333-3333-3333-3333-333333333333",
+      "uid": 1,
+      "name": "Goblin Troubles in Greenfields",
+      "status": "published",
+      "theme": "forest_frontier",
+      "difficulty": "easy",
+      "campaign_data": {
+        "template": true,
+        "party_level": 1,
+        "recommended_party_size": 4,
+        "setting": "frontier_village",
+        "notes": "Low-pressure goblin and wilderness encounters for new players."
+      }
+    },
+    {
+      "uuid": "44444444-4444-4444-4444-444444444444",
+      "uid": 1,
+      "name": "Catacombs of the Fallen Banner",
+      "status": "published",
+      "theme": "ancient_catacombs",
+      "difficulty": "hard",
+      "campaign_data": {
+        "template": true,
+        "party_level": 3,
+        "recommended_party_size": 4,
+        "setting": "burial_complex",
+        "notes": "Condition-heavy undead campaign with hazard-driven rooms."
+      }
+    },
+    {
+      "uuid": "55555555-5555-5555-5555-555555555555",
+      "uid": 1,
+      "name": "Clockwork Heist in Alkenstar",
+      "status": "published",
+      "theme": "clockwork_city",
+      "difficulty": "normal",
+      "campaign_data": {
+        "template": true,
+        "party_level": 5,
+        "recommended_party_size": 4,
+        "setting": "industrial_city",
+        "notes": "Guns-and-gears flavored infiltration and construct combats."
+      }
+    },
+    {
+      "uuid": "66666666-6666-6666-6666-666666666666",
+      "uid": 1,
+      "name": "Frozen Reliquary Expedition",
+      "status": "published",
+      "theme": "arctic_ruins",
+      "difficulty": "hard",
+      "campaign_data": {
+        "template": true,
+        "party_level": 7,
+        "recommended_party_size": 4,
+        "setting": "glacial_wastes",
+        "notes": "Cold-weather survival and relic recovery with elite beasts."
+      }
+    },
+    {
+      "uuid": "77777777-7777-7777-7777-777777777777",
+      "uid": 1,
+      "name": "Temple of Shattered Oaths",
+      "status": "published",
+      "theme": "corrupted_temple",
+      "difficulty": "hard",
+      "campaign_data": {
+        "template": true,
+        "party_level": 9,
+        "recommended_party_size": 4,
+        "setting": "sacred_ruins",
+        "notes": "Divine enemies, curses, and ritual interruptions."
+      }
+    },
+    {
+      "uuid": "88888888-8888-8888-8888-888888888888",
+      "uid": 1,
+      "name": "Sky Fortress Breach",
+      "status": "published",
+      "theme": "aerial_fortress",
+      "difficulty": "very_hard",
+      "campaign_data": {
+        "template": true,
+        "party_level": 12,
+        "recommended_party_size": 4,
+        "setting": "floating_keep",
+        "notes": "Vertical combat and high-mobility encounter choreography."
+      }
+    },
+    {
+      "uuid": "99999999-9999-9999-9999-999999999999",
+      "uid": 1,
+      "name": "Infernal Gate Siege",
+      "status": "published",
+      "theme": "hellscar_bastion",
+      "difficulty": "extreme",
+      "campaign_data": {
+        "template": true,
+        "party_level": 15,
+        "recommended_party_size": 4,
+        "setting": "war_torn_stronghold",
+        "notes": "High-tier fiendish assault template with sustained pressure."
+      }
+    },
+    {
+      "uuid": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+      "uid": 1,
+      "name": "Mythic Crown of Storms",
+      "status": "published",
+      "theme": "mythic_thunder_peak",
+      "difficulty": "extreme",
+      "campaign_data": {
+        "template": true,
+        "party_level": 18,
+        "recommended_party_size": 4,
+        "setting": "mythic_summit",
+        "notes": "Capstone campaign template for legendary-tier parties."
+      }
+    }
+  ]
+}

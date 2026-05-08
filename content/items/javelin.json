@@ -1,0 +1,24 @@
+{
+  "schema_version": "1.0.0",
+  "item_id": "javelin",
+  "name": "Javelin",
+  "item_type": "weapon",
+  "level": 0,
+  "rarity": "common",
+  "traits": ["simple", "dart"],
+  "description": "A light spear designed for throwing. Javelins are common ranged weapons for warriors who prefer a thrown option.",
+  "price": { "cp": 0, "sp": 1, "gp": 0, "pp": 0 },
+  "bulk": "L",
+  "hands": "1",
+  "weapon_stats": {
+    "category": "simple",
+    "group": "dart",
+    "damage": { "dice_count": 1, "die_size": "d6", "damage_type": "piercing" },
+    "range": "30 ft.",
+    "reload": null,
+    "weapon_traits": ["thrown"]
+  },
+  "created_at": "2026-03-01T00:00:00Z",
+  "updated_at": "2026-03-01T00:00:00Z",
+  "item_category": "weapon"
+}

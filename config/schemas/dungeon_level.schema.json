@@ -1,0 +1,329 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dungeoncrawler.life/schemas/dungeon_level.schema.json",
+  "title": "Dungeon Level Schema",
+  "description": "Top-level orchestrator for one floor of the dungeon. Ties together the hex map, rooms, creatures, encounters, and AI generation rules for a single level. This is what gets generated when a party descends to a new depth.",
+  "type": "object",
+  "required": ["schema_version", "level_id", "depth", "theme", "hex_map", "generation_rules"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "description": "Schema version for migration compatibility.",
+      "default": "1.0.0",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "level_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Unique identifier for this dungeon level instance."
+    },
+    "depth": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100,
+      "description": "How deep this level is. Drives difficulty scaling."
+    },
+    "theme": {
+      "type": "string",
+      "enum": [
+        "goblin_warrens", "fungal_caverns", "spider_nests", "undead_crypts",
+        "flooded_depths", "lava_forge", "shadow_realm", "crystal_caves",
+        "beast_den", "abandoned_mine", "eldritch_library", "dragon_lair",
+        "elemental_nexus", "demonic_sanctum", "ancient_ruins", "custom"
+      ],
+      "description": "Thematic type for AI generation."
+    },
+    "custom_theme": {
+      "type": ["string", "null"],
+      "maxLength": 500,
+      "description": "Custom theme description if theme=custom."
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "description": "AI-generated name for this level."
+    },
+    "flavor_text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000,
+      "description": "Descriptive text shown on entry."
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Timestamp when this level was created (ISO 8601 format)."
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Timestamp when this level was last updated (ISO 8601 format)."
+    },
+    "is_persistent": {
+      "type": "boolean",
+      "default": true,
+      "description": "Once generated, this level stays. All rooms are permanent."
+    },
+    "hex_map": {
+      "$ref": "hexmap.schema.json",
+      "description": "The hex-based map structure for this level."
+    },
+    "rooms": {
+      "type": "array",
+      "description": "Array of rooms on this level.",
+      "uniqueItems": true,
+      "maxItems": 100,
+      "items": { "$ref": "room.schema.json" }
+    },
+    "entities": {
+      "type": "array",
+      "description": "Canonical placed-entity list for runtime state (creature, item, obstacle).",
+      "uniqueItems": true,
+      "maxItems": 500,
+      "items": { "$ref": "entity_instance.schema.json" }
+    },
+    "creatures": {
+      "type": "array",
+      "description": "Compatibility field; prefer entities[] with entity_type=creature.",
+      "uniqueItems": true,
+      "maxItems": 200,
+      "items": { "$ref": "creature.schema.json" }
+    },
+    "items": {
+      "type": "array",
+      "description": "Compatibility field; prefer entities[] with entity_type=item.",
+      "uniqueItems": true,
+      "maxItems": 200,
+      "items": { "$ref": "item.schema.json" }
+    },
+    "traps": {
+      "type": "array",
+      "description": "Compatibility field; traps can be represented through obstacle instances.",
+      "uniqueItems": true,
+      "maxItems": 50,
+      "items": { "$ref": "trap.schema.json" }
+    },
+    "hazards": {
+      "type": "array",
+      "description": "Compatibility field; hazards can be represented through obstacle instances.",
+      "uniqueItems": true,
+      "maxItems": 50,
+      "items": { "$ref": "hazard.schema.json" }
+    },
+    "obstacles": {
+      "type": "array",
+      "description": "Compatibility field; prefer entities[] with entity_type=obstacle.",
+      "uniqueItems": true,
+      "maxItems": 100,
+      "items": { "$ref": "obstacle.schema.json" }
+    },
+    "active_encounters": {
+      "type": "array",
+      "description": "Currently active combat encounters on this level.",
+      "uniqueItems": true,
+      "maxItems": 20,
+      "items": { "$ref": "encounter.schema.json" }
+    },
+    "stairways": {
+      "type": "array",
+      "description": "Connections between levels (stairs, shafts, portals).",
+      "uniqueItems": true,
+      "maxItems": 10,
+      "items": { "$ref": "#/definitions/stairway" }
+    },
+    "generation_rules": {
+      "type": "object",
+      "description": "Rules the AI uses when procedurally generating this level's content.",
+      "additionalProperties": false,
+      "properties": {
+        "party_level_target": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20,
+          "description": "Intended party level. Drives creature/trap/loot scaling (PF2e levels 1-20)."
+        },
+        "difficulty_modifier": {
+          "type": "number",
+          "minimum": 0.5,
+          "maximum": 2.0,
+          "default": 1.0,
+          "description": "Multiplier on encounter difficulty. 1.0 = standard."
+        },
+        "room_count": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["min", "max"],
+          "properties": {
+            "min": { "type": "integer", "minimum": 1, "maximum": 100, "default": 8 },
+            "max": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 }
+          }
+        },
+        "creature_density": {
+          "type": "string",
+          "enum": ["sparse", "normal", "dense", "swarming"],
+          "default": "normal"
+        },
+        "trap_frequency": {
+          "type": "string",
+          "enum": ["none", "rare", "occasional", "frequent", "deadly"],
+          "default": "occasional"
+        },
+        "loot_quality": {
+          "type": "string",
+          "enum": ["poor", "standard", "generous", "hoard"],
+          "default": "standard"
+        },
+        "boss_room": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether this level should have a boss encounter."
+        },
+        "rest_area": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether to generate a safe rest area."
+        },
+        "secret_rooms": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["min", "max"],
+          "properties": {
+            "min": { "type": "integer", "minimum": 0, "maximum": 20, "default": 0 },
+            "max": { "type": "integer", "minimum": 0, "maximum": 20, "default": 3 }
+          }
+        },
+        "creature_types_allowed": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "maxLength": 100 },
+          "uniqueItems": true,
+          "maxItems": 30,
+          "description": "Restrict to theme-appropriate creature types."
+        },
+        "creature_level_range": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["min", "max"],
+          "properties": {
+            "min": { "type": "integer", "minimum": -1, "maximum": 25 },
+            "max": { "type": "integer", "minimum": -1, "maximum": 25 }
+          },
+          "description": "Creature level range for this dungeon level (PF2e creature levels -1 to 25)."
+        },
+        "environmental_effects": {
+          "type": "array",
+          "maxItems": 10,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["effect"],
+            "properties": {
+              "effect": { "type": "string", "minLength": 1, "maxLength": 100, "description": "Name of the environmental effect." },
+              "description": { "type": "string", "maxLength": 1000, "description": "Narrative description of the effect." },
+              "mechanical_effect": { "type": "string", "maxLength": 1000, "description": "PF2e mechanical rules for this effect." }
+            }
+          },
+          "description": "Level-wide environmental effects (e.g., toxic spores, magical darkness)."
+        },
+        "wandering_monsters": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean", "default": true },
+            "check_interval_minutes": { "type": "integer", "minimum": 1, "maximum": 1440, "default": 30 },
+            "encounter_chance_percent": { "type": "integer", "minimum": 0, "maximum": 100, "default": 15 },
+            "max_level": { "type": "integer", "minimum": -1, "maximum": 25 },
+            "creature_pool": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1, "maxLength": 100 },
+              "uniqueItems": true,
+              "maxItems": 50,
+              "description": "Creature template names that can appear as wandering monsters."
+            }
+          }
+        }
+      }
+    },
+    "level_state": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "is_fully_generated": { "type": "boolean", "default": false },
+        "rooms_generated": { "type": "integer", "minimum": 0, "maximum": 100, "default": 0 },
+        "rooms_explored": { "type": "integer", "minimum": 0, "maximum": 100, "default": 0 },
+        "boss_defeated": { "type": "boolean", "default": false },
+        "completion_percent": { "type": "number", "minimum": 0, "maximum": 100, "default": 0 },
+        "first_entered_at": { "type": ["string", "null"], "format": "date-time" },
+        "last_visited_at": { "type": ["string", "null"], "format": "date-time" },
+        "times_visited": { "type": "integer", "minimum": 0, "maximum": 10000, "default": 0 }
+      }
+    }
+  },
+  "definitions": {
+    "hex_coordinate": {
+      "type": "object",
+      "description": "Axial hex coordinate. Cube coordinate s is derived as s = -q - r.",
+      "required": ["q", "r"],
+      "additionalProperties": false,
+      "properties": {
+        "q": { "type": "integer", "description": "Column (axial q-axis)." },
+        "r": { "type": "integer", "description": "Row (axial r-axis)." }
+      }
+    },
+    "stairway": {
+      "type": "object",
+      "description": "Connection between dungeon levels via stairs, shafts, or portals.",
+      "required": ["hex", "direction", "destination_level"],
+      "additionalProperties": false,
+      "properties": {
+        "stairway_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Unique identifier for this stairway."
+        },
+        "hex": {
+          "$ref": "#/definitions/hex_coordinate",
+          "description": "Location of this stairway on the current level."
+        },
+        "direction": {
+          "type": "string",
+          "enum": ["up", "down"],
+          "description": "Direction of travel (up to shallower level, down to deeper level)."
+        },
+        "destination_level": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "description": "Depth of the destination level."
+        },
+        "destination_hex": {
+          "$ref": "#/definitions/hex_coordinate",
+          "description": "Arrival point on the destination level."
+        },
+        "is_locked": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether this stairway requires unlocking."
+        },
+        "lock_dc": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "maximum": 50,
+          "description": "PF2e Thievery DC to unlock (1-50 range). Null if not locked or no DC required."
+        },
+        "is_hidden": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether this stairway is hidden and requires discovery."
+        },
+        "perception_dc": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "maximum": 50,
+          "description": "PF2e Perception DC to discover hidden stairway (1-50 range). Null if not hidden or no check required."
+        }
+      }
+    }
+  }
+}

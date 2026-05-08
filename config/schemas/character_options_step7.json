@@ -1,0 +1,338 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dungeoncrawler.life/schemas/character_options_step7.json",
+  "title": "Character Creation Step 7: Equipment",
+  "description": "Defines equipment purchasing options in Pathfinder 2E character creation using starting gold",
+  "type": "object",
+  "properties": {
+    "step": {
+      "type": "integer",
+      "const": 7,
+      "description": "Step number in character creation process"
+    },
+    "step_name": {
+      "type": "string",
+      "const": "Loadout & Supplies",
+      "description": "Human-readable name for this step"
+    },
+    "step_description": {
+      "type": "string",
+      "const": "Assemble a practical starting loadout that supports your character's role across repeat campaign sessions.",
+      "description": "Explanation of what happens in this step"
+    },
+    "fields": {
+      "type": "object",
+      "description": "Form fields available in this step",
+      "properties": {
+        "starting_gold": {
+          "type": "object",
+          "description": "Display of available gold",
+          "properties": {
+            "field_type": {
+              "type": "string",
+              "const": "readonly_display",
+              "description": "Display type"
+            },
+            "label": {
+              "type": "string",
+              "const": "Legacy Starting Gold",
+              "description": "Field label"
+            },
+            "value": {
+              "type": "integer",
+              "const": 15,
+              "description": "Starting gold pieces (gp)"
+            },
+            "help_text": {
+              "type": "string",
+              "const": "You start with 15 gp. Prioritize durable essentials first, then tune your kit for sustained campaign play.",
+              "description": "Helper text"
+            }
+          },
+          "required": ["field_type", "label", "value", "help_text"]
+        },
+        "equipment_selection": {
+          "type": "object",
+          "description": "Equipment shopping interface",
+          "properties": {
+            "field_type": {
+              "type": "string",
+              "const": "equipment_picker",
+              "description": "Custom equipment selection widget"
+            },
+            "label": {
+              "type": "string",
+              "const": "Select Legacy Starting Equipment",
+              "description": "Field label"
+            },
+            "required": {
+              "type": "boolean",
+              "const": false,
+              "description": "Player can proceed without purchasing equipment"
+            },
+            "categories": {
+              "type": "array",
+              "description": "Equipment organized by category",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "category": {
+                    "type": "string",
+                    "enum": ["Weapons", "Armor", "Adventuring Gear", "Shields", "Ammunition"]
+                  },
+                  "items": {
+                    "type": "array",
+                    "description": "Items in this category",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {"type": "string", "description": "Unique equipment item identifier"},
+                        "name": {"type": "string", "description": "Display name of the item"},
+                        "cost": {"type": "number", "description": "Cost in gold pieces", "minimum": 0},
+                        "bulk": {"type": "number", "description": "Encumbrance value", "minimum": 0, "default": 0},
+                        "hands": {"type": "integer", "description": "Number of hands required", "minimum": 0, "maximum": 2, "default": 1},
+                        "damage": {"type": "string", "description": "Damage dice (weapons only)"},
+                        "traits": {"type": "array", "items": {"type": "string"}, "description": "Item traits and properties", "default": []},
+                        "description": {"type": "string", "description": "Item description"}
+                      },
+                      "required": ["id", "name", "cost"]
+                    }
+                  }
+                },
+                "required": ["category", "items"]
+              }
+            },
+            "help_text": {
+              "type": "string",
+              "const": "Browse equipment by category and build a practical loadout for repeat campaign sessions.",
+              "description": "Helper text"
+            },
+            "validation": {
+              "type": "object",
+              "description": "Validation rules for equipment selection",
+              "properties": {
+                "max_cost": {
+                  "type": "integer",
+                  "const": 15,
+                  "description": "Cannot exceed starting gold"
+                },
+                "class_proficiency_warning": {
+                  "type": "boolean",
+                  "const": true,
+                  "description": "Warn if selecting weapons/armor character isn't proficient in"
+                },
+                "error_messages": {
+                  "type": "object",
+                  "description": "Validation error messages",
+                  "properties": {
+                    "max_cost": {
+                      "type": "string",
+                      "default": "Your equipment total cannot exceed 15 gp."
+                    },
+                    "proficiency_warning": {
+                      "type": "string",
+                      "default": "Warning: Your character is not proficient with this item."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "required": ["field_type", "label", "required", "categories", "help_text", "validation"]
+        },
+        "equipment_presets": {
+          "type": "object",
+          "description": "Pre-configured equipment packages by class",
+          "properties": {
+            "field_type": {
+              "type": "string",
+              "const": "preset_selector",
+              "description": "Quick-select preset packages"
+            },
+            "label": {
+              "type": "string",
+              "const": "Legacy Loadout Presets",
+              "description": "Field label"
+            },
+            "presets": {
+              "type": "array",
+              "description": "Class-appropriate starting packages",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {"type": "string", "description": "Unique preset identifier"},
+                  "name": {"type": "string", "description": "Display name of the preset"},
+                  "for_classes": {
+                    "type": "array",
+                    "description": "Classes this preset is recommended for",
+                    "items": {"type": "string"}
+                  },
+                  "total_cost": {
+                    "type": "number",
+                    "description": "Total cost of all items in preset",
+                    "minimum": 0,
+                    "maximum": 15
+                  },
+                  "items": {
+                    "type": "array",
+                    "description": "Items included in this preset",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "item_id": {"type": "string", "description": "Reference to equipment item"},
+                        "quantity": {"type": "integer", "description": "Number of items", "minimum": 1, "default": 1}
+                      },
+                      "required": ["item_id", "quantity"]
+                    }
+                  }
+                },
+                "required": ["id", "name", "total_cost", "items"]
+              },
+              "examples": [
+                {
+                  "id": "fighter_melee",
+                  "name": "Fighter (Melee)",
+                  "for_classes": ["fighter", "barbarian", "champion"],
+                  "total_cost": 14.5,
+                  "items": [
+                    {"item_id": "longsword", "quantity": 1},
+                    {"item_id": "chain_mail", "quantity": 1},
+                    {"item_id": "shield_steel", "quantity": 1},
+                    {"item_id": "adventurers_pack", "quantity": 1}
+                  ]
+                },
+                {
+                  "id": "rogue_finesse",
+                  "name": "Rogue (Finesse)",
+                  "for_classes": ["rogue", "swashbuckler"],
+                  "total_cost": 13.0,
+                  "items": [
+                    {"item_id": "rapier", "quantity": 1},
+                    {"item_id": "leather_armor", "quantity": 1},
+                    {"item_id": "dagger", "quantity": 2},
+                    {"item_id": "thieves_tools", "quantity": 1},
+                    {"item_id": "adventurers_pack", "quantity": 1}
+                  ]
+                },
+                {
+                  "id": "wizard_arcane",
+                  "name": "Wizard (Arcane)",
+                  "for_classes": ["wizard", "witch", "sorcerer"],
+                  "total_cost": 12.5,
+                  "items": [
+                    {"item_id": "staff", "quantity": 1},
+                    {"item_id": "crossbow_light", "quantity": 1},
+                    {"item_id": "bolts", "quantity": 20},
+                    {"item_id": "spellbook", "quantity": 1},
+                    {"item_id": "adventurers_pack", "quantity": 1}
+                  ]
+                },
+                {
+                  "id": "cleric_divine",
+                  "name": "Cleric (Divine)",
+                  "for_classes": ["cleric", "champion"],
+                  "total_cost": 14.0,
+                  "items": [
+                    {"item_id": "mace", "quantity": 1},
+                    {"item_id": "scale_mail", "quantity": 1},
+                    {"item_id": "shield_steel", "quantity": 1},
+                    {"item_id": "adventurers_pack", "quantity": 1},
+                    {"item_id": "religious_symbol_silver", "quantity": 1}
+                  ]
+                },
+                {
+                  "id": "ranger_archer",
+                  "name": "Ranger (Archer)",
+                  "for_classes": ["ranger"],
+                  "total_cost": 14.0,
+                  "items": [
+                    {"item_id": "longbow", "quantity": 1},
+                    {"item_id": "shortsword", "quantity": 1},
+                    {"item_id": "leather_armor", "quantity": 1},
+                    {"item_id": "arrows", "quantity": 40},
+                    {"item_id": "adventurers_pack", "quantity": 1}
+                  ]
+                }
+              ]
+            },
+            "help_text": {
+              "type": "string",
+              "const": "Choose a class-aligned preset for a stable baseline, then customize as your campaign style develops.",
+              "description": "Helper text"
+            }
+          },
+          "required": ["field_type", "label", "presets", "help_text"]
+        }
+      },
+      "required": ["starting_gold", "equipment_selection", "equipment_presets"]
+    },
+    "validation": {
+      "type": "object",
+      "description": "Step-level validation rules",
+      "properties": {
+        "step_complete": {
+          "type": "object",
+          "description": "Conditions for step completion",
+          "properties": {
+            "required_fields": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "default": [],
+              "description": "No fields strictly required - player can proceed without equipment"
+            },
+            "error_message": {
+              "type": "string",
+              "default": "You can proceed to the next step. Equipment is optional but recommended.",
+              "description": "Message shown to user"
+            }
+          }
+        }
+      }
+    },
+    "navigation": {
+      "type": "object",
+      "description": "Navigation rules for this step",
+      "properties": {
+        "previous_step": {
+          "type": "integer",
+          "const": 6,
+          "description": "Previous step number"
+        },
+        "next_step": {
+          "type": "integer",
+          "const": 8,
+          "description": "Next step number"
+        },
+        "can_go_back": {
+          "type": "boolean",
+          "const": true,
+          "description": "User can return to previous step"
+        },
+        "can_skip": {
+          "type": "boolean",
+          "const": false,
+          "description": "Step cannot be skipped (but can proceed with no equipment)"
+        }
+      },
+      "required": ["previous_step", "next_step", "can_go_back", "can_skip"]
+    },
+    "tips": {
+      "type": "array",
+      "description": "Helpful tips for new players",
+      "items": {
+        "type": "string"
+      },
+      "default": [
+        "Start with reliable gear you can use well, not expensive items you cannot support.",
+        "Frontliners need survivability basics; backline builds still need emergency options.",
+        "Basic supplies are campaign multipliers—they prevent avoidable setbacks over long runs.",
+        "Leave room for adaptation as your character's story and role evolve.",
+        "Manage bulk early so your legacy character remains practical in real exploration flow.",
+        "Preset kits are solid foundations; customize once you know your campaign's pressure points."
+      ]
+    }
+  },
+  "required": ["step", "step_name", "step_description", "fields", "validation", "navigation", "tips"]
+}

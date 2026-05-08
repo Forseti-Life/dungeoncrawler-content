@@ -1,0 +1,24 @@
+{
+  "schema_version": "1.0.0",
+  "item_id": "whip",
+  "name": "Whip",
+  "item_type": "weapon",
+  "level": 0,
+  "rarity": "common",
+  "traits": ["martial", "flail"],
+  "description": "A long, flexible leather cord used to strike at range. While not the most damaging weapon, its reach and disarming ability make it versatile.",
+  "price": { "cp": 0, "sp": 1, "gp": 0, "pp": 0 },
+  "bulk": "1",
+  "hands": "1",
+  "weapon_stats": {
+    "category": "martial",
+    "group": "flail",
+    "damage": { "dice_count": 1, "die_size": "d4", "damage_type": "slashing" },
+    "range": null,
+    "reload": null,
+    "weapon_traits": ["disarm", "finesse", "nonlethal", "reach", "trip"]
+  },
+  "created_at": "2026-03-01T00:00:00Z",
+  "updated_at": "2026-03-01T00:00:00Z",
+  "item_category": "weapon"
+}

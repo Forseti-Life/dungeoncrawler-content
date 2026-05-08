@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.0.0",
+  "item_id": "thieves_tools",
+  "name": "Thieves' Tools",
+  "item_type": "adventuring_gear",
+  "level": 0,
+  "rarity": "common",
+  "traits": [],
+  "description": "A small leather case containing lockpicks, a tension wrench, and other tools for bypassing locks and disabling traps. Required for picking locks and disabling certain devices.",
+  "price": {
+    "cp": 0,
+    "sp": 0,
+    "gp": 3,
+    "pp": 0
+  },
+  "bulk": "L",
+  "hands": "2",
+  "created_at": "2026-03-01T00:00:00Z",
+  "updated_at": "2026-03-01T00:00:00Z",
+  "item_category": "adventuring_gear"
+}

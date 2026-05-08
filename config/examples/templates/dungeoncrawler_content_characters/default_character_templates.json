@@ -1,0 +1,196 @@
+{
+  "rows": [
+    {
+      "character_id": 1001,
+      "instance_id": "tpl_char_starter_001",
+      "type": "pc",
+      "uid": 1,
+      "role": "player",
+      "state_data": {
+        "name": "Valeros",
+        "class": "fighter",
+        "level": 1,
+        "hp_current": 20,
+        "conditions": []
+      },
+      "location_type": "global",
+      "location_ref": ""
+    },
+    {
+      "character_id": 1002,
+      "instance_id": "tpl_char_starter_002",
+      "type": "pc",
+      "uid": 1,
+      "role": "player",
+      "state_data": {
+        "name": "Merisiel",
+        "class": "rogue",
+        "level": 1,
+        "hp_current": 17,
+        "conditions": []
+      },
+      "location_type": "global",
+      "location_ref": ""
+    },
+    {
+      "character_id": 1003,
+      "instance_id": "tpl_char_starter_003",
+      "type": "pc",
+      "uid": 1,
+      "role": "player",
+      "state_data": {
+        "name": "Ezren",
+        "class": "wizard",
+        "level": 1,
+        "hp_current": 14,
+        "conditions": []
+      },
+      "location_type": "global",
+      "location_ref": ""
+    },
+    {
+      "character_id": 1004,
+      "instance_id": "tpl_char_starter_004",
+      "type": "pc",
+      "uid": 1,
+      "role": "player",
+      "state_data": {
+        "name": "Kyra",
+        "class": "cleric",
+        "level": 1,
+        "hp_current": 18,
+        "conditions": []
+      },
+      "location_type": "global",
+      "location_ref": ""
+    },
+    {
+      "character_id": 2001,
+      "instance_id": "tpl_char_enemy_goblin_001",
+      "type": "npc",
+      "uid": 1,
+      "role": "enemy",
+      "state_data": {
+        "name": "Goblin Warrior",
+        "class": "creature",
+        "level": 1,
+        "hp_current": 18,
+        "conditions": []
+      },
+      "location_type": "encounter_template",
+      "location_ref": "starter_goblin_raiders"
+    },
+    {
+      "character_id": 2002,
+      "instance_id": "tpl_char_enemy_goblin_002",
+      "type": "npc",
+      "uid": 1,
+      "role": "enemy",
+      "state_data": {
+        "name": "Goblin Commando",
+        "class": "creature",
+        "level": 2,
+        "hp_current": 26,
+        "conditions": []
+      },
+      "location_type": "encounter_template",
+      "location_ref": "goblin_warband_bridge"
+    },
+    {
+      "character_id": 2003,
+      "instance_id": "tpl_char_enemy_skeleton_001",
+      "type": "npc",
+      "uid": 1,
+      "role": "enemy",
+      "state_data": {
+        "name": "Skeleton Guard",
+        "class": "creature",
+        "level": 2,
+        "hp_current": 24,
+        "conditions": []
+      },
+      "location_type": "encounter_template",
+      "location_ref": "crypt_guardians_hall"
+    },
+    {
+      "character_id": 2004,
+      "instance_id": "tpl_char_enemy_ooze_001",
+      "type": "npc",
+      "uid": 1,
+      "role": "enemy",
+      "state_data": {
+        "name": "Gray Ooze",
+        "class": "creature",
+        "level": 4,
+        "hp_current": 60,
+        "conditions": []
+      },
+      "location_type": "encounter_template",
+      "location_ref": "alchemy_lab_spillover"
+    },
+    {
+      "character_id": 2005,
+      "instance_id": "tpl_char_npc_tavern_keeper_001",
+      "type": "npc",
+      "uid": 1,
+      "role": "npc",
+      "state_data": {
+        "name": "Eldric",
+        "class": "tavern_keeper",
+        "level": 2,
+        "hp_current": 24,
+        "conditions": []
+      },
+      "location_type": "global",
+      "location_ref": ""
+    },
+    {
+      "character_id": 2006,
+      "instance_id": "tpl_char_npc_gribbles_001",
+      "type": "npc",
+      "uid": 1,
+      "role": "enemy",
+      "state_data": {
+        "name": "Gribbles Rindsworth",
+        "class": "creature",
+        "level": 3,
+        "hp_current": 32,
+        "conditions": []
+      },
+      "location_type": "global",
+      "location_ref": ""
+    },
+    {
+      "character_id": 3001,
+      "instance_id": "tpl_char_hazard_trap_001",
+      "type": "trap",
+      "uid": 1,
+      "role": "hazard",
+      "state_data": {
+        "name": "Spear Launcher",
+        "class": "hazard",
+        "level": 3,
+        "hp_current": 999,
+        "conditions": []
+      },
+      "location_type": "room_template",
+      "location_ref": "tpl_room_hall_spear_trap"
+    },
+    {
+      "character_id": 3002,
+      "instance_id": "tpl_char_obstacle_001",
+      "type": "obstacle",
+      "uid": 1,
+      "role": "terrain",
+      "state_data": {
+        "name": "Fallen Pillar",
+        "class": "obstacle",
+        "level": 0,
+        "hp_current": 999,
+        "conditions": []
+      },
+      "location_type": "room_template",
+      "location_ref": "tpl_room_ruined_hall"
+    }
+  ]
+}

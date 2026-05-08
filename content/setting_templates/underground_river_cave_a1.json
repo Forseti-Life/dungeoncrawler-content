@@ -1,0 +1,98 @@
+{
+    "template_id": "underground_river_cave_a1",
+    "name": "The Sunken River Passage",
+    "description": "A subterranean river cuts through this limestone cave, its dark waters rushing past smooth stone banks. The walls are carved with centuries of water erosion into sweeping natural arches. A narrow ledge follows the river deeper underground.",
+    "setting_type": "cave",
+    "size": "large",
+    "lighting": "dim_light",
+    "setting_data": {
+        "theme_tags": [
+            "river",
+            "underground",
+            "water",
+            "natural",
+            "limestone"
+        ],
+        "atmosphere": "The roar of flowing water fills the chamber, making conversation difficult. The air is cold and mist hangs over the rapids. Centuries of erosion have carved the limestone into beautiful but treacherous formations.",
+        "npcs": [
+            {
+                "name": "Blind Cave Fisher",
+                "content_id": "cave_fisher_01",
+                "ancestry": "Cave Fisher",
+                "class": "Animal",
+                "role": "hostile",
+                "team": "wildlife",
+                "occupation": "Ambush predator",
+                "description": "A lobster-like creature clinging to the ceiling above the waterline, nearly invisible against the wet stone. Its adhesive filament dangles toward the water.",
+                "backstory": "This cave fisher has claimed a prime hunting spot above the river, snagging anything that passes below with its sticky filament.",
+                "attitude": "hostile",
+                "stats": {
+                    "maxHp": 18,
+                    "currentHp": 18,
+                    "ac": 16,
+                    "speed": 15,
+                    "perception": 8,
+                    "initiative_bonus": 4
+                },
+                "equipment": []
+            }
+        ],
+        "objects": [
+            {
+                "object_id": "narrow_ledge",
+                "label": "Narrow Stone Ledge",
+                "category": "obstacle",
+                "description": "A slippery stone ledge barely two feet wide, following the river along the cave wall.",
+                "passable": true,
+                "interactable": true
+            },
+            {
+                "object_id": "rushing_rapids",
+                "label": "Rushing Rapids",
+                "category": "obstacle",
+                "description": "A stretch of fast-flowing dark water tumbling over submerged rocks. Crossing would be extremely dangerous.",
+                "passable": false,
+                "interactable": true
+            },
+            {
+                "object_id": "limestone_arch",
+                "label": "Natural Limestone Arch",
+                "category": "decor",
+                "description": "A graceful natural arch of water-carved limestone spanning the passage, dripping with mineral deposits.",
+                "passable": true,
+                "interactable": false
+            },
+            {
+                "object_id": "washed_up_crate",
+                "label": "Waterlogged Crate",
+                "category": "custom",
+                "description": "A wooden crate wedged between rocks at the river edge, its contents soaked but possibly salvageable.",
+                "passable": true,
+                "interactable": true
+            }
+        ]
+    },
+    "search_tags": [
+        "river",
+        "underground",
+        "cave",
+        "water",
+        "stream",
+        "passage",
+        "limestone",
+        "subterranean",
+        "rapids",
+        "ledge",
+        "wet",
+        "cold",
+        "natural",
+        "erosion",
+        "grotto",
+        "cascade"
+    ],
+    "level_min": "1",
+    "level_max": "8",
+    "usage_count": "0",
+    "quality_score": "0.8",
+    "source": "handcrafted"
+}

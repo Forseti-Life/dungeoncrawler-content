@@ -1,0 +1,94 @@
+{#
+ # Campaign Tavern Entrance — select a character and launch campaign.
+ #}
+<div class="dc-character-list">
+  <div class="dc-character-list__header">
+    <h1 class="dc-character-list__title">🍻 Legacy Tavern Entrance</h1>
+    <div class="dc-sheet__nav-actions">
+      <a href="{{ back_url }}" class="dc-btn dc-btn-secondary">← Back to Campaigns</a>
+      <a href="{{ dungeon_selection_url }}" class="dc-btn dc-btn-secondary">🗺️ Select Dungeon</a>
+      <a href="{{ create_character_url }}" class="dc-btn dc-btn-primary">
+        <span class="dc-btn__icon">+</span> Create New Legacy Character
+      </a>
+    </div>
+  </div>
+
+  <div class="dc-sheet__section dc-character-list__campaign-setup">
+    <h2 class="dc-sheet__section-title">{{ campaign.name }}</h2>
+    <p>
+      Theme: <strong>{{ campaign.theme }}</strong> · Difficulty: <strong>{{ campaign.difficulty }}</strong> · Status: <strong>{{ campaign.status }}</strong>
+    </p>
+    <p>Select a completed character to carry this campaign forward in the persistent hexmap world.</p>
+  </div>
+
+  {% if characters|length > 0 %}
+    <div class="dc-character-grid">
+      {% for char in characters %}
+        {% set target_url = char.select_url ?: char.continue_url %}
+        {% set is_clickable = target_url ? true : false %}
+        
+        <div class="dc-character-card dc-character-card--{{ char.status }} {{ not is_clickable ? 'dc-character-card--disabled' : '' }}">
+          {% if char.archive_url %}
+            <a href="{{ char.archive_url }}" class="dc-character-card__archive-btn" title="Archive {{ char.name }}">
+              🗄️
+            </a>
+          {% endif %}
+          
+          <a href="{{ target_url ?: '#' }}" class="dc-character-card__main-link {{ not is_clickable ? 'dc-character-card__main-link--disabled' : '' }}">
+            <div class="dc-character-card__portrait">
+              {% if char.portrait %}
+                <img src="{{ char.portrait }}" alt="{{ char.name }}" />
+              {% else %}
+                <div class="dc-character-card__portrait-placeholder">
+                  <span class="dc-character-card__initial">{{ char.name|first|upper }}</span>
+                </div>
+              {% endif %}
+            </div>
+
+            <div class="dc-character-card__info">
+              <h3 class="dc-character-card__name">{{ char.name }}</h3>
+              <div class="dc-character-card__subtitle">
+                Level {{ char.level }} {{ char.ancestry }} {{ char.class }}
+              </div>
+
+              <div class="dc-character-card__stats">
+                <div class="dc-character-card__stat">
+                  <span class="dc-character-card__stat-label">HP</span>
+                  <span class="dc-character-card__stat-value dc-character-card__hp">{{ char.hp_current }}/{{ char.hp_max }}</span>
+                </div>
+                <div class="dc-character-card__stat">
+                  <span class="dc-character-card__stat-label">AC</span>
+                  <span class="dc-character-card__stat-value">{{ char.ac }}</span>
+                </div>
+              </div>
+
+              <div class="dc-character-card__meta">
+                <span>{{ char.alignment }}</span>
+                <span>{{ char.created }}</span>
+              </div>
+
+              <div class="dc-character-card__action-text">
+                {% if char.select_url %}
+                  <span class="dc-btn dc-btn-success">▶️ Continue Legacy</span>
+                {% elseif char.continue_url %}
+                  <span class="dc-btn dc-btn-warning">⚠️ Complete Creation (Step {{ char.step }}/8)</span>
+                {% else %}
+                  <span class="dc-btn dc-btn-muted">Not Available</span>
+                {% endif %}
+              </div>
+            </div>
+
+            <div class="dc-character-card__arrow">›</div>
+          </a>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="dc-character-list__empty">
+      <div class="dc-character-list__empty-icon">🧙</div>
+      <h2>No Characters Available</h2>
+      <p>Create a character first, then return to launch a long-term campaign journey.</p>
+      <a href="{{ create_character_url }}" class="dc-btn dc-btn-primary">Create Your First Legacy Character</a>
+    </div>
+  {% endif %}
+</div>

@@ -1,0 +1,24 @@
+{
+  "schema_version": "1.0.0",
+  "item_id": "scimitar",
+  "name": "Scimitar",
+  "item_type": "weapon",
+  "level": 0,
+  "rarity": "common",
+  "traits": ["martial", "sword"],
+  "description": "A curved, single-edged blade optimized for sweeping slashes. Favored by desert warriors and swashbucklers alike.",
+  "price": { "cp": 0, "sp": 0, "gp": 1, "pp": 0 },
+  "bulk": "1",
+  "hands": "1",
+  "weapon_stats": {
+    "category": "martial",
+    "group": "sword",
+    "damage": { "dice_count": 1, "die_size": "d6", "damage_type": "slashing" },
+    "range": null,
+    "reload": null,
+    "weapon_traits": ["forceful", "sweep"]
+  },
+  "created_at": "2026-03-01T00:00:00Z",
+  "updated_at": "2026-03-01T00:00:00Z",
+  "item_category": "weapon"
+}

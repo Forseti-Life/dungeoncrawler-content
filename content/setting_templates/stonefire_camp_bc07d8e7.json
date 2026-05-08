@@ -1,0 +1,166 @@
+{
+    "template_id": "stonefire_camp_bc07d8e7",
+    "name": "Stonefire Camp",
+    "description": "A rugged encampment nestled in a forest clearing, surrounded by towering pines. Smoke rises from several campfires, and the air is filled with the scent of roasting meat and pine resin. The sound of metal striking metal echoes from a makeshift forge, mingling with the guttural chants of warriors preparing for battle.",
+    "setting_type": "wilderness",
+    "size": "medium",
+    "lighting": "normal_light",
+    "setting_data": {
+        "theme_tags": [
+            "warrior_culture",
+            "tribal",
+            "wilderness"
+        ],
+        "atmosphere": "The camp exudes an air of primal energy and barely contained aggression, tempered by ancient traditions and a strong sense of community.",
+        "npcs": [
+            {
+                "name": "Thorgrim Ironheart",
+                "content_id": "thorgrim_ironheart",
+                "ancestry": "Dwarf",
+                "class": "Fighter",
+                "role": "quest_giver",
+                "team": "friendly",
+                "occupation": "Camp Leader",
+                "description": "A grizzled dwarf with a thick, braided beard and numerous battle scars. His piercing blue eyes seem to evaluate everyone and everything around him.",
+                "backstory": "Thorgrim led his clan to this wilderness after their mountain home was overrun by orcs. He now seeks to build a new stronghold and reclaim his people's honor.",
+                "attitude": "friendly",
+                "stats": {
+                    "maxHp": 22,
+                    "currentHp": 22,
+                    "ac": 16,
+                    "speed": 20,
+                    "perception": 6,
+                    "initiative_bonus": 6
+                },
+                "equipment": [
+                    "chainmail",
+                    "warhammer",
+                    "shield"
+                ]
+            },
+            {
+                "name": "Ylva the Seer",
+                "content_id": "ylva_the_seer",
+                "ancestry": "Human",
+                "class": "Oracle",
+                "role": "neutral",
+                "team": "neutral",
+                "occupation": "Tribal Shaman",
+                "description": "An elderly woman with long, white hair adorned with feathers and bones. Her milky white eyes suggest blindness, but she seems to perceive more than most.",
+                "backstory": "Ylva was born with the gift of foresight and has guided the tribe for decades. She senses a great change coming and fears for the future of her people.",
+                "attitude": "indifferent",
+                "stats": {
+                    "maxHp": 16,
+                    "currentHp": 16,
+                    "ac": 13,
+                    "speed": 25,
+                    "perception": 7,
+                    "initiative_bonus": 7
+                },
+                "equipment": [
+                    "staff",
+                    "ceremonial robes",
+                    "pouch of herbs"
+                ]
+            }
+        ],
+        "objects": [
+            {
+                "object_id": "central_bonfire",
+                "label": "Central Bonfire",
+                "category": "decoration",
+                "description": "A large, roaring fire pit surrounded by rough-hewn log benches.",
+                "passable": false,
+                "interactable": true
+            },
+            {
+                "object_id": "makeshift_forge",
+                "label": "Makeshift Forge",
+                "category": "furniture",
+                "description": "A crude but functional smithy setup with a blazing furnace and anvil.",
+                "passable": false,
+                "interactable": true
+            },
+            {
+                "object_id": "totem_pole",
+                "label": "Ancestral Totem Pole",
+                "category": "decoration",
+                "description": "A tall wooden pole carved with the faces of tribal ancestors and spirit animals.",
+                "passable": false,
+                "interactable": true
+            },
+            {
+                "object_id": "weapon_rack",
+                "label": "Weapon Rack",
+                "category": "container",
+                "description": "A sturdy wooden stand holding various axes, spears, and swords.",
+                "passable": false,
+                "interactable": true
+            },
+            {
+                "object_id": "tanning_rack",
+                "label": "Tanning Rack",
+                "category": "furniture",
+                "description": "A frame used for stretching and drying animal hides.",
+                "passable": true,
+                "interactable": true
+            },
+            {
+                "object_id": "supply_crates",
+                "label": "Supply Crates",
+                "category": "container",
+                "description": "Wooden boxes stacked near the edge of the camp, containing food and other essentials.",
+                "passable": false,
+                "interactable": true
+            }
+        ]
+    },
+    "search_tags": [
+        "rugged",
+        "encampment",
+        "nestled",
+        "wilderness",
+        "home",
+        "fierce",
+        "warriors",
+        "ancient",
+        "traditions",
+        "warrior_culture",
+        "tribal",
+        "medium",
+        "stonefire",
+        "camp",
+        "forest",
+        "clearing",
+        "surrounded",
+        "towering",
+        "pines",
+        "smoke",
+        "rises",
+        "several",
+        "campfires",
+        "air",
+        "filled",
+        "scent",
+        "roasting",
+        "meat",
+        "pine",
+        "resin",
+        "sound",
+        "metal",
+        "striking",
+        "echoes",
+        "makeshift",
+        "forge",
+        "mingling",
+        "guttural",
+        "chants",
+        "preparing",
+        "battle"
+    ],
+    "level_min": "1",
+    "level_max": "4",
+    "usage_count": "1",
+    "quality_score": "0.5",
+    "source": "ai_generated"
+}

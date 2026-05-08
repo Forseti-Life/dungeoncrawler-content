@@ -1,0 +1,119 @@
+{#
+/**
+ * @file
+ * Character Creation Step 5: Free Ability Boosts
+ *
+ * @deprecated This template is not currently used. The character creation
+ *   form is built programmatically in CharacterCreationStepForm::buildStepFields()
+ *   (case 5), which renders step 5 as a READ-ONLY display of auto-calculated
+ *   ability scores based on ancestry, background, and class selections.
+ *
+ * This template was part of an earlier interactive boost selection design that
+ * has been superseded by automatic calculation. Step 5 now displays pre-calculated
+ * ability scores without user input.
+ *
+ * @see \Drupal\dungeoncrawler_content\Form\CharacterCreationStepForm::buildStepFields()
+ * @see \Drupal\dungeoncrawler_content\Form\CharacterCreationStepForm::calculateAbilitiesFromSelections()
+ */
+#}
+
+<div class="character-creation-container">
+  <div class="step-header">
+    <h1>Assign Free Ability Boosts</h1>
+    <p class="step-description">You have 4 free ability boosts to assign. Each boost increases an ability score by 2 points.</p>
+  </div>
+
+  {# Progress Bar #}
+  <div class="progress-container">
+    <div class="progress-bar">
+      <div class="progress-fill progress-step-5"></div>
+    </div>
+    <div class="progress-text">Step 5 of 8</div>
+  </div>
+
+  <form id="step-5-form" method="post" action="/characters/create/step/5/save?character_id={{ character_id }}">
+    
+    {# Ability Score Selection #}
+    <div class="selection-section">
+      <label class="section-label">Select 4 Different Abilities to Boost</label>
+      <p class="help-text">You cannot boost the same ability more than once during character creation</p>
+      
+      <div class="abilities-grid">
+        <div class="ability-card" data-ability="strength">
+          <div class="ability-icon">💪</div>
+          <h3>Strength</h3>
+          <p class="ability-desc">Physical power and athletic prowess</p>
+          <div class="boost-counter">
+            <span class="boost-count">0</span> boost
+          </div>
+        </div>
+        
+        <div class="ability-card" data-ability="dexterity">
+          <div class="ability-icon">🎯</div>
+          <h3>Dexterity</h3>
+          <p class="ability-desc">Agility, reflexes, and balance</p>
+          <div class="boost-counter">
+            <span class="boost-count">0</span> boost
+          </div>
+        </div>
+        
+        <div class="ability-card" data-ability="constitution">
+          <div class="ability-icon">❤️</div>
+          <h3>Constitution</h3>
+          <p class="ability-desc">Health, stamina, and vital force</p>
+          <div class="boost-counter">
+            <span class="boost-count">0</span> boost
+          </div>
+        </div>
+        
+        <div class="ability-card" data-ability="intelligence">
+          <div class="ability-icon">🧠</div>
+          <h3>Intelligence</h3>
+          <p class="ability-desc">Reason, learning, and logic</p>
+          <div class="boost-counter">
+            <span class="boost-count">0</span> boost
+          </div>
+        </div>
+        
+        <div class="ability-card" data-ability="wisdom">
+          <div class="ability-icon">🔮</div>
+          <h3>Wisdom</h3>
+          <p class="ability-desc">Awareness, intuition, and insight</p>
+          <div class="boost-counter">
+            <span class="boost-count">0</span> boost
+          </div>
+        </div>
+        
+        <div class="ability-card" data-ability="charisma">
+          <div class="ability-icon">✨</div>
+          <h3>Charisma</h3>
+          <p class="ability-desc">Confidence, presence, and charm</p>
+          <div class="boost-counter">
+            <span class="boost-count">0</span> boost
+          </div>
+        </div>
+      </div>
+      
+      <div class="boosts-remaining">
+        <strong>Boosts Remaining:</strong> <span id="boosts-remaining">4</span> / 4
+      </div>
+    </div>
+
+    {# Hidden Fields #}
+    <input type="hidden" name="free_boosts" id="selected-boosts" value="">
+    <input type="hidden" name="step" value="5">
+
+    {# Navigation Buttons #}
+    <div class="button-group">
+      <a href="/characters/create/step/4?character_id={{ character_id }}" class="btn btn-secondary">
+        ← Previous
+      </a>
+      <button type="submit" class="btn btn-primary" id="next-button" disabled>
+        Next Step →
+      </button>
+    </div>
+
+    {# Error Messages #}
+    <div id="error-message" class="error-message hidden"></div>
+  </form>
+</div>

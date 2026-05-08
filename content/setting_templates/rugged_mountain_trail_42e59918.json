@@ -1,0 +1,125 @@
+{
+    "template_id": "rugged_mountain_trail_42e59918",
+    "name": "Rugged Mountain Trail",
+    "description": "A narrow, winding path cuts through increasingly wild terrain. Jagged rocks and gnarled roots threaten to trip the unwary, while dense foliage presses in from both sides. The distant cry of a bird of prey echoes through the crisp mountain air.",
+    "setting_type": "wilderness",
+    "size": "large",
+    "lighting": "normal_light",
+    "setting_data": {
+        "theme_tags": [
+            "mountainous",
+            "wild",
+            "dangerous"
+        ],
+        "atmosphere": "The trail exudes an aura of untamed wilderness and looming danger.",
+        "npcs": [
+            {
+                "name": "Grizzled Trapper",
+                "content_id": "mountain_trapper",
+                "ancestry": "Human",
+                "class": "Expert",
+                "role": "neutral",
+                "team": "neutral",
+                "occupation": "Fur trapper and mountain guide",
+                "description": "A weather-beaten man with a thick beard and piercing eyes. His clothes are worn but practical for the harsh environment.",
+                "backstory": "He's spent decades in these mountains, surviving by his wits and skill. He's wary of strangers but might be convinced to share his knowledge.",
+                "attitude": "indifferent",
+                "stats": {
+                    "maxHp": 16,
+                    "currentHp": 16,
+                    "ac": 14,
+                    "speed": 25,
+                    "perception": 6,
+                    "initiative_bonus": 6
+                },
+                "equipment": [
+                    "hunting knife",
+                    "backpack",
+                    "fur coat"
+                ]
+            }
+        ],
+        "objects": [
+            {
+                "object_id": "fallen_tree",
+                "label": "Fallen Tree",
+                "category": "obstacle",
+                "description": "A massive tree trunk blocks part of the path, its roots torn from the ground.",
+                "passable": false,
+                "interactable": true
+            },
+            {
+                "object_id": "mountain_stream",
+                "label": "Bubbling Stream",
+                "category": "obstacle",
+                "description": "A clear, cold stream cuts across the trail, requiring a careful crossing.",
+                "passable": true,
+                "interactable": true
+            },
+            {
+                "object_id": "rocky_outcropping",
+                "label": "Rocky Outcropping",
+                "category": "decoration",
+                "description": "A jutting formation of rocks provides a vantage point over the surrounding area.",
+                "passable": true,
+                "interactable": true
+            },
+            {
+                "object_id": "animal_tracks",
+                "label": "Animal Tracks",
+                "category": "decoration",
+                "description": "Fresh paw prints in the mud suggest the recent passage of a large predator.",
+                "passable": true,
+                "interactable": true
+            }
+        ]
+    },
+    "search_tags": [
+        "rugged",
+        "trail",
+        "leading",
+        "through",
+        "increasingly",
+        "wild",
+        "terrain",
+        "towards",
+        "rumored",
+        "location",
+        "barbarian",
+        "camp",
+        "mountainous",
+        "dangerous",
+        "wilderness",
+        "large",
+        "mountain",
+        "narrow",
+        "winding",
+        "path",
+        "cuts",
+        "jagged",
+        "rocks",
+        "gnarled",
+        "roots",
+        "threaten",
+        "trip",
+        "unwary",
+        "while",
+        "dense",
+        "foliage",
+        "presses",
+        "both",
+        "sides",
+        "distant",
+        "cry",
+        "bird",
+        "prey",
+        "echoes",
+        "crisp",
+        "air"
+    ],
+    "level_min": "1",
+    "level_max": "4",
+    "usage_count": "1",
+    "quality_score": "0.5",
+    "source": "ai_generated"
+}

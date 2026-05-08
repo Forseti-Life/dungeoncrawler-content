@@ -1,0 +1,54 @@
+{
+  "template_id": "collect_spellbooks",
+  "name": "Collect Lost {item_name}",
+  "description": "A scholar in the tavern is searching for {item_name} that have been scattered around. Help recover them and earn a reward.",
+  "quest_type": "side_quest",
+  "level_min": 1,
+  "level_max": 3,
+  "tags": ["gathering", "knowledge", "tavern", "beginner"],
+  "objectives_schema": [
+    {
+      "phase": 1,
+      "objectives": [
+        {
+          "objective_id": "collect_books",
+          "type": "collect",
+          "item": "{item_name}",
+          "target_count_range": [2, 4],
+          "description": "Find and collect {item_name}"
+        }
+      ]
+    },
+    {
+      "phase": 2,
+      "objectives": [
+        {
+          "objective_id": "return_books",
+          "type": "interact",
+          "target": "scholar",
+          "description": "Return the books to the scholar"
+        }
+      ]
+    }
+  ],
+  "rewards_schema": {
+    "xp": {
+      "base": 55,
+      "per_level": 18
+    },
+    "gold": {
+      "base": 6,
+      "per_level": 2,
+      "randomize": true
+    },
+    "items": {
+      "loot_table": "tavern_knowledge_reward",
+      "count": 1
+    }
+  },
+  "prerequisites": {
+    "level_min": 1
+  },
+  "estimated_duration_minutes": 20,
+  "version": "1.0.0"
+}

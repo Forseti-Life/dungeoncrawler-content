@@ -1,0 +1,32 @@
+{
+  "trap_id": "61d7eb57-29cf-4483-aa4b-46e681f46827",
+  "name": "Simple Arrow Trap",
+  "level": 1,
+  "type": "mechanical",
+  "complexity": "simple",
+  "stealth_dc": 15,
+  "disable": {
+    "thievery_dc": 15
+  },
+  "trigger": "A creature steps on the pressure plate.",
+  "effect": {
+    "attack_bonus": 8,
+    "damage": "1d8+2",
+    "damage_type": "piercing",
+    "area": {
+      "type": "single_hex"
+    },
+    "description": "Fires a concealed arrow at the triggering creature"
+  },
+  "reset": {
+    "automatic": false,
+    "reset_time_minutes": 10
+  },
+  "hardness": 5,
+  "hp": 20,
+  "broken_threshold": 10,
+  "is_detected": false,
+  "is_disabled": false,
+  "is_triggered": false,
+  "xp_reward": 10
+}

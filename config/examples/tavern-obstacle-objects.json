@@ -1,0 +1,593 @@
+{
+  "$schema": "../schemas/obstacle_object_catalog.schema.json",
+  "schema_version": "1.0.0",
+  "created_at": "2026-02-17T00:00:00Z",
+  "updated_at": "2026-03-03T00:00:00Z",
+  "metadata": {
+    "description": "Reusable tavern furniture and fixture obstacle definitions for dungeon entrance areas",
+    "theme": "tavern-furnishings",
+    "usage": "Referenced by tavern-entrance-dungeon.json and loaded by HexMapController.php"
+  },
+  "objects": [
+    {
+      "object_id": "wooden_tavern_door",
+      "label": "Tavern Door",
+      "category": "door",
+      "description": "Heavy wooden door between tavern and dungeon room. When open, allows passage between areas without movement penalty.",
+      "movable": false,
+      "stackable": false,
+      "movement": {
+        "passable": true,
+        "blocks_movement": false,
+        "cost_multiplier": 1
+      },
+      "tags": [
+        "door",
+        "transition"
+      ],
+      "size": "large",
+      "weight": "10",
+      "interaction": {
+        "can_open": true,
+        "can_close": true,
+        "requires_key": false,
+        "athletics_dc": null,
+        "thievery_dc": null
+      },
+      "visual": {
+        "sprite_id": "door_wood_tavern",
+        "color": "#8B4513",
+        "rotation": 0
+      }
+    },
+    {
+      "object_id": "tavern_bar_counter_a",
+      "label": "Bar Counter A",
+      "category": "bar",
+      "description": "Fixed wooden bar counter segment forming the left section of the tavern's main bar. Provides a physical barrier for drink service and can provide cover during combat.",
+      "movable": false,
+      "stackable": false,
+      "movement": {
+        "passable": false,
+        "blocks_movement": true,
+        "cost_multiplier": 999
+      },
+      "tags": [
+        "bar",
+        "fixture",
+        "cover"
+      ],
+      "size": "large",
+      "visual": {
+        "sprite_id": "bar_counter_wood_a",
+        "color": "#654321",
+        "orientation": "se"
+      },
+      "orientation": "se"
+    },
+    {
+      "object_id": "tavern_bar_counter_b",
+      "label": "Bar Counter B",
+      "category": "bar",
+      "description": "Fixed wooden bar counter segment forming the middle section of the tavern's main bar. Provides a physical barrier for drink service and can provide cover during combat.",
+      "movable": false,
+      "stackable": false,
+      "movement": {
+        "passable": false,
+        "blocks_movement": true,
+        "cost_multiplier": 999
+      },
+      "tags": [
+        "bar",
+        "fixture",
+        "cover"
+      ],
+      "size": "large",
+      "visual": {
+        "sprite_id": "bar_counter_wood_b",
+        "color": "#654321",
+        "orientation": "se"
+      },
+      "orientation": "se"
+    },
+    {
+      "object_id": "tavern_bar_counter_c",
+      "label": "Bar Counter C",
+      "category": "bar",
+      "description": "Fixed wooden bar counter segment forming the right section of the tavern's main bar. Provides a physical barrier for drink service and can provide cover during combat.",
+      "movable": false,
+      "stackable": false,
+      "movement": {
+        "passable": false,
+        "blocks_movement": true,
+        "cost_multiplier": 999
+      },
+      "tags": [
+        "bar",
+        "fixture",
+        "cover"
+      ],
+      "size": "large",
+      "visual": {
+        "sprite_id": "bar_counter_wood_c",
+        "color": "#654321",
+        "orientation": "se"
+      },
+      "orientation": "se"
+    },
+    {
+      "object_id": "tavern_table_round_a",
+      "label": "Round Table A",
+      "category": "table",
+      "description": "Movable round tavern table suitable for small gatherings. Can be pushed by players to rearrange the tavern space or create barriers during combat. Provides light cover when used defensively.",
+      "movable": true,
+      "stackable": false,
+      "movement": {
+        "passable": false,
+        "blocks_movement": true,
+        "cost_multiplier": 2
+      },
+      "tags": [
+        "table",
+        "furniture",
+        "cover"
+      ],
+      "size": "medium",
+      "weight": "5",
+      "interaction": {
+        "can_open": false,
+        "can_close": false,
+        "requires_key": false,
+        "athletics_dc": 10
+      },
+      "visual": {
+        "sprite_id": "table_round_wood",
+        "color": "#8B4513"
+      }
+    },
+    {
+      "object_id": "tavern_table_long_a",
+      "label": "Long Table A",
+      "category": "table",
+      "description": "Movable long wooden table for larger groups or feasts. Can be pushed by players to rearrange the tavern space or create barriers during combat. Provides light cover when used defensively.",
+      "movable": true,
+      "stackable": false,
+      "movement": {
+        "passable": false,
+        "blocks_movement": true,
+        "cost_multiplier": 2
+      },
+      "tags": [
+        "table",
+        "furniture",
+        "cover"
+      ],
+      "size": "large",
+      "weight": "10",
+      "interaction": {
+        "can_open": false,
+        "can_close": false,
+        "requires_key": false,
+        "athletics_dc": 15
+      },
+      "visual": {
+        "sprite_id": "table_long_wood_end",
+        "color": "#8B4513",
+        "orientation": "n"
+      },
+      "orientation": "n"
+    },
+    {
+      "object_id": "tavern_table_long_center",
+      "label": "Long Table Center",
+      "category": "table",
+      "description": "Center extension segment for a composed long wooden table.",
+      "movable": true,
+      "stackable": false,
+      "movement": {
+        "passable": false,
+        "blocks_movement": true,
+        "cost_multiplier": 2
+      },
+      "tags": [
+        "table",
+        "furniture",
+        "cover"
+      ],
+      "size": "large",
+      "weight": "10",
+      "interaction": {
+        "can_open": false,
+        "can_close": false,
+        "requires_key": false,
+        "athletics_dc": 15
+      },
+      "visual": {
+        "sprite_id": "table_long_wood_end",
+        "color": "#8B4513",
+        "orientation": "n"
+      },
+      "orientation": "n"
+    },
+    {
+      "object_id": "tavern_table_long_b",
+      "label": "Long Table B",
+      "category": "table",
+      "description": "Second end-cap segment for a composed long wooden table.",
+      "movable": true,
+      "stackable": false,
+      "movement": {
+        "passable": false,
+        "blocks_movement": true,
+        "cost_multiplier": 2
+      },
+      "tags": [
+        "table",
+        "furniture",
+        "cover"
+      ],
+      "size": "large",
+      "weight": "10",
+      "interaction": {
+        "can_open": false,
+        "can_close": false,
+        "requires_key": false,
+        "athletics_dc": 15
+      },
+      "visual": {
+        "sprite_id": "table_long_wood_end",
+        "color": "#8B4513",
+        "orientation": "n"
+      },
+      "orientation": "n"
+    },
+    {
+      "object_id": "tavern_stool_stack_a",
+      "label": "Stool Stack",
+      "category": "stool",
+      "description": "Stack of lightweight tavern stools. Entities can share hexes with these stools, and multiple stools can occupy the same space, allowing flexible positioning around tables. Can be kicked aside or used as improvised weapons.",
+      "movable": true,
+      "stackable": true,
+      "movement": {
+        "passable": true,
+        "blocks_movement": false,
+        "cost_multiplier": 1.5
+      },
+      "tags": [
+        "stool",
+        "furniture",
+        "stack"
+      ],
+      "size": "small",
+      "weight": "L",
+      "interaction": {
+        "can_open": false,
+        "can_close": false,
+        "requires_key": false,
+        "athletics_dc": 5
+      },
+      "visual": {
+        "sprite_id": "stool_stack_wood",
+        "color": "#A0522D"
+      }
+    },
+    {
+      "object_id": "tavern_crate_stack_a",
+      "label": "Crate Stack",
+      "category": "crate",
+      "description": "Stack of supply crates used for tavern storage. Blocks hex occupancy but can be pushed to create temporary barriers or clear pathways. Multiple crates can be stacked in the same location. Provides light cover when used defensively.",
+      "movable": true,
+      "stackable": true,
+      "movement": {
+        "passable": false,
+        "blocks_movement": true,
+        "cost_multiplier": 3
+      },
+      "tags": [
+        "crate",
+        "storage",
+        "stack",
+        "cover"
+      ],
+      "size": "medium",
+      "weight": "5",
+      "interaction": {
+        "can_open": false,
+        "can_close": false,
+        "requires_key": false,
+        "athletics_dc": 12
+      },
+      "visual": {
+        "sprite_id": "crate_stack_wood",
+        "color": "#8B7355"
+      }
+    },
+    {
+      "object_id": "wall_log_flat",
+      "label": "Log Wall Flat",
+      "category": "wall",
+      "description": "Flat-orientation wooden palisade wall tile for hex-grid perimeter boundaries.",
+      "movable": false,
+      "stackable": false,
+      "movement": {
+        "passable": false,
+        "blocks_movement": true,
+        "cost_multiplier": 999
+      },
+      "tags": [
+        "wall",
+        "wood",
+        "palisade",
+        "boundary",
+        "cover"
+      ],
+      "size": "large",
+      "visual": {
+        "sprite_id": "wall_log_flat",
+        "color": "#6B4F2A",
+        "prompt": "A top-down orthographic 2D map tile of a thick wooden log wall cutting through the center of a hexagonal frame. The wall is made of vertical sharpened timber poles lashed together with rope. The ground is a neutral dirt texture. Clean hexagonal border, tabletop RPG style, flat lighting, high detail, white background."
+      }
+    },
+    {
+      "object_id": "wall_log_corner_acute",
+      "label": "Log Wall Corner Acute",
+      "category": "wall",
+      "description": "Acute-corner wooden palisade wall tile for hex-grid perimeter turns.",
+      "movable": false,
+      "stackable": false,
+      "movement": {
+        "passable": false,
+        "blocks_movement": true,
+        "cost_multiplier": 999
+      },
+      "tags": [
+        "wall",
+        "wood",
+        "palisade",
+        "corner",
+        "acute",
+        "boundary",
+        "cover"
+      ],
+      "size": "large",
+      "visual": {
+        "sprite_id": "wall_log_corner_acute",
+        "color": "#6B4F2A",
+        "prompt": "A top-down orthographic 2D map tile of a thick wooden log wall turning through an acute corner inside a hexagonal frame. The wall is made of vertical sharpened timber poles lashed together with rope. The ground is a neutral dirt texture. Clean hexagonal border, tabletop RPG style, flat lighting, high detail, white background."
+      }
+    },
+    {
+      "object_id": "wall_log_corner_obtuse",
+      "label": "Log Wall Corner Obtuse",
+      "category": "wall",
+      "description": "Obtuse-corner wooden palisade wall tile for hex-grid perimeter turns.",
+      "movable": false,
+      "stackable": false,
+      "movement": {
+        "passable": false,
+        "blocks_movement": true,
+        "cost_multiplier": 999
+      },
+      "tags": [
+        "wall",
+        "wood",
+        "palisade",
+        "corner",
+        "obtuse",
+        "boundary",
+        "cover"
+      ],
+      "size": "large",
+      "visual": {
+        "sprite_id": "wall_log_corner_obtuse",
+        "color": "#6B4F2A",
+        "prompt": "A top-down orthographic 2D map tile of a thick wooden log wall turning through an obtuse corner inside a hexagonal frame. The wall is made of vertical sharpened timber poles lashed together with rope. The ground is a neutral dirt texture. Clean hexagonal border, tabletop RPG style, flat lighting, high detail, white background."
+      }
+    },
+    {
+      "object_id": "wall_stone_flat",
+      "label": "Stone Wall Flat",
+      "category": "wall",
+      "description": "Flat-orientation stone fortress wall tile for hex-grid perimeter boundaries.",
+      "movable": false,
+      "stackable": false,
+      "movement": {
+        "passable": false,
+        "blocks_movement": true,
+        "cost_multiplier": 999
+      },
+      "tags": [
+        "wall",
+        "stone",
+        "fortress",
+        "boundary",
+        "cover"
+      ],
+      "size": "large",
+      "visual": {
+        "sprite_id": "wall_stone_flat",
+        "color": "#696969",
+        "prompt": "A top-down orthographic 2D map tile of a sturdy grey stone fortress wall cutting through the center of a hexagonal frame. The wall is made of heavy weathered masonry blocks with visible mortar and crenellations. The ground is a neutral stone floor texture. Clean hexagonal border, tabletop RPG style, flat lighting, high detail, white background."
+      }
+    },
+    {
+      "object_id": "wall_stone_flat_ew",
+      "label": "Stone Wall Flat EW",
+      "category": "wall",
+      "description": "East-west oriented straight stone wall segment for hex-grid perimeter boundaries.",
+      "movable": false,
+      "stackable": false,
+      "movement": {
+        "passable": false,
+        "blocks_movement": true,
+        "cost_multiplier": 999
+      },
+      "tags": [
+        "wall",
+        "stone",
+        "fortress",
+        "boundary",
+        "cover",
+        "flat",
+        "east_west"
+      ],
+      "size": "large",
+      "visual": {
+        "sprite_id": "wall_stone_flat_ew",
+        "color": "#696969"
+      }
+    },
+    {
+      "object_id": "wall_stone_flat_ns",
+      "label": "Stone Wall Flat NS",
+      "category": "wall",
+      "description": "North-south oriented straight stone wall segment for hex-grid perimeter boundaries.",
+      "movable": false,
+      "stackable": false,
+      "movement": {
+        "passable": false,
+        "blocks_movement": true,
+        "cost_multiplier": 999
+      },
+      "tags": [
+        "wall",
+        "stone",
+        "fortress",
+        "boundary",
+        "cover",
+        "flat",
+        "north_south"
+      ],
+      "size": "large",
+      "visual": {
+        "sprite_id": "wall_stone_flat_ns",
+        "color": "#696969"
+      }
+    },
+    {
+      "object_id": "wall_stone_corner_acute",
+      "label": "Stone Wall Corner Acute",
+      "category": "wall",
+      "description": "Acute-corner stone fortress wall tile for hex-grid perimeter turns.",
+      "movable": false,
+      "stackable": false,
+      "movement": {
+        "passable": false,
+        "blocks_movement": true,
+        "cost_multiplier": 999
+      },
+      "tags": [
+        "wall",
+        "stone",
+        "fortress",
+        "corner",
+        "acute",
+        "boundary",
+        "cover"
+      ],
+      "size": "large",
+      "visual": {
+        "sprite_id": "wall_stone_corner_acute",
+        "color": "#696969",
+        "prompt": "A top-down orthographic 2D map tile of a sturdy grey stone fortress wall turning through an acute corner inside a hexagonal frame. The wall is made of heavy weathered masonry blocks with visible mortar and crenellations. The ground is a neutral stone floor texture. Clean hexagonal border, tabletop RPG style, flat lighting, high detail, white background."
+      }
+    },
+    {
+      "object_id": "wall_stone_corner_obtuse",
+      "label": "Stone Wall Corner Obtuse",
+      "category": "wall",
+      "description": "Obtuse-corner stone fortress wall tile for hex-grid perimeter turns.",
+      "movable": false,
+      "stackable": false,
+      "movement": {
+        "passable": false,
+        "blocks_movement": true,
+        "cost_multiplier": 999
+      },
+      "tags": [
+        "wall",
+        "stone",
+        "fortress",
+        "corner",
+        "obtuse",
+        "boundary",
+        "cover"
+      ],
+      "size": "large",
+      "visual": {
+        "sprite_id": "wall_stone_corner_obtuse",
+        "color": "#696969",
+        "prompt": "A top-down orthographic 2D map tile of a sturdy grey stone fortress wall turning through an obtuse corner inside a hexagonal frame. The wall is made of heavy weathered masonry blocks with visible mortar and crenellations. The ground is a neutral stone floor texture. Clean hexagonal border, tabletop RPG style, flat lighting, high detail, white background."
+      }
+    },
+    {
+      "object_id": "tavern_fireplace",
+      "label": "Stone Fireplace",
+      "category": "decor",
+      "description": "Large stone fireplace providing warmth and ambient light to the tavern. This fixed environmental fixture anchors the tavern's common area and provides substantial cover during combat. Adjacent hexes may have increased fire damage risk.",
+      "movable": false,
+      "stackable": false,
+      "movement": {
+        "passable": false,
+        "blocks_movement": true,
+        "cost_multiplier": 999
+      },
+      "tags": [
+        "decor",
+        "fixture",
+        "light_source",
+        "fire",
+        "cover"
+      ],
+      "size": "large",
+      "visual": {
+        "sprite_id": "fireplace_stone_lit",
+        "color": "#696969"
+      }
+    },
+    {
+      "object_id": "tavern_rug",
+      "label": "Decorative Rug",
+      "category": "decor",
+      "description": "Woven floor rug providing decorative warmth to the tavern. Characters can move freely across it without penalty. Purely aesthetic with no gameplay impact.",
+      "movable": false,
+      "stackable": false,
+      "movement": {
+        "passable": true,
+        "blocks_movement": false,
+        "cost_multiplier": 1
+      },
+      "tags": [
+        "decor",
+        "floor"
+      ],
+      "size": "medium",
+      "visual": {
+        "sprite_id": "rug_decorative_red",
+        "color": "#8B0000"
+      }
+    },
+    {
+      "object_id": "compass_orientation_reference",
+      "label": "Compass Orientation Marker",
+      "category": "decor",
+      "description": "A decorative compass rose embedded in the floor, used as a directional reference for map orientation. Purely cosmetic \u2014 does not block movement.",
+      "movable": false,
+      "stackable": false,
+      "movement": {
+        "passable": true,
+        "blocks_movement": false,
+        "cost_multiplier": 1
+      },
+      "tags": [
+        "decor",
+        "floor",
+        "reference"
+      ],
+      "visual": {
+        "sprite_id": "compass1",
+        "color": "#22c55e"
+      }
+    }
+  ]
+}

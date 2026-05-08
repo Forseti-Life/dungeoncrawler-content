@@ -1,0 +1,96 @@
+{
+  "schema_version": "1.0.0",
+  "creature_id": "9e3b7d5a-2c4f-4a8e-b6d1-4f2a0c8e6b3d",
+  "name": "Quasit",
+  "level": 1,
+  "creature_type": "fiend",
+  "traits": [
+    "chaotic",
+    "demon",
+    "evil",
+    "fiend"
+  ],
+  "alignment": "CE",
+  "rarity": "common",
+  "size": "tiny",
+  "hex_footprint": 1,
+  "family": "demon",
+  "bestiary_source": "b2",
+  "pf2e_stats": {
+    "ability_scores": {
+      "strength": { "score": 8, "modifier": -1 },
+      "dexterity": { "score": 16, "modifier": 3 },
+      "constitution": { "score": 12, "modifier": 1 },
+      "intelligence": { "score": 12, "modifier": 1 },
+      "wisdom": { "score": 12, "modifier": 1 },
+      "charisma": { "score": 14, "modifier": 2 }
+    },
+    "hp": {
+      "max": 20,
+      "current": 20,
+      "temporary": 0,
+      "hardness": 0,
+      "immunities": ["poison"],
+      "resistances": [{ "type": "fire", "value": 5 }, { "type": "physical (except cold iron)", "value": 3 }],
+      "weaknesses": [{ "type": "cold iron", "value": 3 }, { "type": "good", "value": 3 }]
+    },
+    "ac": 16,
+    "saves": {
+      "fortitude": { "modifier": 4 },
+      "reflex": { "modifier": 8 },
+      "will": { "modifier": 6 }
+    },
+    "perception": {
+      "modifier": 6,
+      "senses": ["darkvision 60ft"]
+    },
+    "speed": {
+      "land": 25,
+      "fly": 35,
+      "swim": null,
+      "climb": null,
+      "burrow": null
+    },
+    "skills": {
+      "Acrobatics": { "modifier": 8, "proficiency": "trained" },
+      "Deception": { "modifier": 7, "proficiency": "trained" },
+      "Stealth": { "modifier": 8, "proficiency": "trained" }
+    },
+    "languages": ["Abyssal", "Common"],
+    "attacks": [
+      {
+        "name": "Jaws",
+        "type": "melee",
+        "attack_bonus": 8,
+        "damage": "1d4-1",
+        "damage_type": "piercing",
+        "traits": ["agile", "finesse"]
+      },
+      {
+        "name": "Claw",
+        "type": "melee",
+        "attack_bonus": 8,
+        "damage": "1d4-1",
+        "damage_type": "slashing",
+        "traits": ["agile", "finesse"]
+      }
+    ],
+    "special_abilities": [
+      {
+        "name": "Abyssal Plague",
+        "description": "On a hit with its jaws, the quasit afflicts the target with abyssal plague (DC 14 Fort save; stage 1: carrier with no effects; stage 2: drained 1; stage 3: drained 2)."
+      },
+      {
+        "name": "Change Shape",
+        "action_cost": 1,
+        "description": "The quasit can take the appearance of a bat, centipede, toad, or wolf. It gains the appropriate speed. It doesn't gain any other abilities of the new shape."
+      },
+      {
+        "name": "Occult Innate Spells",
+        "description": "DC 17. 3/day: fear. At will: detect alignment, detect magic."
+      }
+    ]
+  },
+  "encounter_themes": ["dungeon", "underworld", "ritual"],
+  "tactical_role": "skirmisher"
+}

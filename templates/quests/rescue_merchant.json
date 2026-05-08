@@ -1,0 +1,72 @@
+{
+  "template_id": "rescue_merchant",
+  "name": "Rescue {npc} from {location}",
+  "description": "{npc}, a {npc_role}, was captured by {target}s in {location}. Find and rescue them before it's too late!",
+  "quest_type": "rescue",
+  "level_min": 2,
+  "level_max": 5,
+  "tags": ["combat", "rescue", "time_limited"],
+  "objectives_schema": [
+    {
+      "phase": 1,
+      "objectives": [
+        {
+          "objective_id": "find_location",
+          "type": "explore",
+          "target": "{location}",
+          "description": "Find the {location}"
+        },
+        {
+          "objective_id": "defeat_captors",
+          "type": "kill",
+          "target": "{target}",
+          "target_count_range": [4, 8],
+          "description": "Defeat the {target}s holding {npc}"
+        },
+        {
+          "objective_id": "rescue_npc",
+          "type": "interact",
+          "target": "{npc}",
+          "description": "Free {npc} from captivity"
+        }
+      ]
+    },
+    {
+      "phase": 2,
+      "objectives": [
+        {
+          "objective_id": "escort_to_safety",
+          "type": "escort",
+          "target": "{npc}",
+          "destination": "{safe_location}",
+          "description": "Escort {npc} back to safety"
+        }
+      ]
+    }
+  ],
+  "rewards_schema": {
+    "xp": {
+      "base": 120,
+      "per_level": 40
+    },
+    "gold": {
+      "base": 10,
+      "per_level": 5,
+      "randomize": true
+    },
+    "items": {
+      "loot_table": "rescue_reward",
+      "count": 1
+    },
+    "reputation": {
+      "faction": "{npc_faction}",
+      "amount": 25
+    }
+  },
+  "prerequisites": {
+    "level_min": 2
+  },
+  "time_limit_hours": 24,
+  "estimated_duration_minutes": 45,
+  "version": "1.0.0"
+}

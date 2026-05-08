@@ -1,0 +1,56 @@
+{#
+ # Archived Campaigns — /campaigns/archived page
+ # Browse, unarchive, or permanently delete archived campaigns.
+ #}
+<div class="dc-character-list">
+  <div class="dc-character-list__header">
+    <h1 class="dc-character-list__title">🗄️ Archived Campaigns</h1>
+    <div class="dc-sheet__nav-actions">
+      <a href="{{ back_url }}" class="dc-btn dc-btn-secondary">← Back to Campaigns</a>
+    </div>
+  </div>
+
+  {% if campaigns|length > 0 %}
+    <div class="dc-character-grid">
+      {% for campaign in campaigns %}
+        <div class="dc-character-card dc-character-card--archived">
+          <div class="dc-character-card__main-link dc-character-card__main-link--no-hover">
+            <div class="dc-character-card__portrait">
+              <div class="dc-character-card__portrait-placeholder dc-character-card__portrait-placeholder--archived">
+                <span class="dc-character-card__initial">{{ campaign.name|first|upper }}</span>
+              </div>
+            </div>
+
+            <div class="dc-character-card__info">
+              <h3 class="dc-character-card__name">{{ campaign.name }}</h3>
+              <div class="dc-character-card__subtitle">
+                {{ campaign.theme }} · {{ campaign.difficulty }}
+              </div>
+
+              <div class="dc-character-card__meta">
+                <span>Created {{ campaign.created }}</span>
+                <span>Archived {{ campaign.archived_at }}</span>
+              </div>
+
+              <div class="dc-character-card__actions">
+                <a href="{{ campaign.unarchive_url }}" class="dc-btn dc-btn-secondary dc-btn--sm" title="Restore this campaign to active list">
+                  ♻️ Unarchive
+                </a>
+                <a href="{{ campaign.delete_url }}" class="dc-btn dc-btn-danger dc-btn--sm" title="Permanently delete this campaign">
+                  ☠️ Delete Forever
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="dc-character-list__empty">
+      <div class="dc-character-list__empty-icon">📦</div>
+      <h2>No Archived Campaigns</h2>
+      <p>Campaigns you archive from the main list will appear here. You can restore or permanently delete them.</p>
+      <a href="{{ back_url }}" class="dc-btn dc-btn-secondary">← Back to Campaigns</a>
+    </div>
+  {% endif %}
+</div>

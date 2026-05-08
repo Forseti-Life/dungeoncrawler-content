@@ -1,0 +1,543 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dungeoncrawler.life/schemas/character_options_step2.json",
+  "title": "Character Creation Step 2: Ancestry & Heritage",
+  "description": "Defines available options and validation for selecting character's ancestry and heritage in Pathfinder 2E character creation",
+  "type": "object",
+  "additionalProperties": false,
+  "schema_version": "1.0.0",
+  "$defs": {
+    "heritageOption": {
+      "type": "object",
+      "required": ["id", "name", "benefit"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the heritage"
+        },
+        "name": {
+          "type": "string",
+          "description": "Display name of the heritage"
+        },
+        "benefit": {
+          "type": "string",
+          "description": "Mechanical benefit or special ability granted by this heritage (e.g., racial feat, ability modifier, special sense, or unique capability)",
+          "examples": ["Darkvision", "Extra Hit Points", "Resistance to poison"]
+        }
+      }
+    }
+  },
+  "properties": {
+    "step": {
+      "type": "integer",
+      "const": 2,
+      "description": "Step number in character creation process"
+    },
+    "step_name": {
+      "type": "string",
+      "const": "Ancestry & Heritage Foundation",
+      "description": "Human-readable name for this step"
+    },
+    "step_description": {
+      "type": "string",
+      "const": "Choose the lineage foundation that will shape your character's long-term strengths, identity, and campaign presence.",
+      "description": "Explanation of what happens in this step"
+    },
+    "fields": {
+      "type": "object",
+      "description": "Form fields available in this step",
+      "additionalProperties": false,
+      "properties": {
+        "ancestry": {
+          "type": "object",
+          "description": "Ancestry selection field",
+          "additionalProperties": false,
+          "properties": {
+            "field_type": {
+              "type": "string",
+              "const": "select",
+              "description": "HTML input type"
+            },
+            "label": {
+              "type": "string",
+              "const": "Choose Your Legacy Ancestry",
+              "description": "Field label"
+            },
+            "required": {
+              "type": "boolean",
+              "const": true,
+              "description": "Whether this field is mandatory"
+            },
+            "options": {
+              "type": "array",
+              "description": "Available ancestries from CharacterManager::ANCESTRIES",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "description": "Unique identifier for the ancestry",
+                    "examples": ["human", "elf", "dwarf", "goblin"]
+                  },
+                  "name": {
+                    "type": "string",
+                    "description": "Display name of the ancestry",
+                    "examples": ["Human", "Elf", "Dwarf", "Goblin"]
+                  },
+                  "hp": {
+                    "type": "integer",
+                    "minimum": 6,
+                    "maximum": 10,
+                    "description": "Hit points from ancestry (Pathfinder 2E ancestries range from 6-10 HP)",
+                    "examples": [8, 6, 10]
+                  },
+                  "size": {
+                    "type": "string",
+                    "enum": ["Small", "Medium"],
+                    "description": "Physical size category of the ancestry"
+                  },
+                  "speed": {
+                    "type": "integer",
+                    "minimum": 20,
+                    "maximum": 35,
+                    "description": "Base speed in feet (Pathfinder 2E ancestries range from 20-35 feet)",
+                    "examples": [25, 30]
+                  },
+                  "boosts": {
+                    "type": "array",
+                    "description": "Ability boosts granted by this ancestry (Pathfinder 2E grants exactly 2 boosts per ancestry)",
+                    "items": {
+                      "type": "string",
+                      "enum": ["Strength", "Dexterity", "Constitution", "Intelligence", "Wisdom", "Charisma", "Free"]
+                    },
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "examples": [["Strength", "Constitution"], ["Intelligence", "Free"]]
+                  },
+                  "flaw": {
+                    "type": "string",
+                    "description": "Ability flaw (if any). Some ancestries have no flaw.",
+                    "enum": ["Strength", "Dexterity", "Constitution", "Intelligence", "Wisdom", "Charisma"],
+                    "examples": ["Constitution", "Strength"]
+                  },
+                  "languages": {
+                    "type": "array",
+                    "description": "Starting languages known by characters of this ancestry",
+                    "items": {
+                      "type": "string"
+                    },
+                    "minItems": 1,
+                    "examples": [["Common"], ["Common", "Elven"]]
+                  },
+                  "vision": {
+                    "type": "string",
+                    "enum": ["Normal", "Darkvision", "Low-light vision"],
+                    "description": "Type of vision: Normal (standard vision), Darkvision (see in darkness up to 60 feet), or Low-light vision (see in dim light as if bright light)"
+                  }
+                },
+                "required": ["id", "name", "hp", "size", "speed", "boosts", "languages"],
+                "additionalProperties": false
+              },
+              "minItems": 14,
+              "maxItems": 14,
+              "$comment": "Pathfinder 2E Core Rulebook includes exactly 14 standard playable ancestries"
+            },
+            "help_text": {
+              "type": "string",
+              "const": "Ancestry sets your baseline survivability and identity across the full campaign timeline.",
+              "description": "Helper text displayed to user"
+            },
+            "validation": {
+              "type": "object",
+              "description": "Validation rules for ancestry selection",
+              "additionalProperties": false,
+              "properties": {
+                "required": {
+                  "type": "boolean",
+                  "const": true
+                },
+                "error_messages": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "required": {
+                      "type": "string",
+                      "const": "Please select an ancestry before continuing."
+                    }
+                  },
+                  "required": ["required"]
+                }
+              },
+              "required": ["required", "error_messages"]
+            }
+          },
+          "required": ["field_type", "label", "required", "options", "help_text", "validation"]
+        },
+        "heritage": {
+          "type": "object",
+          "description": "Heritage selection field (conditional on ancestry)",
+          "additionalProperties": false,
+          "properties": {
+            "field_type": {
+              "type": "string",
+              "const": "select",
+              "description": "HTML input type"
+            },
+            "label": {
+              "type": "string",
+              "const": "Choose Your Heritage Path",
+              "description": "Field label"
+            },
+            "required": {
+              "type": "boolean",
+              "const": true,
+              "description": "Whether this field is mandatory"
+            },
+            "conditional": {
+              "type": "object",
+              "description": "Field only appears when ancestry is selected. Selected heritage must match the chosen ancestry (validated in heritages_by_ancestry).",
+              "additionalProperties": false,
+              "properties": {
+                "depends_on": {
+                  "type": "string",
+                  "const": "ancestry"
+                },
+                "relationship": {
+                  "type": "string",
+                  "const": "is_not_empty"
+                }
+              },
+              "required": ["depends_on", "relationship"]
+            },
+            "options_source": {
+              "type": "string",
+              "const": "CharacterManager::HERITAGES",
+              "description": "Dynamic options loaded via AJAX based on selected ancestry",
+              "$comment": "This field documents the PHP constant used to retrieve heritage data. The heritages_by_ancestry property below provides static schema validation for the expected structure."
+            },
+            "heritages_by_ancestry": {
+              "type": "object",
+              "description": "Heritage options organized by ancestry. Note: Currently only 6 ancestries have heritages implemented in CharacterManager::HERITAGES (Dwarf, Elf, Gnome, Goblin, Halfling, Human). The remaining 8 ancestries use the Human versatile heritage pattern until specific heritages are implemented.",
+              "additionalProperties": false,
+              "properties": {
+                "Dwarf": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/heritageOption"
+                  },
+                  "minItems": 4,
+                  "maxItems": 4
+                },
+                "Elf": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/heritageOption"
+                  },
+                  "minItems": 4,
+                  "maxItems": 4
+                },
+                "Gnome": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/heritageOption"
+                  },
+                  "minItems": 4,
+                  "maxItems": 4
+                },
+                "Goblin": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/heritageOption"
+                  },
+                  "minItems": 4,
+                  "maxItems": 4
+                },
+                "Halfling": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/heritageOption"
+                  },
+                  "minItems": 4,
+                  "maxItems": 4
+                },
+                "Human": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/heritageOption"
+                  },
+                  "minItems": 1,
+                  "maxItems": 1
+                },
+                "Half-Elf": {
+                  "type": "array",
+                  "description": "Half-Elf heritage options (not yet implemented in CharacterManager::HERITAGES)",
+                  "items": {
+                    "$ref": "#/$defs/heritageOption"
+                  },
+                  "minItems": 0,
+                  "maxItems": 4
+                },
+                "Half-Orc": {
+                  "type": "array",
+                  "description": "Half-Orc heritage options (not yet implemented in CharacterManager::HERITAGES)",
+                  "items": {
+                    "$ref": "#/$defs/heritageOption"
+                  },
+                  "minItems": 0,
+                  "maxItems": 4
+                },
+                "Leshy": {
+                  "type": "array",
+                  "description": "Leshy heritage options (not yet implemented in CharacterManager::HERITAGES)",
+                  "items": {
+                    "$ref": "#/$defs/heritageOption"
+                  },
+                  "minItems": 0,
+                  "maxItems": 4
+                },
+                "Orc": {
+                  "type": "array",
+                  "description": "Orc heritage options (not yet implemented in CharacterManager::HERITAGES)",
+                  "items": {
+                    "$ref": "#/$defs/heritageOption"
+                  },
+                  "minItems": 0,
+                  "maxItems": 4
+                },
+                "Catfolk": {
+                  "type": "array",
+                  "description": "Catfolk heritage options (not yet implemented in CharacterManager::HERITAGES)",
+                  "items": {
+                    "$ref": "#/$defs/heritageOption"
+                  },
+                  "minItems": 0,
+                  "maxItems": 4
+                },
+                "Kobold": {
+                  "type": "array",
+                  "description": "Kobold heritage options (not yet implemented in CharacterManager::HERITAGES)",
+                  "items": {
+                    "$ref": "#/$defs/heritageOption"
+                  },
+                  "minItems": 0,
+                  "maxItems": 4
+                },
+                "Ratfolk": {
+                  "type": "array",
+                  "description": "Ratfolk heritage options (not yet implemented in CharacterManager::HERITAGES)",
+                  "items": {
+                    "$ref": "#/$defs/heritageOption"
+                  },
+                  "minItems": 0,
+                  "maxItems": 4
+                },
+                "Tengu": {
+                  "type": "array",
+                  "description": "Tengu heritage options (not yet implemented in CharacterManager::HERITAGES)",
+                  "items": {
+                    "$ref": "#/$defs/heritageOption"
+                  },
+                  "minItems": 0,
+                  "maxItems": 4
+                }
+              }
+            },
+            "help_text": {
+              "type": "string",
+              "const": "Your heritage represents a unique subset of your ancestry with specific benefits. Select one that fits your character concept.",
+              "description": "Helper text displayed to user"
+            },
+            "validation": {
+              "type": "object",
+              "description": "Validation rules for heritage selection",
+              "additionalProperties": false,
+              "properties": {
+                "required": {
+                  "type": "boolean",
+                  "const": true
+                },
+                "error_messages": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "required": {
+                      "type": "string",
+                      "const": "Please select a heritage before continuing."
+                    }
+                  },
+                  "required": ["required"]
+                }
+              },
+              "required": ["required", "error_messages"]
+            }
+          },
+          "required": ["field_type", "label", "required", "conditional", "help_text", "validation"]
+        }
+      },
+      "required": ["ancestry", "heritage"]
+    },
+    "navigation": {
+      "type": "object",
+      "description": "Navigation rules for this step",
+      "additionalProperties": false,
+      "properties": {
+        "previous_step": {
+          "type": "integer",
+          "const": 1,
+          "description": "Previous step number"
+        },
+        "next_step": {
+          "type": "integer",
+          "const": 3,
+          "description": "Next step number"
+        },
+        "can_go_back": {
+          "type": "boolean",
+          "const": true,
+          "description": "User can return to previous step"
+        },
+        "can_skip": {
+          "type": "boolean",
+          "const": false,
+          "description": "Step cannot be skipped"
+        }
+      },
+      "required": ["previous_step", "next_step", "can_go_back", "can_skip"]
+    },
+    "validation": {
+      "type": "object",
+      "description": "Step-level validation rules",
+      "additionalProperties": false,
+      "properties": {
+        "step_complete": {
+          "type": "object",
+          "description": "Conditions for step completion",
+          "additionalProperties": false,
+          "properties": {
+            "required_fields": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "default": ["ancestry", "heritage"],
+              "description": "Fields that must be completed before advancing"
+            },
+            "error_message": {
+              "type": "string",
+              "default": "You must select both an ancestry and a heritage before continuing.",
+              "description": "Message shown when step validation fails"
+            }
+          },
+          "required": ["required_fields", "error_message"]
+        }
+      },
+      "required": ["step_complete"]
+    },
+    "tips": {
+      "type": "array",
+      "description": "Helpful tips for new players",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["title", "text"],
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Tip heading"
+          },
+          "text": {
+            "type": "string",
+            "description": "Tip content"
+          }
+        }
+      },
+      "default": [
+        {
+          "title": "Think Long-Term",
+          "text": "Choose ancestry for durability and play feel over many sessions, not only early optimization."
+        },
+        {
+          "title": "Role Consistency",
+          "text": "Use boosts and heritage traits to reinforce your intended role in your long-term roster."
+        },
+        {
+          "title": "Campaign Practicality",
+          "text": "Size, movement, and senses affect day-to-day dungeon decision making more than many players expect."
+        },
+        {
+          "title": "Vision Matters",
+          "text": "Darkvision and low-light vision are quality-of-life advantages that pay off repeatedly in persistent exploration."
+        }
+      ]
+    },
+    "examples": {
+      "type": "array",
+      "description": "Example ancestry and heritage selections for common character archetypes",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "archetype": {
+            "type": "string",
+            "description": "Character archetype name"
+          },
+          "ancestry": {
+            "type": "string",
+            "description": "Recommended ancestry"
+          },
+          "heritage": {
+            "type": "string",
+            "description": "Recommended heritage"
+          },
+          "rationale": {
+            "type": "string",
+            "description": "Why this ancestry/heritage combination suits this archetype"
+          }
+        },
+        "required": ["archetype", "ancestry", "heritage", "rationale"]
+      },
+      "default": [
+        {
+          "archetype": "Durable Tank",
+          "ancestry": "Dwarf",
+          "heritage": "Rock Dwarf",
+          "rationale": "Dwarves get 10 HP and Constitution boost, making them naturally durable. Rock Dwarf heritage extends darkvision to 120 feet for dungeon exploration."
+        },
+        {
+          "archetype": "Nimble Archer",
+          "ancestry": "Elf",
+          "heritage": "Woodland Elf",
+          "rationale": "Elves get Dexterity boost and 30 feet speed. Woodland Elf grants climb speed for tactical positioning and low-light vision for outdoor adventures."
+        },
+        {
+          "archetype": "Sneaky Scout",
+          "ancestry": "Goblin",
+          "heritage": "Snow Goblin",
+          "rationale": "Goblins are Small (bonus to Stealth) with Dexterity and Charisma boosts. Snow Goblin adds cold resistance and darkvision for all-terrain scouting."
+        },
+        {
+          "archetype": "Magical Investigator",
+          "ancestry": "Gnome",
+          "heritage": "Fey-Touched Gnome",
+          "rationale": "Gnomes have Charisma boost and low-light vision. Fey-Touched grants access to First World primal magic for utility and investigation."
+        },
+        {
+          "archetype": "Lucky Support",
+          "ancestry": "Halfling",
+          "heritage": "Gutsy Halfling",
+          "rationale": "Halflings excel at support with Dexterity and Wisdom boosts. Gutsy heritage provides bonus against fear effects, protecting the whole party."
+        },
+        {
+          "archetype": "Versatile Generalist",
+          "ancestry": "Human",
+          "heritage": "Versatile Heritage",
+          "rationale": "Humans get two free ability boosts for any build. Versatile Heritage grants an extra general feat at 1st level for additional customization."
+        }
+      ]
+    }
+  },
+  "required": ["step", "step_name", "step_description", "fields", "navigation", "validation", "tips", "examples"]
+}

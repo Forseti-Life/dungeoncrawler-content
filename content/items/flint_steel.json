@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.0.0",
+  "item_id": "flint_steel",
+  "name": "Flint and Steel",
+  "item_type": "adventuring_gear",
+  "level": 0,
+  "rarity": "common",
+  "traits": [],
+  "description": "A piece of flint and a steel striker for starting fires. Essential for lighting torches and campfires.",
+  "price": {
+    "cp": 5,
+    "sp": 0,
+    "gp": 0,
+    "pp": 0
+  },
+  "bulk": "0",
+  "hands": "2",
+  "created_at": "2026-03-01T00:00:00Z",
+  "updated_at": "2026-03-01T00:00:00Z",
+  "item_category": "adventuring_gear"
+}

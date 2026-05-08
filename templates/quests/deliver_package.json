@@ -1,0 +1,44 @@
+{
+  "template_id": "deliver_package",
+  "name": "Deliver Package to {destination}",
+  "description": "A merchant needs a package delivered to {destination}. The roads are dangerous, so be on your guard.",
+  "quest_type": "delivery",
+  "level_min": 1,
+  "level_max": 8,
+  "tags": ["delivery", "travel"],
+  "objectives_schema": [
+    {
+      "phase": 1,
+      "objectives": [
+        {
+          "objective_id": "travel_to_destination",
+          "type": "explore",
+          "target": "{destination}",
+          "description": "Travel to {destination}"
+        },
+        {
+          "objective_id": "deliver_package",
+          "type": "interact",
+          "target": "recipient",
+          "description": "Deliver the package to the recipient"
+        }
+      ]
+    }
+  ],
+  "rewards_schema": {
+    "xp": {
+      "base": 80,
+      "per_level": 25
+    },
+    "gold": {
+      "base": 12,
+      "per_level": 6,
+      "randomize": true
+    }
+  },
+  "prerequisites": {
+    "level_min": 1
+  },
+  "estimated_duration_minutes": 40,
+  "version": "1.0.0"
+}

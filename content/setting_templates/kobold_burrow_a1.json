@@ -1,0 +1,101 @@
+{
+    "template_id": "kobold_burrow_a1",
+    "name": "Kobold Burrow",
+    "description": "A network of small, meticulously engineered tunnels opens into a surprisingly organized underground chamber. Tiny alcoves line the walls, each containing bedding or supplies. The kobolds here are crafty trapmakers who have turned their home into a lethal maze for the unwary.",
+    "setting_type": "cave",
+    "size": "medium",
+    "lighting": "dim_light",
+    "setting_data": {
+        "theme_tags": [
+            "kobold",
+            "burrow",
+            "underground",
+            "traps",
+            "organized"
+        ],
+        "atmosphere": "The tunnels are claustrophobically small for medium creatures. Trip wires glint in the torchlight and the walls are scarred with pick marks. Somewhere ahead, high-pitched voices argue over the placement of a spring-loaded spike trap.",
+        "npcs": [
+            {
+                "name": "Tikka the Trapmaster",
+                "content_id": "kobold_trapmaster_tikka",
+                "ancestry": "Kobold",
+                "class": "Rogue",
+                "role": "hostile",
+                "team": "kobold_tribe",
+                "occupation": "Trap designer and warren overseer",
+                "description": "A kobold wearing oversized goggles and a bandolier of small mechanical devices. One hand is stained with alchemical reagents.",
+                "backstory": "Tikka is the genius behind the burrow defenses and fiercely proud of every trap. They see each intruder as a test subject for new designs.",
+                "attitude": "hostile",
+                "stats": {
+                    "maxHp": 16,
+                    "currentHp": 16,
+                    "ac": 17,
+                    "speed": 25,
+                    "perception": 7,
+                    "initiative_bonus": 5
+                },
+                "equipment": [
+                    "light crossbow",
+                    "dagger",
+                    "trap tools",
+                    "alchemist fire"
+                ]
+            }
+        ],
+        "objects": [
+            {
+                "object_id": "tripwire_trap",
+                "label": "Tripwire Trap",
+                "category": "trap",
+                "description": "Nearly invisible wire stretched across the passage at shin height, connected to a falling-rock mechanism.",
+                "passable": true,
+                "interactable": true
+            },
+            {
+                "object_id": "supply_alcove",
+                "label": "Supply Alcove",
+                "category": "custom",
+                "description": "A neatly organized niche in the wall containing dried meat, small tools, and crossbow bolts.",
+                "passable": true,
+                "interactable": true
+            },
+            {
+                "object_id": "mining_cart",
+                "label": "Mining Cart",
+                "category": "obstacle",
+                "description": "A small cart on rails, sized for kobolds, filled with chunks of ore and loose stones.",
+                "passable": false,
+                "interactable": true
+            },
+            {
+                "object_id": "pit_trap",
+                "label": "Concealed Pit",
+                "category": "trap",
+                "description": "A section of floor covered with a thin cloth and dust, concealing a shallow pit lined with sharpened stakes.",
+                "passable": true,
+                "interactable": true
+            }
+        ]
+    },
+    "search_tags": [
+        "kobold",
+        "burrow",
+        "cave",
+        "underground",
+        "tunnel",
+        "trap",
+        "lair",
+        "den",
+        "mine",
+        "organized",
+        "small",
+        "cramped",
+        "tripwire",
+        "crafty"
+    ],
+    "level_min": "1",
+    "level_max": "4",
+    "usage_count": "0",
+    "quality_score": "0.8",
+    "source": "handcrafted"
+}

@@ -1,0 +1,26 @@
+{
+  "name": "drupal/dungeoncrawler_content",
+  "description": "AI-powered procedurally generated living dungeon for Pathfinder 2E",
+  "type": "drupal-module",
+  "license": "GPL-2.0-or-later",
+  "minimum-stability": "stable",
+  "require": {
+    "php": "^8.1",
+    "drupal/core": "^10.3 || ^11",
+    "drupal/ai_conversation": "^1.0"
+  },
+  "require-dev": {
+    "drupal/coder": "^8.3",
+    "phpunit/phpunit": "^9.5",
+    "phpstan/phpstan": "^1.0"
+  },
+  "keywords": [
+    "drupal",
+    "pathfinder",
+    "pf2e",
+    "dungeon",
+    "generator",
+    "ai",
+    "gaming"
+  ]
+}

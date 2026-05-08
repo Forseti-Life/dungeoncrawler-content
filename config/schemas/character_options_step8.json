@@ -1,0 +1,578 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dungeoncrawler.life/schemas/character_options_step8.json",
+  "title": "Character Creation Step 8: Finishing Touches",
+  "description": "Defines options for finalizing character details including age, gender, appearance, personality, and backstory in Pathfinder 2E character creation",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0.0",
+      "description": "Schema version for migration compatibility"
+    },
+    "step": {
+      "type": "integer",
+      "const": 8,
+      "description": "Step number in character creation process"
+    },
+    "step_name": {
+      "type": "string",
+      "const": "Legacy Identity",
+      "description": "Human-readable name for this step"
+    },
+    "step_description": {
+      "type": "string",
+      "const": "Complete the details that make your character memorable from first expedition to eventual retirement.",
+      "description": "Explanation of what happens in this step"
+    },
+    "fields": {
+      "type": "object",
+      "description": "Form fields available in this step",
+      "properties": {
+        "portrait_generate": {
+          "type": "object",
+          "description": "Toggle portrait generation",
+          "properties": {
+            "field_type": {
+              "type": "string",
+              "const": "checkbox",
+              "description": "HTML input type"
+            },
+            "label": {
+              "type": "string",
+              "const": "Generate a character portrait",
+              "description": "Field label"
+            },
+            "required": {
+              "type": "boolean",
+              "const": false,
+              "description": "Optional field"
+            },
+            "help_text": {
+              "type": "string",
+              "const": "Creates a portrait using the configured AI image provider after character creation.",
+              "description": "Helper text"
+            }
+          },
+          "required": ["field_type", "label", "required", "help_text"]
+        },
+        "portrait_prompt": {
+          "type": "object",
+          "description": "Optional prompt to guide portrait generation",
+          "properties": {
+            "field_type": {
+              "type": "string",
+              "const": "textarea",
+              "description": "HTML input type"
+            },
+            "label": {
+              "type": "string",
+              "const": "Portrait prompt (optional)",
+              "description": "Field label"
+            },
+            "required": {
+              "type": "boolean",
+              "const": false,
+              "description": "Optional field"
+            },
+            "placeholder": {
+              "type": "string",
+              "const": "e.g., rugged veteran with a weathered cloak, warm amber lighting",
+              "description": "Placeholder text"
+            },
+            "help_text": {
+              "type": "string",
+              "const": "Add extra visual direction. Character attributes will be injected automatically.",
+              "description": "Helper text"
+            },
+            "validation": {
+              "type": "object",
+              "properties": {
+                "max_length": {
+                  "type": "integer",
+                  "const": 500,
+                  "description": "Maximum character count"
+                },
+                "rows": {
+                  "type": "integer",
+                  "const": 3,
+                  "description": "Visible rows in textarea"
+                },
+                "error_messages": {
+                  "type": "object",
+                  "properties": {
+                    "max_length": {
+                      "type": "string",
+                      "const": "Portrait prompt cannot exceed 500 characters."
+                    }
+                  },
+                  "required": ["max_length"]
+                }
+              },
+              "required": ["max_length", "rows", "error_messages"]
+            }
+          },
+          "required": ["field_type", "label", "required", "help_text", "validation"]
+        },
+        "age": {
+          "type": "object",
+          "description": "Character age field",
+          "properties": {
+            "field_type": {
+              "type": "string",
+              "const": "text",
+              "description": "HTML input type"
+            },
+            "label": {
+              "type": "string",
+              "const": "Age / Life Stage",
+              "description": "Field label"
+            },
+            "required": {
+              "type": "boolean",
+              "const": false,
+              "description": "Optional field"
+            },
+            "placeholder": {
+              "type": "string",
+              "const": "e.g., 25, young adult, veteran, elder",
+              "description": "Placeholder text"
+            },
+            "help_text": {
+              "type": "string",
+              "const": "Optional detail that helps frame your character's long-term arc and perspective.",
+              "description": "Helper text"
+            },
+            "validation": {
+              "type": "object",
+              "properties": {
+                "max_length": {
+                  "type": "integer",
+                  "const": 50
+                },
+                "pattern": {
+                  "type": "string",
+                  "const": "^[0-9a-zA-Z\\s,\\-]+$",
+                  "description": "Alphanumeric with spaces, commas, hyphens"
+                },
+                "error_messages": {
+                  "type": "object",
+                  "properties": {
+                    "max_length": {
+                      "type": "string",
+                      "const": "Age cannot exceed 50 characters."
+                    },
+                    "pattern": {
+                      "type": "string",
+                      "const": "Age must contain only letters, numbers, spaces, commas, and hyphens."
+                    }
+                  },
+                  "required": ["max_length", "pattern"]
+                }
+              },
+              "required": ["max_length", "pattern", "error_messages"]
+            }
+          },
+          "required": ["field_type", "label", "required", "help_text", "validation"]
+        },
+        "gender": {
+          "type": "object",
+          "description": "Character gender/pronouns field",
+          "properties": {
+            "field_type": {
+              "type": "string",
+              "const": "text",
+              "description": "HTML input type"
+            },
+            "label": {
+              "type": "string",
+              "const": "Gender / Pronouns",
+              "description": "Field label"
+            },
+            "required": {
+              "type": "boolean",
+              "const": false,
+              "description": "Optional field"
+            },
+            "placeholder": {
+              "type": "string",
+              "const": "e.g., she/her, he/him, they/them, or any identity",
+              "description": "Placeholder text"
+            },
+            "help_text": {
+              "type": "string",
+              "const": "Identity detail for roleplay consistency. This has no mechanical impact.",
+              "description": "Helper text"
+            },
+            "validation": {
+              "type": "object",
+              "properties": {
+                "max_length": {
+                  "type": "integer",
+                  "const": 100
+                },
+                "error_messages": {
+                  "type": "object",
+                  "properties": {
+                    "max_length": {
+                      "type": "string",
+                      "const": "Gender / Pronouns cannot exceed 100 characters."
+                    }
+                  },
+                  "required": ["max_length"]
+                }
+              },
+              "required": ["max_length", "error_messages"]
+            }
+          },
+          "required": ["field_type", "label", "required", "help_text", "validation"]
+        },
+        "appearance": {
+          "type": "object",
+          "description": "Physical appearance description",
+          "properties": {
+            "field_type": {
+              "type": "string",
+              "const": "textarea",
+              "description": "HTML input type"
+            },
+            "label": {
+              "type": "string",
+              "const": "Appearance & Presence",
+              "description": "Field label"
+            },
+            "required": {
+              "type": "boolean",
+              "const": false,
+              "description": "Optional field"
+            },
+            "placeholder": {
+              "type": "string",
+              "const": "Describe the details other players will remember: silhouette, gear style, expression, notable marks...",
+              "description": "Placeholder text"
+            },
+            "help_text": {
+              "type": "string",
+              "const": "Capture recognizable visual details that stay consistent across long campaign play.",
+              "description": "Helper text"
+            },
+            "validation": {
+              "type": "object",
+              "properties": {
+                "max_length": {
+                  "type": "integer",
+                  "const": 1000,
+                  "description": "Maximum character count"
+                },
+                "rows": {
+                  "type": "integer",
+                  "const": 5,
+                  "description": "Visible rows in textarea"
+                },
+                "error_messages": {
+                  "type": "object",
+                  "properties": {
+                    "max_length": {
+                      "type": "string",
+                      "const": "Physical Appearance cannot exceed 1000 characters."
+                    }
+                  },
+                  "required": ["max_length"]
+                }
+              },
+              "required": ["max_length", "rows", "error_messages"]
+            }
+          },
+          "required": ["field_type", "label", "required", "help_text", "validation"]
+        },
+        "personality": {
+          "type": "object",
+          "description": "Personality traits and mannerisms",
+          "properties": {
+            "field_type": {
+              "type": "string",
+              "const": "textarea",
+              "description": "HTML input type"
+            },
+            "label": {
+              "type": "string",
+              "const": "Personality & Table Voice",
+              "description": "Field label"
+            },
+            "required": {
+              "type": "boolean",
+              "const": false,
+              "description": "Optional field"
+            },
+            "placeholder": {
+              "type": "string",
+              "const": "How does your character speak, decide, and react under pressure over many sessions?",
+              "description": "Placeholder text"
+            },
+            "help_text": {
+              "type": "string",
+              "const": "Define habits and tone you can sustain consistently through a full campaign arc.",
+              "description": "Helper text"
+            },
+            "validation": {
+              "type": "object",
+              "properties": {
+                "max_length": {
+                  "type": "integer",
+                  "const": 1000,
+                  "description": "Maximum character count"
+                },
+                "rows": {
+                  "type": "integer",
+                  "const": 5,
+                  "description": "Visible rows in textarea"
+                },
+                "error_messages": {
+                  "type": "object",
+                  "properties": {
+                    "max_length": {
+                      "type": "string",
+                      "const": "Personality & Mannerisms cannot exceed 1000 characters."
+                    }
+                  },
+                  "required": ["max_length"]
+                }
+              },
+              "required": ["max_length", "rows", "error_messages"]
+            }
+          },
+          "required": ["field_type", "label", "required", "help_text", "validation"]
+        },
+        "backstory": {
+          "type": "object",
+          "description": "Character backstory and history",
+          "properties": {
+            "field_type": {
+              "type": "string",
+              "const": "textarea",
+              "description": "HTML input type"
+            },
+            "label": {
+              "type": "string",
+              "const": "Backstory & Legacy Goal",
+              "description": "Field label"
+            },
+            "required": {
+              "type": "boolean",
+              "const": false,
+              "description": "Optional field"
+            },
+            "placeholder": {
+              "type": "string",
+              "const": "Where did they start, why do they stay in this world, and what ending might define their retirement?",
+              "description": "Placeholder text"
+            },
+            "help_text": {
+              "type": "string",
+              "const": "Capture the origin, motivations, and long-term goals that will shape this character's campaign legacy.",
+              "description": "Helper text"
+            },
+            "validation": {
+              "type": "object",
+              "properties": {
+                "max_length": {
+                  "type": "integer",
+                  "const": 5000,
+                  "description": "Maximum character count"
+                },
+                "rows": {
+                  "type": "integer",
+                  "const": 10,
+                  "description": "Visible rows in textarea"
+                },
+                "error_messages": {
+                  "type": "object",
+                  "properties": {
+                    "max_length": {
+                      "type": "string",
+                      "const": "Backstory cannot exceed 5000 characters."
+                    }
+                  },
+                  "required": ["max_length"]
+                }
+              },
+              "required": ["max_length", "rows", "error_messages"]
+            }
+          },
+          "required": ["field_type", "label", "required", "help_text", "validation"]
+        }
+      },
+      "required": ["age", "gender", "appearance", "personality", "backstory"]
+    },
+    "character_summary": {
+      "type": "object",
+      "description": "Display-only summary of all choices made during character creation",
+      "properties": {
+        "label": {
+          "type": "string",
+          "const": "Character Summary",
+          "description": "Section label"
+        },
+        "sections": {
+          "type": "array",
+          "description": "Organized summary of character data",
+          "items": {
+            "type": "object",
+            "properties": {
+              "section_name": {
+                "type": "string",
+                "enum": ["Basic Info", "Ancestry & Heritage", "Background & Class", "Abilities", "Alignment & Deity", "Equipment"],
+                "description": "Name of the summary section"
+              },
+              "fields": {
+                "type": "object",
+                "description": "Key-value pairs summarizing this section",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": ["section_name", "fields"],
+            "additionalProperties": false
+          },
+          "examples": [
+            [
+              {
+                "section_name": "Basic Info",
+                "fields": {
+                  "Name": "Valeros",
+                  "Concept": "Sword-for-hire seeking redemption"
+                }
+              },
+              {
+                "section_name": "Ancestry & Heritage",
+                "fields": {
+                  "Ancestry": "Human",
+                  "Heritage": "Versatile Heritage"
+                }
+              },
+              {
+                "section_name": "Background & Class",
+                "fields": {
+                  "Background": "Mercenary",
+                  "Class": "Fighter"
+                }
+              },
+              {
+                "section_name": "Abilities",
+                "fields": {
+                  "STR": "18 (+4)",
+                  "DEX": "14 (+2)",
+                  "CON": "16 (+3)",
+                  "INT": "10 (+0)",
+                  "WIS": "12 (+1)",
+                  "CHA": "10 (+0)"
+                }
+              },
+              {
+                "section_name": "Alignment & Deity",
+                "fields": {
+                  "Alignment": "Neutral Good",
+                  "Deity": "None"
+                }
+              },
+              {
+                "section_name": "Equipment",
+                "fields": {
+                  "Weapon": "Longsword",
+                  "Armor": "Chain Mail",
+                  "Shield": "Steel Shield"
+                }
+              }
+            ]
+          ]
+        },
+        "help_text": {
+          "type": "string",
+          "const": "Review your character's mechanical details before finalizing. You can go back to any previous step to make changes.",
+          "description": "Helper text"
+        }
+      },
+      "required": ["label", "sections", "help_text"]
+    },
+    "validation": {
+      "type": "object",
+      "description": "Validation rules for completing this step",
+      "properties": {
+        "step_complete": {
+          "type": "object",
+          "properties": {
+            "required_fields": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "default": [],
+              "description": "All fields are optional - character can be completed with minimal information"
+            },
+            "error_message": {
+              "type": "string",
+              "default": "Please review your character before finalizing.",
+              "description": "Message shown when validation fails"
+            }
+          },
+          "required": ["required_fields", "error_message"]
+        }
+      },
+      "required": ["step_complete"]
+    },
+    "navigation": {
+      "type": "object",
+      "description": "Navigation rules for this step",
+      "properties": {
+        "previous_step": {
+          "type": "integer",
+          "const": 7,
+          "description": "Previous step number"
+        },
+        "next_step": {
+          "type": "null",
+          "const": null,
+          "description": "No next step - this is the final step"
+        },
+        "can_go_back": {
+          "type": "boolean",
+          "const": true,
+          "description": "User can return to previous step"
+        },
+        "can_skip": {
+          "type": "boolean",
+          "const": false,
+          "description": "Step cannot be skipped"
+        },
+        "completion_action": {
+          "type": "string",
+          "const": "create_character",
+          "description": "Action to perform when this step is completed"
+        },
+        "completion_button_text": {
+          "type": "string",
+          "const": "Create Character",
+          "description": "Text for the final completion button"
+        }
+      },
+      "required": ["previous_step", "next_step", "can_go_back", "can_skip", "completion_action", "completion_button_text"]
+    },
+    "tips": {
+      "type": "array",
+      "description": "Helpful tips for new players",
+      "items": {
+        "type": "string"
+      },
+      "default": [
+        "Keep it concise and playable: a strong paragraph beats a long, unfocused biography.",
+        "Connect backstory to campaign intent—why this character stays, fights, and grows here.",
+        "Define one unresolved thread you can explore over future sessions.",
+        "Leave room for evolution so your character can change naturally through play.",
+        "A retirement end-state idea can make your long-form arc more satisfying.",
+        "Your first draft is enough; legacy identity strengthens as campaign history accumulates."
+      ]
+    }
+  },
+  "required": ["schema_version", "step", "step_name", "step_description", "fields", "character_summary", "validation", "navigation", "tips"]
+}

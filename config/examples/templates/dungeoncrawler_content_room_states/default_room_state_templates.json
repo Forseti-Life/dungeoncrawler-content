@@ -1,0 +1,67 @@
+{
+  "rows": [
+    {
+      "room_id": "tpl_room_tavern_entrance",
+      "is_cleared": 0,
+      "fog_state": {
+        "revealed_tiles": [],
+        "visited": false
+      },
+      "last_visited": 0
+    },
+    {
+      "room_id": "tpl_room_goblin_scout_post",
+      "is_cleared": 0,
+      "fog_state": {"revealed_tiles": [], "visited": false},
+      "last_visited": 0
+    },
+    {
+      "room_id": "tpl_room_crypt_anteroom",
+      "is_cleared": 0,
+      "fog_state": {"revealed_tiles": [], "visited": false},
+      "last_visited": 0
+    },
+    {
+      "room_id": "tpl_room_hall_spear_trap",
+      "is_cleared": 0,
+      "fog_state": {"revealed_tiles": [], "visited": false},
+      "last_visited": 0
+    },
+    {
+      "room_id": "tpl_room_flooded_cistern",
+      "is_cleared": 0,
+      "fog_state": {"revealed_tiles": [], "visited": false},
+      "last_visited": 0
+    },
+    {
+      "room_id": "tpl_room_alchemy_lab",
+      "is_cleared": 0,
+      "fog_state": {"revealed_tiles": [], "visited": false},
+      "last_visited": 0
+    },
+    {
+      "room_id": "tpl_room_ruined_hall",
+      "is_cleared": 0,
+      "fog_state": {"revealed_tiles": [], "visited": false},
+      "last_visited": 0
+    },
+    {
+      "room_id": "tpl_room_frozen_shrine",
+      "is_cleared": 0,
+      "fog_state": {"revealed_tiles": [], "visited": false},
+      "last_visited": 0
+    },
+    {
+      "room_id": "tpl_room_clockwork_foundry",
+      "is_cleared": 0,
+      "fog_state": {"revealed_tiles": [], "visited": false},
+      "last_visited": 0
+    },
+    {
+      "room_id": "tpl_room_summit_storm_dais",
+      "is_cleared": 0,
+      "fog_state": {"revealed_tiles": [], "visited": false},
+      "last_visited": 0
+    }
+  ]
+}
