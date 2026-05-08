@@ -1,0 +1,202 @@
+{
+  "schema_version": "1.0.0",
+  "creature_id": "ef7bfd31-cc70-475c-b44d-c78247ac5e7a",
+  "name": "Goblin Warrior",
+  "level": 1,
+  "creature_type": "humanoid",
+  "traits": [
+    "goblinoid",
+    "humanoid",
+    "minion"
+  ],
+  "alignment": "CE",
+  "rarity": "common",
+  "size": "small",
+  "hex_footprint": 1,
+  "pf2e_stats": {
+    "ability_scores": {
+      "strength": {
+        "score": 10,
+        "modifier": 0
+      },
+      "dexterity": {
+        "score": 16,
+        "modifier": 3
+      },
+      "constitution": {
+        "score": 12,
+        "modifier": 1
+      },
+      "intelligence": {
+        "score": 8,
+        "modifier": -1
+      },
+      "wisdom": {
+        "score": 10,
+        "modifier": 0
+      },
+      "charisma": {
+        "score": 8,
+        "modifier": -1
+      }
+    },
+    "hp": {
+      "max": 16,
+      "current": 16,
+      "temporary": 0,
+      "hardness": 0,
+      "immunities": [],
+      "resistances": [],
+      "weaknesses": []
+    },
+    "ac": 17,
+    "saves": {
+      "fortitude": {
+        "modifier": 6
+      },
+      "reflex": {
+        "modifier": 9
+      },
+      "will": {
+        "modifier": 4
+      }
+    },
+    "perception": {
+      "modifier": 5,
+      "senses": [
+        "darkvision 60ft"
+      ]
+    },
+    "speed": {
+      "land": 25,
+      "fly": null,
+      "swim": null,
+      "climb": null,
+      "burrow": null
+    },
+    "skills": {
+      "Stealth": {
+        "modifier": 8,
+        "proficiency": "trained"
+      },
+      "Acrobatics": {
+        "modifier": 6,
+        "proficiency": "trained"
+      }
+    },
+    "languages": [
+      "Goblin"
+    ],
+    "attacks": [
+      {
+        "name": "Dogslasher",
+        "type": "melee",
+        "attack_bonus": 8,
+        "damage": "1d6+2",
+        "damage_type": "slashing",
+        "traits": [
+          "agile",
+          "backstabber",
+          "finesse"
+        ],
+        "reach_ft": 5
+      }
+    ],
+    "special_abilities": [],
+    "spells": null
+  },
+  "ai_personality": {
+    "disposition": "hostile",
+    "personality_traits": [
+      "Aggressive and territorial",
+      "Cowardly when outnumbered",
+      "Values shiny objects"
+    ],
+    "goals": {
+      "primary": "Defend territory and collect treasure"
+    },
+    "fears": [
+      "Dogs",
+      "Horses",
+      "Fire"
+    ],
+    "desires": [
+      "Shiny objects",
+      "Easy prey",
+      "Recognition from tribe"
+    ],
+    "speech_patterns": {
+      "dialect": "Broken Common with Goblin interjections",
+      "catchphrases": [
+        "Longshanks!",
+        "Shinies!"
+      ],
+      "formality": "crude"
+    },
+    "combat_personality": {
+      "aggression": "aggressive",
+      "tactics": "basic",
+      "morale": "cautious",
+      "flee_threshold_hp_percent": 30,
+      "preferred_targets": [
+        "spellcaster",
+        "healer"
+      ],
+      "preferred_range": "melee"
+    },
+    "memory": [],
+    "relationships": {}
+  },
+  "lifecycle": {
+    "spawn_type": "respawning",
+    "is_alive": true,
+    "death_timestamp": null,
+    "killed_by_party": null,
+    "respawn_cooldown_hours": 24.0,
+    "next_respawn_at": null,
+    "home_room_id": "",
+    "current_room_id": "",
+    "patrol_route": [],
+    "wander_radius_rooms": 2
+  },
+  "loot_table": {
+    "guaranteed": [],
+    "random": [
+      {
+        "item": {
+          "name": "Rusty Dogslasher",
+          "quantity": 1,
+          "rarity": "common"
+        },
+        "drop_chance": 0.8
+      },
+      {
+        "item": {
+          "name": "Goblin Ear Necklace",
+          "quantity": 1,
+          "rarity": "common"
+        },
+        "drop_chance": 0.3
+      }
+    ],
+    "currency": {
+      "cp_range": [
+        1,
+        12
+      ],
+      "sp_range": [
+        0,
+        2
+      ],
+      "gp_range": [
+        0,
+        0
+      ]
+    }
+  },
+  "xp_reward": 10,
+  "created_at": "2026-02-17T14:35:38.040863+00:00",
+  "updated_at": "2026-02-17T14:35:38.040876+00:00",
+  "description": "A goblin warrior armed with a simple blade.",
+  "source": "Pathfinder Bestiary 1"
+}

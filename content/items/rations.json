@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.0.0",
+  "item_id": "rations",
+  "name": "Rations (1 week)",
+  "item_type": "adventuring_gear",
+  "level": 0,
+  "rarity": "common",
+  "traits": [],
+  "description": "A week's worth of preserved food and drink, including dried meat, hardtack, and dried fruit. Enough to sustain one adventurer for 7 days.",
+  "price": {
+    "cp": 0,
+    "sp": 4,
+    "gp": 0,
+    "pp": 0
+  },
+  "bulk": "L",
+  "hands": null,
+  "created_at": "2026-03-01T00:00:00Z",
+  "updated_at": "2026-03-01T00:00:00Z",
+  "item_category": "adventuring_gear"
+}

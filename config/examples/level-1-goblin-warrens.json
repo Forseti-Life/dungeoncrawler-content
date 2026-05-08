@@ -1,0 +1,2442 @@
+{
+  "$schema": "../schemas/dungeon_level.schema.json",
+  "schema_version": "1.0.0",
+  "level_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+  "depth": 1,
+  "theme": "goblin_warrens",
+  "name": "The Fungal Pantry of Gribbles Rindsworth",
+  "flavor_text": "The air grows thick with the pungent aroma of cave mushrooms and... is that cheese? The rough-hewn tunnels ahead are goblin-made, their walls scratched with crude drawings of what appears to be a very small figure wearing an oversized crown and holding a wedge of cheese aloft like a holy relic. Welcome to the domain of Gribbles Rindsworth the Magnificent.",
+  "created_at": "2025-01-15T00:00:00Z",
+  "updated_at": "2026-02-17T00:00:00Z",
+  "is_persistent": true,
+  "hex_map": {
+    "map_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "name": "Goblin Warrens - Level 1",
+    "hex_size_ft": 5,
+    "orientation": "flat-top",
+    "dimensions": {
+      "min_q": -6,
+      "max_q": 6,
+      "min_r": -6,
+      "max_r": 6
+    },
+    "hexes": [
+      {
+        "q": 0,
+        "r": 0,
+        "terrain": "stone_floor",
+        "room_id": "room-entrance-001",
+        "is_passable": true,
+        "elevation_ft": 0
+      },
+      {
+        "q": 1,
+        "r": 0,
+        "terrain": "stone_floor",
+        "room_id": "room-entrance-001",
+        "is_passable": true,
+        "elevation_ft": 0
+      },
+      {
+        "q": 0,
+        "r": 1,
+        "terrain": "stone_floor",
+        "room_id": "room-entrance-001",
+        "is_passable": true,
+        "elevation_ft": 0
+      },
+      {
+        "q": 1,
+        "r": 1,
+        "terrain": "stone_floor",
+        "room_id": "room-entrance-001",
+        "is_passable": true,
+        "elevation_ft": 0
+      },
+      {
+        "q": -1,
+        "r": 0,
+        "terrain": "stone_floor",
+        "room_id": "room-entrance-001",
+        "is_passable": true,
+        "elevation_ft": 0
+      },
+      {
+        "q": 2,
+        "r": -1,
+        "terrain": "stone_floor",
+        "room_id": null,
+        "is_passable": true,
+        "elevation_ft": 0
+      },
+      {
+        "q": 3,
+        "r": -1,
+        "terrain": "stone_floor",
+        "room_id": null,
+        "is_passable": true,
+        "elevation_ft": 0
+      },
+      {
+        "q": 3,
+        "r": -2,
+        "terrain": "stone_floor",
+        "room_id": null,
+        "is_passable": true,
+        "elevation_ft": 0
+      },
+      {
+        "q": 4,
+        "r": -2,
+        "terrain": "mud",
+        "room_id": "room-pantry-002",
+        "is_passable": true,
+        "elevation_ft": 0
+      },
+      {
+        "q": 4,
+        "r": -3,
+        "terrain": "fungal_growth",
+        "room_id": "room-pantry-002",
+        "is_passable": true,
+        "elevation_ft": 0
+      },
+      {
+        "q": 5,
+        "r": -3,
+        "terrain": "fungal_growth",
+        "room_id": "room-pantry-002",
+        "is_passable": true,
+        "elevation_ft": 0
+      },
+      {
+        "q": 5,
+        "r": -4,
+        "terrain": "mud",
+        "room_id": "room-pantry-002",
+        "is_passable": true,
+        "elevation_ft": 0
+      },
+      {
+        "q": 4,
+        "r": -4,
+        "terrain": "fungal_growth",
+        "room_id": "room-pantry-002",
+        "is_passable": true,
+        "elevation_ft": 0
+      },
+      {
+        "q": 3,
+        "r": -3,
+        "terrain": "mud",
+        "room_id": "room-pantry-002",
+        "is_passable": true,
+        "elevation_ft": 0
+      },
+      {
+        "q": -1,
+        "r": 2,
+        "terrain": "stone_floor",
+        "room_id": null,
+        "is_passable": true,
+        "elevation_ft": -5
+      },
+      {
+        "q": -1,
+        "r": 3,
+        "terrain": "stone_floor",
+        "room_id": null,
+        "is_passable": true,
+        "elevation_ft": -5
+      },
+      {
+        "q": -2,
+        "r": 3,
+        "terrain": "rubble",
+        "room_id": "room-spiders-003",
+        "is_passable": true,
+        "elevation_ft": -5
+      },
+      {
+        "q": -2,
+        "r": 4,
+        "terrain": "webbing",
+        "room_id": "room-spiders-003",
+        "is_passable": true,
+        "elevation_ft": -5
+      },
+      {
+        "q": -3,
+        "r": 4,
+        "terrain": "webbing",
+        "room_id": "room-spiders-003",
+        "is_passable": true,
+        "elevation_ft": -5
+      },
+      {
+        "q": -3,
+        "r": 5,
+        "terrain": "webbing",
+        "room_id": "room-spiders-003",
+        "is_passable": true,
+        "elevation_ft": -5
+      },
+      {
+        "q": -1,
+        "r": 4,
+        "terrain": "rubble",
+        "room_id": "room-spiders-003",
+        "is_passable": true,
+        "elevation_ft": -5
+      },
+      {
+        "q": 0,
+        "r": -2,
+        "terrain": "stone_floor",
+        "room_id": null,
+        "is_passable": true,
+        "elevation_ft": 0
+      },
+      {
+        "q": 0,
+        "r": -3,
+        "terrain": "stone_floor",
+        "room_id": null,
+        "is_passable": true,
+        "elevation_ft": 0
+      },
+      {
+        "q": -1,
+        "r": -3,
+        "terrain": "stone_carved",
+        "room_id": "room-throne-004",
+        "is_passable": true,
+        "elevation_ft": 5
+      },
+      {
+        "q": -1,
+        "r": -4,
+        "terrain": "stone_carved",
+        "room_id": "room-throne-004",
+        "is_passable": true,
+        "elevation_ft": 5
+      },
+      {
+        "q": 0,
+        "r": -4,
+        "terrain": "stone_carved",
+        "room_id": "room-throne-004",
+        "is_passable": true,
+        "elevation_ft": 5
+      },
+      {
+        "q": 0,
+        "r": -5,
+        "terrain": "stone_carved",
+        "room_id": "room-throne-004",
+        "is_passable": true,
+        "elevation_ft": 5
+      },
+      {
+        "q": -2,
+        "r": -3,
+        "terrain": "stone_carved",
+        "room_id": "room-throne-004",
+        "is_passable": true,
+        "elevation_ft": 5
+      },
+      {
+        "q": -2,
+        "r": -4,
+        "terrain": "stone_carved",
+        "room_id": "room-throne-004",
+        "is_passable": true,
+        "elevation_ft": 5
+      },
+      {
+        "q": 1,
+        "r": -4,
+        "terrain": "stone_carved",
+        "room_id": "room-throne-004",
+        "is_passable": true,
+        "elevation_ft": 5
+      },
+      {
+        "q": 3,
+        "r": 1,
+        "terrain": "stone_floor",
+        "room_id": null,
+        "is_passable": true,
+        "elevation_ft": 0
+      },
+      {
+        "q": 4,
+        "r": 0,
+        "terrain": "stone_floor",
+        "room_id": null,
+        "is_passable": true,
+        "elevation_ft": 0
+      },
+      {
+        "q": 5,
+        "r": 0,
+        "terrain": "stone_floor",
+        "room_id": "room-rest-005",
+        "is_passable": true,
+        "elevation_ft": 0
+      },
+      {
+        "q": 5,
+        "r": 1,
+        "terrain": "stone_floor",
+        "room_id": "room-rest-005",
+        "is_passable": true,
+        "elevation_ft": 0
+      },
+      {
+        "q": 6,
+        "r": 0,
+        "terrain": "stone_floor",
+        "room_id": "room-rest-005",
+        "is_passable": true,
+        "elevation_ft": 0
+      },
+      {
+        "q": 6,
+        "r": -1,
+        "terrain": "stone_floor",
+        "room_id": "room-rest-005",
+        "is_passable": true,
+        "elevation_ft": 0
+      }
+    ],
+    "connections": [
+      {
+        "connection_id": "conn-001",
+        "from": {
+          "q": 1,
+          "r": 0
+        },
+        "to": {
+          "q": 2,
+          "r": -1
+        },
+        "type": "open_passage",
+        "is_known": true
+      },
+      {
+        "connection_id": "conn-002",
+        "from": {
+          "q": 3,
+          "r": -2
+        },
+        "to": {
+          "q": 4,
+          "r": -2
+        },
+        "type": "door",
+        "is_known": true,
+        "is_locked": false,
+        "description": "A crude wooden door with 'KEEPE OUT \u2014 GRIBBLES PANTRY' scratched into it"
+      },
+      {
+        "connection_id": "conn-003",
+        "from": {
+          "q": 0,
+          "r": 1
+        },
+        "to": {
+          "q": -1,
+          "r": 2
+        },
+        "type": "stairs",
+        "is_known": true,
+        "description": "Rough-cut stairs descending into darkness. Spider silk glistens on the walls."
+      },
+      {
+        "connection_id": "conn-004",
+        "from": {
+          "q": -1,
+          "r": 0
+        },
+        "to": {
+          "q": 0,
+          "r": -2
+        },
+        "type": "open_passage",
+        "is_known": true
+      },
+      {
+        "connection_id": "conn-005",
+        "from": {
+          "q": 0,
+          "r": -3
+        },
+        "to": {
+          "q": -1,
+          "r": -3
+        },
+        "type": "door",
+        "is_known": true,
+        "is_locked": true,
+        "lock_dc": 20,
+        "description": "A surprisingly well-crafted iron-banded door with a sign reading 'HIS MOST MAGNIFICENTEST MAJESTY'S THRONE ROOM \u2014 KNOCK FIRST'"
+      },
+      {
+        "connection_id": "conn-006",
+        "from": {
+          "q": 1,
+          "r": 0
+        },
+        "to": {
+          "q": 3,
+          "r": 1
+        },
+        "type": "secret_door",
+        "is_known": false,
+        "perception_dc": 22,
+        "description": "A section of wall that swings open when a loose stone shaped like a cheese wedge is pressed."
+      },
+      {
+        "connection_id": "conn-007",
+        "from": {
+          "q": 4,
+          "r": 0
+        },
+        "to": {
+          "q": 5,
+          "r": 0
+        },
+        "type": "open_passage",
+        "is_known": false
+      }
+    ],
+    "regions": [
+      {
+        "region_id": "region-entrance",
+        "name": "The Welcoming Gutter",
+        "hexes": [
+          {
+            "q": 0,
+            "r": 0
+          },
+          {
+            "q": 1,
+            "r": 0
+          },
+          {
+            "q": 0,
+            "r": 1
+          },
+          {
+            "q": 1,
+            "r": 1
+          },
+          {
+            "q": -1,
+            "r": 0
+          }
+        ],
+        "environmental_effects": [],
+        "lighting": "dim"
+      },
+      {
+        "region_id": "region-pantry",
+        "name": "Gribbles' Fungal Pantry",
+        "hexes": [
+          {
+            "q": 4,
+            "r": -2
+          },
+          {
+            "q": 4,
+            "r": -3
+          },
+          {
+            "q": 5,
+            "r": -3
+          },
+          {
+            "q": 5,
+            "r": -4
+          },
+          {
+            "q": 4,
+            "r": -4
+          },
+          {
+            "q": 3,
+            "r": -3
+          }
+        ],
+        "environmental_effects": [
+          {
+            "effect": "toxic_spores",
+            "description": "Fungal spores fill the air. DC 15 Fortitude save each minute or sickened 1.",
+            "save_dc": 15,
+            "save_type": "fortitude"
+          }
+        ],
+        "lighting": "darkness"
+      },
+      {
+        "region_id": "region-spiders",
+        "name": "Spider Nests",
+        "hexes": [
+          {
+            "q": -2,
+            "r": 3
+          },
+          {
+            "q": -2,
+            "r": 4
+          },
+          {
+            "q": -3,
+            "r": 4
+          },
+          {
+            "q": -3,
+            "r": 5
+          },
+          {
+            "q": -1,
+            "r": 4
+          }
+        ],
+        "environmental_effects": [
+          {
+            "effect": "webs",
+            "description": "Thick spider webs make all webbing hexes difficult terrain. Creatures ending their turn in webbing must succeed at DC 18 Reflex or be immobilized."
+          }
+        ],
+        "lighting": "darkness"
+      },
+      {
+        "region_id": "region-throne",
+        "name": "The Magnificentest Throne Room",
+        "hexes": [
+          {
+            "q": -1,
+            "r": -3
+          },
+          {
+            "q": -1,
+            "r": -4
+          },
+          {
+            "q": 0,
+            "r": -4
+          },
+          {
+            "q": 0,
+            "r": -5
+          },
+          {
+            "q": -2,
+            "r": -3
+          },
+          {
+            "q": -2,
+            "r": -4
+          },
+          {
+            "q": 1,
+            "r": -4
+          }
+        ],
+        "environmental_effects": [],
+        "lighting": "bright"
+      }
+    ]
+  },
+  "rooms": [
+    {
+      "room_id": "room-entrance-001",
+      "name": "The Welcoming Gutter",
+      "description": "A rough cavern entrance with surprisingly elaborate (if poorly executed) welcome decorations. Strings of dried mushrooms hang from the ceiling like garlands. A crudely painted sign reads 'WELCOM TO GRIBBLESTOWN \u2014 POPULLATION: MAGNIFICINT'. The air smells of damp earth and something vaguely cheesy.",
+      "hexes": [
+        {
+          "q": 0,
+          "r": 0
+        },
+        {
+          "q": 1,
+          "r": 0
+        },
+        {
+          "q": 0,
+          "r": 1
+        },
+        {
+          "q": 1,
+          "r": 1
+        },
+        {
+          "q": -1,
+          "r": 0
+        }
+      ],
+      "terrain_type": "stone_floor",
+      "lighting": "dim",
+      "light_source": "bioluminescent mushrooms",
+      "creatures": [],
+      "items": [
+        {
+          "item_id": "item-welcome-sign",
+          "name": "Gribbles' Welcome Sign",
+          "position": {
+            "q": 0,
+            "r": 0
+          },
+          "is_lootable": false
+        }
+      ],
+      "traps": [],
+      "hazards": [],
+      "interactables": [
+        {
+          "name": "Mushroom Garlands",
+          "hex": {
+            "q": 1,
+            "r": 1
+          },
+          "interaction_type": "examine",
+          "description": "Dried cave mushrooms strung on spider silk. They're decorative, not edible. Probably.",
+          "skill_check": null,
+          "result": "The mushrooms are various species \u2014 some bioluminescent, some clearly poisonous, and one that smells distinctly like aged cheddar."
+        }
+      ],
+      "state": {
+        "explored": false,
+        "visible": true,
+        "fog_of_war": false,
+        "last_visited": null
+      }
+    },
+    {
+      "room_id": "room-pantry-002",
+      "name": "Gribbles' Fungal Pantry",
+      "description": "A damp cavern that Gribbles has converted into his personal food storage. Mushrooms of every conceivable variety grow from the walls, floor, and ceiling in riotous profusion. Several crude shelving units hold clay pots sealed with wax \u2014 Gribbles' prized cheese collection. The air is thick with spores and the unmistakable funk of fermenting dairy products. A small cooking fire (dangerously close to the fungi) has a pot of something bubbling away.",
+      "hexes": [
+        {
+          "q": 4,
+          "r": -2
+        },
+        {
+          "q": 4,
+          "r": -3
+        },
+        {
+          "q": 5,
+          "r": -3
+        },
+        {
+          "q": 5,
+          "r": -4
+        },
+        {
+          "q": 4,
+          "r": -4
+        },
+        {
+          "q": 3,
+          "r": -3
+        }
+      ],
+      "terrain_type": "fungal_growth",
+      "terrain_modifiers": {
+        "is_difficult_terrain": true,
+        "is_hazardous_terrain": false,
+        "movement_cost_multiplier": 2
+      },
+      "lighting": "darkness",
+      "light_source": "none (cooking fire provides dim light in 2 hexes)",
+      "creatures": [
+        {
+          "creature_id": "creature-violet-fungus-001",
+          "name": "Violet Fungus Guardian",
+          "position": {
+            "q": 5,
+            "r": -3
+          },
+          "spawn_type": "permanent"
+        }
+      ],
+      "items": [
+        {
+          "item_id": "item-cheese-crock-001",
+          "name": "Gribbles' Prize Cheese (Aged Cave Cheddar)",
+          "position": {
+            "q": 4,
+            "r": -3
+          },
+          "is_lootable": true,
+          "quantity": 3
+        },
+        {
+          "item_id": "item-healing-mushroom-001",
+          "name": "Verdant Healing Mushroom",
+          "position": {
+            "q": 4,
+            "r": -4
+          },
+          "is_lootable": true,
+          "quantity": 2
+        }
+      ],
+      "traps": [
+        {
+          "trap_id": "trap-cheese-alarm",
+          "name": "Gribbles' Cheese Alarm",
+          "position": {
+            "q": 4,
+            "r": -3
+          },
+          "description": "A tripwire connected to a tin can full of pebbles. If anyone touches the cheese shelf, it creates a tremendous racket alerting Gribbles."
+        }
+      ],
+      "hazards": [
+        {
+          "hazard_id": "hazard-spores-001",
+          "name": "Toxic Spore Cloud",
+          "hexes_affected": [
+            {
+              "q": 4,
+              "r": -3
+            },
+            {
+              "q": 5,
+              "r": -3
+            },
+            {
+              "q": 4,
+              "r": -4
+            }
+          ]
+        }
+      ],
+      "state": {
+        "explored": false,
+        "visible": false,
+        "fog_of_war": true,
+        "last_visited": null
+      }
+    },
+    {
+      "room_id": "room-spiders-003",
+      "name": "The Spider Nests",
+      "description": "The passage descends into a web-choked cavern. Thick strands of spider silk cover every surface, and dark shapes skitter in the shadows. The webs are so dense in places they form hammock-like structures where egg sacs hang ominously. Gribbles claims he has a 'business arrangement' with the spiders. The spiders have not confirmed this.",
+      "hexes": [
+        {
+          "q": -2,
+          "r": 3
+        },
+        {
+          "q": -2,
+          "r": 4
+        },
+        {
+          "q": -3,
+          "r": 4
+        },
+        {
+          "q": -3,
+          "r": 5
+        },
+        {
+          "q": -1,
+          "r": 4
+        }
+      ],
+      "terrain_type": "webbing",
+      "terrain_modifiers": {
+        "is_difficult_terrain": true,
+        "is_hazardous_terrain": false,
+        "movement_cost_multiplier": 2
+      },
+      "lighting": "darkness",
+      "light_source": "none",
+      "creatures": [
+        {
+          "creature_id": "creature-hunting-spider-001",
+          "name": "Hunting Spider",
+          "position": {
+            "q": -3,
+            "r": 4
+          },
+          "spawn_type": "permanent"
+        },
+        {
+          "creature_id": "creature-hunting-spider-002",
+          "name": "Hunting Spider",
+          "position": {
+            "q": -3,
+            "r": 5
+          },
+          "spawn_type": "permanent"
+        },
+        {
+          "creature_id": "creature-spider-swarm-001",
+          "name": "Spider Swarm",
+          "position": {
+            "q": -2,
+            "r": 4
+          },
+          "spawn_type": "respawning",
+          "respawn_interval_minutes": 60
+        }
+      ],
+      "items": [
+        {
+          "item_id": "item-spider-silk-001",
+          "name": "Spider Silk Bundle",
+          "position": {
+            "q": -2,
+            "r": 3
+          },
+          "is_lootable": true,
+          "quantity": 4
+        },
+        {
+          "item_id": "item-cocooned-corpse-001",
+          "name": "Cocooned Adventurer's Pack",
+          "position": {
+            "q": -1,
+            "r": 4
+          },
+          "is_lootable": true,
+          "description": "A previous adventurer wrapped in spider silk. Their pack contains some salvageable gear."
+        }
+      ],
+      "traps": [],
+      "hazards": [],
+      "state": {
+        "explored": false,
+        "visible": false,
+        "fog_of_war": true,
+        "last_visited": null
+      }
+    },
+    {
+      "room_id": "room-throne-004",
+      "name": "The Magnificentest Throne Room of His Most Resplendent Majesty Gribbles Rindsworth",
+      "description": "Against all expectations, this room is genuinely impressive \u2014 by goblin standards. The walls have been laboriously carved with (mostly inaccurate) scenes of Gribbles' alleged heroic deeds. Torches burn in iron sconces, filling the room with warm light and moderate smoke. At the far end, atop a raised platform made of stacked crates, sits 'The Cheese Throne' \u2014 an actual wooden chair that Gribbles has decorated with cheese rinds, brass buttons, and what appears to be a cat's collar repurposed as a crown rest. Behind the throne, a tattered tapestry depicts a goblin figure the size of a dragon, triumphantly holding cheese aloft while tiny humanoids cower below.",
+      "hexes": [
+        {
+          "q": -1,
+          "r": -3
+        },
+        {
+          "q": -1,
+          "r": -4
+        },
+        {
+          "q": 0,
+          "r": -4
+        },
+        {
+          "q": 0,
+          "r": -5
+        },
+        {
+          "q": -2,
+          "r": -3
+        },
+        {
+          "q": -2,
+          "r": -4
+        },
+        {
+          "q": 1,
+          "r": -4
+        }
+      ],
+      "terrain_type": "stone_carved",
+      "lighting": "bright",
+      "light_source": "torches in iron sconces",
+      "creatures": [
+        {
+          "creature_id": "creature-gribbles-001",
+          "name": "Gribbles Rindsworth the Magnificent",
+          "position": {
+            "q": 0,
+            "r": -4
+          },
+          "spawn_type": "boss"
+        },
+        {
+          "creature_id": "creature-goblin-lackey-001",
+          "name": "Skizz (Goblin Warrior)",
+          "position": {
+            "q": -2,
+            "r": -3
+          },
+          "spawn_type": "permanent"
+        },
+        {
+          "creature_id": "creature-goblin-lackey-002",
+          "name": "Blix (Goblin Warrior)",
+          "position": {
+            "q": 1,
+            "r": -4
+          },
+          "spawn_type": "permanent"
+        }
+      ],
+      "items": [
+        {
+          "item_id": "item-cheese-throne",
+          "name": "The Cheese Throne",
+          "position": {
+            "q": 0,
+            "r": -4
+          },
+          "is_lootable": false,
+          "description": "It's a chair with cheese rinds glued to it. It is priceless to Gribbles and worthless to everyone else."
+        },
+        {
+          "item_id": "item-gribbles-treasure-chest",
+          "name": "Gribbles' Treasure Chest",
+          "position": {
+            "q": 0,
+            "r": -5
+          },
+          "is_lootable": true,
+          "description": "A battered wooden chest containing Gribbles' life savings and most prized possessions."
+        }
+      ],
+      "traps": [
+        {
+          "trap_id": "trap-throne-pit",
+          "name": "Fake Floor Pit Trap",
+          "position": {
+            "q": -1,
+            "r": -3
+          },
+          "description": "A concealed pit trap right inside the door. Gribbles installed it after the 'Great Cheese Heist of Last Tuesday'. He occasionally forgets about it himself."
+        }
+      ],
+      "hazards": [],
+      "interactables": [
+        {
+          "name": "The Cheese Throne",
+          "hex": {
+            "q": 0,
+            "r": -4
+          },
+          "interaction_type": "sit",
+          "description": "You could... sit in Gribbles' throne. This would either deeply offend him or deeply impress him. Possibly both.",
+          "skill_check": {
+            "skill": "diplomacy",
+            "dc": 20
+          },
+          "result_success": "Gribbles is so startled by your audacity that he respects you. He offers you 'The Big Cheese' \u2014 a genuine wheel of cave-aged cheddar worth 5gp and his grudging admiration.",
+          "result_failure": "Gribbles shrieks 'THAT IS THE CHEESE THRONE! ONLY THE MAGNIFICENT MAY SIT!' and combat begins."
+        },
+        {
+          "name": "Heroic Murals",
+          "hex": {
+            "q": -2,
+            "r": -4
+          },
+          "interaction_type": "examine",
+          "description": "The carved murals depict: Gribbles defeating a dragon (very unlikely), Gribbles inventing cheese (historically inaccurate), and Gribbles ruling over 'all the lands forever' (aspirational).",
+          "skill_check": null,
+          "result": "A DC 12 Society check reveals these are all completely fabricated. A critical success reveals a hidden compartment behind the 'inventing cheese' panel."
+        }
+      ],
+      "state": {
+        "explored": false,
+        "visible": false,
+        "fog_of_war": true,
+        "last_visited": null
+      }
+    },
+    {
+      "room_id": "room-rest-005",
+      "name": "The Forgotten Shrine",
+      "description": "A small, surprisingly peaceful chamber. An ancient shrine to a forgotten deity sits against one wall, its stone surface worn smooth by centuries. Clean water trickles from a crack in the ceiling into a natural basin. The air here is fresh and cool. Even the goblins seem to avoid this place \u2014 perhaps out of superstition, perhaps because there's no cheese here.",
+      "hexes": [
+        {
+          "q": 5,
+          "r": 0
+        },
+        {
+          "q": 5,
+          "r": 1
+        },
+        {
+          "q": 6,
+          "r": 0
+        },
+        {
+          "q": 6,
+          "r": -1
+        }
+      ],
+      "terrain_type": "stone_floor",
+      "lighting": "dim",
+      "light_source": "faint magical glow from the shrine",
+      "creatures": [],
+      "items": [
+        {
+          "item_id": "item-shrine-water",
+          "name": "Sacred Spring Water",
+          "position": {
+            "q": 6,
+            "r": 0
+          },
+          "is_lootable": true,
+          "quantity": 3,
+          "description": "Fresh water from the shrine basin. Drinking it heals 1d8+3 HP. Each flask can only be used once."
+        }
+      ],
+      "traps": [],
+      "hazards": [],
+      "interactables": [
+        {
+          "name": "Ancient Shrine",
+          "hex": {
+            "q": 5,
+            "r": 0
+          },
+          "interaction_type": "pray",
+          "description": "The shrine radiates faint divine magic. Praying here might bestow a blessing.",
+          "skill_check": {
+            "skill": "religion",
+            "dc": 15
+          },
+          "result_success": "You feel a warm sense of peace. All party members recover from the frightened and sickened conditions. The party can safely rest here without wandering monster checks.",
+          "result_failure": "The shrine remains inert, but the area is still safe for resting."
+        }
+      ],
+      "state": {
+        "explored": false,
+        "visible": false,
+        "fog_of_war": true,
+        "last_visited": null
+      },
+      "is_rest_area": true
+    }
+  ],
+  "creatures": [
+    {
+      "creature_id": "creature-gribbles-001",
+      "name": "Gribbles Rindsworth the Magnificent",
+      "creature_type": "humanoid",
+      "level": 3,
+      "size": "small",
+      "rarity": "unique",
+      "alignment": "CE",
+      "traits": [
+        "goblin",
+        "humanoid",
+        "small"
+      ],
+      "pf2e_stats": {
+        "ability_scores": {
+          "strength": {
+            "score": 10,
+            "modifier": 0
+          },
+          "dexterity": {
+            "score": 18,
+            "modifier": 4
+          },
+          "constitution": {
+            "score": 14,
+            "modifier": 2
+          },
+          "intelligence": {
+            "score": 12,
+            "modifier": 1
+          },
+          "wisdom": {
+            "score": 12,
+            "modifier": 1
+          },
+          "charisma": {
+            "score": 16,
+            "modifier": 3
+          }
+        },
+        "hp": {
+          "max": 44,
+          "current": 44,
+          "temporary": 0
+        },
+        "ac": 20,
+        "saves": {
+          "fortitude": {
+            "modifier": 7
+          },
+          "reflex": {
+            "modifier": 12
+          },
+          "will": {
+            "modifier": 9
+          }
+        },
+        "perception": {
+          "modifier": 9,
+          "senses": [
+            "darkvision"
+          ]
+        },
+        "speed": {
+          "land": 25
+        },
+        "skills": {
+          "acrobatics": 10,
+          "athletics": 5,
+          "deception": 9,
+          "stealth": 12,
+          "thievery": 10,
+          "survival": 7
+        },
+        "languages": [
+          "common",
+          "goblin"
+        ],
+        "attacks": [
+          {
+            "name": "Shortsword",
+            "type": "melee",
+            "modifier": 12,
+            "damage": "1d6+4",
+            "damage_type": "piercing",
+            "traits": [
+              "agile",
+              "finesse",
+              "versatile S"
+            ]
+          },
+          {
+            "name": "Shortbow",
+            "type": "ranged",
+            "modifier": 12,
+            "damage": "1d6",
+            "damage_type": "piercing",
+            "range_ft": 60,
+            "traits": [
+              "deadly d10"
+            ]
+          }
+        ],
+        "special_abilities": [
+          {
+            "name": "Sneak Attack",
+            "description": "Gribbles deals an extra 1d6 precision damage to flat-footed creatures."
+          },
+          {
+            "name": "Cheese Monologue",
+            "action_cost": "1",
+            "description": "Gribbles launches into an impassioned speech about cheese. All enemies within 30 feet must attempt a DC 19 Will save or be fascinated for 1 round. Gribbles can only use this once per encounter."
+          },
+          {
+            "name": "Goblin Scuttle",
+            "action_cost": "reaction",
+            "trigger": "A goblin ally ends a move action within Gribbles' reach",
+            "description": "Gribbles Steps, usually behind the ally."
+          },
+          {
+            "name": "Nimble Dodge",
+            "action_cost": "reaction",
+            "trigger": "Gribbles is targeted by an attack",
+            "description": "+2 circumstance bonus to AC against the triggering attack."
+          }
+        ]
+      },
+      "ai_personality": {
+        "disposition": "hostile_but_talkative",
+        "personality_traits": [
+          "Obsessed with cheese \u2014 will trade information for quality cheese",
+          "Grandiose self-image \u2014 refers to self in third person as 'The Magnificent'",
+          "Cowardly \u2014 will attempt to flee below 50% HP",
+          "Charismatic \u2014 other goblins genuinely adore him"
+        ],
+        "combat_personality": {
+          "aggression": "moderate",
+          "preferred_tactics": [
+            "sneak_attack",
+            "ranged_first",
+            "use_minions_as_shields"
+          ],
+          "morale_threshold": 0.5,
+          "flee_behavior": "flee_to_pantry_and_barricade",
+          "surrender_threshold": 0.2,
+          "surrender_terms": "Will offer cheese, information, and passage in exchange for his life"
+        },
+        "social_options": {
+          "can_negotiate": true,
+          "negotiation_dc": 18,
+          "bribe_item": "cheese",
+          "bribe_dc_reduction": 5,
+          "topics": [
+            "The spiders below (warns party, tries to seem helpful)",
+            "His cheese collection (will talk endlessly if prompted)",
+            "The deeper levels (knows rumors, exaggerates dangers)",
+            "His 'kingdom' (entirely delusional but entertaining)"
+          ]
+        }
+      },
+      "lifecycle": {
+        "spawn_type": "boss",
+        "is_unique": true,
+        "respawn_on_death": false,
+        "death_consequence": "The goblin warrens become leaderless. Remaining goblins scatter or become neutral.",
+        "is_alive": true
+      },
+      "loot_table": {
+        "guaranteed": [
+          "item-gribbles-shortsword",
+          "item-gribbles-leather-armor"
+        ],
+        "conditional": [
+          {
+            "item_id": "item-key-to-throne",
+            "condition": "always",
+            "description": "Iron key to the throne room door"
+          }
+        ],
+        "random": [
+          {
+            "item_id": "item-cheese-wheel",
+            "chance": 1.0,
+            "quantity_range": [
+              1,
+              3
+            ]
+          },
+          {
+            "item_id": "item-minor-healing-potion",
+            "chance": 0.5
+          }
+        ]
+      },
+      "xp_reward": 60
+    },
+    {
+      "creature_id": "creature-goblin-lackey-001",
+      "name": "Skizz (Goblin Warrior)",
+      "creature_type": "humanoid",
+      "level": -1,
+      "size": "small",
+      "rarity": "common",
+      "alignment": "CE",
+      "traits": [
+        "goblin",
+        "humanoid",
+        "small"
+      ],
+      "pf2e_stats": {
+        "ability_scores": {
+          "strength": {
+            "score": 10,
+            "modifier": 0
+          },
+          "dexterity": {
+            "score": 16,
+            "modifier": 3
+          },
+          "constitution": {
+            "score": 12,
+            "modifier": 1
+          },
+          "intelligence": {
+            "score": 8,
+            "modifier": -1
+          },
+          "wisdom": {
+            "score": 10,
+            "modifier": 0
+          },
+          "charisma": {
+            "score": 8,
+            "modifier": -1
+          }
+        },
+        "hp": {
+          "max": 6,
+          "current": 6,
+          "temporary": 0
+        },
+        "ac": 16,
+        "saves": {
+          "fortitude": {
+            "modifier": 3
+          },
+          "reflex": {
+            "modifier": 7
+          },
+          "will": {
+            "modifier": 2
+          }
+        },
+        "perception": {
+          "modifier": 2,
+          "senses": [
+            "darkvision"
+          ]
+        },
+        "speed": {
+          "land": 25
+        },
+        "skills": {
+          "acrobatics": 5,
+          "athletics": 2,
+          "stealth": 5
+        },
+        "languages": [
+          "goblin"
+        ],
+        "attacks": [
+          {
+            "name": "Dogslicer",
+            "type": "melee",
+            "damage": "1d6",
+            "damage_type": "slashing",
+            "traits": [
+              "agile",
+              "backstabber",
+              "finesse"
+            ],
+            "modifier": 6
+          }
+        ],
+        "special_abilities": []
+      },
+      "ai_personality": {
+        "disposition": "hostile",
+        "personality_traits": [
+          "Loyal to Gribbles",
+          "Cowardly when alone",
+          "Easily impressed"
+        ],
+        "goals": {
+          "primary": "Serve Gribbles",
+          "secondary": "Don't die"
+        },
+        "combat_personality": {
+          "aggression": "defensive",
+          "tactics": "basic",
+          "morale": "cowardly",
+          "flee_threshold_hp_percent": 50
+        }
+      },
+      "lifecycle": {
+        "spawn_type": "permanent",
+        "is_alive": true,
+        "respawn_cooldown_hours": null
+      },
+      "xp_reward": 10
+    },
+    {
+      "creature_id": "creature-goblin-lackey-002",
+      "name": "Blix (Goblin Warrior)",
+      "creature_type": "humanoid",
+      "level": -1,
+      "size": "small",
+      "rarity": "common",
+      "alignment": "CE",
+      "traits": [
+        "goblin",
+        "humanoid",
+        "small"
+      ],
+      "pf2e_stats": {
+        "ability_scores": {
+          "strength": {
+            "score": 10,
+            "modifier": 0
+          },
+          "dexterity": {
+            "score": 16,
+            "modifier": 3
+          },
+          "constitution": {
+            "score": 12,
+            "modifier": 1
+          },
+          "intelligence": {
+            "score": 8,
+            "modifier": -1
+          },
+          "wisdom": {
+            "score": 10,
+            "modifier": 0
+          },
+          "charisma": {
+            "score": 8,
+            "modifier": -1
+          }
+        },
+        "hp": {
+          "max": 6,
+          "current": 6,
+          "temporary": 0
+        },
+        "ac": 16,
+        "saves": {
+          "fortitude": {
+            "modifier": 3
+          },
+          "reflex": {
+            "modifier": 7
+          },
+          "will": {
+            "modifier": 2
+          }
+        },
+        "perception": {
+          "modifier": 2,
+          "senses": [
+            "darkvision"
+          ]
+        },
+        "speed": {
+          "land": 25
+        },
+        "skills": {
+          "acrobatics": 5,
+          "athletics": 2,
+          "stealth": 5
+        },
+        "languages": [
+          "goblin"
+        ],
+        "attacks": [
+          {
+            "name": "Dogslicer",
+            "type": "melee",
+            "damage": "1d6",
+            "damage_type": "slashing",
+            "traits": [
+              "agile",
+              "backstabber",
+              "finesse"
+            ],
+            "modifier": 6
+          }
+        ],
+        "special_abilities": []
+      },
+      "ai_personality": {
+        "disposition": "hostile",
+        "personality_traits": [
+          "Loyal to Gribbles",
+          "Cowardly when alone",
+          "Easily impressed"
+        ],
+        "goals": {
+          "primary": "Serve Gribbles",
+          "secondary": "Don't die"
+        },
+        "combat_personality": {
+          "aggression": "defensive",
+          "tactics": "basic",
+          "morale": "cowardly",
+          "flee_threshold_hp_percent": 50
+        }
+      },
+      "lifecycle": {
+        "spawn_type": "permanent",
+        "is_alive": true,
+        "respawn_cooldown_hours": null
+      },
+      "xp_reward": 10
+    },
+    {
+      "creature_id": "creature-violet-fungus-001",
+      "name": "Violet Fungus Guardian",
+      "creature_type": "fungus",
+      "level": 3,
+      "size": "medium",
+      "rarity": "common",
+      "alignment": "N",
+      "traits": [
+        "fungus",
+        "mindless"
+      ],
+      "pf2e_stats": {
+        "ability_scores": {
+          "strength": {
+            "score": 16,
+            "modifier": 3
+          },
+          "dexterity": {
+            "score": 6,
+            "modifier": -2
+          },
+          "constitution": {
+            "score": 18,
+            "modifier": 4
+          },
+          "intelligence": {
+            "score": 1,
+            "modifier": -5
+          },
+          "wisdom": {
+            "score": 8,
+            "modifier": -1
+          },
+          "charisma": {
+            "score": 1,
+            "modifier": -5
+          }
+        },
+        "hp": {
+          "max": 60,
+          "current": 60,
+          "temporary": 0
+        },
+        "ac": 18,
+        "saves": {
+          "fortitude": {
+            "modifier": 12
+          },
+          "reflex": {
+            "modifier": 4
+          },
+          "will": {
+            "modifier": 3
+          }
+        },
+        "perception": {
+          "modifier": 5,
+          "senses": []
+        },
+        "speed": {
+          "land": 10
+        },
+        "skills": {},
+        "languages": [],
+        "attacks": [
+          {
+            "name": "Tentacle",
+            "type": "melee",
+            "damage": "1d10+5",
+            "damage_type": "bludgeoning",
+            "traits": [
+              "agile",
+              "reach 10 feet"
+            ],
+            "effects": [
+              "Rotting Decay"
+            ],
+            "modifier": 11
+          }
+        ],
+        "special_abilities": [
+          {
+            "name": "Rotting Decay",
+            "action_cost": "passive",
+            "description": "A creature hit by the violet fungus's tentacle must succeed at a DC 20 Fortitude save or become enfeebled 1 for 1 hour."
+          }
+        ]
+      },
+      "ai_personality": {
+        "disposition": "hostile",
+        "personality_traits": [
+          "Mindless",
+          "Territorial"
+        ],
+        "goals": {
+          "primary": "Guard territory"
+        },
+        "combat_personality": {
+          "aggression": "aggressive",
+          "tactics": "mindless",
+          "morale": "fanatical",
+          "flee_threshold_hp_percent": 0
+        }
+      },
+      "lifecycle": {
+        "spawn_type": "permanent",
+        "is_alive": true
+      },
+      "xp_reward": 60
+    },
+    {
+      "creature_id": "creature-hunting-spider-001",
+      "name": "Hunting Spider",
+      "creature_type": "animal",
+      "level": 0,
+      "size": "small",
+      "rarity": "common",
+      "alignment": "N",
+      "traits": [
+        "animal"
+      ],
+      "pf2e_stats": {
+        "ability_scores": {
+          "strength": {
+            "score": 12,
+            "modifier": 1
+          },
+          "dexterity": {
+            "score": 17,
+            "modifier": 3
+          },
+          "constitution": {
+            "score": 12,
+            "modifier": 1
+          },
+          "intelligence": {
+            "score": 1,
+            "modifier": -5
+          },
+          "wisdom": {
+            "score": 10,
+            "modifier": 0
+          },
+          "charisma": {
+            "score": 2,
+            "modifier": -4
+          }
+        },
+        "hp": {
+          "max": 16,
+          "current": 16,
+          "temporary": 0
+        },
+        "ac": 17,
+        "saves": {
+          "fortitude": {
+            "modifier": 5
+          },
+          "reflex": {
+            "modifier": 9
+          },
+          "will": {
+            "modifier": 4
+          }
+        },
+        "perception": {
+          "modifier": 6,
+          "senses": [
+            "darkvision",
+            "web sense"
+          ]
+        },
+        "speed": {
+          "land": 25,
+          "climb": 25
+        },
+        "skills": {
+          "acrobatics": 7,
+          "athletics": 3,
+          "stealth": 7
+        },
+        "languages": [],
+        "attacks": [
+          {
+            "name": "Fangs",
+            "type": "melee",
+            "damage": "1d6+1",
+            "damage_type": "piercing",
+            "traits": [
+              "finesse"
+            ],
+            "effects": [
+              "Hunting Spider Venom"
+            ],
+            "modifier": 9
+          }
+        ],
+        "special_abilities": [
+          {
+            "name": "Hunting Spider Venom",
+            "action_cost": "passive",
+            "description": "DC 16 Fortitude save or 1d4 poison damage and enfeebled 1 for 1 round"
+          },
+          {
+            "name": "Web Sense",
+            "action_cost": "passive",
+            "description": "The spider can detect vibrations of creatures touching its web"
+          }
+        ]
+      },
+      "ai_personality": {
+        "disposition": "hostile",
+        "personality_traits": [
+          "Territorial",
+          "Patient hunter"
+        ],
+        "goals": {
+          "primary": "Defend nest"
+        },
+        "combat_personality": {
+          "aggression": "aggressive",
+          "tactics": "instinctive",
+          "morale": "brave",
+          "flee_threshold_hp_percent": 25
+        }
+      },
+      "lifecycle": {
+        "spawn_type": "permanent",
+        "is_alive": true
+      },
+      "xp_reward": 20
+    },
+    {
+      "creature_id": "creature-hunting-spider-002",
+      "name": "Hunting Spider",
+      "creature_type": "animal",
+      "level": 0,
+      "size": "small",
+      "rarity": "common",
+      "alignment": "N",
+      "traits": [
+        "animal"
+      ],
+      "pf2e_stats": {
+        "ability_scores": {
+          "strength": {
+            "score": 12,
+            "modifier": 1
+          },
+          "dexterity": {
+            "score": 17,
+            "modifier": 3
+          },
+          "constitution": {
+            "score": 12,
+            "modifier": 1
+          },
+          "intelligence": {
+            "score": 1,
+            "modifier": -5
+          },
+          "wisdom": {
+            "score": 10,
+            "modifier": 0
+          },
+          "charisma": {
+            "score": 2,
+            "modifier": -4
+          }
+        },
+        "hp": {
+          "max": 16,
+          "current": 16,
+          "temporary": 0
+        },
+        "ac": 17,
+        "saves": {
+          "fortitude": {
+            "modifier": 5
+          },
+          "reflex": {
+            "modifier": 9
+          },
+          "will": {
+            "modifier": 4
+          }
+        },
+        "perception": {
+          "modifier": 6,
+          "senses": [
+            "darkvision",
+            "web sense"
+          ]
+        },
+        "speed": {
+          "land": 25,
+          "climb": 25
+        },
+        "skills": {
+          "acrobatics": 7,
+          "athletics": 3,
+          "stealth": 7
+        },
+        "languages": [],
+        "attacks": [
+          {
+            "name": "Fangs",
+            "type": "melee",
+            "damage": "1d6+1",
+            "damage_type": "piercing",
+            "traits": [
+              "finesse"
+            ],
+            "effects": [
+              "Hunting Spider Venom"
+            ],
+            "modifier": 9
+          }
+        ],
+        "special_abilities": [
+          {
+            "name": "Hunting Spider Venom",
+            "action_cost": "passive",
+            "description": "DC 16 Fortitude save or 1d4 poison damage and enfeebled 1 for 1 round"
+          },
+          {
+            "name": "Web Sense",
+            "action_cost": "passive",
+            "description": "The spider can detect vibrations of creatures touching its web"
+          }
+        ]
+      },
+      "ai_personality": {
+        "disposition": "hostile",
+        "personality_traits": [
+          "Territorial",
+          "Patient hunter"
+        ],
+        "goals": {
+          "primary": "Defend nest"
+        },
+        "combat_personality": {
+          "aggression": "aggressive",
+          "tactics": "instinctive",
+          "morale": "brave",
+          "flee_threshold_hp_percent": 25
+        }
+      },
+      "lifecycle": {
+        "spawn_type": "permanent",
+        "is_alive": true
+      },
+      "xp_reward": 20,
+      "description": "A hunting spider lurking in the webbed nest, identical to its companion.",
+      "_note": "Instance #2 - Identical stats to Hunting Spider #1 for encounter balance"
+    },
+    {
+      "creature_id": "creature-spider-swarm-001",
+      "name": "Spider Swarm",
+      "creature_type": "animal",
+      "level": 0,
+      "size": "large",
+      "rarity": "common",
+      "alignment": "N",
+      "traits": [
+        "animal",
+        "swarm"
+      ],
+      "pf2e_stats": {
+        "ability_scores": {
+          "strength": {
+            "score": 3,
+            "modifier": -4
+          },
+          "dexterity": {
+            "score": 17,
+            "modifier": 3
+          },
+          "constitution": {
+            "score": 10,
+            "modifier": 0
+          },
+          "intelligence": {
+            "score": 1,
+            "modifier": -5
+          },
+          "wisdom": {
+            "score": 8,
+            "modifier": -1
+          },
+          "charisma": {
+            "score": 2,
+            "modifier": -4
+          }
+        },
+        "hp": {
+          "max": 16,
+          "current": 16,
+          "temporary": 0
+        },
+        "ac": 16,
+        "saves": {
+          "fortitude": {
+            "modifier": 4
+          },
+          "reflex": {
+            "modifier": 9
+          },
+          "will": {
+            "modifier": 3
+          }
+        },
+        "perception": {
+          "modifier": 6,
+          "senses": [
+            "darkvision",
+            "tremorsense 30 feet"
+          ]
+        },
+        "speed": {
+          "land": 20,
+          "climb": 20
+        },
+        "skills": {
+          "stealth": 7
+        },
+        "languages": [],
+        "attacks": [
+          {
+            "name": "Swarming Bites",
+            "type": "melee",
+            "damage": "1d4",
+            "damage_type": "piercing",
+            "traits": [],
+            "effects": [
+              "Spider Swarm Venom"
+            ],
+            "modifier": 9
+          }
+        ],
+        "special_abilities": [
+          {
+            "name": "Spider Swarm Venom",
+            "action_cost": "passive",
+            "description": "DC 14 Fortitude save or enfeebled 1 for 1 round"
+          },
+          {
+            "name": "Swarm Mind",
+            "action_cost": "passive",
+            "description": "Immune to mental effects"
+          }
+        ]
+      },
+      "ai_personality": {
+        "disposition": "hostile",
+        "personality_traits": [
+          "Mindless",
+          "Aggressive"
+        ],
+        "goals": {
+          "primary": "Feed"
+        },
+        "combat_personality": {
+          "aggression": "aggressive",
+          "tactics": "mindless",
+          "morale": "fanatical",
+          "flee_threshold_hp_percent": 0
+        }
+      },
+      "lifecycle": {
+        "spawn_type": "respawning",
+        "is_alive": true,
+        "respawn_cooldown_hours": 1
+      },
+      "xp_reward": 20
+    }
+  ],
+  "items": [
+    {
+      "item_id": "item-cheese-crock-001",
+      "name": "Gribbles' Prize Cave Cheddar",
+      "item_type": "consumable",
+      "level": 1,
+      "rarity": "uncommon",
+      "traits": [
+        "consumable",
+        "food"
+      ],
+      "description": "A clay crock of cave-aged cheddar cheese, personally curated by Gribbles Rindsworth. Against all odds, it's actually quite good. Sharp, nutty, with a distinct earthen finish from the cave aging process.",
+      "price": {
+        "gp": 2
+      },
+      "bulk": "L",
+      "consumable_stats": {
+        "consumable_type": "tool",
+        "activate": {
+          "actions": "1",
+          "components": [
+            "interact"
+          ]
+        },
+        "effect": "Eating a portion restores 1d4 HP and grants a +1 item bonus to saves against sickened for 10 minutes. Can also be used as a bribe for goblins (DC reduction of 2-5 depending on quality).",
+        "duration": "10 minutes"
+      },
+      "ai_generation": {
+        "lore_hook": "Gribbles has been perfecting his cave-aging technique for years. This is batch #47, his finest work.",
+        "condition": "pristine",
+        "is_identified": true
+      }
+    },
+    {
+      "item_id": "item-healing-mushroom-001",
+      "name": "Verdant Healing Mushroom",
+      "item_type": "consumable",
+      "level": 2,
+      "rarity": "uncommon",
+      "traits": [
+        "consumable",
+        "healing",
+        "primal"
+      ],
+      "description": "A large, luminous green mushroom that pulses with faint primal energy. When consumed, it accelerates natural healing.",
+      "price": {
+        "gp": 5
+      },
+      "bulk": "L",
+      "consumable_stats": {
+        "consumable_type": "elixir",
+        "activate": {
+          "actions": "1",
+          "components": [
+            "interact"
+          ]
+        },
+        "effect": "Restores 1d8+3 HP. If consumed while in the Fungal Pantry, heals an additional 1d4 due to ambient primal energy.",
+        "duration": "immediate"
+      }
+    },
+    {
+      "item_id": "item-welcome-sign",
+      "name": "Gribbles' Welcome Sign",
+      "item_type": "flavor",
+      "level": 0,
+      "rarity": "common",
+      "traits": [
+        "flavor"
+      ],
+      "description": "A crudely painted sign that reads 'WELCOM TO GRIBBLESTOWN \u2014 POPULLATION: MAGNIFICINT'. The spelling is creative, the sentiment earnest.",
+      "price": {
+        "gp": 0
+      },
+      "bulk": "1",
+      "is_lootable": false
+    },
+    {
+      "item_id": "item-cheese-throne",
+      "name": "The Cheese Throne",
+      "item_type": "flavor",
+      "level": 0,
+      "rarity": "unique",
+      "traits": [
+        "flavor",
+        "furniture"
+      ],
+      "description": "A wooden chair decorated with cheese rinds, brass buttons, and what appears to be a cat's collar. It is priceless to Gribbles and worthless to everyone else. Attempting to take it would deeply offend Gribbles.",
+      "price": {
+        "gp": 0
+      },
+      "bulk": "4",
+      "is_lootable": false
+    },
+    {
+      "item_id": "item-gribbles-treasure-chest",
+      "name": "Gribbles' Treasure Chest",
+      "item_type": "treasure",
+      "level": 3,
+      "rarity": "uncommon",
+      "traits": [
+        "container",
+        "treasure"
+      ],
+      "description": "A battered wooden chest bound with iron straps. Contains Gribbles' life savings and most prized possessions.",
+      "price": {
+        "gp": 50
+      },
+      "bulk": "2",
+      "is_lootable": true,
+      "contents": {
+        "currency": {
+          "cp": 47,
+          "sp": 23,
+          "gp": 12
+        },
+        "items": [
+          {
+            "name": "Masterwork dogslicer",
+            "quantity": 1
+          },
+          {
+            "name": "Silver goblet (stolen)",
+            "quantity": 1,
+            "value_gp": 5
+          },
+          {
+            "name": "Cheese wheel",
+            "quantity": 2
+          },
+          {
+            "name": "Minor healing potion",
+            "quantity": 1
+          }
+        ]
+      }
+    },
+    {
+      "item_id": "item-spider-silk-001",
+      "name": "Spider Silk Bundle",
+      "item_type": "crafting_material",
+      "level": 1,
+      "rarity": "common",
+      "traits": [
+        "crafting",
+        "material"
+      ],
+      "description": "High-quality spider silk that can be woven into rope or clothing. Surprisingly strong and lightweight.",
+      "price": {
+        "gp": 2
+      },
+      "bulk": "L",
+      "is_lootable": true
+    },
+    {
+      "item_id": "item-cocooned-corpse-001",
+      "name": "Cocooned Adventurer's Pack",
+      "item_type": "treasure",
+      "level": 1,
+      "rarity": "uncommon",
+      "traits": [
+        "treasure"
+      ],
+      "description": "A previous adventurer wrapped in spider silk. Examining the corpse reveals their pack contains some salvageable gear, though most of it has been damaged by digestive enzymes.",
+      "price": {
+        "gp": 10
+      },
+      "bulk": "1",
+      "is_lootable": true,
+      "contents": {
+        "currency": {
+          "cp": 15,
+          "sp": 8,
+          "gp": 3
+        },
+        "items": [
+          {
+            "name": "Rusty longsword (needs repair)",
+            "quantity": 1
+          },
+          {
+            "name": "50 feet of rope (damaged)",
+            "quantity": 1
+          },
+          {
+            "name": "Lesser healing potion",
+            "quantity": 1
+          }
+        ]
+      }
+    },
+    {
+      "item_id": "item-shrine-water",
+      "name": "Sacred Spring Water",
+      "item_type": "consumable",
+      "level": 2,
+      "rarity": "uncommon",
+      "traits": [
+        "consumable",
+        "divine",
+        "healing",
+        "water"
+      ],
+      "description": "Crystal-clear water from the ancient shrine basin. It radiates faint divine energy.",
+      "price": {
+        "gp": 6
+      },
+      "bulk": "L",
+      "consumable_stats": {
+        "consumable_type": "elixir",
+        "activate": {
+          "actions": "1",
+          "components": [
+            "interact"
+          ]
+        },
+        "effect": "Drinking this water heals 1d8+3 HP and removes the sickened condition. The water loses its magic 1 hour after being collected from the shrine.",
+        "duration": "immediate"
+      },
+      "is_lootable": true
+    },
+    {
+      "item_id": "item-gribbles-shortsword",
+      "name": "Gribbles' Masterwork Shortsword",
+      "item_type": "weapon",
+      "level": 2,
+      "rarity": "uncommon",
+      "traits": [
+        "masterwork",
+        "agile",
+        "finesse",
+        "versatile S"
+      ],
+      "description": "A finely crafted goblin-sized shortsword with an ornate handle depicting cheese wheels. It's surprisingly well-maintained and balanced for a goblin weapon.",
+      "price": {
+        "gp": 35
+      },
+      "bulk": "L",
+      "hands": "1",
+      "weapon_stats": {
+        "category": "martial",
+        "group": "sword",
+        "damage": {
+          "dice_count": 1,
+          "die_size": 6,
+          "damage_type": "piercing"
+        },
+        "critical": {
+          "effect": "The target is flat-footed until the end of your next turn."
+        }
+      },
+      "is_lootable": true
+    },
+    {
+      "item_id": "item-key-to-throne",
+      "name": "Iron Key to the Throne Room",
+      "item_type": "adventuring_gear",
+      "level": 1,
+      "rarity": "uncommon",
+      "traits": [
+        "key"
+      ],
+      "description": "A large iron key on a cheese-scented lanyard. Opens the locked door to Gribbles' Throne Room.",
+      "price": {
+        "gp": 1
+      },
+      "bulk": "-",
+      "is_lootable": true,
+      "usage_notes": "Unlocks the throne room door. Gribbles always keeps this on his person."
+    },
+    {
+      "item_id": "item-gribbles-leather-armor",
+      "name": "Gribbles' Studded Leather Armor",
+      "item_type": "armor",
+      "level": 2,
+      "rarity": "uncommon",
+      "traits": [
+        "light armor",
+        "comfort"
+      ],
+      "description": "Well-worn studded leather armor sized for a goblin. The studs are arranged in a pattern resembling cheese holes. Surprisingly clean and well-maintained.",
+      "price": {
+        "gp": 30
+      },
+      "bulk": "1",
+      "armor_stats": {
+        "category": "light",
+        "ac_bonus": 2,
+        "dex_cap": 3,
+        "check_penalty": -1,
+        "speed_penalty": 0,
+        "strength": 12
+      },
+      "is_lootable": true
+    },
+    {
+      "item_id": "item-cheese-wheel",
+      "name": "Aged Cheese Wheel",
+      "item_type": "consumable",
+      "level": 0,
+      "rarity": "common",
+      "traits": [
+        "consumable",
+        "food"
+      ],
+      "description": "A full wheel of aged cave cheese. Not as refined as Gribbles' prize cheddar, but still edible and nutritious.",
+      "price": {
+        "gp": 1
+      },
+      "bulk": "1",
+      "consumable_stats": {
+        "consumable_type": "tool",
+        "activate": {
+          "actions": "1",
+          "components": [
+            "interact"
+          ]
+        },
+        "effect": "Eating a portion restores 1d4 HP. The entire wheel can provide 4 rations worth of food.",
+        "duration": "instant"
+      },
+      "is_lootable": true
+    },
+    {
+      "item_id": "item-minor-healing-potion",
+      "name": "Minor Healing Potion",
+      "item_type": "potion",
+      "level": 1,
+      "rarity": "common",
+      "traits": [
+        "consumable",
+        "healing",
+        "magical",
+        "potion"
+      ],
+      "description": "A small vial of ruby-red liquid that restores vitality when consumed.",
+      "price": {
+        "gp": 4
+      },
+      "bulk": "L",
+      "consumable_stats": {
+        "consumable_type": "elixir",
+        "activate": {
+          "actions": "1",
+          "components": [
+            "interact"
+          ]
+        },
+        "effect": "Restores 1d8 hit points.",
+        "duration": "instant"
+      },
+      "is_lootable": true
+    }
+  ],
+  "traps": [
+    {
+      "trap_id": "trap-cheese-alarm",
+      "name": "Gribbles' Cheese Alarm",
+      "level": 1,
+      "complexity": "simple",
+      "traits": [
+        "mechanical",
+        "trap"
+      ],
+      "stealth_dc": 16,
+      "description": "A tripwire at ankle height connected to a tin can filled with pebbles, balanced atop the cheese shelf. Gribbles is very proud of this invention. He calls it 'The Cheesekeeper'.",
+      "disable": {
+        "thievery": 14
+      },
+      "trigger": "A creature moves into the hex containing the cheese shelf or attempts to take cheese",
+      "effect": "Creates a loud clattering noise. All creatures within the Fungal Pantry become aware of the intruder. Gribbles (in the Throne Room) is alerted and begins preparing for intruders. The Violet Fungus Guardian makes an immediate Strike against the triggering creature.",
+      "reset": "manual (Gribbles resets it personally after each 'cheese inspection')",
+      "is_active": true,
+      "xp_reward": 10
+    },
+    {
+      "trap_id": "trap-throne-pit",
+      "name": "The 'Welcome' Pit",
+      "level": 2,
+      "complexity": "simple",
+      "traits": [
+        "mechanical",
+        "trap"
+      ],
+      "stealth_dc": 18,
+      "description": "A 10-foot-deep pit concealed under a thin layer of canvas and dust, just inside the throne room door. Gribbles has fallen into it at least three times himself.",
+      "disable": {
+        "thievery": 16,
+        "perception": 18
+      },
+      "trigger": "A creature walks onto the concealed pit cover",
+      "effect": "The cover gives way. DC 18 Reflex save or fall 10 feet, taking 1d6 bludgeoning damage and landing prone. The bottom is covered in old cheese rinds, which Gribbles considers 'bonus punishment'.",
+      "reset": "Gribbles carefully replaces the canvas cover (takes him about 20 minutes and a lot of grumbling)",
+      "is_active": true,
+      "xp_reward": 30
+    }
+  ],
+  "hazards": [
+    {
+      "hazard_id": "hazard-spores-001",
+      "name": "Toxic Spore Cloud",
+      "level": 2,
+      "complexity": "simple",
+      "traits": [
+        "environmental"
+      ],
+      "stealth_dc": null,
+      "description": "The dense fungal growth in the pantry constantly releases spores. The air has a visible haze and smells like a combination of mushroom soup and dirty socks.",
+      "disable": {
+        "nature": 16,
+        "survival": 18
+      },
+      "trigger": "A creature breathes in the affected hexes",
+      "effect": "DC 15 Fortitude save each minute spent in the area. Failure: sickened 1. Critical failure: sickened 2 and 1d4 poison damage. Gribbles is immune (he's been breathing this for years).",
+      "reset": "The spores regenerate naturally. Clearing them requires destroying the fungal growth, which Gribbles would consider an act of war.",
+      "hexes_affected": [
+        {
+          "q": 4,
+          "r": -3
+        },
+        {
+          "q": 5,
+          "r": -3
+        },
+        {
+          "q": 4,
+          "r": -4
+        }
+      ],
+      "is_active": true,
+      "xp_reward": 30
+    }
+  ],
+  "stairways": [
+    {
+      "stairway_id": "stairway-down-001",
+      "hex": {
+        "q": -3,
+        "r": 5
+      },
+      "direction": "down",
+      "destination_level": 2,
+      "destination_hex": {
+        "q": 0,
+        "r": 0
+      },
+      "is_locked": false,
+      "is_hidden": false,
+      "description": "A rough-hewn staircase spiraling downward into deeper darkness. Spider webs thin out here, replaced by an oppressive silence. The stone changes from natural cave rock to something older, more deliberately carved.",
+      "_note": "Destination level 2 is intended for future expansion or connection to deeper dungeon levels"
+    }
+  ],
+  "generation_rules": {
+    "party_level_target": 1,
+    "difficulty_modifier": 1.0,
+    "room_count": {
+      "min": 5,
+      "max": 8
+    },
+    "creature_density": "normal",
+    "trap_frequency": "occasional",
+    "loot_quality": "standard",
+    "boss_room": true,
+    "rest_area": true,
+    "secret_rooms": {
+      "min": 0,
+      "max": 1
+    },
+    "creature_types_allowed": [
+      "goblin",
+      "humanoid",
+      "animal",
+      "fungus",
+      "ooze"
+    ],
+    "creature_level_range": {
+      "min": -1,
+      "max": 3
+    },
+    "environmental_effects": [
+      {
+        "effect": "Goblin Graffiti",
+        "description": "Crude drawings and messages cover the walls throughout the level",
+        "mechanical_effect": "A DC 10 Society or Goblin Lore check can decipher them for hints about room contents"
+      },
+      {
+        "effect": "Cheese Smell",
+        "description": "The faint smell of cheese pervades the entire level",
+        "mechanical_effect": "Creatures with scent can track back to the Pantry with a DC 12 Survival check"
+      }
+    ],
+    "wandering_monsters": {
+      "enabled": true,
+      "check_interval_minutes": 30,
+      "encounter_chance_percent": 15,
+      "max_level": 1,
+      "creature_pool": [
+        "goblin_warrior",
+        "giant_rat",
+        "cave_spider"
+      ],
+      "creature_pool_note": "References PF2e Bestiary creature types, not creature_ids in this file. These are template names used for procedural generation."
+    }
+  },
+  "level_state": {
+    "is_fully_generated": true,
+    "rooms_generated": 5,
+    "rooms_explored": 0,
+    "boss_defeated": false,
+    "completion_percent": 0,
+    "first_entered_at": null,
+    "last_visited_at": null,
+    "times_visited": 0
+  }
+}

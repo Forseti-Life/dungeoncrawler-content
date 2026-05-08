@@ -1,0 +1,107 @@
+{
+  "rows": [
+    {
+      "room_id": "tpl_room_tavern_entrance",
+      "name": "Tavern Entrance Room",
+      "description": "Starter room template for campaign launch.",
+      "environment_tags": ["tavern", "starter"],
+      "layout_data": {
+        "shape": "rectangle",
+        "width": 8,
+        "height": 6
+      },
+      "contents_data": {
+        "obstacles": [
+          "tavern_bar_counter_a",
+          "tavern_bar_counter_b",
+          "tavern_bar_counter_c",
+          "tavern_table_round_a",
+          "tavern_table_long_a",
+          "tavern_table_long_center",
+          "tavern_table_long_b"
+        ],
+        "npcs": [
+          {
+            "content_id": "tavern_keeper",
+            "name": "Eldric",
+            "role": "barkeep",
+            "orientation": "se"
+          }
+        ],
+        "creatures": []
+      }
+    },
+    {
+      "room_id": "tpl_room_goblin_scout_post",
+      "name": "Goblin Scout Post",
+      "description": "Forward watch post with improvised barricades.",
+      "environment_tags": ["goblin", "warrens", "scouting"],
+      "layout_data": {"shape": "chamber", "width": 10, "height": 7},
+      "contents_data": {"obstacles": ["spike_barrier", "crate_stack"], "creatures": ["goblin_warrior"]}
+    },
+    {
+      "room_id": "tpl_room_crypt_anteroom",
+      "name": "Crypt Anteroom",
+      "description": "Dusty stone chamber before the burial vaults.",
+      "environment_tags": ["undead", "crypt", "stone"],
+      "layout_data": {"shape": "octagon", "width": 9, "height": 9},
+      "contents_data": {"obstacles": ["sarcophagus", "loose_flagstones"], "creatures": ["skeleton_guard"]}
+    },
+    {
+      "room_id": "tpl_room_hall_spear_trap",
+      "name": "Hall of Spear Slots",
+      "description": "Long corridor lined with hidden spear launchers.",
+      "environment_tags": ["trap", "corridor", "mechanical"],
+      "layout_data": {"shape": "corridor", "width": 4, "height": 16},
+      "contents_data": {"obstacles": ["pressure_plate"], "creatures": []}
+    },
+    {
+      "room_id": "tpl_room_flooded_cistern",
+      "name": "Flooded Cistern",
+      "description": "Waist-deep water and unstable footing.",
+      "environment_tags": ["water", "hazard", "ruins"],
+      "layout_data": {"shape": "irregular", "width": 11, "height": 8},
+      "contents_data": {"obstacles": ["broken_grate", "slippery_stone"], "creatures": ["giant_rat_swarm"]}
+    },
+    {
+      "room_id": "tpl_room_alchemy_lab",
+      "name": "Abandoned Alchemy Lab",
+      "description": "Shelves of reagents and unstable residue.",
+      "environment_tags": ["alchemy", "hazard", "arcane"],
+      "layout_data": {"shape": "rectangle", "width": 9, "height": 7},
+      "contents_data": {"obstacles": ["glassware_rack", "acid_spill"], "creatures": ["gray_ooze"]}
+    },
+    {
+      "room_id": "tpl_room_ruined_hall",
+      "name": "Ruined Pillared Hall",
+      "description": "Collapsed architecture creates hard cover lanes.",
+      "environment_tags": ["ruins", "cover", "ambush"],
+      "layout_data": {"shape": "hall", "width": 14, "height": 10},
+      "contents_data": {"obstacles": ["fallen_pillar", "rubble_heap"], "creatures": ["bandit_archer"]}
+    },
+    {
+      "room_id": "tpl_room_frozen_shrine",
+      "name": "Frozen Shrine",
+      "description": "Icy floor and sacred statue remnants.",
+      "environment_tags": ["cold", "divine", "shrine"],
+      "layout_data": {"shape": "circle", "width": 10, "height": 10},
+      "contents_data": {"obstacles": ["ice_sheet", "altar"], "creatures": ["ice_mephit"]}
+    },
+    {
+      "room_id": "tpl_room_clockwork_foundry",
+      "name": "Clockwork Foundry",
+      "description": "Active gears and conveyor belts shape movement.",
+      "environment_tags": ["construct", "industrial", "clockwork"],
+      "layout_data": {"shape": "rectangle", "width": 12, "height": 9},
+      "contents_data": {"obstacles": ["gear_pit", "assembly_frame"], "creatures": ["clockwork_guard"]}
+    },
+    {
+      "room_id": "tpl_room_summit_storm_dais",
+      "name": "Storm Summit Dais",
+      "description": "Open-air platform struck by periodic lightning.",
+      "environment_tags": ["storm", "boss", "mythic"],
+      "layout_data": {"shape": "hex", "width": 13, "height": 13},
+      "contents_data": {"obstacles": ["lightning_rod", "broken_obelisk"], "creatures": ["storm_herald"]}
+    }
+  ]
+}

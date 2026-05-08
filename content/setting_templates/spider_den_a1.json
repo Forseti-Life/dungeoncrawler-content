@@ -1,0 +1,97 @@
+{
+    "template_id": "spider_den_a1",
+    "name": "The Web-Choked Den",
+    "description": "Thick webs drape every surface of this damp cave, forming curtains of sticky silk that catch the light. Desiccated husks of insects and small animals hang suspended in the webs. The owner of this silken palace lurks somewhere in the shadows above.",
+    "setting_type": "cave",
+    "size": "medium",
+    "lighting": "darkness",
+    "setting_data": {
+        "theme_tags": [
+            "spider",
+            "web",
+            "underground",
+            "predator",
+            "dark"
+        ],
+        "atmosphere": "Every surface glistens with fresh webbing. The air is thick and still, and vibrations travel through the web network alerting the inhabitants to every footstep. Egg sacs cling to the ceiling in pale clusters.",
+        "npcs": [
+            {
+                "name": "Silk Matron",
+                "content_id": "giant_spider_matron",
+                "ancestry": "Giant Spider",
+                "class": "Animal",
+                "role": "hostile",
+                "team": "spiders",
+                "occupation": "Den mother",
+                "description": "An enormous spider the size of a pony, with mottled brown and black carapace. Her mandibles gleam with venom.",
+                "backstory": "The matriarch of this spider colony, she has grown large and cunning on a diet of goblins and unwary travelers.",
+                "attitude": "hostile",
+                "stats": {
+                    "maxHp": 22,
+                    "currentHp": 22,
+                    "ac": 17,
+                    "speed": 25,
+                    "perception": 9,
+                    "initiative_bonus": 5
+                },
+                "equipment": []
+            }
+        ],
+        "objects": [
+            {
+                "object_id": "web_curtain",
+                "label": "Web Curtain",
+                "category": "obstacle",
+                "description": "A thick curtain of spider silk blocking the passage, sticky enough to trap the careless.",
+                "passable": false,
+                "interactable": true
+            },
+            {
+                "object_id": "egg_cluster",
+                "label": "Spider Egg Cluster",
+                "category": "custom",
+                "description": "A cluster of pale, translucent egg sacs attached to the ceiling, each containing dozens of tiny spiderlings.",
+                "passable": true,
+                "interactable": true
+            },
+            {
+                "object_id": "cocooned_victim",
+                "label": "Cocooned Figure",
+                "category": "custom",
+                "description": "A humanoid shape wrapped tightly in spider silk, hanging from the ceiling. It might still be alive.",
+                "passable": true,
+                "interactable": true
+            },
+            {
+                "object_id": "venom_pool",
+                "label": "Venom-Tainted Pool",
+                "category": "trap",
+                "description": "A shallow depression in the rock filled with greenish liquid \u2014 diluted spider venom mixed with cave water.",
+                "passable": true,
+                "interactable": true
+            }
+        ]
+    },
+    "search_tags": [
+        "spider",
+        "den",
+        "cave",
+        "underground",
+        "web",
+        "lair",
+        "nest",
+        "dark",
+        "silk",
+        "predator",
+        "venom",
+        "egg",
+        "cocoon",
+        "arachnid",
+        "giant"
+    ],
+    "level_min": "1",
+    "level_max": "5",
+    "usage_count": "0",
+    "quality_score": "0.8",
+    "source": "handcrafted"
+}

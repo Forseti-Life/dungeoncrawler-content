@@ -1,0 +1,75 @@
+# ==============================================================================
+# Dungeon Crawler Content Module Permissions
+# ==============================================================================
+# Defines permissions for character management and game content administration.
+# Permission hierarchy:
+#   1. Admin permissions (restrict access: true) - Full system control
+#   2. User permissions (restrict access: false) - Standard gameplay features
+#   3. Ownership-based permissions - Managed by CharacterAccessCheck service
+
+# ==============================================================================
+# ADMIN PERMISSIONS
+# ==============================================================================
+# These permissions grant full control and should only be assigned to
+# administrators or trusted roles.
+
+administer dungeoncrawler content:
+  title: 'Administer Dungeon Crawler Content'
+  description: 'Full administrative access to game content, settings, and all characters regardless of ownership. Required for module configuration and testing dashboard.'
+  restrict access: true
+
+edit any dungeoncrawler characters:
+  title: 'Edit Any Dungeon Crawler Characters'
+  description: 'Edit any character regardless of ownership. Allows administrators to modify characters for support or testing purposes.'
+  restrict access: true
+
+delete any dungeoncrawler characters:
+  title: 'Delete Any Dungeon Crawler Characters'
+  description: 'Delete any character regardless of ownership. Use with caution as this allows permanent removal of user data.'
+  restrict access: true
+
+# ==============================================================================
+# USER PERMISSIONS
+# ==============================================================================
+# Standard permissions for authenticated users to access and manage their own
+# game content.
+
+access dungeoncrawler characters:
+  title: 'Access Dungeon Crawler Characters'
+  description: 'View character lists, campaigns, and access game features. Required for basic gameplay and character management. Does not grant access to other users characters.'
+  restrict access: false
+
+create dungeoncrawler characters:
+  title: 'Create Dungeon Crawler Characters'
+  description: 'Create new characters in the character creation wizard. Includes access to character step forms and save operations.'
+  restrict access: false
+
+edit own dungeoncrawler characters:
+  title: 'Edit Own Dungeon Crawler Characters'
+  description: 'Edit own characters. Access is further restricted by CharacterAccessCheck to ensure users can only modify their own characters.'
+  restrict access: false
+
+delete own dungeoncrawler characters:
+  title: 'Delete Own Dungeon Crawler Characters'
+  description: 'Delete own characters. Access is further restricted by CharacterAccessCheck to prevent deletion of characters owned by other users.'
+  restrict access: false
+
+# ==============================================================================
+# PROCEDURAL GENERATION PERMISSIONS
+# ==============================================================================
+# Permissions for dungeon and room generation features.
+
+generate dungeons:
+  title: 'Generate Dungeons'
+  description: 'Generate complete procedurally-created dungeons with multiple levels. Includes theme selection, room generation, and encounter balancing.'
+  restrict access: false
+
+generate rooms:
+  title: 'Generate Rooms'
+  description: 'Generate individual dungeon rooms within existing levels. Includes terrain generation, entity placement, and encounter creation.'
+  restrict access: false
+
+regenerate dungeon content:
+  title: 'Regenerate Dungeon Content'
+  description: 'Force regeneration of dungeon levels and rooms (overwrites existing content). Requires administrative oversight to prevent accidental damage to campaign state.'
+  restrict access: true

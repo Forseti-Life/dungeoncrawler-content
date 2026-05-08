@@ -1,0 +1,613 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dungeoncrawler.life/schemas/encounter.schema.json",
+  "title": "Encounter Schema",
+  "description": "PF2e-compatible encounter and combat management. Handles initiative, rounds, XP budgets, and encounter difficulty. Supports both combat and social encounters. Note: Runtime data is stored in relational tables (combat_encounters, combat_participants, combat_conditions) while this schema serves as documentation and validation specification.",
+  "type": "object",
+  "required": ["encounter_id", "encounter_type", "room_id", "status", "threat_level", "schema_version"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "description": "Schema version for migration compatibility.",
+      "const": "1.0.0",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "encounter_id": { 
+      "type": "string", 
+      "format": "uuid",
+      "description": "Unique encounter identifier. Schema uses UUID format; database implementation may use integer IDs."
+    },
+    "encounter_type": {
+      "type": "string",
+      "enum": ["combat", "social", "exploration", "puzzle", "skill_challenge", "mixed"]
+    },
+    "room_id": { 
+      "type": "string", 
+      "format": "uuid",
+      "description": "Reference to the room where this encounter takes place."
+    },
+    "party_id": { 
+      "type": ["string", "null"], 
+      "format": "uuid",
+      "description": "Reference to the adventuring party. Optional; some implementations use campaign_id instead. At least one of party_id or campaign_id should be provided."
+    },
+    "campaign_id": { 
+      "type": ["string", "null"], 
+      "format": "uuid",
+      "description": "Reference to the campaign. Alternative to party_id in some implementations. At least one of party_id or campaign_id should be provided."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["pending", "active", "paused", "victory", "defeat", "fled", "negotiated"],
+      "default": "pending"
+    },
+    "started_at": { 
+      "type": ["string", "null"], 
+      "format": "date-time",
+      "description": "Timestamp when the encounter started (ISO 8601 format)."
+    },
+    "ended_at": { 
+      "type": ["string", "null"], 
+      "format": "date-time",
+      "description": "Timestamp when the encounter ended (ISO 8601 format)."
+    },
+    "created_at": { 
+      "type": "string", 
+      "format": "date-time",
+      "description": "Timestamp when this encounter record was created (ISO 8601 format)."
+    },
+    "updated_at": { 
+      "type": "string", 
+      "format": "date-time",
+      "description": "Timestamp when this encounter record was last updated (ISO 8601 format)."
+    },
+    "threat_level": {
+      "type": "string",
+      "enum": ["trivial", "low", "moderate", "severe", "extreme"],
+      "description": "PF2e encounter threat level based on XP budget."
+    },
+    "xp_budget": {
+      "type": "object",
+      "required": ["total", "party_level", "party_size"],
+      "additionalProperties": false,
+      "properties": {
+        "total": { 
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total XP value of all enemies/hazards." 
+        },
+        "party_level": { 
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20,
+          "description": "Party level for XP budget calculations (PF2e levels 1-20)."
+        },
+        "party_size": { 
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8,
+          "description": "Number of party members."
+        },
+        "adjustment": {
+          "type": "integer",
+          "default": 0,
+          "description": "XP adjustment for party size != 4."
+        }
+      },
+      "description": "PF2e XP budget thresholds: trivial(40), low(60), moderate(80), severe(120), extreme(160) for 4 players."
+    },
+    "combatants": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["combatant_id", "name", "side", "initiative"],
+        "additionalProperties": false,
+        "properties": {
+          "combatant_id": { 
+            "type": "string", 
+            "format": "uuid",
+            "description": "Unique identifier for this combatant in the encounter."
+          },
+          "name": { 
+            "type": "string",
+            "minLength": 1,
+            "description": "Display name of the combatant."
+          },
+          "side": {
+            "type": "string",
+            "enum": ["party", "enemy", "ally", "neutral"],
+            "description": "Which side this combatant fights on."
+          },
+          "creature_id": {
+            "type": ["string", "null"],
+            "format": "uuid",
+            "description": "Ref to creature.schema if enemy/ally."
+          },
+          "character_id": {
+            "type": ["string", "null"],
+            "format": "uuid",
+            "description": "Ref to party member if PC."
+          },
+          "initiative": { 
+            "type": "number",
+            "description": "Initiative roll result. Higher values act first."
+          },
+          "initiative_skill": {
+            "type": "string",
+            "enum": ["perception", "stealth", "deception", "performance", "other"],
+            "default": "perception",
+            "description": "Skill used for initiative roll."
+          },
+          "current_hp": { 
+            "type": "integer",
+            "minimum": 0,
+            "description": "Current hit points."
+          },
+          "max_hp": { 
+            "type": "integer",
+            "minimum": 1,
+            "description": "Maximum hit points."
+          },
+          "ac": { 
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50,
+            "description": "Armor Class for PF2e attack rolls (typically 1-50)."
+          },
+          "position": {
+            "$ref": "#/definitions/hex_position"
+          },
+          "conditions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/condition"
+            }
+          },
+          "actions_remaining": { 
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 3,
+            "default": 3,
+            "description": "Actions remaining this turn (PF2e: 0-3)."
+          },
+          "reaction_available": { 
+            "type": "boolean", 
+            "default": true,
+            "description": "Whether the combatant can use their reaction this round."
+          },
+          "has_acted_this_round": { 
+            "type": "boolean", 
+            "default": false,
+            "description": "Whether the combatant has taken their turn this round."
+          },
+          "is_alive": { 
+            "type": "boolean", 
+            "default": true,
+            "description": "Whether the combatant is alive."
+          },
+          "is_conscious": { 
+            "type": "boolean", 
+            "default": true,
+            "description": "Whether the combatant is conscious and able to act."
+          },
+          "dying_value": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4,
+            "default": 0,
+            "description": "PF2e dying condition value. Dying 4 = dead."
+          },
+          "wounded_value": { 
+            "type": "integer", 
+            "minimum": 0,
+            "maximum": 4,
+            "default": 0,
+            "description": "PF2e wounded condition value. Affects dying recovery."
+          }
+        }
+      }
+    },
+    "round": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 0,
+      "description": "Current combat round. 0 = not started, typical max 10-20 rounds."
+    },
+    "active_combatant_index": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 0,
+      "description": "Index into the sorted combatants array for current turn."
+    },
+    "action_log": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["round", "actor_id", "action_type"],
+        "additionalProperties": false,
+        "properties": {
+          "round": { 
+            "type": "integer",
+            "minimum": 0,
+            "description": "Combat round when this action occurred."
+          },
+          "actor_id": { 
+            "type": "string", 
+            "format": "uuid",
+            "description": "Combatant ID of the actor taking this action."
+          },
+          "action_type": {
+            "type": "string",
+            "enum": [
+              "strike", "move", "step", "cast_spell", "raise_shield",
+              "interact", "recall_knowledge", "demoralize", "feint",
+              "grapple", "trip", "shove", "disarm", "tumble_through",
+              "hide", "sneak", "seek", "aid", "escape", "crawl",
+              "stand", "delay", "ready", "sustain_spell", "dismiss",
+              "use_item", "activate_item", "free_action", "reaction",
+              "other"
+            ],
+            "description": "Type of action performed."
+          },
+          "action_cost": {
+            "type": "string",
+            "enum": ["free", "reaction", "1", "2", "3"],
+            "description": "Number of actions spent."
+          },
+          "target_id": { 
+            "type": ["string", "null"], 
+            "format": "uuid",
+            "description": "Combatant ID of the target, if any."
+          },
+          "target_hex": {
+            "oneOf": [
+              { "$ref": "#/definitions/hex_position" },
+              { "type": "null" }
+            ],
+            "description": "Target hex position for area effects or movement."
+          },
+          "roll": {
+            "oneOf": [
+              { "$ref": "#/definitions/roll_result" },
+              { "type": "null" }
+            ],
+            "description": "Roll result if this action involved a d20 check."
+          },
+          "damage": {
+            "oneOf": [
+              { "$ref": "#/definitions/damage_result" },
+              { "type": "null" }
+            ],
+            "description": "Damage result if this action dealt damage."
+          },
+          "description": { 
+            "type": "string",
+            "minLength": 1,
+            "description": "Narrative description of the action."
+          },
+          "timestamp": { 
+            "type": "string", 
+            "format": "date-time",
+            "description": "When this action was recorded (ISO 8601 format)."
+          }
+        }
+      }
+    },
+    "terrain_effects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["hex", "effect"],
+        "additionalProperties": false,
+        "properties": {
+          "hex": {
+            "$ref": "#/definitions/hex_position"
+          },
+          "effect": {
+            "type": "string",
+            "enum": [
+              "difficult_terrain", "greater_difficult_terrain",
+              "hazardous_terrain", "cover", "greater_cover",
+              "concealment", "darkness", "magical_darkness",
+              "grease", "web", "entangle", "wall_of_fire",
+              "obscuring_mist", "other"
+            ],
+            "description": "Type of terrain effect present at this hex."
+          },
+          "source": { 
+            "type": "string",
+            "minLength": 1,
+            "description": "What created this terrain effect (spell name, ability, etc.)."
+          },
+          "duration_rounds": { 
+            "type": ["integer", "null"],
+            "minimum": 0,
+            "description": "Duration in combat rounds. Null for permanent effects."
+          },
+          "damage_per_round": { 
+            "type": ["integer", "null"],
+            "minimum": 0,
+            "description": "Damage dealt per round to creatures in this hex, if any."
+          },
+          "damage_type": { 
+            "type": ["string", "null"],
+            "minLength": 1,
+            "description": "Type of damage dealt (fire, acid, etc.)."
+          }
+        }
+      }
+    },
+    "rewards": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "xp": { 
+          "type": "integer", 
+          "minimum": 0,
+          "default": 0,
+          "description": "Experience points awarded for completing this encounter."
+        },
+        "currency": {
+          "$ref": "#/definitions/currency"
+        },
+        "items": {
+          "type": "array",
+          "items": { 
+            "type": "string", 
+            "format": "uuid",
+            "description": "Item ID reference to item.schema.json."
+          },
+          "description": "Array of item IDs awarded as loot."
+        }
+      }
+    },
+    "ai_generation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "generated_at": { 
+          "type": "string", 
+          "format": "date-time",
+          "description": "Timestamp when this encounter was AI-generated (ISO 8601 format)."
+        },
+        "difficulty_target": { 
+          "type": "string",
+          "description": "Target difficulty requested from AI (e.g., 'moderate', 'severe')."
+        },
+        "narrative_hook": { 
+          "type": "string",
+          "minLength": 1,
+          "description": "AI-generated narrative hook or setup for the encounter."
+        },
+        "flavor_text": { 
+          "type": "string",
+          "minLength": 1,
+          "description": "AI-generated flavor text for read-aloud description."
+        },
+        "victory_text": { 
+          "type": "string",
+          "minLength": 1,
+          "description": "AI-generated text displayed upon victory."
+        },
+        "defeat_text": { 
+          "type": "string",
+          "minLength": 1,
+          "description": "AI-generated text displayed upon defeat."
+        },
+        "special_rules": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "description"],
+            "additionalProperties": false,
+            "properties": {
+              "name": { 
+                "type": "string",
+                "minLength": 1,
+                "description": "Name of the special rule."
+              },
+              "description": { 
+                "type": "string",
+                "minLength": 1,
+                "description": "Detailed description of what the rule does."
+              },
+              "trigger": { 
+                "type": "string",
+                "minLength": 1,
+                "description": "What triggers this special rule."
+              },
+              "effect": { 
+                "type": "string",
+                "minLength": 1,
+                "description": "Mechanical effect when triggered."
+              }
+            }
+          },
+          "description": "AI-generated special rules or unique mechanics for this encounter."
+        }
+      }
+    }
+  },
+  "definitions": {
+    "hex_position": {
+      "type": "object",
+      "required": ["q", "r"],
+      "properties": {
+        "q": { 
+          "type": "integer",
+          "description": "Axial q-coordinate in hexagonal grid system."
+        },
+        "r": { 
+          "type": "integer",
+          "description": "Axial r-coordinate in hexagonal grid system."
+        }
+      },
+      "additionalProperties": false,
+      "description": "Hexagonal grid position using axial coordinates (q, r). Database implementations may use alternative coordinate systems.",
+      "examples": [
+        { "q": 0, "r": 0 },
+        { "q": 2, "r": -1 },
+        { "q": -3, "r": 4 }
+      ]
+    },
+    "currency": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cp": { 
+          "type": "integer", 
+          "minimum": 0,
+          "default": 0,
+          "description": "Copper pieces."
+        },
+        "sp": { 
+          "type": "integer", 
+          "minimum": 0,
+          "default": 0,
+          "description": "Silver pieces."
+        },
+        "gp": { 
+          "type": "integer", 
+          "minimum": 0,
+          "default": 0,
+          "description": "Gold pieces."
+        },
+        "pp": { 
+          "type": "integer", 
+          "minimum": 0,
+          "default": 0,
+          "description": "Platinum pieces."
+        }
+      },
+      "description": "PF2e currency in standard denominations."
+    },
+    "condition": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { 
+          "type": "string",
+          "minLength": 1,
+          "description": "PF2e condition name (e.g., 'Blinded', 'Frightened', 'Dying')."
+        },
+        "value": { 
+          "type": ["integer", "null"],
+          "description": "Numeric value for conditions with levels (e.g., Frightened 2, Dying 3)."
+        },
+        "source": { 
+          "type": "string",
+          "minLength": 1,
+          "description": "What caused this condition (spell name, ability, etc.)."
+        },
+        "duration_rounds": { 
+          "type": ["integer", "null"],
+          "description": "Duration in combat rounds. Null for permanent conditions."
+        },
+        "started_round": { 
+          "type": "integer",
+          "description": "Combat round when condition was applied."
+        }
+      },
+      "additionalProperties": false,
+      "examples": [
+        {
+          "name": "Frightened",
+          "value": 2,
+          "source": "Dragon's Frightful Presence",
+          "duration_rounds": 3,
+          "started_round": 1
+        },
+        {
+          "name": "Blinded",
+          "source": "Darkness spell",
+          "duration_rounds": null,
+          "started_round": 2
+        }
+      ]
+    },
+    "roll_result": {
+      "type": "object",
+      "required": ["d20", "modifier", "total"],
+      "properties": {
+        "d20": { 
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20,
+          "description": "Natural d20 roll result."
+        },
+        "modifier": { 
+          "type": "integer",
+          "description": "Total modifier applied to the roll."
+        },
+        "total": { 
+          "type": "integer",
+          "description": "Final result (d20 + modifier)."
+        },
+        "dc": { 
+          "type": "integer",
+          "minimum": 1,
+          "description": "Difficulty Class the roll is against."
+        },
+        "degree_of_success": {
+          "type": "string",
+          "enum": ["critical_success", "success", "failure", "critical_failure"],
+          "description": "PF2e degree of success: critical success (≥10 over DC or nat 20), success (≥DC), failure (<DC), critical failure (≥10 under DC or nat 1)."
+        }
+      },
+      "additionalProperties": false,
+      "description": "Result of a d20 roll with PF2e degree of success calculation.",
+      "examples": [
+        {
+          "d20": 18,
+          "modifier": 7,
+          "total": 25,
+          "dc": 20,
+          "degree_of_success": "success"
+        },
+        {
+          "d20": 20,
+          "modifier": 5,
+          "total": 25,
+          "dc": 22,
+          "degree_of_success": "critical_success"
+        },
+        {
+          "d20": 3,
+          "modifier": 8,
+          "total": 11,
+          "dc": 22,
+          "degree_of_success": "critical_failure"
+        }
+      ]
+    },
+    "damage_result": {
+      "type": "object",
+      "required": ["total"],
+      "properties": {
+        "rolls": { 
+          "type": "string",
+          "description": "Damage dice formula (e.g., '2d6+4', '1d8+2d6+3').",
+          "examples": ["2d6+4", "1d8+2d6+3", "3d10+6"]
+        },
+        "total": { 
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total damage rolled before resistances/weaknesses."
+        },
+        "damage_type": { 
+          "type": "string",
+          "description": "Type of damage (slashing, fire, cold, etc.).",
+          "examples": ["slashing", "piercing", "bludgeoning", "fire", "cold", "electricity", "acid", "poison"]
+        },
+        "applied": { 
+          "type": "integer",
+          "minimum": 0,
+          "description": "Actual damage applied after resistances and weaknesses."
+        }
+      },
+      "additionalProperties": false,
+      "description": "Damage roll result with type and resistances/weaknesses applied."
+    }
+  }
+}

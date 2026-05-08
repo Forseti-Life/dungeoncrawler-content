@@ -1,0 +1,30 @@
+{
+  "schema_version": "1.0.0",
+  "item_id": "hide_armor",
+  "name": "Hide Armor",
+  "item_type": "armor",
+  "level": 0,
+  "rarity": "common",
+  "traits": [],
+  "description": "Armor made from the thick hides of beasts, offering substantial protection at the cost of mobility. Hide armor is a common choice for druids and wilderness warriors.",
+  "price": {
+    "cp": 0,
+    "sp": 0,
+    "gp": 2,
+    "pp": 0
+  },
+  "bulk": "2",
+  "hands": null,
+  "armor_stats": {
+    "category": "medium",
+    "group": "leather",
+    "ac_bonus": 3,
+    "dex_cap": 2,
+    "check_penalty": -2,
+    "speed_penalty": -5,
+    "strength": 14
+  },
+  "created_at": "2026-03-01T00:00:00Z",
+  "updated_at": "2026-03-01T00:00:00Z",
+  "item_category": "armor"
+}

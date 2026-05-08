@@ -1,0 +1,83 @@
+{
+  "schema_version": "1.0.0",
+  "creature_id": "7c5e9a1b-4d2f-4f6c-8b3e-1a9d5c7e2b4f",
+  "name": "Pixie",
+  "level": 4,
+  "creature_type": "fey",
+  "traits": [
+    "fey",
+    "sprite"
+  ],
+  "alignment": "CN",
+  "rarity": "uncommon",
+  "size": "tiny",
+  "hex_footprint": 1,
+  "family": "sprite",
+  "bestiary_source": "b2",
+  "pf2e_stats": {
+    "ability_scores": {
+      "strength": { "score": 6, "modifier": -2 },
+      "dexterity": { "score": 20, "modifier": 5 },
+      "constitution": { "score": 12, "modifier": 1 },
+      "intelligence": { "score": 16, "modifier": 3 },
+      "wisdom": { "score": 14, "modifier": 2 },
+      "charisma": { "score": 18, "modifier": 4 }
+    },
+    "hp": {
+      "max": 45,
+      "current": 45,
+      "temporary": 0,
+      "hardness": 0,
+      "immunities": [],
+      "resistances": [],
+      "weaknesses": [{ "type": "cold iron", "value": 5 }]
+    },
+    "ac": 21,
+    "saves": {
+      "fortitude": { "modifier": 8 },
+      "reflex": { "modifier": 13 },
+      "will": { "modifier": 10 }
+    },
+    "perception": {
+      "modifier": 12,
+      "senses": ["low-light vision"]
+    },
+    "speed": {
+      "land": 15,
+      "fly": 40,
+      "swim": null,
+      "climb": null,
+      "burrow": null
+    },
+    "skills": {
+      "Acrobatics": { "modifier": 13, "proficiency": "trained" },
+      "Nature": { "modifier": 10, "proficiency": "trained" },
+      "Stealth": { "modifier": 13, "proficiency": "trained" },
+      "Deception": { "modifier": 12, "proficiency": "trained" }
+    },
+    "languages": ["Common", "Sylvan"],
+    "attacks": [
+      {
+        "name": "Shortbow",
+        "type": "ranged",
+        "attack_bonus": 13,
+        "damage": "1d6",
+        "damage_type": "piercing",
+        "traits": ["range 60ft", "reload 0"]
+      }
+    ],
+    "special_abilities": [
+      {
+        "name": "Primal Innate Spells",
+        "description": "DC 21. At will: dancing lights, detect alignment, invisibility (self only). 1/day: entangle, sleep (as 2nd-level spell)."
+      },
+      {
+        "name": "Pixie Dust",
+        "action_cost": 2,
+        "description": "The pixie fires a dust-coated arrow. On a hit, the target must succeed at a DC 21 Will save or fall unconscious for 1 minute (on a failure) or become stupefied 1 for 1 minute (on a success)."
+      }
+    ]
+  },
+  "encounter_themes": ["forest", "fey", "wilderness"],
+  "tactical_role": "skirmisher"
+}

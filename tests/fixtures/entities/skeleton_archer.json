@@ -1,0 +1,27 @@
+{
+  "name": "skeleton_archer",
+  "description": "Skeleton archer with ranged attacks",
+  "type": "undead",
+  "instanceId": "skeleton-archer-1",
+  "characterId": 102,
+  "locationType": "dungeon",
+  "locationRef": "crypt-main",
+  "stateData": {
+    "hp": 12,
+    "maxHp": 12,
+    "hexId": "hex-10",
+    "name": "Skeleton Archer",
+    "level": 2,
+    "armor_class": 13,
+    "initiative": 3,
+    "weapons": ["longbow", "dagger"],
+    "status_effects": ["undead"],
+    "ai_behavior": "defensive",
+    "vulnerabilities": ["bludgeoning"],
+    "resistances": ["piercing"]
+  },
+  "metadata": {
+    "created_at": "2024-01-01T11:00:00Z",
+    "spawned_by": "encounter_crypt_guardians"
+  }
+}

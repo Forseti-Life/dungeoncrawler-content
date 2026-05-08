@@ -1,0 +1,38 @@
+{
+  "name": "goblin_warrior",
+  "description": "Basic goblin warrior NPC for entity lifecycle testing",
+  "type": "npc",
+  "instanceId": "goblin-warrior-1",
+  "characterId": 101,
+  "locationType": "room",
+  "locationRef": "room-1",
+  "stateData": {
+    "hp": 8,
+    "maxHp": 8,
+    "hexId": "hex-5",
+    "name": "Goblin Warrior",
+    "level": 1,
+    "armor_class": 15,
+    "initiative": 2,
+    "weapons": ["shortsword", "shortbow"],
+    "status_effects": [],
+    "ai_behavior": "aggressive"
+  },
+  "metadata": {
+    "created_at": "2024-01-01T10:00:00Z",
+    "spawned_by": "encounter_goblin_patrol"
+  },
+  "test_cases": {
+    "spawn": {
+      "expected_fields": ["instanceId", "type", "locationType", "locationRef", "stateData"]
+    },
+    "move": {
+      "new_location": "room-2",
+      "expected_fields": ["instanceId", "locationType", "locationRef"]
+    },
+    "state_fields": {
+      "required": ["hp", "maxHp", "hexId"],
+      "optional": ["name", "level", "armor_class"]
+    }
+  }
+}

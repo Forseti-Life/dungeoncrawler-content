@@ -1,0 +1,24 @@
+{
+  "schema_version": "1.0.0",
+  "item_id": "pick",
+  "name": "Pick",
+  "item_type": "weapon",
+  "level": 0,
+  "rarity": "common",
+  "traits": ["martial", "pick"],
+  "description": "A weapon with a pointed metal head on a handle, designed to concentrate force on a single point to punch through armor.",
+  "price": { "cp": 0, "sp": 0, "gp": 1, "pp": 0 },
+  "bulk": "1",
+  "hands": "1",
+  "weapon_stats": {
+    "category": "martial",
+    "group": "pick",
+    "damage": { "dice_count": 1, "die_size": "d6", "damage_type": "piercing" },
+    "range": null,
+    "reload": null,
+    "weapon_traits": ["fatal d10"]
+  },
+  "created_at": "2026-03-01T00:00:00Z",
+  "updated_at": "2026-03-01T00:00:00Z",
+  "item_category": "weapon"
+}

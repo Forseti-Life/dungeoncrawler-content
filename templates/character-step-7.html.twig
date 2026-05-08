@@ -1,0 +1,80 @@
+{#
+/**
+ * @file
+ * Character Creation Step 7: Equipment
+ */
+#}
+
+<div class="character-creation-container">
+  <div class="step-header">
+    <h1>Starting Equipment</h1>
+    <p class="step-description">You start with 15 gold pieces to purchase equipment</p>
+  </div>
+
+  {# Progress Bar #}
+  <div class="progress-container">
+    <div class="progress-bar">
+      <div class="progress-fill progress-step-7"></div>
+    </div>
+    <div class="progress-text">Step 7 of 8</div>
+  </div>
+
+  <form id="step-7-form" method="post" action="/characters/create/step/7/save?character_id={{ character_id }}">
+    
+    {# Gold Remaining #}
+    <div class="gold-display">
+      <span class="gold-icon">💰</span>
+      <span class="gold-label">Gold Remaining:</span>
+      <span id="gold-remaining" class="gold-amount">15</span> gp
+    </div>
+
+    {# Equipment Categories #}
+    <div class="equipment-sections">
+      <div class="equipment-section">
+        <h3>Weapons</h3>
+        <div class="equipment-list" id="weapons-list">
+          <p class="loading-text">Loading weapons...</p>
+        </div>
+      </div>
+
+      <div class="equipment-section">
+        <h3>Armor</h3>
+        <div class="equipment-list" id="armor-list">
+          <p class="loading-text">Loading armor...</p>
+        </div>
+      </div>
+
+      <div class="equipment-section">
+        <h3>Adventuring Gear</h3>
+        <div class="equipment-list" id="gear-list">
+          <p class="loading-text">Loading gear...</p>
+        </div>
+      </div>
+    </div>
+
+    {# Selected Equipment #}
+    <div class="selected-equipment">
+      <h3>Your Equipment</h3>
+      <div id="selected-items" class="selected-items-list">
+        <p class="empty-message">No equipment selected</p>
+      </div>
+    </div>
+
+    {# Hidden Fields #}
+    <input type="hidden" name="gold" id="remaining-gold" value="15">
+    <input type="hidden" name="step" value="7">
+
+    {# Navigation Buttons #}
+    <div class="button-group">
+      <a href="/characters/create/step/6?character_id={{ character_id }}" class="btn btn-secondary">
+        ← Previous
+      </a>
+      <button type="submit" class="btn btn-primary" id="next-button">
+        Next Step →
+      </button>
+    </div>
+
+    {# Error Messages #}
+    <div id="error-message" class="error-message hidden"></div>
+  </form>
+</div>

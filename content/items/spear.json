@@ -1,0 +1,24 @@
+{
+  "schema_version": "1.0.0",
+  "item_id": "spear",
+  "name": "Spear",
+  "item_type": "weapon",
+  "level": 0,
+  "rarity": "common",
+  "traits": ["simple", "spear"],
+  "description": "A long shaft with a pointed tip, effective for thrusting attacks and can be thrown. One of the most versatile and ancient weapons.",
+  "price": { "cp": 0, "sp": 1, "gp": 0, "pp": 0 },
+  "bulk": "1",
+  "hands": "1",
+  "weapon_stats": {
+    "category": "simple",
+    "group": "spear",
+    "damage": { "dice_count": 1, "die_size": "d6", "damage_type": "piercing" },
+    "range": null,
+    "reload": null,
+    "weapon_traits": ["thrown 20 ft."]
+  },
+  "created_at": "2026-03-01T00:00:00Z",
+  "updated_at": "2026-03-01T00:00:00Z",
+  "item_category": "weapon"
+}

@@ -1,0 +1,229 @@
+{
+  "room_id": "tavern_entrance",
+  "name": "Tavern Entrance",
+  "description": "You stand in the entrance of a well-established tavern. The common room is warm and comfortable, with flickering candlelight casting dancing shadows across wooden walls. The air smells of ale, bread, and hearth smoke. A few patrons sit at scattered tables, and the tavern keeper stands behind the bar, looking pleased to see fresh faces.",
+  "environment_tags": ["indoor", "tavern", "safe", "starting_area", "social"],
+  "layout_data": {
+    "dimensions": {
+      "hex_radius": 6,
+      "width": 13,
+      "height": 13
+    },
+    "terrain_grid": [
+      {"q": 0, "r": 0, "type": "floor", "description": "Polished wood floor near entrance"},
+      {"q": 1, "r": 0, "type": "floor", "description": "Main room"},
+      {"q": 2, "r": 0, "type": "floor", "description": "Common area"},
+      {"q": 3, "r": 0, "type": "floor", "description": "Seating area"},
+      {"q": -1, "r": 0, "type": "floor", "description": "Left side"},
+      {"q": -2, "r": 0, "type": "wall", "description": "Stone wall"},
+      {"q": 0, "r": 1, "type": "floor", "description": "Near bar"},
+      {"q": 1, "r": 1, "type": "floor", "description": "Bar counter"},
+      {"q": 2, "r": 1, "type": "floor", "description": "Behind bar"},
+      {"q": 0, "r": -1, "type": "floor", "description": "Storage area"},
+      {"q": 1, "r": -1, "type": "floor", "description": "Quiet corner"},
+      {"q": -1, "r": 1, "type": "wall", "description": "Tavern wall"}
+    ],
+    "encounter_areas": [],
+    "safe_zones": [
+      {"q": 0, "r": 0, "radius": 2}
+    ],
+    "exits": [
+      {"direction": "north", "destination_room": "tavern_exterior", "q": 0, "r": -3}
+    ]
+  },
+  "contents_data": {
+    "npcs": [
+      {
+        "content_id": "tavern_keeper",
+        "name": "Eldric",
+        "type": "npc",
+        "position": {"q": 2, "r": 1},
+        "orientation": "se",
+        "description": "A stout, friendly man with a bushy beard and warm smile",
+        "role": "quest_giver",
+        "quests": [
+          {
+            "quest_id": "gather_wine",
+            "title": "Collect Wine Bottles",
+            "description": "Eldric needs wine bottles for the evening service"
+          },
+          {
+            "quest_id": "gather_torch_components",
+            "title": "Gather Torch Materials",
+            "description": "Help brighten the tavern by collecting torch components"
+          }
+        ]
+      },
+      {
+        "content_id": "scholar_npc",
+        "name": "Marta the Scholar",
+        "type": "npc",
+        "position": {"q": 3, "r": 0},
+        "description": "A woman with ink-stained fingers, carefully studying an ancient text",
+        "role": "quest_giver",
+        "quests": [
+          {
+            "quest_id": "collect_spellbooks",
+            "title": "Recover Lost Spellbooks",
+            "description": "Marta seeks lost spellbooks scattered around the tavern"
+          }
+        ]
+      }
+    ],
+    "items": [
+      {
+        "content_id": "wine_bottle_1",
+        "name": "Wine Bottle",
+        "type": "collectible_item",
+        "position": {"q": 2, "r": 0},
+        "description": "A fine wine bottle, half-full",
+        "tags": ["gather_wine", "collectible", "tavern"],
+        "quest_association": "gather_wine"
+      },
+      {
+        "content_id": "wine_bottle_2",
+        "name": "Wine Bottle",
+        "type": "collectible_item",
+        "position": {"q": 1, "r": -1},
+        "description": "A wine bottle, set on a table",
+        "tags": ["gather_wine", "collectible", "tavern"],
+        "quest_association": "gather_wine"
+      },
+      {
+        "content_id": "wine_bottle_3",
+        "name": "Wine Bottle",
+        "type": "collectible_item",
+        "position": {"q": 0, "r": 1},
+        "description": "An ornate wine bottle near the bar",
+        "tags": ["gather_wine", "collectible", "tavern"],
+        "quest_association": "gather_wine"
+      },
+      {
+        "content_id": "wine_bottle_4",
+        "name": "Wine Bottle",
+        "type": "collectible_item",
+        "position": {"q": -1, "r": 0},
+        "description": "A dusty wine bottle in the corner",
+        "tags": ["gather_wine", "collectible", "tavern"],
+        "quest_association": "gather_wine"
+      },
+      {
+        "content_id": "wine_bottle_5",
+        "name": "Wine Bottle",
+        "type": "collectible_item",
+        "position": {"q": 2, "r": 1},
+        "description": "A wine bottle near the shelves",
+        "tags": ["gather_wine", "collectible", "tavern"],
+        "quest_association": "gather_wine"
+      },
+      {
+        "content_id": "spellbook_1",
+        "name": "Ancient Spellbook",
+        "type": "collectible_item",
+        "position": {"q": 3, "r": 0},
+        "description": "A leather-bound spellbook with glowing runes",
+        "tags": ["collect_spellbooks", "collectible", "knowledge"],
+        "quest_association": "collect_spellbooks"
+      },
+      {
+        "content_id": "spellbook_2",
+        "name": "Mystical Tome",
+        "type": "collectible_item",
+        "position": {"q": 1, "r": 1},
+        "description": "A mystical tome written in an unusual script",
+        "tags": ["collect_spellbooks", "collectible", "knowledge"],
+        "quest_association": "collect_spellbooks"
+      },
+      {
+        "content_id": "spellbook_3",
+        "name": "Faded Journal",
+        "type": "collectible_item",
+        "position": {"q": 2, "r": -1},
+        "description": "A faded journal filled with spell notes",
+        "tags": ["collect_spellbooks", "collectible", "knowledge"],
+        "quest_association": "collect_spellbooks"
+      },
+      {
+        "content_id": "spellbook_4",
+        "name": "Crystal-Bound Codex",
+        "type": "collectible_item",
+        "position": {"q": 0, "r": -1},
+        "description": "A codex with a crystal clasping its cover",
+        "tags": ["collect_spellbooks", "collectible", "knowledge"],
+        "quest_association": "collect_spellbooks"
+      },
+      {
+        "content_id": "torch_component_1",
+        "name": "Torch Rod",
+        "type": "collectible_item",
+        "position": {"q": 1, "r": 0},
+        "description": "An iron rod suitable for torch construction",
+        "tags": ["gather_torch_components", "collectible", "equipment"],
+        "quest_association": "gather_torch_components"
+      },
+      {
+        "content_id": "torch_component_2",
+        "name": "Cloth Wrapping",
+        "type": "collectible_item",
+        "position": {"q": 2, "r": 0},
+        "description": "Cloth wrapping that could be used for torch binding",
+        "tags": ["gather_torch_components", "collectible", "equipment"],
+        "quest_association": "gather_torch_components"
+      },
+      {
+        "content_id": "torch_component_3",
+        "name": "Torch Rod",
+        "type": "collectible_item",
+        "position": {"q": 0, "r": 1},
+        "description": "Another iron torch rod",
+        "tags": ["gather_torch_components", "collectible", "equipment"],
+        "quest_association": "gather_torch_components"
+      },
+      {
+        "content_id": "torch_component_4",
+        "name": "Flint Stone",
+        "type": "collectible_item",
+        "position": {"q": -1, "r": 0},
+        "description": "A piece of flint for creating sparks",
+        "tags": ["gather_torch_components", "collectible", "equipment"],
+        "quest_association": "gather_torch_components"
+      },
+      {
+        "content_id": "torch_component_5",
+        "name": "Cloth Wrapping",
+        "type": "collectible_item",
+        "position": {"q": 1, "r": -1},
+        "description": "More cloth wrapping material",
+        "tags": ["gather_torch_components", "collectible", "equipment"],
+        "quest_association": "gather_torch_components"
+      },
+      {
+        "content_id": "torch_component_6",
+        "name": "Flint Stone",
+        "type": "collectible_item",
+        "position": {"q": 2, "r": 1},
+        "description": "Another flint stone piece",
+        "tags": ["gather_torch_components", "collectible", "equipment"],
+        "quest_association": "gather_torch_components"
+      }
+    ],
+    "obstacles": [
+      {
+        "content_id": "tavern_table",
+        "name": "Wooden Table",
+        "type": "furniture",
+        "position": {"q": 3, "r": 0},
+        "description": "A sturdy wooden table where patrons sit",
+        "impassable": false
+      },
+      {
+        "content_id": "bar_counter",
+        "name": "Bar Counter",
+        "type": "furniture",
+        "position": {"q": 1, "r": 1},
+        "description": "The main bar counter",
+        "impassable": true
+      }
+    ]
+  }
+}

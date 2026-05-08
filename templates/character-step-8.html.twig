@@ -1,0 +1,83 @@
+{#
+/**
+ * @file
+ * Character Creation Step 8: Final Details & Review
+ */
+#}
+
+<div class="character-creation-container">
+  <div class="step-header">
+    <h1>Finishing Touches</h1>
+    <p class="step-description">Add final details and review your character</p>
+  </div>
+
+  {# Progress Bar #}
+  <div class="progress-container">
+    <div class="progress-bar">
+      <div class="progress-fill progress-step-8"></div>
+    </div>
+    <div class="progress-text">Step 8 of 8 - Final Step!</div>
+  </div>
+
+  <form id="step-8-form" method="post" action="/characters/create/step/8/save?character_id={{ character_id }}">
+    
+    {# Character Summary #}
+    <div class="character-summary">
+      <h2>{{ character.name|default('Your Character') }}</h2>
+      <div class="summary-grid">
+        <div class="summary-item">
+          <strong>Ancestry:</strong> {{ character.ancestry|default('Not selected') }}
+        </div>
+        <div class="summary-item">
+          <strong>Heritage:</strong> {{ character.heritage|default('Not selected') }}
+        </div>
+        <div class="summary-item">
+          <strong>Background:</strong> {{ character.background|default('Not selected') }}
+        </div>
+        <div class="summary-item">
+          <strong>Class:</strong> {{ character.class|default('Not selected') }}
+        </div>
+        <div class="summary-item">
+          <strong>Alignment:</strong> {{ character.alignment|default('Not selected') }}
+        </div>
+      </div>
+    </div>
+
+    {# Final Details #}
+    <div class="form-section">
+      <div class="form-group">
+        <label for="appearance">Physical Appearance</label>
+        <textarea id="appearance" name="appearance" class="form-control" rows="3" 
+                  placeholder="Describe your character's physical features, height, build, hair color, etc.">{{ character.appearance|default('') }}</textarea>
+      </div>
+
+      <div class="form-group">
+        <label for="personality">Personality Traits</label>
+        <textarea id="personality" name="personality" class="form-control" rows="3" 
+                  placeholder="Describe your character's personality, mannerisms, quirks, and behavior">{{ character.personality|default('') }}</textarea>
+      </div>
+
+      <div class="form-group">
+        <label for="backstory">Backstory</label>
+        <textarea id="backstory" name="backstory" class="form-control" rows="4" 
+                  placeholder="Tell your character's story: where they came from, what drives them, and why they became an adventurer">{{ character.backstory|default('') }}</textarea>
+      </div>
+    </div>
+
+    {# Hidden Fields #}
+    <input type="hidden" name="step" value="8">
+
+    {# Navigation Buttons #}
+    <div class="button-group">
+      <a href="/characters/create/step/7?character_id={{ character_id }}" class="btn btn-secondary">
+        ← Previous
+      </a>
+      <button type="submit" class="btn btn-primary btn-success" id="next-button">
+        🎉 Create Character
+      </button>
+    </div>
+
+    {# Error Messages #}
+    <div id="error-message" class="error-message hidden"></div>
+  </form>
+</div>

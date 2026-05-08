@@ -1,0 +1,86 @@
+{
+  "schema_version": "1.0.0",
+  "creature_id": "3a7f5c2e-9b4d-4e8a-b1c6-5d2f8a0e3b7d",
+  "name": "Merfolk Soldier",
+  "level": 1,
+  "creature_type": "humanoid",
+  "traits": [
+    "amphibious",
+    "aquatic",
+    "humanoid",
+    "merfolk"
+  ],
+  "alignment": "N",
+  "rarity": "common",
+  "size": "medium",
+  "hex_footprint": 1,
+  "family": "merfolk",
+  "bestiary_source": "b2",
+  "pf2e_stats": {
+    "ability_scores": {
+      "strength": { "score": 14, "modifier": 2 },
+      "dexterity": { "score": 14, "modifier": 2 },
+      "constitution": { "score": 12, "modifier": 1 },
+      "intelligence": { "score": 10, "modifier": 0 },
+      "wisdom": { "score": 12, "modifier": 1 },
+      "charisma": { "score": 10, "modifier": 0 }
+    },
+    "hp": {
+      "max": 20,
+      "current": 20,
+      "temporary": 0,
+      "hardness": 0,
+      "immunities": [],
+      "resistances": [],
+      "weaknesses": []
+    },
+    "ac": 16,
+    "saves": {
+      "fortitude": { "modifier": 6 },
+      "reflex": { "modifier": 7 },
+      "will": { "modifier": 4 }
+    },
+    "perception": {
+      "modifier": 4,
+      "senses": ["low-light vision"]
+    },
+    "speed": {
+      "land": 5,
+      "fly": null,
+      "swim": 35,
+      "climb": null,
+      "burrow": null
+    },
+    "skills": {
+      "Athletics": { "modifier": 7, "proficiency": "trained" },
+      "Stealth": { "modifier": 5, "proficiency": "trained" }
+    },
+    "languages": ["Aquan", "Common"],
+    "attacks": [
+      {
+        "name": "Trident",
+        "type": "melee",
+        "attack_bonus": 7,
+        "damage": "1d8+2",
+        "damage_type": "piercing",
+        "traits": []
+      },
+      {
+        "name": "Trident",
+        "type": "ranged",
+        "attack_bonus": 7,
+        "damage": "1d8+2",
+        "damage_type": "piercing",
+        "traits": ["thrown 20ft"]
+      }
+    ],
+    "special_abilities": [
+      {
+        "name": "Aquatic Advantage",
+        "description": "While underwater, the merfolk soldier gains a +1 circumstance bonus to attack and damage rolls against creatures that lack a swim Speed."
+      }
+    ]
+  },
+  "encounter_themes": ["aquatic", "coastal", "river"],
+  "tactical_role": "soldier"
+}

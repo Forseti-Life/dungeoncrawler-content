@@ -1,0 +1,108 @@
+{
+    "template_id": "abandoned_mine_a1",
+    "name": "The Collapsed Mine",
+    "description": "Rotting timber supports frame the entrance to an abandoned mine shaft. Inside, rusted tracks lead into darkness, the air heavy with dust and the faint metallic tang of exposed ore. Cave-ins have reshaped the passages, and something has moved in since the miners left.",
+    "setting_type": "cave",
+    "size": "large",
+    "lighting": "darkness",
+    "setting_data": {
+        "theme_tags": [
+            "mine",
+            "abandoned",
+            "underground",
+            "dangerous",
+            "dark"
+        ],
+        "atmosphere": "Timbers creak overhead with every step, threatening collapse. Rusted iron tools and discarded helmets litter the floor. The deeper passages are completely black, and scratching sounds echo from somewhere below.",
+        "npcs": [
+            {
+                "name": "Old Margus",
+                "content_id": "ghost_miner_margus",
+                "ancestry": "Human",
+                "class": "Ghost",
+                "role": "neutral",
+                "team": "undead",
+                "occupation": "Former mine foreman, now a restless spirit",
+                "description": "A translucent figure in miners garb, still clutching a pickaxe. His expression shifts between confusion and sorrow.",
+                "backstory": "Margus died in the cave-in that closed the mine. His spirit lingers, unable to accept the mine is finished. He may help those who promise to recover the bodies of his crew.",
+                "attitude": "indifferent",
+                "stats": {
+                    "maxHp": 20,
+                    "currentHp": 20,
+                    "ac": 16,
+                    "speed": 25,
+                    "perception": 8,
+                    "initiative_bonus": 4
+                },
+                "equipment": [
+                    "ghostly pickaxe"
+                ]
+            }
+        ],
+        "objects": [
+            {
+                "object_id": "collapsed_tunnel",
+                "label": "Collapsed Tunnel",
+                "category": "obstacle",
+                "description": "A passage choked with fallen rock and splintered timbers. It might be possible to clear with effort.",
+                "passable": false,
+                "interactable": true
+            },
+            {
+                "object_id": "rusty_mine_cart",
+                "label": "Rusty Mine Cart",
+                "category": "obstacle",
+                "description": "A corroded ore cart sitting on bent tracks, half-filled with worthless rubble and a few glinting mineral veins.",
+                "passable": false,
+                "interactable": true
+            },
+            {
+                "object_id": "abandoned_camp",
+                "label": "Miners Camp",
+                "category": "custom",
+                "description": "A long-cold fire pit surrounded by rotting bedrolls and scattered personal effects of the miners.",
+                "passable": true,
+                "interactable": true
+            },
+            {
+                "object_id": "unstable_ceiling",
+                "label": "Unstable Ceiling",
+                "category": "trap",
+                "description": "Cracks spider across the stone ceiling, loose gravel trickling down. A loud noise could bring it all down.",
+                "passable": true,
+                "interactable": false
+            },
+            {
+                "object_id": "ore_vein",
+                "label": "Exposed Ore Vein",
+                "category": "custom",
+                "description": "A thick seam of dark metal ore exposed by the cave-in, glinting dully in any available light.",
+                "passable": true,
+                "interactable": true
+            }
+        ]
+    },
+    "search_tags": [
+        "mine",
+        "abandoned",
+        "cave",
+        "underground",
+        "collapsed",
+        "shaft",
+        "tunnel",
+        "dark",
+        "dangerous",
+        "ghost",
+        "ore",
+        "mining",
+        "cart",
+        "timber",
+        "cave-in",
+        "quarry"
+    ],
+    "level_min": "1",
+    "level_max": "6",
+    "usage_count": "0",
+    "quality_score": "0.85",
+    "source": "handcrafted"
+}

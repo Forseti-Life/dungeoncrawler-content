@@ -1,0 +1,318 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dungeoncrawler.life/schemas/obstacle.schema.json",
+  "title": "Obstacle Schema",
+  "description": "Map obstacle instance. Obstacles are traversal/combat blockers or modifiers; they are not containers.",
+  "type": "object",
+  "required": ["obstacle_id", "name", "obstacle_type", "movement"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "description": "Schema version for migration compatibility.",
+      "default": "1.0.0",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "obstacle_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Unique obstacle instance identifier."
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "description": "Display name of the obstacle.",
+      "examples": ["Boulder", "Collapsed Wall", "Iron Gate", "Magical Barrier"]
+    },
+    "level": {
+      "type": "integer",
+      "minimum": -1,
+      "maximum": 25,
+      "description": "PF2e obstacle level. Determines DCs and appropriate challenge for party. -1 for trivial obstacles, 0-25 for scaled challenges."
+    },
+    "rarity": {
+      "type": "string",
+      "enum": ["common", "uncommon", "rare", "unique"],
+      "default": "common",
+      "description": "PF2e rarity classification."
+    },
+    "traits": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 50
+      },
+      "uniqueItems": true,
+      "maxItems": 10,
+      "description": "PF2e obstacle traits (e.g., ['Magical', 'Environmental', 'Structure'])."
+    },
+    "obstacle_type": {
+      "type": "string",
+      "description": "Type of obstacle affecting gameplay mechanics.",
+      "enum": [
+        "trap",
+        "hazard",
+        "barricade",
+        "collapsed_passage",
+        "difficult_terrain",
+        "magical_barrier",
+        "door_mechanism",
+        "custom"
+      ]
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 2000,
+      "description": "Detailed description of the obstacle for players.",
+      "examples": [
+        "A large boulder blocks the narrow passageway, requiring significant strength to move aside.",
+        "Thick magical energy crackles across this threshold, requiring arcane knowledge to bypass."
+      ]
+    },
+    "hexes": {
+      "type": "array",
+      "description": "List of hexes this obstacle occupies on the map.",
+      "minItems": 1,
+      "maxItems": 20,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/hex_coordinate"
+      }
+    },
+    "movement": {
+      "type": "object",
+      "description": "Movement rules for this obstacle.",
+      "required": ["passable"],
+      "properties": {
+        "passable": {
+          "type": "boolean",
+          "description": "Whether characters can pass through this obstacle."
+        },
+        "cost_multiplier": {
+          "type": "number",
+          "description": "Movement cost multiplier (1 = normal, 2 = double cost, etc.). Use 999 for impassable obstacles.",
+          "minimum": 0,
+          "maximum": 999,
+          "default": 1
+        },
+        "requires_check": {
+          "type": "boolean",
+          "description": "Whether passing requires a skill check.",
+          "default": false
+        },
+        "check_skill": {
+          "type": ["string", "null"],
+          "description": "PF2e skill required for check (e.g., 'Athletics', 'Acrobatics').",
+          "minLength": 1,
+          "maxLength": 50,
+          "examples": ["Athletics", "Acrobatics", "Thievery"]
+        },
+        "check_dc": {
+          "type": ["integer", "null"],
+          "description": "DC for the skill check.",
+          "minimum": 1,
+          "maximum": 50
+        }
+      },
+      "additionalProperties": false
+    },
+    "combat_effect": {
+      "type": ["object", "null"],
+      "description": "Combat-related effects of this obstacle.",
+      "properties": {
+        "cover": {
+          "type": "string",
+          "description": "PF2e cover bonus provided by this obstacle.",
+          "enum": ["none", "lesser", "standard", "greater"],
+          "default": "none"
+        },
+        "damage_on_enter": {
+          "type": ["string", "null"],
+          "description": "Damage dealt when entering obstacle hex (PF2e dice notation: base dice plus optional modifier).",
+          "pattern": "^\\d+d\\d+(\\+\\d+)?$",
+          "examples": ["1d6", "2d6+3", "3d10+8"]
+        },
+        "damage_type": {
+          "type": ["string", "null"],
+          "description": "Type of damage dealt (e.g., 'fire', 'acid', 'bludgeoning').",
+          "minLength": 1,
+          "maxLength": 100,
+          "examples": ["fire", "acid", "bludgeoning", "piercing"]
+        },
+        "save_type": {
+          "type": ["string", "null"],
+          "description": "PF2e save type to avoid or reduce damage.",
+          "enum": ["fortitude", "reflex", "will", null]
+        },
+        "save_dc": {
+          "type": ["integer", "null"],
+          "description": "DC for the saving throw.",
+          "minimum": 1,
+          "maximum": 50
+        }
+      },
+      "additionalProperties": false
+    },
+    "state": {
+      "type": "object",
+      "description": "Current state of the obstacle instance.",
+      "additionalProperties": false,
+      "properties": {
+        "active": {
+          "type": "boolean",
+          "description": "Whether the obstacle is currently active and affecting gameplay.",
+          "default": true
+        },
+        "disabled": {
+          "type": "boolean",
+          "description": "Whether the obstacle has been disabled (e.g., trap disarmed).",
+          "default": false
+        },
+        "destroyed": {
+          "type": "boolean",
+          "description": "Whether the obstacle has been destroyed or removed.",
+          "default": false
+        },
+        "notes": {
+          "type": ["string", "null"],
+          "description": "GM notes or runtime state information.",
+          "maxLength": 500,
+          "examples": ["Party bypassed via Athletics check", "Barrier still active, 2 attempts failed"]
+        }
+      }
+    },
+    "source_ref": {
+      "type": ["object", "null"],
+      "description": "Optional reference to underlying trap/hazard definition.",
+      "properties": {
+        "content_type": {
+          "type": "string",
+          "description": "Type of content this obstacle references.",
+          "enum": ["trap", "hazard"]
+        },
+        "content_id": {
+          "type": "string",
+          "description": "UUID or identifier of the referenced content.",
+          "format": "uuid"
+        }
+      },
+      "required": ["content_type", "content_id"],
+      "additionalProperties": false
+    },
+    "xp_reward": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "XP awarded for overcoming this obstacle. Auto-calculated from level if omitted.",
+      "examples": [10, 20, 30, 40, 60, 80]
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Obstacle instance creation timestamp."
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Last modification timestamp."
+    }
+  },
+  "$defs": {
+    "hex_coordinate": {
+      "type": "object",
+      "description": "Axial hex coordinate (q, r) following the cube coordinate system.",
+      "required": ["q", "r"],
+      "additionalProperties": false,
+      "properties": {
+        "q": {
+          "type": "integer",
+          "description": "Q-axis coordinate in axial hex system."
+        },
+        "r": {
+          "type": "integer",
+          "description": "R-axis coordinate in axial hex system."
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "schema_version": "1.0.0",
+      "obstacle_id": "d5e6f7a8-b9c0-1234-5678-90abcdef1234",
+      "name": "Boulder",
+      "level": 2,
+      "rarity": "common",
+      "traits": ["Environmental", "Structure"],
+      "obstacle_type": "barricade",
+      "description": "A large boulder blocks the narrow passageway, requiring significant strength to move aside.",
+      "hexes": [
+        { "q": 0, "r": 0 }
+      ],
+      "movement": {
+        "passable": false,
+        "cost_multiplier": 999,
+        "requires_check": true,
+        "check_skill": "Athletics",
+        "check_dc": 18
+      },
+      "combat_effect": {
+        "cover": "standard",
+        "damage_on_enter": null,
+        "damage_type": null,
+        "save_type": null,
+        "save_dc": null
+      },
+      "state": {
+        "active": true,
+        "disabled": false,
+        "destroyed": false,
+        "notes": null
+      },
+      "xp_reward": 20,
+      "created_at": "2026-02-17T12:00:00Z",
+      "updated_at": "2026-02-17T12:00:00Z"
+    },
+    {
+      "schema_version": "1.0.0",
+      "obstacle_id": "e7f8a9b0-c1d2-3456-7890-abcdef123456",
+      "name": "Magical Barrier",
+      "level": 5,
+      "rarity": "uncommon",
+      "traits": ["Magical", "Force"],
+      "obstacle_type": "magical_barrier",
+      "description": "Thick magical energy crackles across this threshold, requiring arcane knowledge to bypass.",
+      "hexes": [
+        { "q": 2, "r": -1 },
+        { "q": 2, "r": 0 }
+      ],
+      "movement": {
+        "passable": true,
+        "cost_multiplier": 3,
+        "requires_check": true,
+        "check_skill": "Arcana",
+        "check_dc": 24
+      },
+      "combat_effect": {
+        "cover": "none",
+        "damage_on_enter": "2d6",
+        "damage_type": "force",
+        "save_type": "fortitude",
+        "save_dc": 22
+      },
+      "state": {
+        "active": true,
+        "disabled": false,
+        "destroyed": false,
+        "notes": "Party attempted bypass, failed first check"
+      },
+      "source_ref": {
+        "content_type": "hazard",
+        "content_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+      },
+      "xp_reward": 60,
+      "created_at": "2026-02-17T12:00:00Z",
+      "updated_at": "2026-02-17T14:30:00Z"
+    }
+  ]
+}

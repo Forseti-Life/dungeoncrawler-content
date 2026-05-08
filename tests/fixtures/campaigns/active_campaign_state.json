@@ -1,0 +1,53 @@
+{
+  "name": "active_campaign_state",
+  "description": "Campaign state with active quest and progress",
+  "state": {
+    "created_by": 1,
+    "started": true,
+    "progress": [
+      {
+        "type": "quest_started",
+        "quest_id": "goblin_caves",
+        "timestamp": 1704096000
+      },
+      {
+        "type": "location_discovered",
+        "location_id": "goblin_caves_entrance",
+        "timestamp": 1704096300
+      },
+      {
+        "type": "combat_won",
+        "encounter_id": "goblin_patrol_1",
+        "timestamp": 1704096600
+      }
+    ],
+    "active_hex": "q2r-1",
+    "current_location": "goblin_caves_entrance",
+    "party_gold": 250,
+    "completed_quests": ["town_rat_problem"],
+    "active_quests": ["goblin_caves"],
+    "discovered_locations": [
+      "town_square",
+      "town_tavern",
+      "forest_path",
+      "goblin_caves_entrance"
+    ],
+    "game_time": {
+      "day": 3,
+      "hour": 14,
+      "minute": 30
+    },
+    "party_inventory": [
+      {"item_id": "health_potion", "quantity": 3},
+      {"item_id": "rope", "quantity": 1}
+    ],
+    "flags": {
+      "met_village_elder": true,
+      "knows_about_goblins": true
+    }
+  },
+  "state_meta": {
+    "version": 5,
+    "updatedAt": "2024-01-03T14:30:00Z"
+  }
+}

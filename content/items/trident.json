@@ -1,0 +1,24 @@
+{
+  "schema_version": "1.0.0",
+  "item_id": "trident",
+  "name": "Trident",
+  "item_type": "weapon",
+  "level": 0,
+  "rarity": "common",
+  "traits": ["martial", "spear"],
+  "description": "A three-pronged spear that can be used in melee or thrown. Associated with seafarers and aquatic warriors.",
+  "price": { "cp": 0, "sp": 0, "gp": 1, "pp": 0 },
+  "bulk": "1",
+  "hands": "1",
+  "weapon_stats": {
+    "category": "martial",
+    "group": "spear",
+    "damage": { "dice_count": 1, "die_size": "d8", "damage_type": "piercing" },
+    "range": null,
+    "reload": null,
+    "weapon_traits": ["thrown 20 ft."]
+  },
+  "created_at": "2026-03-01T00:00:00Z",
+  "updated_at": "2026-03-01T00:00:00Z",
+  "item_category": "weapon"
+}

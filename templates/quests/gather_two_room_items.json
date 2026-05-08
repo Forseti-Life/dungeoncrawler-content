@@ -1,0 +1,54 @@
+{
+  "template_id": "gather_two_room_items",
+  "name": "Gather 2 Supplies from the Room",
+  "description": "Collect 2 supply items from the current room and bring them back to the tavern keeper.",
+  "quest_type": "side_quest",
+  "level_min": 1,
+  "level_max": 3,
+  "tags": ["gathering", "room", "starter", "tavern"],
+  "objectives_schema": [
+    {
+      "phase": 1,
+      "objectives": [
+        {
+          "objective_id": "collect_room_supplies",
+          "type": "collect",
+          "item": "room_supply",
+          "target_count": 2,
+          "description": "Collect 2 supplies from the room"
+        }
+      ]
+    },
+    {
+      "phase": 2,
+      "objectives": [
+        {
+          "objective_id": "return_room_supplies",
+          "type": "interact",
+          "target": "tavern_keeper",
+          "description": "Return the supplies to the tavern keeper"
+        }
+      ]
+    }
+  ],
+  "rewards_schema": {
+    "xp": {
+      "base": 40,
+      "per_level": 10
+    },
+    "gold": {
+      "base": 4,
+      "per_level": 1,
+      "randomize": true
+    },
+    "items": {
+      "loot_table": "tavern_beginner_reward",
+      "count": 1
+    }
+  },
+  "prerequisites": {
+    "level_min": 1
+  },
+  "estimated_duration_minutes": 10,
+  "version": "1.0.0"
+}

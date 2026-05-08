@@ -1,0 +1,941 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dungeoncrawler.life/schemas/room.schema.json",
+  "title": "Dungeon Room Schema",
+  "description": "A single room in the dungeon. Occupies one or more hexes. AI-generated on first entry and permanent thereafter. Contains terrain, lighting, creatures, items, and environmental effects compatible with PF2e rules.",
+  "type": "object",
+  "required": [
+    "room_id",
+    "name",
+    "hexes",
+    "terrain",
+    "lighting",
+    "state"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "description": "Schema version for migration compatibility.",
+      "default": "1.0.0",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "room_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Unique room identifier."
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "description": "AI-generated room name. Becomes permanent after first exploration.",
+      "examples": [
+        "The Echoey Room What Screams Back",
+        "Fungal Pantry",
+        "Eduardo's Nest"
+      ]
+    },
+    "description": {
+      "type": "string",
+      "description": "AI-generated narrative description. Read aloud text for players.",
+      "minLength": 1,
+      "maxLength": 2000
+    },
+    "gm_notes": {
+      "type": "string",
+      "description": "Hidden GM/AI notes not visible to players.",
+      "maxLength": 2000
+    },
+    "hexes": {
+      "type": "array",
+      "description": "All hex coordinates this room occupies. A room can span multiple hexes.",
+      "minItems": 1,
+      "maxItems": 50,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "required": [
+          "q",
+          "r"
+        ],
+        "properties": {
+          "q": {
+            "type": "integer",
+            "description": "Axial q coordinate for hex position.",
+            "minimum": -1000,
+            "maximum": 1000
+          },
+          "r": {
+            "type": "integer",
+            "description": "Axial r coordinate for hex position.",
+            "minimum": -1000,
+            "maximum": 1000
+          },
+          "terrain_override": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Per-hex terrain override (e.g., a pit in one hex of a larger room)."
+          },
+          "elevation_ft": {
+            "type": "number",
+            "default": 0,
+            "description": "Relative elevation in feet. Used for PF2e elevation rules.",
+            "minimum": -50,
+            "maximum": 200
+          },
+          "objects": {
+            "type": "array",
+            "description": "Objects placed on this specific hex (furniture, pillars, etc.).",
+            "maxItems": 20,
+            "items": {
+              "$ref": "#/definitions/hex_object"
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "room_type": {
+      "type": "string",
+      "enum": [
+        "corridor",
+        "chamber",
+        "cavern",
+        "hall",
+        "shrine",
+        "vault",
+        "lair",
+        "nest",
+        "workshop",
+        "library",
+        "prison",
+        "throne_room",
+        "armory",
+        "pantry",
+        "garden",
+        "pool",
+        "mine",
+        "crypt",
+        "laboratory",
+        "barracks",
+        "marketplace",
+        "arena",
+        "boss_chamber",
+        "entrance",
+        "exit",
+        "stairwell",
+        "crossroads",
+        "dead_end",
+        "trap_room",
+        "puzzle_room",
+        "vault_room",
+        "safe_room"
+      ],
+      "description": "Functional room type. Affects AI generation parameters and procedural content generation."
+    },
+    "size_category": {
+      "type": "string",
+      "enum": [
+        "tiny",
+        "small",
+        "medium",
+        "large",
+        "huge",
+        "gargantuan"
+      ],
+      "description": "Room size category. tiny=1 hex, small=2-3, medium=4-7, large=8-12, huge=13-19, gargantuan=20+."
+    },
+    "terrain": {
+      "type": "object",
+      "description": "Default terrain properties for the room.",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "stone_floor",
+            "rough_stone",
+            "smooth_stone",
+            "dirt",
+            "mud",
+            "sand",
+            "water_shallow",
+            "water_deep",
+            "ice",
+            "lava",
+            "fungal_growth",
+            "bone",
+            "crystal",
+            "metal_grate",
+            "wooden_floor",
+            "carpet",
+            "rubble",
+            "void"
+          ]
+        },
+        "difficult_terrain": {
+          "type": "boolean",
+          "default": false,
+          "description": "PF2e difficult terrain. Movement costs double."
+        },
+        "greater_difficult_terrain": {
+          "type": "boolean",
+          "default": false,
+          "description": "PF2e greater difficult terrain. Each 5ft costs 15ft of movement."
+        },
+        "hazardous_terrain": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "description": "PF2e hazardous terrain. Deals damage on entry.",
+          "properties": {
+            "damage_dice": {
+              "type": "string",
+              "examples": [
+                "1d6",
+                "2d6",
+                "2d6+4"
+              ],
+              "pattern": "^\\d+d\\d+(\\+\\d+)?$"
+            },
+            "damage_type": {
+              "type": "string",
+              "enum": [
+                "fire",
+                "cold",
+                "acid",
+                "poison",
+                "piercing",
+                "slashing",
+                "bludgeoning",
+                "negative",
+                "electricity"
+              ]
+            },
+            "dc": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 40,
+              "description": "PF2e save DC. Typically 1-40 for party levels 1-20."
+            },
+            "save_type": {
+              "type": "string",
+              "enum": [
+                "fortitude",
+                "reflex",
+                "will"
+              ]
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "damage_dice",
+            "damage_type",
+            "dc",
+            "save_type"
+          ]
+        },
+        "ceiling_height_ft": {
+          "type": "number",
+          "minimum": 5,
+          "default": 10,
+          "description": "Ceiling height in feet. Affects flying, reach weapons, and AoE spells.",
+          "maximum": 100
+        }
+      },
+      "additionalProperties": false
+    },
+    "lighting": {
+      "type": "object",
+      "description": "Lighting conditions per PF2e rules.",
+      "required": [
+        "level"
+      ],
+      "properties": {
+        "level": {
+          "type": "string",
+          "enum": [
+            "bright_light",
+            "dim_light",
+            "darkness",
+            "magical_darkness"
+          ],
+          "description": "PF2e lighting level. Affects concealment and flat-check DCs."
+        },
+        "light_sources": {
+          "type": "array",
+          "description": "Fixed light sources in the room.",
+          "maxItems": 20,
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "torch",
+                  "brazier",
+                  "magical_crystal",
+                  "bioluminescent",
+                  "lava_glow",
+                  "sunrod",
+                  "lantern",
+                  "magical_flame"
+                ]
+              },
+              "hex": {
+                "type": "object",
+                "properties": {
+                  "q": {
+                    "type": "integer",
+                    "description": "Axial q coordinate.",
+                    "minimum": -1000,
+                    "maximum": 1000
+                  },
+                  "r": {
+                    "type": "integer",
+                    "description": "Axial r coordinate.",
+                    "minimum": -1000,
+                    "maximum": 1000
+                  }
+                },
+                "additionalProperties": false
+              },
+              "bright_radius_ft": {
+                "type": "number",
+                "minimum": 0,
+                "description": "Radius of bright light in feet. Typical dungeon max range.",
+                "maximum": 120
+              },
+              "dim_radius_ft": {
+                "type": "number",
+                "minimum": 0,
+                "description": "Radius of dim light in feet. Typical dungeon max range.",
+                "maximum": 120
+              },
+              "permanent": {
+                "type": "boolean",
+                "default": true
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "environmental_effects": {
+      "type": "array",
+      "description": "Active PF2e environmental effects in this room.",
+      "maxItems": 10,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "description": "Name of the environmental effect."
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "weather",
+              "magical",
+              "natural",
+              "planar",
+              "curse"
+            ]
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 1000,
+            "description": "Narrative description of the environmental effect."
+          },
+          "mechanical_effect": {
+            "type": "string",
+            "maxLength": 500,
+            "description": "Game mechanics description of the effect's impact."
+          },
+          "save_dc": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 40,
+            "description": "PF2e save DC. Typically 1-40 for party levels 1-20."
+          },
+          "save_type": {
+            "type": "string",
+            "enum": [
+              "fortitude",
+              "reflex",
+              "will"
+            ]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "creatures": {
+      "type": "array",
+      "description": "Creatures currently in this room. References creature schema.",
+      "maxItems": 50,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "properties": {
+          "creature_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "hex": {
+            "type": "object",
+            "properties": {
+              "q": {
+                "type": "integer",
+                "description": "Axial q coordinate.",
+                "minimum": -1000,
+                "maximum": 1000
+              },
+              "r": {
+                "type": "integer",
+                "description": "Axial r coordinate.",
+                "minimum": -1000,
+                "maximum": 1000
+              }
+            },
+            "additionalProperties": false
+          },
+          "spawn_type": {
+            "type": "string",
+            "enum": [
+              "permanent",
+              "respawning",
+              "wandering",
+              "summoned",
+              "quest"
+            ],
+            "description": "permanent=dies forever, respawning=returns after time, wandering=moves between rooms."
+          },
+          "respawn_hours": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0,
+            "description": "Hours until respawn (null for permanent creatures)."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "items": {
+      "type": "array",
+      "description": "Items/loot present in this room.",
+      "maxItems": 100,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "properties": {
+          "item_id": {
+            "type": "string"
+          },
+          "hex": {
+            "type": "object",
+            "properties": {
+              "q": {
+                "type": "integer",
+                "description": "Axial q coordinate.",
+                "minimum": -1000,
+                "maximum": 1000
+              },
+              "r": {
+                "type": "integer",
+                "description": "Axial r coordinate.",
+                "minimum": -1000,
+                "maximum": 1000
+              }
+            },
+            "additionalProperties": false
+          },
+          "hidden": {
+            "type": "boolean",
+            "default": false
+          },
+          "perception_dc": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 40,
+            "description": "DC to spot if hidden. Typically 1-40 for party levels 1-20."
+          },
+          "trapped": {
+            "type": "boolean",
+            "default": false
+          },
+          "collected": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "traps": {
+      "type": "array",
+      "description": "Traps in this room.",
+      "maxItems": 20,
+      "items": {
+        "$ref": "trap.schema.json"
+      }
+    },
+    "hazards": {
+      "type": "array",
+      "description": "PF2e hazards (complex or simple) in this room.",
+      "maxItems": 20,
+      "items": {
+        "$ref": "hazard.schema.json"
+      }
+    },
+    "obstacles": {
+      "type": "array",
+      "description": "Traversal/combat obstacles in this room. Obstacles are not containers.",
+      "maxItems": 30,
+      "items": {
+        "$ref": "obstacle.schema.json"
+      }
+    },
+    "interactables": {
+      "type": "array",
+      "description": "Interactive objects (levers, altars, puzzles, etc.).",
+      "maxItems": 30,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "properties": {
+          "interactable_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "description": "Unique identifier for this interactable object."
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "description": "Display name of the interactable object."
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 1000,
+            "description": "Narrative description of the interactable and what it looks like."
+          },
+          "hex": {
+            "type": "object",
+            "properties": {
+              "q": {
+                "type": "integer",
+                "description": "Axial q coordinate.",
+                "minimum": -1000,
+                "maximum": 1000
+              },
+              "r": {
+                "type": "integer",
+                "description": "Axial r coordinate.",
+                "minimum": -1000,
+                "maximum": 1000
+              }
+            },
+            "additionalProperties": false
+          },
+          "interaction_type": {
+            "type": "string",
+            "enum": [
+              "lever",
+              "button",
+              "altar",
+              "fountain",
+              "puzzle",
+              "inscription",
+              "portal",
+              "chest",
+              "door_mechanism",
+              "custom"
+            ]
+          },
+          "skill_check": {
+            "type": "object",
+            "properties": {
+              "skill": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 50,
+                "description": "PF2e skill name required for the check (e.g., 'Athletics', 'Arcana', 'Thievery')."
+              },
+              "dc": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 40,
+                "description": "PF2e skill check DC. Typically 1-40 for party levels 1-20."
+              }
+            },
+            "additionalProperties": false
+          },
+          "effect": {
+            "type": "string",
+            "maxLength": 1000,
+            "description": "Narrative and mechanical description of what happens when the interactable is used."
+          },
+          "used": {
+            "type": "boolean",
+            "default": false
+          },
+          "reusable": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "state": {
+      "type": "object",
+      "description": "Mutable room state. Changes as players interact with the room.",
+      "required": [
+        "explored"
+      ],
+      "properties": {
+        "explored": {
+          "type": "boolean",
+          "default": false,
+          "description": "Has any party entered this room?"
+        },
+        "explored_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "explored_by_party": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Party ID that first explored this room."
+        },
+        "cleared": {
+          "type": "boolean",
+          "default": false,
+          "description": "Have all hostile creatures been defeated?"
+        },
+        "looted": {
+          "type": "boolean",
+          "default": false
+        },
+        "traps_disarmed": {
+          "type": "boolean",
+          "default": false
+        },
+        "visibility": {
+          "type": "string",
+          "enum": [
+            "hidden",
+            "fog_of_war",
+            "revealed",
+            "visible"
+          ],
+          "default": "hidden",
+          "description": "Current visibility state for the exploring party."
+        },
+        "notes": {
+          "type": "array",
+          "description": "Player-added notes about this room.",
+          "maxItems": 50,
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "properties": {
+              "author": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100,
+                "description": "Player name or character who wrote the note."
+              },
+              "text": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1000,
+                "description": "Content of the player's note about this room."
+              },
+              "timestamp": {
+                "type": "string",
+                "format": "date-time"
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "ai_generation": {
+      "type": "object",
+      "description": "AI generation metadata. Used for procedural content creation.",
+      "properties": {
+        "prompt_context": {
+          "type": "string",
+          "description": "The context prompt fed to the AI when generating this room.",
+          "maxLength": 5000
+        },
+        "theme_tags": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 50
+          },
+          "examples": [
+            [
+              "fungal",
+              "organic",
+              "damp"
+            ],
+            [
+              "undead",
+              "crypt",
+              "dark"
+            ],
+            [
+              "ancient",
+              "magical",
+              "ruins"
+            ],
+            [
+              "natural",
+              "cave",
+              "water"
+            ]
+          ],
+          "description": "Tags describing the room's theme, atmosphere, and features. Used by AI for consistent generation."
+        },
+        "difficulty_target": {
+          "type": "string",
+          "enum": [
+            "trivial",
+            "low",
+            "moderate",
+            "severe",
+            "extreme"
+          ],
+          "description": "PF2e encounter difficulty target for AI generation."
+        },
+        "party_level_at_generation": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20,
+          "description": "Average party level when this room was generated (PF2e levels 1-20)."
+        },
+        "generation_model": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 50,
+          "description": "Name/version of the AI model used to generate this room (e.g., 'gpt-4', 'claude-3')."
+        },
+        "generation_timestamp": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "additionalProperties": false
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Room instance creation timestamp (ISO 8601 format)."
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Last modification timestamp (ISO 8601 format)."
+    }
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "hex_coordinate": {
+      "type": "object",
+      "description": "Axial hex coordinate (q, r) following the cube coordinate system.",
+      "required": ["q", "r"],
+      "properties": {
+        "q": {
+          "type": "integer",
+          "description": "Q-axis coordinate in axial hex system."
+        },
+        "r": {
+          "type": "integer",
+          "description": "R-axis coordinate in axial hex system."
+        }
+      },
+      "additionalProperties": false
+    },
+    "hex_object": {
+      "type": "object",
+      "description": "A physical object placed on a hex (furniture, pillar, debris, etc.).",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "description": "Name of the hex object."
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "pillar",
+            "statue",
+            "table",
+            "chair",
+            "barrel",
+            "crate",
+            "bookshelf",
+            "altar",
+            "fountain",
+            "debris",
+            "rubble",
+            "stalactite",
+            "stalagmite",
+            "mushroom_cluster",
+            "web",
+            "pit",
+            "raised_platform",
+            "wall_segment",
+            "portcullis"
+          ]
+        },
+        "provides_cover": {
+          "type": "string",
+          "enum": [
+            "none",
+            "lesser_cover",
+            "standard_cover",
+            "greater_cover"
+          ],
+          "default": "none",
+          "description": "PF2e cover type. lesser=+1 AC, standard=+2 AC, greater=+4 AC."
+        },
+        "blocks_movement": {
+          "type": "boolean",
+          "default": false
+        },
+        "blocks_line_of_sight": {
+          "type": "boolean",
+          "default": false
+        },
+        "hardness": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "PF2e hardness for destructible objects."
+        },
+        "hp": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Hit points of the object."
+        },
+        "broken_threshold": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "HP threshold at which object becomes broken (typically HP/2)."
+        },
+        "interactable": {
+          "type": "boolean",
+          "default": false
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Visual description of the hex object."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "examples": [
+    {
+      "schema_version": "1.0.0",
+      "room_id": "550e8400-e29b-41d4-a716-446655440000",
+      "name": "The Echoing Chamber",
+      "description": "A vast chamber with impossibly high ceilings. Strange echoes reverberate from the darkness above, repeating your footsteps seconds after you take them.",
+      "gm_notes": "Players who Listen carefully (DC 18 Perception) notice the echoes don't quite match their movements.",
+      "hexes": [
+        { "q": 0, "r": 0, "elevation_ft": 0 },
+        { "q": 1, "r": 0, "elevation_ft": 0 },
+        { "q": 0, "r": 1, "elevation_ft": 0 },
+        { "q": 1, "r": 1, "elevation_ft": 5, "terrain_override": "raised_platform" }
+      ],
+      "room_type": "chamber",
+      "size_category": "medium",
+      "terrain": {
+        "type": "smooth_stone",
+        "difficult_terrain": false,
+        "greater_difficult_terrain": false,
+        "hazardous_terrain": null,
+        "ceiling_height_ft": 30
+      },
+      "lighting": {
+        "level": "darkness",
+        "light_sources": []
+      },
+      "environmental_effects": [],
+      "creatures": [],
+      "items": [],
+      "traps": [],
+      "hazards": [],
+      "obstacles": [],
+      "interactables": [
+        {
+          "interactable_id": "660e8400-e29b-41d4-a716-446655440001",
+          "name": "Ancient Altar",
+          "description": "A weathered stone altar covered in mysterious runes",
+          "hex": { "q": 1, "r": 1 },
+          "interaction_type": "altar",
+          "skill_check": {
+            "skill": "Religion",
+            "dc": 20
+          },
+          "effect": "Grants a temporary blessing (+1 to saves for 1 hour)",
+          "used": false,
+          "reusable": true
+        }
+      ],
+      "state": {
+        "explored": true,
+        "explored_at": "2026-02-17T14:30:00Z",
+        "explored_by_party": "770e8400-e29b-41d4-a716-446655440002",
+        "cleared": true,
+        "looted": false,
+        "traps_disarmed": false,
+        "visibility": "visible",
+        "notes": [
+          {
+            "author": "Valeria",
+            "text": "Safe room - good for resting",
+            "timestamp": "2026-02-17T14:35:00Z"
+          }
+        ]
+      },
+      "ai_generation": {
+        "prompt_context": "Generate a mysterious chamber suitable for level 3 party",
+        "theme_tags": ["mysterious", "ancient", "echoing"],
+        "difficulty_target": "moderate",
+        "party_level_at_generation": 3,
+        "generation_model": "gpt-4",
+        "generation_timestamp": "2026-02-17T14:25:00Z"
+      },
+      "created_at": "2026-02-17T14:25:00Z",
+      "updated_at": "2026-02-17T14:35:00Z"
+    }
+  ]
+}

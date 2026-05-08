@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.0.0",
+  "item_id": "backpack",
+  "name": "Backpack",
+  "item_type": "adventuring_gear",
+  "level": 0,
+  "rarity": "common",
+  "traits": [],
+  "description": "A sturdy leather pack with multiple compartments for storing adventuring supplies. A backpack holds up to 4 Bulk of items and reduces the effective Bulk of its contents by 2.",
+  "price": {
+    "cp": 0,
+    "sp": 1,
+    "gp": 0,
+    "pp": 0
+  },
+  "bulk": "L",
+  "hands": null,
+  "created_at": "2026-03-01T00:00:00Z",
+  "updated_at": "2026-03-01T00:00:00Z",
+  "item_category": "adventuring_gear"
+}

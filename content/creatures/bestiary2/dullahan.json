@@ -1,0 +1,83 @@
+{
+  "schema_version": "1.0.0",
+  "creature_id": "a4d8f2c6-5b1e-4e3a-9c7d-2f6a0b4d8e1c",
+  "name": "Dullahan",
+  "level": 10,
+  "creature_type": "undead",
+  "traits": [
+    "evil",
+    "undead"
+  ],
+  "alignment": "NE",
+  "rarity": "rare",
+  "size": "medium",
+  "hex_footprint": 1,
+  "family": "dullahan",
+  "bestiary_source": "b2",
+  "pf2e_stats": {
+    "ability_scores": {
+      "strength": { "score": 24, "modifier": 7 },
+      "dexterity": { "score": 18, "modifier": 4 },
+      "constitution": { "score": 20, "modifier": 5 },
+      "intelligence": { "score": 14, "modifier": 2 },
+      "wisdom": { "score": 16, "modifier": 3 },
+      "charisma": { "score": 16, "modifier": 3 }
+    },
+    "hp": {
+      "max": 175,
+      "current": 175,
+      "temporary": 0,
+      "hardness": 0,
+      "immunities": ["death effects", "disease", "paralyzed", "poison", "unconscious"],
+      "resistances": [],
+      "weaknesses": [{ "type": "cold iron", "value": 10 }, { "type": "good", "value": 10 }]
+    },
+    "ac": 29,
+    "saves": {
+      "fortitude": { "modifier": 21 },
+      "reflex": { "modifier": 18 },
+      "will": { "modifier": 19 }
+    },
+    "perception": {
+      "modifier": 21,
+      "senses": ["darkvision 60ft", "life-sense 60ft"]
+    },
+    "speed": {
+      "land": 30,
+      "fly": null,
+      "swim": null,
+      "climb": null,
+      "burrow": null
+    },
+    "skills": {
+      "Athletics": { "modifier": 21, "proficiency": "master" },
+      "Intimidation": { "modifier": 21, "proficiency": "master" },
+      "Nature": { "modifier": 17, "proficiency": "trained" },
+      "Stealth": { "modifier": 20, "proficiency": "trained" }
+    },
+    "languages": ["Common", "Sylvan"],
+    "attacks": [
+      {
+        "name": "Flaming Sword",
+        "type": "melee",
+        "attack_bonus": 23,
+        "damage": "2d8+13",
+        "damage_type": "slashing",
+        "traits": ["magical", "reach 10ft"]
+      }
+    ],
+    "special_abilities": [
+      {
+        "name": "Death's Call",
+        "action_cost": 2,
+        "description": "The dullahan calls out the name of a creature within 120 feet. That creature must succeed at a DC 29 Fortitude save or be slowed 1 (failure) or stunned 1 and drained 1 (critical failure) as its life force is sapped. A creature that critically fails cannot recover the drained condition until the dullahan is destroyed."
+      },
+      {
+        "name": "Headless",
+        "description": "The dullahan carries its severed head under its arm or attached to its saddle. If its head is taken and a torch is placed in its mouth, the dullahan is stunned 4. Destroying the head kills the dullahan."
+      }
+    ]
+  },
+  "encounter_themes": ["cursed-road", "cemetery", "forest"],
+  "tactical_role": "boss"
+}

@@ -1,0 +1,522 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dungeoncrawler.life/schemas/item.schema.json",
+  "title": "Item Schema",
+  "description": "PF2e-compatible item definition. Covers weapons, armor, consumables, and magic items. Loot/treasure is represented as standard items. Supports rarity tiers, bulk, and activation actions.",
+  "type": "object",
+  "required": ["item_id", "name", "item_type", "level", "rarity", "schema_version"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "description": "Schema version for migration compatibility.",
+      "default": "1.0.0",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "item_id": { 
+      "type": "string", 
+      "format": "uuid",
+      "description": "Unique item identifier."
+    },
+    "name": { 
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "description": "Display name of the item."
+    },
+    "item_type": {
+      "type": "string",
+      "enum": [
+        "weapon", "armor", "shield", "consumable", "potion", "scroll",
+        "wand", "talisman", "worn_item", "held_item", "material",
+        "adventuring_gear", "relic", "artifact"
+      ]
+    },
+    "level": { "type": "integer", "minimum": 0, "maximum": 25 },
+    "rarity": {
+      "type": "string",
+      "enum": ["common", "uncommon", "rare", "epic", "legendary"],
+      "default": "common",
+      "description": "Item rarity tier. Determines visual styling (color/glow) and AI generation parameters."
+    },
+    "traits": {
+      "type": "array",
+      "items": { 
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "PF2e item traits: magical, invested, two-hand, etc.",
+      "uniqueItems": true,
+      "maxItems": 20
+    },
+    "description": { 
+      "type": "string",
+      "maxLength": 2000,
+      "description": "Full text description of the item's appearance, history, and properties."
+    },
+    "price": {
+      "type": "object",
+      "properties": {
+        "cp": { "type": "integer", "default": 0, "minimum": 0 },
+        "sp": { "type": "integer", "default": 0, "minimum": 0 },
+        "gp": { "type": "integer", "default": 0, "minimum": 0 },
+        "pp": { "type": "integer", "default": 0, "minimum": 0 }
+      },
+      "additionalProperties": false,
+      "description": "Item price in PF2e currency (copper, silver, gold, platinum pieces)."
+    },
+    "bulk": {
+      "type": "string",
+      "description": "PF2e bulk: a number, 'L' for light, or '-' for negligible.",
+      "pattern": "^(\\d+(\\.\\d+)?|L|-)$",
+      "examples": ["1", "2", "0.5", "L", "-"]
+    },
+    "hands": {
+      "type": "string",
+      "enum": ["0", "1", "1+", "2"],
+      "description": "Hands required to use."
+    },
+    "weapon_stats": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "description": "Weapon-specific statistics. Required when item_type is 'weapon'.",
+      "properties": {
+        "category": {
+          "type": "string",
+          "enum": ["simple", "martial", "advanced", "unarmed"],
+          "description": "Weapon proficiency category."
+        },
+        "group": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 50,
+          "description": "Weapon group: sword, axe, bow, etc.",
+          "examples": ["sword", "axe", "bow", "club", "knife", "pick", "hammer", "polearm", "shield", "sling", "dart", "flail"]
+        },
+        "damage": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["dice_count", "die_size", "damage_type"],
+          "properties": {
+            "dice_count": { 
+              "type": "integer", 
+              "minimum": 1,
+              "maximum": 10,
+              "description": "Number of damage dice."
+            },
+            "die_size": { 
+              "type": "string", 
+              "enum": ["d4", "d6", "d8", "d10", "d12"],
+              "description": "Size of each damage die."
+            },
+            "damage_type": { 
+              "type": "string", 
+              "enum": ["bludgeoning", "piercing", "slashing"],
+              "description": "Physical damage type."
+            },
+            "bonus_damage": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["dice", "damage_type"],
+                "additionalProperties": false,
+                "properties": {
+                  "dice": { 
+                    "type": "string",
+                    "pattern": "^\\d+d\\d+$",
+                    "description": "Bonus damage dice (e.g., '1d6').",
+                    "examples": ["1d4", "1d6", "2d6"]
+                  },
+                  "damage_type": { 
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 50,
+                    "description": "Type of bonus damage (e.g., 'fire', 'cold', 'electricity').",
+                    "examples": ["fire", "cold", "electricity", "acid", "sonic", "positive", "negative", "force"]
+                  }
+                }
+              },
+              "uniqueItems": true,
+              "description": "Additional damage dice for elemental or other bonus damage."
+            }
+          }
+        },
+        "range": {
+          "type": ["integer", "null"],
+          "minimum": 5,
+          "description": "Range increment in feet. Null for melee weapons."
+        },
+        "reload": { 
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Number of actions required to reload. Null if not applicable."
+        },
+        "weapon_traits": {
+          "type": "array",
+          "items": { 
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true,
+          "maxItems": 15,
+          "description": "Weapon traits: agile, backstabber, deadly d8, finesse, etc.",
+          "examples": [["agile", "finesse"], ["deadly-d10", "versatile P"]]
+        }
+      }
+    },
+    "armor_stats": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "description": "Armor-specific statistics. Required when item_type is 'armor'.",
+      "properties": {
+        "category": {
+          "type": "string",
+          "enum": ["unarmored", "light", "medium", "heavy"],
+          "description": "Armor proficiency category."
+        },
+        "ac_bonus": { 
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10,
+          "description": "AC bonus provided by this armor."
+        },
+        "dex_cap": { 
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "maximum": 10,
+          "description": "Maximum Dexterity modifier that can be applied to AC. Null for unarmored."
+        },
+        "check_penalty": { 
+          "type": "integer", 
+          "default": 0,
+          "minimum": -5,
+          "maximum": 0,
+          "description": "Penalty to Strength and Dexterity-based checks."
+        },
+        "speed_penalty": { 
+          "type": "integer", 
+          "default": 0,
+          "minimum": -10,
+          "maximum": 0,
+          "description": "Penalty to Speed in feet."
+        },
+        "strength": { 
+          "type": ["integer", "null"], 
+          "minimum": 1,
+          "maximum": 30,
+          "description": "Minimum STR score to ignore speed penalty."
+        },
+        "armor_group": { 
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 50,
+          "description": "Armor group (e.g., 'chain', 'plate', 'leather', 'composite').",
+          "examples": ["chain", "plate", "leather", "composite", "skeletal"]
+        }
+      }
+    },
+    "shield_stats": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "description": "Shield-specific statistics. Required when item_type is 'shield'.",
+      "required": ["ac_bonus", "hardness", "hp", "bt"],
+      "properties": {
+        "ac_bonus": { 
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5,
+          "description": "AC bonus when shield is raised."
+        },
+        "hardness": { 
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 30,
+          "description": "Shield hardness (damage reduction when used to block)."
+        },
+        "hp": { 
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200,
+          "description": "Shield hit points."
+        },
+        "bt": { 
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "description": "Broken threshold."
+        },
+        "speed_penalty": { 
+          "type": "integer", 
+          "default": 0,
+          "minimum": -10,
+          "maximum": 0,
+          "description": "Penalty to Speed in feet when shield is raised."
+        }
+      }
+    },
+    "consumable_stats": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "description": "Consumable-specific statistics. Required when item_type is 'consumable'.",
+      "properties": {
+        "consumable_type": {
+          "type": "string",
+          "enum": ["potion", "elixir", "scroll", "talisman", "bomb", "poison", "oil", "tool", "ammunition", "snare"],
+          "description": "Specific consumable category."
+        },
+        "activate": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["actions"],
+          "properties": {
+            "actions": { 
+              "type": "string", 
+              "enum": ["free", "reaction", "1", "2", "3", "1_minute", "10_minutes"],
+              "description": "Number of actions required to activate the consumable."
+            },
+            "components": {
+              "type": "array",
+              "items": { 
+                "type": "string", 
+                "enum": ["command", "envision", "interact", "cast_a_spell"]
+              },
+              "uniqueItems": true,
+              "maxItems": 5,
+              "description": "Activation components required."
+            }
+          },
+          "description": "Activation requirements for the consumable."
+        },
+        "effect": { 
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000,
+          "description": "Description of the consumable's effect when activated."
+        },
+        "duration": { 
+          "type": "string",
+          "maxLength": 200,
+          "description": "How long the effect lasts (e.g., '1 minute', '1 hour', 'instantaneous').",
+          "examples": ["1 minute", "10 minutes", "1 hour", "instantaneous", "until next daily preparations"]
+        },
+        "saving_throw": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["type", "dc"],
+          "properties": {
+            "type": { 
+              "type": "string", 
+              "enum": ["fortitude", "reflex", "will"],
+              "description": "Type of saving throw required."
+            },
+            "dc": { 
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50,
+              "description": "DC for the saving throw."
+            }
+          },
+          "description": "Saving throw required to resist or reduce the consumable's effects."
+        }
+      }
+    },
+    "container_stats": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "description": "Container-specific statistics. Makes this item capable of holding other items. Common for backpacks, satchels, chests, bags of holding, etc.",
+      "properties": {
+        "capacity": {
+          "type": "number",
+          "minimum": 0.1,
+          "maximum": 1000,
+          "description": "Maximum bulk capacity this container can hold. Standard backpack = 4 bulk, bag of holding = 25 bulk."
+        },
+        "capacity_reduction": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 0,
+          "description": "Fraction of contained bulk that counts toward carrier's burden. 0 = weightless (bag of holding), 1 = full weight, 0.5 = half weight."
+        },
+        "can_lock": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether this container can be locked with a key or mechanism."
+        },
+        "lock_dc": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 50,
+          "description": "DC to pick the lock if container is locked. Only relevant if can_lock is true."
+        },
+        "is_locked": {
+          "type": "boolean",
+          "default": false,
+          "description": "Runtime state: whether the container is currently locked. This is mutable state and should be tracked in item_instances."
+        },
+        "access_time": {
+          "type": "string",
+          "enum": ["free", "interact", "2_actions", "3_actions"],
+          "default": "interact",
+          "description": "Number of actions required to retrieve an item from this container."
+        },
+        "water_resistant": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether this container protects contents from water damage."
+        },
+        "extradimensional": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether this is an extradimensional container (e.g., bag of holding, portable hole). Affects interactions with other magic."
+        },
+        "container_type": {
+          "type": "string",
+          "enum": ["backpack", "satchel", "pouch", "chest", "barrel", "crate", "bag_of_holding", "sack", "case", "quiver"],
+          "description": "Specific type of container for visual representation and game mechanics."
+        }
+      },
+      "required": ["capacity"]
+    },
+    "magic_properties": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "description": "Magic item properties. Can be applied to weapons, armor, or standalone magic items.",
+      "properties": {
+        "invested": { 
+          "type": "boolean", 
+          "default": false,
+          "description": "Whether the item requires investment to function."
+        },
+        "activation": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "actions": { 
+              "type": "string",
+              "enum": ["free", "reaction", "1", "2", "3", "1_minute", "10_minutes"],
+              "description": "Number of actions required to activate."
+            },
+            "components": { 
+              "type": "array", 
+              "items": { 
+                "type": "string",
+                "minLength": 1
+              },
+              "uniqueItems": true,
+              "maxItems": 5,
+              "description": "Activation components (e.g., 'command', 'envision', 'interact')."
+            },
+            "frequency": { 
+              "type": "string",
+              "maxLength": 200,
+              "description": "How often the item can be activated (e.g., 'once per day', 'three times per day').",
+              "examples": ["once per day", "three times per day", "once per hour"]
+            },
+            "trigger": { 
+              "type": "string",
+              "maxLength": 500,
+              "description": "Trigger condition for reaction-based activations."
+            },
+            "requirements": { 
+              "type": "string",
+              "maxLength": 500,
+              "description": "Prerequisites for activation (e.g., 'you must be wielding the item')."
+            }
+          },
+          "description": "Activation details for magic item abilities."
+        },
+        "effect": { 
+          "type": "string",
+          "maxLength": 2000,
+          "description": "Description of the magic item's effect when activated."
+        },
+        "runes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "type"],
+            "properties": {
+              "name": { 
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100,
+                "description": "Name of the rune.",
+                "examples": ["striking", "flaming", "resilient", "greater striking"]
+              },
+              "type": { 
+                "type": "string", 
+                "enum": ["fundamental", "property"],
+                "description": "Rune type: fundamental (potency/striking/resilient) or property (elemental, etc.)."
+              },
+              "effect": { 
+                "type": "string",
+                "maxLength": 500,
+                "description": "Description of the rune's effect."
+              }
+            }
+          },
+          "uniqueItems": true,
+          "maxItems": 10,
+          "description": "Weapon or armor runes etched onto the item."
+        }
+      }
+    },
+    "ai_generation": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Metadata for AI-generated items.",
+      "properties": {
+        "generated_by": { 
+          "type": "string",
+          "maxLength": 100,
+          "description": "AI model or system that generated this item.",
+          "examples": ["gpt-4", "claude-3", "manual"]
+        },
+        "generation_prompt": { 
+          "type": "string",
+          "maxLength": 2000,
+          "description": "The prompt used to generate this item."
+        },
+        "lore_hook": { 
+          "type": "string",
+          "maxLength": 1000,
+          "description": "Why this item exists in the dungeon and its backstory."
+        },
+        "previous_owner": { 
+          "type": "string",
+          "maxLength": 500,
+          "description": "Name or description of the item's previous owner, if known."
+        },
+        "condition": {
+          "type": "string",
+          "enum": ["pristine", "good", "worn", "damaged", "ruined", "cursed"],
+          "default": "good",
+          "description": "Physical condition of the item."
+        },
+        "is_identified": { 
+          "type": "boolean", 
+          "default": false,
+          "description": "Whether the item has been identified by the party."
+        },
+        "identify_dc": { 
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 50,
+          "description": "DC for Identify Magic skill check to identify this item."
+        }
+      }
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Item creation timestamp."
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Last modification timestamp."
+    }
+  }
+}

@@ -1,0 +1,484 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dungeoncrawler.life/schemas/character_options_step5.json",
+  "title": "Character Creation Step 5: Ability Scores",
+  "description": "Defines the ability score allocation process in Pathfinder 2E character creation, applying ancestry, background, class, and free boosts",
+  "type": "object",
+  "$defs": {
+    "abilityScore": {
+      "type": "object",
+      "description": "Individual ability score with tracking of boosts and modifiers",
+      "required": ["name", "abbreviation", "base", "boosts_applied", "current_value", "modifier"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Full ability name",
+          "enum": ["Strength", "Dexterity", "Constitution", "Intelligence", "Wisdom", "Charisma"]
+        },
+        "abbreviation": {
+          "type": "string",
+          "description": "Three-letter ability abbreviation",
+          "enum": ["STR", "DEX", "CON", "INT", "WIS", "CHA"]
+        },
+        "base": {
+          "type": "integer",
+          "const": 10,
+          "description": "Base ability score before any boosts"
+        },
+        "boosts_applied": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4,
+          "description": "Number of +2 boosts applied to this ability (max 4 at level 1)"
+        },
+        "current_value": {
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 18,
+          "description": "Current ability score (base + 2 × boosts_applied)"
+        },
+        "modifier": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4,
+          "description": "Ability modifier: (current_value - 10) ÷ 2 (rounded down)"
+        }
+      }
+    },
+    "abilityName": {
+      "type": "string",
+      "description": "Valid ability score name for boosts",
+      "enum": ["Strength", "Dexterity", "Constitution", "Intelligence", "Wisdom", "Charisma"]
+    }
+  },
+  "properties": {
+    "step": {
+      "type": "integer",
+      "const": 5,
+      "description": "Step number in character creation process"
+    },
+    "step_name": {
+      "type": "string",
+      "const": "Ability Profile",
+      "description": "Human-readable name for this step"
+    },
+    "step_description": {
+      "type": "string",
+      "const": "Finalize the stat profile your character will carry through long-term campaign play and legacy progression.",
+      "description": "Explanation of what happens in this step"
+    },
+    "fields": {
+      "type": "object",
+      "description": "Form fields available in this step",
+      "properties": {
+        "ability_summary": {
+          "type": "object",
+          "description": "Display-only summary showing current ability scores and applied boosts",
+          "properties": {
+            "field_type": {
+              "type": "string",
+              "const": "readonly_display",
+              "description": "Display type"
+            },
+            "label": {
+              "type": "string",
+              "const": "Current Legacy Ability Profile",
+              "description": "Field label"
+            },
+            "abilities": {
+              "type": "object",
+              "description": "Ability score breakdown for all six abilities",
+              "required": ["str", "dex", "con", "int", "wis", "cha"],
+              "additionalProperties": false,
+              "properties": {
+                "str": {
+                  "$ref": "#/$defs/abilityScore",
+                  "description": "Strength ability score"
+                },
+                "dex": {
+                  "$ref": "#/$defs/abilityScore",
+                  "description": "Dexterity ability score"
+                },
+                "con": {
+                  "$ref": "#/$defs/abilityScore",
+                  "description": "Constitution ability score"
+                },
+                "int": {
+                  "$ref": "#/$defs/abilityScore",
+                  "description": "Intelligence ability score"
+                },
+                "wis": {
+                  "$ref": "#/$defs/abilityScore",
+                  "description": "Wisdom ability score"
+                },
+                "cha": {
+                  "$ref": "#/$defs/abilityScore",
+                  "description": "Charisma ability score"
+                }
+              },
+              "examples": [
+                {
+                  "str": {
+                    "name": "Strength",
+                    "abbreviation": "STR",
+                    "base": 10,
+                    "boosts_applied": 3,
+                    "current_value": 16,
+                    "modifier": 3
+                  },
+                  "dex": {
+                    "name": "Dexterity",
+                    "abbreviation": "DEX",
+                    "base": 10,
+                    "boosts_applied": 2,
+                    "current_value": 14,
+                    "modifier": 2
+                  },
+                  "con": {
+                    "name": "Constitution",
+                    "abbreviation": "CON",
+                    "base": 10,
+                    "boosts_applied": 2,
+                    "current_value": 14,
+                    "modifier": 2
+                  },
+                  "int": {
+                    "name": "Intelligence",
+                    "abbreviation": "INT",
+                    "base": 10,
+                    "boosts_applied": 1,
+                    "current_value": 12,
+                    "modifier": 1
+                  },
+                  "wis": {
+                    "name": "Wisdom",
+                    "abbreviation": "WIS",
+                    "base": 10,
+                    "boosts_applied": 0,
+                    "current_value": 10,
+                    "modifier": 0
+                  },
+                  "cha": {
+                    "name": "Charisma",
+                    "abbreviation": "CHA",
+                    "base": 10,
+                    "boosts_applied": 0,
+                    "current_value": 10,
+                    "modifier": 0
+                  }
+                }
+              ]
+            },
+            "help_text": {
+              "type": "string",
+              "const": "Each ability starts at 10 and gains +2 per boost. Build for sustained campaign performance, not only first-session burst.",
+              "description": "Helper text explaining ability score mechanics"
+            }
+          },
+          "required": ["field_type", "label", "abilities", "help_text"]
+        },
+        "free_boosts": {
+          "type": "object",
+          "description": "Four free ability boosts that can be applied to any ability",
+          "properties": {
+            "field_type": {
+              "type": "string",
+              "const": "multi-select",
+              "description": "HTML input type"
+            },
+            "label": {
+              "type": "string",
+              "const": "Choose 4 Long-Term Focus Boosts",
+              "description": "Field label"
+            },
+            "required": {
+              "type": "boolean",
+              "const": true,
+              "description": "Whether this field is mandatory"
+            },
+            "options": {
+              "type": "array",
+              "description": "Available ability scores for free boosts",
+              "items": {
+                "$ref": "#/$defs/abilityName"
+              },
+              "minItems": 6,
+              "maxItems": 6,
+              "default": ["Strength", "Dexterity", "Constitution", "Intelligence", "Wisdom", "Charisma"]
+            },
+            "help_text": {
+              "type": "string",
+              "const": "Assign 4 boosts to support your long-term role. You can stack boosts on key abilities when needed.",
+              "description": "Helper text displayed to user"
+            },
+            "validation": {
+              "type": "object",
+              "description": "Validation rules for free boost selection",
+              "properties": {
+                "required": {
+                  "type": "boolean",
+                  "const": true,
+                  "description": "All 4 free boosts must be assigned"
+                },
+                "min_selections": {
+                  "type": "integer",
+                  "const": 4,
+                  "description": "Minimum number of boosts to select"
+                },
+                "max_selections": {
+                  "type": "integer",
+                  "const": 4,
+                  "description": "Maximum number of boosts to select"
+                },
+                "allow_duplicates": {
+                  "type": "boolean",
+                  "const": true,
+                  "description": "Can select the same ability multiple times"
+                },
+                "max_ability_18": {
+                  "type": "boolean",
+                  "const": true,
+                  "description": "No ability can exceed 18 at character creation (base 10 + 4 boosts = 18)"
+                },
+                "error_messages": {
+                  "type": "object",
+                  "description": "Validation error messages",
+                  "properties": {
+                    "incomplete_selection": {
+                      "type": "string",
+                      "default": "Please assign all 4 free ability boosts."
+                    },
+                    "ability_cap_exceeded": {
+                      "type": "string",
+                      "default": "No ability score can exceed 18 at character creation."
+                    }
+                  }
+                }
+              },
+              "required": ["required", "min_selections", "max_selections", "allow_duplicates", "max_ability_18", "error_messages"]
+            }
+          },
+          "required": ["field_type", "label", "required", "options", "help_text", "validation"]
+        }
+      },
+      "required": ["ability_summary", "free_boosts"]
+    },
+    "boost_sources": {
+      "type": "object",
+      "description": "Sources of ability boosts accumulated from previous steps",
+      "properties": {
+        "ancestry_boosts": {
+          "type": "array",
+          "description": "Boosts from chosen ancestry (applied automatically from Step 2)",
+          "items": {
+            "$ref": "#/$defs/abilityName"
+          },
+          "minItems": 2,
+          "maxItems": 2,
+          "examples": [
+            ["Strength", "Constitution"],
+            ["Intelligence", "Charisma"],
+            ["Dexterity", "Wisdom"]
+          ]
+        },
+        "ancestry_flaw": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/abilityName"
+            },
+            {
+              "type": "string",
+              "const": "",
+              "description": "No ancestry flaw"
+            }
+          ],
+          "description": "Ability flaw from ancestry (if any) - reduces score by 2. Most ancestries have no flaw (empty string), some like Goblin have one.",
+          "examples": ["Wisdom", "Charisma", ""]
+        },
+        "background_boosts": {
+          "type": "array",
+          "description": "2 free boosts from background (chosen in Step 3). Player selects these.",
+          "items": {
+            "$ref": "#/$defs/abilityName"
+          },
+          "minItems": 2,
+          "maxItems": 2,
+          "examples": [
+            ["Dexterity", "Charisma"],
+            ["Strength", "Constitution"]
+          ]
+        },
+        "class_boost": {
+          "$ref": "#/$defs/abilityName",
+          "description": "Key ability boost from class (applied automatically from Step 4). Each class has 1-2 key abilities, player chooses one.",
+          "examples": ["Intelligence", "Strength", "Dexterity"]
+        },
+        "free_boosts": {
+          "type": "array",
+          "description": "4 free boosts selected by player in this step. Can be applied to the same ability multiple times.",
+          "items": {
+            "$ref": "#/$defs/abilityName"
+          },
+          "minItems": 4,
+          "maxItems": 4,
+          "examples": [
+            ["Strength", "Strength", "Constitution", "Wisdom"],
+            ["Intelligence", "Intelligence", "Dexterity", "Constitution"]
+          ]
+        }
+      },
+      "required": ["ancestry_boosts", "background_boosts", "class_boost", "free_boosts"]
+    },
+    "validation": {
+      "type": "object",
+      "description": "Step-level validation rules",
+      "properties": {
+        "step_complete": {
+          "type": "object",
+          "description": "Conditions for step completion",
+          "properties": {
+            "required_fields": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "default": ["free_boosts"],
+              "description": "Fields that must be completed before advancing"
+            },
+            "error_message": {
+              "type": "string",
+              "default": "You must assign all 4 free ability boosts before continuing.",
+              "description": "Message shown when step validation fails"
+            }
+          },
+          "required": ["required_fields", "error_message"]
+        }
+      },
+      "required": ["step_complete"]
+    },
+    "navigation": {
+      "type": "object",
+      "description": "Navigation rules for this step",
+      "properties": {
+        "previous_step": {
+          "type": "integer",
+          "const": 4,
+          "description": "Previous step number"
+        },
+        "next_step": {
+          "type": "integer",
+          "const": 6,
+          "description": "Next step number"
+        },
+        "can_go_back": {
+          "type": "boolean",
+          "const": true,
+          "description": "User can return to previous step"
+        },
+        "can_skip": {
+          "type": "boolean",
+          "const": false,
+          "description": "Step cannot be skipped"
+        }
+      },
+      "required": ["previous_step", "next_step", "can_go_back", "can_skip"]
+    },
+    "tips": {
+      "type": "array",
+      "description": "Helpful tips for new players",
+      "items": {
+        "type": "string"
+      },
+      "default": [
+        "Keep your class key ability high, but preserve enough breadth to survive varied encounters over time.",
+        "Constitution and Dexterity often determine whether a character remains reliable deep into a campaign.",
+        "18 is the creation cap; this is your baseline legacy profile before later progression milestones.",
+        "A balanced modifier spread usually outperforms fragile min-max builds in persistent world play.",
+        "Accept tradeoffs intentionally: every boost should support your long-term role identity.",
+        "Plan with future roster synergy in mind so retired and active characters feel strategically distinct."
+      ]
+    },
+    "examples": {
+      "type": "array",
+      "description": "Example ability score configurations for common character archetypes",
+      "items": {
+        "type": "object",
+        "properties": {
+          "archetype": {
+            "type": "string",
+            "description": "Character archetype name"
+          },
+          "class": {
+            "type": "string",
+            "description": "Recommended class"
+          },
+          "final_scores": {
+            "type": "object",
+            "description": "Resulting ability scores after all boosts"
+          },
+          "rationale": {
+            "type": "string",
+            "description": "Why these scores work for this archetype"
+          }
+        },
+        "required": ["archetype", "class", "final_scores", "rationale"]
+      },
+      "default": [
+        {
+          "archetype": "Heavily Armored Warrior",
+          "class": "Fighter or Champion",
+          "final_scores": {
+            "str": 18,
+            "dex": 12,
+            "con": 14,
+            "int": 10,
+            "wis": 12,
+            "cha": 10
+          },
+          "rationale": "Maximizes Strength for weapon damage and attack rolls. Moderate Dexterity and Constitution for defense. Wisdom helps with Perception."
+        },
+        {
+          "archetype": "Nimble Rogue",
+          "class": "Rogue or Ranger",
+          "final_scores": {
+            "str": 12,
+            "dex": 18,
+            "con": 12,
+            "int": 14,
+            "wis": 10,
+            "cha": 10
+          },
+          "rationale": "Maximizes Dexterity for attack, damage (finesse), AC, and Reflex saves. Intelligence boosts skills and Recall Knowledge."
+        },
+        {
+          "archetype": "Powerful Spellcaster",
+          "class": "Wizard, Cleric, or Druid",
+          "final_scores": {
+            "str": 10,
+            "dex": 14,
+            "con": 12,
+            "int": 18,
+            "wis": 12,
+            "cha": 10
+          },
+          "rationale": "Maximizes primary casting stat (INT for Wizard). Dexterity helps AC and Reflex saves. Constitution adds survivability."
+        },
+        {
+          "archetype": "Charismatic Leader",
+          "class": "Bard or Sorcerer",
+          "final_scores": {
+            "str": 10,
+            "dex": 14,
+            "con": 12,
+            "int": 10,
+            "wis": 12,
+            "cha": 18
+          },
+          "rationale": "Maximizes Charisma for spellcasting and social skills. Balanced defensive stats keep the character alive."
+        }
+      ]
+    }
+  },
+  "required": ["step", "step_name", "step_description", "fields", "boost_sources", "validation", "navigation", "tips", "examples"]
+}

@@ -1,0 +1,62 @@
+{#
+/**
+ * @file
+ * Character Creation Step 4: Class Selection
+ */
+#}
+
+<div class="character-creation-container">
+  <div class="step-header">
+    <h1>Choose Your Class</h1>
+    <p class="step-description">Your class determines your abilities, skills, and role in the party</p>
+  </div>
+
+  {# Progress Bar #}
+  <div class="progress-container">
+    <div class="progress-bar">
+      <div class="progress-fill progress-step-4"></div>
+    </div>
+    <div class="progress-text">Step 4 of 8</div>
+  </div>
+
+  <form id="step-4-form" method="post" action="/characters/create/step/4/save?character_id={{ character_id }}" data-classes="{{ classes|json_encode|e('html_attr') }}">
+    
+    {# Class Selection Grid #}
+    <div class="selection-section">
+      <label class="section-label">Select Class</label>
+      <div class="classes-grid">
+        {% for class in classes %}
+          <div class="selection-card class-card" data-class="{{ class.id }}">
+            <h3>{{ class.name }}</h3>
+            <p class="card-description">{{ class.description }}</p>
+            
+            <div class="class-mechanics">
+              <div class="mechanic-item">
+                <strong>Hit Points:</strong> {{ class.hp }} + Constitution modifier
+              </div>
+              <div class="mechanic-item">
+                <strong>Key Ability:</strong> {{ class.key_ability }}
+              </div>
+              <div class="mechanic-item">
+                <strong>Perception:</strong> {{ class.proficiencies.perception }}
+              </div>
+              <div class="mechanic-item">
+                <strong>Saving Throws:</strong>
+                Fortitude {{ class.proficiencies.fortitude }},
+                Reflex {{ class.proficiencies.reflex }},
+                Will {{ class.proficiencies.will }}
+              </div>
+              <div class="mechanic-item">
+                <strong>Skills:</strong> {{ class.skills }}
+              </div>
+              <div class="mechanic-item">
+                <strong>Weapons:</strong> {{ class.weapons }}
+              </div>
+              {% if class.spellcasting %}
+                <div class="mechanic-item">
+                  <strong>Spellcasting:</strong> {{ class.spellcasting }}
+                </div>
+              {% endif %}
+    <div id="error-message" class="error-message hidden"></div>
+  </form>
+</div>

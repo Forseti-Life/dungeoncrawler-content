@@ -1,0 +1,1132 @@
+{#
+/**
+ * @file
+ * Template for the hex map demo page.
+ *
+ * Available variables:
+ * - launch_context: Optional campaign/dungeon launch context from tavern flow.
+ * - dungeon_payload: Optional room/entity payload from example level.
+ */
+#}
+
+  <div class="hexmap-container" id="hexmap-container"{% if is_admin %} data-admin="1"{% endif %}>
+  <div class="game-shell" data-game-shell data-game-shell-default="map">
+    <div class="game-shell__tabs" role="tablist" aria-label="{{ 'Campaign play views'|t }}">
+      <button id="game-tab-map" class="game-shell__tab game-shell__tab--active" type="button" role="tab" aria-selected="true" aria-controls="game-panel-map" data-game-tab="map">
+        <span class="game-shell__tab-icon">&#x1F5FA;</span>{{ 'Map'|t }}
+      </button>
+      <button id="game-tab-chat" class="game-shell__tab" type="button" role="tab" aria-selected="false" aria-controls="game-panel-chat" data-game-tab="chat">
+        <span class="game-shell__tab-icon">&#x1F4AC;</span>{{ 'Chat'|t }}
+      </button>
+      <button id="game-tab-character" class="game-shell__tab" type="button" role="tab" aria-selected="false" aria-controls="game-panel-character" data-game-tab="character">
+        <span class="game-shell__tab-icon">&#x1F464;</span>{{ 'Character'|t }}
+      </button>
+      <div class="game-shell__tab-actions" role="presentation">
+        {% if is_admin %}
+        <button id="debug-panel-toggle" class="btn btn-icon btn--debug-toggle" type="button" title="{{ 'Toggle dev panels'|t }}" aria-pressed="false">{{ '🛠'|t }}</button>
+        {% endif %}
+        <button id="fullscreen-toggle" class="btn btn-primary btn--gameplay-fullscreen" type="button" title="{{ 'Enter fullscreen'|t }}" aria-pressed="false">
+          <span class="btn--gameplay-fullscreen__icon" data-fullscreen-icon>{{ '⛶'|t }}</span>
+          <span class="btn--gameplay-fullscreen__label" data-fullscreen-label>{{ 'Enter Fullscreen'|t }}</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="game-shell__panel game-shell__panel--active" id="game-panel-map" role="tabpanel" aria-labelledby="game-tab-map">
+      <div class="game-shell__map-panel">
+        <div class="hexmap-controls hexmap-debug-panel">
+      <div class="control-group control-group--config">
+        <label class="control-group__title">{{ 'Map Size:'|t }}</label>
+        <select id="grid-size">
+          <option value="small">{{ 'Small (10x10)'|t }}</option>
+          <option value="medium" selected>{{ 'Medium (20x20)'|t }}</option>
+          <option value="large">{{ 'Large (40x40)'|t }}</option>
+        </select>
+      </div>
+      
+      <div class="control-group control-group--config">
+        <label class="control-group__title">{{ 'Zoom Baseline:'|t }}</label>
+        <input type="range" id="hex-size" min="20" max="60" value="30" />
+        <span id="hex-size-value">30px</span>
+      </div>
+      
+      <div class="control-group control-group--view">
+        <label class="control-group__title">{{ 'View:'|t }}</label>
+        <button id="toggle-coordinates" class="btn">{{ 'Toggle Coordinates'|t }}</button>
+        <button id="toggle-grid" class="btn">{{ 'Toggle Grid Lines'|t }}</button>
+        <button id="toggle-fog" class="btn">{{ 'Toggle Fog of War'|t }}</button>
+        <button id="reset-view" class="btn">{{ 'Reset View'|t }}</button>
+      </div>
+
+        </div>
+
+        <div class="hexmap-stage">
+    <div id="hexmap-canvas-container" class="hexmap-canvas-wrapper">
+      <!-- PixiJS canvas will be inserted here -->
+
+      {# Game Coordinator — AI GM Narration Overlay #}
+      <div id="narration-overlay" class="narration-overlay">
+        <div class="narration-overlay__text" id="narration-text"></div>
+        <div class="narration-overlay__skip" id="narration-skip">{{ 'Click to continue'|t }}</div>
+      </div>
+
+      {# Game Coordinator — Phase Indicator Badge #}
+      <div id="game-phase-indicator" class="phase-indicator phase-exploration" style="display:none;">
+        {{ 'Exploration'|t }}
+      </div>
+
+      {# Game Coordinator — Exploration Actions Panel #}
+      <div id="exploration-actions" class="exploration-actions" style="display:none;">
+        <div class="exploration-actions__header">
+          <h4>{{ 'Actions'|t }}</h4>
+        </div>
+        <div class="exploration-actions__buttons">
+          <button id="action-move" class="btn btn-action" data-action="move">{{ '🚶 Move'|t }}</button>
+          <button id="action-interact" class="btn btn-action" data-action="interact">{{ '🤝 Interact'|t }}</button>
+          <button id="action-talk" class="btn btn-action" data-action="talk">{{ '💬 Talk'|t }}</button>
+          <button id="action-search" class="btn btn-action" data-action="search">{{ '🔍 Search'|t }}</button>
+          <button id="action-rest" class="btn btn-action" data-action="rest">{{ '🛌 Rest'|t }}</button>
+        </div>
+      </div>
+
+      {# Encounter-mode action buttons (managed by GameCoordinator) #}
+      <div id="encounter-actions" class="encounter-actions" style="display:none;">
+        <button id="action-attack" class="btn btn-action btn-action--attack" data-action="attack">{{ '⚔️ Strike'|t }}</button>
+        <button id="end-turn" class="btn btn-action btn-action--end" data-action="end_turn">{{ '⏭️ End Turn'|t }}</button>
+      </div>
+
+      <div id="turn-hud" class="turn-hud dc-is-hidden">
+        <div class="turn-hud__row">
+          <span id="turn-owner" class="pill pill-strong">{{ 'No active combat'|t }}</span>
+          <span id="current-round" class="pill pill-round">{{ 'Round 0'|t }}</span>
+        </div>
+
+        <div id="current-turn" class="turn-hud__name">{{ 'No active turn'|t }}</div>
+
+        <div class="turn-hud__meta">
+          <span id="turn-action-summary" class="chip chip-strong">{{ 'Actions: -'|t }}</span>
+          <span id="turn-move-summary" class="chip">{{ 'Movement: -'|t }}</span>
+          <span id="turn-reaction" class="chip chip-ghost">{{ 'Reaction: ready'|t }}</span>
+        </div>
+
+        <div id="turn-action-chips" class="turn-hud__actions">
+          <span class="chip chip-ghost">{{ 'Move'|t }}</span>
+          <span class="chip chip-ghost">{{ 'Strike'|t }}</span>
+          <span class="chip chip-ghost">{{ 'Cast / Skill'|t }}</span>
+          <span class="chip chip-end">{{ 'End Turn'|t }}</span>
+        </div>
+
+        <div id="combat-controls" class="turn-hud__controls">
+          <button id="start-combat" class="btn btn-success">{{ '⚔️ Start Combat'|t }}</button>
+          <button id="end-combat" class="btn btn-warning dc-is-hidden">{{ '🛑 End Combat'|t }}</button>
+        </div>
+
+        <div id="initiative-tracker" class="initiative-tracker dc-is-hidden">
+          <div class="tracker-header">
+            <h4>{{ 'Initiative Order'|t }}</h4>
+          </div>
+          <div class="initiative-list" id="initiative-list">
+            <!-- Initiative order will be populated here -->
+          </div>
+        </div>
+      </div>
+    </div>
+
+        </div>
+      </div>
+    </div>
+
+    <div class="game-shell__panel" id="game-panel-chat" role="tabpanel" aria-labelledby="game-tab-chat" hidden>
+      <div class="game-shell__chat-panel">
+        <div class="hexmap-chat" id="hexmap-chat">
+          <div class="hexmap-chat__header">
+            <h3 id="chat-panel-title">{{ 'Room Dialogue'|t }}</h3>
+            <span class="chip chip-live" id="chat-status">{{ 'Open'|t }}</span>
+            <button id="chat-dock-toggle" class="btn btn-icon btn--chat-dock-toggle" title="{{ 'Collapse chat'|t }}" aria-expanded="true">{{ '▾'|t }}</button>
+          </div>
+          <div class="hexmap-chat__session-tabs" id="chat-session-tabs">
+            <button class="session-view-tab session-view-tab--active" data-view="room" title="Room dialogue &amp; NPC channels">
+              <span class="session-view-tab__icon">&#x1F4E2;</span>{{ 'Room'|t }}
+            </button>
+            <button class="session-view-tab" data-view="narrative" title="Your character's perception-filtered story">
+              <span class="session-view-tab__icon">&#x1F4D6;</span>{{ 'My Story'|t }}
+            </button>
+            <button class="session-view-tab" data-view="party" title="Party-only huddle chat">
+              <span class="session-view-tab__icon">&#x1F6E1;</span>{{ 'Party'|t }}
+            </button>
+            <button class="session-view-tab" data-view="gm-private" title="Secret actions only the GM sees">
+              <span class="session-view-tab__icon">&#x1F575;</span>{{ 'GM Secret'|t }}
+            </button>
+            <button class="session-view-tab" data-view="system-log" title="Dice rolls, checks &amp; mechanical results">
+              <span class="session-view-tab__icon">&#x1F3B2;</span>{{ 'Dice Log'|t }}
+            </button>
+          </div>
+          <div class="hexmap-chat__channels" id="chat-channel-tabs">
+            <button class="chat-channel-tab chat-channel-tab--active" data-channel="room" title="Main room channel">{{ 'Room'|t }}</button>
+          </div>
+          <div class="hexmap-chat__channel-indicator" id="chat-channel-indicator" data-channel-type="room">
+            <span class="channel-indicator__icon">&#x1F4E2;</span>
+            <span class="channel-indicator__label" id="chat-channel-label">{{ 'Room — Everyone can hear'|t }}</span>
+          </div>
+          <div class="hexmap-chat__summary" id="chat-summary">{{ 'Quick summary: Jumping to the latest part of the conversation.'|t }}</div>
+          <div class="hexmap-chat__log" id="chat-log" aria-live="polite" data-channel-type="room">
+            <div class="chat-line chat-line--system">{{ 'You are in a quiet room. Try saying hello.'|t }}</div>
+          </div>
+          <form class="hexmap-chat__input" id="chat-form">
+            <input id="chat-input" type="text" placeholder="{{ 'Say something to the room...'|t }}" autocomplete="off" />
+            <button id="chat-send" class="btn btn-primary" type="submit">{{ 'Send'|t }}</button>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <div class="game-shell__panel" id="game-panel-character" role="tabpanel" aria-labelledby="game-tab-character" hidden>
+      <div class="game-shell__character-panel">
+        <div class="game-layout__sidebar">
+
+  {# Sidebar Tab Bar #}
+  <div class="sidebar-tabs" id="sidebar-tabs">
+    <button class="sidebar-tab sidebar-tab--active" data-panel="character">
+      <span class="sidebar-tab__icon">&#x1F4DC;</span>{{ 'Character'|t }}
+    </button>
+    <button class="sidebar-tab" data-panel="spells-feats">
+      <span class="sidebar-tab__icon">&#x2728;</span>{{ 'Spells & Feats'|t }}
+    </button>
+    <button class="sidebar-tab" data-panel="inventory">
+      <span class="sidebar-tab__icon">&#x1F392;</span>{{ 'Inventory'|t }}
+    </button>
+    <button class="sidebar-tab" data-panel="quests">
+      <span class="sidebar-tab__icon">&#x1F3AF;</span>{{ 'Quests'|t }}
+    </button>
+  </div>
+
+  {# === Character Tab Panel === #}
+  <div class="sidebar-panel sidebar-panel--active" id="sidebar-panel-character">
+  <div class="character-sheet">
+    <div class="character-sheet__header">
+      <div class="character-sheet__portrait" id="char-portrait-wrap" style="display:none;">
+        <img id="char-portrait" src="" alt="" class="character-sheet__portrait-img" />
+      </div>
+      <div class="character-sheet__header-info">
+        <p class="eyebrow">{{ 'Character Sheet'|t }} <a id="char-full-sheet-link" href="#" class="full-sheet-link" style="display:none;" target="_blank">{{ 'View Full Sheet ↗'|t }}</a></p>
+        <h2 id="char-name">{{ 'Select a character'|t }}</h2>
+        <p id="char-type" class="muted">{{ 'Type —'|t }}</p>
+        <p id="char-subtitle" class="muted small" style="display:none;"></p>
+      </div>
+      <div class="character-badges">
+        <span id="char-ancestry" class="pill pill-muted">{{ 'Ancestry —'|t }}</span>
+        <span id="char-level" class="pill pill-strong">{{ 'Lvl —'|t }}</span>
+      </div>
+    </div>
+
+    <div class="character-sheet__status">
+      <span class="character-sheet__status-label">{{ 'Conditions'|t }}</span>
+      <ul id="char-conditions" class="conditions-list conditions-list--header">
+        <li class="conditions-empty">{{ 'None'|t }}</li>
+      </ul>
+    </div>
+
+    <div id="char-sheet-embed-wrap" class="character-sheet__embed-wrap" style="display:none;">
+      <iframe
+        id="char-sheet-embed"
+        class="character-sheet__embed"
+        title="{{ 'Full Character Sheet'|t }}"
+        loading="lazy"
+        referrerpolicy="same-origin"></iframe>
+    </div>
+
+    <div id="char-sheet-legacy">
+
+    <div class="character-sheet__core-stats">
+      <div class="stat-card">
+        <p class="label">{{ 'HP'|t }}</p>
+        <p id="char-hp" class="stat-value">-</p>
+      </div>
+      <div class="stat-card">
+        <p class="label">{{ 'AC'|t }}</p>
+        <p id="char-ac" class="stat-value">-</p>
+      </div>
+      <div class="stat-card">
+        <p class="label">{{ 'Hero'|t }}</p>
+        <p id="char-hero" class="stat-value">-</p>
+      </div>
+      <div class="stat-card">
+        <p class="label">{{ 'Speed'|t }}</p>
+        <p id="char-speed" class="stat-value">-</p>
+      </div>
+    </div>
+
+    <div class="character-sheet__core-stats character-sheet__core-stats--secondary">
+      <div class="stat-card stat-card--small">
+        <p class="label">{{ 'Perception'|t }}</p>
+        <p id="char-perception" class="stat-value">+0</p>
+      </div>
+      <div class="stat-card stat-card--small">
+        <p class="label">{{ 'XP'|t }}</p>
+        <p id="char-xp" class="stat-value">-</p>
+      </div>
+    </div>
+
+    <div class="character-sheet__section">
+      <div class="section-header" data-section="abilities">
+        <h4>{{ 'Abilities'|t }}</h4>
+        <span class="section-toggle">▾</span>
+      </div>
+      <div class="section-body" data-section="abilities">
+        <div class="ability-scores">
+          <div class="ability-score">
+            <span class="ability-label">{{ 'STR'|t }}</span>
+            <span id="char-str" class="ability-value">10</span>
+            <span id="char-str-mod" class="ability-mod">+0</span>
+          </div>
+          <div class="ability-score">
+            <span class="ability-label">{{ 'DEX'|t }}</span>
+            <span id="char-dex" class="ability-value">10</span>
+            <span id="char-dex-mod" class="ability-mod">+0</span>
+          </div>
+          <div class="ability-score">
+            <span class="ability-label">{{ 'CON'|t }}</span>
+            <span id="char-con" class="ability-value">10</span>
+            <span id="char-con-mod" class="ability-mod">+0</span>
+          </div>
+          <div class="ability-score">
+            <span class="ability-label">{{ 'INT'|t }}</span>
+            <span id="char-int" class="ability-value">10</span>
+            <span id="char-int-mod" class="ability-mod">+0</span>
+          </div>
+          <div class="ability-score">
+            <span class="ability-label">{{ 'WIS'|t }}</span>
+            <span id="char-wis" class="ability-value">10</span>
+            <span id="char-wis-mod" class="ability-mod">+0</span>
+          </div>
+          <div class="ability-score">
+            <span class="ability-label">{{ 'CHA'|t }}</span>
+            <span id="char-cha" class="ability-value">10</span>
+            <span id="char-cha-mod" class="ability-mod">+0</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="character-sheet__section">
+      <div class="section-header" data-section="saves">
+        <h4>{{ 'Saving Throws'|t }}</h4>
+        <span class="section-toggle">▾</span>
+      </div>
+      <div class="section-body" data-section="saves">
+        <div class="saves-grid">
+          <div class="save-item">
+            <span class="save-label">{{ 'Fort'|t }}</span>
+            <span id="char-fort" class="save-value">+0</span>
+          </div>
+          <div class="save-item">
+            <span class="save-label">{{ 'Ref'|t }}</span>
+            <span id="char-ref" class="save-value">+0</span>
+          </div>
+          <div class="save-item">
+            <span class="save-label">{{ 'Will'|t }}</span>
+            <span id="char-will" class="save-value">+0</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="character-sheet__section">
+      <div class="section-header" data-section="skills">
+        <h4>{{ 'Skills'|t }}</h4>
+        <span class="section-toggle">▾</span>
+      </div>
+      <div class="section-body" data-section="skills">
+        <ul id="char-skills" class="skills-list">
+          <li class="skills-empty">{{ 'No skills loaded'|t }}</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="character-sheet__inventory-source dc-is-hidden" aria-hidden="true">
+      <div id="char-currency" class="currency-display">
+        <span class="currency-item"><span class="currency-label">{{ 'GP:'|t }}</span> <span id="char-gp">0</span></span>
+        <span class="currency-item"><span class="currency-label">{{ 'SP:'|t }}</span> <span id="char-sp">0</span></span>
+        <span class="currency-item"><span class="currency-label">{{ 'CP:'|t }}</span> <span id="char-cp">0</span></span>
+      </div>
+      <ul id="char-inventory" class="inventory-list">
+        <li class="inventory-empty">{{ 'No items'|t }}</li>
+      </ul>
+    </div>
+    </div>
+  </div>
+  </div>{# /.sidebar-panel-character #}
+
+  {# === Spells & Feats Tab Panel === #}
+  <div class="sidebar-panel" id="sidebar-panel-spells-feats" style="display:none;">
+    <div class="spells-feats-panel">
+      <div class="character-sheet__section" id="char-spells-section">
+        <div class="section-header section-header--static">
+          <h4>{{ 'Spellcasting'|t }}</h4>
+        </div>
+        <div class="section-body section-body--static" data-section="spells">
+          <div id="char-spell-meta" class="spell-meta"></div>
+          <ul id="char-spells" class="spells-list">
+            <li class="spells-empty">{{ 'No spells'|t }}</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="character-sheet__section">
+        <div class="section-header section-header--static">
+          <h4>{{ 'Features & Feats'|t }}</h4>
+        </div>
+        <div class="section-body section-body--static" data-section="features">
+          <ul id="char-features" class="features-list">
+            <li class="features-empty">{{ 'No features loaded'|t }}</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>{# /.sidebar-panel-spells-feats #}
+
+  {# === Inventory Tab Panel === #}
+  <div class="sidebar-panel" id="sidebar-panel-inventory" style="display:none;">
+    <div class="inventory-panel">
+      <div class="inventory-panel__header">
+        <h3>{{ 'Inventory'|t }}</h3>
+        <div class="inventory-panel__weight">
+          <span class="label">{{ 'Bulk:'|t }}</span>
+          <span id="inv-bulk-current" class="inventory-bulk-value">0</span>
+          <span class="muted">/</span>
+          <span id="inv-bulk-max" class="inventory-bulk-value">5</span>
+        </div>
+      </div>
+
+      <div class="inventory-panel__currency">
+        <div class="currency-coin currency-coin--gp">
+          <span class="currency-coin__icon">&#x1FA99;</span>
+          <span id="inv-gp" class="currency-coin__amount">0</span>
+          <span class="currency-coin__label">{{ 'GP'|t }}</span>
+        </div>
+        <div class="currency-coin currency-coin--sp">
+          <span class="currency-coin__icon">&#x26AA;</span>
+          <span id="inv-sp" class="currency-coin__amount">0</span>
+          <span class="currency-coin__label">{{ 'SP'|t }}</span>
+        </div>
+        <div class="currency-coin currency-coin--cp">
+          <span class="currency-coin__icon">&#x1F7E4;</span>
+          <span id="inv-cp" class="currency-coin__amount">0</span>
+          <span class="currency-coin__label">{{ 'CP'|t }}</span>
+        </div>
+      </div>
+
+      <div class="inventory-panel__filters">
+        <button class="inv-filter inv-filter--active" data-filter="all">{{ 'All'|t }}</button>
+        <button class="inv-filter" data-filter="weapon">{{ '⚔️ Weapons'|t }}</button>
+        <button class="inv-filter" data-filter="armor">{{ '🛡️ Armor'|t }}</button>
+        <button class="inv-filter" data-filter="consumable">{{ '🧪 Consumables'|t }}</button>
+        <button class="inv-filter" data-filter="utility">{{ '🧰 Utility'|t }}</button>
+        <button class="inv-filter" data-filter="misc">{{ '🦴 Misc'|t }}</button>
+      </div>
+
+      <ul class="inventory-panel__list" id="inv-item-list">
+        <li class="inventory-panel__empty">{{ 'No items in inventory'|t }}</li>
+      </ul>
+    </div>
+  </div>{# /.sidebar-panel-inventory #}
+
+  {# === Quests Tab Panel === #}
+  <div class="sidebar-panel" id="sidebar-panel-quests" style="display:none;">
+    <div class="hexmap-quest-journal hexmap-quest-journal--sidebar" id="quest-journal">
+      <div class="hexmap-quest-journal__header">
+        <h3>{{ 'Quest Journal'|t }}</h3>
+        <span class="chip chip-strong" id="quest-count">0</span>
+      </div>
+      <ul class="hexmap-quest-journal__list" id="quest-list">
+        <li class="quest-empty">{{ 'No active quests'|t }}</li>
+      </ul>
+
+      <div class="quest-confirmations" id="quest-confirmations">
+        <div class="quest-confirmations__header">
+          <h4>{{ 'Pending Confirmations'|t }}</h4>
+          <span class="chip chip-strong" id="quest-confirmation-count">0</span>
+        </div>
+        <ul class="quest-confirmations__list" id="quest-confirmation-list">
+          <li class="quest-empty">{{ 'No pending confirmations'|t }}</li>
+        </ul>
+      </div>
+    </div>
+  </div>{# /.sidebar-panel-quests #}
+
+        </div>{# /.game-layout__sidebar #}
+      </div>
+    </div>
+  </div>
+
+  <script>
+  /* Safe Drupal.t() fallback for inline scripts that run before drupal.js loads */
+  var _dt = typeof Drupal !== 'undefined' ? Drupal.t.bind(Drupal) : function(s) { return s; };
+  (function () {
+    const STORAGE_KEY = 'dc_layout_ratio';
+    const slider = document.getElementById('layout-ratio-slider');
+    const label  = document.getElementById('layout-ratio-value');
+    const layout = document.getElementById('game-layout');
+    if (!slider || !layout) return;
+
+    function apply(pct) {
+      layout.style.setProperty('--sidebar-pct', pct);
+      label.textContent = (100 - pct) + ' / ' + pct;
+    }
+
+    // Restore saved preference
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      const v = parseInt(saved, 10);
+      if (v >= 15 && v <= 50) {
+        slider.value = v;
+        apply(v);
+      }
+    }
+
+    slider.addEventListener('input', function () {
+      const v = parseInt(this.value, 10);
+      apply(v);
+    });
+
+    slider.addEventListener('change', function () {
+      localStorage.setItem(STORAGE_KEY, this.value);
+    });
+  })();
+
+  /* ---- Debug Panel Toggle (admin only) ---- */
+  (function () {
+    const btn = document.getElementById('debug-panel-toggle');
+    if (!btn) return;
+    const container = document.getElementById('hexmap-container');
+    const DEBUG_KEY = 'dc_debug_mode';
+    const CSS_CLASS = 'hexmap-debug-active';
+
+    function setDebugMode(on) {
+      if (on) {
+        container.classList.add(CSS_CLASS);
+        btn.setAttribute('aria-pressed', 'true');
+        btn.title = _dt('Hide dev panels');
+      } else {
+        container.classList.remove(CSS_CLASS);
+        btn.setAttribute('aria-pressed', 'false');
+        btn.title = _dt('Show dev panels');
+      }
+      localStorage.setItem(DEBUG_KEY, on ? '1' : '0');
+    }
+
+    // Restore saved debug preference
+    const savedDebug = localStorage.getItem(DEBUG_KEY);
+    if (savedDebug === '1') {
+      setDebugMode(true);
+    }
+
+    btn.addEventListener('click', function () {
+      setDebugMode(!container.classList.contains(CSS_CLASS));
+    });
+  })();
+
+  /* ---- Sidebar Tab Switching ---- */
+  (function () {
+    const tabBar = document.getElementById('sidebar-tabs');
+    if (!tabBar) return;
+    const tabs = tabBar.querySelectorAll('.sidebar-tab');
+    const TAB_KEY = 'dc_sidebar_tab';
+
+    function activate(panelId) {
+      tabs.forEach(function (t) {
+        t.classList.toggle('sidebar-tab--active', t.dataset.panel === panelId);
+      });
+      document.querySelectorAll('.sidebar-panel').forEach(function (p) {
+        var id = p.id.replace('sidebar-panel-', '');
+        if (id === panelId) {
+          p.style.display = '';
+          p.classList.add('sidebar-panel--active');
+        } else {
+          p.style.display = 'none';
+          p.classList.remove('sidebar-panel--active');
+        }
+      });
+    }
+
+    tabs.forEach(function (tab) {
+      tab.addEventListener('click', function () {
+        var panel = this.dataset.panel;
+        activate(panel);
+        localStorage.setItem(TAB_KEY, panel);
+        // Sync inventory when switching to it
+        if (panel === 'inventory') syncInventory();
+      });
+    });
+
+    // Restore saved tab
+    var saved = localStorage.getItem(TAB_KEY);
+    if (saved && document.getElementById('sidebar-panel-' + saved)) {
+      activate(saved);
+    }
+
+    /* ---- PF2e Item Knowledge Base (all game items) ---- */
+    var ITEM_DB = {
+      /* === WEAPONS === */
+      'battleaxe':         { type:'weapon', bulk:1, damage:'1d8 S', desc:'A heavy axe designed for combat, featuring a broad cutting edge.', traits:'Sweep', mods:[{stat:'Attack',val:'+Str'},{stat:'Damage',val:'+Str'},{stat:'Sweep',val:'Yes'}] },
+      'club':              { type:'weapon', bulk:1, damage:'1d6 B', desc:'A stout piece of wood shaped for use as a weapon. Possibly the oldest weapon in existence.', traits:'Thrown 10 ft', mods:[{stat:'Attack',val:'+Str'},{stat:'Damage',val:'+Str'},{stat:'Range',val:'10 ft'}] },
+      'crossbow':          { type:'weapon', bulk:1, damage:'1d8 P', desc:'A mechanical bow mounted on a stock that fires bolts. Easier to use than a bow but slower to reload.', traits:'Range 120 ft', mods:[{stat:'Attack',val:'+Dex'},{stat:'Range',val:'120 ft'},{stat:'Reload',val:'1'}] },
+      'dagger':            { type:'weapon', bulk:0, damage:'1d4 P', desc:'A small blade easily concealed. Can be thrown.', traits:'Agile, Finesse, Thrown 10 ft, Versatile S', mods:[{stat:'Attack',val:'+Dex (Finesse)'},{stat:'Damage',val:'+Str'},{stat:'Range',val:'10 ft'}] },
+      'flail':             { type:'weapon', bulk:1, damage:'1d6 B', desc:'A handle attached to a heavy striking head by a flexible chain. Unpredictable movement makes it hard to block.', traits:'Disarm, Sweep, Trip', mods:[{stat:'Attack',val:'+Str'},{stat:'Damage',val:'+Str'},{stat:'Disarm',val:'Yes'},{stat:'Trip',val:'Yes'}] },
+      'glaive':            { type:'weapon', bulk:2, damage:'1d8 S', desc:'A single-edged blade mounted on a long pole. Its reach lets you strike foes before they close in.', traits:'Deadly d8, Forceful, Reach', mods:[{stat:'Attack',val:'+Str'},{stat:'Damage',val:'+Str'},{stat:'Reach',val:'10 ft'},{stat:'Deadly',val:'d8'},{stat:'Hands',val:'2'}] },
+      'greataxe':          { type:'weapon', bulk:2, damage:'1d12 S', desc:'A large, heavy axe wielded in two hands. Sweeping strikes cleave through multiple foes.', traits:'Sweep', mods:[{stat:'Attack',val:'+Str'},{stat:'Damage',val:'+Str'},{stat:'Sweep',val:'Yes'},{stat:'Hands',val:'2'}] },
+      'greatsword':        { type:'weapon', bulk:2, damage:'1d12 S', desc:'A large, two-handed sword with a broad blade delivering devastating slashing attacks.', traits:'Versatile P', mods:[{stat:'Attack',val:'+Str'},{stat:'Damage',val:'+Str'},{stat:'Hands',val:'2'}] },
+      'halberd':           { type:'weapon', bulk:2, damage:'1d10 S', desc:'A versatile polearm combining an axe blade, spike, and hook. Favored by guards for its reach.', traits:'Reach, Versatile P', mods:[{stat:'Attack',val:'+Str'},{stat:'Damage',val:'+Str'},{stat:'Reach',val:'10 ft'},{stat:'Hands',val:'2'}] },
+      'javelin':           { type:'weapon', bulk:0, damage:'1d6 P', desc:'A light spear designed for throwing. Common ranged option for warriors.', traits:'Thrown', mods:[{stat:'Attack',val:'+Dex'},{stat:'Damage',val:'+Str'},{stat:'Range',val:'30 ft'}] },
+      'lance':             { type:'weapon', bulk:2, damage:'1d8 P', desc:'A long, heavy spear designed for mounted combat. On foot it must be wielded in two hands.', traits:'Deadly d8, Jousting d6, Reach', mods:[{stat:'Attack',val:'+Str'},{stat:'Damage',val:'+Str'},{stat:'Reach',val:'10 ft'},{stat:'Deadly',val:'d8'},{stat:'Hands',val:'2'}] },
+      'light-hammer':      { type:'weapon', bulk:0, damage:'1d6 B', desc:'A small, lightweight hammer that can be used in melee or thrown.', traits:'Agile, Thrown 20 ft', mods:[{stat:'Attack',val:'+Str'},{stat:'Damage',val:'+Str'},{stat:'Range',val:'20 ft'}] },
+      'longbow':           { type:'weapon', bulk:2, damage:'1d8 P', desc:'A tall bow capable of striking targets at impressive distances. Reduced accuracy up close.', traits:'Deadly d10, Volley 30 ft', mods:[{stat:'Attack',val:'+Dex'},{stat:'Range',val:'100 ft'},{stat:'Deadly',val:'d10'},{stat:'Volley',val:'30 ft'}] },
+      'longsword':         { type:'weapon', bulk:1, damage:'1d8 S', desc:'A versatile blade, the backbone of many warriors. Can be wielded one- or two-handed.', traits:'Versatile P', mods:[{stat:'Attack',val:'+Str'},{stat:'Damage',val:'+Str'}] },
+      'mace':              { type:'weapon', bulk:1, damage:'1d6 B', desc:'A heavy metal head on a shaft, designed to deliver crushing blows that dent armor.', traits:'Shove', mods:[{stat:'Attack',val:'+Str'},{stat:'Damage',val:'+Str'},{stat:'Shove',val:'Yes'}] },
+      'maul':              { type:'weapon', bulk:2, damage:'1d12 B', desc:'An enormous two-handed hammer delivering bone-crushing blows that knock foes off their feet.', traits:'Shove', mods:[{stat:'Attack',val:'+Str'},{stat:'Damage',val:'+Str'},{stat:'Shove',val:'Yes'},{stat:'Hands',val:'2'}] },
+      'morningstar':       { type:'weapon', bulk:1, damage:'1d6 B', desc:'A spiked ball on a handle delivering piercing and crushing damage simultaneously.', traits:'Versatile P', mods:[{stat:'Attack',val:'+Str'},{stat:'Damage',val:'+Str'}] },
+      'pick':              { type:'weapon', bulk:1, damage:'1d6 P', desc:'A pointed metal head on a handle, concentrating force to punch through armor.', traits:'Fatal d10', mods:[{stat:'Attack',val:'+Str'},{stat:'Damage',val:'+Str'},{stat:'Fatal',val:'d10'}] },
+      'rapier':            { type:'weapon', bulk:1, damage:'1d6 P', desc:'An elegant thrusting sword favored by duelists who rely on precision over brute force.', traits:'Deadly d8, Disarm, Finesse', mods:[{stat:'Attack',val:'+Dex (Finesse)'},{stat:'Damage',val:'+Str'},{stat:'Deadly',val:'d8'}] },
+      'scimitar':          { type:'weapon', bulk:1, damage:'1d6 S', desc:'A curved, single-edged blade optimized for sweeping slashes. Favored by desert warriors.', traits:'Forceful, Sweep', mods:[{stat:'Attack',val:'+Str'},{stat:'Damage',val:'+Str'},{stat:'Forceful',val:'Yes'},{stat:'Sweep',val:'Yes'}] },
+      'shortbow':          { type:'weapon', bulk:1, damage:'1d6 P', desc:'A compact bow suited for mounted combat or tight spaces. Devastating at closer distances.', traits:'Deadly d10', mods:[{stat:'Attack',val:'+Dex'},{stat:'Range',val:'60 ft'},{stat:'Deadly',val:'d10'}] },
+      'shortsword':        { type:'weapon', bulk:0, damage:'1d6 P', desc:'A short, lightweight blade favored by rogues and dual-wielders for quick, precise strikes.', traits:'Agile, Finesse, Versatile S', mods:[{stat:'Attack',val:'+Dex (Finesse)'},{stat:'Damage',val:'+Str'}] },
+      'sling':             { type:'weapon', bulk:0, damage:'1d6 B', desc:'A strip of leather used to hurl stones at targets. Simple but effective at range.', traits:'Propulsive', mods:[{stat:'Attack',val:'+Dex'},{stat:'Range',val:'50 ft'},{stat:'Reload',val:'1'},{stat:'Propulsive',val:'+½ Str'}] },
+      'spear':             { type:'weapon', bulk:1, damage:'1d6 P', desc:'A long shaft with a pointed tip. One of the most versatile and ancient weapons.', traits:'Thrown 20 ft', mods:[{stat:'Attack',val:'+Str'},{stat:'Damage',val:'+Str'},{stat:'Range',val:'20 ft'}] },
+      'staff':             { type:'weapon', bulk:1, damage:'1d4 B', desc:'A long wooden shaft used as a walking stick and weapon. Two-hand for more powerful strikes.', traits:'Two-Hand d8', mods:[{stat:'Attack',val:'+Str'},{stat:'Damage',val:'+Str'},{stat:'Two-Hand',val:'d8'}] },
+      'trident':           { type:'weapon', bulk:1, damage:'1d8 P', desc:'A three-pronged spear for melee or throwing. Associated with seafarers.', traits:'Thrown 20 ft', mods:[{stat:'Attack',val:'+Str'},{stat:'Damage',val:'+Str'},{stat:'Range',val:'20 ft'}] },
+      'war-flail':         { type:'weapon', bulk:2, damage:'1d10 B', desc:'A larger, two-handed flail with a heavier striking head for devastating blows.', traits:'Disarm, Sweep, Trip', mods:[{stat:'Attack',val:'+Str'},{stat:'Damage',val:'+Str'},{stat:'Disarm',val:'Yes'},{stat:'Trip',val:'Yes'},{stat:'Hands',val:'2'}] },
+      'warhammer':         { type:'weapon', bulk:1, damage:'1d8 B', desc:'A heavy hammer designed for battle. The flat head can push foes back with each impact.', traits:'Shove', mods:[{stat:'Attack',val:'+Str'},{stat:'Damage',val:'+Str'},{stat:'Shove',val:'Yes'}] },
+      'whip':              { type:'weapon', bulk:1, damage:'1d4 S', desc:'A long, flexible leather cord. Its reach and disarming ability make it versatile.', traits:'Disarm, Finesse, Nonlethal, Reach, Trip', mods:[{stat:'Attack',val:'+Dex (Finesse)'},{stat:'Damage',val:'+Str'},{stat:'Reach',val:'10 ft'},{stat:'Trip',val:'Yes'}] },
+
+      /* === ARMOR === */
+      'leather-armor':     { type:'armor', bulk:1, ac:'+1', desc:'Armor made from tanned and hardened animal hides. Lightweight and flexible.', traits:'Light', mods:[{stat:'AC',val:'+1'},{stat:'Dex Cap',val:'+4'},{stat:'Check Pen.',val:'-1'},{stat:'Speed Pen.',val:'—'},{stat:'Str',val:'10'}] },
+      'leather':           { type:'armor', bulk:1, ac:'+1', desc:'Armor made from tanned and hardened animal hides. Lightweight and flexible.', traits:'Light', mods:[{stat:'AC',val:'+1'},{stat:'Dex Cap',val:'+4'},{stat:'Check Pen.',val:'-1'},{stat:'Speed Pen.',val:'—'},{stat:'Str',val:'10'}] },
+      'studded-leather-armor': { type:'armor', bulk:1, ac:'+2', desc:'Leather armor reinforced with metal studs, providing improved protection while staying flexible.', traits:'Light', mods:[{stat:'AC',val:'+2'},{stat:'Dex Cap',val:'+3'},{stat:'Check Pen.',val:'-1'},{stat:'Speed Pen.',val:'—'},{stat:'Str',val:'12'}] },
+      'chain-shirt':       { type:'armor', bulk:1, ac:'+2', desc:'A shirt of interlocking metal rings providing solid protection with good range of motion.', traits:'Light, Flexible, Noisy', mods:[{stat:'AC',val:'+2'},{stat:'Dex Cap',val:'+3'},{stat:'Check Pen.',val:'-1'},{stat:'Speed Pen.',val:'—'},{stat:'Str',val:'12'}] },
+      'hide-armor':        { type:'armor', bulk:2, ac:'+3', desc:'Armor made from thick beast hides, offering substantial protection at the cost of mobility.', traits:'Medium', mods:[{stat:'AC',val:'+3'},{stat:'Dex Cap',val:'+2'},{stat:'Check Pen.',val:'-2'},{stat:'Speed Pen.',val:'-5 ft'},{stat:'Str',val:'14'}] },
+      'scale-mail':        { type:'armor', bulk:2, ac:'+3', desc:'Overlapping metal scales sewn onto a leather backing. Good protection across the body.', traits:'Medium', mods:[{stat:'AC',val:'+3'},{stat:'Dex Cap',val:'+2'},{stat:'Check Pen.',val:'-2'},{stat:'Speed Pen.',val:'-5 ft'},{stat:'Str',val:'14'}] },
+      'breastplate':       { type:'armor', bulk:2, ac:'+4', desc:'A fitted metal plate covering the chest and back, worn over padding. Strong torso protection.', traits:'Medium', mods:[{stat:'AC',val:'+4'},{stat:'Dex Cap',val:'+1'},{stat:'Check Pen.',val:'-2'},{stat:'Speed Pen.',val:'-5 ft'},{stat:'Str',val:'16'}] },
+      'chain-mail':        { type:'armor', bulk:2, ac:'+4', desc:'Interlocking metal rings providing solid protection throughout.', traits:'Heavy, Flexible, Noisy', mods:[{stat:'AC',val:'+4'},{stat:'Dex Cap',val:'+1'},{stat:'Check Pen.',val:'-2'},{stat:'Speed Pen.',val:'-5 ft'},{stat:'Str',val:'16'}] },
+      'buckler':           { type:'armor', bulk:0, ac:'+1', desc:'A small, round shield strapped to the forearm. Lighter than a full shield, leaves the hand mostly free.', traits:'Shield', mods:[{stat:'AC (Raised)',val:'+1'},{stat:'Hardness',val:'3'},{stat:'HP',val:'6/3'}] },
+      'steel-shield':      { type:'armor', bulk:1, ac:'+2', desc:'A sturdy shield forged from steel. Heavier than wood but significantly more durable.', traits:'Shield', mods:[{stat:'AC (Raised)',val:'+2'},{stat:'Hardness',val:'5'},{stat:'HP',val:'20/10'}] },
+      'wooden-shield':     { type:'armor', bulk:1, ac:'+2', desc:'A sturdy wooden shield. Raise it to deflect attacks or Shield Block to absorb damage.', traits:'Shield', mods:[{stat:'AC (Raised)',val:'+2'},{stat:'Hardness',val:'3'},{stat:'HP',val:'12/6'}] },
+      'shield':            { type:'armor', bulk:1, ac:'+2', desc:'A shield that can be raised for a +2 AC bonus. Can Shield Block to absorb damage.', traits:'Shield', mods:[{stat:'AC (Raised)',val:'+2'},{stat:'Hardness',val:'5'},{stat:'HP',val:'20/10'}] },
+
+      /* === CONSUMABLES === */
+      'acid-flask-lesser': { type:'consumable', bulk:0, damage:'1d6 acid', desc:'An alchemical bomb that splashes corrosive acid on impact.', traits:'Alchemical, Bomb, Acid, Splash', mods:[{stat:'Damage',val:'1d6 acid'},{stat:'Persistent',val:'1 acid'},{stat:'Splash',val:'1 acid'},{stat:'Range',val:'20 ft'}] },
+      'alchemists-fire-lesser': { type:'consumable', bulk:0, damage:'1d8 fire', desc:'An alchemical bomb that ignites on impact with persistent fire.', traits:'Alchemical, Bomb, Fire, Splash', mods:[{stat:'Damage',val:'1d8 fire'},{stat:'Persistent',val:'1 fire'},{stat:'Splash',val:'1 fire'},{stat:'Range',val:'20 ft'}] },
+      'healing-potion-minor': { type:'consumable', bulk:0, desc:'A magical potion that restores 1d8 HP when consumed.', traits:'Healing, Magical, Necromancy', mods:[{stat:'Heal',val:'1d8 HP'}] },
+      'healing-potion-lesser': { type:'consumable', bulk:0, desc:'A magical potion that restores 2d8+5 HP when consumed.', traits:'Healing, Magical, Necromancy', mods:[{stat:'Heal',val:'2d8+5 HP'}] },
+      'holy-water':        { type:'consumable', bulk:0, damage:'1d6 good', desc:'Blessed water that damages undead and fiends on impact. Extra damage vs evil.', traits:'Consumable, Divine, Good, Splash', mods:[{stat:'Damage',val:'1d6 good'},{stat:'Splash',val:'1 good'},{stat:'vs Undead',val:'+1d4'},{stat:'Range',val:'20 ft'}] },
+      'rations':           { type:'consumable', bulk:0, desc:'A week of preserved food and drink: dried meat, hardtack, and dried fruit for 7 days.', mods:[{stat:'Duration',val:'7 days'},{stat:'Subsist',val:'Automatic'}] },
+      'oil-flask':         { type:'consumable', bulk:0, desc:'A flask of lamp oil. Fuels a hooded lantern for 6 hours, or can be poured and ignited.', mods:[{stat:'Fuel',val:'6 hours'},{stat:'Hazard',val:'Ignitable'}] },
+      'caltrops':          { type:'consumable', bulk:0, desc:'Metal spikes scattered to slow pursuers. Covers a 5-foot square. Creatures take 1d4 piercing on entry.', mods:[{stat:'Damage',val:'1d4 P'},{stat:'Area',val:'5 ft sq.'},{stat:'DC',val:'14 Acrobatics'}] },
+
+      /* === ADVENTURING GEAR === */
+      'backpack':          { type:'utility', bulk:0, desc:'A sturdy leather pack with multiple compartments for storing supplies.', mods:[{stat:'Capacity',val:'4 Bulk'},{stat:'Worn',val:'Back'}] },
+      'bedroll':           { type:'utility', bulk:0, desc:'A simple roll of padded fabric for sleeping on the ground during travel.', mods:[{stat:'Rest',val:'Comfortable'},{stat:'Survival',val:'Camp'}] },
+      'chalk':             { type:'utility', bulk:0, desc:'Ten sticks of chalk for marking walls, drawing maps, or leaving trails in dungeons.', mods:[{stat:'Uses',val:'10 sticks'},{stat:'Mark',val:'Walls/floors'}] },
+      'climbing-kit':      { type:'utility', bulk:1, desc:'Carabiners, pitons, rope, and harness. Grants +1 item bonus to Athletics checks to Climb.', mods:[{stat:'Athletics',val:'+1 item'},{stat:'Climb',val:'Aided'}] },
+      'compass':           { type:'utility', bulk:0, desc:'A magnetized needle that always points north. Useful for surface navigation, less reliable underground.', mods:[{stat:'Survival',val:'+1 circumstance'},{stat:'Navigation',val:'Surface'}] },
+      'crowbar':           { type:'utility', bulk:0, desc:'An iron bar with a flattened end for prying. Grants +1 item bonus to Athletics checks to Force Open.', mods:[{stat:'Athletics',val:'+1 item'},{stat:'Force Open',val:'Aided'}] },
+      'fishing-tackle':    { type:'utility', bulk:1, desc:'Hooks, lines, sinkers, and a collapsible rod. Useful for Survival checks to Subsist near water.', mods:[{stat:'Survival',val:'+1 item'},{stat:'Subsist',val:'Near water'}] },
+      'flint-steel':       { type:'utility', bulk:0, desc:'A piece of flint and a steel striker for starting fires. Essential for lighting torches and campfires.', mods:[{stat:'Fire',val:'Start (1 action)'}] },
+      'grappling-hook':    { type:'utility', bulk:0, desc:'A multi-pronged metal hook on rope for climbing walls or crossing chasms.', mods:[{stat:'Climb',val:'Anchor point'},{stat:'Range',val:'≤50 ft'}] },
+      'healers-tools':     { type:'utility', bulk:1, desc:'Bandages, salves, and splints for treating wounds. Required for Treat Wounds activity.', mods:[{stat:'Medicine',val:'+1 item'},{stat:'Treat Wounds',val:'Required'}] },
+      'hooded-lantern':    { type:'utility', bulk:0, desc:'A lantern with a hood to dim or extinguish the light without putting out the flame. Burns oil.', mods:[{stat:'Light',val:'30 ft bright'},{stat:'Duration',val:'6 hr (oil)'},{stat:'Hood',val:'Dim/off'}] },
+      'lantern':           { type:'utility', bulk:0, desc:'A lantern with a hood to dim or extinguish the light. Burns oil for 6 hours.', mods:[{stat:'Light',val:'30 ft bright'},{stat:'Duration',val:'6 hr (oil)'}] },
+      'manacles':          { type:'utility', bulk:0, desc:'Iron wrist restraints connected by a short chain. Escaping requires DC 22 Thievery or DC 27 Athletics.', mods:[{stat:'Escape DC',val:'22 Thievery'},{stat:'Break DC',val:'27 Athletics'}] },
+      'mirror':            { type:'utility', bulk:0, desc:'A small polished silver mirror. Useful for seeing around corners, signaling, or detecting certain creatures.', mods:[{stat:'Utility',val:'See around corners'},{stat:'Signal',val:'Reflect light'}] },
+      'musical-instrument-handheld': { type:'utility', bulk:1, desc:'A portable handheld instrument such as a flute, lute, or drum. Required for some Performance checks.', mods:[{stat:'Performance',val:'Required'},{stat:'Hands',val:'2'}] },
+      'pitons':            { type:'utility', bulk:0, desc:'Ten iron spikes that can be driven into rock or wood to serve as anchors for ropes during climbing.', mods:[{stat:'Uses',val:'10 pitons'},{stat:'Climb',val:'Anchor'}] },
+      'rope':              { type:'utility', bulk:0, desc:'50 feet of hemp rope. Can hold up to 3,000 pounds. Useful for climbing and binding.', mods:[{stat:'Length',val:'50 ft'},{stat:'Capacity',val:'3,000 lb'}] },
+      'signal-whistle':    { type:'utility', bulk:0, desc:'A small whistle producing a shrill tone audible at great distances for signaling allies.', mods:[{stat:'Signal',val:'Long range'},{stat:'Hands',val:'1'}] },
+      'soap':              { type:'utility', bulk:0, desc:'A bar of soap for personal hygiene. Useful for cleaning with occasional creative applications.', mods:[{stat:'Hygiene',val:'Clean'}] },
+      'tent-pup':          { type:'utility', bulk:0, desc:'A small, lightweight tent providing basic shelter for one person. Protects against weather during rest.', mods:[{stat:'Shelter',val:'1 person'},{stat:'Rest',val:'Protected'}] },
+      'thieves-tools':     { type:'utility', bulk:0, desc:'Lockpicks, tension wrench, and tools for bypassing locks and disabling traps.', mods:[{stat:'Thievery',val:'+1 item'},{stat:'Pick Lock',val:'Required'},{stat:'Disable Device',val:'Required'}] },
+      'torches':           { type:'utility', bulk:0, desc:'5 wooden torches soaked in tallow. Each sheds bright light in a 20-ft radius for 1 hour.', mods:[{stat:'Light',val:'20 ft bright'},{stat:'Duration',val:'1 hr each'},{stat:'Count',val:'5'}] },
+      'torch':             { type:'utility', bulk:0, desc:'A wooden torch that sheds bright light in a 20-foot radius for 1 hour.', mods:[{stat:'Light',val:'20 ft bright'},{stat:'Duration',val:'1 hour'}] },
+      'waterskin':         { type:'utility', bulk:0, desc:'A leather pouch for carrying water. Holds enough for one day of travel when full.', mods:[{stat:'Water',val:'1 day'},{stat:'Worn',val:'Belt'}] },
+      'writing-set':       { type:'utility', bulk:0, desc:'Ink, quills, sealing wax, and paper. Useful for journals, letters, or mapping.', mods:[{stat:'Craft',val:'Write/map'},{stat:'Hands',val:'2'}] },
+      'adventurers-pack':  { type:'utility', bulk:1, desc:'Bedroll, chalk, flint & steel, rope, rations (2 weeks), torch (5), waterskin.' },
+
+      /* === MISC / LOOT === */
+      'wolf-hide':         { type:'misc', bulk:1, desc:'Thick pelt from a wild wolf. Valuable to tanners and crafters.', mods:[{stat:'Sell Value',val:'~2 GP'},{stat:'Crafting',val:'Leather items'}] },
+      'iron-ore':          { type:'misc', bulk:1, desc:'Raw iron suitable for smelting into weapons or armor.', mods:[{stat:'Sell Value',val:'~1 GP'},{stat:'Crafting',val:'Metal items'}] },
+      'herbs':             { type:'misc', bulk:0, desc:'Gathered herbs useful for alchemical concoctions and poultices.', mods:[{stat:'Crafting',val:'Alchemical items'},{stat:'Medicine',val:'Poultice'}] },
+      'gemstone':          { type:'misc', bulk:0, desc:'A rough-cut gemstone. Worth 10-50 GP depending on quality.', mods:[{stat:'Sell Value',val:'10-50 GP'}] },
+
+      /* === COLLECTIBLES (tavern / quest items) === */
+      'ancient-spellbook': { type:'misc', bulk:0, desc:'An ancient spellbook bound in cracked leather, its pages filled with arcane formulae.', mods:[{stat:'Quest',val:'Collectible'},{stat:'Arcana',val:'Study'}] },
+      'mystical-tome':     { type:'misc', bulk:0, desc:'A tome radiating faint magical energy. Its contents shift when read by candlelight.', mods:[{stat:'Quest',val:'Collectible'},{stat:'Occultism',val:'Study'}] },
+      'faded-journal':     { type:'misc', bulk:0, desc:'A water-stained journal with barely legible entries. May contain clues to forgotten places.', mods:[{stat:'Quest',val:'Collectible'},{stat:'Lore',val:'Clues'}] },
+      'crystal-bound-codex': { type:'misc', bulk:1, desc:'A codex sealed with crystalline clasps that hum with latent power.', mods:[{stat:'Quest',val:'Collectible'},{stat:'Arcana',val:'Rare text'}] },
+      'torch-rod':         { type:'misc', bulk:0, desc:'A sturdy wooden rod shaped to hold wrapping for a torch. A torch component.', mods:[{stat:'Crafting',val:'Torch'}] },
+      'cloth-wrapping':    { type:'misc', bulk:0, desc:'Strips of tallow-soaked cloth for wrapping torch rods. A torch component.', mods:[{stat:'Crafting',val:'Torch'}] },
+      'flint-stone':       { type:'misc', bulk:0, desc:'A sharp piece of flint for striking sparks. A torch component.', mods:[{stat:'Crafting',val:'Torch / fire'}] },
+      'wine-bottle':       { type:'misc', bulk:0, desc:'A bottle of tavern wine. Decent vintage, better than nothing on a cold night.', mods:[{stat:'Sell Value',val:'~5 SP'},{stat:'Morale',val:'Warm'}] }
+    };
+
+    function getItemInfo(itemId, name) {
+      var info = ITEM_DB[itemId];
+      if (info) return info;
+      // Try underscore→hyphen (DB IDs use underscores, ITEM_DB uses hyphens)
+      var hyphenated = (itemId || '').replace(/_/g, '-');
+      if (ITEM_DB[hyphenated]) return ITEM_DB[hyphenated];
+      // Fuzzy match by display name
+      var slug = (name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/-+$/, '').replace(/^-+/, '');
+      if (ITEM_DB[slug]) return ITEM_DB[slug];
+      // Try without trailing quantity like "(5)" or "(1 week)"
+      var cleaned = (name || '').replace(/\s*\(.*?\)\s*$/, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/-+$/, '').replace(/^-+/, '');
+      if (cleaned !== slug && ITEM_DB[cleaned]) return ITEM_DB[cleaned];
+      return null;
+    }
+
+    /* ---- Tooltip System ---- */
+    var tooltip = document.createElement('div');
+    tooltip.className = 'inv-tooltip';
+    tooltip.style.display = 'none';
+    document.body.appendChild(tooltip);
+    var activeTooltipElement = null;
+    var spellTooltipCache = {};
+    var spellTooltipPending = {};
+
+    function escapeTooltipHtml(value) {
+      return String(value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function parseTooltipJson(value) {
+      if (!value) return [];
+      try {
+        var parsed = JSON.parse(value);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch (e) {
+        return [];
+      }
+    }
+
+    function spellRankLabel(rank, isCantrip) {
+      if (isCantrip || Number(rank) === 0) return 'Cantrip';
+      var labels = { 1: '1st Rank', 2: '2nd Rank', 3: '3rd Rank' };
+      return labels[rank] || (String(rank) + 'th Rank');
+    }
+
+    function humanizeSpellValue(value) {
+      return String(value || '').replace(/_/g, ' ');
+    }
+
+    function positionTooltip(el) {
+      var rect = el.getBoundingClientRect();
+      var tipW = tooltip.offsetWidth;
+      var tipH = tooltip.offsetHeight;
+      var left = rect.left - tipW - 8;
+      if (left < 8) left = rect.right + 8;
+      var top = rect.top + (rect.height / 2) - (tipH / 2);
+      if (top < 8) top = 8;
+      if (top + tipH > window.innerHeight - 8) top = window.innerHeight - tipH - 8;
+      tooltip.style.left = left + 'px';
+      tooltip.style.top = top + 'px';
+    }
+
+    function renderTooltipContent(payload) {
+      var html = '<div class="inv-tooltip__name">' + escapeTooltipHtml(payload.name || '') + '</div>';
+      if (payload.type) html += '<div class="inv-tooltip__type">' + escapeTooltipHtml(payload.type) + '</div>';
+      if (payload.desc) html += '<div class="inv-tooltip__desc">' + escapeTooltipHtml(payload.desc) + '</div>';
+
+      if (payload.loading) {
+        html += '<div class="inv-tooltip__loading">Loading full entry...</div>';
+      }
+
+      if (payload.stats && payload.stats.length) {
+        html += '<div class="inv-tooltip__stats">';
+        payload.stats.forEach(function (stat) {
+          if (!stat || !stat.label || stat.value == null || stat.value === '') return;
+          html += '<span class="inv-tooltip__stat"><b>' + escapeTooltipHtml(stat.label) + ':</b> ' + escapeTooltipHtml(stat.value) + '</span>';
+        });
+        html += '</div>';
+      }
+
+      if (payload.traits) html += '<div class="inv-tooltip__traits">' + escapeTooltipHtml(payload.traits) + '</div>';
+
+      if (payload.effects && payload.effects.length) {
+        html += '<div class="inv-tooltip__section">';
+        html += '<div class="inv-tooltip__section-label">Effects</div>';
+        html += '<ul class="inv-tooltip__list">';
+        payload.effects.forEach(function (effect) {
+          html += '<li>' + escapeTooltipHtml(effect) + '</li>';
+        });
+        html += '</ul></div>';
+      }
+
+      if (payload.mods && payload.mods.length) {
+        html += '<div class="inv-tooltip__mods">';
+        html += '<div class="inv-tooltip__mods-label">Modifiers</div>';
+        payload.mods.forEach(function (m) {
+          var cls = 'inv-tooltip__mod';
+          if (typeof m.val === 'string' && m.val.charAt(0) === '+') cls += ' inv-tooltip__mod--pos';
+          if (typeof m.val === 'string' && m.val.charAt(0) === '-') cls += ' inv-tooltip__mod--neg';
+          html += '<span class="' + cls + '"><b>' + escapeTooltipHtml(m.stat || 'Effect') + '</b> ' + escapeTooltipHtml(m.val || '') + '</span>';
+        });
+        html += '</div>';
+      }
+
+      if (payload.notes && payload.notes.length) {
+        html += '<div class="inv-tooltip__section">';
+        html += '<div class="inv-tooltip__section-label">Notes</div>';
+        html += '<ul class="inv-tooltip__list">';
+        payload.notes.forEach(function (note) {
+          html += '<li>' + escapeTooltipHtml(note) + '</li>';
+        });
+        html += '</ul></div>';
+      }
+
+      return html;
+    }
+
+    function collectTooltipPayload(el, info, itemName) {
+      var dataDesc = el.dataset.tooltipDesc || el.dataset.desc || '';
+      var dataBulk = el.dataset.bulk || '';
+      var dataDamage = el.dataset.damage || '';
+      var dataTraits = el.dataset.tooltipTraits || el.dataset.traits || '';
+      var dataType = el.dataset.tooltipType || el.dataset.type || '';
+      var dataStats = parseTooltipJson(el.dataset.tooltipStats);
+      var dataMods = parseTooltipJson(el.dataset.tooltipMods);
+      var dataEffects = parseTooltipJson(el.dataset.tooltipEffects);
+      var dataNotes = parseTooltipJson(el.dataset.tooltipNotes);
+
+      var desc = dataDesc || (info && (info.description || info.desc)) || (info && info.effect_text) || '';
+      var bulk = dataBulk || (info && info.bulk != null ? info.bulk : '');
+      var damage = dataDamage || (info && info.damage) || '';
+      var traits = dataTraits || (info && Array.isArray(info.traits) ? info.traits.join(', ') : info && info.traits) || '';
+      var ac = (info && info.ac) || '';
+      var type = dataType || (info && info.type) || '';
+
+      var stats = [];
+      if (damage) stats.push({ label: 'Damage', value: damage });
+      if (ac) stats.push({ label: 'AC', value: ac });
+      if (bulk !== '') stats.push({ label: 'Bulk', value: bulk });
+      stats = stats.concat(dataStats);
+
+      return {
+        name: itemName,
+        type: type,
+        desc: desc,
+        stats: stats,
+        traits: traits,
+        effects: dataEffects,
+        mods: dataMods.length ? dataMods : ((info && info.mods) || []),
+        notes: dataNotes,
+        loading: el.dataset.tooltipResolver === 'spell' && !!el.dataset.itemId && !el.dataset.tooltipLoaded
+      };
+    }
+
+    function applySpellTooltipData(el, spell) {
+      if (!spell || !el || el.dataset.tooltipLoaded === 'true') return;
+      var stats = parseTooltipJson(el.dataset.tooltipStats);
+      var effects = parseTooltipJson(el.dataset.tooltipEffects);
+      var mods = parseTooltipJson(el.dataset.tooltipMods);
+      var notes = parseTooltipJson(el.dataset.tooltipNotes);
+
+      var rankLabel = spellRankLabel(spell.rank, spell.is_cantrip);
+      var typeParts = [rankLabel, spell.school ? humanizeSpellValue(spell.school) : 'Spell'];
+      el.dataset.tooltipType = typeParts.join(' · ');
+      el.dataset.tooltipDesc = spell.description || spell.effect_text || el.dataset.tooltipDesc || '';
+      if (Array.isArray(spell.traits) && spell.traits.length) {
+        el.dataset.tooltipTraits = spell.traits.join(', ');
+      }
+
+      var extraStats = [];
+      if (spell.cast_actions) extraStats.push({ label: 'Cast', value: humanizeSpellValue(spell.cast_actions) });
+      if (spell.range) extraStats.push({ label: 'Range', value: spell.range });
+      if (spell.area) extraStats.push({ label: 'Area', value: spell.area });
+      if (spell.targets) extraStats.push({ label: 'Targets', value: spell.targets });
+      if (spell.duration) extraStats.push({ label: 'Duration', value: spell.duration });
+      if (spell.save_type) extraStats.push({ label: 'Save', value: humanizeSpellValue(spell.save_type) });
+      if (spell.rarity) extraStats.push({ label: 'Rarity', value: spell.rarity });
+      if (Array.isArray(spell.traditions) && spell.traditions.length) extraStats.push({ label: 'Traditions', value: spell.traditions.join(', ') });
+      if (Array.isArray(spell.components) && spell.components.length) extraStats.push({ label: 'Components', value: spell.components.join(', ') });
+      if (spell.essence) extraStats.push({ label: 'Essence', value: spell.essence });
+      el.dataset.tooltipStats = JSON.stringify(stats.concat(extraStats));
+
+      if (spell.effect_text) {
+        effects.push(spell.effect_text);
+      }
+      if (Array.isArray(spell.heightened_entries)) {
+        spell.heightened_entries.forEach(function (entry) {
+          if (!entry) return;
+          var label = entry.type === 'specific'
+            ? 'Heightened (' + spellRankLabel(entry.rank, false) + ')'
+            : 'Heightened (+' + (entry.rank_delta || 0) + ')';
+          if (entry.additional_text) {
+            effects.push(label + ': ' + entry.additional_text);
+          } else if (entry.modified_fields) {
+            effects.push(label + ': modified spell fields apply.');
+          }
+        });
+      }
+      if (spell.heightened_scaling && typeof spell.heightened_scaling === 'object') {
+        Object.keys(spell.heightened_scaling).forEach(function (key) {
+          mods.push({ stat: 'Heightened ' + key, val: spell.heightened_scaling[key] });
+        });
+      }
+      if (spell.save) {
+        mods.push({ stat: 'Save', val: spell.save });
+      }
+      if (spell.state_machine && typeof spell.state_machine === 'object') {
+        Object.keys(spell.state_machine).forEach(function (key) {
+          notes.push(humanizeSpellValue(key) + ': ' + spell.state_machine[key]);
+        });
+      }
+      if (spell.mode_is_fixed_at_cast) {
+        notes.push('Mode is fixed when the spell is cast.');
+      }
+      if (spell.modes && typeof spell.modes === 'object') {
+        Object.keys(spell.modes).forEach(function (key) {
+          var mode = spell.modes[key];
+          if (mode && mode.description) {
+            effects.push(humanizeSpellValue(key) + ': ' + mode.description);
+          }
+        });
+      }
+
+      el.dataset.tooltipEffects = JSON.stringify(Array.from(new Set(effects.filter(Boolean))));
+      el.dataset.tooltipMods = JSON.stringify(mods);
+      el.dataset.tooltipNotes = JSON.stringify(Array.from(new Set(notes.filter(Boolean))));
+      el.dataset.tooltipLoaded = 'true';
+    }
+
+    function fetchSpellTooltip(itemId) {
+      if (!itemId) return Promise.resolve(null);
+      if (spellTooltipCache[itemId]) return Promise.resolve(spellTooltipCache[itemId]);
+      if (spellTooltipPending[itemId]) return spellTooltipPending[itemId];
+
+      spellTooltipPending[itemId] = fetch('/api/spells/' + encodeURIComponent(itemId), { credentials: 'same-origin' })
+        .then(function (response) {
+          if (!response.ok) return null;
+          return response.json();
+        })
+        .then(function (data) {
+          if (data) spellTooltipCache[itemId] = data;
+          delete spellTooltipPending[itemId];
+          return data;
+        })
+        .catch(function () {
+          delete spellTooltipPending[itemId];
+          return null;
+        });
+
+      return spellTooltipPending[itemId];
+    }
+
+    function showTooltip(el) {
+      var itemId = el.dataset.itemId || '';
+      var itemName = el.dataset.tooltipName || '';
+      if (!itemName) {
+        var name = el.querySelector('.inv-item__name');
+        itemName = name ? name.textContent : el.textContent.trim();
+      }
+      var info = getItemInfo(itemId, itemName);
+      activeTooltipElement = el;
+      tooltip.innerHTML = renderTooltipContent(collectTooltipPayload(el, info, itemName));
+      tooltip.style.display = 'block';
+      positionTooltip(el);
+
+      if (el.dataset.tooltipResolver === 'spell' && itemId) {
+        fetchSpellTooltip(itemId).then(function (spell) {
+          if (!document.body.contains(el)) return;
+          if (!spell) {
+            el.dataset.tooltipLoaded = 'missing';
+            return;
+          }
+          applySpellTooltipData(el, spell);
+          if (activeTooltipElement === el) {
+            tooltip.innerHTML = renderTooltipContent(collectTooltipPayload(el, info, itemName));
+            tooltip.style.display = 'block';
+            positionTooltip(el);
+          }
+        });
+      }
+    }
+
+    function hideTooltip() {
+      activeTooltipElement = null;
+      tooltip.style.display = 'none';
+    }
+
+    function attachTooltips(container) {
+      container.querySelectorAll('.inv-item, [data-tooltip-enabled="true"]').forEach(function (el) {
+        if (el.dataset.tooltipBound === 'true') return;
+        el.dataset.tooltipBound = 'true';
+        el.addEventListener('mouseenter', function () { showTooltip(this); });
+        el.addEventListener('mouseleave', hideTooltip);
+      });
+    }
+
+    /* ---- Inventory Sync (mirrors char-sheet data) ---- */
+    function syncInventory() {
+      // Currency — copy from character sheet
+      var gp = document.getElementById('char-gp');
+      var sp = document.getElementById('char-sp');
+      var cp = document.getElementById('char-cp');
+      if (gp) document.getElementById('inv-gp').textContent = gp.textContent;
+      if (sp) document.getElementById('inv-sp').textContent = sp.textContent;
+      if (cp) document.getElementById('inv-cp').textContent = cp.textContent;
+
+      // Items — clone from character sheet inventory list
+      var srcList = document.getElementById('char-inventory');
+      var dstList = document.getElementById('inv-item-list');
+      if (!srcList || !dstList) return;
+
+      var items = srcList.querySelectorAll('li:not(.inventory-empty)');
+      if (items.length === 0) {
+        dstList.innerHTML = '<li class="inventory-panel__empty">No items in inventory</li>';
+        return;
+      }
+
+      dstList.innerHTML = '';
+      items.forEach(function (li) {
+        var text = li.textContent.trim();
+        var itemId = li.dataset.itemId || '';
+        var info = getItemInfo(itemId, text);
+        var rawType = li.dataset.type || (info && info.type) || 'utility';
+        // Normalize legacy type names → current categories
+        var typeMap = { adventuring_gear:'utility', gear:'utility', potion:'consumable', alchemical:'consumable' };
+        var type = typeMap[rawType] || rawType;
+        var qty  = li.dataset.qty || '';
+        var bulk = li.dataset.bulk || (info && info.bulk != null ? String(info.bulk) : '');
+        var desc = li.dataset.desc || (info && info.desc) || '';
+        var icon = { weapon: '⚔️', armor: '🛡️', consumable: '🧪', utility: '🧰', misc: '🦴' }[type] || '📦';
+        var el = document.createElement('li');
+        el.className = 'inv-item';
+        el.dataset.type = type;
+        el.dataset.itemId = itemId;
+        el.dataset.desc = desc;
+        el.dataset.bulk = bulk;
+        if (info && info.damage) el.dataset.damage = info.damage;
+        if (info && info.traits) el.dataset.traits = info.traits;
+        el.innerHTML =
+          '<span class="inv-item__icon">' + icon + '</span>' +
+          '<div class="inv-item__info">' +
+            '<div class="inv-item__name">' + text + '</div>' +
+            '<div class="inv-item__meta">' + type + (bulk ? ' · Bulk ' + bulk : '') + '</div>' +
+          '</div>' +
+          (qty && parseInt(qty) > 1 ? '<span class="inv-item__qty">×' + qty + '</span>' : '');
+        dstList.appendChild(el);
+      });
+
+      attachTooltips(dstList);
+    }
+
+    /* ---- Inventory Filter ---- */
+    var filterBtns = document.querySelectorAll('.inv-filter');
+    filterBtns.forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        filterBtns.forEach(function (b) { b.classList.remove('inv-filter--active'); });
+        this.classList.add('inv-filter--active');
+        var filter = this.dataset.filter;
+        var items = document.querySelectorAll('#inv-item-list .inv-item');
+        items.forEach(function (item) {
+          if (filter === 'all' || item.dataset.type === filter) {
+            item.style.display = '';
+          } else {
+            item.style.display = 'none';
+          }
+        });
+      });
+    });
+
+    // Sync on initial load if inventory tab was remembered
+    if (saved === 'inventory') syncInventory();
+
+    // Expose syncInventory globally so hexmap.js can call it after data loads
+    window.dcSyncInventory = syncInventory;
+    window.dcAttachTooltips = attachTooltips;
+  })();
+
+  /* ---- Sidebar Drawer Toggle ---- */
+  (function () {
+    var btn = document.getElementById('sidebar-drawer-toggle');
+    var layout = document.getElementById('game-layout');
+    var backdrop = document.getElementById('sidebar-backdrop');
+    if (!btn || !layout) return;
+    var DRAWER_KEY = 'dc_drawer_open';
+
+    function isMobile() {
+      return window.matchMedia('(max-width: 768px)').matches;
+    }
+
+    function setDrawerOpen(open) {
+      if (isMobile()) {
+        layout.classList.toggle('game-layout--drawer-open', open);
+        layout.classList.remove('game-layout--drawer-collapsed');
+        if (backdrop) backdrop.hidden = !open;
+      } else {
+        layout.classList.toggle('game-layout--drawer-collapsed', !open);
+        layout.classList.remove('game-layout--drawer-open');
+        if (backdrop) backdrop.hidden = true;
+      }
+      btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+      btn.textContent = isMobile() ? (open ? '✕' : '☰') : (open ? '⟩' : '⟨');
+      localStorage.setItem(DRAWER_KEY, open ? '1' : '0');
+    }
+
+    // Restore saved preference; default open on desktop, closed on mobile
+    var saved = localStorage.getItem(DRAWER_KEY);
+    if (saved !== null) {
+      setDrawerOpen(saved === '1');
+    } else {
+      setDrawerOpen(!isMobile());
+    }
+
+    btn.addEventListener('click', function () {
+      var isOpen = isMobile()
+        ? layout.classList.contains('game-layout--drawer-open')
+        : !layout.classList.contains('game-layout--drawer-collapsed');
+      setDrawerOpen(!isOpen);
+    });
+
+    if (backdrop) {
+      backdrop.addEventListener('click', function () {
+        setDrawerOpen(false);
+      });
+    }
+
+    // Re-apply on resize (desktop ↔ mobile transition)
+    window.addEventListener('resize', function () {
+      var saved2 = localStorage.getItem(DRAWER_KEY);
+      if (saved2 !== null) setDrawerOpen(saved2 === '1');
+    });
+  })();
+
+  /* ---- Chat Dock Toggle ---- */
+  (function () {
+    var btn = document.getElementById('chat-dock-toggle');
+    var chat = document.getElementById('hexmap-chat');
+    if (!btn || !chat) return;
+    var CHAT_KEY = 'dc_chat_collapsed';
+
+    function setChatCollapsed(collapsed) {
+      chat.classList.toggle('hexmap-chat--collapsed', collapsed);
+      btn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+      btn.textContent = collapsed ? '▴' : '▾';
+      btn.title = _dt(collapsed ? 'Expand chat' : 'Collapse chat');
+      localStorage.setItem(CHAT_KEY, collapsed ? '1' : '0');
+    }
+
+    var saved = localStorage.getItem(CHAT_KEY);
+    setChatCollapsed(saved === '1');
+
+    btn.addEventListener('click', function () {
+      setChatCollapsed(!chat.classList.contains('hexmap-chat--collapsed'));
+    });
+  })();
+
+  </script>
+
+  <div id="sidebar-backdrop" class="sidebar-backdrop" hidden></div>
+</div>

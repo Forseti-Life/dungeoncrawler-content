@@ -1,0 +1,56 @@
+{#
+/**
+ * @file
+ * Character Creation - Step 1: Name & Concept
+ */
+#}
+<div class="character-creation-step step-1">
+  <div class="creation-container">
+    {# Progress Bar #}
+    <div class="progress-bar">
+      <div class="progress-indicator progress-step-1"></div>
+    </div>
+    <div class="progress-text">Step 1 of 8: Character Basics</div>
+
+    {# Main Content #}
+    <div class="step-content">
+      <h2>Name Your Hero</h2>
+      <p class="step-description">Every legend begins with a name. Who will your character become?</p>
+
+      <form id="step1Form" method="post" action="/characters/create/step/1/save">
+        <input type="hidden" name="character_id" value="{{ character_id }}">
+
+        <div class="form-group">
+          <label for="name">Character Name *</label>
+          <input 
+            type="text" 
+            id="name" 
+            name="name" 
+            value="{{ character.name }}"
+            class="form-control"
+            placeholder="Enter your character's name"
+            required
+            minlength="2"
+            maxlength="50">
+          <span class="form-help">Minimum 2 characters</span>
+        </div>
+
+        <div class="form-group">
+          <label for="concept">Character Concept</label>
+          <textarea 
+            id="concept" 
+            name="concept" 
+            class="form-control"
+            rows="4"
+            placeholder="What's your character's story in one sentence? (e.g., 'A grizzled veteran seeking redemption' or 'A curious scholar who dabbles in forbidden magic')">{{ character.concept }}</textarea>
+          <span class="form-help">Optional, but helps guide your choices</span>
+        </div>
+
+        <div class="button-group">
+          <a href="/characters" class="btn btn-secondary">Cancel</a>
+          <button type="submit" class="btn btn-primary">Next: Choose Ancestry →</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>

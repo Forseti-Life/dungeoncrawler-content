@@ -1,0 +1,44 @@
+{
+  "schema_version": "1.0.0",
+  "item_id": "clan-dagger",
+  "name": "Clan Dagger",
+  "item_type": "weapon",
+  "level": 0,
+  "rarity": "common",
+  "traits": [
+    "simple",
+    "knife",
+    "dwarf"
+  ],
+  "description": "This small dagger bears the gemstone of the bearer's dwarven clan. Every dwarf carries one at all times, and the bond between a dwarf and their clan dagger is intense. Selling your clan dagger is a social taboo and shameful act among dwarves.",
+  "price": {
+    "cp": 0,
+    "sp": 0,
+    "gp": 0,
+    "pp": 0
+  },
+  "bulk": "L",
+  "hands": "1",
+  "weapon_stats": {
+    "category": "simple",
+    "group": "knife",
+    "damage": {
+      "dice_count": 1,
+      "die_size": "d4",
+      "damage_type": "piercing"
+    },
+    "range": null,
+    "reload": null,
+    "weapon_traits": [
+      "agile",
+      "dwarf",
+      "versatile S"
+    ]
+  },
+  "ancestry_granted": true,
+  "sell_taboo": true,
+  "sell_taboo_message": "Selling your clan dagger is a social taboo and shameful act. This violates dwarven cultural norms and dishonors your clan. A GM must explicitly authorize this action.",
+  "created_at": "2026-03-22T00:00:00Z",
+  "updated_at": "2026-03-22T00:00:00Z",
+  "item_category": "weapon"
+}

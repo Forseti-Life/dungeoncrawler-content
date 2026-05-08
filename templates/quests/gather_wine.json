@@ -1,0 +1,54 @@
+{
+  "template_id": "gather_wine",
+  "name": "Collect {item_name} from the Tavern",
+  "description": "The tavern keeper needs {item_name} for the evening service. Gather some from around the tavern common room.",
+  "quest_type": "side_quest",
+  "level_min": 1,
+  "level_max": 3,
+  "tags": ["gathering", "tavern", "beginner"],
+  "objectives_schema": [
+    {
+      "phase": 1,
+      "objectives": [
+        {
+          "objective_id": "collect_wine",
+          "type": "collect",
+          "item": "{item_name}",
+          "target_count_range": [3, 5],
+          "description": "Collect {item_name} from around the tavern"
+        }
+      ]
+    },
+    {
+      "phase": 2,
+      "objectives": [
+        {
+          "objective_id": "return_wine",
+          "type": "interact",
+          "target": "tavern_keeper",
+          "description": "Return the wine to the tavern keeper"
+        }
+      ]
+    }
+  ],
+  "rewards_schema": {
+    "xp": {
+      "base": 50,
+      "per_level": 15
+    },
+    "gold": {
+      "base": 5,
+      "per_level": 2,
+      "randomize": true
+    },
+    "items": {
+      "loot_table": "tavern_beginner_reward",
+      "count": 1
+    }
+  },
+  "prerequisites": {
+    "level_min": 1
+  },
+  "estimated_duration_minutes": 15,
+  "version": "1.0.0"
+}

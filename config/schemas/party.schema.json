@@ -1,0 +1,455 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dungeoncrawler.life/schemas/party.schema.json",
+  "title": "Party Schema",
+  "description": "Tracks an adventuring party moving through the dungeon. Maintains group position, shared resources, exploration state, and encounter history.",
+  "type": "object",
+  "required": ["party_id", "name", "members", "current_hex", "dungeon_level", "schema_version"],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "description": "Schema version for migration compatibility.",
+      "default": "1.0.0",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "party_id": { 
+      "type": "string", 
+      "format": "uuid",
+      "description": "Unique identifier for the adventuring party."
+    },
+    "name": { 
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100,
+      "description": "Name of the adventuring party."
+    },
+    "created_at": { 
+      "type": "string", 
+      "format": "date-time",
+      "description": "Timestamp when the party was created."
+    },
+    "updated_at": { 
+      "type": "string", 
+      "format": "date-time",
+      "description": "Timestamp of the party's last activity or update."
+    },
+    "owner_uid": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Drupal user ID of the party owner."
+    },
+    "dungeon_level": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Current dungeon depth level."
+    },
+    "current_hex": {
+      "$ref": "#/definitions/hex_position",
+      "description": "Party's current position on the hexagonal dungeon map."
+    },
+    "current_room_id": {
+      "type": ["string", "null"],
+      "format": "uuid",
+      "description": "Room the party is currently in, if any."
+    },
+    "members": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 6,
+      "description": "Party members with their current state, conditions, and combat readiness.",
+      "items": {
+        "type": "object",
+        "required": ["character_id", "name", "role"],
+        "properties": {
+          "character_id": { 
+            "type": "string", 
+            "format": "uuid",
+            "description": "Unique identifier linking to the character in dc_characters table."
+          },
+          "name": { 
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "description": "Character's name."
+          },
+          "level": { 
+            "type": "integer", 
+            "minimum": 1, 
+            "maximum": 20,
+            "description": "Character level (1-20 per PF2e)."
+          },
+          "class": { 
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "description": "Character's class (e.g., Fighter, Wizard, Cleric)."
+          },
+          "role": {
+            "type": "string",
+            "enum": ["leader", "scout", "healer", "tank", "striker", "support"],
+            "description": "Party role for AI tactical decisions."
+          },
+          "current_hp": { 
+            "type": "integer",
+            "minimum": 0,
+            "description": "Current hit points."
+          },
+          "max_hp": { 
+            "type": "integer",
+            "minimum": 1,
+            "description": "Maximum hit points."
+          },
+          "conditions": {
+            "type": "array",
+            "maxItems": 20,
+            "items": {
+              "$ref": "#/definitions/condition"
+            },
+            "description": "Active PF2e conditions: frightened 2, wounded 1, etc."
+          },
+          "spell_slots_remaining": {
+            "type": "object",
+            "patternProperties": {
+              "^[0-9]$|^10$": { 
+                "type": "integer", 
+                "minimum": 0,
+                "description": "Remaining spell slots for ranks 0-10."
+              }
+            },
+            "additionalProperties": false,
+            "description": "Spell rank → remaining slots for casters (ranks 0-10)."
+          },
+          "focus_points_remaining": { 
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 3,
+            "description": "Remaining focus points (0-3)."
+          },
+          "hero_points": { "type": "integer", "minimum": 0, "maximum": 3, "default": 1 },
+          "is_alive": { "type": "boolean", "default": true },
+          "is_active": { "type": "boolean", "default": true, "description": "False if unconscious, petrified, etc." },
+          "marching_position": {
+            "type": "string",
+            "enum": ["front", "middle", "rear"],
+            "description": "Position in marching order."
+          },
+          "exploration_activity": {
+            "type": "string",
+            "enum": [
+              "avoid_notice", "defend", "detect_magic", "follow_the_expert",
+              "hustle", "investigate", "repeat_a_spell", "scout", "search"
+            ],
+            "description": "Active PF2e exploration activity.",
+            "examples": ["search", "scout", "detect_magic"]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "shared_inventory": {
+      "type": "array",
+      "maxItems": 200,
+      "description": "Items carried by the party, optionally assigned to specific characters.",
+      "items": {
+        "type": "object",
+        "required": ["item_id", "name", "quantity"],
+        "properties": {
+          "item_id": { 
+            "type": "string", 
+            "format": "uuid",
+            "description": "Unique identifier referencing the item in the inventory system."
+          },
+          "name": { 
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "Item name."
+          },
+          "quantity": { "type": "integer", "minimum": 1 },
+          "carried_by": { 
+            "type": ["string", "null"], 
+            "format": "uuid",
+            "description": "Character ID of the party member carrying this item, if assigned."
+          }
+        },
+        "additionalProperties": false
+      },
+      "examples": [
+        [
+          {
+            "item_id": "550e8400-e29b-41d4-a716-446655440000",
+            "name": "Healing Potion",
+            "quantity": 3,
+            "carried_by": "660e8400-e29b-41d4-a716-446655440001"
+          },
+          {
+            "item_id": "770e8400-e29b-41d4-a716-446655440002",
+            "name": "Rope (50 ft)",
+            "quantity": 2,
+            "carried_by": null
+          }
+        ]
+      ]
+    },
+    "currency": {
+      "$ref": "#/definitions/currency",
+      "description": "Party's shared treasure in PF2e currency denominations."
+    },
+    "exploration_state": {
+      "type": "object",
+      "description": "Current exploration mode, lighting, movement speed, and rest state.",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["exploration", "encounter", "downtime", "rest"],
+          "default": "exploration"
+        },
+        "light_source": {
+          "type": "string",
+          "enum": ["none", "candle", "torch", "lantern", "magical_light", "darkvision_only"],
+          "default": "torch"
+        },
+        "light_radius_hexes": { "type": "integer", "default": 4, "minimum": 0, "maximum": 20 },
+        "movement_speed": {
+          "type": "string",
+          "enum": ["normal", "hustle", "cautious", "sneak"],
+          "default": "normal"
+        },
+        "is_resting": { "type": "boolean", "default": false },
+        "rest_type": {
+          "type": ["string", "null"],
+          "enum": [null, "short", "long", "daily_preparations"]
+        },
+        "rest_started_at": { "type": ["string", "null"], "format": "date-time" },
+        "watch_order": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 6,
+          "items": { "type": "string", "format": "uuid" },
+          "description": "Character IDs in watch rotation order."
+        }
+      },
+      "additionalProperties": false
+    },
+    "fog_of_war": {
+      "type": "object",
+      "description": "Tracks what the party has discovered on the map, including hexes, rooms, connections, and player notes.",
+      "properties": {
+        "revealed_hexes": {
+          "type": "array",
+          "description": "List of hex coordinates the party has explored.",
+          "uniqueItems": true,
+          "maxItems": 1000,
+          "items": {
+            "$ref": "#/definitions/hex_position"
+          }
+        },
+        "revealed_rooms": {
+          "type": "array",
+          "description": "List of room UUIDs the party has discovered.",
+          "uniqueItems": true,
+          "maxItems": 500,
+          "items": { "type": "string", "format": "uuid" }
+        },
+        "revealed_connections": {
+          "type": "array",
+          "description": "List of connection UUIDs between rooms the party has found.",
+          "uniqueItems": true,
+          "maxItems": 500,
+          "items": { "type": "string", "format": "uuid" }
+        },
+        "notes": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "required": ["hex", "text", "added_by", "added_at"],
+            "properties": {
+              "hex": {
+                "$ref": "#/definitions/hex_position"
+              },
+              "text": { 
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1000,
+                "description": "Note text content."
+              },
+              "added_by": { 
+                "type": "string", 
+                "format": "uuid",
+                "description": "Character ID of who added the note."
+              },
+              "added_at": { 
+                "type": "string", 
+                "format": "date-time",
+                "description": "Timestamp when note was added."
+              }
+            },
+            "additionalProperties": false
+          },
+          "description": "Player-placed notes on the map.",
+          "examples": [
+            [
+              {
+                "hex": { "q": 2, "r": 3 },
+                "text": "Heard strange noises from the north",
+                "added_by": "dd0e8400-e29b-41d4-a716-446655440008",
+                "added_at": "2026-02-17T14:20:00Z"
+              },
+              {
+                "hex": { "q": 0, "r": 0 },
+                "text": "Safe room - good for camping",
+                "added_by": "ee0e8400-e29b-41d4-a716-446655440009",
+                "added_at": "2026-02-17T12:15:00Z"
+              }
+            ]
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "encounter_log": {
+      "type": "array",
+      "maxItems": 500,
+      "description": "Historical log of all encounters the party has experienced.",
+      "items": {
+        "type": "object",
+        "required": ["encounter_id", "room_id", "type", "outcome", "timestamp"],
+        "properties": {
+          "encounter_id": { "type": "string", "format": "uuid" },
+          "room_id": { "type": "string", "format": "uuid" },
+          "type": { "type": "string", "enum": ["combat", "social", "exploration", "trap", "hazard", "puzzle"] },
+          "outcome": { "type": "string", "enum": ["victory", "defeat", "fled", "negotiated", "bypassed", "ongoing"] },
+          "xp_earned": { "type": "integer", "minimum": 0 },
+          "loot_gained": {
+            "type": "array",
+            "maxItems": 50,
+            "items": { "type": "string", "format": "uuid" },
+            "description": "Item UUIDs acquired from this encounter."
+          },
+          "timestamp": { 
+            "type": "string", 
+            "format": "date-time",
+            "description": "When the encounter occurred."
+          }
+        },
+        "additionalProperties": false
+      },
+      "examples": [
+        [
+          {
+            "encounter_id": "880e8400-e29b-41d4-a716-446655440003",
+            "room_id": "990e8400-e29b-41d4-a716-446655440004",
+            "type": "combat",
+            "outcome": "victory",
+            "xp_earned": 120,
+            "loot_gained": ["aa0e8400-e29b-41d4-a716-446655440005"],
+            "timestamp": "2026-02-17T15:30:00Z"
+          },
+          {
+            "encounter_id": "bb0e8400-e29b-41d4-a716-446655440006",
+            "room_id": "cc0e8400-e29b-41d4-a716-446655440007",
+            "type": "trap",
+            "outcome": "bypassed",
+            "xp_earned": 40,
+            "loot_gained": [],
+            "timestamp": "2026-02-17T16:45:00Z"
+          }
+        ]
+      ]
+    },
+    "total_xp": { "type": "integer", "default": 0, "minimum": 0, "maximum": 1000000 },
+    "dungeon_stats": {
+      "type": "object",
+      "description": "Cumulative statistics tracking the party's dungeon exploration progress and achievements.",
+      "properties": {
+        "rooms_explored": { "type": "integer", "default": 0, "minimum": 0, "maximum": 10000 },
+        "creatures_defeated": { "type": "integer", "default": 0, "minimum": 0, "maximum": 100000 },
+        "traps_disarmed": { "type": "integer", "default": 0, "minimum": 0, "maximum": 10000 },
+        "hazards_neutralized": { "type": "integer", "default": 0, "minimum": 0, "maximum": 10000 },
+        "secrets_found": { "type": "integer", "default": 0, "minimum": 0, "maximum": 10000 },
+        "items_collected": { "type": "integer", "default": 0, "minimum": 0, "maximum": 100000 },
+        "total_damage_dealt": { "type": "integer", "default": 0, "minimum": 0, "maximum": 100000000 },
+        "total_damage_taken": { "type": "integer", "default": 0, "minimum": 0, "maximum": 100000000 },
+        "deaths": { "type": "integer", "default": 0, "minimum": 0, "maximum": 1000 },
+        "times_fled": { "type": "integer", "default": 0, "minimum": 0, "maximum": 10000 },
+        "deepest_level_reached": { "type": "integer", "default": 1, "minimum": 1, "maximum": 100 },
+        "play_time_seconds": { "type": "integer", "default": 0, "minimum": 0, "maximum": 31536000 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "hex_position": {
+      "type": "object",
+      "required": ["q", "r"],
+      "properties": {
+        "q": { 
+          "type": "integer",
+          "description": "Axial q-coordinate in hexagonal grid system."
+        },
+        "r": { 
+          "type": "integer",
+          "description": "Axial r-coordinate in hexagonal grid system."
+        }
+      },
+      "additionalProperties": false,
+      "description": "Hexagonal grid position using axial coordinates (q, r)."
+    },
+    "condition": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { 
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "description": "PF2e condition name (e.g., 'Blinded', 'Frightened', 'Wounded')."
+        },
+        "value": { 
+          "type": ["integer", "null"],
+          "description": "Numeric value for conditions with levels (e.g., Frightened 2, Wounded 1)."
+        },
+        "duration": { 
+          "type": ["string", "null"],
+          "maxLength": 200,
+          "description": "Duration description (e.g., '1 round', 'until healed', 'permanent')."
+        }
+      },
+      "additionalProperties": false,
+      "description": "PF2e condition affecting a character."
+    },
+    "currency": {
+      "type": "object",
+      "properties": {
+        "cp": { 
+          "type": "integer", 
+          "default": 0, 
+          "minimum": 0,
+          "description": "Copper pieces."
+        },
+        "sp": { 
+          "type": "integer", 
+          "default": 0, 
+          "minimum": 0,
+          "description": "Silver pieces."
+        },
+        "gp": { 
+          "type": "integer", 
+          "default": 0, 
+          "minimum": 0,
+          "description": "Gold pieces."
+        },
+        "pp": { 
+          "type": "integer", 
+          "default": 0, 
+          "minimum": 0,
+          "description": "Platinum pieces."
+        }
+      },
+      "additionalProperties": false,
+      "description": "PF2e currency in standard denominations."
+    }
+  }
+}

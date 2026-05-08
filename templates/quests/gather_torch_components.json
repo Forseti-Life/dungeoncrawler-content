@@ -1,0 +1,54 @@
+{
+  "template_id": "gather_torch_components",
+  "name": "Gather {item_name} for the Tavern",
+  "description": "The tavern's lighting is dim. Help gather {item_name} to brighten up the common room.",
+  "quest_type": "side_quest",
+  "level_min": 1,
+  "level_max": 2,
+  "tags": ["gathering", "maintenance", "tavern", "beginner"],
+  "objectives_schema": [
+    {
+      "phase": 1,
+      "objectives": [
+        {
+          "objective_id": "collect_torches",
+          "type": "collect",
+          "item": "{item_name}",
+          "target_count_range": [4, 6],
+          "description": "Gather {item_name} scattered around the tavern"
+        }
+      ]
+    },
+    {
+      "phase": 2,
+      "objectives": [
+        {
+          "objective_id": "return_torches",
+          "type": "interact",
+          "target": "tavern_keeper",
+          "description": "Bring the torch components to the tavern keeper"
+        }
+      ]
+    }
+  ],
+  "rewards_schema": {
+    "xp": {
+      "base": 45,
+      "per_level": 12
+    },
+    "gold": {
+      "base": 4,
+      "per_level": 1,
+      "randomize": true
+    },
+    "items": {
+      "loot_table": "tavern_maintenance_reward",
+      "count": 1
+    }
+  },
+  "prerequisites": {
+    "level_min": 1
+  },
+  "estimated_duration_minutes": 12,
+  "version": "1.0.0"
+}

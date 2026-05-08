@@ -1,0 +1,458 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dungeoncrawler.life/schemas/character_options_step6.json",
+  "title": "Character Creation Step 6: Alignment & Deity",
+  "description": "Defines options for selecting character's moral alignment and deity (optional) in Pathfinder 2E character creation",
+  "type": "object",
+  "$defs": {
+    "alignmentOption": {
+      "type": "object",
+      "description": "Individual alignment choice with ID, name, and description",
+      "examples": [
+        {
+          "id": "LG",
+          "name": "Lawful Good",
+          "description": "Acts with compassion and honor within the bounds of law and order."
+        },
+        {
+          "id": "N",
+          "name": "Neutral",
+          "description": "Avoids moral extremes and seeks balance or personal interest."
+        }
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "enum": ["LG", "NG", "CG", "LN", "N", "CN", "LE", "NE", "CE"],
+          "description": "Two-letter alignment abbreviation"
+        },
+        "name": {
+          "type": "string",
+          "description": "Full alignment name"
+        },
+        "description": {
+          "type": "string",
+          "description": "Explanation of the alignment's moral and ethical perspective"
+        }
+      },
+      "required": ["id", "name", "description"],
+      "additionalProperties": false
+    },
+    "deityOption": {
+      "type": "object",
+      "description": "Deity choice with stats and portfolio information",
+      "examples": [
+        {
+          "id": "iomedae",
+          "name": "Iomedae",
+          "alignment": "LG",
+          "domains": ["duty", "might", "zeal"],
+          "favored_weapon": "Longsword",
+          "description": "Goddess of justice, honor, and righteous valor"
+        },
+        {
+          "id": "none",
+          "name": "No Deity",
+          "alignment": "Any",
+          "description": "Character does not worship a specific deity"
+        }
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique deity identifier (lowercase with underscores)"
+        },
+        "name": {
+          "type": "string",
+          "description": "Deity's full name"
+        },
+        "alignment": {
+          "type": "string",
+          "enum": ["LG", "NG", "CG", "LN", "N", "CN", "LE", "NE", "CE", "Any"],
+          "description": "Deity's alignment (must match alignmentOption.id enum or 'Any')"
+        },
+        "domains": {
+          "type": "array",
+          "description": "Divine domains available to clerics",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1
+        },
+        "favored_weapon": {
+          "type": "string",
+          "description": "Deity's signature weapon"
+        },
+        "description": {
+          "type": "string",
+          "description": "Brief description of deity's portfolio and role"
+        }
+      },
+      "required": ["id", "name", "alignment", "description"],
+      "additionalProperties": false
+    }
+  },
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0.0",
+      "description": "Schema version for migration compatibility"
+    },
+    "step": {
+      "type": "integer",
+      "const": 6,
+      "description": "Step number in character creation process"
+    },
+    "step_name": {
+      "type": "string",
+      "const": "Values & Convictions",
+      "description": "Human-readable name for this step"
+    },
+    "step_description": {
+      "type": "string",
+      "const": "Define the values that guide your character's decisions across the full life of a campaign.",
+      "description": "Explanation of what happens in this step"
+    },
+    "fields": {
+      "type": "object",
+      "description": "Form fields available in this step",
+      "properties": {
+        "alignment": {
+          "type": "object",
+          "description": "Alignment selection field",
+          "properties": {
+            "field_type": {
+              "type": "string",
+              "const": "select",
+              "description": "HTML input type"
+            },
+            "label": {
+              "type": "string",
+              "const": "Choose Your Legacy Alignment",
+              "description": "Field label"
+            },
+            "required": {
+              "type": "boolean",
+              "const": true,
+              "description": "Whether this field is mandatory"
+            },
+            "options": {
+              "type": "array",
+              "description": "Available alignments in Pathfinder 2E (all nine standard alignments)",
+              "items": {
+                "$ref": "#/$defs/alignmentOption"
+              },
+              "minItems": 9,
+              "maxItems": 9,
+              "default": [
+                {
+                  "id": "LG",
+                  "name": "Lawful Good",
+                  "description": "Acts with compassion and honor within the bounds of law and order."
+                },
+                {
+                  "id": "NG",
+                  "name": "Neutral Good",
+                  "description": "Does good without bias toward or against order, helping others as needed."
+                },
+                {
+                  "id": "CG",
+                  "name": "Chaotic Good",
+                  "description": "Acts with freedom and kindness, following conscience over rules."
+                },
+                {
+                  "id": "LN",
+                  "name": "Lawful Neutral",
+                  "description": "Values tradition, order, and hierarchy above morality."
+                },
+                {
+                  "id": "N",
+                  "name": "Neutral",
+                  "description": "Avoids moral extremes and seeks balance or personal interest."
+                },
+                {
+                  "id": "CN",
+                  "name": "Chaotic Neutral",
+                  "description": "Follows individual freedom and impulse without regard for tradition or others."
+                },
+                {
+                  "id": "LE",
+                  "name": "Lawful Evil",
+                  "description": "Uses tradition and order as tools for exploitation and control."
+                },
+                {
+                  "id": "NE",
+                  "name": "Neutral Evil",
+                  "description": "Acts selfishly with no regard for others, unbound by law or chaos."
+                },
+                {
+                  "id": "CE",
+                  "name": "Chaotic Evil",
+                  "description": "Driven by greed, hatred, or bloodlust with no restraint or order."
+                }
+              ]
+            },
+            "help_text": {
+              "type": "string",
+              "const": "Use alignment as a roleplay compass for long-term consistency, not a rigid rule that blocks character growth.",
+              "description": "Helper text displayed to user"
+            },
+            "validation": {
+              "type": "object",
+              "description": "Validation rules for alignment selection",
+              "properties": {
+                "required": {
+                  "type": "boolean",
+                  "const": true,
+                  "description": "Alignment selection is mandatory"
+                },
+                "class_restrictions": {
+                  "type": "object",
+                  "description": "Some classes restrict alignment choices (e.g., Champions must follow their deity's alignment)",
+                  "properties": {
+                    "champion": {
+                      "type": "array",
+                      "description": "Champions must follow alignments compatible with their deity",
+                      "items": {
+                        "type": "string",
+                        "enum": ["LG", "NG", "CG", "LN", "N", "CN", "LE", "NE", "CE"]
+                      }
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                "error_message": {
+                  "type": "string",
+                  "const": "Please select an alignment before continuing."
+                }
+              },
+              "required": ["required", "error_message"],
+              "additionalProperties": false
+            }
+          },
+          "required": ["field_type", "label", "required", "options", "help_text", "validation"],
+          "additionalProperties": false
+        },
+        "deity": {
+          "type": "object",
+          "description": "Deity selection field (optional for most classes, required for clerics and champions)",
+          "properties": {
+            "field_type": {
+              "type": "string",
+              "const": "select",
+              "description": "HTML input type"
+            },
+            "label": {
+              "type": "string",
+              "const": "Choose a Deity or Guiding Belief (Required for Clerics & Champions)",
+              "description": "Field label indicating conditional requirement"
+            },
+            "required": {
+              "type": "boolean",
+              "const": false,
+              "description": "Optional for most classes, but validation enforces requirement for clerics and champions"
+            },
+            "options": {
+              "type": "array",
+              "description": "Common Pathfinder 2E deities (plus 'No Deity' option)",
+              "items": {
+                "$ref": "#/$defs/deityOption"
+              },
+              "minItems": 1,
+              "examples": [
+                {
+                  "id": "iomedae",
+                  "name": "Iomedae",
+                  "alignment": "LG",
+                  "domains": ["duty", "might", "zeal"],
+                  "favored_weapon": "Longsword",
+                  "description": "Goddess of justice, honor, and righteous valor"
+                },
+                {
+                  "id": "sarenrae",
+                  "name": "Sarenrae",
+                  "alignment": "NG",
+                  "domains": ["fire", "healing", "sun"],
+                  "favored_weapon": "Scimitar",
+                  "description": "Goddess of healing, redemption, and the sun"
+                },
+                {
+                  "id": "desna",
+                  "name": "Desna",
+                  "alignment": "CG",
+                  "domains": ["dreams", "luck", "moon", "travel"],
+                  "favored_weapon": "Starknife",
+                  "description": "Goddess of dreams, stars, travelers, and luck"
+                },
+                {
+                  "id": "abadar",
+                  "name": "Abadar",
+                  "alignment": "LN",
+                  "domains": ["cities", "earth", "travel", "wealth"],
+                  "favored_weapon": "Crossbow",
+                  "description": "God of cities, law, merchants, and wealth"
+                },
+                {
+                  "id": "gozreh",
+                  "name": "Gozreh",
+                  "alignment": "N",
+                  "domains": ["air", "nature", "travel", "water"],
+                  "favored_weapon": "Trident",
+                  "description": "Deity of nature, the sea, and weather"
+                },
+                {
+                  "id": "cayden_cailean",
+                  "name": "Cayden Cailean",
+                  "alignment": "CG",
+                  "domains": ["ale", "cities", "freedom", "might"],
+                  "favored_weapon": "Rapier",
+                  "description": "God of freedom, ale, wine, and bravery"
+                },
+                {
+                  "id": "none",
+                  "name": "No Deity",
+                  "alignment": "Any",
+                  "description": "Character does not worship a specific deity"
+                }
+              ]
+            },
+            "help_text": {
+              "type": "string",
+              "const": "Clerics and Champions must choose a deity, as their powers come from divine worship. Other classes may choose to worship a deity for roleplay purposes.",
+              "description": "Helper text displayed to user"
+            },
+            "validation": {
+              "type": "object",
+              "description": "Validation rules for deity selection",
+              "properties": {
+                "required_for_classes": {
+                  "type": "array",
+                  "description": "Classes that must choose a deity (clerics and champions)",
+                  "items": {
+                    "type": "string",
+                    "enum": ["cleric", "champion"]
+                  },
+                  "default": ["cleric", "champion"]
+                },
+                "alignment_compatibility": {
+                  "type": "boolean",
+                  "const": true,
+                  "description": "When enabled, enforces Pathfinder 2E rule: Character alignment must be within one step of deity alignment on both the Law-Chaos axis and Good-Evil axis (e.g., a Neutral Good deity allows LG, NG, CG, LN, N, CN followers)."
+                },
+                "error_message": {
+                  "type": "string",
+                  "const": "Clerics and Champions must choose a deity. Your alignment must be within one step of your deity's alignment."
+                }
+              },
+              "required": ["required_for_classes", "alignment_compatibility", "error_message"],
+              "additionalProperties": false
+            }
+          },
+          "required": ["field_type", "label", "required", "options", "help_text", "validation"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["alignment", "deity"],
+      "additionalProperties": false
+    },
+    "navigation": {
+      "type": "object",
+      "description": "Navigation rules for this step",
+      "properties": {
+        "previous_step": {
+          "type": "integer",
+          "const": 5,
+          "description": "Previous step number"
+        },
+        "next_step": {
+          "type": "integer",
+          "const": 7,
+          "description": "Next step number"
+        },
+        "can_go_back": {
+          "type": "boolean",
+          "const": true,
+          "description": "User can return to previous step"
+        },
+        "can_skip": {
+          "type": "boolean",
+          "const": false,
+          "description": "Step cannot be skipped"
+        }
+      },
+      "required": ["previous_step", "next_step", "can_go_back", "can_skip"],
+      "additionalProperties": false
+    },
+    "validation": {
+      "type": "object",
+      "description": "Step-level validation rules enforced before allowing navigation to next step",
+      "properties": {
+        "required_fields": {
+          "type": "array",
+          "description": "Fields that must be completed before advancing",
+          "items": {
+            "type": "string",
+            "enum": ["alignment", "deity"]
+          },
+          "default": ["alignment"]
+        },
+        "conditional_requirements": {
+          "type": "object",
+          "description": "Additional requirements based on previous choices",
+          "properties": {
+            "deity_required_for_classes": {
+              "type": "array",
+              "description": "Classes that must choose a deity",
+              "items": {
+                "type": "string",
+                "enum": ["cleric", "champion"]
+              },
+              "default": ["cleric", "champion"]
+            }
+          },
+          "additionalProperties": false
+        },
+        "error_messages": {
+          "type": "object",
+          "description": "User-facing error messages for validation failures",
+          "properties": {
+            "alignment_missing": {
+              "type": "string",
+              "const": "Please select an alignment before continuing."
+            },
+            "deity_required": {
+              "type": "string",
+              "const": "Clerics and Champions must choose a deity."
+            },
+            "alignment_incompatible": {
+              "type": "string",
+              "const": "Your alignment must be within one step of your deity's alignment."
+            }
+          },
+          "required": ["alignment_missing", "deity_required", "alignment_incompatible"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["required_fields", "conditional_requirements", "error_messages"],
+      "additionalProperties": false
+    },
+    "tips": {
+      "type": "array",
+      "description": "Helpful tips for new players",
+      "minItems": 1,
+      "items": {
+        "type": "string"
+      },
+      "$comment": "Steps 4-8 use simple string tips for brevity, while steps 1-3 use structured objects with title/text properties",
+      "default": [
+        "Choose a worldview you can roleplay consistently over many sessions.",
+        "Party trust and long-term campaign cohesion usually benefit from cooperative alignments.",
+        "Deity choice can provide strong identity anchors for divine and conviction-driven characters.",
+        "If your character evolves, alignment can evolve too—treat it as living narrative guidance.",
+        "Use this step to define why your character stays in the world long enough to become a legend."
+      ]
+    }
+  },
+  "required": ["schema_version", "step", "step_name", "step_description", "fields", "navigation", "validation", "tips"],
+  "additionalProperties": false
+}

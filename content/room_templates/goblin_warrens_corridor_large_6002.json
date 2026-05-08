@@ -1,0 +1,719 @@
+{
+    "template_id": "goblin_warrens_corridor_large_6002",
+    "name": "Corridor - Stone Chamber",
+    "description": "You enter a vast corridor with stone_floor surfaces. The air is stale. The room awaits exploration.",
+    "room_type": "corridor",
+    "size_category": "large",
+    "theme": "goblin_warrens",
+    "terrain_type": "stone_floor",
+    "lighting": "dim_light",
+    "hex_count": "9",
+    "layout_data": {
+        "hexes": [
+            {
+                "q": -1,
+                "r": -1,
+                "elevation_ft": 2.6,
+                "objects": [],
+                "occupants": [
+                    {
+                        "type": "exit_point",
+                        "data": {
+                            "hex": {
+                                "q": -1,
+                                "r": -1
+                            },
+                            "direction": "north",
+                            "type": "door",
+                            "locked": false,
+                            "hidden": false,
+                            "leads_to": null
+                        }
+                    }
+                ]
+            },
+            {
+                "q": -1,
+                "r": 0,
+                "elevation_ft": -6.7,
+                "objects": [],
+                "occupants": []
+            },
+            {
+                "q": -1,
+                "r": 1,
+                "elevation_ft": 0.9,
+                "objects": [],
+                "occupants": [
+                    {
+                        "type": "entity",
+                        "entity_instance_id": "entity_creature_-1_1",
+                        "entity_type": "creature",
+                        "entity_ref": "goblin_warrior",
+                        "facing": 5,
+                        "facing_direction": "NE"
+                    }
+                ]
+            },
+            {
+                "q": 0,
+                "r": -1,
+                "elevation_ft": 0.1,
+                "objects": [],
+                "occupants": [
+                    {
+                        "type": "entity",
+                        "entity_instance_id": "entity_creature_0_-1",
+                        "entity_type": "creature",
+                        "entity_ref": "goblin_warrior",
+                        "facing": 1,
+                        "facing_direction": "SE"
+                    }
+                ]
+            },
+            {
+                "q": 0,
+                "r": 0,
+                "elevation_ft": -7.4,
+                "objects": [
+                    {
+                        "type": "statue",
+                        "name": "Ancient Statue",
+                        "description": "A weathered statue of unknown origin.",
+                        "blocks_movement": true,
+                        "blocks_line_of_sight": true,
+                        "provides_cover": "greater_cover"
+                    }
+                ],
+                "occupants": [
+                    {
+                        "type": "entry_point",
+                        "data": {
+                            "hex": {
+                                "q": 0,
+                                "r": 0
+                            },
+                            "direction": "south",
+                            "type": "door",
+                            "locked": false,
+                            "hidden": false
+                        }
+                    }
+                ]
+            },
+            {
+                "q": 0,
+                "r": 1,
+                "elevation_ft": -0.8,
+                "objects": [],
+                "occupants": []
+            },
+            {
+                "q": 1,
+                "r": -1,
+                "elevation_ft": -6.3,
+                "objects": [],
+                "occupants": [
+                    {
+                        "type": "entity",
+                        "entity_instance_id": "entity_creature_1_-1",
+                        "entity_type": "creature",
+                        "entity_ref": "goblin_warrior",
+                        "facing": 5,
+                        "facing_direction": "NE"
+                    }
+                ]
+            },
+            {
+                "q": 1,
+                "r": 0,
+                "elevation_ft": -5.1,
+                "objects": [],
+                "occupants": [
+                    {
+                        "type": "entity",
+                        "entity_instance_id": "entity_creature_1_0",
+                        "entity_type": "creature",
+                        "entity_ref": "goblin_commando",
+                        "facing": 4,
+                        "facing_direction": "NW"
+                    }
+                ]
+            },
+            {
+                "q": 1,
+                "r": 1,
+                "elevation_ft": 6.9,
+                "objects": [],
+                "occupants": [
+                    {
+                        "type": "exit_point",
+                        "data": {
+                            "hex": {
+                                "q": 1,
+                                "r": 1
+                            },
+                            "direction": "north",
+                            "type": "door",
+                            "locked": false,
+                            "hidden": false,
+                            "leads_to": null
+                        }
+                    },
+                    {
+                        "type": "entity",
+                        "entity_instance_id": "entity_creature_1_1",
+                        "entity_type": "creature",
+                        "entity_ref": "goblin_warrior",
+                        "facing": 5,
+                        "facing_direction": "NE"
+                    }
+                ]
+            }
+        ],
+        "hex_manifest": {
+            "total_hexes": 9,
+            "passable_hexes": 8,
+            "occupied_hexes": 7,
+            "creature_count": 5,
+            "entry_point_count": 1,
+            "exit_point_count": 2,
+            "by_hex": {
+                "-1,-1": {
+                    "q": -1,
+                    "r": -1,
+                    "terrain": "stone_floor",
+                    "elevation_ft": 2.6,
+                    "passable": true,
+                    "objects": [],
+                    "creatures": [],
+                    "creature_details": [],
+                    "entry_point": false,
+                    "exit_point": true,
+                    "summary": "EXIT POINT"
+                },
+                "-1,0": {
+                    "q": -1,
+                    "r": 0,
+                    "terrain": "stone_floor",
+                    "elevation_ft": -6.7,
+                    "passable": true,
+                    "objects": [],
+                    "creatures": [],
+                    "creature_details": [],
+                    "entry_point": false,
+                    "exit_point": false,
+                    "summary": "Empty passable hex"
+                },
+                "-1,1": {
+                    "q": -1,
+                    "r": 1,
+                    "terrain": "stone_floor",
+                    "elevation_ft": 0.9,
+                    "passable": true,
+                    "objects": [],
+                    "creatures": [
+                        "goblin_warrior"
+                    ],
+                    "creature_details": [
+                        {
+                            "name": "goblin_warrior",
+                            "facing": 5,
+                            "facing_direction": "NE"
+                        }
+                    ],
+                    "entry_point": false,
+                    "exit_point": false,
+                    "summary": "Creatures: goblin_warrior (facing NE)"
+                },
+                "0,-1": {
+                    "q": 0,
+                    "r": -1,
+                    "terrain": "stone_floor",
+                    "elevation_ft": 0.1,
+                    "passable": true,
+                    "objects": [],
+                    "creatures": [
+                        "goblin_warrior"
+                    ],
+                    "creature_details": [
+                        {
+                            "name": "goblin_warrior",
+                            "facing": 1,
+                            "facing_direction": "SE"
+                        }
+                    ],
+                    "entry_point": false,
+                    "exit_point": false,
+                    "summary": "Creatures: goblin_warrior (facing SE)"
+                },
+                "0,0": {
+                    "q": 0,
+                    "r": 0,
+                    "terrain": "stone_floor",
+                    "elevation_ft": -7.4,
+                    "passable": false,
+                    "objects": [
+                        "Ancient Statue"
+                    ],
+                    "creatures": [],
+                    "creature_details": [],
+                    "entry_point": true,
+                    "exit_point": false,
+                    "summary": "ENTRY POINT | Objects: Ancient Statue"
+                },
+                "0,1": {
+                    "q": 0,
+                    "r": 1,
+                    "terrain": "stone_floor",
+                    "elevation_ft": -0.8,
+                    "passable": true,
+                    "objects": [],
+                    "creatures": [],
+                    "creature_details": [],
+                    "entry_point": false,
+                    "exit_point": false,
+                    "summary": "Empty passable hex"
+                },
+                "1,-1": {
+                    "q": 1,
+                    "r": -1,
+                    "terrain": "stone_floor",
+                    "elevation_ft": -6.3,
+                    "passable": true,
+                    "objects": [],
+                    "creatures": [
+                        "goblin_warrior"
+                    ],
+                    "creature_details": [
+                        {
+                            "name": "goblin_warrior",
+                            "facing": 5,
+                            "facing_direction": "NE"
+                        }
+                    ],
+                    "entry_point": false,
+                    "exit_point": false,
+                    "summary": "Creatures: goblin_warrior (facing NE)"
+                },
+                "1,0": {
+                    "q": 1,
+                    "r": 0,
+                    "terrain": "stone_floor",
+                    "elevation_ft": -5.1,
+                    "passable": true,
+                    "objects": [],
+                    "creatures": [
+                        "goblin_commando"
+                    ],
+                    "creature_details": [
+                        {
+                            "name": "goblin_commando",
+                            "facing": 4,
+                            "facing_direction": "NW"
+                        }
+                    ],
+                    "entry_point": false,
+                    "exit_point": false,
+                    "summary": "Creatures: goblin_commando (facing NW)"
+                },
+                "1,1": {
+                    "q": 1,
+                    "r": 1,
+                    "terrain": "stone_floor",
+                    "elevation_ft": 6.9,
+                    "passable": true,
+                    "objects": [],
+                    "creatures": [
+                        "goblin_warrior"
+                    ],
+                    "creature_details": [
+                        {
+                            "name": "goblin_warrior",
+                            "facing": 5,
+                            "facing_direction": "NE"
+                        }
+                    ],
+                    "entry_point": false,
+                    "exit_point": true,
+                    "summary": "EXIT POINT | Creatures: goblin_warrior (facing NE)"
+                }
+            }
+        },
+        "entry_points": [
+            {
+                "hex": {
+                    "q": 0,
+                    "r": 0
+                },
+                "direction": "south",
+                "type": "door",
+                "locked": false,
+                "hidden": false
+            }
+        ],
+        "exit_points": [
+            {
+                "hex": {
+                    "q": -1,
+                    "r": -1
+                },
+                "direction": "north",
+                "type": "door",
+                "locked": false,
+                "hidden": false,
+                "leads_to": null
+            },
+            {
+                "hex": {
+                    "q": 1,
+                    "r": 1
+                },
+                "direction": "north",
+                "type": "door",
+                "locked": false,
+                "hidden": false,
+                "leads_to": null
+            }
+        ],
+        "terrain": {
+            "type": "stone_floor",
+            "difficult_terrain": false,
+            "greater_difficult_terrain": false,
+            "hazardous_terrain": null,
+            "ceiling_height_ft": 10
+        },
+        "lighting": {
+            "level": "dim_light",
+            "light_sources": [
+                {
+                    "type": "torch",
+                    "hex": {
+                        "q": -1,
+                        "r": -3
+                    },
+                    "bright_radius_ft": 20,
+                    "dim_radius_ft": 40,
+                    "permanent": true
+                },
+                {
+                    "type": "torch",
+                    "hex": {
+                        "q": 3,
+                        "r": 0
+                    },
+                    "bright_radius_ft": 20,
+                    "dim_radius_ft": 40,
+                    "permanent": true
+                },
+                {
+                    "type": "torch",
+                    "hex": {
+                        "q": -2,
+                        "r": -1
+                    },
+                    "bright_radius_ft": 20,
+                    "dim_radius_ft": 40,
+                    "permanent": true
+                }
+            ]
+        }
+    },
+    "contents_data": {
+        "creatures": [
+            {
+                "schema_version": "1.0.0",
+                "entity_instance_id": "entity_creature_1_1",
+                "entity_type": "creature",
+                "display_name": "Goblin Warrior",
+                "entity_ref": {
+                    "content_type": "creature",
+                    "content_id": "goblin_warrior",
+                    "version": null
+                },
+                "placement": {
+                    "room_id": "room_37_1_2",
+                    "hex": {
+                        "q": 1,
+                        "r": 1
+                    },
+                    "elevation": 0,
+                    "facing": 5,
+                    "orientation": "nw",
+                    "spawn_type": "permanent"
+                },
+                "state": {
+                    "active": true,
+                    "destroyed": false,
+                    "disabled": false,
+                    "hidden": false,
+                    "collected": false,
+                    "hit_points": {
+                        "current": 6,
+                        "max": 6
+                    },
+                    "inventory": [],
+                    "metadata": {
+                        "display_name": "Goblin Warrior",
+                        "name": "Goblin Warrior",
+                        "team": "enemy",
+                        "orientation": "nw",
+                        "movement_speed": 25,
+                        "actions_per_turn": 3,
+                        "initiative_bonus": 2,
+                        "stats": {
+                            "speed": 25,
+                            "maxHp": 6,
+                            "currentHp": 6,
+                            "ac": 15,
+                            "perception": 3,
+                            "initiative_bonus": 2,
+                            "attack_bonus": 5
+                        }
+                    }
+                },
+                "created_at": "2026-03-07T18:35:30+00:00",
+                "updated_at": "2026-03-07T18:35:30+00:00"
+            },
+            {
+                "schema_version": "1.0.0",
+                "entity_instance_id": "entity_creature_-1_1",
+                "entity_type": "creature",
+                "display_name": "Goblin Warrior",
+                "entity_ref": {
+                    "content_type": "creature",
+                    "content_id": "goblin_warrior",
+                    "version": null
+                },
+                "placement": {
+                    "room_id": "room_37_1_2",
+                    "hex": {
+                        "q": -1,
+                        "r": 1
+                    },
+                    "elevation": 0,
+                    "facing": 5,
+                    "orientation": "nw",
+                    "spawn_type": "permanent"
+                },
+                "state": {
+                    "active": true,
+                    "destroyed": false,
+                    "disabled": false,
+                    "hidden": false,
+                    "collected": false,
+                    "hit_points": {
+                        "current": 6,
+                        "max": 6
+                    },
+                    "inventory": [],
+                    "metadata": {
+                        "display_name": "Goblin Warrior",
+                        "name": "Goblin Warrior",
+                        "team": "enemy",
+                        "orientation": "nw",
+                        "movement_speed": 25,
+                        "actions_per_turn": 3,
+                        "initiative_bonus": 2,
+                        "stats": {
+                            "speed": 25,
+                            "maxHp": 6,
+                            "currentHp": 6,
+                            "ac": 15,
+                            "perception": 3,
+                            "initiative_bonus": 2,
+                            "attack_bonus": 5
+                        }
+                    }
+                },
+                "created_at": "2026-03-07T18:35:30+00:00",
+                "updated_at": "2026-03-07T18:35:30+00:00"
+            },
+            {
+                "schema_version": "1.0.0",
+                "entity_instance_id": "entity_creature_0_-1",
+                "entity_type": "creature",
+                "display_name": "Goblin Warrior",
+                "entity_ref": {
+                    "content_type": "creature",
+                    "content_id": "goblin_warrior",
+                    "version": null
+                },
+                "placement": {
+                    "room_id": "room_37_1_2",
+                    "hex": {
+                        "q": 0,
+                        "r": -1
+                    },
+                    "elevation": 0,
+                    "facing": 1,
+                    "orientation": "ne",
+                    "spawn_type": "permanent"
+                },
+                "state": {
+                    "active": true,
+                    "destroyed": false,
+                    "disabled": false,
+                    "hidden": false,
+                    "collected": false,
+                    "hit_points": {
+                        "current": 6,
+                        "max": 6
+                    },
+                    "inventory": [],
+                    "metadata": {
+                        "display_name": "Goblin Warrior",
+                        "name": "Goblin Warrior",
+                        "team": "enemy",
+                        "orientation": "ne",
+                        "movement_speed": 25,
+                        "actions_per_turn": 3,
+                        "initiative_bonus": 2,
+                        "stats": {
+                            "speed": 25,
+                            "maxHp": 6,
+                            "currentHp": 6,
+                            "ac": 15,
+                            "perception": 3,
+                            "initiative_bonus": 2,
+                            "attack_bonus": 5
+                        }
+                    }
+                },
+                "created_at": "2026-03-07T18:35:30+00:00",
+                "updated_at": "2026-03-07T18:35:30+00:00"
+            },
+            {
+                "schema_version": "1.0.0",
+                "entity_instance_id": "entity_creature_1_0",
+                "entity_type": "creature",
+                "display_name": "Goblin Commando",
+                "entity_ref": {
+                    "content_type": "creature",
+                    "content_id": "goblin_commando",
+                    "version": null
+                },
+                "placement": {
+                    "room_id": "room_37_1_2",
+                    "hex": {
+                        "q": 1,
+                        "r": 0
+                    },
+                    "elevation": 0,
+                    "facing": 4,
+                    "orientation": "sw",
+                    "spawn_type": "permanent"
+                },
+                "state": {
+                    "active": true,
+                    "destroyed": false,
+                    "disabled": false,
+                    "hidden": false,
+                    "collected": false,
+                    "hit_points": {
+                        "current": 18,
+                        "max": 18
+                    },
+                    "inventory": [],
+                    "metadata": {
+                        "display_name": "Goblin Commando",
+                        "name": "Goblin Commando",
+                        "team": "enemy",
+                        "orientation": "sw",
+                        "movement_speed": 25,
+                        "actions_per_turn": 3,
+                        "initiative_bonus": 3,
+                        "stats": {
+                            "speed": 25,
+                            "maxHp": 18,
+                            "currentHp": 18,
+                            "ac": 16,
+                            "perception": 4,
+                            "initiative_bonus": 3,
+                            "attack_bonus": 6
+                        }
+                    }
+                },
+                "created_at": "2026-03-07T18:35:30+00:00",
+                "updated_at": "2026-03-07T18:35:30+00:00"
+            },
+            {
+                "schema_version": "1.0.0",
+                "entity_instance_id": "entity_creature_1_-1",
+                "entity_type": "creature",
+                "display_name": "Goblin Warrior",
+                "entity_ref": {
+                    "content_type": "creature",
+                    "content_id": "goblin_warrior",
+                    "version": null
+                },
+                "placement": {
+                    "room_id": "room_37_1_2",
+                    "hex": {
+                        "q": 1,
+                        "r": -1
+                    },
+                    "elevation": 0,
+                    "facing": 5,
+                    "orientation": "nw",
+                    "spawn_type": "permanent"
+                },
+                "state": {
+                    "active": true,
+                    "destroyed": false,
+                    "disabled": false,
+                    "hidden": false,
+                    "collected": false,
+                    "hit_points": {
+                        "current": 6,
+                        "max": 6
+                    },
+                    "inventory": [],
+                    "metadata": {
+                        "display_name": "Goblin Warrior",
+                        "name": "Goblin Warrior",
+                        "team": "enemy",
+                        "orientation": "nw",
+                        "movement_speed": 25,
+                        "actions_per_turn": 3,
+                        "initiative_bonus": 2,
+                        "stats": {
+                            "speed": 25,
+                            "maxHp": 6,
+                            "currentHp": 6,
+                            "ac": 15,
+                            "perception": 3,
+                            "initiative_bonus": 2,
+                            "attack_bonus": 5
+                        }
+                    }
+                },
+                "created_at": "2026-03-07T18:35:30+00:00",
+                "updated_at": "2026-03-07T18:35:30+00:00"
+            }
+        ],
+        "items": [],
+        "traps": [],
+        "hazards": [],
+        "obstacles": [],
+        "interactables": []
+    },
+    "environment_tags": [],
+    "search_tags": [
+        "goblin_warrens",
+        "corridor",
+        "large",
+        "stone_floor",
+        "dim_light",
+        "goblin warrior",
+        "goblin commando"
+    ],
+    "level_min": "1",
+    "level_max": "3",
+    "difficulty": "moderate",
+    "usage_count": "0",
+    "quality_score": "0.5",
+    "source": "generated",
+    "source_campaign_id": "37",
+    "source_room_id": "room_37_1_2"
+}

@@ -1,0 +1,32 @@
+{
+  "name": "basic_campaign_state",
+  "description": "Basic campaign state for testing new campaigns",
+  "state": {
+    "created_by": 1,
+    "started": true,
+    "progress": [],
+    "active_hex": "q0r0",
+    "current_location": "town_square",
+    "party_gold": 100,
+    "completed_quests": [],
+    "active_quests": [],
+    "discovered_locations": ["town_square"],
+    "game_time": {
+      "day": 1,
+      "hour": 8,
+      "minute": 0
+    },
+    "party_inventory": [],
+    "flags": {}
+  },
+  "state_meta": {
+    "version": 1,
+    "updatedAt": "2024-01-01T08:00:00Z"
+  },
+  "test_cases": {
+    "state_fields": {
+      "required": ["created_by", "started", "progress"],
+      "optional": ["active_hex", "current_location", "party_gold"]
+    }
+  }
+}

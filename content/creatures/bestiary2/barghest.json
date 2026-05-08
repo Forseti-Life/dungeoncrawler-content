@@ -1,0 +1,98 @@
+{
+  "schema_version": "1.0.0",
+  "creature_id": "f2a5c9e7-3b6d-4d1f-a8c4-6e3b0d7f2a5c",
+  "name": "Barghest",
+  "level": 4,
+  "creature_type": "fiend",
+  "traits": [
+    "evil",
+    "fiend",
+    "lawful",
+    "monitor",
+    "shapechanger"
+  ],
+  "alignment": "LE",
+  "rarity": "uncommon",
+  "size": "medium",
+  "hex_footprint": 1,
+  "family": "barghest",
+  "bestiary_source": "b2",
+  "pf2e_stats": {
+    "ability_scores": {
+      "strength": { "score": 18, "modifier": 4 },
+      "dexterity": { "score": 14, "modifier": 2 },
+      "constitution": { "score": 16, "modifier": 3 },
+      "intelligence": { "score": 14, "modifier": 2 },
+      "wisdom": { "score": 14, "modifier": 2 },
+      "charisma": { "score": 16, "modifier": 3 }
+    },
+    "hp": {
+      "max": 60,
+      "current": 60,
+      "temporary": 0,
+      "hardness": 0,
+      "immunities": [],
+      "resistances": [{ "type": "physical (except magical)", "value": 5 }],
+      "weaknesses": [{ "type": "good", "value": 5 }]
+    },
+    "ac": 21,
+    "saves": {
+      "fortitude": { "modifier": 11 },
+      "reflex": { "modifier": 10 },
+      "will": { "modifier": 10 }
+    },
+    "perception": {
+      "modifier": 10,
+      "senses": ["darkvision 60ft", "scent 30ft (imprecise)"]
+    },
+    "speed": {
+      "land": 25,
+      "fly": null,
+      "swim": null,
+      "climb": null,
+      "burrow": null
+    },
+    "skills": {
+      "Athletics": { "modifier": 12, "proficiency": "trained" },
+      "Deception": { "modifier": 11, "proficiency": "trained" },
+      "Intimidation": { "modifier": 11, "proficiency": "trained" },
+      "Stealth": { "modifier": 10, "proficiency": "trained" }
+    },
+    "languages": ["Abyssal", "Common", "Goblin"],
+    "attacks": [
+      {
+        "name": "Jaws",
+        "type": "melee",
+        "attack_bonus": 14,
+        "damage": "2d6+4",
+        "damage_type": "piercing",
+        "traits": []
+      },
+      {
+        "name": "Claw",
+        "type": "melee",
+        "attack_bonus": 14,
+        "damage": "1d8+4",
+        "damage_type": "slashing",
+        "traits": ["agile"]
+      }
+    ],
+    "special_abilities": [
+      {
+        "name": "Feed on Fear",
+        "description": "When the barghest feeds on the soul of a creature it killed (1 minute activity), it gains 1 soul essence. At 4 soul essences, it gains 4 Hit Points per soul essence and its level increases by 4 (becoming a greater barghest)."
+      },
+      {
+        "name": "Change Shape",
+        "action_cost": 1,
+        "description": "The barghest can take the appearance of any goblinoid of Small or Medium size. It gains the goblinoid trait while in this form."
+      },
+      {
+        "name": "Occult Innate Spells",
+        "description": "DC 21. At will: levitate, mage hand, prestidigitation. 1/day: blink, crushing despair, invisibility, pass without trace."
+      }
+    ]
+  },
+  "encounter_themes": ["dungeon", "city", "goblin-lair"],
+  "tactical_role": "bruiser"
+}

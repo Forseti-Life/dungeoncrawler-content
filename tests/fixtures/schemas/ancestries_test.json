@@ -1,0 +1,80 @@
+{
+  "ancestries": [
+    {
+      "id": "human",
+      "name": "Human",
+      "hit_points": 8,
+      "size": "Medium",
+      "speed": 25,
+      "ability_boosts": ["Free", "Free"],
+      "languages": ["Common", "One additional language"],
+      "traits": ["Human", "Humanoid"],
+      "description": "Humans are versatile and ambitious"
+    },
+    {
+      "id": "elf",
+      "name": "Elf",
+      "hit_points": 6,
+      "size": "Medium",
+      "speed": 30,
+      "ability_boosts": ["DEX", "INT", "Free"],
+      "ability_flaws": ["CON"],
+      "languages": ["Common", "Elven"],
+      "traits": ["Elf", "Humanoid"],
+      "special_abilities": ["Low-Light Vision"],
+      "description": "Elves are tall, long-lived humanoids"
+    },
+    {
+      "id": "dwarf",
+      "name": "Dwarf",
+      "hit_points": 10,
+      "size": "Medium",
+      "speed": 20,
+      "ability_boosts": ["CON", "WIS", "Free"],
+      "ability_flaws": ["CHA"],
+      "languages": ["Common", "Dwarven"],
+      "traits": ["Dwarf", "Humanoid"],
+      "special_abilities": ["Darkvision"],
+      "description": "Dwarves are stout, hardy folk"
+    },
+    {
+      "id": "halfling",
+      "name": "Halfling",
+      "hit_points": 6,
+      "size": "Small",
+      "speed": 25,
+      "ability_boosts": ["DEX", "WIS", "Free"],
+      "ability_flaws": ["STR"],
+      "languages": ["Common", "Halfling"],
+      "traits": ["Halfling", "Humanoid"],
+      "special_abilities": ["Keen Eyes"],
+      "description": "Halflings are short, jovial folk"
+    },
+    {
+      "id": "gnome",
+      "name": "Gnome",
+      "hit_points": 8,
+      "size": "Small",
+      "speed": 25,
+      "ability_boosts": ["CON", "CHA", "Free"],
+      "ability_flaws": ["STR"],
+      "languages": ["Common", "Gnomish", "Sylvan"],
+      "traits": ["Gnome", "Humanoid"],
+      "special_abilities": ["Low-Light Vision"],
+      "description": "Gnomes are eccentric and creative"
+    },
+    {
+      "id": "goblin",
+      "name": "Goblin",
+      "hit_points": 6,
+      "size": "Small",
+      "speed": 25,
+      "ability_boosts": ["DEX", "CHA", "Free"],
+      "ability_flaws": ["WIS"],
+      "languages": ["Common", "Goblin"],
+      "traits": ["Goblin", "Humanoid"],
+      "special_abilities": ["Darkvision"],
+      "description": "Goblins are mischievous and clever"
+    }
+  ]
+}

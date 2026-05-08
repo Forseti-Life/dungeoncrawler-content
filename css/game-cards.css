@@ -1,0 +1,589 @@
+/**
+ * @file
+ * Styles for game content cards - Dungeon Crawler RPG theme.
+ * Dark dungeon aesthetic with torchlight accents.
+ *
+ * Features:
+ * - Dungeon room cards with torch gold accent
+ * - Character class cards with mystic purple accent
+ * - Item cards with rarity-based coloring system
+ * - Game statistics panels
+ * - Responsive image containers
+ */
+
+/* ==========================================================================
+   CSS Custom Properties
+   ========================================================================== */
+
+:root {
+  /* Theme Colors - matches _variables.scss */
+  --dc-dungeon-stone: var(--dc-surface-elevated);
+  --dc-deep-cavern: var(--dc-surface-primary);
+  --dc-torch-gold: var(--bs-warning);
+  --dc-mystic-purple: var(--bs-purple);
+  --dc-text-primary: var(--bs-body-color);
+  --dc-text-secondary: var(--bs-secondary-color);
+  --dc-abyss-dark: var(--dc-surface-abyss);
+
+  /* Rarity Colors */
+  --dc-rarity-common: var(--bs-secondary-color);
+  --dc-rarity-uncommon: var(--bs-success);
+  --dc-rarity-rare: var(--bs-primary);
+  --dc-rarity-epic: var(--bs-purple);
+  --dc-rarity-legendary: var(--bs-warning);
+
+  /* Card Styling */
+  --card-border-radius: 0.375rem;
+  --card-border-width: 4px;
+  --card-image-height: 200px;
+  --card-item-image-height: 180px;
+  --card-transition-duration: 0.2s;
+  --card-hover-lift: -2px;
+}
+
+/* ==========================================================================
+   Base Card Styles (shared across all card types)
+   ========================================================================== */
+
+.dungeon-card,
+.class-card,
+.item-card {
+  background: linear-gradient(135deg, var(--dc-dungeon-stone), var(--dc-deep-cavern));
+  border-radius: var(--card-border-radius);
+  color: var(--dc-text-primary);
+  transition: transform var(--card-transition-duration) ease,
+              box-shadow var(--card-transition-duration) ease;
+}
+
+.dungeon-card:hover,
+.class-card:hover,
+.item-card:hover {
+  transform: translateY(var(--card-hover-lift));
+}
+
+.dungeon-card .card-title,
+.class-card .card-title,
+.item-card .card-title {
+  font-family: 'Cinzel', serif;
+}
+
+/* ==========================================================================
+   Dungeon Room Cards
+   ========================================================================== */
+
+.dungeon-card {
+  border-left: var(--card-border-width) solid var(--dc-torch-gold);
+}
+
+.dungeon-card:hover {
+  box-shadow: 0 4px 20px color-mix(in srgb, var(--dc-torch-gold) 25%, transparent);
+}
+
+.dungeon-card .card-title {
+  color: var(--dc-torch-gold);
+}
+
+.dungeon-card__image img {
+  width: 100%;
+  height: var(--card-image-height);
+  object-fit: cover;
+  border-bottom: 1px solid color-mix(in srgb, var(--dc-torch-gold) 20%, transparent);
+}
+
+/* ==========================================================================
+   Character Class Cards
+   ========================================================================== */
+
+.class-card {
+  border-left: var(--card-border-width) solid var(--dc-mystic-purple);
+}
+
+.class-card:hover {
+  box-shadow: 0 4px 20px color-mix(in srgb, var(--dc-mystic-purple) 25%, transparent);
+}
+
+.class-card .card-title {
+  color: color-mix(in srgb, var(--dc-mystic-purple) 70%, white);
+}
+
+.class-card__image img {
+  width: 100%;
+  height: var(--card-image-height);
+  object-fit: cover;
+  border-bottom: 1px solid color-mix(in srgb, var(--dc-mystic-purple) 20%, transparent);
+}
+
+/* ==========================================================================
+   Item Cards with Rarity System
+   ========================================================================== */
+
+.item-card .card-title {
+  /* Color set by rarity modifiers below */
+}
+
+/* Common Items - Gray */
+.item-card--common {
+  border-left: var(--card-border-width) solid var(--dc-rarity-common);
+}
+.item-card--common .card-title {
+  color: var(--dc-rarity-common);
+}
+
+/* Uncommon Items - Green */
+.item-card--uncommon {
+  border-left: var(--card-border-width) solid var(--dc-rarity-uncommon);
+}
+.item-card--uncommon .card-title {
+  color: var(--dc-rarity-uncommon);
+}
+
+/* Rare Items - Blue */
+.item-card--rare {
+  border-left: var(--card-border-width) solid var(--dc-rarity-rare);
+}
+.item-card--rare .card-title {
+  color: var(--dc-rarity-rare);
+}
+
+/* Epic Items - Purple */
+.item-card--epic {
+  border-left: var(--card-border-width) solid var(--dc-rarity-epic);
+}
+.item-card--epic .card-title {
+  color: var(--dc-rarity-epic);
+}
+
+/* Legendary Items - Gold with Glow Effect */
+.item-card--legendary {
+  border-left: var(--card-border-width) solid var(--dc-rarity-legendary);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--dc-rarity-legendary) 30%, transparent);
+}
+.item-card--legendary .card-title {
+  color: var(--dc-rarity-legendary);
+}
+
+.item-card--legendary:hover {
+  box-shadow: 0 0 24px color-mix(in srgb, var(--dc-rarity-legendary) 50%, transparent);
+}
+
+/* Enhanced legendary glow effect (applied via JavaScript on hover) */
+.item-card--legendary.legendary-glow {
+  box-shadow: 0 0 32px color-mix(in srgb, var(--dc-rarity-legendary) 70%, transparent), 0 0 48px color-mix(in srgb, var(--dc-rarity-legendary) 40%, transparent);
+  transform: translateY(-4px);
+}
+
+.item-card__image img {
+  width: 100%;
+  height: var(--card-item-image-height);
+  object-fit: cover;
+  border-bottom: 1px solid color-mix(in srgb, white 5%, transparent);
+}
+
+/* ==========================================================================
+   World Lore Cards
+   ========================================================================== */
+
+.world-lore-card {
+  position: relative;
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--dc-abyss-dark) 55%, transparent) 0%, var(--dc-abyss-dark) 100%),
+    linear-gradient(135deg, var(--dc-dungeon-stone), var(--dc-deep-cavern));
+  border-left: var(--card-border-width) solid var(--dc-torch-gold);
+  min-height: 20rem;
+  isolation: isolate;
+}
+
+.world-lore-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, black 10%, transparent) 0%, color-mix(in srgb, black 75%, transparent) 100%),
+    var(--world-card-image);
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
+  opacity: 0;
+  transition: opacity var(--card-transition-duration) ease;
+  z-index: 0;
+}
+
+.world-lore-card--has-image::before {
+  opacity: 1;
+}
+
+.world-lore-card:hover {
+  box-shadow: 0 4px 20px color-mix(in srgb, var(--dc-torch-gold) 20%, transparent);
+}
+
+.world-lore-card .card-title {
+  color: var(--dc-torch-gold);
+}
+
+.world-lore-card__body {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  min-height: 20rem;
+  position: relative;
+  z-index: 1;
+}
+
+.world-lore-card__body .card-text {
+  margin-bottom: 0;
+}
+
+/* ==========================================================================
+   Rarity Badge Colors
+   ========================================================================== */
+
+.badge.bg-purple {
+  background-color: var(--dc-rarity-epic) !important;
+}
+
+/* ==========================================================================
+   Game Statistics Panel
+   ========================================================================== */
+
+.game-stats-summary {
+  background: linear-gradient(135deg, var(--dc-abyss-dark), var(--dc-deep-cavern));
+  color: var(--dc-text-primary);
+  border-radius: var(--card-border-radius);
+  border: 1px solid color-mix(in srgb, var(--dc-torch-gold) 15%, transparent);
+  padding: 1.5rem;
+  margin: 1rem 0;
+}
+
+.game-stats-summary h4 {
+  color: var(--dc-torch-gold);
+  font-family: 'Cinzel', serif;
+  margin-bottom: 1rem;
+}
+
+.game-stats-summary .stat-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.25rem 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--dc-torch-gold) 10%, transparent);
+}
+
+.game-stats-summary .stat-label {
+  color: var(--dc-text-secondary);
+}
+
+.game-stats-summary .stat-value {
+  color: var(--dc-torch-gold);
+  font-weight: bold;
+}
+
+/* ==========================================================================
+   Dungeon Error Pages
+   ========================================================================== */
+
+.dungeon-error-page {
+  background: linear-gradient(180deg, var(--dc-abyss-dark) 0%, var(--dc-deep-cavern) 100%);
+  min-height: 60vh;
+  display: flex;
+  align-items: center;
+}
+
+/* ==========================================================================
+   Game Content Dashboard
+   ========================================================================== */
+
+.game-content-dashboard {
+  --bs-table-color: var(--bs-body-color);
+  --bs-table-bg: var(--bs-tertiary-bg);
+  --bs-table-border-color: color-mix(in srgb, var(--dc-torch-gold) 20%, transparent);
+  --bs-table-striped-color: var(--bs-body-color);
+  --bs-table-striped-bg: color-mix(in srgb, var(--dc-torch-gold) 8%, transparent);
+  --bs-table-hover-color: var(--bs-body-color);
+  --bs-table-hover-bg: color-mix(in srgb, var(--dc-torch-gold) 12%, transparent);
+  background: var(--bs-tertiary-bg);
+  color: var(--bs-body-color);
+}
+
+.game-content-dashboard > :not(caption) > * > * {
+  color: var(--bs-body-color) !important;
+  background-color: var(--bs-table-bg) !important;
+  border-color: var(--bs-table-border-color);
+}
+
+.game-content-dashboard > thead > tr > * {
+  background-color: var(--bs-secondary-bg) !important;
+  color: var(--bs-heading-color) !important;
+  border-color: color-mix(in srgb, var(--dc-torch-gold) 20%, transparent);
+}
+
+.game-content-dashboard > tbody > tr:nth-of-type(odd) > * {
+  background-color: var(--bs-table-striped-bg) !important;
+  color: var(--bs-table-striped-color) !important;
+}
+
+.game-content-dashboard caption {
+  color: var(--bs-secondary-color);
+}
+
+.game-content-dashboard th {
+  background: var(--bs-secondary-bg);
+  color: var(--bs-heading-color);
+  border-color: color-mix(in srgb, var(--dc-torch-gold) 20%, transparent);
+}
+
+.game-content-dashboard td {
+  border-color: color-mix(in srgb, var(--dc-torch-gold) 10%, transparent);
+  color: var(--bs-body-color);
+}
+
+.game-content-dashboard td.empty.message {
+  color: var(--bs-body-color);
+}
+
+.about-feature-card,
+.how-to-play-feature-card,
+.how-to-play-tips-card,
+.how-to-play-guide {
+  isolation: isolate;
+  overflow: hidden;
+  position: relative;
+}
+
+.about-feature-card::before,
+.how-to-play-feature-card::before,
+.how-to-play-tips-card::before,
+.how-to-play-guide::before {
+  background-image: var(--dc-card-image);
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
+  content: "";
+  inset: 0;
+  opacity: 0.34;
+  position: absolute;
+  z-index: 0;
+}
+
+.about-feature-card::after,
+.how-to-play-feature-card::after,
+.how-to-play-tips-card::after,
+.how-to-play-guide::after {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--dc-abyss-dark) 48%, transparent) 0%, color-mix(in srgb, var(--dc-abyss-dark) 84%, transparent) 100%);
+  content: "";
+  inset: 0;
+  position: absolute;
+  z-index: 0;
+}
+
+.about-feature-card .card-body,
+.how-to-play-feature-card .card-body,
+.how-to-play-tips-card .card-body,
+.how-to-play-guide > * {
+  position: relative;
+  z-index: 1;
+}
+
+.about-feature-card {
+  border-color: color-mix(in srgb, var(--dc-torch-gold) 45%, transparent) !important;
+}
+
+.about-feature-card .card-title,
+.how-to-play-feature-card .card-title,
+.how-to-play-tips-card .card-title {
+  color: color-mix(in srgb, var(--dc-torch-gold) 82%, white);
+}
+
+.about-feature-card--forseti-guided-generation {
+  --dc-card-image: url("/themes/custom/dungeoncrawler/build/assets/images/site/about/forseti-guided-generation.png");
+}
+
+.about-feature-card--enduring-replayability {
+  --dc-card-image: url("/themes/custom/dungeoncrawler/build/assets/images/site/about/enduring-replayability.png");
+}
+
+.about-feature-card--campaign-scale-challenge {
+  --dc-card-image: url("/themes/custom/dungeoncrawler/build/assets/images/site/about/campaign-scale-challenge.png");
+}
+
+.about-feature-card--persistent-hex-world {
+  --dc-card-image: url("/themes/custom/dungeoncrawler/build/assets/images/site/about/persistent-hex-world.png");
+}
+
+.about-feature-card--classic-rpg-mechanics {
+  --dc-card-image: url("/themes/custom/dungeoncrawler/build/assets/images/site/about/classic-rpg-mechanics.png");
+}
+
+.about-feature-card--play-anywhere {
+  --dc-card-image: url("/themes/custom/dungeoncrawler/build/assets/images/site/about/play-anywhere.png");
+}
+
+.about-hero-card,
+.about-section-card,
+.about-cta-card {
+  background: linear-gradient(135deg, var(--dc-dungeon-stone), var(--dc-deep-cavern));
+  border: 1px solid color-mix(in srgb, var(--dc-torch-gold) 18%, transparent);
+}
+
+.how-to-play-section-card,
+.how-to-play-cta-card {
+  background: linear-gradient(135deg, var(--dc-dungeon-stone), var(--dc-deep-cavern));
+  border: 1px solid color-mix(in srgb, var(--dc-torch-gold) 18%, transparent);
+}
+
+.about-hero-card {
+  box-shadow: 0 16px 40px color-mix(in srgb, var(--dc-abyss-dark) 55%, transparent);
+}
+
+.how-to-play-feature-card {
+  border: 1px solid color-mix(in srgb, var(--dc-torch-gold) 36%, transparent);
+  box-shadow: 0 16px 40px color-mix(in srgb, var(--dc-abyss-dark) 55%, transparent);
+}
+
+.about-cta-card {
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--bs-primary) 84%, black) 0%, color-mix(in srgb, var(--bs-purple) 46%, black) 100%);
+}
+
+.how-to-play-cta-card {
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--bs-primary) 84%, black) 0%, color-mix(in srgb, var(--bs-purple) 46%, black) 100%);
+}
+
+.about-journey-step {
+  background: color-mix(in srgb, var(--dc-abyss-dark) 76%, transparent);
+  border: 1px solid color-mix(in srgb, var(--dc-torch-gold) 18%, transparent);
+  border-radius: var(--card-border-radius);
+  height: 100%;
+  padding: 1.25rem;
+}
+
+.how-to-play-journey-step {
+  background: color-mix(in srgb, var(--dc-abyss-dark) 76%, transparent);
+  border: 1px solid color-mix(in srgb, var(--dc-torch-gold) 18%, transparent);
+  border-radius: var(--card-border-radius);
+  height: 100%;
+  padding: 1.25rem;
+}
+
+.about-journey-step h3 {
+  color: color-mix(in srgb, var(--dc-torch-gold) 82%, white);
+}
+
+.how-to-play-journey-step h3,
+.how-to-play-term h3 {
+  color: color-mix(in srgb, var(--dc-torch-gold) 82%, white);
+}
+
+.about-bullet-list {
+  margin-bottom: 0;
+  padding-left: 1.2rem;
+}
+
+.how-to-play-bullet-list {
+  margin-bottom: 0;
+  padding-left: 1.2rem;
+}
+
+.about-bullet-list li + li {
+  margin-top: 0.5rem;
+}
+
+.how-to-play-bullet-list li + li {
+  margin-top: 0.75rem;
+}
+
+.about-eyebrow {
+  color: color-mix(in srgb, var(--dc-torch-gold) 80%, white);
+  letter-spacing: 0.08em;
+}
+
+.how-to-play-eyebrow {
+  color: color-mix(in srgb, var(--dc-torch-gold) 80%, white);
+  letter-spacing: 0.08em;
+}
+
+.about-pillars-intro,
+.about-technology .text-center {
+  margin-inline: auto;
+  max-width: 52rem;
+}
+
+.how-to-play-term + .how-to-play-term {
+  margin-top: 1.25rem;
+}
+
+.how-to-play-section-card .card-title {
+  color: color-mix(in srgb, var(--dc-torch-gold) 82%, white);
+}
+
+.how-to-play-feature-card--hero {
+  --dc-card-image: url("/themes/custom/dungeoncrawler/build/assets/images/site/how-to-play/getting-started.png");
+}
+
+.how-to-play-feature-card--field-guide {
+  --dc-card-image: url("/themes/custom/dungeoncrawler/build/assets/images/site/how-to-play/legacy-loop.png");
+}
+
+.how-to-play-guide {
+  border: 1px solid color-mix(in srgb, var(--dc-torch-gold) 24%, transparent);
+}
+
+.how-to-play-guide .accordion-button,
+.how-to-play-guide .accordion-body {
+  background: transparent !important;
+  color: var(--dc-text-primary);
+}
+
+.how-to-play-guide .accordion-button {
+  box-shadow: none !important;
+  color: color-mix(in srgb, var(--dc-torch-gold) 82%, white) !important;
+  font-weight: 700;
+}
+
+.how-to-play-guide .accordion-button::after {
+  filter: brightness(0) saturate(100%) invert(85%) sepia(25%) saturate(390%) hue-rotate(356deg) brightness(108%) contrast(101%);
+}
+
+.how-to-play-guide .accordion-body {
+  backdrop-filter: blur(1px);
+}
+
+.how-to-play-guide .list-group-item {
+  background: color-mix(in srgb, var(--dc-abyss-dark) 78%, transparent);
+  border-color: color-mix(in srgb, var(--dc-torch-gold) 18%, transparent);
+  color: var(--dc-text-primary);
+}
+
+.how-to-play-guide--getting-started {
+  --dc-card-image: url("/themes/custom/dungeoncrawler/build/assets/images/site/how-to-play/getting-started.png");
+}
+
+.how-to-play-guide--legacy-loop {
+  --dc-card-image: url("/themes/custom/dungeoncrawler/build/assets/images/site/how-to-play/legacy-loop.png");
+}
+
+.how-to-play-guide--character-classes {
+  --dc-card-image: url("/themes/custom/dungeoncrawler/build/assets/images/site/how-to-play/character-classes.png");
+}
+
+.how-to-play-guide--combat {
+  --dc-card-image: url("/themes/custom/dungeoncrawler/build/assets/images/site/how-to-play/combat-system.png");
+}
+
+.how-to-play-guide--exploration {
+  --dc-card-image: url("/themes/custom/dungeoncrawler/build/assets/images/site/how-to-play/exploration.png");
+}
+
+.how-to-play-guide--items {
+  --dc-card-image: url("/themes/custom/dungeoncrawler/build/assets/images/site/how-to-play/items-equipment.png");
+}
+
+.how-to-play-guide--progression {
+  --dc-card-image: url("/themes/custom/dungeoncrawler/build/assets/images/site/how-to-play/progression.png");
+}
+
+.how-to-play-tips-card {
+  --dc-card-image: url("/themes/custom/dungeoncrawler/build/assets/images/site/how-to-play/pro-tips.png");
+  border-color: color-mix(in srgb, var(--dc-torch-gold) 32%, transparent) !important;
+}

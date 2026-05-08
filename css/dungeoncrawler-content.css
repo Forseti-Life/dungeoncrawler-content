@@ -1,0 +1,74 @@
+/**
+ * @file
+ * Base styles for Dungeon Crawler Content module.
+ *
+ * This file provides core styling for module-wide UI elements that don't
+ * belong in specific component libraries (game-cards, character-sheet, etc.).
+ *
+ * Current coverage:
+ * - Game content dashboard (admin table display)
+ *
+ * See also:
+ * - game-cards.css: Dungeon cards, class cards, item cards
+ * - character-sheet.css: Character display and forms
+ * - hexmap.css: Hex grid and game map styles
+ */
+
+/* ========================================
+   Game Content Dashboard
+   ======================================== */
+
+/**
+ * Dashboard table used in /admin/content/dungeoncrawler
+ * Displays content type statistics with dark dungeon theme.
+ */
+.game-content-dashboard {
+  margin-top: 1rem;
+  --bs-table-color: var(--bs-body-color);
+  --bs-table-bg: var(--bs-tertiary-bg);
+  --bs-table-border-color: color-mix(in srgb, var(--bs-warning) 20%, transparent);
+  --bs-table-striped-color: var(--bs-body-color);
+  --bs-table-striped-bg: color-mix(in srgb, var(--bs-warning) 8%, transparent);
+  --bs-table-hover-color: var(--bs-body-color);
+  --bs-table-hover-bg: color-mix(in srgb, var(--bs-warning) 12%, transparent);
+  background: var(--bs-tertiary-bg);
+  color: var(--bs-body-color);
+}
+
+.game-content-dashboard > :not(caption) > * > * {
+  color: var(--bs-body-color) !important;
+  background-color: var(--bs-table-bg) !important;
+  border-color: var(--bs-table-border-color);
+}
+
+.game-content-dashboard > thead > tr > * {
+  background-color: var(--bs-secondary-bg) !important;
+  color: var(--bs-heading-color) !important;
+  border-color: color-mix(in srgb, var(--bs-warning) 20%, transparent);
+}
+
+.game-content-dashboard > tbody > tr:nth-of-type(odd) > * {
+  background-color: var(--bs-table-striped-bg) !important;
+  color: var(--bs-table-striped-color) !important;
+}
+
+.game-content-dashboard caption {
+  color: var(--bs-secondary-color);
+}
+
+.game-content-dashboard th {
+  padding: 0.75rem;
+  background: var(--bs-secondary-bg);
+  color: var(--bs-heading-color);
+  border-color: color-mix(in srgb, var(--bs-warning) 20%, transparent);
+}
+
+.game-content-dashboard td {
+  padding: 0.75rem;
+  border-color: color-mix(in srgb, var(--bs-warning) 10%, transparent);
+  color: var(--bs-body-color);
+}
+
+.game-content-dashboard td.empty.message {
+  color: var(--bs-body-color);
+}

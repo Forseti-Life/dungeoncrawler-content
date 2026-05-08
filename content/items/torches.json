@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.0.0",
+  "item_id": "torches",
+  "name": "Torches (5)",
+  "item_type": "adventuring_gear",
+  "level": 0,
+  "rarity": "common",
+  "traits": [],
+  "description": "A bundle of 5 wooden torches tipped with cloth soaked in tallow. Each torch sheds bright light in a 20-foot radius and dim light for an additional 20 feet. A torch burns for 1 hour.",
+  "price": {
+    "cp": 5,
+    "sp": 0,
+    "gp": 0,
+    "pp": 0
+  },
+  "bulk": "L",
+  "hands": "1",
+  "created_at": "2026-03-01T00:00:00Z",
+  "updated_at": "2026-03-01T00:00:00Z",
+  "item_category": "adventuring_gear"
+}

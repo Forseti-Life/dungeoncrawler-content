@@ -1,0 +1,50 @@
+{
+  "template_id": "clear_goblin_den",
+  "name": "Clear the Goblin Den",
+  "description": "A band of goblins has established a den near the town. Clear them out and make the area safe for travelers.",
+  "quest_type": "bounty",
+  "level_min": 1,
+  "level_max": 3,
+  "tags": ["combat", "dungeon"],
+  "objectives_schema": [
+    {
+      "phase": 1,
+      "objectives": [
+        {
+          "objective_id": "slay_goblins",
+          "type": "kill",
+          "target": "goblin",
+          "target_count_range": [8, 12],
+          "description": "Slay the goblins in the den"
+        },
+        {
+          "objective_id": "defeat_chieftain",
+          "type": "kill",
+          "target": "goblin_chieftain",
+          "target_count": 1,
+          "description": "Defeat the Goblin Chieftain"
+        }
+      ]
+    }
+  ],
+  "rewards_schema": {
+    "xp": {
+      "base": 100,
+      "per_level": 30
+    },
+    "gold": {
+      "base": 15,
+      "per_level": 8,
+      "randomize": true
+    },
+    "items": {
+      "loot_table": "goblin_bounty",
+      "count": 1
+    }
+  },
+  "prerequisites": {
+    "level_min": 1
+  },
+  "estimated_duration_minutes": 60,
+  "version": "1.0.0"
+}

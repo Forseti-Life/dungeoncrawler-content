@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0.0",
+  "item_id": "pitons",
+  "name": "Pitons (10)",
+  "item_type": "adventuring_gear",
+  "level": 0,
+  "rarity": "common",
+  "traits": [],
+  "description": "Ten iron spikes that can be driven into rock or wood to serve as anchors for ropes during climbing.",
+  "price": { "cp": 0, "sp": 1, "gp": 0, "pp": 0 },
+  "bulk": "L",
+  "hands": null,
+  "created_at": "2026-03-01T00:00:00Z",
+  "updated_at": "2026-03-01T00:00:00Z",
+  "item_category": "adventuring_gear"
+}

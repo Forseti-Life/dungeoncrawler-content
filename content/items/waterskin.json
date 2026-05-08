@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.0.0",
+  "item_id": "waterskin",
+  "name": "Waterskin",
+  "item_type": "adventuring_gear",
+  "level": 0,
+  "rarity": "common",
+  "traits": [],
+  "description": "A leather pouch designed to carry water or other liquids. When full, it holds enough water for one day of travel.",
+  "price": {
+    "cp": 5,
+    "sp": 0,
+    "gp": 0,
+    "pp": 0
+  },
+  "bulk": "L",
+  "hands": null,
+  "created_at": "2026-03-01T00:00:00Z",
+  "updated_at": "2026-03-01T00:00:00Z",
+  "item_category": "adventuring_gear"
+}

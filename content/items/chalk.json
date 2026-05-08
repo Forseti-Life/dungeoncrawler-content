@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0.0",
+  "item_id": "chalk",
+  "name": "Chalk (10 pieces)",
+  "item_type": "adventuring_gear",
+  "level": 0,
+  "rarity": "common",
+  "traits": [],
+  "description": "Ten sticks of chalk for marking walls, drawing maps, or leaving trails in dungeons.",
+  "price": { "cp": 1, "sp": 0, "gp": 0, "pp": 0 },
+  "bulk": "0",
+  "hands": null,
+  "created_at": "2026-03-01T00:00:00Z",
+  "updated_at": "2026-03-01T00:00:00Z",
+  "item_category": "adventuring_gear"
+}

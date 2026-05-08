@@ -1,0 +1,52 @@
+{
+  "backgrounds": [
+    {
+      "id": "warrior",
+      "name": "Warrior",
+      "ability_boosts": ["STR", "CON"],
+      "skill_training": ["Intimidation"],
+      "feat": "Intimidating Glare",
+      "description": "You have defended your people, town, or nation"
+    },
+    {
+      "id": "scholar",
+      "name": "Scholar",
+      "ability_boosts": ["INT", "WIS"],
+      "skill_training": ["Arcana", "Nature", "Occultism", "Religion"],
+      "feat": "Assurance (choice)",
+      "description": "You are an avid student of the sciences"
+    },
+    {
+      "id": "criminal",
+      "name": "Criminal",
+      "ability_boosts": ["DEX", "INT"],
+      "skill_training": ["Stealth"],
+      "feat": "Experienced Smuggler",
+      "description": "You break the law for profit or survival"
+    },
+    {
+      "id": "acolyte",
+      "name": "Acolyte",
+      "ability_boosts": ["INT", "WIS"],
+      "skill_training": ["Religion"],
+      "feat": "Student of the Canon",
+      "description": "You have devoted your life to serving a deity"
+    },
+    {
+      "id": "farmhand",
+      "name": "Farmhand",
+      "ability_boosts": ["CON", "WIS"],
+      "skill_training": ["Athletics"],
+      "feat": "Assurance (Athletics)",
+      "description": "You grew up working the fields"
+    },
+    {
+      "id": "merchant",
+      "name": "Merchant",
+      "ability_boosts": ["INT", "CHA"],
+      "skill_training": ["Diplomacy"],
+      "feat": "Bargain Hunter",
+      "description": "You trade goods for profit"
+    }
+  ]
+}

@@ -1,0 +1,597 @@
+[
+    {
+        "template_id": "gather_wine",
+        "name": "Collect {item_name} from the Tavern",
+        "description": "The tavern keeper needs {item_name} for the evening service. Gather some from around the tavern common room.",
+        "quest_type": "side_quest",
+        "level_min": "1",
+        "level_max": "3",
+        "tags": [
+            "gathering",
+            "tavern",
+            "beginner"
+        ],
+        "objectives_schema": [
+            {
+                "phase": 1,
+                "objectives": [
+                    {
+                        "objective_id": "collect_wine",
+                        "type": "collect",
+                        "item": "{item_name}",
+                        "target_count_range": [
+                            3,
+                            5
+                        ],
+                        "description": "Collect {item_name} from around the tavern"
+                    }
+                ]
+            },
+            {
+                "phase": 2,
+                "objectives": [
+                    {
+                        "objective_id": "return_wine",
+                        "type": "interact",
+                        "target": "tavern_keeper",
+                        "description": "Return the wine to the tavern keeper"
+                    }
+                ]
+            }
+        ],
+        "rewards_schema": {
+            "xp": {
+                "base": 50,
+                "per_level": 15
+            },
+            "gold": {
+                "base": 5,
+                "per_level": 2,
+                "randomize": true
+            },
+            "items": {
+                "loot_table": "tavern_beginner_reward",
+                "count": 1
+            }
+        },
+        "prerequisites": {
+            "level_min": 1
+        },
+        "story_impact": "",
+        "estimated_duration_minutes": "15",
+        "created": "1772904063",
+        "updated": "1772904063",
+        "version": "1.0.0"
+    },
+    {
+        "template_id": "gather_torch_components",
+        "name": "Gather {item_name} for the Tavern",
+        "description": "The tavern's lighting is dim. Help gather {item_name} to brighten up the common room.",
+        "quest_type": "side_quest",
+        "level_min": "1",
+        "level_max": "2",
+        "tags": [
+            "gathering",
+            "maintenance",
+            "tavern",
+            "beginner"
+        ],
+        "objectives_schema": [
+            {
+                "phase": 1,
+                "objectives": [
+                    {
+                        "objective_id": "collect_torches",
+                        "type": "collect",
+                        "item": "{item_name}",
+                        "target_count_range": [
+                            4,
+                            6
+                        ],
+                        "description": "Gather {item_name} scattered around the tavern"
+                    }
+                ]
+            },
+            {
+                "phase": 2,
+                "objectives": [
+                    {
+                        "objective_id": "return_torches",
+                        "type": "interact",
+                        "target": "tavern_keeper",
+                        "description": "Bring the torch components to the tavern keeper"
+                    }
+                ]
+            }
+        ],
+        "rewards_schema": {
+            "xp": {
+                "base": 45,
+                "per_level": 12
+            },
+            "gold": {
+                "base": 4,
+                "per_level": 1,
+                "randomize": true
+            },
+            "items": {
+                "loot_table": "tavern_maintenance_reward",
+                "count": 1
+            }
+        },
+        "prerequisites": {
+            "level_min": 1
+        },
+        "story_impact": "",
+        "estimated_duration_minutes": "12",
+        "created": "1772904063",
+        "updated": "1772904063",
+        "version": "1.0.0"
+    },
+    {
+        "template_id": "collect_spellbooks",
+        "name": "Collect Lost {item_name}",
+        "description": "A scholar in the tavern is searching for {item_name} that have been scattered around. Help recover them and earn a reward.",
+        "quest_type": "side_quest",
+        "level_min": "1",
+        "level_max": "3",
+        "tags": [
+            "gathering",
+            "knowledge",
+            "tavern",
+            "beginner"
+        ],
+        "objectives_schema": [
+            {
+                "phase": 1,
+                "objectives": [
+                    {
+                        "objective_id": "collect_books",
+                        "type": "collect",
+                        "item": "{item_name}",
+                        "target_count_range": [
+                            2,
+                            4
+                        ],
+                        "description": "Find and collect {item_name}"
+                    }
+                ]
+            },
+            {
+                "phase": 2,
+                "objectives": [
+                    {
+                        "objective_id": "return_books",
+                        "type": "interact",
+                        "target": "scholar",
+                        "description": "Return the books to the scholar"
+                    }
+                ]
+            }
+        ],
+        "rewards_schema": {
+            "xp": {
+                "base": 55,
+                "per_level": 18
+            },
+            "gold": {
+                "base": 6,
+                "per_level": 2,
+                "randomize": true
+            },
+            "items": {
+                "loot_table": "tavern_knowledge_reward",
+                "count": 1
+            }
+        },
+        "prerequisites": {
+            "level_min": 1
+        },
+        "story_impact": "",
+        "estimated_duration_minutes": "20",
+        "created": "1772904063",
+        "updated": "1772904063",
+        "version": "1.0.0"
+    },
+    {
+        "template_id": "clear_goblin_den",
+        "name": "Clear the Goblin Den",
+        "description": "A band of goblins has established a den near the town. Clear them out and make the area safe for travelers.",
+        "quest_type": "bounty",
+        "level_min": "1",
+        "level_max": "3",
+        "tags": [
+            "combat",
+            "dungeon"
+        ],
+        "objectives_schema": [
+            {
+                "phase": 1,
+                "objectives": [
+                    {
+                        "objective_id": "slay_goblins",
+                        "type": "kill",
+                        "target": "goblin",
+                        "target_count_range": [
+                            8,
+                            12
+                        ],
+                        "description": "Slay the goblins in the den"
+                    },
+                    {
+                        "objective_id": "defeat_chieftain",
+                        "type": "kill",
+                        "target": "goblin_chieftain",
+                        "target_count": 1,
+                        "description": "Defeat the Goblin Chieftain"
+                    }
+                ]
+            }
+        ],
+        "rewards_schema": {
+            "xp": {
+                "base": 100,
+                "per_level": 30
+            },
+            "gold": {
+                "base": 15,
+                "per_level": 8,
+                "randomize": true
+            },
+            "items": {
+                "loot_table": "goblin_bounty",
+                "count": 1
+            }
+        },
+        "prerequisites": {
+            "level_min": 1
+        },
+        "story_impact": "",
+        "estimated_duration_minutes": "60",
+        "created": "1772904063",
+        "updated": "1772904063",
+        "version": "1.0.0"
+    },
+    {
+        "template_id": "deliver_package",
+        "name": "Deliver Package to {destination}",
+        "description": "A merchant needs a package delivered to {destination}. The roads are dangerous, so be on your guard.",
+        "quest_type": "delivery",
+        "level_min": "1",
+        "level_max": "8",
+        "tags": [
+            "delivery",
+            "travel"
+        ],
+        "objectives_schema": [
+            {
+                "phase": 1,
+                "objectives": [
+                    {
+                        "objective_id": "travel_to_destination",
+                        "type": "explore",
+                        "target": "{destination}",
+                        "description": "Travel to {destination}"
+                    },
+                    {
+                        "objective_id": "deliver_package",
+                        "type": "interact",
+                        "target": "recipient",
+                        "description": "Deliver the package to the recipient"
+                    }
+                ]
+            }
+        ],
+        "rewards_schema": {
+            "xp": {
+                "base": 80,
+                "per_level": 25
+            },
+            "gold": {
+                "base": 12,
+                "per_level": 6,
+                "randomize": true
+            }
+        },
+        "prerequisites": {
+            "level_min": 1
+        },
+        "story_impact": "",
+        "estimated_duration_minutes": "40",
+        "created": "1772904063",
+        "updated": "1772904063",
+        "version": "1.0.0"
+    },
+    {
+        "template_id": "gather_herbs",
+        "name": "Gather {herb_name} for the Alchemist",
+        "description": "The local alchemist needs {herb_name} to create healing potions. Gather some from the nearby {location}.",
+        "quest_type": "side_quest",
+        "level_min": "1",
+        "level_max": "4",
+        "tags": [
+            "gathering",
+            "exploration"
+        ],
+        "objectives_schema": [
+            {
+                "phase": 1,
+                "objectives": [
+                    {
+                        "objective_id": "collect_herbs",
+                        "type": "collect",
+                        "item": "{herb_name}",
+                        "target_count_range": [
+                            5,
+                            8
+                        ],
+                        "description": "Collect {herb_name} from {location}"
+                    }
+                ]
+            },
+            {
+                "phase": 2,
+                "objectives": [
+                    {
+                        "objective_id": "return_herbs",
+                        "type": "interact",
+                        "target": "alchemist",
+                        "description": "Return the herbs to the alchemist"
+                    }
+                ]
+            }
+        ],
+        "rewards_schema": {
+            "xp": {
+                "base": 60,
+                "per_level": 20
+            },
+            "gold": {
+                "base": 8,
+                "per_level": 3,
+                "randomize": true
+            },
+            "items": {
+                "loot_table": "alchemy_reward",
+                "count": 2
+            }
+        },
+        "prerequisites": {
+            "level_min": 1
+        },
+        "story_impact": "",
+        "estimated_duration_minutes": "30",
+        "created": "1772904063",
+        "updated": "1772904063",
+        "version": "1.0.0"
+    },
+    {
+        "template_id": "gather_two_room_items",
+        "name": "Gather 2 Supplies from the Room",
+        "description": "Collect 2 supply items from the current room and bring them back to the tavern keeper.",
+        "quest_type": "side_quest",
+        "level_min": "1",
+        "level_max": "3",
+        "tags": [
+            "gathering",
+            "room",
+            "starter",
+            "tavern"
+        ],
+        "objectives_schema": [
+            {
+                "phase": 1,
+                "objectives": [
+                    {
+                        "objective_id": "collect_room_supplies",
+                        "type": "collect",
+                        "item": "room_supply",
+                        "target_count": 2,
+                        "description": "Collect 2 supplies from the room"
+                    }
+                ]
+            },
+            {
+                "phase": 2,
+                "objectives": [
+                    {
+                        "objective_id": "return_room_supplies",
+                        "type": "interact",
+                        "target": "tavern_keeper",
+                        "description": "Return the supplies to the tavern keeper"
+                    }
+                ]
+            }
+        ],
+        "rewards_schema": {
+            "xp": {
+                "base": 40,
+                "per_level": 10
+            },
+            "gold": {
+                "base": 4,
+                "per_level": 1,
+                "randomize": true
+            },
+            "items": {
+                "loot_table": "tavern_beginner_reward",
+                "count": 1
+            }
+        },
+        "prerequisites": {
+            "level_min": 1
+        },
+        "story_impact": "",
+        "estimated_duration_minutes": "10",
+        "created": "1772904063",
+        "updated": "1772904063",
+        "version": "1.0.0"
+    },
+    {
+        "template_id": "investigate_ruins",
+        "name": "Investigate the Ancient Ruins",
+        "description": "Strange lights have been seen emanating from the {location}. Investigate the ruins and report back on what you find.",
+        "quest_type": "exploration",
+        "level_min": "3",
+        "level_max": "6",
+        "tags": [
+            "exploration",
+            "mystery",
+            "dungeon"
+        ],
+        "objectives_schema": [
+            {
+                "phase": 1,
+                "objectives": [
+                    {
+                        "objective_id": "find_ruins",
+                        "type": "explore",
+                        "target": "{location}",
+                        "description": "Locate the {location}"
+                    },
+                    {
+                        "objective_id": "explore_chambers",
+                        "type": "explore",
+                        "target": "{location}_inner",
+                        "description": "Explore the inner chambers"
+                    }
+                ]
+            },
+            {
+                "phase": 2,
+                "objectives": [
+                    {
+                        "objective_id": "collect_artifact",
+                        "type": "collect",
+                        "item": "ancient_artifact",
+                        "target_count": 1,
+                        "description": "Retrieve the mysterious artifact"
+                    }
+                ]
+            },
+            {
+                "phase": 3,
+                "objectives": [
+                    {
+                        "objective_id": "return_report",
+                        "type": "interact",
+                        "target": "quest_giver",
+                        "description": "Report your findings"
+                    }
+                ]
+            }
+        ],
+        "rewards_schema": {
+            "xp": {
+                "base": 200,
+                "per_level": 50
+            },
+            "gold": {
+                "base": 25,
+                "per_level": 10,
+                "randomize": true
+            },
+            "items": {
+                "loot_table": "ancient_treasure",
+                "count": 1
+            },
+            "reputation": {
+                "faction": "scholars_guild",
+                "amount": 50
+            }
+        },
+        "prerequisites": {
+            "level_min": 3
+        },
+        "story_impact": {
+            "unlocks": [
+                "ruins_questline_part2"
+            ]
+        },
+        "estimated_duration_minutes": "90",
+        "created": "1772904063",
+        "updated": "1772904063",
+        "version": "1.0.0"
+    },
+    {
+        "template_id": "rescue_merchant",
+        "name": "Rescue {npc} from {location}",
+        "description": "{npc}, a {npc_role}, was captured by {target}s in {location}. Find and rescue them before it's too late!",
+        "quest_type": "rescue",
+        "level_min": "2",
+        "level_max": "5",
+        "tags": [
+            "combat",
+            "rescue",
+            "time_limited"
+        ],
+        "objectives_schema": [
+            {
+                "phase": 1,
+                "objectives": [
+                    {
+                        "objective_id": "find_location",
+                        "type": "explore",
+                        "target": "{location}",
+                        "description": "Find the {location}"
+                    },
+                    {
+                        "objective_id": "defeat_captors",
+                        "type": "kill",
+                        "target": "{target}",
+                        "target_count_range": [
+                            4,
+                            8
+                        ],
+                        "description": "Defeat the {target}s holding {npc}"
+                    },
+                    {
+                        "objective_id": "rescue_npc",
+                        "type": "interact",
+                        "target": "{npc}",
+                        "description": "Free {npc} from captivity"
+                    }
+                ]
+            },
+            {
+                "phase": 2,
+                "objectives": [
+                    {
+                        "objective_id": "escort_to_safety",
+                        "type": "escort",
+                        "target": "{npc}",
+                        "destination": "{safe_location}",
+                        "description": "Escort {npc} back to safety"
+                    }
+                ]
+            }
+        ],
+        "rewards_schema": {
+            "xp": {
+                "base": 120,
+                "per_level": 40
+            },
+            "gold": {
+                "base": 10,
+                "per_level": 5,
+                "randomize": true
+            },
+            "items": {
+                "loot_table": "rescue_reward",
+                "count": 1
+            },
+            "reputation": {
+                "faction": "{npc_faction}",
+                "amount": 25
+            }
+        },
+        "prerequisites": {
+            "level_min": 2
+        },
+        "story_impact": "",
+        "estimated_duration_minutes": "45",
+        "created": "1772904063",
+        "updated": "1772904063",
+        "version": "1.0.0"
+    }
+]

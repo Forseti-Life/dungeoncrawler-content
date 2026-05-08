@@ -1,0 +1,144 @@
+.character-creation-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.character-creation-gm-chat {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1.25rem;
+  border: 1px solid rgba(186, 143, 76, 0.38);
+  border-radius: 18px;
+  background:
+    linear-gradient(135deg, rgba(17, 23, 37, 0.96), rgba(28, 17, 13, 0.94)),
+    url('/themes/custom/dungeoncrawler/build/assets/images/site/how-to-play/how-to-play-hero.png') center/cover no-repeat;
+  box-shadow: 0 22px 40px rgba(0, 0, 0, 0.24);
+}
+
+.character-creation-gm-chat__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.character-creation-gm-chat__eyebrow {
+  font-size: 0.72rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #f5d089;
+}
+
+.character-creation-gm-chat__title {
+  margin: 0.15rem 0 0.4rem;
+  color: #fff4d5;
+}
+
+.character-creation-gm-chat__intro {
+  margin: 0;
+  max-width: 64rem;
+  color: rgba(255, 245, 213, 0.9);
+}
+
+.character-creation-gm-chat__summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.character-creation-gm-chat__pill {
+  padding: 0.42rem 0.72rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff8e6;
+  font-size: 0.86rem;
+}
+
+.character-creation-gm-chat__history {
+  max-height: 15rem;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding-right: 0.35rem;
+}
+
+.character-creation-gm-chat__message,
+.character-creation-gm-chat__empty {
+  padding: 0.85rem 1rem;
+  border-radius: 14px;
+  background: rgba(7, 9, 16, 0.58);
+  color: #f7f0e1;
+}
+
+.character-creation-gm-chat__message--user {
+  background: rgba(126, 97, 43, 0.34);
+}
+
+.character-creation-gm-chat__message-role {
+  margin-bottom: 0.3rem;
+  font-size: 0.76rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #f0c87a;
+}
+
+.character-creation-gm-chat__composer {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.character-creation-gm-chat__label {
+  color: #fff0cc;
+  font-weight: 700;
+}
+
+.character-creation-gm-chat__input {
+  width: 100%;
+  min-height: 5rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid rgba(243, 201, 117, 0.35);
+  border-radius: 14px;
+  background: rgba(8, 10, 18, 0.74);
+  color: #fff;
+  resize: vertical;
+}
+
+.character-creation-gm-chat__actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+}
+
+.character-creation-gm-chat__status {
+  color: #f4e3bc;
+  font-size: 0.88rem;
+}
+
+.character-creation-gm-chat__status.is-error {
+  color: #ffb7b0;
+}
+
+.character-creation-gm-chat__send[disabled] {
+  opacity: 0.7;
+  cursor: progress;
+}
+
+@media (max-width: 900px) {
+  .character-creation-gm-chat {
+    top: 0.5rem;
+  }
+
+  .character-creation-gm-chat__header,
+  .character-creation-gm-chat__actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}

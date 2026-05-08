@@ -1,0 +1,179 @@
+# ==============================================================================
+# ADMIN MENU LINKS
+# ==============================================================================
+# Administrative menu items for managing Dungeon Crawler content and settings.
+# These appear under Configuration and Content sections in the admin menu.
+
+dungeoncrawler_content.admin:
+  title: 'Dungeon Crawler Content'
+  description: 'Manage Dungeon Crawler game content settings.'
+  route_name: dungeoncrawler_content.settings
+  parent: system.admin_config_content
+
+dungeoncrawler_content.dashboard:
+  title: 'Game Dashboard'
+  description: 'Overview of Dungeon Crawler game content.'
+  route_name: dungeoncrawler_content.dashboard
+  parent: system.admin_content
+
+dungeoncrawler_content.game_objects:
+  title: 'Game Objects'
+  description: 'Review game objects and their attributes.'
+  route_name: dungeoncrawler_content.game_objects
+  parent: dungeoncrawler_content.dashboard
+  weight: 5
+
+dungeoncrawler_content.image_generation_interface:
+  title: 'Image Generation'
+  description: 'Generate images from prompts using configured AI provider.'
+  route_name: dungeoncrawler_content.image_generation_interface
+  parent: dungeoncrawler_content.dashboard
+  weight: 6
+
+dungeoncrawler_content.testing_admin:
+  title: 'Dungeon Crawler Testing'
+  description: 'Testing dashboard for admins.'
+  route_name: dungeoncrawler_content.testing_home
+  parent: system.admin_config_development
+  weight: 5
+
+# ==============================================================================
+# MAIN NAVIGATION MENU LINKS
+# ==============================================================================
+# Primary navigation for authenticated and public users.
+# Weight determines display order (lower numbers appear first).
+
+dungeoncrawler_content.menu.campaigns:
+  title: 'Campaigns'
+  description: 'View and manage your campaigns'
+  route_name: dungeoncrawler_content.campaigns
+  menu_name: main
+  weight: 20
+
+dungeoncrawler_content.menu.roadmap:
+  title: 'Roadmap'
+  description: 'PF2E requirements implementation tracking roadmap'
+  route_name: dungeoncrawler_content.roadmap
+  menu_name: main
+  weight: 25
+
+dungeoncrawler_content.menu.world:
+  title: 'World'
+  description: 'Explore the living dungeon lore and world information'
+  route_name: dungeoncrawler_content.world
+  menu_name: main
+  weight: 30
+
+dungeoncrawler_content.menu.dc_administration:
+  title: 'DC Administration'
+  description: 'Administrative tools for Dungeon Crawler.'
+  route_name: dungeoncrawler_content.dashboard
+  menu_name: main
+  expanded: true
+  weight: 90
+
+dungeoncrawler_content.menu.dc_administration_dashboard:
+  title: 'Game Dashboard'
+  description: 'Overview of Dungeon Crawler game content.'
+  route_name: dungeoncrawler_content.dashboard
+  parent: dungeoncrawler_content.menu.dc_administration
+  weight: 1
+
+dungeoncrawler_content.menu.dc_administration_game_objects:
+  title: 'Game Objects'
+  description: 'Review game objects and their attributes.'
+  route_name: dungeoncrawler_content.game_objects
+  parent: dungeoncrawler_content.menu.dc_administration
+  weight: 2
+
+dungeoncrawler_content.menu.dc_administration_image_generation:
+  title: 'Image Generation'
+  description: 'Generate images from prompts using configured AI provider.'
+  route_name: dungeoncrawler_content.image_generation_interface
+  parent: dungeoncrawler_content.menu.dc_administration
+  weight: 3
+
+dungeoncrawler_content.menu.dc_administration_settings:
+  title: 'Dungeon Settings'
+  description: 'Configure Dungeon Crawler content settings and integrations.'
+  route_name: dungeoncrawler_content.settings
+  parent: dungeoncrawler_content.menu.dc_administration
+  weight: 4
+
+dungeoncrawler_content.menu.dc_administration_testing:
+  title: 'Testing Dashboard'
+  description: 'Open the Dungeon Crawler testing dashboard.'
+  route_name: dungeoncrawler_content.testing_home
+  parent: dungeoncrawler_content.menu.dc_administration
+  weight: 5
+
+dungeoncrawler_content.menu.dc_administration_controller_architecture:
+  title: 'Controller Architecture'
+  description: 'Review controller architecture documentation.'
+  route_name: dungeoncrawler_content.controller_architecture
+  parent: dungeoncrawler_content.menu.dc_administration
+  weight: 6
+
+dungeoncrawler_content.menu.dc_administration_encounter_ai:
+  title: 'Encounter AI Integration'
+  description: 'Review encounter AI integration architecture.'
+  route_name: dungeoncrawler_content.encounter_ai_integration
+  parent: dungeoncrawler_content.menu.dc_administration
+  weight: 7
+
+dungeoncrawler_content.menu.dc_administration_architecture:
+  title: 'System Architecture'
+  description: 'Central hub for process flows, requirements, and release gates.'
+  route_name: dungeoncrawler_content.architecture
+  parent: dungeoncrawler_content.menu.dc_administration
+  weight: 8
+
+dungeoncrawler_content.menu.dc_administration_data_lineage:
+  title: 'Data Lineage Architecture'
+  description: 'Review hierarchical page/API/controller/table data lineage.'
+  route_name: dungeoncrawler_content.data_lineage_architecture
+  parent: dungeoncrawler_content.menu.dc_administration
+  weight: 9
+
+# ==============================================================================
+# FOOTER MENU LINKS
+# ==============================================================================
+# Footer navigation providing quick access to information pages.
+# Note: Privacy and Terms routes should be created as dedicated pages.
+
+dungeoncrawler_content.footer.about:
+  title: 'About'
+  description: 'About Dungeon Crawler Life'
+  route_name: dungeoncrawler_content.about
+  menu_name: footer
+  weight: 0
+
+dungeoncrawler_content.footer.how_to_play:
+  title: 'How to Play'
+  description: 'Game guide and mechanics'
+  route_name: dungeoncrawler_content.how_to_play
+  menu_name: footer
+  weight: 10
+
+dungeoncrawler_content.footer.world:
+  title: 'World Lore'
+  description: 'Explore the dungeon lore'
+  route_name: dungeoncrawler_content.world
+  menu_name: footer
+  weight: 20
+
+# TODO: Create dedicated routes for privacy and terms pages
+# Currently pointing to front page as placeholder
+dungeoncrawler_content.footer.privacy:
+  title: 'Privacy Policy'
+  description: 'Privacy and data protection'
+  route_name: <front>
+  menu_name: footer
+  weight: 30
+
+dungeoncrawler_content.footer.terms:
+  title: 'Terms of Service'
+  description: 'Terms and conditions'
+  route_name: <front>
+  menu_name: footer
+  weight: 40

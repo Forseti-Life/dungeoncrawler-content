@@ -1,0 +1,2321 @@
+{
+  "$schema": "../schemas/dungeon_level.schema.json",
+  "schema_version": "1.0.0",
+  "level_id": "f8c6b8f1-2df9-469f-9fd5-67a59f120001",
+  "depth": 1,
+  "theme": "custom",
+  "custom_theme": "tavern_entrance",
+  "name": "Tavern Entrance Test Level",
+  "flavor_text": "A spacious tavern staging hall with enough room for a full party and companions, plus a dedicated bar area before the first dungeon door.",
+  "created_at": "2026-02-13T00:00:00Z",
+  "updated_at": "2026-02-17T00:00:00Z",
+  "is_persistent": true,
+  "hex_map": {
+    "map_id": "0b7e3d2f-8f7c-4ae0-8f72-9e99e0800001",
+    "name": "Tavern to Dungeon",
+    "hex_size_ft": 5,
+    "orientation": "flat-top",
+    "connections": [
+      {
+        "connection_id": "6fd074d6-f59a-4b45-bf7b-b88eea410001",
+        "from": {
+          "q": 4,
+          "r": 0
+        },
+        "to": {
+          "q": 5,
+          "r": 0
+        },
+        "type": "door",
+        "is_known": true,
+        "description": "Heavy wooden door between tavern staging area and dungeon entrance"
+      }
+    ],
+    "regions": [
+      {
+        "region_id": "region-tavern-entry",
+        "name": "Tavern Entrance",
+        "description": "Safe staging room before the dungeon.",
+        "room_ids": [
+          "7f2f1051-5f88-45a2-a66a-0f7063900001"
+        ],
+        "ambient_hazard_level": 0
+      },
+      {
+        "region_id": "region-first-dungeon-room",
+        "name": "First Dungeon Room",
+        "description": "Initial combat/exploration chamber.",
+        "room_ids": [
+          "7f2f1051-5f88-45a2-a66a-0f7063900002"
+        ],
+        "ambient_hazard_level": 1
+      }
+    ],
+    "metadata": {
+      "created_at": "2026-02-13T00:00:00Z",
+      "generation_seed": "tavern-door-demo-v1",
+      "generated_by": "manual-example",
+      "is_finalized": true,
+      "total_rooms": 2,
+      "explored_rooms": 0,
+      "exploration_percentage": 0
+    }
+  },
+  "rooms": [
+    {
+      "room_id": "7f2f1051-5f88-45a2-a66a-0f7063900001",
+      "name": "The Gilded Tankard",
+      "description": "The warm glow of candlelight fills the spacious tavern hall, flickering across rough-hewn wooden floors and casting long shadows between rows of sturdy oak tables. A polished bar dominates the far wall where Eldric, the broad-shouldered barkeep, methodically wipes down tankards and keeps a watchful eye on the room. Shelves behind him hold an impressive collection of wine bottles and spirits. Nearby, Marta the Scholar sits hunched over a table cluttered with ancient spellbooks, mystical tomes, and a faded journal, her quill scratching quietly as she cross-references a crystal-bound codex. Iron sconces line the walls, their torch rods casting steady light across the open movement lanes between tables. The air is thick with the smell of ale, bread, and hearth smoke, and the crackle of the stone fireplace provides a steady undercurrent to the low murmur of conversation.",
+      "hexes": [
+        {
+          "q": -4,
+          "r": -2,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": -4,
+          "r": -1,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": -4,
+          "r": 0,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": -4,
+          "r": 1,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": -4,
+          "r": 2,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": -3,
+          "r": -2,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": -3,
+          "r": -1,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": -3,
+          "r": 0,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": -3,
+          "r": 1,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": -3,
+          "r": 2,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": -2,
+          "r": -2,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": -2,
+          "r": -1,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": -2,
+          "r": 0,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": -2,
+          "r": 1,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": -2,
+          "r": 2,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": -1,
+          "r": -2,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": -1,
+          "r": -1,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": -1,
+          "r": 0,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": -1,
+          "r": 1,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": -1,
+          "r": 2,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": 0,
+          "r": -2,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": 0,
+          "r": -1,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": 0,
+          "r": 0,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": 0,
+          "r": 1,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": 0,
+          "r": 2,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": 1,
+          "r": -2,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": 1,
+          "r": -1,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": 1,
+          "r": 0,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": 1,
+          "r": 1,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": 1,
+          "r": 2,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": 2,
+          "r": -2,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": 2,
+          "r": -1,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": 2,
+          "r": 0,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": 2,
+          "r": 1,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": 2,
+          "r": 2,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": 3,
+          "r": -2,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": 3,
+          "r": -1,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": 3,
+          "r": 0,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": 3,
+          "r": 1,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": 3,
+          "r": 2,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": 4,
+          "r": -2,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": 4,
+          "r": -1,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": 4,
+          "r": 0,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": 4,
+          "r": 1,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": 4,
+          "r": 2,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": -5,
+          "r": -2,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": -5,
+          "r": -1,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": -5,
+          "r": 0,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": -5,
+          "r": 1,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": -5,
+          "r": 2,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": 5,
+          "r": -2,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": 5,
+          "r": -1,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": 5,
+          "r": 1,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": 5,
+          "r": 2,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": -4,
+          "r": -3,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": -4,
+          "r": 3,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": -3,
+          "r": -3,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": -3,
+          "r": 3,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": -2,
+          "r": -3,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": -2,
+          "r": 3,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": -1,
+          "r": -3,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": -1,
+          "r": 3,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": 0,
+          "r": -3,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": 0,
+          "r": 3,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": 1,
+          "r": -3,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": 1,
+          "r": 3,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": 2,
+          "r": -3,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": 2,
+          "r": 3,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": 3,
+          "r": -3,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": 3,
+          "r": 3,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": 4,
+          "r": -3,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": 4,
+          "r": 3,
+          "elevation_ft": 0,
+          "objects": []
+        }
+      ],
+      "room_type": "entrance",
+      "size_category": "large",
+      "terrain": {
+        "type": "wooden_floor",
+        "difficult_terrain": false,
+        "greater_difficult_terrain": false,
+        "hazardous_terrain": null,
+        "ceiling_height_ft": 10
+      },
+      "lighting": {
+        "level": "bright_light",
+        "light_sources": [
+          {
+            "type": "lantern",
+            "hex": {
+              "q": 0,
+              "r": 0
+            },
+            "bright_radius_ft": 20,
+            "dim_radius_ft": 20,
+            "permanent": true
+          },
+          {
+            "type": "lantern",
+            "hex": {
+              "q": -1,
+              "r": 1
+            },
+            "bright_radius_ft": 15,
+            "dim_radius_ft": 15,
+            "permanent": true
+          },
+          {
+            "type": "lantern",
+            "hex": {
+              "q": 1,
+              "r": 1
+            },
+            "bright_radius_ft": 15,
+            "dim_radius_ft": 15,
+            "permanent": true
+          }
+        ]
+      },
+      "state": {
+        "explored": true,
+        "explored_at": "2026-02-13T00:00:00Z",
+        "cleared": true,
+        "looted": true,
+        "traps_disarmed": true,
+        "visibility": "visible"
+      },
+      "ai_generation": {
+        "theme_tags": [
+          "tavern",
+          "safe-zone",
+          "entry"
+        ],
+        "difficulty_target": "trivial",
+        "generation_model": "manual-example"
+      },
+      "entities": null
+    },
+    {
+      "room_id": "7f2f1051-5f88-45a2-a66a-0f7063900002",
+      "name": "Dungeon Antechamber",
+      "description": "The first dungeon room beyond the tavern door.",
+      "hexes": [
+        {
+          "q": 5,
+          "r": 0,
+          "elevation_ft": 0,
+          "objects": []
+        },
+        {
+          "q": 6,
+          "r": 0,
+          "elevation_ft": 0,
+          "objects": []
+        }
+      ],
+      "room_type": "chamber",
+      "size_category": "small",
+      "terrain": {
+        "type": "stone_floor",
+        "difficult_terrain": false,
+        "greater_difficult_terrain": false,
+        "hazardous_terrain": null,
+        "ceiling_height_ft": 12
+      },
+      "lighting": {
+        "level": "dim_light"
+      },
+      "state": {
+        "explored": false,
+        "cleared": false,
+        "looted": false,
+        "traps_disarmed": false,
+        "visibility": "hidden"
+      },
+      "ai_generation": {
+        "theme_tags": [
+          "dungeon",
+          "starter-room"
+        ],
+        "difficulty_target": "low",
+        "generation_model": "manual-example"
+      },
+      "entities": null
+    }
+  ],
+  "entities": [
+    {
+      "entity_instance_id": "f0f1f2f3-a001-4e4e-8d8d-000000000001",
+      "entity_type": "obstacle",
+      "entity_ref": {
+        "content_type": "obstacle",
+        "content_id": "wooden_tavern_door"
+      },
+      "placement": {
+        "room_id": "7f2f1051-5f88-45a2-a66a-0f7063900001",
+        "hex": {
+          "q": 5,
+          "r": 0
+        },
+        "orientation": "n"
+      },
+      "state": {
+        "active": true,
+        "metadata": {
+          "movable": false,
+          "passable": true,
+          "stackable": false,
+          "blocks_path_until_opened": false,
+          "connects_to_room_id": "7f2f1051-5f88-45a2-a66a-0f7063900002",
+          "orientation": "n"
+        }
+      }
+    },
+    {
+      "entity_instance_id": "f0f1f2f3-a001-4e4e-8d8d-000000000002",
+      "entity_type": "obstacle",
+      "entity_ref": {
+        "content_type": "obstacle",
+        "content_id": "tavern_bar_counter_a"
+      },
+      "placement": {
+        "room_id": "7f2f1051-5f88-45a2-a66a-0f7063900001",
+        "hex": {
+          "q": -4,
+          "r": -1
+        },
+        "orientation": "n"
+      },
+      "state": {
+        "active": true,
+        "metadata": {
+          "movable": false,
+          "passable": false,
+          "stackable": false,
+          "blocks_path_until_opened": true,
+          "fixture": "bar_counter",
+          "orientation": "n"
+        }
+      }
+    },
+    {
+      "entity_instance_id": "f0f1f2f3-a001-4e4e-8d8d-000000000003",
+      "entity_type": "obstacle",
+      "entity_ref": {
+        "content_type": "obstacle",
+        "content_id": "tavern_bar_counter_b"
+      },
+      "placement": {
+        "room_id": "7f2f1051-5f88-45a2-a66a-0f7063900001",
+        "hex": {
+          "q": -3,
+          "r": -1
+        },
+        "orientation": "n"
+      },
+      "state": {
+        "active": true,
+        "metadata": {
+          "movable": false,
+          "passable": false,
+          "stackable": false,
+          "blocks_path_until_opened": true,
+          "fixture": "bar_counter",
+          "orientation": "n"
+        }
+      }
+    },
+    {
+      "entity_instance_id": "f0f1f2f3-a001-4e4e-8d8d-000000000004",
+      "entity_type": "obstacle",
+      "entity_ref": {
+        "content_type": "obstacle",
+        "content_id": "tavern_bar_counter_c"
+      },
+      "placement": {
+        "room_id": "7f2f1051-5f88-45a2-a66a-0f7063900001",
+        "hex": {
+          "q": -2,
+          "r": -1
+        },
+        "orientation": "n"
+      },
+      "state": {
+        "active": true,
+        "metadata": {
+          "movable": false,
+          "passable": false,
+          "stackable": false,
+          "blocks_path_until_opened": true,
+          "fixture": "bar_counter",
+          "orientation": "n"
+        }
+      }
+    },
+    {
+      "entity_instance_id": "f0f1f2f3-a001-4e4e-8d8d-000000000005",
+      "entity_type": "obstacle",
+      "entity_ref": {
+        "content_type": "obstacle",
+        "content_id": "tavern_table_round_a"
+      },
+      "placement": {
+        "room_id": "7f2f1051-5f88-45a2-a66a-0f7063900001",
+        "hex": {
+          "q": -1,
+          "r": 0
+        },
+        "orientation": "n"
+      },
+      "state": {
+        "active": true,
+        "metadata": {
+          "movable": true,
+          "passable": false,
+          "stackable": false,
+          "fixture": "table_round",
+          "orientation": "n"
+        }
+      }
+    },
+    {
+      "entity_instance_id": "f0f1f2f3-a001-4e4e-8d8d-000000000006",
+      "entity_type": "obstacle",
+      "entity_ref": {
+        "content_type": "obstacle",
+        "content_id": "tavern_table_long_a"
+      },
+      "placement": {
+        "room_id": "7f2f1051-5f88-45a2-a66a-0f7063900001",
+        "hex": {
+          "q": 2,
+          "r": -1
+        },
+        "orientation": "n"
+      },
+      "state": {
+        "active": true,
+        "metadata": {
+          "movable": true,
+          "passable": false,
+          "stackable": false,
+          "fixture": "table_long",
+          "orientation": "n"
+        }
+      }
+    },
+    {
+      "entity_instance_id": "f0f1f2f3-a001-4e4e-8d8d-000000000011",
+      "entity_type": "obstacle",
+      "entity_ref": {
+        "content_type": "obstacle",
+        "content_id": "tavern_table_long_center"
+      },
+      "placement": {
+        "room_id": "7f2f1051-5f88-45a2-a66a-0f7063900001",
+        "hex": {
+          "q": 3,
+          "r": -1
+        },
+        "orientation": "n"
+      },
+      "state": {
+        "active": true,
+        "metadata": {
+          "movable": true,
+          "passable": false,
+          "stackable": false,
+          "fixture": "table_long",
+          "segment": "center",
+          "orientation": "n"
+        }
+      }
+    },
+    {
+      "entity_instance_id": "f0f1f2f3-a001-4e4e-8d8d-000000000012",
+      "entity_type": "obstacle",
+      "entity_ref": {
+        "content_type": "obstacle",
+        "content_id": "tavern_table_long_b"
+      },
+      "placement": {
+        "room_id": "7f2f1051-5f88-45a2-a66a-0f7063900001",
+        "hex": {
+          "q": 4,
+          "r": -1
+        },
+        "orientation": "n"
+      },
+      "state": {
+        "active": true,
+        "metadata": {
+          "movable": true,
+          "passable": false,
+          "stackable": false,
+          "fixture": "table_long",
+          "segment": "b",
+          "orientation": "n"
+        }
+      }
+    },
+    {
+      "entity_instance_id": "f0f1f2f3-a001-4e4e-8d8d-000000000007",
+      "entity_type": "obstacle",
+      "entity_ref": {
+        "content_type": "obstacle",
+        "content_id": "tavern_stool_stack_a"
+      },
+      "placement": {
+        "room_id": "7f2f1051-5f88-45a2-a66a-0f7063900001",
+        "hex": {
+          "q": 0,
+          "r": 1
+        },
+        "orientation": "n"
+      },
+      "state": {
+        "active": true,
+        "metadata": {
+          "movable": true,
+          "passable": true,
+          "stackable": true,
+          "fixture": "stool_stack",
+          "orientation": "n"
+        }
+      }
+    },
+    {
+      "entity_instance_id": "f0f1f2f3-a001-4e4e-8d8d-000000000008",
+      "entity_type": "obstacle",
+      "entity_ref": {
+        "content_type": "obstacle",
+        "content_id": "tavern_crate_stack_a"
+      },
+      "placement": {
+        "room_id": "7f2f1051-5f88-45a2-a66a-0f7063900001",
+        "hex": {
+          "q": 3,
+          "r": 1
+        },
+        "orientation": "n"
+      },
+      "state": {
+        "active": true,
+        "metadata": {
+          "movable": true,
+          "passable": false,
+          "stackable": true,
+          "fixture": "crate_stack",
+          "orientation": "n"
+        }
+      }
+    },
+    {
+      "entity_instance_id": "f0f1f2f3-a001-4e4e-8d8d-000000000009",
+      "entity_type": "player_character",
+      "entity_ref": {
+        "content_type": "player_character",
+        "content_id": "party_leader_demo"
+      },
+      "placement": {
+        "room_id": "7f2f1051-5f88-45a2-a66a-0f7063900001",
+        "hex": {
+          "q": 0,
+          "r": 0
+        },
+        "spawn_type": "player",
+        "orientation": "n"
+      },
+      "state": {
+        "active": true,
+        "metadata": {
+          "display_name": "Party Leader",
+          "team": "player",
+          "stats": {
+            "maxHp": 22,
+            "currentHp": 22,
+            "ac": 19,
+            "speed": 25,
+            "perception": 6,
+            "initiative_bonus": 6
+          },
+          "orientation": "n"
+        }
+      }
+    },
+    {
+      "entity_instance_id": "f0f1f2f3-a001-4e4e-8d8d-000000000010",
+      "entity_type": "npc",
+      "entity_ref": {
+        "content_type": "creature",
+        "content_id": "gribbles_rindsworth"
+      },
+      "placement": {
+        "room_id": "7f2f1051-5f88-45a2-a66a-0f7063900001",
+        "hex": {
+          "q": 1,
+          "r": 0
+        },
+        "spawn_type": "npc",
+        "orientation": "n"
+      },
+      "state": {
+        "active": true,
+        "metadata": {
+          "display_name": "Gribbles Rindsworth",
+          "team": "enemy",
+          "stats": {
+            "maxHp": 16,
+            "currentHp": 16,
+            "ac": 18,
+            "speed": 25,
+            "perception": 5,
+            "initiative_bonus": 5
+          },
+          "orientation": "n"
+        }
+      }
+    },
+    {
+      "entity_instance_id": "f0f1f2f3-a001-4e4e-8d8d-000000000013",
+      "entity_type": "npc",
+      "entity_ref": {
+        "content_type": "npc",
+        "content_id": "tavern_keeper"
+      },
+      "placement": {
+        "room_id": "7f2f1051-5f88-45a2-a66a-0f7063900001",
+        "hex": {
+          "q": -3,
+          "r": -2
+        },
+        "spawn_type": "npc",
+        "orientation": "n"
+      },
+      "state": {
+        "active": true,
+        "metadata": {
+          "display_name": "Eldric",
+          "team": "neutral",
+          "role": "barkeep",
+          "setting_state": true,
+          "spawn_policy": "fixed_template",
+          "orientation": "n"
+        }
+      }
+    },
+    {
+      "entity_instance_id": "f0f1f2f3-a001-4e4e-8d8d-000000000014",
+      "entity_type": "obstacle",
+      "entity_ref": {
+        "content_type": "obstacle",
+        "content_id": "wall_stone_flat_ns"
+      },
+      "placement": {
+        "room_id": "7f2f1051-5f88-45a2-a66a-0f7063900001",
+        "hex": {
+          "q": -5,
+          "r": -2
+        },
+        "orientation": "n"
+      },
+      "state": {
+        "active": true,
+        "metadata": {
+          "movable": false,
+          "passable": false,
+          "stackable": false,
+          "fixture": "wall",
+          "orientation": "n"
+        }
+      }
+    },
+    {
+      "entity_instance_id": "f0f1f2f3-a001-4e4e-8d8d-000000000015",
+      "entity_type": "obstacle",
+      "entity_ref": {
+        "content_type": "obstacle",
+        "content_id": "wall_stone_flat_ns"
+      },
+      "placement": {
+        "room_id": "7f2f1051-5f88-45a2-a66a-0f7063900001",
+        "hex": {
+          "q": -5,
+          "r": -1
+        },
+        "orientation": "n"
+      },
+      "state": {
+        "active": true,
+        "metadata": {
+          "movable": false,
+          "passable": false,
+          "stackable": false,
+          "fixture": "wall",
+          "orientation": "n"
+        }
+      }
+    },
+    {
+      "entity_instance_id": "f0f1f2f3-a001-4e4e-8d8d-000000000016",
+      "entity_type": "obstacle",
+      "entity_ref": {
+        "content_type": "obstacle",
+        "content_id": "wall_stone_flat_ns"
+      },
+      "placement": {
+        "room_id": "7f2f1051-5f88-45a2-a66a-0f7063900001",
+        "hex": {
+          "q": -5,
+          "r": 0
+        },
+        "orientation": "n"
+      },
+      "state": {
+        "active": true,
+        "metadata": {
+          "movable": false,
+          "passable": false,
+          "stackable": false,
+          "fixture": "wall",
+          "orientation": "n"
+        }
+      }
+    },
+    {
+      "entity_instance_id": "f0f1f2f3-a001-4e4e-8d8d-000000000017",
+      "entity_type": "obstacle",
+      "entity_ref": {
+        "content_type": "obstacle",
+        "content_id": "wall_stone_flat_ns"
+      },
+      "placement": {
+        "room_id": "7f2f1051-5f88-45a2-a66a-0f7063900001",
+        "hex": {
+          "q": -5,
+          "r": 1
+        },
+        "orientation": "n"
+      },
+      "state": {
+        "active": true,
+        "metadata": {
+          "movable": false,
+          "passable": false,
+          "stackable": false,
+          "fixture": "wall",
+          "orientation": "n"
+        }
+      }
+    },
+    {
+      "entity_instance_id": "f0f1f2f3-a001-4e4e-8d8d-000000000018",
+      "entity_type": "obstacle",
+      "entity_ref": {
+        "content_type": "obstacle",
+        "content_id": "wall_stone_flat_ns"
+      },
+      "placement": {
+        "room_id": "7f2f1051-5f88-45a2-a66a-0f7063900001",
+        "hex": {
+          "q": -5,
+          "r": 2
+        },
+        "orientation": "n"
+      },
+      "state": {
+        "active": true,
+        "metadata": {
+          "movable": false,
+          "passable": false,
+          "stackable": false,
+          "fixture": "wall",
+          "orientation": "n"
+        }
+      }
+    },
+    {
+      "entity_instance_id": "f0f1f2f3-a001-4e4e-8d8d-000000000019",
+      "entity_type": "obstacle",
+      "entity_ref": {
+        "content_type": "obstacle",
+        "content_id": "wall_stone_flat_ns"
+      },
+      "placement": {
+        "room_id": "7f2f1051-5f88-45a2-a66a-0f7063900001",
+        "hex": {
+          "q": 5,
+          "r": -2
+        },
+        "orientation": "n"
+      },
+      "state": {
+        "active": true,
+        "metadata": {
+          "movable": false,
+          "passable": false,
+          "stackable": false,
+          "fixture": "wall",
+          "orientation": "n"
+        }
+      }
+    },
+    {
+      "entity_instance_id": "f0f1f2f3-a001-4e4e-8d8d-000000000020",
+      "entity_type": "obstacle",
+      "entity_ref": {
+        "content_type": "obstacle",
+        "content_id": "wall_stone_flat_ns"
+      },
+      "placement": {
+        "room_id": "7f2f1051-5f88-45a2-a66a-0f7063900001",
+        "hex": {
+          "q": 5,
+          "r": -1
+        },
+        "orientation": "n"
+      },
+      "state": {
+        "active": true,
+        "metadata": {
+          "movable": false,
+          "passable": false,
+          "stackable": false,
+          "fixture": "wall",
+          "orientation": "n"
+        }
+      }
+    },
+    {
+      "entity_instance_id": "f0f1f2f3-a001-4e4e-8d8d-000000000021",
+      "entity_type": "obstacle",
+      "entity_ref": {
+        "content_type": "obstacle",
+        "content_id": "wall_stone_flat_ns"
+      },
+      "placement": {
+        "room_id": "7f2f1051-5f88-45a2-a66a-0f7063900001",
+        "hex": {
+          "q": 5,
+          "r": 1
+        },
+        "orientation": "n"
+      },
+      "state": {
+        "active": true,
+        "metadata": {
+          "movable": false,
+          "passable": false,
+          "stackable": false,
+          "fixture": "wall",
+          "orientation": "n"
+        }
+      }
+    },
+    {
+      "entity_instance_id": "f0f1f2f3-a001-4e4e-8d8d-000000000022",
+      "entity_type": "obstacle",
+      "entity_ref": {
+        "content_type": "obstacle",
+        "content_id": "wall_stone_flat_ns"
+      },
+      "placement": {
+        "room_id": "7f2f1051-5f88-45a2-a66a-0f7063900001",
+        "hex": {
+          "q": 5,
+          "r": 2
+        },
+        "orientation": "n"
+      },
+      "state": {
+        "active": true,
+        "metadata": {
+          "movable": false,
+          "passable": false,
+          "stackable": false,
+          "fixture": "wall",
+          "orientation": "n"
+        }
+      }
+    },
+    {
+      "entity_instance_id": "f0f1f2f3-a001-4e4e-8d8d-000000000023",
+      "entity_type": "obstacle",
+      "entity_ref": {
+        "content_type": "obstacle",
+        "content_id": "wall_stone_flat_ns"
+      },
+      "placement": {
+        "room_id": "7f2f1051-5f88-45a2-a66a-0f7063900001",
+        "hex": {
+          "q": -4,
+          "r": -3
+        },
+        "orientation": "se"
+      },
+      "state": {
+        "active": true,
+        "metadata": {
+          "movable": false,
+          "passable": false,
+          "stackable": false,
+          "fixture": "wall",
+          "orientation": "se"
+        }
+      }
+    },
+    {
+      "entity_instance_id": "f0f1f2f3-a001-4e4e-8d8d-000000000024",
+      "entity_type": "obstacle",
+      "entity_ref": {
+        "content_type": "obstacle",
+        "content_id": "wall_stone_flat_ns"
+      },
+      "placement": {
+        "room_id": "7f2f1051-5f88-45a2-a66a-0f7063900001",
+        "hex": {
+          "q": -4,
+          "r": 3
+        },
+        "orientation": "se"
+      },
+      "state": {
+        "active": true,
+        "metadata": {
+          "movable": false,
+          "passable": false,
+          "stackable": false,
+          "fixture": "wall",
+          "orientation": "se"
+        }
+      }
+    },
+    {
+      "entity_instance_id": "f0f1f2f3-a001-4e4e-8d8d-000000000025",
+      "entity_type": "obstacle",
+      "entity_ref": {
+        "content_type": "obstacle",
+        "content_id": "wall_stone_flat_ns"
+      },
+      "placement": {
+        "room_id": "7f2f1051-5f88-45a2-a66a-0f7063900001",
+        "hex": {
+          "q": -3,
+          "r": -3
+        },
+        "orientation": "se"
+      },
+      "state": {
+        "active": true,
+        "metadata": {
+          "movable": false,
+          "passable": false,
+          "stackable": false,
+          "fixture": "wall",
+          "orientation": "se"
+        }
+      }
+    },
+    {
+      "entity_instance_id": "f0f1f2f3-a001-4e4e-8d8d-000000000026",
+      "entity_type": "obstacle",
+      "entity_ref": {
+        "content_type": "obstacle",
+        "content_id": "wall_stone_flat_ns"
+      },
+      "placement": {
+        "room_id": "7f2f1051-5f88-45a2-a66a-0f7063900001",
+        "hex": {
+          "q": -3,
+          "r": 3
+        },
+        "orientation": "se"
+      },
+      "state": {
+        "active": true,
+        "metadata": {
+          "movable": false,
+          "passable": false,
+          "stackable": false,
+          "fixture": "wall",
+          "orientation": "se"
+        }
+      }
+    },
+    {
+      "entity_instance_id": "f0f1f2f3-a001-4e4e-8d8d-000000000027",
+      "entity_type": "obstacle",
+      "entity_ref": {
+        "content_type": "obstacle",
+        "content_id": "wall_stone_flat_ns"
+      },
+      "placement": {
+        "room_id": "7f2f1051-5f88-45a2-a66a-0f7063900001",
+        "hex": {
+          "q": -2,
+          "r": -3
+        },
+        "orientation": "se"
+      },
+      "state": {
+        "active": true,
+        "metadata": {
+          "movable": false,
+          "passable": false,
+          "stackable": false,
+          "fixture": "wall",
+          "orientation": "se"
+        }
+      }
+    },
+    {
+      "entity_instance_id": "f0f1f2f3-a001-4e4e-8d8d-000000000028",
+      "entity_type": "obstacle",
+      "entity_ref": {
+        "content_type": "obstacle",
+        "content_id": "wall_stone_flat_ns"
+      },
+      "placement": {
+        "room_id": "7f2f1051-5f88-45a2-a66a-0f7063900001",
+        "hex": {
+          "q": -2,
+          "r": 3
+        },
+        "orientation": "se"
+      },
+      "state": {
+        "active": true,
+        "metadata": {
+          "movable": false,
+          "passable": false,
+          "stackable": false,
+          "fixture": "wall",
+          "orientation": "se"
+        }
+      }
+    },
+    {
+      "entity_instance_id": "f0f1f2f3-a001-4e4e-8d8d-000000000029",
+      "entity_type": "obstacle",
+      "entity_ref": {
+        "content_type": "obstacle",
+        "content_id": "wall_stone_flat_ns"
+      },
+      "placement": {
+        "room_id": "7f2f1051-5f88-45a2-a66a-0f7063900001",
+        "hex": {
+          "q": -1,
+          "r": -3
+        },
+        "orientation": "se"
+      },
+      "state": {
+        "active": true,
+        "metadata": {
+          "movable": false,
+          "passable": false,
+          "stackable": false,
+          "fixture": "wall",
+          "orientation": "se"
+        }
+      }
+    },
+    {
+      "entity_instance_id": "f0f1f2f3-a001-4e4e-8d8d-000000000030",
+      "entity_type": "obstacle",
+      "entity_ref": {
+        "content_type": "obstacle",
+        "content_id": "wall_stone_flat_ns"
+      },
+      "placement": {
+        "room_id": "7f2f1051-5f88-45a2-a66a-0f7063900001",
+        "hex": {
+          "q": -1,
+          "r": 3
+        },
+        "orientation": "se"
+      },
+      "state": {
+        "active": true,
+        "metadata": {
+          "movable": false,
+          "passable": false,
+          "stackable": false,
+          "fixture": "wall",
+          "orientation": "se"
+        }
+      }
+    },
+    {
+      "entity_instance_id": "f0f1f2f3-a001-4e4e-8d8d-000000000031",
+      "entity_type": "obstacle",
+      "entity_ref": {
+        "content_type": "obstacle",
+        "content_id": "wall_stone_flat_ns"
+      },
+      "placement": {
+        "room_id": "7f2f1051-5f88-45a2-a66a-0f7063900001",
+        "hex": {
+          "q": 0,
+          "r": -3
+        },
+        "orientation": "se"
+      },
+      "state": {
+        "active": true,
+        "metadata": {
+          "movable": false,
+          "passable": false,
+          "stackable": false,
+          "fixture": "wall",
+          "orientation": "se"
+        }
+      }
+    },
+    {
+      "entity_instance_id": "f0f1f2f3-a001-4e4e-8d8d-000000000032",
+      "entity_type": "obstacle",
+      "entity_ref": {
+        "content_type": "obstacle",
+        "content_id": "wall_stone_flat_ns"
+      },
+      "placement": {
+        "room_id": "7f2f1051-5f88-45a2-a66a-0f7063900001",
+        "hex": {
+          "q": 0,
+          "r": 3
+        },
+        "orientation": "se"
+      },
+      "state": {
+        "active": true,
+        "metadata": {
+          "movable": false,
+          "passable": false,
+          "stackable": false,
+          "fixture": "wall",
+          "orientation": "se"
+        }
+      }
+    },
+    {
+      "entity_instance_id": "f0f1f2f3-a001-4e4e-8d8d-000000000033",
+      "entity_type": "obstacle",
+      "entity_ref": {
+        "content_type": "obstacle",
+        "content_id": "wall_stone_flat_ns"
+      },
+      "placement": {
+        "room_id": "7f2f1051-5f88-45a2-a66a-0f7063900001",
+        "hex": {
+          "q": 1,
+          "r": -3
+        },
+        "orientation": "se"
+      },
+      "state": {
+        "active": true,
+        "metadata": {
+          "movable": false,
+          "passable": false,
+          "stackable": false,
+          "fixture": "wall",
+          "orientation": "se"
+        }
+      }
+    },
+    {
+      "entity_instance_id": "f0f1f2f3-a001-4e4e-8d8d-000000000034",
+      "entity_type": "obstacle",
+      "entity_ref": {
+        "content_type": "obstacle",
+        "content_id": "wall_stone_flat_ns"
+      },
+      "placement": {
+        "room_id": "7f2f1051-5f88-45a2-a66a-0f7063900001",
+        "hex": {
+          "q": 1,
+          "r": 3
+        },
+        "orientation": "se"
+      },
+      "state": {
+        "active": true,
+        "metadata": {
+          "movable": false,
+          "passable": false,
+          "stackable": false,
+          "fixture": "wall",
+          "orientation": "se"
+        }
+      }
+    },
+    {
+      "entity_instance_id": "f0f1f2f3-a001-4e4e-8d8d-000000000035",
+      "entity_type": "obstacle",
+      "entity_ref": {
+        "content_type": "obstacle",
+        "content_id": "wall_stone_flat_ns"
+      },
+      "placement": {
+        "room_id": "7f2f1051-5f88-45a2-a66a-0f7063900001",
+        "hex": {
+          "q": 2,
+          "r": -3
+        },
+        "orientation": "se"
+      },
+      "state": {
+        "active": true,
+        "metadata": {
+          "movable": false,
+          "passable": false,
+          "stackable": false,
+          "fixture": "wall",
+          "orientation": "se"
+        }
+      }
+    },
+    {
+      "entity_instance_id": "f0f1f2f3-a001-4e4e-8d8d-000000000036",
+      "entity_type": "obstacle",
+      "entity_ref": {
+        "content_type": "obstacle",
+        "content_id": "wall_stone_flat_ns"
+      },
+      "placement": {
+        "room_id": "7f2f1051-5f88-45a2-a66a-0f7063900001",
+        "hex": {
+          "q": 2,
+          "r": 3
+        },
+        "orientation": "se"
+      },
+      "state": {
+        "active": true,
+        "metadata": {
+          "movable": false,
+          "passable": false,
+          "stackable": false,
+          "fixture": "wall",
+          "orientation": "se"
+        }
+      }
+    },
+    {
+      "entity_instance_id": "f0f1f2f3-a001-4e4e-8d8d-000000000037",
+      "entity_type": "obstacle",
+      "entity_ref": {
+        "content_type": "obstacle",
+        "content_id": "wall_stone_flat_ns"
+      },
+      "placement": {
+        "room_id": "7f2f1051-5f88-45a2-a66a-0f7063900001",
+        "hex": {
+          "q": 3,
+          "r": -3
+        },
+        "orientation": "se"
+      },
+      "state": {
+        "active": true,
+        "metadata": {
+          "movable": false,
+          "passable": false,
+          "stackable": false,
+          "fixture": "wall",
+          "orientation": "se"
+        }
+      }
+    },
+    {
+      "entity_instance_id": "f0f1f2f3-a001-4e4e-8d8d-000000000038",
+      "entity_type": "obstacle",
+      "entity_ref": {
+        "content_type": "obstacle",
+        "content_id": "wall_stone_flat_ns"
+      },
+      "placement": {
+        "room_id": "7f2f1051-5f88-45a2-a66a-0f7063900001",
+        "hex": {
+          "q": 3,
+          "r": 3
+        },
+        "orientation": "se"
+      },
+      "state": {
+        "active": true,
+        "metadata": {
+          "movable": false,
+          "passable": false,
+          "stackable": false,
+          "fixture": "wall",
+          "orientation": "se"
+        }
+      }
+    },
+    {
+      "entity_instance_id": "f0f1f2f3-a001-4e4e-8d8d-000000000039",
+      "entity_type": "obstacle",
+      "entity_ref": {
+        "content_type": "obstacle",
+        "content_id": "wall_stone_flat_ns"
+      },
+      "placement": {
+        "room_id": "7f2f1051-5f88-45a2-a66a-0f7063900001",
+        "hex": {
+          "q": 4,
+          "r": -3
+        },
+        "orientation": "se"
+      },
+      "state": {
+        "active": true,
+        "metadata": {
+          "movable": false,
+          "passable": false,
+          "stackable": false,
+          "fixture": "wall",
+          "orientation": "se"
+        }
+      }
+    },
+    {
+      "entity_instance_id": "f0f1f2f3-a001-4e4e-8d8d-000000000040",
+      "entity_type": "obstacle",
+      "entity_ref": {
+        "content_type": "obstacle",
+        "content_id": "wall_stone_flat_ns"
+      },
+      "placement": {
+        "room_id": "7f2f1051-5f88-45a2-a66a-0f7063900001",
+        "hex": {
+          "q": 4,
+          "r": 3
+        },
+        "orientation": "se"
+      },
+      "state": {
+        "active": true,
+        "metadata": {
+          "movable": false,
+          "passable": false,
+          "stackable": false,
+          "fixture": "wall",
+          "orientation": "se"
+        }
+      }
+    },
+    {
+      "entity_instance_id": "f0f1f2f3-a001-4e4e-8d8d-000000000041",
+      "entity_type": "obstacle",
+      "entity_ref": {
+        "content_type": "obstacle",
+        "content_id": "wall_stone_flat_ns"
+      },
+      "placement": {
+        "room_id": "7f2f1051-5f88-45a2-a66a-0f7063900001",
+        "hex": {
+          "q": 5,
+          "r": -3
+        },
+        "orientation": "n"
+      },
+      "state": {
+        "active": true,
+        "metadata": {
+          "movable": false,
+          "passable": false,
+          "stackable": false,
+          "fixture": "wall",
+          "orientation": "n"
+        }
+      }
+    },
+    {
+      "entity_instance_id": "f0f1f2f3-a001-4e4e-8d8d-000000000042",
+      "entity_type": "obstacle",
+      "entity_ref": {
+        "content_type": "obstacle",
+        "content_id": "wall_stone_flat_ns"
+      },
+      "placement": {
+        "room_id": "7f2f1051-5f88-45a2-a66a-0f7063900001",
+        "hex": {
+          "q": -5,
+          "r": 3
+        },
+        "orientation": "se"
+      },
+      "state": {
+        "active": true,
+        "metadata": {
+          "movable": false,
+          "passable": false,
+          "stackable": false,
+          "fixture": "wall",
+          "orientation": "se"
+        }
+      }
+    },
+    {
+      "entity_instance_id": "runtime-wall--5--3",
+      "entity_type": "obstacle",
+      "entity_ref": {
+        "content_type": "obstacle",
+        "content_id": "wall_stone_flat_ns"
+      },
+      "placement": {
+        "room_id": "7f2f1051-5f88-45a2-a66a-0f7063900001",
+        "hex": {
+          "q": -5,
+          "r": -3
+        },
+        "orientation": "n"
+      },
+      "state": {
+        "active": true,
+        "metadata": {
+          "movable": false,
+          "passable": false,
+          "stackable": false,
+          "fixture": "wall",
+          "orientation": "n"
+        }
+      }
+    },
+    {
+      "entity_instance_id": "runtime-wall-5-3",
+      "entity_type": "obstacle",
+      "entity_ref": {
+        "content_type": "obstacle",
+        "content_id": "wall_stone_flat_ns"
+      },
+      "placement": {
+        "room_id": "7f2f1051-5f88-45a2-a66a-0f7063900001",
+        "hex": {
+          "q": 5,
+          "r": 3
+        },
+        "orientation": "se"
+      },
+      "state": {
+        "active": true,
+        "metadata": {
+          "movable": false,
+          "passable": false,
+          "stackable": false,
+          "fixture": "wall",
+          "orientation": "se"
+        }
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "entity_instance_id": "compass-orientation-reference",
+      "instance_id": "compass-orientation-reference",
+      "entity_type": "item",
+      "entity_ref": {
+        "content_type": "item",
+        "content_id": "compass_orientation_reference",
+        "version": null
+      },
+      "placement": {
+        "room_id": "7f2f1051-5f88-45a2-a66a-0f7063900001",
+        "hex": {
+          "q": 7,
+          "r": 2
+        },
+        "orientation": "n",
+        "spawn_type": null
+      },
+      "state": {
+        "active": true,
+        "destroyed": false,
+        "disabled": false,
+        "hidden": false,
+        "collected": false,
+        "hit_points": null,
+        "inventory": [],
+        "metadata": {
+          "display_name": "Compass Orientation Marker",
+          "orientation": "n",
+          "team": "neutral"
+        }
+      },
+      "created_at": "2026-03-03T19:47:42+00:00",
+      "updated_at": "2026-03-03T19:47:42+00:00"
+    }
+  ],
+  "generation_rules": {
+    "party_level_target": 1,
+    "difficulty_modifier": 1,
+    "room_count": {
+      "min": 2,
+      "max": 2
+    },
+    "creature_density": "sparse",
+    "trap_frequency": "none",
+    "loot_quality": "standard",
+    "boss_room": false,
+    "rest_area": true,
+    "secret_rooms": {
+      "min": 0,
+      "max": 0
+    }
+  },
+  "level_state": {
+    "is_fully_generated": true,
+    "rooms_generated": 2,
+    "rooms_explored": 1,
+    "boss_defeated": false,
+    "completion_percent": 0,
+    "first_entered_at": "2026-02-13T00:00:00Z",
+    "last_visited_at": "2026-02-13T00:00:00Z",
+    "times_visited": 1
+  },
+  "object_definitions": {
+    "0": {
+      "object_id": "wooden_tavern_door",
+      "label": "Tavern Door",
+      "category": "door",
+      "description": "Heavy wooden door between tavern and dungeon room. When open, allows passage between areas without movement penalty.",
+      "movable": false,
+      "stackable": false,
+      "movement": {
+        "passable": true,
+        "blocks_movement": false,
+        "cost_multiplier": 1
+      },
+      "tags": [
+        "door",
+        "transition"
+      ],
+      "size": "large",
+      "weight": "10",
+      "interaction": {
+        "can_open": true,
+        "can_close": true,
+        "requires_key": false,
+        "athletics_dc": null,
+        "thievery_dc": null
+      },
+      "visual": {
+        "sprite_id": "door_wood_tavern",
+        "color": "#8B4513",
+        "rotation": 0
+      }
+    },
+    "1": {
+      "object_id": "tavern_bar_counter_a",
+      "label": "Bar Counter A",
+      "category": "bar",
+      "description": "Fixed wooden bar counter segment forming the left section of the tavern's main bar. Provides a physical barrier for drink service and can provide cover during combat.",
+      "movable": false,
+      "stackable": false,
+      "movement": {
+        "passable": false,
+        "blocks_movement": true,
+        "cost_multiplier": 999
+      },
+      "tags": [
+        "bar",
+        "fixture",
+        "cover"
+      ],
+      "size": "large",
+      "visual": {
+        "sprite_id": "bar_counter_wood_a",
+        "color": "#654321",
+        "orientation": "se"
+      },
+      "orientation": "se"
+    },
+    "2": {
+      "object_id": "tavern_bar_counter_b",
+      "label": "Bar Counter B",
+      "category": "bar",
+      "description": "Fixed wooden bar counter segment forming the middle section of the tavern's main bar. Provides a physical barrier for drink service and can provide cover during combat.",
+      "movable": false,
+      "stackable": false,
+      "movement": {
+        "passable": false,
+        "blocks_movement": true,
+        "cost_multiplier": 999
+      },
+      "tags": [
+        "bar",
+        "fixture",
+        "cover"
+      ],
+      "size": "large",
+      "visual": {
+        "sprite_id": "bar_counter_wood_b",
+        "color": "#654321",
+        "orientation": "se"
+      },
+      "orientation": "se"
+    },
+    "3": {
+      "object_id": "tavern_bar_counter_c",
+      "label": "Bar Counter C",
+      "category": "bar",
+      "description": "Fixed wooden bar counter segment forming the right section of the tavern's main bar. Provides a physical barrier for drink service and can provide cover during combat.",
+      "movable": false,
+      "stackable": false,
+      "movement": {
+        "passable": false,
+        "blocks_movement": true,
+        "cost_multiplier": 999
+      },
+      "tags": [
+        "bar",
+        "fixture",
+        "cover"
+      ],
+      "size": "large",
+      "visual": {
+        "sprite_id": "bar_counter_wood_c",
+        "color": "#654321",
+        "orientation": "se"
+      },
+      "orientation": "se"
+    },
+    "4": {
+      "object_id": "tavern_table_round_a",
+      "label": "Round Table A",
+      "category": "table",
+      "description": "Movable round tavern table suitable for small gatherings. Can be pushed by players to rearrange the tavern space or create barriers during combat. Provides light cover when used defensively.",
+      "movable": true,
+      "stackable": false,
+      "movement": {
+        "passable": false,
+        "blocks_movement": true,
+        "cost_multiplier": 2
+      },
+      "tags": [
+        "table",
+        "furniture",
+        "cover"
+      ],
+      "size": "medium",
+      "weight": "5",
+      "interaction": {
+        "can_open": false,
+        "can_close": false,
+        "requires_key": false,
+        "athletics_dc": 10
+      },
+      "visual": {
+        "sprite_id": "table_round_wood",
+        "color": "#8B4513"
+      }
+    },
+    "5": {
+      "object_id": "tavern_table_long_a",
+      "label": "Long Table A",
+      "category": "table",
+      "description": "Movable long wooden table for larger groups or feasts. Can be pushed by players to rearrange the tavern space or create barriers during combat. Provides light cover when used defensively.",
+      "movable": true,
+      "stackable": false,
+      "movement": {
+        "passable": false,
+        "blocks_movement": true,
+        "cost_multiplier": 2
+      },
+      "tags": [
+        "table",
+        "furniture",
+        "cover"
+      ],
+      "size": "large",
+      "weight": "10",
+      "interaction": {
+        "can_open": false,
+        "can_close": false,
+        "requires_key": false,
+        "athletics_dc": 15
+      },
+      "visual": {
+        "sprite_id": "table_long_wood_end",
+        "color": "#8B4513",
+        "orientation": "se"
+      },
+      "orientation": "se"
+    },
+    "6": {
+      "object_id": "tavern_table_long_center",
+      "label": "Long Table Center",
+      "category": "table",
+      "description": "Center extension segment for a composed long wooden table.",
+      "movable": true,
+      "stackable": false,
+      "movement": {
+        "passable": false,
+        "blocks_movement": true,
+        "cost_multiplier": 2
+      },
+      "tags": [
+        "table",
+        "furniture",
+        "cover"
+      ],
+      "size": "large",
+      "weight": "10",
+      "interaction": {
+        "can_open": false,
+        "can_close": false,
+        "requires_key": false,
+        "athletics_dc": 15
+      },
+      "visual": {
+        "sprite_id": "table_long_wood_end",
+        "color": "#8B4513",
+        "orientation": "se"
+      },
+      "orientation": "se"
+    },
+    "7": {
+      "object_id": "tavern_table_long_b",
+      "label": "Long Table B",
+      "category": "table",
+      "description": "Second end-cap segment for a composed long wooden table.",
+      "movable": true,
+      "stackable": false,
+      "movement": {
+        "passable": false,
+        "blocks_movement": true,
+        "cost_multiplier": 2
+      },
+      "tags": [
+        "table",
+        "furniture",
+        "cover"
+      ],
+      "size": "large",
+      "weight": "10",
+      "interaction": {
+        "can_open": false,
+        "can_close": false,
+        "requires_key": false,
+        "athletics_dc": 15
+      },
+      "visual": {
+        "sprite_id": "table_long_wood_end",
+        "color": "#8B4513",
+        "orientation": "se"
+      },
+      "orientation": "se"
+    },
+    "8": {
+      "object_id": "tavern_stool_stack_a",
+      "label": "Stool Stack",
+      "category": "stool",
+      "description": "Stack of lightweight tavern stools. Entities can share hexes with these stools, and multiple stools can occupy the same space, allowing flexible positioning around tables. Can be kicked aside or used as improvised weapons.",
+      "movable": true,
+      "stackable": true,
+      "movement": {
+        "passable": true,
+        "blocks_movement": false,
+        "cost_multiplier": 1.5
+      },
+      "tags": [
+        "stool",
+        "furniture",
+        "stack"
+      ],
+      "size": "small",
+      "weight": "L",
+      "interaction": {
+        "can_open": false,
+        "can_close": false,
+        "requires_key": false,
+        "athletics_dc": 5
+      },
+      "visual": {
+        "sprite_id": "stool_stack_wood",
+        "color": "#A0522D"
+      }
+    },
+    "9": {
+      "object_id": "tavern_crate_stack_a",
+      "label": "Crate Stack",
+      "category": "crate",
+      "description": "Stack of supply crates used for tavern storage. Blocks hex occupancy but can be pushed to create temporary barriers or clear pathways. Multiple crates can be stacked in the same location. Provides light cover when used defensively.",
+      "movable": true,
+      "stackable": true,
+      "movement": {
+        "passable": false,
+        "blocks_movement": true,
+        "cost_multiplier": 3
+      },
+      "tags": [
+        "crate",
+        "storage",
+        "stack",
+        "cover"
+      ],
+      "size": "medium",
+      "weight": "5",
+      "interaction": {
+        "can_open": false,
+        "can_close": false,
+        "requires_key": false,
+        "athletics_dc": 12
+      },
+      "visual": {
+        "sprite_id": "crate_stack_wood",
+        "color": "#8B7355"
+      }
+    },
+    "10": {
+      "object_id": "tavern_fireplace",
+      "label": "Stone Fireplace",
+      "category": "decor",
+      "description": "Large stone fireplace providing warmth and ambient light to the tavern. This fixed environmental fixture anchors the tavern's common area and provides substantial cover during combat. Adjacent hexes may have increased fire damage risk.",
+      "movable": false,
+      "stackable": false,
+      "movement": {
+        "passable": false,
+        "blocks_movement": true,
+        "cost_multiplier": 999
+      },
+      "tags": [
+        "decor",
+        "fixture",
+        "light_source",
+        "fire",
+        "cover"
+      ],
+      "size": "large",
+      "visual": {
+        "sprite_id": "fireplace_stone_lit",
+        "color": "#696969"
+      }
+    },
+    "11": {
+      "object_id": "tavern_rug",
+      "label": "Decorative Rug",
+      "category": "decor",
+      "description": "Woven floor rug providing decorative warmth to the tavern. Characters can move freely across it without penalty. Purely aesthetic with no gameplay impact.",
+      "movable": false,
+      "stackable": false,
+      "movement": {
+        "passable": true,
+        "blocks_movement": false,
+        "cost_multiplier": 1
+      },
+      "tags": [
+        "decor",
+        "floor"
+      ],
+      "size": "medium",
+      "visual": {
+        "sprite_id": "rug_decorative_red",
+        "color": "#8B0000"
+      }
+    },
+    "12": {
+      "object_id": "wall_stone_corner_acute",
+      "label": "Stone Wall Corner Acute",
+      "category": "wall",
+      "description": "Acute-corner stone fortress wall tile for hex-grid perimeter turns.",
+      "movable": false,
+      "stackable": false,
+      "movement": {
+        "passable": false,
+        "blocks_movement": true,
+        "cost_multiplier": 999
+      },
+      "tags": [
+        "wall",
+        "stone",
+        "fortress",
+        "corner",
+        "acute",
+        "boundary",
+        "cover"
+      ],
+      "size": "large",
+      "visual": {
+        "sprite_id": "wall_stone_corner_acute",
+        "color": "#696969",
+        "prompt": "A top-down orthographic 2D map tile of a sturdy grey stone fortress wall turning through an acute corner inside a hexagonal frame. The wall is made of heavy weathered masonry blocks with visible mortar and crenellations. The ground is a neutral stone floor texture. Clean hexagonal border, tabletop RPG style, flat lighting, high detail, white background."
+      }
+    },
+    "13": {
+      "object_id": "wall_stone_corner_obtuse",
+      "label": "Stone Wall Corner Obtuse",
+      "category": "wall",
+      "description": "Obtuse-corner stone fortress wall tile for hex-grid perimeter turns.",
+      "movable": false,
+      "stackable": false,
+      "movement": {
+        "passable": false,
+        "blocks_movement": true,
+        "cost_multiplier": 999
+      },
+      "tags": [
+        "wall",
+        "stone",
+        "fortress",
+        "corner",
+        "obtuse",
+        "boundary",
+        "cover"
+      ],
+      "size": "large",
+      "visual": {
+        "sprite_id": "wall_stone_corner_obtuse",
+        "color": "#696969",
+        "prompt": "A top-down orthographic 2D map tile of a sturdy grey stone fortress wall turning through an obtuse corner inside a hexagonal frame. The wall is made of heavy weathered masonry blocks with visible mortar and crenellations. The ground is a neutral stone floor texture. Clean hexagonal border, tabletop RPG style, flat lighting, high detail, white background."
+      }
+    },
+    "14": {
+      "object_id": "wall_stone_flat_ew",
+      "label": "Stone Wall Flat EW",
+      "category": "wall",
+      "description": "East-west oriented straight stone wall segment for hex-grid perimeter boundaries.",
+      "movable": false,
+      "stackable": false,
+      "movement": {
+        "passable": false,
+        "blocks_movement": true,
+        "cost_multiplier": 999
+      },
+      "tags": [
+        "wall",
+        "stone",
+        "fortress",
+        "boundary",
+        "cover",
+        "flat",
+        "east_west"
+      ],
+      "size": "large",
+      "visual": {
+        "sprite_id": "wall_stone_flat_ew",
+        "color": "#696969"
+      }
+    },
+    "15": {
+      "object_id": "wall_stone_flat_ns",
+      "label": "Stone Wall Flat NS",
+      "category": "wall",
+      "description": "North-south oriented straight stone wall segment for hex-grid perimeter boundaries.",
+      "movable": false,
+      "stackable": false,
+      "movement": {
+        "passable": false,
+        "blocks_movement": true,
+        "cost_multiplier": 999
+      },
+      "tags": [
+        "wall",
+        "stone",
+        "fortress",
+        "boundary",
+        "cover",
+        "flat",
+        "north_south"
+      ],
+      "size": "large",
+      "visual": {
+        "sprite_id": "wall_stone_flat_ns",
+        "color": "#696969"
+      }
+    },
+    "16": {
+      "object_id": "compass_orientation_reference",
+      "label": "Compass Orientation Marker",
+      "category": "decor",
+      "stackable": false,
+      "movable": false,
+      "visual": {
+        "sprite_id": "compass1",
+        "color": "#22c55e",
+        "size": "small",
+        "orientation": "n",
+        "available_sprite_ids": [
+          "compass1",
+          "compass2",
+          "compass3",
+          "compass4"
+        ]
+      },
+      "movement": {
+        "passable": true,
+        "cost_multiplier": 1,
+        "blocks_movement": false
+      }
+    }
+  }
+}

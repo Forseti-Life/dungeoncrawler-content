@@ -1,0 +1,424 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dungeoncrawler.life/schemas/character_options_step4.json",
+  "title": "Character Creation Step 4: Class",
+  "description": "Defines available options and validation for selecting character's class in Pathfinder 2E character creation",
+  "type": "object",
+  "additionalProperties": false,
+  "$defs": {
+    "proficiency_rank": {
+      "type": "string",
+      "enum": ["Untrained", "Trained", "Expert", "Master", "Legendary"],
+      "description": "Proficiency rank values for skills, saves, and other abilities"
+    },
+    "classOption": {
+      "type": "object",
+      "description": "Individual class option with complete Pathfinder 2E stats",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Class identifier"
+        },
+        "name": {
+          "type": "string",
+          "description": "Display name"
+        },
+        "description": {
+          "type": "string",
+          "description": "Class flavor text and playstyle"
+        },
+        "hp": {
+          "type": "integer",
+          "minimum": 6,
+          "maximum": 12,
+          "description": "Hit points per level (valid PF2e range: 6-12)"
+        },
+        "key_ability": {
+          "type": "string",
+          "description": "Primary ability score(s) for this class"
+        },
+        "proficiencies": {
+          "type": "object",
+          "description": "Initial proficiency ranks for saves",
+          "properties": {
+            "perception": {
+              "$ref": "#/$defs/proficiency_rank"
+            },
+            "fortitude": {
+              "$ref": "#/$defs/proficiency_rank"
+            },
+            "reflex": {
+              "$ref": "#/$defs/proficiency_rank"
+            },
+            "will": {
+              "$ref": "#/$defs/proficiency_rank"
+            }
+          },
+          "required": ["perception", "fortitude", "reflex", "will"],
+          "additionalProperties": false
+        },
+        "skills": {
+          "type": "string",
+          "description": "Number of trained skills description"
+        },
+        "trained_skills": {
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 7,
+          "description": "Base number of trained skills before Intelligence modifier (valid PF2e range: 2-7)"
+        },
+        "weapons": {
+          "type": "string",
+          "description": "Weapon proficiencies"
+        },
+        "spellcasting": {
+          "type": "string",
+          "description": "Spellcasting tradition and key ability (optional - only for spellcasting classes)"
+        }
+      },
+      "required": ["id", "name", "description", "hp", "key_ability", "proficiencies", "skills", "trained_skills", "weapons"],
+      "additionalProperties": false
+    }
+  },
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0.0",
+      "description": "Schema version for migration compatibility"
+    },
+    "step": {
+      "type": "integer",
+      "const": 4,
+      "description": "Step number in character creation process"
+    },
+    "step_name": {
+      "type": "string",
+      "const": "Class & Campaign Role",
+      "description": "Human-readable name for this step"
+    },
+    "step_description": {
+      "type": "string",
+      "const": "Choose your class with your long-term party role in mind: this drives power curve, survivability, and campaign identity.",
+      "description": "Explanation of what happens in this step"
+    },
+    "fields": {
+      "type": "object",
+      "description": "Form fields available in this step",
+      "properties": {
+        "class": {
+          "type": "object",
+          "description": "Class selection field",
+          "properties": {
+            "field_type": {
+              "type": "string",
+              "const": "select",
+              "description": "HTML input type"
+            },
+            "label": {
+              "type": "string",
+              "const": "Choose Your Long-Term Class Role",
+              "description": "Field label"
+            },
+            "required": {
+              "type": "boolean",
+              "const": true,
+              "description": "Whether this field is mandatory"
+            },
+            "options_source": {
+              "type": "string",
+              "const": "CharacterManager::CLASSES",
+              "description": "Source constant containing available classes"
+            },
+            "options": {
+              "type": "array",
+              "description": "Available classes from Pathfinder 2E Core Rulebook and Advanced Player's Guide (16 core classes)",
+              "items": {
+                "$ref": "#/$defs/classOption"
+              },
+              "minItems": 16,
+              "maxItems": 16,
+              "$comment": "Exactly 16 classes from Pathfinder 2E: Alchemist, Barbarian, Bard, Champion, Cleric, Druid, Fighter, Investigator, Monk, Oracle, Ranger, Rogue, Sorcerer, Swashbuckler, Witch, Wizard"
+            },
+            "help_text": {
+              "type": "string",
+              "const": "Your class defines your long-term gameplay identity. Choose one you want to run for many sessions.",
+              "description": "Helper text displayed to user"
+            },
+            "validation": {
+              "type": "object",
+              "description": "Validation rules for class selection",
+              "properties": {
+                "required": {
+                  "type": "boolean",
+                  "const": true
+                },
+                "error_message": {
+                  "type": "string",
+                  "const": "Please select a class before continuing."
+                }
+              },
+              "required": ["required", "error_message"],
+              "additionalProperties": false
+            }
+          },
+          "required": ["field_type", "label", "required", "options_source", "options", "help_text", "validation"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["class"]
+    },
+    "navigation": {
+      "type": "object",
+      "description": "Navigation rules for this step",
+      "properties": {
+        "previous_step": {
+          "type": "integer",
+          "const": 3,
+          "description": "Previous step number"
+        },
+        "next_step": {
+          "type": "integer",
+          "const": 5,
+          "description": "Next step number"
+        },
+        "can_go_back": {
+          "type": "boolean",
+          "const": true,
+          "description": "User can return to previous step"
+        },
+        "can_skip": {
+          "type": "boolean",
+          "const": false,
+          "description": "Step cannot be skipped"
+        }
+      },
+      "required": ["previous_step", "next_step", "can_go_back", "can_skip"],
+      "additionalProperties": false
+    },
+    "validation": {
+      "type": "object",
+      "description": "Step-level validation rules",
+      "properties": {
+        "step_complete": {
+          "type": "object",
+          "description": "Conditions for step completion",
+          "properties": {
+            "required_fields": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "default": ["class"],
+              "description": "Fields that must be completed before advancing"
+            },
+            "error_message": {
+              "type": "string",
+              "default": "You must select a class before continuing.",
+              "description": "Message shown when step validation fails"
+            }
+          },
+          "required": ["required_fields", "error_message"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["step_complete"],
+      "additionalProperties": false
+    },
+    "boost_sources_produced": {
+      "type": "object",
+      "description": "Documents class benefits produced by this step for use in later steps",
+      "properties": {
+        "hit_points": {
+          "type": "integer",
+          "minimum": 6,
+          "maximum": 12,
+          "description": "Hit points per level granted by the selected class (used in HP calculations)"
+        },
+        "key_ability_boost": {
+          "type": "string",
+          "description": "One ability boost to a key ability score (used in Step 5 ability score calculations)",
+          "enum": ["Strength", "Dexterity", "Constitution", "Intelligence", "Wisdom", "Charisma"]
+        },
+        "proficiencies": {
+          "type": "object",
+          "description": "Save proficiency ranks granted by the class",
+          "properties": {
+            "perception": {
+              "$ref": "#/$defs/proficiency_rank"
+            },
+            "fortitude": {
+              "$ref": "#/$defs/proficiency_rank"
+            },
+            "reflex": {
+              "$ref": "#/$defs/proficiency_rank"
+            },
+            "will": {
+              "$ref": "#/$defs/proficiency_rank"
+            }
+          },
+          "required": ["perception", "fortitude", "reflex", "will"]
+        },
+        "trained_skills": {
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 7,
+          "description": "Number of trained skills available from class (before Intelligence modifier)"
+        },
+        "weapon_proficiencies": {
+          "type": "string",
+          "description": "Weapon proficiency categories and specific weapons granted"
+        },
+        "spellcasting": {
+          "type": "string",
+          "description": "Spellcasting tradition and key ability if applicable (empty for non-spellcasting classes)",
+          "examples": ["Arcane spellcasting, Intelligence", "Divine spellcasting, Wisdom", ""]
+        }
+      },
+      "required": ["hit_points", "key_ability_boost", "proficiencies", "trained_skills", "weapon_proficiencies"],
+      "additionalProperties": false
+    },
+    "tips": {
+      "type": "array",
+      "description": "Helpful tips for new players",
+      "items": {
+        "type": "string"
+      },
+      "default": [
+        "Choose for campaign endurance: if you won't enjoy this class at session 20, pick another now.",
+        "Your key ability should remain a top priority because it drives your class identity and reliability.",
+        "Spellcasters offer flexible answers and scaling utility, but need positioning discipline and team protection.",
+        "Martial classes deliver stable frontline pressure and strong consistency in persistent dungeon runs.",
+        "Skill specialists shine in exploration, utility, and problem-solving that compounds across campaign history.",
+        "Build a roster mindset: your class should complement current and future characters in your account legacy."
+      ]
+    },
+    "examples": {
+      "type": "array",
+      "description": "Example class selections for common character archetypes",
+      "items": {
+        "type": "object",
+        "properties": {
+          "archetype": {
+            "type": "string",
+            "description": "Character archetype name"
+          },
+          "class": {
+            "type": "string",
+            "description": "Recommended class"
+          },
+          "category": {
+            "type": "string",
+            "enum": ["martial", "spellcasters", "skill_specialists"],
+            "description": "Class category from class_categories"
+          },
+          "strengths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Key strengths of this class choice"
+          },
+          "ideal_for": {
+            "type": "string",
+            "description": "Who should consider this class"
+          }
+        },
+        "required": ["archetype", "class", "category", "strengths", "ideal_for"]
+      },
+      "default": [
+        {
+          "archetype": "Frontline Tank",
+          "class": "Fighter",
+          "category": "martial",
+          "strengths": [
+            "Highest weapon proficiency progression",
+            "10 HP per level for durability",
+            "Expert in Perception and Fortitude saves",
+            "Versatile weapon mastery"
+          ],
+          "ideal_for": "Players who want to be the party's reliable damage dealer and protector, excelling with any weapon"
+        },
+        {
+          "archetype": "Arcane Scholar",
+          "class": "Wizard",
+          "category": "spellcasters",
+          "strengths": [
+            "Largest spell selection (Arcane tradition)",
+            "Intelligence-based for maximum skills",
+            "Thesis specialization for focused power",
+            "Expert in Will saves"
+          ],
+          "ideal_for": "Players who want maximum magical versatility and problem-solving through prepared spells"
+        },
+        {
+          "archetype": "Skill Master",
+          "class": "Rogue",
+          "category": "skill_specialists",
+          "strengths": [
+            "7 trained skills + Intelligence (most in game)",
+            "Expert in Reflex and Will saves",
+            "Sneak Attack for reliable damage",
+            "Expert in Perception for initiative"
+          ],
+          "ideal_for": "Players who want to excel at skills, stealth, and exploiting enemy weaknesses"
+        },
+        {
+          "archetype": "Divine Support",
+          "class": "Cleric",
+          "category": "spellcasters",
+          "strengths": [
+            "Divine spellcasting with healing",
+            "Deity-granted powers and domains",
+            "8 HP per level (durable for caster)",
+            "Expert in Fortitude and Will saves"
+          ],
+          "ideal_for": "Players who want to support allies with healing and buffs while still being effective in combat"
+        },
+        {
+          "archetype": "Savage Warrior",
+          "class": "Barbarian",
+          "category": "martial",
+          "strengths": [
+            "12 HP per level (highest in game)",
+            "Rage for bonus damage and durability",
+            "Expert in Fortitude saves",
+            "Instinct abilities for specialization"
+          ],
+          "ideal_for": "Players who want to be the toughest, most damage-focused melee combatant"
+        }
+      ]
+    },
+    "class_categories": {
+      "type": "object",
+      "description": "Classes organized by combat role for easier selection",
+      "properties": {
+        "martial": {
+          "type": "array",
+          "description": "Front-line combatants focused on weapons and physical prowess",
+          "items": {
+            "type": "string",
+            "enum": ["fighter", "barbarian", "ranger", "monk", "champion", "swashbuckler"]
+          }
+        },
+        "spellcasters": {
+          "type": "array",
+          "description": "Magic-focused classes with powerful spells",
+          "items": {
+            "type": "string",
+            "enum": ["wizard", "cleric", "druid", "sorcerer", "bard", "oracle", "witch"]
+          }
+        },
+        "skill_specialists": {
+          "type": "array",
+          "description": "Classes focused on skills, expertise, and versatility",
+          "items": {
+            "type": "string",
+            "enum": ["rogue", "investigator", "alchemist"]
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "required": ["schema_version", "step", "step_name", "step_description", "fields", "navigation", "validation", "boost_sources_produced", "tips", "examples", "class_categories"]
+}

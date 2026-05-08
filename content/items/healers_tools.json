@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.0.0",
+  "item_id": "healers_tools",
+  "name": "Healer's Tools",
+  "item_type": "adventuring_gear",
+  "level": 0,
+  "rarity": "common",
+  "traits": [],
+  "description": "A leather pouch containing bandages, salves, and surgical implements. Required for using the Medicine skill to Treat Wounds, Treat Disease, or Treat Poison.",
+  "price": {
+    "cp": 0,
+    "sp": 0,
+    "gp": 5,
+    "pp": 0
+  },
+  "bulk": "1",
+  "hands": "2",
+  "created_at": "2026-03-01T00:00:00Z",
+  "updated_at": "2026-03-01T00:00:00Z",
+  "item_category": "adventuring_gear"
+}

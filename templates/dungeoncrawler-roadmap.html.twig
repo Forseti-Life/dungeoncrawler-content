@@ -1,0 +1,529 @@
+{#
+/**
+ * @file
+ * Template for the PF2E requirements implementation roadmap page.
+ *
+ * Available variables:
+ * - books: Array of book data with chapters, sections, and requirements.
+ * - totals: { pending, in_progress, implemented }
+ * - total: Total requirement count.
+ * - impl_pct: Percentage implemented (0–100).
+ * - prog_pct: Percentage in progress (0–100).
+ * - is_admin: Whether the current user can update statuses.
+ * - requirement_mapping: Mapping counts for linked/unlinked requirements.
+ * - feature_counts: Aggregate tracked feature counts.
+ * - feature_flow_counts: Feature execution counts across backlog/in-progress/done/shipped.
+ * - release_snapshot: Live release-cycle snapshot from HQ.
+ * - backlog_groups: Grouped backlog features from HQ feature briefs.
+ * - status_labels: Map of status => human label.
+ */
+#}
+<div class="dc-roadmap">
+
+  {# ── Page header ──────────────────────────────────────────────────────── #}
+  <section class="dc-roadmap__header">
+    <h1 class="dc-roadmap__title">PF2E Implementation Roadmap</h1>
+    <p class="dc-roadmap__subtitle">
+      Tracking {{ total }} requirements extracted from 9 Pathfinder 2E rulebooks.
+    </p>
+    <p class="dc-roadmap__subtitle">
+      This page now separates requirement inventory truth, feature delivery truth, and release/SDLC truth instead of collapsing them into one status number.
+    </p>
+    <p class="dc-roadmap__nav">
+      <a href="https://forseti.life/roadmap">Forseti portfolio roadmap</a>
+      &nbsp;|&nbsp;
+      <a href="/architecture">System architecture</a>
+    </p>
+
+    <div class="dc-roadmap__stats-grid">
+      <article class="dc-roadmap__stat-card">
+        <span class="dc-roadmap__stat-label">Requirements tracked</span>
+        <strong class="dc-roadmap__stat-value">{{ total }}</strong>
+      </article>
+      <article class="dc-roadmap__stat-card">
+        <span class="dc-roadmap__stat-label">Requirements implemented</span>
+        <strong class="dc-roadmap__stat-value">{{ totals.implemented }}</strong>
+      </article>
+      <article class="dc-roadmap__stat-card">
+        <span class="dc-roadmap__stat-label">Requirements in progress</span>
+        <strong class="dc-roadmap__stat-value">{{ totals.in_progress }}</strong>
+      </article>
+      <article class="dc-roadmap__stat-card">
+        <span class="dc-roadmap__stat-label">Requirements not started</span>
+        <strong class="dc-roadmap__stat-value">{{ totals.pending }}</strong>
+      </article>
+    </div>
+
+    {# Overall progress bar #}
+    <div class="dc-roadmap__progress-wrap">
+      <div class="dc-roadmap__progress-bar" title="{{ impl_pct }}% requirement implemented, {{ prog_pct }}% requirement in progress">
+        <div class="dc-roadmap__progress-fill dc-roadmap__progress-fill--implemented"
+             style="width: {{ impl_pct }}%"></div>
+        <div class="dc-roadmap__progress-fill dc-roadmap__progress-fill--in-progress"
+             style="width: {{ prog_pct }}%; left: {{ impl_pct }}%"></div>
+      </div>
+      <div class="dc-roadmap__progress-legend">
+        <span class="dc-status-badge dc-status-badge--implemented">✅ {{ totals.implemented }} Requirements Implemented ({{ impl_pct }}%)</span>
+        <span class="dc-status-badge dc-status-badge--in_progress">🔄 {{ totals.in_progress }} Requirements In Progress ({{ prog_pct }}%)</span>
+        <span class="dc-status-badge dc-status-badge--pending">❌ {{ totals.pending }} Requirements Not Started</span>
+      </div>
+    </div>
+
+    <div class="dc-roadmap__requirements-overview">
+      <section class="dc-roadmap__requirements-process" aria-labelledby="dc-roadmap-requirements-flow">
+        <div class="dc-roadmap__release-section-header">
+          <h2 class="dc-roadmap__release-section-title" id="dc-roadmap-requirements-flow">Requirements authority</h2>
+          <p class="dc-roadmap__release-section-copy">Source of truth: <code>dc_requirements</code>. These counts describe requirement inventory status, not feature shipping state.</p>
+        </div>
+
+        <ol class="dc-roadmap__release-flow dc-roadmap__release-flow--requirements">
+          <li class="dc-roadmap__release-stage dc-roadmap__release-stage--done">
+            <div class="dc-roadmap__release-stage-head">
+              <span class="dc-roadmap__release-step">1</span>
+              <span class="dc-status-badge dc-status-badge--implemented">Imported</span>
+            </div>
+            <strong class="dc-roadmap__release-stage-title">Requirements tracked</strong>
+            <div class="dc-roadmap__release-stage-value">{{ total }}</div>
+            <p class="dc-roadmap__release-stage-copy">Imported PF2E requirement rows stored in the roadmap table.</p>
+          </li>
+
+          <li class="dc-roadmap__release-stage dc-roadmap__release-stage--{{ requirement_mapping.unlinked == 0 ? 'done' : 'active' }}">
+            <div class="dc-roadmap__release-stage-head">
+              <span class="dc-roadmap__release-step">2</span>
+              <span class="dc-status-badge dc-status-badge--{{ requirement_mapping.unlinked == 0 ? 'implemented' : 'in_progress' }}">
+                {{ requirement_mapping.unlinked == 0 ? 'Complete' : 'Active' }}
+              </span>
+            </div>
+            <strong class="dc-roadmap__release-stage-title">Mapped to features</strong>
+            <div class="dc-roadmap__release-stage-value">{{ requirement_mapping.linked }} linked / {{ requirement_mapping.unlinked }} unlinked</div>
+            <p class="dc-roadmap__release-stage-copy">Feature linkage coverage used for adjacent feature context.</p>
+          </li>
+
+          <li class="dc-roadmap__release-stage dc-roadmap__release-stage--{{ totals.implemented == total and total > 0 ? 'final' : (totals.implemented > 0 ? 'active' : 'pending') }}">
+            <div class="dc-roadmap__release-stage-head">
+              <span class="dc-roadmap__release-step">3</span>
+              <span class="dc-status-badge dc-status-badge--{{ totals.implemented == total and total > 0 ? 'implemented' : (totals.implemented > 0 ? 'in_progress' : 'pending') }}">
+                {{ totals.implemented == total and total > 0 ? 'Complete' : (totals.implemented > 0 ? 'Active' : 'Waiting') }}
+              </span>
+            </div>
+            <strong class="dc-roadmap__release-stage-title">Implemented in requirements</strong>
+            <div class="dc-roadmap__release-stage-value">{{ totals.implemented }} / {{ total }}</div>
+            <p class="dc-roadmap__release-stage-copy">Requirement completion remains DB-authoritative even when linked feature briefs exist.</p>
+          </li>
+        </ol>
+      </section>
+
+      <aside class="dc-roadmap__requirements-tracked" aria-labelledby="dc-roadmap-requirements-tracked">
+        <div class="dc-roadmap__release-section-header">
+          <h2 class="dc-roadmap__release-section-title" id="dc-roadmap-requirements-tracked">Tracked information</h2>
+          <p class="dc-roadmap__release-section-copy">Support data that explains coverage and precedence for the requirement lane.</p>
+        </div>
+
+        <div class="dc-roadmap__tracked-grid">
+          <article class="dc-roadmap__tracked-card">
+            <span class="dc-roadmap__tracked-label">Linked requirements</span>
+            <strong class="dc-roadmap__tracked-value">{{ requirement_mapping.linked }} ({{ requirement_mapping.linked_pct }}%)</strong>
+          </article>
+          <article class="dc-roadmap__tracked-card">
+            <span class="dc-roadmap__tracked-label">Unlinked requirements</span>
+            <strong class="dc-roadmap__tracked-value">{{ requirement_mapping.unlinked }}</strong>
+          </article>
+          <article class="dc-roadmap__tracked-card">
+            <span class="dc-roadmap__tracked-label">Requirement authority</span>
+            <strong class="dc-roadmap__tracked-value"><code>dc_requirements</code></strong>
+          </article>
+          <article class="dc-roadmap__tracked-card">
+            <span class="dc-roadmap__tracked-label">Completion rule</span>
+            <strong class="dc-roadmap__tracked-value">Requirement implemented is separate from feature shipped</strong>
+          </article>
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  {% set feature_flow_total = feature_flow_counts.pending + feature_flow_counts.in_progress + feature_flow_counts.done + feature_flow_counts.implemented %}
+  <section class="dc-roadmap__summary-panel">
+    <div class="dc-roadmap__panel-header">
+      <h2 class="dc-roadmap__panel-title">Feature delivery flow</h2>
+      <p class="dc-roadmap__panel-copy">Source of truth: <code>features/dc-*/feature.md</code>. Only <strong>shipped</strong> counts as completed in this lane.</p>
+      <p class="dc-roadmap__panel-copy">Tracked features = backlog + in progress + done + shipped. Current / next release scope is a subset of those tracked features, not an additional category.</p>
+    </div>
+
+    <div class="dc-roadmap__stats-grid">
+      <article class="dc-roadmap__stat-card">
+        <span class="dc-roadmap__stat-label">Tracked features</span>
+        <strong class="dc-roadmap__stat-value">{{ feature_counts.tracked }}</strong>
+      </article>
+      <article class="dc-roadmap__stat-card">
+        <span class="dc-roadmap__stat-label">Backlog / queued</span>
+        <strong class="dc-roadmap__stat-value">{{ feature_flow_counts.pending }}</strong>
+      </article>
+      <article class="dc-roadmap__stat-card">
+        <span class="dc-roadmap__stat-label">Features in progress</span>
+        <strong class="dc-roadmap__stat-value">{{ feature_flow_counts.in_progress }}</strong>
+      </article>
+      <article class="dc-roadmap__stat-card">
+        <span class="dc-roadmap__stat-label">Features done</span>
+        <strong class="dc-roadmap__stat-value">{{ feature_flow_counts.done }}</strong>
+      </article>
+      <article class="dc-roadmap__stat-card">
+        <span class="dc-roadmap__stat-label">Features shipped</span>
+        <strong class="dc-roadmap__stat-value">{{ feature_flow_counts.implemented }}</strong>
+      </article>
+      <article class="dc-roadmap__stat-card">
+        <span class="dc-roadmap__stat-label">Current / next release scope (subset)</span>
+        <strong class="dc-roadmap__stat-value">{{ feature_counts.active_release }} / {{ feature_counts.next_release }}</strong>
+      </article>
+    </div>
+
+    <ol class="dc-roadmap__release-flow">
+      <li class="dc-roadmap__release-stage dc-roadmap__release-stage--{{ feature_flow_counts.pending > 0 ? 'active' : 'done' }}">
+        <div class="dc-roadmap__release-stage-head">
+          <span class="dc-roadmap__release-step">1</span>
+          <span class="dc-status-badge dc-status-badge--queued">Backlog</span>
+        </div>
+        <strong class="dc-roadmap__release-stage-title">Groom and queue features</strong>
+        <div class="dc-roadmap__release-stage-value">{{ feature_flow_counts.pending }} feature{{ feature_flow_counts.pending == 1 ? '' : 's' }}</div>
+        <p class="dc-roadmap__release-stage-copy">Pre-release work such as planned, ready, deferred, and backlog statuses.</p>
+      </li>
+
+      <li class="dc-roadmap__release-stage dc-roadmap__release-stage--{{ feature_flow_counts.in_progress > 0 ? 'active' : 'pending' }}">
+        <div class="dc-roadmap__release-stage-head">
+          <span class="dc-roadmap__release-step">2</span>
+          <span class="dc-status-badge dc-status-badge--in_progress">Executing</span>
+        </div>
+        <strong class="dc-roadmap__release-stage-title">Implement in release</strong>
+        <div class="dc-roadmap__release-stage-value">{{ feature_flow_counts.in_progress }} feature{{ feature_flow_counts.in_progress == 1 ? '' : 's' }}</div>
+        <p class="dc-roadmap__release-stage-copy">Active feature work underway in the SDLC.</p>
+      </li>
+
+      <li class="dc-roadmap__release-stage dc-roadmap__release-stage--{{ feature_flow_counts.done > 0 ? 'active' : 'pending' }}">
+        <div class="dc-roadmap__release-stage-head">
+          <span class="dc-roadmap__release-step">3</span>
+          <span class="dc-status-badge dc-status-badge--done">Awaiting ship</span>
+        </div>
+        <strong class="dc-roadmap__release-stage-title">Done but not shipped</strong>
+        <div class="dc-roadmap__release-stage-value">{{ feature_flow_counts.done }} feature{{ feature_flow_counts.done == 1 ? '' : 's' }}</div>
+        <p class="dc-roadmap__release-stage-copy">Code complete, but release/process authority has not yet marked the feature as shipped.</p>
+      </li>
+
+      <li class="dc-roadmap__release-stage dc-roadmap__release-stage--{{ feature_flow_counts.implemented > 0 ? 'final' : 'tracked' }}">
+        <div class="dc-roadmap__release-stage-head">
+          <span class="dc-roadmap__release-step">4</span>
+          <span class="dc-status-badge dc-status-badge--implemented">Completed</span>
+        </div>
+        <strong class="dc-roadmap__release-stage-title">Shipped</strong>
+        <div class="dc-roadmap__release-stage-value">{{ feature_flow_counts.implemented }} feature{{ feature_flow_counts.implemented == 1 ? '' : 's' }}</div>
+        <p class="dc-roadmap__release-stage-copy">Only shipped features count as completed in the feature lane.</p>
+      </li>
+    </ol>
+  </section>
+
+  {% if release_snapshot.active_release or release_snapshot.next_release %}
+    <section class="dc-roadmap__release-snapshot">
+      <div class="dc-roadmap__panel-header">
+        <h2 class="dc-roadmap__panel-title">Release cycle snapshot</h2>
+        <p class="dc-roadmap__panel-copy">Live HQ release-cycle state for the DungeonCrawler product team.</p>
+      </div>
+
+      {% set is_pushed_pending_advance = release_snapshot.active_release_status == 'pushed_pending_advance' %}
+      <div class="dc-roadmap__release-overview">
+        <section class="dc-roadmap__release-process" aria-labelledby="dc-roadmap-process-flow">
+          <div class="dc-roadmap__release-section-header">
+            <h3 class="dc-roadmap__release-section-title" id="dc-roadmap-process-flow">Process flow</h3>
+            <p class="dc-roadmap__release-section-copy">Ordered release steps from current work through the next cycle handoff.</p>
+          </div>
+
+          <ol class="dc-roadmap__release-flow">
+            <li class="dc-roadmap__release-stage dc-roadmap__release-stage--{{ is_pushed_pending_advance ? 'done' : 'active' }}">
+              <div class="dc-roadmap__release-stage-head">
+                <span class="dc-roadmap__release-step">1</span>
+                <span class="dc-status-badge dc-status-badge--{{ is_pushed_pending_advance ? 'done' : 'in_progress' }}">
+                  {{ is_pushed_pending_advance ? 'Completed' : 'Current' }}
+                </span>
+              </div>
+              <strong class="dc-roadmap__release-stage-title">Work active release</strong>
+              <div class="dc-roadmap__release-stage-value">{{ release_snapshot.active_release ?: '—' }}</div>
+              <p class="dc-roadmap__release-stage-copy">This is the release currently being built, tested, and scoped.</p>
+            </li>
+
+            <li class="dc-roadmap__release-stage dc-roadmap__release-stage--{{ is_pushed_pending_advance ? 'done' : 'pending' }}">
+              <div class="dc-roadmap__release-stage-head">
+                <span class="dc-roadmap__release-step">2</span>
+                <span class="dc-status-badge dc-status-badge--{{ is_pushed_pending_advance ? 'implemented' : 'pending' }}">
+                  {{ is_pushed_pending_advance ? 'Recorded' : 'Awaiting' }}
+                </span>
+              </div>
+              <strong class="dc-roadmap__release-stage-title">Push to production</strong>
+              <div class="dc-roadmap__release-stage-value">{{ release_snapshot.active_release_pushed_at ?: 'Not pushed yet' }}</div>
+              <p class="dc-roadmap__release-stage-copy">Production deployment of the active release lands here.</p>
+            </li>
+
+            <li class="dc-roadmap__release-stage dc-roadmap__release-stage--{{ is_pushed_pending_advance ? 'active' : 'pending' }}">
+              <div class="dc-roadmap__release-stage-head">
+                <span class="dc-roadmap__release-step">3</span>
+                <span class="dc-status-badge dc-status-badge--{{ is_pushed_pending_advance ? 'in_progress' : 'pending' }}">
+                  {{ is_pushed_pending_advance ? 'Current' : 'Later' }}
+                </span>
+              </div>
+              <strong class="dc-roadmap__release-stage-title">Advance release cycle</strong>
+              <div class="dc-roadmap__release-stage-value">{{ release_snapshot.active_release_status_label ?: '—' }}</div>
+              <p class="dc-roadmap__release-stage-copy">After push, the boundary advances so the next cycle can begin.</p>
+            </li>
+
+            <li class="dc-roadmap__release-stage dc-roadmap__release-stage--tracked">
+              <div class="dc-roadmap__release-stage-head">
+                <span class="dc-roadmap__release-step">4</span>
+                <span class="dc-status-badge dc-status-badge--queued">Queued</span>
+              </div>
+              <strong class="dc-roadmap__release-stage-title">Start next release</strong>
+              <div class="dc-roadmap__release-stage-value">{{ release_snapshot.next_release ?: '—' }}</div>
+              <p class="dc-roadmap__release-stage-copy">This release becomes active once the cycle boundary advances.</p>
+            </li>
+          </ol>
+
+          {% if release_snapshot.release_sync_note %}
+            <p class="dc-roadmap__release-note">{{ release_snapshot.release_sync_note }}</p>
+          {% endif %}
+        </section>
+
+        <aside class="dc-roadmap__release-tracked" aria-labelledby="dc-roadmap-tracked-info">
+          <div class="dc-roadmap__release-section-header">
+            <h3 class="dc-roadmap__release-section-title" id="dc-roadmap-tracked-info">Tracked information</h3>
+            <p class="dc-roadmap__release-section-copy">Reference data that explains the current stage without changing the process order.</p>
+          </div>
+
+          <div class="dc-roadmap__tracked-grid">
+            <article class="dc-roadmap__tracked-card">
+              <span class="dc-roadmap__tracked-label">Active release</span>
+              <strong class="dc-roadmap__tracked-value">{{ release_snapshot.active_release ?: '—' }}</strong>
+            </article>
+            <article class="dc-roadmap__tracked-card">
+              <span class="dc-roadmap__tracked-label">Next release</span>
+              <strong class="dc-roadmap__tracked-value">{{ release_snapshot.next_release ?: '—' }}</strong>
+            </article>
+            <article class="dc-roadmap__tracked-card">
+              <span class="dc-roadmap__tracked-label">Cycle started</span>
+              <strong class="dc-roadmap__tracked-value">{{ release_snapshot.started_at ?: '—' }}</strong>
+            </article>
+            <article class="dc-roadmap__tracked-card">
+              <span class="dc-roadmap__tracked-label">Pushed at</span>
+              <strong class="dc-roadmap__tracked-value">{{ release_snapshot.active_release_pushed_at ?: '—' }}</strong>
+            </article>
+          </div>
+        </aside>
+      </div>
+
+      <div class="dc-roadmap__backlog-groups">
+        <section class="dc-roadmap__backlog-group">
+          <div class="dc-roadmap__backlog-group-header">
+            <h3 class="dc-roadmap__backlog-group-title">Active release scope</h3>
+            <div class="dc-roadmap__backlog-group-stats">
+              <span class="dc-status-badge dc-status-badge--queued">{{ release_snapshot.active_features|length }} Features</span>
+            </div>
+          </div>
+          {% if release_snapshot.active_features %}
+            <ul class="dc-roadmap__backlog-list">
+              {% for feature in release_snapshot.active_features %}
+                <li class="dc-roadmap__backlog-item">
+                  <div class="dc-roadmap__backlog-item-main">
+                    <span class="dc-roadmap__backlog-item-title">{{ feature.title }}</span>
+                    <code class="dc-roadmap__backlog-item-id">{{ feature.feature_id }}</code>
+                  </div>
+                  <div class="dc-roadmap__backlog-item-meta">
+                    <span class="dc-status-badge dc-status-badge--{{ feature.display_status }}">{{ feature.status_label }}</span>
+                    <span class="dc-roadmap__backlog-priority">{{ feature.priority }}</span>
+                  </div>
+                </li>
+              {% endfor %}
+            </ul>
+          {% else %}
+            <p class="dc-roadmap__backlog-copy">No features are currently tagged to the active release.</p>
+          {% endif %}
+        </section>
+
+        <section class="dc-roadmap__backlog-group">
+          <div class="dc-roadmap__backlog-group-header">
+            <h3 class="dc-roadmap__backlog-group-title">Next release queue</h3>
+            <div class="dc-roadmap__backlog-group-stats">
+              <span class="dc-status-badge dc-status-badge--queued">{{ release_snapshot.next_features|length }} Features</span>
+            </div>
+          </div>
+          {% if release_snapshot.next_features %}
+            <ul class="dc-roadmap__backlog-list">
+              {% for feature in release_snapshot.next_features %}
+                <li class="dc-roadmap__backlog-item">
+                  <div class="dc-roadmap__backlog-item-main">
+                    <span class="dc-roadmap__backlog-item-title">{{ feature.title }}</span>
+                    <code class="dc-roadmap__backlog-item-id">{{ feature.feature_id }}</code>
+                  </div>
+                  <div class="dc-roadmap__backlog-item-meta">
+                    <span class="dc-status-badge dc-status-badge--{{ feature.display_status }}">{{ feature.status_label }}</span>
+                    <span class="dc-roadmap__backlog-priority">{{ feature.priority }}</span>
+                  </div>
+                </li>
+              {% endfor %}
+            </ul>
+          {% else %}
+            <p class="dc-roadmap__backlog-copy">No features are currently tagged to the next release.</p>
+          {% endif %}
+        </section>
+      </div>
+    </section>
+  {% endif %}
+
+  {% if backlog_groups %}
+    <section class="dc-roadmap__backlog">
+      <div class="dc-roadmap__backlog-header">
+        <h2 class="dc-roadmap__backlog-title">Queued feature backlog</h2>
+        <p class="dc-roadmap__backlog-copy">
+          Groomed Dungeoncrawler feature briefs tracked in HQ but not yet mapped to individual PF2E requirement rows.
+        </p>
+      </div>
+
+      <div class="dc-roadmap__backlog-groups">
+        {% for group in backlog_groups %}
+          <section class="dc-roadmap__backlog-group">
+            <div class="dc-roadmap__backlog-group-header">
+              <h3 class="dc-roadmap__backlog-group-title">{{ group.title }}</h3>
+              <div class="dc-roadmap__backlog-group-stats">
+                {% if group.counts.queued %}
+                  <span class="dc-status-badge dc-status-badge--queued">{{ group.counts.queued }} Queued</span>
+                {% endif %}
+                {% if group.counts.in_progress %}
+                  <span class="dc-status-badge dc-status-badge--in_progress">{{ group.counts.in_progress }} In Progress</span>
+                {% endif %}
+              </div>
+            </div>
+
+            <ul class="dc-roadmap__backlog-list">
+              {% for feature in group.features %}
+                <li class="dc-roadmap__backlog-item">
+                  <div class="dc-roadmap__backlog-item-main">
+                    <span class="dc-roadmap__backlog-item-title">{{ feature.title }}</span>
+                    <code class="dc-roadmap__backlog-item-id">{{ feature.feature_id }}</code>
+                  </div>
+                  <div class="dc-roadmap__backlog-item-meta">
+                    <span class="dc-status-badge dc-status-badge--{{ feature.display_status }}">{{ feature.status_label }}</span>
+                    <span class="dc-roadmap__backlog-priority">{{ feature.priority }}</span>
+                    {% if feature.release and feature.release != 'unscoped' and feature.release != '-' %}
+                      <span class="dc-roadmap__backlog-release">{{ feature.release }}</span>
+                    {% endif %}
+                  </div>
+                </li>
+              {% endfor %}
+            </ul>
+          </section>
+        {% endfor %}
+      </div>
+    </section>
+  {% endif %}
+
+  {# ── Per-book summary strip ────────────────────────────────────────────── #}
+  <section class="dc-roadmap__summary-panel">
+    <div class="dc-roadmap__panel-header">
+      <h2 class="dc-roadmap__panel-title">Book completion</h2>
+      <p class="dc-roadmap__panel-copy">Quick progress scan across the imported rulebook set.</p>
+    </div>
+    <div class="dc-roadmap__book-summary">
+      {% for book in books %}
+        {% set book_total = book.counts.pending + book.counts.in_progress + book.counts.implemented %}
+        {% set book_pct = book_total > 0 ? ((book.counts.implemented / book_total) * 100)|round : 0 %}
+        <div class="dc-roadmap__book-chip">
+          <span class="dc-roadmap__book-chip-name">{{ book.title }}</span>
+          <div class="dc-roadmap__book-chip-bar" title="{{ book_pct }}% implemented">
+            <div class="dc-roadmap__book-chip-fill" style="width: {{ book_pct }}%"></div>
+          </div>
+          <span class="dc-roadmap__book-chip-pct">{{ book_pct }}%</span>
+        </div>
+      {% endfor %}
+    </div>
+  </section>
+
+  {# ── Books ─────────────────────────────────────────────────────────────── #}
+  <section class="dc-roadmap__books-panel">
+    <div class="dc-roadmap__panel-header">
+      <h2 class="dc-roadmap__panel-title">Requirement details</h2>
+      <p class="dc-roadmap__panel-copy">Expand a rulebook, then drill into chapters and sections to inspect mapped implementation status.</p>
+    </div>
+    {% for book in books %}
+      {% set book_total = book.counts.pending + book.counts.in_progress + book.counts.implemented %}
+      {% set book_pct   = book_total > 0 ? ((book.counts.implemented / book_total) * 100)|round : 0 %}
+
+      <details class="dc-roadmap__book" id="book-{{ book.id }}">
+        <summary class="dc-roadmap__book-summary-row">
+          <span class="dc-roadmap__book-name">{{ book.title }}</span>
+          <span class="dc-roadmap__book-stats">
+            <span class="dc-status-badge dc-status-badge--implemented">{{ book.counts.implemented }}</span>
+            <span class="dc-status-badge dc-status-badge--in_progress">{{ book.counts.in_progress }}</span>
+            <span class="dc-status-badge dc-status-badge--pending">{{ book.counts.pending }}</span>
+            <span class="dc-roadmap__book-pct">{{ book_pct }}%</span>
+          </span>
+        </summary>
+
+        {# ── Chapters ──────────────────────────────────────────────────────── #}
+        {% for chapter in book.chapters %}
+          {% set ch_total = chapter.counts.pending + chapter.counts.in_progress + chapter.counts.implemented %}
+          {% set ch_pct   = ch_total > 0 ? ((chapter.counts.implemented / ch_total) * 100)|round : 0 %}
+
+          <details class="dc-roadmap__chapter" id="chapter-{{ book.id }}-{{ chapter.key }}">
+            <summary class="dc-roadmap__chapter-summary">
+              <span class="dc-roadmap__chapter-title">{{ chapter.title }}</span>
+              <span class="dc-roadmap__chapter-stats">
+                <span class="dc-status-badge dc-status-badge--implemented">{{ chapter.counts.implemented }}</span>
+                <span class="dc-status-badge dc-status-badge--in_progress">{{ chapter.counts.in_progress }}</span>
+                <span class="dc-status-badge dc-status-badge--pending">{{ chapter.counts.pending }}</span>
+                <span class="dc-roadmap__chapter-pct">{{ ch_pct }}%</span>
+              </span>
+            </summary>
+
+            {# ── Sections ────────────────────────────────────────────────── #}
+            {% for section_name, reqs in chapter.sections %}
+              <div class="dc-roadmap__section">
+                <h4 class="dc-roadmap__section-title">{{ section_name }}</h4>
+                <ul class="dc-roadmap__req-list">
+                  {% for req in reqs %}
+                    <li class="dc-roadmap__req dc-roadmap__req--{{ req.display_status }}"
+                        data-req-id="{{ req.id }}">
+                      <span class="dc-roadmap__req-status">
+                        <span class="dc-status-badge dc-status-badge--{{ req.display_status }}">
+                          {{ req.status_label }}
+                        </span>
+                        <span class="dc-roadmap__status-meta">Requirement</span>
+                        {% if req.feature_id %}
+                          <span class="dc-roadmap__feature-id" title="Release feature: {{ req.feature_id }}">{{ req.feature_id }}</span>
+                          {% if req.feature_pipeline_status %}
+                            <span class="dc-status-badge dc-status-badge--{{ req.feature_pipeline_display_status }}">
+                              {{ req.feature_pipeline_status_label }}
+                            </span>
+                            <span class="dc-roadmap__status-meta">Feature</span>
+                          {% endif %}
+                        {% endif %}
+                      </span>
+                      <span class="dc-roadmap__req-text">
+                        {% if req.paragraph_title %}
+                          <em class="dc-roadmap__req-para">{{ req.paragraph_title }}:</em>
+                        {% endif %}
+                        {{ req.req_text }}
+                      </span>
+                    </li>
+                  {% endfor %}
+                </ul>
+              </div>
+            {% endfor %}
+
+          </details>
+        {% endfor %}
+
+      </details>
+    {% endfor %}
+  </section>
+
+  {% if total == 0 %}
+    <div class="dc-roadmap__empty">
+      <p>No requirements have been imported yet.</p>
+      <p>Run <code>drush dungeoncrawler:import-requirements</code> to populate the roadmap.</p>
+    </div>
+  {% endif %}
+
+</div>{# /.dc-roadmap #}

@@ -1,0 +1,124 @@
+{
+    "template_id": "goblin_warrens_entrance_a1",
+    "name": "The Goblin Warrens",
+    "description": "A jagged crack in the hillside opens into a low, twisting passage reeking of smoke and animal musk. Crude torches guttering in wall sconces cast flickering orange light across rough-hewn stone smeared with goblin graffiti. The sound of chattering voices echoes from deeper within.",
+    "setting_type": "cave",
+    "size": "medium",
+    "lighting": "dim_light",
+    "setting_data": {
+        "theme_tags": [
+            "goblin",
+            "cave",
+            "underground",
+            "hostile"
+        ],
+        "atmosphere": "The stench of unwashed bodies and burnt meat hangs heavy in the damp air. Scratching and chittering echoes from unseen tunnels, punctuated by the occasional bark of goblin commands.",
+        "npcs": [
+            {
+                "name": "Grik the Lookout",
+                "content_id": "goblin_lookout_grik",
+                "ancestry": "Goblin",
+                "class": "Warrior",
+                "role": "hostile",
+                "team": "goblin_tribe",
+                "occupation": "Warren lookout",
+                "description": "A scrawny goblin perched on a rocky ledge near the entrance, clutching a crude shortbow. One ear is notched and scarred.",
+                "backstory": "Grik earned his post by being too cowardly to fight on the front lines but sharp-eyed enough to spot intruders.",
+                "attitude": "hostile",
+                "stats": {
+                    "maxHp": 6,
+                    "currentHp": 6,
+                    "ac": 15,
+                    "speed": 25,
+                    "perception": 5,
+                    "initiative_bonus": 3
+                },
+                "equipment": [
+                    "shortbow",
+                    "dogslicer",
+                    "leather scraps"
+                ]
+            },
+            {
+                "name": "Snarl",
+                "content_id": "goblin_dog_snarl",
+                "ancestry": "Goblin Dog",
+                "class": "Animal",
+                "role": "hostile",
+                "team": "goblin_tribe",
+                "occupation": "Warren guard beast",
+                "description": "A mangy, oversized rat-like canine with patchy fur and yellowed fangs, chained to a stalagmite near the entrance.",
+                "backstory": "The goblins captured this goblin dog as a pup and keep it half-starved to make it aggressive toward intruders.",
+                "attitude": "hostile",
+                "stats": {
+                    "maxHp": 17,
+                    "currentHp": 17,
+                    "ac": 15,
+                    "speed": 35,
+                    "perception": 6,
+                    "initiative_bonus": 2
+                },
+                "equipment": []
+            }
+        ],
+        "objects": [
+            {
+                "object_id": "crude_barricade",
+                "label": "Crude Barricade",
+                "category": "obstacle",
+                "description": "A haphazard pile of broken furniture, bones, and sharpened sticks forming a low barricade across the passage.",
+                "passable": false,
+                "interactable": true
+            },
+            {
+                "object_id": "guttering_torch",
+                "label": "Guttering Torch",
+                "category": "decor",
+                "description": "A torch jammed into a crack in the wall, burning with greasy black smoke.",
+                "passable": true,
+                "interactable": true
+            },
+            {
+                "object_id": "goblin_graffiti",
+                "label": "Goblin Graffiti",
+                "category": "decor",
+                "description": "Crude pictographs scratched into the rock walls depicting stick-figure goblins defeating much larger foes.",
+                "passable": true,
+                "interactable": false
+            },
+            {
+                "object_id": "bone_chime",
+                "label": "Bone Chime Alarm",
+                "category": "trap",
+                "description": "Strings of small bones and shells hung across the passage at ankle height \u2014 a primitive alarm system.",
+                "passable": true,
+                "interactable": true
+            }
+        ]
+    },
+    "search_tags": [
+        "goblin",
+        "warrens",
+        "cave",
+        "underground",
+        "entrance",
+        "lair",
+        "den",
+        "tunnel",
+        "passage",
+        "dim",
+        "hostile",
+        "guard",
+        "lookout",
+        "barricade",
+        "torch",
+        "crude",
+        "smelly",
+        "warren"
+    ],
+    "level_min": "1",
+    "level_max": "4",
+    "usage_count": "0",
+    "quality_score": "0.85",
+    "source": "handcrafted"
+}

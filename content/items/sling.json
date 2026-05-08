@@ -1,0 +1,24 @@
+{
+  "schema_version": "1.0.0",
+  "item_id": "sling",
+  "name": "Sling",
+  "item_type": "weapon",
+  "level": 0,
+  "rarity": "common",
+  "traits": ["simple", "sling"],
+  "description": "A strip of leather used to hurl stones or bullets at targets. Simple but effective at range.",
+  "price": { "cp": 0, "sp": 0, "gp": 0, "pp": 0 },
+  "bulk": "L",
+  "hands": "1",
+  "weapon_stats": {
+    "category": "simple",
+    "group": "sling",
+    "damage": { "dice_count": 1, "die_size": "d6", "damage_type": "bludgeoning" },
+    "range": "50 ft.",
+    "reload": "1",
+    "weapon_traits": ["propulsive"]
+  },
+  "created_at": "2026-03-01T00:00:00Z",
+  "updated_at": "2026-03-01T00:00:00Z",
+  "item_category": "weapon"
+}

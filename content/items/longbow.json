@@ -1,0 +1,39 @@
+{
+  "schema_version": "1.0.0",
+  "item_id": "longbow",
+  "name": "Longbow",
+  "item_type": "weapon",
+  "level": 0,
+  "rarity": "common",
+  "traits": [
+    "martial",
+    "bow"
+  ],
+  "description": "A tall bow that requires great strength to draw, capable of striking targets at impressive distances. Its long range comes at the cost of reduced accuracy up close.",
+  "price": {
+    "cp": 0,
+    "sp": 0,
+    "gp": 6,
+    "pp": 0
+  },
+  "bulk": "2",
+  "hands": "1+",
+  "weapon_stats": {
+    "category": "martial",
+    "group": "bow",
+    "damage": {
+      "dice_count": 1,
+      "die_size": "d8",
+      "damage_type": "piercing"
+    },
+    "range": "100 ft.",
+    "reload": "0",
+    "weapon_traits": [
+      "deadly d10",
+      "volley 30 ft."
+    ]
+  },
+  "created_at": "2026-03-01T00:00:00Z",
+  "updated_at": "2026-03-01T00:00:00Z",
+  "item_category": "weapon"
+}

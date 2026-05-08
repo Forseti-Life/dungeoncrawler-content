@@ -1,0 +1,247 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dungeoncrawler.life/schemas/hexmap.schema.json",
+  "title": "Hex Map Schema",
+  "description": "Defines the hex-based dungeon map structure. Uses axial coordinates (q, r) for hex positioning with flat-top orientation. Each hex is 5ft across (1 PF2e square = 1 hex). Compatible with Pathfinder 2e movement, range, and area-of-effect rules.",
+  "type": "object",
+  "required": ["schema_version", "map_id", "name", "depth_tier", "hex_grid", "metadata"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "description": "Schema version for migration compatibility.",
+      "default": "1.0.0",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "map_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Unique identifier for this map instance."
+    },
+    "name": {
+      "type": "string",
+      "description": "Display name of this dungeon level or area."
+    },
+    "depth_tier": {
+      "type": "string",
+      "enum": ["shallow_halls", "twisting_corridors", "deep_caverns", "the_underdark", "the_abyss"],
+      "description": "Dungeon depth tier. Determines AI generation difficulty parameters."
+    },
+    "depth_level": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Numeric depth level within the tier. Higher = deeper and more dangerous."
+    },
+    "hex_grid": {
+      "type": "object",
+      "description": "The hex grid configuration and coordinate system.",
+      "required": ["orientation", "hex_size_ft", "origin"],
+      "additionalProperties": false,
+      "properties": {
+        "orientation": {
+          "type": "string",
+          "enum": ["flat-top", "pointy-top"],
+          "default": "flat-top",
+          "description": "Hex orientation. Flat-top is standard for dungeon crawls."
+        },
+        "hex_size_ft": {
+          "type": "number",
+          "default": 5,
+          "minimum": 1,
+          "description": "Size of each hex in feet. 5ft = 1 PF2e square. Used for movement, range, and AoE calculations."
+        },
+        "origin": {
+          "type": "object",
+          "description": "The origin hex (entrance point) in axial coordinates.",
+          "required": ["q", "r"],
+          "additionalProperties": false,
+          "properties": {
+            "q": { "type": "integer", "default": 0, "description": "Column (axial q-axis) of origin hex." },
+            "r": { "type": "integer", "default": 0, "description": "Row (axial r-axis) of origin hex." }
+          }
+        },
+        "coordinate_system": {
+          "type": "string",
+          "enum": ["axial", "cube", "offset"],
+          "default": "axial",
+          "description": "Coordinate system used. Axial (q, r) is primary. Cube (q, r, s where q+r+s=0) derived automatically."
+        }
+      }
+    },
+    "rooms": {
+      "type": "object",
+      "description": "Map of room_id → room data. Each room occupies one or more hexes.",
+      "additionalProperties": {
+        "$ref": "room.schema.json"
+      }
+    },
+    "connections": {
+      "type": "array",
+      "description": "Passages, doors, and connections between rooms.",
+      "items": {
+        "$ref": "#/definitions/connection"
+      }
+    },
+    "regions": {
+      "type": "array",
+      "description": "Named regions grouping multiple rooms (e.g., 'The Fungal Pantry', 'Spider Nests').",
+      "items": {
+        "$ref": "#/definitions/region"
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "required": ["created_at", "generation_seed"],
+      "additionalProperties": false,
+      "properties": {
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp when this map was created (ISO 8601 format)."
+        },
+        "last_modified": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp of the last modification to this map (ISO 8601 format)."
+        },
+        "generation_seed": {
+          "type": "string",
+          "description": "Seed used for procedural generation. Allows deterministic replay."
+        },
+        "generated_by": {
+          "type": "string",
+          "description": "AI model or generator version that created this map."
+        },
+        "is_finalized": {
+          "type": "boolean",
+          "default": false,
+          "description": "Once true, this map section is permanent and cannot be regenerated."
+        },
+        "total_rooms": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total number of rooms in this map."
+        },
+        "explored_rooms": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of rooms that have been explored by the party."
+        },
+        "exploration_percentage": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        }
+      }
+    }
+  },
+  "definitions": {
+    "hex_coordinate": {
+      "type": "object",
+      "description": "Axial hex coordinate. Cube coordinate s is derived as s = -q - r.",
+      "required": ["q", "r"],
+      "additionalProperties": false,
+      "properties": {
+        "q": { "type": "integer", "description": "Column (axial q-axis)." },
+        "r": { "type": "integer", "description": "Row (axial r-axis)." }
+      }
+    },
+    "connection": {
+      "type": "object",
+      "required": ["from_room", "to_room", "type"],
+      "additionalProperties": false,
+      "properties": {
+        "connection_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "from_room": {
+          "type": "string",
+          "description": "Room ID of the origin side."
+        },
+        "to_room": {
+          "type": ["string", "null"],
+          "description": "Room ID of the destination. Null if the room hasn't been generated yet."
+        },
+        "from_hex": { "$ref": "#/definitions/hex_coordinate" },
+        "to_hex": { "$ref": "#/definitions/hex_coordinate" },
+        "type": {
+          "type": "string",
+          "enum": ["open_passage", "door", "locked_door", "secret_door", "trapped_door", "barricade", "collapsed", "magical_barrier", "one_way", "stairs_down", "stairs_up", "shaft", "portal"],
+          "description": "Connection type. Affects movement and perception checks."
+        },
+        "pf2e_checks": {
+          "type": "object",
+          "description": "PF2e skill checks required to use this connection.",
+          "additionalProperties": false,
+          "properties": {
+            "perception_dc": {
+              "type": ["integer", "null"],
+              "minimum": 1,
+              "maximum": 50,
+              "description": "DC to notice a secret/hidden connection."
+            },
+            "thievery_dc": {
+              "type": ["integer", "null"],
+              "minimum": 1,
+              "maximum": 50,
+              "description": "DC to pick a lock."
+            },
+            "athletics_dc": {
+              "type": ["integer", "null"],
+              "minimum": 1,
+              "maximum": 50,
+              "description": "DC to force open or clear debris."
+            },
+            "arcana_dc": {
+              "type": ["integer", "null"],
+              "minimum": 1,
+              "maximum": 50,
+              "description": "DC to dispel a magical barrier."
+            }
+          }
+        },
+        "is_discovered": {
+          "type": "boolean",
+          "default": false
+        },
+        "is_passable": {
+          "type": "boolean",
+          "default": true
+        },
+        "trap": {
+          "type": ["object", "null"],
+          "description": "Trap attached to this connection, if any.",
+          "$ref": "trap.schema.json"
+        }
+      }
+    },
+    "region": {
+      "type": "object",
+      "required": ["region_id", "name", "room_ids"],
+      "additionalProperties": false,
+      "properties": {
+        "region_id": { "type": "string", "description": "Unique identifier for this region." },
+        "name": { "type": "string", "description": "Display name for this region." },
+        "description": { "type": "string", "description": "Narrative description of this region." },
+        "room_ids": {
+          "type": "array",
+          "description": "Array of room IDs that belong to this region.",
+          "minItems": 1,
+          "items": { "type": "string" }
+        },
+        "environmental_effects": {
+          "type": "array",
+          "description": "PF2e environmental effects active in this region.",
+          "items": { "type": "string" }
+        },
+        "ambient_hazard_level": {
+          "type": "integer",
+          "minimum": -1,
+          "maximum": 25,
+          "description": "PF2e hazard level for ambient regional effects."
+        }
+      }
+    }
+  }
+}

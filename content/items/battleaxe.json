@@ -1,0 +1,38 @@
+{
+  "schema_version": "1.0.0",
+  "item_id": "battleaxe",
+  "name": "Battleaxe",
+  "item_type": "weapon",
+  "level": 0,
+  "rarity": "common",
+  "traits": [
+    "martial",
+    "axe"
+  ],
+  "description": "A heavy axe designed for combat, featuring a broad cutting edge. Its sweeping strikes can cleave through multiple foes.",
+  "price": {
+    "cp": 0,
+    "sp": 0,
+    "gp": 1,
+    "pp": 0
+  },
+  "bulk": "1",
+  "hands": "1",
+  "weapon_stats": {
+    "category": "martial",
+    "group": "axe",
+    "damage": {
+      "dice_count": 1,
+      "die_size": "d8",
+      "damage_type": "slashing"
+    },
+    "range": null,
+    "reload": null,
+    "weapon_traits": [
+      "sweep"
+    ]
+  },
+  "created_at": "2026-03-01T00:00:00Z",
+  "updated_at": "2026-03-01T00:00:00Z",
+  "item_category": "weapon"
+}

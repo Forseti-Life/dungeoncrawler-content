@@ -1,0 +1,244 @@
+{
+  "_meta": {
+    "generator": "onset-nucleus-coda",
+    "notes": "Local ancestry-aware syllable profiles for non-LLM name generation."
+  },
+  "Human": {
+    "surname_chance": 90,
+    "given": {
+      "syllables": [2, 2, 3],
+      "onsets": ["al", "br", "cor", "da", "el", "fen", "gar", "hal", "jor", "ka", "mar", "per", "ro", "sa", "ta", "wil"],
+      "nuclei": ["a", "e", "i", "o", "u", "ae", "ia", "eo"],
+      "codas": ["n", "r", "s", "t", "ld", "ric", "ran", "son", "th", "mir", "len", "d"],
+      "mid_coda_chance": 25
+    },
+    "surname": {
+      "syllables": [2, 2, 3],
+      "onsets": ["ash", "bar", "black", "dun", "elm", "fair", "gray", "hart", "mar", "nor", "stone", "thorn", "val", "west", "win"],
+      "nuclei": ["a", "e", "i", "o", "u", "ea", "ou"],
+      "codas": ["ford", "field", "ham", "mere", "ridge", "son", "ton", "well", "wick", "worth", "brook", "dale"],
+      "mid_coda_chance": 20
+    }
+  },
+  "Elf": {
+    "surname_chance": 65,
+    "given": {
+      "syllables": [2, 3, 3],
+      "onsets": ["ae", "cal", "el", "fae", "ith", "lae", "lyr", "nae", "sel", "tha", "vae", "yl"],
+      "nuclei": ["a", "e", "i", "ae", "ia", "ie", "ui", "yl"],
+      "codas": ["l", "n", "r", "s", "th", "riel", "lith", "dris", "nor", "wyn"],
+      "mid_coda_chance": 40
+    },
+    "surname": {
+      "syllables": [2, 3],
+      "onsets": ["amar", "dawn", "even", "glim", "moon", "sil", "star", "summer", "vale", "whis"],
+      "nuclei": ["a", "e", "i", "o", "ae", "ia", "io"],
+      "codas": ["bloom", "branch", "dancer", "glade", "grove", "song", "spire", "weaver", "wind", "shade"],
+      "mid_coda_chance": 25
+    }
+  },
+  "Dwarf": {
+    "surname_chance": 95,
+    "given": {
+      "syllables": [2, 2],
+      "onsets": ["bal", "bar", "brok", "dur", "far", "gar", "grim", "kor", "mor", "rag", "thor", "vard"],
+      "nuclei": ["a", "o", "u", "au", "oi"],
+      "codas": ["din", "drum", "gar", "grim", "li", "rak", "rin", "rik", "rum", "var"],
+      "mid_coda_chance": 55
+    },
+    "surname": {
+      "syllables": [2, 2],
+      "onsets": ["anvil", "axe", "beer", "bronze", "deep", "ember", "forge", "gran", "iron", "stone", "torch"],
+      "nuclei": ["a", "e", "i", "o", "u", "oa"],
+      "codas": ["bane", "beard", "breaker", "delver", "fist", "guard", "hammer", "mantle", "shield", "vein"],
+      "mid_coda_chance": 30
+    }
+  },
+  "Gnome": {
+    "surname_chance": 55,
+    "given": {
+      "syllables": [2, 3, 3],
+      "onsets": ["bim", "cob", "dap", "fiz", "gil", "nim", "pip", "quib", "tink", "wob", "zib"],
+      "nuclei": ["a", "e", "i", "o", "u", "ee", "ia"],
+      "codas": ["ble", "bin", "dle", "fizz", "kin", "lin", "mop", "nip", "wick", "zle"],
+      "mid_coda_chance": 45
+    },
+    "surname": {
+      "syllables": [2, 2, 3],
+      "onsets": ["brass", "candle", "cog", "dew", "glimmer", "hollow", "merry", "moss", "pocket", "twinkle"],
+      "nuclei": ["a", "e", "i", "o", "u", "ee", "oa"],
+      "codas": ["bottle", "burrow", "cap", "gear", "gleam", "knob", "leaf", "spark", "step", "whistle"],
+      "mid_coda_chance": 25
+    }
+  },
+  "Goblin": {
+    "surname_chance": 15,
+    "given": {
+      "syllables": [2, 2, 3],
+      "onsets": ["blik", "crik", "gak", "grib", "krak", "nib", "ruk", "skab", "snik", "zug"],
+      "nuclei": ["a", "i", "o", "u"],
+      "codas": ["ch", "g", "ik", "ix", "nak", "rat", "sk", "snag", "tik", "z"],
+      "mid_coda_chance": 60
+    },
+    "surname": {
+      "syllables": [2],
+      "onsets": ["ash", "bone", "mud", "rot", "scrap", "snot", "torch"],
+      "nuclei": ["a", "i", "o", "u"],
+      "codas": ["bite", "chewer", "gnaw", "lick", "picker", "rattle", "snout"],
+      "mid_coda_chance": 35
+    }
+  },
+  "Halfling": {
+    "surname_chance": 95,
+    "given": {
+      "syllables": [2, 2],
+      "onsets": ["ber", "cor", "el", "fen", "jo", "mer", "nel", "os", "per", "ros", "til", "win"],
+      "nuclei": ["a", "e", "i", "o", "u", "ia"],
+      "codas": ["by", "do", "fin", "kin", "la", "lo", "ric", "ry", "ton", "wick"],
+      "mid_coda_chance": 25
+    },
+    "surname": {
+      "syllables": [2, 2],
+      "onsets": ["apple", "bramble", "brush", "good", "green", "hill", "meadow", "quick", "soft", "under"],
+      "nuclei": ["a", "e", "i", "o", "u", "ow"],
+      "codas": ["barrel", "brook", "burrow", "field", "foot", "grass", "runner", "step", "top", "whistle"],
+      "mid_coda_chance": 20
+    }
+  },
+  "Half-Elf": {
+    "surname_chance": 80,
+    "given": {
+      "syllables": [2, 3],
+      "onsets": ["ae", "al", "cae", "dar", "el", "fen", "li", "mar", "sel", "tor", "vae"],
+      "nuclei": ["a", "e", "i", "o", "ae", "ia", "ie"],
+      "codas": ["dor", "en", "ian", "l", "nor", "ren", "riel", "s", "th"],
+      "mid_coda_chance": 35
+    },
+    "surname": {
+      "syllables": [2, 2, 3],
+      "onsets": ["amber", "bright", "dawn", "fair", "gold", "moon", "river", "silver", "star", "thorn"],
+      "nuclei": ["a", "e", "i", "o", "u", "ia"],
+      "codas": ["brook", "fall", "grove", "mere", "song", "vale", "ward", "wind", "wood"],
+      "mid_coda_chance": 20
+    }
+  },
+  "Half-Orc": {
+    "surname_chance": 55,
+    "given": {
+      "syllables": [2, 2],
+      "onsets": ["brak", "dor", "gar", "hal", "kor", "morg", "ruk", "thar", "ulg", "vor"],
+      "nuclei": ["a", "o", "u", "au"],
+      "codas": ["an", "ar", "ek", "gar", "grim", "ok", "or", "rak", "uk"],
+      "mid_coda_chance": 45
+    },
+    "surname": {
+      "syllables": [2],
+      "onsets": ["ash", "black", "blood", "grim", "iron", "storm", "wolf"],
+      "nuclei": ["a", "o", "u", "oa"],
+      "codas": ["born", "fury", "hand", "maw", "scar", "song", "ward"],
+      "mid_coda_chance": 25
+    }
+  },
+  "Leshy": {
+    "surname_chance": 5,
+    "given": {
+      "syllables": [2, 2, 3],
+      "onsets": ["bri", "fern", "lil", "moss", "pet", "reed", "root", "sprig", "thorn", "vine"],
+      "nuclei": ["a", "e", "i", "o", "u", "oa", "ee"],
+      "codas": ["bud", "dew", "fern", "leaf", "petal", "root", "seed", "shade", "song", "twig"],
+      "mid_coda_chance": 35
+    },
+    "surname": {
+      "syllables": [2],
+      "onsets": ["green", "mist", "rain", "sun", "wild"],
+      "nuclei": ["a", "e", "i", "o", "u"],
+      "codas": ["bloom", "canopy", "fall", "glen", "moss"],
+      "mid_coda_chance": 15
+    }
+  },
+  "Orc": {
+    "surname_chance": 35,
+    "given": {
+      "syllables": [2, 2],
+      "onsets": ["brug", "drog", "gar", "gor", "krug", "mog", "org", "thok", "urg", "zor"],
+      "nuclei": ["a", "o", "u"],
+      "codas": ["ak", "ar", "g", "gar", "mok", "nak", "ruk", "th", "uk"],
+      "mid_coda_chance": 60
+    },
+    "surname": {
+      "syllables": [2],
+      "onsets": ["ash", "black", "bone", "doom", "iron", "red", "war"],
+      "nuclei": ["a", "o", "u"],
+      "codas": ["axe", "brand", "fist", "scar", "shield", "tusk", "walker"],
+      "mid_coda_chance": 25
+    }
+  },
+  "Catfolk": {
+    "surname_chance": 45,
+    "given": {
+      "syllables": [2, 3],
+      "onsets": ["ami", "cha", "fel", "ka", "mir", "nya", "rha", "sai", "sha", "zir"],
+      "nuclei": ["a", "e", "i", "o", "u", "ai", "ia"],
+      "codas": ["li", "na", "ra", "ri", "sa", "sha", "tai", "za"],
+      "mid_coda_chance": 20
+    },
+    "surname": {
+      "syllables": [2],
+      "onsets": ["amber", "moon", "night", "quick", "shadow", "silver", "sun", "whisper"],
+      "nuclei": ["a", "e", "i", "o", "u"],
+      "codas": ["claw", "eye", "pelt", "song", "step", "tail", "whisker"],
+      "mid_coda_chance": 15
+    }
+  },
+  "Kobold": {
+    "surname_chance": 10,
+    "given": {
+      "syllables": [2, 2, 3],
+      "onsets": ["dra", "ik", "kir", "skr", "ssa", "tik", "vra", "wyr", "zik", "zir"],
+      "nuclei": ["a", "i", "o", "u", "ia"],
+      "codas": ["ax", "ek", "ik", "iss", "rix", "sk", "t", "vix"],
+      "mid_coda_chance": 55
+    },
+    "surname": {
+      "syllables": [2],
+      "onsets": ["ash", "deep", "ember", "gem", "scale", "smoke"],
+      "nuclei": ["a", "e", "i", "o", "u"],
+      "codas": ["coil", "fang", "hide", "spark", "tongue", "wing"],
+      "mid_coda_chance": 20
+    }
+  },
+  "Ratfolk": {
+    "surname_chance": 35,
+    "given": {
+      "syllables": [2, 2, 3],
+      "onsets": ["chik", "nik", "pip", "rik", "siv", "skit", "tik", "ves", "whis", "zirki"],
+      "nuclei": ["a", "e", "i", "o", "u"],
+      "codas": ["et", "ik", "ip", "it", "rix", "sk", "tik", "vin"],
+      "mid_coda_chance": 50
+    },
+    "surname": {
+      "syllables": [2],
+      "onsets": ["burrow", "dust", "quick", "scrap", "shadow", "swift", "wire"],
+      "nuclei": ["a", "e", "i", "o", "u"],
+      "codas": ["cheek", "claw", "runner", "snout", "tail", "whisk"],
+      "mid_coda_chance": 15
+    }
+  },
+  "Tengu": {
+    "surname_chance": 40,
+    "given": {
+      "syllables": [2, 2, 3],
+      "onsets": ["aka", "kage", "kara", "ren", "sora", "taka", "tsu", "ya", "zen"],
+      "nuclei": ["a", "e", "i", "o", "u", "ai", "ei"],
+      "codas": ["ki", "ko", "ra", "ren", "shi", "su", "to", "zu"],
+      "mid_coda_chance": 20
+    },
+    "surname": {
+      "syllables": [2],
+      "onsets": ["black", "bright", "cloud", "dawn", "feather", "reed", "storm", "wind"],
+      "nuclei": ["a", "e", "i", "o", "u"],
+      "codas": ["beak", "cry", "flight", "song", "talon", "wing"],
+      "mid_coda_chance": 15
+    }
+  }
+}

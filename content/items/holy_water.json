@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0.0",
+  "item_id": "holy_water",
+  "name": "Holy Water",
+  "item_type": "consumable",
+  "level": 1,
+  "rarity": "common",
+  "traits": ["consumable", "divine", "splash", "water"],
+  "description": "A vial of blessed water. Deals 1d6 good damage plus 1 good splash damage on a hit. Undead and fiends take an additional 1 good damage.",
+  "price": { "cp": 0, "sp": 0, "gp": 3, "pp": 0 },
+  "bulk": "L",
+  "hands": 1,
+  "created_at": "2026-03-01T00:00:00Z",
+  "updated_at": "2026-03-01T00:00:00Z",
+  "item_category": "consumable"
+}

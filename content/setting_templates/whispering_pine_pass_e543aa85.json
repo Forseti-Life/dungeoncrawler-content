@@ -1,0 +1,135 @@
+{
+    "template_id": "whispering_pine_pass_e543aa85",
+    "name": "Whispering Pine Pass",
+    "description": "A narrow, winding trail cuts through dense pine forest, hemmed in by towering evergreens and moss-covered boulders. The air is thick with the scent of pine resin and damp earth. In the distance, you hear the faint rumble of a mountain stream and the occasional cry of a hawk.",
+    "setting_type": "wilderness",
+    "size": "large",
+    "lighting": "normal_light",
+    "setting_data": {
+        "theme_tags": [
+            "frontier",
+            "rugged",
+            "uncivilized"
+        ],
+        "atmosphere": "The untamed wilderness exudes an air of both beauty and danger, with the constant feeling of being watched by unseen eyes.",
+        "npcs": [
+            {
+                "name": "Groknak the Tracker",
+                "content_id": "groknak_tracker",
+                "ancestry": "Half-Orc",
+                "class": "Ranger",
+                "role": "neutral",
+                "team": "neutral",
+                "occupation": "Wilderness guide",
+                "description": "A grizzled half-orc with weathered green skin and a network of scars across his face. He wears worn leather armor and carries a longbow slung across his back.",
+                "backstory": "Groknak was cast out from his barbarian tribe for refusing to participate in a raid on a human settlement. He now makes a living guiding travelers through these dangerous lands.",
+                "attitude": "indifferent",
+                "stats": {
+                    "maxHp": 16,
+                    "currentHp": 16,
+                    "ac": 15,
+                    "speed": 30,
+                    "perception": 7,
+                    "initiative_bonus": 7
+                },
+                "equipment": [
+                    "longbow",
+                    "shortsword",
+                    "leather armor"
+                ]
+            }
+        ],
+        "objects": [
+            {
+                "object_id": "fallen_log",
+                "label": "Fallen Log",
+                "category": "obstacle",
+                "description": "A massive pine trunk blocks part of the path, covered in moss and mushrooms.",
+                "passable": false,
+                "interactable": true
+            },
+            {
+                "object_id": "ancient_standing_stone",
+                "label": "Ancient Standing Stone",
+                "category": "decoration",
+                "description": "A weathered stone monolith covered in faded carvings stands just off the path.",
+                "passable": true,
+                "interactable": true
+            },
+            {
+                "object_id": "gurgling_stream",
+                "label": "Gurgling Stream",
+                "category": "obstacle",
+                "description": "A small, clear stream cuts across the path, requiring a short leap to cross.",
+                "passable": true,
+                "interactable": true
+            },
+            {
+                "object_id": "rocky_outcropping",
+                "label": "Rocky Outcropping",
+                "category": "decoration",
+                "description": "A jagged formation of granite rocks juts out from the forest floor.",
+                "passable": false,
+                "interactable": true
+            },
+            {
+                "object_id": "animal_tracks",
+                "label": "Animal Tracks",
+                "category": "decoration",
+                "description": "Various animal tracks can be seen in the soft earth near the path.",
+                "passable": true,
+                "interactable": true
+            }
+        ]
+    },
+    "search_tags": [
+        "rugged",
+        "wilderness",
+        "area",
+        "bordering",
+        "barbarian",
+        "lands",
+        "dense",
+        "forests",
+        "rocky",
+        "outcroppings",
+        "frontier",
+        "uncivilized",
+        "large",
+        "whispering",
+        "pine",
+        "pass",
+        "narrow",
+        "winding",
+        "trail",
+        "cuts",
+        "through",
+        "forest",
+        "hemmed",
+        "towering",
+        "evergreens",
+        "moss",
+        "covered",
+        "boulders",
+        "air",
+        "thick",
+        "scent",
+        "resin",
+        "damp",
+        "earth",
+        "distance",
+        "hear",
+        "faint",
+        "rumble",
+        "mountain",
+        "stream",
+        "occasional",
+        "cry",
+        "hawk"
+    ],
+    "level_min": "1",
+    "level_max": "4",
+    "usage_count": "1",
+    "quality_score": "0.5",
+    "source": "ai_generated"
+}
