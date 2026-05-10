@@ -6,6 +6,8 @@ use Drupal\Component\Datetime\TimeInterface;
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Database\Connection;
 use Drupal\Core\Url;
+use Drupal\dungeoncrawler_content\Form\CharacterPortraitRegenerateForm;
+use Drupal\dungeoncrawler_content\Form\CharacterPortraitUploadForm;
 use Drupal\dungeoncrawler_content\Service\CharacterManager;
 use Drupal\dungeoncrawler_content\Service\FeatEffectManager;
 use Drupal\dungeoncrawler_content\Service\GeneratedImageRepository;
@@ -60,77 +62,42 @@ class CharacterViewController extends ControllerBase {
       throw new AccessDeniedHttpException();
     }
 
-    // Decode character data via manager and normalize nested/flat shape.
+    // Decode character data via manager and normalize onto the canonical shape
+    // used by the character sheet.
     $decoded = $this->characterManager->getCharacterData($record);
-    $char_data = is_array($decoded['character'] ?? NULL) ? $decoded['character'] : $decoded;
-    $hot = $this->characterManager->resolveHotColumnsForRecord($record, $decoded);
+    $char_data = $this->characterManager->canonicalizeCharacterData($decoded);
+    $hot = $this->characterManager->resolveHotColumnsForRecord($record, $char_data);
 
-    // Support both old flat structure and new nested abilities structure
-    $abilities = [];
-    if (!empty($char_data['abilities'])) {
-      // New schema format
-      foreach (['str' => 'strength', 'dex' => 'dexterity', 'con' => 'constitution', 'int' => 'intelligence', 'wis' => 'wisdom', 'cha' => 'charisma'] as $short => $long) {
-        $score = $char_data['abilities'][$short] ?? 10;
-        $modifier = floor(($score - 10) / 2);
-        $abilities[$long] = [
-          'score' => $score,
-          'modifier' => $modifier,
-        ];
-      }
-    }
-    elseif (!empty($char_data['ability_scores']) && is_array($char_data['ability_scores'])) {
-      // Nested schema format.
-      foreach (['strength', 'dexterity', 'constitution', 'intelligence', 'wisdom', 'charisma'] as $ability) {
-        $score = (int) ($char_data['ability_scores'][$ability]['score'] ?? 10);
-        $modifier = floor(($score - 10) / 2);
-        $abilities[$ability] = [
-          'score' => $score,
-          'modifier' => $modifier,
-        ];
-      }
-    }
-    else {
-      // Old flat format - fallback
-      foreach (['strength', 'dexterity', 'constitution', 'intelligence', 'wisdom', 'charisma'] as $ability) {
-        $score = $char_data[$ability] ?? 10;
-        $modifier = floor(($score - 10) / 2);
-        $abilities[$ability] = [
-          'score' => $score,
-          'modifier' => $modifier,
-        ];
-      }
-    }
+    $abilities = $this->buildAbilityDisplayData($char_data);
 
     // Calculate derived stats
     $level = $char_data['level'] ?? $record->level ?? 1;
     $con_mod = $abilities['constitution']['modifier'];
     
-    // AC calculation (10 + DEX modifier for unarmored)
-    $ac = (int) $hot['armor_class'];
+    $ac = (int) ($char_data['armor_class'] ?? $hot['armor_class']);
     
-    // Max HP from schema or calculate
-    $max_hp = (int) $hot['hp_max'];
+    $hit_points = is_array($char_data['hit_points'] ?? NULL) ? $char_data['hit_points'] : [];
+    $max_hp = (int) ($hit_points['max'] ?? $hot['hp_max']);
     
-    // Saving throws (proficiency bonus = level + 2 for trained)
     $prof_bonus = $level + 2;
+    $stored_saves = is_array($char_data['saves'] ?? NULL) ? $char_data['saves'] : [];
     $saves = [
       'Fortitude' => [
-        'modifier' => $con_mod + $prof_bonus,
+        'modifier' => (int) ($stored_saves['fortitude'] ?? ($con_mod + $prof_bonus)),
         'proficiency' => 'Trained',
       ],
       'Reflex' => [
-        'modifier' => $abilities['dexterity']['modifier'] + $prof_bonus,
+        'modifier' => (int) ($stored_saves['reflex'] ?? ($abilities['dexterity']['modifier'] + $prof_bonus)),
         'proficiency' => 'Trained',
       ],
       'Will' => [
-        'modifier' => $abilities['wisdom']['modifier'] + $prof_bonus,
+        'modifier' => (int) ($stored_saves['will'] ?? ($abilities['wisdom']['modifier'] + $prof_bonus)),
         'proficiency' => 'Trained',
       ],
     ];
 
-    // Perception
     $perception = [
-      'modifier' => $abilities['wisdom']['modifier'] + $prof_bonus,
+      'modifier' => (int) ($char_data['perception'] ?? ($abilities['wisdom']['modifier'] + $prof_bonus)),
       'proficiency' => 'Trained',
       'senses' => [],
     ];
@@ -187,10 +154,10 @@ class CharacterViewController extends ControllerBase {
 
     $ancestry_name = is_array($char_data['ancestry'] ?? NULL)
       ? ($char_data['ancestry']['name'] ?? 'Unknown')
-      : ($char_data['ancestry'] ?? 'Unknown');
+      : (CharacterManager::resolveAncestryCanonicalName((string) ($char_data['ancestry'] ?? '')) ?: $this->humanizeName((string) ($char_data['ancestry'] ?? 'Unknown')));
     $heritage = is_array($char_data['ancestry'] ?? NULL)
       ? ($char_data['ancestry']['heritage'] ?? NULL)
-      : ($char_data['heritage'] ?? NULL);
+      : (!empty($char_data['heritage']) ? $this->humanizeName((string) $char_data['heritage']) : NULL);
     $size = is_array($char_data['ancestry'] ?? NULL)
       ? ($char_data['ancestry']['size'] ?? 'Medium')
       : ($char_data['size'] ?? 'Medium');
@@ -203,13 +170,13 @@ class CharacterViewController extends ControllerBase {
 
     $class_name = is_array($char_data['class'] ?? NULL)
       ? ($char_data['class']['name'] ?? 'Unknown')
-      : ($char_data['class'] ?? 'Unknown');
+      : $this->humanizeName((string) ($char_data['class'] ?? 'Unknown'));
     $class_subclass = is_array($char_data['class'] ?? NULL)
       ? ($char_data['class']['subclass'] ?? NULL)
-      : ($char_data['subclass'] ?? NULL);
+      : (!empty($char_data['subclass']) ? $this->humanizeName((string) $char_data['subclass']) : NULL);
     $class_key_ability = is_array($char_data['class'] ?? NULL)
       ? ($char_data['class']['key_ability'] ?? 'STR')
-      : 'STR';
+      : strtoupper((string) ($char_data['class_key_ability'] ?? $char_data['spells']['casting_ability'] ?? 'STR'));
     $class_hp_per_level = is_array($char_data['class'] ?? NULL)
       ? ((int) ($char_data['class']['hp_per_level'] ?? 8))
       : 8;
@@ -311,7 +278,7 @@ class CharacterViewController extends ControllerBase {
         'traits' => [],
       ],
       '#background' => [
-        'name' => $char_data['background'] ?? 'Unknown',
+        'name' => !empty($char_data['background']) ? $this->humanizeName((string) $char_data['background']) : 'Unknown',
       ],
       '#class_data' => [
         'name' => $class_name,
@@ -324,8 +291,8 @@ class CharacterViewController extends ControllerBase {
       '#abilities' => $abilities,
       '#hp' => [
         'max' => $max_hp,
-        'current' => (int) $hot['hp_current'],
-        'temporary' => $char_data['hit_points']['temp'] ?? 0,
+        'current' => (int) ($hit_points['current'] ?? $hot['hp_current']),
+        'temporary' => (int) ($hit_points['temp'] ?? 0),
       ],
       '#ac' => $ac,
       '#saves' => $saves,
@@ -352,6 +319,8 @@ class CharacterViewController extends ControllerBase {
       ],
       '#npc_data' => NULL,
       '#raw_json' => json_encode($decoded, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE),
+      '#portrait_upload_form' => $this->formBuilder()->getForm(CharacterPortraitUploadForm::class, (int) $record->id, $campaign_id),
+      '#portrait_regenerate_form' => $this->formBuilder()->getForm(CharacterPortraitRegenerateForm::class, (int) $record->id, $campaign_id),
       '#edit_url' => Url::fromRoute('dungeoncrawler_content.character_setup', [], ['query' => $setup_query])->toString(),
       '#continue_url' => Url::fromRoute('dungeoncrawler_content.character_setup', [], ['query' => $continue_query])->toString(),
       '#archive_url' => Url::fromRoute('dungeoncrawler_content.character_archive', ['character_id' => $record->id])->toString(),
@@ -492,6 +461,54 @@ class CharacterViewController extends ControllerBase {
   }
 
   /**
+   * Normalizes ability scores from canonical, nested, or flat payloads.
+   */
+  private function buildAbilityDisplayData(array $char_data): array {
+    $abilities = [];
+    $short_map = [
+      'str' => 'strength',
+      'dex' => 'dexterity',
+      'con' => 'constitution',
+      'int' => 'intelligence',
+      'wis' => 'wisdom',
+      'cha' => 'charisma',
+    ];
+
+    if (!empty($char_data['abilities']) && is_array($char_data['abilities'])) {
+      foreach ($short_map as $short => $long) {
+        $score = $char_data['abilities'][$long] ?? $char_data['abilities'][$short] ?? 10;
+        $score = (int) $score;
+        $abilities[$long] = [
+          'score' => $score,
+          'modifier' => (int) floor(($score - 10) / 2),
+        ];
+      }
+      return $abilities;
+    }
+
+    if (!empty($char_data['ability_scores']) && is_array($char_data['ability_scores'])) {
+      foreach (array_values($short_map) as $ability) {
+        $score = (int) ($char_data['ability_scores'][$ability]['score'] ?? 10);
+        $abilities[$ability] = [
+          'score' => $score,
+          'modifier' => (int) floor(($score - 10) / 2),
+        ];
+      }
+      return $abilities;
+    }
+
+    foreach (array_values($short_map) as $ability) {
+      $score = (int) ($char_data[$ability] ?? 10);
+      $abilities[$ability] = [
+        'score' => $score,
+        'modifier' => (int) floor(($score - 10) / 2),
+      ];
+    }
+
+    return $abilities;
+  }
+
+  /**
    * Looks up spell display names from the content registry by ID.
    *
    * @param array $ids
@@ -577,6 +594,12 @@ class CharacterViewController extends ControllerBase {
       if ($description === '' && $feat_id !== '' && !empty($lookup[$feat_id]['benefit'])) {
         $feats[$index]['description'] = (string) $lookup[$feat_id]['benefit'];
       }
+      if (!isset($feats[$index]['type']) && isset($feat['feat_type'])) {
+        $feats[$index]['type'] = $feat['feat_type'];
+      }
+      if (!isset($feats[$index]['level']) && isset($feat['level_gained'])) {
+        $feats[$index]['level'] = $feat['level_gained'];
+      }
     }
 
     return $feats;
@@ -623,7 +646,7 @@ class CharacterViewController extends ControllerBase {
    *   Human name, e.g. 'Ray Of Frost'.
    */
   private function humanizeName(string $id): string {
-    return ucwords(str_replace('_', ' ', $id));
+    return ucwords(str_replace(['_', '-'], ' ', $id));
   }
 
   /**

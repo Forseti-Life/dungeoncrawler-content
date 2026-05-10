@@ -10,13 +10,16 @@
 #}
 
   <div class="hexmap-container" id="hexmap-container"{% if is_admin %} data-admin="1"{% endif %}>
-  <div class="game-shell" data-game-shell data-game-shell-default="map">
+  <div class="game-shell" data-game-shell data-game-shell-default="chat">
     <div class="game-shell__tabs" role="tablist" aria-label="{{ 'Campaign play views'|t }}">
-      <button id="game-tab-map" class="game-shell__tab game-shell__tab--active" type="button" role="tab" aria-selected="true" aria-controls="game-panel-map" data-game-tab="map">
+      <button id="game-tab-map" class="game-shell__tab" type="button" role="tab" aria-selected="false" aria-controls="game-panel-map" data-game-tab="map">
         <span class="game-shell__tab-icon">&#x1F5FA;</span>{{ 'Map'|t }}
       </button>
-      <button id="game-tab-chat" class="game-shell__tab" type="button" role="tab" aria-selected="false" aria-controls="game-panel-chat" data-game-tab="chat">
+      <button id="game-tab-chat" class="game-shell__tab game-shell__tab--active" type="button" role="tab" aria-selected="true" aria-controls="game-panel-chat" data-game-tab="chat">
         <span class="game-shell__tab-icon">&#x1F4AC;</span>{{ 'Chat'|t }}
+      </button>
+      <button id="game-tab-view" class="game-shell__tab" type="button" role="tab" aria-selected="false" aria-controls="game-panel-view" data-game-tab="view">
+        <span class="game-shell__tab-icon">&#x1F5BC;</span>{{ 'View'|t }}
       </button>
       <button id="game-tab-character" class="game-shell__tab" type="button" role="tab" aria-selected="false" aria-controls="game-panel-character" data-game-tab="character">
         <span class="game-shell__tab-icon">&#x1F464;</span>{{ 'Character'|t }}
@@ -32,9 +35,17 @@
       </div>
     </div>
 
-    <div class="game-shell__panel game-shell__panel--active" id="game-panel-map" role="tabpanel" aria-labelledby="game-tab-map">
-      <div class="game-shell__map-panel">
-        <div class="hexmap-controls hexmap-debug-panel">
+    <div class="game-shell__panel" id="game-panel-map" role="tabpanel" aria-labelledby="game-tab-map" hidden>
+      <div class="game-shell__placeholder-panel">
+        <div class="game-shell__placeholder-card">
+          <span class="game-shell__placeholder-icon">&#x1F6A7;</span>
+          <h3>{{ 'Under Construction'|t }}</h3>
+          <p>{{ 'The tactical map tab is being rebuilt. Use Chat for play and View for generated room scenes.'|t }}</p>
+        </div>
+      </div>
+      <div class="game-shell__legacy-map-shell" hidden aria-hidden="true">
+        <div class="game-shell__map-panel">
+          <div class="hexmap-controls hexmap-debug-panel">
       <div class="control-group control-group--config">
         <label class="control-group__title">{{ 'Map Size:'|t }}</label>
         <select id="grid-size">
@@ -134,9 +145,10 @@
 
         </div>
       </div>
+      </div>
     </div>
 
-    <div class="game-shell__panel" id="game-panel-chat" role="tabpanel" aria-labelledby="game-tab-chat" hidden>
+    <div class="game-shell__panel game-shell__panel--active" id="game-panel-chat" role="tabpanel" aria-labelledby="game-tab-chat">
       <div class="game-shell__chat-panel">
         <div class="hexmap-chat" id="hexmap-chat">
           <div class="hexmap-chat__header">
@@ -176,6 +188,42 @@
             <input id="chat-input" type="text" placeholder="{{ 'Say something to the room...'|t }}" autocomplete="off" />
             <button id="chat-send" class="btn btn-primary" type="submit">{{ 'Send'|t }}</button>
           </form>
+        </div>
+      </div>
+    </div>
+
+    <div class="game-shell__panel" id="game-panel-view" role="tabpanel" aria-labelledby="game-tab-view" hidden>
+      <div class="game-shell__view-panel">
+        <div class="room-view-panel" id="room-view-panel">
+          <div class="room-view-panel__header">
+            <div>
+              <p class="eyebrow">{{ 'Generated Scene Gallery'|t }}</p>
+              <h3 id="room-view-name">{{ 'Current room'|t }}</h3>
+              <p class="room-view-panel__meta" id="room-view-meta">{{ 'Waiting for room context...'|t }}</p>
+            </div>
+            <span class="chip chip-live" id="room-view-status">{{ 'Idle'|t }}</span>
+          </div>
+          <p class="room-view-panel__description" id="room-view-description">{{ 'A new scene snapshot is added every 50 room messages.'|t }}</p>
+          <div class="room-view-panel__gallery" id="room-view-gallery" hidden></div>
+          <div class="room-view-panel__placeholder" id="room-view-placeholder">
+            <span class="room-view-panel__placeholder-icon">&#x2728;</span>
+            <p id="room-view-placeholder-text">{{ 'Generating scene gallery...'|t }}</p>
+          </div>
+          <template id="room-view-card-template">
+            <article class="room-view-card">
+              <div class="room-view-card__header">
+                <div>
+                  <p class="room-view-card__eyebrow"></p>
+                  <h4 class="room-view-card__title"></h4>
+                </div>
+                <span class="chip room-view-card__status"></span>
+              </div>
+              <p class="room-view-card__summary"></p>
+              <div class="room-view-card__frame">
+                <img class="room-view-card__image" alt="{{ 'Generated room scene'|t }}" />
+              </div>
+            </article>
+          </template>
         </div>
       </div>
     </div>

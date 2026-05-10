@@ -35,15 +35,23 @@
 
 .character-setup-page__layout {
   display: grid;
-  grid-template-columns: minmax(16rem, 20rem) minmax(0, 1fr) minmax(20rem, 24rem);
+  grid-template-columns: minmax(22rem, 28rem) minmax(0, 1fr);
   gap: 1.5rem;
   align-items: start;
 }
 
+.character-setup-page__sidebar,
 .character-setup-page__sidebar-card,
-.character-setup-page__workspace,
-.character-setup-page__chat-column {
+.character-setup-page__workspace {
   min-width: 0;
+}
+
+.character-setup-page__sidebar-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  position: sticky;
+  top: 1rem;
 }
 
 .character-setup-page__sidebar-card,
@@ -130,31 +138,27 @@
 }
 
 .character-setup-page__frame-shell {
-  overflow: hidden;
+  overflow: visible;
 }
 
 .character-setup-page__frame {
   display: block;
   width: 100%;
-  height: 74rem;
-  min-height: 0;
+  height: auto;
+  min-height: 56rem;
   border: 0;
-  overflow: hidden;
+  overflow: visible;
   background: transparent;
 }
 
-.character-setup-page__chat-column .character-creation-gm-chat {
-  position: sticky;
-  top: 1rem;
+.character-setup-page__sidebar .character-creation-gm-chat {
+  position: static;
+  top: auto;
 }
 
 @media (max-width: 1280px) {
   .character-setup-page__layout {
-    grid-template-columns: minmax(15rem, 18rem) minmax(0, 1fr);
-  }
-
-  .character-setup-page__chat-column {
-    grid-column: 1 / -1;
+    grid-template-columns: minmax(19rem, 24rem) minmax(0, 1fr);
   }
 }
 
@@ -169,15 +173,15 @@
     grid-template-columns: 1fr;
   }
 
+  .character-setup-page__sidebar-stack {
+    position: static;
+  }
+
   .character-setup-page__tabs {
     overflow-x: auto;
   }
 
   .character-setup-page__frame {
-    min-height: 82rem;
-  }
-
-  .character-setup-page__chat-column .character-creation-gm-chat {
-    position: static;
+    min-height: 72rem;
   }
 }

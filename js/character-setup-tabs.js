@@ -115,12 +115,20 @@
       return;
     }
 
-    const target = iframe._characterSetupResizeTarget || doc.body;
+    const target = iframe._characterSetupResizeTarget
+      || doc.querySelector('.character-creation-step--embedded')
+      || doc.querySelector('.character-creation-step')
+      || doc.body;
+    const docEl = doc.documentElement;
     const height = Math.max(
       Math.ceil(target.getBoundingClientRect ? target.getBoundingClientRect().height : 0),
       target.scrollHeight || 0,
       target.offsetHeight || 0,
       target.clientHeight || 0,
+      doc.body.scrollHeight || 0,
+      doc.body.offsetHeight || 0,
+      docEl ? (docEl.scrollHeight || 0) : 0,
+      docEl ? (docEl.offsetHeight || 0) : 0,
       1
     );
     const nextHeight = height + 'px';
@@ -132,7 +140,7 @@
     iframe.setAttribute('scrolling', 'no');
   }
 
-  function trimEmbeddedDocument(iframe) {
+  function observeEmbeddedDocument(iframe) {
     let doc = null;
     try {
       doc = iframe.contentDocument;
@@ -141,29 +149,21 @@
       return;
     }
 
-    if (!doc || doc.body?.dataset.characterSetupTrimmed === 'true') {
+    if (!doc || !doc.body) {
       return;
     }
 
-    const embeddedRoot = doc.querySelector('.character-creation-step--embedded');
-    if (!embeddedRoot) {
-      return;
+    const embeddedRoot = doc.querySelector('.character-creation-step--embedded')
+      || doc.querySelector('.character-creation-step')
+      || doc.body;
+    iframe._characterSetupResizeTarget = embeddedRoot;
+
+    if (doc.head && !doc.getElementById('character-setup-iframe-style')) {
+      const style = doc.createElement('style');
+      style.id = 'character-setup-iframe-style';
+      style.textContent = 'html, body { margin: 0; padding: 0; background: transparent; } body { overflow: visible; }';
+      doc.head.appendChild(style);
     }
-
-    const embeddedContent = embeddedRoot.querySelector('.creation-container, .character-creation-container') || embeddedRoot;
-
-    const style = doc.createElement('style');
-    style.textContent = 'html, body { margin: 0; padding: 0; background: transparent; } body { overflow: hidden; } .character-setup-iframe-shell { padding: 0; }';
-    doc.head.appendChild(style);
-
-    const shell = doc.createElement('div');
-    shell.className = 'character-setup-iframe-shell';
-    shell.appendChild(embeddedContent);
-
-    doc.body.innerHTML = '';
-    doc.body.dataset.characterSetupTrimmed = 'true';
-    doc.body.appendChild(shell);
-    iframe._characterSetupResizeTarget = shell;
 
     if (iframe._characterSetupResizeObserver) {
       iframe._characterSetupResizeObserver.disconnect();
@@ -173,7 +173,11 @@
       iframe._characterSetupResizeObserver = new ResizeObserver(() => {
         resizeIframeToContent(iframe);
       });
-      iframe._characterSetupResizeObserver.observe(shell);
+      iframe._characterSetupResizeObserver.observe(embeddedRoot);
+      iframe._characterSetupResizeObserver.observe(doc.body);
+      if (doc.documentElement) {
+        iframe._characterSetupResizeObserver.observe(doc.documentElement);
+      }
     }
 
     window.requestAnimationFrame(() => {
@@ -288,6 +292,10 @@
 
           state.activeStep = Number(stepMatch[1]);
           state.maxAccessibleStep = Math.max(state.maxAccessibleStep, state.activeStep);
+          const unlockedStep = Number(currentUrl.searchParams.get('unlocked_step') || '0');
+          if (unlockedStep > 0) {
+            state.maxAccessibleStep = Math.max(state.maxAccessibleStep, unlockedStep);
+          }
 
           const nextCharacterId = currentUrl.searchParams.get('character_id');
           if (nextCharacterId) {
@@ -299,7 +307,7 @@
             state.campaignId = Number(nextCampaignId);
           }
 
-          trimEmbeddedDocument(iframe);
+          observeEmbeddedDocument(iframe);
           resizeIframeToContent(iframe);
           syncTabState(root, state, settings);
         });

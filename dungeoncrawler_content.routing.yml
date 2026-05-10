@@ -709,6 +709,18 @@ dungeoncrawler_content.api.room_state_get:
     _format: json
 
 # Room Chat API - Persistent dialogue storage per room
+dungeoncrawler_content.api.room_view_image_get:
+  path: '/api/campaign/{campaign_id}/room/{room_id}/view-image'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\RoomViewImageController::getRoomViewImage'
+  methods: [GET]
+  requirements:
+    _campaign_access: 'TRUE'
+    campaign_id: '\d+'
+    room_id: '[A-Za-z0-9_-]+'
+  options:
+    _format: json
+
 dungeoncrawler_content.api.room_chat_get:
   path: '/api/campaign/{campaign_id}/room/{room_id}/chat'
   defaults:

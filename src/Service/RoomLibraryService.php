@@ -255,6 +255,32 @@ class RoomLibraryService {
   }
 
   /**
+   * Finds a reusable room description from the library.
+   *
+   * This is a lighter-weight lookup than full template instantiation and is used
+   * when we want to preserve newly generated layouts while reusing an existing
+   * narrative description for the same room archetype.
+   *
+   * @param array $criteria
+   *   Search criteria, same keys as findTemplate().
+   *
+   * @return array|null
+   *   Associative array with template_id, name, and description, or NULL.
+   */
+  public function findDescriptionTemplate(array $criteria): ?array {
+    $template = $this->findTemplate($criteria);
+    if (!$template) {
+      return NULL;
+    }
+
+    return [
+      'template_id' => $template['template_id'],
+      'name' => $template['name'] ?? '',
+      'description' => $template['description'] ?? '',
+    ];
+  }
+
+  /**
    * Instantiate a library template into a campaign room.
    *
    * Decodes the stored layout/contents data, assigns new campaign-specific

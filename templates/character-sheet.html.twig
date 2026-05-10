@@ -26,6 +26,7 @@
 
   {# Character Header #}
   <div class="dc-sheet__header">
+    <div class="dc-sheet__portrait-column">
       <div class="dc-sheet__portrait-wrap">
         {% if character.portrait %}
           <button
@@ -43,14 +44,26 @@
             <span>{{ character.name|first|upper }}</span>
           </div>
         {% endif %}
-      {% if character.status == 'incomplete' %}
-        {% if not character.portrait and character.step >= 8 %}
-          <div class="dc-sheet__status-incomplete">🖼️ Image generation in progress</div>
-        {% else %}
-          <div class="dc-sheet__status-incomplete">⚠️ Character setup incomplete (Step {{ character.step }}/8)</div>
+        {% if character.status == 'incomplete' %}
+          {% if not character.portrait and character.step >= 8 %}
+            <div class="dc-sheet__status-incomplete">🖼️ Image generation in progress</div>
+          {% else %}
+            <div class="dc-sheet__status-incomplete">⚠️ Character setup incomplete (Step {{ character.step }}/8)</div>
+          {% endif %}
+        {% elseif character.status == 'dead' %}
+          <div class="dc-sheet__status-dead">☠️ FALLEN</div>
         {% endif %}
-      {% elseif character.status == 'dead' %}
-        <div class="dc-sheet__status-dead">☠️ FALLEN</div>
+      </div>
+
+      {% if portrait_upload_form or portrait_regenerate_form %}
+        <div class="dc-sheet__portrait-actions">
+          {% if portrait_upload_form %}
+            {{ portrait_upload_form }}
+          {% endif %}
+          {% if portrait_regenerate_form %}
+            {{ portrait_regenerate_form }}
+          {% endif %}
+        </div>
       {% endif %}
     </div>
 
@@ -291,7 +304,10 @@
           {% else %}
             <strong>{{ feat.name }}</strong>
           {% endif %}
-          <span class="dc-sheet__tag dc-sheet__tag--feat-type">{{ (feat.feat_type ?? feat.type)|capitalize }}</span>
+          {% set feat_type = feat.feat_type ?? feat.type ?? null %}
+          {% if feat_type %}
+            <span class="dc-sheet__tag dc-sheet__tag--feat-type">{{ feat_type|capitalize }}</span>
+          {% endif %}
           {% set feat_level = feat.level_gained ?? feat.level ?? null %}
           {% if feat_level %}<span class="dc-sheet__tag">Level {{ feat_level }}</span>{% endif %}
         </div>
