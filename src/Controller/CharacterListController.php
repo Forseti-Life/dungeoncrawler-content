@@ -150,6 +150,9 @@ class CharacterListController extends ControllerBase {
       '#theme' => 'character_list',
       '#characters' => $character_cards,
       '#create_url' => $create_url->toString(),
+      '#archived_url' => $campaign_id === NULL
+        ? Url::fromRoute('dungeoncrawler_content.characters_archived')->toString()
+        : NULL,
       '#create_campaign_url' => Url::fromRoute('dungeoncrawler_content.campaign_create')->toString(),
       '#campaign_id' => $campaign_id,
       '#campaign_name' => $campaign_name,
@@ -163,6 +166,81 @@ class CharacterListController extends ControllerBase {
     ];
 
     return $build;
+  }
+
+  /**
+   * Lists archived characters with unarchive and delete actions.
+   */
+  public function listArchivedCharacters() {
+    $uid = (int) $this->currentUser()->id();
+    $records = $this->database->select('dc_campaign_characters', 'c')
+      ->fields('c')
+      ->condition('uid', $uid)
+      ->condition('status', 2)
+      ->orderBy('changed', 'DESC')
+      ->execute()
+      ->fetchAll();
+
+    $archived_destination = Url::fromRoute('dungeoncrawler_content.characters_archived')->toString();
+    $character_cards = [];
+
+    foreach ($records as $record) {
+      $character_data = json_decode((string) ($record->character_data ?? '{}'), TRUE);
+      if (!is_array($character_data)) {
+        $character_data = [];
+      }
+
+      $portraits = $this->imageRepository->loadImagesForObject(
+        'dc_campaign_characters',
+        (string) $record->id,
+        NULL,
+        'portrait',
+        'original'
+      );
+      $portrait_url = !empty($portraits)
+        ? $this->imageRepository->resolveClientUrl($portraits[0])
+        : NULL;
+
+      $archived_at = '';
+      if (!empty($character_data['_archive_meta']['archived_at'])) {
+        $archived_at = date('M j, Y', (int) $character_data['_archive_meta']['archived_at']);
+      }
+
+      $character_cards[] = [
+        'id' => (int) $record->id,
+        'name' => (string) $record->name,
+        'level' => (int) ($record->level ?? 1),
+        'ancestry' => (string) ($record->ancestry ?? ''),
+        'class' => (string) ($record->class ?? ''),
+        'portrait' => $portrait_url,
+        'created' => date('M j, Y', (int) $record->created),
+        'archived_at' => $archived_at ?: date('M j, Y', (int) $record->changed),
+        'unarchive_url' => Url::fromRoute('dungeoncrawler_content.character_unarchive', [
+          'character_id' => (int) $record->id,
+        ], [
+          'query' => ['destination' => $archived_destination],
+        ])->toString(),
+        'delete_url' => Url::fromRoute('dungeoncrawler_content.character_delete', [
+          'character_id' => (int) $record->id,
+        ], [
+          'query' => ['destination' => $archived_destination],
+        ])->toString(),
+      ];
+    }
+
+    return [
+      '#theme' => 'character_archived_list',
+      '#characters' => $character_cards,
+      '#back_url' => Url::fromRoute('dungeoncrawler_content.characters_roster')->toString(),
+      '#attached' => [
+        'library' => ['dungeoncrawler_content/character-sheet'],
+      ],
+      '#cache' => [
+        'contexts' => ['user'],
+        'tags' => ['dc_campaign_characters'],
+        'max-age' => 0,
+      ],
+    ];
   }
 
   /**

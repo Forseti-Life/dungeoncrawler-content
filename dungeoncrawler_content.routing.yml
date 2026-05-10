@@ -213,6 +213,15 @@ dungeoncrawler_content.characters_roster:
   requirements:
     _permission: 'access dungeoncrawler characters'
 
+dungeoncrawler_content.characters_archived:
+  path: '/characters/archived'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CharacterListController::listArchivedCharacters'
+    _title: 'Archived Characters'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+
 dungeoncrawler_content.characters:
   path: '/campaigns/{campaign_id}/characters'
   defaults:
@@ -490,6 +499,15 @@ dungeoncrawler_content.character_archive:
   defaults:
     _controller: '\Drupal\dungeoncrawler_content\Controller\CharacterViewController::archiveCharacter'
     _title: 'Archive Character'
+  requirements:
+    _character_access: 'TRUE'
+    character_id: '\d+'
+
+dungeoncrawler_content.character_unarchive:
+  path: '/characters/{character_id}/unarchive'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CharacterViewController::unarchiveCharacter'
+    _title: 'Unarchive Character'
   requirements:
     _character_access: 'TRUE'
     character_id: '\d+'
