@@ -460,7 +460,7 @@ dungeoncrawler_content.character_view:
   defaults:
     _controller: '\Drupal\dungeoncrawler_content\Controller\CharacterViewController::viewCharacter'
     _title_callback: '\Drupal\dungeoncrawler_content\Controller\CharacterViewController::viewTitle'
-  methods: [GET]
+  methods: [GET, POST]
   requirements:
     _character_access: 'TRUE'
     character_id: '\d+'
@@ -469,7 +469,7 @@ dungeoncrawler_content.character_view_embed:
   path: '/characters/{character_id}/embed'
   defaults:
     _controller: '\Drupal\dungeoncrawler_content\Controller\CharacterViewController::viewCharacterEmbed'
-  methods: [GET]
+  methods: [GET, POST]
   requirements:
     _character_access: 'TRUE'
     character_id: '\d+'
