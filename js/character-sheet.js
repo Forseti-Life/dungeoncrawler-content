@@ -151,4 +151,48 @@
     }
   };
 
+  /**
+   * Open full-size character portraits in an in-page viewer.
+   */
+  Drupal.behaviors.dcCharacterPortraitViewer = {
+    attach: function (context) {
+      once('dc-portrait-viewer', '.dc-character-sheet', context).forEach(function (sheet) {
+        var trigger = sheet.querySelector('[data-dc-portrait-trigger]');
+        var viewer = sheet.querySelector('[data-dc-portrait-viewer]');
+        var close = viewer ? viewer.querySelector('[data-dc-portrait-close]') : null;
+
+        if (!trigger || !viewer || !close) {
+          return;
+        }
+
+        function openViewer() {
+          viewer.hidden = false;
+          document.body.classList.add('dc-sheet__portrait-viewer-open');
+          close.focus();
+        }
+
+        function closeViewer() {
+          viewer.hidden = true;
+          document.body.classList.remove('dc-sheet__portrait-viewer-open');
+          trigger.focus();
+        }
+
+        trigger.addEventListener('click', openViewer);
+        close.addEventListener('click', closeViewer);
+
+        viewer.addEventListener('click', function (event) {
+          if (event.target === viewer) {
+            closeViewer();
+          }
+        });
+
+        document.addEventListener('keydown', function (event) {
+          if (event.key === 'Escape' && !viewer.hidden) {
+            closeViewer();
+          }
+        });
+      });
+    }
+  };
+
 })(typeof Drupal !== 'undefined' ? Drupal : undefined, typeof once !== 'undefined' ? once : undefined);
