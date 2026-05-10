@@ -252,7 +252,12 @@
       <ul class="dc-sheet__item-list">
         {% for item in equipment.items %}
           <li>
-            {{ item.name ?? item.item_id ?? item.id }}
+            {% set item_name = item.name ?? item.item_id ?? item.id %}
+            {% if item.description is defined and item.description %}
+              <span title="{{ item.description|e('html_attr') }}">{{ item_name }}</span>
+            {% else %}
+              {{ item_name }}
+            {% endif %}
             {% if item.type is defined %}<span class="dc-sheet__tag">{{ item.type }}</span>{% endif %}
             {% if item.quantity is defined and item.quantity > 1 %} (&times;{{ item.quantity }}){% endif %}
             {% if item.bulk is defined and item.bulk != '0' %}<span class="dc-sheet__tag">Bulk {{ item.bulk }}</span>{% endif %}
@@ -272,9 +277,14 @@
       <h2 class="dc-sheet__section-title">Feats</h2>
       {% for feat in feats %}
         <div class="dc-sheet__feat-item">
-          <strong>{{ feat.name }}</strong>
-          <span class="dc-sheet__tag dc-sheet__tag--feat-type">{{ feat.feat_type|capitalize }}</span>
-          {% if feat.level_gained %}<span class="dc-sheet__tag">Level {{ feat.level_gained }}</span>{% endif %}
+          {% if feat.description is defined and feat.description %}
+            <strong title="{{ feat.description|e('html_attr') }}">{{ feat.name }}</strong>
+          {% else %}
+            <strong>{{ feat.name }}</strong>
+          {% endif %}
+          <span class="dc-sheet__tag dc-sheet__tag--feat-type">{{ (feat.feat_type ?? feat.type)|capitalize }}</span>
+          {% set feat_level = feat.level_gained ?? feat.level ?? null %}
+          {% if feat_level %}<span class="dc-sheet__tag">Level {{ feat_level }}</span>{% endif %}
         </div>
       {% endfor %}
 
@@ -421,7 +431,13 @@
           {% endif %}
           <ul class="dc-sheet__spell-list">
             {% for spell in group.spells %}
-              <li>{{ spell.name }}</li>
+              <li>
+                {% if spell.description is defined and spell.description %}
+                  <span title="{{ spell.description|e('html_attr') }}">{{ spell.name }}</span>
+                {% else %}
+                  {{ spell.name }}
+                {% endif %}
+              </li>
             {% endfor %}
           </ul>
         {% endfor %}
