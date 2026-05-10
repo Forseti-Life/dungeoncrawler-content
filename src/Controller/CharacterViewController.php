@@ -230,7 +230,7 @@ class CharacterViewController extends ControllerBase {
 
     // Read inventory data (structured format from Step 7).
     $inventory = $char_data['inventory'] ?? [];
-    $equipment_items = $inventory['carried'] ?? [];
+    $equipment_items = $this->enrichEquipmentItems($inventory['carried'] ?? []);
     $inv_currency = $inventory['currency'] ?? [];
     $equipment_gold = (float) ($inv_currency['gp'] ?? ($char_data['gold'] ?? 15));
 
@@ -337,7 +337,7 @@ class CharacterViewController extends ControllerBase {
         'gold' => $equipment_gold,
         'items' => $equipment_items,
       ],
-      '#feats' => $char_data['feats'] ?? [],
+      '#feats' => $this->enrichFeatDisplayData($char_data['feats'] ?? []),
       '#spells' => $this->buildSpellsDisplayData($char_data, $feat_effects),
       '#conditions' => $char_data['conditions'] ?? [],
       '#feat_effects' => $feat_effects,
@@ -418,14 +418,20 @@ class CharacterViewController extends ControllerBase {
     }
 
     $spells_known = [];
+    $spell_ids = array_values(array_unique(array_merge(
+      $spells_raw['cantrips'] ?? [],
+      $spells_raw['first_level'] ?? []
+    )));
+    $spell_lookup = $this->buildContentMetadataLookup($spell_ids, 'spell');
 
     // Resolve cantrip IDs → display data (rank 0).
     $cantrip_ids = $spells_raw['cantrips'] ?? [];
     if (!empty($cantrip_ids)) {
-      $cantrip_lookup = $this->buildSpellLookup($cantrip_ids);
       foreach ($cantrip_ids as $id) {
         $spells_known[] = [
-          'name' => $cantrip_lookup[$id] ?? $this->humanizeName($id),
+          'spell_id' => $id,
+          'name' => $spell_lookup[$id]['name'] ?? $this->humanizeName($id),
+          'description' => $spell_lookup[$id]['description'] ?? '',
           'rank' => 0,
         ];
       }
@@ -434,10 +440,11 @@ class CharacterViewController extends ControllerBase {
     // Resolve 1st-level spell IDs → display data (rank 1).
     $first_ids = $spells_raw['first_level'] ?? [];
     if (!empty($first_ids)) {
-      $first_lookup = $this->buildSpellLookup($first_ids);
       foreach ($first_ids as $id) {
         $spells_known[] = [
-          'name' => $first_lookup[$id] ?? $this->humanizeName($id),
+          'spell_id' => $id,
+          'name' => $spell_lookup[$id]['name'] ?? $this->humanizeName($id),
+          'description' => $spell_lookup[$id]['description'] ?? '',
           'rank' => 1,
         ];
       }
@@ -493,17 +500,117 @@ class CharacterViewController extends ControllerBase {
    * @return array
    *   Associative array of content_id => display name.
    */
-  private function buildSpellLookup(array $ids): array {
+  private function buildContentMetadataLookup(array $ids, ?string $content_type = NULL): array {
     if (empty($ids)) {
       return [];
     }
-    $rows = $this->characterManager->getDatabase()
+
+    $query = $this->characterManager->getDatabase()
       ->select('dungeoncrawler_content_registry', 'r')
-      ->fields('r', ['content_id', 'name'])
-      ->condition('content_id', $ids, 'IN')
-      ->execute()
-      ->fetchAllKeyed();
-    return $rows;
+      ->fields('r', ['content_id', 'name', 'schema_data'])
+      ->condition('content_id', $ids, 'IN');
+
+    if ($content_type !== NULL && $content_type !== '') {
+      $query->condition('content_type', $content_type);
+    }
+
+    $rows = $query->execute()->fetchAll();
+    $lookup = [];
+    foreach ($rows as $row) {
+      $schema = json_decode((string) ($row->schema_data ?? '{}'), TRUE);
+      if (!is_array($schema)) {
+        $schema = [];
+      }
+
+      $lookup[$row->content_id] = [
+        'name' => (string) ($row->name ?? ''),
+        'description' => trim((string) ($schema['description'] ?? $schema['description_snippet'] ?? '')),
+      ];
+    }
+
+    return $lookup;
+  }
+
+  /**
+   * Adds tooltip-ready item descriptions from the content registry.
+   */
+  private function enrichEquipmentItems(array $items): array {
+    $item_ids = [];
+    foreach ($items as $item) {
+      if (!is_array($item)) {
+        continue;
+      }
+      $item_id = (string) ($item['item_id'] ?? $item['id'] ?? '');
+      if ($item_id !== '') {
+        $item_ids[] = $item_id;
+      }
+    }
+
+    $lookup = $this->buildContentMetadataLookup(array_values(array_unique($item_ids)), 'item');
+    foreach ($items as $index => $item) {
+      if (!is_array($item)) {
+        continue;
+      }
+
+      $item_id = (string) ($item['item_id'] ?? $item['id'] ?? '');
+      $description = trim((string) ($item['description'] ?? ''));
+      if ($description === '' && $item_id !== '' && !empty($lookup[$item_id]['description'])) {
+        $items[$index]['description'] = $lookup[$item_id]['description'];
+      }
+    }
+
+    return $items;
+  }
+
+  /**
+   * Adds tooltip-ready feat descriptions from the static feat definitions.
+   */
+  private function enrichFeatDisplayData(array $feats): array {
+    $lookup = $this->buildFeatDefinitionLookup();
+    foreach ($feats as $index => $feat) {
+      if (!is_array($feat)) {
+        continue;
+      }
+
+      $feat_id = (string) ($feat['feat_id'] ?? $feat['id'] ?? '');
+      $description = trim((string) ($feat['description'] ?? ''));
+      if ($description === '' && $feat_id !== '' && !empty($lookup[$feat_id]['benefit'])) {
+        $feats[$index]['description'] = (string) $lookup[$feat_id]['benefit'];
+      }
+    }
+
+    return $feats;
+  }
+
+  /**
+   * Flattens static feat definitions keyed by feat id.
+   */
+  private function buildFeatDefinitionLookup(): array {
+    $lookup = [];
+
+    foreach (CharacterManager::ANCESTRY_FEATS as $feat_pool) {
+      foreach ($feat_pool as $feat) {
+        if (!empty($feat['id'])) {
+          $lookup[$feat['id']] = $feat;
+        }
+      }
+    }
+
+    foreach (CharacterManager::CLASS_FEATS as $feat_pool) {
+      foreach ($feat_pool as $feat) {
+        if (!empty($feat['id'])) {
+          $lookup[$feat['id']] = $feat;
+        }
+      }
+    }
+
+    foreach (array_merge(CharacterManager::GENERAL_FEATS, CharacterManager::SKILL_FEATS) as $feat) {
+      if (!empty($feat['id'])) {
+        $lookup[$feat['id']] = $feat;
+      }
+    }
+
+    return $lookup;
   }
 
   /**
