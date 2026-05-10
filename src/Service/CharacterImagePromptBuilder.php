@@ -10,7 +10,7 @@ class CharacterImagePromptBuilder {
   /**
    * Default negative prompt for portrait generation.
    */
-  private const DEFAULT_NEGATIVE_PROMPT = 'text, watermark, logo, signature, blurry, low quality, deformed';
+  private const DEFAULT_NEGATIVE_PROMPT = 'text, letters, words, captions, subtitles, nameplate, watermark, logo, signature, UI overlay, speech bubble, blurry, low quality, deformed, cropped feet, cropped legs, close-up portrait, headshot, bust shot';
 
   /**
    * Builds a provider-ready portrait prompt from character data.
@@ -25,10 +25,11 @@ class CharacterImagePromptBuilder {
    */
   public function buildPortraitPrompt(array $character_data, string $user_prompt = ''): string {
     $lines = [
-      'Create a high-fantasy character portrait for a tabletop RPG.',
-      'No text, logos, watermarks, or copyrighted characters.',
-      'Keep a clear silhouette, consistent lighting, and game-ready detail.',
-      'Portrait framing: head and shoulders, neutral background.',
+      'Create a high-fantasy full-body character portrait for a tabletop RPG.',
+      'Show the entire character from head to toe with a fully rendered environmental background.',
+      'Do not render any text, letters, names, captions, runes, logos, watermarks, signatures, or interface elements anywhere in the image.',
+      'Keep a clear silhouette, consistent lighting, visible gear, and game-ready detail.',
+      'Use the character attributes below to inform the outfit, pose, equipment, deity motifs, moral tone, and background scenery.',
     ];
 
     $ability_guidance = $this->buildAbilityAppearanceGuidance($character_data['abilities'] ?? []);
@@ -71,23 +72,23 @@ class CharacterImagePromptBuilder {
   private function buildAttributeLines(array $character_data): array {
     $lines = [];
     $map = [
-      'Name' => $this->stringValue($character_data['name'] ?? ''),
-      'Ancestry' => $this->stringValue($character_data['ancestry'] ?? ''),
-      'Class' => $this->stringValue($character_data['class'] ?? ''),
-      'Background' => $this->stringValue($character_data['background'] ?? ''),
-      'Alignment' => $this->stringValue($character_data['alignment'] ?? ''),
-      'Deity' => $this->stringValue($character_data['deity'] ?? ''),
-      'Age' => $this->stringValue($character_data['age'] ?? ''),
-      'Gender/Pronouns' => $this->stringValue($character_data['gender'] ?? ''),
-      'Concept' => $this->stringValue($character_data['concept'] ?? ''),
-      'Appearance' => $this->stringValue($character_data['appearance'] ?? ''),
-      'Personality' => $this->stringValue($character_data['personality'] ?? ''),
-      'Backstory' => $this->stringValue($character_data['backstory'] ?? ''),
+      'Ancestry' => $this->buildAncestryLine($character_data),
+      'Class' => $this->buildClassLine($character_data),
+      'Background' => $this->humanizeShortValue($this->extractScalarValue($character_data, [['background']])),
+      'Alignment' => $this->extractScalarValue($character_data, [['alignment'], ['personality', 'alignment']]),
+      'Deity' => $this->humanizeShortValue($this->extractScalarValue($character_data, [['deity'], ['personality', 'deity']])),
+      'Age' => $this->extractScalarValue($character_data, [['age'], ['personality', 'age']]),
+      'Gender/Pronouns' => $this->extractScalarValue($character_data, [['gender'], ['personality', 'gender']]),
+      'Concept' => $this->extractScalarValue($character_data, [['concept']]),
+      'Appearance' => $this->extractScalarValue($character_data, [['appearance'], ['personality', 'appearance']]),
+      'Personality' => $this->extractScalarValue($character_data, [['personality'], ['personality', 'personality']]),
+      'Backstory' => $this->extractScalarValue($character_data, [['backstory'], ['personality', 'backstory']]),
+      'Visible equipment' => $this->buildEquipmentLine($character_data),
     ];
 
     foreach ($map as $label => $value) {
       if ($value !== '') {
-        $lines[] = "- {$label}: {$value}";
+        $lines[] = '- ' . $label . ': ' . $this->truncateValue($value);
       }
     }
 
@@ -216,6 +217,127 @@ class CharacterImagePromptBuilder {
     }
 
     return trim((string) $value);
+  }
+
+  /**
+   * Extracts the first non-empty scalar value from a list of nested paths.
+   *
+   * @param array $character_data
+   *   Character payload.
+   * @param array<int, array<int, string>> $paths
+   *   Candidate key paths.
+   */
+  private function extractScalarValue(array $character_data, array $paths): string {
+    foreach ($paths as $path) {
+      $value = $character_data;
+      foreach ($path as $key) {
+        if (!is_array($value) || !array_key_exists($key, $value)) {
+          $value = NULL;
+          break;
+        }
+        $value = $value[$key];
+      }
+
+      $normalized = $this->stringValue($value);
+      if ($normalized !== '') {
+        return $normalized;
+      }
+    }
+
+    return '';
+  }
+
+  /**
+   * Humanizes short tag-like values such as scholar or old-faith.
+   */
+  private function humanizeShortValue(string $value): string {
+    $value = trim($value);
+    if ($value === '') {
+      return '';
+    }
+    if (preg_match('/^[A-Z]{1,4}$/', $value)) {
+      return $value;
+    }
+    if (preg_match('/[A-Z]/', $value) || str_contains($value, ' ')) {
+      return $value;
+    }
+
+    return ucwords(str_replace(['_', '-'], ' ', $value));
+  }
+
+  /**
+   * Builds ancestry and heritage guidance.
+   */
+  private function buildAncestryLine(array $character_data): string {
+    $ancestry = $this->humanizeShortValue($this->extractScalarValue($character_data, [['ancestry']]));
+    $heritage = $this->humanizeShortValue($this->extractScalarValue($character_data, [['heritage']]));
+    if ($ancestry === '') {
+      return $heritage;
+    }
+    if ($heritage === '') {
+      return $ancestry;
+    }
+    return $ancestry . ' (' . $heritage . ')';
+  }
+
+  /**
+   * Builds class and subclass guidance.
+   */
+  private function buildClassLine(array $character_data): string {
+    $class = $this->humanizeShortValue($this->extractScalarValue($character_data, [['class']]));
+    $subclass = $this->humanizeShortValue($this->extractScalarValue($character_data, [['subclass']]));
+    if ($class === '') {
+      return $subclass;
+    }
+    if ($subclass === '') {
+      return $class;
+    }
+    return $class . ' (' . $subclass . ')';
+  }
+
+  /**
+   * Builds a concise list of visible gear to influence outfit and silhouette.
+   */
+  private function buildEquipmentLine(array $character_data): string {
+    $inventory = is_array($character_data['inventory'] ?? NULL) ? $character_data['inventory'] : [];
+    $items = [];
+
+    foreach (['worn', 'carried'] as $bucket) {
+      foreach (($inventory[$bucket] ?? []) as $item) {
+        if (!is_array($item)) {
+          continue;
+        }
+
+        $name = $this->humanizeShortValue($this->stringValue($item['name'] ?? ($item['id'] ?? '')));
+        if ($name === '') {
+          continue;
+        }
+
+        $quantity = is_numeric($item['quantity'] ?? NULL) ? (int) $item['quantity'] : 1;
+        $label = $quantity > 1 ? $name . ' x' . $quantity : $name;
+        if (!in_array($label, $items, TRUE)) {
+          $items[] = $label;
+        }
+
+        if (count($items) >= 8) {
+          break 2;
+        }
+      }
+    }
+
+    return implode(', ', $items);
+  }
+
+  /**
+   * Keeps verbose narrative fields prompt-safe.
+   */
+  private function truncateValue(string $value, int $limit = 280): string {
+    $value = trim(preg_replace('/\s+/', ' ', $value) ?? '');
+    if (strlen($value) <= $limit) {
+      return $value;
+    }
+
+    return rtrim(substr($value, 0, $limit - 1)) . '…';
   }
 
   /**

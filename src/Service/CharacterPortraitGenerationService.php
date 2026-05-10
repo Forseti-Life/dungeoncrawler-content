@@ -77,7 +77,8 @@ class CharacterPortraitGenerationService {
       ];
     }
 
-    if ($this->hasExistingPortrait($character_id, $campaign_id)) {
+    $force_regenerate = !empty($options['force_regenerate']);
+    if (!$force_regenerate && $this->hasExistingPortrait($character_id, $campaign_id)) {
       return [
         'attempted' => FALSE,
         'reason' => 'already_exists',
@@ -109,14 +110,14 @@ class CharacterPortraitGenerationService {
     $user_prompt = (string) ($options['user_prompt'] ?? ($character_data['portrait_prompt'] ?? ''));
     $prompt = $this->promptBuilder->buildPortraitPrompt($character_data, $user_prompt);
 
-    $payload = [
-      'prompt' => $prompt,
-      'style' => (string) ($options['style'] ?? 'fantasy'),
-      'aspect_ratio' => (string) ($options['aspect_ratio'] ?? '1:1'),
-      'negative_prompt' => (string) ($options['negative_prompt'] ?? $this->promptBuilder->getDefaultNegativePrompt()),
-      'campaign_context' => (string) ($options['campaign_context'] ?? 'character_creation'),
-      'requested_by_uid' => $owner_uid,
-    ];
+      $payload = [
+        'prompt' => $prompt,
+        'style' => (string) ($options['style'] ?? 'fantasy'),
+        'aspect_ratio' => (string) ($options['aspect_ratio'] ?? '3:4'),
+        'negative_prompt' => (string) ($options['negative_prompt'] ?? $this->promptBuilder->getDefaultNegativePrompt()),
+        'campaign_context' => (string) ($options['campaign_context'] ?? 'character_creation'),
+        'requested_by_uid' => $owner_uid,
+      ];
 
     try {
       $result = $this->integrationService->generateImage($payload, $options['provider'] ?? NULL);
