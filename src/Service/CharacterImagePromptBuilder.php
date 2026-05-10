@@ -10,7 +10,7 @@ class CharacterImagePromptBuilder {
   /**
    * Default negative prompt for portrait generation.
    */
-  private const DEFAULT_NEGATIVE_PROMPT = 'text, letters, words, captions, subtitles, nameplate, watermark, logo, signature, UI overlay, speech bubble, readable runes, readable glyphs, readable spellbook pages, readable scrolls, readable signage, character sheet, infographic, poster, dossier, parchment page, labeled diagram, side panels, border ornaments, decorative frame, blurry, low quality, deformed, cropped feet, cropped legs, close-up portrait, headshot, bust shot, multiple characters';
+  private const DEFAULT_NEGATIVE_PROMPT = 'text, letters, words, captions, subtitles, nameplate, watermark, logo, signature, UI overlay, speech bubble, readable runes, readable glyphs, readable spellbook pages, readable scrolls, readable signage, character sheet, infographic, poster, dossier, parchment page, labeled diagram, side panels, border ornaments, decorative frame, blurry, low quality, deformed, cropped feet, cropped legs, close-up portrait, headshot, bust shot, multiple characters, elf, elven, fae, fairy, pointed ears, long ears, angular ethereal face';
 
   /**
    * Builds a provider-ready portrait prompt from character data.
@@ -400,7 +400,7 @@ class CharacterImagePromptBuilder {
 
     $base_ancestry = strtolower(trim(preg_replace('/\s*\(.*$/', '', $authoritative_ancestry)));
     if ($base_ancestry === 'human') {
-      return 'The subject ancestry is ' . $authoritative_ancestry . ': depict a human with human facial structure and rounded human ears, absolutely never elf ears, pointed ears, or other non-human ancestry traits.';
+      return 'The subject ancestry is ' . $authoritative_ancestry . ': depict an unmistakably human adult with rounded human ears fully visible on both sides of the head, a natural human jawline, natural human proportions, and absolutely never elf ears, pointed ears, angular ethereal elven features, or other non-human ancestry traits.';
     }
 
     return 'The subject ancestry is ' . $authoritative_ancestry . '; keep the physical traits aligned to this ancestry and do not introduce conflicting traits from another ancestry.';
@@ -439,7 +439,7 @@ class CharacterImagePromptBuilder {
       if ($term === $authoritative_ancestry) {
         continue;
       }
-      $value = preg_replace('/\b' . preg_quote($term, '/') . '\b/i', $authoritative_ancestry, $value) ?? $value;
+      $value = preg_replace('/\b' . preg_quote($term, '/') . '\b/i', '', $value) ?? $value;
     }
 
     return trim(preg_replace('/\s+/', ' ', $value) ?? $value);
