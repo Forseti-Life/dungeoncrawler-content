@@ -16,9 +16,9 @@ class DataLineageArchitectureController extends ControllerBase {
     $lineageRows = [
       [
         'domain' => 'Character Lifecycle',
-        'parent_surface' => '/characters/create',
-        'child_surface' => '/characters/create/step/{step} + /api/character/save + /api/character/load/{character_id}',
-        'controllers_services' => 'CharacterCreationStepController + CharacterApiController + CharacterCreationStepForm + CharacterManager/CharacterStateService',
+        'parent_surface' => '/charactersetup',
+        'child_surface' => 'embedded /characters/create/step/{step} + /api/character/save + /api/character/load/{character_id}',
+        'controllers_services' => 'CharacterSetupController + CharacterCreationStepController + CharacterApiController + CharacterCreationStepForm + CharacterManager/CharacterStateService',
         'tables' => 'dc_campaign_characters',
         'lineage' => 'Draft and finalized character state persists in dc_campaign_characters and is rendered through character views/summaries.',
       ],

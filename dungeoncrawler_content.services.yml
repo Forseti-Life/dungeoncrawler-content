@@ -30,6 +30,10 @@ services:
     class: Drupal\dungeoncrawler_content\Service\NameGeneratorService
     arguments: ['@extension.list.module']
 
+  dungeoncrawler_content.campaign_name_generator:
+    class: Drupal\dungeoncrawler_content\Service\CampaignNameGeneratorService
+    arguments: ['@extension.list.module']
+
   dungeoncrawler_content.character_state:
     class: Drupal\dungeoncrawler_content\Service\CharacterStateService
     arguments: ['@database', '@current_user', '@dungeoncrawler_content.feat_effect_manager', '@dungeoncrawler_content.generated_image_repository']
@@ -80,6 +84,14 @@ services:
   dungeoncrawler_content.canonical_action_registry:
     class: Drupal\dungeoncrawler_content\Service\CanonicalActionRegistryService
     arguments: ['@database', '@current_user']
+
+  dungeoncrawler_content.gm_orchestration_broker:
+    class: Drupal\dungeoncrawler_content\Service\GmOrchestrationBrokerService
+    arguments:
+      - '@database'
+      - '@dungeoncrawler_content.canonical_action_registry'
+      - '@dungeoncrawler_content.quest_touchpoint'
+      - '@service_container'
 
   dungeoncrawler_content.number_generation:
     class: Drupal\dungeoncrawler_content\Service\NumberGenerationService
@@ -318,6 +330,7 @@ services:
       - '@dungeoncrawler_content.chat_session_manager'
       - '@dungeoncrawler_content.map_generator'
       - '@dungeoncrawler_content.canonical_action_registry'
+      - '@dungeoncrawler_content.gm_orchestration_broker'
       - '@dungeoncrawler_content.quest_tracker'
 
   dungeoncrawler_content.campaign_initialization:
@@ -329,6 +342,7 @@ services:
       - '@logger.factory'
       - '@extension.list.module'
       - '@dungeoncrawler_content.quest_generator'
+      - '@dungeoncrawler_content.campaign_name_generator'
       - '@dungeoncrawler_content.chat_session_manager'
       - '@dungeoncrawler_content.npc_sheet_generation'
 

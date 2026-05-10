@@ -28,6 +28,22 @@
     historyContainer.scrollTop = historyContainer.scrollHeight;
   }
 
+  function updateSummary(summary, chatRoot) {
+    if (!summary || typeof summary !== 'object') {
+      return;
+    }
+
+    Object.keys(summary).forEach((key) => {
+      const target = chatRoot.querySelector('[data-gm-chat-summary-field="' + key + '"]');
+      if (!target) {
+        return;
+      }
+
+      const value = summary[key];
+      target.textContent = value === null || value === undefined || value === '' ? 'Not selected' : String(value);
+    });
+  }
+
   Drupal.behaviors.characterCreationGmChat = {
     attach(context) {
       const settings = drupalSettings.dungeoncrawlerCharacterGm;
@@ -39,11 +55,12 @@
         const historyContainer = chatRoot.querySelector('[data-gm-chat-history]');
         const statusEl = chatRoot.querySelector('[data-gm-chat-status]');
         const sendButton = chatRoot.querySelector('[data-gm-chat-send]');
-        const input = chatRoot.querySelector('#characterCreationGmInput');
+        const input = chatRoot.querySelector('.character-creation-gm-chat__input');
         let messages = Array.isArray(settings.history) ? settings.history.slice() : [];
         let pending = false;
 
         renderMessages(historyContainer, messages);
+        updateSummary(settings.summary || {}, chatRoot);
 
         const setStatus = (message, isError = false) => {
           statusEl.textContent = message || '';
@@ -85,12 +102,26 @@
 
             messages = Array.isArray(payload.history) ? payload.history.slice() : messages.concat([{ role: 'assistant', content: payload.reply || 'Draft updated.' }]);
             renderMessages(historyContainer, messages);
+            updateSummary(payload.summary || {}, chatRoot);
+            if (payload.character_id) {
+              settings.characterId = payload.character_id;
+            }
+            if (payload.step) {
+              settings.step = payload.step;
+            }
 
             const appliedKeys = Object.keys(payload.applied_updates || {});
             setStatus(appliedKeys.length ? 'Updated: ' + appliedKeys.join(', ') : 'Advice ready. Reloading your step...');
 
             if (payload.reload_url) {
               window.setTimeout(() => {
+                if (settings.shellMode === 'character_setup') {
+                  window.dispatchEvent(new CustomEvent('dungeoncrawler:character-setup-gm-update', {
+                    detail: payload,
+                  }));
+                  return;
+                }
+
                 window.location.assign(payload.reload_url);
               }, 900);
             }

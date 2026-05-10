@@ -50,6 +50,13 @@ dungeoncrawler_content.menu.campaigns:
   menu_name: main
   weight: 20
 
+dungeoncrawler_content.menu.character_setup:
+  title: 'Character Setup'
+  description: 'Create a new character or continue your current setup flow'
+  route_name: dungeoncrawler_content.character_setup
+  menu_name: main
+  weight: 22
+
 dungeoncrawler_content.menu.roadmap:
   title: 'Roadmap'
   description: 'PF2E requirements implementation tracking roadmap'
@@ -162,18 +169,16 @@ dungeoncrawler_content.footer.world:
   menu_name: footer
   weight: 20
 
-# TODO: Create dedicated routes for privacy and terms pages
-# Currently pointing to front page as placeholder
 dungeoncrawler_content.footer.privacy:
   title: 'Privacy Policy'
   description: 'Privacy and data protection'
-  route_name: <front>
+  route_name: dungeoncrawler_content.privacy_policy
   menu_name: footer
   weight: 30
 
 dungeoncrawler_content.footer.terms:
   title: 'Terms of Service'
   description: 'Terms and conditions'
-  route_name: <front>
+  route_name: dungeoncrawler_content.terms_of_service
   menu_name: footer
   weight: 40

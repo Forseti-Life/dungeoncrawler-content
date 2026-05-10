@@ -31,6 +31,7 @@ class CampaignInitializationService {
   protected LoggerInterface $logger;
   protected ModuleExtensionList $moduleList;
   protected QuestGeneratorService $questGenerator;
+  protected CampaignNameGeneratorService $campaignNameGenerator;
   protected ?ChatSessionManager $chatSessionManager;
   protected ?NpcSheetGenerationService $npcSheetGenerationService;
 
@@ -41,6 +42,7 @@ class CampaignInitializationService {
     LoggerChannelFactoryInterface $logger_factory,
     ModuleExtensionList $module_list,
     QuestGeneratorService $quest_generator,
+    CampaignNameGeneratorService $campaign_name_generator,
     ?ChatSessionManager $chat_session_manager = NULL,
     ?NpcSheetGenerationService $npc_sheet_generation_service = NULL
   ) {
@@ -50,6 +52,7 @@ class CampaignInitializationService {
     $this->logger = $logger_factory->get('dungeoncrawler_content');
     $this->moduleList = $module_list;
     $this->questGenerator = $quest_generator;
+    $this->campaignNameGenerator = $campaign_name_generator;
     $this->chatSessionManager = $chat_session_manager;
     $this->npcSheetGenerationService = $npc_sheet_generation_service;
   }
@@ -76,11 +79,12 @@ class CampaignInitializationService {
     string $difficulty
   ): int {
     $now = $this->time->getRequestTime();
+    $campaign_name = $this->resolveCampaignName($name, $theme, $uid, $now);
 
     $transaction = $this->database->startTransaction('campaign_init');
     try {
       // 1. Create campaign record
-      $campaign_id = $this->createCampaign($uid, $name, $theme, $difficulty, $now);
+      $campaign_id = $this->createCampaign($uid, $campaign_name, $theme, $difficulty, $now);
       if (!$campaign_id) {
         return 0;
       }
@@ -109,7 +113,7 @@ class CampaignInitializationService {
       // 5. Bootstrap hierarchical chat sessions for the campaign.
       //    Include the starter dungeon and tavern room so they get
       //    dedicated sessions from the very start.
-      $this->bootstrapChatSessions($campaign_id, $name, $dungeon_id, 'tavern_entrance', 'Tavern Entrance');
+      $this->bootstrapChatSessions($campaign_id, $campaign_name, $dungeon_id, 'tavern_entrance', 'Tavern Entrance');
 
       $this->logger->info('Campaign {campaign_id} initialized with starter dungeon {dungeon_id}', [
         'campaign_id' => $campaign_id,
@@ -172,6 +176,19 @@ class CampaignInitializationService {
         'changed' => $now,
       ])
       ->execute();
+  }
+
+  /**
+   * Resolve a usable campaign name from user input or the local generator.
+   */
+  private function resolveCampaignName(string $name, string $theme, int $uid, int $now): string {
+    $trimmed = trim($name);
+    if ($trimmed !== '') {
+      return $trimmed;
+    }
+
+    $seed = abs(crc32($uid . ':' . $theme . ':' . $now));
+    return $this->campaignNameGenerator->generate($theme, $seed);
   }
 
   /**

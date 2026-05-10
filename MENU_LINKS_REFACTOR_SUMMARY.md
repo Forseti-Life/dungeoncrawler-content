@@ -57,18 +57,16 @@ weight: 50  # About
 
 **Improvement**: Changed from inconsistent increments (0→10→15→20→30→40) to consistent 10-unit steps (0→10→20→30→40→50), making it easier to insert new menu items in the future.
 
-### 3. Documented Missing Routes
+### 3. Added Dedicated Legal Routes
 
 #### Added:
 ```yaml
-# TODO: Create dedicated routes for privacy and terms pages
-# Currently pointing to front page as placeholder
 dungeoncrawler_content.footer.privacy:
   title: 'Privacy Policy'
-  route_name: <front>
+  route_name: dungeoncrawler_content.privacy_policy
 ```
 
-**Improvement**: Added TODO comment to flag that Privacy Policy and Terms of Service menu items currently point to the front page and should have dedicated routes created.
+**Improvement**: Privacy Policy and Terms of Service now point to dedicated public routes instead of falling back to the front page.
 
 ### 4. Section Organization
 
@@ -104,14 +102,14 @@ Each section includes:
 1. About (weight: 0)
 2. How to Play (weight: 10)
 3. World Lore (weight: 20)
-4. Privacy Policy (weight: 30) - **TODO: Create dedicated route**
-5. Terms of Service (weight: 40) - **TODO: Create dedicated route**
+4. Privacy Policy (weight: 30) - `dungeoncrawler_content.privacy_policy`
+5. Terms of Service (weight: 40) - `dungeoncrawler_content.terms_of_service`
 
 ## Breaking Changes
 
 **NONE** - All changes are backwards compatible:
 - No menu item IDs were changed
-- No routes were modified
+- Footer legal links now resolve to dedicated public pages
 - No properties were removed
 - Weight changes maintain the same display order
 - All existing functionality preserved
@@ -121,7 +119,7 @@ Each section includes:
 1. **Improved Maintainability**: Clear sections make it easy to find and modify specific menu items
 2. **Better Documentation**: Comments explain purpose and structure without requiring external docs
 3. **Consistent Patterns**: Uniform weight increments follow Drupal best practices
-4. **Future-Proofing**: Flagged incomplete implementations for future development
+4. **Future-Proofing**: Footer legal navigation now has stable dedicated routes
 5. **Code Readability**: Visual organization makes the file easier to scan and understand
 
 ## Testing Checklist
@@ -150,19 +148,18 @@ drush watchdog:show --severity=Error --filter=menu
 - ✅ YAML syntax validated with Python YAML parser
 - ✅ All menu IDs preserved (no breaking changes)
 - ✅ Weight values maintain display order
-- ✅ Route names unchanged
+- ✅ Footer legal links now point to dedicated public route names
 - ✅ Parent relationships intact
 - ✅ Properties remain consistent
 
 ## Recommendations
 
 ### Immediate Actions
-None required - changes are documentation-only improvements.
+None required.
 
 ### Future Enhancements
-1. Create dedicated routes for Privacy Policy and Terms of Service pages
-2. Consider adding menu descriptions to improve accessibility
-3. Evaluate if Campaigns menu item should have restricted permissions
+1. Consider adding menu descriptions to improve accessibility
+2. Evaluate if Campaigns menu item should have restricted permissions
 
 ### Related Files
 - `dungeoncrawler_content.routing.yml` - Route definitions
@@ -171,6 +168,6 @@ None required - changes are documentation-only improvements.
 
 ## Conclusion
 
-This refactoring improves the quality and maintainability of the menu links configuration without introducing any breaking changes. The file now follows Drupal best practices with clear documentation, consistent patterns, and explicit TODOs for future development.
+This refactoring improves the quality and maintainability of the menu links configuration without introducing breaking changes. The footer legal links now resolve to real public pages, and the file still follows Drupal best practices with clear documentation and consistent patterns.
 
 **Status**: ✅ Complete and ready for production deployment

@@ -14,9 +14,7 @@
   padding: 1.25rem;
   border: 1px solid rgba(186, 143, 76, 0.38);
   border-radius: 18px;
-  background:
-    linear-gradient(135deg, rgba(17, 23, 37, 0.96), rgba(28, 17, 13, 0.94)),
-    url('/themes/custom/dungeoncrawler/build/assets/images/site/how-to-play/how-to-play-hero.png') center/cover no-repeat;
+  background: linear-gradient(135deg, rgba(17, 23, 37, 0.96), rgba(28, 17, 13, 0.94));
   box-shadow: 0 22px 40px rgba(0, 0, 0, 0.24);
 }
 

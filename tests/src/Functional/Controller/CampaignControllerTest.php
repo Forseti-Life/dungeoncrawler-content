@@ -32,6 +32,7 @@ class CampaignControllerTest extends BrowserTestBase {
     $this->drupalGet('/campaigns');
     $this->assertSession()->statusCodeEquals(200);
     $this->assertSession()->pageTextContains('My Campaigns');
+    $this->assertSession()->linkByHrefExists('/characters');
   }
 
   /**

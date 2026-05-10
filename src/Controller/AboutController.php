@@ -157,7 +157,7 @@ class AboutController extends ControllerBase {
                 'primary' => [
                   '#type' => 'link',
                   '#title' => $this->t('Create Legacy Character'),
-                  '#url' => Url::fromUri('internal:/characters/create'),
+                  '#url' => Url::fromUri('internal:/charactersetup'),
                   '#attributes' => ['class' => ['btn', 'btn-warning', 'btn-lg', 'px-4']],
                 ],
                 'secondary' => [
@@ -498,7 +498,7 @@ class AboutController extends ControllerBase {
             'primary' => [
               '#type' => 'link',
               '#title' => $this->t('Create Legacy Character'),
-              '#url' => Url::fromUri('internal:/characters/create'),
+              '#url' => Url::fromUri('internal:/charactersetup'),
               '#attributes' => ['class' => ['btn', 'btn-light', 'btn-lg', 'px-5']],
             ],
             'secondary' => [

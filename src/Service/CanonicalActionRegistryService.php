@@ -98,15 +98,15 @@ class CanonicalActionRegistryService {
     ],
     'quest_turn_in' => [
       'label' => 'Quest turn-in',
-      'validator' => 'RoomChatService::validateQuestTurnInAction',
-      'executor' => 'QuestTouchpointService::ingestEvent',
+      'validator' => 'GmOrchestrationBrokerService::validateQuestTurnInAction',
+      'executor' => 'GmOrchestrationBrokerService::handleQuestTurnInAction',
       'scope' => 'quest_progress',
       'status' => 'active',
     ],
     'combat_initiation' => [
       'label' => 'Combat initiation',
-      'validator' => 'RoomChatService::validateCombatInitiationAction',
-      'executor' => 'GameCoordinatorService::transitionPhase',
+      'validator' => 'GmOrchestrationBrokerService::validateCombatInitiationAction',
+      'executor' => 'GmOrchestrationBrokerService::handleCombatInitiationAction',
       'scope' => 'phase_transition',
       'status' => 'active',
     ],
@@ -150,6 +150,65 @@ class CanonicalActionRegistryService {
    */
   public function getActionDefinition(string $action_type): ?array {
     return self::ACTION_DEFINITIONS[$action_type] ?? NULL;
+  }
+
+  /**
+   * Return typed broker-oriented tool definitions.
+   */
+  public function getBrokerToolDefinitions(): array {
+    $tool_overrides = [
+      'transfer_inventory' => [
+        'category' => 'transaction',
+        'route' => 'transactional',
+        'input_schema' => 'inventory_transfer',
+        'receipt_schema' => 'inventory_transfer_receipt',
+      ],
+      'quest_turn_in' => [
+        'category' => 'quest',
+        'route' => 'quest_progression',
+        'input_schema' => 'quest_turn_in',
+        'receipt_schema' => 'quest_progress_receipt',
+      ],
+      'combat_initiation' => [
+        'category' => 'transition',
+        'route' => 'combat_transition',
+        'input_schema' => 'combat_initiation',
+        'receipt_schema' => 'combat_transition_receipt',
+      ],
+      'navigate_to_location' => [
+        'category' => 'transition',
+        'route' => 'navigation',
+        'input_schema' => 'navigation',
+        'receipt_schema' => 'navigation_receipt',
+      ],
+    ];
+    $definitions = [];
+
+    foreach (self::ACTION_DEFINITIONS as $action_type => $definition) {
+      if (($definition['status'] ?? 'active') === 'legacy') {
+        continue;
+      }
+
+      $overrides = $tool_overrides[$action_type] ?? [];
+      $definitions[$action_type] = $definition + [
+        'tool_id' => $action_type,
+        'category' => $overrides['category'] ?? 'action',
+        'route' => $overrides['route'] ?? 'llm_fallback',
+        'input_schema' => $overrides['input_schema'] ?? 'generic_action',
+        'receipt_schema' => $overrides['receipt_schema'] ?? 'generic_receipt',
+        'surfaces' => ['gm_room_chat'],
+      ];
+    }
+
+    return $definitions;
+  }
+
+  /**
+   * Return one typed broker-oriented tool definition.
+   */
+  public function getBrokerToolDefinition(string $tool_id): ?array {
+    $definitions = $this->getBrokerToolDefinitions();
+    return $definitions[$tool_id] ?? NULL;
   }
 
   /**

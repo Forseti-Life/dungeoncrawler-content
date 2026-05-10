@@ -11,6 +11,7 @@ use Drupal\Component\Datetime\TimeInterface;
 use Drupal\Core\Session\AccountProxyInterface;
 use Drupal\dungeoncrawler_content\Service\SchemaLoader;
 use Drupal\dungeoncrawler_content\Service\CampaignInitializationService;
+use Drupal\dungeoncrawler_content\Service\CampaignNameGeneratorService;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 
 /**
@@ -24,6 +25,7 @@ class CampaignCreateForm extends FormBase {
   protected AccountProxyInterface $currentUser;
   protected SchemaLoader $schemaLoader;
   protected CampaignInitializationService $campaignInitialization;
+  protected CampaignNameGeneratorService $campaignNameGenerator;
 
   public function __construct(
     Connection $database,
@@ -31,7 +33,8 @@ class CampaignCreateForm extends FormBase {
     TimeInterface $time,
     AccountProxyInterface $current_user,
     SchemaLoader $schema_loader,
-    CampaignInitializationService $campaign_initialization
+    CampaignInitializationService $campaign_initialization,
+    CampaignNameGeneratorService $campaign_name_generator
   ) {
     $this->database = $database;
     $this->uuid = $uuid;
@@ -39,6 +42,7 @@ class CampaignCreateForm extends FormBase {
     $this->currentUser = $current_user;
     $this->schemaLoader = $schema_loader;
     $this->campaignInitialization = $campaign_initialization;
+    $this->campaignNameGenerator = $campaign_name_generator;
   }
 
   /**
@@ -52,6 +56,7 @@ class CampaignCreateForm extends FormBase {
       $container->get('current_user'),
       $container->get('dungeoncrawler_content.schema_loader'),
       $container->get('dungeoncrawler_content.campaign_initialization'),
+      $container->get('dungeoncrawler_content.campaign_name_generator'),
     );
   }
 
@@ -67,14 +72,17 @@ class CampaignCreateForm extends FormBase {
    */
   public function buildForm(array $form, FormStateInterface $form_state) {
     $form['#attributes']['class'][] = 'dc-character-form';
+    $selected_theme = (string) ($form_state->getValue('theme') ?: 'classic_dungeon');
+    $suggested_name = (string) ($form_state->getValue('name') ?: $this->campaignNameGenerator->generate($selected_theme));
 
     $form['name'] = [
       '#type' => 'textfield',
       '#title' => $this->t('Campaign Name'),
-      '#required' => TRUE,
+      '#required' => FALSE,
       '#maxlength' => 255,
-      '#default_value' => $this->t('New Campaign'),
-      '#attributes' => ['placeholder' => $this->t('Enter your campaign name...')],
+      '#default_value' => $suggested_name,
+      '#description' => $this->t('Editable local-generated suggestion. Leave it as-is or type your own.'),
+      '#attributes' => ['placeholder' => $this->t('Leave blank to auto-generate a campaign name.')],
     ];
 
     $form['theme'] = [

@@ -276,11 +276,19 @@ PROMPT;
     }
 
     $decoded = json_decode($cleaned, TRUE);
-    if (!is_array($decoded)) {
-      throw new \RuntimeException('GM chat returned an invalid JSON payload.');
+    if (is_array($decoded)) {
+      return $decoded;
     }
 
-    return $decoded;
+    $fallback_reply = trim(strip_tags($cleaned));
+    if ($fallback_reply === '') {
+      throw new \RuntimeException('GM chat returned an empty response.');
+    }
+
+    return [
+      'reply' => $fallback_reply,
+      'updates' => [],
+    ];
   }
 
   /**

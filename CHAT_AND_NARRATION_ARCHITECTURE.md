@@ -17,6 +17,7 @@ Both run in parallel on every `GameCoordinatorService.processAction()` call, pre
 backward compatibility while enabling the new perception-aware narrative system.
 
 See also [GAMEPLAY_ORCHESTRATION_ARCHITECTURE.md](GAMEPLAY_ORCHESTRATION_ARCHITECTURE.md) for the authoritative dialogue -> canonical action -> phase transition -> encounter lifecycle.
+See also [DETERMINISTIC_GM_ORCHESTRATION_ARCHITECTURE.md](DETERMINISTIC_GM_ORCHESTRATION_ARCHITECTURE.md) for the planned shift from prompt-driven GM action selection to deterministic room-chat orchestration.
 
 ---
 

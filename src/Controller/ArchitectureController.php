@@ -105,8 +105,8 @@ class ArchitectureController extends ControllerBase {
       [
         'domain' => $this->t('Character lifecycle'),
         'owner' => $this->t('dungeoncrawler_content module'),
-        'entry_route' => Url::fromRoute('dungeoncrawler_content.character_creation_wizard')->toString(),
-        'source_of_truth' => $this->t('CharacterCreationStepForm + dc_campaign_characters'),
+        'entry_route' => Url::fromRoute('dungeoncrawler_content.character_setup')->toString(),
+        'source_of_truth' => $this->t('CharacterSetupController + CharacterCreationStepForm + dc_campaign_characters'),
       ],
       [
         'domain' => $this->t('Campaign orchestration'),
@@ -131,9 +131,9 @@ class ArchitectureController extends ControllerBase {
     $critical_flows = [
       [
         'name' => $this->t('Character Creation'),
-        'steps' => $this->t('/characters/create → /characters/create/step/{step} → draft save/finalize → /characters/{character_id}'),
-        'controllers_apis' => $this->t('CharacterCreationStepController (start/step/saveStep), CharacterCreationStepForm (server form flow), CharacterApiController (/api/character/* autosave/load/delete), CharacterViewController (final sheet render).'),
-        'guardrails' => $this->t('Server-driven submit path is canonical; draft persistence between steps; CSRF protection on save routes; owner/admin character access checks.'),
+        'steps' => $this->t('/charactersetup → embedded /characters/create/step/{step} → draft save/finalize → /characters/{character_id}'),
+        'controllers_apis' => $this->t('CharacterSetupController (tab shell), CharacterCreationStepController (embedded step flow/saveStep), CharacterCreationStepForm (server form flow), CharacterApiController (/api/character/* autosave/load/delete), CharacterViewController (final sheet render).'),
+        'guardrails' => $this->t('Character Setup is the canonical user entry point; embedded step flow stays server-driven; draft persistence survives tab navigation; CSRF protection on save routes; owner/admin character access checks.'),
       ],
       [
         'name' => $this->t('Campaign Creation and Management'),
@@ -173,12 +173,12 @@ class ArchitectureController extends ControllerBase {
       [
         'domain' => $this->t('Character lifecycle'),
         'owner' => $this->t('dungeoncrawler_content module'),
-        'entry_route' => Url::fromRoute('dungeoncrawler_content.character_creation_wizard')->toString(),
-        'source_of_truth' => $this->t('CharacterCreationStepForm + dc_campaign_characters'),
+        'entry_route' => Url::fromRoute('dungeoncrawler_content.character_setup')->toString(),
+        'source_of_truth' => $this->t('CharacterSetupController + CharacterCreationStepForm + dc_campaign_characters'),
         'flow' => $this->t('Character Creation'),
-        'sequence' => $this->t('/characters/create → /characters/create/step/{step} → draft save/finalize → /characters/{character_id}'),
-        'controllers_apis' => $this->t('CharacterCreationStepController (start/step/saveStep), CharacterCreationStepForm (server form flow), CharacterApiController (/api/character/* autosave/load/delete), CharacterViewController (final sheet render).'),
-        'guardrails' => $this->t('Server-driven submit path is canonical; draft persistence between steps; CSRF protection on save routes; owner/admin character access checks.'),
+        'sequence' => $this->t('/charactersetup → embedded /characters/create/step/{step} → draft save/finalize → /characters/{character_id}'),
+        'controllers_apis' => $this->t('CharacterSetupController (tab shell), CharacterCreationStepController (embedded step flow/saveStep), CharacterCreationStepForm (server form flow), CharacterApiController (/api/character/* autosave/load/delete), CharacterViewController (final sheet render).'),
+        'guardrails' => $this->t('Character Setup is the canonical user entry point; embedded step flow stays server-driven; draft persistence survives tab navigation; CSRF protection on save routes; owner/admin character access checks.'),
         'drill_label' => $this->t('Campaigns (character roster)'),
         'drill_url' => Url::fromRoute('dungeoncrawler_content.campaigns')->toString(),
         'drill_description' => $this->t('Character rosters are now scoped per campaign at /campaigns/{id}/characters.'),

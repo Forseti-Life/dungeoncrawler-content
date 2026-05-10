@@ -221,5 +221,6 @@ The current orchestration path is validated by the following executable tests:
 
 - [COMBAT_ENGINE_ARCHITECTURE.md](COMBAT_ENGINE_ARCHITECTURE.md) — combat services, APIs, database tables, test matrix
 - [CHAT_AND_NARRATION_ARCHITECTURE.md](CHAT_AND_NARRATION_ARCHITECTURE.md) — room chat, session hierarchy, narration pipeline
+- [DETERMINISTIC_GM_ORCHESTRATION_ARCHITECTURE.md](DETERMINISTIC_GM_ORCHESTRATION_ARCHITECTURE.md) — proposed deterministic broker model for room-chat GM orchestration
 - [AI_ENCOUNTER_INTEGRATION.md](AI_ENCOUNTER_INTEGRATION.md) — NPC decision provider chain
 - [GM_INSTRUCTIONS.md](GM_INSTRUCTIONS.md) — GM prompt rules, canonical action semantics, grounding rules
