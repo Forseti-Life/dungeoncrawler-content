@@ -4,6 +4,8 @@ namespace Drupal\dungeoncrawler_content\Form;
 
 use Drupal\Core\Form\ConfigFormBase;
 use Drupal\Core\Form\FormStateInterface;
+use Drupal\Core\Link;
+use Drupal\Core\Url;
 
 /**
  * Configuration form for Dungeon Crawler Content settings.
@@ -264,6 +266,13 @@ class DungeonCrawlerSettingsForm extends ConfigFormBase {
         'autocomplete' => 'off',
         'spellcheck' => 'false',
       ],
+    ];
+
+    $form['ai_settings']['tts_testing_help'] = [
+      '#type' => 'item',
+      '#title' => $this->t('Text-to-speech testing'),
+      '#markup' => '<p>' . $this->t('Use the dedicated configuration test page to verify that Dungeoncrawler can detect and invoke the standalone Forseti TTS integration without embedding provider-specific logic here.') . '</p><p>' . Link::fromTextAndUrl($this->t('Open the text-to-speech smoke test'), Url::fromRoute('dungeoncrawler_content.text_to_speech_interface'))->toString() . '</p>',
+      '#weight' => 260,
     ];
 
     $form['display_settings'] = [
