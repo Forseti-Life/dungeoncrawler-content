@@ -2045,6 +2045,123 @@ function dungeoncrawler_content_schema() {
     ],
   ];
 
+  $schema['dc_room_view_gallery'] = [
+    'description' => 'Generated room-view gallery entries keyed to 50-message room-chat windows.',
+    'fields' => [
+      'id' => [
+        'type' => 'serial',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ],
+      'campaign_id' => [
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ],
+      'dungeon_id' => [
+        'type' => 'varchar',
+        'length' => 64,
+        'not null' => TRUE,
+        'default' => '',
+      ],
+      'room_id' => [
+        'type' => 'varchar',
+        'length' => 128,
+        'not null' => TRUE,
+        'default' => '',
+      ],
+      'room_session_id' => [
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ],
+      'window_index' => [
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ],
+      'message_start_id' => [
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ],
+      'message_end_id' => [
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ],
+      'message_count' => [
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ],
+      'summary_text' => [
+        'type' => 'text',
+        'size' => 'big',
+        'not null' => TRUE,
+      ],
+      'provider' => [
+        'type' => 'varchar',
+        'length' => 32,
+        'not null' => TRUE,
+        'default' => 'vertex',
+      ],
+      'mode' => [
+        'type' => 'varchar',
+        'length' => 24,
+        'not null' => TRUE,
+        'default' => 'cache',
+      ],
+      'status' => [
+        'type' => 'varchar',
+        'length' => 24,
+        'not null' => TRUE,
+        'default' => 'ready',
+      ],
+      'image_url' => [
+        'type' => 'text',
+        'not null' => FALSE,
+      ],
+      'image_data_uri' => [
+        'type' => 'text',
+        'size' => 'big',
+        'not null' => FALSE,
+      ],
+      'mime_type' => [
+        'type' => 'varchar',
+        'length' => 64,
+        'not null' => FALSE,
+      ],
+      'created' => [
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ],
+      'updated' => [
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ],
+    ],
+    'primary key' => ['id'],
+    'unique keys' => [
+      'room_window' => ['room_session_id', 'window_index'],
+    ],
+    'indexes' => [
+      'campaign_room' => ['campaign_id', 'dungeon_id', 'room_id'],
+      'room_session' => ['room_session_id'],
+      'message_end' => ['message_end_id'],
+    ],
+  ];
+
   $schema['dungeoncrawler_content_campaigns'] = [
     'description' => 'Global campaign template definitions.',
     'fields' => [
@@ -6026,4 +6143,19 @@ function dungeoncrawler_content_update_10048() {
   $schema->createTable('dc_npc_sheet_generation_jobs', $module_schema['dc_npc_sheet_generation_jobs']);
 
   return t('Created dc_npc_sheet_generation_jobs table.');
+}
+
+/**
+ * Create persisted room-view gallery storage for 50-message scene snapshots.
+ */
+function dungeoncrawler_content_update_10049() {
+  $schema = \Drupal::database()->schema();
+  if ($schema->tableExists('dc_room_view_gallery')) {
+    return t('dc_room_view_gallery already exists; no action taken.');
+  }
+
+  $module_schema = dungeoncrawler_content_schema();
+  $schema->createTable('dc_room_view_gallery', $module_schema['dc_room_view_gallery']);
+
+  return t('Created dc_room_view_gallery table for room scene galleries.');
 }

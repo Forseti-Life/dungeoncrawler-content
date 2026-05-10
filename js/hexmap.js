@@ -236,6 +236,8 @@ import { SpriteService } from './SpriteService.js';
       this.embeddedCharacterSheetUrl = null;
       this.lastServerMessageAt = 0;
       this.serverMessageCooldownMs = 3000;
+      this.lastRoomViewKey = null;
+      this.roomViewRequestToken = 0;
       // Channel state
       this.activeChannel = 'room';
       this.channels = { room: { key: 'room', label: 'Room', type: 'room', active: true } };
@@ -481,6 +483,17 @@ import { SpriteService } from './SpriteService.js';
         chatSessionTabs: document.getElementById('chat-session-tabs'),
         chatPanelTitle: document.getElementById('chat-panel-title'),
 
+        // Generated room view panel
+        roomViewPanel: document.getElementById('room-view-panel'),
+        roomViewName: document.getElementById('room-view-name'),
+        roomViewMeta: document.getElementById('room-view-meta'),
+        roomViewDescription: document.getElementById('room-view-description'),
+        roomViewStatus: document.getElementById('room-view-status'),
+        roomViewGallery: document.getElementById('room-view-gallery'),
+        roomViewPlaceholder: document.getElementById('room-view-placeholder'),
+        roomViewPlaceholderText: document.getElementById('room-view-placeholder-text'),
+        roomViewCardTemplate: document.getElementById('room-view-card-template'),
+
         // Quest journal panel
         questJournal: document.getElementById('quest-journal'),
         questList: document.getElementById('quest-list'),
@@ -490,6 +503,182 @@ import { SpriteService } from './SpriteService.js';
       };
 
       this.setupCharacterSheetSections();
+    }
+
+    formatRoomViewMeta(room) {
+      if (!room || typeof room !== 'object') {
+        return 'Waiting for room context...';
+      }
+
+      return [
+        room.room_type ? String(room.room_type).replace(/_/g, ' ') : '',
+        room.size_category ? String(room.size_category).replace(/_/g, ' ') : '',
+        room.terrain ? String(room.terrain).replace(/_/g, ' ') : '',
+        room.lighting ? `lighting: ${String(room.lighting).replace(/_/g, ' ')}` : '',
+      ].filter(Boolean).join(' • ') || 'Current room scene';
+    }
+
+    updateRoomViewPanel(room, state = {}) {
+      const {
+        statusLabel = 'Idle',
+        description = 'A new scene snapshot is added every 50 room messages.',
+        placeholderText = 'Room transition imagery will appear here.',
+        entries = [],
+      } = state;
+
+      if (this.elements.roomViewName) {
+        this.elements.roomViewName.textContent = room?.name || 'Current room';
+      }
+      if (this.elements.roomViewMeta) {
+        this.elements.roomViewMeta.textContent = this.formatRoomViewMeta(room);
+      }
+      if (this.elements.roomViewDescription) {
+        this.elements.roomViewDescription.textContent = description;
+      }
+      if (this.elements.roomViewStatus) {
+        this.elements.roomViewStatus.textContent = statusLabel;
+      }
+      if (this.elements.roomViewPlaceholderText) {
+        this.elements.roomViewPlaceholderText.textContent = placeholderText;
+      }
+
+      if (this.elements.roomViewGallery) {
+        this.elements.roomViewGallery.innerHTML = '';
+        this.elements.roomViewGallery.hidden = entries.length === 0;
+        entries.forEach((entry) => {
+          const card = this.buildRoomViewCard(entry, room);
+          if (card) {
+            this.elements.roomViewGallery.appendChild(card);
+          }
+        });
+      }
+      if (this.elements.roomViewPlaceholder) {
+        this.elements.roomViewPlaceholder.hidden = entries.length > 0;
+      }
+    }
+
+    buildRoomViewCard(entry, room) {
+      const template = this.elements.roomViewCardTemplate;
+      const imageSrc = entry?.image?.url || entry?.image?.data_uri || '';
+      if (!template || !imageSrc) {
+        return null;
+      }
+
+      const fragment = template.content?.cloneNode(true);
+      if (!fragment) {
+        return null;
+      }
+
+      const article = fragment.querySelector('.room-view-card');
+      const eyebrow = fragment.querySelector('.room-view-card__eyebrow');
+      const title = fragment.querySelector('.room-view-card__title');
+      const summary = fragment.querySelector('.room-view-card__summary');
+      const status = fragment.querySelector('.room-view-card__status');
+      const image = fragment.querySelector('.room-view-card__image');
+
+      if (eyebrow) {
+        eyebrow.textContent = entry?.message_window?.label || 'Scene snapshot';
+      }
+      if (title) {
+        title.textContent = entry?.title || room?.name || 'Generated Scene';
+      }
+      if (summary) {
+        summary.textContent = entry?.summary || room?.description || 'Generated scene summary unavailable.';
+      }
+      if (status) {
+        status.textContent = entry?.mode === 'cache' ? 'Cached' : 'Generated';
+      }
+      if (image) {
+        image.src = imageSrc;
+        image.alt = entry?.title
+          ? `${entry.title} for ${room?.name || 'current room'}`
+          : 'Generated room scene';
+      }
+
+      return article;
+    }
+
+    async loadActiveRoomView(roomId = null, options = {}) {
+      if (!this.elements.roomViewPanel) {
+        return;
+      }
+
+      const force = Boolean(options.force);
+      const hexmap = this.stateManager?.hexmap;
+      const campaignId = hexmap?.resolveCampaignId?.() || null;
+      const resolvedRoomId = roomId || hexmap?.resolveActiveRoomId?.() || null;
+      const room = hexmap?.getActiveRoomData?.() || null;
+
+      if (!campaignId || !resolvedRoomId) {
+        this.lastRoomViewKey = null;
+        this.updateRoomViewPanel(room, {
+          statusLabel: 'Unavailable',
+          description: 'A new scene snapshot is added every 50 room messages.',
+          placeholderText: 'Room view images need an active campaign room.',
+        });
+        return;
+      }
+
+      const viewKey = `${campaignId}:${resolvedRoomId}`;
+      if (!force
+        && this.lastRoomViewKey === viewKey
+        && this.elements.roomViewGallery
+        && !this.elements.roomViewGallery.hidden
+        && this.elements.roomViewGallery.childElementCount > 0) {
+        return;
+      }
+
+      this.lastRoomViewKey = viewKey;
+      const requestToken = ++this.roomViewRequestToken;
+      this.updateRoomViewPanel(room, {
+        statusLabel: 'Generating',
+        description: 'A new scene snapshot is added every 50 room messages.',
+        placeholderText: 'Loading the latest room scene gallery...',
+      });
+
+      try {
+        const response = await fetch(`/api/campaign/${campaignId}/room/${encodeURIComponent(resolvedRoomId)}/view-image`);
+        const result = await response.json();
+        if (requestToken !== this.roomViewRequestToken) {
+          return;
+        }
+
+        if (!response.ok || !result?.success || !result?.data) {
+          throw new Error(result?.error || 'Room view generation failed.');
+        }
+
+        const payload = result.data;
+        const payloadRoom = payload.room || room;
+        const entries = Array.isArray(payload.entries) ? payload.entries.filter((entry) => {
+          const src = entry?.image?.url || entry?.image?.data_uri || '';
+          return Boolean(src);
+        }) : [];
+        const statusLabel = entries.length > 0
+          ? `${entries.length} Scene${entries.length === 1 ? '' : 's'}`
+          : (payload.available === false ? 'Unavailable' : 'Pending');
+        const placeholderText = entries.length > 0
+          ? ''
+          : (payload.message || 'No room view image is available yet.');
+        const description = payload.generated_entry_count > 0
+          ? `A new scene snapshot is created every ${payload.message_batch_size || 50} room messages and added to the top of the gallery.`
+          : `The room establishing shot appears first. A new scene snapshot is added every ${payload.message_batch_size || 50} room messages.`;
+
+        this.updateRoomViewPanel(payloadRoom, {
+          statusLabel,
+          description,
+          placeholderText,
+          entries,
+        });
+      } catch (error) {
+        if (requestToken !== this.roomViewRequestToken) {
+          return;
+        }
+        this.updateRoomViewPanel(room, {
+          statusLabel: 'Unavailable',
+          description: 'A new scene snapshot is added every 50 room messages.',
+          placeholderText: error?.message || 'Room view generation failed.',
+        });
+      }
     }
 
     /**
@@ -1982,6 +2171,9 @@ import { SpriteService } from './SpriteService.js';
           }
 
           this.scrollChatToBottom({ defer: true });
+          if (this.loadActiveRoomView) {
+            this.loadActiveRoomView(roomId, { force: true });
+          }
         }
       } catch (error) {
         console.error('Failed to load chat history:', error);
@@ -2046,6 +2238,10 @@ import { SpriteService } from './SpriteService.js';
       // new room/entities/connections into the live dungeon data and switch.
       if (result.data?.navigation?.target_room_id) {
         this.handleNavigationResult(result.data.navigation);
+      }
+
+      if (this.loadActiveRoomView) {
+        this.loadActiveRoomView(roomId, { force: true });
       }
 
       options.onPrimaryResponse?.(result);
@@ -2117,6 +2313,11 @@ import { SpriteService } from './SpriteService.js';
       releasePrimary(completeResult);
       if (!completeResult) {
         throw new Error('Incomplete streamed chat response');
+      }
+
+      const activeRoomId = this.stateManager.hexmap?.resolveActiveRoomId?.() || null;
+      if (activeRoomId && this.loadActiveRoomView) {
+        this.loadActiveRoomView(activeRoomId, { force: true });
       }
 
       return completeResult;
@@ -6996,6 +7197,9 @@ import { SpriteService } from './SpriteService.js';
         } else {
           // Refresh session view (narrative changes per-room).
           this.uiManager.loadSessionViewMessages(this.uiManager.activeSessionView);
+        }
+        if (this.uiManager.loadActiveRoomView) {
+          this.uiManager.loadActiveRoomView(roomId, { force: true });
         }
       }
 

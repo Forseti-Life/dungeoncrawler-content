@@ -164,6 +164,10 @@ services:
     class: Drupal\dungeoncrawler_content\Service\ImageGenerationIntegrationService
     arguments: ['@config.factory', '@dungeoncrawler_content.gemini_image_generator', '@dungeoncrawler_content.vertex_image_generator']
 
+  dungeoncrawler_content.room_view_image:
+    class: Drupal\dungeoncrawler_content\Service\RoomViewImageService
+    arguments: ['@database', '@logger.factory', '@dungeoncrawler_content.image_generation_integration', '@dungeoncrawler_content.chat_session_manager']
+
   dungeoncrawler_content.generated_image_repository:
     class: Drupal\dungeoncrawler_content\Service\GeneratedImageRepository
     arguments: ['@database', '@file_url_generator', '@file_system', '@uuid', '@datetime.time', '@logger.factory']
@@ -371,6 +375,7 @@ services:
       - '@dungeoncrawler_content.terrain_generator'
       - '@dungeoncrawler_content.number_generation'
       - '@dungeoncrawler_content.room_library'
+      - '@dungeoncrawler_content.room_view_image'
 
   dungeoncrawler_content.room_connection:
     class: Drupal\dungeoncrawler_content\Service\RoomConnectionAlgorithm

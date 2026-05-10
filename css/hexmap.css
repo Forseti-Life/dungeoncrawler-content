@@ -297,9 +297,124 @@
 }
 
 .game-shell__chat-panel,
+.game-shell__view-panel,
 .game-shell__character-panel {
   max-width: 1280px;
   margin: 0 auto;
+}
+
+.game-shell__placeholder-panel {
+  display: flex;
+  justify-content: center;
+}
+
+.game-shell__placeholder-card,
+.room-view-panel {
+  width: min(100%, 1100px);
+  padding: var(--space-6);
+  border-radius: var(--radius-3xl);
+  border: 1px solid var(--panel-border);
+  background: color-mix(in srgb, var(--panel) 94%, white);
+  box-shadow: var(--shadow-md);
+}
+
+.game-shell__placeholder-card {
+  text-align: center;
+}
+
+.game-shell__placeholder-icon,
+.room-view-panel__placeholder-icon {
+  display: inline-flex;
+  font-size: 2rem;
+  margin-bottom: var(--space-3);
+}
+
+.room-view-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.room-view-panel__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+.room-view-panel__meta,
+.room-view-panel__description {
+  margin: 0;
+  color: var(--muted);
+}
+
+.room-view-panel__placeholder {
+  min-height: 240px;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  padding: var(--space-6);
+  color: var(--text-bright);
+  border-radius: var(--radius-2xl);
+  border: 1px solid color-mix(in srgb, var(--panel-border) 75%, black);
+  background:
+    radial-gradient(circle at top, rgba(255,255,255,0.08), transparent 50%),
+    linear-gradient(180deg, rgba(13, 18, 33, 0.96), rgba(20, 28, 46, 0.92));
+}
+
+.room-view-panel__gallery {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  max-height: min(72vh, 1200px);
+  overflow-y: auto;
+  padding-right: var(--space-2);
+}
+
+.room-view-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-5);
+  border-radius: var(--radius-2xl);
+  border: 1px solid color-mix(in srgb, var(--panel-border) 88%, white);
+  background: color-mix(in srgb, var(--panel) 90%, white);
+  box-shadow: var(--shadow-sm);
+}
+
+.room-view-card__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+.room-view-card__eyebrow,
+.room-view-card__summary {
+  margin: 0;
+  color: var(--muted);
+}
+
+.room-view-card__title {
+  margin: 0;
+}
+
+.room-view-card__frame {
+  position: relative;
+  min-height: 320px;
+  overflow: hidden;
+  border-radius: var(--radius-2xl);
+  border: 1px solid color-mix(in srgb, var(--panel-border) 75%, black);
+  background:
+    radial-gradient(circle at top, rgba(255,255,255,0.08), transparent 50%),
+    linear-gradient(180deg, rgba(13, 18, 33, 0.96), rgba(20, 28, 46, 0.92));
+}
+
+.room-view-card__image {
+  display: block;
+  width: 100%;
+  min-height: 320px;
+  object-fit: cover;
 }
 
 .game-shell__character-panel,
@@ -344,6 +459,17 @@
   display: flex;
   flex: 1;
   flex-direction: column;
+}
+
+.hexmap-container.fullscreen .room-view-panel,
+.hexmap-container.fullscreen .room-view-panel__gallery {
+  max-height: calc(100vh - 260px);
+}
+
+.hexmap-container.fullscreen .room-view-card__frame,
+.hexmap-container.fullscreen .room-view-card__image,
+.hexmap-container.fullscreen .room-view-panel__placeholder {
+  min-height: calc(100vh - 360px);
 }
 
 .hexmap-container.fullscreen .hexmap-stage {

@@ -93,13 +93,26 @@ class ImageGenerationIntegrationService {
    *   Integration status data.
    */
   public function getIntegrationStatus(): array {
-    return [
-      'default_provider' => $this->resolveProvider(NULL),
-      'providers' => [
-        'gemini' => $this->geminiImageService->getIntegrationStatus(),
-        'vertex' => $this->vertexImageService->getIntegrationStatus(),
-      ],
+    $configured_provider = $this->resolveProvider(NULL);
+    $providers = [
+      'gemini' => $this->geminiImageService->getIntegrationStatus(),
+      'vertex' => $this->vertexImageService->getIntegrationStatus(),
     ];
+
+    return [
+      'configured_provider' => $configured_provider,
+      'default_provider' => $configured_provider,
+      'effective_provider' => $this->resolveReadyProvider($providers, $configured_provider),
+      'providers' => $providers,
+    ];
+  }
+
+  /**
+   * Resolves the first live-ready provider, preferring the requested/configured one.
+   */
+  public function getReadyProvider(?string $preferred_provider = NULL): ?string {
+    $status = $this->getIntegrationStatus();
+    return $this->resolveReadyProvider($status['providers'] ?? [], $preferred_provider ?: ($status['configured_provider'] ?? NULL));
   }
 
   /**
@@ -113,6 +126,35 @@ class ImageGenerationIntegrationService {
 
     $configured = strtolower(trim((string) $this->configFactory->get('dungeoncrawler_content.settings')->get('generated_image_provider')));
     return in_array($configured, ['gemini', 'vertex'], TRUE) ? $configured : 'gemini';
+  }
+
+  /**
+   * Determines whether a provider status is live-ready.
+   */
+  private function isProviderReady(array $provider_status): bool {
+    return !empty($provider_status['enabled'])
+      && (!empty($provider_status['has_credentials']) || !empty($provider_status['has_api_key']));
+  }
+
+  /**
+   * Chooses a live-ready provider from known statuses.
+   */
+  private function resolveReadyProvider(array $providers, ?string $preferred_provider): ?string {
+    $preferred = strtolower(trim((string) $preferred_provider));
+    $candidates = array_values(array_unique(array_filter([
+      in_array($preferred, ['gemini', 'vertex'], TRUE) ? $preferred : NULL,
+      'vertex',
+      'gemini',
+    ])));
+
+    foreach ($candidates as $candidate) {
+      $provider_status = is_array($providers[$candidate] ?? NULL) ? $providers[$candidate] : [];
+      if ($this->isProviderReady($provider_status)) {
+        return $candidate;
+      }
+    }
+
+    return NULL;
   }
 
 }

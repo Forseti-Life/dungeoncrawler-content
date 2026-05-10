@@ -59,9 +59,17 @@
       // Disable unchecked boxes once the limit is reached.
       $checkboxes.each(function () {
         var $cb = $(this);
+        var disableUnchecked = checked >= limit;
         if (!$cb.is(':checked')) {
-          $cb.prop('disabled', checked >= limit);
-          $cb.closest('.form-item').toggleClass('spell-disabled', checked >= limit);
+          $cb.prop('disabled', disableUnchecked);
+          $cb.closest('.form-item')
+            .toggleClass('spell-disabled', disableUnchecked)
+            .toggleClass('option-selector-card--disabled', disableUnchecked);
+        } else {
+          $cb.prop('disabled', false);
+          $cb.closest('.form-item')
+            .removeClass('spell-disabled')
+            .removeClass('option-selector-card--disabled');
         }
       });
     }

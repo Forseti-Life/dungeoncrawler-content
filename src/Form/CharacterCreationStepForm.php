@@ -171,7 +171,7 @@ class CharacterCreationStepForm extends FormBase {
       '#attributes' => ['class' => ['button-group']],
     ];
     
-    if ($step > 1) {
+    if ($step > 1 && !$embedded) {
       $back_query = ['character_id' => $character_id];
       if ($campaign_id) {
         $back_query['campaign_id'] = $campaign_id;
@@ -190,7 +190,9 @@ class CharacterCreationStepForm extends FormBase {
 
     $form['actions']['submit'] = [
       '#type' => 'submit',
-      '#value' => $step < 8 ? $this->t('Next →') : $this->t('Create Legacy Character'),
+      '#value' => $step < 8
+        ? ($embedded ? $this->t('Save Changes') : $this->t('Next →'))
+        : $this->t('Create Legacy Character'),
       '#attributes' => ['class' => ['btn', 'btn-primary']],
     ];
 
@@ -667,17 +669,17 @@ class CharacterCreationStepForm extends FormBase {
         ];
 
         $feat_options = [];
-        $feat_descriptions = [];
+        $feat_cards = [];
 
         foreach ($ancestry_feats as $feat) {
           $feat_options[$feat['id']] = $feat['name'];
-          $prereq_text = !empty($feat['prerequisites']) ? ' <em>(Requires: ' . $feat['prerequisites'] . ')</em>' : '';
-          $feat_descriptions[$feat['id']] = [
-            '#markup' => '<div class="feat-description">'
-              . '<strong>' . $feat['name'] . '</strong>' . $prereq_text . '<br>'
-              . $feat['benefit']
-              . '</div>',
-          ];
+          $feat_cards[$feat['id']] = $this->buildOptionCardData(
+            $feat['benefit'] ?? '',
+            [],
+            [
+              (string) $this->t('Prerequisites') => $feat['prerequisites'] ?? '',
+            ],
+          );
         }
 
         $selected_feat = (string) ($form_state->getValue('ancestry_feat') ?: ($character_data['ancestry_feat'] ?? ''));
@@ -705,16 +707,7 @@ class CharacterCreationStepForm extends FormBase {
           '#description' => $this->t('Each feat provides unique mechanical benefits that reflect your ancestry\'s culture and abilities.'),
         ];
         $this->clearStaleOptionInput($form_state, 'ancestry_feat', $feat_options);
-
-        // Add detailed descriptions for each feat option via #states.
-        foreach ($feat_descriptions as $feat_id => $description_markup) {
-          $form['heritage_dynamic']['ancestry_feat_dynamic']['ancestry_feat_desc_' . $feat_id] = $description_markup;
-          $form['heritage_dynamic']['ancestry_feat_dynamic']['ancestry_feat_desc_' . $feat_id]['#states'] = [
-            'visible' => [
-              ':input[name="ancestry_feat"]' => ['value' => $feat_id],
-            ],
-          ];
-        }
+        $this->attachOptionCardSettings($form['heritage_dynamic']['ancestry_feat_dynamic'], 'ancestry_feat', $feat_cards, 'single');
       }
       else {
         $this->clearStaleOptionInput($form_state, 'ancestry_feat', []);
@@ -808,12 +801,17 @@ class CharacterCreationStepForm extends FormBase {
         ];
 
         $form['background_dynamic']['background_skill'] = [
-          '#markup' => '<div class="background-benefit">'
-            . '<p><strong>' . $this->t('Skill Training:') . '</strong> ' . ($background_data['skill'] ?? 'Varies') . '</p>'
-            . '<p><strong>' . $this->t('Lore Skill:') . '</strong> ' . ($background_data['lore'] ?? 'Varies') . '</p>'
-            . '<p><strong>' . $this->t('Skill Feat:') . '</strong> ' . ($background_data['feat'] ?? 'Varies') . '</p>'
-            . '<p class="help-text">' . $this->t('These will be automatically applied to your character.') . '</p>'
-            . '</div>',
+          '#markup' => $this->buildSelectionDetailMarkup(
+            $background_data['name'] ?? $selected_background,
+            $background_data['description'] ?? '',
+            [],
+            [
+              (string) $this->t('Skill Training') => $background_data['skill'] ?? 'Varies',
+              (string) $this->t('Lore Skill') => $background_data['lore'] ?? 'Varies',
+              (string) $this->t('Skill Feat') => $background_data['feat'] ?? 'Varies',
+              (string) $this->t('Application') => (string) $this->t('These will be automatically applied to your character.'),
+            ],
+          ),
         ];
 
         // For backgrounds with skill choices (like Scholar), add selector
@@ -922,18 +920,17 @@ class CharacterCreationStepForm extends FormBase {
       ];
 
       $feat_options = [];
-      $feat_descriptions = [];
+      $feat_cards = [];
 
       foreach ($class_feats as $feat) {
         $feat_options[$feat['id']] = $feat['name'];
-        $prereq_text = !empty($feat['prerequisites']) ? ' <em>(Requires: ' . $feat['prerequisites'] . ')</em>' : '';
-        $traits_text = !empty($feat['traits']) ? ' [' . implode(', ', $feat['traits']) . ']' : '';
-        $feat_descriptions[$feat['id']] = [
-          '#markup' => '<div class="feat-description">'
-            . '<strong>' . $feat['name'] . '</strong>' . $traits_text . $prereq_text . '<br>'
-            . $feat['benefit']
-            . '</div>',
-        ];
+        $feat_cards[$feat['id']] = $this->buildOptionCardData(
+          $feat['benefit'] ?? '',
+          $feat['traits'] ?? [],
+          [
+            (string) $this->t('Prerequisites') => $feat['prerequisites'] ?? '',
+          ],
+        );
       }
 
       $form['class_dynamic']['class_feat'] = [
@@ -944,15 +941,7 @@ class CharacterCreationStepForm extends FormBase {
         '#required' => TRUE,
         '#description' => $this->t('Each feat provides unique tactical options that define your combat style.'),
       ];
-
-      foreach ($feat_descriptions as $feat_id => $description_markup) {
-        $form['class_dynamic']['class_feat_desc_' . $feat_id] = $description_markup;
-        $form['class_dynamic']['class_feat_desc_' . $feat_id]['#states'] = [
-          'visible' => [
-            ':input[name="class_feat"]' => ['value' => $feat_id],
-          ],
-        ];
-      }
+      $this->attachOptionCardSettings($form['class_dynamic'], 'class_feat', $feat_cards, 'single');
     }
 
     // --- Subclass selection for flexible-tradition casters ---
@@ -964,8 +953,13 @@ class CharacterCreationStepForm extends FormBase {
           . '</div>',
       ];
       $bloodline_options = [];
+      $bloodline_cards = [];
       foreach (CharacterManager::SORCERER_BLOODLINES as $bl_id => $bl) {
-        $bloodline_options[$bl_id] = $bl['label'] . ' (' . ucfirst($bl['tradition']) . ') — ' . $bl['description'];
+        $bloodline_options[$bl_id] = $bl['label'];
+        $bloodline_cards[$bl_id] = $this->buildOptionCardData(
+          $bl['description'] ?? '',
+          [ucfirst((string) ($bl['tradition'] ?? '')) . ' tradition'],
+        );
       }
       $form['class_dynamic']['subclass'] = [
         '#type' => 'radios',
@@ -980,6 +974,7 @@ class CharacterCreationStepForm extends FormBase {
           'event' => 'change',
         ],
       ];
+      $this->attachOptionCardSettings($form['class_dynamic'], 'subclass', $bloodline_cards, 'single');
     }
     elseif ($selected_class === 'witch') {
       $form['class_dynamic']['patron_section'] = [
@@ -989,8 +984,13 @@ class CharacterCreationStepForm extends FormBase {
           . '</div>',
       ];
       $patron_options = [];
+      $patron_cards = [];
       foreach (CharacterManager::WITCH_PATRONS as $p_id => $p) {
-        $patron_options[$p_id] = $p['label'] . ' (' . ucfirst($p['tradition']) . ') — ' . $p['description'];
+        $patron_options[$p_id] = $p['label'];
+        $patron_cards[$p_id] = $this->buildOptionCardData(
+          $p['description'] ?? '',
+          [ucfirst((string) ($p['tradition'] ?? '')) . ' tradition'],
+        );
       }
       $form['class_dynamic']['subclass'] = [
         '#type' => 'radios',
@@ -1005,6 +1005,7 @@ class CharacterCreationStepForm extends FormBase {
           'event' => 'change',
         ],
       ];
+      $this->attachOptionCardSettings($form['class_dynamic'], 'subclass', $patron_cards, 'single');
     }
 
     // --- Spell Selection for ALL spellcasting classes ---
@@ -1063,9 +1064,18 @@ class CharacterCreationStepForm extends FormBase {
       // --- Cantrip Selection ---
       $cantrips = $this->characterManager->getSpellsByTradition($tradition, 0);
       $cantrip_options = [];
+      $cantrip_cards = [];
       foreach ($cantrips as $cantrip) {
-        $school_tag = !empty($cantrip['school']) ? ' [' . ucfirst($cantrip['school']) . ']' : '';
-        $cantrip_options[$cantrip['id']] = $cantrip['name'] . $school_tag . ' — ' . $cantrip['description'];
+        $cantrip_options[$cantrip['id']] = $cantrip['name'];
+        $tags = ['Cantrip'];
+        if (!empty($cantrip['school'])) {
+          $tags[] = ucfirst((string) $cantrip['school']);
+        }
+        $cantrip_cards[$cantrip['id']] = $this->buildOptionCardData(
+          $cantrip['description'] ?? '',
+          $tags,
+          $this->extractSpellFacts($cantrip),
+        );
       }
 
       $form['class_dynamic']['cantrips_help'] = [
@@ -1082,13 +1092,23 @@ class CharacterCreationStepForm extends FormBase {
         '#required' => FALSE,
         '#description' => $this->t('Select exactly @count cantrips from the @tradition spell list.', ['@count' => $num_cantrips, '@tradition' => $tradition_label]),
       ];
+      $this->attachOptionCardSettings($form['class_dynamic'], 'cantrips', $cantrip_cards, 'multiple');
 
       // --- 1st Level Spell Selection ---
       $first_level_spells = $this->characterManager->getSpellsByTradition($tradition, 1);
       $spell_options = [];
+      $spell_cards = [];
       foreach ($first_level_spells as $spell) {
-        $school_tag = !empty($spell['school']) ? ' [' . ucfirst($spell['school']) . ']' : '';
-        $spell_options[$spell['id']] = $spell['name'] . $school_tag . ' — ' . $spell['description'];
+        $spell_options[$spell['id']] = $spell['name'];
+        $tags = ['1st-level spell'];
+        if (!empty($spell['school'])) {
+          $tags[] = ucfirst((string) $spell['school']);
+        }
+        $spell_cards[$spell['id']] = $this->buildOptionCardData(
+          $spell['description'] ?? '',
+          $tags,
+          $this->extractSpellFacts($spell),
+        );
       }
 
       $form['class_dynamic']['spells_help'] = [
@@ -1105,6 +1125,7 @@ class CharacterCreationStepForm extends FormBase {
         '#required' => FALSE,
         '#description' => $this->t('Select your starting 1st-level @tradition spells.', ['@tradition' => $tradition_label]),
       ];
+      $this->attachOptionCardSettings($form['class_dynamic'], 'spells_first', $spell_cards, 'multiple');
     }
     elseif (array_key_exists($selected_class, CharacterManager::CLASS_TRADITIONS) && !$tradition) {
       // Caster class but tradition not yet resolved (sorcerer/witch without subclass)
@@ -1250,16 +1271,16 @@ class CharacterCreationStepForm extends FormBase {
     ];
 
     $general_feat_options = [];
-    $general_feat_descriptions = [];
+    $general_feat_cards = [];
     foreach (CharacterManager::GENERAL_FEATS as $feat) {
       $general_feat_options[$feat['id']] = $feat['name'];
-      $prereq_text = !empty($feat['prerequisites']) ? ' <em>(Requires: ' . $feat['prerequisites'] . ')</em>' : '';
-      $general_feat_descriptions[$feat['id']] = [
-        '#markup' => '<div class="feat-description">'
-          . '<strong>' . $feat['name'] . '</strong>' . $prereq_text . '<br>'
-          . $feat['benefit']
-          . '</div>',
-      ];
+      $general_feat_cards[$feat['id']] = $this->buildOptionCardData(
+        $feat['benefit'] ?? '',
+        $feat['traits'] ?? [],
+        [
+          (string) $this->t('Prerequisites') => $feat['prerequisites'] ?? '',
+        ],
+      );
     }
 
     $form['general_feat'] = [
@@ -1270,16 +1291,7 @@ class CharacterCreationStepForm extends FormBase {
       '#required' => TRUE,
       '#description' => $this->t('Popular choices: Toughness (more HP), Fleet (faster movement), Incredible Initiative (+2 to initiative), Shield Block (damage reduction).'),
     ];
-
-    // Add detailed descriptions with show/hide via #states.
-    foreach ($general_feat_descriptions as $feat_id => $description_markup) {
-      $form['general_feat_desc_' . $feat_id] = $description_markup;
-      $form['general_feat_desc_' . $feat_id]['#states'] = [
-        'visible' => [
-          ':input[name="general_feat"]' => ['value' => $feat_id],
-        ],
-      ];
-    }
+    $this->attachOptionCardSettings($form, 'general_feat', $general_feat_cards, 'single');
   }
 
   /**
@@ -1305,6 +1317,11 @@ class CharacterCreationStepForm extends FormBase {
         $selected_ids[] = $carried_item['id'];
       }
     }
+    $category_ids = [
+      'weapons' => array_column($catalog['weapons'] ?? [], 'id'),
+      'armor' => array_column($catalog['armor'] ?? [], 'id'),
+      'gear' => array_column($catalog['gear'] ?? [], 'id'),
+    ];
 
     $selected_cost = 0.0;
     foreach ($selected_ids as $item_id) {
@@ -1361,28 +1378,27 @@ class CharacterCreationStepForm extends FormBase {
     $weapons_options = [];
     $armor_options = [];
     $gear_options = [];
+    $weapon_cards = [];
+    $armor_cards = [];
+    $gear_cards = [];
 
     foreach ($catalog as $category => $items) {
       foreach ($items as $item) {
         $catalog_by_id[$item['id']] = $item;
-        $item_label = $item['name'] . ' (' . (float) $item['cost'] . ' gp)';
-        
-        // Add extra info for weapons and armor
-        if ($category === 'weapons' && !empty($item['damage'])) {
-          $item_label .= ' - ' . $item['damage'] . ' damage';
-        }
-        elseif ($category === 'armor' && !empty($item['ac'])) {
-          $item_label .= ' - AC ' . $item['ac'];
-        }
+        $item_label = $item['name'];
+        $item_card = $this->buildEquipmentOptionCardData($item, $category);
 
         if ($category === 'weapons') {
           $weapons_options[$item['id']] = $item_label;
+          $weapon_cards[$item['id']] = $item_card;
         }
         elseif ($category === 'armor') {
           $armor_options[$item['id']] = $item_label;
+          $armor_cards[$item['id']] = $item_card;
         }
         else {
           $gear_options[$item['id']] = $item_label;
+          $gear_cards[$item['id']] = $item_card;
         }
       }
     }
@@ -1390,23 +1406,26 @@ class CharacterCreationStepForm extends FormBase {
     $form['equipment_weapons']['weapons'] = [
       '#type' => 'checkboxes',
       '#options' => $weapons_options,
-      '#default_value' => array_filter($selected_ids, fn($id) => isset($catalog['weapons']) && in_array($id, array_column($catalog['weapons'], 'id'))),
+      '#default_value' => array_values(array_filter($selected_ids, fn($id) => in_array($id, $category_ids['weapons'], TRUE))),
       '#description' => $this->t('Select weapons for combat. Consider your class proficiencies.'),
     ];
 
     $form['equipment_armor']['armor'] = [
       '#type' => 'checkboxes',
       '#options' => $armor_options,
-      '#default_value' => array_filter($selected_ids, fn($id) => isset($catalog['armor']) && in_array($id, array_column($catalog['armor'], 'id'))),
+      '#default_value' => array_values(array_filter($selected_ids, fn($id) => in_array($id, $category_ids['armor'], TRUE))),
       '#description' => $this->t('Choose armor and shields for protection. Heavy armor may slow you down.'),
     ];
 
     $form['equipment_gear']['gear'] = [
       '#type' => 'checkboxes',
       '#options' => $gear_options,
-      '#default_value' => array_filter($selected_ids, fn($id) => isset($catalog['gear']) && in_array($id, array_column($catalog['gear'], 'id'))),
+      '#default_value' => array_values(array_filter($selected_ids, fn($id) => in_array($id, $category_ids['gear'], TRUE))),
       '#description' => $this->t('Essential adventuring supplies: rope, torches, rations, and tools.'),
     ];
+    $this->attachOptionCardSettings($form['equipment_weapons'], 'weapons', $weapon_cards, 'multiple');
+    $this->attachOptionCardSettings($form['equipment_armor'], 'armor', $armor_cards, 'multiple');
+    $this->attachOptionCardSettings($form['equipment_gear'], 'gear', $gear_cards, 'multiple');
 
     // Pass catalog costs to JS so it doesn't have to regex-parse label text.
     $js_catalog = [];
@@ -2003,14 +2022,21 @@ class CharacterCreationStepForm extends FormBase {
       }
       $form_state->setRedirect('dungeoncrawler_content.character_view', ['character_id' => $character_id], $final_options);
     } else {
+      $redirect_step = $step;
       $next_query = ['character_id' => $character_id];
       if ($campaign_id) {
         $next_query['campaign_id'] = $campaign_id;
       }
       $next_query = $this->preserveShellQueryFlags($next_query);
+      if (!empty($this->getRequest()->query->get('embedded'))) {
+        $next_query['unlocked_step'] = $next_step;
+      }
+      else {
+        $redirect_step = $next_step;
+      }
 
       $form_state->setRedirect('dungeoncrawler_content.character_step', [
-        'step' => $next_step,
+        'step' => $redirect_step,
       ], ['query' => $next_query]);
     }
   }
@@ -2044,38 +2070,38 @@ class CharacterCreationStepForm extends FormBase {
 
     return [
       'weapons' => [
-        ['id' => 'longsword', 'name' => 'Longsword', 'type' => 'weapon', 'cost' => 1.0, 'bulk' => 1, 'damage' => '1d8 S', 'hands' => 1, 'traits' => ['versatile P']],
-        ['id' => 'shortsword', 'name' => 'Shortsword', 'type' => 'weapon', 'cost' => 0.9, 'bulk' => 'L', 'damage' => '1d6 P', 'hands' => 1, 'traits' => ['agile', 'finesse', 'versatile S']],
-        ['id' => 'dagger', 'name' => 'Dagger', 'type' => 'weapon', 'cost' => 0.2, 'bulk' => 'L', 'damage' => '1d4 P', 'hands' => 1, 'traits' => ['agile', 'finesse', 'thrown 10 ft.', 'versatile S']],
-        ['id' => 'rapier', 'name' => 'Rapier', 'type' => 'weapon', 'cost' => 2.0, 'bulk' => 1, 'damage' => '1d6 P', 'hands' => 1, 'traits' => ['deadly d8', 'disarm', 'finesse']],
-        ['id' => 'battleaxe', 'name' => 'Battle Axe', 'type' => 'weapon', 'cost' => 1.0, 'bulk' => 1, 'damage' => '1d8 S', 'hands' => 1, 'traits' => ['sweep']],
-        ['id' => 'warhammer', 'name' => 'Warhammer', 'type' => 'weapon', 'cost' => 1.0, 'bulk' => 1, 'damage' => '1d8 B', 'hands' => 1, 'traits' => ['shove']],
-        ['id' => 'shortbow', 'name' => 'Shortbow', 'type' => 'weapon', 'cost' => 3.0, 'bulk' => 1, 'damage' => '1d6 P', 'hands' => 2, 'traits' => ['deadly d10', 'range 60 ft.']],
-        ['id' => 'longbow', 'name' => 'Longbow', 'type' => 'weapon', 'cost' => 6.0, 'bulk' => 2, 'damage' => '1d8 P', 'hands' => 2, 'traits' => ['deadly d10', 'range 100 ft.', 'volley 30 ft.']],
-        ['id' => 'staff', 'name' => 'Staff', 'type' => 'weapon', 'cost' => 0.0, 'bulk' => 1, 'damage' => '1d4 B', 'hands' => 2, 'traits' => ['two-hand d8']],
+        ['id' => 'longsword', 'name' => 'Longsword', 'type' => 'weapon', 'cost' => 1.0, 'bulk' => 1, 'damage' => '1d8 S', 'hands' => 1, 'traits' => ['versatile P'], 'description' => 'A dependable martial blade that can slash or shift into piercing attacks.'],
+        ['id' => 'shortsword', 'name' => 'Shortsword', 'type' => 'weapon', 'cost' => 0.9, 'bulk' => 'L', 'damage' => '1d6 P', 'hands' => 1, 'traits' => ['agile', 'finesse', 'versatile S'], 'description' => 'A light dueling weapon suited to agile and Dexterity-focused fighting styles.'],
+        ['id' => 'dagger', 'name' => 'Dagger', 'type' => 'weapon', 'cost' => 0.2, 'bulk' => 'L', 'damage' => '1d4 P', 'hands' => 1, 'traits' => ['agile', 'finesse', 'thrown 10 ft.', 'versatile S'], 'description' => 'A compact backup weapon that works in melee or as a short-range thrown blade.'],
+        ['id' => 'rapier', 'name' => 'Rapier', 'type' => 'weapon', 'cost' => 2.0, 'bulk' => 1, 'damage' => '1d6 P', 'hands' => 1, 'traits' => ['deadly d8', 'disarm', 'finesse'], 'description' => 'A precise dueling blade built for finesse attacks and high-accuracy strikes.'],
+        ['id' => 'battleaxe', 'name' => 'Battle Axe', 'type' => 'weapon', 'cost' => 1.0, 'bulk' => 1, 'damage' => '1d8 S', 'hands' => 1, 'traits' => ['sweep'], 'description' => 'A hard-hitting axe that rewards pressuring multiple foes in close quarters.'],
+        ['id' => 'warhammer', 'name' => 'Warhammer', 'type' => 'weapon', 'cost' => 1.0, 'bulk' => 1, 'damage' => '1d8 B', 'hands' => 1, 'traits' => ['shove'], 'description' => 'A crushing melee weapon that pairs well with shield users and battlefield control.'],
+        ['id' => 'shortbow', 'name' => 'Shortbow', 'type' => 'weapon', 'cost' => 3.0, 'bulk' => 1, 'damage' => '1d6 P', 'hands' => 2, 'traits' => ['deadly d10', 'range 60 ft.'], 'description' => 'A compact ranged weapon for mobile archers who want steady attacks from safety.'],
+        ['id' => 'longbow', 'name' => 'Longbow', 'type' => 'weapon', 'cost' => 6.0, 'bulk' => 2, 'damage' => '1d8 P', 'hands' => 2, 'traits' => ['deadly d10', 'range 100 ft.', 'volley 30 ft.'], 'description' => 'A powerful bow with exceptional reach, best used when you can keep enemies at range.'],
+        ['id' => 'staff', 'name' => 'Staff', 'type' => 'weapon', 'cost' => 0.0, 'bulk' => 1, 'damage' => '1d4 B', 'hands' => 2, 'traits' => ['two-hand d8'], 'description' => 'A simple two-handed staff that doubles as an arcane focus and walking aid.'],
       ],
       'armor' => [
-        ['id' => 'leather', 'name' => 'Leather Armor', 'type' => 'armor', 'cost' => 2.0, 'bulk' => 1, 'ac' => '+1', 'traits' => []],
-        ['id' => 'studded_leather_armor', 'name' => 'Studded Leather Armor', 'type' => 'armor', 'cost' => 3.0, 'bulk' => 1, 'ac' => '+2', 'traits' => []],
-        ['id' => 'chain_shirt', 'name' => 'Chain Shirt', 'type' => 'armor', 'cost' => 5.0, 'bulk' => 1, 'ac' => '+2', 'traits' => ['flexible', 'noisy']],
-        ['id' => 'hide_armor', 'name' => 'Hide Armor', 'type' => 'armor', 'cost' => 2.0, 'bulk' => 2, 'ac' => '+3', 'traits' => []],
-        ['id' => 'scale_mail', 'name' => 'Scale Mail', 'type' => 'armor', 'cost' => 4.0, 'bulk' => 2, 'ac' => '+3', 'traits' => []],
-        ['id' => 'chain_mail', 'name' => 'Chain Mail', 'type' => 'armor', 'cost' => 6.0, 'bulk' => 2, 'ac' => '+4', 'traits' => ['flexible', 'noisy']],
-        ['id' => 'breastplate', 'name' => 'Breastplate', 'type' => 'armor', 'cost' => 8.0, 'bulk' => 2, 'ac' => '+4', 'traits' => []],
-        ['id' => 'wooden_shield', 'name' => 'Wooden Shield', 'type' => 'armor', 'cost' => 1.0, 'bulk' => 1, 'ac' => '+2 circumstance', 'traits' => []],
+        ['id' => 'leather', 'name' => 'Leather Armor', 'type' => 'armor', 'cost' => 2.0, 'bulk' => 1, 'ac' => '+1', 'traits' => [], 'description' => 'Flexible light armor that offers a modest defense boost with minimal encumbrance.'],
+        ['id' => 'studded_leather_armor', 'name' => 'Studded Leather Armor', 'type' => 'armor', 'cost' => 3.0, 'bulk' => 1, 'ac' => '+2', 'traits' => [], 'description' => 'Reinforced light armor for agile warriors who want stronger protection without heavy bulk.'],
+        ['id' => 'chain_shirt', 'name' => 'Chain Shirt', 'type' => 'armor', 'cost' => 5.0, 'bulk' => 1, 'ac' => '+2', 'traits' => ['flexible', 'noisy'], 'description' => 'A light layer of chain that balances defense with mobility, though it is harder to keep quiet.'],
+        ['id' => 'hide_armor', 'name' => 'Hide Armor', 'type' => 'armor', 'cost' => 2.0, 'bulk' => 2, 'ac' => '+3', 'traits' => [], 'description' => 'Sturdy hides favored by wilderness warriors who can handle extra weight for more protection.'],
+        ['id' => 'scale_mail', 'name' => 'Scale Mail', 'type' => 'armor', 'cost' => 4.0, 'bulk' => 2, 'ac' => '+3', 'traits' => [], 'description' => 'Overlapping scales provide solid early-game defense for front-line adventurers.'],
+        ['id' => 'chain_mail', 'name' => 'Chain Mail', 'type' => 'armor', 'cost' => 6.0, 'bulk' => 2, 'ac' => '+4', 'traits' => ['flexible', 'noisy'], 'description' => 'Heavy rings offer strong defense for martial builds that can tolerate the noise and weight.'],
+        ['id' => 'breastplate', 'name' => 'Breastplate', 'type' => 'armor', 'cost' => 8.0, 'bulk' => 2, 'ac' => '+4', 'traits' => [], 'description' => 'A solid torso plate that brings sturdy protection without a full suit of heavy armor.'],
+        ['id' => 'wooden_shield', 'name' => 'Wooden Shield', 'type' => 'armor', 'cost' => 1.0, 'bulk' => 1, 'ac' => '+2 circumstance', 'traits' => [], 'description' => 'A simple shield that improves survivability and enables shield-based defenses.'],
       ],
       'gear' => [
-        ['id' => 'backpack', 'name' => 'Backpack', 'type' => 'adventuring_gear', 'cost' => 0.1, 'bulk' => 'L', 'traits' => []],
-        ['id' => 'bedroll', 'name' => 'Bedroll', 'type' => 'adventuring_gear', 'cost' => 0.1, 'bulk' => 'L', 'traits' => []],
-        ['id' => 'rope', 'name' => 'Rope (50 ft.)', 'type' => 'adventuring_gear', 'cost' => 0.5, 'bulk' => 'L', 'traits' => []],
-        ['id' => 'torches', 'name' => 'Torches (5)', 'type' => 'adventuring_gear', 'cost' => 0.05, 'bulk' => 'L', 'traits' => []],
-        ['id' => 'rations', 'name' => 'Rations (1 week)', 'type' => 'adventuring_gear', 'cost' => 0.4, 'bulk' => 'L', 'traits' => []],
-        ['id' => 'waterskin', 'name' => 'Waterskin', 'type' => 'adventuring_gear', 'cost' => 0.05, 'bulk' => 'L', 'traits' => []],
-        ['id' => 'healers_tools', 'name' => "Healer's Tools", 'type' => 'adventuring_gear', 'cost' => 5.0, 'bulk' => 1, 'traits' => []],
-        ['id' => 'thieves_tools', 'name' => "Thieves' Tools", 'type' => 'adventuring_gear', 'cost' => 3.0, 'bulk' => 'L', 'traits' => []],
-        ['id' => 'grappling_hook', 'name' => 'Grappling Hook', 'type' => 'adventuring_gear', 'cost' => 0.1, 'bulk' => 'L', 'traits' => []],
-        ['id' => 'hooded_lantern', 'name' => 'Hooded Lantern', 'type' => 'adventuring_gear', 'cost' => 0.7, 'bulk' => 'L', 'traits' => []],
-        ['id' => 'oil_flask', 'name' => 'Oil (1 flask)', 'type' => 'adventuring_gear', 'cost' => 0.1, 'bulk' => 'L', 'traits' => []],
+        ['id' => 'backpack', 'name' => 'Backpack', 'type' => 'adventuring_gear', 'cost' => 0.1, 'bulk' => 'L', 'traits' => [], 'description' => 'A basic pack for carrying the rest of your kit into the field.'],
+        ['id' => 'bedroll', 'name' => 'Bedroll', 'type' => 'adventuring_gear', 'cost' => 0.1, 'bulk' => 'L', 'traits' => [], 'description' => 'A simple sleeping roll for overland travel, campouts, and dungeon rests.'],
+        ['id' => 'rope', 'name' => 'Rope (50 ft.)', 'type' => 'adventuring_gear', 'cost' => 0.5, 'bulk' => 'L', 'traits' => [], 'description' => 'Useful for climbing, tying gear, and solving all kinds of traversal problems.'],
+        ['id' => 'torches', 'name' => 'Torches (5)', 'type' => 'adventuring_gear', 'cost' => 0.05, 'bulk' => 'L', 'traits' => [], 'description' => 'Cheap, reliable light sources when the party cannot rely on magic.'],
+        ['id' => 'rations', 'name' => 'Rations (1 week)', 'type' => 'adventuring_gear', 'cost' => 0.4, 'bulk' => 'L', 'traits' => [], 'description' => 'Trail food for long journeys when inns and settlements are far away.'],
+        ['id' => 'waterskin', 'name' => 'Waterskin', 'type' => 'adventuring_gear', 'cost' => 0.05, 'bulk' => 'L', 'traits' => [], 'description' => 'A light container that keeps your character ready for travel and survival scenes.'],
+        ['id' => 'healers_tools', 'name' => "Healer's Tools", 'type' => 'adventuring_gear', 'cost' => 5.0, 'bulk' => 1, 'traits' => [], 'description' => 'Required for many Medicine actions, including key battlefield and downtime care.'],
+        ['id' => 'thieves_tools', 'name' => "Thieves' Tools", 'type' => 'adventuring_gear', 'cost' => 3.0, 'bulk' => 'L', 'traits' => [], 'description' => 'Essential picks and implements for locks, traps, and stealthy infiltration work.'],
+        ['id' => 'grappling_hook', 'name' => 'Grappling Hook', 'type' => 'adventuring_gear', 'cost' => 0.1, 'bulk' => 'L', 'traits' => [], 'description' => 'Pairs with rope to help the party scale walls, ledges, and ruined structures.'],
+        ['id' => 'hooded_lantern', 'name' => 'Hooded Lantern', 'type' => 'adventuring_gear', 'cost' => 0.7, 'bulk' => 'L', 'traits' => [], 'description' => 'A controlled light source that is safer and more practical than loose flames.'],
+        ['id' => 'oil_flask', 'name' => 'Oil (1 flask)', 'type' => 'adventuring_gear', 'cost' => 0.1, 'bulk' => 'L', 'traits' => [], 'description' => 'Fuel for lanterns and a handy utility consumable for improvised adventuring solutions.'],
       ],
     ];
   }
@@ -2148,6 +2174,7 @@ class CharacterCreationStepForm extends FormBase {
         'cost' => round($cost_gp, 2),
         'bulk' => $schema_data['bulk'] ?? 'L',
         'traits' => $schema_data['traits'] ?? $tags,
+        'description' => $this->extractTemplateItemDescription($schema_data),
       ];
 
       // Extract weapon stats from nested weapon_stats object.
@@ -2283,32 +2310,43 @@ class CharacterCreationStepForm extends FormBase {
    */
   private function getPortraitGenerationAvailability(): array {
     $status = $this->imageGenerationIntegration->getIntegrationStatus();
-    $provider = strtolower(trim((string) ($status['default_provider'] ?? 'gemini')));
-    $provider_status = is_array($status['providers'][$provider] ?? NULL)
-      ? $status['providers'][$provider]
-      : [];
-    $enabled = !empty($provider_status['enabled']);
-    $has_credentials = !empty($provider_status['has_credentials']) || !empty($provider_status['has_api_key']);
+    $configured_provider = strtolower(trim((string) ($status['configured_provider'] ?? $status['default_provider'] ?? 'gemini')));
+    $effective_provider = strtolower(trim((string) ($status['effective_provider'] ?? '')));
 
-    if ($enabled && $has_credentials) {
+    if ($effective_provider !== '') {
+      $description = $effective_provider === $configured_provider
+        ? $this->t('Creates a portrait using the configured AI image provider after character creation.')
+        : $this->t('Creates a portrait using @provider after character creation. The configured default (@configured) is currently unavailable, so the live-ready provider will be used instead.', [
+          '@provider' => ucfirst($effective_provider),
+          '@configured' => ucfirst($configured_provider),
+        ]);
+
       return [
         'available' => TRUE,
-        'description' => $this->t('Creates a portrait using the configured AI image provider after character creation.'),
+        'description' => $description,
       ];
     }
 
     $issues = [];
-    if (!$enabled) {
-      $issues[] = $this->t('the provider is disabled');
-    }
-    if (!$has_credentials) {
-      $issues[] = $this->t('no provider credentials are configured');
+    foreach (($status['providers'] ?? []) as $provider => $provider_status) {
+      $provider_issues = [];
+      if (empty($provider_status['enabled'])) {
+        $provider_issues[] = $this->t('disabled');
+      }
+      if (empty($provider_status['has_credentials']) && empty($provider_status['has_api_key'])) {
+        $provider_issues[] = $this->t('missing credentials');
+      }
+      if (!empty($provider_issues)) {
+        $issues[] = $this->t('@provider: @issues', [
+          '@provider' => ucfirst((string) $provider),
+          '@issues' => implode(', ', $provider_issues),
+        ]);
+      }
     }
 
     return [
       'available' => FALSE,
-      'description' => $this->t('Portrait generation is currently unavailable because @provider is not fully configured (@issues).', [
-        '@provider' => ucfirst($provider),
+      'description' => $this->t('Portrait generation is currently unavailable because no live image provider is ready (@issues).', [
         '@issues' => implode('; ', $issues),
       ]),
     ];
@@ -2861,6 +2899,193 @@ class CharacterCreationStepForm extends FormBase {
       'oracle'   => 'charisma',
     ];
     return $map[strtolower($class)] ?? 'charisma';
+  }
+
+  /**
+   * Builds a consistent detail card for a selected option.
+   */
+  private function buildSelectionDetailMarkup(string $title, string $description = '', array $tags = [], array $facts = []): string {
+    $tag_markup = '';
+    foreach ($tags as $tag) {
+      $tag = trim((string) $tag);
+      if ($tag === '') {
+        continue;
+      }
+      $tag_markup .= '<span class="option-detail-card__tag">' . Html::escape($tag) . '</span>';
+    }
+
+    $description_markup = '';
+    if (trim($description) !== '') {
+      $description_markup = '<p class="option-detail-card__description">' . nl2br(Html::escape($description)) . '</p>';
+    }
+
+    $facts_markup = '';
+    foreach ($facts as $label => $value) {
+      $value = trim((string) $value);
+      if ($value === '') {
+        continue;
+      }
+      $facts_markup .= '<div class="option-detail-card__fact">'
+        . '<span class="option-detail-card__fact-label">' . Html::escape((string) $label) . '</span>'
+        . '<span class="option-detail-card__fact-value">' . Html::escape($value) . '</span>'
+        . '</div>';
+    }
+
+    return '<div class="option-detail-card">'
+      . '<div class="option-detail-card__header">'
+      . '<h4 class="option-detail-card__title">' . Html::escape($title) . '</h4>'
+      . ($tag_markup !== '' ? '<div class="option-detail-card__tags">' . $tag_markup . '</div>' : '')
+      . '</div>'
+      . $description_markup
+      . ($facts_markup !== '' ? '<div class="option-detail-card__facts">' . $facts_markup . '</div>' : '')
+      . '</div>';
+  }
+
+  /**
+   * Builds metadata for inline selector cards.
+   */
+  private function buildOptionCardData(string $description = '', array $tags = [], array $facts = []): array {
+    $normalized_tags = array_values(array_filter(array_map(static fn($tag): string => trim((string) $tag), $tags)));
+    $normalized_facts = [];
+    foreach ($facts as $label => $value) {
+      $value = trim((string) $value);
+      if ($value === '') {
+        continue;
+      }
+      $normalized_facts[(string) $label] = $value;
+    }
+
+    return [
+      'description' => trim($description),
+      'tags' => $normalized_tags,
+      'facts' => $normalized_facts,
+    ];
+  }
+
+  /**
+   * Attaches selector-card metadata to a form wrapper.
+   */
+  private function attachOptionCardSettings(array &$element, string $group_name, array $options, string $selection_type): void {
+    if (empty($options)) {
+      return;
+    }
+
+    $element['#attached']['drupalSettings']['characterOptionCards'][$group_name] = [
+      'selectionType' => $selection_type,
+      'options' => $options,
+    ];
+  }
+
+  /**
+   * Extracts prominent spell facts for selector cards.
+   */
+  private function extractSpellFacts(array $spell): array {
+    $facts = [];
+    $fact_map = [
+      (string) $this->t('Cast') => ['actions', 'cast', 'cast_time'],
+      (string) $this->t('Range') => ['range'],
+      (string) $this->t('Targets') => ['targets', 'target'],
+      (string) $this->t('Area') => ['area'],
+      (string) $this->t('Duration') => ['duration'],
+      (string) $this->t('Save') => ['save', 'saving_throw'],
+      (string) $this->t('Components') => ['components'],
+    ];
+
+    foreach ($fact_map as $label => $keys) {
+      foreach ($keys as $key) {
+        if (!array_key_exists($key, $spell)) {
+          continue;
+        }
+
+        $value = $spell[$key];
+        if (is_array($value)) {
+          $value = implode(', ', array_filter(array_map(static fn($item): string => trim((string) $item), $value)));
+        }
+        else {
+          $value = trim((string) $value);
+        }
+
+        if ($value !== '') {
+          $facts[$label] = $value;
+          break;
+        }
+      }
+    }
+
+    return $facts;
+  }
+
+  /**
+   * Builds selector-card metadata for equipment.
+   */
+  private function buildEquipmentOptionCardData(array $item, string $category): array {
+    $facts = [
+      (string) $this->t('Cost') => number_format((float) ($item['cost'] ?? 0), 1) . ' gp',
+      (string) $this->t('Bulk') => (string) ($item['bulk'] ?? 'L'),
+    ];
+
+    if ($category === 'weapons') {
+      $facts[(string) $this->t('Damage')] = (string) ($item['damage'] ?? '');
+      $facts[(string) $this->t('Hands')] = !empty($item['hands']) ? (string) $item['hands'] : '';
+    }
+    elseif ($category === 'armor') {
+      $facts[(string) $this->t('AC')] = (string) ($item['ac'] ?? '');
+    }
+
+    return $this->buildOptionCardData(
+      $this->buildEquipmentDescription($item, $category),
+      $item['traits'] ?? [],
+      $facts,
+    );
+  }
+
+  /**
+   * Builds a usable description for equipment selector cards.
+   */
+  private function buildEquipmentDescription(array $item, string $category): string {
+    $description = trim((string) ($item['description'] ?? ''));
+    if ($description !== '') {
+      return $description;
+    }
+
+    return match ($category) {
+      'weapons' => (string) $this->t('A starter weapon for early adventures and your opening combat kit.'),
+      'armor' => (string) $this->t('Protective gear that improves survivability during the first stretch of the campaign.'),
+      default => (string) $this->t('A practical adventuring supply that solves common travel, exploration, or camp needs.'),
+    };
+  }
+
+  /**
+   * Extracts item description text from template registry data.
+   */
+  private function extractTemplateItemDescription(array $schema_data): string {
+    foreach (['description', 'summary', 'item_description', 'usage', 'effect'] as $key) {
+      if (!array_key_exists($key, $schema_data)) {
+        continue;
+      }
+
+      $value = $schema_data[$key];
+      if (is_string($value)) {
+        $value = trim($value);
+        if ($value !== '') {
+          return $value;
+        }
+      }
+      elseif (is_array($value)) {
+        $parts = [];
+        array_walk_recursive($value, static function ($item) use (&$parts): void {
+          $text = trim((string) $item);
+          if ($text !== '') {
+            $parts[] = $text;
+          }
+        });
+        if (!empty($parts)) {
+          return implode(' ', $parts);
+        }
+      }
+    }
+
+    return '';
   }
 
   /**

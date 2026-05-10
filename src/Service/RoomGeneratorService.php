@@ -85,6 +85,13 @@ class RoomGeneratorService {
   protected RoomLibraryService $roomLibrary;
 
   /**
+   * Room view image cache service.
+   *
+   * @var \Drupal\dungeoncrawler_content\Service\RoomViewImageService
+   */
+  protected RoomViewImageService $roomViewImageService;
+
+  /**
    * Optional AI API service for narrative generation.
    *
    * @var \Drupal\ai_conversation\Service\AIApiService|null
@@ -118,7 +125,8 @@ class RoomGeneratorService {
     HexUtilityService $hex_utility,
     TerrainGeneratorService $terrain_generator,
     NumberGenerationService $number_generation,
-    RoomLibraryService $room_library
+    RoomLibraryService $room_library,
+    RoomViewImageService $room_view_image_service
   ) {
     $this->database = $database;
     $this->logger = $logger_factory->get('dungeoncrawler');
@@ -129,6 +137,7 @@ class RoomGeneratorService {
     $this->terrainGenerator = $terrain_generator;
     $this->numberGeneration = $number_generation;
     $this->roomLibrary = $room_library;
+    $this->roomViewImageService = $room_view_image_service;
 
     // Try to inject AI service if available
     try {
@@ -223,6 +232,7 @@ class RoomGeneratorService {
           '@error' => $e->getMessage(),
         ]);
       }
+      $this->prefetchRoomViewImage($library_room, $context);
       $library_room['from_library'] = TRUE;
       return $library_room;
     }
@@ -348,7 +358,23 @@ class RoomGeneratorService {
       '@lib' => $room_data['_library_source'] ?? 'new',
     ]);
 
+    $this->prefetchRoomViewImage($room_data, $context);
+
     return $room_data;
+  }
+
+  /**
+   * Warm the cached room-scene image for newly created rooms when possible.
+   */
+  protected function prefetchRoomViewImage(array $room_data, array $context): void {
+    try {
+      $this->roomViewImageService->warmRoomViewImageCache($room_data, $context);
+    }
+    catch (\Throwable $exception) {
+      $this->logger->notice('Room view image prefetch skipped: @message', [
+        '@message' => $exception->getMessage(),
+      ]);
+    }
   }
 
   /**
@@ -649,12 +675,13 @@ class RoomGeneratorService {
    * @see /docs/dungeoncrawler/ROOM_DUNGEON_GENERATOR_ARCHITECTURE.md
    */
   protected function generateDescription(array $context, array $hexes): array {
-    $theme = $context['theme'] ?? 'dungeon';
-    $room_type = $context['room_type'] ?? 'chamber';
-    $terrain_type = $context['terrain_type'] ?? 'stone_floor';
-    $depth = $context['depth'] ?? 1;
     $hex_count = count($hexes);
     $size_category = $this->getSizeCategory($hex_count);
+
+    $library_description = $this->findDescriptionFromLibrary($context, $size_category);
+    if ($library_description) {
+      return $library_description;
+    }
 
     // Try AI-powered description if service is available
     if ($this->aiService && ($context['use_ai'] ?? TRUE)) {
@@ -671,6 +698,46 @@ class RoomGeneratorService {
     else {
       // Fallback to template-based generation
       return $this->generateFallbackDescription($context, $hexes);
+    }
+  }
+
+  /**
+   * Finds a reusable room description from the library when available.
+   */
+  protected function findDescriptionFromLibrary(array $context, string $size_category): ?array {
+    try {
+      $template = $this->roomLibrary->findDescriptionTemplate([
+        'theme' => $context['theme'] ?? '',
+        'room_type' => $context['room_type'] ?? '',
+        'size_category' => $size_category,
+        'party_level' => $context['party_level'] ?? 1,
+        'terrain_type' => $context['terrain_type'] ?? '',
+        'difficulty' => $context['difficulty'] ?? '',
+        'exclude_template_ids' => $context['exclude_template_ids'] ?? [],
+      ]);
+
+      if (!$template || trim((string) ($template['description'] ?? '')) === '') {
+        return NULL;
+      }
+
+      $this->logger->info('Reusing cached room description from template @id for @theme/@type/@size', [
+        '@id' => $template['template_id'] ?? '?',
+        '@theme' => $context['theme'] ?? '?',
+        '@type' => $context['room_type'] ?? '?',
+        '@size' => $size_category,
+      ]);
+
+      return [
+        'name' => (string) ($template['name'] ?? ucfirst((string) ($context['room_type'] ?? 'Room'))),
+        'description' => (string) $template['description'],
+        'gm_notes' => (string) ($template['gm_notes'] ?? ''),
+      ];
+    }
+    catch (\Exception $e) {
+      $this->logger->notice('Room description library lookup failed: @error', [
+        '@error' => $e->getMessage(),
+      ]);
+      return NULL;
     }
   }
 

@@ -544,6 +544,185 @@ textarea.form-control {
   margin-bottom: var(--dc-space-md);
 }
 
+.option-detail-stack {
+  display: grid;
+  gap: var(--dc-space-md);
+  margin: var(--dc-space-md) 0 var(--dc-space-lg);
+}
+
+.option-detail-card {
+  background: var(--dc-bg-dark-alt);
+  border: 1px solid var(--dc-border-medium);
+  border-radius: var(--dc-radius-lg);
+  padding: var(--dc-space-lg);
+  box-shadow: var(--dc-shadow-strong);
+}
+
+.option-detail-card__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--dc-space-sm);
+  margin-bottom: var(--dc-space-sm);
+}
+
+.option-detail-card__title {
+  margin: 0;
+  color: var(--dc-primary);
+  font-size: 1.1rem;
+}
+
+.option-detail-card__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--dc-space-xs);
+}
+
+.option-detail-card__tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  background: var(--dc-primary-overlay-light);
+  color: var(--dc-text-light);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.option-detail-card__description {
+  margin: 0 0 var(--dc-space-md);
+  color: var(--dc-text-subtle);
+  line-height: 1.6;
+}
+
+.option-detail-card__facts {
+  display: grid;
+  gap: var(--dc-space-sm);
+}
+
+.option-detail-card__fact {
+  display: grid;
+  grid-template-columns: minmax(8rem, 12rem) minmax(0, 1fr);
+  gap: var(--dc-space-sm);
+  align-items: start;
+}
+
+.option-detail-card__fact-label {
+  color: var(--dc-secondary);
+  font-weight: 700;
+}
+
+.option-detail-card__fact-value {
+  color: var(--dc-text-light);
+}
+
+.option-selector-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--dc-space-md);
+  margin: var(--dc-space-md) 0 var(--dc-space-lg);
+}
+
+.option-selector-card {
+  margin: 0;
+  padding: var(--dc-space-lg);
+  background: var(--dc-bg-dark-alt);
+  border: 2px solid var(--dc-border-light);
+  border-radius: var(--dc-radius-lg);
+  box-shadow: var(--dc-shadow-strong);
+  transition: var(--dc-transition-fast);
+  cursor: pointer;
+}
+
+.option-selector-card:hover {
+  border-color: var(--dc-primary);
+  background: var(--dc-primary-overlay-light);
+  transform: translateY(-2px);
+}
+
+.option-selector-card--selected {
+  border-color: var(--dc-primary);
+  background: var(--dc-primary-overlay);
+  box-shadow: 0 0 20px var(--dc-primary-glow);
+}
+
+.option-selector-card--disabled,
+.option-selector-card--disabled:hover {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+  border-color: var(--dc-border-medium);
+  background: var(--dc-card-bg-light);
+}
+
+.option-selector-card__control {
+  margin-right: 0.65rem;
+  margin-top: 0.2rem;
+  accent-color: var(--dc-primary);
+}
+
+.option-selector-card__label {
+  display: flex !important;
+  align-items: flex-start;
+  gap: var(--dc-space-sm);
+  margin: 0 0 var(--dc-space-sm) !important;
+  color: var(--dc-text-light) !important;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.option-selector-card__details {
+  display: grid;
+  gap: var(--dc-space-sm);
+}
+
+.option-selector-card__description {
+  margin: 0;
+  color: var(--dc-text-subtle);
+  line-height: 1.6;
+}
+
+.option-selector-card__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--dc-space-xs);
+}
+
+.option-selector-card__tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  background: var(--dc-primary-overlay-light);
+  color: var(--dc-text-light);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.option-selector-card__facts {
+  display: grid;
+  gap: var(--dc-space-xs);
+}
+
+.option-selector-card__fact {
+  display: grid;
+  grid-template-columns: minmax(5.5rem, 8rem) minmax(0, 1fr);
+  gap: var(--dc-space-sm);
+  align-items: start;
+  color: var(--dc-text-light);
+  font-size: 0.95rem;
+}
+
+.option-selector-card__fact-label {
+  color: var(--dc-secondary);
+  font-weight: 700;
+}
+
+.option-selector-card__fact-value {
+  color: var(--dc-text-light);
+}
+
 /* Step 6: Alignment & Personality */
 .alignments-grid {
   display: grid;

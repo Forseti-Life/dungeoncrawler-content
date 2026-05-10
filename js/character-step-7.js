@@ -57,6 +57,10 @@
             $checkboxes.prop('disabled', false);
           }
 
+          $checkboxes.each(function () {
+            $(this).closest('.form-item').toggleClass('option-selector-card--disabled', this.disabled);
+          });
+
           // Toggle submit depending on budget.
           $submit.prop('disabled', overBudget);
 

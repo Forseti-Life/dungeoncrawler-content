@@ -116,7 +116,8 @@ class DashboardController extends ControllerBase {
     $integration_status = $this->integrationService->getIntegrationStatus();
     $gemini_status = $integration_status['providers']['gemini'] ?? [];
     $vertex_status = $integration_status['providers']['vertex'] ?? [];
-    $default_provider = (string) ($integration_status['default_provider'] ?? 'gemini');
+    $configured_provider = (string) ($integration_status['configured_provider'] ?? $integration_status['default_provider'] ?? 'gemini');
+    $effective_provider = (string) ($integration_status['effective_provider'] ?? '');
 
     $gemini_ready = !empty($gemini_status['enabled']) && (!empty($gemini_status['has_credentials']) || !empty($gemini_status['has_api_key']));
     $vertex_ready = !empty($vertex_status['enabled']) && (!empty($vertex_status['has_credentials']) || !empty($vertex_status['has_api_key']));
@@ -134,7 +135,8 @@ class DashboardController extends ControllerBase {
       'status' => [
         '#theme' => 'item_list',
         '#items' => [
-          $this->t('Default provider: @provider', ['@provider' => $default_provider]),
+          $this->t('Configured default provider: @provider', ['@provider' => $configured_provider]),
+          $this->t('Active live provider: @provider', ['@provider' => $effective_provider !== '' ? $effective_provider : 'none']),
           $this->t('Gemini mode: @mode (enabled: @enabled, credentials source: @source, model: @model)', [
             '@mode' => $gemini_mode,
             '@enabled' => !empty($gemini_status['enabled']) ? 'yes' : 'no',

@@ -174,6 +174,8 @@ function dungeoncrawler_content_theme(array $existing, string $type, string $the
         'campaign_id' => NULL,
         'back_url' => NULL,
         'embed_mode' => FALSE,
+        'portrait_upload_form' => NULL,
+        'portrait_regenerate_form' => NULL,
       ],
       'template' => 'character-sheet',
       'path' => $path . '/templates',

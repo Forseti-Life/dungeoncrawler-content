@@ -30,8 +30,11 @@ character-step-base:
   css:
     theme:
       css/character-steps.css: {}
+  js:
+    js/character-option-cards.js: {}
   dependencies:
     - core/drupal
+    - core/drupalSettings
     - core/jquery
     - core/once
 

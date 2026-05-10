@@ -389,6 +389,13 @@
   position: relative;
 }
 
+.dc-sheet__portrait-column {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  flex: 0 0 120px;
+}
+
 .dc-sheet__portrait {
   width: 100%;
   height: 100%;
@@ -531,6 +538,26 @@ body.dc-sheet__portrait-viewer-open {
   font-weight: 700;
   font-size: 0.75rem;
   padding: 2px;
+}
+
+.dc-sheet__portrait-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.dc-sheet__portrait-upload-form,
+.dc-sheet__portrait-regenerate-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.dc-sheet__portrait-upload-form .description {
+  flex-basis: 100%;
+  color: var(--dc-text-muted);
+  font-size: 0.8rem;
 }
 
 .dc-sheet__identity {
