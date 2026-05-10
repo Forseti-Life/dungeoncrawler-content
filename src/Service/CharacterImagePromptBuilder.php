@@ -33,7 +33,6 @@ class CharacterImagePromptBuilder {
     $appearance = $this->sanitizeAncestryConflicts($this->extractScalarValue($character_data, [['appearance'], ['personality', 'appearance']]), $authoritative_ancestry);
     $personality = $this->extractScalarValue($character_data, [['personality'], ['personality', 'personality']]);
     $equipment = $this->buildEquipmentLine($character_data);
-    $ability_guidance = $this->buildAbilityAppearanceGuidance($character_data['abilities'] ?? []);
     $resolved_user_prompt = trim($user_prompt);
 
     $subject_parts = array_filter([$authoritative_ancestry, $class]);
@@ -60,18 +59,9 @@ class CharacterImagePromptBuilder {
       $lines[] = $ancestry_constraint;
     }
 
-    $mood_parts = [];
-    if ($concept !== '') {
-      $mood_parts[] = $this->truncateValue($concept, 180);
-    }
-    if ($personality !== '') {
-      $mood_parts[] = $this->truncateValue($personality, 180);
-    }
-    if ($ability_guidance !== '') {
-      $mood_parts[] = $this->truncateValue($ability_guidance, 180);
-    }
-    if (!empty($mood_parts)) {
-      $lines[] = 'The character should feel ' . implode('; ', $mood_parts) . '.';
+    $mood_line = $this->buildPortraitMoodLine($character_data, $concept, $personality);
+    if ($mood_line !== '') {
+      $lines[] = $mood_line;
     }
 
     if ($alignment !== '' || $deity !== '') {
@@ -102,7 +92,7 @@ class CharacterImagePromptBuilder {
     $authoritative_ancestry = strtolower(trim(preg_replace('/\s*\(.*$/', '', $this->buildAncestryLine($character_data))));
 
     if ($authoritative_ancestry === 'human') {
-      $parts[] = 'elf ears, pointed ears, elven features, elven facial structure, non-human ears';
+      $parts[] = 'elf ears, pointed ears, elven features, elven facial structure, half-elf, fae, fairy, ethereal elf, delicate elf face, non-human ears';
     }
 
     return implode(', ', array_filter($parts));
@@ -224,6 +214,40 @@ class CharacterImagePromptBuilder {
     ]);
 
     return 'The character should read as ' . $charisma_descriptor . ', ' . $strength_descriptor . ', ' . $dexterity_descriptor . ', ' . $constitution_descriptor . ', ' . $intelligence_descriptor . ', with a ' . $wisdom_descriptor . '.';
+  }
+
+  /**
+   * Builds a short mood-and-pose line without leaking narrative text.
+   */
+  private function buildPortraitMoodLine(array $character_data, string $concept, string $personality): string {
+    $keywords = [];
+    $source = strtolower(trim($concept . ' ' . $personality . ' ' . ($character_data['background'] ?? '') . ' ' . ($character_data['class'] ?? '')));
+
+    $map = [
+      'sly' => 'cunning',
+      'sharp-tongued' => 'wry',
+      'illusion' => 'mischievous',
+      'illusions' => 'mischievous',
+      'enchantment' => 'self-possessed',
+      'enchantments' => 'self-possessed',
+      'scholar' => 'studious',
+      'wizard' => 'intellectually focused',
+      'confuse' => 'playful',
+      'three steps ahead' => 'alert',
+    ];
+
+    foreach ($map as $needle => $label) {
+      if (str_contains($source, $needle) && !in_array($label, $keywords, TRUE)) {
+        $keywords[] = $label;
+      }
+    }
+
+    if (empty($keywords)) {
+      $keywords = ['confident', 'grounded', 'adventurous'];
+    }
+
+    $keywords = array_slice($keywords, 0, 4);
+    return 'Expression and pose should feel ' . implode(', ', $keywords) . ', while keeping the anatomy grounded and recognizably human rather than fae or ethereal.';
   }
 
   /**
