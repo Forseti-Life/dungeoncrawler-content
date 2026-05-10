@@ -64,37 +64,6 @@
           characterId: settings.characterId ? Number(settings.characterId) : null,
           campaignId: settings.campaignId ? Number(settings.campaignId) : null,
         };
-        const chatToggle = root.querySelector('[data-character-setup-chat-toggle]');
-        const chatOverlay = root.querySelector('[data-character-setup-chat-overlay]');
-        const chatCloseButtons = root.querySelectorAll('[data-character-setup-chat-close]');
-
-        const setChatOpen = (isOpen) => {
-          if (!chatToggle || !chatOverlay) {
-            return;
-          }
-
-          chatToggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
-          chatOverlay.hidden = !isOpen;
-          document.body.classList.toggle('character-setup-chat-open', isOpen);
-        };
-
-        if (chatToggle && chatOverlay) {
-          chatToggle.addEventListener('click', () => {
-            setChatOpen(chatOverlay.hidden);
-          });
-
-          chatCloseButtons.forEach((button) => {
-            button.addEventListener('click', () => {
-              setChatOpen(false);
-            });
-          });
-
-          document.addEventListener('keydown', (event) => {
-            if (event.key === 'Escape' && !chatOverlay.hidden) {
-              setChatOpen(false);
-            }
-          });
-        }
 
         root.querySelectorAll('[data-character-setup-tab]').forEach((tab) => {
           tab.addEventListener('click', (event) => {
@@ -120,7 +89,6 @@
             state.maxAccessibleStep = Math.max(state.maxAccessibleStep, state.activeStep);
           }
           updateSummaryFields(root, payload.summary || {});
-          setChatOpen(true);
           window.location.assign(buildStepUrl(settings, state.activeStep, state.characterId, state.campaignId));
         });
       });
