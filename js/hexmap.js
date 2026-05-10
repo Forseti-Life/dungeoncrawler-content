@@ -487,7 +487,6 @@ import { SpriteService } from './SpriteService.js';
         roomViewPanel: document.getElementById('room-view-panel'),
         roomViewName: document.getElementById('room-view-name'),
         roomViewMeta: document.getElementById('room-view-meta'),
-        roomViewDescription: document.getElementById('room-view-description'),
         roomViewStatus: document.getElementById('room-view-status'),
         roomViewGallery: document.getElementById('room-view-gallery'),
         roomViewPlaceholder: document.getElementById('room-view-placeholder'),
@@ -521,7 +520,6 @@ import { SpriteService } from './SpriteService.js';
     updateRoomViewPanel(room, state = {}) {
       const {
         statusLabel = 'Idle',
-        description = 'A new scene snapshot is added every 50 room messages.',
         placeholderText = 'Room transition imagery will appear here.',
         entries = [],
       } = state;
@@ -531,9 +529,6 @@ import { SpriteService } from './SpriteService.js';
       }
       if (this.elements.roomViewMeta) {
         this.elements.roomViewMeta.textContent = this.formatRoomViewMeta(room);
-      }
-      if (this.elements.roomViewDescription) {
-        this.elements.roomViewDescription.textContent = description;
       }
       if (this.elements.roomViewStatus) {
         this.elements.roomViewStatus.textContent = statusLabel;
@@ -572,7 +567,6 @@ import { SpriteService } from './SpriteService.js';
       const article = fragment.querySelector('.room-view-card');
       const eyebrow = fragment.querySelector('.room-view-card__eyebrow');
       const title = fragment.querySelector('.room-view-card__title');
-      const summary = fragment.querySelector('.room-view-card__summary');
       const status = fragment.querySelector('.room-view-card__status');
       const image = fragment.querySelector('.room-view-card__image');
 
@@ -581,9 +575,6 @@ import { SpriteService } from './SpriteService.js';
       }
       if (title) {
         title.textContent = entry?.title || room?.name || 'Generated Scene';
-      }
-      if (summary) {
-        summary.textContent = entry?.summary || room?.description || 'Generated scene summary unavailable.';
       }
       if (status) {
         status.textContent = entry?.mode === 'cache' ? 'Cached' : 'Generated';
@@ -613,7 +604,6 @@ import { SpriteService } from './SpriteService.js';
         this.lastRoomViewKey = null;
         this.updateRoomViewPanel(room, {
           statusLabel: 'Unavailable',
-          description: 'A new scene snapshot is added every 50 room messages.',
           placeholderText: 'Room view images need an active campaign room.',
         });
         return;
@@ -632,7 +622,6 @@ import { SpriteService } from './SpriteService.js';
       const requestToken = ++this.roomViewRequestToken;
       this.updateRoomViewPanel(room, {
         statusLabel: 'Generating',
-        description: 'A new scene snapshot is added every 50 room messages.',
         placeholderText: 'Loading the latest room scene gallery...',
       });
 
@@ -659,13 +648,9 @@ import { SpriteService } from './SpriteService.js';
         const placeholderText = entries.length > 0
           ? ''
           : (payload.message || 'No room view image is available yet.');
-        const description = payload.generated_entry_count > 0
-          ? `A new scene snapshot is created every ${payload.message_batch_size || 50} room messages and added to the top of the gallery.`
-          : `The room establishing shot appears first. A new scene snapshot is added every ${payload.message_batch_size || 50} room messages.`;
 
         this.updateRoomViewPanel(payloadRoom, {
           statusLabel,
-          description,
           placeholderText,
           entries,
         });
@@ -675,7 +660,6 @@ import { SpriteService } from './SpriteService.js';
         }
         this.updateRoomViewPanel(room, {
           statusLabel: 'Unavailable',
-          description: 'A new scene snapshot is added every 50 room messages.',
           placeholderText: error?.message || 'Room view generation failed.',
         });
       }

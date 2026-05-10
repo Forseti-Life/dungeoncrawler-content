@@ -342,8 +342,7 @@
   gap: var(--space-3);
 }
 
-.room-view-panel__meta,
-.room-view-panel__description {
+.room-view-panel__meta {
   margin: 0;
   color: var(--muted);
 }
@@ -389,8 +388,7 @@
   gap: var(--space-3);
 }
 
-.room-view-card__eyebrow,
-.room-view-card__summary {
+.room-view-card__eyebrow {
   margin: 0;
   color: var(--muted);
 }
