@@ -2969,6 +2969,10 @@ import { SpriteService } from './SpriteService.js';
       // Data flow: dc_campaign_dungeons.dungeon_data (JSON column) -> HexMapController::normalizeDungeonPayload() -> drupalSettings
       // Schema: dungeon_level.schema.json + hexmap.schema.json + entity_instance.schema.json
       this.launchContext = settings?.dungeoncrawlerContent?.hexmapLaunchContext || {};
+      const initialCampaignId = Number(this.launchContext?.campaign_id || 0);
+      if (Number.isFinite(initialCampaignId) && initialCampaignId > 0) {
+        this.stateManager.set('campaignId', initialCampaignId);
+      }
       this.dungeonData = settings?.dungeoncrawlerContent?.hexmapDungeonData || {};
       this.launchCharacter = settings?.dungeoncrawlerContent?.hexmapLaunchCharacter || {};
       this.characterData = this.launchCharacter;
@@ -5380,7 +5384,22 @@ import { SpriteService } from './SpriteService.js';
      */
     resolveCampaignId: function () {
       const launchCampaignId = Number(this.launchContext?.campaign_id || 0);
-      return Number.isFinite(launchCampaignId) && launchCampaignId > 0 ? launchCampaignId : null;
+      if (Number.isFinite(launchCampaignId) && launchCampaignId > 0) {
+        return launchCampaignId;
+      }
+
+      const cachedCampaignId = Number(this.stateManager?.get?.('campaignId') || 0);
+      if (Number.isFinite(cachedCampaignId) && cachedCampaignId > 0) {
+        return cachedCampaignId;
+      }
+
+      const settingsCampaignId = Number(window.drupalSettings?.dungeoncrawlerContent?.hexmapLaunchContext?.campaign_id || 0);
+      if (Number.isFinite(settingsCampaignId) && settingsCampaignId > 0) {
+        return settingsCampaignId;
+      }
+
+      const queryCampaignId = Number(new URLSearchParams(window.location.search).get('campaign_id') || 0);
+      return Number.isFinite(queryCampaignId) && queryCampaignId > 0 ? queryCampaignId : null;
     },
 
     /**
