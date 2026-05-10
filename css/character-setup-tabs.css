@@ -156,9 +156,56 @@
   margin: 0;
 }
 
-.character-setup-page__sidebar .character-creation-gm-chat {
-  position: static;
+.character-setup-page__chat-toggle {
+  position: fixed;
+  right: 1.25rem;
+  bottom: 1.25rem;
+  z-index: 1100;
+  border-radius: 999px;
+  box-shadow: 0 18px 34px rgba(0, 0, 0, 0.28);
+}
+
+.character-setup-page__chat-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  padding: 1rem;
+}
+
+.character-setup-page__chat-backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(3, 6, 12, 0.58);
+}
+
+.character-setup-page__chat-overlay .character-creation-gm-chat {
+  position: relative;
   top: auto;
+  z-index: 1;
+  width: min(34rem, calc(100vw - 2rem));
+  max-height: min(85vh, 52rem);
+  overflow: hidden;
+}
+
+.character-setup-page__chat-header-actions {
+  flex: 0 0 auto;
+}
+
+.character-setup-page__chat-close {
+  border: 1px solid rgba(240, 200, 122, 0.35);
+  border-radius: 999px;
+  background: rgba(8, 10, 18, 0.82);
+  color: #fff0cc;
+  padding: 0.45rem 0.8rem;
+  font-weight: 700;
+}
+
+body.character-setup-chat-open {
+  overflow: hidden;
 }
 
 @media (max-width: 1280px) {
@@ -190,6 +237,15 @@
 
   .character-setup-page__tabs {
     overflow-x: auto;
+  }
+
+  .character-setup-page__chat-overlay {
+    padding: 0.75rem;
+  }
+
+  .character-setup-page__chat-overlay .character-creation-gm-chat {
+    width: min(100%, calc(100vw - 1.5rem));
+    max-height: 88vh;
   }
 
 }
