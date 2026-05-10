@@ -423,7 +423,7 @@ dungeoncrawler_content.character_setup:
     _title: 'Character Setup'
   methods: [GET]
   requirements:
-    _permission: 'create dungeoncrawler characters'
+    _character_setup_access: 'TRUE'
 
 dungeoncrawler_content.character_step:
   path: '/characters/create/step/{step}'
@@ -432,7 +432,7 @@ dungeoncrawler_content.character_step:
     _title: 'Create Character'
   methods: [GET]
   requirements:
-    _permission: 'create dungeoncrawler characters'
+    _character_setup_access: 'TRUE'
     step: '\d+'
 
 dungeoncrawler_content.character_step.post:
@@ -442,7 +442,7 @@ dungeoncrawler_content.character_step.post:
     _title: 'Create Character'
   methods: [POST]
   requirements:
-    _permission: 'create dungeoncrawler characters'
+    _character_setup_access: 'TRUE'
     step: '\d+'
 
 dungeoncrawler_content.character_save_step:
@@ -451,7 +451,7 @@ dungeoncrawler_content.character_save_step:
     _controller: '\Drupal\dungeoncrawler_content\Controller\CharacterCreationStepController::saveStep'
   methods: [POST]
   requirements:
-    _permission: 'create dungeoncrawler characters'
+    _character_setup_access: 'TRUE'
     step: '\d+'
 
 # Character viewing - requires ownership or admin
