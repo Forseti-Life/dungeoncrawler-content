@@ -76,6 +76,8 @@ class CharacterCreationStepForm extends FormBase {
    */
   public function buildForm(array $form, FormStateInterface $form_state, int $step = 1, int|string|null $character_id = NULL, int|string|null $campaign_id = NULL): array {
     $embedded = (bool) $this->getRequest()->query->get('embedded');
+    $setup_shell = $this->getRequest()->getPathInfo() === '/charactersetup';
+    $compact_layout = $embedded || $setup_shell;
     $character_data = $this->loadCharacterData($character_id);
 
     // Load character record for concurrent-edit version tracking.
@@ -107,7 +109,7 @@ class CharacterCreationStepForm extends FormBase {
       ?? '';
 
     $form['#attributes']['class'][] = 'character-creation-form';
-    $form['#attributes']['class'][] = $embedded ? 'character-creation-form--embedded' : 'character-creation-form--standalone';
+    $form['#attributes']['class'][] = $compact_layout ? 'character-creation-form--embedded' : 'character-creation-form--standalone';
     // Disable browser-native HTML5 validation entirely: Drupal handles all
     // validation server-side, and the native :invalid CSS pseudo-class fires
     // on required-but-empty fields immediately on page load / after AJAX,
@@ -123,7 +125,7 @@ class CharacterCreationStepForm extends FormBase {
       $form['#attached']['library'][] = 'dungeoncrawler_content/ability-boost-selector';
     }
     
-    if (!$embedded) {
+    if (!$compact_layout) {
       $form['#attached']['library'][] = 'dungeoncrawler_content/character-creation-gm-chat';
       $form['#attached']['drupalSettings']['dungeoncrawlerCharacterGm'] = [
         'endpoint' => Url::fromRoute('dungeoncrawler_content.api.character_gm_chat')->toString(),
@@ -136,10 +138,10 @@ class CharacterCreationStepForm extends FormBase {
       ];
     }
 
-    $prefix = $embedded ? '' : $this->buildGmChatShell($step, $character_id, $campaign_id, $character_data);
-    $progress_markup = $embedded ? '' : '<div class="progress-bar"><div class="progress-indicator progress-step-' . $step . '"></div></div><div class="progress-text">' . $this->t('Step @step of @total', ['@step' => $step, '@total' => 8]) . '</div>';
+    $prefix = $compact_layout ? '' : $this->buildGmChatShell($step, $character_id, $campaign_id, $character_data);
+    $progress_markup = $compact_layout ? '' : '<div class="progress-bar"><div class="progress-indicator progress-step-' . $step . '"></div></div><div class="progress-text">' . $this->t('Step @step of @total', ['@step' => $step, '@total' => 8]) . '</div>';
     $form['#prefix'] = Markup::create($prefix
-      . '<div class="character-creation-step' . ($embedded ? ' character-creation-step--embedded' : '') . '"><div class="creation-container">' . $progress_markup . '<div class="step-content">');
+      . '<div class="character-creation-step' . ($compact_layout ? ' character-creation-step--embedded' : '') . '"><div class="creation-container">' . $progress_markup . '<div class="step-content">');
     $form['#suffix'] = Markup::create('</div></div></div></div>');
 
     $form['header'] = [
@@ -171,7 +173,7 @@ class CharacterCreationStepForm extends FormBase {
       '#attributes' => ['class' => ['button-group']],
     ];
     
-    if ($step > 1 && !$embedded) {
+    if ($step > 1 && !$compact_layout) {
       $back_query = ['character_id' => $character_id];
       if ($campaign_id) {
         $back_query['campaign_id'] = $campaign_id;
@@ -1775,6 +1777,7 @@ class CharacterCreationStepForm extends FormBase {
     $step = $form_state->get('step');
     $character_id = $form_state->get('character_id');
     $campaign_id = $form_state->get('campaign_id');
+    $setup_shell = $this->getRequest()->getPathInfo() === '/charactersetup';
     $character_data = $this->loadCharacterData($character_id);
 
     // Concurrent-edit protection: reject if another session saved since form load.
@@ -1788,7 +1791,13 @@ class CharacterCreationStepForm extends FormBase {
           $query['campaign_id'] = $campaign_id;
         }
         $query = $this->preserveShellQueryFlags($query);
-        $form_state->setRedirect('dungeoncrawler_content.character_step', ['step' => $step], ['query' => $query]);
+        if ($setup_shell) {
+          $query['step'] = $step;
+          $form_state->setRedirect('dungeoncrawler_content.character_setup', [], ['query' => $query]);
+        }
+        else {
+          $form_state->setRedirect('dungeoncrawler_content.character_step', ['step' => $step], ['query' => $query]);
+        }
         return;
       }
     }
@@ -2031,6 +2040,11 @@ class CharacterCreationStepForm extends FormBase {
       if (!empty($this->getRequest()->query->get('embedded'))) {
         $next_query['unlocked_step'] = $next_step;
       }
+      elseif ($setup_shell) {
+        $next_query['step'] = $next_step;
+        $form_state->setRedirect('dungeoncrawler_content.character_setup', [], ['query' => $next_query]);
+        return;
+      }
       else {
         $redirect_step = $next_step;
       }
@@ -2048,9 +2062,6 @@ class CharacterCreationStepForm extends FormBase {
     $current_query = $this->getRequest()->query->all();
     if (!empty($current_query['embedded'])) {
       $query['embedded'] = 1;
-    }
-    if (!empty($current_query['charactersetup'])) {
-      $query['charactersetup'] = 1;
     }
 
     return $query;

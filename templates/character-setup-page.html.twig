@@ -22,12 +22,12 @@
           <h2 class="character-setup-page__sidebar-title">Creation Tabs</h2>
           <div class="character-setup-page__tabs" role="tablist" aria-label="Character creation steps">
             {% for step in steps %}
-              <button
-                type="button"
+              <a
+                href="{{ step.enabled ? step.url : '#' }}"
                 class="character-setup-page__tab{{ step.number == active_step ? ' is-active' : '' }}"
                 data-character-setup-tab
                 data-step="{{ step.number }}"
-                {% if not step.enabled %}disabled{% endif %}
+                {% if not step.enabled %}aria-disabled="true"{% endif %}
                 aria-selected="{{ step.number == active_step ? 'true' : 'false' }}"
                 role="tab"
               >
@@ -38,7 +38,7 @@
                     <span class="character-setup-page__tab-description">{{ step.description }}</span>
                   {% endif %}
                 </span>
-              </button>
+              </a>
             {% endfor %}
           </div>
         </div>
@@ -95,13 +95,7 @@
       </div>
 
       <div class="character-setup-page__frame-shell">
-        <iframe
-          class="character-setup-page__frame"
-          data-character-setup-frame
-          title="Character setup step"
-          src="{{ frame_src }}"
-          loading="lazy"
-        ></iframe>
+        {{ step_form }}
       </div>
     </section>
   </div>

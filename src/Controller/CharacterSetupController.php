@@ -80,10 +80,10 @@ class CharacterSetupController extends ControllerBase {
           ?? $schema['properties']['step_description']['default']
           ?? '',
         'enabled' => $step <= $max_accessible_step,
+        'url' => $this->buildSetupUrl($step, $character_id, $campaign_id),
       ];
     }
 
-    $frame_src = $this->buildStepUrl($active_step, $character_id, $campaign_id, TRUE);
     $back_url = $campaign_id !== NULL && $campaign_id !== ''
       ? Url::fromRoute('dungeoncrawler_content.characters', ['campaign_id' => (int) $campaign_id])->toString()
       : Url::fromRoute('dungeoncrawler_content.characters_roster')->toString();
@@ -103,12 +103,17 @@ class CharacterSetupController extends ControllerBase {
       '#theme' => 'character_setup_page',
       '#steps' => $steps,
       '#active_step' => $active_step,
-      '#frame_src' => $frame_src,
       '#back_url' => $back_url,
       '#character_id' => $character_id,
       '#campaign_id' => $campaign_id !== NULL && $campaign_id !== '' ? (int) $campaign_id : NULL,
       '#summary' => $gm_settings['summary'],
       '#history' => $gm_settings['history'],
+      '#step_form' => $this->formBuilder()->getForm(
+        'Drupal\dungeoncrawler_content\Form\CharacterCreationStepForm',
+        $active_step,
+        $character_id,
+        $campaign_id
+      ),
       '#attached' => [
         'library' => [
           'dungeoncrawler_content/character-setup-tabs',
@@ -117,7 +122,6 @@ class CharacterSetupController extends ControllerBase {
         'drupalSettings' => [
           'dungeoncrawlerCharacterSetup' => [
             'shellUrl' => Url::fromRoute('dungeoncrawler_content.character_setup')->toString(),
-            'stepRoutePrefix' => '/characters/create/step/',
             'characterId' => $character_id,
             'campaignId' => $campaign_id !== NULL && $campaign_id !== '' ? (int) $campaign_id : NULL,
             'activeStep' => $active_step,
@@ -167,22 +171,18 @@ class CharacterSetupController extends ControllerBase {
   }
 
   /**
-   * Builds a step URL, optionally in embedded mode.
+   * Builds a setup-shell URL for a specific step.
    */
-  private function buildStepUrl(int $step, ?int $character_id, int|string|null $campaign_id, bool $embedded = FALSE): string {
+  private function buildSetupUrl(int $step, ?int $character_id, int|string|null $campaign_id): string {
     $query = [];
+    $query['step'] = $step;
     if ($character_id) {
       $query['character_id'] = $character_id;
     }
     if ($campaign_id !== NULL && $campaign_id !== '') {
       $query['campaign_id'] = (int) $campaign_id;
     }
-    if ($embedded) {
-      $query['embedded'] = 1;
-      $query['charactersetup'] = 1;
-    }
-
-    return Url::fromRoute('dungeoncrawler_content.character_step', ['step' => $step])
+    return Url::fromRoute('dungeoncrawler_content.character_setup')
       ->setOption('query', $query)
       ->toString();
   }
