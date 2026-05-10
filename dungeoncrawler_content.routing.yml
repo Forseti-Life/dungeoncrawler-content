@@ -62,6 +62,15 @@ dungeoncrawler_content.image_generation_interface:
   requirements:
     _permission: 'access content overview'
 
+dungeoncrawler_content.text_to_speech_interface:
+  path: '/admin/content/dungeoncrawler/text-to-speech'
+  defaults:
+    _form: '\Drupal\dungeoncrawler_content\Form\TextToSpeechSmokeTestForm'
+    _title: 'Text-to-Speech'
+  methods: [GET, POST]
+  requirements:
+    _permission: 'access content overview'
+
 # Admin testing home (locked to admins)
 dungeoncrawler_content.testing_home:
   path: '/admin/dungeoncrawler/testing'
