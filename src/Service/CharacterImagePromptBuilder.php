@@ -3,14 +3,9 @@
 namespace Drupal\dungeoncrawler_content\Service;
 
 /**
- * Builds guardrailed prompts for character portrait generation.
+ * Builds portrait prompts for character image generation.
  */
 class CharacterImagePromptBuilder {
-
-  /**
-   * Default negative prompt for portrait generation.
-   */
-  private const DEFAULT_NEGATIVE_PROMPT = 'elf, elven, half-elf, fae, fairy, ethereal elf, elf ears, pointed ears, long ears, angular ethereal face, delicate elf face, elven features, elven facial structure, non-human ears, text, letters, words, captions, subtitles, nameplate, watermark, logo, signature, UI overlay, speech bubble, readable runes, readable glyphs, readable spellbook pages, readable scrolls, readable signage, character sheet, infographic, poster, dossier, parchment page, labeled diagram, side panels, border ornaments, decorative frame, blurry, low quality, deformed, cropped feet, cropped legs, close-up portrait, headshot, bust shot, multiple characters';
 
   /**
    * Builds a provider-ready portrait prompt from character data.
@@ -28,9 +23,11 @@ class CharacterImagePromptBuilder {
     $base_ancestry = $this->getBaseAncestry($authoritative_ancestry);
     $class = $this->buildClassLine($character_data);
     $background = $this->humanizeShortValue($this->extractScalarValue($character_data, [['background']]));
-    $concept = $this->sanitizeAncestryConflicts($this->extractScalarValue($character_data, [['concept']]), $authoritative_ancestry);
+    $concept = $this->extractScalarValue($character_data, [['concept']]);
     $personality = $this->extractScalarValue($character_data, [['personality'], ['personality', 'personality']]);
     $equipment = $this->buildEquipmentLine($character_data);
+    $ability_line = $this->buildAbilityLine($character_data['abilities'] ?? []);
+    $ability_guidance = $this->buildAbilityAppearanceGuidance($character_data['abilities'] ?? []);
     $resolved_user_prompt = trim($user_prompt);
 
     $subject = $this->buildSubjectPhrase($base_ancestry, $class, $background);
@@ -45,9 +42,12 @@ class CharacterImagePromptBuilder {
       $lines[] = 'Use ' . implode(', ', $visual_traits) . '.';
     }
 
-    $ancestry_constraint = $this->buildAncestryConstraintLine($authoritative_ancestry);
-    if ($ancestry_constraint !== '') {
-      $lines[] = $ancestry_constraint;
+    if ($ability_line !== '') {
+      $lines[] = 'Character abilities: ' . $ability_line . '.';
+    }
+
+    if ($ability_guidance !== '') {
+      $lines[] = $ability_guidance;
     }
 
     $mood_line = $this->buildPortraitMoodLine($character_data, $concept, $personality);
@@ -67,20 +67,6 @@ class CharacterImagePromptBuilder {
   }
 
   /**
-   * Returns the default negative prompt.
-   */
-  public function getDefaultNegativePrompt(array $character_data = []): string {
-    $parts = [self::DEFAULT_NEGATIVE_PROMPT];
-    $authoritative_ancestry = $this->getBaseAncestry($this->buildAncestryLine($character_data));
-
-    if ($authoritative_ancestry === 'human') {
-      $parts[] = 'elf ears, pointed ears, elven features, elven facial structure, half-elf, fae, fairy, ethereal elf, delicate elf face, non-human ears';
-    }
-
-    return implode(', ', array_filter($parts));
-  }
-
-  /**
    * Builds a list of character attribute lines.
    *
    * @param array $character_data
@@ -91,19 +77,18 @@ class CharacterImagePromptBuilder {
    */
   private function buildAttributeLines(array $character_data): array {
     $lines = [];
-    $authoritative_ancestry = $this->buildAncestryLine($character_data);
     $map = [
-      'Ancestry' => $authoritative_ancestry,
+      'Ancestry' => $this->buildAncestryLine($character_data),
       'Class' => $this->buildClassLine($character_data),
       'Background' => $this->humanizeShortValue($this->extractScalarValue($character_data, [['background']])),
       'Alignment' => $this->extractScalarValue($character_data, [['alignment'], ['personality', 'alignment']]),
       'Deity' => $this->humanizeShortValue($this->extractScalarValue($character_data, [['deity'], ['personality', 'deity']])),
       'Age' => $this->extractScalarValue($character_data, [['age'], ['personality', 'age']]),
       'Gender/Pronouns' => $this->extractScalarValue($character_data, [['gender'], ['personality', 'gender']]),
-      'Concept' => $this->sanitizeAncestryConflicts($this->extractScalarValue($character_data, [['concept']]), $authoritative_ancestry),
-      'Appearance' => $this->sanitizeAncestryConflicts($this->extractScalarValue($character_data, [['appearance'], ['personality', 'appearance']]), $authoritative_ancestry),
+      'Concept' => $this->extractScalarValue($character_data, [['concept']]),
+      'Appearance' => $this->extractScalarValue($character_data, [['appearance'], ['personality', 'appearance']]),
       'Personality' => $this->extractScalarValue($character_data, [['personality'], ['personality', 'personality']]),
-      'Backstory' => $this->sanitizeAncestryConflicts($this->extractScalarValue($character_data, [['backstory'], ['personality', 'backstory']]), $authoritative_ancestry),
+      'Backstory' => $this->extractScalarValue($character_data, [['backstory'], ['personality', 'backstory']]),
       'Visible equipment' => $this->buildEquipmentLine($character_data),
     ];
 
@@ -229,7 +214,7 @@ class CharacterImagePromptBuilder {
     }
 
     $keywords = array_slice($keywords, 0, 4);
-    return 'Expression and pose should feel ' . implode(', ', $keywords) . ', while keeping the anatomy grounded and recognizably human rather than fae or ethereal.';
+    return 'Expression and pose should feel ' . implode(', ', $keywords) . ', with a grounded, natural physical presence.';
   }
 
   /**
@@ -393,62 +378,6 @@ class CharacterImagePromptBuilder {
     }
 
     return rtrim(substr($value, 0, $limit - 1)) . '…';
-  }
-
-  /**
-   * Builds a hard ancestry constraint line for the prompt frame.
-   */
-  private function buildAncestryConstraintLine(string $authoritative_ancestry): string {
-    $authoritative_ancestry = trim($authoritative_ancestry);
-    if ($authoritative_ancestry === '') {
-      return '';
-    }
-
-    $base_ancestry = $this->getBaseAncestry($authoritative_ancestry);
-    if ($base_ancestry === 'human') {
-      return 'The subject is human: depict an unmistakably human adult with short rounded human ears clearly visible on both sides of the head, a natural human jawline, ordinary human bone structure, and absolutely never elf ears, pointed ears, angular ethereal elven features, or other non-human ancestry traits.';
-    }
-
-    return 'The subject ancestry is ' . $authoritative_ancestry . '; keep the physical traits aligned to this ancestry and do not introduce conflicting traits from another ancestry.';
-  }
-
-  /**
-   * Prevent freeform text from overriding the authoritative ancestry.
-   */
-  private function sanitizeAncestryConflicts(string $value, string $authoritative_ancestry): string {
-    $value = trim($value);
-    $authoritative_ancestry = $this->getBaseAncestry($authoritative_ancestry);
-    if ($value === '' || $authoritative_ancestry === '') {
-      return $value;
-    }
-
-    $conflicting_terms = [
-      'human',
-      'elf',
-      'elven',
-      'dwarf',
-      'dwarven',
-      'gnome',
-      'gnomish',
-      'goblin',
-      'halfling',
-      'orc',
-      'orcish',
-      'leshy',
-      'catfolk',
-      'kobold',
-      'ratfolk',
-      'tengu',
-    ];
-
-    foreach ($conflicting_terms as $term) {
-      if ($term === $authoritative_ancestry) {
-        continue;
-      }
-      $value = preg_replace('/\b' . preg_quote($term, '/') . '\b/i', '', $value) ?? $value;
-    }
-
-    return trim(preg_replace('/\s+/', ' ', $value) ?? $value);
   }
 
   /**

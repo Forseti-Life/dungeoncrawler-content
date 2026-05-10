@@ -56,7 +56,7 @@ class CharacterPortraitGenerationService {
    * @param int|null $campaign_id
    *   Campaign id (if available).
    * @param array $options
-   *   Overrides (generate, user_prompt, style, aspect_ratio, negative_prompt).
+   *   Overrides (generate, user_prompt, style, aspect_ratio).
    *
    * @return array
    *   Generation summary, including raw provider result and storage info.
@@ -116,7 +116,6 @@ class CharacterPortraitGenerationService {
       'prompt' => $prompt,
       'style' => (string) ($options['style'] ?? 'fantasy'),
       'aspect_ratio' => (string) ($options['aspect_ratio'] ?? '3:4'),
-      'negative_prompt' => (string) ($options['negative_prompt'] ?? $this->promptBuilder->getDefaultNegativePrompt($character_data)),
       'campaign_context' => (string) ($options['campaign_context'] ?? 'character_creation'),
       'requested_by_uid' => $owner_uid,
     ];
