@@ -953,6 +953,14 @@
       }
     }
 
+    function toggleTooltip(el) {
+      if (activeTooltipElement === el && tooltip.style.display === 'block') {
+        hideTooltip();
+        return;
+      }
+      showTooltip(el);
+    }
+
     function hideTooltip() {
       activeTooltipElement = null;
       tooltip.style.display = 'none';
@@ -962,10 +970,36 @@
       container.querySelectorAll('.inv-item, [data-tooltip-enabled="true"]').forEach(function (el) {
         if (el.dataset.tooltipBound === 'true') return;
         el.dataset.tooltipBound = 'true';
+        if (!el.hasAttribute('tabindex')) el.setAttribute('tabindex', '0');
         el.addEventListener('mouseenter', function () { showTooltip(this); });
         el.addEventListener('mouseleave', hideTooltip);
+        el.addEventListener('focus', function () { showTooltip(this); });
+        el.addEventListener('blur', hideTooltip);
+        el.addEventListener('click', function (event) {
+          event.preventDefault();
+          event.stopPropagation();
+          toggleTooltip(this);
+        });
+        el.addEventListener('keydown', function (event) {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            toggleTooltip(this);
+          } else if (event.key === 'Escape') {
+            hideTooltip();
+          }
+        });
       });
     }
+
+    document.addEventListener('click', function (event) {
+      if (tooltip.contains(event.target)) return;
+      if (event.target.closest('.inv-item, [data-tooltip-enabled="true"]')) return;
+      hideTooltip();
+    });
+
+    document.addEventListener('keydown', function (event) {
+      if (event.key === 'Escape') hideTooltip();
+    });
 
     /* ---- Inventory Sync (mirrors char-sheet data) ---- */
     function syncInventory() {
