@@ -63,19 +63,9 @@
     </section>
   </div>
 
-  <button
-    type="button"
-    class="btn btn-primary character-setup-page__chat-toggle"
-    data-character-setup-chat-toggle
-    aria-expanded="false"
-    aria-controls="characterSetupChatOverlay"
-  >
-    GM Chat
-  </button>
-
-  <div class="character-setup-page__chat-overlay" data-character-setup-chat-overlay hidden>
-    <button type="button" class="character-setup-page__chat-backdrop" data-character-setup-chat-close aria-label="Close GM chat"></button>
-    <section id="characterSetupChatOverlay" class="character-creation-gm-chat character-creation-gm-chat--overlay" aria-label="GM character guide" role="dialog" aria-modal="true">
+  <details class="character-setup-page__chat-drawer">
+    <summary class="btn btn-primary character-setup-page__chat-toggle">GM Chat</summary>
+    <section id="characterSetupChatOverlay" class="character-creation-gm-chat character-creation-gm-chat--overlay" aria-label="GM character guide">
       <div class="character-creation-gm-chat__header">
         <div>
           <div class="character-creation-gm-chat__eyebrow">GM-assisted creation</div>
@@ -83,7 +73,7 @@
           <p class="character-creation-gm-chat__intro">Ask for build recommendations or let the GM update the draft while you stay inside the tabbed setup shell.</p>
         </div>
         <div class="character-setup-page__chat-header-actions">
-          <button type="button" class="character-setup-page__chat-close" data-character-setup-chat-close aria-label="Close GM chat">Close</button>
+          <span class="character-setup-page__chat-close-hint">Click GM Chat to collapse</span>
         </div>
       </div>
       <div class="character-creation-gm-chat__summary">
@@ -115,5 +105,5 @@
         </div>
       </div>
     </section>
-  </div>
+  </details>
 </div>
