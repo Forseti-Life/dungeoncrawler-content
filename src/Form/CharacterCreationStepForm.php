@@ -1067,17 +1067,25 @@ class CharacterCreationStepForm extends FormBase {
       $cantrips = $this->characterManager->getSpellsByTradition($tradition, 0);
       $cantrip_options = [];
       $cantrip_cards = [];
+      $cantrip_reference_cards = [];
       foreach ($cantrips as $cantrip) {
         $cantrip_options[$cantrip['id']] = $cantrip['name'];
         $tags = ['Cantrip'];
         if (!empty($cantrip['school'])) {
           $tags[] = ucfirst((string) $cantrip['school']);
         }
+        $facts = $this->extractSpellFacts($cantrip);
         $cantrip_cards[$cantrip['id']] = $this->buildOptionCardData(
           $cantrip['description'] ?? '',
           $tags,
-          $this->extractSpellFacts($cantrip),
+          $facts,
         );
+        $cantrip_reference_cards[] = [
+          'title' => $cantrip['name'],
+          'description' => $cantrip['description'] ?? '',
+          'tags' => $tags,
+          'facts' => $facts,
+        ];
       }
 
       $form['class_dynamic']['cantrips_help'] = [
@@ -1095,22 +1103,40 @@ class CharacterCreationStepForm extends FormBase {
         '#description' => $this->t('Select exactly @count cantrips from the @tradition spell list.', ['@count' => $num_cantrips, '@tradition' => $tradition_label]),
       ];
       $this->attachOptionCardSettings($form['class_dynamic'], 'cantrips', $cantrip_cards, 'multiple');
+      $form['class_dynamic']['cantrips_reference'] = [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['spell-reference-section']],
+        'heading' => [
+          '#markup' => '<h4>' . $this->t('Cantrip reference') . '</h4>',
+        ],
+        'cards' => [
+          '#markup' => $this->buildOptionDetailStackMarkup($cantrip_reference_cards),
+        ],
+      ];
 
       // --- 1st Level Spell Selection ---
       $first_level_spells = $this->characterManager->getSpellsByTradition($tradition, 1);
       $spell_options = [];
       $spell_cards = [];
+      $spell_reference_cards = [];
       foreach ($first_level_spells as $spell) {
         $spell_options[$spell['id']] = $spell['name'];
         $tags = ['1st-level spell'];
         if (!empty($spell['school'])) {
           $tags[] = ucfirst((string) $spell['school']);
         }
+        $facts = $this->extractSpellFacts($spell);
         $spell_cards[$spell['id']] = $this->buildOptionCardData(
           $spell['description'] ?? '',
           $tags,
-          $this->extractSpellFacts($spell),
+          $facts,
         );
+        $spell_reference_cards[] = [
+          'title' => $spell['name'],
+          'description' => $spell['description'] ?? '',
+          'tags' => $tags,
+          'facts' => $facts,
+        ];
       }
 
       $form['class_dynamic']['spells_help'] = [
@@ -1128,6 +1154,16 @@ class CharacterCreationStepForm extends FormBase {
         '#description' => $this->t('Select your starting 1st-level @tradition spells.', ['@tradition' => $tradition_label]),
       ];
       $this->attachOptionCardSettings($form['class_dynamic'], 'spells_first', $spell_cards, 'multiple');
+      $form['class_dynamic']['spells_first_reference'] = [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['spell-reference-section']],
+        'heading' => [
+          '#markup' => '<h4>' . $this->t('1st-level spell reference') . '</h4>',
+        ],
+        'cards' => [
+          '#markup' => $this->buildOptionDetailStackMarkup($spell_reference_cards),
+        ],
+      ];
     }
     elseif (array_key_exists($selected_class, CharacterManager::CLASS_TRADITIONS) && !$tradition) {
       // Caster class but tradition not yet resolved (sorcerer/witch without subclass)
@@ -2953,6 +2989,28 @@ class CharacterCreationStepForm extends FormBase {
   }
 
   /**
+   * Builds a stack of detail cards from structured item definitions.
+   */
+  private function buildOptionDetailStackMarkup(array $items): string {
+    $cards_markup = '';
+
+    foreach ($items as $item) {
+      $cards_markup .= $this->buildSelectionDetailMarkup(
+        (string) ($item['title'] ?? ''),
+        (string) ($item['description'] ?? ''),
+        is_array($item['tags'] ?? NULL) ? $item['tags'] : [],
+        is_array($item['facts'] ?? NULL) ? $item['facts'] : [],
+      );
+    }
+
+    if ($cards_markup === '') {
+      return '';
+    }
+
+    return '<div class="option-detail-stack">' . $cards_markup . '</div>';
+  }
+
+  /**
    * Builds metadata for inline selector cards.
    */
   private function buildOptionCardData(string $description = '', array $tags = [], array $facts = []): array {
@@ -3000,6 +3058,8 @@ class CharacterCreationStepForm extends FormBase {
       (string) $this->t('Duration') => ['duration'],
       (string) $this->t('Save') => ['save', 'saving_throw'],
       (string) $this->t('Components') => ['components'],
+      (string) $this->t('Rarity') => ['rarity'],
+      (string) $this->t('Source') => ['source', 'source_display', 'source_book'],
     ];
 
     foreach ($fact_map as $label => $keys) {
@@ -3021,6 +3081,10 @@ class CharacterCreationStepForm extends FormBase {
           break;
         }
       }
+    }
+
+    if (!empty($spell['heightenable'])) {
+      $facts[(string) $this->t('Heightens')] = (string) $this->t('Yes');
     }
 
     return $facts;

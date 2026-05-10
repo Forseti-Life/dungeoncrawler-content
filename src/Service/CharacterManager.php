@@ -11340,8 +11340,8 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
    *   Rarity filter: 'common' (default), 'uncommon', 'rare', or 'all'.
    *
    * @return array
-   *   Array of spell data arrays, each with id, name, level, school,
-   *   traditions, description, and rarity.
+     *   Array of spell data arrays, each with id, name, level, school,
+     *   traditions, description, rarity, source, and related spell metadata.
    */
   public function getSpellsByTradition(string $tradition, int $level = 0, string $rarity = 'common'): array {
     $tradition = strtolower($tradition);
@@ -11381,6 +11381,8 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
         'traditions' => $schema['traditions'] ?? [],
         'description' => $schema['description_snippet'] ?? $row->name,
         'rarity' => $spell_rarity,
+        'source' => trim((string) ($schema['source_display'] ?? $schema['source_book'] ?? '')),
+        'heightenable' => !empty($schema['heightenable']),
       ];
     }
     return $spells;

@@ -544,6 +544,15 @@ textarea.form-control {
   margin-bottom: var(--dc-space-md);
 }
 
+.spell-reference-section {
+  margin: 0 0 var(--dc-space-lg);
+}
+
+.spell-reference-section h4 {
+  margin: 0 0 var(--dc-space-md);
+  color: var(--dc-text-light);
+}
+
 .option-detail-stack {
   display: grid;
   gap: var(--dc-space-md);
