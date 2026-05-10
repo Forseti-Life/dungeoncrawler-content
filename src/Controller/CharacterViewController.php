@@ -687,7 +687,7 @@ class CharacterViewController extends ControllerBase {
       $redirect_url = Url::fromRoute('dungeoncrawler_content.characters', ['campaign_id' => (int) $character->campaign_id])->toString();
     }
     else {
-      $redirect_url = Url::fromRoute('dungeoncrawler_content.campaigns')->toString();
+      $redirect_url = Url::fromRoute('dungeoncrawler_content.characters_roster')->toString();
     }
 
     if ((int) $character->status === 2) {
@@ -714,6 +714,69 @@ class CharacterViewController extends ControllerBase {
       ->execute();
 
     $this->messenger()->addStatus($this->t('%name archived. It is now hidden from your character roster.', [
+      '%name' => $character->name,
+    ]));
+
+    return new RedirectResponse($redirect_url);
+  }
+
+  /**
+   * Unarchives a character directly without a confirmation form.
+   */
+  public function unarchiveCharacter(int $character_id): RedirectResponse {
+    $character = $this->database->select('dc_campaign_characters', 'c')
+      ->fields('c', ['id', 'name', 'uid', 'status', 'character_data', 'campaign_id'])
+      ->condition('id', $character_id)
+      ->execute()
+      ->fetchObject() ?: NULL;
+
+    if (!$character) {
+      throw new NotFoundHttpException();
+    }
+
+    $current_user = $this->currentUser();
+    if (
+      (int) $character->uid !== (int) $current_user->id()
+      && !$current_user->hasPermission('administer dungeoncrawler content')
+    ) {
+      throw new AccessDeniedHttpException();
+    }
+
+    $destination = \Drupal::request()->query->get('destination');
+    if ($destination) {
+      $redirect_url = Url::fromUserInput($destination)->toString();
+    }
+    else {
+      $redirect_url = Url::fromRoute('dungeoncrawler_content.characters_archived')->toString();
+    }
+
+    if ((int) $character->status !== 2) {
+      $this->messenger()->addStatus($this->t('%name is not archived.', ['%name' => $character->name]));
+      return new RedirectResponse($redirect_url);
+    }
+
+    $character_data = json_decode((string) ($character->character_data ?? '{}'), TRUE);
+    if (!is_array($character_data)) {
+      $character_data = [];
+    }
+
+    $restored_status = (int) ($character_data['_archive_meta']['previous_status'] ?? 0);
+    if (!in_array($restored_status, [0, 1], TRUE)) {
+      $restored_status = 0;
+    }
+
+    unset($character_data['_archive_meta']);
+
+    $this->database->update('dc_campaign_characters')
+      ->fields([
+        'status' => $restored_status,
+        'character_data' => json_encode($character_data, JSON_UNESCAPED_UNICODE),
+        'changed' => $this->time->getRequestTime(),
+      ])
+      ->condition('id', $character_id)
+      ->execute();
+
+    $this->messenger()->addStatus($this->t('%name unarchived. It is now visible on your character roster.', [
       '%name' => $character->name,
     ]));
 

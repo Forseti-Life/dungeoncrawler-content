@@ -80,8 +80,17 @@ function dungeoncrawler_content_theme(array $existing, string $type, string $the
       'variables' => [
         'characters' => [],
         'create_url' => NULL,
+        'archived_url' => NULL,
       ],
       'template' => 'character-list',
+      'path' => $path . '/templates',
+    ],
+    'character_archived_list' => [
+      'variables' => [
+        'characters' => [],
+        'back_url' => NULL,
+      ],
+      'template' => 'character-archived-list',
       'path' => $path . '/templates',
     ],
     'campaign_list' => [
