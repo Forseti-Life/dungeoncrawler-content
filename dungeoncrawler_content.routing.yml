@@ -421,7 +421,7 @@ dungeoncrawler_content.character_setup:
   defaults:
     _controller: '\Drupal\dungeoncrawler_content\Controller\CharacterSetupController::page'
     _title: 'Character Setup'
-  methods: [GET]
+  methods: [GET, POST]
   requirements:
     _character_setup_access: 'TRUE'
 
