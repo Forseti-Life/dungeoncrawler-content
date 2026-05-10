@@ -170,6 +170,10 @@ services:
     class: Drupal\dungeoncrawler_content\Service\ImageGenerationIntegrationService
     arguments: ['@config.factory', '@dungeoncrawler_content.gemini_image_generator', '@dungeoncrawler_content.vertex_image_generator']
 
+  dungeoncrawler_content.text_to_speech_integration:
+    class: Drupal\dungeoncrawler_content\Service\TextToSpeechIntegrationService
+    arguments: ['@service_container', '@logger.factory']
+
   dungeoncrawler_content.room_view_image:
     class: Drupal\dungeoncrawler_content\Service\RoomViewImageService
     arguments: ['@database', '@logger.factory', '@dungeoncrawler_content.image_generation_integration', '@dungeoncrawler_content.chat_session_manager']

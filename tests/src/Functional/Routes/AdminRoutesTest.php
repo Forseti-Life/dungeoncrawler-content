@@ -59,6 +59,19 @@ class AdminRoutesTest extends BrowserTestBase {
   }
 
   /**
+   * Tests text-to-speech smoke route without the external provider module.
+   */
+  public function testTextToSpeechRoutePositiveWithoutProvider(): void {
+    $user = $this->createTestUser(['access content overview']);
+    $this->drupalLogin($user);
+
+    $this->drupalGet('/admin/content/dungeoncrawler/text-to-speech');
+    $this->assertSession()->statusCodeEquals(200);
+    $this->assertSession()->pageTextContains('Text-to-Speech');
+    $this->assertSession()->pageTextContains('The Forseti TTS module is not installed or enabled in this Drupal site.');
+  }
+
+  /**
    * Tests dashboard route - negative case (no permission).
    */
   public function testDashboardRouteNegative(): void {
