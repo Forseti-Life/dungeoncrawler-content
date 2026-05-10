@@ -46,12 +46,20 @@
   min-width: 0;
 }
 
+.character-setup-page__sidebar {
+  position: sticky;
+  top: 1rem;
+  align-self: start;
+}
+
 .character-setup-page__sidebar-stack {
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
-  position: sticky;
-  top: 1rem;
+  max-height: calc(100vh - 2rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 0.35rem;
 }
 
 .character-setup-page__sidebar-card,
@@ -172,6 +180,12 @@
   }
 
   .character-setup-page__sidebar-stack {
+    max-height: none;
+    overflow: visible;
+    padding-right: 0;
+  }
+
+  .character-setup-page__sidebar {
     position: static;
   }
 
