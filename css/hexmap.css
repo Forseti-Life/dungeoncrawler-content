@@ -359,8 +359,14 @@
   grid-template-columns: 1fr;
 }
 
-.hexmap-container.fullscreen .game-layout__sidebar {
-  display: none;
+.hexmap-container.fullscreen #game-panel-character {
+  overflow: auto;
+}
+
+.hexmap-container.fullscreen #game-panel-character .game-layout__sidebar {
+  display: block;
+  max-height: none;
+  overflow: auto;
 }
 
 .hexmap-container.fullscreen .game-layout-controls {
