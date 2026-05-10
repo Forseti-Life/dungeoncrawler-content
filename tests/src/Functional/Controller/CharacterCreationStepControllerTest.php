@@ -59,6 +59,19 @@ class CharacterCreationStepControllerTest extends BrowserTestBase {
   }
 
   /**
+   * Tests embedded character creation step hides the standalone GM shell.
+   */
+  public function testCharacterCreationStepEmbeddedMode(): void {
+    $user = $this->drupalCreateUser(['create dungeoncrawler characters']);
+    $this->drupalLogin($user);
+
+    $this->drupalGet('/characters/create/step/1?embedded=1&charactersetup=1');
+    $this->assertSession()->statusCodeEquals(200);
+    $this->assertSession()->pageTextNotContains('GM Character Guide');
+    $this->assertSession()->pageTextContains('Step 1 of 8');
+  }
+
+  /**
    * Tests character creation step with invalid step - negative case.
    */
   public function testCharacterCreationStepNegative(): void {

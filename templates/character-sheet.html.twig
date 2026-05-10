@@ -13,12 +13,12 @@
           <a href="{{ tavern_url }}" class="dc-btn dc-btn-secondary">🍻 Enter Tavern</a>
         {% endif %}
         {% if character.step < 8 %}
-          <a href="/characters/create/step/{{ character.step }}?character_id={{ character.id }}" class="dc-btn dc-btn-warning">⚠️ Continue Creation (Step {{ character.step }}/8)</a>
+          <a href="{{ continue_url }}" class="dc-btn dc-btn-warning">⚠️ Continue Creation (Step {{ character.step }}/8)</a>
         {% elseif campaign_id and launch_url %}
           {# Only show Launch Campaign when viewing character IN a campaign context #}
           <a href="{{ launch_url }}" class="dc-btn dc-btn-success">▶️ Launch Campaign</a>
         {% endif %}
-        <a href="/characters/create/step/1?character_id={{ character.id }}" class="dc-btn dc-btn-primary">✏️ Edit</a>
+        <a href="{{ edit_url }}" class="dc-btn dc-btn-primary">✏️ Edit</a>
         <a href="{{ archive_url }}" class="dc-btn dc-btn-danger" onclick="return confirm('Archive this character? You can unarchive later.');">🗄️ Archive</a>
       </div>
     </div>

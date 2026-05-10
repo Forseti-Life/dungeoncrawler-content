@@ -112,6 +112,24 @@ dungeoncrawler_content.about:
   requirements:
     _access: 'TRUE'
 
+dungeoncrawler_content.privacy_policy:
+  path: '/privacy-policy'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\LegalController::privacyPolicy'
+    _title: 'Privacy Policy'
+  methods: [GET]
+  requirements:
+    _access: 'TRUE'
+
+dungeoncrawler_content.terms_of_service:
+  path: '/terms-of-service'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\LegalController::termsOfService'
+    _title: 'Terms of Service'
+  methods: [GET]
+  requirements:
+    _access: 'TRUE'
+
 dungeoncrawler_content.architecture:
   path: '/architecture'
   defaults:
@@ -185,6 +203,15 @@ dungeoncrawler_content.hexmap_demo:
 # ==============================================================================
 # Note: '/characters/create' must come BEFORE '/characters/{character_id}'
 # to prevent "create" from being interpreted as a character_id parameter.
+
+dungeoncrawler_content.characters_roster:
+  path: '/characters'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CharacterListController::listCharacters'
+    _title: 'My Characters'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
 
 dungeoncrawler_content.characters:
   path: '/campaigns/{campaign_id}/characters'
@@ -385,6 +412,15 @@ dungeoncrawler_content.character_creation_wizard:
   defaults:
     _controller: '\Drupal\dungeoncrawler_content\Controller\CharacterCreationStepController::start'
     _title: 'Create Character'
+  methods: [GET]
+  requirements:
+    _permission: 'create dungeoncrawler characters'
+
+dungeoncrawler_content.character_setup:
+  path: '/charactersetup'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CharacterSetupController::page'
+    _title: 'Character Setup'
   methods: [GET]
   requirements:
     _permission: 'create dungeoncrawler characters'

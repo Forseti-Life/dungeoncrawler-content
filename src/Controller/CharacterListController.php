@@ -35,18 +35,22 @@ class CharacterListController extends ControllerBase {
   /**
    * Renders the character list page.
    */
-  public function listCharacters(int $campaign_id) {
-    $campaign = $this->database->select('dc_campaigns', 'c')
-      ->fields('c', ['id', 'name', 'uid'])
-      ->condition('id', $campaign_id)
-      ->execute()
-      ->fetchObject();
+  public function listCharacters(?int $campaign_id = NULL) {
+    $campaign_name = NULL;
+    if ($campaign_id !== NULL) {
+      $campaign = $this->database->select('dc_campaigns', 'c')
+        ->fields('c', ['id', 'name', 'uid'])
+        ->condition('id', $campaign_id)
+        ->execute()
+        ->fetchObject();
 
-    if (!$campaign || (int) $campaign->uid !== (int) $this->currentUser()->id()) {
-      throw new \Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException();
+      if (!$campaign || (int) $campaign->uid !== (int) $this->currentUser()->id()) {
+        throw new \Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException();
+      }
+
+      $campaign_name = $campaign->name;
     }
 
-    $campaign_name = $campaign->name;
     $characters = $this->characterManager->getUserCharacters(NULL, $campaign_id);
 
     $character_cards = [];
@@ -56,7 +60,9 @@ class CharacterListController extends ControllerBase {
       $hot = $this->characterManager->resolveHotColumnsForRecord($record, $data);
 
       $view_url = Url::fromRoute('dungeoncrawler_content.character_view', ['character_id' => $record->id]);
-      $view_url->setOption('query', ['campaign_id' => $campaign_id]);
+      if ($campaign_id !== NULL) {
+        $view_url->setOption('query', ['campaign_id' => $campaign_id]);
+      }
 
       $select_url = NULL;
       $continue_url = NULL;
@@ -65,7 +71,7 @@ class CharacterListController extends ControllerBase {
       $step = (int) ($char['step'] ?? 8);
 
       // Campaign selection only allows completed characters.
-      if ($status === 1 && $step >= 8) {
+      if ($campaign_id !== NULL && $status === 1 && $step >= 8) {
         $select_url = Url::fromRoute('dungeoncrawler_content.campaign_select_character', [
           'campaign_id' => $campaign_id,
           'character_id' => $record->id,
@@ -73,18 +79,25 @@ class CharacterListController extends ControllerBase {
       }
       // Incomplete characters can continue creation.
       elseif ($status === 0 || $step < 8) {
-        $continue_url = Url::fromRoute('dungeoncrawler_content.character_step', [
+        $continue_query = [
+          'character_id' => (int) $record->id,
           'step' => $step,
-        ], [
-          'query' => ['character_id' => (int) $record->id],
+        ];
+        if ($campaign_id !== NULL) {
+          $continue_query['campaign_id'] = $campaign_id;
+        }
+        $continue_url = Url::fromRoute('dungeoncrawler_content.character_setup', [], [
+          'query' => $continue_query,
         ])->toString();
       }
 
       // Non-archived characters can be archived from the roster.
       if ($status !== 2) {
-        $destination = Url::fromRoute('dungeoncrawler_content.characters', [
-          'campaign_id' => $campaign_id,
-        ])->toString();
+        $destination = $campaign_id !== NULL
+          ? Url::fromRoute('dungeoncrawler_content.characters', [
+            'campaign_id' => $campaign_id,
+          ])->toString()
+          : Url::fromRoute('dungeoncrawler_content.characters_roster')->toString();
         $archive_url = Url::fromRoute('dungeoncrawler_content.character_archive', [
           'character_id' => (int) $record->id,
         ], [
@@ -128,8 +141,10 @@ class CharacterListController extends ControllerBase {
       ];
     }
 
-    $create_url = Url::fromRoute('dungeoncrawler_content.character_creation_wizard');
-    $create_url->setOption('query', ['campaign_id' => $campaign_id]);
+    $create_url = Url::fromRoute('dungeoncrawler_content.character_setup');
+    if ($campaign_id !== NULL) {
+      $create_url->setOption('query', ['campaign_id' => $campaign_id]);
+    }
 
     $build = [
       '#theme' => 'character_list',

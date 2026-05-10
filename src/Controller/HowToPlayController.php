@@ -85,7 +85,7 @@ class HowToPlayController extends ControllerBase {
                 'secondary' => [
                   '#type' => 'link',
                   '#title' => $this->t('Create a Character'),
-                  '#url' => Url::fromUri('internal:/characters/create'),
+                  '#url' => Url::fromUri('internal:/charactersetup'),
                   '#attributes' => ['class' => ['btn', 'btn-outline-light', 'btn-lg', 'px-4']],
                 ],
               ],
@@ -316,7 +316,7 @@ class HowToPlayController extends ControllerBase {
             'secondary' => [
               '#type' => 'link',
               '#title' => $this->t('Create a Character'),
-              '#url' => Url::fromUri('internal:/characters/create'),
+              '#url' => Url::fromUri('internal:/charactersetup'),
               '#attributes' => ['class' => ['btn', 'btn-outline-light', 'btn-lg', 'px-4']],
             ],
           ],

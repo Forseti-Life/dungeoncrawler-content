@@ -36,6 +36,7 @@ class RoomChatService {
   protected ?ChatSessionManager $chatSessionManager;
   protected ?MapGeneratorService $mapGenerator;
   protected CanonicalActionRegistryService $canonicalActionRegistry;
+  protected GmOrchestrationBrokerService $gmOrchestrationBroker;
   protected ?QuestTrackerService $questTracker;
   protected ?array $activeDebugTrace = NULL;
 
@@ -57,6 +58,7 @@ class RoomChatService {
     ?ChatSessionManager $chat_session_manager = NULL,
     ?MapGeneratorService $map_generator = NULL,
     ?CanonicalActionRegistryService $canonical_action_registry = NULL,
+    ?GmOrchestrationBrokerService $gm_orchestration_broker = NULL,
     ?QuestTrackerService $quest_tracker = NULL
   ) {
     $this->database = $database;
@@ -73,6 +75,7 @@ class RoomChatService {
     $this->chatSessionManager = $chat_session_manager;
     $this->mapGenerator = $map_generator;
     $this->canonicalActionRegistry = $canonical_action_registry ?? new CanonicalActionRegistryService($database, $current_user);
+    $this->gmOrchestrationBroker = $gm_orchestration_broker ?? new GmOrchestrationBrokerService($database, $this->canonicalActionRegistry);
     $this->questTracker = $quest_tracker;
   }
 
@@ -807,7 +810,7 @@ class RoomChatService {
     ];
     if (!empty($actions)) {
       $stage_started_at = hrtime(true);
-      $canonical_execution = $this->executeCanonicalAuthoritativeActions(
+      $canonical_execution = $this->gmOrchestrationBroker->executeCanonicalAuthoritativeActions(
         $campaign_id,
         $room_id,
         $room_meta,
@@ -1166,288 +1169,6 @@ class RoomChatService {
         'details' => $action['details'] ?? [],
       ]);
     }
-  }
-
-  /**
-   * Execute canonical authoritative actions that live outside local deltas.
-   */
-  protected function executeCanonicalAuthoritativeActions(
-    int $campaign_id,
-    string $room_id,
-    array $room_meta,
-    ?int $character_id,
-    array $actions,
-    array $dungeon_data
-  ): array {
-    $results = [
-      'quest_turn_in' => [],
-      'combat_initiation' => NULL,
-    ];
-    $errors = [];
-    $remaining_actions = [];
-    $reloaded_dungeon_data = NULL;
-
-    foreach ($actions as $action) {
-      $type = (string) ($action['type'] ?? 'other');
-      if ($type === 'quest_turn_in') {
-        $turn_in = $this->handleQuestTurnInAction($campaign_id, $room_id, $character_id, $action);
-        $results['quest_turn_in'][] = $turn_in;
-        if (!empty($turn_in['success'])) {
-          $remaining_actions[] = $action;
-        }
-        else {
-          $errors[] = [
-            'action_name' => $action['name'] ?? 'quest_turn_in',
-            'message' => $turn_in['error'] ?? 'Quest turn-in failed.',
-          ];
-        }
-        continue;
-      }
-
-      if ($type === 'combat_initiation') {
-        $combat = $this->handleCombatInitiationAction($campaign_id, $room_id, $room_meta, $dungeon_data, $action);
-        $results['combat_initiation'] = $combat;
-        if (!empty($combat['success'])) {
-          $remaining_actions[] = $action;
-          if (!empty($combat['dungeon_data']) && is_array($combat['dungeon_data'])) {
-            $reloaded_dungeon_data = $combat['dungeon_data'];
-          }
-        }
-        else {
-          $errors[] = [
-            'action_name' => $action['name'] ?? 'combat_initiation',
-            'message' => $combat['error'] ?? 'Combat initiation failed.',
-          ];
-        }
-        continue;
-      }
-
-      $remaining_actions[] = $action;
-    }
-
-    return [
-      'actions' => $remaining_actions,
-      'results' => $results,
-      'errors' => $errors,
-      'reloaded_dungeon_data' => $reloaded_dungeon_data,
-    ];
-  }
-
-  /**
-   * Validate and execute a quest turn-in action.
-   */
-  protected function handleQuestTurnInAction(int $campaign_id, string $room_id, ?int $character_id, array $action): array {
-    $validation = $this->validateQuestTurnInAction($character_id, $action);
-    if (empty($validation['valid'])) {
-      $this->canonicalActionRegistry->recordUsage($campaign_id, 'quest_turn_in', 'rejected', [
-        'room_id' => $room_id,
-        'character_id' => $character_id,
-        'errors' => $validation['errors'] ?? [],
-      ]);
-      return [
-        'success' => FALSE,
-        'error' => implode(' ', $validation['errors'] ?? ['Quest turn-in validation failed.']),
-      ];
-    }
-
-    $quest = $action['details']['quest'] ?? [];
-    /** @var \Drupal\dungeoncrawler_content\Service\QuestTouchpointService $touchpoint_service */
-    $touchpoint_service = \Drupal::service('dungeoncrawler_content.quest_touchpoint');
-    $result = $touchpoint_service->ingestEvent($campaign_id, [
-      'character_id' => $character_id,
-      'touchpoint' => [
-        'objective_type' => $quest['objective_type'] ?? '',
-        'objective_id' => $quest['objective_id'] ?? '',
-        'item_ref' => $quest['item_ref'] ?? '',
-        'npc_ref' => $quest['npc_ref'] ?? '',
-        'entity_ref' => $quest['npc_ref'] ?? ($quest['item_ref'] ?? ''),
-        'quantity' => (int) ($quest['quantity'] ?? 1),
-        'room_id' => $room_id,
-        'confidence' => $quest['confidence'] ?? 'high',
-      ],
-    ]);
-
-    if (empty($result['success'])) {
-      $this->canonicalActionRegistry->recordUsage($campaign_id, 'quest_turn_in', 'rejected', [
-        'room_id' => $room_id,
-        'character_id' => $character_id,
-        'result' => $result,
-      ]);
-      return [
-        'success' => FALSE,
-        'error' => (string) ($result['error'] ?? 'Quest turn-in could not be applied.'),
-      ];
-    }
-
-    return $result + ['success' => TRUE];
-  }
-
-  /**
-   * Validate quest turn-in action payload.
-   */
-  protected function validateQuestTurnInAction(?int $character_id, array $action): array {
-    $errors = [];
-    if (!$character_id) {
-      $errors[] = 'Quest turn-in requires an acting character.';
-    }
-    $quest = $action['details']['quest'] ?? NULL;
-    if (!is_array($quest)) {
-      $errors[] = 'Quest turn-in action is missing details.quest.';
-    }
-    elseif (empty($quest['objective_type'])) {
-      $errors[] = 'Quest turn-in action is missing objective_type.';
-    }
-
-    return [
-      'valid' => empty($errors),
-      'errors' => $errors,
-    ];
-  }
-
-  /**
-   * Validate and execute a combat initiation action.
-   */
-  protected function handleCombatInitiationAction(int $campaign_id, string $room_id, array $room_meta, array $dungeon_data, array $action): array {
-    $validation = $this->validateCombatInitiationAction($room_id, $dungeon_data, $action);
-    if (empty($validation['valid'])) {
-      $this->canonicalActionRegistry->recordUsage($campaign_id, 'combat_initiation', 'rejected', [
-        'room_id' => $room_id,
-        'errors' => $validation['errors'] ?? [],
-      ]);
-      return [
-        'success' => FALSE,
-        'error' => implode(' ', $validation['errors'] ?? ['Combat initiation validation failed.']),
-      ];
-    }
-
-    $combat = $action['details']['combat'] ?? [];
-    /** @var \Drupal\dungeoncrawler_content\Service\GameCoordinatorService $game_coordinator */
-    $game_coordinator = \Drupal::service('dungeoncrawler_content.game_coordinator');
-    $result = $game_coordinator->transitionPhase($campaign_id, 'encounter', [
-      'reason' => $combat['reason'] ?? 'Combat begins.',
-      'encounter_context' => [
-        'room_id' => $room_id,
-        'room_name' => $room_meta['name'] ?? $room_id,
-        'enemies' => $validation['enemies'] ?? [],
-      ],
-    ]);
-
-    if (empty($result['success'])) {
-      $this->canonicalActionRegistry->recordUsage($campaign_id, 'combat_initiation', 'rejected', [
-        'room_id' => $room_id,
-        'result' => $result,
-      ]);
-      return [
-        'success' => FALSE,
-        'error' => (string) ($result['error'] ?? 'Combat could not be started.'),
-      ];
-    }
-
-    return [
-      'success' => TRUE,
-      'transition' => $result,
-      'dungeon_data' => $this->reloadDungeonData($campaign_id),
-    ];
-  }
-
-  /**
-   * Validate combat initiation action payload and resolve targets.
-   */
-  protected function validateCombatInitiationAction(string $room_id, array $dungeon_data, array $action): array {
-    $game_state = $dungeon_data['game_state'] ?? [];
-    if (($game_state['phase'] ?? 'exploration') === 'encounter') {
-      return [
-        'valid' => FALSE,
-        'errors' => ['Combat is already active.'],
-      ];
-    }
-
-    $combat = $action['details']['combat'] ?? NULL;
-    if (!is_array($combat)) {
-      return [
-        'valid' => FALSE,
-        'errors' => ['Combat initiation action is missing details.combat.'],
-      ];
-    }
-
-    $enemies = $this->resolveCombatEnemyEntities($room_id, $dungeon_data, $combat);
-    if (empty($enemies)) {
-      return [
-        'valid' => FALSE,
-        'errors' => ['No valid enemy entities were found for combat initiation.'],
-      ];
-    }
-
-    return [
-      'valid' => TRUE,
-      'errors' => [],
-      'enemies' => $enemies,
-    ];
-  }
-
-  /**
-   * Resolve enemy entity payloads for combat initiation.
-   */
-  protected function resolveCombatEnemyEntities(string $room_id, array $dungeon_data, array $combat): array {
-    $requested_ids = $combat['enemy_entity_ids'] ?? [];
-    if (!is_array($requested_ids)) {
-      $requested_ids = [];
-    }
-    if (!empty($combat['target_entity_id'])) {
-      $requested_ids[] = $combat['target_entity_id'];
-    }
-
-    $requested_names = $combat['enemy_names'] ?? [];
-    if (!is_array($requested_names)) {
-      $requested_names = [];
-    }
-    if (!empty($combat['target_name'])) {
-      $requested_names[] = $combat['target_name'];
-    }
-
-    $requested_ids = array_values(array_filter(array_map('strval', $requested_ids)));
-    $requested_names = array_values(array_filter(array_map(static function ($value): string {
-      return strtolower(trim((string) $value));
-    }, $requested_names)));
-    $entities = $dungeon_data['entities'] ?? [];
-    $resolved = [];
-
-    foreach ($entities as $entity) {
-      $entity_room = $entity['placement']['room_id'] ?? '';
-      if ($entity_room !== $room_id) {
-        continue;
-      }
-
-      $entity_id = (string) ($entity['entity_instance_id'] ?? $entity['instance_id'] ?? $entity['id'] ?? '');
-      $entity_character_id = (string) ($entity['character_id'] ?? '');
-      $entity_name = strtolower(trim((string) ($entity['state']['metadata']['display_name'] ?? $entity['name'] ?? '')));
-      $team = strtolower((string) ($entity['state']['metadata']['team'] ?? $entity['team'] ?? ''));
-      $is_hostile = in_array($team, ['hostile', 'enemy', 'monsters'], TRUE);
-
-      if (!empty($requested_ids)) {
-        $matchable_ids = array_values(array_filter([
-          $entity_id,
-          $entity_character_id,
-        ], static fn($value): bool => $value !== ''));
-        if (!empty(array_intersect($matchable_ids, $requested_ids))) {
-          $resolved[] = $entity;
-        }
-        continue;
-      }
-
-      if (!empty($requested_names)) {
-        if ($entity_name !== '' && in_array($entity_name, $requested_names, TRUE)) {
-          $resolved[] = $entity;
-        }
-        continue;
-      }
-
-      if ($is_hostile) {
-        $resolved[] = $entity;
-      }
-    }
-
-    return $resolved;
   }
 
   /**

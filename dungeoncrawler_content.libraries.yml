@@ -63,6 +63,18 @@ character-creation-gm-chat:
     - core/once
     - core/drupalSettings
 
+character-setup-tabs:
+  css:
+    theme:
+      css/character-setup-tabs.css: {}
+  js:
+    js/character-setup-tabs.js: {}
+  dependencies:
+    - dungeoncrawler_content/character-step-base
+    - core/drupal
+    - core/once
+    - core/drupalSettings
+
 # Pathbuilder-style ability score boost selector
 ability-boost-selector:
   js:

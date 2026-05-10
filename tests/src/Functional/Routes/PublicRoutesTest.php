@@ -97,6 +97,40 @@ class PublicRoutesTest extends BrowserTestBase {
   }
 
   /**
+   * Tests privacy policy route - positive case.
+   */
+  public function testPrivacyPolicyRoutePositive(): void {
+    $this->drupalGet('/privacy-policy');
+    $this->assertSession()->statusCodeEquals(200);
+    $this->assertSession()->pageTextContains('Privacy Policy');
+  }
+
+  /**
+   * Tests privacy policy route - negative case.
+   */
+  public function testPrivacyPolicyRouteNegative(): void {
+    $this->drupalGet('/privacy-policy/extra/path');
+    $this->assertSession()->statusCodeEquals(404);
+  }
+
+  /**
+   * Tests terms of service route - positive case.
+   */
+  public function testTermsOfServiceRoutePositive(): void {
+    $this->drupalGet('/terms-of-service');
+    $this->assertSession()->statusCodeEquals(200);
+    $this->assertSession()->pageTextContains('Terms of Service');
+  }
+
+  /**
+   * Tests terms of service route - negative case.
+   */
+  public function testTermsOfServiceRouteNegative(): void {
+    $this->drupalGet('/terms-of-service/extra/path');
+    $this->assertSession()->statusCodeEquals(404);
+  }
+
+  /**
    * Tests credits route - positive case.
    */
   public function testCreditsRoutePositive(): void {

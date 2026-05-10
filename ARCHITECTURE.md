@@ -194,3 +194,9 @@ $generator->register('custom_race', new CustomRaceGenerator());
 - Full voice/text-to-speech integration
 - Mobile companion app
 - Campaign publishing marketplace
+
+## Related Architecture Docs
+
+- [GAMEPLAY_ORCHESTRATION_ARCHITECTURE.md](GAMEPLAY_ORCHESTRATION_ARCHITECTURE.md) — authoritative runtime gameplay flow
+- [CHAT_AND_NARRATION_ARCHITECTURE.md](CHAT_AND_NARRATION_ARCHITECTURE.md) — session hierarchy and narration pipeline
+- [DETERMINISTIC_GM_ORCHESTRATION_ARCHITECTURE.md](DETERMINISTIC_GM_ORCHESTRATION_ARCHITECTURE.md) — proposed deterministic broker architecture for room-chat GM orchestration

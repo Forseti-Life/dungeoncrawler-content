@@ -1,0 +1,108 @@
+{% set active_step_name = 'Step ' ~ active_step %}
+{% for setup_step in steps %}
+  {% if setup_step.number == active_step %}
+    {% set active_step_name = setup_step.name %}
+  {% endif %}
+{% endfor %}
+
+<div class="character-setup-page" data-character-setup-root>
+  <div class="character-setup-page__header">
+    <div>
+      <p class="character-setup-page__eyebrow">Character creation workspace</p>
+      <h1 class="character-setup-page__title">Character Setup</h1>
+      <p class="character-setup-page__intro">Use the tabs to move through the legacy creation steps in one place while the GM guide stays available beside the wizard.</p>
+    </div>
+    <a href="{{ back_url }}" class="btn btn-secondary character-setup-page__back">Back to characters</a>
+  </div>
+
+  <div class="character-setup-page__layout">
+    <aside class="character-setup-page__sidebar">
+      <div class="character-setup-page__sidebar-card">
+        <h2 class="character-setup-page__sidebar-title">Creation Tabs</h2>
+        <div class="character-setup-page__tabs" role="tablist" aria-label="Character creation steps">
+          {% for step in steps %}
+            <button
+              type="button"
+              class="character-setup-page__tab{{ step.number == active_step ? ' is-active' : '' }}"
+              data-character-setup-tab
+              data-step="{{ step.number }}"
+              {% if not step.enabled %}disabled{% endif %}
+              aria-selected="{{ step.number == active_step ? 'true' : 'false' }}"
+              role="tab"
+            >
+              <span class="character-setup-page__tab-number">{{ step.number }}</span>
+              <span class="character-setup-page__tab-copy">
+                <span class="character-setup-page__tab-name">{{ step.name }}</span>
+                {% if step.description %}
+                  <span class="character-setup-page__tab-description">{{ step.description }}</span>
+                {% endif %}
+              </span>
+            </button>
+          {% endfor %}
+        </div>
+      </div>
+    </aside>
+
+    <section class="character-setup-page__workspace">
+      <div class="character-setup-page__panel-header">
+        <div>
+          <p class="character-setup-page__panel-label">Active step</p>
+          <h2 class="character-setup-page__panel-title" data-character-setup-active-title>
+            {{ active_step_name }}
+          </h2>
+        </div>
+        <p class="character-setup-page__panel-meta" data-character-setup-active-meta>Step {{ active_step }} of {{ steps|length }}</p>
+      </div>
+
+      <div class="character-setup-page__frame-shell">
+        <iframe
+          class="character-setup-page__frame"
+          data-character-setup-frame
+          title="Character setup step"
+          src="{{ frame_src }}"
+          loading="lazy"
+        ></iframe>
+      </div>
+    </section>
+
+    <aside class="character-setup-page__chat-column">
+      <section class="character-creation-gm-chat" aria-label="GM character guide">
+        <div class="character-creation-gm-chat__header">
+          <div>
+            <div class="character-creation-gm-chat__eyebrow">GM-assisted creation</div>
+            <h2 class="character-creation-gm-chat__title">GM Character Guide</h2>
+            <p class="character-creation-gm-chat__intro">Ask for build recommendations or let the GM update the draft while you stay inside the tabbed setup shell.</p>
+          </div>
+          <div class="character-creation-gm-chat__summary">
+            <span class="character-creation-gm-chat__pill"><strong>Name:</strong> <span data-gm-chat-summary-field="name">{{ summary.name ?: 'Unnamed Character' }}</span></span>
+            <span class="character-creation-gm-chat__pill"><strong>Ancestry:</strong> <span data-gm-chat-summary-field="ancestry">{{ summary.ancestry ?: 'Not selected' }}</span></span>
+            <span class="character-creation-gm-chat__pill"><strong>Class:</strong> <span data-gm-chat-summary-field="class">{{ summary.class ?: 'Not selected' }}</span></span>
+            <span class="character-creation-gm-chat__pill"><strong>Background:</strong> <span data-gm-chat-summary-field="background">{{ summary.background ?: 'Not selected' }}</span></span>
+            <span class="character-creation-gm-chat__pill"><strong>Step:</strong> <span data-gm-chat-summary-field="step">{{ summary.step ?: active_step }}</span>/8</span>
+          </div>
+        </div>
+        <div class="character-creation-gm-chat__history" data-gm-chat-history>
+          {% if history %}
+            {% for entry in history %}
+              {% set role = entry.role == 'user' ? 'user' : 'assistant' %}
+              <div class="character-creation-gm-chat__message character-creation-gm-chat__message--{{ role }}">
+                <div class="character-creation-gm-chat__message-role">{{ role == 'user' ? 'You' : 'GM' }}</div>
+                <div class="character-creation-gm-chat__message-body">{{ entry.content|e|nl2br }}</div>
+              </div>
+            {% endfor %}
+          {% else %}
+            <div class="character-creation-gm-chat__empty">Ask the GM to build your character, recommend options, or directly change the draft while you stay in the setup shell.</div>
+          {% endif %}
+        </div>
+        <div class="character-creation-gm-chat__composer">
+          <label class="character-creation-gm-chat__label" for="characterSetupGmInput">Message the GM</label>
+          <textarea id="characterSetupGmInput" class="character-creation-gm-chat__input" rows="3" placeholder="Example: build me a sturdy dwarf fighter with a simple backstory and heavy armor."></textarea>
+          <div class="character-creation-gm-chat__actions">
+            <div class="character-creation-gm-chat__status" data-gm-chat-status></div>
+            <button type="button" class="btn btn-primary character-creation-gm-chat__send" data-gm-chat-send>Send to GM</button>
+          </div>
+        </div>
+      </section>
+    </aside>
+  </div>
+</div>

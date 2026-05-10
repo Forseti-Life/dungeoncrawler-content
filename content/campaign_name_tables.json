@@ -1,0 +1,86 @@
+{
+  "_meta": {
+    "generator": "template-weighted",
+    "notes": "Original local campaign naming tables for offline generation. Structure informed by public-domain fantasy syllable generators and MIT-licensed place-name tables; no GPL source tables copied.",
+    "sources": [
+      "https://github.com/skeeto/fantasyname (UNLICENSE/Public Domain inspiration)",
+      "https://github.com/LukeMS/lua-namegen (MIT inspiration, Lucas Siqueira)"
+    ]
+  },
+  "patterns": [
+    { "id": "event_of_adjective_noun", "template": "{event} of the {adjective} {noun}", "weight": 4 },
+    { "id": "the_adjective_noun", "template": "The {adjective} {noun}", "weight": 3 },
+    { "id": "event_beneath_place", "template": "{event} Beneath {place}", "weight": 2 },
+    { "id": "descent_into_place", "template": "{descent} into {place}", "weight": 2 },
+    { "id": "noun_epithet", "template": "The {noun}'s {epithet}", "weight": 2 },
+    { "id": "adjective_place", "template": "The {adjective} of {place}", "weight": 1 }
+  ],
+  "shared": {
+    "adjective": [
+      "Ancient", "Ashen", "Black", "Blighted", "Broken", "Cinder", "Crimson", "Crowned",
+      "Cursed", "Dread", "Fallen", "Forsaken", "Gilded", "Hollow", "Iron", "Last",
+      "Lost", "Pale", "Scarlet", "Shadowed", "Shattered", "Silent", "Sunken", "Twilight"
+    ],
+    "event": [
+      "Awakening", "Breaking", "Curse", "Descent", "Doom", "Eclipse", "Fall", "March",
+      "Rise", "Ruin", "Siege", "Shadow", "Wrath"
+    ],
+    "descent": [
+      "Descent", "Delve", "Journey", "March", "Plunge"
+    ],
+    "noun": [
+      "Bastion", "Crown", "Gate", "Keep", "Key", "Labyrinth", "Sanctum", "Seal",
+      "Spire", "Throne", "Vault", "Veil"
+    ],
+    "place": [
+      "the Deep", "the Hollow Vale", "the Iron Gate", "the Shadow Marches", "the Sunken Halls"
+    ],
+    "epithet": [
+      "Awakening", "Curse", "Doom", "Fall", "Legacy", "Reckoning", "Return", "Wake"
+    ]
+  },
+  "themes": {
+    "classic_dungeon": {
+      "adjective": [
+        "Cyclopean", "Forgotten", "Moss-Covered", "Runebound", "Stonebound"
+      ],
+      "noun": [
+        "Catacombs", "Citadel", "Delve", "Depths", "Ruin", "Temple", "Undercrypt"
+      ],
+      "place": [
+        "the Ancient Vault", "the Fallen Keep", "the Lower Depths", "the Obsidian Stair", "the Sunken Citadel"
+      ],
+      "epithet": [
+        "First King", "Hidden Seal", "Last Watch", "Lost Crown", "Seven Doors"
+      ]
+    },
+    "goblin_warrens": {
+      "adjective": [
+        "Chittering", "Filthy", "Fetid", "Gnashing", "Mudpocked", "Rotting", "Savage"
+      ],
+      "noun": [
+        "Burrow", "Clan", "Den", "Horde", "Nest", "Pit", "Warrens"
+      ],
+      "place": [
+        "the Broken Warren", "the Festering Hollows", "the Mudpits", "the Rat-King's Hold", "the Screaming Tunnels"
+      ],
+      "epithet": [
+        "Broken Crown", "Mud Feast", "Rat-King", "Red Moon", "Warrenfire"
+      ]
+    },
+    "undead_crypt": {
+      "adjective": [
+        "Deathless", "Deathly", "Howling", "Necrotic", "Pale", "Risen", "Sepulchral"
+      ],
+      "noun": [
+        "Bone", "Crypt", "Dirge", "Grave", "Hex", "Lich", "Pyre", "Shroud", "Tomb"
+      ],
+      "place": [
+        "the Bone Cathedral", "the Crypt Below", "the Endless Grave", "the Lichgate", "the Pale Court"
+      ],
+      "epithet": [
+        "Ash Crown", "Endless Grave", "Pale King", "Silent Choir", "White Shroud"
+      ]
+    }
+  }
+}

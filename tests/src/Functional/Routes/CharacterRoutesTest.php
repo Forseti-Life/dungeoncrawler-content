@@ -69,6 +69,30 @@ class CharacterRoutesTest extends BrowserTestBase {
   }
 
   /**
+   * Tests character setup route - positive case.
+   */
+  public function testCharacterSetupRoutePositive(): void {
+    $user = $this->createTestUser(['create dungeoncrawler characters']);
+    $this->drupalLogin($user);
+
+    $this->drupalGet('/charactersetup');
+    $this->assertSession()->statusCodeEquals(200);
+    $this->assertSession()->pageTextContains('Character Setup');
+    $this->assertSession()->pageTextContains('GM Character Guide');
+  }
+
+  /**
+   * Tests character setup route - negative case (no permission).
+   */
+  public function testCharacterSetupRouteNegative(): void {
+    $user = $this->createTestUser();
+    $this->drupalLogin($user);
+
+    $this->drupalGet('/charactersetup');
+    $this->assertSession()->statusCodeEquals(403);
+  }
+
+  /**
    * Tests character step route - positive case.
    */
   public function testCharacterStepRoutePositive(): void {

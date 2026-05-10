@@ -280,6 +280,14 @@ class CharacterViewController extends ControllerBase {
       ? ($char_data['personality']['backstory'] ?? NULL)
       : ($char_data['backstory'] ?? NULL);
 
+    $setup_query = ['character_id' => (int) $record->id];
+    if ($campaign_id > 0) {
+      $setup_query['campaign_id'] = $campaign_id;
+    }
+
+    $continue_query = $setup_query;
+    $continue_query['step'] = max(1, (int) ($char_data['step'] ?? 1));
+
     $build = [
       '#theme' => 'character_sheet',
       '#character' => [
@@ -344,7 +352,8 @@ class CharacterViewController extends ControllerBase {
       ],
       '#npc_data' => NULL,
       '#raw_json' => json_encode($decoded, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE),
-      '#edit_url' => Url::fromRoute('dungeoncrawler_content.character_step', ['step' => 1], ['query' => ['character_id' => $record->id]])->toString(),
+      '#edit_url' => Url::fromRoute('dungeoncrawler_content.character_setup', [], ['query' => $setup_query])->toString(),
+      '#continue_url' => Url::fromRoute('dungeoncrawler_content.character_setup', [], ['query' => $continue_query])->toString(),
       '#archive_url' => Url::fromRoute('dungeoncrawler_content.character_archive', ['character_id' => $record->id])->toString(),
       '#launch_url' => $launch_url->toString(),
       '#tavern_url' => $tavern_url,

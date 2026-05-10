@@ -164,7 +164,7 @@ class CampaignController extends ControllerBase {
       '#theme' => 'campaign_list',
       '#campaigns' => $campaign_cards,
       '#create_url' => Url::fromRoute('dungeoncrawler_content.campaign_create')->toString(),
-      '#characters_url' => NULL,
+      '#characters_url' => Url::fromRoute('dungeoncrawler_content.characters_roster')->toString(),
       '#archived_url' => Url::fromRoute('dungeoncrawler_content.campaigns_archived')->toString(),
       '#attached' => [
         'library' => ['dungeoncrawler_content/character-sheet'],
@@ -278,10 +278,13 @@ class CampaignController extends ControllerBase {
       }
       // Incomplete characters (status=0 or step<8): Can continue creation
       elseif ($status === 0 || $step < 8) {
-        $continue_url = Url::fromRoute('dungeoncrawler_content.character_step', [
+        $continue_query = [
+          'character_id' => (int) $record->id,
           'step' => $step,
-        ], [
-          'query' => ['character_id' => (int) $record->id],
+          'campaign_id' => $campaign_id,
+        ];
+        $continue_url = Url::fromRoute('dungeoncrawler_content.character_setup', [], [
+          'query' => $continue_query,
         ])->toString();
       }
       
@@ -351,7 +354,7 @@ class CampaignController extends ControllerBase {
       '#dungeon_selection_url' => Url::fromRoute('dungeoncrawler_content.campaign_dungeons', [
         'campaign_id' => $campaign_id,
       ])->toString(),
-      '#create_character_url' => Url::fromRoute('dungeoncrawler_content.character_creation_wizard', [], [
+      '#create_character_url' => Url::fromRoute('dungeoncrawler_content.character_setup', [], [
         'query' => ['campaign_id' => $campaign_id],
       ])->toString(),
       '#back_url' => Url::fromRoute('dungeoncrawler_content.campaigns')->toString(),

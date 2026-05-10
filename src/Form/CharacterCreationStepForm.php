@@ -8,6 +8,7 @@ use Drupal\Component\Datetime\TimeInterface;
 use Drupal\Core\Access\CsrfTokenGenerator;
 use Drupal\Core\Form\FormBase;
 use Drupal\Core\Form\FormStateInterface;
+use Drupal\Core\Render\Markup;
 use Drupal\Core\Session\AccountProxyInterface;
 use Drupal\Core\Url;
 use Drupal\Component\Uuid\UuidInterface;
@@ -74,6 +75,7 @@ class CharacterCreationStepForm extends FormBase {
    * {@inheritdoc}
    */
   public function buildForm(array $form, FormStateInterface $form_state, int $step = 1, int|string|null $character_id = NULL, int|string|null $campaign_id = NULL): array {
+    $embedded = (bool) $this->getRequest()->query->get('embedded');
     $character_data = $this->loadCharacterData($character_id);
 
     // Load character record for concurrent-edit version tracking.
@@ -105,6 +107,7 @@ class CharacterCreationStepForm extends FormBase {
       ?? '';
 
     $form['#attributes']['class'][] = 'character-creation-form';
+    $form['#attributes']['class'][] = $embedded ? 'character-creation-form--embedded' : 'character-creation-form--standalone';
     // Disable browser-native HTML5 validation entirely: Drupal handles all
     // validation server-side, and the native :invalid CSS pseudo-class fires
     // on required-but-empty fields immediately on page load / after AJAX,
@@ -112,7 +115,6 @@ class CharacterCreationStepForm extends FormBase {
     $form['#attributes']['novalidate'] = 'novalidate';
     $form['#attached']['library'][] = 'dungeoncrawler_content/character-step-base';
     $form['#attached']['library'][] = 'dungeoncrawler_content/character-creation-style';
-    $form['#attached']['library'][] = 'dungeoncrawler_content/character-creation-gm-chat';
     $form['#attached']['library'][] = 'dungeoncrawler_content/ability-widget';
     $form['#attached']['library'][] = 'dungeoncrawler_content/character-step-' . $step;
 
@@ -121,19 +123,24 @@ class CharacterCreationStepForm extends FormBase {
       $form['#attached']['library'][] = 'dungeoncrawler_content/ability-boost-selector';
     }
     
-    $form['#attached']['drupalSettings']['dungeoncrawlerCharacterGm'] = [
-      'endpoint' => Url::fromRoute('dungeoncrawler_content.api.character_gm_chat')->toString(),
-      'characterId' => $character_id ? (int) $character_id : NULL,
-      'campaignId' => $campaign_id ? (int) $campaign_id : NULL,
-      'step' => $step,
-      'csrfToken' => $this->csrfToken->get('rest'),
-      'history' => $this->characterCreationGm->getChatHistory($character_data),
-      'summary' => $this->characterCreationGm->buildSummary($character_data),
-    ];
+    if (!$embedded) {
+      $form['#attached']['library'][] = 'dungeoncrawler_content/character-creation-gm-chat';
+      $form['#attached']['drupalSettings']['dungeoncrawlerCharacterGm'] = [
+        'endpoint' => Url::fromRoute('dungeoncrawler_content.api.character_gm_chat')->toString(),
+        'characterId' => $character_id ? (int) $character_id : NULL,
+        'campaignId' => $campaign_id ? (int) $campaign_id : NULL,
+        'step' => $step,
+        'csrfToken' => $this->csrfToken->get('rest'),
+        'history' => $this->characterCreationGm->getChatHistory($character_data),
+        'summary' => $this->characterCreationGm->buildSummary($character_data),
+      ];
+    }
 
-    $form['#prefix'] = $this->buildGmChatShell($step, $character_id, $campaign_id, $character_data)
-      . '<div class="character-creation-step"><div class="creation-container"><div class="progress-bar"><div class="progress-indicator progress-step-' . $step . '"></div></div><div class="progress-text">' . $this->t('Step @step of @total', ['@step' => $step, '@total' => 8]) . '</div><div class="step-content">';
-    $form['#suffix'] = '</div></div></div></div>';
+    $prefix = $embedded ? '' : $this->buildGmChatShell($step, $character_id, $campaign_id, $character_data);
+    $progress_markup = $embedded ? '' : '<div class="progress-bar"><div class="progress-indicator progress-step-' . $step . '"></div></div><div class="progress-text">' . $this->t('Step @step of @total', ['@step' => $step, '@total' => 8]) . '</div>';
+    $form['#prefix'] = Markup::create($prefix
+      . '<div class="character-creation-step' . ($embedded ? ' character-creation-step--embedded' : '') . '"><div class="creation-container">' . $progress_markup . '<div class="step-content">');
+    $form['#suffix'] = Markup::create('</div></div></div></div>');
 
     $form['header'] = [
       '#markup' => "<h2>{$step_name}</h2><p class=\"step-description\">{$step_description}</p>",
@@ -169,6 +176,7 @@ class CharacterCreationStepForm extends FormBase {
       if ($campaign_id) {
         $back_query['campaign_id'] = $campaign_id;
       }
+      $back_query = $this->preserveShellQueryFlags($back_query);
 
       $form['actions']['back'] = [
         '#type' => 'link',
@@ -1760,6 +1768,7 @@ class CharacterCreationStepForm extends FormBase {
         if ($campaign_id) {
           $query['campaign_id'] = $campaign_id;
         }
+        $query = $this->preserveShellQueryFlags($query);
         $form_state->setRedirect('dungeoncrawler_content.character_step', ['step' => $step], ['query' => $query]);
         return;
       }
@@ -1998,11 +2007,27 @@ class CharacterCreationStepForm extends FormBase {
       if ($campaign_id) {
         $next_query['campaign_id'] = $campaign_id;
       }
+      $next_query = $this->preserveShellQueryFlags($next_query);
 
       $form_state->setRedirect('dungeoncrawler_content.character_step', [
         'step' => $next_step,
       ], ['query' => $next_query]);
     }
+  }
+
+  /**
+   * Preserves setup-shell query flags when the step form is embedded.
+   */
+  private function preserveShellQueryFlags(array $query): array {
+    $current_query = $this->getRequest()->query->all();
+    if (!empty($current_query['embedded'])) {
+      $query['embedded'] = 1;
+    }
+    if (!empty($current_query['charactersetup'])) {
+      $query['charactersetup'] = 1;
+    }
+
+    return $query;
   }
 
   /**
