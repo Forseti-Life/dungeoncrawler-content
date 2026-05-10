@@ -93,6 +93,20 @@ class CharacterRoutesTest extends BrowserTestBase {
   }
 
   /**
+   * Tests editing an owned setup draft without create permission.
+   */
+  public function testCharacterSetupRouteAllowsOwnedDraftWithoutCreatePermission(): void {
+    $user = $this->createTestUser(['edit own dungeoncrawler characters']);
+    $campaign_id = $this->createTestCampaign($user);
+    $character_id = $this->createDraftCharacter($user->id(), $campaign_id, 2);
+    $this->drupalLogin($user);
+
+    $this->drupalGet("/charactersetup?step=2&character_id={$character_id}&campaign_id={$campaign_id}");
+    $this->assertSession()->statusCodeEquals(200);
+    $this->assertSession()->pageTextContains('Character Setup');
+  }
+
+  /**
    * Tests character step route - positive case.
    */
   public function testCharacterStepRoutePositive(): void {
@@ -113,6 +127,58 @@ class CharacterRoutesTest extends BrowserTestBase {
     // Try with non-numeric step
     $this->drupalGet('/characters/create/step/invalid');
     $this->assertSession()->statusCodeEquals(404);
+  }
+
+  /**
+   * Tests editing an owned step without create permission.
+   */
+  public function testCharacterStepRouteAllowsOwnedDraftWithoutCreatePermission(): void {
+    $user = $this->createTestUser(['edit own dungeoncrawler characters']);
+    $campaign_id = $this->createTestCampaign($user);
+    $character_id = $this->createDraftCharacter($user->id(), $campaign_id, 2);
+    $this->drupalLogin($user);
+
+    $this->drupalGet("/characters/create/step/2?character_id={$character_id}&campaign_id={$campaign_id}");
+    $this->assertSession()->statusCodeEquals(200);
+  }
+
+  /**
+   * Creates a draft character record for route tests.
+   */
+  private function createDraftCharacter(int $uid, int $campaign_id, int $step = 1): int {
+    $now = \Drupal::time()->getRequestTime();
+    $uuid = \Drupal::service('uuid')->generate();
+    $character_data = [
+      'name' => 'Route Test Character',
+      'step' => $step,
+      'ancestry' => 'human',
+      'class' => 'wizard',
+    ];
+
+    return (int) \Drupal::database()->insert('dc_campaign_characters')
+      ->fields([
+        'uuid' => $uuid,
+        'campaign_id' => $campaign_id,
+        'character_id' => 0,
+        'instance_id' => $uuid,
+        'uid' => $uid,
+        'name' => 'Route Test Character',
+        'level' => 1,
+        'ancestry' => 'human',
+        'class' => 'wizard',
+        'hp_current' => 0,
+        'hp_max' => 0,
+        'armor_class' => 10,
+        'experience_points' => 0,
+        'position_q' => 0,
+        'position_r' => 0,
+        'last_room_id' => '',
+        'character_data' => json_encode($character_data, JSON_PRETTY_PRINT),
+        'status' => 0,
+        'created' => $now,
+        'changed' => $now,
+      ])
+      ->execute();
   }
 
   /**

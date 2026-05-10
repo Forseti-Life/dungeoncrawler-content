@@ -134,6 +134,12 @@ services:
     tags:
       - {name: access_check, applies_to: _campaign_access}
 
+  dungeoncrawler_content.character_setup_access_check:
+    class: Drupal\dungeoncrawler_content\Access\CharacterSetupAccessCheck
+    arguments: ['@database', '@request_stack']
+    tags:
+      - {name: access_check, applies_to: _character_setup_access}
+
   dungeoncrawler_content.campaign_gm_access_check:
     class: Drupal\dungeoncrawler_content\Access\CampaignGmAccessCheck
     tags:
