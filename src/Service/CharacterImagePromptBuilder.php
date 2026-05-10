@@ -24,6 +24,7 @@ class CharacterImagePromptBuilder {
    *   The prompt text.
    */
   public function buildPortraitPrompt(array $character_data, string $user_prompt = ''): string {
+    $authoritative_ancestry = $this->buildAncestryLine($character_data);
     $lines = [
       'Create a high-fantasy full-body character portrait for a tabletop RPG.',
       'Show the entire character from head to toe with a fully rendered environmental background.',
@@ -31,6 +32,10 @@ class CharacterImagePromptBuilder {
       'Keep a clear silhouette, consistent lighting, visible gear, and game-ready detail.',
       'Use the character attributes below to inform the outfit, pose, equipment, deity motifs, moral tone, and background scenery.',
     ];
+
+    if ($authoritative_ancestry !== '') {
+      $lines[] = 'Authoritative ancestry: ' . $authoritative_ancestry . '. If any other note conflicts, follow this ancestry and do not add physical traits from a different ancestry.';
+    }
 
     $ability_guidance = $this->buildAbilityAppearanceGuidance($character_data['abilities'] ?? []);
     if ($ability_guidance !== '') {
@@ -71,18 +76,19 @@ class CharacterImagePromptBuilder {
    */
   private function buildAttributeLines(array $character_data): array {
     $lines = [];
+    $authoritative_ancestry = $this->buildAncestryLine($character_data);
     $map = [
-      'Ancestry' => $this->buildAncestryLine($character_data),
+      'Ancestry' => $authoritative_ancestry,
       'Class' => $this->buildClassLine($character_data),
       'Background' => $this->humanizeShortValue($this->extractScalarValue($character_data, [['background']])),
       'Alignment' => $this->extractScalarValue($character_data, [['alignment'], ['personality', 'alignment']]),
       'Deity' => $this->humanizeShortValue($this->extractScalarValue($character_data, [['deity'], ['personality', 'deity']])),
       'Age' => $this->extractScalarValue($character_data, [['age'], ['personality', 'age']]),
       'Gender/Pronouns' => $this->extractScalarValue($character_data, [['gender'], ['personality', 'gender']]),
-      'Concept' => $this->extractScalarValue($character_data, [['concept']]),
-      'Appearance' => $this->extractScalarValue($character_data, [['appearance'], ['personality', 'appearance']]),
+      'Concept' => $this->sanitizeAncestryConflicts($this->extractScalarValue($character_data, [['concept']]), $authoritative_ancestry),
+      'Appearance' => $this->sanitizeAncestryConflicts($this->extractScalarValue($character_data, [['appearance'], ['personality', 'appearance']]), $authoritative_ancestry),
       'Personality' => $this->extractScalarValue($character_data, [['personality'], ['personality', 'personality']]),
-      'Backstory' => $this->extractScalarValue($character_data, [['backstory'], ['personality', 'backstory']]),
+      'Backstory' => $this->sanitizeAncestryConflicts($this->extractScalarValue($character_data, [['backstory'], ['personality', 'backstory']]), $authoritative_ancestry),
       'Visible equipment' => $this->buildEquipmentLine($character_data),
     ];
 
@@ -338,6 +344,45 @@ class CharacterImagePromptBuilder {
     }
 
     return rtrim(substr($value, 0, $limit - 1)) . '…';
+  }
+
+  /**
+   * Prevent freeform text from overriding the authoritative ancestry.
+   */
+  private function sanitizeAncestryConflicts(string $value, string $authoritative_ancestry): string {
+    $value = trim($value);
+    $authoritative_ancestry = strtolower(trim(preg_replace('/\s*\(.*$/', '', $authoritative_ancestry)));
+    if ($value === '' || $authoritative_ancestry === '') {
+      return $value;
+    }
+
+    $conflicting_terms = [
+      'human',
+      'elf',
+      'elven',
+      'dwarf',
+      'dwarven',
+      'gnome',
+      'gnomish',
+      'goblin',
+      'halfling',
+      'orc',
+      'orcish',
+      'leshy',
+      'catfolk',
+      'kobold',
+      'ratfolk',
+      'tengu',
+    ];
+
+    foreach ($conflicting_terms as $term) {
+      if ($term === $authoritative_ancestry) {
+        continue;
+      }
+      $value = preg_replace('/\b' . preg_quote($term, '/') . '\b/i', $authoritative_ancestry, $value) ?? $value;
+    }
+
+    return trim(preg_replace('/\s+/', ' ', $value) ?? $value);
   }
 
   /**
