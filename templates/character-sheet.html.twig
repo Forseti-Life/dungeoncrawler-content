@@ -26,14 +26,23 @@
 
   {# Character Header #}
   <div class="dc-sheet__header">
-    <div class="dc-sheet__portrait-wrap">
-      {% if character.portrait %}
-        <img src="{{ character.portrait }}" alt="{{ character.name }}" class="dc-sheet__portrait" />
-      {% else %}
-        <div class="dc-sheet__portrait-placeholder">
-          <span>{{ character.name|first|upper }}</span>
-        </div>
-      {% endif %}
+      <div class="dc-sheet__portrait-wrap">
+        {% if character.portrait %}
+          <button
+            type="button"
+            class="dc-sheet__portrait-trigger"
+            data-dc-portrait-trigger
+            aria-haspopup="dialog"
+            aria-controls="dc-sheet-portrait-viewer"
+            aria-label="View full portrait of {{ character.name }}"
+          >
+            <img src="{{ character.portrait }}" alt="{{ character.name }}" class="dc-sheet__portrait" />
+          </button>
+        {% else %}
+          <div class="dc-sheet__portrait-placeholder">
+            <span>{{ character.name|first|upper }}</span>
+          </div>
+        {% endif %}
       {% if character.status == 'incomplete' %}
         {% if not character.portrait and character.step >= 8 %}
           <div class="dc-sheet__status-incomplete">🖼️ Image generation in progress</div>
@@ -606,5 +615,14 @@
       <pre class="dc-sheet__json-pre"><code>{{ raw_json }}</code></pre>
     </div>
   </div>
+
+  {% if character.portrait %}
+    <div class="dc-sheet__portrait-viewer" id="dc-sheet-portrait-viewer" data-dc-portrait-viewer hidden>
+      <div class="dc-sheet__portrait-viewer-dialog" role="dialog" aria-modal="true" aria-label="Full portrait of {{ character.name }}">
+        <button type="button" class="dc-sheet__portrait-viewer-close" data-dc-portrait-close aria-label="Close full portrait">×</button>
+        <img src="{{ character.portrait }}" alt="{{ character.name }} full portrait" class="dc-sheet__portrait-viewer-image" loading="lazy" />
+      </div>
+    </div>
+  {% endif %}
 
 </div>
