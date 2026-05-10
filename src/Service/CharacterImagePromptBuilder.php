@@ -10,7 +10,7 @@ class CharacterImagePromptBuilder {
   /**
    * Default negative prompt for portrait generation.
    */
-  private const DEFAULT_NEGATIVE_PROMPT = 'text, letters, words, captions, subtitles, nameplate, watermark, logo, signature, UI overlay, speech bubble, blurry, low quality, deformed, cropped feet, cropped legs, close-up portrait, headshot, bust shot';
+  private const DEFAULT_NEGATIVE_PROMPT = 'text, letters, words, captions, subtitles, nameplate, watermark, logo, signature, UI overlay, speech bubble, readable runes, readable glyphs, readable spellbook pages, readable scrolls, readable signage, character sheet, infographic, poster, dossier, parchment page, labeled diagram, side panels, border ornaments, decorative frame, blurry, low quality, deformed, cropped feet, cropped legs, close-up portrait, headshot, bust shot, multiple characters';
 
   /**
    * Builds a provider-ready portrait prompt from character data.
@@ -25,34 +25,70 @@ class CharacterImagePromptBuilder {
    */
   public function buildPortraitPrompt(array $character_data, string $user_prompt = ''): string {
     $authoritative_ancestry = $this->buildAncestryLine($character_data);
-    $lines = [
-      'Create a high-fantasy full-body character portrait for a tabletop RPG.',
-      'Show the entire character from head to toe with a fully rendered environmental background.',
-      'Do not render any text, letters, names, captions, runes, logos, watermarks, signatures, or interface elements anywhere in the image.',
-      'Keep a clear silhouette, consistent lighting, visible gear, and game-ready detail.',
-      'Use the character attributes below to inform the outfit, pose, equipment, deity motifs, moral tone, and background scenery.',
-    ];
-
-    if ($authoritative_ancestry !== '') {
-      $lines[] = 'Authoritative ancestry: ' . $authoritative_ancestry . '. If any other note conflicts, follow this ancestry and do not add physical traits from a different ancestry.';
-    }
-
+    $class = $this->buildClassLine($character_data);
+    $background = $this->humanizeShortValue($this->extractScalarValue($character_data, [['background']]));
+    $alignment = $this->extractScalarValue($character_data, [['alignment'], ['personality', 'alignment']]);
+    $deity = $this->humanizeShortValue($this->extractScalarValue($character_data, [['deity'], ['personality', 'deity']]));
+    $concept = $this->sanitizeAncestryConflicts($this->extractScalarValue($character_data, [['concept']]), $authoritative_ancestry);
+    $appearance = $this->sanitizeAncestryConflicts($this->extractScalarValue($character_data, [['appearance'], ['personality', 'appearance']]), $authoritative_ancestry);
+    $personality = $this->extractScalarValue($character_data, [['personality'], ['personality', 'personality']]);
+    $equipment = $this->buildEquipmentLine($character_data);
     $ability_guidance = $this->buildAbilityAppearanceGuidance($character_data['abilities'] ?? []);
-    if ($ability_guidance !== '') {
-      $lines[] = 'Appearance weighting:';
-      $lines[] = $ability_guidance;
-    }
-
-    $attribute_lines = $this->buildAttributeLines($character_data);
-    if (!empty($attribute_lines)) {
-      $lines[] = 'Character attributes:';
-      $lines = array_merge($lines, $attribute_lines);
-    }
-
     $resolved_user_prompt = trim($user_prompt);
+
+    $subject_parts = array_filter([$authoritative_ancestry, $class]);
+    $subject = !empty($subject_parts) ? implode(' ', $subject_parts) : 'fantasy adventurer';
+    $lines = [];
+    $lines[] = 'Full-body fantasy illustration of a single ' . $subject . ' with the entire figure visible from head to toe.';
+
+    $visual_traits = [];
+    if ($background !== '') {
+      $visual_traits[] = strtolower($background) . ' styling';
+    }
+    if ($equipment !== '') {
+      $visual_traits[] = 'visible gear including ' . $equipment;
+    }
+    if ($appearance !== '') {
+      $visual_traits[] = $this->truncateValue($appearance, 180);
+    }
+    if (!empty($visual_traits)) {
+      $lines[] = 'Use ' . implode(', ', $visual_traits) . '.';
+    }
+
+    $ancestry_constraint = $this->buildAncestryConstraintLine($authoritative_ancestry);
+    if ($ancestry_constraint !== '') {
+      $lines[] = $ancestry_constraint;
+    }
+
+    $mood_parts = [];
+    if ($concept !== '') {
+      $mood_parts[] = $this->truncateValue($concept, 180);
+    }
+    if ($personality !== '') {
+      $mood_parts[] = $this->truncateValue($personality, 180);
+    }
+    if ($ability_guidance !== '') {
+      $mood_parts[] = $this->truncateValue($ability_guidance, 180);
+    }
+    if (!empty($mood_parts)) {
+      $lines[] = 'The character should feel ' . implode('; ', $mood_parts) . '.';
+    }
+
+    if ($alignment !== '' || $deity !== '') {
+      $flavor = [];
+      if ($alignment !== '') {
+        $flavor[] = 'alignment ' . $alignment;
+      }
+      if ($deity !== '') {
+        $flavor[] = 'a subtle connection to ' . $deity;
+      }
+      $lines[] = 'The fully rendered background should echo ' . implode(' and ', $flavor) . ' through mood, color, and atmosphere only.';
+    }
+
+    $lines[] = 'Pure illustration only: no readable text, no labels, no posters, no parchment sheets, no books or scrolls with writing, no signs, no runes, no spell circles, no side panels, and no decorative borders.';
+
     if ($resolved_user_prompt !== '') {
-      $lines[] = 'User direction:';
-      $lines[] = $resolved_user_prompt;
+      $lines[] = 'Additional art direction: ' . $this->truncateValue($resolved_user_prompt, 140) . '.';
     }
 
     return implode("\n", $lines);
@@ -61,8 +97,15 @@ class CharacterImagePromptBuilder {
   /**
    * Returns the default negative prompt.
    */
-  public function getDefaultNegativePrompt(): string {
-    return self::DEFAULT_NEGATIVE_PROMPT;
+  public function getDefaultNegativePrompt(array $character_data = []): string {
+    $parts = [self::DEFAULT_NEGATIVE_PROMPT];
+    $authoritative_ancestry = strtolower(trim(preg_replace('/\s*\(.*$/', '', $this->buildAncestryLine($character_data))));
+
+    if ($authoritative_ancestry === 'human') {
+      $parts[] = 'elf ears, pointed ears, elven features, elven facial structure, non-human ears';
+    }
+
+    return implode(', ', array_filter($parts));
   }
 
   /**
@@ -180,7 +223,7 @@ class CharacterImagePromptBuilder {
       'deeply insightful, calm, and perceptive presence',
     ]);
 
-    return 'Use the Pathfinder-style ability scale from 3 to 18, where 18 is near-perfect. Weight visual impression roughly 50% from Charisma and 10% each from Strength, Dexterity, Constitution, Intelligence, and Wisdom. Charisma should dominate attractiveness, facial beauty, expression, confidence, and social magnetism. The other abilities should only add subtle cues to build, posture, movement, resilience, styling, and gaze. For this character: Charisma suggests ' . $charisma_descriptor . '; Strength suggests ' . $strength_descriptor . '; Dexterity suggests ' . $dexterity_descriptor . '; Constitution suggests ' . $constitution_descriptor . '; Intelligence suggests ' . $intelligence_descriptor . '; Wisdom suggests ' . $wisdom_descriptor . '. Keep non-Charisma influence noticeable but secondary.';
+    return 'The character should read as ' . $charisma_descriptor . ', ' . $strength_descriptor . ', ' . $dexterity_descriptor . ', ' . $constitution_descriptor . ', ' . $intelligence_descriptor . ', with a ' . $wisdom_descriptor . '.';
   }
 
   /**
@@ -344,6 +387,23 @@ class CharacterImagePromptBuilder {
     }
 
     return rtrim(substr($value, 0, $limit - 1)) . '…';
+  }
+
+  /**
+   * Builds a hard ancestry constraint line for the prompt frame.
+   */
+  private function buildAncestryConstraintLine(string $authoritative_ancestry): string {
+    $authoritative_ancestry = trim($authoritative_ancestry);
+    if ($authoritative_ancestry === '') {
+      return '';
+    }
+
+    $base_ancestry = strtolower(trim(preg_replace('/\s*\(.*$/', '', $authoritative_ancestry)));
+    if ($base_ancestry === 'human') {
+      return 'The subject ancestry is ' . $authoritative_ancestry . ': depict a human with human facial structure and rounded human ears, absolutely never elf ears, pointed ears, or other non-human ancestry traits.';
+    }
+
+    return 'The subject ancestry is ' . $authoritative_ancestry . '; keep the physical traits aligned to this ancestry and do not introduce conflicting traits from another ancestry.';
   }
 
   /**

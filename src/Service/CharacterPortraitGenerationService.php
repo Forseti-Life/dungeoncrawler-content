@@ -85,10 +85,12 @@ class CharacterPortraitGenerationService {
       ];
     }
 
-    $provider = strtolower(trim((string) ($options['provider'] ?? '')));
     $integration_status = $this->integrationService->getIntegrationStatus();
-    if ($provider === '') {
-      $provider = strtolower(trim((string) ($integration_status['default_provider'] ?? 'gemini')));
+    $requested_provider = strtolower(trim((string) ($options['provider'] ?? '')));
+    $configured_provider = strtolower(trim((string) ($integration_status['configured_provider'] ?? $integration_status['default_provider'] ?? 'gemini')));
+    $provider = $this->integrationService->getReadyProvider($requested_provider !== '' ? $requested_provider : $configured_provider);
+    if ($provider === NULL) {
+      $provider = $requested_provider !== '' ? $requested_provider : $configured_provider;
     }
     $provider_status = is_array($integration_status['providers'][$provider] ?? NULL)
       ? $integration_status['providers'][$provider]
@@ -110,17 +112,17 @@ class CharacterPortraitGenerationService {
     $user_prompt = (string) ($options['user_prompt'] ?? ($character_data['portrait_prompt'] ?? ''));
     $prompt = $this->promptBuilder->buildPortraitPrompt($character_data, $user_prompt);
 
-      $payload = [
-        'prompt' => $prompt,
-        'style' => (string) ($options['style'] ?? 'fantasy'),
-        'aspect_ratio' => (string) ($options['aspect_ratio'] ?? '3:4'),
-        'negative_prompt' => (string) ($options['negative_prompt'] ?? $this->promptBuilder->getDefaultNegativePrompt()),
-        'campaign_context' => (string) ($options['campaign_context'] ?? 'character_creation'),
-        'requested_by_uid' => $owner_uid,
-      ];
+    $payload = [
+      'prompt' => $prompt,
+      'style' => (string) ($options['style'] ?? 'fantasy'),
+      'aspect_ratio' => (string) ($options['aspect_ratio'] ?? '3:4'),
+      'negative_prompt' => (string) ($options['negative_prompt'] ?? $this->promptBuilder->getDefaultNegativePrompt($character_data)),
+      'campaign_context' => (string) ($options['campaign_context'] ?? 'character_creation'),
+      'requested_by_uid' => $owner_uid,
+    ];
 
     try {
-      $result = $this->integrationService->generateImage($payload, $options['provider'] ?? NULL);
+      $result = $this->integrationService->generateImage($payload, $provider);
       $storage = $this->generatedImageRepository->persistGeneratedImage($result, [
         'owner_uid' => $owner_uid,
         'scope_type' => 'campaign',
