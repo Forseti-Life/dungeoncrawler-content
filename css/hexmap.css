@@ -3357,4 +3357,20 @@
   .game-layout-controls {
     display: none;
   }
+
+  .game-shell__character-panel .game-layout__sidebar {
+    position: static;
+    top: auto;
+    right: auto;
+    height: auto;
+    width: 100%;
+    max-height: none;
+    z-index: auto;
+    transform: none;
+    transition: none;
+    overflow: visible;
+    background: transparent;
+    padding: 0;
+    box-shadow: none;
+  }
 }
