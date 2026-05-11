@@ -187,17 +187,35 @@ class CampaignEntityController extends ControllerBase {
       return new JsonResponse(['success' => FALSE, 'error' => 'Invalid JSON'], 400);
     }
 
-    // Validate required fields.
-    if (empty($data['locationType'])) {
-      return new JsonResponse(['success' => FALSE, 'error' => 'locationType is required'], 400);
-    }
-    if (empty($data['locationRef'])) {
-      return new JsonResponse(['success' => FALSE, 'error' => 'locationRef is required'], 400);
+    $location_type = (string) ($data['locationType'] ?? '');
+    $location_ref = (string) ($data['locationRef'] ?? '');
+    $new_state_data = is_array($data['stateData'] ?? NULL) ? $data['stateData'] : NULL;
+
+    // Backward compatibility for the existing hexmap room-transition payload.
+    if (($location_type === '' || $location_ref === '') && !empty($data['room_id'])) {
+      $location_type = 'room';
+      $location_ref = (string) $data['room_id'];
+      $placement_state = [
+        'placement' => [
+          'room_id' => $location_ref,
+          'hex' => [
+            'q' => (int) ($data['q'] ?? 0),
+            'r' => (int) ($data['r'] ?? 0),
+          ],
+        ],
+      ];
+      $new_state_data = is_array($new_state_data)
+        ? array_replace_recursive($new_state_data, $placement_state)
+        : $placement_state;
     }
 
-    $location_type = $data['locationType'];
-    $location_ref = $data['locationRef'];
-    $new_state_data = $data['stateData'] ?? NULL;
+    // Validate required fields.
+    if ($location_type === '') {
+      return new JsonResponse(['success' => FALSE, 'error' => 'locationType is required'], 400);
+    }
+    if ($location_ref === '') {
+      return new JsonResponse(['success' => FALSE, 'error' => 'locationRef is required'], 400);
+    }
 
     // Check if entity exists.
     $entity = $this->database->select('dc_campaign_characters', 'c')

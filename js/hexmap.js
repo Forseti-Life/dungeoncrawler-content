@@ -217,6 +217,196 @@ import { SpriteService } from './SpriteService.js';
     return merged;
   }
 
+  function getSpellRankNumber(rankKey) {
+    const normalized = String(rankKey ?? '')
+      .trim()
+      .toLowerCase()
+      .replace(/[\s-]+/g, '_');
+    const directMap = {
+      cantrip: 0,
+      cantrips: 0,
+      first: 1,
+      first_level: 1,
+      second: 2,
+      second_level: 2,
+      third: 3,
+      third_level: 3,
+      fourth: 4,
+      fourth_level: 4,
+      fifth: 5,
+      fifth_level: 5,
+      sixth: 6,
+      sixth_level: 6,
+      seventh: 7,
+      seventh_level: 7,
+      eighth: 8,
+      eighth_level: 8,
+      ninth: 9,
+      ninth_level: 9,
+      tenth: 10,
+      tenth_level: 10,
+    };
+    if (Object.prototype.hasOwnProperty.call(directMap, normalized)) {
+      return directMap[normalized];
+    }
+    const digitMatch = normalized.match(/^(\d{1,2})(?:st|nd|rd|th)?(?:_level)?$/);
+    if (digitMatch) {
+      return Number(digitMatch[1]);
+    }
+    const levelMatch = normalized.match(/^level_(\d{1,2})$/);
+    if (levelMatch) {
+      return Number(levelMatch[1]);
+    }
+    return null;
+  }
+
+  function formatOrdinalRank(rank) {
+    const numericRank = Number(rank);
+    if (!Number.isFinite(numericRank)) {
+      return String(rank ?? '');
+    }
+    const mod100 = numericRank % 100;
+    if (mod100 >= 11 && mod100 <= 13) {
+      return `${numericRank}th`;
+    }
+    switch (numericRank % 10) {
+      case 1:
+        return `${numericRank}st`;
+      case 2:
+        return `${numericRank}nd`;
+      case 3:
+        return `${numericRank}rd`;
+      default:
+        return `${numericRank}th`;
+    }
+  }
+
+  function formatSpellRankLabel(rankOrKey, { longForm = false } = {}) {
+    const rank = typeof rankOrKey === 'number' ? rankOrKey : getSpellRankNumber(rankOrKey);
+    if (rank === 0) {
+      return 'Cantrips';
+    }
+    if (rank == null) {
+      return String(rankOrKey ?? '');
+    }
+    const ordinal = formatOrdinalRank(rank);
+    return longForm ? `${ordinal} Level` : ordinal;
+  }
+
+  function normalizeDisplayedSpellSlots(runtimeSlots, slotDisplay) {
+    const normalizedSlots = {};
+
+    if (runtimeSlots && typeof runtimeSlots === 'object') {
+      Object.entries(runtimeSlots).forEach(([slotKey, slotState]) => {
+        const rank = getSpellRankNumber(slotKey);
+        if (rank == null || rank === 0) {
+          return;
+        }
+        const max = Math.max(0, Number(slotState?.max ?? slotState?.current ?? 0));
+        const current = Math.max(0, Math.min(Number(slotState?.current ?? max), max || Number(slotState?.current ?? 0)));
+        normalizedSlots[String(rank)] = { current, max };
+      });
+    }
+
+    if (slotDisplay && typeof slotDisplay === 'object') {
+      Object.entries(slotDisplay).forEach(([slotKey, slotCount]) => {
+        const rank = getSpellRankNumber(slotKey);
+        if (rank == null || rank === 0) {
+          return;
+        }
+        const max = Math.max(0, Number(slotCount ?? 0));
+        if (max <= 0) {
+          return;
+        }
+        const existing = normalizedSlots[String(rank)] || {};
+        const current = Math.max(0, Math.min(Number(existing.current ?? existing.max ?? max), max));
+        normalizedSlots[String(rank)] = { current, max };
+      });
+    }
+
+    return Object.fromEntries(
+      Object.entries(normalizedSlots).sort(([a], [b]) => Number(a) - Number(b))
+    );
+  }
+
+  function collectSpellRankGroups(spells) {
+    if (!spells || typeof spells !== 'object') {
+      return [];
+    }
+    return Object.entries(spells)
+      .map(([groupKey, groupSpells]) => {
+        if (!Array.isArray(groupSpells) || groupSpells.length === 0) {
+          return null;
+        }
+        const rank = getSpellRankNumber(groupKey);
+        if (rank == null) {
+          return null;
+        }
+        return {
+          groupKey,
+          rank,
+          label: formatSpellRankLabel(rank, { longForm: rank !== 0 }),
+          spells: groupSpells,
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => a.rank - b.rank);
+  }
+
+  function extractRuntimeResourcesFromEntityState(statePayload, baseResources = {}) {
+    if (!statePayload || typeof statePayload !== 'object') {
+      return null;
+    }
+
+    const nextResources = { ...(baseResources || {}) };
+    const nestedState = statePayload.state && typeof statePayload.state === 'object'
+      ? statePayload.state
+      : {};
+    let hasChanges = false;
+
+    const slotSource = (statePayload.spell_slots && typeof statePayload.spell_slots === 'object')
+      ? statePayload.spell_slots
+      : ((nestedState.spell_slots && typeof nestedState.spell_slots === 'object') ? nestedState.spell_slots : null);
+    if (slotSource) {
+      const spellSlots = {};
+      Object.entries(slotSource).forEach(([slotKey, slotState]) => {
+        const rank = getSpellRankNumber(slotKey);
+        if (rank == null || rank === 0) {
+          return;
+        }
+        const max = Math.max(0, Number(slotState?.max ?? 0));
+        const used = Math.max(0, Number(slotState?.used ?? 0));
+        spellSlots[String(rank)] = {
+          current: Math.max(0, max - used),
+          max,
+        };
+      });
+      if (Object.keys(spellSlots).length > 0) {
+        nextResources.spellSlots = {
+          ...normalizeDisplayedSpellSlots(baseResources?.spellSlots, null),
+          ...spellSlots,
+        };
+        hasChanges = true;
+      }
+    }
+
+    const focusCurrent = statePayload.focus_points ?? nestedState.focus_points;
+    if (focusCurrent != null && Number.isFinite(Number(focusCurrent))) {
+      const current = Math.max(0, Number(focusCurrent));
+      const existingFocus = (baseResources && typeof baseResources.focusPoints === 'object')
+        ? baseResources.focusPoints
+        : {};
+      nextResources.focusPoints = {
+        ...existingFocus,
+        current,
+        max: Math.max(current, Number(existingFocus.max ?? current)),
+      };
+      hasChanges = true;
+    }
+
+    return hasChanges ? nextResources : null;
+  }
+
   /**
    * UIManager — [THIN-CLIENT: shell UI + chat adapter]
    *
@@ -238,6 +428,11 @@ import { SpriteService } from './SpriteService.js';
       this.serverMessageCooldownMs = 3000;
       this.lastRoomViewKey = null;
       this.roomViewRequestToken = 0;
+      this.roomViewCache = new Map();
+      this.roomViewInflight = new Map();
+      this.roomViewCacheTtlMs = 60000;
+      this.roomViewRefreshCooldownMs = 2500;
+      this.pendingChatRequests = new Map();
       // Channel state
       this.activeChannel = 'room';
       this.channels = { room: { key: 'room', label: 'Room', type: 'room', active: true } };
@@ -594,12 +789,78 @@ import { SpriteService } from './SpriteService.js';
       return article;
     }
 
+    buildRoomViewCacheKey(campaignId, roomId) {
+      if (!campaignId || !roomId) {
+        return '';
+      }
+      return ['room-view', campaignId, roomId].join(':');
+    }
+
+    getCachedRoomViewPayload(cacheKey) {
+      if (!cacheKey) {
+        return null;
+      }
+      const entry = this.roomViewCache.get(cacheKey);
+      if (!entry) {
+        return null;
+      }
+      if ((Date.now() - entry.storedAt) >= this.roomViewCacheTtlMs) {
+        this.roomViewCache.delete(cacheKey);
+        return null;
+      }
+      return entry.payload || null;
+    }
+
+    setCachedRoomViewPayload(cacheKey, payload) {
+      if (!cacheKey) {
+        return payload;
+      }
+      this.roomViewCache.set(cacheKey, {
+        storedAt: Date.now(),
+        payload,
+      });
+      return payload;
+    }
+
+    async fetchRoomViewPayload(campaignId, roomId, options = {}) {
+      const { force = false } = options;
+      const cacheKey = this.buildRoomViewCacheKey(campaignId, roomId);
+      if (this.roomViewInflight.has(cacheKey)) {
+        return this.roomViewInflight.get(cacheKey);
+      }
+
+      const cacheEntry = cacheKey ? this.roomViewCache.get(cacheKey) : null;
+      const cacheAgeMs = cacheEntry ? (Date.now() - cacheEntry.storedAt) : Number.POSITIVE_INFINITY;
+      if (cacheEntry && cacheAgeMs < this.roomViewCacheTtlMs) {
+        if (!force || cacheAgeMs < this.roomViewRefreshCooldownMs) {
+          return cacheEntry.payload || null;
+        }
+      }
+
+      const request = (async () => {
+        const response = await fetch(`/api/campaign/${campaignId}/room/${encodeURIComponent(roomId)}/view-image`);
+        const result = await response.json();
+        if (!response.ok || !result?.success || !result?.data) {
+          throw new Error(result?.error || 'Room view generation failed.');
+        }
+        return this.setCachedRoomViewPayload(cacheKey, result.data);
+      })();
+
+      this.roomViewInflight.set(cacheKey, request);
+      try {
+        return await request;
+      } finally {
+        this.roomViewInflight.delete(cacheKey);
+      }
+    }
+
     async loadActiveRoomView(roomId = null, options = {}) {
       if (!this.elements.roomViewPanel) {
         return;
       }
 
       const force = Boolean(options.force);
+      const preserveExisting = Boolean(options.preserveExisting);
       const hexmap = this.stateManager?.hexmap;
       const campaignId = hexmap?.resolveCampaignId?.() || null;
       const resolvedRoomId = roomId || hexmap?.resolveActiveRoomId?.() || null;
@@ -625,23 +886,28 @@ import { SpriteService } from './SpriteService.js';
 
       this.lastRoomViewKey = viewKey;
       const requestToken = ++this.roomViewRequestToken;
-      this.updateRoomViewPanel(room, {
-        statusLabel: 'Generating',
-        placeholderText: 'Loading the latest room scene gallery...',
-      });
+      const hasExistingGallery = Boolean(
+        preserveExisting
+        && this.elements.roomViewGallery
+        && !this.elements.roomViewGallery.hidden
+        && this.elements.roomViewGallery.childElementCount > 0
+      );
+      if (hasExistingGallery) {
+        if (this.elements.roomViewStatus) {
+          this.elements.roomViewStatus.textContent = 'Refreshing';
+        }
+      } else {
+        this.updateRoomViewPanel(room, {
+          statusLabel: 'Generating',
+          placeholderText: 'Loading the latest room scene gallery...',
+        });
+      }
 
       try {
-        const response = await fetch(`/api/campaign/${campaignId}/room/${encodeURIComponent(resolvedRoomId)}/view-image`);
-        const result = await response.json();
+        const payload = await this.fetchRoomViewPayload(campaignId, resolvedRoomId, { force });
         if (requestToken !== this.roomViewRequestToken) {
           return;
         }
-
-        if (!response.ok || !result?.success || !result?.data) {
-          throw new Error(result?.error || 'Room view generation failed.');
-        }
-
-        const payload = result.data;
         const payloadRoom = payload.room || room;
         const entries = Array.isArray(payload.entries) ? payload.entries.filter((entry) => {
           const src = entry?.image?.url || entry?.image?.data_uri || '';
@@ -1507,23 +1773,11 @@ import { SpriteService } from './SpriteService.js';
           if (this.elements.characterSpellMeta) {
             const metaParts = [`Tradition: ${spells.tradition}`];
             if (spells.casting_ability) metaParts.push(`Ability: ${spells.casting_ability.toUpperCase()}`);
-            const runtimeSlots = resources?.spellSlots || {};
+            const runtimeSlots = normalizeDisplayedSpellSlots(resources?.spellSlots, spells.slots);
             const slotParts = Object.entries(runtimeSlots)
               .sort(([a], [b]) => Number(a) - Number(b))
               .map(([k, slot]) => {
-                const labels = {
-                  '1': '1st',
-                  '2': '2nd',
-                  '3': '3rd',
-                  '4': '4th',
-                  '5': '5th',
-                  '6': '6th',
-                  '7': '7th',
-                  '8': '8th',
-                  '9': '9th',
-                  '10': '10th',
-                };
-                const label = labels[k] || k;
+                const label = formatSpellRankLabel(Number(k));
                 const current = Number(slot?.current ?? slot?.max ?? 0);
                 const max = Number(slot?.max ?? current);
                 return `${label}: ${current}/${max}`;
@@ -1545,10 +1799,14 @@ import { SpriteService } from './SpriteService.js';
           }
           // Spell list
           const spellEntries = [];
-          const cantrips = spells.cantrips || [];
-          if (cantrips.length > 0) {
-            spellEntries.push(`<li class="spell-rank-header">Cantrips</li>`);
-            cantrips.forEach(s => {
+          const rankGroups = collectSpellRankGroups(spells);
+          rankGroups.forEach(({ rank, label, spells: rankSpells }) => {
+            const slotState = rank > 0 ? runtimeSlots[String(rank)] || null : null;
+            const headerLabel = rank > 0 && slotState
+              ? `${label} - Slots ${slotState.current}/${slotState.max}`
+              : label;
+            spellEntries.push(`<li class="spell-rank-header">${escapeQuestHtml(headerLabel)}</li>`);
+            rankSpells.forEach(s => {
               const spellId = typeof s === 'string' ? s : (s.id || s.spell_id || '');
               const spellName = typeof s === 'string' ? s.replace(/_/g, ' ') : (s.name || s);
               const spellNameHtml = escapeTooltipAttr(spellName);
@@ -1556,37 +1814,23 @@ import { SpriteService } from './SpriteService.js';
               const spellTraits = typeof s === 'object'
                 ? (Array.isArray(s.traits) ? s.traits.join(', ') : (s.traits || ''))
                 : '';
-              const cantripRank = Math.max(1, Math.ceil(level / 2));
-              const spellStats = [
-                { label: 'Rank', value: 'Cantrip' },
-                { label: 'Cast Rank', value: cantripRank },
-                ...(spells.tradition ? [{ label: 'Tradition', value: spells.tradition }] : []),
-                ...(spells.casting_ability ? [{ label: 'Ability', value: spells.casting_ability.toUpperCase() }] : []),
-              ];
-              spellEntries.push(`<li class="spell-entry spell-entry--detail" data-tooltip-enabled="true" data-tooltip-resolver="spell" data-item-id="${escapeTooltipAttr(spellId)}" data-tooltip-name="${spellNameHtml}" data-tooltip-type="cantrip spell" data-tooltip-desc="${escapeTooltipAttr(spellDescription)}" data-tooltip-traits="${escapeTooltipAttr(spellTraits)}" data-tooltip-stats="${escapeTooltipAttr(JSON.stringify(spellStats))}">${spellNameHtml}</li>`);
+              const spellStats = rank === 0
+                ? [
+                  { label: 'Rank', value: 'Cantrip' },
+                  { label: 'Cast Rank', value: Math.max(1, Math.ceil(level / 2)) },
+                  ...(spells.tradition ? [{ label: 'Tradition', value: spells.tradition }] : []),
+                  ...(spells.casting_ability ? [{ label: 'Ability', value: spells.casting_ability.toUpperCase() }] : []),
+                ]
+                : [
+                  { label: 'Rank', value: label },
+                  ...(slotState ? [{ label: 'Slots', value: `${slotState.current}/${slotState.max}` }] : []),
+                  ...(spells.tradition ? [{ label: 'Tradition', value: spells.tradition }] : []),
+                  ...(spells.casting_ability ? [{ label: 'Ability', value: spells.casting_ability.toUpperCase() }] : []),
+                ];
+              const spellType = rank === 0 ? 'cantrip spell' : 'spell';
+              spellEntries.push(`<li class="spell-entry spell-entry--detail" data-tooltip-enabled="true" data-tooltip-resolver="spell" data-item-id="${escapeTooltipAttr(spellId)}" data-tooltip-name="${spellNameHtml}" data-tooltip-type="${spellType}" data-tooltip-desc="${escapeTooltipAttr(spellDescription)}" data-tooltip-traits="${escapeTooltipAttr(spellTraits)}" data-tooltip-stats="${escapeTooltipAttr(JSON.stringify(spellStats))}">${spellNameHtml}</li>`);
             });
-          }
-          const firstLevel = spells.first_level || [];
-          if (firstLevel.length > 0) {
-            spellEntries.push(`<li class="spell-rank-header">1st Level</li>`);
-            firstLevel.forEach(s => {
-              const spellId = typeof s === 'string' ? s : (s.id || s.spell_id || '');
-              const spellName = typeof s === 'string' ? s.replace(/_/g, ' ') : (s.name || s);
-              const spellNameHtml = escapeTooltipAttr(spellName);
-              const spellDescription = typeof s === 'object' ? (s.description || s.desc || '') : '';
-              const spellTraits = typeof s === 'object'
-                ? (Array.isArray(s.traits) ? s.traits.join(', ') : (s.traits || ''))
-                : '';
-              const firstLevelSlots = resources?.spellSlots?.['1'] || {};
-              const spellStats = [
-                { label: 'Rank', value: '1st Level' },
-                ...(firstLevelSlots.max != null ? [{ label: 'Slots', value: `${firstLevelSlots.current ?? firstLevelSlots.max}/${firstLevelSlots.max}` }] : []),
-                ...(spells.tradition ? [{ label: 'Tradition', value: spells.tradition }] : []),
-                ...(spells.casting_ability ? [{ label: 'Ability', value: spells.casting_ability.toUpperCase() }] : []),
-              ];
-              spellEntries.push(`<li class="spell-entry spell-entry--detail" data-tooltip-enabled="true" data-tooltip-resolver="spell" data-item-id="${escapeTooltipAttr(spellId)}" data-tooltip-name="${spellNameHtml}" data-tooltip-type="spell" data-tooltip-desc="${escapeTooltipAttr(spellDescription)}" data-tooltip-traits="${escapeTooltipAttr(spellTraits)}" data-tooltip-stats="${escapeTooltipAttr(JSON.stringify(spellStats))}">${spellNameHtml}</li>`);
-            });
-          }
+          });
           this.elements.characterSpells.innerHTML = spellEntries.length > 0
             ? spellEntries.join('')
             : '<li class="spells-empty">No spells</li>';
@@ -1851,12 +2095,23 @@ import { SpriteService } from './SpriteService.js';
           this.appendChatLine('System', 'Unable to send message: No active room', 'system');
           return;
         }
+        const clientRequestId = `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const pendingRequest = this.buildPendingChatRequest(clientRequestId, characterName, message, roomId);
+        this.prefetchSessionViews();
+        if (this.loadActiveRoomView) {
+          this.loadActiveRoomView(roomId, { force: true, preserveExisting: true });
+        }
         try {
           await this.postChatMessage(campaignId, roomId, characterName, message, characterId, {
             onPrimaryResponse: releaseSendUi,
+            clientRequestId,
+            pendingRequest,
           });
-          // Message will appear when server confirms (or from loadChatHistory)
         } catch (error) {
+          this.settlePendingChatRequest(pendingRequest, {
+            removePlayer: true,
+            removePlaceholder: true,
+          });
           // Handle permission errors silently (user doesn't have access)
           if (error.message.includes('403')) {
             console.warn('Chat message send denied (permission)');
@@ -2198,14 +2453,18 @@ import { SpriteService } from './SpriteService.js';
     }
 
     async fetchRoomChatHistory(options = {}) {
+      return this.fetchRoomChatHistoryForContext(this.getChatContext(), options);
+    }
+
+    async fetchRoomChatHistoryForContext(context, options = {}) {
       const { force = false } = options;
-      const context = this.getChatContext();
+      const channelKey = options.channelKey || this.activeChannel || 'room';
 
       if (!context.campaignId || !context.roomId) {
         return null;
       }
 
-      const cacheKey = this.buildRoomChatCacheKey(context);
+      const cacheKey = this.buildRoomChatCacheKey(context, channelKey);
       if (!force) {
         const cached = this.getCachedChatPayload(this.roomChatCache, cacheKey);
         if (cached) {
@@ -2217,7 +2476,7 @@ import { SpriteService } from './SpriteService.js';
       }
 
       const request = (async () => {
-        let url = `/api/campaign/${context.campaignId}/room/${context.roomId}/chat?channel=${encodeURIComponent(this.activeChannel)}`;
+        let url = `/api/campaign/${context.campaignId}/room/${context.roomId}/chat?channel=${encodeURIComponent(channelKey)}`;
         if (context.characterId) {
           url += `&character_id=${context.characterId}`;
         }
@@ -2306,6 +2565,7 @@ import { SpriteService } from './SpriteService.js';
         if (result?.success && result.data?.messages) {
           this.renderRoomChatHistory(result);
           this.prefetchSessionViews();
+          this.prefetchConnectedRoomContext();
         }
       } catch (error) {
         console.error('Failed to load chat history:', error);
@@ -2329,6 +2589,7 @@ import { SpriteService } from './SpriteService.js';
           character_id: characterId,
           channel: this.activeChannel,
           stream: this.activeChannel === 'room' && supportsStreaming,
+          client_request_id: options.clientRequestId || '',
         }),
       });
 
@@ -2347,13 +2608,19 @@ import { SpriteService } from './SpriteService.js';
         throw new Error(result.error || 'Unknown error');
       }
 
-      // Show the player message immediately
-      this.appendChatLine(speaker, message, 'player');
+      const pending = options.pendingRequest || null;
+      if (pending) {
+        this.settlePendingChatRequest(pending, {
+          removePlayer: false,
+          removePlaceholder: !result.data?.gm_response,
+        });
+      } else {
+        this.appendChatLine(speaker, message, 'player');
+      }
 
       // If the server returned a GM response, append it directly
       if (result.data?.gm_response) {
-        const gm = result.data.gm_response;
-        this.appendChatLine(gm.speaker || 'Game Master', gm.message, gm.type || 'npc');
+        this.renderPendingGmResponse(pending, result.data.gm_response);
       } else {
         // Fallback: reload full chat history
         await this.loadChatHistory();
@@ -2373,7 +2640,7 @@ import { SpriteService } from './SpriteService.js';
       }
 
       if (this.loadActiveRoomView) {
-        this.loadActiveRoomView(roomId, { force: true });
+        this.loadActiveRoomView(roomId, { force: true, preserveExisting: true });
       }
 
       this.invalidateChatCaches({
@@ -2381,6 +2648,7 @@ import { SpriteService } from './SpriteService.js';
         sessionViews: ['narrative', 'party', 'gm-private', 'system-log'],
       });
       options.onPrimaryResponse?.(result);
+      this.logChatTimingSummary(result, pending);
       this.prefetchSessionViews();
       return result;
     }
@@ -2391,6 +2659,7 @@ import { SpriteService } from './SpriteService.js';
       let buffer = '';
       let completeResult = null;
       let primaryReleased = false;
+      const pending = options.pendingRequest || null;
       const releasePrimary = (payload = null) => {
         if (primaryReleased) return;
         primaryReleased = true;
@@ -2417,9 +2686,23 @@ import { SpriteService } from './SpriteService.js';
 
             if (event) {
               if (event.type === 'player_ack' && event.data) {
-                this.appendChatLine(event.data.speaker || 'You', event.data.message || '', event.data.type || 'player');
+                if (pending) {
+                  const playerLine = this.findChatLineById(pending.playerLineId);
+                  if (playerLine) {
+                    playerLine.classList.remove('chat-line--pending');
+                    playerLine.dataset.transient = '0';
+                  }
+                } else {
+                  this.appendChatLine(event.data.speaker || 'You', event.data.message || '', event.data.type || 'player');
+                }
+              } else if (event.type === 'thinking' && event.data) {
+                this.updatePendingChatProgress(
+                  pending,
+                  event.data.message || 'Game Master is thinking...',
+                  event.data.phase || ''
+                );
               } else if (event.type === 'gm_response' && event.data) {
-                this.appendChatLine(event.data.speaker || 'Game Master', event.data.message, event.data.type || 'npc');
+                this.renderPendingGmResponse(pending, event.data);
                 releasePrimary(event.data);
               } else if (event.type === 'npc_interjection' && event.data) {
                 this.appendChatLine(event.data.speaker, event.data.message, event.data.type || 'npc');
@@ -2431,8 +2714,16 @@ import { SpriteService } from './SpriteService.js';
                 if (completeResult.data?.navigation?.target_room_id) {
                   this.handleNavigationResult(completeResult.data.navigation);
                 }
+                this.settlePendingChatRequest(pending, {
+                  removePlayer: false,
+                  removePlaceholder: !Boolean(completeResult.data?.gm_response),
+                });
                 releasePrimary(completeResult);
               } else if (event.type === 'error') {
+                this.settlePendingChatRequest(pending, {
+                  removePlayer: false,
+                  removePlaceholder: true,
+                });
                 releasePrimary();
                 throw new Error(event.error || 'An error occurred');
               }
@@ -2454,13 +2745,14 @@ import { SpriteService } from './SpriteService.js';
 
       const activeRoomId = this.stateManager.hexmap?.resolveActiveRoomId?.() || null;
       if (activeRoomId && this.loadActiveRoomView) {
-        this.loadActiveRoomView(activeRoomId, { force: true });
+        this.loadActiveRoomView(activeRoomId, { force: true, preserveExisting: true });
       }
 
       this.invalidateChatCaches({
         room: true,
         sessionViews: ['narrative', 'party', 'gm-private', 'system-log'],
       });
+      this.logChatTimingSummary(completeResult, pending);
       this.prefetchSessionViews();
       return completeResult;
     }
@@ -2556,31 +2848,37 @@ import { SpriteService } from './SpriteService.js';
         const offsets = [{ q: 1, r: 0 }, { q: -1, r: 0 }, { q: 0, r: 1 }, { q: 0, r: -1 }, { q: 1, r: -1 }, { q: -1, r: 1 }];
         allyNpcs.forEach((npc, i) => {
           const offset = offsets[i % offsets.length];
+          const npcQ = Number(entryHex.q) + offset.q;
+          const npcR = Number(entryHex.r) + offset.r;
           npc.placement = {
             room_id: targetRoomId,
-            hex: { q: Number(entryHex.q) + offset.q, r: Number(entryHex.r) + offset.r },
+            hex: { q: npcQ, r: npcR },
           };
+          hexmap.persistLaunchLocationContext?.(
+            targetRoomId,
+            npcQ,
+            npcR,
+            npc.instance_id || npc.entity_instance_id || null
+          );
         });
-
-        // Persist entity position to server.
-        const campaignId = hexmap.resolveCampaignId();
-        if (campaignId && entityRef) {
-          fetch(`/api/campaign/${campaignId}/entity/${entityRef}/move`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-            body: JSON.stringify({ room_id: targetRoomId, q: Number(entryHex.q), r: Number(entryHex.r) }),
-          }).catch((err) => console.warn('[Navigation] Entity move persist failed:', err));
-        }
 
         // Deselect before room switch.
         hexmap.deselectEntity();
       }
+
+      hexmap.persistLaunchLocationContext?.(
+        targetRoomId,
+        Number(entryHex.q),
+        Number(entryHex.r),
+        selectedEntity?.dcEntityRef || null
+      );
 
       // 5. Show travel notification in chat.
       this.appendChatLine('System', `🗺️ Traveling to ${nav.destination || newRoom?.name || targetRoomId}...`, 'system');
 
       // 6. Switch to the new room (triggers full re-render, chat reload, banner).
       hexmap.setActiveRoom(targetRoomId);
+      hexmap.updateLaunchLocationContext?.(targetRoomId, Number(entryHex.q), Number(entryHex.r));
 
       // 7. Re-select the player entity in the new room.
       const newPlayerEntity = hexmap.findLaunchPlayerEntity();
@@ -2628,14 +2926,17 @@ import { SpriteService } from './SpriteService.js';
       window.location.assign(`${window.location.pathname}?${params.toString()}`);
     }
 
-    appendChatLine(speaker, message, type = 'npc') {
+    appendChatLine(speaker, message, type = 'npc', options = {}) {
       const log = this.elements.chatLog;
       if (!log) {
-        return;
+        return null;
       }
 
-      const line = document.createElement('div');
+      const existingLine = options.replaceLine || (options.lineId ? this.findChatLineById(options.lineId) : null);
+      const line = existingLine || document.createElement('div');
+      line.innerHTML = '';
       line.className = `chat-line chat-line--${type}`;
+      line.classList.toggle('chat-line--pending', Boolean(options.pending));
 
       if (speaker) {
         const name = document.createElement('span');
@@ -2650,10 +2951,138 @@ import { SpriteService } from './SpriteService.js';
       line.dataset.speaker = speaker || '';
       line.dataset.message = message || '';
       line.dataset.type = type || 'npc';
+      if (options.lineId) {
+        line.dataset.lineId = options.lineId;
+      } else {
+        delete line.dataset.lineId;
+      }
+      line.dataset.transient = options.transient ? '1' : '0';
 
-      log.appendChild(line);
+      if (!existingLine) {
+        log.appendChild(line);
+      }
       this.scrollChatToBottom();
       this.updateChatSummary();
+      return line;
+    }
+
+    findChatLineById(lineId) {
+      if (!lineId || !this.elements.chatLog) {
+        return null;
+      }
+      return Array.from(this.elements.chatLog.querySelectorAll('.chat-line'))
+        .find((line) => line.dataset.lineId === lineId) || null;
+    }
+
+    removeChatLineById(lineId) {
+      const line = this.findChatLineById(lineId);
+      if (!line) {
+        return;
+      }
+      line.remove();
+      this.updateChatSummary();
+    }
+
+    buildPendingChatRequest(requestId, speaker, message, roomId) {
+      const startedAt = (typeof performance !== 'undefined' && typeof performance.now === 'function')
+        ? performance.now()
+        : Date.now();
+      const playerLineId = `chat-player-${requestId}`;
+      const gmPlaceholderId = `chat-gm-${requestId}`;
+      this.appendChatLine(speaker, message, 'player', {
+        lineId: playerLineId,
+        pending: true,
+      });
+      this.appendChatLine('Game Master', 'Thinking...', 'system', {
+        lineId: gmPlaceholderId,
+        pending: true,
+        transient: true,
+      });
+      const pending = {
+        requestId,
+        roomId,
+        startedAt,
+        playerLineId,
+        gmPlaceholderId,
+      };
+      this.pendingChatRequests.set(requestId, pending);
+      return pending;
+    }
+
+    settlePendingChatRequest(pending, options = {}) {
+      if (!pending) {
+        return;
+      }
+      if (options.removePlayer) {
+        this.removeChatLineById(pending.playerLineId);
+      } else {
+        const playerLine = this.findChatLineById(pending.playerLineId);
+        if (playerLine) {
+          playerLine.classList.remove('chat-line--pending');
+          playerLine.dataset.transient = '0';
+        }
+      }
+
+      if (options.removePlaceholder !== false) {
+        this.removeChatLineById(pending.gmPlaceholderId);
+      }
+      this.pendingChatRequests.delete(pending.requestId);
+    }
+
+    updatePendingChatProgress(pending, text, phase = '') {
+      if (!pending) {
+        return;
+      }
+      this.appendChatLine('Game Master', text, 'system', {
+        lineId: pending.gmPlaceholderId,
+        pending: true,
+        transient: true,
+      });
+      const line = this.findChatLineById(pending.gmPlaceholderId);
+      if (line) {
+        if (phase) {
+          line.dataset.phase = phase;
+        } else {
+          delete line.dataset.phase;
+        }
+      }
+    }
+
+    renderPendingGmResponse(pending, response) {
+      if (!response) {
+        return;
+      }
+      this.appendChatLine(response.speaker || 'Game Master', response.message || '', response.type || 'npc', {
+        lineId: pending?.gmPlaceholderId || '',
+        pending: false,
+        transient: false,
+      });
+    }
+
+    logChatTimingSummary(result, pending = null) {
+      const timing = result?.data?.timing || null;
+      const debugTrace = result?.data?.debug_trace || null;
+      const elapsedMs = pending
+        ? Math.round(((typeof performance !== 'undefined' && typeof performance.now === 'function')
+          ? performance.now()
+          : Date.now()) - pending.startedAt)
+        : null;
+      const totalMs = Number(timing?.total_ms ?? debugTrace?.total_ms ?? elapsedMs ?? 0);
+      const gmStage = Array.isArray(debugTrace?.stages)
+        ? debugTrace.stages.find((stage) => stage?.stage === 'gm.total' || stage?.stage === 'generate_gm_reply')
+        : null;
+      const cacheStage = Array.isArray(debugTrace?.stages)
+        ? debugTrace.stages.find((stage) => stage?.stage === 'gm.response_cache')
+        : null;
+      const cacheHit = timing?.cache_hit ?? cacheStage?.meta?.cache_hit ?? cacheStage?.meta?.hit ?? null;
+      console.info('[RoomChat] response telemetry', {
+        requestId: pending?.requestId || result?.data?.client_request_id || null,
+        roomId: pending?.roomId || this.stateManager?.hexmap?.resolveActiveRoomId?.() || null,
+        totalMs,
+        gmMs: timing?.gm_ms ?? gmStage?.duration_ms ?? null,
+        cacheHit,
+        stageCount: timing?.stage_count ?? (Array.isArray(debugTrace?.stages) ? debugTrace.stages.length : 0),
+      });
     }
 
     scrollChatToBottom(options = {}) {
@@ -2678,11 +3107,14 @@ import { SpriteService } from './SpriteService.js';
         return [];
       }
 
-      return Array.from(log.querySelectorAll('.chat-line')).map((line) => ({
-        speaker: line.dataset.speaker || '',
-        message: line.dataset.message || line.textContent || '',
-        type: line.dataset.type || 'npc',
-      }));
+      return Array.from(log.querySelectorAll('.chat-line'))
+        .map((line) => ({
+          transient: line.dataset.transient === '1',
+          speaker: line.dataset.speaker || '',
+          message: line.dataset.message || line.textContent || '',
+          type: line.dataset.type || 'npc',
+        }))
+        .filter((line) => !line.transient);
     }
 
     updateChatSummary(messages = null, options = {}) {
@@ -2857,6 +3289,39 @@ import { SpriteService } from './SpriteService.js';
         }
         void this.fetchSessionViewData(view).catch((error) => {
           console.debug(`Skipped prefetch for ${view}:`, error?.message || error);
+        });
+      });
+    }
+
+    prefetchConnectedRoomContext(limit = 2) {
+      const hexmap = this.stateManager?.hexmap;
+      const campaignId = hexmap?.resolveCampaignId?.() || null;
+      const currentRoomId = hexmap?.resolveActiveRoomId?.() || null;
+      const characterId = Number(hexmap?.characterData?.id || 0) || null;
+      const connections = Array.isArray(hexmap?.dungeonData?.connections) ? hexmap.dungeonData.connections : [];
+      if (!campaignId || !currentRoomId || !connections.length) {
+        return;
+      }
+
+      const nextRoomIds = [];
+      connections.forEach((connection) => {
+        if (connection?.is_passable === false) {
+          return;
+        }
+        if (connection.from_room === currentRoomId && connection.to_room) {
+          nextRoomIds.push(String(connection.to_room));
+        } else if (connection.to_room === currentRoomId && connection.from_room) {
+          nextRoomIds.push(String(connection.from_room));
+        }
+      });
+
+      Array.from(new Set(nextRoomIds)).filter(Boolean).slice(0, limit).forEach((roomId) => {
+        const context = { campaignId, roomId, characterId };
+        void this.fetchRoomChatHistoryForContext(context, { channelKey: 'room' }).catch((error) => {
+          console.debug(`Skipped connected-room chat warm for ${roomId}:`, error?.message || error);
+        });
+        void this.fetchRoomViewPayload(campaignId, roomId).catch((error) => {
+          console.debug(`Skipped connected-room view warm for ${roomId}:`, error?.message || error);
         });
       });
     }
@@ -4934,6 +5399,7 @@ import { SpriteService } from './SpriteService.js';
       
       // Show entity info panel via UIManager
       this.uiManager.showEntityInfo(entity);
+      this.syncLaunchCharacterRuntimeFromEntity(entity);
 
       const actions = entity.getComponent('ActionsComponent');
       const combat = entity.getComponent('CombatComponent');
@@ -5810,6 +6276,79 @@ import { SpriteService } from './SpriteService.js';
      */
     resolveActiveRoomId: function () {
       return this.activeRoomId || this.stateManager.get('activeRoomId') || this.launchContext?.room_id || null;
+    },
+
+    updateLaunchLocationContext: function (roomId, q = null, r = null) {
+      const nextRoomId = roomId || this.resolveActiveRoomId();
+      if (!nextRoomId) {
+        return;
+      }
+
+      this.launchContext = {
+        ...(this.launchContext || {}),
+        room_id: nextRoomId,
+      };
+
+      if (q != null && Number.isFinite(Number(q))) {
+        this.launchContext.start_q = Number(q);
+      }
+      if (r != null && Number.isFinite(Number(r))) {
+        this.launchContext.start_r = Number(r);
+      }
+
+      if (typeof window === 'undefined' || !window.location || !window.history?.replaceState) {
+        return;
+      }
+
+      const params = new URLSearchParams(window.location.search);
+      const campaignId = this.resolveCampaignId();
+      const characterId = Number(this.launchContext?.character_id || 0);
+      if (campaignId) {
+        params.set('campaign_id', String(campaignId));
+      }
+      if (characterId > 0) {
+        params.set('character_id', String(characterId));
+      }
+      params.set('room_id', String(nextRoomId));
+      if (q != null && Number.isFinite(Number(q))) {
+        params.set('start_q', String(Number(q)));
+      }
+      if (r != null && Number.isFinite(Number(r))) {
+        params.set('start_r', String(Number(r)));
+      }
+
+      window.history.replaceState({}, '', `${window.location.pathname}?${params.toString()}`);
+    },
+
+    persistLaunchLocationContext: function (roomId, q = null, r = null, entityRef = null) {
+      const campaignId = this.resolveCampaignId();
+      const nextRoomId = roomId || this.resolveActiveRoomId();
+      const resolvedEntityRef = entityRef
+        || this.launchCharacter?.instanceId
+        || this.launchCharacter?.instance_id
+        || null;
+
+      if (!campaignId || !nextRoomId || !resolvedEntityRef) {
+        return;
+      }
+
+      fetch(`/api/campaign/${campaignId}/entity/${resolvedEntityRef}/move`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+        body: JSON.stringify({
+          locationType: 'room',
+          locationRef: nextRoomId,
+          stateData: {
+            placement: {
+              room_id: nextRoomId,
+              hex: {
+                q: Number.isFinite(Number(q)) ? Number(q) : 0,
+                r: Number.isFinite(Number(r)) ? Number(r) : 0,
+              },
+            },
+          },
+        }),
+      }).catch((err) => console.warn('[Location] Entity move persist failed:', err));
     },
 
     /**
@@ -7402,6 +7941,7 @@ import { SpriteService } from './SpriteService.js';
         if (this.uiManager.loadActiveRoomView) {
           this.uiManager.loadActiveRoomView(roomId, { force: true });
         }
+        this.uiManager.prefetchConnectedRoomContext?.();
       }
 
       // Display room banner with scene description.
@@ -8282,23 +8822,19 @@ import { SpriteService } from './SpriteService.js';
           const offsets = [{ q: 1, r: 0 }, { q: -1, r: 0 }, { q: 0, r: 1 }, { q: 0, r: -1 }, { q: 1, r: -1 }, { q: -1, r: 1 }];
           npcEntities.forEach((npc, i) => {
             const offset = offsets[i % offsets.length];
+            const npcQ = destQ + offset.q;
+            const npcR = destR + offset.r;
             npc.placement = {
               room_id: nextRoomId,
-              hex: { q: destQ + offset.q, r: destR + offset.r },
+              hex: { q: npcQ, r: npcR },
             };
+            this.persistLaunchLocationContext(nextRoomId, npcQ, npcR, npc.instance_id || npc.entity_instance_id || null);
           });
 
-          // Persist entity position to server.
-          const campaignId = this.resolveCampaignId();
-          if (campaignId && entityRef) {
-            fetch(`/api/campaign/${campaignId}/entity/${entityRef}/move`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-              body: JSON.stringify({ room_id: nextRoomId, q: Number(nextHex?.q || 0), r: Number(nextHex?.r || 0) }),
-            }).catch(err => console.warn('Entity move persist failed:', err));
-          }
         }
       }
+
+      this.persistLaunchLocationContext(nextRoomId, Number(nextHex?.q || 0), Number(nextHex?.r || 0), selectedEntity?.dcEntityRef || null);
 
       // Deselect current entity before switching rooms (will be re-selected after render).
       if (selectedEntity) {
@@ -8306,6 +8842,7 @@ import { SpriteService } from './SpriteService.js';
       }
 
       this.setActiveRoom(nextRoomId);
+      this.updateLaunchLocationContext(nextRoomId, Number(nextHex?.q || 0), Number(nextHex?.r || 0));
 
       const destinationHex = this.findHexByCoords(Number(nextHex?.q), Number(nextHex?.r));
       if (destinationHex) {
@@ -8516,6 +9053,132 @@ import { SpriteService } from './SpriteService.js';
 
     ,
 
+    resolveLaunchCharacterRuntimeContext: function () {
+      const selectedEntity = this.stateManager?.get('selectedEntity');
+      const selectedCharacterId = Number(selectedEntity?.dcCharacterId || selectedEntity?.dcStatePayload?.metadata?.character_id || 0);
+      const launchCharacterId = this.resolveLaunchCharacterStateId();
+      const selectedInstanceId = selectedEntity?.dcEntityRef || selectedEntity?.dcEntityInstanceId || null;
+      return {
+        campaignId: Number(this.launchContext?.campaign_id || 0) || null,
+        instanceId: launchCharacterId > 0 && selectedCharacterId === launchCharacterId ? selectedInstanceId : (this.launchCharacter?.instanceId || null),
+      };
+    }
+
+    ,
+
+    syncLaunchCharacterRuntimeFromEntity: function (entity) {
+      if (!entity || !this.launchCharacter || !this.uiManager) {
+        return;
+      }
+
+      const launchCharacterId = this.resolveLaunchCharacterStateId();
+      const entityCharacterId = Number(entity?.dcCharacterId || entity?.dcStatePayload?.metadata?.character_id || 0);
+      if (launchCharacterId <= 0 || entityCharacterId !== launchCharacterId) {
+        return;
+      }
+
+      const nextResources = extractRuntimeResourcesFromEntityState(
+        entity?.dcStatePayload,
+        this.launchCharacter?.resources || {}
+      );
+      if (!nextResources) {
+        return;
+      }
+
+      this.launchCharacter = {
+        ...this.launchCharacter,
+        resources: nextResources,
+        instanceId: this.launchCharacter?.instanceId || entity?.dcEntityRef || null,
+      };
+      this.characterData = this.launchCharacter;
+      this.uiManager.showLaunchCharacter(this.launchCharacter);
+    }
+
+    ,
+
+    applySuccessfulSpellCast: function (entity, result, spellParams = {}) {
+      if (!this.launchCharacter || !this.uiManager) {
+        return;
+      }
+
+      const launchCharacterId = this.resolveLaunchCharacterStateId();
+      const entityCharacterId = Number(entity?.dcCharacterId || entity?.dcStatePayload?.metadata?.character_id || 0);
+      if (launchCharacterId <= 0 || entityCharacterId !== launchCharacterId) {
+        return;
+      }
+
+      const castResult = (result && typeof result.result === 'object')
+        ? result.result
+        : ((result && typeof result.action_result === 'object') ? result.action_result : (result || {}));
+      const isFocusSpell = Boolean(castResult.is_focus_spell ?? spellParams.is_focus_spell);
+      const slotRank = Number(
+        castResult.cast_at_level ??
+        spellParams.cast_at_level ??
+        castResult.spell_level ??
+        spellParams.spell_level ??
+        0
+      );
+
+      const nextResources = {
+        ...(this.launchCharacter?.resources || {}),
+        spellSlots: normalizeDisplayedSpellSlots(
+          this.launchCharacter?.resources?.spellSlots,
+          this.launchCharacter?.spells?.slots
+        ),
+      };
+
+      if (isFocusSpell) {
+        const currentFocus = Number(nextResources.focusPoints?.current ?? nextResources.focusPoints?.max ?? 0);
+        const maxFocus = Number(nextResources.focusPoints?.max ?? currentFocus);
+        nextResources.focusPoints = {
+          current: Math.max(0, currentFocus - 1),
+          max: Math.max(0, maxFocus),
+        };
+      } else if (slotRank > 0) {
+        const slotKey = String(slotRank);
+        const currentSlot = nextResources.spellSlots?.[slotKey] || { current: 0, max: 0 };
+        nextResources.spellSlots = {
+          ...(nextResources.spellSlots || {}),
+          [slotKey]: {
+            current: Math.max(0, Number(currentSlot.current ?? currentSlot.max ?? 0) - 1),
+            max: Math.max(0, Number(currentSlot.max ?? currentSlot.current ?? 0)),
+          },
+        };
+      }
+
+      if (entity?.dcStatePayload && typeof entity.dcStatePayload === 'object') {
+        const payload = entity.dcStatePayload;
+        const nestedState = payload.state && typeof payload.state === 'object' ? payload.state : null;
+        const slotSource = (payload.spell_slots && typeof payload.spell_slots === 'object')
+          ? payload.spell_slots
+          : ((nestedState?.spell_slots && typeof nestedState.spell_slots === 'object') ? nestedState.spell_slots : null);
+        if (isFocusSpell) {
+          if (payload.focus_points != null) {
+            payload.focus_points = Math.max(0, Number(payload.focus_points) - 1);
+          } else if (nestedState?.focus_points != null) {
+            nestedState.focus_points = Math.max(0, Number(nestedState.focus_points) - 1);
+          }
+        } else if (slotSource && slotRank > 0) {
+          const slotKey = String(slotRank);
+          const slotState = slotSource[slotKey] || { max: 0, used: 0 };
+          slotSource[slotKey] = {
+            ...slotState,
+            used: Math.max(0, Number(slotState.used ?? 0) + 1),
+          };
+        }
+      }
+
+      this.launchCharacter = {
+        ...this.launchCharacter,
+        resources: nextResources,
+        instanceId: this.launchCharacter?.instanceId || entity?.dcEntityRef || null,
+      };
+      this.characterData = this.launchCharacter;
+      this.uiManager.showLaunchCharacter(this.launchCharacter);
+    }
+
+    ,
+
     hydrateLaunchCharacterSheet: function () {
       if (!this.uiManager) {
         return;
@@ -8597,7 +9260,15 @@ import { SpriteService } from './SpriteService.js';
         return;
       }
 
-      const url = `/api/character/${characterId}/state`;
+      const runtimeContext = this.resolveLaunchCharacterRuntimeContext();
+      const query = new URLSearchParams();
+      if (runtimeContext.campaignId) {
+        query.set('campaignId', String(runtimeContext.campaignId));
+      }
+      if (runtimeContext.instanceId) {
+        query.set('instanceId', runtimeContext.instanceId);
+      }
+      const url = `/api/character/${characterId}/state${query.toString() ? `?${query.toString()}` : ''}`;
       
       fetch(url)
         .then(response => {
@@ -8615,6 +9286,7 @@ import { SpriteService } from './SpriteService.js';
             };
             this.characterData = this.launchCharacter;
             this.uiManager.showLaunchCharacter(this.launchCharacter);
+            this.syncLaunchCharacterRuntimeFromEntity(this.stateManager?.get('selectedEntity'));
           }
         })
         .catch(error => {

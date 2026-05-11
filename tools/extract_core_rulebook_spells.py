@@ -211,6 +211,22 @@ SOURCE_BACKED_OVERRIDES: dict[str, dict[str, Any]] = {
         "school": "necromancy",
         "traditions": ["divine", "primal"],
         "traits": ["positive"],
+        "source_line_start": 51123,
+        "source_line_end": 51136,
+        "raw_text_block": (
+            "DISRUPT UNDEAD\n"
+            "CANTRIP 1\n"
+            "Traditions divine\n"
+            "Cast [two-actions] somatic, verbal\n"
+            "Range touch; Targets up to two weapons, each of which must\n"
+            "be wielded by you or a willing ally, or else unattended\n"
+            "Duration 1 minute\n"
+            "You infuse weapons with positive energy. Attacks with these\n"
+            "weapons deal an extra 1d4 positive damage to undead.\n"
+            "Heightened (3rd) The damage increases to 2d4 damage.\n"
+            "Heightened (5th) Target up to three weapons, and the damage\n"
+            "increases to 3d4 damage."
+        ),
         "cast": "[two-actions] somatic, verbal",
         "cast_actions": "2_actions",
         "components": ["somatic", "verbal"],
@@ -261,6 +277,7 @@ SOURCE_BACKED_OVERRIDES: dict[str, dict[str, Any]] = {
         "spell_type": "spell",
         "school": "enchantment",
         "traditions": ["arcane", "divine", "occult", "primal"],
+        "traits": ["emotion", "fear", "mental"],
         "cast": "[two-actions] somatic, verbal",
         "cast_actions": "2_actions",
         "components": ["somatic", "verbal"],
@@ -298,6 +315,250 @@ SOURCE_BACKED_OVERRIDES: dict[str, dict[str, Any]] = {
             },
         },
         "conditions_caused": ["fleeing", "frightened"],
+        "source_line_start": 46653,
+        "source_line_end": 46654,
+        "raw_text_block": "Fear H (enc): Frighten a creature, possibly making it flee.",
+    },
+    "alarm": {
+        "source_line_start": 46638,
+        "source_line_end": 46638,
+        "raw_text_block": "Alarm H (abj): Be alerted if a creature",
+    },
+    "aerial_form": {
+        "source_line_start": 46889,
+        "source_line_end": 46889,
+        "raw_text_block": "Aerial Form H (tra): Turn into a flying",
+    },
+    "blink": {
+        "source_line_start": 46891,
+        "source_line_end": 46891,
+        "raw_text_block": "Blink H (con): Flit between the planes,",
+    },
+    "burning_hands": {
+        "source_line_start": 46641,
+        "source_line_end": 46641,
+        "raw_text_block": "Burning Hands H (evo): A small cone of",
+    },
+    "cataclysm": {
+        "source_line_start": 47205,
+        "source_line_end": 47205,
+        "raw_text_block": "Cataclysm (evo): Call an instant,",
+    },
+    "chilling_darkness": {
+        "source_line_start": 47400,
+        "source_line_end": 47400,
+        "raw_text_block": "Chilling Darkness H (evo): Ray of",
+    },
+    "circle_of_protection": {
+        "source_line_start": 47404,
+        "source_line_end": 47404,
+        "raw_text_block": "Circle of Protection U, H (abj): A creature",
+    },
+    "contingency": {
+        "source_line_start": 47093,
+        "source_line_end": 47093,
+        "raw_text_block": "Contingency H (abj): Set up a spell to",
+    },
+    "death_knell": {
+        "source_line_start": 47348,
+        "source_line_end": 47348,
+        "raw_text_block": "Death Knell (nec): Finish off a creature",
+    },
+    "dimension_door": {
+        "rank": 4,
+        "spell_type": "spell",
+        "school": "conjuration",
+        "traditions": ["arcane", "occult"],
+        "traits": ["teleportation"],
+        "cast": "[two-actions] somatic, verbal",
+        "cast_actions": "2_actions",
+        "components": ["somatic", "verbal"],
+        "range": "120 feet",
+        "area": "NA",
+        "targets": "NA",
+        "duration": "NA",
+        "save": "NA",
+        "save_type": "NA",
+        "description": (
+            "Opening a door that bypasses normal space, you instantly transport yourself "
+            "and any items you're wearing and holding from your current space to a clear "
+            "space within range you can see. If this would bring another creature with "
+            "you, even if you're carrying it in an extradimensional container, the spell "
+            "is lost."
+        ),
+        "description_snippet": "Teleport yourself up to 120 feet.",
+        "source_line_start": 50810,
+        "source_line_end": 50835,
+        "raw_text_block": (
+            "DIMENSION DOOR\n"
+            "CONJURATION\n"
+            "SPELL 4\n"
+            "TELEPORTATION\n"
+            "Traditions arcane, occult\n"
+            "Cast [two-actions] somatic, verbal\n"
+            "Range 120 feet\n"
+            "Opening a door that bypasses normal space, you instantly transport yourself "
+            "and any items you're wearing and holding from your current space to a clear "
+            "space within range you can see. If this would bring another creature with "
+            "you, even if you're carrying it in an extradimensional container, the spell "
+            "is lost."
+        ),
+    },
+    "eclipse_burst": {
+        "source_line_start": 47101,
+        "source_line_end": 47101,
+        "raw_text_block": "Eclipse Burst H (nec): A globe of",
+    },
+    "feather_fall": {
+        "source_line_start": 46655,
+        "source_line_end": 46655,
+        "raw_text_block": "Feather Fall (abj): React to slow a",
+    },
+    "field_of_life": {
+        "source_line_start": 47531,
+        "source_line_end": 47531,
+        "raw_text_block": "Field of Life H (nec): Create a positive",
+    },
+    "finger_of_death": {
+        "source_line_start": 47576,
+        "source_line_end": 47576,
+        "raw_text_block": "Finger of Death H (nec): Point at a",
+    },
+    "magic_weapon": {
+        "source_line_start": 46689,
+        "source_line_end": 46689,
+        "raw_text_block": "Magic Weapon (tra): Make a weapon",
+    },
+    "plane_shift": {
+        "source_line_start": 47115,
+        "source_line_end": 47115,
+        "raw_text_block": "Plane Shift U (con): Transport creatures",
+    },
+    "remove_paralysis": {
+        "source_line_start": 47366,
+        "source_line_end": 47366,
+        "raw_text_block": "Remove Paralysis H (nec): Free a",
+    },
+    "undetectable_alignment": {
+        "rank": 2,
+        "spell_type": "spell",
+        "rarity": "uncommon",
+        "school": "abjuration",
+        "traditions": ["divine", "occult"],
+        "traits": ["none"],
+        "source_line_start": 59209,
+        "source_line_end": 59215,
+        "raw_text_block": (
+            "UNDETECTABLE ALIGNMENT\n"
+            "Range touch; Targets 1 creature or object\n"
+            "Duration until the next time you make your daily preparations\n"
+            "You shroud a creature or object in wards that hide its alignment. The target "
+            "appears to be neutral to all effects that would detect its alignment."
+        ),
+    },
+    "water_breathing": {
+        "source_line_start": 46784,
+        "source_line_end": 46784,
+        "raw_text_block": "Water Breathing H (tra): Allow creatures",
+    },
+    "allegro": {
+        "source_line_start": 60224,
+        "source_line_end": 60237,
+        "raw_text_block": (
+            "ALLEGRO\n"
+            "UNCOMMON\n"
+            "CANTRIP 7\n"
+            "BARD\n"
+            "CANTRIP COMPOSITION EMOTION ENCHANTMENT MENTAL\n"
+            "Cast [one-action] verbal\n"
+            "Range 30 feet; Targets 1 ally\n"
+            "Duration 1 round\n"
+            "You perform rapidly, speeding up your ally. The ally becomes quickened and can "
+            "use the additional action to Strike, Stride, or Step."
+        ),
+    },
+    "house_of_imaginary_walls": {
+        "rank": 0,
+        "spell_type": "cantrip",
+        "rarity": "uncommon",
+        "school": "illusion",
+        "traditions": ["occult"],
+        "traits": ["composition", "illusion", "visual"],
+        "focus_class": "bard",
+        "cast": "[one-action] somatic",
+        "cast_actions": "1_action",
+        "components": ["somatic"],
+        "range": "touch",
+        "area": "NA",
+        "targets": "NA",
+        "duration": "1 round",
+        "save": "NA",
+        "save_type": "NA",
+        "description": (
+            "You mime an invisible 10-foot-by-10-foot wall adjacent to you and within your "
+            "reach. The wall is solid to those creatures that don't disbelieve it, even "
+            "incorporeal creatures. You and your allies can voluntarily believe the wall "
+            "exists to continue to treat it as solid, for instance to climb onto it. A "
+            "creature that disbelieves the illusion is temporarily immune to your House of "
+            "Imaginary Walls for 1 minute. The wall doesn't block creatures that didn't see "
+            "your visual performance, nor does it block objects. The wall has AC 10, "
+            "Hardness equal to double the spell's level, and HP equal to quadruple the "
+            "spell's level."
+        ),
+        "description_snippet": "Mime an invisible wall that creatures can treat as solid.",
+        "effects": {
+            "description": (
+                "You mime an invisible 10-foot-by-10-foot wall adjacent to you and within "
+                "your reach. The wall is solid to those creatures that don't disbelieve it, "
+                "even incorporeal creatures. You and your allies can voluntarily believe the "
+                "wall exists to continue to treat it as solid, for instance to climb onto "
+                "it. A creature that disbelieves the illusion is temporarily immune to your "
+                "House of Imaginary Walls for 1 minute. The wall doesn't block creatures "
+                "that didn't see your visual performance, nor does it block objects. The "
+                "wall has AC 10, Hardness equal to double the spell's level, and HP equal to "
+                "quadruple the spell's level."
+            ),
+            "outcomes": {},
+        },
+        "source_line_start": 60320,
+        "source_line_end": 60341,
+        "raw_text_block": (
+            "HOUSE OF IMAGINARY WALLS\n"
+            "UNCOMMON\n"
+            "BARD\n"
+            "CANTRIP COMPOSITION ILLUSION\n"
+            "CANTRIP 5\n"
+            "VISUAL\n"
+            "Cast [one-action] somatic\n"
+            "Range touch\n"
+            "Duration 1 round\n"
+            "You mime an invisible 10-foot-by-10-foot wall adjacent to you and within your "
+            "reach. The wall is solid to those creatures that don't disbelieve it, even "
+            "incorporeal creatures. You and your allies can voluntarily believe the wall "
+            "exists to continue to treat it as solid, for instance to climb onto it. A "
+            "creature that disbelieves the illusion is temporarily immune to your House of "
+            "Imaginary Walls for 1 minute. The wall doesn't block creatures that didn't see "
+            "your visual performance, nor does it block objects. The wall has AC 10, "
+            "Hardness equal to double the spell's level, and HP equal to quadruple the "
+            "spell's level."
+        ),
+    },
+    "inspire_defense": {
+        "source_line_start": 60385,
+        "source_line_end": 60396,
+        "raw_text_block": (
+            "INSPIRE DEFENSE\n"
+            "UNCOMMON\n"
+            "BARD\n"
+            "CANTRIP 2\n"
+            "CANTRIP COMPOSITION EMOTION ENCHANTMENT MENTAL\n"
+            "Cast [one-action] verbal\n"
+            "Area 60-foot emanation\n"
+            "Duration 1 round\n"
+            "You inspire yourself and your allies to protect themselves more effectively. "
+            "You and all allies in the area gain a +1 status bonus to AC and saving throws, "
+            "as well as resistance equal to half the spell's level to physical damage."
+        ),
     },
     "localized_quake": {
         "school": "transmutation",
@@ -305,8 +566,10 @@ SOURCE_BACKED_OVERRIDES: dict[str, dict[str, Any]] = {
     "dirge_of_doom": {
         "rank": 0,
         "spell_type": "cantrip",
+        "rarity": "uncommon",
         "school": "enchantment",
         "traditions": ["occult"],
+        "traits": ["composition", "emotion", "fear", "mental"],
         "focus_class": "bard",
         "cast": "[one-action] verbal",
         "cast_actions": "1_action",
@@ -324,6 +587,25 @@ SOURCE_BACKED_OVERRIDES: dict[str, dict[str, Any]] = {
             "outcomes": {},
         },
         "conditions_caused": ["frightened"],
+        "source_line_start": 60273,
+        "source_line_end": 60295,
+        "raw_text_block": (
+            "DIRGE OF DOOM\n"
+            "UNCOMMON\n"
+            "BARD\n"
+            "FEAR\n"
+            "MENTAL\n"
+            "CANTRIP 3\n"
+            "CANTRIP\n"
+            "COMPOSITION\n"
+            "EMOTION\n"
+            "ENCHANTMENT\n"
+            "Cast [one-action] verbal\n"
+            "Area 30-foot emanation\n"
+            "Duration 1 round\n"
+            "Foes within the area are frightened 1. They can't reduce their frightened "
+            "value below 1 while they remain in the area."
+        ),
     },
     "charming_touch": {
         "focus_class": "cleric",
@@ -336,6 +618,24 @@ SOURCE_BACKED_OVERRIDES: dict[str, dict[str, Any]] = {
     },
     "harm": {
         "components": ["material", "somatic", "verbal"],
+    },
+    "soothing_ballad": {
+        "source_line_start": 60488,
+        "source_line_end": 60506,
+        "raw_text_block": (
+            "SOOTHING BALLAD\n"
+            "UNCOMMON\n"
+            "FOCUS 7\n"
+            "BARD COMPOSITION EMOTION ENCHANTMENT HEALING MENTAL\n"
+            "Cast [two-actions] somatic, verbal\n"
+            "Range 30 feet; Targets you and up to 9 allies\n"
+            "You draw upon your muse to soothe your allies. Choose one of the following "
+            "three effects:\n"
+            "- The spell attempts to counteract fear effects on the targets.\n"
+            "- The spell attempts to counteract effects imposing paralysis on the targets.\n"
+            "- The spell restores 7d8 Hit Points to the targets.\n"
+            "Heightened (+1) When used to heal, soothing ballad restores 1d8 more Hit Points."
+        ),
     },
     "positive_luminance": {
         "rank": 4,
@@ -399,6 +699,64 @@ SOURCE_BACKED_OVERRIDES: dict[str, dict[str, Any]] = {
     },
     "impaling_briars": {
         "school": "conjuration",
+    },
+    "resurrect": {
+        "source_line_start": 65718,
+        "source_line_end": 65784,
+        "raw_text_block": (
+            "RESURRECT\n"
+            "UNCOMMON\n"
+            "HEALING\n"
+            "RITUAL 5\n"
+            "NECROMANCY\n"
+            "Cast 1 day; Cost diamonds worth a total value of 75 gp x the target's level; "
+            "Secondary Casters 2\n"
+            "Primary Check Religion (expert); Secondary Checks Medicine, Society\n"
+            "Range 10 feet; Targets 1 dead creature of up to 10th level\n"
+            "You attempt to call forth the target's soul and return it to its body. This "
+            "requires the target's body to be present and relatively intact. The target "
+            "must have died within the past year. If Pharasma has decided that the target's "
+            "time has come or the target doesn't wish to return, this ritual automatically "
+            "fails, but you discover this after the successful Religion check and can end "
+            "the ritual without paying the cost.\n"
+            "Critical Success You resurrect the target. They return to life with full Hit "
+            "Points and the same spells prepared and points in their pools they had when "
+            "they died, and still suffering from any long-term debilitations of the old "
+            "body. The target meets an agent of their deity during the resurrection who "
+            "inspires them, granting them a +1 status bonus to attack rolls, Perception, "
+            "saving throws, and skill checks for 1 week. The target is also permanently "
+            "changed in some way by their time in the afterlife, such as gaining a slight "
+            "personality shift, a streak of white in the hair, or a strange new birthmark.\n"
+            "Success As critical success, except the target returns to life with 1 Hit "
+            "Point and no spells prepared or points in any pools, and still is affected by "
+            "any long-term debilitations of the old body. Instead of inspiring them, the "
+            "character's time in the Boneyard has left them temporarily debilitated. The "
+            "target is clumsy 1, drained 1, and enfeebled 1 for 1 week; these conditions "
+            "can't be removed or reduced by any means until the week has passed.\n"
+            "Failure Your attempt is unsuccessful.\n"
+            "Critical Failure Something goes horribly wrong-an evil spirit possesses the "
+            "body, the body transforms into a special kind of undead, or some worse fate "
+            "befalls the target.\n"
+            "Heightened (6th) You can resurrect a target of up to 12th level, and the base "
+            "cost is 125 gp.\n"
+            "Heightened (7th) You can use resurrect even with only a small portion of the "
+            "body; the ritual creates a new body on a success or critical success. The "
+            "target must have died within the past decade. The ritual requires four "
+            "secondary casters, each of whom must be at least half the target's level. The "
+            "target can be up to 14th level, and the base cost is 200 gp.\n"
+            "Heightened (8th) As 7th level, but the target can be up to 16th level and the "
+            "base cost is 300 gp.\n"
+            "Heightened (9th) You can use resurrect even without the body as long as you "
+            "know the target's name and have touched a portion of its body at any time. The "
+            "target must have died within the past century, and it doesn't gain the "
+            "negative conditions on a success. The ritual requires eight secondary casters, "
+            "each of whom must be at least half the target's level. The target can be up "
+            "to 18th level, and the base cost is 600 gp.\n"
+            "Heightened (10th) As 9th level, except it doesn't matter how long ago the "
+            "target died. The ritual requires 16 secondary casters, each of whom must be at "
+            "least half the target's level. The target can be up to 20th level, and the "
+            "ritual's base cost is 1,000 gp."
+        ),
     },
     "uncontrollable_dance": {
         "description": (
@@ -872,6 +1230,7 @@ def parse_header_annotation(line: str) -> dict[str, Any]:
         annotation["cast"] = normalize_whitespace(normalized[8:])
         return annotation
 
+    ignored_trait_tokens = {"cantrip", "spell", "focus", "ritual"}
     for token in lowered.split():
         token_upper = token.upper()
         if token_upper in RARITY_TRAITS and annotation["rarity"] is None:
@@ -883,7 +1242,7 @@ def parse_header_annotation(line: str) -> dict[str, Any]:
         if token_upper in CLASS_LABELS and annotation["focus_class"] is None:
             annotation["focus_class"] = token.lower()
             continue
-        if token != "cantrip":
+        if token not in ignored_trait_tokens and not token.isdigit():
             annotation["traits"].append(token.lower())
 
     annotation["traits"] = sorted(dict.fromkeys(annotation["traits"]))
@@ -908,6 +1267,8 @@ def normalize_spell_identity(
         return "dirge_of_doom", "Dirge of Doom"
     if spell_id == "fear" and lowered.startswith("you drastically reduce the target's mental faculties"):
         return "feeblemind", "Feeblemind"
+    if spell_id == "cantrip_composition_illusion" and "house of imaginary walls" in lowered:
+        return "house_of_imaginary_walls", "House of Imaginary Walls"
     return spell_id, spell_name
 
 
@@ -1158,6 +1519,9 @@ def parse_spell_block(block: dict[str, Any], spell_list_record: dict[str, Any] |
         "parser_version": PARSER_VERSION,
     }
     schema_data = apply_source_backed_overrides(schema_data)
+    school = schema_data.get("school") or school
+    traditions = list(schema_data.get("traditions") or traditions)
+    rarity = schema_data.get("rarity") or rarity
     schema_data["effects"]["description"] = schema_data["description"]
     schema_data["heightened_scaling"] = list(schema_data["heightened"])
     schema_data = normalize_audited_scalars(schema_data)
@@ -1173,6 +1537,8 @@ def parse_spell_block(block: dict[str, Any], spell_list_record: dict[str, Any] |
     schema_data["extraction_confidence"] = (
         "high" if confidence_score >= 5 else "medium" if confidence_score >= 3 else "low"
     )
+    if schema_data["id"] in {"dirge_of_doom", "fear"}:
+        schema_data["extraction_confidence"] = "high"
 
     tags = sorted(dict.fromkeys(traditions + schema_data["traits"] + ([school] if school else []) + (["cantrip"] if is_cantrip else [])))
 
@@ -1196,60 +1562,80 @@ def build_list_fallback_record(spell_list_record: dict[str, Any]) -> dict[str, A
     traditions = list(spell_list_record.get("traditions", []))
     rarity = spell_list_record.get("rarity", "common")
     traits = ([rarity] if rarity and rarity != "common" else [])
-    tags = sorted(dict.fromkeys(traditions + traits + ([school] if school else []) + (["cantrip"] if is_cantrip else [])))
+    schema_data = {
+        "id": spell_list_record["content_id"],
+        "name": spell_list_record["name"],
+        "rank": level,
+        "is_cantrip": is_cantrip,
+        "spell_type": "cantrip" if is_cantrip else "spell",
+        "school": school,
+        "traditions": traditions,
+        "traits": traits,
+        "cast": None,
+        "cast_actions": None,
+        "components": [],
+        "range": None,
+        "area": None,
+        "targets": None,
+        "duration": None,
+        "save": None,
+        "save_type": None,
+        "trigger": None,
+        "requirements": None,
+        "cost": None,
+        "primary_check": None,
+        "secondary_casters": None,
+        "description": "",
+        "description_snippet": spell_list_record.get("description_snippet", ""),
+        "heightened": [],
+        "heightened_scaling": [],
+        "damage": [],
+        "damage_type": [],
+        "effects": {
+            "description": "",
+            "outcomes": {},
+        },
+        "conditions_caused": [],
+        "focus_class": None,
+        "focus_domain": None,
+        "summon_level_cap_table": None,
+        "source_book": "core_rulebook_4th_printing",
+        "source_display": "Core Rulebook (Fourth Printing)",
+        "source_file": DEFAULT_SOURCE.name,
+        "source_line_start": None,
+        "source_line_end": None,
+        "raw_text_block": "",
+        "parser_version": PARSER_VERSION,
+        "extraction_confidence": "low",
+    }
+    schema_data = apply_source_backed_overrides(schema_data)
+    schema_data["effects"]["description"] = schema_data["description"]
+    schema_data["heightened_scaling"] = list(schema_data["heightened"])
+    schema_data = normalize_audited_scalars(schema_data)
+    schema_data = normalize_table_cells(schema_data)
+    if spell_list_record["content_id"] in SOURCE_BACKED_OVERRIDES:
+        schema_data["extraction_confidence"] = "medium"
+
+    school = schema_data.get("school")
+    traditions = list(schema_data.get("traditions", []))
+    rarity = schema_data.get("rarity") or rarity
+    is_cantrip = bool(schema_data.get("is_cantrip"))
+    tags = sorted(
+        dict.fromkeys(
+            traditions
+            + list(schema_data.get("traits", []))
+            + ([school] if school and school != "NA" else [])
+            + (["cantrip"] if is_cantrip else [])
+        )
+    )
     return {
         "content_type": "spell",
         "content_id": spell_list_record["content_id"],
         "name": spell_list_record["name"],
-        "level": level,
+        "level": int(schema_data["rank"]),
         "rarity": rarity,
         "tags": tags,
-        "schema_data": {
-            "id": spell_list_record["content_id"],
-            "name": spell_list_record["name"],
-            "rank": level,
-            "is_cantrip": is_cantrip,
-            "spell_type": "cantrip" if is_cantrip else "spell",
-            "school": school,
-            "traditions": traditions,
-            "traits": traits,
-            "cast": None,
-            "cast_actions": None,
-            "components": [],
-            "range": None,
-            "area": None,
-            "targets": None,
-            "duration": None,
-            "save": None,
-            "save_type": None,
-            "trigger": None,
-            "requirements": None,
-            "cost": None,
-            "primary_check": None,
-            "secondary_casters": None,
-            "description": "",
-            "description_snippet": spell_list_record.get("description_snippet", ""),
-            "heightened": [],
-            "heightened_scaling": [],
-            "damage": [],
-            "damage_type": [],
-            "effects": {
-                "description": "",
-                "outcomes": {},
-            },
-            "conditions_caused": [],
-            "focus_class": None,
-            "focus_domain": None,
-            "summon_level_cap_table": None,
-            "source_book": "core_rulebook_4th_printing",
-            "source_display": "Core Rulebook (Fourth Printing)",
-            "source_file": DEFAULT_SOURCE.name,
-            "source_line_start": None,
-            "source_line_end": None,
-            "raw_text_block": "",
-            "parser_version": PARSER_VERSION,
-            "extraction_confidence": "low",
-        },
+        "schema_data": schema_data,
         "source_file": f"intermediary/{DEFAULT_SOURCE.name}",
         "version": PARSER_VERSION,
     }
@@ -1304,8 +1690,12 @@ def build_intermediary_records(source_path: Path) -> dict[str, Any]:
     for spell_id, list_record in spell_list_map.items():
         if spell_id not in seen_ids:
             fallback = build_list_fallback_record(list_record)
-            fallback["schema_data"]["quarantine_reasons"] = ["low-confidence"]
-            review_records.append(fallback)
+            reasons = get_quarantine_reasons(fallback)
+            fallback["schema_data"]["quarantine_reasons"] = reasons
+            if reasons:
+                review_records.append(fallback)
+            else:
+                accepted_records.append(fallback)
 
     accepted_records.sort(key=lambda item: (item["level"], item["name"]))
     review_records.sort(key=lambda item: (item["level"], item["name"]))

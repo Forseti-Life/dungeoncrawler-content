@@ -143,6 +143,7 @@ export class EncounterPhaseHandler {
       if (result?.success) {
         this._applyResult(result);
         this._syncTurnManagement(result);
+        this.hexmap.applySuccessfulSpellCast?.(selectedEntity, result, spellParams);
       }
       return result;
     } catch (err) {

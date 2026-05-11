@@ -4,7 +4,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from extract_core_rulebook_spells import parse_spell_block
+from extract_core_rulebook_spells import build_list_fallback_record, parse_spell_block
 
 
 class ExtractCoreRulebookSpellsTest(unittest.TestCase):
@@ -157,6 +157,81 @@ class ExtractCoreRulebookSpellsTest(unittest.TestCase):
         self.assertEqual("dirge_of_doom", record["content_id"])
         self.assertEqual(["occult"], schema["traditions"])
         self.assertEqual("bard", schema["focus_class"])
+
+    def test_house_of_imaginary_walls_is_remapped(self) -> None:
+        block = {
+            "name": "Cantrip Composition Illusion",
+            "content_id": "cantrip_composition_illusion",
+            "start_line": 1,
+            "end_line": 14,
+            "lines": [
+                "UNCOMMON",
+                "BARD",
+                "CANTRIP COMPOSITION ILLUSION",
+                "CANTRIP 5",
+                "VISUAL",
+                "Cast [one-action] somatic",
+                "Range touch",
+                "Duration 1 round",
+                "You mime an invisible 10-foot-by-10-foot wall adjacent to you and within your reach.",
+                "A creature that disbelieves the illusion is temporarily immune to your house of imaginary walls for 1 minute.",
+            ],
+        }
+
+        record = parse_spell_block(block, None)
+        schema = record["schema_data"]
+
+        self.assertEqual("house_of_imaginary_walls", record["content_id"])
+        self.assertEqual("House of Imaginary Walls", record["name"])
+        self.assertEqual("illusion", schema["school"])
+        self.assertEqual(["occult"], schema["traditions"])
+        self.assertEqual("bard", schema["focus_class"])
+
+    def test_mixed_rank_markers_do_not_leak_into_traits(self) -> None:
+        block = {
+            "name": "Feeblemind",
+            "content_id": "feeblemind",
+            "start_line": 1,
+            "end_line": 14,
+            "lines": [
+                "FEAR",
+                "MENTAL",
+                "SPELL 1",
+                "ABJURATION",
+                "Traditions arcane, primal",
+                "Cast [reaction] verbal",
+                "SPELL 6",
+                "Traditions arcane, occult",
+                "Cast [two-actions] somatic, verbal",
+                "Range 30 feet; Targets 1 creature",
+                "Saving Throw Will",
+                "You drastically reduce the target's mental faculties.",
+            ],
+        }
+
+        record = parse_spell_block(block, None)
+        schema = record["schema_data"]
+
+        self.assertEqual("feeblemind", record["content_id"])
+        self.assertEqual(["mental"], schema["traits"])
+
+    def test_list_fallback_override_adds_source_anchor(self) -> None:
+        record = build_list_fallback_record(
+            {
+                "content_id": "alarm",
+                "name": "Alarm",
+                "level": 1,
+                "school": "abjuration",
+                "traditions": ["arcane", "occult"],
+                "rarity": "common",
+                "description_snippet": "Be alerted if a creature",
+            }
+        )
+        schema = record["schema_data"]
+
+        self.assertEqual(46638, schema["source_line_start"])
+        self.assertEqual("Alarm H (abj): Be alerted if a creature", schema["raw_text_block"])
+        self.assertEqual("medium", schema["extraction_confidence"])
 
 
 if __name__ == "__main__":

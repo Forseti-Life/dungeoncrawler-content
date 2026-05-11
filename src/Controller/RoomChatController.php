@@ -138,10 +138,11 @@ class RoomChatController extends ControllerBase {
       $type = $payload['type'] ?? 'player';
       $character_id = isset($payload['character_id']) ? (int) $payload['character_id'] : null;
       $channel = $payload['channel'] ?? 'room';
+      $client_request_id = (string) ($payload['client_request_id'] ?? '');
       $stream = !empty($payload['stream']) && $channel === 'room' && $type === 'player';
 
       if ($stream) {
-        return $this->streamChatMessage($campaign_id, $room_id, $speaker, $message, $type, $character_id, $channel);
+        return $this->streamChatMessage($campaign_id, $room_id, $speaker, $message, $type, $character_id, $channel, $client_request_id);
       }
 
       $result = $this->chatService->postMessage(
@@ -156,7 +157,9 @@ class RoomChatController extends ControllerBase {
 
       return new JsonResponse([
         'success' => TRUE,
-        'data' => $result,
+        'data' => $result + [
+          'client_request_id' => $client_request_id,
+        ],
       ]);
     }
     catch (\InvalidArgumentException $e) {
@@ -184,9 +187,10 @@ class RoomChatController extends ControllerBase {
     string $message,
     string $type,
     ?int $character_id,
-    string $channel
+    string $channel,
+    string $client_request_id = ''
   ): StreamedResponse {
-    $response = new StreamedResponse(function () use ($campaign_id, $room_id, $speaker, $message, $type, $character_id, $channel): void {
+    $response = new StreamedResponse(function () use ($campaign_id, $room_id, $speaker, $message, $type, $character_id, $channel, $client_request_id): void {
       $emit = function (array $payload): void {
         echo json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n";
         if (function_exists('ob_flush')) {
@@ -202,6 +206,16 @@ class RoomChatController extends ControllerBase {
           'message' => $message,
           'type' => $type,
           'channel' => $channel,
+          'client_request_id' => $client_request_id,
+        ],
+      ]);
+
+      $emit([
+        'type' => 'thinking',
+        'data' => [
+          'message' => 'Game Master is thinking...',
+          'phase' => 'gathering-context',
+          'client_request_id' => $client_request_id,
         ],
       ]);
 
@@ -220,11 +234,21 @@ class RoomChatController extends ControllerBase {
         if (!empty($result['gm_response'])) {
           $emit([
             'type' => 'gm_response',
-            'data' => $result['gm_response'],
+            'data' => $result['gm_response'] + [
+              'client_request_id' => $client_request_id,
+            ],
           ]);
         }
 
         if (!empty($result['npc_interjections_deferred']) && !empty($result['gm_response']['message'])) {
+          $emit([
+            'type' => 'thinking',
+            'data' => [
+              'message' => 'Checking room reactions...',
+              'phase' => 'room-reactions',
+              'client_request_id' => $client_request_id,
+            ],
+          ]);
           $npc_interjections = $this->chatService->completeDeferredNpcInterjections(
             $campaign_id,
             $room_id,
@@ -246,7 +270,9 @@ class RoomChatController extends ControllerBase {
 
         $emit([
           'type' => 'complete',
-          'data' => $result,
+          'data' => $result + [
+            'client_request_id' => $client_request_id,
+          ],
         ]);
       }
       catch (\Throwable $e) {
