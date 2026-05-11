@@ -31,5 +31,10 @@ coverage/
 *.bak
 *.log
 
+# Python cache
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
 # OS
 Thumbs.db
