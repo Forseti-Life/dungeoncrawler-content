@@ -420,6 +420,9 @@ class RoomChatService {
       'npc_interjections_deferred' => $defer_npc_interjections && $channel === 'room' && $gm_response !== NULL,
       'total_messages' => count($dungeon_data['rooms'][$room_index]['chat']),
     ]);
+    if ($debug_trace !== NULL) {
+      $result['timing'] = $this->buildClientTimingSummary($debug_trace);
+    }
     if ($debug_trace !== NULL && $this->shouldExposeDebugTrace()) {
       $result['debug_trace'] = $debug_trace;
     }
@@ -600,6 +603,9 @@ class RoomChatService {
           $character_id,
           $latest_player_message
         );
+        if ($quest_prompt_context !== '') {
+          $quest_prompt_context = $this->truncateContextBlock($quest_prompt_context, 520, 0.75);
+        }
       }
 
       // Build session context scoped to this room so NPC conversations from
@@ -4029,6 +4035,34 @@ PROMPT;
   }
 
   /**
+   * Build a compact client-safe timing summary from the full debug trace.
+   */
+  protected function buildClientTimingSummary(array $trace): array {
+    $stages = is_array($trace['stages'] ?? NULL) ? $trace['stages'] : [];
+    $gm_stage = NULL;
+    $cache_stage = NULL;
+    foreach ($stages as $stage) {
+      if (!is_array($stage)) {
+        continue;
+      }
+      if ($gm_stage === NULL && in_array((string) ($stage['stage'] ?? ''), ['gm.total', 'generate_gm_reply'], TRUE)) {
+        $gm_stage = $stage;
+      }
+      if ($cache_stage === NULL && (string) ($stage['stage'] ?? '') === 'gm.response_cache') {
+        $cache_stage = $stage;
+      }
+    }
+
+    return [
+      'trace_id' => (string) ($trace['trace_id'] ?? ''),
+      'total_ms' => (int) round((float) ($trace['total_ms'] ?? 0)),
+      'gm_ms' => $gm_stage !== NULL ? (int) round((float) ($gm_stage['duration_ms'] ?? 0)) : NULL,
+      'cache_hit' => $cache_stage['meta']['cache_hit'] ?? $cache_stage['meta']['hit'] ?? NULL,
+      'stage_count' => count($stages),
+    ];
+  }
+
+  /**
    * Time and record a direct LLM call used by room chat.
    */
   protected function invokeTimedModelCall(
@@ -4210,10 +4244,10 @@ PROMPT;
 
     $scene_parts = [];
     if (!empty($room_meta['name'])) {
-      $scene_parts[] = 'Current room: ' . $room_meta['name'];
+      $scene_parts[] = 'Current room: ' . $this->truncateContextBlock((string) $room_meta['name'], 96, 0.85);
     }
     if (!empty($room_meta['description'])) {
-      $scene_parts[] = 'Room description: ' . $room_meta['description'];
+      $scene_parts[] = 'Room description: ' . $this->truncateContextBlock((string) $room_meta['description'], 240, 0.75);
     }
 
     $entities = $room_meta['entities'] ?? [];
@@ -4228,7 +4262,7 @@ PROMPT;
       }
     }
     if (!empty($entity_names)) {
-      $scene_parts[] = 'Beings/objects present: ' . implode(', ', $entity_names);
+      $scene_parts[] = 'Beings/objects present: ' . $this->truncateContextBlock(implode(', ', $entity_names), 260, 0.7);
     }
 
     $npc_names = [];
@@ -4258,16 +4292,16 @@ PROMPT;
         $motivations = trim((string) ($npc['profile']['motivations'] ?? ''));
         $description = trim((string) ($sheet['description'] ?? ''));
         if ($occupation !== '') {
-          $profile_parts[] = 'occupation: ' . $occupation;
+          $profile_parts[] = 'occupation: ' . $this->truncateContextBlock($occupation, 72, 0.9);
         }
         if ($attitude !== '') {
-          $profile_parts[] = 'attitude: ' . $attitude;
+          $profile_parts[] = 'attitude: ' . $this->truncateContextBlock($attitude, 72, 0.9);
         }
         if ($traits !== '') {
-          $profile_parts[] = 'traits: ' . $traits;
+          $profile_parts[] = 'traits: ' . $this->truncateContextBlock($traits, 96, 0.8);
         }
         if ($motivations !== '') {
-          $profile_parts[] = 'motivations: ' . $motivations;
+          $profile_parts[] = 'motivations: ' . $this->truncateContextBlock($motivations, 96, 0.8);
         }
         if ($description !== '') {
           $profile_parts[] = 'description: ' . $this->truncateContextBlock($description, 120, 0.8);
@@ -4282,10 +4316,18 @@ PROMPT;
       'scene_parts' => $scene_parts,
       'entity_count' => count($entities),
       'entity_summary_count' => count($entity_names),
-      'npc_roster_summary' => $npc_names !== [] ? 'People ready to answer in this room: ' . implode(', ', array_slice($npc_names, 0, 4)) . '.' : '',
-      'npc_profile_summary' => $npc_profile_lines !== [] ? "NPC profile notes for GM use:\n" . implode("\n", $npc_profile_lines) : '',
-      'merchant_summary' => $merchants !== [] ? 'Likely merchants or practical sellers here: ' . implode(', ', array_slice($merchants, 0, 3)) . '.' : '',
-      'quest_summary' => $quest_givers !== [] ? 'Likely quest or guidance contacts here: ' . implode(', ', array_slice($quest_givers, 0, 3)) . '.' : '',
+      'npc_roster_summary' => $npc_names !== []
+        ? $this->truncateContextBlock('People ready to answer in this room: ' . implode(', ', array_slice($npc_names, 0, 4)) . '.', 180, 0.85)
+        : '',
+      'npc_profile_summary' => $npc_profile_lines !== []
+        ? $this->truncateContextBlock("NPC profile notes for GM use:\n" . implode("\n", $npc_profile_lines), 520, 0.7)
+        : '',
+      'merchant_summary' => $merchants !== []
+        ? $this->truncateContextBlock('Likely merchants or practical sellers here: ' . implode(', ', array_slice($merchants, 0, 3)) . '.', 180, 0.85)
+        : '',
+      'quest_summary' => $quest_givers !== []
+        ? $this->truncateContextBlock('Likely quest or guidance contacts here: ' . implode(', ', array_slice($quest_givers, 0, 3)) . '.', 180, 0.85)
+        : '',
       'cache' => 'miss',
     ];
 
