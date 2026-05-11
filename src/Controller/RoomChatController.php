@@ -140,9 +140,30 @@ class RoomChatController extends ControllerBase {
       $channel = $payload['channel'] ?? 'room';
       $client_request_id = (string) ($payload['client_request_id'] ?? '');
       $stream = !empty($payload['stream']) && $channel === 'room' && $type === 'player';
+      $suppress_gm = !empty($payload['suppress_gm']) && $channel === 'room' && $type === 'player';
+      $continue_gm = !empty($payload['continue_gm']) && $channel === 'room';
+
+      if ($stream && $continue_gm) {
+        return $this->streamQueuedGmContinuation($campaign_id, $room_id, $character_id, $client_request_id);
+      }
 
       if ($stream) {
         return $this->streamChatMessage($campaign_id, $room_id, $speaker, $message, $type, $character_id, $channel, $client_request_id);
+      }
+
+      if ($continue_gm) {
+        $result = $this->chatService->continueQueuedRoomConversation(
+          $campaign_id,
+          $room_id,
+          $character_id
+        );
+
+        return new JsonResponse([
+          'success' => TRUE,
+          'data' => $result + [
+            'client_request_id' => $client_request_id,
+          ],
+        ]);
       }
 
       $result = $this->chatService->postMessage(
@@ -152,7 +173,9 @@ class RoomChatController extends ControllerBase {
         $message,
         $type,
         $character_id,
-        $channel
+        $channel,
+        FALSE,
+        $suppress_gm
       );
 
       return new JsonResponse([
@@ -228,7 +251,8 @@ class RoomChatController extends ControllerBase {
           $type,
           $character_id,
           $channel,
-          TRUE
+          TRUE,
+          FALSE
         );
 
         if (!empty($result['gm_response'])) {
@@ -253,6 +277,101 @@ class RoomChatController extends ControllerBase {
             $campaign_id,
             $room_id,
             $message,
+            (string) $result['gm_response']['message'],
+            $character_id
+          );
+
+          if (!empty($npc_interjections)) {
+            $result['npc_interjections'] = $npc_interjections;
+            foreach ($npc_interjections as $npc_message) {
+              $emit([
+                'type' => 'npc_interjection',
+                'data' => $npc_message,
+              ]);
+            }
+          }
+        }
+
+        $emit([
+          'type' => 'complete',
+          'data' => $result + [
+            'client_request_id' => $client_request_id,
+          ],
+        ]);
+      }
+      catch (\Throwable $e) {
+        $emit([
+          'type' => 'error',
+          'error' => $e instanceof \InvalidArgumentException ? $e->getMessage() : 'An error occurred',
+          'status' => $e instanceof \InvalidArgumentException ? ((int) $e->getCode() ?: 400) : 500,
+        ]);
+      }
+    });
+
+    $response->headers->set('Content-Type', 'application/x-ndjson');
+    $response->headers->set('Cache-Control', 'no-cache, no-store, must-revalidate');
+    $response->headers->set('X-Accel-Buffering', 'no');
+
+    return $response;
+  }
+
+  /**
+   * Stream a follow-up GM turn for queued player room messages.
+   */
+  protected function streamQueuedGmContinuation(
+    int $campaign_id,
+    string $room_id,
+    ?int $character_id,
+    string $client_request_id = ''
+  ): StreamedResponse {
+    $response = new StreamedResponse(function () use ($campaign_id, $room_id, $character_id, $client_request_id): void {
+      $emit = function (array $payload): void {
+        echo json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n";
+        if (function_exists('ob_flush')) {
+          @ob_flush();
+        }
+        flush();
+      };
+
+      $emit([
+        'type' => 'thinking',
+        'data' => [
+          'message' => 'Game Master is catching up...',
+          'phase' => 'queued-room-analysis',
+          'client_request_id' => $client_request_id,
+        ],
+      ]);
+
+      try {
+        $result = $this->chatService->continueQueuedRoomConversation(
+          $campaign_id,
+          $room_id,
+          $character_id,
+          TRUE
+        );
+
+        if (!empty($result['gm_response'])) {
+          $emit([
+            'type' => 'gm_response',
+            'data' => $result['gm_response'] + [
+              'client_request_id' => $client_request_id,
+            ],
+          ]);
+        }
+
+        if (!empty($result['npc_interjections_deferred']) && !empty($result['gm_response']['message'])) {
+          $emit([
+            'type' => 'thinking',
+            'data' => [
+              'message' => 'Checking room reactions...',
+              'phase' => 'room-reactions',
+              'client_request_id' => $client_request_id,
+            ],
+          ]);
+          $npc_interjections = $this->chatService->completeDeferredNpcInterjections(
+            $campaign_id,
+            $room_id,
+            (string) ($result['queued_player_summary'] ?? ''),
             (string) $result['gm_response']['message'],
             $character_id
           );

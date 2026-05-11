@@ -213,7 +213,7 @@ class ExtractCoreRulebookSpellsTest(unittest.TestCase):
         schema = record["schema_data"]
 
         self.assertEqual("feeblemind", record["content_id"])
-        self.assertEqual(["mental"], schema["traits"])
+        self.assertEqual(["curse", "incapacitation", "mental"], schema["traits"])
 
     def test_list_fallback_override_adds_source_anchor(self) -> None:
         record = build_list_fallback_record(
@@ -231,7 +231,83 @@ class ExtractCoreRulebookSpellsTest(unittest.TestCase):
 
         self.assertEqual(46638, schema["source_line_start"])
         self.assertEqual("Alarm H (abj): Be alerted if a creature", schema["raw_text_block"])
+        self.assertEqual("common", schema["rarity"])
+        self.assertEqual("none", schema["cast"])
+        self.assertEqual("none", schema["cast_actions"])
         self.assertEqual("medium", schema["extraction_confidence"])
+
+    def test_later_matching_rank_segment_is_selected(self) -> None:
+        block = {
+            "name": "Darkness",
+            "content_id": "darkness",
+            "start_line": 1,
+            "end_line": 20,
+            "lines": [
+                "DARKNESS",
+                "CANTRIP 1",
+                "LIGHT",
+                "Traditions arcane, occult, primal",
+                "Cast [two-actions] somatic, verbal",
+                "Range 120 feet",
+                "Duration sustained",
+                "You create up to four floating lights.",
+                "SPELL 2",
+                "EVOCATION",
+                "Traditions arcane, divine, occult, primal",
+                "Cast [three-actions] material, somatic, verbal",
+                "Range 120 feet; Area 20-foot burst",
+                "Duration 1 minute",
+                "Magical darkness spreads from a point you choose.",
+            ],
+        }
+
+        record = parse_spell_block(
+            block,
+            {
+                "content_id": "darkness",
+                "level": 2,
+                "school": "evocation",
+                "traditions": ["arcane", "divine", "occult", "primal"],
+                "rarity": "common",
+            },
+        )
+        schema = record["schema_data"]
+
+        self.assertEqual(2, schema["rank"])
+        self.assertEqual("common", schema["rarity"])
+        self.assertEqual("evocation", schema["school"])
+        self.assertIn("You create a shroud of darkness", schema["description"])
+
+    def test_focus_block_trims_at_next_rank_marker(self) -> None:
+        block = {
+            "name": "Ki Blast",
+            "content_id": "ki_blast",
+            "start_line": 1,
+            "end_line": 20,
+            "lines": [
+                "KI BLAST",
+                "UNCOMMON",
+                "FOCUS 3",
+                "EVOCATION",
+                "FORCE",
+                "Cast [two-actions] somatic, verbal",
+                "Area 15-foot cone",
+                "You unleash a cone of spiritual force.",
+                "FOCUS 1",
+                "MONK",
+                "TRANSMUTATION",
+                "Cast [two-actions] somatic, verbal",
+                "Duration 1 minute",
+                "You transform into another form.",
+            ],
+        }
+
+        record = parse_spell_block(block, None)
+        schema = record["schema_data"]
+
+        self.assertEqual(3, schema["rank"])
+        self.assertEqual("evocation", schema["school"])
+        self.assertIn("You unleash your ki as a powerful blast of force", schema["description"])
 
 
 if __name__ == "__main__":

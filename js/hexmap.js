@@ -333,7 +333,7 @@ import { SpriteService } from './SpriteService.js';
     if (!spells || typeof spells !== 'object') {
       return [];
     }
-    return Object.entries(spells)
+    const directGroups = Object.entries(spells)
       .map(([groupKey, groupSpells]) => {
         if (!Array.isArray(groupSpells) || groupSpells.length === 0) {
           return null;
@@ -351,6 +351,160 @@ import { SpriteService } from './SpriteService.js';
       })
       .filter(Boolean)
       .sort((a, b) => a.rank - b.rank);
+    if (directGroups.length > 0) {
+      return directGroups;
+    }
+
+    const grouped = new Map();
+    const appendSpells = (entries, fallbackRank = null) => {
+      if (!Array.isArray(entries) || entries.length === 0) {
+        return;
+      }
+      entries.forEach((entry) => {
+        const spell = entry && typeof entry === 'object' && entry.spell && typeof entry.spell === 'object'
+          ? entry.spell
+          : entry;
+        const rank = getSpellRankNumber(
+          spell?.rank
+          ?? spell?.level
+          ?? spell?.spell_level
+          ?? spell?.cast_at_level
+          ?? entry?.rank
+          ?? entry?.level
+          ?? fallbackRank
+        );
+        if (rank == null) {
+          return;
+        }
+        if (!grouped.has(rank)) {
+          grouped.set(rank, []);
+        }
+        grouped.get(rank).push(spell);
+      });
+    };
+
+    appendSpells(spells.cantrips, 0);
+    appendSpells(spells.focusSpells);
+    appendSpells(spells.preparedSpells);
+    appendSpells(spells.knownSpells);
+
+    return Array.from(grouped.entries())
+      .map(([rank, rankSpells]) => ({
+        rank,
+        label: formatSpellRankLabel(rank, { longForm: rank !== 0 }),
+        spells: rankSpells,
+      }))
+      .sort((a, b) => a.rank - b.rank);
+  }
+
+  function normalizeSpellcastingData(spells) {
+    if (!spells || typeof spells !== 'object') {
+      return {};
+    }
+    return {
+      ...spells,
+      tradition: spells.tradition || spells.spellcastingTradition || spells.spellcasting_tradition || '',
+      casting_ability: spells.casting_ability || spells.castingAbility || spells.key_ability || '',
+      slots: spells.slots || spells.spellSlots || spells.spell_slots || {},
+    };
+  }
+
+  function normalizeInventoryState(rawInventory, fallbackCurrency = {}) {
+    if (Array.isArray(rawInventory)) {
+      return {
+        carried: rawInventory,
+        worn: {},
+        currency: fallbackCurrency,
+        totalBulk: null,
+      };
+    }
+    if (!rawInventory || typeof rawInventory !== 'object') {
+      return {
+        carried: [],
+        worn: {},
+        currency: fallbackCurrency,
+        totalBulk: null,
+      };
+    }
+    return {
+      carried: Array.isArray(rawInventory.carried) ? rawInventory.carried : [],
+      worn: rawInventory.worn && typeof rawInventory.worn === 'object' ? rawInventory.worn : {},
+      currency: rawInventory.currency && typeof rawInventory.currency === 'object'
+        ? rawInventory.currency
+        : fallbackCurrency,
+      totalBulk: Number.isFinite(Number(rawInventory.totalBulk ?? rawInventory.total_bulk))
+        ? Number(rawInventory.totalBulk ?? rawInventory.total_bulk)
+        : null,
+    };
+  }
+
+  function normalizeSkillsList(skills) {
+    if (Array.isArray(skills)) {
+      return skills;
+    }
+    if (!skills || typeof skills !== 'object') {
+      return [];
+    }
+    return Object.entries(skills).map(([name, skillState]) => ({
+      name,
+      modifier: Number(skillState?.bonus ?? skillState?.modifier ?? 0),
+      proficiency: skillState?.proficiencyRank || skillState?.proficiency || '',
+    }));
+  }
+
+  function formatInventoryItemList(items) {
+    if (!Array.isArray(items) || items.length === 0) {
+      return '';
+    }
+    return items
+      .map((item) => {
+        const itemName = item?.name || item;
+        const itemId = item?.item_id || item?.id || '';
+        const qty = item?.quantity || 1;
+        const qtyLabel = qty > 1 ? ` x${qty}` : '';
+        const equipped = item?.equipped ? ' <span class="item-tag equipped">E</span>' : '';
+        const type = item?.type || item?.category || '';
+        const bulk = item?.bulk != null ? item.bulk : '';
+        const desc = item?.description || '';
+        return `<li data-item-id="${itemId}" data-type="${type}" data-qty="${qty}" data-bulk="${bulk}" data-desc="${String(desc).replace(/"/g, '&quot;')}">${itemName}${qtyLabel}${equipped}</li>`;
+      })
+      .join('');
+  }
+
+  function estimateInventoryBulk(items) {
+    if (!Array.isArray(items) || items.length === 0) {
+      return 0;
+    }
+    let total = 0;
+    items.forEach((item) => {
+      const qty = Math.max(1, Number(item?.quantity ?? 1));
+      const rawBulk = item?.bulk;
+      if (rawBulk == null || rawBulk === '') {
+        return;
+      }
+      if (typeof rawBulk === 'number') {
+        total += rawBulk * qty;
+        return;
+      }
+      const normalized = String(rawBulk).trim().toLowerCase();
+      if (normalized === 'l') {
+        total += 0.1 * qty;
+        return;
+      }
+      const numeric = Number(normalized);
+      if (Number.isFinite(numeric)) {
+        total += numeric * qty;
+      }
+    });
+    return total;
+  }
+
+  function formatBulkValue(value) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) {
+      return '0';
+    }
+    return Number.isInteger(numeric) ? String(numeric) : numeric.toFixed(1).replace(/\.0$/, '');
   }
 
   function extractRuntimeResourcesFromEntityState(statePayload, baseResources = {}) {
@@ -433,6 +587,8 @@ import { SpriteService } from './SpriteService.js';
       this.roomViewCacheTtlMs = 60000;
       this.roomViewRefreshCooldownMs = 2500;
       this.pendingChatRequests = new Map();
+      this.roomChatBusy = false;
+      this.roomChatDeferredMessages = [];
       // Channel state
       this.activeChannel = 'room';
       this.channels = { room: { key: 'room', label: 'Room', type: 'room', active: true } };
@@ -666,6 +822,12 @@ import { SpriteService } from './SpriteService.js';
         characterSp: document.getElementById('char-sp'),
         characterCp: document.getElementById('char-cp'),
         characterInventory: document.getElementById('char-inventory'),
+        inventoryGp: document.getElementById('inv-gp'),
+        inventorySp: document.getElementById('inv-sp'),
+        inventoryCp: document.getElementById('inv-cp'),
+        inventoryBulkCurrent: document.getElementById('inv-bulk-current'),
+        inventoryBulkMax: document.getElementById('inv-bulk-max'),
+        inventoryItemList: document.getElementById('inv-item-list'),
         characterFeatures: document.getElementById('char-features'),
         characterSpellsSection: document.getElementById('char-spells-section'),
         characterSpellMeta: document.getElementById('char-spell-meta'),
@@ -1406,12 +1568,20 @@ import { SpriteService } from './SpriteService.js';
       const resources = state.resources || {};
       const defenses = state.defenses || {};
       const conditions = state.conditions || [];
-      const skills = state.skills || [];
+      const skills = normalizeSkillsList(state.skills || launchCharacter.skills || []);
       const features = state.features || {};
       const feats = state.feats || []; // Direct feats array from legacy format
       const equipment = state.equipment || [];
-      const inventory = state.inventory || resources.inventory || {};
-      const spells = state.spells || {};
+      const fallbackCurrency = state.currency || launchCharacter.currency || {
+        gp: state.gold || launchCharacter.gold || 0,
+        sp: 0,
+        cp: 0,
+      };
+      const inventory = normalizeInventoryState(
+        state.inventory || resources.inventory || launchCharacter.inventory || {},
+        fallbackCurrency
+      );
+      const spells = normalizeSpellcastingData(state.spells || launchCharacter.spells || {});
       const saves = state.saves || defenses.savingThrows || {};
       const featEffects = features.featEffects || {};
       const featActions = flattenTooltipBuckets(state.actions?.availableActions?.feat || featEffects.available_actions || {});
@@ -1450,18 +1620,18 @@ import { SpriteService } from './SpriteService.js';
       const hpMax = Number(resources.hitPoints?.max ?? state.hp_max ?? launchCharacter.hp_max ?? 0);
       const heroCurrent = Number(resources.heroPoints?.current ?? state.hero_points ?? launchCharacter.hero_points ?? 1);
       const heroMax = Number(resources.heroPoints?.max ?? 3);
-      const armorClass = Number(defenses.armorClass ?? state.armor_class ?? launchCharacter.armor_class ?? 0);
+      const armorClass = Number(defenses.armorClass?.base ?? defenses.armorClass ?? state.armor_class ?? launchCharacter.armor_class ?? 0);
       const xp = Number(basicInfo.experiencePoints ?? state.experience_points ?? 0);
       
       // Perception
-      const perception = Number(state.perception ?? launchCharacter.perception ?? 0);
-      
-      // Currency (support both API format and legacy format)
-      const currency = inventory.currency || state.currency || { 
-        gp: state.gold || 0, 
-        sp: 0, 
-        cp: 0 
-      };
+      const perception = Number(defenses.perception?.base ?? state.perception ?? launchCharacter.perception ?? 0);
+      const currency = inventory.currency || fallbackCurrency;
+      const worn = inventory.worn || {};
+      const weapons = Array.isArray(worn.weapons) ? worn.weapons : [];
+      const allItems = [...weapons, ...inventory.carried, ...equipment].filter(Boolean);
+      const inventoryHtml = formatInventoryItemList(allItems);
+      const totalBulk = inventory.totalBulk ?? estimateInventoryBulk(allItems);
+      const bulkMax = Math.max(5, Number(this.elements.inventoryBulkMax?.textContent || 0), Number(normalizedAbilities.strength || 0));
 
       // Calculate ability modifiers
       const calcMod = (score) => {
@@ -1546,15 +1716,15 @@ import { SpriteService } from './SpriteService.js';
 
       // Update saving throws (prefer pre-computed saves from server)
       if (this.elements.characterFort) {
-        const fort = saves.fortitude ?? defenses.fortitude ?? 0;
+        const fort = saves.fortitude?.base ?? saves.fortitude ?? defenses.fortitude?.base ?? defenses.fortitude ?? 0;
         this.elements.characterFort.textContent = formatMod(fort);
       }
       if (this.elements.characterRef) {
-        const ref = saves.reflex ?? defenses.reflex ?? 0;
+        const ref = saves.reflex?.base ?? saves.reflex ?? defenses.reflex?.base ?? defenses.reflex ?? 0;
         this.elements.characterRef.textContent = formatMod(ref);
       }
       if (this.elements.characterWill) {
-        const will = saves.will ?? defenses.will ?? 0;
+        const will = saves.will?.base ?? saves.will ?? defenses.will?.base ?? defenses.will ?? 0;
         this.elements.characterWill.textContent = formatMod(will);
       }
 
@@ -1593,28 +1763,15 @@ import { SpriteService } from './SpriteService.js';
 
       // Update inventory (support both equipment array and inventory.carried)
       if (this.elements.characterInventory) {
-        const carried = inventory.carried || equipment || [];
-        const worn = inventory.worn || {};
-        const weapons = worn.weapons || [];
-        const allItems = [...weapons, ...carried];
-        
-        if (allItems.length > 0) {
-          this.elements.characterInventory.innerHTML = allItems
-            .map(item => {
-              const itemName = item.name || item;
-              const itemId = item.item_id || item.id || '';
-              const qty = item.quantity || 1;
-              const qtyLabel = qty > 1 ? ` ×${qty}` : '';
-              const equipped = item.equipped ? ' <span class="item-tag equipped">E</span>' : '';
-              const type = item.type || item.category || '';
-              const bulk = item.bulk != null ? item.bulk : '';
-              const desc = item.description || '';
-              return `<li data-item-id="${itemId}" data-type="${type}" data-qty="${qty}" data-bulk="${bulk}" data-desc="${desc.replace(/"/g, '&quot;')}">${itemName}${qtyLabel}${equipped}</li>`;
-            })
-            .join('');
-        } else {
-          this.elements.characterInventory.innerHTML = '<li class="inventory-empty">No items</li>';
-        }
+        this.elements.characterInventory.innerHTML = inventoryHtml || '<li class="inventory-empty">No items</li>';
+      }
+      if (this.elements.inventoryGp) this.elements.inventoryGp.textContent = currency.gp || 0;
+      if (this.elements.inventorySp) this.elements.inventorySp.textContent = currency.sp || 0;
+      if (this.elements.inventoryCp) this.elements.inventoryCp.textContent = currency.cp || 0;
+      if (this.elements.inventoryBulkCurrent) this.elements.inventoryBulkCurrent.textContent = formatBulkValue(totalBulk);
+      if (this.elements.inventoryBulkMax) this.elements.inventoryBulkMax.textContent = formatBulkValue(bulkMax);
+      if (this.elements.inventoryItemList) {
+        this.elements.inventoryItemList.innerHTML = inventoryHtml || '<li class="inventory-panel__empty">No items in inventory</li>';
       }
 
       // Update features & feats (with type badges)
@@ -1766,14 +1923,16 @@ import { SpriteService } from './SpriteService.js';
 
       // Update spellcasting section
       if (this.elements.characterSpellsSection && this.elements.characterSpells) {
-        const hasSpells = !!(spells && spells.tradition);
+        const rankGroups = collectSpellRankGroups(spells);
+        const hasSpells = rankGroups.length > 0 || Boolean(spells.tradition || spells.casting_ability);
         this.elements.characterSpellsSection.style.display = hasSpells ? '' : 'none';
         if (hasSpells) {
+          const runtimeSlots = normalizeDisplayedSpellSlots(resources?.spellSlots, spells.slots);
           // Spell meta info
           if (this.elements.characterSpellMeta) {
-            const metaParts = [`Tradition: ${spells.tradition}`];
+            const metaParts = [];
+            if (spells.tradition) metaParts.push(`Tradition: ${spells.tradition}`);
             if (spells.casting_ability) metaParts.push(`Ability: ${spells.casting_ability.toUpperCase()}`);
-            const runtimeSlots = normalizeDisplayedSpellSlots(resources?.spellSlots, spells.slots);
             const slotParts = Object.entries(runtimeSlots)
               .sort(([a], [b]) => Number(a) - Number(b))
               .map(([k, slot]) => {
@@ -1799,7 +1958,6 @@ import { SpriteService } from './SpriteService.js';
           }
           // Spell list
           const spellEntries = [];
-          const rankGroups = collectSpellRankGroups(spells);
           rankGroups.forEach(({ rank, label, spells: rankSpells }) => {
             const slotState = rank > 0 ? runtimeSlots[String(rank)] || null : null;
             const headerLabel = rank > 0 && slotState
@@ -2019,8 +2177,8 @@ import { SpriteService } from './SpriteService.js';
       form.addEventListener('submit', async (event) => {
         event.preventDefault();
         
-        // Prevent double submission
-        if (isSubmitting) {
+        // Prevent double submission for non-room views only.
+        if (this.activeSessionView !== 'room' && isSubmitting) {
           return;
         }
 
@@ -2047,30 +2205,18 @@ import { SpriteService } from './SpriteService.js';
           return;
         }
 
-        // Set loading state
-        isSubmitting = true;
-        const sendButton = this.elements.chatSend;
-        const originalText = sendButton?.textContent;
-        let sendUiReleased = false;
-        const releaseSendUi = () => {
-          if (sendUiReleased) return;
-          sendUiReleased = true;
-          isSubmitting = false;
-          if (sendButton) {
-            sendButton.disabled = false;
-            sendButton.textContent = originalText || 'Send';
-          }
-        };
-        if (sendButton) {
-          sendButton.disabled = true;
-          sendButton.textContent = 'Sending...';
-        }
-
         // Clear input immediately for better UX
         input.value = '';
 
         // Route to the correct handler based on active session view.
         if (this.activeSessionView !== 'room') {
+          isSubmitting = true;
+          const sendButton = this.elements.chatSend;
+          const originalText = sendButton?.textContent;
+          if (sendButton) {
+            sendButton.disabled = true;
+            sendButton.textContent = 'Sending...';
+          }
           try {
             await this.postSessionViewMessage(characterName, message, characterId);
           } catch (error) {
@@ -2089,24 +2235,36 @@ import { SpriteService } from './SpriteService.js';
 
         // Send to legacy room chat server
         if (!roomId) {
-          isSubmitting = false;
-          if (sendButton) { sendButton.disabled = false; sendButton.textContent = originalText || 'Send'; }
           input.value = message;
           this.appendChatLine('System', 'Unable to send message: No active room', 'system');
           return;
         }
         const clientRequestId = `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-        const pendingRequest = this.buildPendingChatRequest(clientRequestId, characterName, message, roomId);
+        const queueOnly = this.roomChatBusy;
+        const pendingRequest = this.buildPendingChatRequest(clientRequestId, characterName, message, roomId, {
+          includePlayer: true,
+          includePlaceholder: !queueOnly,
+        });
         this.prefetchSessionViews();
         if (this.loadActiveRoomView) {
           this.loadActiveRoomView(roomId, { force: true, preserveExisting: true });
         }
         try {
+          if (!queueOnly) {
+            this.roomChatBusy = true;
+          }
           await this.postChatMessage(campaignId, roomId, characterName, message, characterId, {
-            onPrimaryResponse: releaseSendUi,
             clientRequestId,
             pendingRequest,
+            suppressGm: queueOnly,
           });
+          if (queueOnly) {
+            this.roomChatDeferredMessages.push({
+              requestId: clientRequestId,
+              roomId,
+              characterId,
+            });
+          }
         } catch (error) {
           this.settlePendingChatRequest(pendingRequest, {
             removePlayer: true,
@@ -2123,8 +2281,12 @@ import { SpriteService } from './SpriteService.js';
             input.value = message;
           }
         } finally {
-          // Reset loading state
-          releaseSendUi();
+          if (!queueOnly) {
+            this.roomChatBusy = false;
+            if (this.roomChatDeferredMessages.length > 0) {
+              void this.flushDeferredRoomMessages(campaignId, roomId, characterId);
+            }
+          }
         }
       });
 
@@ -2576,6 +2738,9 @@ import { SpriteService } from './SpriteService.js';
 
     async postChatMessage(campaignId, roomId, speaker, message, characterId = null, options = {}) {
       const supportsStreaming = typeof ReadableStream !== 'undefined';
+      const shouldStream = this.activeChannel === 'room'
+        && supportsStreaming
+        && !options.suppressGm;
       const response = await fetch(`/api/campaign/${campaignId}/room/${roomId}/chat`, {
         method: 'POST',
         headers: {
@@ -2588,8 +2753,10 @@ import { SpriteService } from './SpriteService.js';
           type: 'player',
           character_id: characterId,
           channel: this.activeChannel,
-          stream: this.activeChannel === 'room' && supportsStreaming,
+          stream: shouldStream,
           client_request_id: options.clientRequestId || '',
+          suppress_gm: Boolean(options.suppressGm),
+          continue_gm: Boolean(options.continueGm),
         }),
       });
 
@@ -2621,7 +2788,7 @@ import { SpriteService } from './SpriteService.js';
       // If the server returned a GM response, append it directly
       if (result.data?.gm_response) {
         this.renderPendingGmResponse(pending, result.data.gm_response);
-      } else {
+      } else if (!options.suppressGm && !options.continueGm) {
         // Fallback: reload full chat history
         await this.loadChatHistory();
       }
@@ -2983,27 +3150,35 @@ import { SpriteService } from './SpriteService.js';
       this.updateChatSummary();
     }
 
-    buildPendingChatRequest(requestId, speaker, message, roomId) {
+    buildPendingChatRequest(requestId, speaker, message, roomId, options = {}) {
+      const includePlayer = options.includePlayer !== false;
+      const includePlaceholder = options.includePlaceholder !== false;
       const startedAt = (typeof performance !== 'undefined' && typeof performance.now === 'function')
         ? performance.now()
         : Date.now();
       const playerLineId = `chat-player-${requestId}`;
-      const gmPlaceholderId = `chat-gm-${requestId}`;
-      this.appendChatLine(speaker, message, 'player', {
-        lineId: playerLineId,
-        pending: true,
-      });
-      this.appendChatLine('Game Master', 'Thinking...', 'system', {
-        lineId: gmPlaceholderId,
-        pending: true,
-        transient: true,
-      });
+      const gmProgressLineId = `chat-gm-progress-${requestId}`;
+      const gmResponseLineId = `chat-gm-${requestId}`;
+      if (includePlayer) {
+        this.appendChatLine(speaker, message, 'player', {
+          lineId: playerLineId,
+          pending: true,
+        });
+      }
+      if (includePlaceholder) {
+        this.appendChatLine('Game Master', 'Thinking...', 'system', {
+          lineId: gmProgressLineId,
+          pending: true,
+          transient: true,
+        });
+      }
       const pending = {
         requestId,
         roomId,
         startedAt,
-        playerLineId,
-        gmPlaceholderId,
+        playerLineId: includePlayer ? playerLineId : '',
+        gmProgressLineId: includePlaceholder ? gmProgressLineId : '',
+        gmResponseLineId,
       };
       this.pendingChatRequests.set(requestId, pending);
       return pending;
@@ -3015,7 +3190,7 @@ import { SpriteService } from './SpriteService.js';
       }
       if (options.removePlayer) {
         this.removeChatLineById(pending.playerLineId);
-      } else {
+      } else if (pending.playerLineId) {
         const playerLine = this.findChatLineById(pending.playerLineId);
         if (playerLine) {
           playerLine.classList.remove('chat-line--pending');
@@ -3023,9 +3198,7 @@ import { SpriteService } from './SpriteService.js';
         }
       }
 
-      if (options.removePlaceholder !== false) {
-        this.removeChatLineById(pending.gmPlaceholderId);
-      }
+      this.removeChatLineById(pending.gmProgressLineId);
       this.pendingChatRequests.delete(pending.requestId);
     }
 
@@ -3034,11 +3207,11 @@ import { SpriteService } from './SpriteService.js';
         return;
       }
       this.appendChatLine('Game Master', text, 'system', {
-        lineId: pending.gmPlaceholderId,
+        lineId: pending.gmProgressLineId,
         pending: true,
         transient: true,
       });
-      const line = this.findChatLineById(pending.gmPlaceholderId);
+      const line = this.findChatLineById(pending.gmProgressLineId);
       if (line) {
         if (phase) {
           line.dataset.phase = phase;
@@ -3052,11 +3225,45 @@ import { SpriteService } from './SpriteService.js';
       if (!response) {
         return;
       }
+      this.removeChatLineById(pending?.gmProgressLineId || '');
       this.appendChatLine(response.speaker || 'Game Master', response.message || '', response.type || 'npc', {
-        lineId: pending?.gmPlaceholderId || '',
+        lineId: pending?.gmResponseLineId || '',
         pending: false,
         transient: false,
       });
+    }
+
+    async flushDeferredRoomMessages(campaignId, roomId, characterId = null) {
+      if (this.roomChatBusy || !this.roomChatDeferredMessages.length) {
+        return;
+      }
+      this.roomChatBusy = true;
+      const deferredBatch = this.roomChatDeferredMessages.splice(0);
+      const requestId = `chat-followup-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const pendingRequest = this.buildPendingChatRequest(requestId, '', '', roomId, {
+        includePlayer: false,
+        includePlaceholder: true,
+      });
+
+      try {
+        await this.postChatMessage(campaignId, roomId, '', '', characterId, {
+          clientRequestId: requestId,
+          pendingRequest,
+          continueGm: true,
+        });
+      } catch (error) {
+        console.error('Failed to continue queued GM response:', error);
+        this.settlePendingChatRequest(pendingRequest, {
+          removePlayer: false,
+          removePlaceholder: true,
+        });
+        this.appendChatLine('System', `Failed to continue GM response: ${error.message}`, 'system');
+      } finally {
+        this.roomChatBusy = false;
+        if (this.roomChatDeferredMessages.length > 0 && deferredBatch.length >= 0) {
+          void this.flushDeferredRoomMessages(campaignId, roomId, characterId);
+        }
+      }
     }
 
     logChatTimingSummary(result, pending = null) {
@@ -9184,7 +9391,12 @@ import { SpriteService } from './SpriteService.js';
         return;
       }
 
-      if (this.launchCharacter && Object.keys(this.launchCharacter).length > 0) {
+      const hasAuthoritativeState = Boolean(
+        this.launchCharacter?.basicInfo
+        || this.launchCharacter?.resources
+        || this.launchCharacter?.metadata
+      );
+      if (hasAuthoritativeState) {
         this.uiManager.showLaunchCharacter(this.launchCharacter);
       }
 
@@ -9280,9 +9492,9 @@ import { SpriteService } from './SpriteService.js';
         .then(data => {
           if (data.success && data.data) {
             this.launchCharacter = {
-              ...this.launchCharacter,
               ...data.data,
               id: Number(data.data.characterId || data.data.id || characterId) || characterId,
+              instanceId: data.data.instanceId || runtimeContext.instanceId || null,
             };
             this.characterData = this.launchCharacter;
             this.uiManager.showLaunchCharacter(this.launchCharacter);
