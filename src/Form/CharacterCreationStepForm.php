@@ -2043,6 +2043,9 @@ class CharacterCreationStepForm extends FormBase {
     // Save to database
     $character_id = $this->saveCharacter($character_id, $character_data, $next_version, $campaign_id);
 
+    $persisted_record = $character_id ? $this->characterManager->loadCharacter((int) $character_id) : NULL;
+    $persisted_campaign_id = $persisted_record ? (int) ($persisted_record->campaign_id ?? 0) : 0;
+
     // Create dc_campaign_item_instances rows when inside a campaign context.
     if ((int) $step === 7 && $campaign_id && !empty($selected_items)) {
       $this->createCampaignItemInstances((int) $campaign_id, (int) $character_id, $selected_items);
@@ -2054,7 +2057,7 @@ class CharacterCreationStepForm extends FormBase {
         $character_data,
         (int) $character_id,
         (int) $this->currentUser->id(),
-        $campaign_id !== NULL && $campaign_id !== '' ? (int) $campaign_id : NULL,
+        $persisted_campaign_id > 0 ? $persisted_campaign_id : NULL,
         [
           'generate' => $character_data['portrait_generate'] ?? NULL,
           'user_prompt' => $character_data['portrait_prompt'] ?? '',
@@ -2450,8 +2453,13 @@ class CharacterCreationStepForm extends FormBase {
     $schema_data['updated_at'] = date('c', $now);
     $hot = $this->characterManager->extractHotColumnsFromData($schema_data);
 
-    // Resolve campaign_id: use passed value, fall back to 0.
-    $resolved_campaign_id = ($campaign_id !== NULL && $campaign_id !== '') ? (int) $campaign_id : 0;
+    // Character setup edits the record that already exists; new records always
+    // start in the canonical library and are attached to campaigns separately.
+    $resolved_campaign_id = 0;
+    if ($character_id) {
+      $existing_record = $this->characterManager->loadCharacter((int) $character_id);
+      $resolved_campaign_id = $existing_record ? (int) ($existing_record->campaign_id ?? 0) : 0;
+    }
 
     if ($character_id) {
       $this->database->update('dc_campaign_characters')

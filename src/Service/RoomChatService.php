@@ -708,6 +708,7 @@ class RoomChatService {
     $session_key = $this->sessionManager->roomChatSessionKey($campaign_id, $room_id);
     $stage_started_at = hrtime(true);
     $deterministic_response = $this->buildDeterministicGmResponse(
+      $campaign_id,
       $turn_intent,
       $room_npcs,
       $directly_addressed_npc,
@@ -776,6 +777,8 @@ class RoomChatService {
         $prompt .= "\n\nRespond in character as the Game Master. Keep your reply concise (2-4 sentences). If the player is performing a mechanical action (casting a spell, using a skill, using a feat, attacking, exploring), include the JSON action block as instructed in your system prompt.";
       }
       $prompt .= "\nIMPORTANT: Do NOT write dialogue for any NPC. Describe the scene, NPC body language and reactions, but let NPCs speak for themselves. Never put words in an NPC's mouth.";
+      $prompt .= "\nIMPORTANT: Do NOT write dialogue for the player character, companions, or party members. Never decide what they say, agree to, feel, or choose beyond the action the player explicitly stated.";
+      $prompt .= "\nIMPORTANT: For informational questions about who is present, demeanor, or what the room looks like, answer with direct observations only. Do NOT invent a scene, conversation, toast, agreement, plan, or travel setup.";
       $prompt .= "\nIMPORTANT: Named characters and NPCs must stay grounded in their provided canonical notes. If appearance, personality, attitude, motivations, role, or capabilities are not provided, do NOT invent them.";
       $prompt .= "\nIMPORTANT: Questions about whether an action is possible, wise, or legal are not actions. Answer those verbally and do NOT emit or mention any JSON, action block, code fence, or structured output unless the player is clearly taking the action right now.";
       $this->recordDebugStage('gm.user_prompt_assembly', $stage_started_at, [
@@ -3139,7 +3142,24 @@ PROMPT;
       return 'ooc_meta';
     }
 
-    if ($this->textContainsAny($normalized, ['who is here', 'who else is here', 'who all is here', 'who is in here', 'who can we talk', 'who can i talk', 'who is around'])) {
+    if ($this->textContainsAny($normalized, [
+      'who is here',
+      'who else is here',
+      'who all is here',
+      'who is in here',
+      'who is in the room',
+      'who all is in the room',
+      'who is present',
+      'who is around',
+      'who can we talk',
+      'who can i talk',
+      'their demeanor',
+      'their demeanour',
+      'what is their demeanor',
+      'what is their demeanour',
+      'describe everyone here',
+      'who is in the room and',
+    ])) {
       return 'room_roster_query';
     }
 
@@ -3174,6 +3194,7 @@ PROMPT;
    * Build a deterministic GM narrative for short-path intents.
    */
   protected function buildDeterministicGmResponse(
+    int $campaign_id,
     string $intent,
     array $room_npcs,
     ?array $directly_addressed_npc,
@@ -3230,14 +3251,8 @@ PROMPT;
     }
 
     if ($intent === 'room_roster_query') {
-      $names = [];
-      foreach ($room_npcs as $npc) {
-        $name = trim((string) ($npc['profile']['display_name'] ?? ''));
-        if ($name !== '') {
-          $names[] = $name;
-        }
-      }
-      if ($names === []) {
+      $roster_narrative = $this->buildDeterministicRoomRosterNarrative($campaign_id, $room_id, $room_meta, $dungeon_data, $room_npcs);
+      if ($roster_narrative === '') {
         return [
           'narrative' => 'No one in this room looks ready to answer right now.',
           'actions' => [],
@@ -3246,7 +3261,7 @@ PROMPT;
         ];
       }
       return [
-        'narrative' => 'The clearest voices in ' . ($room_meta['name'] ?? 'the room') . ' are ' . implode(', ', $names) . '.',
+        'narrative' => $roster_narrative,
         'actions' => [],
         'dice_rolls' => [],
         'validation_errors' => [],
@@ -3305,6 +3320,55 @@ PROMPT;
   }
 
   /**
+   * Build an observational room-roster response without dialogue.
+   */
+  protected function buildDeterministicRoomRosterNarrative(
+    int $campaign_id,
+    string $room_id,
+    array $room_meta,
+    array $dungeon_data,
+    array $room_npcs = []
+  ): string {
+    $descriptions = [];
+    foreach ($room_npcs as $npc) {
+      $name = trim((string) ($npc['profile']['display_name'] ?? ''));
+      if ($name === '') {
+        continue;
+      }
+
+      $profile = is_array($npc['profile'] ?? NULL) ? $npc['profile'] : [];
+      $role = trim((string) ($profile['role'] ?? ''));
+      $attitude = trim((string) ($profile['attitude'] ?? ''));
+      $personality = trim((string) ($profile['personality'] ?? $profile['personality_traits'] ?? ''));
+
+      $parts = [];
+      if ($role !== '') {
+        $parts[] = $role;
+      }
+      if ($attitude !== '') {
+        $parts[] = 'demeanor: ' . $this->truncateContextBlock($attitude, 48, 0.9);
+      }
+      elseif ($personality !== '') {
+        $parts[] = 'demeanor: ' . $this->truncateContextBlock($personality, 64, 0.8);
+      }
+
+      $descriptions[] = $parts === []
+        ? $name . ' is present.'
+        : $name . ' (' . implode('; ', $parts) . ').';
+    }
+
+    if ($descriptions === []) {
+      $actor_notes = $this->buildRoomActorGroundingSummary($campaign_id, $room_id, $dungeon_data);
+      if ($actor_notes !== '') {
+        return 'Visible named occupants in ' . ($room_meta['name'] ?? 'the room') . ": \n" . preg_replace('/^- /m', '', $actor_notes);
+      }
+      return '';
+    }
+
+    return 'In ' . ($room_meta['name'] ?? 'the room') . ', ' . implode(' ', $descriptions);
+  }
+
+  /**
    * Determine whether the player is leaving the current location.
    */
   protected function looksLikeNavigationTurn(string $normalized_message): bool {
@@ -3317,6 +3381,17 @@ PROMPT;
       'leave this ',
       'i leave',
       'we leave',
+      'go in',
+      'go inside',
+      'head in',
+      'head inside',
+      'enter the ',
+      'enter through',
+      'open the door',
+      'open that door',
+      'open this door',
+      'lets open the door',
+      'let us open the door',
       'go outside',
       'head outside',
       'step outside',
@@ -3358,10 +3433,23 @@ PROMPT;
     }
 
     $origin_name = trim((string) ($room_meta['name'] ?? 'the room'));
-    $destination_description = 'A new area reached by leaving ' . $origin_name . ' and heading toward ' . $destination . '.';
+    $destination_description = 'A new area reached from ' . $origin_name . ' by moving toward ' . $destination . '.';
+    $normalized = $this->normalizeNpcNameForMatch($player_message);
+    $door_move = $this->textContainsAny($normalized, [
+      'open the door',
+      'go in',
+      'go inside',
+      'head in',
+      'head inside',
+      'enter the ',
+      'enter through',
+    ]);
+    $narrative = $door_move
+      ? 'You move to the door, open it, and press onward toward ' . $destination . '.'
+      : 'You leave ' . $origin_name . ' and head toward ' . $destination . '.';
 
     return [
-      'narrative' => 'Burasco gathers up what they need, leaves ' . $origin_name . ', and sets out toward ' . $destination . '.',
+      'narrative' => $narrative,
       'action' => [
         'type' => 'navigate_to_location',
         'name' => 'Travel to ' . $destination,
@@ -3386,10 +3474,14 @@ PROMPT;
     $patterns = [
       '/(?:leave(?:\s+for)?|head(?:ing)?\s+(?:to|for)|travel(?:ing)?\s+(?:to|for)|journey(?:ing)?\s+(?:to|for)|set out for|depart for|go to|navigation to|navigating to)\s+(?:the\s+)?([a-z0-9][a-z0-9\'\-\s]+)/i',
       '/(?:meet you there\.?\s*then i leave for)\s+(?:the\s+)?([a-z0-9][a-z0-9\'\-\s]+)/i',
+      '/(?:open(?:ing)?\s+(?:the\s+)?door\s+and\s+(?:go|head|step|move|walk|enter)\s+(?:in|inside|through)|enter(?:ing)?\s+(?:the\s+)?door|go(?:ing)?\s+(?:in|inside)|head(?:ing)?\s+(?:in|inside))\b/i',
     ];
     foreach ($patterns as $pattern) {
       if (!preg_match($pattern, $player_message, $matches)) {
         continue;
+      }
+      if (count($matches) < 2) {
+        return 'Beyond the door';
       }
       $destination = trim((string) ($matches[1] ?? ''));
       $destination = preg_replace('/\s+(?:with|and|then|after|before)\b.*$/i', '', $destination) ?? $destination;

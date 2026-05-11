@@ -51,7 +51,8 @@ class CharacterListController extends ControllerBase {
       $campaign_name = $campaign->name;
     }
 
-    $characters = $this->characterManager->getUserCharacters(NULL, $campaign_id);
+    // Campaign selection should operate on canonical library characters.
+    $characters = $this->characterManager->getUserCharacters(NULL, $campaign_id !== NULL ? 0 : NULL);
 
     $character_cards = [];
     foreach ($characters as $record) {

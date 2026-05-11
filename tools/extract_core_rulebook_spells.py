@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Extract PF2E Core Rulebook spells into a library-row intermediary format.
+Extract PF2E spell books into a library-row intermediary format.
 
-This parser reads the raw text extraction for the PF2E Core Rulebook and emits
+This parser reads raw PF2E spell-book text extraction and emits
 JSON records shaped for eventual insertion into dungeoncrawler_content_registry.
 It is intentionally non-destructive: the output is an intermediary artifact for
 audit and cleanup before any live library import/backfill step.
@@ -24,6 +24,18 @@ DEFAULT_SOURCE = (
 )
 DEFAULT_OUTPUT = ROOT / "content/intermediary/core_rulebook_spells_intermediary.json"
 PARSER_VERSION = "core-raw-text-v3"
+APG_SOURCE = (
+    ROOT.parent
+    / "forseti-docs/dungeoncrawler/reference documentation/PF2E Advanced Players Guide.txt"
+)
+APG_OUTPUT = ROOT / "content/intermediary/advanced_players_guide_spells_intermediary.json"
+APG_PARSER_VERSION = "apg-raw-text-v1"
+SOM_SOURCE = (
+    ROOT.parent
+    / "forseti-docs/dungeoncrawler/reference documentation/PF2E Secrets of Magic.txt"
+)
+SOM_OUTPUT = ROOT / "content/intermediary/secrets_of_magic_spells_intermediary.json"
+SOM_PARSER_VERSION = "som-raw-text-v1"
 
 SPELL_SCHOOLS = {
     "ABJURATION",
@@ -53,9 +65,12 @@ FIELD_NAMES = [
     "Secondary Casters",
 ]
 FIELD_START_RE = re.compile(r"^(%s)\b" % "|".join(re.escape(name) for name in FIELD_NAMES))
-TRADITION_HEADER_RE = re.compile(r"^(Arcane|Divine|Occult|Primal)\s+(Cantrips|[1-9]\w*-Level Spells)$", re.I)
-SPELL_LIST_ENTRY_RE = re.compile(r"^([A-Z][A-Za-z0-9'’,\- ]+?)([HUR,\s]*)\s*\((abj|con|div|enc|evo|ill|nec|tra)\):\s*(.+)$")
-SPELL_DETAIL_NAME_RE = re.compile(r"^[A-Z][A-Z0-9'’,\- ]{1,80}$")
+TRADITION_HEADER_RE = re.compile(
+    r"^(Arcane|Divine|Occult|Primal)\s+(Cantrips|(\d+)(?:st|nd|rd|th)-Level Spells)$",
+    re.I,
+)
+SPELL_LIST_ENTRY_RE = re.compile(r"^([^\(]+?)([HUR,\s]*)\s*\((abj|con|div|enc|evo|ill|nec|tra)\):\s*(.+)$")
+SPELL_DETAIL_NAME_RE = re.compile(r"^[A-ZÀ-ÖØ-Þ][A-ZÀ-ÖØ-Þ0-9'’,\- ]{1,80}$")
 RANK_RE = re.compile(r"^(CANTRIP \d+|SPELL \d+|FOCUS \d+|RITUAL \d+)$")
 HEIGHTENED_RE = re.compile(r"^Heightened\s+\(([^)]+)\)\s*(.*)$")
 OUTCOME_PREFIXES = ("Critical Success", "Success", "Failure", "Critical Failure")
@@ -95,6 +110,8 @@ CONDITION_NAMES = [
 PAGE_NOISE_LINES = {
     "SPELLS",
     "Core Rulebook",
+    "Advanced Player's Guide",
+    "Advanced Player’s Guide",
     "Introduction",
     "Ancestries &",
     "Backgrounds",
@@ -111,6 +128,18 @@ PAGE_NOISE_LINES = {
     "Crafting",
     "& Treasure",
     "Appendix",
+    "Archetypes",
+    "glossary",
+    "& index",
+    "& Index",
+    "items",
+    "Witch",
+    "Sorcerer",
+}
+SECTION_BREAK_LINES = {
+    "Spell Descriptions",
+    "Focus Spells",
+    "RITUALS",
 }
 ACTION_GLYPHS = {
     "\ue901": "[one-action]",
@@ -150,6 +179,7 @@ EXCLUDED_NAME_CANDIDATES = {
     "POLYMORPH",
     "POSITIVE",
     "PREDICTION",
+    "RUNELORD RUNE SPELL",
     "SORCERER",
     "VISUAL",
     "WATER",
@@ -162,8 +192,10 @@ CLASS_LABELS = {
     "CLERIC",
     "DRUID",
     "MONK",
+    "ORACLE",
     "RANGER",
     "SORCERER",
+    "WITCH",
     "WIZARD",
 }
 AUDITED_SCALAR_FIELDS = (
@@ -184,6 +216,8 @@ FOCUS_CLASS_TRADITIONS = {
     "champion": ["divine"],
     "cleric": ["divine"],
     "druid": ["primal"],
+    "oracle": ["divine"],
+    "ranger": ["primal"],
     "wizard": ["arcane"],
 }
 SORCERER_FOCUS_TRADITIONS = {
@@ -1261,6 +1295,13 @@ SCHOOL_ABBREV = {
     "tra": "transmutation",
 }
 SUSPICIOUS_TRAIT_RE = re.compile(r"\d|item level|creature or|spell \d+", re.I)
+ACTIVE_BOOK_CONFIG: dict[str, Any] = {
+    "source_book": "core_rulebook_4th_printing",
+    "source_display": "Core Rulebook (Fourth Printing)",
+    "source_file": DEFAULT_SOURCE.name,
+    "intermediary_source_file": f"intermediary/{DEFAULT_SOURCE.name}",
+    "parser_version": PARSER_VERSION,
+}
 
 
 def slugify(text: str) -> str:
@@ -1287,9 +1328,83 @@ def clean_line(line: str) -> str:
         return ""
     if line in PAGE_NOISE_LINES:
         return ""
-    if line.startswith("Chapter 7: Spells"):
+    if re.fullmatch(r"chapter \d+:\s*spells", line, re.I):
         return ""
     return line
+
+
+def resolve_book_config(source_path: Path) -> dict[str, Any]:
+    if source_path.name == APG_SOURCE.name:
+        return {
+            "source_book": "advanced_players_guide",
+            "source_display": "Advanced Player's Guide",
+            "source_file": source_path.name,
+            "intermediary_source_file": f"intermediary/{source_path.name}",
+            "parser_version": APG_PARSER_VERSION,
+        }
+    if source_path.name == SOM_SOURCE.name:
+        return {
+            "source_book": "secrets_of_magic",
+            "source_display": "Secrets of Magic",
+            "source_file": source_path.name,
+            "intermediary_source_file": f"intermediary/{source_path.name}",
+            "parser_version": SOM_PARSER_VERSION,
+        }
+
+    return {
+        "source_book": "core_rulebook_4th_printing",
+        "source_display": "Core Rulebook (Fourth Printing)",
+        "source_file": source_path.name,
+        "intermediary_source_file": f"intermediary/{source_path.name}",
+        "parser_version": PARSER_VERSION,
+    }
+
+
+def activate_book_config(source_path: Path) -> None:
+    global ACTIVE_BOOK_CONFIG
+    ACTIVE_BOOK_CONFIG = resolve_book_config(source_path)
+
+
+def find_spells_chapter_start(raw_lines: list[str]) -> int:
+    chapter_markers = [
+        idx
+        for idx, raw_line in enumerate(raw_lines)
+        if re.fullmatch(r"chapter \d+:\s*spells", normalize_whitespace(raw_line), re.I)
+    ]
+    if not chapter_markers:
+        if ACTIVE_BOOK_CONFIG["source_book"] == "secrets_of_magic":
+            return 0
+        raise RuntimeError("Could not find spell chapter header in raw text.")
+    return chapter_markers[-1]
+
+
+def find_spell_list_start(lines: list[str], chapter_start: int | None = None) -> int:
+    all_list_starts = [idx for idx, line in enumerate(lines) if clean_line(line) == "Spell Lists"]
+    list_starts = list(all_list_starts)
+    if chapter_start is not None:
+        list_starts = [idx for idx in list_starts if idx >= chapter_start]
+    if not list_starts:
+        list_starts = list(all_list_starts)
+    if not list_starts:
+        raise RuntimeError("Could not find 'Spell Lists' in spell chapter raw text.")
+
+    spell_description_starts = [idx for idx, line in enumerate(lines) if clean_line(line) == "Spell Descriptions"]
+    if chapter_start is not None:
+        spell_description_starts = [idx for idx in spell_description_starts if idx >= chapter_start]
+    if spell_description_starts:
+        candidates = [idx for idx in list_starts if idx < spell_description_starts[0]]
+        if candidates:
+            return candidates[-1]
+
+    return list_starts[0]
+
+
+def trim_trailing_section_break(block_lines: list[str]) -> list[str]:
+    for idx, line in enumerate(block_lines[1:], start=1):
+        normalized = normalize_whitespace(line)
+        if normalized in SECTION_BREAK_LINES or re.match(r"^TABLE \d+[–-]\d+:", normalized):
+            return block_lines[:idx]
+    return block_lines
 
 
 def title_case_name_from_heading(line: str) -> str:
@@ -1297,20 +1412,16 @@ def title_case_name_from_heading(line: str) -> str:
     return " ".join(word.capitalize() if word.isupper() else word.capitalize() for word in words)
 
 
-def parse_spell_list(lines: list[str]) -> dict[str, dict[str, Any]]:
-    list_start = next((idx for idx, line in enumerate(lines) if line == "Spell Lists"), None)
-    if list_start is None:
-        raise RuntimeError("Could not find 'Spell Lists' in Core Rulebook raw text.")
+def parse_spell_list(lines: list[str], chapter_start: int | None = None) -> dict[str, dict[str, Any]]:
+    list_start = find_spell_list_start(lines, chapter_start=chapter_start)
 
     current_tradition: str | None = None
     current_level: int | None = None
     entries: dict[str, dict[str, Any]] = {}
-    pending_line = ""
 
     for idx in range(list_start + 1, len(lines)):
         line = clean_line(lines[idx])
         if not line:
-            pending_line = ""
             continue
 
         if is_name_candidate(line):
@@ -1323,21 +1434,16 @@ def parse_spell_list(lines: list[str]) -> dict[str, dict[str, Any]]:
         header_match = TRADITION_HEADER_RE.match(line)
         if header_match:
             current_tradition = header_match.group(1).lower()
-            level_label = header_match.group(2).lower()
-            current_level = 0 if "cantrip" in level_label else int(level_label[0])
-            pending_line = ""
+            current_level = 0 if header_match.group(2).lower() == "cantrips" else int(header_match.group(3))
             continue
 
         if current_tradition is None or current_level is None:
             continue
 
-        candidate = f"{pending_line} {line}".strip() if pending_line else line
-        match = SPELL_LIST_ENTRY_RE.match(candidate)
+        match = SPELL_LIST_ENTRY_RE.match(line)
         if not match:
-            pending_line = candidate if ":" not in candidate and len(candidate.split()) < 18 else ""
             continue
 
-        pending_line = ""
         name = normalize_whitespace(match.group(1))
         markers = match.group(2).strip()
         school = SCHOOL_ABBREV[match.group(3).lower()]
@@ -1371,7 +1477,7 @@ def parse_spell_list(lines: list[str]) -> dict[str, dict[str, Any]]:
         record["heightenable"] = record["heightenable"] or ("H" in markers)
         if len(snippet) > len(record["description_snippet"]):
             record["description_snippet"] = snippet
-        record["spell_list_evidence"].append(candidate)
+        record["spell_list_evidence"].append(line)
 
     return entries
 
@@ -1403,16 +1509,9 @@ def find_spell_name_index(lines: list[str], rank_index: int) -> int | None:
     return candidates[-1] if candidates else None
 
 
-def collect_spell_blocks(raw_lines: list[str], lines: list[str]) -> list[dict[str, Any]]:
-    chapter_markers = [
-        idx
-        for idx, raw_line in enumerate(raw_lines)
-        if normalize_whitespace(raw_line).startswith("Chapter 7: Spells")
-    ]
-    chapter_start = chapter_markers[-1] if chapter_markers else None
+def collect_spell_blocks(raw_lines: list[str], lines: list[str], chapter_start: int | None = None) -> list[dict[str, Any]]:
     if chapter_start is None:
-        raise RuntimeError("Could not find 'Chapter 7: Spells' in Core Rulebook raw text.")
-
+        chapter_start = find_spells_chapter_start(raw_lines)
     starts = []
     for idx in range(chapter_start, len(lines)):
         line = clean_line(lines[idx])
@@ -1431,6 +1530,7 @@ def collect_spell_blocks(raw_lines: list[str], lines: list[str]) -> list[dict[st
         end = starts[pos + 1] if pos + 1 < len(starts) else len(lines)
         block_lines = [clean_line(line) for line in lines[start:end]]
         block_lines = [line for line in block_lines if line]
+        block_lines = trim_trailing_section_break(block_lines)
         if not block_lines:
             continue
         blocks.append(
@@ -1765,11 +1865,11 @@ def apply_source_backed_overrides(schema_data: dict[str, Any]) -> dict[str, Any]
 
 
 def normalize_audited_scalars(schema_data: dict[str, Any]) -> dict[str, Any]:
-    if schema_data.get("save_type") in (None, "") and schema_data.get("save") not in (None, "", "NA"):
+    if schema_data.get("save_type") in (None, "", "none") and schema_data.get("save") not in (None, "", "none", "NA"):
         schema_data["save_type"] = schema_data["save"].lower().replace(" ", "_")
     for field in AUDITED_SCALAR_FIELDS:
-        if schema_data.get(field) in (None, ""):
-            schema_data[field] = "NA"
+        if schema_data.get(field) in (None, "", "NA"):
+            schema_data[field] = "none"
     return schema_data
 
 
@@ -1833,6 +1933,12 @@ def normalize_table_cells(schema_data: dict[str, Any]) -> dict[str, Any]:
         schema_data["description_snippet"] = snippet or "none"
     if not schema_data.get("summon_level_cap_table"):
         schema_data["summon_level_cap_table"] = "none"
+    if not schema_data.get("raw_text_block"):
+        schema_data["raw_text_block"] = "none"
+    if schema_data.get("source_line_start") in (None, ""):
+        schema_data["source_line_start"] = "none"
+    if schema_data.get("source_line_end") in (None, ""):
+        schema_data["source_line_end"] = "none"
     return schema_data
 
 
@@ -2040,13 +2146,13 @@ def parse_spell_block(block: dict[str, Any], spell_list_record: dict[str, Any] |
         "focus_class": focus_class,
         "focus_domain": focus_domain,
         "summon_level_cap_table": None,
-        "source_book": "core_rulebook_4th_printing",
-        "source_display": "Core Rulebook (Fourth Printing)",
-        "source_file": DEFAULT_SOURCE.name,
+        "source_book": ACTIVE_BOOK_CONFIG["source_book"],
+        "source_display": ACTIVE_BOOK_CONFIG["source_display"],
+        "source_file": ACTIVE_BOOK_CONFIG["source_file"],
         "source_line_start": block["start_line"] + segment_start,
         "source_line_end": block["start_line"] + segment_end - 1,
         "raw_text_block": raw_text_block,
-        "parser_version": PARSER_VERSION,
+        "parser_version": ACTIVE_BOOK_CONFIG["parser_version"],
     }
     schema_data = apply_source_backed_overrides(schema_data)
     school = schema_data.get("school") or school
@@ -2072,7 +2178,9 @@ def parse_spell_block(block: dict[str, Any], spell_list_record: dict[str, Any] |
     elif schema_data["id"] in SOURCE_BACKED_OVERRIDES and schema_data["extraction_confidence"] == "low":
         schema_data["extraction_confidence"] = "medium"
 
-    tags = sorted(dict.fromkeys(traditions + schema_data["traits"] + ([school] if school else []) + (["cantrip"] if is_cantrip else [])))
+    tags = sorted(dict.fromkeys(traditions + schema_data["traits"] + ([school] if school and school != "none" else []) + (["cantrip"] if is_cantrip else [])))
+    if not tags:
+        tags = ["none"]
 
     return {
         "content_type": "spell",
@@ -2082,8 +2190,8 @@ def parse_spell_block(block: dict[str, Any], spell_list_record: dict[str, Any] |
         "rarity": rarity,
         "tags": tags,
         "schema_data": schema_data,
-        "source_file": f"intermediary/{DEFAULT_SOURCE.name}",
-        "version": PARSER_VERSION,
+        "source_file": ACTIVE_BOOK_CONFIG["intermediary_source_file"],
+        "version": ACTIVE_BOOK_CONFIG["parser_version"],
     }
 
 
@@ -2132,23 +2240,20 @@ def build_list_fallback_record(spell_list_record: dict[str, Any]) -> dict[str, A
         "focus_class": None,
         "focus_domain": None,
         "summon_level_cap_table": None,
-        "source_book": "core_rulebook_4th_printing",
-        "source_display": "Core Rulebook (Fourth Printing)",
-        "source_file": DEFAULT_SOURCE.name,
+        "source_book": ACTIVE_BOOK_CONFIG["source_book"],
+        "source_display": ACTIVE_BOOK_CONFIG["source_display"],
+        "source_file": ACTIVE_BOOK_CONFIG["source_file"],
         "source_line_start": None,
         "source_line_end": None,
         "raw_text_block": "",
-        "parser_version": PARSER_VERSION,
-        "extraction_confidence": "low",
+        "parser_version": ACTIVE_BOOK_CONFIG["parser_version"],
+        "extraction_confidence": "medium",
     }
     schema_data = apply_source_backed_overrides(schema_data)
     schema_data["effects"]["description"] = schema_data["description"]
     schema_data["heightened_scaling"] = list(schema_data["heightened"])
     schema_data = normalize_audited_scalars(schema_data)
     schema_data = normalize_table_cells(schema_data)
-    if spell_list_record["content_id"] in SOURCE_BACKED_OVERRIDES:
-        schema_data["extraction_confidence"] = "medium"
-
     school = schema_data.get("school")
     traditions = list(schema_data.get("traditions", []))
     rarity = schema_data.get("rarity") or rarity
@@ -2157,10 +2262,12 @@ def build_list_fallback_record(spell_list_record: dict[str, Any]) -> dict[str, A
         dict.fromkeys(
             traditions
             + list(schema_data.get("traits", []))
-            + ([school] if school and school != "NA" else [])
+            + ([school] if school and school != "none" else [])
             + (["cantrip"] if is_cantrip else [])
         )
     )
+    if not tags:
+        tags = ["none"]
     return {
         "content_type": "spell",
         "content_id": spell_list_record["content_id"],
@@ -2169,8 +2276,8 @@ def build_list_fallback_record(spell_list_record: dict[str, Any]) -> dict[str, A
         "rarity": rarity,
         "tags": tags,
         "schema_data": schema_data,
-        "source_file": f"intermediary/{DEFAULT_SOURCE.name}",
-        "version": PARSER_VERSION,
+        "source_file": ACTIVE_BOOK_CONFIG["intermediary_source_file"],
+        "version": ACTIVE_BOOK_CONFIG["parser_version"],
     }
 
 
@@ -2186,7 +2293,14 @@ def get_quarantine_reasons(record: dict[str, Any]) -> list[str]:
         reasons.append("bad-cantrip-rank")
     if len(re.findall(r"\b(?:CANTRIP|SPELL|FOCUS|RITUAL) \d+\b", raw_text)) > 1:
         reasons.append("multiple-rank-markers")
-    if "Core Rulebook" in raw_text or "SPELLS" in raw_text:
+    raw_lines = [normalize_whitespace(line) for line in raw_text.splitlines() if normalize_whitespace(line)]
+    if any(
+        line in PAGE_NOISE_LINES
+        or line in SECTION_BREAK_LINES
+        or re.fullmatch(r"chapter \d+:\s*spells", line, re.I)
+        or re.match(r"^TABLE \d+[–-]\d+:", line)
+        for line in raw_lines
+    ):
         reasons.append("page-header-bleed")
     if any(SUSPICIOUS_TRAIT_RE.search(trait) for trait in schema.get("traits", [])):
         reasons.append("suspicious-traits")
@@ -2200,11 +2314,13 @@ def get_quarantine_reasons(record: dict[str, Any]) -> list[str]:
 
 
 def build_intermediary_records(source_path: Path) -> dict[str, Any]:
+    activate_book_config(source_path)
     raw_lines = source_path.read_text(encoding="utf-8", errors="ignore").splitlines()
     cleaned_lines = [clean_line(line) for line in raw_lines]
+    chapter_start = find_spells_chapter_start(raw_lines)
 
-    spell_list_map = parse_spell_list(cleaned_lines)
-    spell_blocks = collect_spell_blocks(raw_lines, cleaned_lines)
+    spell_list_map = parse_spell_list(cleaned_lines, chapter_start=chapter_start)
+    spell_blocks = collect_spell_blocks(raw_lines, cleaned_lines, chapter_start=chapter_start)
 
     accepted_records: list[dict[str, Any]] = []
     review_records: list[dict[str, Any]] = []
@@ -2238,7 +2354,7 @@ def build_intermediary_records(source_path: Path) -> dict[str, Any]:
             record["schema_data"]["quarantine_reasons"] = ["none"]
 
     return {
-        "parser_version": PARSER_VERSION,
+        "parser_version": ACTIVE_BOOK_CONFIG["parser_version"],
         "source": str(source_path),
         "record_count": len(accepted_records),
         "needs_review_count": len(review_records),
@@ -2249,7 +2365,7 @@ def build_intermediary_records(source_path: Path) -> dict[str, Any]:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--source", type=Path, default=DEFAULT_SOURCE, help="Path to the Core Rulebook raw text file.")
+    parser.add_argument("--source", type=Path, default=DEFAULT_SOURCE, help="Path to the raw spell text file.")
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT, help="Path to write intermediary JSON output.")
     return parser.parse_args()
 

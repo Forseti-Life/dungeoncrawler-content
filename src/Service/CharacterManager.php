@@ -10481,7 +10481,6 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
     $deleted = $this->database->delete('dc_campaign_characters')
       ->condition('id', $id)
       ->condition('uid', (int) $this->currentUser->id())
-      ->condition('campaign_id', 0)
       ->execute();
 
     return (bool) $deleted;

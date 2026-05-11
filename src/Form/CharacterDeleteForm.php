@@ -42,11 +42,18 @@ class CharacterDeleteForm extends ConfirmFormBase {
   }
 
   public function getCancelUrl() {
+    $destination = \Drupal::request()->query->get('destination');
+    if ($destination) {
+      return Url::fromUserInput($destination);
+    }
+    if ((int) ($this->character->status ?? 0) === 2) {
+      return Url::fromRoute('dungeoncrawler_content.characters_archived');
+    }
     $campaign_id = (int) ($this->character->campaign_id ?? 0);
     if ($campaign_id > 0) {
       return Url::fromRoute('dungeoncrawler_content.characters', ['campaign_id' => $campaign_id]);
     }
-    return Url::fromRoute('dungeoncrawler_content.campaigns');
+    return Url::fromRoute('dungeoncrawler_content.characters_roster');
   }
 
   public function getConfirmText() {
@@ -63,7 +70,15 @@ class CharacterDeleteForm extends ConfirmFormBase {
   }
 
   public function submitForm(array &$form, FormStateInterface $form_state) {
-    $this->characterManager->deleteCharacter($this->character->id);
+    $deleted = $this->characterManager->deleteCharacter((int) $this->character->id);
+
+    if (!$deleted) {
+      $this->messenger()->addError($this->t('Unable to delete %name.', [
+        '%name' => $this->character->name,
+      ]));
+      $form_state->setRedirectUrl($this->getCancelUrl());
+      return;
+    }
 
     $this->messenger()->addStatus($this->t('%name has fallen. Their tale ends here.', [
       '%name' => $this->character->name,

@@ -80,9 +80,14 @@ class RoomViewImageService {
       throw new \RuntimeException('Room not found in the active dungeon payload.', 404);
     }
 
+    $campaign_room_cache_key = $this->resolveCampaignRoomCacheObjectId($campaign_id, $room_id, $room, $dungeon_data);
+    $room = $this->hydrateRoomFromCampaignRecord(
+      $campaign_id,
+      $campaign_room_cache_key !== '' ? $campaign_room_cache_key : $room_id,
+      $room
+    );
     $dungeon_id = (string) ($record['dungeon_id'] ?? '');
     $room_meta = $this->buildRoomMeta($room, $room_id);
-    $campaign_room_cache_key = $this->resolveCampaignRoomCacheObjectId($campaign_id, $room_id, $room, $dungeon_data);
     $room_session = $this->chatSessionManager->ensureRoomSession(
       $campaign_id,
       $dungeon_id,
@@ -175,8 +180,13 @@ class RoomViewImageService {
    *   Normalized frontend-ready payload.
    */
   protected function generateRoomViewImage(int $campaign_id, string $dungeon_id, string $room_id, array $room, ?string $campaign_room_cache_key = NULL): array {
-    $room_meta = $this->buildRoomMeta($room, $room_id);
     $cache_object_id = trim((string) ($campaign_room_cache_key ?? $room_id));
+    $room = $this->hydrateRoomFromCampaignRecord(
+      $campaign_id,
+      $cache_object_id,
+      $room
+    );
+    $room_meta = $this->buildRoomMeta($room, $room_id);
     if ($cache_object_id !== '') {
       $cached = $this->loadStoredRoomViewImage($campaign_id, $cache_object_id, $room_meta);
       if ($cached !== NULL) {
@@ -670,6 +680,41 @@ class RoomViewImageService {
       'terrain' => $terrain,
       'lighting' => $lighting,
     ];
+  }
+
+  /**
+   * Fill missing room fields from the persisted campaign-room record.
+   *
+   * The active dungeon payload may not carry the full authored description even
+   * when dc_campaign_rooms does. Use the persisted room record as the first
+   * source of truth before falling back to generation.
+   */
+  protected function hydrateRoomFromCampaignRecord(int $campaign_id, string $cache_object_id, array $room): array {
+    if ($campaign_id <= 0 || $cache_object_id === '') {
+      return $room;
+    }
+
+    $record = $this->database->select('dc_campaign_rooms', 'r')
+      ->fields('r', ['name', 'description'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('room_id', $cache_object_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+
+    if (!is_array($record)) {
+      return $room;
+    }
+
+    if (trim((string) ($room['name'] ?? '')) === '' && trim((string) ($record['name'] ?? '')) !== '') {
+      $room['name'] = (string) $record['name'];
+    }
+
+    if (trim((string) ($room['description'] ?? '')) === '' && trim((string) ($record['description'] ?? '')) !== '') {
+      $room['description'] = (string) $record['description'];
+    }
+
+    return $room;
   }
 
   /**

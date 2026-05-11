@@ -4,10 +4,160 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from extract_core_rulebook_spells import build_list_fallback_record, parse_spell_block
+from extract_core_rulebook_spells import (
+    DEFAULT_SOURCE,
+    SOM_SOURCE,
+    activate_book_config,
+    build_list_fallback_record,
+    collect_spell_blocks,
+    find_spells_chapter_start,
+    parse_spell_block,
+    parse_spell_list,
+)
 
 
 class ExtractCoreRulebookSpellsTest(unittest.TestCase):
+    def tearDown(self) -> None:
+        activate_book_config(DEFAULT_SOURCE)
+
+    def test_spell_list_falls_back_to_global_section_when_book_has_no_local_heading(self) -> None:
+        lines = [
+            "Cover",
+            "Spell Lists",
+            "Arcane 1st-Level Spells",
+            "Ash Cloud (evo): Fill an area with choking ash.",
+            "Spell Descriptions",
+            "RITUALS",
+        ]
+
+        spell_list = parse_spell_list(lines, chapter_start=5)
+
+        self.assertIn("ash_cloud", spell_list)
+        self.assertEqual("evocation", spell_list["ash_cloud"]["school"])
+        self.assertEqual(["arcane"], spell_list["ash_cloud"]["traditions"])
+
+    def test_som_allows_missing_chapter_header(self) -> None:
+        activate_book_config(SOM_SOURCE)
+
+        self.assertEqual(0, find_spells_chapter_start(["Cover", "Spell Lists", "Spell Descriptions"]))
+
+    def test_spell_list_prefers_chapter_local_section(self) -> None:
+        lines = [
+            "Cover",
+            "Spell Lists",
+            "Spell Descriptions",
+            "CHAPTER 5: SPELLS",
+            "Spell Lists",
+            "ARCANE SPELLS",
+            "Arcane 1st-Level Spells",
+            "Déjà Vu (enc): Make a creature do the same",
+            "thing again.",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "Spell Descriptions",
+            "DÉJÀ VU",
+            "SPELL 1",
+            "ENCHANTMENT",
+            "Traditions arcane, occult",
+            "Cast [two-actions] somatic, verbal",
+        ]
+
+        spell_list = parse_spell_list(lines, chapter_start=3)
+
+        self.assertIn("déjà_vu", spell_list)
+        self.assertEqual("enchantment", spell_list["déjà_vu"]["school"])
+        self.assertEqual(["arcane"], spell_list["déjà_vu"]["traditions"])
+        self.assertEqual("Make a creature do the same", spell_list["déjà_vu"]["description_snippet"])
+
+    def test_spell_list_ignores_wrapped_description_lines(self) -> None:
+        lines = [
+            "Spell Lists",
+            "Arcane Cantrips",
+            "Dancing Lights (evo): Create four",
+            "floating lights you can move.",
+            "Daze H (enc): Damage a creature's mind",
+            "and possibly stun it.",
+            "Detect Magic H (div): Sense whether",
+            "magic is nearby.",
+            "Arcane 1st-Level Spells",
+            "Grease (con): Coat a surface or object in",
+            "grease.",
+            "Arcane 10th-Level Spells",
+            "Gate U (con): Tear open a portal to",
+            "another plane.",
+            "SPELL 1",
+            "ABJURATION",
+            "Traditions arcane",
+            "Cast [two-actions] somatic, verbal",
+        ]
+
+        spell_list = parse_spell_list(lines)
+
+        self.assertIn("dancing_lights", spell_list)
+        self.assertIn("daze", spell_list)
+        self.assertIn("detect_magic", spell_list)
+        self.assertIn("grease", spell_list)
+        self.assertIn("gate", spell_list)
+        self.assertEqual("Create four", spell_list["dancing_lights"]["description_snippet"])
+        self.assertEqual("Sense whether", spell_list["detect_magic"]["description_snippet"])
+        self.assertEqual(10, spell_list["gate"]["level"])
+
+    def test_collect_spell_blocks_accepts_non_crb_chapter_header(self) -> None:
+        raw_lines = [
+            "Preface",
+            "CHAPTER 5: SPELLS",
+            "Spell Descriptions",
+            "ANIMATE DEAD",
+            "SPELL 1",
+            "NECROMANCY",
+            "Traditions arcane, divine, occult",
+            "Cast [three-actions] material, somatic, verbal",
+            "Range 30 feet",
+            "Duration sustained up to 1 minute",
+        ]
+        cleaned_lines = list(raw_lines)
+
+        blocks = collect_spell_blocks(raw_lines, cleaned_lines)
+
+        self.assertEqual(1, len(blocks))
+        self.assertEqual("animate_dead", blocks[0]["content_id"])
+        self.assertEqual("Animate Dead", blocks[0]["name"])
+
+    def test_section_heading_is_not_treated_as_spell_name(self) -> None:
+        block = {
+            "name": "Efficient Apport",
+            "content_id": "efficient_apport",
+            "start_line": 1,
+            "end_line": 12,
+            "lines": [
+                "EFFICIENT APPORT",
+                "UNCOMMON",
+                "CONJURATION",
+                "FOCUS 1",
+                "TELEPORTATION",
+                "WIZARD",
+                "Cast [one-action] somatic",
+                "Range 60 feet; Targets 1 unattended object of light Bulk or less",
+                "You teleport an object into your waiting hand.",
+            ],
+        }
+
+        record = parse_spell_block(block, None)
+
+        self.assertEqual("efficient_apport", record["content_id"])
+        self.assertEqual("Efficient Apport", record["name"])
+        self.assertEqual("focus", record["schema_data"]["spell_type"])
+
     def test_shape_wood_parses_rank_before_cast(self) -> None:
         block = {
             "name": "Shape Wood",
@@ -99,7 +249,7 @@ class ExtractCoreRulebookSpellsTest(unittest.TestCase):
         self.assertEqual("30 feet", schema["range"])
         self.assertEqual("1 undead creature", schema["targets"])
         self.assertEqual("Fortitude", schema["save"])
-        self.assertEqual("NA", schema["duration"])
+        self.assertEqual("none", schema["duration"])
 
     def test_positive_luminance_is_remapped_and_overridden(self) -> None:
         block = {
@@ -235,6 +385,25 @@ class ExtractCoreRulebookSpellsTest(unittest.TestCase):
         self.assertEqual("none", schema["cast"])
         self.assertEqual("none", schema["cast_actions"])
         self.assertEqual("medium", schema["extraction_confidence"])
+
+    def test_generic_list_fallback_is_medium_confidence(self) -> None:
+        record = build_list_fallback_record(
+            {
+                "content_id": "detect_magic",
+                "name": "Detect Magic",
+                "level": 0,
+                "school": "divination",
+                "traditions": ["arcane", "divine", "occult", "primal"],
+                "rarity": "common",
+                "description_snippet": "Sense whether",
+            }
+        )
+        schema = record["schema_data"]
+
+        self.assertEqual("medium", schema["extraction_confidence"])
+        self.assertEqual("common", schema["rarity"])
+        self.assertEqual("none", schema["cast"])
+        self.assertEqual("none", schema["cast_actions"])
 
     def test_later_matching_rank_segment_is_selected(self) -> None:
         block = {
