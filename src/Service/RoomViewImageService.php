@@ -27,6 +27,11 @@ class RoomViewImageService {
   protected ImageGenerationIntegrationService $imageGenerationIntegration;
 
   /**
+   * Generated image repository.
+   */
+  protected GeneratedImageRepository $generatedImageRepository;
+
+  /**
    * Chat session manager.
    */
   protected ChatSessionManager $chatSessionManager;
@@ -43,10 +48,12 @@ class RoomViewImageService {
     Connection $database,
     LoggerChannelFactoryInterface $logger_factory,
     ImageGenerationIntegrationService $image_generation_integration,
-    ChatSessionManager $chat_session_manager
+    ChatSessionManager $chat_session_manager,
+    GeneratedImageRepository $generated_image_repository
   ) {
     $this->database = $database;
     $this->imageGenerationIntegration = $image_generation_integration;
+    $this->generatedImageRepository = $generated_image_repository;
     $this->chatSessionManager = $chat_session_manager;
     $this->logger = $logger_factory->get('dungeoncrawler_content');
   }
@@ -75,6 +82,7 @@ class RoomViewImageService {
 
     $dungeon_id = (string) ($record['dungeon_id'] ?? '');
     $room_meta = $this->buildRoomMeta($room, $room_id);
+    $campaign_room_cache_key = $this->resolveCampaignRoomCacheObjectId($campaign_id, $room_id, $room, $dungeon_data);
     $room_session = $this->chatSessionManager->ensureRoomSession(
       $campaign_id,
       $dungeon_id,
@@ -93,7 +101,8 @@ class RoomViewImageService {
       $campaign_id,
       $dungeon_id,
       $room_id,
-      $room
+      $room,
+      $campaign_room_cache_key
     );
 
     $entries = $gallery_entries;
@@ -146,7 +155,8 @@ class RoomViewImageService {
         $campaign_id,
         (string) ($context['dungeon_id'] ?? ''),
         $room_id,
-        $room_data
+        $room_data,
+        $room_id
       );
     }
     catch (\Throwable $exception) {
@@ -164,8 +174,16 @@ class RoomViewImageService {
    * @return array<string, mixed>
    *   Normalized frontend-ready payload.
    */
-  protected function generateRoomViewImage(int $campaign_id, string $dungeon_id, string $room_id, array $room): array {
+  protected function generateRoomViewImage(int $campaign_id, string $dungeon_id, string $room_id, array $room, ?string $campaign_room_cache_key = NULL): array {
     $room_meta = $this->buildRoomMeta($room, $room_id);
+    $cache_object_id = trim((string) ($campaign_room_cache_key ?? $room_id));
+    if ($cache_object_id !== '') {
+      $cached = $this->loadStoredRoomViewImage($campaign_id, $cache_object_id, $room_meta);
+      if ($cached !== NULL) {
+        return $cached;
+      }
+    }
+
     if (!$this->isVertexAvailable()) {
       return [
         'success' => FALSE,
@@ -182,6 +200,13 @@ class RoomViewImageService {
     $output = is_array($result['output'] ?? NULL) ? $result['output'] : [];
     $image_url = $output['image_url'] ?? NULL;
     $image_data_uri = $output['image_data_uri'] ?? NULL;
+
+    if (!empty($result['success']) && $cache_object_id !== '') {
+      $stored = $this->storeRoomViewImage($campaign_id, $cache_object_id, $room_meta, $result);
+      if ($stored !== NULL) {
+        return $stored;
+      }
+    }
 
     return [
       'success' => !empty($result['success']) && ($image_url !== NULL || $image_data_uri !== NULL),
@@ -310,8 +335,8 @@ class RoomViewImageService {
   /**
    * Build the synthetic establishing-shot entry.
    */
-  protected function buildEstablishingEntry(int $campaign_id, string $dungeon_id, string $room_id, array $room): ?array {
-    $result = $this->generateRoomViewImage($campaign_id, $dungeon_id, $room_id, $room);
+  protected function buildEstablishingEntry(int $campaign_id, string $dungeon_id, string $room_id, array $room, ?string $campaign_room_cache_key = NULL): ?array {
+    $result = $this->generateRoomViewImage($campaign_id, $dungeon_id, $room_id, $room, $campaign_room_cache_key);
     $image_src = $result['image']['url'] ?? $result['image']['data_uri'] ?? '';
     if ($image_src === '') {
       return NULL;
@@ -687,6 +712,142 @@ class RoomViewImageService {
     }
 
     return NULL;
+  }
+
+  /**
+   * Resolve the campaign-room slug used for persisted room-view cache rows.
+   */
+  protected function resolveCampaignRoomCacheObjectId(int $campaign_id, string $room_id, array $room, array $dungeon_data): string {
+    $exact = $this->database->select('dc_campaign_rooms', 'r')
+      ->fields('r', ['room_id'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('room_id', $room_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchField();
+
+    if ($exact !== FALSE) {
+      return (string) $exact;
+    }
+
+    $room_name = trim((string) ($room['name'] ?? ''));
+    if ($room_name !== '') {
+      $by_name = $this->database->select('dc_campaign_rooms', 'r')
+        ->fields('r', ['room_id'])
+        ->condition('campaign_id', $campaign_id)
+        ->condition('name', $room_name)
+        ->range(0, 1)
+        ->execute()
+        ->fetchField();
+
+      if ($by_name !== FALSE) {
+        return (string) $by_name;
+      }
+    }
+
+    $payload_room_ids = [];
+    foreach (($dungeon_data['rooms'] ?? []) as $candidate_key => $candidate) {
+      if (!is_array($candidate)) {
+        continue;
+      }
+      $payload_room_ids[] = (string) ($candidate['room_id'] ?? $candidate['id'] ?? $candidate_key);
+    }
+
+    $payload_room_index = array_search($room_id, $payload_room_ids, TRUE);
+    if ($payload_room_index !== FALSE) {
+      $ordered_room_ids = $this->database->select('dc_campaign_rooms', 'r')
+        ->fields('r', ['room_id'])
+        ->condition('campaign_id', $campaign_id)
+        ->orderBy('id', 'ASC')
+        ->execute()
+        ->fetchCol();
+
+      if (isset($ordered_room_ids[$payload_room_index])) {
+        return (string) $ordered_room_ids[$payload_room_index];
+      }
+    }
+
+    return $room_id;
+  }
+
+  /**
+   * Load a persisted establishing-shot image for the campaign room when present.
+   */
+  protected function loadStoredRoomViewImage(int $campaign_id, string $cache_object_id, array $room_meta): ?array {
+    $rows = $this->generatedImageRepository->loadImagesForObject(
+      'dc_campaign_rooms',
+      $cache_object_id,
+      $campaign_id,
+      'room_view',
+      'establishing'
+    );
+
+    $row = $rows[0] ?? NULL;
+    if (!is_array($row)) {
+      return NULL;
+    }
+
+    $image_url = $this->generatedImageRepository->resolveClientUrl($row);
+    if ($image_url === NULL || $image_url === '') {
+      return NULL;
+    }
+
+    return [
+      'success' => TRUE,
+      'available' => TRUE,
+      'status' => (string) ($row['image_status'] ?? 'ready'),
+      'provider' => (string) ($row['provider'] ?? 'vertex'),
+      'mode' => 'cache',
+      'message' => 'Loaded cached room view image.',
+      'room' => $room_meta,
+      'image' => [
+        'url' => $image_url,
+        'data_uri' => NULL,
+        'mime_type' => $row['mime_type'] ?? NULL,
+      ],
+    ];
+  }
+
+  /**
+   * Persist a freshly generated establishing-shot image for future reuse.
+   */
+  protected function storeRoomViewImage(int $campaign_id, string $cache_object_id, array $room_meta, array $generation_result): ?array {
+    $stored = $this->generatedImageRepository->persistGeneratedImage($generation_result, [
+      'scope_type' => 'campaign',
+      'campaign_id' => $campaign_id,
+      'table_name' => 'dc_campaign_rooms',
+      'object_id' => $cache_object_id,
+      'slot' => 'room_view',
+      'variant' => 'establishing',
+      'is_primary' => 1,
+      'visibility' => 'owner',
+    ]);
+
+    if (empty($stored['stored'])) {
+      return NULL;
+    }
+
+    $image_url = is_string($stored['url'] ?? NULL) ? $stored['url'] : NULL;
+    if ($image_url === NULL || $image_url === '') {
+      return NULL;
+    }
+
+    $output = is_array($generation_result['output'] ?? NULL) ? $generation_result['output'] : [];
+
+    return [
+      'success' => TRUE,
+      'available' => TRUE,
+      'status' => (string) ($generation_result['status'] ?? 'ready'),
+      'provider' => (string) ($generation_result['provider'] ?? 'vertex'),
+      'mode' => 'cache',
+      'message' => (string) ($generation_result['message'] ?? 'Cached room view image ready.'),
+      'room' => $room_meta,
+      'image' => [
+        'url' => $image_url,
+        'data_uri' => NULL,
+        'mime_type' => $output['mime_type'] ?? NULL,
+      ],
+    ];
   }
 
 }

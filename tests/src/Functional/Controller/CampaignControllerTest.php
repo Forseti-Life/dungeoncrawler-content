@@ -123,6 +123,87 @@ class CampaignControllerTest extends BrowserTestBase {
   }
 
   /**
+   * Tests tavern entrance groups characters by their attached campaign.
+   */
+  public function testTavernEntranceGroupsCharactersByCampaignAttachment(): void {
+    $user = $this->drupalCreateUser(['access dungeoncrawler characters']);
+    $this->drupalLogin($user);
+
+    $database = \Drupal::database();
+    $uuid = \Drupal::service('uuid');
+    $now = time();
+
+    $current_campaign_id = $database->insert('dc_campaigns')
+      ->fields([
+        'uuid' => $uuid->generate(),
+        'uid' => $user->id(),
+        'name' => 'Current Campaign',
+        'status' => 'draft',
+        'campaign_data' => json_encode([]),
+        'created' => $now,
+        'changed' => $now,
+      ])
+      ->execute();
+
+    $other_campaign_id = $database->insert('dc_campaigns')
+      ->fields([
+        'uuid' => $uuid->generate(),
+        'uid' => $user->id(),
+        'name' => 'Frozen Keep',
+        'status' => 'draft',
+        'campaign_data' => json_encode([]),
+        'created' => $now,
+        'changed' => $now,
+      ])
+      ->execute();
+
+    $insert_character = function (string $name, int $campaign_id) use ($database, $uuid, $user, $now): void {
+      $database->insert('dc_campaign_characters')
+        ->fields([
+          'uuid' => $uuid->generate(),
+          'campaign_id' => $campaign_id,
+          'character_id' => 0,
+          'instance_id' => $uuid->generate(),
+          'uid' => $user->id(),
+          'name' => $name,
+          'class' => 'fighter',
+          'ancestry' => 'human',
+          'level' => 1,
+          'hp_current' => 10,
+          'hp_max' => 10,
+          'armor_class' => 16,
+          'experience_points' => 0,
+          'position_q' => 0,
+          'position_r' => 0,
+          'last_room_id' => '',
+          'type' => 'pc',
+          'status' => 1,
+          'character_data' => json_encode(['step' => 8, 'personality' => ['alignment' => 'Neutral Good']]),
+          'created' => $now,
+          'changed' => $now,
+        ])
+        ->execute();
+    };
+
+    $insert_character('Current Hero', (int) $current_campaign_id);
+    $insert_character('Free Agent', 0);
+    $insert_character('Ice Veteran', (int) $other_campaign_id);
+
+    $this->drupalGet("/campaigns/{$current_campaign_id}/tavernentrance");
+    $this->assertSession()->statusCodeEquals(200);
+    $this->assertSession()->pageTextContains('Already attached to this campaign');
+    $this->assertSession()->pageTextContains('Unattached characters');
+    $this->assertSession()->pageTextContains('Attached to Frozen Keep');
+    $this->assertSession()->pageTextContains('Current Hero');
+    $this->assertSession()->pageTextContains('Free Agent');
+    $this->assertSession()->pageTextContains('Ice Veteran');
+
+    $content = $this->getSession()->getPage()->getContent();
+    $this->assertLessThan(strpos($content, 'Unattached characters'), strpos($content, 'Already attached to this campaign'));
+    $this->assertLessThan(strpos($content, 'Attached to Frozen Keep'), strpos($content, 'Unattached characters'));
+  }
+
+  /**
    * Tests select character - negative case (non-existent character).
    */
   public function testSelectCharacterNonExistentCharacter(): void {

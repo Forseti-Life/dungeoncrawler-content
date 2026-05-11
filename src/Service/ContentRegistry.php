@@ -17,6 +17,11 @@ use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 class ContentRegistry {
 
   /**
+   * Valid spell content subtypes accepted by canonical imports.
+   */
+  protected const SPELL_TYPES = ['spell', 'cantrip', 'focus', 'ritual'];
+
+  /**
    * The database connection.
    *
    * @var \Drupal\Core\Database\Connection
@@ -79,86 +84,220 @@ class ContentRegistry {
     $types_to_load = $content_type ? [$content_type] : $this->getContentTypes();
     
     foreach ($types_to_load as $type) {
-      $type_dir = $this->contentPath . '/' . $type . 's';
-      
-      if (!is_dir($type_dir)) {
-        $logger->warning('Content directory not found: @dir', ['@dir' => $type_dir]);
+      $type_dirs = array_values(array_filter(
+        $this->getImportDirectories($type),
+        static fn(string $dir): bool => is_dir($dir)
+      ));
+
+      if ($type_dirs === []) {
+        $logger->warning('Content directory not found: @dir', ['@dir' => implode(', ', $this->getImportDirectories($type))]);
         continue;
       }
-      
-      // Recursively scan for JSON files
-      $files = $this->scanForJsonFiles($type_dir);
-      
-      foreach ($files as $file) {
-        try {
-          $content_data = $this->loadJsonFile($file);
-          
-          // Support both old (content_id) and new schema (creature_id, item_id, etc.)
-          $id_field = $type . '_id';
-          $content_id = $content_data['content_id'] ?? $content_data[$id_field] ?? NULL;
-          
-          if (!$content_id || !isset($content_data['name'])) {
-            $logger->error('Invalid content in @file: missing id or name', ['@file' => $file]);
-            continue;
-          }
-          
-          // Normalize to content_id for database storage
-          $content_data['content_id'] = $content_id;
 
-          // Sanitize text fields before validation and persistence.
-          $content_data = $this->sanitizeTextFields($content_data);
-          $content_data = $this->normalizeContentData($type, $content_data);
+      foreach ($type_dirs as $type_dir) {
+        $files = $this->scanForJsonFiles($type_dir);
 
-          // Apply bestiary source filter when requested.
-          if ($source_filter !== NULL) {
-            $record_source = $content_data['bestiary_source'] ?? NULL;
-            if ($record_source !== $source_filter) {
-              continue;
+        foreach ($files as $file) {
+          try {
+            $payload = $this->loadJsonFile($file);
+            $records = $this->prepareRegistryRecords($type, $payload, $file);
+
+            foreach ($records as $record) {
+              if (empty($record['content_id']) || empty($record['name'])) {
+                $logger->error('Invalid content in @file: missing id or name', ['@file' => $file]);
+                continue;
+              }
+
+              if ($source_filter !== NULL) {
+                $record_source = $record['schema_data']['bestiary_source'] ?? NULL;
+                if ($record_source !== $source_filter) {
+                  continue;
+                }
+              }
+
+              $validation = $this->validateContent($type, $record['schema_data']);
+              if (!$validation['valid']) {
+                $logger->error('Validation failed for @file: @errors', [
+                  '@file' => $file,
+                  '@errors' => implode(', ', $validation['errors']),
+                ]);
+                continue;
+              }
+
+              $this->upsertRegistryRecord($type, $record);
+              $count++;
             }
           }
-
-          // Validate content
-          $validation = $this->validateContent($type, $content_data);
-          if (!$validation['valid']) {
-            $logger->error('Validation failed for @file: @errors', [
+          catch (\Exception $e) {
+            $logger->error('Error loading @file: @message', [
               '@file' => $file,
-              '@errors' => implode(', ', $validation['errors']),
+              '@message' => $e->getMessage(),
             ]);
-            continue;
           }
-          
-          // Insert or update in database
-          $this->database->merge('dungeoncrawler_content_registry')
-            ->keys([
-              'content_type' => $type,
-              'content_id' => $content_data['content_id'],
-            ])
-            ->fields([
-              'name' => $content_data['name'],
-              'level' => $content_data['level'] ?? NULL,
-              'rarity' => $content_data['rarity'] ?? NULL,
-              'tags' => isset($content_data['tags']) ? json_encode($content_data['tags']) : (isset($content_data['traits']) ? json_encode($content_data['traits']) : NULL),
-              'schema_data' => json_encode($content_data),
-              'source_file' => str_replace($this->contentPath . '/', '', $file),
-              'version' => $content_data['version'] ?? $content_data['schema_version'] ?? '1.0',
-              'updated' => time(),
-            ])
-            ->expression('created', 'COALESCE(created, :time)', [':time' => time()])
-            ->execute();
-          
-          $count++;
-          
-        } catch (\Exception $e) {
-          $logger->error('Error loading @file: @message', [
-            '@file' => $file,
-            '@message' => $e->getMessage(),
-          ]);
         }
       }
     }
     
     $logger->notice('Imported @count content items', ['@count' => $count]);
     return $count;
+  }
+
+  /**
+   * Returns the directories used for JSON imports of a given content type.
+   *
+   * Spell imports currently read batched intermediary payloads from
+   * content/intermediary/ in addition to conventional content/spells/.
+   *
+   * @param string $content_type
+   *   Content type being imported.
+   *
+   * @return array<int, string>
+   *   Candidate directories.
+   */
+  protected function getImportDirectories(string $content_type): array {
+    $directories = [
+      $this->contentPath . '/' . $content_type . 's',
+    ];
+
+    if ($content_type === 'spell') {
+      $directories[] = $this->contentPath . '/intermediary';
+    }
+
+    return array_values(array_unique($directories));
+  }
+
+  /**
+   * Expands a raw JSON payload into registry-ready records.
+   *
+   * @param string $content_type
+   *   The requested content type.
+   * @param array $payload
+   *   Raw decoded JSON payload.
+   * @param string $file
+   *   Source file path.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Registry records ready for validation/upsert.
+   */
+  protected function prepareRegistryRecords(string $content_type, array $payload, string $file): array {
+    if (isset($payload['records']) && is_array($payload['records'])) {
+      $records = [];
+      foreach ($payload['records'] as $record) {
+        if (!is_array($record)) {
+          continue;
+        }
+        $prepared = $this->prepareRegistryRecord($content_type, $record, $file);
+        if ($prepared !== NULL) {
+          $records[] = $prepared;
+        }
+      }
+      return $records;
+    }
+
+    $prepared = $this->prepareRegistryRecord($content_type, $payload, $file);
+    return $prepared !== NULL ? [$prepared] : [];
+  }
+
+  /**
+   * Normalizes a JSON payload into a single registry row shape.
+   *
+   * @param string $content_type
+   *   Requested content type.
+   * @param array $content_data
+   *   Raw record payload.
+   * @param string $file
+   *   Source JSON file path.
+   *
+   * @return array<string, mixed>|null
+   *   Normalized record or NULL when the payload does not match the type.
+   */
+  protected function prepareRegistryRecord(string $content_type, array $content_data, string $file): ?array {
+    $record_type = (string) ($content_data['content_type'] ?? $content_type);
+    if ($record_type !== $content_type) {
+      return NULL;
+    }
+
+    $schema_data = isset($content_data['schema_data']) && is_array($content_data['schema_data'])
+      ? $content_data['schema_data']
+      : $content_data;
+
+    $schema_data = $this->sanitizeTextFields($schema_data);
+    $schema_data = $this->normalizeContentData($record_type, $schema_data);
+
+    $id_field = $record_type . '_id';
+    $content_id = $content_data['content_id'] ?? $schema_data['content_id'] ?? $schema_data[$id_field] ?? $schema_data['id'] ?? NULL;
+    if (!is_scalar($content_id) || trim((string) $content_id) === '') {
+      return NULL;
+    }
+
+    if ($record_type === 'spell') {
+      $content_id = $this->normalizeSpellContentId((string) $content_id);
+      $schema_data['id'] = $content_id;
+      $schema_data[$id_field] = $content_id;
+      $schema_data['content_id'] = $content_id;
+
+      $rank = isset($schema_data['rank']) ? (int) $schema_data['rank'] : (int) ($schema_data['level'] ?? $content_data['level'] ?? 0);
+      $schema_data['rank'] = $rank;
+      $schema_data['level'] = $rank;
+      $schema_data['is_cantrip'] = !empty($schema_data['is_cantrip']) || $rank === 0;
+      if (empty($schema_data['spell_type'])) {
+        $schema_data['spell_type'] = $schema_data['is_cantrip'] ? 'cantrip' : 'spell';
+      }
+    }
+    else {
+      $schema_data['content_id'] = (string) $content_id;
+    }
+
+    $name = $content_data['name'] ?? $schema_data['name'] ?? NULL;
+    if (!is_scalar($name) || trim((string) $name) === '') {
+      return NULL;
+    }
+
+    $level = $content_data['level'] ?? $schema_data['level'] ?? $schema_data['rank'] ?? NULL;
+    $rarity = $content_data['rarity'] ?? $schema_data['rarity'] ?? NULL;
+    $tags = $content_data['tags'] ?? $schema_data['tags'] ?? $schema_data['traits'] ?? [];
+    if ($record_type === 'spell' && $tags === []) {
+      $tags = $this->buildSpellTags($schema_data);
+    }
+
+    return [
+      'content_id' => (string) $content_id,
+      'name' => trim((string) $name),
+      'level' => $level !== NULL ? (int) $level : NULL,
+      'rarity' => is_scalar($rarity) && trim((string) $rarity) !== '' ? strtolower((string) $rarity) : NULL,
+      'tags' => $this->normalizeTagList($tags),
+      'schema_data' => $schema_data,
+      'source_file' => (string) ($content_data['source_file'] ?? str_replace($this->contentPath . '/', '', $file)),
+      'version' => (string) ($content_data['version'] ?? $schema_data['parser_version'] ?? $content_data['schema_version'] ?? $schema_data['schema_version'] ?? '1.0'),
+    ];
+  }
+
+  /**
+   * Upserts a normalized registry record into storage.
+   *
+   * @param string $content_type
+   *   Registry content type.
+   * @param array<string, mixed> $record
+   *   Normalized registry record.
+   */
+  protected function upsertRegistryRecord(string $content_type, array $record): void {
+    $this->database->merge('dungeoncrawler_content_registry')
+      ->keys([
+        'content_type' => $content_type,
+        'content_id' => $record['content_id'],
+      ])
+      ->fields([
+        'name' => $record['name'],
+        'level' => $record['level'],
+        'rarity' => $record['rarity'],
+        'tags' => $record['tags'] !== [] ? json_encode($record['tags']) : NULL,
+        'schema_data' => json_encode($record['schema_data'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        'source_file' => $record['source_file'],
+        'version' => $record['version'],
+        'updated' => time(),
+      ])
+      ->expression('created', 'COALESCE(created, :time)', [':time' => time()])
+      ->execute();
   }
   
   /**
@@ -311,6 +450,10 @@ class ContentRegistry {
 
       case 'hazard':
         $errors = array_merge($errors, $this->validateHazard($content_data));
+        break;
+
+      case 'spell':
+        $errors = array_merge($errors, $this->validateSpell($content_data));
         break;
     }
     
@@ -483,6 +626,73 @@ class ContentRegistry {
   }
 
   /**
+   * Validate spell-specific fields.
+   *
+   * @param array $data
+   *   Spell data.
+   *
+   * @return array
+   *   Array of validation errors.
+   */
+  protected function validateSpell(array $data): array {
+    $errors = [];
+
+    $spell_type = strtolower((string) ($data['spell_type'] ?? $data['type'] ?? ''));
+    if ($spell_type === '') {
+      $errors[] = 'Spell must have spell_type';
+    }
+    elseif (!in_array($spell_type, self::SPELL_TYPES, TRUE)) {
+      $errors[] = 'Spell type must be one of: ' . implode(', ', self::SPELL_TYPES);
+    }
+
+    $rank = $data['rank'] ?? $data['level'] ?? NULL;
+    if (!isset($rank) || !is_numeric($rank)) {
+      $errors[] = 'Spell must have a numeric rank';
+    }
+    elseif ((int) $rank < 0 || (int) $rank > 10) {
+      $errors[] = 'Spell rank must be between 0 and 10';
+    }
+
+    if (isset($data['traditions']) && !is_array($data['traditions'])) {
+      $errors[] = 'Spell traditions must be an array';
+    }
+    elseif (isset($data['traditions'])) {
+      foreach ($data['traditions'] as $tradition) {
+        $tradition = strtolower((string) $tradition);
+        if (!in_array($tradition, SpellCatalogService::TRADITIONS, TRUE)) {
+          $errors[] = "Invalid spell tradition: {$tradition}";
+        }
+      }
+    }
+
+    $school = strtolower((string) ($data['school'] ?? ''));
+    if ($school !== '' && !in_array($school, SpellCatalogService::SPELL_SCHOOLS, TRUE)) {
+      $errors[] = "Invalid spell school: {$school}";
+    }
+
+    if (isset($data['components']) && is_array($data['components'])) {
+      foreach ($data['components'] as $component) {
+        $component = strtolower((string) $component);
+        if (!in_array($component, SpellCatalogService::SPELL_COMPONENTS, TRUE)) {
+          $errors[] = "Invalid spell component: {$component}";
+        }
+      }
+    }
+
+    $save_type = SpellCatalogService::normalizeSaveType((string) ($data['save_type'] ?? ''));
+    if ($save_type !== '' && !SpellCatalogService::isSupportedSaveType($save_type)) {
+      $errors[] = "Invalid spell save type: {$save_type}";
+    }
+
+    $rarity = strtolower((string) ($data['rarity'] ?? 'common'));
+    if ($rarity !== '' && !in_array($rarity, SpellCatalogService::RARITY_LEVELS, TRUE)) {
+      $errors[] = "Invalid spell rarity: {$rarity}";
+    }
+
+    return $errors;
+  }
+
+  /**
    * Update content in registry.
    *
    * @param string $content_type
@@ -613,6 +823,31 @@ class ContentRegistry {
    * still land with a canonical bestiary_source value in stored schema_data.
    */
   public function normalizeContentData(string $content_type, array $content_data): array {
+    if ($content_type === 'spell') {
+      if (!empty($content_data['id']) && is_string($content_data['id'])) {
+        $content_data['id'] = $this->normalizeSpellContentId($content_data['id']);
+      }
+      if (!empty($content_data['spell_id']) && is_string($content_data['spell_id'])) {
+        $content_data['spell_id'] = $this->normalizeSpellContentId($content_data['spell_id']);
+      }
+      if (!empty($content_data['content_id']) && is_string($content_data['content_id'])) {
+        $content_data['content_id'] = $this->normalizeSpellContentId($content_data['content_id']);
+      }
+      if (!empty($content_data['school']) && is_string($content_data['school'])) {
+        $content_data['school'] = strtolower($content_data['school']);
+      }
+      if (!empty($content_data['rarity']) && is_string($content_data['rarity'])) {
+        $content_data['rarity'] = strtolower($content_data['rarity']);
+      }
+      if (!empty($content_data['spell_type']) && is_string($content_data['spell_type'])) {
+        $content_data['spell_type'] = strtolower($content_data['spell_type']);
+      }
+      if (!empty($content_data['save_type']) && is_string($content_data['save_type'])) {
+        $content_data['save_type'] = SpellCatalogService::normalizeSaveType($content_data['save_type']);
+      }
+      return $content_data;
+    }
+
     if ($content_type !== 'creature') {
       return $content_data;
     }
@@ -653,7 +888,74 @@ class ContentRegistry {
    *   Array of content type names.
    */
   public function getContentTypes(): array {
-    return ['creature', 'item', 'trap', 'hazard'];
+    return ['creature', 'item', 'trap', 'hazard', 'spell'];
+  }
+
+  /**
+   * Normalize a spell content identifier to the canonical hyphenated form.
+   */
+  protected function normalizeSpellContentId(string $spell_id): string {
+    return strtolower(str_replace('_', '-', trim($spell_id)));
+  }
+
+  /**
+   * Normalize tag values into a stable lowercase list.
+   *
+   * @param mixed $tags
+   *   Raw tags/traits payload.
+   *
+   * @return array<int, string>
+   *   Normalized tag list.
+   */
+  protected function normalizeTagList(mixed $tags): array {
+    if (!is_array($tags)) {
+      return [];
+    }
+
+    $normalized = [];
+    foreach ($tags as $tag) {
+      if (!is_scalar($tag)) {
+        continue;
+      }
+      $value = strtolower(trim((string) $tag));
+      if ($value === '') {
+        continue;
+      }
+      $normalized[] = $value;
+    }
+
+    return array_values(array_unique($normalized));
+  }
+
+  /**
+   * Derive searchable top-level tags from spell schema metadata.
+   *
+   * @param array<string, mixed> $schema_data
+   *   Spell schema data.
+   *
+   * @return array<int, string>
+   *   Derived tags.
+   */
+  protected function buildSpellTags(array $schema_data): array {
+    $tags = [];
+
+    if (!empty($schema_data['traditions']) && is_array($schema_data['traditions'])) {
+      $tags = array_merge($tags, $schema_data['traditions']);
+    }
+    if (!empty($schema_data['traits']) && is_array($schema_data['traits'])) {
+      $tags = array_merge($tags, $schema_data['traits']);
+    }
+    if (!empty($schema_data['school'])) {
+      $tags[] = $schema_data['school'];
+    }
+    if (!empty($schema_data['rarity'])) {
+      $tags[] = $schema_data['rarity'];
+    }
+    if (!empty($schema_data['spell_type'])) {
+      $tags[] = $schema_data['spell_type'];
+    }
+
+    return $this->normalizeTagList($tags);
   }
 
 }

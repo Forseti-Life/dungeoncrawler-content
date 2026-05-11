@@ -34,6 +34,7 @@ class CampaignInitializationService {
   protected CampaignNameGeneratorService $campaignNameGenerator;
   protected ?ChatSessionManager $chatSessionManager;
   protected ?NpcSheetGenerationService $npcSheetGenerationService;
+  protected ?RoomViewImageService $roomViewImageService;
 
   public function __construct(
     Connection $database,
@@ -44,7 +45,8 @@ class CampaignInitializationService {
     QuestGeneratorService $quest_generator,
     CampaignNameGeneratorService $campaign_name_generator,
     ?ChatSessionManager $chat_session_manager = NULL,
-    ?NpcSheetGenerationService $npc_sheet_generation_service = NULL
+    ?NpcSheetGenerationService $npc_sheet_generation_service = NULL,
+    ?RoomViewImageService $room_view_image_service = NULL
   ) {
     $this->database = $database;
     $this->uuid = $uuid;
@@ -55,6 +57,7 @@ class CampaignInitializationService {
     $this->campaignNameGenerator = $campaign_name_generator;
     $this->chatSessionManager = $chat_session_manager;
     $this->npcSheetGenerationService = $npc_sheet_generation_service;
+    $this->roomViewImageService = $room_view_image_service;
   }
 
   /**
@@ -99,8 +102,17 @@ class CampaignInitializationService {
         return 0;
       }
 
+      $starter_room = $this->loadStarterRoomSeed();
+      if ($starter_room === NULL) {
+        $transaction->rollBack();
+        $this->logger->error('Failed to load starter tavern seed for campaign {campaign_id}', [
+          'campaign_id' => $campaign_id,
+        ]);
+        return 0;
+      }
+
       // 3. Load Tavern Entrance room and content
-      if (!$this->loadTavernEntranceRoom($campaign_id, $now)) {
+      if (!$this->loadTavernEntranceRoom($campaign_id, $now, $starter_room)) {
         $transaction->rollBack();
         $this->logger->error('Failed to load tavern entrance for campaign {campaign_id}', [
           'campaign_id' => $campaign_id,
@@ -113,7 +125,30 @@ class CampaignInitializationService {
       // 5. Bootstrap hierarchical chat sessions for the campaign.
       //    Include the starter dungeon and tavern room so they get
       //    dedicated sessions from the very start.
-      $this->bootstrapChatSessions($campaign_id, $campaign_name, $dungeon_id, 'tavern_entrance', 'Tavern Entrance');
+      $starter_runtime_room_id = (string) ($starter_room['runtime_room_id'] ?? $starter_room['room_id'] ?? 'tavern_entrance');
+
+      $this->bootstrapChatSessions(
+        $campaign_id,
+        $campaign_name,
+        $dungeon_id,
+        $starter_runtime_room_id,
+        (string) ($starter_room['name'] ?? 'The Gilded Tankard')
+      );
+      $this->seedStarterRoomChatHistory(
+        $campaign_id,
+        $dungeon_id,
+        $starter_runtime_room_id,
+        (string) ($starter_room['name'] ?? 'The Gilded Tankard'),
+        $now
+      );
+
+      if ($this->roomViewImageService) {
+        $this->roomViewImageService->warmRoomViewImageCache($starter_room, [
+          'campaign_id' => $campaign_id,
+          'dungeon_id' => $dungeon_id,
+          'room_id' => $starter_runtime_room_id,
+        ]);
+      }
 
       $this->logger->info('Campaign {campaign_id} initialized with starter dungeon {dungeon_id}', [
         'campaign_id' => $campaign_id,
@@ -316,6 +351,46 @@ class CampaignInitializationService {
   }
 
   /**
+   * Load the canonical starter-room seed used for new campaigns.
+   *
+   * The tavern room slug remains `tavern_entrance` for compatibility with
+   * dc_campaign_rooms, while runtime surfaces (chat, hexmap, room view) use the
+   * authored room UUID from the dungeon seed when available.
+   *
+   * @return array|null
+   *   Starter room data, or NULL if unavailable.
+   */
+  private function loadStarterRoomSeed(): ?array {
+    $room_data = $this->readJsonFile($this->getModulePath() . '/tavern_entrance_room.json');
+    if ($room_data === NULL) {
+      return NULL;
+    }
+
+    $seed_payload = $this->loadTavernDungeonSeed();
+    $seed_room = is_array($seed_payload['rooms'][0] ?? NULL) ? $seed_payload['rooms'][0] : [];
+
+    if ($seed_room !== []) {
+      $room_data['name'] = (string) ($seed_room['name'] ?? ($room_data['name'] ?? 'The Gilded Tankard'));
+      $room_data['description'] = (string) ($seed_room['description'] ?? ($room_data['description'] ?? ''));
+      $seed_room_id = trim((string) ($seed_room['room_id'] ?? $seed_room['id'] ?? ''));
+      if ($seed_room_id !== '') {
+        $room_data['runtime_room_id'] = $seed_room_id;
+      }
+    }
+
+    $room_data['room_id'] = trim((string) ($room_data['room_id'] ?? 'tavern_entrance'));
+    if ($room_data['room_id'] === '') {
+      $room_data['room_id'] = 'tavern_entrance';
+    }
+
+    if (empty($room_data['runtime_room_id'])) {
+      $room_data['runtime_room_id'] = $room_data['room_id'];
+    }
+
+    return $room_data;
+  }
+
+  /**
    * Read and decode a JSON file.
    *
    * @param string $path
@@ -358,11 +433,13 @@ class CampaignInitializationService {
    * @return bool
    *   TRUE on success.
    */
-  private function loadTavernEntranceRoom(int $campaign_id, int $now): bool {
-    // Create room
-    $room_id = 'tavern_entrance';
-    $room_name = 'Tavern Entrance';
-    $room_description = 'You stand in the entrance of a well-established tavern. The common room is warm and comfortable, with flickering candlelight casting dancing shadows across wooden walls. The air smells of ale, bread, and hearth smoke.';
+  private function loadTavernEntranceRoom(int $campaign_id, int $now, array $starter_room): bool {
+    $room_id = (string) ($starter_room['room_id'] ?? 'tavern_entrance');
+    $room_name = (string) ($starter_room['name'] ?? 'The Gilded Tankard');
+    $room_description = (string) ($starter_room['description'] ?? '');
+    if ($room_description === '') {
+      $room_description = 'The warm glow of candlelight fills the spacious tavern hall as the adventure begins.';
+    }
 
     // Room layout data is authoritative from the dungeon seed payload
     // (dc_campaign_dungeons.dungeon_data). This field stores a reference
@@ -372,52 +449,7 @@ class CampaignInitializationService {
       'note' => 'Hex grid is authoritative from dc_campaign_dungeons.dungeon_data. This field is retained for schema compatibility.',
     ];
 
-    $contents_data = [
-      'npcs' => [
-        [
-          'content_id' => 'tavern_keeper',
-          'name' => 'Eldric',
-          'position' => ['q' => 1, 'r' => 1],
-          'description' => 'A stout, friendly man with a bushy beard',
-          'role' => 'quest_giver',
-          'quests' => [
-            'gather_wine',
-            'gather_torch_components',
-            'gather_two_room_items',
-          ],
-        ],
-        [
-          'content_id' => 'scholar_npc',
-          'name' => 'Marta the Scholar',
-          'position' => ['q' => 3, 'r' => 0],
-          'description' => 'A woman studying ancient texts',
-          'role' => 'quest_giver',
-          'quests' => [
-            'collect_spellbooks',
-          ],
-        ],
-      ],
-      'items' => [
-        ['content_id' => 'wine_bottle_1', 'name' => 'Wine Bottle', 'position' => ['q' => 2, 'r' => 0], 'quest_association' => 'gather_wine'],
-        ['content_id' => 'wine_bottle_2', 'name' => 'Wine Bottle', 'position' => ['q' => 1, 'r' => -1], 'quest_association' => 'gather_wine'],
-        ['content_id' => 'wine_bottle_3', 'name' => 'Wine Bottle', 'position' => ['q' => 0, 'r' => 1], 'quest_association' => 'gather_wine'],
-        ['content_id' => 'wine_bottle_4', 'name' => 'Wine Bottle', 'position' => ['q' => -1, 'r' => 0], 'quest_association' => 'gather_wine'],
-        ['content_id' => 'wine_bottle_5', 'name' => 'Wine Bottle', 'position' => ['q' => 2, 'r' => 1], 'quest_association' => 'gather_wine'],
-        ['content_id' => 'spellbook_1', 'name' => 'Ancient Spellbook', 'position' => ['q' => 3, 'r' => 0], 'quest_association' => 'collect_spellbooks'],
-        ['content_id' => 'spellbook_2', 'name' => 'Mystical Tome', 'position' => ['q' => 1, 'r' => 1], 'quest_association' => 'collect_spellbooks'],
-        ['content_id' => 'spellbook_3', 'name' => 'Faded Journal', 'position' => ['q' => 2, 'r' => -1], 'quest_association' => 'collect_spellbooks'],
-        ['content_id' => 'spellbook_4', 'name' => 'Crystal-Bound Codex', 'position' => ['q' => 0, 'r' => -1], 'quest_association' => 'collect_spellbooks'],
-        ['content_id' => 'torch_component_1', 'name' => 'Torch Rod', 'position' => ['q' => 1, 'r' => 0], 'quest_association' => 'gather_torch_components'],
-        ['content_id' => 'torch_component_2', 'name' => 'Cloth Wrapping', 'position' => ['q' => 2, 'r' => 0], 'quest_association' => 'gather_torch_components'],
-        ['content_id' => 'torch_component_3', 'name' => 'Torch Rod', 'position' => ['q' => 0, 'r' => 1], 'quest_association' => 'gather_torch_components'],
-        ['content_id' => 'torch_component_4', 'name' => 'Flint Stone', 'position' => ['q' => -1, 'r' => 0], 'quest_association' => 'gather_torch_components'],
-        ['content_id' => 'torch_component_5', 'name' => 'Cloth Wrapping', 'position' => ['q' => 1, 'r' => -1], 'quest_association' => 'gather_torch_components'],
-        ['content_id' => 'torch_component_6', 'name' => 'Flint Stone', 'position' => ['q' => 2, 'r' => 1], 'quest_association' => 'gather_torch_components'],
-        ['content_id' => 'room_supply_1', 'name' => 'Room Supply Bundle', 'position' => ['q' => -2, 'r' => 0], 'quest_association' => 'gather_two_room_items'],
-        ['content_id' => 'room_supply_2', 'name' => 'Room Supply Bundle', 'position' => ['q' => -2, 'r' => 1], 'quest_association' => 'gather_two_room_items'],
-      ],
-      'obstacles' => [],
-    ];
+    $contents_data = is_array($starter_room['contents_data'] ?? NULL) ? $starter_room['contents_data'] : [];
 
     // Create room record
     $this->database->insert('dc_campaign_rooms')
@@ -426,7 +458,7 @@ class CampaignInitializationService {
         'room_id' => $room_id,
         'name' => $room_name,
         'description' => $room_description,
-        'environment_tags' => json_encode(['indoor', 'tavern', 'safe', 'starting_area']),
+        'environment_tags' => json_encode($starter_room['environment_tags'] ?? ['indoor', 'tavern', 'safe', 'starting_area']),
         'layout_data' => json_encode($layout_data, JSON_PRETTY_PRINT),
         'contents_data' => json_encode($contents_data, JSON_PRETTY_PRINT),
         'created' => $now,
@@ -856,6 +888,76 @@ class CampaignInitializationService {
         'id' => $campaign_id,
         'error' => $e->getMessage(),
       ]);
+    }
+  }
+
+  /**
+   * Seed the starter room's visible runtime chat log for the hexmap frontend.
+   */
+  private function seedStarterRoomChatHistory(
+    int $campaign_id,
+    string $dungeon_id,
+    string $room_id,
+    string $room_name,
+    int $now
+  ): void {
+    if ($room_id === '') {
+      return;
+    }
+
+    $record = $this->database->select('dc_campaign_dungeons', 'd')
+      ->fields('d', ['dungeon_data'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('dungeon_id', $dungeon_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    if (!$record) {
+      return;
+    }
+
+    $dungeon_data = json_decode((string) ($record['dungeon_data'] ?? '{}'), TRUE);
+    if (!is_array($dungeon_data) || !is_array($dungeon_data['rooms'] ?? NULL)) {
+      return;
+    }
+
+    foreach ($dungeon_data['rooms'] as &$room) {
+      if (!is_array($room)) {
+        continue;
+      }
+
+      $candidate_room_id = (string) ($room['room_id'] ?? $room['id'] ?? '');
+      if ($candidate_room_id !== $room_id) {
+        continue;
+      }
+
+      $room['chat'] = is_array($room['chat'] ?? NULL) ? $room['chat'] : [];
+      foreach ($room['chat'] as $message) {
+        if (($message['speaker'] ?? '') === 'Game Master'
+          && ($message['message'] ?? '') === "You arrive at {$room_name}. The adventure begins...") {
+          return;
+        }
+      }
+
+      $room['chat'][] = [
+        'speaker' => 'Game Master',
+        'message' => "You arrive at {$room_name}. The adventure begins...",
+        'type' => 'gm',
+        'channel' => 'room',
+        'timestamp' => date('c', $now),
+        'character_id' => NULL,
+        'user_id' => NULL,
+      ];
+
+      $this->database->update('dc_campaign_dungeons')
+        ->fields([
+          'dungeon_data' => json_encode($dungeon_data, JSON_UNESCAPED_UNICODE),
+          'updated' => $now,
+        ])
+        ->condition('campaign_id', $campaign_id)
+        ->condition('dungeon_id', $dungeon_id)
+        ->execute();
+      return;
     }
   }
 

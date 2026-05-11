@@ -31,6 +31,32 @@ class SpellCatalogServiceTest extends UnitTestCase {
     $this->service = new SpellCatalogService();
   }
 
+  /**
+   * @covers ::loadBundledCatalog
+   * @covers ::loadFromJson
+   * @covers ::getSpell
+   */
+  public function testBundledCatalogProvidesCommonTavernSpellLookups(): void {
+    $message = $this->service->getSpell('message');
+    $command = $this->service->getSpell('command');
+    $pest_form = $this->service->getSpell('pest_form');
+    $thoughtful_gift = $this->service->getSpell('thoughtful_gift');
+
+    $this->assertNotNull($message);
+    $this->assertSame('Message', $message['name']);
+    $this->assertTrue($message['is_cantrip']);
+
+    $this->assertNotNull($command);
+    $this->assertSame('Command', $command['name']);
+    $this->assertSame(1, $command['rank']);
+
+    $this->assertNotNull($pest_form);
+    $this->assertSame('pest-form', $pest_form['id']);
+
+    $this->assertNotNull($thoughtful_gift);
+    $this->assertSame('thoughtful-gift', $thoughtful_gift['id']);
+  }
+
   // -------------------------------------------------------------------------
   // Cantrip auto-heightening
   // -------------------------------------------------------------------------
@@ -500,6 +526,114 @@ class SpellCatalogServiceTest extends UnitTestCase {
     $this->assertNotEmpty($errors);
     $found = array_filter($errors, fn($e) => str_contains($e, 'school'));
     $this->assertNotEmpty($found);
+  }
+
+  /**
+   * @covers ::validateSpellData
+   */
+  public function testValidateSpellDataAllowsChoiceBasedSaveTypes(): void {
+    $errors = $this->service->validateSpellData([
+      'id' => 'shadow-blast',
+      'name' => 'Shadow Blast',
+      'rank' => 5,
+      'traditions' => ['arcane', 'occult', 'divine'],
+      'save_type' => 'basic_reflex_or_will_choice',
+    ]);
+
+    $this->assertEmpty($errors);
+  }
+
+  /**
+   * @covers ::validateSpellData
+   */
+  public function testValidateSpellDataAllowsNaSaveType(): void {
+    $errors = $this->service->validateSpellData([
+      'id' => 'angelic-wings',
+      'name' => 'Angelic Wings',
+      'rank' => 3,
+      'traditions' => ['divine'],
+      'save_type' => 'NA',
+    ]);
+
+    $this->assertEmpty($errors);
+  }
+
+  /**
+   * @covers ::loadRegistryCatalog
+   * @covers ::fetchRegistrySpellRows
+   * @covers ::buildRegistrySpellRecord
+   * @covers ::getSpell
+   */
+  public function testRegistrySpellRowsOverrideBundledFallbacks(): void {
+    $service = new TestableSpellCatalogService([
+      (object) [
+        'content_id' => 'shield',
+        'name' => 'Shield',
+        'level' => 0,
+        'tags' => json_encode(['arcane', 'divine', 'occult']),
+        'schema_data' => json_encode([
+          'id' => 'shield',
+          'name' => 'Shield',
+          'rank' => 0,
+          'school' => 'abjuration',
+          'traditions' => ['arcane', 'divine', 'occult'],
+          'description' => 'Registry-backed shield spell.',
+          'cast_actions' => '1_action',
+        ]),
+      ],
+    ]);
+
+    $spell = $service->getSpell('shield');
+
+    $this->assertNotNull($spell);
+    $this->assertSame('Registry-backed shield spell.', $spell['description']);
+    $this->assertSame('1_action', $spell['cast_actions']);
+  }
+
+  /**
+   * @covers ::loadRegistryCatalog
+   * @covers ::buildRegistrySpellRecord
+   * @covers ::getSpell
+   */
+  public function testRegistrySpellRowsSupportUnderscoreLookups(): void {
+    $service = new TestableSpellCatalogService([
+      (object) [
+        'content_id' => 'shadow-blast',
+        'name' => 'Shadow Blast',
+        'level' => 5,
+        'tags' => json_encode(['arcane', 'occult', 'divine']),
+        'schema_data' => json_encode([
+          'id' => 'shadow-blast',
+          'name' => 'Shadow Blast',
+          'rank' => 5,
+          'school' => 'evocation',
+          'traditions' => ['arcane', 'occult', 'divine'],
+          'save_type' => 'basic_reflex_or_will_choice',
+        ]),
+      ],
+    ]);
+
+    $spell = $service->getSpell('shadow_blast');
+
+    $this->assertNotNull($spell);
+    $this->assertSame('shadow-blast', $spell['id']);
+    $this->assertSame('basic_reflex_or_will_choice', $spell['save_type']);
+  }
+
+}
+
+class TestableSpellCatalogService extends SpellCatalogService {
+
+  /**
+   * @param array<int, object> $registryRows
+   *   Registry rows to expose to the service.
+   */
+  public function __construct(private array $registryRows = []) {
+    parent::__construct();
+  }
+
+  protected function fetchRegistrySpellRows(): array {
+    return $this->registryRows;
   }
 
 }

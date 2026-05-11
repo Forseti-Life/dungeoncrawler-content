@@ -12,12 +12,25 @@
 use Drupal\Core\Entity\Display\EntityViewDisplayInterface;
 use Drupal\Core\Entity\EntityInterface;
 use Drupal\Core\Form\FormStateInterface;
+use Drupal\Core\Url;
 use Drupal\node\NodeInterface;
 
 /**
  * Implements hook_form_FORM_ID_alter() for user_login_form.
  */
 function dungeoncrawler_content_form_user_login_form_alter(array &$form, FormStateInterface $form_state, $form_id): void {
+  $form['#submit'][] = 'dungeoncrawler_content_user_login_form_submit_redirect_campaigns';
+}
+
+/**
+ * Redirect successful logins to the campaigns page by default.
+ */
+function dungeoncrawler_content_user_login_form_submit_redirect_campaigns(array &$form, FormStateInterface $form_state): void {
+  if (\Drupal::request()->query->has('destination')) {
+    return;
+  }
+
+  $form_state->setRedirectUrl(Url::fromUserInput('/campaigns'));
 }
 
 /**
@@ -117,6 +130,7 @@ function dungeoncrawler_content_theme(array $existing, string $type, string $the
       'variables' => [
         'campaign' => [],
         'characters' => [],
+        'character_groups' => [],
         'dungeon_selection_url' => NULL,
         'create_character_url' => NULL,
         'back_url' => NULL,

@@ -6159,3 +6159,231 @@ function dungeoncrawler_content_update_10049() {
 
   return t('Created dc_room_view_gallery table for room scene galleries.');
 }
+
+/**
+ * Backfill registry spell metadata for locally defined cantrips and 1st-rank spells.
+ */
+function dungeoncrawler_content_update_10050() {
+  $database = \Drupal::database();
+  if (!$database->schema()->tableExists('dungeoncrawler_content_registry')) {
+    return t('dungeoncrawler_content_registry does not exist; no action taken.');
+  }
+
+  $spell_map = dungeoncrawler_content_collect_local_spell_metadata([0, 1]);
+  if ($spell_map === []) {
+    return t('No local spell metadata definitions were found to backfill.');
+  }
+
+  $rows = $database->select('dungeoncrawler_content_registry', 'r')
+    ->fields('r', ['id', 'content_id', 'schema_data'])
+    ->condition('content_type', 'spell')
+    ->condition('level', [0, 1], 'IN')
+    ->execute()
+    ->fetchAllAssoc('id');
+
+  $updated = 0;
+  foreach ($rows as $row) {
+    $normalized_id = dungeoncrawler_content_normalize_spell_id((string) $row->content_id);
+    if (!isset($spell_map[$normalized_id])) {
+      continue;
+    }
+
+    $schema = json_decode((string) ($row->schema_data ?? '{}'), TRUE);
+    if (!is_array($schema)) {
+      $schema = [];
+    }
+
+    $merged = array_replace($schema, $spell_map[$normalized_id]);
+    if (empty($merged['description_snippet']) && !empty($merged['description'])) {
+      $merged['description_snippet'] = \Drupal\Component\Utility\Unicode::truncate(trim((string) $merged['description']), 180, TRUE, TRUE);
+    }
+
+    if (json_encode($schema, JSON_UNESCAPED_UNICODE) === json_encode($merged, JSON_UNESCAPED_UNICODE)) {
+      continue;
+    }
+
+    $database->update('dungeoncrawler_content_registry')
+      ->fields([
+        'schema_data' => json_encode($merged, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        'updated' => time(),
+      ])
+      ->condition('id', (int) $row->id)
+      ->execute();
+    $updated++;
+  }
+
+  return t('Backfilled local metadata into @count cantrip/1st-rank spell registry rows.', ['@count' => $updated]);
+}
+
+/**
+ * Backfill duplicate _c spell rows from their base spell metadata.
+ */
+function dungeoncrawler_content_update_10051() {
+  $database = \Drupal::database();
+  if (!$database->schema()->tableExists('dungeoncrawler_content_registry')) {
+    return t('dungeoncrawler_content_registry does not exist; no action taken.');
+  }
+
+  $spell_map = dungeoncrawler_content_collect_local_spell_metadata([0, 1]);
+  if ($spell_map === []) {
+    return t('No local spell metadata definitions were found to inherit for duplicate rows.');
+  }
+
+  $rows = $database->select('dungeoncrawler_content_registry', 'r')
+    ->fields('r', ['id', 'content_id', 'schema_data'])
+    ->condition('content_type', 'spell')
+    ->condition('level', [0, 1], 'IN')
+    ->condition('content_id', '%\\_c', 'LIKE')
+    ->execute()
+    ->fetchAllAssoc('id');
+
+  $updated = 0;
+  foreach ($rows as $row) {
+    $normalized_id = dungeoncrawler_content_normalize_spell_id((string) $row->content_id);
+    $base_id = preg_replace('/-c$/', '', $normalized_id);
+    if (!$base_id || !isset($spell_map[$base_id])) {
+      continue;
+    }
+
+    $schema = json_decode((string) ($row->schema_data ?? '{}'), TRUE);
+    if (!is_array($schema)) {
+      $schema = [];
+    }
+
+    $metadata = $spell_map[$base_id];
+    $metadata['id'] = $normalized_id;
+    $merged = array_replace($schema, $metadata);
+    if (empty($merged['description_snippet']) && !empty($merged['description'])) {
+      $merged['description_snippet'] = \Drupal\Component\Utility\Unicode::truncate(trim((string) $merged['description']), 180, TRUE, TRUE);
+    }
+
+    if (json_encode($schema, JSON_UNESCAPED_UNICODE) === json_encode($merged, JSON_UNESCAPED_UNICODE)) {
+      continue;
+    }
+
+    $database->update('dungeoncrawler_content_registry')
+      ->fields([
+        'schema_data' => json_encode($merged, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        'updated' => time(),
+      ])
+      ->condition('id', (int) $row->id)
+      ->execute();
+    $updated++;
+  }
+
+  return t('Inherited base spell metadata into @count duplicate _c cantrip/1st-rank rows.', ['@count' => $updated]);
+}
+
+/**
+ * Import accepted packaged spell records into the canonical content registry.
+ */
+function dungeoncrawler_content_update_10052() {
+  /** @var \Drupal\dungeoncrawler_content\Service\ContentRegistry $registry */
+  $registry = \Drupal::service('dungeoncrawler_content.content_registry');
+  $count = $registry->importContentFromJson('spell');
+
+  return t('Imported @count spell records from packaged intermediary payloads.', ['@count' => $count]);
+}
+
+/**
+ * Collect local spell metadata from code-defined spell catalogs.
+ *
+ * @param array<int> $levels
+ *   Spell levels to include.
+ *
+ * @return array<string, array<string, mixed>>
+ *   Metadata keyed by normalized spell id.
+ */
+function dungeoncrawler_content_collect_local_spell_metadata(array $levels = [0, 1]): array {
+  $collections = [
+    \Drupal\dungeoncrawler_content\Service\CharacterManager::SPELLS,
+    \Drupal\dungeoncrawler_content\Service\CharacterManager::APG_SPELLS,
+    \Drupal\dungeoncrawler_content\Service\CharacterManager::SOM_SPELLS,
+    \Drupal\dungeoncrawler_content\Service\CharacterManager::BARD_FOCUS_SPELLS,
+    \Drupal\dungeoncrawler_content\Service\CharacterManager::RANGER_WARDEN_SPELLS,
+    \Drupal\dungeoncrawler_content\Service\CharacterManager::MAGUS_FOCUS_SPELLS,
+    \Drupal\dungeoncrawler_content\Service\CharacterManager::SUMMONER_FOCUS_SPELLS,
+  ];
+
+  $spell_map = [];
+  foreach ($collections as $collection) {
+    dungeoncrawler_content_collect_spell_metadata_from_node($collection, $levels, $spell_map);
+  }
+
+  if (\Drupal::hasService('dungeoncrawler_content.spell_catalog')) {
+    /** @var \Drupal\dungeoncrawler_content\Service\SpellCatalogService $spell_catalog */
+    $spell_catalog = \Drupal::service('dungeoncrawler_content.spell_catalog');
+    foreach ($spell_catalog->getSpells() as $spell) {
+      if (!is_array($spell)) {
+        continue;
+      }
+      $level = isset($spell['rank']) ? (int) $spell['rank'] : (int) ($spell['level'] ?? -1);
+      if (!in_array($level, $levels, TRUE)) {
+        continue;
+      }
+      $normalized_id = dungeoncrawler_content_normalize_spell_id((string) ($spell['id'] ?? ''));
+      if ($normalized_id === '' || isset($spell_map[$normalized_id])) {
+        continue;
+      }
+      $spell_map[$normalized_id] = dungeoncrawler_content_prepare_spell_registry_metadata($spell);
+    }
+  }
+
+  return $spell_map;
+}
+
+/**
+ * Recursively extract spell definitions from a nested spell collection.
+ *
+ * @param array<mixed> $node
+ *   Nested array node.
+ * @param array<int> $levels
+ *   Allowed spell levels.
+ * @param array<string, array<string, mixed>> $spell_map
+ *   Collected spell metadata map.
+ */
+function dungeoncrawler_content_collect_spell_metadata_from_node(array $node, array $levels, array &$spell_map): void {
+  foreach ($node as $entry) {
+    if (!is_array($entry)) {
+      continue;
+    }
+
+    if (isset($entry['id'])) {
+      $level = isset($entry['level']) ? (int) $entry['level'] : NULL;
+      if ($level !== NULL && in_array($level, $levels, TRUE)) {
+        $normalized_id = dungeoncrawler_content_normalize_spell_id((string) $entry['id']);
+        if (!isset($spell_map[$normalized_id])) {
+          $spell_map[$normalized_id] = dungeoncrawler_content_prepare_spell_registry_metadata($entry);
+        }
+      }
+    }
+
+    dungeoncrawler_content_collect_spell_metadata_from_node($entry, $levels, $spell_map);
+  }
+}
+
+/**
+ * Prepare spell metadata for registry storage.
+ *
+ * @param array<string, mixed> $spell
+ *   Raw spell definition.
+ *
+ * @return array<string, mixed>
+ *   Registry-ready metadata fragment.
+ */
+function dungeoncrawler_content_prepare_spell_registry_metadata(array $spell): array {
+  $metadata = $spell;
+  $metadata['id'] = dungeoncrawler_content_normalize_spell_id((string) ($spell['id'] ?? ''));
+  if (isset($metadata['school']) && is_string($metadata['school'])) {
+    $metadata['school'] = strtolower($metadata['school']);
+  }
+
+  return $metadata;
+}
+
+/**
+ * Normalize spell identifiers between underscore and hyphen variants.
+ */
+function dungeoncrawler_content_normalize_spell_id(string $spell_id): string {
+  return strtolower(str_replace('_', '-', trim($spell_id)));
+}

@@ -11,6 +11,7 @@ use Drupal\dungeoncrawler_content\Service\AiSessionManager;
 use Drupal\dungeoncrawler_content\Service\CanonicalActionRegistryService;
 use Drupal\dungeoncrawler_content\Service\ChatChannelManager;
 use Drupal\dungeoncrawler_content\Service\ChatSessionManager;
+use Drupal\dungeoncrawler_content\Service\GmOrchestrationBrokerService;
 use Drupal\dungeoncrawler_content\Service\GameplayActionProcessor;
 use Drupal\dungeoncrawler_content\Service\MapGeneratorService;
 use Drupal\dungeoncrawler_content\Service\NarrationEngine;
@@ -57,6 +58,7 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
       $this->createMock(ChatSessionManager::class),
       $this->createMock(MapGeneratorService::class),
       $this->createMock(CanonicalActionRegistryService::class),
+      $this->createMock(GmOrchestrationBrokerService::class),
     );
   }
 
@@ -174,6 +176,125 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
     $this->assertStringContainsString('Marta the Scholar: And with more questions than answers, it seems.', $observation);
   }
 
+  /**
+   * @covers ::classifyRoomTurnIntent
+   */
+  public function testClassifyRoomTurnIntentRecognizesNavigation(): void {
+    $intent = $this->roomChatService->publicClassifyRoomTurnIntent(
+      "OK, so who is going with me? I'll meet you there. Then I leave for the rat dungeon"
+    );
+
+    $this->assertSame('navigation_travel', $intent);
+  }
+
+  /**
+   * @covers ::classifyRoomTurnIntent
+   */
+  public function testClassifyRoomTurnIntentRecognizesTravelingVariant(): void {
+    $intent = $this->roomChatService->publicClassifyRoomTurnIntent(
+      'OK, lets try traveling to the rat dungeon again.'
+    );
+
+    $this->assertSame('navigation_travel', $intent);
+  }
+
+  /**
+   * @covers ::buildDeterministicGmResponse
+   */
+  public function testBuildDeterministicGmResponseCreatesNavigationAction(): void {
+    $response = $this->roomChatService->publicBuildDeterministicGmResponse(
+      'navigation_travel',
+      [],
+      NULL,
+      "Then I leave for the rat dungeon",
+      ['name' => 'The Gilded Tankard']
+    );
+
+    $this->assertNotNull($response);
+    $this->assertSame('navigate_to_location', $response['actions'][0]['type']);
+    $this->assertSame('Rat Dungeon', $response['actions'][0]['details']['destination']);
+    $this->assertStringContainsString('sets out toward Rat Dungeon', $response['narrative']);
+  }
+
+  /**
+   * @covers ::extractNavigationDestination
+   */
+  public function testExtractNavigationDestinationStripsTrailingFillerWords(): void {
+    $destination = $this->roomChatService->publicExtractNavigationDestination(
+      'I leave for the rat dungeon now.'
+    );
+
+    $this->assertSame('Rat Dungeon', $destination);
+  }
+
+  /**
+   * @covers ::classifyRoomTurnIntent
+   */
+  public function testClassifyRoomTurnIntentRecognizesCombatEngagement(): void {
+    $intent = $this->roomChatService->publicClassifyRoomTurnIntent(
+      'Hey Gribbles and Marta, let us kill those rats and search the room.'
+    );
+
+    $this->assertSame('combat_engagement', $intent);
+  }
+
+  /**
+   * @covers ::buildDeterministicGmResponse
+   */
+  public function testBuildDeterministicGmResponseCreatesCombatInitiationAction(): void {
+    $response = $this->roomChatService->publicBuildDeterministicGmResponse(
+      'combat_engagement',
+      [],
+      NULL,
+      'Let us kill those rats now.',
+      ['name' => 'Rat Nest'],
+      'room-1',
+      [
+        'entities' => [
+          [
+            'entity_instance_id' => 'giant_rat_alpha',
+            'name' => 'Giant Rat Alpha',
+            'team' => 'hostile',
+            'placement' => ['room_id' => 'room-1'],
+          ],
+          [
+            'entity_instance_id' => 'giant_rat_beta',
+            'name' => 'Giant Rat Beta',
+            'state' => ['metadata' => ['team' => 'enemy']],
+            'placement' => ['room_id' => 'room-1'],
+          ],
+        ],
+      ]
+    );
+
+    $this->assertNotNull($response);
+    $this->assertSame('combat_initiation', $response['actions'][0]['type']);
+    $this->assertSame(['giant_rat_alpha', 'giant_rat_beta'], $response['actions'][0]['details']['combat']['enemy_entity_ids']);
+    $this->assertStringContainsString('combat begins', strtolower($response['narrative']));
+  }
+
+  /**
+   * @covers ::trimIncompleteNarrative
+   */
+  public function testTrimIncompleteNarrativeReturnsLastCompleteSentence(): void {
+    $trimmed = $this->roomChatService->publicTrimIncompleteNarrative(
+      'The room falls silent for a moment. Eldric glances toward the door and starts to sa'
+    );
+
+    $this->assertSame('The room falls silent for a moment.', $trimmed);
+  }
+
+  /**
+   * @covers ::stripPlayerVisibleActionBlocks
+   */
+  public function testStripPlayerVisibleActionBlocksRemovesJsonLeakage(): void {
+    $sanitized = $this->roomChatService->publicStripPlayerVisibleActionBlocks(
+      "You can target the rats with Sleep. Here's the JSON action block for casting Sleep: ```json\n{ \"actions\": [ { \"type\": \"cast_spell\" } ]"
+    );
+
+    $this->assertSame('You can target the rats with Sleep.', $sanitized);
+  }
+
 }
 
 /**
@@ -199,6 +320,34 @@ class TestableRoomChatService extends RoomChatService {
 
   public function publicBuildRoomObservationFromChat(array $chat, int $limit = 8): string {
     return $this->buildRoomObservationFromChat($chat, $limit);
+  }
+
+  public function publicClassifyRoomTurnIntent(string $player_message, array $room_npcs = [], ?array $directly_addressed_npc = NULL): string {
+    return $this->classifyRoomTurnIntent($player_message, $room_npcs, $directly_addressed_npc);
+  }
+
+  public function publicBuildDeterministicGmResponse(
+    string $intent,
+    array $room_npcs,
+    ?array $directly_addressed_npc,
+    string $player_message,
+    array $room_meta = [],
+    string $room_id = '',
+    array $dungeon_data = []
+  ): ?array {
+    return $this->buildDeterministicGmResponse($intent, $room_npcs, $directly_addressed_npc, $player_message, $room_meta, $room_id, $dungeon_data);
+  }
+
+  public function publicExtractNavigationDestination(string $player_message, array $room_meta = []): ?string {
+    return $this->extractNavigationDestination($player_message, $room_meta);
+  }
+
+  public function publicTrimIncompleteNarrative(string $narrative): string {
+    return $this->trimIncompleteNarrative($narrative);
+  }
+
+  public function publicStripPlayerVisibleActionBlocks(string $narrative): string {
+    return $this->stripPlayerVisibleActionBlocks($narrative);
   }
 
 }

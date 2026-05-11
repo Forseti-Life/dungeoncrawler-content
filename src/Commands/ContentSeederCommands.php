@@ -114,7 +114,7 @@ class ContentSeederCommands extends DrushCommands {
   const VALID_BESTIARY_SOURCES = ['b1', 'b2', 'b3', 'custom'];
 
   /**
-   * Import creature content from packaged JSON files into the content registry.
+   * Import packaged content from JSON files into the content registry.
    *
    * Loads all creature JSON files from the module's content/creatures/
    * directory (including subdirectories like bestiary1/, bestiary2/,
@@ -132,7 +132,7 @@ class ContentSeederCommands extends DrushCommands {
    *   Command options.
    *
    * @command dungeoncrawler_content:import-creatures
-   * @option type   Only import a specific content type (creature, item, trap, hazard). Default: creature.
+   * @option type   Only import a specific content type (creature, item, trap, hazard, spell). Default: creature.
    * @option source Only import creatures whose bestiary_source matches this value (b1|b2|b3|custom). Optional.
    * @usage dungeoncrawler_content:import-creatures
    *   Import all creature JSON files from content/creatures/.
@@ -173,6 +173,32 @@ class ContentSeederCommands extends DrushCommands {
         ? "No '{$type}' records with source={$source} imported. Check that content/{$type}s/ subdirectory exists and files carry \"bestiary_source\": \"{$source}\"."
         : "No '{$type}' records imported. Check that content/{$type}s/ directory exists and contains valid JSON files.";
       $this->io()->note($hint);
+    }
+
+    return self::EXIT_SUCCESS;
+  }
+
+  /**
+   * Import accepted spell library rows from packaged intermediary JSON.
+   *
+   * Loads spell records from content/intermediary/ and upserts the accepted
+   * `records[]` rows into dungeoncrawler_content_registry. Review-only rows are
+   * intentionally skipped until curated.
+   *
+   * @command dungeoncrawler_content:import-spells
+   * @usage dungeoncrawler_content:import-spells
+   *   Import accepted packaged spell records into the canonical registry.
+   * @aliases dc:import-spells
+   */
+  public function importSpells(): int {
+    $this->io()->title("Importing 'spell' content from packaged intermediary JSON");
+
+    $count = $this->registry->importContentFromJson('spell');
+    if ($count > 0) {
+      $this->io()->success("Imported {$count} 'spell' records (created or updated). Import is idempotent — re-run at any time.");
+    }
+    else {
+      $this->io()->note("No 'spell' records imported. Check that content/intermediary/ contains a valid spell intermediary payload with accepted records[].");
     }
 
     return self::EXIT_SUCCESS;

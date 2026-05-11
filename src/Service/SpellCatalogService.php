@@ -2,6 +2,8 @@
 
 namespace Drupal\dungeoncrawler_content\Service;
 
+use Drupal\Core\Database\Connection;
+
 /**
  * Core spell catalog and rules service (dc-cr-spells-ch07).
  *
@@ -75,11 +77,19 @@ class SpellCatalogService {
    */
   protected array $spells = [];
 
-  public function __construct() {
+  /**
+   * Optional live content registry database connection.
+   */
+  protected ?Connection $database;
+
+  public function __construct(?Connection $database = NULL) {
+    $this->database = $database;
     // Seed with representative sample spells for unit tests and live game.
     // Full catalog population is handled via loadFromJson() at boot
     // (see dungeoncrawler_content.services.yml or a LoadSpellsCommand).
     $this->seedRepresentativeSample();
+    $this->loadBundledCatalog();
+    $this->loadRegistryCatalog();
   }
 
   // -----------------------------------------------------------------------
@@ -90,7 +100,20 @@ class SpellCatalogService {
    * Look up a spell by ID.
    */
   public function getSpell(string $spell_id): ?array {
-    return $this->spells[$spell_id] ?? NULL;
+    $requested_id = $this->normalizeSpellId($spell_id);
+    $candidate_ids = array_values(array_unique(array_filter([
+      trim($spell_id),
+      $requested_id,
+      str_replace('-', '_', $requested_id),
+    ])));
+
+    foreach ($candidate_ids as $candidate_id) {
+      if (isset($this->spells[$candidate_id])) {
+        return $this->normalizeSpellRecord($this->spells[$candidate_id], $requested_id);
+      }
+    }
+
+    return NULL;
   }
 
   /**
@@ -128,7 +151,15 @@ class SpellCatalogService {
       $result = array_filter($result, fn($s) => ($s['rarity'] ?? 'common') === $rar);
     }
 
-    return array_values($result);
+    $deduped = [];
+    foreach ($result as $spell) {
+      if (!is_array($spell) || empty($spell['id'])) {
+        continue;
+      }
+      $deduped[$this->normalizeSpellId((string) $spell['id'])] = $this->normalizeSpellRecord($spell);
+    }
+
+    return array_values($deduped);
   }
 
   /**
@@ -139,7 +170,9 @@ class SpellCatalogService {
     if (!$id) {
       throw new \InvalidArgumentException('Spell data must have an "id" field.');
     }
-    $this->spells[$id] = $spell_data;
+    $normalized = $this->normalizeSpellRecord($spell_data);
+    $this->spells[$normalized['id']] = $normalized;
+    $this->spells[str_replace('-', '_', $normalized['id'])] = $normalized;
   }
 
   /**
@@ -156,14 +189,266 @@ class SpellCatalogService {
     if (!is_array($data)) {
       throw new \RuntimeException("Invalid JSON in {$file_path}");
     }
-    $count = 0;
-    foreach ($data as $spell) {
-      if (!empty($spell['id'])) {
-        $this->spells[$spell['id']] = $spell;
-        $count++;
-      }
+    return $this->ingestSpellDataset($data);
+  }
+
+  /**
+   * Normalize spell IDs between underscore and hyphen variants.
+   */
+  protected function normalizeSpellId(string $spell_id): string {
+    return strtolower(str_replace('_', '-', trim($spell_id)));
+  }
+
+  /**
+   * Load the bundled intermediary spell catalog when present.
+   */
+  protected function loadBundledCatalog(): void {
+    $bundled_path = dirname(__DIR__, 2) . '/content/intermediary/core_rulebook_spells_intermediary.json';
+    if (!is_file($bundled_path)) {
+      return;
     }
+
+    try {
+      $this->loadFromJson($bundled_path);
+    }
+    catch (\Throwable) {
+      // Keep the representative sample available if the full catalog can't load.
+    }
+  }
+
+  /**
+   * Overlay live registry-backed spell records when a database is available.
+   */
+  protected function loadRegistryCatalog(): void {
+    foreach ($this->fetchRegistrySpellRows() as $row) {
+      $spell = $this->buildRegistrySpellRecord($row);
+      if ($spell === NULL) {
+        continue;
+      }
+
+      $normalized = $this->normalizeSpellRecord($spell);
+      $this->spells[$normalized['id']] = $normalized;
+      $this->spells[str_replace('-', '_', $normalized['id'])] = $normalized;
+    }
+  }
+
+  /**
+   * Ingest supported spell dataset shapes into the in-memory registry.
+   */
+  protected function ingestSpellDataset(array $data): int {
+    $count = 0;
+
+    if (isset($data['records']) && is_array($data['records'])) {
+      foreach ($data['records'] as $record) {
+        if (!is_array($record) || ($record['content_type'] ?? '') !== 'spell') {
+          continue;
+        }
+
+        $spell = is_array($record['schema_data'] ?? NULL) ? $record['schema_data'] : [];
+        if (empty($spell['id']) && !empty($record['content_id'])) {
+          $spell['id'] = $record['content_id'];
+        }
+        if (empty($spell['name']) && !empty($record['name'])) {
+          $spell['name'] = $record['name'];
+        }
+        if (!isset($spell['rarity']) && !empty($record['rarity'])) {
+          $spell['rarity'] = $record['rarity'];
+        }
+        if ((!isset($spell['traits']) || !is_array($spell['traits'])) && !empty($record['tags']) && is_array($record['tags'])) {
+          $spell['traits'] = $record['tags'];
+        }
+
+        if (!empty($spell['id'])) {
+          $normalized = $this->normalizeSpellRecord($spell);
+          $this->spells[$normalized['id']] = $normalized;
+          $this->spells[str_replace('-', '_', $normalized['id'])] = $normalized;
+          $count++;
+        }
+      }
+
+      return $count;
+    }
+
+    foreach ($data as $spell) {
+      if (!is_array($spell) || empty($spell['id'])) {
+        continue;
+      }
+
+      $normalized = $this->normalizeSpellRecord($spell);
+      $this->spells[$normalized['id']] = $normalized;
+      $this->spells[str_replace('-', '_', $normalized['id'])] = $normalized;
+      $count++;
+    }
+
     return $count;
+  }
+
+  /**
+   * Normalize spell records to the API shape expected by tooltip consumers.
+   *
+   * @param array<string, mixed> $spell_data
+   *   Raw spell data.
+   * @param string|null $requested_id
+   *   Optional originally requested ID.
+   *
+   * @return array<string, mixed>
+   *   Normalized spell data.
+   */
+  protected function normalizeSpellRecord(array $spell_data, ?string $requested_id = NULL): array {
+    $normalized = $spell_data;
+    $normalized_id = $this->normalizeSpellId((string) ($spell_data['id'] ?? $requested_id ?? ''));
+    $rank = isset($spell_data['rank']) ? (int) $spell_data['rank'] : (int) ($spell_data['level'] ?? 0);
+
+    $normalized['id'] = $normalized_id;
+    $normalized['rank'] = $rank;
+    $normalized['level'] = $rank;
+    $normalized['is_cantrip'] = !empty($spell_data['is_cantrip']) || $rank === 0;
+
+    if (!empty($spell_data['school'])) {
+      $normalized['school'] = strtolower((string) $spell_data['school']);
+    }
+    if (!empty($spell_data['cast_actions'])) {
+      $normalized['cast_actions'] = $this->normalizeCastActions((string) $spell_data['cast_actions']);
+    }
+    elseif (!empty($spell_data['cast'])) {
+      $normalized['cast_actions'] = $this->normalizeCastActions((string) $spell_data['cast']);
+    }
+    if (!empty($normalized['save_type'])) {
+      $normalized['save_type'] = self::normalizeSaveType((string) $normalized['save_type']);
+    }
+    elseif (!empty($spell_data['save'])) {
+      $normalized['save_type'] = self::normalizeSaveType((string) $spell_data['save']);
+    }
+    if (!isset($normalized['traditions']) && isset($spell_data['traditions']) && is_array($spell_data['traditions'])) {
+      $normalized['traditions'] = $spell_data['traditions'];
+    }
+
+    return $normalized;
+  }
+
+  /**
+   * Normalize raw save-type labels into canonical tokens.
+   */
+  public static function normalizeSaveType(?string $value): ?string {
+    if ($value === NULL) {
+      return NULL;
+    }
+
+    if (strtoupper(trim($value)) === 'NA') {
+      return 'NA';
+    }
+
+    $normalized = strtolower(trim($value));
+    if ($normalized === '') {
+      return NULL;
+    }
+
+    $normalized = str_replace("'", '', $normalized);
+    $normalized = preg_replace('/[^a-z0-9]+/', '_', $normalized) ?? '';
+    $normalized = trim($normalized, '_');
+    $normalized = str_replace('targets_choice', 'choice', $normalized);
+    $normalized = str_replace('target_s_choice', 'choice', $normalized);
+
+    return $normalized !== '' ? $normalized : NULL;
+  }
+
+  /**
+   * Determines whether a save-type token is supported by the spell schema.
+   */
+  public static function isSupportedSaveType(?string $value): bool {
+    if ($value === NULL || $value === '' || $value === 'NA') {
+      return TRUE;
+    }
+
+    $normalized = self::normalizeSaveType($value);
+    if ($normalized === NULL) {
+      return TRUE;
+    }
+
+    if (in_array($normalized, self::SAVE_TYPES, TRUE)) {
+      return TRUE;
+    }
+
+    return preg_match('/^(basic_)?(fortitude|reflex|will)_or_(fortitude|reflex|will)_choice$/', $normalized) === 1;
+  }
+
+  /**
+   * Convert legacy cast-time strings to the tooltip API format.
+   */
+  protected function normalizeCastActions(string $value): string {
+    $normalized = strtolower(trim($value));
+    return match ($normalized) {
+      '1 action' => '1_action',
+      '2 actions' => '2_actions',
+      '3 actions' => '3_actions',
+      'reaction' => 'reaction',
+      'free action' => 'free_action',
+      '1 minute' => 'one_minute',
+      '10 minutes' => 'ten_minutes',
+      '1 hour' => 'one_hour',
+      default => str_replace(' ', '_', $normalized),
+    };
+  }
+
+  /**
+   * Fetch live spell rows from the content registry.
+   *
+   * @return array<int, object>
+   *   Registry rows keyed numerically.
+   */
+  protected function fetchRegistrySpellRows(): array {
+    if ($this->database === NULL) {
+      return [];
+    }
+
+    return $this->database->select('dungeoncrawler_content_registry', 'r')
+      ->fields('r', ['content_id', 'name', 'level', 'tags', 'schema_data'])
+      ->condition('content_type', 'spell')
+      ->condition('r.content_id', '%\_c', 'NOT LIKE')
+      ->execute()
+      ->fetchAll();
+  }
+
+  /**
+   * Build a normalized spell record from a content registry row.
+   *
+   * @param object $row
+   *   Registry row with content_id, name, level, tags, and schema_data.
+   *
+   * @return array<string, mixed>|null
+   *   Spell record, or NULL when the row should be skipped.
+   */
+  protected function buildRegistrySpellRecord(object $row): ?array {
+    $schema = json_decode((string) ($row->schema_data ?? ''), TRUE);
+    if (!is_array($schema)) {
+      return NULL;
+    }
+
+    $school = strtolower((string) ($schema['school'] ?? ''));
+    if ($school !== '' && !in_array($school, self::SPELL_SCHOOLS, TRUE)) {
+      return NULL;
+    }
+
+    $tags = json_decode((string) ($row->tags ?? '[]'), TRUE);
+    $traditions = array_values(array_intersect(
+      self::TRADITIONS,
+      is_array($tags) ? $tags : []
+    ));
+
+    $spell = $schema;
+    $spell['id'] = (string) ($schema['id'] ?? $row->content_id ?? '');
+    $spell['name'] = (string) ($schema['name'] ?? $row->name ?? $spell['id']);
+    $spell['rank'] = isset($schema['rank']) ? (int) $schema['rank'] : (int) ($row->level ?? 0);
+
+    if (!isset($spell['traditions']) || !is_array($spell['traditions']) || $spell['traditions'] === []) {
+      $spell['traditions'] = $traditions;
+    }
+
+    if (!isset($spell['description']) && !empty($schema['description_snippet'])) {
+      $spell['description'] = (string) $schema['description_snippet'];
+    }
+
+    return $spell['id'] !== '' ? $spell : NULL;
   }
 
   // -----------------------------------------------------------------------
@@ -449,7 +734,7 @@ class SpellCatalogService {
         $errors[] = "Invalid component: {$c}";
       }
     }
-    if (isset($spell['save_type']) && !in_array($spell['save_type'], self::SAVE_TYPES, TRUE)) {
+    if (isset($spell['save_type']) && !self::isSupportedSaveType((string) $spell['save_type'])) {
       $errors[] = "Invalid save_type: {$spell['save_type']}";
     }
     if (isset($spell['rarity']) && !in_array($spell['rarity'], self::RARITY_LEVELS, TRUE)) {
@@ -602,6 +887,60 @@ class SpellCatalogService {
         'save_type'   => NULL,
         'duration'    => 'instantaneous',
         'effect_text' => 'You detect magical auras. Each aura above 0 in the area reveals its school of magic.',
+        'heightened_entries' => [],
+      ],
+      [
+        'id'          => 'command',
+        'name'        => 'Command',
+        'rank'        => 1,
+        'is_cantrip'  => FALSE,
+        'school'      => 'enchantment',
+        'traditions'  => ['arcane', 'divine', 'occult'],
+        'rarity'      => 'common',
+        'cast_actions'=> '2_actions',
+        'components'  => ['somatic', 'verbal'],
+        'range'       => '30 feet',
+        'area'        => NULL,
+        'targets'     => '1 creature',
+        'save_type'   => 'will',
+        'duration'    => 'until the end of the target\'s next turn',
+        'effect_text' => 'You issue a brief magical order that the target is compelled to follow on a failed Will save.',
+        'heightened_entries' => [],
+      ],
+      [
+        'id'          => 'pest-form',
+        'name'        => 'Pest Form',
+        'rank'        => 1,
+        'is_cantrip'  => FALSE,
+        'school'      => 'transmutation',
+        'traditions'  => ['arcane', 'primal'],
+        'rarity'      => 'common',
+        'cast_actions'=> '2_actions',
+        'components'  => ['somatic', 'verbal'],
+        'range'       => NULL,
+        'area'        => NULL,
+        'targets'     => 'self',
+        'save_type'   => NULL,
+        'duration'    => '10 minutes',
+        'effect_text' => 'You transform into a Tiny harmless animal suitable for scouting and slipping through tight spaces.',
+        'heightened_entries' => [],
+      ],
+      [
+        'id'          => 'thoughtful-gift',
+        'name'        => 'Thoughtful Gift',
+        'rank'        => 2,
+        'is_cantrip'  => FALSE,
+        'school'      => 'conjuration',
+        'traditions'  => ['arcane', 'occult'],
+        'rarity'      => 'common',
+        'cast_actions'=> '2_actions',
+        'components'  => ['somatic', 'verbal'],
+        'range'       => '30 feet',
+        'area'        => NULL,
+        'targets'     => '1 willing creature',
+        'save_type'   => NULL,
+        'duration'    => 'instantaneous',
+        'effect_text' => 'You teleport a small unattended object you are holding into the grasp of a willing nearby creature.',
         'heightened_entries' => [],
       ],
     ];

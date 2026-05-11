@@ -256,6 +256,16 @@ class CampaignController extends ControllerBase {
 
     $characters = $this->characterManager->getUserCharacters();
     $character_cards = [];
+    $campaign_names = [
+      0 => $this->t('Unattached Characters')->render(),
+    ];
+
+    foreach ($this->database->select('dc_campaigns', 'c')
+      ->fields('c', ['id', 'name'])
+      ->condition('uid', (int) $this->currentUser()->id())
+      ->execute() as $campaign_row) {
+      $campaign_names[(int) $campaign_row->id] = (string) $campaign_row->name;
+    }
 
     foreach ($characters as $record) {
       $data = $this->characterManager->getCharacterData($record);
@@ -322,6 +332,8 @@ class CampaignController extends ControllerBase {
       $character_cards[] = [
         'id' => (int) $record->id,
         'name' => $record->name,
+        'campaign_id' => (int) $record->campaign_id,
+        'campaign_name' => $campaign_names[(int) $record->campaign_id] ?? $this->t('Campaign #@id', ['@id' => (int) $record->campaign_id])->render(),
         'level' => (int) $record->level,
         'ancestry' => $record->ancestry,
         'class' => $record->class,
@@ -339,6 +351,46 @@ class CampaignController extends ControllerBase {
       ];
     }
 
+    $character_groups = [];
+    foreach ($character_cards as $card) {
+      $attached_campaign_id = (int) ($card['campaign_id'] ?? 0);
+      $group_key = $attached_campaign_id > 0 ? (string) $attached_campaign_id : 'unattached';
+
+      if (!isset($character_groups[$group_key])) {
+        $is_current_campaign = $attached_campaign_id === $campaign_id;
+        $is_unattached = $attached_campaign_id <= 0;
+        $character_groups[$group_key] = [
+          'id' => $group_key,
+          'campaign_id' => $attached_campaign_id,
+          'title' => $is_current_campaign
+            ? $this->t('Already attached to this campaign')->render()
+            : ($is_unattached
+              ? $this->t('Unattached characters')->render()
+              : $this->t('Attached to @campaign', ['@campaign' => $card['campaign_name']])->render()),
+          'description' => $is_current_campaign
+            ? $this->t('These characters are already part of this campaign.')->render()
+            : ($is_unattached
+              ? $this->t('These characters are not currently attached to any campaign.')->render()
+              : $this->t('These characters are currently attached to another campaign.')->render()),
+          'sort_weight' => $is_current_campaign ? 0 : ($is_unattached ? 1 : 2),
+          'sort_name' => $is_current_campaign ? '' : mb_strtolower((string) $card['campaign_name']),
+          'characters' => [],
+        ];
+      }
+
+      $character_groups[$group_key]['characters'][] = $card;
+    }
+
+    $character_groups = array_values($character_groups);
+    usort($character_groups, static function (array $a, array $b): int {
+      $weight_compare = $a['sort_weight'] <=> $b['sort_weight'];
+      if ($weight_compare !== 0) {
+        return $weight_compare;
+      }
+
+      return strcmp((string) $a['sort_name'], (string) $b['sort_name']);
+    });
+
     $campaign_data = [
       'id' => (int) $campaign->id,
       'name' => (string) $campaign->name,
@@ -351,6 +403,7 @@ class CampaignController extends ControllerBase {
       '#theme' => 'campaign_tavernentrance',
       '#campaign' => $campaign_data,
       '#characters' => $character_cards,
+      '#character_groups' => $character_groups,
       '#dungeon_selection_url' => Url::fromRoute('dungeoncrawler_content.campaign_dungeons', [
         'campaign_id' => $campaign_id,
       ])->toString(),

@@ -245,6 +245,11 @@ import { SpriteService } from './SpriteService.js';
       this.activeSessionView = 'room'; // room | narrative | party | gm-private | system-log
       /** @type {ChatSessionApi|null} */
       this.chatSessionApi = null;
+      this.chatCacheTtlMs = 15000;
+      this.roomChatCache = new Map();
+      this.roomChatInflight = new Map();
+      this.sessionViewCache = new Map();
+      this.sessionViewInflight = new Map();
       this.setupActionFooterToggle();
       this.setupFullscreenToggle();
       this.cacheElements();
@@ -2092,72 +2097,215 @@ import { SpriteService } from './SpriteService.js';
       }
     }
 
-    async loadChatHistory() {
+    getChatContext() {
       const campaignId = this.stateManager.hexmap?.resolveCampaignId?.() || null;
       const roomId = this.stateManager.hexmap?.resolveActiveRoomId?.() || null;
       const characterData = this.stateManager.hexmap?.characterData || {};
       const characterId = characterData.id || null;
 
-      if (!campaignId || !roomId) {
-        return;
+      return {
+        campaignId,
+        roomId,
+        characterId,
+      };
+    }
+
+    isChatCacheFresh(entry) {
+      return Boolean(entry && (Date.now() - entry.storedAt) < this.chatCacheTtlMs);
+    }
+
+    getCachedChatPayload(store, key) {
+      if (!key) {
+        return null;
+      }
+      const entry = store.get(key);
+      return this.isChatCacheFresh(entry) ? entry.payload : null;
+    }
+
+    setCachedChatPayload(store, key, payload) {
+      if (!key) {
+        return payload;
+      }
+      store.set(key, {
+        storedAt: Date.now(),
+        payload,
+      });
+      return payload;
+    }
+
+    buildRoomChatCacheKey(context = null, channelKey = null) {
+      const resolved = context || this.getChatContext();
+      if (!resolved.campaignId || !resolved.roomId) {
+        return '';
+      }
+      return [
+        'room',
+        resolved.campaignId,
+        resolved.roomId,
+        resolved.characterId || 0,
+        channelKey || this.activeChannel || 'room',
+      ].join(':');
+    }
+
+    buildSessionViewCacheKey(view, context = null) {
+      const resolved = context || this.getChatContext();
+      if (!resolved.campaignId || !view || view === 'room') {
+        return '';
       }
 
-      try {
-        let url = `/api/campaign/${campaignId}/room/${roomId}/chat?channel=${encodeURIComponent(this.activeChannel)}`;
-        if (characterId) {
-          url += `&character_id=${characterId}`;
+      switch (view) {
+        case 'narrative':
+          if (!resolved.characterId || !resolved.roomId) {
+            return '';
+          }
+          return ['session', view, resolved.campaignId, resolved.characterId, resolved.roomId].join(':');
+
+        case 'gm-private':
+          if (!resolved.characterId) {
+            return '';
+          }
+          return ['session', view, resolved.campaignId, resolved.characterId].join(':');
+
+        case 'party':
+        case 'system-log':
+          return ['session', view, resolved.campaignId].join(':');
+
+        default:
+          return '';
+      }
+    }
+
+    invalidateChatCaches({ room = false, sessionViews = [] } = {}) {
+      if (room) {
+        const context = this.getChatContext();
+        const roomPrefix = ['room', context.campaignId || '', context.roomId || ''].join(':');
+        for (const key of this.roomChatCache.keys()) {
+          if (key.startsWith(roomPrefix)) {
+            this.roomChatCache.delete(key);
+          }
+        }
+      }
+
+      if (Array.isArray(sessionViews) && sessionViews.length > 0) {
+        const context = this.getChatContext();
+        for (const view of sessionViews) {
+          const key = this.buildSessionViewCacheKey(view, context);
+          if (key) {
+            this.sessionViewCache.delete(key);
+          }
+        }
+      }
+    }
+
+    async fetchRoomChatHistory(options = {}) {
+      const { force = false } = options;
+      const context = this.getChatContext();
+
+      if (!context.campaignId || !context.roomId) {
+        return null;
+      }
+
+      const cacheKey = this.buildRoomChatCacheKey(context);
+      if (!force) {
+        const cached = this.getCachedChatPayload(this.roomChatCache, cacheKey);
+        if (cached) {
+          return cached;
+        }
+        if (this.roomChatInflight.has(cacheKey)) {
+          return this.roomChatInflight.get(cacheKey);
+        }
+      }
+
+      const request = (async () => {
+        let url = `/api/campaign/${context.campaignId}/room/${context.roomId}/chat?channel=${encodeURIComponent(this.activeChannel)}`;
+        if (context.characterId) {
+          url += `&character_id=${context.characterId}`;
         }
         const response = await fetch(url);
-        
-        // Handle 403 (permission denied) gracefully  
+
         if (response.status === 403) {
-          console.warn('Chat access denied for campaign:', campaignId);
-          return; // Silently skip loading - user doesn't have access
+          console.warn('Chat access denied for campaign:', context.campaignId);
+          return null;
         }
-        
+
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`);
         }
 
         const result = await response.json();
-        if (result.success && result.data?.messages) {
-          // Clear existing messages
-          const log = this.elements.chatLog;
-          if (log) {
-            log.innerHTML = '';
-          }
+        if (result?.success && result.data?.messages) {
+          this.setCachedChatPayload(this.roomChatCache, cacheKey, result);
+        }
+        return result;
+      })();
 
-          // Render all messages
-          result.data.messages.forEach(msg => {
-            this.appendChatLine(msg.speaker, msg.message, msg.type);
-          });
+      this.roomChatInflight.set(cacheKey, request);
 
-          this.updateChatSummary(result.data.messages, {
-            emptyText: 'Quick summary: No one has said anything in this room yet.',
-          });
+      try {
+        return await request;
+      } finally {
+        if (this.roomChatInflight.get(cacheKey) === request) {
+          this.roomChatInflight.delete(cacheKey);
+        }
+      }
+    }
 
-          // When no chat history exists, show the room description as the opening narration.
-          if (result.data.messages.length === 0) {
-            const roomData = this.stateManager.hexmap?.getActiveRoomData?.() || null;
-            if (roomData?.name) {
-              const terrain = roomData.terrain?.type ? roomData.terrain.type.replace(/_/g, ' ') : '';
-              const lighting = roomData.lighting && roomData.lighting !== 'normal' ? ` | Lighting: ${roomData.lighting}` : '';
-              const size = roomData.size_category && roomData.size_category !== 'medium' ? ` | ${roomData.size_category}` : '';
-              const subtitle = [terrain, lighting, size].filter(Boolean).join('').replace(/^\s*\|\s*/, '');
-              const meta = subtitle ? ` (${subtitle})` : '';
-              this.appendChatLine('System', `📍 ${roomData.name}${meta}`, 'system');
-            }
-            if (roomData?.description) {
-              this.appendChatLine('System', roomData.description, 'system');
-            } else {
-              this.appendChatLine('System', 'Welcome to the room. Start a conversation!', 'system');
-            }
-          }
+    renderRoomChatHistory(result) {
+      if (!result?.success || !result.data?.messages) {
+        return;
+      }
 
-          this.scrollChatToBottom({ defer: true });
-          if (this.loadActiveRoomView) {
-            this.loadActiveRoomView(roomId, { force: true });
-          }
+      const log = this.elements.chatLog;
+      if (log) {
+        log.innerHTML = '';
+      }
+
+      result.data.messages.forEach(msg => {
+        this.appendChatLine(msg.speaker, msg.message, msg.type);
+      });
+
+      this.updateChatSummary(result.data.messages, {
+        emptyText: 'Quick summary: No one has said anything in this room yet.',
+      });
+
+      if (result.data.messages.length === 0) {
+        const roomData = this.stateManager.hexmap?.getActiveRoomData?.() || null;
+        if (roomData?.name) {
+          const terrain = roomData.terrain?.type ? roomData.terrain.type.replace(/_/g, ' ') : '';
+          const lighting = roomData.lighting && roomData.lighting !== 'normal' ? ` | Lighting: ${roomData.lighting}` : '';
+          const size = roomData.size_category && roomData.size_category !== 'medium' ? ` | ${roomData.size_category}` : '';
+          const subtitle = [terrain, lighting, size].filter(Boolean).join('').replace(/^\s*\|\s*/, '');
+          const meta = subtitle ? ` (${subtitle})` : '';
+          this.appendChatLine('System', `📍 ${roomData.name}${meta}`, 'system');
+        }
+        if (roomData?.description) {
+          this.appendChatLine('System', roomData.description, 'system');
+        } else {
+          this.appendChatLine('System', 'Welcome to the room. Start a conversation!', 'system');
+        }
+      }
+
+      this.scrollChatToBottom({ defer: true });
+      if (this.loadActiveRoomView) {
+        const activeRoomId = this.stateManager.hexmap?.resolveActiveRoomId?.() || null;
+        if (activeRoomId) {
+          this.loadActiveRoomView(activeRoomId, { force: true });
+        }
+      }
+    }
+
+    async loadChatHistory(options = {}) {
+      const context = this.getChatContext();
+
+      if (!context.campaignId || !context.roomId) {
+        return;
+      }
+
+      try {
+        const result = await this.fetchRoomChatHistory(options);
+        if (result?.success && result.data?.messages) {
+          this.renderRoomChatHistory(result);
+          this.prefetchSessionViews();
         }
       } catch (error) {
         console.error('Failed to load chat history:', error);
@@ -2228,7 +2376,12 @@ import { SpriteService } from './SpriteService.js';
         this.loadActiveRoomView(roomId, { force: true });
       }
 
+      this.invalidateChatCaches({
+        room: true,
+        sessionViews: ['narrative', 'party', 'gm-private', 'system-log'],
+      });
       options.onPrimaryResponse?.(result);
+      this.prefetchSessionViews();
       return result;
     }
 
@@ -2304,6 +2457,11 @@ import { SpriteService } from './SpriteService.js';
         this.loadActiveRoomView(activeRoomId, { force: true });
       }
 
+      this.invalidateChatCaches({
+        room: true,
+        sessionViews: ['narrative', 'party', 'gm-private', 'system-log'],
+      });
+      this.prefetchSessionViews();
       return completeResult;
     }
 
@@ -2598,6 +2756,111 @@ import { SpriteService } from './SpriteService.js';
       return this.chatSessionApi;
     }
 
+    async fetchSessionViewData(view, options = {}) {
+      const { force = false } = options;
+      const context = this.getChatContext();
+      const cacheKey = this.buildSessionViewCacheKey(view, context);
+      if (!cacheKey) {
+        return null;
+      }
+
+      if (!force) {
+        const cached = this.getCachedChatPayload(this.sessionViewCache, cacheKey);
+        if (cached) {
+          return cached;
+        }
+        if (this.sessionViewInflight.has(cacheKey)) {
+          return this.sessionViewInflight.get(cacheKey);
+        }
+      }
+
+      const api = this.ensureChatSessionApi();
+      if (!api) {
+        return null;
+      }
+
+      const request = (async () => {
+        let data = null;
+
+        switch (view) {
+          case 'narrative': {
+            const dungeonId = this.stateManager.hexmap?.dungeonData?.id || null;
+            data = await api.getCharacterNarrative(context.characterId, {
+              dungeonId: dungeonId || undefined,
+              roomId: context.roomId || undefined,
+              limit: 50,
+            });
+            break;
+          }
+
+          case 'party':
+            data = await api.getPartyChat({ limit: 50 });
+            break;
+
+          case 'gm-private':
+            data = await api.getGmPrivate(context.characterId, { limit: 50 });
+            break;
+
+          case 'system-log':
+            data = await api.getSystemLog({ limit: 100 });
+            break;
+        }
+
+        this.setCachedChatPayload(this.sessionViewCache, cacheKey, data || { messages: [] });
+        return data;
+      })();
+
+      this.sessionViewInflight.set(cacheKey, request);
+
+      try {
+        return await request;
+      } finally {
+        if (this.sessionViewInflight.get(cacheKey) === request) {
+          this.sessionViewInflight.delete(cacheKey);
+        }
+      }
+    }
+
+    renderSessionViewData(view, data) {
+      const log = this.elements.chatLog;
+      if (log) {
+        log.innerHTML = '';
+      }
+
+      if (data && data.messages && data.messages.length > 0) {
+        data.messages.forEach(msg => {
+          const lineType = this.resolveSessionLineType(msg, view);
+          this.appendChatLine(msg.speaker, msg.message, lineType);
+        });
+        this.updateChatSummary(data.messages, {
+          emptyText: 'Quick summary: No messages in this view yet.',
+        });
+      } else {
+        const emptyMessages = {
+          'narrative': 'Your story in this room has not yet begun...',
+          'party': 'No party chatter yet. Say something!',
+          'gm-private': 'No secret actions. GMs can use /location, /room, /quests, or /dungeon.',
+          'system-log': 'No dice rolls yet.',
+        };
+        this.appendChatLine('System', emptyMessages[view] || 'No messages.', 'system');
+        this.updateChatSummary([], {
+          emptyText: 'Quick summary: No messages in this view yet.',
+        });
+      }
+      this.scrollChatToBottom({ defer: true });
+    }
+
+    prefetchSessionViews(views = ['narrative', 'party', 'gm-private', 'system-log']) {
+      views.forEach((view) => {
+        if (!view || view === this.activeSessionView || view === 'room') {
+          return;
+        }
+        void this.fetchSessionViewData(view).catch((error) => {
+          console.debug(`Skipped prefetch for ${view}:`, error?.message || error);
+        });
+      });
+    }
+
     /**
      * Set up click handlers for session view tabs.
      */
@@ -2691,80 +2954,26 @@ import { SpriteService } from './SpriteService.js';
      * Load messages for the given session view.
      * @param {string} view
      */
-    async loadSessionViewMessages(view) {
+    async loadSessionViewMessages(view, options = {}) {
       // Room view uses existing legacy loading.
       if (view === 'room') {
-        this.loadChatHistory();
+        this.loadChatHistory(options);
         return;
       }
 
-      const api = this.ensureChatSessionApi();
-      if (!api) return;
+      const context = this.getChatContext();
+      if (!context.campaignId) return;
 
-      const characterData = this.stateManager.hexmap?.characterData || {};
-      const characterId = characterData.id || null;
-
-      const log = this.elements.chatLog;
-      if (log) log.innerHTML = '';
+      if ((view === 'narrative' || view === 'gm-private') && !context.characterId) {
+        const log = this.elements.chatLog;
+        if (log) log.innerHTML = '';
+        this.appendChatLine('System', 'No character selected.', 'system');
+        return;
+      }
 
       try {
-        let data = null;
-
-        switch (view) {
-          case 'narrative': {
-            if (!characterId) {
-              this.appendChatLine('System', 'No character selected.', 'system');
-              return;
-            }
-            const dungeonId = this.stateManager.hexmap?.dungeonData?.id || null;
-            const roomId = this.stateManager.hexmap?.resolveActiveRoomId?.() || null;
-            data = await api.getCharacterNarrative(characterId, {
-              dungeonId: dungeonId || undefined,
-              roomId: roomId || undefined,
-              limit: 50,
-            });
-            break;
-          }
-
-          case 'party':
-            data = await api.getPartyChat({ limit: 50 });
-            break;
-
-          case 'gm-private': {
-            if (!characterId) {
-              this.appendChatLine('System', 'No character selected.', 'system');
-              return;
-            }
-            data = await api.getGmPrivate(characterId, { limit: 50 });
-            break;
-          }
-
-          case 'system-log':
-            data = await api.getSystemLog({ limit: 100 });
-            break;
-        }
-
-        if (data && data.messages && data.messages.length > 0) {
-          data.messages.forEach(msg => {
-            const lineType = this.resolveSessionLineType(msg, view);
-            this.appendChatLine(msg.speaker, msg.message, lineType);
-          });
-          this.updateChatSummary(data.messages, {
-            emptyText: 'Quick summary: No messages in this view yet.',
-          });
-        } else {
-          const emptyMessages = {
-            'narrative': 'Your story in this room has not yet begun...',
-            'party': 'No party chatter yet. Say something!',
-            'gm-private': 'No secret actions. GMs can use /location, /room, /quests, or /dungeon.',
-            'system-log': 'No dice rolls yet.',
-          };
-          this.appendChatLine('System', emptyMessages[view] || 'No messages.', 'system');
-          this.updateChatSummary([], {
-            emptyText: 'Quick summary: No messages in this view yet.',
-          });
-        }
-        this.scrollChatToBottom({ defer: true });
+        const data = await this.fetchSessionViewData(view, options);
+        this.renderSessionViewData(view, data);
       } catch (err) {
         console.error(`Failed to load ${view} messages:`, err);
       }
@@ -2803,6 +3012,7 @@ import { SpriteService } from './SpriteService.js';
           case 'party':
             this.appendChatLine(speaker, message, 'player');
             await api.postPartyChat(speaker, message, String(characterId || ''));
+            this.invalidateChatCaches({ sessionViews: ['party'] });
             break;
 
           case 'gm-private':
@@ -2832,6 +3042,7 @@ import { SpriteService } from './SpriteService.js';
               if (roomResult?.navigation?.target_room_id) {
                 this.handleNavigationResult(roomResult.navigation);
               }
+              this.invalidateChatCaches({ sessionViews: ['gm-private', 'narrative', 'system-log'] });
               break;
             }
             const requestedQuests = parseGmQuestRequest(message);
@@ -2850,6 +3061,7 @@ import { SpriteService } from './SpriteService.js';
                 this.appendChatLine('Game Master', questResult.message, 'gm');
               }
               await this.stateManager.hexmap?.refreshQuestJournalFromApi?.();
+              this.invalidateChatCaches({ sessionViews: ['gm-private', 'narrative', 'system-log'] });
               break;
             }
             const requestedDungeon = parseGmDungeonRequest(message);
@@ -2863,6 +3075,7 @@ import { SpriteService } from './SpriteService.js';
               });
               const dungeonName = dungeonResult?.name || dungeonResult?.data?.name || dungeonResult?.dungeon_id || 'new dungeon';
               this.appendChatLine('Game Master', `Generated dungeon site: ${dungeonName}.`, 'gm');
+              this.invalidateChatCaches({ sessionViews: ['gm-private', 'system-log'] });
               break;
             }
             const requestedDestination = parseGmLocationRequest(message);
@@ -2883,10 +3096,12 @@ import { SpriteService } from './SpriteService.js';
               if (locationResult?.navigation?.target_room_id) {
                 this.handleNavigationResult(locationResult.navigation);
               }
+              this.invalidateChatCaches({ sessionViews: ['gm-private', 'narrative', 'system-log'] });
               break;
             }
             this.appendChatLine(speaker, message, 'secret');
             await api.postGmPrivate(characterId, speaker, message);
+            this.invalidateChatCaches({ sessionViews: ['gm-private'] });
             break;
 
           case 'narrative':
@@ -2903,6 +3118,8 @@ import { SpriteService } from './SpriteService.js';
         console.error(`Failed to post to ${this.activeSessionView}:`, err);
         this.appendChatLine('System', `Failed to send: ${err.message}`, 'system');
       }
+
+      this.prefetchSessionViews();
     }
 
     /**

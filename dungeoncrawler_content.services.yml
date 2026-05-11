@@ -176,7 +176,7 @@ services:
 
   dungeoncrawler_content.room_view_image:
     class: Drupal\dungeoncrawler_content\Service\RoomViewImageService
-    arguments: ['@database', '@logger.factory', '@dungeoncrawler_content.image_generation_integration', '@dungeoncrawler_content.chat_session_manager']
+    arguments: ['@database', '@logger.factory', '@dungeoncrawler_content.image_generation_integration', '@dungeoncrawler_content.chat_session_manager', '@dungeoncrawler_content.generated_image_repository']
 
   dungeoncrawler_content.generated_image_repository:
     class: Drupal\dungeoncrawler_content\Service\GeneratedImageRepository
@@ -359,6 +359,7 @@ services:
       - '@dungeoncrawler_content.campaign_name_generator'
       - '@dungeoncrawler_content.chat_session_manager'
       - '@dungeoncrawler_content.npc_sheet_generation'
+      - '@dungeoncrawler_content.room_view_image'
 
   dungeoncrawler_content.room_state_service:
     class: Drupal\dungeoncrawler_content\Service\RoomStateService
@@ -707,6 +708,8 @@ services:
 
   dungeoncrawler_content.spell_catalog:
     class: Drupal\dungeoncrawler_content\Service\SpellCatalogService
+    arguments:
+      - '@database'
 
   dungeoncrawler_content.learn_a_spell:
     class: Drupal\dungeoncrawler_content\Service\LearnASpellService
