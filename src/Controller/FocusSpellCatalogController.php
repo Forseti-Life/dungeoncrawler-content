@@ -4,6 +4,8 @@ namespace Drupal\dungeoncrawler_content\Controller;
 
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\dungeoncrawler_content\Service\CharacterManager;
+use Drupal\dungeoncrawler_content\Service\SpellCatalogService;
+use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 
@@ -21,6 +23,12 @@ class FocusSpellCatalogController extends ControllerBase {
 
   const VALID_BOOKS = ['crb', 'apg', 'all'];
   const VALID_CLASSES = ['oracle', 'witch', 'bard', 'ranger', 'sorcerer', 'wizard', 'all'];
+
+  public function __construct(protected SpellCatalogService $spellCatalog) {}
+
+  public static function create(ContainerInterface $container): static {
+    return new static($container->get('dungeoncrawler_content.spell_catalog'));
+  }
 
   /**
    * GET /api/focus-spells
@@ -83,7 +91,7 @@ class FocusSpellCatalogController extends ControllerBase {
         ];
         foreach (['initial_revelation', 'advanced_revelation', 'greater_revelation'] as $tier) {
           if (isset($mystery[$tier])) {
-            $items[] = array_merge($mystery[$tier], $base, ['tier' => $tier]);
+            $items[] = $this->resolveFocusSpellEntry($mystery[$tier], $base + ['tier' => $tier]);
           }
         }
       }
@@ -91,14 +99,14 @@ class FocusSpellCatalogController extends ControllerBase {
 
     if (in_array($class_filter, ['witch', 'all'], TRUE)) {
       foreach (CharacterManager::WITCH_HEXES['hex_cantrips'] as $spell) {
-        $items[] = array_merge($spell, [
+        $items[] = $this->resolveFocusSpellEntry($spell, [
           'class'       => 'witch',
           'source_book' => 'apg',
           'hex_type'    => 'hex_cantrip',
         ]);
       }
       foreach (CharacterManager::WITCH_HEXES['regular_hexes'] as $spell) {
-        $items[] = array_merge($spell, [
+        $items[] = $this->resolveFocusSpellEntry($spell, [
           'class'       => 'witch',
           'source_book' => 'apg',
           'hex_type'    => 'regular_hex',
@@ -108,7 +116,7 @@ class FocusSpellCatalogController extends ControllerBase {
 
     if (in_array($class_filter, ['bard', 'all'], TRUE)) {
       foreach (CharacterManager::BARD_FOCUS_SPELLS as $spell) {
-        $items[] = array_merge($spell, [
+        $items[] = $this->resolveFocusSpellEntry($spell, [
           'class'       => 'bard',
           'source_book' => 'apg',
         ]);
@@ -117,7 +125,7 @@ class FocusSpellCatalogController extends ControllerBase {
 
     if (in_array($class_filter, ['ranger', 'all'], TRUE)) {
       foreach (CharacterManager::RANGER_WARDEN_SPELLS['spells'] as $spell) {
-        $items[] = array_merge($spell, [
+        $items[] = $this->resolveFocusSpellEntry($spell, [
           'class'         => 'ranger',
           'source_book'   => 'apg',
           'pool_info'     => CharacterManager::RANGER_WARDEN_SPELLS['pool'],
@@ -142,14 +150,37 @@ class FocusSpellCatalogController extends ControllerBase {
         continue;
       }
       foreach ((array) $class_data['focus_spells'] as $spell_id) {
-        $items[] = [
-          'id'          => $spell_id,
+        $items[] = $this->resolveFocusSpellEntry($spell_id, [
           'class'       => $class_id,
           'source_book' => 'crb',
-        ];
+        ]);
       }
     }
     return $items;
+  }
+
+  /**
+   * Resolve focus spell catalog entries against the live spell catalog when possible.
+   *
+   * @param array<string, mixed>|string $spell
+   *   Spell array or spell ID.
+   * @param array<string, mixed> $metadata
+   *   Additional response metadata to overlay.
+   *
+   * @return array<string, mixed>
+   *   Focus spell response entry.
+   */
+  private function resolveFocusSpellEntry(array|string $spell, array $metadata = []): array {
+    $base = is_array($spell) ? $spell : ['id' => $spell];
+    $spell_id = (string) ($base['id'] ?? '');
+    $resolved = $spell_id !== '' ? $this->spellCatalog->getSpell($spell_id) : NULL;
+
+    $entry = array_merge($base, $resolved ?? []);
+    if (!isset($entry['name']) && $spell_id !== '') {
+      $entry['name'] = ucwords(str_replace(['-', '_'], ' ', $spell_id));
+    }
+
+    return array_merge($entry, $metadata);
   }
 
 }

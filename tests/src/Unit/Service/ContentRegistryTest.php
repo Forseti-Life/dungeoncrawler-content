@@ -72,6 +72,39 @@ class ContentRegistryTest extends UnitTestCase {
   }
 
   /**
+   * @covers ::normalizeContentData
+   */
+  public function testNormalizeContentDataCanonicalizesSpellIds(): void {
+    $registry = $this->buildRegistry();
+
+    $data = $registry->normalizeContentData('spell', [
+      'id' => 'acid_splash',
+      'spell_id' => 'acid_splash',
+      'content_id' => 'acid_splash',
+      'spell_type' => 'CANTRIP',
+      'school' => 'EVOCATION',
+      'rarity' => 'COMMON',
+      'save_type' => "basic_reflex_or_will_(target's_choice)",
+    ]);
+
+    $this->assertSame('acid-splash', $data['id']);
+    $this->assertSame('acid-splash', $data['spell_id']);
+    $this->assertSame('acid-splash', $data['content_id']);
+    $this->assertSame('cantrip', $data['spell_type']);
+    $this->assertSame('evocation', $data['school']);
+    $this->assertSame('common', $data['rarity']);
+    $this->assertSame('basic_reflex_or_will_choice', $data['save_type']);
+  }
+
+  /**
+   * @covers ::getContentTypes
+   */
+  public function testGetContentTypesIncludesSpell(): void {
+    $registry = $this->buildRegistry();
+    $this->assertContains('spell', $registry->getContentTypes());
+  }
+
+  /**
    * @covers ::importContentFromJson
    */
   public function testImportContentFromJsonSourceFilterSkipsNonMatchingSource(): void {
@@ -186,6 +219,92 @@ class ContentRegistryTest extends UnitTestCase {
     $this->assertSame(1, $count_b3);
     $this->assertContains('test-b3-creature', $registry2->importedIds);
     $this->assertNotContains('test-b2-creature', $registry2->importedIds);
+  }
+
+  /**
+   * @covers ::importContentFromJson
+   * @covers ::prepareRegistryRecords
+   * @covers ::prepareRegistryRecord
+   */
+  public function testImportContentFromJsonSupportsSpellIntermediaryPayloads(): void {
+    $registry = new class extends ContentRegistry {
+
+      public array $upserts = [];
+
+      public function __construct() {
+        $this->loggerFactory = new class {
+          public function get(string $channel): object {
+            return new class {
+              public function warning(string $message, array $context = []): void {}
+              public function error(string $message, array $context = []): void {}
+              public function notice(string $message, array $context = []): void {}
+            };
+          }
+        };
+      }
+
+      protected function getImportDirectories(string $content_type): array {
+        return ['/tmp'];
+      }
+
+      protected function scanForJsonFiles(string $dir): array {
+        return ['__spell_payload__'];
+      }
+
+      protected function loadJsonFile(string $file): array {
+        return [
+          'records' => [
+            [
+              'content_type' => 'spell',
+              'content_id' => 'acid_splash',
+              'name' => 'Acid Splash',
+              'level' => 0,
+              'rarity' => 'common',
+              'tags' => ['arcane', 'cantrip', 'evocation', 'primal'],
+              'schema_data' => [
+                'id' => 'acid_splash',
+                'name' => 'Acid Splash',
+                'rank' => 0,
+                'spell_type' => 'cantrip',
+                'school' => 'evocation',
+                'traditions' => ['arcane', 'primal'],
+                'components' => ['somatic', 'verbal'],
+                'rarity' => 'common',
+              ],
+              'source_file' => 'intermediary/PF2E Core Rulebook - Fourth Printing.txt',
+              'version' => 'core-raw-text-v1',
+            ],
+          ],
+          'needs_review' => [
+            [
+              'content_type' => 'spell',
+              'content_id' => 'broken_spell',
+              'name' => 'Broken Spell',
+            ],
+          ],
+        ];
+      }
+
+      protected function sanitizeTextFields(array $data): array {
+        return $data;
+      }
+
+      protected function upsertRegistryRecord(string $content_type, array $record): void {
+        $this->upserts[] = [$content_type, $record];
+      }
+
+    };
+
+    $count = $registry->importContentFromJson('spell');
+
+    $this->assertSame(1, $count);
+    $this->assertCount(1, $registry->upserts);
+    $this->assertSame('spell', $registry->upserts[0][0]);
+    $this->assertSame('acid-splash', $registry->upserts[0][1]['content_id']);
+    $this->assertSame('acid-splash', $registry->upserts[0][1]['schema_data']['id']);
+    $this->assertSame('acid-splash', $registry->upserts[0][1]['schema_data']['spell_id']);
+    $this->assertSame(0, $registry->upserts[0][1]['schema_data']['level']);
+    $this->assertSame('intermediary/PF2E Core Rulebook - Fourth Printing.txt', $registry->upserts[0][1]['source_file']);
   }
 
   /**

@@ -939,6 +939,22 @@
           }
         });
       }
+      if (spell.trigger) {
+        notes.push('Trigger: ' + spell.trigger);
+      }
+      if (spell.eligible_caster_note) {
+        notes.push(spell.eligible_caster_note);
+      }
+      if (spell.edge_case) {
+        notes.push(spell.edge_case);
+      }
+      if (spell.summon_level_cap_table && typeof spell.summon_level_cap_table === 'object') {
+        Object.keys(spell.summon_level_cap_table)
+          .sort(function (a, b) { return Number(a) - Number(b); })
+          .forEach(function (key) {
+            notes.push('Animate Dead ' + spellRankLabel(Number(key), false) + ': max undead level ' + spell.summon_level_cap_table[key]);
+          });
+      }
 
       el.dataset.tooltipEffects = JSON.stringify(Array.from(new Set(effects.filter(Boolean))));
       el.dataset.tooltipMods = JSON.stringify(mods);

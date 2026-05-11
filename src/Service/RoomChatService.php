@@ -21,9 +21,10 @@ class RoomChatService {
 
   const MAX_MESSAGE_LENGTH = 2000;
   const MAX_MESSAGES_PER_ROOM = 500;
-  protected const ROOM_CHAT_MAX_INPUT_CHARS = 12000;
+  protected const ROOM_CHAT_MAX_INPUT_CHARS = 6800;
   protected const ROOM_CHAT_MAX_SYSTEM_PROMPT_CHARS = 7600;
   protected const ROOM_CHAT_MAX_USER_PROMPT_CHARS = 4000;
+  protected const ROOM_CHAT_GM_MAX_TOKENS = 200;
 
   protected Connection $database;
   protected DungeonStateService $dungeonStateService;
@@ -574,23 +575,21 @@ class RoomChatService {
 
     $session_key = $this->sessionManager->roomChatSessionKey($campaign_id, $room_id);
     $stage_started_at = hrtime(true);
-    $deterministic_narrative = $this->buildDeterministicGmNarrative(
+    $deterministic_response = $this->buildDeterministicGmResponse(
       $turn_intent,
       $room_npcs,
       $directly_addressed_npc,
       $latest_player_message,
-      $room_meta
+      $room_meta,
+      $room_id,
+      $dungeon_data
     );
-    if ($deterministic_narrative !== NULL) {
-      $checked_response = [
-        'narrative' => $deterministic_narrative,
-        'actions' => [],
-        'dice_rolls' => [],
-        'validation_errors' => [],
-      ];
+    if ($deterministic_response !== NULL) {
+      $checked_response = $deterministic_response;
       $this->recordDebugStage('gm.deterministic_short_path', $stage_started_at, [
         'intent' => $turn_intent,
-        'narrative_length' => strlen($deterministic_narrative),
+        'narrative_length' => strlen((string) ($deterministic_response['narrative'] ?? '')),
+        'action_count' => count($deterministic_response['actions'] ?? []),
       ]);
     }
     else {
@@ -618,6 +617,9 @@ class RoomChatService {
       if (!empty($prompt_artifacts['npc_roster_summary'])) {
         $prompt .= $prompt_artifacts['npc_roster_summary'] . "\n\n";
       }
+      if (!empty($prompt_artifacts['npc_profile_summary'])) {
+        $prompt .= $prompt_artifacts['npc_profile_summary'] . "\n\n";
+      }
       if (!empty($prompt_artifacts['merchant_summary']) && $turn_intent === 'gm_narration') {
         $prompt .= $prompt_artifacts['merchant_summary'] . "\n\n";
       }
@@ -629,12 +631,13 @@ class RoomChatService {
       }
       $prompt .= "Recent conversation:\n" . implode("\n", $history_lines);
       if ($is_room_entry) {
-        $prompt .= "\n\nTHIS IS A ROOM ENTRY — respond as the Game Master with a full environmental description as required by the ROOM ENTRY NARRATION RULES in your system prompt. Cover atmosphere, sight, sound, smell/taste, and all NPCs/creatures present (appearance + demeanour, no names yet). After the description, then address whatever the player said. Include the JSON action block only if the player triggered a mechanical action.";
+        $prompt .= "\n\nTHIS IS A ROOM ENTRY — respond as the Game Master with a vivid but concise room-entry description (4-6 sentences, under 140 words). Cover atmosphere, sight, sound, smell/taste, and visible NPCs/creatures (appearance + demeanour, no names yet). After the description, briefly address whatever the player said. Include the JSON action block only if the player triggered a mechanical action.";
       }
       else {
         $prompt .= "\n\nRespond in character as the Game Master. Keep your reply concise (2-4 sentences). If the player is performing a mechanical action (casting a spell, using a skill, using a feat, attacking, exploring), include the JSON action block as instructed in your system prompt.";
       }
       $prompt .= "\nIMPORTANT: Do NOT write dialogue for any NPC. Describe the scene, NPC body language and reactions, but let NPCs speak for themselves. Never put words in an NPC's mouth.";
+      $prompt .= "\nIMPORTANT: Questions about whether an action is possible, wise, or legal are not actions. Answer those verbally and do NOT emit or mention any JSON, action block, code fence, or structured output unless the player is clearly taking the action right now.";
       $this->recordDebugStage('gm.user_prompt_assembly', $stage_started_at, [
         'recent_message_count' => count($recent),
         'history_line_count' => count($history_lines),
@@ -779,6 +782,8 @@ class RoomChatService {
       // Strip the tag from the player-visible narrative.
       $narrative = trim(preg_replace('/\[CREATE_SUGGESTION\].*?\[\/CREATE_SUGGESTION\]/s', '', $narrative));
     }
+    $narrative = $this->stripPlayerVisibleActionBlocks($narrative);
+    $narrative = $this->trimIncompleteNarrative($narrative);
     $this->recordDebugStage('gm.suggestion_extraction', $stage_started_at);
 
     if (!empty($gm_response_cache_key)
@@ -1146,7 +1151,7 @@ class RoomChatService {
         $context_data,
         [
           'system_prompt' => $system_prompt,
-          'max_tokens' => 800,
+          'max_tokens' => self::ROOM_CHAT_GM_MAX_TOKENS,
           'skip_cache' => TRUE,
         ],
         $debug_meta
@@ -2997,6 +3002,14 @@ PROMPT;
       return 'room_roster_query';
     }
 
+    if ($this->looksLikeNavigationTurn($normalized)) {
+      return 'navigation_travel';
+    }
+
+    if ($this->looksLikeCombatEngagementTurn($normalized)) {
+      return 'combat_engagement';
+    }
+
     if ($directly_addressed_npc !== NULL) {
       if ($this->textContainsAny($normalized, ['buy', 'sell', 'price', 'cost', 'coin', 'gold', 'silver', 'copper', 'change', 'pay', 'paid', 'torch', 'ale', 'drink', 'room', 'rent', 'tab'])) {
         return 'direct_npc_transaction';
@@ -3019,13 +3032,62 @@ PROMPT;
   /**
    * Build a deterministic GM narrative for short-path intents.
    */
-  protected function buildDeterministicGmNarrative(
+  protected function buildDeterministicGmResponse(
     string $intent,
     array $room_npcs,
     ?array $directly_addressed_npc,
     string $player_message,
-    array $room_meta = []
-  ): ?string {
+    array $room_meta = [],
+    string $room_id = '',
+    array $dungeon_data = []
+  ): ?array {
+    if ($intent === 'combat_engagement') {
+      $hostiles = $this->findRoomHostileEntities($room_id, $dungeon_data);
+      if ($hostiles !== []) {
+        $hostile_ids = [];
+        $hostile_names = [];
+        foreach ($hostiles as $hostile) {
+          $hostile_id = (string) ($hostile['entity_instance_id'] ?? $hostile['instance_id'] ?? $hostile['id'] ?? '');
+          $hostile_name = trim((string) ($hostile['state']['metadata']['display_name'] ?? $hostile['name'] ?? ''));
+          if ($hostile_id !== '') {
+            $hostile_ids[] = $hostile_id;
+          }
+          if ($hostile_name !== '') {
+            $hostile_names[] = $hostile_name;
+          }
+        }
+        $target_summary = $hostile_names !== [] ? implode(', ', array_unique($hostile_names)) : 'the hostiles in the room';
+        return [
+          'narrative' => 'The moment the order is given, the standoff breaks and combat begins against ' . $target_summary . '.',
+          'actions' => [[
+            'type' => 'combat_initiation',
+            'name' => 'Engage hostiles',
+            'details' => [
+              'combat' => [
+                'reason' => 'The player commits to immediate violence against the hostile creatures in the room.',
+                'enemy_entity_ids' => array_values(array_unique($hostile_ids)),
+              ],
+              'result_description' => 'Combat begins immediately from the player declaration.',
+            ],
+          ]],
+          'dice_rolls' => [],
+          'validation_errors' => [],
+        ];
+      }
+    }
+
+    if ($intent === 'navigation_travel') {
+      $navigation_action = $this->buildDeterministicNavigationAction($player_message, $room_meta);
+      if ($navigation_action !== NULL) {
+        return [
+          'narrative' => $navigation_action['narrative'],
+          'actions' => [$navigation_action['action']],
+          'dice_rolls' => [],
+          'validation_errors' => [],
+        ];
+      }
+    }
+
     if ($intent === 'room_roster_query') {
       $names = [];
       foreach ($room_npcs as $npc) {
@@ -3035,21 +3097,46 @@ PROMPT;
         }
       }
       if ($names === []) {
-        return 'No one in this room looks ready to answer right now.';
+        return [
+          'narrative' => 'No one in this room looks ready to answer right now.',
+          'actions' => [],
+          'dice_rolls' => [],
+          'validation_errors' => [],
+        ];
       }
-      return 'The clearest voices in ' . ($room_meta['name'] ?? 'the room') . ' are ' . implode(', ', $names) . '.';
+      return [
+        'narrative' => 'The clearest voices in ' . ($room_meta['name'] ?? 'the room') . ' are ' . implode(', ', $names) . '.',
+        'actions' => [],
+        'dice_rolls' => [],
+        'validation_errors' => [],
+      ];
     }
 
     if ($intent === 'ooc_meta') {
-      return 'Out of character: NPCs can answer directly when you address them, and other people in the room may chime in when the topic concerns them.';
+      return [
+        'narrative' => 'Out of character: NPCs can answer directly when you address them, and other people in the room may chime in when the topic concerns them.',
+        'actions' => [],
+        'dice_rolls' => [],
+        'validation_errors' => [],
+      ];
     }
 
     if (($intent === 'direct_npc_dialogue' || $intent === 'direct_npc_transaction') && $directly_addressed_npc !== NULL) {
       $name = $directly_addressed_npc['profile']['display_name'] ?? $directly_addressed_npc['entity_ref'] ?? 'The NPC';
       if ($intent === 'direct_npc_transaction') {
-        return "{$name} turns toward you, ready to answer the practical details directly.";
+        return [
+          'narrative' => "{$name} turns toward you, ready to answer the practical details directly.",
+          'actions' => [],
+          'dice_rolls' => [],
+          'validation_errors' => [],
+        ];
       }
-      return "{$name} shifts attention to you, ready to answer in their own words.";
+      return [
+        'narrative' => "{$name} shifts attention to you, ready to answer in their own words.",
+        'actions' => [],
+        'dice_rolls' => [],
+        'validation_errors' => [],
+      ];
     }
 
     if ($intent === 'quest_query') {
@@ -3064,11 +3151,182 @@ PROMPT;
         }
       }
       if ($quest_givers !== []) {
-        return implode(' and ', array_slice($quest_givers, 0, 2)) . ' both look like the people most likely to have useful leads or work for you.';
+        return [
+          'narrative' => implode(' and ', array_slice($quest_givers, 0, 2)) . ' both look like the people most likely to have useful leads or work for you.',
+          'actions' => [],
+          'dice_rolls' => [],
+          'validation_errors' => [],
+        ];
       }
     }
 
     return NULL;
+  }
+
+  /**
+   * Determine whether the player is leaving the current location.
+   */
+  protected function looksLikeNavigationTurn(string $normalized_message): bool {
+    if ($this->extractNavigationDestination($normalized_message) !== NULL) {
+      return TRUE;
+    }
+
+    return $this->textContainsAny($normalized_message, [
+      'leave the ',
+      'leave this ',
+      'i leave',
+      'we leave',
+      'go outside',
+      'head outside',
+      'step outside',
+      'meet you there',
+    ]);
+  }
+
+  /**
+   * Determine whether the player is clearly starting a fight.
+   */
+  protected function looksLikeCombatEngagementTurn(string $normalized_message): bool {
+    return $this->textContainsAny($normalized_message, [
+      'i attack',
+      'we attack',
+      'attack the ',
+      'kill the ',
+      'kill those ',
+      'fight the ',
+      'fight those ',
+      'engage the ',
+      'engage those ',
+      'lets kill',
+      'let us kill',
+      'lets fight',
+      'let us fight',
+      'take them down',
+      'start combat',
+      'begin combat',
+    ]);
+  }
+
+  /**
+   * Build a deterministic navigation action from a travel-style player turn.
+   */
+  protected function buildDeterministicNavigationAction(string $player_message, array $room_meta = []): ?array {
+    $destination = $this->extractNavigationDestination($player_message, $room_meta);
+    if ($destination === NULL) {
+      return NULL;
+    }
+
+    $origin_name = trim((string) ($room_meta['name'] ?? 'the room'));
+    $destination_description = 'A new area reached by leaving ' . $origin_name . ' and heading toward ' . $destination . '.';
+
+    return [
+      'narrative' => 'Burasco gathers up what they need, leaves ' . $origin_name . ', and sets out toward ' . $destination . '.',
+      'action' => [
+        'type' => 'navigate_to_location',
+        'name' => 'Travel to ' . $destination,
+        'details' => [
+          'destination' => $destination,
+          'destination_description' => $destination_description,
+          'travel_type' => 'walk',
+          'estimated_distance' => 'short',
+        ],
+        'state_changes' => [
+          'character' => [],
+          'room' => [],
+        ],
+      ],
+    ];
+  }
+
+  /**
+   * Extract a destination phrase from a player navigation message.
+   */
+  protected function extractNavigationDestination(string $player_message, array $room_meta = []): ?string {
+    $patterns = [
+      '/(?:leave(?:\s+for)?|head(?:ing)?\s+(?:to|for)|travel(?:ing)?\s+(?:to|for)|journey(?:ing)?\s+(?:to|for)|set out for|depart for|go to|navigation to|navigating to)\s+(?:the\s+)?([a-z0-9][a-z0-9\'\-\s]+)/i',
+      '/(?:meet you there\.?\s*then i leave for)\s+(?:the\s+)?([a-z0-9][a-z0-9\'\-\s]+)/i',
+    ];
+    foreach ($patterns as $pattern) {
+      if (!preg_match($pattern, $player_message, $matches)) {
+        continue;
+      }
+      $destination = trim((string) ($matches[1] ?? ''));
+      $destination = preg_replace('/\s+(?:with|and|then|after|before)\b.*$/i', '', $destination) ?? $destination;
+      $destination = preg_replace('/\s+(?:again|now|please|today|tonight|tomorrow|asap|immediately|right now)\b.*$/i', '', $destination) ?? $destination;
+      $destination = trim($destination, " \t\n\r\0\x0B.,!?;:\"'");
+      if ($destination !== '') {
+        return ucwords(strtolower($destination));
+      }
+    }
+
+    $normalized = $this->normalizeNpcNameForMatch($player_message);
+    if ($this->textContainsAny($normalized, ['go outside', 'head outside', 'step outside', 'leave the tavern'])) {
+      $origin_name = trim((string) ($room_meta['name'] ?? 'the building'));
+      return 'Outside ' . $origin_name;
+    }
+
+    return NULL;
+  }
+
+  /**
+   * Collect hostile entities present in the current room.
+   */
+  protected function findRoomHostileEntities(string $room_id, array $dungeon_data): array {
+    if ($room_id === '') {
+      return [];
+    }
+
+    $hostiles = [];
+    foreach ($dungeon_data['entities'] ?? [] as $entity) {
+      if (($entity['placement']['room_id'] ?? '') !== $room_id) {
+        continue;
+      }
+      $team = strtolower((string) ($entity['state']['metadata']['team'] ?? $entity['team'] ?? ''));
+      if (in_array($team, ['hostile', 'enemy', 'monsters'], TRUE)) {
+        $hostiles[] = $entity;
+      }
+    }
+
+    return $hostiles;
+  }
+
+  /**
+   * Trim clearly incomplete GM output back to the last complete sentence.
+   */
+  protected function trimIncompleteNarrative(string $narrative): string {
+    $narrative = trim($narrative);
+    if ($narrative === '') {
+      return '';
+    }
+
+    if (preg_match('/[.!?]["\')\]}]*$/u', $narrative)) {
+      return $narrative;
+    }
+
+    $looks_truncated = (bool) preg_match('/\b[\pL\pN]{1,3}$/u', $narrative);
+    $length = strlen($narrative);
+    for ($i = $length - 1; $i >= 0; $i--) {
+      if (!in_array($narrative[$i], ['.', '!', '?'], TRUE)) {
+        continue;
+      }
+      if (!$looks_truncated && $i < (int) floor($length * 0.55)) {
+        break;
+      }
+      return trim(substr($narrative, 0, $i + 1));
+    }
+
+    return $narrative;
+  }
+
+  /**
+   * Remove visible JSON/code-block action output from player-facing narrative.
+   */
+  protected function stripPlayerVisibleActionBlocks(string $narrative): string {
+    $narrative = preg_replace('/\n?```(?:json)?[\s\S]*$/i', '', $narrative) ?? $narrative;
+    $narrative = preg_replace('/\n?\{\s*"actions"\s*:\s*\[[\s\S]*$/i', '', $narrative) ?? $narrative;
+    $narrative = preg_replace('/\s*(?:Here(?:\'s| is)\s+the\s+JSON\s+action\s+block.*|JSON\s+action\s+block:.*)$/i', '', $narrative) ?? $narrative;
+
+    return trim($narrative);
   }
 
   /**
@@ -3976,6 +4234,7 @@ PROMPT;
     $npc_names = [];
     $quest_givers = [];
     $merchants = [];
+    $npc_profile_lines = [];
     foreach ($room_npcs as $npc) {
       $name = trim((string) ($npc['profile']['display_name'] ?? ''));
       if ($name === '') {
@@ -3990,6 +4249,33 @@ PROMPT;
       if ($this->textContainsAny($descriptor, ['keeper', 'merchant', 'vendor', 'shop', 'tavern', 'inn', 'bar', 'sell'])) {
         $merchants[] = $name;
       }
+      if (count($npc_profile_lines) < 4) {
+        $profile_parts = [];
+        $sheet = $npc['profile']['character_sheet'] ?? [];
+        $occupation = trim((string) ($sheet['occupation'] ?? ''));
+        $attitude = trim((string) ($npc['profile']['attitude'] ?? ''));
+        $traits = trim((string) ($npc['profile']['personality_traits'] ?? ''));
+        $motivations = trim((string) ($npc['profile']['motivations'] ?? ''));
+        $description = trim((string) ($sheet['description'] ?? ''));
+        if ($occupation !== '') {
+          $profile_parts[] = 'occupation: ' . $occupation;
+        }
+        if ($attitude !== '') {
+          $profile_parts[] = 'attitude: ' . $attitude;
+        }
+        if ($traits !== '') {
+          $profile_parts[] = 'traits: ' . $traits;
+        }
+        if ($motivations !== '') {
+          $profile_parts[] = 'motivations: ' . $motivations;
+        }
+        if ($description !== '') {
+          $profile_parts[] = 'description: ' . $this->truncateContextBlock($description, 120, 0.8);
+        }
+        if ($profile_parts !== []) {
+          $npc_profile_lines[] = '- ' . $name . ' — ' . implode('; ', $profile_parts);
+        }
+      }
     }
 
     $artifacts = [
@@ -3997,6 +4283,7 @@ PROMPT;
       'entity_count' => count($entities),
       'entity_summary_count' => count($entity_names),
       'npc_roster_summary' => $npc_names !== [] ? 'People ready to answer in this room: ' . implode(', ', array_slice($npc_names, 0, 4)) . '.' : '',
+      'npc_profile_summary' => $npc_profile_lines !== [] ? "NPC profile notes for GM use:\n" . implode("\n", $npc_profile_lines) : '',
       'merchant_summary' => $merchants !== [] ? 'Likely merchants or practical sellers here: ' . implode(', ', array_slice($merchants, 0, 3)) . '.' : '',
       'quest_summary' => $quest_givers !== [] ? 'Likely quest or guidance contacts here: ' . implode(', ', array_slice($quest_givers, 0, 3)) . '.' : '',
       'cache' => 'miss',

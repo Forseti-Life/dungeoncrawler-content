@@ -1,7 +1,7 @@
 {
   "room_id": "tavern_entrance",
-  "name": "Tavern Entrance",
-  "description": "You stand in the entrance of a well-established tavern. The common room is warm and comfortable, with flickering candlelight casting dancing shadows across wooden walls. The air smells of ale, bread, and hearth smoke. A few patrons sit at scattered tables, and the tavern keeper stands behind the bar, looking pleased to see fresh faces.",
+  "name": "The Gilded Tankard",
+  "description": "The warm glow of candlelight fills the spacious tavern hall, flickering across rough-hewn wooden floors and casting long shadows between rows of sturdy oak tables. A polished bar dominates the far wall where Eldric, the broad-shouldered barkeep, methodically wipes down tankards and keeps a watchful eye on the room. Shelves behind him hold an impressive collection of wine bottles and spirits. Nearby, Marta the Scholar sits hunched over a table cluttered with ancient spellbooks, mystical tomes, and a faded journal, her quill scratching quietly as she cross-references a crystal-bound codex. Iron sconces line the walls, their torch rods casting steady light across the open movement lanes between tables. The air is thick with the smell of ale, bread, and hearth smoke, and the crackle of the stone fireplace provides a steady undercurrent to the low murmur of conversation.",
   "environment_tags": ["indoor", "tavern", "safe", "starting_area", "social"],
   "layout_data": {
     "dimensions": {
