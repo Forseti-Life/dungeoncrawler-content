@@ -334,8 +334,8 @@ class SpellCatalogService {
       return NULL;
     }
 
-    if (strtoupper(trim($value)) === 'NA') {
-      return 'NA';
+    if (in_array(strtolower(trim($value)), ['na', 'none'], TRUE)) {
+      return 'none';
     }
 
     $normalized = strtolower(trim($value));
@@ -356,7 +356,7 @@ class SpellCatalogService {
    * Determines whether a save-type token is supported by the spell schema.
    */
   public static function isSupportedSaveType(?string $value): bool {
-    if ($value === NULL || $value === '' || $value === 'NA') {
+    if ($value === NULL || $value === '' || $value === 'NA' || $value === 'none') {
       return TRUE;
     }
 
@@ -369,7 +369,7 @@ class SpellCatalogService {
       return TRUE;
     }
 
-    return preg_match('/^(basic_)?(fortitude|reflex|will)_or_(fortitude|reflex|will)_choice$/', $normalized) === 1;
+    return preg_match('/^(basic_)?(fortitude|reflex|will)_or_(fortitude|reflex|will)(?:_choice)?$/', $normalized) === 1;
   }
 
   /**
@@ -425,6 +425,9 @@ class SpellCatalogService {
     }
 
     $school = strtolower((string) ($schema['school'] ?? ''));
+    if ($school === 'none') {
+      $school = '';
+    }
     if ($school !== '' && !in_array($school, self::SPELL_SCHOOLS, TRUE)) {
       return NULL;
     }
@@ -722,14 +725,20 @@ class SpellCatalogService {
       $errors[] = 'Field rank must be an integer 0–10';
     }
     foreach ($spell['traditions'] ?? [] as $t) {
+      if ($t === 'none') {
+        continue;
+      }
       if (!in_array($t, self::TRADITIONS, TRUE)) {
         $errors[] = "Invalid tradition: {$t}";
       }
     }
-    if (isset($spell['school']) && !in_array($spell['school'], self::SPELL_SCHOOLS, TRUE)) {
+    if (isset($spell['school']) && $spell['school'] !== 'none' && !in_array($spell['school'], self::SPELL_SCHOOLS, TRUE)) {
       $errors[] = "Invalid school: {$spell['school']}";
     }
     foreach ($spell['components'] ?? [] as $c) {
+      if ($c === 'none') {
+        continue;
+      }
       if (!in_array($c, self::SPELL_COMPONENTS, TRUE)) {
         $errors[] = "Invalid component: {$c}";
       }

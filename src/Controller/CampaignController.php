@@ -112,7 +112,6 @@ class CampaignController extends ControllerBase {
       $active_character_names = $this->database->select('dc_campaign_characters', 'ch')
         ->fields('ch', ['id', 'name'])
         ->condition('id', array_values(array_unique($active_character_ids)), 'IN')
-        ->condition('campaign_id', 0)
         ->execute()
         ->fetchAllKeyed(0, 1);
     }
@@ -671,73 +670,118 @@ class CampaignController extends ControllerBase {
       throw new AccessDeniedHttpException();
     }
 
-    $character = $this->characterManager->loadCharacter($character_id);
-    if (!$character) {
+    $selected_character = $this->characterManager->loadCharacter($character_id);
+    if (!$selected_character) {
       throw new NotFoundHttpException();
     }
 
-    if (!$this->characterManager->isOwner($character)) {
+    if (!$this->characterManager->isOwner($selected_character)) {
       throw new AccessDeniedHttpException();
     }
 
+    $character = $selected_character;
+    $canonical_character_id = (int) $character_id;
+    if ((int) ($selected_character->campaign_id ?? 0) > 0 && (int) ($selected_character->character_id ?? 0) > 0) {
+      $canonical_character_id = (int) $selected_character->character_id;
+      $canonical_character = $this->characterManager->loadCharacter($canonical_character_id);
+      if ($canonical_character && $this->characterManager->isOwner($canonical_character)) {
+        $character = $canonical_character;
+      }
+    }
+
     $now = \Drupal::time()->getRequestTime();
-    $instance_id = sprintf('pc-%d-%d', $campaign_id, $character_id);
+    $instance_id = sprintf('pc-%d-%d', $campaign_id, $canonical_character_id);
     $character_data = json_decode((string) ($character->character_data ?? '{}'), TRUE);
     if (!is_array($character_data)) {
       $character_data = [];
     }
     $hot = $this->characterManager->resolveHotColumnsForRecord($character, $character_data);
 
-    $this->database->merge('dc_campaign_characters')
-      ->keys([
-        'campaign_id' => $campaign_id,
-        'instance_id' => $instance_id,
-      ])
-      ->fields([
-        'character_id' => $character_id,
-        'instance_id' => $instance_id,
-        'uid' => (int) $this->currentUser()->id(),
-        'name' => (string) $character->name,
-        'level' => (int) $character->level,
-        'ancestry' => (string) $character->ancestry,
-        'class' => (string) $character->class,
-        'hp_current' => $hot['hp_current'],
-        'hp_max' => $hot['hp_max'],
-        'armor_class' => $hot['armor_class'],
-        'experience_points' => $hot['experience_points'],
-        'position_q' => 0,
-        'position_r' => 0,
-        'last_room_id' => '',
-        'role' => 'player',
-        'type' => 'pc',
-        'state_data' => json_encode($character_data, JSON_UNESCAPED_UNICODE),
-        'character_data' => json_encode($character_data, JSON_UNESCAPED_UNICODE),
-        'location_type' => 'global',
-        'location_ref' => '',
-        'is_active' => 1,
-        'joined' => $now,
-        'created' => $now,
-        'changed' => $now,
-        'updated' => $now,
-      ])
-      ->execute();
+    $existing_query = $this->database->select('dc_campaign_characters', 'cc')
+      ->fields('cc', ['id'])
+      ->condition('campaign_id', $campaign_id);
+    $existing_match = $existing_query->orConditionGroup()
+      ->condition('instance_id', $instance_id)
+      ->condition('character_id', $canonical_character_id);
+    if ((int) ($selected_character->campaign_id ?? 0) === $campaign_id) {
+      $existing_match->condition('id', (int) $selected_character->id);
+    }
+    $existing_row_id = $existing_query
+      ->condition($existing_match)
+      ->orderBy('updated', 'DESC')
+      ->orderBy('id', 'DESC')
+      ->range(0, 1)
+      ->execute()
+      ->fetchField();
+
+    $fields = [
+      'character_id' => $canonical_character_id,
+      'instance_id' => $instance_id,
+      'uid' => (int) $this->currentUser()->id(),
+      'name' => (string) $character->name,
+      'level' => (int) $character->level,
+      'ancestry' => (string) $character->ancestry,
+      'class' => (string) $character->class,
+      'hp_current' => $hot['hp_current'],
+      'hp_max' => $hot['hp_max'],
+      'armor_class' => $hot['armor_class'],
+      'experience_points' => $hot['experience_points'],
+      'position_q' => 0,
+      'position_r' => 0,
+      'last_room_id' => '',
+      'role' => 'player',
+      'type' => 'pc',
+      'state_data' => json_encode($character_data, JSON_UNESCAPED_UNICODE),
+      'character_data' => json_encode($character_data, JSON_UNESCAPED_UNICODE),
+      'location_type' => 'global',
+      'location_ref' => '',
+      'is_active' => 1,
+      'joined' => $now,
+      'changed' => $now,
+      'updated' => $now,
+    ];
+
+    $selected_row_id = 0;
+    if ($existing_row_id) {
+      $this->database->update('dc_campaign_characters')
+        ->fields($fields)
+        ->condition('id', (int) $existing_row_id)
+        ->execute();
+      $selected_row_id = (int) $existing_row_id;
+    }
+    else {
+      $selected_row_id = (int) $this->database->insert('dc_campaign_characters')
+        ->fields($fields + [
+          'campaign_id' => $campaign_id,
+          'created' => $now,
+        ])
+        ->execute();
+    }
+
+    if ($canonical_character_id > 0 && $selected_row_id > 0) {
+      $this->database->delete('dc_campaign_characters')
+        ->condition('campaign_id', $campaign_id)
+        ->condition('character_id', $canonical_character_id)
+        ->condition('id', $selected_row_id, '<>')
+        ->execute();
+    }
 
     $this->database->update('dc_campaigns')
       ->fields([
-        'active_character_id' => $character_id,
+        'active_character_id' => $canonical_character_id,
         'status' => 'ready',
         'changed' => $now,
       ])
       ->condition('id', $campaign_id)
       ->execute();
 
-    $this->startStarterQuest($campaign_id, $character_id);
+    $this->startStarterQuest($campaign_id, $canonical_character_id);
 
     $this->messenger()->addStatus($this->t('Character selected for campaign.'));
 
     $this->ensureDefaultTavernDungeonExists($campaign_id, (string) ($campaign->theme ?? 'classic_dungeon'));
 
-    $launch_query = $this->buildHexmapLaunchQuery($campaign_id, $character_id, [], '');
+    $launch_query = $this->buildHexmapLaunchQuery($campaign_id, $canonical_character_id, [], '');
 
     $campaign_dungeon = $this->loadLatestCampaignDungeon($campaign_id);
 

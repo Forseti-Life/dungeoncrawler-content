@@ -2264,6 +2264,7 @@ import { SpriteService } from './SpriteService.js';
               roomId,
               characterId,
             });
+            this.updateQueuedChatStatus(this.roomChatDeferredMessages.length);
           }
         } catch (error) {
           this.settlePendingChatRequest(pendingRequest, {
@@ -3100,6 +3101,18 @@ import { SpriteService } from './SpriteService.js';
       }
 
       const existingLine = options.replaceLine || (options.lineId ? this.findChatLineById(options.lineId) : null);
+      if (!existingLine && !options.lineId) {
+        const lastLine = log.lastElementChild;
+        if (
+          lastLine
+          && lastLine.dataset?.speaker === (speaker || '')
+          && lastLine.dataset?.message === (message || '')
+          && lastLine.dataset?.type === (type || 'npc')
+          && lastLine.dataset?.transient !== '1'
+        ) {
+          return lastLine;
+        }
+      }
       const line = existingLine || document.createElement('div');
       line.innerHTML = '';
       line.className = `chat-line chat-line--${type}`;
@@ -3153,6 +3166,7 @@ import { SpriteService } from './SpriteService.js';
     buildPendingChatRequest(requestId, speaker, message, roomId, options = {}) {
       const includePlayer = options.includePlayer !== false;
       const includePlaceholder = options.includePlaceholder !== false;
+      const placeholderText = options.placeholderText || 'Thinking...';
       const startedAt = (typeof performance !== 'undefined' && typeof performance.now === 'function')
         ? performance.now()
         : Date.now();
@@ -3166,7 +3180,7 @@ import { SpriteService } from './SpriteService.js';
         });
       }
       if (includePlaceholder) {
-        this.appendChatLine('Game Master', 'Thinking...', 'system', {
+        this.appendChatLine('Game Master', placeholderText, 'system', {
           lineId: gmProgressLineId,
           pending: true,
           transient: true,
@@ -3182,6 +3196,21 @@ import { SpriteService } from './SpriteService.js';
       };
       this.pendingChatRequests.set(requestId, pending);
       return pending;
+    }
+
+    updateQueuedChatStatus(count = 0) {
+      if (count <= 0) {
+        this.removeChatLineById('chat-gm-queue-status');
+        return;
+      }
+      const label = count === 1
+        ? '1 message queued for the next GM turn.'
+        : `${count} messages queued for the next GM turn.`;
+      this.appendChatLine('System', label, 'system', {
+        lineId: 'chat-gm-queue-status',
+        pending: true,
+        transient: true,
+      });
     }
 
     settlePendingChatRequest(pending, options = {}) {
@@ -3239,10 +3268,14 @@ import { SpriteService } from './SpriteService.js';
       }
       this.roomChatBusy = true;
       const deferredBatch = this.roomChatDeferredMessages.splice(0);
+      this.updateQueuedChatStatus(0);
       const requestId = `chat-followup-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const pendingRequest = this.buildPendingChatRequest(requestId, '', '', roomId, {
         includePlayer: false,
         includePlaceholder: true,
+        placeholderText: deferredBatch.length > 1
+          ? `Processing ${deferredBatch.length} queued messages...`
+          : 'Processing queued message...',
       });
 
       try {
@@ -3261,6 +3294,7 @@ import { SpriteService } from './SpriteService.js';
       } finally {
         this.roomChatBusy = false;
         if (this.roomChatDeferredMessages.length > 0 && deferredBatch.length >= 0) {
+          this.updateQueuedChatStatus(this.roomChatDeferredMessages.length);
           void this.flushDeferredRoomMessages(campaignId, roomId, characterId);
         }
       }

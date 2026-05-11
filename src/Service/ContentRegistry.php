@@ -260,12 +260,17 @@ class ContentRegistry {
       $tags = $this->buildSpellTags($schema_data);
     }
 
+    $normalized_tags = $this->normalizeTagList($tags);
+    if ($record_type === 'spell' && $normalized_tags === []) {
+      $normalized_tags = ['none'];
+    }
+
     return [
       'content_id' => (string) $content_id,
       'name' => trim((string) $name),
       'level' => $level !== NULL ? (int) $level : NULL,
       'rarity' => is_scalar($rarity) && trim((string) $rarity) !== '' ? strtolower((string) $rarity) : NULL,
-      'tags' => $this->normalizeTagList($tags),
+      'tags' => $normalized_tags,
       'schema_data' => $schema_data,
       'source_file' => (string) ($content_data['source_file'] ?? str_replace($this->contentPath . '/', '', $file)),
       'version' => (string) ($content_data['version'] ?? $schema_data['parser_version'] ?? $content_data['schema_version'] ?? $schema_data['schema_version'] ?? '1.0'),
@@ -659,6 +664,9 @@ class ContentRegistry {
     elseif (isset($data['traditions'])) {
       foreach ($data['traditions'] as $tradition) {
         $tradition = strtolower((string) $tradition);
+        if ($tradition === '' || $tradition === 'none') {
+          continue;
+        }
         if (!in_array($tradition, SpellCatalogService::TRADITIONS, TRUE)) {
           $errors[] = "Invalid spell tradition: {$tradition}";
         }
@@ -666,6 +674,9 @@ class ContentRegistry {
     }
 
     $school = strtolower((string) ($data['school'] ?? ''));
+    if ($school === 'none') {
+      $school = '';
+    }
     if ($school !== '' && !in_array($school, SpellCatalogService::SPELL_SCHOOLS, TRUE)) {
       $errors[] = "Invalid spell school: {$school}";
     }
@@ -673,6 +684,9 @@ class ContentRegistry {
     if (isset($data['components']) && is_array($data['components'])) {
       foreach ($data['components'] as $component) {
         $component = strtolower((string) $component);
+        if ($component === '' || $component === 'none') {
+          continue;
+        }
         if (!in_array($component, SpellCatalogService::SPELL_COMPONENTS, TRUE)) {
           $errors[] = "Invalid spell component: {$component}";
         }
@@ -841,6 +855,18 @@ class ContentRegistry {
       }
       if (!empty($content_data['spell_type']) && is_string($content_data['spell_type'])) {
         $content_data['spell_type'] = strtolower($content_data['spell_type']);
+      }
+      if (isset($content_data['traditions']) && is_array($content_data['traditions'])) {
+        $content_data['traditions'] = array_values(array_map(
+          static fn($tradition): string => strtolower(trim((string) $tradition)),
+          $content_data['traditions']
+        ));
+      }
+      if (isset($content_data['components']) && is_array($content_data['components'])) {
+        $content_data['components'] = array_values(array_map(
+          static fn($component): string => strtolower(trim((string) $component)),
+          $content_data['components']
+        ));
       }
       if (!empty($content_data['save_type']) && is_string($content_data['save_type'])) {
         $content_data['save_type'] = SpellCatalogService::normalizeSaveType($content_data['save_type']);

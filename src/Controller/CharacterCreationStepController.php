@@ -209,8 +209,9 @@ class CharacterCreationStepController extends ControllerBase {
     $abilities = is_array($character_data['abilities'] ?? NULL) ? $character_data['abilities'] : [];
     $dex = (int) ($abilities['dex'] ?? 10);
 
-    // Resolve campaign_id for persistence.
-    $resolved_campaign_id = ($campaign_id !== NULL && $campaign_id !== '') ? (int) $campaign_id : 0;
+    // Character creation persists to the canonical library row. Campaign
+    // selection attaches that row to a campaign separately.
+    $resolved_campaign_id = $character ? (int) ($character->campaign_id ?? 0) : 0;
 
     // Save to database
     if ($character) {
@@ -241,7 +242,7 @@ class CharacterCreationStepController extends ControllerBase {
         $character_data,
         (int) $character_id,
         (int) $this->currentUser()->id(),
-        $campaign_id !== NULL && $campaign_id !== '' ? (int) $campaign_id : NULL,
+        $resolved_campaign_id > 0 ? $resolved_campaign_id : NULL,
         [
           'generate' => $data['portrait_generate'] ?? NULL,
           'user_prompt' => $data['portrait_prompt'] ?? '',
@@ -357,12 +358,11 @@ class CharacterCreationStepController extends ControllerBase {
     $db = \Drupal::database();
     $now = \Drupal::time()->getRequestTime();
     $instance_id = \Drupal::service('uuid')->generate();
-    $resolved_campaign_id = ($campaign_id !== NULL && $campaign_id !== '') ? (int) $campaign_id : 0;
 
     return $db->insert('dc_campaign_characters')
       ->fields([
         'uuid' => $instance_id,
-        'campaign_id' => $resolved_campaign_id,
+        'campaign_id' => 0,
         'character_id' => 0,
         'instance_id' => $instance_id,
         'uid' => (int) $this->currentUser()->id(),
