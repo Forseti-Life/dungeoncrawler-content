@@ -319,6 +319,428 @@ SOURCE_BACKED_OVERRIDES: dict[str, dict[str, Any]] = {
         "source_line_end": 46654,
         "raw_text_block": "Fear H (enc): Frighten a creature, possibly making it flee.",
     },
+    "darkness": {
+        "rank": 2,
+        "spell_type": "spell",
+        "school": "evocation",
+        "traditions": ["arcane", "divine", "occult", "primal"],
+        "cast": "[three-actions] material, somatic, verbal",
+        "cast_actions": "3_actions",
+        "components": ["material", "somatic", "verbal"],
+        "range": "120 feet",
+        "area": "20-foot burst",
+        "targets": "NA",
+        "duration": "1 minute",
+        "save": "NA",
+        "save_type": "NA",
+        "description": (
+            "You create a shroud of darkness that prevents light from penetrating or "
+            "emanating within the area. Light does not enter the area and any "
+            "non-magical light sources, such as a torch or lantern, do not emanate any "
+            "light while inside the area, even if their light radius would extend "
+            "beyond the darkness. This also suppresses magical light of your darkness "
+            "spell's level or lower. Light can't pass through, so creatures in the area "
+            "can't see outside. From outside, it appears as a globe of pure darkness."
+        ),
+        "description_snippet": "Suppress all light in an area.",
+        "heightened": [
+            {
+                "label": "4th",
+                "type": "fixed_rank",
+                "rank": 4,
+                "text": (
+                    "Even creatures with darkvision (but not greater darkvision) can "
+                    "barely see through the darkness. They treat targets seen through "
+                    "the darkness as concealed."
+                ),
+            }
+        ],
+        "heightened_scaling": [
+            {
+                "label": "4th",
+                "type": "fixed_rank",
+                "rank": 4,
+                "text": (
+                    "Even creatures with darkvision (but not greater darkvision) can "
+                    "barely see through the darkness. They treat targets seen through "
+                    "the darkness as concealed."
+                ),
+            }
+        ],
+        "source_line_start": 50564,
+        "source_line_end": 50579,
+        "raw_text_block": (
+            "DARKNESS\n"
+            "SPELL 2\n"
+            "EVOCATION\n"
+            "Traditions arcane, divine, occult, primal\n"
+            "Cast [three-actions] material, somatic, verbal\n"
+            "Range 120 feet; Area 20-foot burst\n"
+            "Duration 1 minute\n"
+            "You create a shroud of darkness that prevents light from penetrating or "
+            "emanating within the area. Light does not enter the area and any "
+            "non-magical light sources, such as a torch or lantern, do not emanate any "
+            "light while inside the area, even if their light radius would extend "
+            "beyond the darkness. This also suppresses magical light of your darkness "
+            "spell's level or lower. Light can't pass through, so creatures in the area "
+            "can't see outside. From outside, it appears as a globe of pure darkness.\n"
+            "Heightened (4th) Even creatures with darkvision (but not greater "
+            "darkvision) can barely see through the darkness. They treat targets seen "
+            "through the darkness as concealed."
+        ),
+    },
+    "disrupting_weapons": {
+        "rank": 1,
+        "spell_type": "spell",
+        "school": "necromancy",
+        "traditions": ["divine"],
+        "traits": ["positive"],
+        "description": "Weapons deal positive damage to undead.",
+        "description_snippet": "Weapons deal positive damage to undead.",
+        "source_line_start": 47301,
+        "source_line_end": 47302,
+        "raw_text_block": "Disrupting Weapons H (nec): Weapons deal positive damage to undead.",
+    },
+    "gluttons_jaws": {
+        "rank": 1,
+        "spell_type": "focus",
+        "school": "necromancy",
+        "traditions": ["none"],
+        "traits": ["morph"],
+        "focus_class": "sorcerer",
+        "cast": "[one-action] somatic, verbal",
+        "cast_actions": "1_action",
+        "components": ["somatic", "verbal"],
+        "range": "NA",
+        "area": "NA",
+        "targets": "NA",
+        "duration": "1 minute",
+        "save": "NA",
+        "save_type": "NA",
+        "description": (
+            "Your mouth transforms into a shadowy maw bristling with pointed teeth. "
+            "These jaws are an unarmed attack with the forceful trait dealing 1d8 "
+            "piercing damage. If you hit with your jaws and deal damage, you gain 1d6 "
+            "temporary Hit Points."
+        ),
+        "description_snippet": "Transform your mouth into a shadowy maw that grants temporary Hit Points.",
+        "heightened": [
+            {
+                "label": "+2",
+                "type": "step",
+                "step": 2,
+                "text": "The temporary Hit Points increase by 1d6.",
+            }
+        ],
+        "heightened_scaling": [
+            {
+                "label": "+2",
+                "type": "step",
+                "step": 2,
+                "text": "The temporary Hit Points increase by 1d6.",
+            }
+        ],
+        "source_line_start": 64275,
+        "source_line_end": 64314,
+        "raw_text_block": (
+            "GLUTTON'S JAWS\n"
+            "UNCOMMON\n"
+            "MORPH\n"
+            "FOCUS 1\n"
+            "NECROMANCY\n"
+            "SORCERER\n"
+            "Cast [one-action] somatic, verbal\n"
+            "Duration 1 minute\n"
+            "Your mouth transforms into a shadowy maw bristling with pointed teeth. "
+            "These jaws are an unarmed attack with the forceful trait dealing 1d8 "
+            "piercing damage. If you hit with your jaws and deal damage, you gain 1d6 "
+            "temporary Hit Points.\n"
+            "Heightened (+2) The temporary Hit Points increase by 1d6."
+        ),
+    },
+    "physical_boost": {
+        "rank": 1,
+        "spell_type": "focus",
+        "school": "transmutation",
+        "traditions": ["arcane"],
+        "traits": ["none"],
+        "focus_class": "wizard",
+        "cast": "[one-action] verbal",
+        "cast_actions": "1_action",
+        "components": ["verbal"],
+        "range": "touch",
+        "area": "NA",
+        "targets": "1 living creature",
+        "duration": "until the end of the target's next turn",
+        "save": "NA",
+        "save_type": "NA",
+        "description": "The target gains a +2 status bonus to one physical ability check of your choice for 1 round.",
+        "description_snippet": "Target gains a +2 status bonus to one physical ability check for 1 round.",
+        "source_line_start": 64872,
+        "source_line_end": 64881,
+        "raw_text_block": (
+            "PHYSICAL BOOST\n"
+            "UNCOMMON\n"
+            "FOCUS 1\n"
+            "TRANSMUTATION WIZARD\n"
+            "Cast [one-action] verbal\n"
+            "Range touch; Targets 1 living creature\n"
+            "Duration until the end of the target's next turn"
+        ),
+    },
+    "shield_other": {
+        "rank": 2,
+        "spell_type": "spell",
+        "school": "necromancy",
+        "traditions": ["divine"],
+        "cast": "[two-actions] somatic, verbal",
+        "cast_actions": "2_actions",
+        "components": ["somatic", "verbal"],
+        "range": "30 feet",
+        "area": "NA",
+        "targets": "1 creature",
+        "duration": "10 minutes",
+        "save": "NA",
+        "save_type": "NA",
+        "description": (
+            "You forge a temporary link between the target's life essence and your own. "
+            "The target takes half damage from all effects that deal Hit Point damage, "
+            "and you take the remainder of the damage. When you take damage through "
+            "this link, you don't apply any resistances, weaknesses, or other abilities "
+            "you have to that damage; you simply take that amount of damage. The spell "
+            "ends if the target is ever more than 30 feet away from you. If either you "
+            "or the target is reduced to 0 Hit Points, any damage from this spell is "
+            "resolved and then the spell ends."
+        ),
+        "description_snippet": "Absorb half the damage an ally would take.",
+        "source_line_start": 57368,
+        "source_line_end": 57413,
+        "raw_text_block": (
+            "SHIELD OTHER\n"
+            "SPELL 2\n"
+            "NECROMANCY\n"
+            "Traditions divine\n"
+            "Cast [two-actions] somatic, verbal\n"
+            "Range 30 feet; Targets 1 creature\n"
+            "Duration 10 minutes\n"
+            "You forge a temporary link between the target's life essence and your own. "
+            "The target takes half damage from all effects that deal Hit Point damage, "
+            "and you take the remainder of the damage. When you take damage through "
+            "this link, you don't apply any resistances, weaknesses, or other abilities "
+            "you have to that damage; you simply take that amount of damage. The spell "
+            "ends if the target is ever more than 30 feet away from you. If either you "
+            "or the target is reduced to 0 Hit Points, any damage from this spell is "
+            "resolved and then the spell ends."
+        ),
+    },
+    "ki_blast": {
+        "rank": 3,
+        "spell_type": "focus",
+        "school": "evocation",
+        "traditions": ["divine", "occult"],
+        "traits": ["force"],
+        "focus_class": "monk",
+        "cast": "[one-action] to [three-actions] somatic, verbal",
+        "cast_actions": "1_to_3_actions",
+        "components": ["somatic", "verbal"],
+        "range": "NA",
+        "area": "15-foot cone or more",
+        "targets": "NA",
+        "duration": "NA",
+        "save": "Fortitude",
+        "save_type": "fortitude",
+        "description": (
+            "You unleash your ki as a powerful blast of force that deals 2d6 force "
+            "damage. If you use 2 actions to cast ki blast, increase the size of the "
+            "cone to 30 feet and the damage to 3d6. If you use 3 actions to cast ki "
+            "blast, increase the size of the cone to 60 feet and the damage to 4d6. "
+            "Each creature in the area must attempt a Fortitude saving throw."
+        ),
+        "description_snippet": "Force cone that grows with additional actions.",
+        "effects": {
+            "description": (
+                "You unleash your ki as a powerful blast of force that deals 2d6 force "
+                "damage. If you use 2 actions to cast ki blast, increase the size of "
+                "the cone to 30 feet and the damage to 3d6. If you use 3 actions to "
+                "cast ki blast, increase the size of the cone to 60 feet and the "
+                "damage to 4d6. Each creature in the area must attempt a Fortitude "
+                "saving throw."
+            ),
+            "outcomes": {
+                "Critical Success": "The creature is unaffected.",
+                "Success": "The creature takes half damage.",
+                "Failure": "The creature takes full damage and is pushed 5 feet.",
+                "Critical Failure": "The creature takes double damage and is pushed 10 feet.",
+            },
+        },
+        "damage": [{"formula": "2d6", "type": "force", "persistent": False}],
+        "damage_type": ["force"],
+        "heightened": [
+            {
+                "label": "+1",
+                "type": "step",
+                "step": 1,
+                "text": "The damage increases by 1d6, or by 2d6 if you use 2 or 3 actions.",
+            }
+        ],
+        "heightened_scaling": [
+            {
+                "label": "+1",
+                "type": "step",
+                "step": 1,
+                "text": "The damage increases by 1d6, or by 2d6 if you use 2 or 3 actions.",
+            }
+        ],
+        "source_line_start": 63155,
+        "source_line_end": 63664,
+        "raw_text_block": (
+            "KI BLAST\n"
+            "UNCOMMON\n"
+            "FOCUS 3\n"
+            "EVOCATION\n"
+            "FORCE\n"
+            "MONK\n"
+            "Cast [one-action] to [three-actions] somatic, verbal\n"
+            "Area 15-foot cone or more\n"
+            "Saving Throw Fortitude\n"
+            "You unleash your ki as a powerful blast of force that deals 2d6 force "
+            "damage. If you use 2 actions to cast ki blast, increase the size of the "
+            "cone to 30 feet and the damage to 3d6. If you use 3 actions to cast ki "
+            "blast, increase the size of the cone to 60 feet and the damage to 4d6. "
+            "Each creature in the area must attempt a Fortitude saving throw.\n"
+            "Critical Success The creature is unaffected.\n"
+            "Success The creature takes half damage.\n"
+            "Failure The creature takes full damage and is pushed 5 feet.\n"
+            "Critical Failure The creature takes double damage and is pushed 10 feet.\n"
+            "Heightened (+1) The damage increases by 1d6, or by 2d6 if you use 2 or 3 actions."
+        ),
+    },
+    "read_omens": {
+        "rank": 4,
+        "spell_type": "spell",
+        "rarity": "uncommon",
+        "school": "divination",
+        "traditions": ["divine", "occult"],
+        "traits": ["prediction"],
+        "description": "Get a piece of advice about an upcoming event.",
+        "description_snippet": "Get a piece of advice about an upcoming event.",
+        "source_line_start": 47465,
+        "source_line_end": 47466,
+        "raw_text_block": "Read Omens U (div): Get a piece of advice about an upcoming event.",
+    },
+    "feeblemind": {
+        "rank": 6,
+        "spell_type": "spell",
+        "school": "enchantment",
+        "traditions": ["arcane", "occult"],
+        "traits": ["curse", "incapacitation", "mental"],
+        "description": "Stupefy a creature permanently.",
+        "description_snippet": "Stupefy a creature permanently.",
+        "source_line_start": 47060,
+        "source_line_end": 47061,
+        "raw_text_block": "Feeblemind (enc): Stupefy a creature permanently.",
+    },
+    "fire_seeds": {
+        "rank": 6,
+        "spell_type": "spell",
+        "school": "evocation",
+        "traditions": ["primal"],
+        "traits": ["fire", "plant"],
+        "cast": "[two-actions] somatic, verbal",
+        "cast_actions": "2_actions",
+        "components": ["somatic", "verbal"],
+        "range": "NA",
+        "area": "NA",
+        "targets": "NA",
+        "duration": "1 minute",
+        "save": "basic Reflex",
+        "save_type": "basic_reflex",
+        "description": (
+            "Four acorns grow in your hand, their shells streaked with pulsing red and "
+            "orange patterns. You or anyone else who has one of the acorns can toss it "
+            "up to 30 feet with an Interact action. It explodes in a 5-foot burst, "
+            "dealing 4d6 fire damage. The save uses your spell DC, even if someone else "
+            "throws the acorn. Flames continue to burn on the ground in the burst for 1 "
+            "minute, dealing 2d6 fire damage to any creature that enters the flames or "
+            "ends its turn within them. A creature can take damage from the continuing "
+            "flames only once per round, even if it's in overlapping areas of fire "
+            "created by different acorns. When the spell ends, any remaining acorns rot "
+            "and turn to ordinary soil."
+        ),
+        "description_snippet": "Make four explosive acorns.",
+        "effects": {
+            "description": (
+                "Four acorns grow in your hand, their shells streaked with pulsing red "
+                "and orange patterns. You or anyone else who has one of the acorns can "
+                "toss it up to 30 feet with an Interact action. It explodes in a "
+                "5-foot burst, dealing 4d6 fire damage. The save uses your spell DC, "
+                "even if someone else throws the acorn. Flames continue to burn on the "
+                "ground in the burst for 1 minute, dealing 2d6 fire damage to any "
+                "creature that enters the flames or ends its turn within them. A "
+                "creature can take damage from the continuing flames only once per "
+                "round, even if it's in overlapping areas of fire created by different "
+                "acorns. When the spell ends, any remaining acorns rot and turn to "
+                "ordinary soil."
+            ),
+            "outcomes": {},
+        },
+        "damage": [{"formula": "4d6", "type": "fire", "persistent": False}],
+        "damage_type": ["fire"],
+        "heightened": [
+            {
+                "label": "8th",
+                "type": "fixed_rank",
+                "rank": 8,
+                "text": "The burst's damage increases to 5d6, and the continuing flames damage increases to 3d6.",
+            },
+            {
+                "label": "9th",
+                "type": "fixed_rank",
+                "rank": 9,
+                "text": "The burst's damage increases to 6d6, and the continuing flames damage increases to 3d6.",
+            },
+        ],
+        "heightened_scaling": [
+            {
+                "label": "8th",
+                "type": "fixed_rank",
+                "rank": 8,
+                "text": "The burst's damage increases to 5d6, and the continuing flames damage increases to 3d6.",
+            },
+            {
+                "label": "9th",
+                "type": "fixed_rank",
+                "rank": 9,
+                "text": "The burst's damage increases to 6d6, and the continuing flames damage increases to 3d6.",
+            },
+        ],
+        "source_line_start": 52351,
+        "source_line_end": 52388,
+        "raw_text_block": (
+            "FIRE SEEDS\n"
+            "SPELL 6\n"
+            "EVOCATION\n"
+            "FIRE\n"
+            "PLANT\n"
+            "Traditions primal\n"
+            "Cast [two-actions] somatic, verbal\n"
+            "Saving Throw basic Reflex; Duration 1 minute\n"
+            "Four acorns grow in your hand, their shells streaked with pulsing red and "
+            "orange patterns. You or anyone else who has one of the acorns can toss it "
+            "up to 30 feet with an Interact action. It explodes in a 5-foot burst, "
+            "dealing 4d6 fire damage. The save uses your spell DC, even if someone else "
+            "throws the acorn. Flames continue to burn on the ground in the burst for 1 "
+            "minute, dealing 2d6 fire damage to any creature that enters the flames or "
+            "ends its turn within them. A creature can take damage from the continuing "
+            "flames only once per round, even if it's in overlapping areas of fire "
+            "created by different acorns. When the spell ends, any remaining acorns rot "
+            "and turn to ordinary soil.\n"
+            "Heightened (8th) The burst's damage increases to 5d6, and the continuing "
+            "flames damage increases to 3d6.\n"
+            "Heightened (9th) The burst's damage increases to 6d6, and the continuing "
+            "flames damage increases to 3d6."
+        ),
+    },
     "alarm": {
         "source_line_start": 46638,
         "source_line_end": 46638,
@@ -333,6 +755,9 @@ SOURCE_BACKED_OVERRIDES: dict[str, dict[str, Any]] = {
         "source_line_start": 46891,
         "source_line_end": 46891,
         "raw_text_block": "Blink H (con): Flit between the planes,",
+    },
+    "breath_of_life": {
+        "school": "necromancy",
     },
     "burning_hands": {
         "source_line_start": 46641,
@@ -428,6 +853,45 @@ SOURCE_BACKED_OVERRIDES: dict[str, dict[str, Any]] = {
         "source_line_start": 46689,
         "source_line_end": 46689,
         "raw_text_block": "Magic Weapon (tra): Make a weapon",
+    },
+    "gaseous_form": {
+        "rank": 4,
+        "spell_type": "spell",
+        "rarity": "common",
+        "school": "transmutation",
+        "traditions": ["arcane", "occult", "primal"],
+        "traits": ["polymorph"],
+        "cast": "[two-actions] somatic, verbal",
+        "cast_actions": "2_actions",
+        "components": ["somatic", "verbal"],
+        "range": "touch",
+        "area": "NA",
+        "targets": "1 willing creature",
+        "duration": "5 minutes",
+        "save": "NA",
+        "save_type": "NA",
+        "description": (
+            "The target transforms into a vaporous state. In this state, the target is "
+            "amorphous. It loses any item bonus to AC and all other effects and bonuses "
+            "from armor, uses its proficiency modifier for unarmored defense, gains "
+            "resistance 8 to physical damage, and is immune to precision damage."
+        ),
+        "description_snippet": "Turn a willing creature into a vaporous form.",
+        "source_line_start": 52675,
+        "source_line_end": 52688,
+        "raw_text_block": (
+            "GASEOUS FORM\n"
+            "SPELL 4\n"
+            "TRANSMUTATION\n"
+            "Traditions arcane, occult, primal\n"
+            "Cast [two-actions] somatic, verbal\n"
+            "Range touch; Targets 1 willing creature\n"
+            "Duration 5 minutes\n"
+            "The target transforms into a vaporous state. In this state, the target is "
+            "amorphous. It loses any item bonus to AC and all other effects and bonuses "
+            "from armor, uses its proficiency modifier for unarmored defense, gains "
+            "resistance 8 to physical damage, and is immune to precision damage."
+        ),
     },
     "plane_shift": {
         "source_line_start": 47115,
@@ -1313,6 +1777,14 @@ def normalize_table_cells(schema_data: dict[str, Any]) -> dict[str, Any]:
     if schema_data.get("spell_type") == "focus" and schema_data.get("focus_domain") and not schema_data.get("focus_class"):
         schema_data["focus_class"] = "cleric"
 
+    if not schema_data.get("school"):
+        schema_data["school"] = "none"
+    if not schema_data.get("rarity"):
+        schema_data["rarity"] = "common"
+    if not schema_data.get("cast"):
+        schema_data["cast"] = "none"
+    if not schema_data.get("cast_actions"):
+        schema_data["cast_actions"] = "none"
     if not schema_data.get("focus_class"):
         schema_data["focus_class"] = "none"
     if not schema_data.get("focus_domain"):
@@ -1364,8 +1836,65 @@ def normalize_table_cells(schema_data: dict[str, Any]) -> dict[str, Any]:
     return schema_data
 
 
+def trim_block_to_matching_segment(
+    block_lines: list[str],
+    spell_list_record: dict[str, Any] | None,
+) -> tuple[list[str], int, int]:
+    rank_indices = [idx for idx, line in enumerate(block_lines) if RANK_RE.match(line)]
+    if len(rank_indices) <= 1:
+        return block_lines, 0, len(block_lines)
+
+    def score_rank_index(idx: int) -> float:
+        if spell_list_record is None:
+            return float(-idx)
+
+        rank_line = block_lines[idx]
+        rank, is_cantrip, spell_type = parse_rank(rank_line)
+        expected_level = int(spell_list_record["level"])
+        expected_spell_type = "cantrip" if expected_level == 0 else "spell"
+        expected_school = spell_list_record.get("school")
+        expected_traditions = spell_list_record.get("traditions", [])
+        window = " ".join(block_lines[max(0, idx - 4) : min(len(block_lines), idx + 10)]).lower()
+
+        score = 0.0
+        if rank == expected_level:
+            score += 5.0
+        if spell_type == expected_spell_type:
+            score += 3.0
+        if expected_school and expected_school in window:
+            score += 2.0
+        if any(f"traditions {tradition}" in window for tradition in expected_traditions):
+            score += 1.0
+        return score - (idx * 0.001)
+
+    selected_rank_index = max(rank_indices, key=score_rank_index)
+    if spell_list_record is not None:
+        segment_start = 0
+    else:
+        segment_start = find_spell_name_index(block_lines, selected_rank_index)
+        if segment_start is None:
+            segment_start = 0
+
+    segment_end = len(block_lines)
+    for next_rank_index in rank_indices:
+        if next_rank_index <= selected_rank_index:
+            continue
+        next_name_index = find_spell_name_index(block_lines, next_rank_index)
+        if next_name_index is not None and next_name_index > segment_start:
+            segment_end = next_name_index
+        else:
+            segment_end = next_rank_index
+        break
+
+    if spell_list_record is not None and segment_start == 0 and selected_rank_index > 0:
+        trimmed_lines = [block_lines[0], *block_lines[selected_rank_index:segment_end]]
+        return trimmed_lines, 0, segment_end
+
+    return block_lines[segment_start:segment_end], segment_start, segment_end
+
+
 def parse_spell_block(block: dict[str, Any], spell_list_record: dict[str, Any] | None) -> dict[str, Any]:
-    block_lines = block["lines"]
+    block_lines, segment_start, segment_end = trim_block_to_matching_segment(block["lines"], spell_list_record)
     header_lines, metadata, index = collect_prelude(block_lines)
 
     body_lines = block_lines[index:]
@@ -1480,6 +2009,7 @@ def parse_spell_block(block: dict[str, Any], spell_list_record: dict[str, Any] |
         "is_cantrip": is_cantrip,
         "spell_type": spell_type or "spell",
         "school": school,
+        "rarity": rarity,
         "traditions": traditions,
         "traits": sorted(dict.fromkeys(traits)),
         "cast": cast or None,
@@ -1513,8 +2043,8 @@ def parse_spell_block(block: dict[str, Any], spell_list_record: dict[str, Any] |
         "source_book": "core_rulebook_4th_printing",
         "source_display": "Core Rulebook (Fourth Printing)",
         "source_file": DEFAULT_SOURCE.name,
-        "source_line_start": block["start_line"],
-        "source_line_end": block["end_line"],
+        "source_line_start": block["start_line"] + segment_start,
+        "source_line_end": block["start_line"] + segment_end - 1,
         "raw_text_block": raw_text_block,
         "parser_version": PARSER_VERSION,
     }
@@ -1539,6 +2069,8 @@ def parse_spell_block(block: dict[str, Any], spell_list_record: dict[str, Any] |
     )
     if schema_data["id"] in {"dirge_of_doom", "fear"}:
         schema_data["extraction_confidence"] = "high"
+    elif schema_data["id"] in SOURCE_BACKED_OVERRIDES and schema_data["extraction_confidence"] == "low":
+        schema_data["extraction_confidence"] = "medium"
 
     tags = sorted(dict.fromkeys(traditions + schema_data["traits"] + ([school] if school else []) + (["cantrip"] if is_cantrip else [])))
 
@@ -1569,6 +2101,7 @@ def build_list_fallback_record(spell_list_record: dict[str, Any]) -> dict[str, A
         "is_cantrip": is_cantrip,
         "spell_type": "cantrip" if is_cantrip else "spell",
         "school": school,
+        "rarity": rarity,
         "traditions": traditions,
         "traits": traits,
         "cast": None,

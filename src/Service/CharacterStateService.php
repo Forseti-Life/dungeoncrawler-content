@@ -68,6 +68,7 @@ class CharacterStateService {
     // (npc/obstacle/trap/hazard) we expose the full library payload under npcDefinition/statePayload.
     if ($type === 'pc') {
       $portrait_url = $this->resolvePortraitUrl($record, $campaign_id);
+      $descriptors = $this->buildEntityDescriptors($merged_library, $type, (string) $record->name);
       $state = [
         'characterId' => (string) $record->id,
         'userId' => (string) $record->uid,
@@ -141,6 +142,7 @@ class CharacterStateService {
         ],
         'portrait_url' => $portrait_url,
         'portrait' => $portrait_url, // Legacy alias still read by older character-sheet callers.
+        'descriptors' => $descriptors,
         'perception' => (int) ($merged_library['perception'] ?? 0),
         'speed' => (int) ($merged_library['speed'] ?? 25),
 
@@ -160,12 +162,14 @@ class CharacterStateService {
       // Non-PC entities: return the full library payload under npcDefinition so NPC/obstacle/trap/hazard
       // structures (including influence/relationship frameworks) are preserved end-to-end.
       $npc_definition = $merged_library;
+      $descriptors = $this->buildEntityDescriptors($merged_library, $type, (string) $record->name);
       $state = [
         'characterId' => (string) $record->id,
         'userId' => (string) $record->uid,
         'campaignId' => $merged_library['campaignId'] ?? NULL,
         'instanceId' => $merged_library['instanceId'] ?? NULL,
         'type' => $type,
+        'descriptors' => $descriptors,
         'npcDefinition' => $npc_definition,
         'metadata' => [
           'createdAt' => date('c', $record->created),
@@ -206,6 +210,48 @@ class CharacterStateService {
     $state = $this->applyFeatEffectsToState($state);
 
     return $state;
+  }
+
+  /**
+   * Build a normalized cache-friendly descriptor block for an entity.
+   */
+  protected function buildEntityDescriptors(array $library_data, string $type, string $fallback_name = ''): array {
+    $basic_info = is_array($library_data['basicInfo'] ?? NULL) ? $library_data['basicInfo'] : [];
+    $profile = is_array($library_data['profile'] ?? NULL) ? $library_data['profile'] : [];
+    $character_sheet = is_array($profile['character_sheet'] ?? NULL)
+      ? $profile['character_sheet']
+      : (is_array($library_data['character_sheet'] ?? NULL) ? $library_data['character_sheet'] : []);
+
+    $name = trim((string) ($basic_info['name'] ?? $profile['display_name'] ?? $library_data['name'] ?? $fallback_name));
+    // character_sheet.description is treated as a legacy visual-description field.
+    $appearance = trim((string) ($basic_info['appearance'] ?? $profile['appearance'] ?? $character_sheet['appearance'] ?? $character_sheet['description'] ?? $library_data['appearance'] ?? ''));
+    $personality = trim((string) ($basic_info['personality'] ?? $profile['personality_traits'] ?? $profile['personality'] ?? $library_data['personality'] ?? ''));
+    $attitude = trim((string) ($profile['attitude'] ?? $library_data['attitude'] ?? ''));
+    $motivations = trim((string) ($profile['motivations'] ?? $library_data['motivations'] ?? ''));
+    $role = trim((string) ($profile['role'] ?? $library_data['role'] ?? ''));
+
+    $summary_parts = array_values(array_filter([
+      $name !== '' ? $name : NULL,
+      $type === 'pc'
+        ? trim(implode(' ', array_filter([
+          (string) ($basic_info['ancestry'] ?? $library_data['ancestry'] ?? ''),
+          (string) ($basic_info['class'] ?? $library_data['class'] ?? ''),
+        ])))
+        : $role,
+      $appearance !== '' ? 'Appearance: ' . $appearance : NULL,
+      $personality !== '' ? 'Personality: ' . $personality : NULL,
+      $attitude !== '' ? 'Attitude: ' . $attitude : NULL,
+      $motivations !== '' ? 'Motivations: ' . $motivations : NULL,
+    ], static fn($value) => is_string($value) && trim($value) !== ''));
+
+    return [
+      'summary' => substr(implode('. ', $summary_parts), 0, 420),
+      'appearance' => $appearance,
+      'personality' => $personality,
+      'attitude' => $attitude,
+      'motivations' => $motivations,
+      'role' => $role,
+    ];
   }
 
   /**

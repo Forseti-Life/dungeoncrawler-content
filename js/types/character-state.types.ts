@@ -198,6 +198,16 @@ export interface CharacterState {
     lastSyncedAt: string;
     version: number;
   };
+
+  // Normalized cache/prompt-friendly descriptive text.
+  descriptors?: {
+    summary: string;
+    appearance?: string;
+    personality?: string;
+    attitude?: string;
+    motivations?: string;
+    role?: string;
+  };
 }
 
 /**

@@ -184,7 +184,8 @@ class RoomChatService {
     string $type = 'player',
     ?int $character_id = null,
     string $channel = 'room',
-    bool $defer_npc_interjections = FALSE
+    bool $defer_npc_interjections = FALSE,
+    bool $suppress_gm = FALSE
   ): array {
     $request_started_at = hrtime(true);
     $this->startDebugTrace([
@@ -335,7 +336,7 @@ class RoomChatService {
     $navigation = NULL;
     $npc_interjections = [];
     $char_data = $character_id ? $this->actionProcessor->loadCharacterData($character_id) : NULL;
-    if ($type === 'player') {
+    if ($type === 'player' && !$suppress_gm) {
       if ($channel === 'room') {
         $stage_started_at = hrtime(true);
         $this->ensureCurrentRoomNpcProfiles($campaign_id, $room_id, $dungeon_data, $room_index);
@@ -392,6 +393,9 @@ class RoomChatService {
     if ($gm_response !== NULL) {
       $result['gm_response'] = $gm_response;
     }
+    if ($suppress_gm && $type === 'player' && $channel === 'room') {
+      $result['gm_deferred'] = TRUE;
+    }
     if ($state_diff !== NULL) {
       $result['state_diff'] = $state_diff;
     }
@@ -426,6 +430,131 @@ class RoomChatService {
     if ($debug_trace !== NULL && $this->shouldExposeDebugTrace()) {
       $result['debug_trace'] = $debug_trace;
     }
+    return $result;
+  }
+
+  /**
+   * Continue the room GM turn after one or more player messages were queued.
+   */
+  public function continueQueuedRoomConversation(
+    int $campaign_id,
+    string $room_id,
+    ?int $character_id = NULL,
+    bool $defer_npc_interjections = FALSE
+  ): array {
+    $request_started_at = hrtime(true);
+    $this->startDebugTrace([
+      'campaign_id' => $campaign_id,
+      'room_id' => $room_id,
+      'channel' => 'room',
+      'type' => 'gm_continuation',
+      'character_id' => $character_id,
+      'user_id' => (int) $this->currentUser->id(),
+    ]);
+
+    $stage_started_at = hrtime(true);
+    $record = $this->database->select('dc_campaign_dungeons', 'd')
+      ->fields('d', ['dungeon_id', 'dungeon_data'])
+      ->condition('campaign_id', $campaign_id)
+      ->orderBy('updated', 'DESC')
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+
+    if (!$record) {
+      throw new \InvalidArgumentException('Dungeon not found', 404);
+    }
+
+    $dungeon_id = $record['dungeon_id'];
+    $dungeon_data = json_decode($record['dungeon_data'] ?? '{}', TRUE);
+    if (!is_array($dungeon_data)) {
+      $dungeon_data = [];
+    }
+    $this->recordDebugStage('load_dungeon_data', $stage_started_at, [
+      'dungeon_id' => $dungeon_id,
+      'room_count' => count($dungeon_data['rooms'] ?? []),
+    ]);
+
+    $room_index = $this->findRoomIndex($dungeon_data['rooms'] ?? [], $room_id);
+    if ($room_index === NULL) {
+      return [
+        'continued' => FALSE,
+        'queued_player_count' => 0,
+      ];
+    }
+
+    $chat = $dungeon_data['rooms'][$room_index]['chat'] ?? [];
+    $queued_player_messages = [];
+    for ($i = count($chat) - 1; $i >= 0; $i--) {
+      $entry = $chat[$i] ?? [];
+      $entry_channel = (string) ($entry['channel'] ?? 'room');
+      if ($entry_channel !== 'room') {
+        continue;
+      }
+      if (($entry['type'] ?? '') === 'player') {
+        array_unshift($queued_player_messages, $entry);
+        continue;
+      }
+      break;
+    }
+
+    if ($queued_player_messages === []) {
+      return [
+        'continued' => FALSE,
+        'queued_player_count' => 0,
+      ];
+    }
+
+    $queued_player_summary = implode("\n", array_map(static fn(array $entry): string => (string) ($entry['message'] ?? ''), $queued_player_messages));
+    $char_data = $character_id ? $this->actionProcessor->loadCharacterData($character_id) : NULL;
+
+    $stage_started_at = hrtime(true);
+    $this->ensureCurrentRoomNpcProfiles($campaign_id, $room_id, $dungeon_data, $room_index);
+    $this->recordDebugStage('ensure_room_npc_profiles', $stage_started_at);
+
+    $stage_started_at = hrtime(true);
+    $gm_result = $this->generateGmReply($campaign_id, $room_id, $room_index, $dungeon_id, $dungeon_data, $character_id);
+    $this->recordDebugStage('generate_gm_reply', $stage_started_at, [
+      'generated' => $gm_result !== NULL,
+      'queued_player_count' => count($queued_player_messages),
+    ]);
+
+    $gm_response = $gm_result['message'] ?? NULL;
+    $result = [
+      'continued' => $gm_response !== NULL,
+      'queued_player_count' => count($queued_player_messages),
+      'queued_player_summary' => $queued_player_summary,
+    ];
+
+    if ($gm_response !== NULL) {
+      $result['gm_response'] = $gm_response;
+      if (($gm_result['state_diff'] ?? NULL) !== NULL) {
+        $result['state_diff'] = $gm_result['state_diff'];
+      }
+      if (!empty($gm_result['canonical_actions'])) {
+        $result['canonical_actions'] = $gm_result['canonical_actions'];
+      }
+      $navigation = $gm_result['navigation'] ?? NULL;
+      if ($navigation !== NULL && empty($navigation['error']) && $this->mapGenerator) {
+        $result['navigation'] = $this->mapGenerator->buildClientNavigationPayload($navigation);
+      }
+      if ($defer_npc_interjections) {
+        $result['npc_interjections_deferred'] = TRUE;
+      }
+    }
+
+    $debug_trace = $this->finalizeDebugTrace($request_started_at, [
+      'gm_reply_generated' => $gm_response !== NULL,
+      'queued_player_count' => count($queued_player_messages),
+      'npc_interjections_deferred' => $defer_npc_interjections && $gm_response !== NULL,
+    ]);
+    if ($debug_trace !== NULL) {
+      $result['timing'] = $this->buildClientTimingSummary($debug_trace);
+    }
+    if ($debug_trace !== NULL && $this->shouldExposeDebugTrace()) {
+      $result['debug_trace'] = $debug_trace;
+    }
+
     return $result;
   }
 
@@ -612,6 +741,7 @@ class RoomChatService {
       // previous rooms do not bleed into the current room's AI context.
       $stage_started_at = hrtime(true);
       $session_context = $this->buildCompactSessionContext($session_key, $campaign_id, 2, 900, 320);
+      $actor_grounding = $this->buildRoomActorGroundingSummary($campaign_id, $room_id, $dungeon_data);
 
       $prompt = '';
       if ($session_context !== '') {
@@ -625,6 +755,9 @@ class RoomChatService {
       }
       if (!empty($prompt_artifacts['npc_profile_summary'])) {
         $prompt .= $prompt_artifacts['npc_profile_summary'] . "\n\n";
+      }
+      if ($actor_grounding !== '') {
+        $prompt .= $actor_grounding . "\n\n";
       }
       if (!empty($prompt_artifacts['merchant_summary']) && $turn_intent === 'gm_narration') {
         $prompt .= $prompt_artifacts['merchant_summary'] . "\n\n";
@@ -643,6 +776,7 @@ class RoomChatService {
         $prompt .= "\n\nRespond in character as the Game Master. Keep your reply concise (2-4 sentences). If the player is performing a mechanical action (casting a spell, using a skill, using a feat, attacking, exploring), include the JSON action block as instructed in your system prompt.";
       }
       $prompt .= "\nIMPORTANT: Do NOT write dialogue for any NPC. Describe the scene, NPC body language and reactions, but let NPCs speak for themselves. Never put words in an NPC's mouth.";
+      $prompt .= "\nIMPORTANT: Named characters and NPCs must stay grounded in their provided canonical notes. If appearance, personality, attitude, motivations, role, or capabilities are not provided, do NOT invent them.";
       $prompt .= "\nIMPORTANT: Questions about whether an action is possible, wise, or legal are not actions. Answer those verbally and do NOT emit or mention any JSON, action block, code fence, or structured output unless the player is clearly taking the action right now.";
       $this->recordDebugStage('gm.user_prompt_assembly', $stage_started_at, [
         'recent_message_count' => count($recent),
@@ -651,6 +785,7 @@ class RoomChatService {
         'prompt_length' => strlen($prompt),
         'room_entry' => $is_room_entry,
         'quest_context_length' => strlen($quest_prompt_context),
+        'actor_grounding_length' => strlen($actor_grounding),
         'artifact_bytes' => strlen(json_encode($prompt_artifacts) ?: ''),
       ]);
 
@@ -3756,6 +3891,96 @@ PROMPT;
   }
 
   /**
+   * Build canonical grounding notes for named campaign actors in the active room.
+   */
+  protected function buildRoomActorGroundingSummary(int $campaign_id, string $room_id, array $dungeon_data): string {
+    $room_slug = $this->resolveRoomSlugForQuery($campaign_id, $room_id, $dungeon_data);
+    $query = $this->database->select('dc_campaign_characters', 'c')
+      ->fields('c', ['name', 'type', 'role', 'class', 'ancestry', 'instance_id', 'character_data', 'last_room_id', 'location_ref'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('type', ['pc', 'npc'], 'IN')
+      ->range(0, 8);
+
+    $room_match = $query->orConditionGroup()
+      ->condition('last_room_id', $room_id);
+    if ($room_slug) {
+      $room_match->condition('location_ref', $room_slug);
+    }
+    $rows = $query
+      ->condition($room_match)
+      ->execute()
+      ->fetchAll();
+
+    if (!$rows) {
+      return '';
+    }
+
+    $lines = [];
+    $seen_names = [];
+    foreach ($rows as $row) {
+      $name = trim((string) ($row->name ?? ''));
+      if ($name === '') {
+        continue;
+      }
+      $name_key = strtolower($name);
+      if (isset($seen_names[$name_key])) {
+        continue;
+      }
+      $seen_names[$name_key] = TRUE;
+
+      $character_data = json_decode((string) ($row->character_data ?? '{}'), TRUE);
+      if (!is_array($character_data)) {
+        $character_data = [];
+      }
+      $basic_info = is_array($character_data['basicInfo'] ?? NULL) ? $character_data['basicInfo'] : [];
+      $profile = is_array($character_data['profile'] ?? NULL) ? $character_data['profile'] : [];
+      $sheet = is_array($profile['character_sheet'] ?? NULL)
+        ? $profile['character_sheet']
+        : (is_array($character_data['character_sheet'] ?? NULL) ? $character_data['character_sheet'] : []);
+
+      $type = strtolower((string) ($row->type ?? ''));
+      $role = trim((string) ($profile['role'] ?? $row->role ?? ''));
+      $ancestry = trim((string) ($basic_info['ancestry'] ?? $row->ancestry ?? ''));
+      $class = trim((string) ($basic_info['class'] ?? $row->class ?? ''));
+      $appearance = trim((string) ($basic_info['appearance'] ?? $profile['appearance'] ?? $sheet['appearance'] ?? $sheet['description'] ?? $character_data['appearance'] ?? ''));
+      $personality = trim((string) ($basic_info['personality'] ?? $profile['personality_traits'] ?? $profile['personality'] ?? $character_data['personality'] ?? ''));
+      $attitude = trim((string) ($profile['attitude'] ?? $character_data['attitude'] ?? ''));
+      $motivations = trim((string) ($profile['motivations'] ?? $character_data['motivations'] ?? ''));
+
+      $parts = [];
+      if ($type === 'pc') {
+        $identity = trim(implode(' ', array_filter([$ancestry, $class])));
+        if ($identity !== '') {
+          $parts[] = $identity;
+        }
+      }
+      elseif ($role !== '') {
+        $parts[] = 'role: ' . $this->truncateContextBlock($role, 72, 0.9);
+      }
+      if ($appearance !== '') {
+        $parts[] = 'appearance: ' . $this->truncateContextBlock($appearance, 120, 0.8);
+      }
+      if ($personality !== '') {
+        $parts[] = 'personality: ' . $this->truncateContextBlock($personality, 96, 0.8);
+      }
+      if ($attitude !== '') {
+        $parts[] = 'attitude: ' . $this->truncateContextBlock($attitude, 72, 0.9);
+      }
+      if ($motivations !== '') {
+        $parts[] = 'motivations: ' . $this->truncateContextBlock($motivations, 96, 0.8);
+      }
+
+      if ($parts !== []) {
+        $lines[] = '- ' . $name . ' — ' . implode('; ', $parts);
+      }
+    }
+
+    return $lines !== []
+      ? "Canonical actor notes for named room occupants:\n" . implode("\n", $lines)
+      : '';
+  }
+
+  /**
    * Resolve or seed a psychology profile for a room-local campaign NPC row.
    *
    * @param array $seen_refs
@@ -4290,7 +4515,8 @@ PROMPT;
         $attitude = trim((string) ($npc['profile']['attitude'] ?? ''));
         $traits = trim((string) ($npc['profile']['personality_traits'] ?? ''));
         $motivations = trim((string) ($npc['profile']['motivations'] ?? ''));
-        $description = trim((string) ($sheet['description'] ?? ''));
+        // character_sheet.description is a visual/appearance note, not a generic profile blob.
+        $appearance = trim((string) ($sheet['appearance'] ?? $sheet['description'] ?? ''));
         if ($occupation !== '') {
           $profile_parts[] = 'occupation: ' . $this->truncateContextBlock($occupation, 72, 0.9);
         }
@@ -4303,8 +4529,8 @@ PROMPT;
         if ($motivations !== '') {
           $profile_parts[] = 'motivations: ' . $this->truncateContextBlock($motivations, 96, 0.8);
         }
-        if ($description !== '') {
-          $profile_parts[] = 'description: ' . $this->truncateContextBlock($description, 120, 0.8);
+        if ($appearance !== '') {
+          $profile_parts[] = 'appearance: ' . $this->truncateContextBlock($appearance, 120, 0.8);
         }
         if ($profile_parts !== []) {
           $npc_profile_lines[] = '- ' . $name . ' — ' . implode('; ', $profile_parts);
