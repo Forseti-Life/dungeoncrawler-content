@@ -504,10 +504,10 @@ class CharacterLevelingService {
     $gm_unlocked = $char_data['gm_unlocked_feats'] ?? [];
 
     $catalog = match ($slot_type) {
-      'class_feat'    => CharacterManager::CLASS_FEATS[$class_name] ?? [],
+      'class_feat'    => CharacterManager::getClassFeats($class_name),
       'skill_feat'    => CharacterManager::SKILL_FEATS,
-      'general_feat'  => CharacterManager::GENERAL_FEATS,
-      'ancestry_feat' => CharacterManager::ANCESTRY_FEATS,
+      'general_feat'  => CharacterManager::getGeneralFeats(),
+      'ancestry_feat' => CharacterManager::getAncestryFeats(),
       default         => [],
     };
 
@@ -685,14 +685,14 @@ class CharacterLevelingService {
   ): array {
     // Build the eligible catalog for the slot type.
     $catalog = match ($slot_type) {
-      'class_feat'    => CharacterManager::CLASS_FEATS[$class_name] ?? [],
+      'class_feat'    => CharacterManager::getClassFeats($class_name),
       'skill_feat'    => CharacterManager::SKILL_FEATS,
-      'general_feat'  => CharacterManager::GENERAL_FEATS,
-      'ancestry_feat' => CharacterManager::ANCESTRY_FEATS,
+      'general_feat'  => CharacterManager::getGeneralFeats(),
+      'ancestry_feat' => CharacterManager::getAncestryFeats(),
       default         => array_merge(
-        CharacterManager::CLASS_FEATS[$class_name] ?? [],
+        CharacterManager::getClassFeats($class_name),
         CharacterManager::SKILL_FEATS,
-        CharacterManager::GENERAL_FEATS,
+        CharacterManager::getGeneralFeats(),
       ),
     };
 

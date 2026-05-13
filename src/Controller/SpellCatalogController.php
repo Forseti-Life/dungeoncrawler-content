@@ -85,7 +85,14 @@ class SpellCatalogController extends ControllerBase {
       $filters['rarity'] = $rarity;
     }
 
-    $spells = $this->spellCatalog->getSpells($filters);
+    try {
+      $spells = $this->spellCatalog->getSpells($filters);
+    }
+    catch (\RuntimeException $e) {
+      return new JsonResponse([
+        'error' => $e->getMessage(),
+      ], 503);
+    }
 
     return new JsonResponse([
       'count'   => count($spells),
@@ -98,7 +105,15 @@ class SpellCatalogController extends ControllerBase {
    * GET /api/spells/{spell_id}
    */
   public function get(string $spell_id): JsonResponse {
-    $spell = $this->spellCatalog->getSpell($spell_id);
+    try {
+      $spell = $this->spellCatalog->getSpell($spell_id);
+    }
+    catch (\RuntimeException $e) {
+      return new JsonResponse([
+        'error' => $e->getMessage(),
+      ], 503);
+    }
+
     if (!$spell) {
       return new JsonResponse(['error' => "Spell '{$spell_id}' not found."], 404);
     }

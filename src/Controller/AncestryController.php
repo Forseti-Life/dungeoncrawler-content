@@ -50,7 +50,7 @@ class AncestryController extends ControllerBase {
         // Attach heritages keyed by canonical name.
         $item['heritages'] = CharacterManager::HERITAGES[$name] ?? [];
         // TC-DWF-09–14: ancestry feats available for this ancestry (level 1+).
-        $item['ancestry_feats'] = CharacterManager::ANCESTRY_FEATS[$name] ?? [];
+        $item['ancestry_feats'] = CharacterManager::getAncestryFeats($name);
         return new JsonResponse(['ancestry' => $item], 200);
       }
     }

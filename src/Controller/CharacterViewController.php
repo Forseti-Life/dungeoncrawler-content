@@ -611,7 +611,7 @@ class CharacterViewController extends ControllerBase {
   private function buildFeatDefinitionLookup(): array {
     $lookup = [];
 
-    foreach (CharacterManager::ANCESTRY_FEATS as $feat_pool) {
+    foreach (CharacterManager::getAncestryFeats() as $feat_pool) {
       foreach ($feat_pool as $feat) {
         if (!empty($feat['id'])) {
           $lookup[$feat['id']] = $feat;
@@ -619,7 +619,7 @@ class CharacterViewController extends ControllerBase {
       }
     }
 
-    foreach (CharacterManager::CLASS_FEATS as $feat_pool) {
+    foreach (CharacterManager::getClassFeats() as $feat_pool) {
       foreach ($feat_pool as $feat) {
         if (!empty($feat['id'])) {
           $lookup[$feat['id']] = $feat;
@@ -627,7 +627,7 @@ class CharacterViewController extends ControllerBase {
       }
     }
 
-    foreach (array_merge(CharacterManager::GENERAL_FEATS, CharacterManager::SKILL_FEATS) as $feat) {
+    foreach (array_merge(CharacterManager::getGeneralFeats(), CharacterManager::SKILL_FEATS) as $feat) {
       if (!empty($feat['id'])) {
         $lookup[$feat['id']] = $feat;
       }

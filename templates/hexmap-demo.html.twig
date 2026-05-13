@@ -184,30 +184,31 @@
         <div class="hexmap-chat" id="hexmap-chat">
           <div class="hexmap-chat__header">
             <h3 id="chat-panel-title">{{ 'Room Dialogue'|t }}</h3>
-            <span class="chip chip-live" id="chat-status">{{ 'Open'|t }}</span>
             <button id="chat-dock-toggle" class="btn btn-icon btn--chat-dock-toggle" title="{{ 'Collapse chat'|t }}" aria-expanded="true">{{ '▾'|t }}</button>
           </div>
-          <div class="hexmap-chat__session-tabs" id="chat-session-tabs">
-            <button class="session-view-tab session-view-tab--active" data-view="room" title="Room dialogue &amp; NPC channels">{{ 'Room'|t }}</button>
-            <button class="session-view-tab" data-view="narrative" title="Your character's perception-filtered story">{{ 'My Story'|t }}</button>
-            <button class="session-view-tab" data-view="party" title="Party-only huddle chat">{{ 'Party'|t }}</button>
-            <button class="session-view-tab" data-view="gm-private" title="Secret actions only the GM sees">{{ 'GM Secret'|t }}</button>
-            <button class="session-view-tab" data-view="system-log" title="Dice rolls, checks &amp; mechanical results">{{ 'Dice Log'|t }}</button>
+          <div class="hexmap-chat__body" id="hexmap-chat-body">
+            <div class="hexmap-chat__session-tabs" id="chat-session-tabs">
+              <button class="session-view-tab session-view-tab--active" data-view="room" title="Room dialogue &amp; NPC channels">{{ 'Room'|t }}</button>
+              <button class="session-view-tab" data-view="narrative" title="Your character's perception-filtered story">{{ 'My Story'|t }}</button>
+              <button class="session-view-tab" data-view="party" title="Party-only huddle chat">{{ 'Party'|t }}</button>
+              <button class="session-view-tab" data-view="gm-private" title="Secret actions only the GM sees">{{ 'GM Secret'|t }}</button>
+              <button class="session-view-tab" data-view="system-log" title="Dice rolls, checks &amp; mechanical results">{{ 'Dice Log'|t }}</button>
+            </div>
+            <div class="hexmap-chat__channels" id="chat-channel-tabs">
+              <button class="chat-channel-tab chat-channel-tab--active" data-channel="room" title="Main room channel">{{ 'Room'|t }}</button>
+            </div>
+            <div class="hexmap-chat__channel-indicator" id="chat-channel-indicator" data-channel-type="room">
+              <span class="channel-indicator__label" id="chat-channel-label">{{ 'Room — Everyone can hear'|t }}</span>
+            </div>
+            <div class="hexmap-chat__summary" id="chat-summary">{{ 'Quick summary: Jumping to the latest part of the conversation.'|t }}</div>
+            <div class="hexmap-chat__log" id="chat-log" aria-live="polite" data-channel-type="room">
+              <div class="chat-line chat-line--system">{{ 'You are in a quiet room. Try saying hello.'|t }}</div>
+            </div>
+            <form class="hexmap-chat__input" id="chat-form">
+              <input id="chat-input" type="text" placeholder="{{ 'Say something to the room...'|t }}" autocomplete="off" />
+              <button id="chat-send" class="btn btn-primary" type="submit">{{ 'Send'|t }}</button>
+            </form>
           </div>
-          <div class="hexmap-chat__channels" id="chat-channel-tabs">
-            <button class="chat-channel-tab chat-channel-tab--active" data-channel="room" title="Main room channel">{{ 'Room'|t }}</button>
-          </div>
-          <div class="hexmap-chat__channel-indicator" id="chat-channel-indicator" data-channel-type="room">
-            <span class="channel-indicator__label" id="chat-channel-label">{{ 'Room — Everyone can hear'|t }}</span>
-          </div>
-          <div class="hexmap-chat__summary" id="chat-summary">{{ 'Quick summary: Jumping to the latest part of the conversation.'|t }}</div>
-          <div class="hexmap-chat__log" id="chat-log" aria-live="polite" data-channel-type="room">
-            <div class="chat-line chat-line--system">{{ 'You are in a quiet room. Try saying hello.'|t }}</div>
-          </div>
-          <form class="hexmap-chat__input" id="chat-form">
-            <input id="chat-input" type="text" placeholder="{{ 'Say something to the room...'|t }}" autocomplete="off" />
-            <button id="chat-send" class="btn btn-primary" type="submit">{{ 'Send'|t }}</button>
-          </form>
         </div>
       </div>
     </div>

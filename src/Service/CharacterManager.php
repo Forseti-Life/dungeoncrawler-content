@@ -11055,6 +11055,89 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
   }
 
   /**
+   * Returns ancestry feats with inherited source-book metadata applied.
+   *
+   * @param string|null $ancestry_canonical
+   *   Optional canonical ancestry name. When omitted, returns the full feat map.
+   *
+   * @return array
+   *   Either the full ancestry feat map or a single ancestry's feat list.
+   */
+  public static function getAncestryFeats(?string $ancestry_canonical = NULL): array {
+    if ($ancestry_canonical !== NULL) {
+      return self::normalizeFeatList(
+        self::ANCESTRY_FEATS[$ancestry_canonical] ?? [],
+        self::ANCESTRIES[$ancestry_canonical]['source_book'] ?? 'crb'
+      );
+    }
+
+    $feats = [];
+    foreach (array_keys(self::ANCESTRY_FEATS) as $ancestry_name) {
+      $feats[$ancestry_name] = self::getAncestryFeats($ancestry_name);
+    }
+    return $feats;
+  }
+
+  /**
+   * Returns class feats with inherited source-book metadata applied.
+   *
+   * @param string|null $class_id
+   *   Optional class machine ID. When omitted, returns the full feat map.
+   *
+   * @return array
+   *   Either the full class feat map or a single class's feat list.
+   */
+  public static function getClassFeats(?string $class_id = NULL): array {
+    if ($class_id !== NULL) {
+      return self::normalizeFeatList(
+        self::CLASS_FEATS[$class_id] ?? [],
+        self::CLASSES[$class_id]['source_book'] ?? 'crb'
+      );
+    }
+
+    $feats = [];
+    foreach (array_keys(self::CLASS_FEATS) as $current_class_id) {
+      $feats[$current_class_id] = self::getClassFeats($current_class_id);
+    }
+    return $feats;
+  }
+
+  /**
+   * Returns general feats with CRB as the implicit source book.
+   *
+   * @return array[]
+   *   General feat definitions.
+   */
+  public static function getGeneralFeats(): array {
+    return self::normalizeFeatList(self::GENERAL_FEATS, 'crb');
+  }
+
+  /**
+   * Applies inherited metadata defaults to a feat list.
+   *
+   * @param array[] $feats
+   *   Feat definitions.
+   * @param string $default_source_book
+   *   Source book to apply when a feat omits one.
+   *
+   * @return array[]
+   *   Normalized feat definitions.
+   */
+  private static function normalizeFeatList(array $feats, string $default_source_book): array {
+    foreach ($feats as &$feat) {
+      if (($feat['source_book'] ?? '') === '' && $default_source_book !== '') {
+        $feat['source_book'] = $default_source_book;
+      }
+      if (($feat['prerequisites'] ?? '') === '') {
+        $feat['prerequisites'] = 'none';
+      }
+    }
+    unset($feat);
+
+    return $feats;
+  }
+
+  /**
    * Returns all eligible ancestry feats for a character based on ancestry and
    * selected heritage, expanding the pool via cross_ancestry_feat_pool.
    *
@@ -11090,7 +11173,7 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
     $feats = [];
     $seen = [];
     foreach ($pools as $pool) {
-      foreach ((self::ANCESTRY_FEATS[$pool] ?? []) as $feat) {
+      foreach (self::getAncestryFeats($pool) as $feat) {
         $id = $feat['id'] ?? '';
         if ($id !== '' && !isset($seen[$id])) {
           $seen[$id] = TRUE;

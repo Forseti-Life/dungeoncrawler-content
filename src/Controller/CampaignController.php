@@ -749,6 +749,19 @@ class CampaignController extends ControllerBase {
   }
 
   /**
+   * Resolve persisted location fields for an existing campaign character row.
+   */
+  private function resolveCharacterLocationFields(?array $existing_location_state): array {
+    return [
+      'position_q' => (int) ($existing_location_state['position_q'] ?? 0),
+      'position_r' => (int) ($existing_location_state['position_r'] ?? 0),
+      'last_room_id' => (string) ($existing_location_state['last_room_id'] ?? ''),
+      'location_type' => (string) ($existing_location_state['location_type'] ?? 'global'),
+      'location_ref' => (string) ($existing_location_state['location_ref'] ?? ''),
+    ];
+  }
+
+  /**
    * Load the most recently updated campaign dungeon row.
    */
   private function loadLatestCampaignDungeon(int $campaign_id): ?object {
@@ -896,6 +909,8 @@ class CampaignController extends ControllerBase {
         ->fetchAssoc() ?: NULL;
     }
 
+    $location_fields = $this->resolveCharacterLocationFields($existing_location_state);
+
     $fields = [
       'character_id' => $canonical_character_id,
       'instance_id' => $instance_id,
@@ -908,15 +923,15 @@ class CampaignController extends ControllerBase {
       'hp_max' => $hot['hp_max'],
       'armor_class' => $hot['armor_class'],
       'experience_points' => $hot['experience_points'],
-      'position_q' => (int) ($existing_location_state['position_q'] ?? 0),
-      'position_r' => (int) ($existing_location_state['position_r'] ?? 0),
-      'last_room_id' => (string) ($existing_location_state['last_room_id'] ?? ''),
+      'position_q' => $location_fields['position_q'],
+      'position_r' => $location_fields['position_r'],
+      'last_room_id' => $location_fields['last_room_id'],
       'role' => 'player',
       'type' => 'pc',
       'state_data' => json_encode($character_data, JSON_UNESCAPED_UNICODE),
       'character_data' => json_encode($character_data, JSON_UNESCAPED_UNICODE),
-      'location_type' => (string) ($existing_location_state['location_type'] ?? 'global'),
-      'location_ref' => (string) ($existing_location_state['location_ref'] ?? ''),
+      'location_type' => $location_fields['location_type'],
+      'location_ref' => $location_fields['location_ref'],
       'is_active' => 1,
       'joined' => $now,
       'changed' => $now,

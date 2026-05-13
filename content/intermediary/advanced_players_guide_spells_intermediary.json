@@ -1649,8 +1649,8 @@
     },
     {
       "content_type": "spell",
-      "content_id": "cursebound",
-      "name": "Cursebound",
+      "content_id": "brain-drain",
+      "name": "Brain Drain",
       "level": 1,
       "rarity": "common",
       "tags": [
@@ -1659,8 +1659,8 @@
         "mental"
       ],
       "schema_data": {
-        "id": "cursebound",
-        "name": "Cursebound",
+        "id": "brain-drain",
+        "name": "Brain Drain",
         "rank": 1,
         "is_cantrip": false,
         "spell_type": "focus",
@@ -1743,8 +1743,8 @@
     },
     {
       "content_type": "spell",
-      "content_id": "cursebound",
-      "name": "Cursebound",
+      "content_id": "incendiary-aura",
+      "name": "Incendiary Aura",
       "level": 1,
       "rarity": "common",
       "tags": [
@@ -1753,8 +1753,8 @@
         "fire"
       ],
       "schema_data": {
-        "id": "cursebound",
-        "name": "Cursebound",
+        "id": "incendiary-aura",
+        "name": "Incendiary Aura",
         "rank": 1,
         "is_cantrip": false,
         "spell_type": "focus",
@@ -1837,8 +1837,8 @@
     },
     {
       "content_type": "spell",
-      "content_id": "cursebound",
-      "name": "Cursebound",
+      "content_id": "soul-siphon",
+      "name": "Soul Siphon",
       "level": 1,
       "rarity": "common",
       "tags": [
@@ -1847,8 +1847,8 @@
         "negative"
       ],
       "schema_data": {
-        "id": "cursebound",
-        "name": "Cursebound",
+        "id": "soul-siphon",
+        "name": "Soul Siphon",
         "rank": 1,
         "is_cantrip": false,
         "spell_type": "focus",
@@ -2315,16 +2315,16 @@
     },
     {
       "content_type": "spell",
-      "content_id": "hex",
-      "name": "Hex",
+      "content_id": "elemental-betrayal",
+      "name": "Elemental Betrayal",
       "level": 1,
       "rarity": "common",
       "tags": [
         "none"
       ],
       "schema_data": {
-        "id": "hex",
-        "name": "Hex",
+        "id": "elemental-betrayal",
+        "name": "Elemental Betrayal",
         "rank": 1,
         "is_cantrip": false,
         "spell_type": "focus",
@@ -2407,16 +2407,16 @@
     },
     {
       "content_type": "spell",
-      "content_id": "hex",
-      "name": "Hex",
+      "content_id": "needle-of-vengeance",
+      "name": "Needle of Vengeance",
       "level": 1,
       "rarity": "common",
       "tags": [
         "mental"
       ],
       "schema_data": {
-        "id": "hex",
-        "name": "Hex",
+        "id": "needle-of-vengeance",
+        "name": "Needle of Vengeance",
         "rank": 1,
         "is_cantrip": false,
         "spell_type": "focus",
@@ -6322,8 +6322,8 @@
     },
     {
       "content_type": "spell",
-      "content_id": "cursebound",
-      "name": "Cursebound",
+      "content_id": "access-lore",
+      "name": "Access Lore",
       "level": 3,
       "rarity": "common",
       "tags": [
@@ -6332,8 +6332,8 @@
         "fortune"
       ],
       "schema_data": {
-        "id": "cursebound",
-        "name": "Cursebound",
+        "id": "access-lore",
+        "name": "Access Lore",
         "rank": 3,
         "is_cantrip": false,
         "spell_type": "focus",
@@ -6414,8 +6414,8 @@
     },
     {
       "content_type": "spell",
-      "content_id": "cursebound",
-      "name": "Cursebound",
+      "content_id": "armor-of-bones",
+      "name": "Armor of Bones",
       "level": 3,
       "rarity": "common",
       "tags": [
@@ -6424,8 +6424,8 @@
         "none"
       ],
       "schema_data": {
-        "id": "cursebound",
-        "name": "Cursebound",
+        "id": "armor-of-bones",
+        "name": "Armor of Bones",
         "rank": 3,
         "is_cantrip": false,
         "spell_type": "focus",
@@ -6508,8 +6508,8 @@
     },
     {
       "content_type": "spell",
-      "content_id": "cursebound",
-      "name": "Cursebound",
+      "content_id": "battlefield-persistence",
+      "name": "Battlefield Persistence",
       "level": 3,
       "rarity": "common",
       "tags": [
@@ -6517,8 +6517,8 @@
         "divine"
       ],
       "schema_data": {
-        "id": "cursebound",
-        "name": "Cursebound",
+        "id": "battlefield-persistence",
+        "name": "Battlefield Persistence",
         "rank": 3,
         "is_cantrip": false,
         "spell_type": "focus",
@@ -6599,8 +6599,8 @@
     },
     {
       "content_type": "spell",
-      "content_id": "cursebound",
-      "name": "Cursebound",
+      "content_id": "delay-affliction",
+      "name": "Delay Affliction",
       "level": 3,
       "rarity": "common",
       "tags": [
@@ -6610,8 +6610,8 @@
         "positive"
       ],
       "schema_data": {
-        "id": "cursebound",
-        "name": "Cursebound",
+        "id": "delay-affliction",
+        "name": "Delay Affliction",
         "rank": 3,
         "is_cantrip": false,
         "spell_type": "focus",
@@ -7369,8 +7369,8 @@
     },
     {
       "content_type": "spell",
-      "content_id": "oracle",
-      "name": "Oracle",
+      "content_id": "whirling-flames",
+      "name": "Whirling Flames",
       "level": 3,
       "rarity": "uncommon",
       "tags": [
@@ -7379,8 +7379,8 @@
         "fire"
       ],
       "schema_data": {
-        "id": "oracle",
-        "name": "Oracle",
+        "id": "whirling-flames",
+        "name": "Whirling Flames",
         "rank": 3,
         "is_cantrip": false,
         "spell_type": "focus",
@@ -8519,8 +8519,8 @@
     },
     {
       "content_type": "spell",
-      "content_id": "cursebound",
-      "name": "Cursebound",
+      "content_id": "debilitating-dichotomy",
+      "name": "Debilitating Dichotomy",
       "level": 4,
       "rarity": "common",
       "tags": [
@@ -8529,8 +8529,8 @@
         "mental"
       ],
       "schema_data": {
-        "id": "cursebound",
-        "name": "Cursebound",
+        "id": "debilitating-dichotomy",
+        "name": "Debilitating Dichotomy",
         "rank": 4,
         "is_cantrip": false,
         "spell_type": "focus",
@@ -9205,8 +9205,8 @@
     },
     {
       "content_type": "spell",
-      "content_id": "ranger",
-      "name": "Ranger",
+      "content_id": "enlarge-companion",
+      "name": "Enlarge Companion",
       "level": 4,
       "rarity": "common",
       "tags": [
@@ -9214,8 +9214,8 @@
         "transmutation"
       ],
       "schema_data": {
-        "id": "ranger",
-        "name": "Ranger",
+        "id": "enlarge-companion",
+        "name": "Enlarge Companion",
         "rank": 4,
         "is_cantrip": false,
         "spell_type": "focus",
@@ -9277,7 +9277,7 @@
         "conditions_caused": [
           "none"
         ],
-        "focus_class": "none",
+        "focus_class": "ranger",
         "focus_domain": "none",
         "summon_level_cap_table": "none",
         "source_book": "advanced_players_guide",
@@ -9502,16 +9502,16 @@
     },
     {
       "content_type": "spell",
-      "content_id": "shadow",
-      "name": "Shadow",
+      "content_id": "clinging-shadows-stance",
+      "name": "Clinging Shadows Stance",
       "level": 4,
       "rarity": "common",
       "tags": [
         "stance"
       ],
       "schema_data": {
-        "id": "shadow",
-        "name": "Shadow",
+        "id": "clinging-shadows-stance",
+        "name": "Clinging Shadows Stance",
         "rank": 4,
         "is_cantrip": false,
         "spell_type": "focus",
@@ -9572,7 +9572,7 @@
         "conditions_caused": [
           "none"
         ],
-        "focus_class": "none",
+        "focus_class": "monk",
         "focus_domain": "none",
         "summon_level_cap_table": "none",
         "source_book": "advanced_players_guide",
@@ -11193,16 +11193,16 @@
     },
     {
       "content_type": "spell",
-      "content_id": "shadow",
-      "name": "Shadow",
+      "content_id": "consuming-darkness",
+      "name": "Consuming Darkness",
       "level": 5,
       "rarity": "common",
       "tags": [
         "none"
       ],
       "schema_data": {
-        "id": "shadow",
-        "name": "Shadow",
+        "id": "consuming-darkness",
+        "name": "Consuming Darkness",
         "rank": 5,
         "is_cantrip": false,
         "spell_type": "focus",
@@ -11680,7 +11680,7 @@
     },
     {
       "content_type": "spell",
-      "content_id": "terrain_transposition",
+      "content_id": "terrain-transposition",
       "name": "Terrain Transposition",
       "level": 5,
       "rarity": "common",
@@ -11688,7 +11688,7 @@
         "none"
       ],
       "schema_data": {
-        "id": "terrain_transposition",
+        "id": "terrain-transposition",
         "name": "Terrain Transposition",
         "rank": 5,
         "is_cantrip": false,
@@ -11751,7 +11751,7 @@
         "conditions_caused": [
           "none"
         ],
-        "focus_class": "none",
+        "focus_class": "ranger",
         "focus_domain": "none",
         "summon_level_cap_table": "none",
         "source_book": "advanced_players_guide",
@@ -12280,8 +12280,8 @@
     },
     {
       "content_type": "spell",
-      "content_id": "cursebound",
-      "name": "Cursebound",
+      "content_id": "ancestral-form",
+      "name": "Ancestral Form",
       "level": 6,
       "rarity": "common",
       "tags": [
@@ -12290,8 +12290,8 @@
         "transmutation"
       ],
       "schema_data": {
-        "id": "cursebound",
-        "name": "Cursebound",
+        "id": "ancestral-form",
+        "name": "Ancestral Form",
         "rank": 6,
         "is_cantrip": false,
         "spell_type": "focus",
@@ -12374,8 +12374,8 @@
     },
     {
       "content_type": "spell",
-      "content_id": "cursebound",
-      "name": "Cursebound",
+      "content_id": "claim-undead",
+      "name": "Claim Undead",
       "level": 6,
       "rarity": "common",
       "tags": [
@@ -12384,8 +12384,8 @@
         "necromancy"
       ],
       "schema_data": {
-        "id": "cursebound",
-        "name": "Cursebound",
+        "id": "claim-undead",
+        "name": "Claim Undead",
         "rank": 6,
         "is_cantrip": false,
         "spell_type": "focus",
@@ -12471,8 +12471,8 @@
     },
     {
       "content_type": "spell",
-      "content_id": "cursebound",
-      "name": "Cursebound",
+      "content_id": "flaming-fusillade",
+      "name": "Flaming Fusillade",
       "level": 6,
       "rarity": "uncommon",
       "tags": [
@@ -12481,8 +12481,8 @@
         "fire"
       ],
       "schema_data": {
-        "id": "cursebound",
-        "name": "Cursebound",
+        "id": "flaming-fusillade",
+        "name": "Flaming Fusillade",
         "rank": 6,
         "is_cantrip": false,
         "spell_type": "focus",
@@ -12758,8 +12758,8 @@
     },
     {
       "content_type": "spell",
-      "content_id": "oracle",
-      "name": "Oracle",
+      "content_id": "tempest-form",
+      "name": "Tempest Form",
       "level": 6,
       "rarity": "common",
       "tags": [
@@ -12767,8 +12767,8 @@
         "transmutation"
       ],
       "schema_data": {
-        "id": "oracle",
-        "name": "Oracle",
+        "id": "tempest-form",
+        "name": "Tempest Form",
         "rank": 6,
         "is_cantrip": false,
         "spell_type": "focus",
@@ -12831,7 +12831,7 @@
         "conditions_caused": [
           "concealed"
         ],
-        "focus_class": "none",
+        "focus_class": "oracle",
         "focus_domain": "none",
         "summon_level_cap_table": "none",
         "source_book": "advanced_players_guide",
