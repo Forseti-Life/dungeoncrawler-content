@@ -2067,6 +2067,616 @@ class FeatEffectManagerTest extends UnitTestCase {
   /**
    * @covers ::buildEffectState
    */
+  public function testCrossbowAceAddsReloadOverrides(): void {
+    $character = $this->buildCharacterWithFeat('crossbow-ace');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['crossbow-ace'];
+    $this->assertTrue($override['quick_draw_also_reloads_crossbow']);
+    $this->assertFalse($override['loaded_crossbow_reload_requires_free_hand_draw']);
+    $this->assertContains('crossbow-ace', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testHuntedShotAddsTwoStrikePreyAction(): void {
+    $character = $this->buildCharacterWithFeat('hunted-shot');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame('Hunted Shot', $action['name']);
+    $this->assertSame('two_ranged_strikes', $action['activity']);
+    $this->assertSame('hunted_prey', $action['target_requirement']);
+    $this->assertTrue($action['volley_weapons_reduce_to_one_strike']);
+    $this->assertTrue($action['combine_damage_for_resistance_and_weakness_on_two_hits']);
+    $this->assertSame(2, $action['map_attack_count']);
+    $this->assertContains('hunted-shot', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testTwinTakedownAddsDifferentWeaponDifferentTargetAction(): void {
+    $character = $this->buildCharacterWithFeat('twin-takedown');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame('Twin Takedown', $action['name']);
+    $this->assertSame('two_melee_strikes', $action['activity']);
+    $this->assertTrue($action['different_targets_required']);
+    $this->assertTrue($action['second_strike_uses_normal_map']);
+    $this->assertTrue($action['double_slice_damage_rule']);
+    $this->assertContains('twin-takedown', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testBardicLoreAddsUniversalLoreOverrides(): void {
+    $character = $this->buildCharacterWithFeat('bardic-lore');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['bardic-lore'];
+    $this->assertTrue($override['can_attempt_lore_on_any_topic']);
+    $this->assertTrue($override['uses_occultism_proficiency_for_bardic_lore_dc']);
+    $this->assertTrue($override['roll_twice_take_better_on_lore_checks']);
+    $this->assertContains('bardic-lore', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testLingeringCompositionAddsPerformanceExtensionAction(): void {
+    $character = $this->buildCharacterWithFeat('lingering-composition');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame('Lingering Composition', $action['name']);
+    $this->assertSame('performance_check_composition_extension', $action['activity']);
+    $this->assertSame('extend_to_4_rounds', $action['outcomes']['critical_success']);
+    $this->assertSame('immediately_ends', $action['outcomes']['critical_failure']);
+    $this->assertContains('lingering-composition', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testVersatilePerformanceAddsSkillSubstitutionsAndDailySwap(): void {
+    $character = $this->buildCharacterWithFeat('versatile-performance');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['versatile-performance'];
+    $action = $effects['available_actions']['per_long_rest'][0];
+    $this->assertSame('Performance', $override['skill_substitutions']['make_an_impression']);
+    $this->assertSame('Performance', $override['skill_substitutions']['lie']);
+    $this->assertSame('Performance', $override['skill_substitutions']['demoralize']);
+    $this->assertSame(1, $override['signature_spell_swap_uses_per_long_rest']);
+    $this->assertSame('Versatile Performance Signature Swap', $action['name']);
+    $this->assertContains('versatile-performance', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testInspireCompetenceAddsCompositionCantripAction(): void {
+    $character = $this->buildCharacterWithFeat('inspire-competence');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame('Inspire Competence', $action['name']);
+    $this->assertSame('free', $action['action_cost']);
+    $this->assertSame('composition_cantrip', $action['activity']);
+    $this->assertSame(60, $action['range_feet']);
+    $this->assertSame(2, $action['skill_check_status_bonus']);
+    $this->assertSame('up_to_1_minute', $action['sustain_duration']);
+    $this->assertContains('inspire-competence', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testMelodiousSpellAddsAuditoryMetamagicAugment(): void {
+    $character = $this->buildCharacterWithFeat('melodious-spell');
+    $effects = $this->manager->buildEffectState($character);
+
+    $augment = $effects['spell_augments']['metamagic'][0];
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame('Melodious Spell', $augment['name']);
+    $this->assertSame('manipulate', $augment['remove_trait']);
+    $this->assertSame('auditory', $augment['add_trait']);
+    $this->assertTrue($augment['somatic_components_do_not_require_free_hand']);
+    $this->assertSame('metamagic', $action['activity']);
+    $this->assertContains('melodious-spell', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testTripleTimeAddsSpeedCompositionAction(): void {
+    $character = $this->buildCharacterWithFeat('triple-time');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame('Triple Time', $action['name']);
+    $this->assertSame('free', $action['action_cost']);
+    $this->assertSame(10, $action['speed_status_bonus']);
+    $this->assertSame('while_sustained_up_to_1_minute', $action['sustain_duration']);
+    $this->assertContains('triple-time', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testVersatileSignatureAddsDailySwapAction(): void {
+    $character = $this->buildCharacterWithFeat('versatile-signature');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['versatile-signature'];
+    $action = $effects['available_actions']['per_long_rest'][0];
+    $this->assertSame(1, $override['signature_spell_swap_uses_per_long_rest']);
+    $this->assertSame('daily_preparations', $override['swap_timing']);
+    $this->assertSame('Versatile Signature', $action['name']);
+    $this->assertContains('versatile-signature', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testDirgeOfDoomAddsFearAuraComposition(): void {
+    $character = $this->buildCharacterWithFeat('dirge-of-doom');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame('Dirge of Doom', $action['name']);
+    $this->assertSame(30, $action['range_feet']);
+    $this->assertSame('frightened_1', $action['condition']);
+    $this->assertTrue($action['reapplies_each_turn_in_aura']);
+    $this->assertContains('dirge-of-doom', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testHarmonizeAddsCompositionCoexistenceMetamagic(): void {
+    $character = $this->buildCharacterWithFeat('harmonize');
+    $effects = $this->manager->buildEffectState($character);
+
+    $augment = $effects['spell_augments']['metamagic'][0];
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertTrue($augment['requires_composition_spell']);
+    $this->assertTrue($augment['next_composition_does_not_end_existing_composition']);
+    $this->assertTrue($augment['allows_two_active_compositions']);
+    $this->assertSame('metamagic', $action['activity']);
+    $this->assertContains('harmonize', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testSteadySpellcastingAddsDisruptionFlatCheck(): void {
+    $character = $this->buildCharacterWithFeat('steady-spellcasting');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['steady-spellcasting'];
+    $this->assertSame('reaction_would_disrupt_spellcasting', $override['trigger']);
+    $this->assertSame(15, $override['flat_check_dc']);
+    $this->assertTrue($override['success_prevents_disruption']);
+    $this->assertContains('steady-spellcasting', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testInspireDefenseAddsDefensiveCompositionAction(): void {
+    $character = $this->buildCharacterWithFeat('inspire-defense');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame('Inspire Defense', $action['name']);
+    $this->assertSame(60, $action['range_feet']);
+    $this->assertSame(1, $action['ac_status_bonus']);
+    $this->assertSame(1, $action['saving_throw_status_bonus']);
+    $this->assertSame('while_sustained', $action['sustain_duration']);
+    $this->assertContains('inspire-defense', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testInspireHeroicsAddsCompositionBoostMetamagic(): void {
+    $character = $this->buildCharacterWithFeat('inspire-heroics');
+    $effects = $this->manager->buildEffectState($character);
+
+    $augment = $effects['spell_augments']['metamagic'][0];
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame(['inspire-courage', 'inspire-competence'], $augment['eligible_spells']);
+    $this->assertSame('performance_vs_composition_dc', $augment['check']);
+    $this->assertSame(1, $augment['success_bonus_increase']);
+    $this->assertSame(2, $augment['critical_success_bonus_increase']);
+    $this->assertSame('metamagic', $action['activity']);
+    $this->assertContains('inspire-heroics', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testHouseOfImaginaryWallsAddsIllusoryWallAction(): void {
+    $character = $this->buildCharacterWithFeat('house-of-imaginary-walls');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame('House of Imaginary Walls', $action['name']);
+    $this->assertSame(10, $action['wall_length_feet']);
+    $this->assertSame('adjacent', $action['placement']);
+    $this->assertSame('will', $action['save_type']);
+    $this->assertSame('treat_wall_as_solid_barrier_for_1_round', $action['on_failed_save']);
+    $this->assertContains('house-of-imaginary-walls', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testQuickenedCastingBardAddsDailyOccultSpeedup(): void {
+    $character = $this->buildCharacterWithFeat('quickened-casting-bard');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['quickened-casting-bard'];
+    $action = $effects['available_actions']['per_long_rest'][0];
+    $this->assertSame('occult', $override['spell_tradition']);
+    $this->assertSame([1, 2], $override['eligible_normal_action_costs']);
+    $this->assertSame(1, $override['action_cost_reduction']);
+    $this->assertTrue($override['excludes_10th_rank_slots']);
+    $this->assertSame('Quickened Casting', $action['name']);
+    $this->assertContains('quickened-casting-bard', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testEclecticSkillAddsUniversalTrainingOverrides(): void {
+    $character = $this->buildCharacterWithFeat('eclectic-skill');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['eclectic-skill'];
+    $this->assertTrue($override['treat_all_skills_as_trained']);
+    $this->assertTrue($override['use_versatile_performance_when_untrained']);
+    $this->assertTrue($override['untrained_improvisation_reduces_non_lore_skill_dcs']);
+    $this->assertContains('eclectic-skill', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testSoothingBalladAddsHealingFocusSpell(): void {
+    $character = $this->buildCharacterWithFeat('soothing-ballad');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['at_will'][0];
+    $override = $effects['feat_overrides']['soothing-ballad'];
+    $this->assertSame('Soothing Ballad', $action['name']);
+    $this->assertSame('focus_spell', $action['activity']);
+    $this->assertSame(30, $action['range_feet']);
+    $this->assertSame('1d8 + charisma_modifier', $action['healing_formula']);
+    $this->assertTrue($action['fear_counteract_effect']);
+    $this->assertSame(1, $override['focus_cost']);
+    $this->assertContains('soothing-ballad', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testUnusualCompositionAddsTriggerSwapMetamagic(): void {
+    $character = $this->buildCharacterWithFeat('unusual-composition');
+    $effects = $this->manager->buildEffectState($character);
+
+    $augment = $effects['spell_augments']['metamagic'][0];
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertTrue($augment['requires_composition_spell']);
+    $this->assertTrue($augment['can_swap_visual_and_auditory_triggers']);
+    $this->assertSame('metamagic', $action['activity']);
+    $this->assertContains('unusual-composition', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testInspireMagnificenceAddsMagicResistantCompositionAura(): void {
+    $character = $this->buildCharacterWithFeat('inspire-magnificence');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame('Inspire Magnificence', $action['name']);
+    $this->assertSame(60, $action['range_feet']);
+    $this->assertSame(2, $action['skill_check_status_bonus']);
+    $this->assertSame(2, $action['saves_against_magic_status_bonus']);
+    $this->assertSame(3, $action['critical_sustain_bonus']);
+    $this->assertContains('inspire-magnificence', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testPolymathGreaterExtendsVersatilePerformanceToAllSkills(): void {
+    $character = $this->buildCharacterWithFeat('polymath-greater');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['polymath-greater'];
+    $this->assertTrue($override['versatile_performance_applies_to_any_skill_check']);
+    $this->assertContains('polymath-greater', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testAllegroAddsReflexAndFreeStepComposition(): void {
+    $character = $this->buildCharacterWithFeat('allegro');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame('Allegro', $action['name']);
+    $this->assertSame('one_ally', $action['targets']);
+    $this->assertSame(1, $action['reflex_status_bonus']);
+    $this->assertTrue($action['free_step_once_per_turn']);
+    $this->assertContains('allegro', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testSharedAssaultAddsFollowupFlatFootedOverride(): void {
+    $character = $this->buildCharacterWithFeat('shared-assault');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['shared-assault'];
+    $this->assertSame(['inspire-courage', 'inspire-defense'], $override['requires_active_composition']);
+    $this->assertSame('critical_success_occult_spell_attack', $override['trigger']);
+    $this->assertSame('target_flat_footed_to_next_strike_from_benefiting_ally', $override['effect']);
+    $this->assertContains('shared-assault', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testDeepLoreAddsOccultismAndLoreBonuses(): void {
+    $character = $this->buildCharacterWithFeat('deep-lore');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['deep-lore'];
+    $skill_modifier = $effects['conditional_modifiers']['skills'][0];
+    $this->assertTrue($override['bardic_lore_identify_spells_via_occultism']);
+    $this->assertTrue($override['bardic_lore_identify_creatures_via_occultism']);
+    $this->assertTrue($override['bardic_lore_identify_magic_items_via_occultism']);
+    $this->assertSame('Lore', $skill_modifier['skill']);
+    $this->assertSame(2, $skill_modifier['bonus']);
+    $this->assertContains('deep-lore', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testHealingHandsAddsHealBonusOverride(): void {
+    $character = $this->buildCharacterWithFeat('healing-hands');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['healing-hands'];
+    $this->assertTrue($override['heal_spell_bonus_healing_equals_level']);
+    $this->assertTrue($override['applies_to_divine_font_and_regular_slots']);
+    $this->assertTrue($override['three_action_heal_applies_bonus_to_each_target']);
+    $this->assertContains('healing-hands', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testHolyCastigationAddsUndeadHealDamageOverride(): void {
+    $character = $this->buildCharacterWithFeat('holy-castigation');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['holy-castigation'];
+    $this->assertSame('1d6', $override['heal_also_damages_undead']);
+    $this->assertTrue($override['ignores_undead_harm_resistance']);
+    $this->assertContains('holy-castigation', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testReachSpellClericAddsNextSpellRangeAugment(): void {
+    $character = $this->buildCharacterWithFeat('reach-spell-cleric');
+    $effects = $this->manager->buildEffectState($character);
+
+    $augment = $effects['spell_augments']['metamagic'][0];
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame(30, $augment['range_bonus_feet']);
+    $this->assertSame(30, $augment['touch_range_to_feet']);
+    $this->assertTrue($augment['applies_to_next_spell_only']);
+    $this->assertSame('metamagic', $action['activity']);
+    $this->assertContains('reach-spell-cleric', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testWidenSpellClericAddsShapeSpecificAreaAugment(): void {
+    $character = $this->buildCharacterWithFeat('widen-spell-cleric');
+    $effects = $this->manager->buildEffectState($character);
+
+    $augment = $effects['spell_augments']['metamagic'][0];
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame(['burst', 'cone', 'line'], $augment['eligible_shapes']);
+    $this->assertTrue($augment['applies_to_next_spell_only']);
+    $this->assertSame(5, $augment['burst_radius_bonus_feet']);
+    $this->assertSame(10, $augment['long_cone_or_line_bonus_feet']);
+    $this->assertSame('metamagic', $action['activity']);
+    $this->assertContains('widen-spell-cleric', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testCommunalHealingAddsSelfRecoveryOverride(): void {
+    $character = $this->buildCharacterWithFeat('communal-healing');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['communal-healing'];
+    $this->assertSame('single_target_heal_on_living_creature_not_self', $override['trigger']);
+    $this->assertTrue($override['regain_hp_equal_to_spell_lowest_damage_die']);
+    $this->assertContains('communal-healing', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testSapLifeAddsHarmRecoveryOverride(): void {
+    $character = $this->buildCharacterWithFeat('sap-life');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['sap-life'];
+    $this->assertSame('harm_spell_damages_at_least_one_creature', $override['trigger']);
+    $this->assertTrue($override['regain_hp_equal_to_spell_level']);
+    $this->assertContains('sap-life', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testDangerousSorceryAddsSpellRankDamageBonusOverride(): void {
+    $character = $this->buildCharacterWithFeat('dangerous-sorcery');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['dangerous-sorcery'];
+    $this->assertSame('cast_damaging_spell_from_spell_slot_without_duration', $override['trigger']);
+    $this->assertTrue($override['damage_bonus_equals_spell_rank']);
+    $this->assertContains('dangerous-sorcery', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testFamiliarSorcererAddsCreationSelectionGrant(): void {
+    $character = $this->buildCharacterWithFeat('familiar-sorcerer');
+    $effects = $this->manager->buildEffectState($character);
+
+    $grant = $effects['selection_grants'][0];
+    $this->assertSame('familiar-sorcerer', $grant['source']);
+    $this->assertSame('familiar_creation', $grant['id']);
+    $this->assertSame(1, $grant['count']);
+    $this->assertContains('familiar-sorcerer', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testReachSpellSorcererAddsNextSpellRangeAugment(): void {
+    $character = $this->buildCharacterWithFeat('reach-spell-sorcerer');
+    $effects = $this->manager->buildEffectState($character);
+
+    $augment = $effects['spell_augments']['metamagic'][0];
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame(30, $augment['range_bonus_feet']);
+    $this->assertSame(30, $augment['touch_range_to_feet']);
+    $this->assertTrue($augment['applies_to_next_spell_only']);
+    $this->assertSame('metamagic', $action['activity']);
+    $this->assertContains('reach-spell-sorcerer', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testWidenSpellSorcererAddsShapeSpecificAreaAugment(): void {
+    $character = $this->buildCharacterWithFeat('widen-spell-sorcerer');
+    $effects = $this->manager->buildEffectState($character);
+
+    $augment = $effects['spell_augments']['metamagic'][0];
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame(['burst', 'cone', 'line'], $augment['eligible_shapes']);
+    $this->assertTrue($augment['applies_to_next_spell_only']);
+    $this->assertSame(5, $augment['burst_radius_bonus_feet']);
+    $this->assertSame(10, $augment['long_cone_or_line_bonus_feet']);
+    $this->assertSame('metamagic', $action['activity']);
+    $this->assertContains('widen-spell-sorcerer', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testEnhancedFamiliarSorcererAddsExtraAbilitiesOverride(): void {
+    $character = $this->buildCharacterWithFeat('enhanced-familiar-sorcerer');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['enhanced-familiar-sorcerer'];
+    $this->assertSame(2, $override['additional_familiar_abilities_per_day']);
+    $this->assertContains('enhanced-familiar-sorcerer', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testSteadySpellcastingSorcererAddsDisruptionFlatCheck(): void {
+    $character = $this->buildCharacterWithFeat('steady-spellcasting-sorcerer');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['steady-spellcasting-sorcerer'];
+    $this->assertSame('reaction_would_disrupt_spellcasting', $override['trigger']);
+    $this->assertSame(15, $override['flat_check_dc']);
+    $this->assertTrue($override['success_prevents_disruption']);
+    $this->assertContains('steady-spellcasting-sorcerer', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testInstinctiveObfuscationAddsSpellMisdirectionReaction(): void {
+    $character = $this->buildCharacterWithFeat('instinctive-obfuscation');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame('Instinctive Obfuscation', $action['name']);
+    $this->assertSame('reaction', $action['action_cost']);
+    $this->assertSame('creature_targets_you_with_spell', $action['trigger']);
+    $this->assertSame('misdirect_spell', $action['activity']);
+    $this->assertSame('deception_vs_caster_perception_dc', $action['check']);
+    $this->assertTrue($action['requires_alternate_target_in_range']);
+    $this->assertContains('instinctive-obfuscation', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testOverwhelmingEnergySorcererAddsResistanceIgnoreMetamagic(): void {
+    $character = $this->buildCharacterWithFeat('overwhelming-energy');
+    $effects = $this->manager->buildEffectState($character);
+
+    $augment = $effects['spell_augments']['metamagic'][0];
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertTrue($augment['requires_energy_damage_spell']);
+    $this->assertSame(10, $augment['ignore_resistance_up_to']);
+    $this->assertSame(['acid', 'cold', 'electricity', 'fire', 'sonic'], $augment['eligible_damage_types']);
+    $this->assertSame('metamagic', $action['activity']);
+    $this->assertContains('overwhelming-energy', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testQuickenedCastingSorcererAddsDailyLowRankSpeedup(): void {
+    $character = $this->buildCharacterWithFeat('quickened-casting-sorcerer');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['quickened-casting-sorcerer'];
+    $action = $effects['available_actions']['per_long_rest'][0];
+    $this->assertSame(3, $override['spell_level_max']);
+    $this->assertSame(1, $override['action_cost_reduction']);
+    $this->assertSame(1, $override['minimum_action_cost']);
+    $this->assertTrue($override['cannot_apply_to_already_reduced_casting_time']);
+    $this->assertSame('Quickened Casting', $action['name']);
+    $this->assertContains('quickened-casting-sorcerer', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
   public function testCatfolkLoreAddsSkillAndLoreTraining(): void {
     $character = $this->buildCharacterWithFeat('catfolk-lore');
     $effects = $this->manager->buildEffectState($character);
