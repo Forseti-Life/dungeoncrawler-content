@@ -660,7 +660,7 @@ class CharacterCreationStepForm extends FormBase {
     ];
     if (!empty($selected_ancestry)) {
       $ancestry_name = $this->resolveAncestryName($selected_ancestry);
-      $ancestry_feats = CharacterManager::ANCESTRY_FEATS[$ancestry_name] ?? [];
+      $ancestry_feats = CharacterManager::getAncestryFeats($ancestry_name);
 
       if (!empty($ancestry_feats)) {
         $form['heritage_dynamic']['ancestry_feat_dynamic']['ancestry_feat_section'] = [
@@ -695,6 +695,11 @@ class CharacterCreationStepForm extends FormBase {
           '#options' => $feat_options,
           '#default_value' => $selected_feat,
           '#value_callback' => [$this, 'sanitizeOptionValue'],
+          '#ajax' => [
+            'callback' => '::updateAncestryFeatOptions',
+            'wrapper' => 'heritage-path-wrapper',
+            'event' => 'change',
+          ],
           // Do NOT use #required => TRUE on radio groups: the browser immediately
           // applies :invalid CSS to all unselected required radio inputs on page
           // load, making the group appear red before the user interacts at all.
@@ -710,6 +715,98 @@ class CharacterCreationStepForm extends FormBase {
         ];
         $this->clearStaleOptionInput($form_state, 'ancestry_feat', $feat_options);
         $this->attachOptionCardSettings($form['heritage_dynamic']['ancestry_feat_dynamic'], 'ancestry_feat', $feat_cards, 'single');
+
+        if ($selected_feat === 'first-world-magic') {
+          $this->buildFirstWorldMagicSelectionSection(
+            $form['heritage_dynamic']['ancestry_feat_dynamic'],
+            $form_state,
+            $character_data
+          );
+        }
+        elseif ($selected_feat === 'otherworldly-magic') {
+          $this->buildOtherworldlyMagicSelectionSection(
+            $form['heritage_dynamic']['ancestry_feat_dynamic'],
+            $form_state,
+            $character_data
+          );
+        }
+        elseif ($selected_feat === 'general-training') {
+          $this->buildGeneralTrainingSelectionSection(
+            $form['heritage_dynamic']['ancestry_feat_dynamic'],
+            $form_state,
+            $character_data
+          );
+        }
+        elseif ($selected_feat === 'elf-atavism') {
+          $this->buildElfAtavismSelectionSection(
+            $form['heritage_dynamic']['ancestry_feat_dynamic'],
+            $form_state,
+            $character_data
+          );
+        }
+        elseif ($selected_feat === 'multitalented') {
+          $this->buildMultitalentedSelectionSection(
+            $form['heritage_dynamic']['ancestry_feat_dynamic'],
+            $form_state,
+            $character_data
+          );
+        }
+        elseif ($selected_feat === 'mixed-heritage-adaptability') {
+          $this->buildMixedHeritageAdaptabilitySelectionSection(
+            $form['heritage_dynamic']['ancestry_feat_dynamic'],
+            $form_state,
+            $character_data
+          );
+        }
+        elseif ($selected_feat === 'orc-atavism') {
+          $this->buildOrcAtavismSelectionSection(
+            $form['heritage_dynamic']['ancestry_feat_dynamic'],
+            $form_state,
+            $character_data
+          );
+        }
+        elseif ($selected_feat === 'draconic-ties') {
+          $this->buildDraconicTiesSelectionSection(
+            $form['heritage_dynamic']['ancestry_feat_dynamic'],
+            $form_state,
+            $character_data
+          );
+        }
+        elseif ($selected_feat === 'natural-skill') {
+          $this->buildNaturalSkillSelectionSection(
+            $form['heritage_dynamic']['ancestry_feat_dynamic'],
+            $form_state,
+            $character_data
+          );
+        }
+        elseif ($selected_feat === 'vengeful-hatred') {
+          $this->buildVengefulHatredSelectionSection(
+            $form['heritage_dynamic']['ancestry_feat_dynamic'],
+            $form_state,
+            $character_data
+          );
+        }
+        elseif ($selected_feat === 'ancestral-longevity') {
+          $this->buildAncestralLongevitySelectionSection(
+            $form['heritage_dynamic']['ancestry_feat_dynamic'],
+            $form_state,
+            $character_data
+          );
+        }
+        elseif ($selected_feat === 'gnome-obsession') {
+          $this->buildGnomeObsessionSelectionSection(
+            $form['heritage_dynamic']['ancestry_feat_dynamic'],
+            $form_state,
+            $character_data
+          );
+        }
+        elseif ($selected_feat === 'natural-performer') {
+          $this->buildNaturalPerformerSelectionSection(
+            $form['heritage_dynamic']['ancestry_feat_dynamic'],
+            $form_state,
+            $character_data
+          );
+        }
       }
       else {
         $this->clearStaleOptionInput($form_state, 'ancestry_feat', []);
@@ -911,7 +1008,7 @@ class CharacterCreationStepForm extends FormBase {
     }
 
     // Class Feat Selection
-    $class_feats = CharacterManager::CLASS_FEATS[$selected_class] ?? [];
+    $class_feats = CharacterManager::getClassFeats($selected_class);
 
     if (!empty($class_feats)) {
       $form['class_dynamic']['class_feat_section'] = [
@@ -944,6 +1041,10 @@ class CharacterCreationStepForm extends FormBase {
         '#description' => $this->t('Each feat provides unique tactical options that define your combat style.'),
       ];
       $this->attachOptionCardSettings($form['class_dynamic'], 'class_feat', $feat_cards, 'single');
+
+      if (($character_data['ancestry_feat'] ?? '') === 'natural-ambition') {
+        $this->buildNaturalAmbitionSelectionSection($form, $form_state, $character_data, $selected_class, $class_feats);
+      }
     }
 
     // --- Subclass selection for flexible-tradition casters ---
@@ -1164,6 +1265,10 @@ class CharacterCreationStepForm extends FormBase {
           '#markup' => $this->buildOptionDetailStackMarkup($spell_reference_cards),
         ],
       ];
+
+      if (($character_data['ancestry_feat'] ?? '') === 'adapted-cantrip') {
+        $this->buildAdaptedCantripSelectionSection($form, $form_state, $character_data, $tradition);
+      }
     }
     elseif (array_key_exists($selected_class, CharacterManager::CLASS_TRADITIONS) && !$tradition) {
       // Caster class but tradition not yet resolved (sorcerer/witch without subclass)
@@ -1245,24 +1350,7 @@ class CharacterCreationStepForm extends FormBase {
             . '</div>',
         ];
 
-        $all_skills = [
-          'Acrobatics' => 'Acrobatics - Balance, tumble, maneuver while flying',
-          'Arcana' => 'Arcana - Recall knowledge about arcane magic, traditions, creatures',
-          'Athletics' => 'Athletics - Climb, force open, grapple, swim',
-          'Crafting' => 'Crafting - Repair items, identify alchemical objects, craft goods',
-          'Deception' => 'Deception - Create a diversion, feint, lie, impersonate',
-          'Diplomacy' => 'Diplomacy - Gather information, make an impression, request',
-          'Intimidation' => 'Intimidation - Coerce, demoralize',
-          'Medicine' => 'Medicine - Administer first aid, treat disease, treat poison',
-          'Nature' => 'Nature - Command an animal, recall knowledge about natural creatures',
-          'Occultism' => 'Occultism - Recall knowledge about occult topics, creatures',
-          'Performance' => 'Performance - Act, dance, play instrument, give speech',
-          'Religion' => 'Religion - Recall knowledge about divine topics, creatures',
-          'Society' => 'Society - Recall knowledge about society, civilization, history',
-          'Stealth' => 'Stealth - Conceal an object, hide, sneak',
-          'Survival' => 'Survival - Cover tracks, sense direction, subsist, track',
-          'Thievery' => 'Thievery - Palm an object, disable a device, pick a lock',
-        ];
+        $all_skills = $this->getSkillTrainingOptions();
 
         $form['trained_skills'] = [
           '#type' => 'checkboxes',
@@ -1301,7 +1389,11 @@ class CharacterCreationStepForm extends FormBase {
 
     // --- General Feat Selection ---
     // Every PF2e character gets one 1st-level general feat at character creation.
-    $form['general_feat_section'] = [
+    $form['general_feat_dynamic'] = [
+      '#type' => 'container',
+      '#attributes' => ['id' => 'general-feat-dynamic-wrapper'],
+    ];
+    $form['general_feat_dynamic']['general_feat_section'] = [
       '#markup' => '<div class="section-instructions general-feat-section">'
         . '<h3>' . $this->t('General Feat') . '</h3>'
         . '<p>' . $this->t('Every character receives one 1st-level general feat. These represent broad talents not tied to your class or ancestry.') . '</p>'
@@ -1310,7 +1402,7 @@ class CharacterCreationStepForm extends FormBase {
 
     $general_feat_options = [];
     $general_feat_cards = [];
-    foreach (CharacterManager::GENERAL_FEATS as $feat) {
+    foreach (CharacterManager::getGeneralFeats() as $feat) {
       $general_feat_options[$feat['id']] = $feat['name'];
       $general_feat_cards[$feat['id']] = $this->buildOptionCardData(
         $feat['benefit'] ?? '',
@@ -1321,15 +1413,28 @@ class CharacterCreationStepForm extends FormBase {
       );
     }
 
-    $form['general_feat'] = [
+    $selected_general_feat = (string) ($form_state->getValue('general_feat') ?: ($character_data['general_feat'] ?? ''));
+    $form['general_feat_dynamic']['general_feat'] = [
       '#type' => 'radios',
       '#title' => $this->t('Select General Feat'),
       '#options' => $general_feat_options,
-      '#default_value' => $character_data['general_feat'] ?? '',
-      '#required' => TRUE,
+      '#default_value' => $selected_general_feat,
+      '#required' => FALSE,
       '#description' => $this->t('Popular choices: Toughness (more HP), Fleet (faster movement), Incredible Initiative (+2 to initiative), Shield Block (damage reduction).'),
+      '#ajax' => [
+        'callback' => '::updateGeneralFeatOptions',
+        'wrapper' => 'general-feat-dynamic-wrapper',
+        'event' => 'change',
+      ],
     ];
-    $this->attachOptionCardSettings($form, 'general_feat', $general_feat_cards, 'single');
+    $this->attachOptionCardSettings($form['general_feat_dynamic'], 'general_feat', $general_feat_cards, 'single');
+
+    if ($selected_general_feat === 'specialty-crafting') {
+      $this->buildSpecialtyCraftingSelectionSection($form['general_feat_dynamic'], $form_state, $character_data);
+    }
+    elseif ($selected_general_feat === 'virtuosic-performer') {
+      $this->buildVirtuosicPerformerSelectionSection($form['general_feat_dynamic'], $form_state, $character_data);
+    }
   }
 
   /**
@@ -1609,9 +1714,49 @@ class CharacterCreationStepForm extends FormBase {
           // Validate ancestry feat (enforced here instead of #required on the
           // radios element to avoid browser :invalid pre-styling on page load).
           $ancestry_name_val = $this->resolveAncestryName($ancestry_val);
-          $feats_for_ancestry = CharacterManager::ANCESTRY_FEATS[$ancestry_name_val] ?? [];
+          $feats_for_ancestry = CharacterManager::getAncestryFeats($ancestry_name_val);
           if (!empty($feats_for_ancestry) && trim((string) $form_state->getValue('ancestry_feat', '')) === '') {
             $form_state->setErrorByName('ancestry_feat', $this->t('Ancestry feat selection is required.'));
+          }
+
+          if (trim((string) $form_state->getValue('ancestry_feat', '')) === 'first-world-magic') {
+            $this->validateFirstWorldMagicSelection($form_state);
+          }
+          if (trim((string) $form_state->getValue('ancestry_feat', '')) === 'otherworldly-magic') {
+            $this->validateOtherworldlyMagicSelection($form_state);
+          }
+          if (trim((string) $form_state->getValue('ancestry_feat', '')) === 'general-training') {
+            $this->validateGeneralTrainingSelection($form_state);
+          }
+          if (trim((string) $form_state->getValue('ancestry_feat', '')) === 'elf-atavism') {
+            $this->validateElfAtavismSelection($form_state);
+          }
+          if (trim((string) $form_state->getValue('ancestry_feat', '')) === 'multitalented') {
+            $this->validateMultitalentedSelection($form_state);
+          }
+          if (trim((string) $form_state->getValue('ancestry_feat', '')) === 'mixed-heritage-adaptability') {
+            $this->validateMixedHeritageAdaptabilitySelection($form_state);
+          }
+          if (trim((string) $form_state->getValue('ancestry_feat', '')) === 'orc-atavism') {
+            $this->validateOrcAtavismSelection($form_state);
+          }
+          if (trim((string) $form_state->getValue('ancestry_feat', '')) === 'draconic-ties') {
+            $this->validateDraconicTiesSelection($form_state);
+          }
+          if (trim((string) $form_state->getValue('ancestry_feat', '')) === 'natural-skill') {
+            $this->validateNaturalSkillSelection($form_state);
+          }
+          if (trim((string) $form_state->getValue('ancestry_feat', '')) === 'vengeful-hatred') {
+            $this->validateVengefulHatredSelection($form_state);
+          }
+          if (trim((string) $form_state->getValue('ancestry_feat', '')) === 'ancestral-longevity') {
+            $this->validateAncestralLongevitySelection($form_state);
+          }
+          if (trim((string) $form_state->getValue('ancestry_feat', '')) === 'gnome-obsession') {
+            $this->validateGnomeObsessionSelection($form_state);
+          }
+          if (trim((string) $form_state->getValue('ancestry_feat', '')) === 'natural-performer') {
+            $this->validateNaturalPerformerSelection($form_state);
           }
 
           $ancestry_boost_config = CharacterManager::getAncestryBoostConfig($ancestry_val, $submitted_heritage);
@@ -1736,6 +1881,19 @@ class CharacterCreationStepForm extends FormBase {
             ]));
           }
         }
+
+        $stored_character_data = $this->loadCharacterData((int) $form_state->get('character_id'));
+        if (($stored_character_data['ancestry_feat'] ?? '') === 'adapted-cantrip') {
+          $resolve_data = $stored_character_data;
+          $resolve_data['class'] = $class_val;
+          $resolve_data['subclass'] = (string) $form_state->getValue('subclass', ($stored_character_data['subclass'] ?? ''));
+          $resolve_data['bloodline'] = $resolve_data['subclass'];
+          $resolve_data['patron'] = $resolve_data['subclass'];
+          $this->validateAdaptedCantripSelection($form_state, $resolve_data);
+        }
+        if (($stored_character_data['ancestry_feat'] ?? '') === 'natural-ambition') {
+          $this->validateNaturalAmbitionSelection($form_state, $class_val);
+        }
         break;
 
       case 5:
@@ -1756,6 +1914,14 @@ class CharacterCreationStepForm extends FormBase {
         // Validate general feat selection.
         if (trim((string) $form_state->getValue('general_feat', '')) === '') {
           $form_state->setErrorByName('general_feat', $this->t('General feat selection is required.'));
+        }
+
+        $general_feat_value = trim((string) $form_state->getValue('general_feat', ''));
+        if ($general_feat_value === 'specialty-crafting') {
+          $this->validateSpecialtyCraftingSelection($form_state);
+        }
+        elseif ($general_feat_value === 'virtuosic-performer') {
+          $this->validateVirtuosicPerformerSelection($form_state);
         }
 
         // Enforce exact skill count (class base + INT modifier).
@@ -1884,6 +2050,165 @@ class CharacterCreationStepForm extends FormBase {
       }
     }
 
+    if ((int) $step === 2) {
+      if (($character_data['ancestry_feat'] ?? '') !== 'first-world-magic') {
+        unset($character_data['feat_selections']['first-world-magic']);
+      }
+      else {
+        $selection = $character_data['feat_selections']['first-world-magic'] ?? [];
+        if (!is_array($selection)) {
+          $selection = [];
+        }
+        $selection['selected_cantrip'] = trim((string) ($selection['selected_cantrip'] ?? ''));
+        $character_data['feat_selections']['first-world-magic'] = $selection;
+      }
+
+      if (($character_data['ancestry_feat'] ?? '') !== 'otherworldly-magic') {
+        unset($character_data['feat_selections']['otherworldly-magic']);
+      }
+      else {
+        $selection = $character_data['feat_selections']['otherworldly-magic'] ?? [];
+        if (!is_array($selection)) {
+          $selection = [];
+        }
+        $selection['selected_cantrip'] = trim((string) ($selection['selected_cantrip'] ?? ''));
+        $character_data['feat_selections']['otherworldly-magic'] = $selection;
+      }
+
+      if (($character_data['ancestry_feat'] ?? '') !== 'general-training') {
+        unset($character_data['feat_selections']['general-training']);
+      }
+      else {
+        $selection = $character_data['feat_selections']['general-training'] ?? [];
+        if (!is_array($selection)) {
+          $selection = [];
+        }
+        $selection['bonus_general_feat'] = trim((string) ($selection['bonus_general_feat'] ?? ''));
+        $character_data['feat_selections']['general-training'] = $selection;
+      }
+
+      if (($character_data['ancestry_feat'] ?? '') !== 'elf-atavism') {
+        unset($character_data['feat_selections']['elf-atavism']);
+      }
+      else {
+        $selection = $character_data['feat_selections']['elf-atavism'] ?? [];
+        if (!is_array($selection)) {
+          $selection = [];
+        }
+        $selection['selected_feat'] = trim((string) ($selection['selected_feat'] ?? ''));
+        $character_data['feat_selections']['elf-atavism'] = $selection;
+      }
+
+      if (($character_data['ancestry_feat'] ?? '') !== 'multitalented') {
+        unset($character_data['feat_selections']['multitalented']);
+      }
+      else {
+        $selection = $character_data['feat_selections']['multitalented'] ?? [];
+        if (!is_array($selection)) {
+          $selection = [];
+        }
+        $selection['selected_skill'] = trim((string) ($selection['selected_skill'] ?? ''));
+        $selection['selected_language'] = trim((string) ($selection['selected_language'] ?? ''));
+        $character_data['feat_selections']['multitalented'] = $selection;
+      }
+
+      if (($character_data['ancestry_feat'] ?? '') !== 'mixed-heritage-adaptability') {
+        unset($character_data['feat_selections']['mixed-heritage-adaptability']);
+      }
+      else {
+        $selection = $character_data['feat_selections']['mixed-heritage-adaptability'] ?? [];
+        if (!is_array($selection)) {
+          $selection = [];
+        }
+        $selection['selected_skill'] = trim((string) ($selection['selected_skill'] ?? ''));
+        $character_data['feat_selections']['mixed-heritage-adaptability'] = $selection;
+      }
+
+      if (($character_data['ancestry_feat'] ?? '') !== 'orc-atavism') {
+        unset($character_data['feat_selections']['orc-atavism']);
+      }
+      else {
+        $selection = $character_data['feat_selections']['orc-atavism'] ?? [];
+        if (!is_array($selection)) {
+          $selection = [];
+        }
+        $selection['selected_feat'] = trim((string) ($selection['selected_feat'] ?? ''));
+        $character_data['feat_selections']['orc-atavism'] = $selection;
+      }
+
+      if (($character_data['ancestry_feat'] ?? '') !== 'draconic-ties') {
+        unset($character_data['feat_selections']['draconic-ties']);
+      }
+      else {
+        $selection = $character_data['feat_selections']['draconic-ties'] ?? [];
+        if (!is_array($selection)) {
+          $selection = [];
+        }
+        $selection['damage_type'] = trim((string) ($selection['damage_type'] ?? ''));
+        $character_data['feat_selections']['draconic-ties'] = $selection;
+      }
+
+      if (($character_data['ancestry_feat'] ?? '') !== 'natural-skill') {
+        unset($character_data['feat_selections']['natural-skill']);
+      }
+      else {
+        $selection = $character_data['feat_selections']['natural-skill'] ?? [];
+        if (!is_array($selection)) {
+          $selection = [];
+        }
+        $selection['skills'] = self::normalizeList($selection['skills'] ?? []);
+        $character_data['feat_selections']['natural-skill'] = $selection;
+      }
+
+      if (($character_data['ancestry_feat'] ?? '') !== 'vengeful-hatred') {
+        unset($character_data['feat_selections']['vengeful-hatred']);
+      }
+      else {
+        $selection = $character_data['feat_selections']['vengeful-hatred'] ?? [];
+        if (!is_array($selection)) {
+          $selection = [];
+        }
+        $selection['target_type'] = trim((string) ($selection['target_type'] ?? ''));
+        $character_data['feat_selections']['vengeful-hatred'] = $selection;
+      }
+
+      if (($character_data['ancestry_feat'] ?? '') !== 'ancestral-longevity') {
+        unset($character_data['feat_selections']['ancestral-longevity']);
+      }
+      else {
+        $selection = $character_data['feat_selections']['ancestral-longevity'] ?? [];
+        if (!is_array($selection)) {
+          $selection = [];
+        }
+        $selection['selected_skills'] = self::normalizeList($selection['selected_skills'] ?? []);
+        $character_data['feat_selections']['ancestral-longevity'] = $selection;
+      }
+
+      if (($character_data['ancestry_feat'] ?? '') !== 'gnome-obsession') {
+        unset($character_data['feat_selections']['gnome-obsession']);
+      }
+      else {
+        $selection = $character_data['feat_selections']['gnome-obsession'] ?? [];
+        if (!is_array($selection)) {
+          $selection = [];
+        }
+        $selection['selected_lore'] = $this->normalizeLoreSkillName((string) ($selection['selected_lore'] ?? ''));
+        $character_data['feat_selections']['gnome-obsession'] = $selection;
+      }
+
+      if (($character_data['ancestry_feat'] ?? '') !== 'natural-performer') {
+        unset($character_data['feat_selections']['natural-performer']);
+      }
+      else {
+        $selection = $character_data['feat_selections']['natural-performer'] ?? [];
+        if (!is_array($selection)) {
+          $selection = [];
+        }
+        $selection['specialty'] = trim((string) ($selection['specialty'] ?? ''));
+        $character_data['feat_selections']['natural-performer'] = $selection;
+      }
+    }
+
     // Step 4: Build structured spellcasting data for caster classes.
     if ((int) $step === 4) {
       $selected_class = $character_data['class'] ?? '';
@@ -1931,6 +2256,33 @@ class CharacterCreationStepForm extends FormBase {
         $character_data['spells_first'] = $spell_ids;
       }
 
+      if (($character_data['ancestry_feat'] ?? '') !== 'adapted-cantrip') {
+        if (isset($character_data['feat_selections']['adapted-cantrip'])) {
+          unset($character_data['feat_selections']['adapted-cantrip']);
+        }
+      }
+      else {
+        $selection = $character_data['feat_selections']['adapted-cantrip'] ?? [];
+        if (!is_array($selection)) {
+          $selection = [];
+        }
+        $selection['selected_tradition'] = trim((string) ($selection['selected_tradition'] ?? ''));
+        $selection['selected_cantrip'] = trim((string) ($selection['selected_cantrip'] ?? ''));
+        $character_data['feat_selections']['adapted-cantrip'] = $selection;
+      }
+
+      if (($character_data['ancestry_feat'] ?? '') !== 'natural-ambition') {
+        unset($character_data['feat_selections']['natural-ambition']);
+      }
+      else {
+        $selection = $character_data['feat_selections']['natural-ambition'] ?? [];
+        if (!is_array($selection)) {
+          $selection = [];
+        }
+        $selection['bonus_class_feat'] = trim((string) ($selection['bonus_class_feat'] ?? ''));
+        $character_data['feat_selections']['natural-ambition'] = $selection;
+      }
+
       // Build feats summary array from all sources.
       $character_data['feats'] = $this->buildFeatsArray($character_data);
     }
@@ -1941,6 +2293,30 @@ class CharacterCreationStepForm extends FormBase {
       $character_data['trained_skills'] = is_array($raw_skills)
         ? array_values(array_filter($raw_skills, static fn($v) => $v !== 0 && $v !== '' && $v !== NULL))
         : [];
+
+      if (($character_data['general_feat'] ?? '') !== 'specialty-crafting') {
+        unset($character_data['feat_selections']['specialty-crafting']);
+      }
+      else {
+        $selection = $character_data['feat_selections']['specialty-crafting'] ?? [];
+        if (!is_array($selection)) {
+          $selection = [];
+        }
+        $selection['specialty'] = trim((string) ($selection['specialty'] ?? ''));
+        $character_data['feat_selections']['specialty-crafting'] = $selection;
+      }
+
+      if (($character_data['general_feat'] ?? '') !== 'virtuosic-performer') {
+        unset($character_data['feat_selections']['virtuosic-performer']);
+      }
+      else {
+        $selection = $character_data['feat_selections']['virtuosic-performer'] ?? [];
+        if (!is_array($selection)) {
+          $selection = [];
+        }
+        $selection['specialty'] = trim((string) ($selection['specialty'] ?? ''));
+        $character_data['feat_selections']['virtuosic-performer'] = $selection;
+      }
 
       // Rebuild feats array with general feat included.
       $character_data['feats'] = $this->buildFeatsArray($character_data);
@@ -2275,6 +2651,17 @@ class CharacterCreationStepForm extends FormBase {
     }
 
     return [];
+  }
+
+  private function normalizeLoreSkillName(string $lore_name): string {
+    $normalized = preg_replace('/\s+/', ' ', trim($lore_name)) ?? '';
+    if ($normalized === '') {
+      return '';
+    }
+    if (!preg_match('/\blore$/i', $normalized)) {
+      $normalized .= ' Lore';
+    }
+    return $normalized;
   }
 
   /**
@@ -2781,6 +3168,19 @@ class CharacterCreationStepForm extends FormBase {
   }
 
   /**
+   * AJAX callback to refresh ancestry-feat-dependent Step 2 fields.
+   */
+  public function updateAncestryFeatOptions(array &$form, FormStateInterface $form_state): array {
+    if (method_exists($form_state, 'clearErrors')) {
+      $form_state->clearErrors();
+    }
+    \Drupal::messenger()->deleteByType('error');
+    $form_state->setRebuild(TRUE);
+
+    return $form['heritage_dynamic'];
+  }
+
+  /**
    * AJAX callback: Rebuilds background-dependent fields when background changes.
    */
   public function updateBackgroundOptions(array &$form, FormStateInterface $form_state): array {
@@ -2861,6 +3261,19 @@ class CharacterCreationStepForm extends FormBase {
     $form_state->setRebuild(TRUE);
 
     return $form['class_dynamic'];
+  }
+
+  /**
+   * AJAX callback: Rebuilds general-feat-dependent fields when general feat changes.
+   */
+  public function updateGeneralFeatOptions(array &$form, FormStateInterface $form_state): array {
+    if (method_exists($form_state, 'clearErrors')) {
+      $form_state->clearErrors();
+    }
+    \Drupal::messenger()->deleteByType('error');
+    $form_state->setRebuild(TRUE);
+
+    return $form['general_feat_dynamic'];
   }
 
   /**
@@ -3172,6 +3585,1373 @@ class CharacterCreationStepForm extends FormBase {
   }
 
   /**
+   * Adds Step 2 selection UI for First World Magic.
+   */
+  private function buildFirstWorldMagicSelectionSection(array &$container, FormStateInterface $form_state, array $character_data): void {
+    $stored_selection = $character_data['feat_selections']['first-world-magic'] ?? [];
+    $selected_cantrip = (string) $form_state->getValue(
+      ['feat_selections', 'first-world-magic', 'selected_cantrip'],
+      $stored_selection['selected_cantrip'] ?? ''
+    );
+
+    if (!isset($container['feat_selections']) || !is_array($container['feat_selections'])) {
+      $container['feat_selections'] = [
+        '#type' => 'container',
+        '#tree' => TRUE,
+      ];
+    }
+
+    $container['feat_selections']['first-world-magic'] = [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['spell-reference-section', 'feat-selection-section']],
+    ];
+    $container['feat_selections']['first-world-magic']['intro'] = [
+      '#markup' => '<div class="spell-help"><strong>'
+        . $this->t('First World Magic')
+        . '</strong><br>'
+        . $this->t('Choose one primal cantrip to gain as an innate at-will spell.')
+        . '</div>',
+    ];
+
+    $cantrip_options = [];
+    $cantrip_cards = [];
+    $cantrip_reference_cards = [];
+    foreach ($this->characterManager->getSpellsByTradition('primal', 0) as $cantrip) {
+      $cantrip_options[$cantrip['id']] = $cantrip['name'];
+      $tags = ['Cantrip', 'Primal'];
+      if (!empty($cantrip['school'])) {
+        $tags[] = ucfirst((string) $cantrip['school']);
+      }
+      $facts = $this->extractSpellFacts($cantrip);
+      $cantrip_cards[$cantrip['id']] = $this->buildOptionCardData(
+        $cantrip['description'] ?? '',
+        $tags,
+        $facts,
+      );
+      $cantrip_reference_cards[] = [
+        'title' => $cantrip['name'],
+        'description' => $cantrip['description'] ?? '',
+        'tags' => $tags,
+        'facts' => $facts,
+      ];
+    }
+
+    if (!array_key_exists($selected_cantrip, $cantrip_options)) {
+      $selected_cantrip = '';
+    }
+
+    $container['feat_selections']['first-world-magic']['selected_cantrip'] = [
+      '#type' => 'radios',
+      '#title' => $this->t('Choose your First World cantrip'),
+      '#options' => $cantrip_options,
+      '#default_value' => $selected_cantrip,
+      '#required' => FALSE,
+      '#description' => $this->t('This cantrip is fixed when chosen and becomes an innate at-will spell.'),
+    ];
+    $this->attachOptionCardSettings(
+      $container['feat_selections']['first-world-magic'],
+      'selected_cantrip',
+      $cantrip_cards,
+      'single'
+    );
+    $container['feat_selections']['first-world-magic']['reference'] = [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['spell-reference-section']],
+      'heading' => [
+        '#markup' => '<h4>' . $this->t('Primal cantrip reference') . '</h4>',
+      ],
+      'cards' => [
+        '#markup' => $this->buildOptionDetailStackMarkup($cantrip_reference_cards),
+      ],
+    ];
+  }
+
+  /**
+   * Adds Step 2 selection UI for Otherworldly Magic.
+   */
+  private function buildOtherworldlyMagicSelectionSection(array &$container, FormStateInterface $form_state, array $character_data): void {
+    $stored_selection = $character_data['feat_selections']['otherworldly-magic'] ?? [];
+    $selected_cantrip = (string) $form_state->getValue(
+      ['feat_selections', 'otherworldly-magic', 'selected_cantrip'],
+      $stored_selection['selected_cantrip'] ?? ''
+    );
+
+    if (!isset($container['feat_selections']) || !is_array($container['feat_selections'])) {
+      $container['feat_selections'] = [
+        '#type' => 'container',
+        '#tree' => TRUE,
+      ];
+    }
+
+    $container['feat_selections']['otherworldly-magic'] = [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['spell-reference-section', 'feat-selection-section']],
+    ];
+    $container['feat_selections']['otherworldly-magic']['intro'] = [
+      '#markup' => '<div class="spell-help"><strong>'
+        . $this->t('Otherworldly Magic')
+        . '</strong><br>'
+        . $this->t('Choose one primal cantrip to gain as an innate at-will spell.')
+        . '</div>',
+    ];
+
+    $cantrip_options = [];
+    $cantrip_cards = [];
+    $cantrip_reference_cards = [];
+    foreach ($this->characterManager->getSpellsByTradition('primal', 0) as $cantrip) {
+      $cantrip_options[$cantrip['id']] = $cantrip['name'];
+      $tags = ['Cantrip', 'Primal'];
+      if (!empty($cantrip['school'])) {
+        $tags[] = ucfirst((string) $cantrip['school']);
+      }
+      $facts = $this->extractSpellFacts($cantrip);
+      $cantrip_cards[$cantrip['id']] = $this->buildOptionCardData(
+        $cantrip['description'] ?? '',
+        $tags,
+        $facts,
+      );
+      $cantrip_reference_cards[] = [
+        'title' => $cantrip['name'],
+        'description' => $cantrip['description'] ?? '',
+        'tags' => $tags,
+        'facts' => $facts,
+      ];
+    }
+
+    if (!array_key_exists($selected_cantrip, $cantrip_options)) {
+      $selected_cantrip = '';
+    }
+
+    $container['feat_selections']['otherworldly-magic']['selected_cantrip'] = [
+      '#type' => 'radios',
+      '#title' => $this->t('Choose your Otherworldly cantrip'),
+      '#options' => $cantrip_options,
+      '#default_value' => $selected_cantrip,
+      '#required' => FALSE,
+      '#description' => $this->t('This cantrip is fixed when chosen and becomes an innate at-will spell.'),
+    ];
+    $this->attachOptionCardSettings(
+      $container['feat_selections']['otherworldly-magic'],
+      'selected_cantrip',
+      $cantrip_cards,
+      'single'
+    );
+    $container['feat_selections']['otherworldly-magic']['reference'] = [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['spell-reference-section']],
+      'heading' => [
+        '#markup' => '<h4>' . $this->t('Primal cantrip reference') . '</h4>',
+      ],
+      'cards' => [
+        '#markup' => $this->buildOptionDetailStackMarkup($cantrip_reference_cards),
+      ],
+    ];
+  }
+
+  /**
+   * Adds Step 2 selection UI for Gnome Obsession.
+   */
+  private function buildGnomeObsessionSelectionSection(array &$container, FormStateInterface $form_state, array $character_data): void {
+    $stored_selection = $character_data['feat_selections']['gnome-obsession'] ?? [];
+    $selected_lore = (string) $form_state->getValue(
+      ['feat_selections', 'gnome-obsession', 'selected_lore'],
+      $stored_selection['selected_lore'] ?? ''
+    );
+
+    if (!isset($container['feat_selections']) || !is_array($container['feat_selections'])) {
+      $container['feat_selections'] = [
+        '#type' => 'container',
+        '#tree' => TRUE,
+      ];
+    }
+
+    $container['feat_selections']['gnome-obsession'] = [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['feat-selection-section']],
+    ];
+    $container['feat_selections']['gnome-obsession']['intro'] = [
+      '#markup' => '<div class="spell-help"><strong>'
+        . $this->t('Gnome Obsession')
+        . '</strong><br>'
+        . $this->t('Enter the Lore skill tied to your obsession, such as Forest Lore or Circus Lore.')
+        . '</div>',
+    ];
+    $container['feat_selections']['gnome-obsession']['selected_lore'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('Choose your obsession Lore'),
+      '#default_value' => $selected_lore,
+      '#required' => FALSE,
+      '#maxlength' => 80,
+      '#description' => $this->t('Enter a Lore skill name. If you omit “Lore,” it will be added automatically.'),
+    ];
+  }
+
+  /**
+   * Adds Step 2 selection UI for Natural Performer.
+   */
+  private function buildNaturalPerformerSelectionSection(array &$container, FormStateInterface $form_state, array $character_data): void {
+    $stored_selection = $character_data['feat_selections']['natural-performer'] ?? [];
+    $selected_specialty = (string) $form_state->getValue(
+      ['feat_selections', 'natural-performer', 'specialty'],
+      $stored_selection['specialty'] ?? ''
+    );
+    $options = $this->getNaturalPerformerOptions();
+
+    if (!isset($container['feat_selections']) || !is_array($container['feat_selections'])) {
+      $container['feat_selections'] = [
+        '#type' => 'container',
+        '#tree' => TRUE,
+      ];
+    }
+
+    if (!array_key_exists($selected_specialty, $options)) {
+      $selected_specialty = '';
+    }
+
+    $container['feat_selections']['natural-performer'] = [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['feat-selection-section']],
+    ];
+    $container['feat_selections']['natural-performer']['intro'] = [
+      '#markup' => '<div class="spell-help"><strong>'
+        . $this->t('Natural Performer')
+        . '</strong><br>'
+        . $this->t('Choose your performance specialty. You become trained in Performance and gain a +1 circumstance bonus when performing with that specialty.')
+        . '</div>',
+    ];
+    $container['feat_selections']['natural-performer']['specialty'] = [
+      '#type' => 'radios',
+      '#title' => $this->t('Choose your performance specialty'),
+      '#options' => $options,
+      '#default_value' => $selected_specialty,
+      '#required' => FALSE,
+    ];
+  }
+
+  /**
+   * Adds Step 2 selection UI for General Training.
+   */
+  private function buildGeneralTrainingSelectionSection(array &$container, FormStateInterface $form_state, array $character_data): void {
+    $stored_selection = $character_data['feat_selections']['general-training'] ?? [];
+    $selected_bonus_feat = (string) $form_state->getValue(
+      ['feat_selections', 'general-training', 'bonus_general_feat'],
+      $stored_selection['bonus_general_feat'] ?? ''
+    );
+
+    if (!isset($container['feat_selections']) || !is_array($container['feat_selections'])) {
+      $container['feat_selections'] = [
+        '#type' => 'container',
+        '#tree' => TRUE,
+      ];
+    }
+
+    $feat_options = [];
+    $feat_cards = [];
+    foreach (CharacterManager::getGeneralFeats() as $feat) {
+      $feat_options[$feat['id']] = $feat['name'];
+      $feat_cards[$feat['id']] = $this->buildOptionCardData(
+        $feat['benefit'] ?? '',
+        $feat['traits'] ?? [],
+        [
+          (string) $this->t('Prerequisites') => $feat['prerequisites'] ?? '',
+        ],
+      );
+    }
+
+    if (!array_key_exists($selected_bonus_feat, $feat_options)) {
+      $selected_bonus_feat = '';
+    }
+
+    $container['feat_selections']['general-training'] = [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['spell-reference-section', 'feat-selection-section']],
+    ];
+    $container['feat_selections']['general-training']['intro'] = [
+      '#markup' => '<div class="spell-help"><strong>'
+        . $this->t('General Training')
+        . '</strong><br>'
+        . $this->t('Choose one additional 1st-level general feat.')
+        . '</div>',
+    ];
+    $container['feat_selections']['general-training']['bonus_general_feat'] = [
+      '#type' => 'radios',
+      '#title' => $this->t('Choose your bonus general feat'),
+      '#options' => $feat_options,
+      '#default_value' => $selected_bonus_feat,
+      '#required' => FALSE,
+      '#description' => $this->t('This extra feat is granted by your ancestry and is added to your general feat list.'),
+    ];
+    $this->attachOptionCardSettings(
+      $container['feat_selections']['general-training'],
+      'bonus_general_feat',
+      $feat_cards,
+      'single'
+    );
+  }
+
+  /**
+   * Adds Step 2 selection UI for Elf Atavism.
+   */
+  private function buildElfAtavismSelectionSection(array &$container, FormStateInterface $form_state, array $character_data): void {
+    $stored_selection = $character_data['feat_selections']['elf-atavism'] ?? [];
+    $selected_feat = (string) $form_state->getValue(
+      ['feat_selections', 'elf-atavism', 'selected_feat'],
+      $stored_selection['selected_feat'] ?? ''
+    );
+
+    if (!isset($container['feat_selections']) || !is_array($container['feat_selections'])) {
+      $container['feat_selections'] = [
+        '#type' => 'container',
+        '#tree' => TRUE,
+      ];
+    }
+
+    $feat_options = [];
+    $feat_cards = [];
+    foreach ($this->getElfAtavismFeatOptions() as $feat) {
+      $feat_options[$feat['id']] = $feat['name'];
+      $feat_cards[$feat['id']] = $this->buildOptionCardData(
+        $feat['benefit'] ?? '',
+        $feat['traits'] ?? [],
+        [
+          (string) $this->t('Prerequisites') => $feat['prerequisites'] ?? '',
+        ],
+      );
+    }
+
+    if (!array_key_exists($selected_feat, $feat_options)) {
+      $selected_feat = '';
+    }
+
+    $container['feat_selections']['elf-atavism'] = [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['spell-reference-section', 'feat-selection-section']],
+    ];
+    $container['feat_selections']['elf-atavism']['intro'] = [
+      '#markup' => '<div class="spell-help"><strong>'
+        . $this->t('Elf Atavism')
+        . '</strong><br>'
+        . $this->t('Choose one 1st-level elf ancestry feat to gain through your elven lineage.')
+        . '</div>',
+    ];
+    $container['feat_selections']['elf-atavism']['selected_feat'] = [
+      '#type' => 'radios',
+      '#title' => $this->t('Choose your elf ancestry feat'),
+      '#options' => $feat_options,
+      '#default_value' => $selected_feat,
+      '#required' => FALSE,
+      '#description' => $this->t('This feat is granted by Elf Atavism and is added to your ancestry feat list.'),
+    ];
+    $this->attachOptionCardSettings(
+      $container['feat_selections']['elf-atavism'],
+      'selected_feat',
+      $feat_cards,
+      'single'
+    );
+  }
+
+  /**
+   * Adds Step 2 selection UI for Multitalented.
+   */
+  private function buildMultitalentedSelectionSection(array &$container, FormStateInterface $form_state, array $character_data): void {
+    $stored_selection = $character_data['feat_selections']['multitalented'] ?? [];
+    $selected_skill = (string) $form_state->getValue(
+      ['feat_selections', 'multitalented', 'selected_skill'],
+      $stored_selection['selected_skill'] ?? ''
+    );
+    $selected_language = (string) $form_state->getValue(
+      ['feat_selections', 'multitalented', 'selected_language'],
+      $stored_selection['selected_language'] ?? ''
+    );
+
+    if (!isset($container['feat_selections']) || !is_array($container['feat_selections'])) {
+      $container['feat_selections'] = [
+        '#type' => 'container',
+        '#tree' => TRUE,
+      ];
+    }
+
+    $skill_options = $this->getSkillTrainingOptions();
+    if (!array_key_exists($selected_skill, $skill_options)) {
+      $selected_skill = '';
+    }
+
+    $container['feat_selections']['multitalented'] = [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['feat-selection-section']],
+    ];
+    $container['feat_selections']['multitalented']['intro'] = [
+      '#markup' => '<div class="spell-help"><strong>'
+        . $this->t('Multitalented')
+        . '</strong><br>'
+        . $this->t('Choose one skill to become trained in and one additional language to learn.')
+        . '</div>',
+    ];
+    $container['feat_selections']['multitalented']['selected_skill'] = [
+      '#type' => 'select',
+      '#title' => $this->t('Choose your trained skill'),
+      '#options' => $skill_options,
+      '#default_value' => $selected_skill,
+      '#empty_option' => $this->t('- Select a skill -'),
+      '#description' => $this->t('Multitalented grants trained proficiency in the selected skill.'),
+    ];
+    $container['feat_selections']['multitalented']['selected_language'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('Choose your additional language'),
+      '#default_value' => $selected_language,
+      '#maxlength' => 64,
+      '#description' => $this->t('Enter the additional language granted by Multitalented.'),
+    ];
+  }
+
+  /**
+   * Adds Step 2 selection UI for Mixed Heritage Adaptability.
+   */
+  private function buildMixedHeritageAdaptabilitySelectionSection(array &$container, FormStateInterface $form_state, array $character_data): void {
+    $stored_selection = $character_data['feat_selections']['mixed-heritage-adaptability'] ?? [];
+    $selected_skill = (string) $form_state->getValue(
+      ['feat_selections', 'mixed-heritage-adaptability', 'selected_skill'],
+      $stored_selection['selected_skill'] ?? ''
+    );
+
+    if (!isset($container['feat_selections']) || !is_array($container['feat_selections'])) {
+      $container['feat_selections'] = [
+        '#type' => 'container',
+        '#tree' => TRUE,
+      ];
+    }
+
+    $skill_options = $this->getSkillTrainingOptions();
+    if (!array_key_exists($selected_skill, $skill_options)) {
+      $selected_skill = '';
+    }
+
+    $container['feat_selections']['mixed-heritage-adaptability'] = [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['feat-selection-section']],
+    ];
+    $container['feat_selections']['mixed-heritage-adaptability']['intro'] = [
+      '#markup' => '<div class="spell-help"><strong>'
+        . $this->t('Mixed Heritage Adaptability')
+        . '</strong><br>'
+        . $this->t('Choose the skill that gains your +1 circumstance bonus while you are trained in it.')
+        . '</div>',
+    ];
+    $container['feat_selections']['mixed-heritage-adaptability']['selected_skill'] = [
+      '#type' => 'select',
+      '#title' => $this->t('Choose your adaptable skill'),
+      '#options' => $skill_options,
+      '#default_value' => $selected_skill,
+      '#empty_option' => $this->t('- Select a skill -'),
+      '#description' => $this->t('You can change this skill after daily preparations.'),
+    ];
+  }
+
+  /**
+   * Adds Step 2 selection UI for Orc Atavism.
+   */
+  private function buildOrcAtavismSelectionSection(array &$container, FormStateInterface $form_state, array $character_data): void {
+    $stored_selection = $character_data['feat_selections']['orc-atavism'] ?? [];
+    $selected_feat = (string) $form_state->getValue(
+      ['feat_selections', 'orc-atavism', 'selected_feat'],
+      $stored_selection['selected_feat'] ?? ''
+    );
+
+    if (!isset($container['feat_selections']) || !is_array($container['feat_selections'])) {
+      $container['feat_selections'] = [
+        '#type' => 'container',
+        '#tree' => TRUE,
+      ];
+    }
+
+    $feat_options = [];
+    $feat_cards = [];
+    foreach ($this->getOrcAtavismFeatOptions() as $feat) {
+      $feat_options[$feat['id']] = $feat['name'];
+      $feat_cards[$feat['id']] = $this->buildOptionCardData(
+        $feat['benefit'] ?? '',
+        $feat['traits'] ?? [],
+        [
+          (string) $this->t('Prerequisites') => $feat['prerequisites'] ?? '',
+        ],
+      );
+    }
+
+    if (!array_key_exists($selected_feat, $feat_options)) {
+      $selected_feat = '';
+    }
+
+    $container['feat_selections']['orc-atavism'] = [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['spell-reference-section', 'feat-selection-section']],
+    ];
+    $container['feat_selections']['orc-atavism']['intro'] = [
+      '#markup' => '<div class="spell-help"><strong>'
+        . $this->t('Orc Atavism')
+        . '</strong><br>'
+        . $this->t('Choose one 1st-level orc ancestry feat to gain through your orc lineage.')
+        . '</div>',
+    ];
+    $container['feat_selections']['orc-atavism']['selected_feat'] = [
+      '#type' => 'radios',
+      '#title' => $this->t('Choose your orc ancestry feat'),
+      '#options' => $feat_options,
+      '#default_value' => $selected_feat,
+      '#required' => FALSE,
+      '#description' => $this->t('This feat is granted by Orc Atavism and is added to your ancestry feat list.'),
+    ];
+    $this->attachOptionCardSettings(
+      $container['feat_selections']['orc-atavism'],
+      'selected_feat',
+      $feat_cards,
+      'single'
+    );
+  }
+
+  /**
+   * Adds Step 2 selection UI for Draconic Ties.
+   */
+  private function buildDraconicTiesSelectionSection(array &$container, FormStateInterface $form_state, array $character_data): void {
+    $stored_selection = $character_data['feat_selections']['draconic-ties'] ?? [];
+    $selected_damage_type = (string) $form_state->getValue(
+      ['feat_selections', 'draconic-ties', 'damage_type'],
+      $stored_selection['damage_type'] ?? ''
+    );
+
+    if (!isset($container['feat_selections']) || !is_array($container['feat_selections'])) {
+      $container['feat_selections'] = [
+        '#type' => 'container',
+        '#tree' => TRUE,
+      ];
+    }
+
+    $damage_type_options = $this->getDraconicDamageTypeOptions();
+    if (!array_key_exists($selected_damage_type, $damage_type_options)) {
+      $selected_damage_type = '';
+    }
+
+    $container['feat_selections']['draconic-ties'] = [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['feat-selection-section']],
+    ];
+    $container['feat_selections']['draconic-ties']['intro'] = [
+      '#markup' => '<div class="spell-help"><strong>'
+        . $this->t('Draconic Ties')
+        . '</strong><br>'
+        . $this->t('Choose the draconic damage type that grants your minor resistance.')
+        . '</div>',
+    ];
+    $container['feat_selections']['draconic-ties']['damage_type'] = [
+      '#type' => 'radios',
+      '#title' => $this->t('Choose your draconic damage type'),
+      '#options' => $damage_type_options,
+      '#default_value' => $selected_damage_type,
+      '#required' => FALSE,
+      '#description' => $this->t('This choice determines the resistance granted by Draconic Ties.'),
+    ];
+  }
+
+  /**
+   * Adds Step 2 selection UI for Natural Skill.
+   */
+  private function buildNaturalSkillSelectionSection(array &$container, FormStateInterface $form_state, array $character_data): void {
+    $stored_selection = $character_data['feat_selections']['natural-skill'] ?? [];
+    $selected_skills = self::normalizeList($form_state->getValue(
+      ['feat_selections', 'natural-skill', 'skills'],
+      $stored_selection['skills'] ?? []
+    ));
+
+    if (!isset($container['feat_selections']) || !is_array($container['feat_selections'])) {
+      $container['feat_selections'] = [
+        '#type' => 'container',
+        '#tree' => TRUE,
+      ];
+    }
+
+    $container['feat_selections']['natural-skill'] = [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['feat-selection-section']],
+    ];
+    $container['feat_selections']['natural-skill']['intro'] = [
+      '#markup' => '<div class="spell-help"><strong>'
+        . $this->t('Natural Skill')
+        . '</strong><br>'
+        . $this->t('Choose two additional skills to become trained in.')
+        . '</div>',
+    ];
+    $container['feat_selections']['natural-skill']['skills'] = [
+      '#type' => 'checkboxes',
+      '#title' => $this->t('Choose your bonus trained skills'),
+      '#options' => $this->getSkillTrainingOptions(),
+      '#default_value' => $selected_skills,
+      '#required' => FALSE,
+      '#description' => $this->t('Select exactly two skills granted by Natural Skill.'),
+    ];
+  }
+
+  /**
+   * Adds Step 2 selection UI for Vengeful Hatred.
+   */
+  private function buildVengefulHatredSelectionSection(array &$container, FormStateInterface $form_state, array $character_data): void {
+    $stored_selection = $character_data['feat_selections']['vengeful-hatred'] ?? [];
+    $selected_target_type = (string) $form_state->getValue(
+      ['feat_selections', 'vengeful-hatred', 'target_type'],
+      $stored_selection['target_type'] ?? ''
+    );
+    $options = [
+      'drow' => $this->t('Drow'),
+      'duergar' => $this->t('Duergar'),
+      'giant' => $this->t('Giant'),
+      'orc' => $this->t('Orc'),
+    ];
+
+    if (!isset($container['feat_selections']) || !is_array($container['feat_selections'])) {
+      $container['feat_selections'] = [
+        '#type' => 'container',
+        '#tree' => TRUE,
+      ];
+    }
+
+    if (!array_key_exists($selected_target_type, $options)) {
+      $selected_target_type = '';
+    }
+
+    $container['feat_selections']['vengeful-hatred'] = [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['feat-selection-section']],
+    ];
+    $container['feat_selections']['vengeful-hatred']['intro'] = [
+      '#markup' => '<div class="spell-help"><strong>'
+        . $this->t('Vengeful Hatred')
+        . '</strong><br>'
+        . $this->t('Choose the enemy trait you have sworn to hate.')
+        . '</div>',
+    ];
+    $container['feat_selections']['vengeful-hatred']['target_type'] = [
+      '#type' => 'radios',
+      '#title' => $this->t('Choose your hated foe'),
+      '#options' => $options,
+      '#default_value' => $selected_target_type,
+      '#required' => FALSE,
+      '#description' => $this->t('You gain +1 circumstance damage per weapon die against creatures with the chosen trait.'),
+    ];
+  }
+
+  /**
+   * Adds Step 2 selection UI for Ancestral Longevity.
+   */
+  private function buildAncestralLongevitySelectionSection(array &$container, FormStateInterface $form_state, array $character_data): void {
+    $stored_selection = $character_data['feat_selections']['ancestral-longevity'] ?? [];
+    $selected_skills = self::normalizeList($form_state->getValue(
+      ['feat_selections', 'ancestral-longevity', 'selected_skills'],
+      $stored_selection['selected_skills'] ?? []
+    ));
+
+    if (!isset($container['feat_selections']) || !is_array($container['feat_selections'])) {
+      $container['feat_selections'] = [
+        '#type' => 'container',
+        '#tree' => TRUE,
+      ];
+    }
+
+    $container['feat_selections']['ancestral-longevity'] = [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['feat-selection-section']],
+    ];
+    $container['feat_selections']['ancestral-longevity']['intro'] = [
+      '#markup' => '<div class="spell-help"><strong>'
+        . $this->t('Ancestral Longevity')
+        . '</strong><br>'
+        . $this->t('Choose two skills to gain trained proficiency in until your next daily preparations.')
+        . '</div>',
+    ];
+    $container['feat_selections']['ancestral-longevity']['selected_skills'] = [
+      '#type' => 'checkboxes',
+      '#title' => $this->t('Choose your ancestral skills'),
+      '#options' => $this->getSkillTrainingOptions(),
+      '#default_value' => $selected_skills,
+      '#required' => FALSE,
+      '#description' => $this->t('Select exactly two skills granted temporarily by Ancestral Longevity.'),
+    ];
+  }
+
+  /**
+   * Adds Step 4 selection UI for Natural Ambition.
+   */
+  private function buildNaturalAmbitionSelectionSection(array &$form, FormStateInterface $form_state, array $character_data, string $selected_class, array $class_feats): void {
+    $stored_selection = $character_data['feat_selections']['natural-ambition'] ?? [];
+    $selected_bonus_feat = (string) $form_state->getValue(
+      ['feat_selections', 'natural-ambition', 'bonus_class_feat'],
+      $stored_selection['bonus_class_feat'] ?? ''
+    );
+
+    if (!isset($form['class_dynamic']['feat_selections']) || !is_array($form['class_dynamic']['feat_selections'])) {
+      $form['class_dynamic']['feat_selections'] = [
+        '#type' => 'container',
+        '#tree' => TRUE,
+      ];
+    }
+
+    $feat_options = [];
+    $feat_cards = [];
+    foreach ($class_feats as $feat) {
+      $feat_options[$feat['id']] = $feat['name'];
+      $feat_cards[$feat['id']] = $this->buildOptionCardData(
+        $feat['benefit'] ?? '',
+        $feat['traits'] ?? [],
+        [
+          (string) $this->t('Prerequisites') => $feat['prerequisites'] ?? '',
+        ],
+      );
+    }
+
+    if (!array_key_exists($selected_bonus_feat, $feat_options)) {
+      $selected_bonus_feat = '';
+    }
+
+    $form['class_dynamic']['feat_selections']['natural-ambition'] = [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['spell-reference-section', 'feat-selection-section']],
+    ];
+    $form['class_dynamic']['feat_selections']['natural-ambition']['intro'] = [
+      '#markup' => '<div class="spell-help"><strong>'
+        . $this->t('Natural Ambition')
+        . '</strong><br>'
+        . $this->t('Choose one additional 1st-level @class class feat.', ['@class' => ucfirst($selected_class)])
+        . '</div>',
+    ];
+    $form['class_dynamic']['feat_selections']['natural-ambition']['bonus_class_feat'] = [
+      '#type' => 'radios',
+      '#title' => $this->t('Choose your bonus class feat'),
+      '#options' => $feat_options,
+      '#default_value' => $selected_bonus_feat,
+      '#required' => FALSE,
+      '#description' => $this->t('This extra feat is granted by your ancestry and is added to your class feat list.'),
+    ];
+    $this->attachOptionCardSettings(
+      $form['class_dynamic']['feat_selections']['natural-ambition'],
+      'bonus_class_feat',
+      $feat_cards,
+      'single'
+    );
+  }
+
+  /**
+   * Adds Step 6 selection UI for Specialty Crafting.
+   */
+  private function buildSpecialtyCraftingSelectionSection(array &$container, FormStateInterface $form_state, array $character_data): void {
+    if (!isset($container['feat_selections']) || !is_array($container['feat_selections'])) {
+      $container['feat_selections'] = [
+        '#type' => 'container',
+        '#tree' => TRUE,
+      ];
+    }
+    $container['feat_selections']['specialty-crafting'] = [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['feat-selection-section']],
+    ];
+    $container['feat_selections']['specialty-crafting']['specialty'] = [
+      '#type' => 'select',
+      '#title' => $this->t('Choose your crafting specialty'),
+      '#options' => $this->getSpecialtyCraftingOptions(),
+      '#default_value' => (string) $form_state->getValue(
+        ['feat_selections', 'specialty-crafting', 'specialty'],
+        $character_data['feat_selections']['specialty-crafting']['specialty'] ?? ''
+      ),
+      '#empty_option' => $this->t('- Select a specialty -'),
+      '#description' => $this->t('Your bonus applies when crafting items in this specialty.'),
+    ];
+  }
+
+  /**
+   * Adds Step 6 selection UI for Virtuosic Performer.
+   */
+  private function buildVirtuosicPerformerSelectionSection(array &$container, FormStateInterface $form_state, array $character_data): void {
+    if (!isset($container['feat_selections']) || !is_array($container['feat_selections'])) {
+      $container['feat_selections'] = [
+        '#type' => 'container',
+        '#tree' => TRUE,
+      ];
+    }
+    $container['feat_selections']['virtuosic-performer'] = [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['feat-selection-section']],
+    ];
+    $container['feat_selections']['virtuosic-performer']['specialty'] = [
+      '#type' => 'select',
+      '#title' => $this->t('Choose your performance specialty'),
+      '#options' => $this->getPerformanceSpecialtyOptions(),
+      '#default_value' => (string) $form_state->getValue(
+        ['feat_selections', 'virtuosic-performer', 'specialty'],
+        $character_data['feat_selections']['virtuosic-performer']['specialty'] ?? ''
+      ),
+      '#empty_option' => $this->t('- Select a specialty -'),
+      '#description' => $this->t('Your bonus applies when performing with this specialty.'),
+    ];
+  }
+
+  /**
+   * Validates First World Magic cantrip selection.
+   */
+  private function validateFirstWorldMagicSelection(FormStateInterface $form_state): void {
+    $selected_cantrip = trim((string) $form_state->getValue(['feat_selections', 'first-world-magic', 'selected_cantrip'], ''));
+    if ($selected_cantrip === '') {
+      $form_state->setErrorByName(
+        'feat_selections][first-world-magic][selected_cantrip',
+        $this->t('Choose a cantrip for First World Magic.')
+      );
+      return;
+    }
+    $valid_cantrip_ids = array_map(
+      static fn(array $spell): string => (string) ($spell['id'] ?? ''),
+      $this->characterManager->getSpellsByTradition('primal', 0)
+    );
+    if (!in_array($selected_cantrip, $valid_cantrip_ids, TRUE)) {
+      $form_state->setErrorByName(
+        'feat_selections][first-world-magic][selected_cantrip',
+        $this->t('Choose a valid primal cantrip for First World Magic.')
+      );
+    }
+  }
+
+  /**
+   * Validates Otherworldly Magic cantrip selection.
+   */
+  private function validateOtherworldlyMagicSelection(FormStateInterface $form_state): void {
+    $selected_cantrip = trim((string) $form_state->getValue(['feat_selections', 'otherworldly-magic', 'selected_cantrip'], ''));
+    if ($selected_cantrip === '') {
+      $form_state->setErrorByName(
+        'feat_selections][otherworldly-magic][selected_cantrip',
+        $this->t('Choose a cantrip for Otherworldly Magic.')
+      );
+      return;
+    }
+    $valid_cantrip_ids = array_map(
+      static fn(array $spell): string => (string) ($spell['id'] ?? ''),
+      $this->characterManager->getSpellsByTradition('primal', 0)
+    );
+    if (!in_array($selected_cantrip, $valid_cantrip_ids, TRUE)) {
+      $form_state->setErrorByName(
+        'feat_selections][otherworldly-magic][selected_cantrip',
+        $this->t('Choose a valid primal cantrip for Otherworldly Magic.')
+      );
+    }
+  }
+
+  /**
+   * Validates Natural Ambition bonus feat selection.
+   */
+  private function validateNaturalAmbitionSelection(FormStateInterface $form_state, string $selected_class): void {
+    $selected_bonus_feat = trim((string) $form_state->getValue(['feat_selections', 'natural-ambition', 'bonus_class_feat'], ''));
+    if ($selected_bonus_feat === '') {
+      $form_state->setErrorByName(
+        'feat_selections][natural-ambition][bonus_class_feat',
+        $this->t('Choose a bonus class feat for Natural Ambition.')
+      );
+      return;
+    }
+    $valid_feat_ids = array_map(
+      static fn(array $feat): string => (string) ($feat['id'] ?? ''),
+      CharacterManager::getClassFeats($selected_class)
+    );
+    if (!in_array($selected_bonus_feat, $valid_feat_ids, TRUE)) {
+      $form_state->setErrorByName(
+        'feat_selections][natural-ambition][bonus_class_feat',
+        $this->t('Choose a valid class feat for Natural Ambition.')
+      );
+    }
+  }
+
+  /**
+   * Validates General Training bonus feat selection.
+   */
+  private function validateGeneralTrainingSelection(FormStateInterface $form_state): void {
+    $selected_bonus_feat = trim((string) $form_state->getValue(['feat_selections', 'general-training', 'bonus_general_feat'], ''));
+    if ($selected_bonus_feat === '') {
+      $form_state->setErrorByName(
+        'feat_selections][general-training][bonus_general_feat',
+        $this->t('Choose a bonus general feat for General Training.')
+      );
+      return;
+    }
+    $valid_feat_ids = array_map(
+      static fn(array $feat): string => (string) ($feat['id'] ?? ''),
+      CharacterManager::getGeneralFeats()
+    );
+    if (!in_array($selected_bonus_feat, $valid_feat_ids, TRUE)) {
+      $form_state->setErrorByName(
+        'feat_selections][general-training][bonus_general_feat',
+        $this->t('Choose a valid general feat for General Training.')
+      );
+    }
+  }
+
+  /**
+   * Validates Elf Atavism feat selection.
+   */
+  private function validateElfAtavismSelection(FormStateInterface $form_state): void {
+    $selected_feat = trim((string) $form_state->getValue(['feat_selections', 'elf-atavism', 'selected_feat'], ''));
+    if ($selected_feat === '') {
+      $form_state->setErrorByName(
+        'feat_selections][elf-atavism][selected_feat',
+        $this->t('Choose an elf ancestry feat for Elf Atavism.')
+      );
+      return;
+    }
+    $valid_feat_ids = array_map(
+      static fn(array $feat): string => (string) ($feat['id'] ?? ''),
+      $this->getElfAtavismFeatOptions()
+    );
+    if (!in_array($selected_feat, $valid_feat_ids, TRUE)) {
+      $form_state->setErrorByName(
+        'feat_selections][elf-atavism][selected_feat',
+        $this->t('Choose a valid elf ancestry feat for Elf Atavism.')
+      );
+    }
+  }
+
+  /**
+   * Validates Multitalented skill and language selections.
+   */
+  private function validateMultitalentedSelection(FormStateInterface $form_state): void {
+    $selected_skill = trim((string) $form_state->getValue(['feat_selections', 'multitalented', 'selected_skill'], ''));
+    $selected_language = trim((string) $form_state->getValue(['feat_selections', 'multitalented', 'selected_language'], ''));
+    if ($selected_skill === '' || !array_key_exists($selected_skill, $this->getSkillTrainingOptions())) {
+      $form_state->setErrorByName(
+        'feat_selections][multitalented][selected_skill',
+        $this->t('Choose a valid trained skill for Multitalented.')
+      );
+    }
+    if ($selected_language === '') {
+      $form_state->setErrorByName(
+        'feat_selections][multitalented][selected_language',
+        $this->t('Enter an additional language for Multitalented.')
+      );
+    }
+  }
+
+  /**
+   * Validates Mixed Heritage Adaptability skill selection.
+   */
+  private function validateMixedHeritageAdaptabilitySelection(FormStateInterface $form_state): void {
+    $selected_skill = trim((string) $form_state->getValue(['feat_selections', 'mixed-heritage-adaptability', 'selected_skill'], ''));
+    if ($selected_skill === '' || !array_key_exists($selected_skill, $this->getSkillTrainingOptions())) {
+      $form_state->setErrorByName(
+        'feat_selections][mixed-heritage-adaptability][selected_skill',
+        $this->t('Choose a valid skill for Mixed Heritage Adaptability.')
+      );
+    }
+  }
+
+  /**
+   * Validates Orc Atavism feat selection.
+   */
+  private function validateOrcAtavismSelection(FormStateInterface $form_state): void {
+    $selected_feat = trim((string) $form_state->getValue(['feat_selections', 'orc-atavism', 'selected_feat'], ''));
+    if ($selected_feat === '') {
+      $form_state->setErrorByName(
+        'feat_selections][orc-atavism][selected_feat',
+        $this->t('Choose an orc ancestry feat for Orc Atavism.')
+      );
+      return;
+    }
+    $valid_feat_ids = array_map(
+      static fn(array $feat): string => (string) ($feat['id'] ?? ''),
+      $this->getOrcAtavismFeatOptions()
+    );
+    if (!in_array($selected_feat, $valid_feat_ids, TRUE)) {
+      $form_state->setErrorByName(
+        'feat_selections][orc-atavism][selected_feat',
+        $this->t('Choose a valid orc ancestry feat for Orc Atavism.')
+      );
+    }
+  }
+
+  /**
+   * Validates Draconic Ties damage type selection.
+   */
+  private function validateDraconicTiesSelection(FormStateInterface $form_state): void {
+    $selected_damage_type = trim((string) $form_state->getValue(['feat_selections', 'draconic-ties', 'damage_type'], ''));
+    if ($selected_damage_type === '' || !array_key_exists($selected_damage_type, $this->getDraconicDamageTypeOptions())) {
+      $form_state->setErrorByName(
+        'feat_selections][draconic-ties][damage_type',
+        $this->t('Choose a draconic damage type for Draconic Ties.')
+      );
+    }
+  }
+
+  /**
+   * Validates Natural Skill training selections.
+   */
+  private function validateNaturalSkillSelection(FormStateInterface $form_state): void {
+    $selected_skills = self::normalizeList($form_state->getValue(['feat_selections', 'natural-skill', 'skills'], []));
+    if (count($selected_skills) !== 2) {
+      $form_state->setErrorByName(
+        'feat_selections][natural-skill][skills',
+        $this->t('Choose exactly two bonus skills for Natural Skill.')
+      );
+      return;
+    }
+    $valid_skill_ids = array_keys($this->getSkillTrainingOptions());
+    foreach ($selected_skills as $skill) {
+      if (!in_array($skill, $valid_skill_ids, TRUE)) {
+        $form_state->setErrorByName(
+          'feat_selections][natural-skill][skills',
+          $this->t('Choose valid bonus skills for Natural Skill.')
+        );
+        return;
+      }
+    }
+  }
+
+  /**
+   * Validates Vengeful Hatred target selection.
+   */
+  private function validateVengefulHatredSelection(FormStateInterface $form_state): void {
+    $selected_target_type = trim((string) $form_state->getValue(['feat_selections', 'vengeful-hatred', 'target_type'], ''));
+    if ($selected_target_type === '' || !in_array($selected_target_type, ['drow', 'duergar', 'giant', 'orc'], TRUE)) {
+      $form_state->setErrorByName(
+        'feat_selections][vengeful-hatred][target_type',
+        $this->t('Choose a hated foe for Vengeful Hatred.')
+      );
+    }
+  }
+
+  /**
+   * Validates Ancestral Longevity skill selections.
+   */
+  private function validateAncestralLongevitySelection(FormStateInterface $form_state): void {
+    $selected_skills = self::normalizeList($form_state->getValue(['feat_selections', 'ancestral-longevity', 'selected_skills'], []));
+    if (count($selected_skills) !== 2) {
+      $form_state->setErrorByName(
+        'feat_selections][ancestral-longevity][selected_skills',
+        $this->t('Choose exactly two skills for Ancestral Longevity.')
+      );
+      return;
+    }
+    $valid_skill_ids = array_keys($this->getSkillTrainingOptions());
+    foreach ($selected_skills as $skill) {
+      if (!in_array($skill, $valid_skill_ids, TRUE)) {
+        $form_state->setErrorByName(
+          'feat_selections][ancestral-longevity][selected_skills',
+          $this->t('Choose valid skills for Ancestral Longevity.')
+        );
+        return;
+      }
+    }
+  }
+
+  /**
+   * Validates Gnome Obsession lore selection.
+   */
+  private function validateGnomeObsessionSelection(FormStateInterface $form_state): void {
+    $selected_lore = $this->normalizeLoreSkillName((string) $form_state->getValue(['feat_selections', 'gnome-obsession', 'selected_lore'], ''));
+    if ($selected_lore === '') {
+      $form_state->setErrorByName(
+        'feat_selections][gnome-obsession][selected_lore',
+        $this->t('Choose a Lore skill for Gnome Obsession.')
+      );
+    }
+  }
+
+  /**
+   * Validates Natural Performer specialty selection.
+   */
+  private function validateNaturalPerformerSelection(FormStateInterface $form_state): void {
+    $selected_specialty = trim((string) $form_state->getValue(['feat_selections', 'natural-performer', 'specialty'], ''));
+    if ($selected_specialty === '' || !array_key_exists($selected_specialty, $this->getNaturalPerformerOptions())) {
+      $form_state->setErrorByName(
+        'feat_selections][natural-performer][specialty',
+        $this->t('Choose a performance specialty for Natural Performer.')
+      );
+    }
+  }
+
+  /**
+   * Validates Specialty Crafting selection.
+   */
+  private function validateSpecialtyCraftingSelection(FormStateInterface $form_state): void {
+    $selected_specialty = trim((string) $form_state->getValue(['feat_selections', 'specialty-crafting', 'specialty'], ''));
+    if ($selected_specialty === '' || !array_key_exists($selected_specialty, $this->getSpecialtyCraftingOptions())) {
+      $form_state->setErrorByName(
+        'feat_selections][specialty-crafting][specialty',
+        $this->t('Choose a crafting specialty for Specialty Crafting.')
+      );
+    }
+  }
+
+  /**
+   * Validates Virtuosic Performer selection.
+   */
+  private function validateVirtuosicPerformerSelection(FormStateInterface $form_state): void {
+    $selected_specialty = trim((string) $form_state->getValue(['feat_selections', 'virtuosic-performer', 'specialty'], ''));
+    if ($selected_specialty === '' || !array_key_exists($selected_specialty, $this->getPerformanceSpecialtyOptions())) {
+      $form_state->setErrorByName(
+        'feat_selections][virtuosic-performer][specialty',
+        $this->t('Choose a performance specialty for Virtuosic Performer.')
+      );
+    }
+  }
+
+  /**
+   * Returns canonical Specialty Crafting options.
+   */
+  private function getSpecialtyCraftingOptions(): array {
+    return [
+      'alchemy' => $this->t('Alchemy'),
+      'artistry' => $this->t('Artistry'),
+      'bookmaking' => $this->t('Bookmaking'),
+      'glassmaking' => $this->t('Glassmaking'),
+      'leatherworking' => $this->t('Leatherworking'),
+      'pottery' => $this->t('Pottery'),
+      'shipbuilding' => $this->t('Shipbuilding'),
+      'stonemasonry' => $this->t('Stonemasonry'),
+      'tailoring' => $this->t('Tailoring'),
+      'woodworking' => $this->t('Woodworking'),
+    ];
+  }
+
+  /**
+   * Returns common Virtuosic Performer specialty options.
+   */
+  private function getPerformanceSpecialtyOptions(): array {
+    return [
+      'acting' => $this->t('Acting'),
+      'comedy' => $this->t('Comedy'),
+      'dance' => $this->t('Dance'),
+      'keyboard' => $this->t('Keyboard instruments'),
+      'oratory' => $this->t('Oratory'),
+      'percussion' => $this->t('Percussion'),
+      'singing' => $this->t('Singing'),
+      'strings' => $this->t('String instruments'),
+      'winds' => $this->t('Wind instruments'),
+    ];
+  }
+
+  private function getNaturalPerformerOptions(): array {
+    return [
+      'acting' => $this->t('Acting'),
+      'dance' => $this->t('Dancing'),
+      'singing' => $this->t('Singing'),
+    ];
+  }
+
+  /**
+   * Returns standard skill training options.
+   */
+  private function getSkillTrainingOptions(): array {
+    return [
+      'Acrobatics' => 'Acrobatics - Balance, tumble, maneuver while flying',
+      'Arcana' => 'Arcana - Recall knowledge about arcane magic, traditions, creatures',
+      'Athletics' => 'Athletics - Climb, force open, grapple, swim',
+      'Crafting' => 'Crafting - Repair items, identify alchemical objects, craft goods',
+      'Deception' => 'Deception - Create a diversion, feint, lie, impersonate',
+      'Diplomacy' => 'Diplomacy - Gather information, make an impression, request',
+      'Intimidation' => 'Intimidation - Coerce, demoralize',
+      'Medicine' => 'Medicine - Administer first aid, treat disease, treat poison',
+      'Nature' => 'Nature - Command an animal, recall knowledge about natural creatures',
+      'Occultism' => 'Occultism - Recall knowledge about occult topics, creatures',
+      'Performance' => 'Performance - Act, dance, play instrument, give speech',
+      'Religion' => 'Religion - Recall knowledge about divine topics, creatures',
+      'Society' => 'Society - Recall knowledge about society, civilization, history',
+      'Stealth' => 'Stealth - Conceal an object, hide, sneak',
+      'Survival' => 'Survival - Cover tracks, sense direction, subsist, track',
+      'Thievery' => 'Thievery - Palm an object, disable a device, pick a lock',
+    ];
+  }
+
+  /**
+   * Returns 1st-level elf ancestry feats available to Elf Atavism.
+   *
+   * @return array<int,array<string,mixed>>
+   *   Canonical elf ancestry feat definitions.
+   */
+  private function getElfAtavismFeatOptions(): array {
+    return array_values(array_filter(
+      CharacterManager::getAncestryFeats('Elf'),
+      static function (array $feat): bool {
+        return (int) ($feat['level'] ?? 0) <= 1;
+      }
+    ));
+  }
+
+  /**
+   * Returns 1st-level orc ancestry feats available to Orc Atavism.
+   *
+   * @return array<int,array<string,mixed>>
+   *   Canonical orc ancestry feat definitions.
+   */
+  private function getOrcAtavismFeatOptions(): array {
+    return array_values(array_filter(
+      CharacterManager::getAncestryFeats('Orc'),
+      static function (array $feat): bool {
+        return (int) ($feat['level'] ?? 0) <= 1;
+      }
+    ));
+  }
+
+  /**
+   * Returns Draconic Ties damage type options.
+   */
+  private function getDraconicDamageTypeOptions(): array {
+    return [
+      'acid' => 'Acid',
+      'cold' => 'Cold',
+      'electricity' => 'Electricity',
+      'fire' => 'Fire',
+      'poison' => 'Poison',
+    ];
+  }
+
+  /**
+   * Adds Adapted Cantrip step-4 selection UI once class tradition is known.
+   */
+  private function buildAdaptedCantripSelectionSection(array &$form, FormStateInterface $form_state, array $character_data, string $native_tradition): void {
+    $available_traditions = array_values(array_diff(['arcane', 'divine', 'occult', 'primal'], [$native_tradition]));
+    $stored_selection = $character_data['feat_selections']['adapted-cantrip'] ?? [];
+    $selected_tradition = (string) $form_state->getValue(
+      ['feat_selections', 'adapted-cantrip', 'selected_tradition'],
+      $stored_selection['selected_tradition'] ?? ''
+    );
+    if (!in_array($selected_tradition, $available_traditions, TRUE)) {
+      $selected_tradition = '';
+    }
+
+    $form['class_dynamic']['feat_selections'] = [
+      '#type' => 'container',
+      '#tree' => TRUE,
+    ];
+    $form['class_dynamic']['feat_selections']['adapted-cantrip'] = [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['spell-reference-section', 'feat-selection-section']],
+    ];
+    $form['class_dynamic']['feat_selections']['adapted-cantrip']['intro'] = [
+      '#markup' => '<div class="spell-help"><strong>'
+        . $this->t('Adapted Cantrip')
+        . '</strong><br>'
+        . $this->t('Choose one cantrip from a tradition other than your native @tradition tradition.', [
+          '@tradition' => ucfirst($native_tradition),
+        ])
+        . '</div>',
+    ];
+    $form['class_dynamic']['feat_selections']['adapted-cantrip']['selected_tradition'] = [
+      '#type' => 'radios',
+      '#title' => $this->t('Choose a non-native tradition'),
+      '#options' => array_combine(
+        $available_traditions,
+        array_map(static fn(string $tradition): string => ucfirst($tradition), $available_traditions)
+      ),
+      '#default_value' => $selected_tradition,
+      '#required' => FALSE,
+      '#ajax' => [
+        'callback' => '::updateClassOptions',
+        'wrapper' => 'class-dynamic-wrapper',
+        'event' => 'change',
+      ],
+    ];
+
+    if ($selected_tradition === '') {
+      return;
+    }
+
+    $cantrip_options = [];
+    $cantrip_cards = [];
+    $cantrip_reference_cards = [];
+    foreach ($this->characterManager->getSpellsByTradition($selected_tradition, 0) as $cantrip) {
+      $cantrip_options[$cantrip['id']] = $cantrip['name'];
+      $tags = ['Cantrip', ucfirst($selected_tradition)];
+      if (!empty($cantrip['school'])) {
+        $tags[] = ucfirst((string) $cantrip['school']);
+      }
+      $facts = $this->extractSpellFacts($cantrip);
+      $cantrip_cards[$cantrip['id']] = $this->buildOptionCardData(
+        $cantrip['description'] ?? '',
+        $tags,
+        $facts,
+      );
+      $cantrip_reference_cards[] = [
+        'title' => $cantrip['name'],
+        'description' => $cantrip['description'] ?? '',
+        'tags' => $tags,
+        'facts' => $facts,
+      ];
+    }
+
+    $form['class_dynamic']['feat_selections']['adapted-cantrip']['selected_cantrip'] = [
+      '#type' => 'radios',
+      '#title' => $this->t('Choose your adapted cantrip'),
+      '#options' => $cantrip_options,
+      '#default_value' => (string) $form_state->getValue(
+        ['feat_selections', 'adapted-cantrip', 'selected_cantrip'],
+        $stored_selection['selected_cantrip'] ?? ''
+      ),
+      '#required' => FALSE,
+      '#description' => $this->t('This cantrip is added as an innate at-will spell from the @tradition tradition.', [
+        '@tradition' => ucfirst($selected_tradition),
+      ]),
+    ];
+    $this->attachOptionCardSettings(
+      $form['class_dynamic']['feat_selections']['adapted-cantrip'],
+      'selected_cantrip',
+      $cantrip_cards,
+      'single'
+    );
+    $form['class_dynamic']['feat_selections']['adapted-cantrip']['reference'] = [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['spell-reference-section']],
+      'heading' => [
+        '#markup' => '<h4>' . $this->t('@tradition cantrip reference', ['@tradition' => ucfirst($selected_tradition)]) . '</h4>',
+      ],
+      'cards' => [
+        '#markup' => $this->buildOptionDetailStackMarkup($cantrip_reference_cards),
+      ],
+    ];
+  }
+
+  /**
+   * Validates Adapted Cantrip selection values on step 4.
+   */
+  private function validateAdaptedCantripSelection(FormStateInterface $form_state, array $character_data): void {
+    $selected_class = trim((string) ($character_data['class'] ?? ''));
+    $native_tradition = $this->characterManager->resolveClassTradition($selected_class, $character_data);
+    if ($native_tradition === NULL) {
+      $form_state->setErrorByName('class', $this->t('Adapted Cantrip requires a class with a spellcasting tradition.'));
+      return;
+    }
+
+    $selected_tradition = trim((string) $form_state->getValue(['feat_selections', 'adapted-cantrip', 'selected_tradition'], ''));
+    $selected_cantrip = trim((string) $form_state->getValue(['feat_selections', 'adapted-cantrip', 'selected_cantrip'], ''));
+    $available_traditions = array_values(array_diff(['arcane', 'divine', 'occult', 'primal'], [$native_tradition]));
+
+    if ($selected_tradition === '' || !in_array($selected_tradition, $available_traditions, TRUE)) {
+      $form_state->setErrorByName(
+        'feat_selections][adapted-cantrip][selected_tradition',
+        $this->t('Choose a non-native tradition for Adapted Cantrip.')
+      );
+      return;
+    }
+
+    if ($selected_cantrip === '') {
+      $form_state->setErrorByName(
+        'feat_selections][adapted-cantrip][selected_cantrip',
+        $this->t('Choose a cantrip for Adapted Cantrip.')
+      );
+      return;
+    }
+
+    $valid_cantrip_ids = array_map(
+      static fn(array $spell): string => (string) ($spell['id'] ?? ''),
+      $this->characterManager->getSpellsByTradition($selected_tradition, 0)
+    );
+    if (!in_array($selected_cantrip, $valid_cantrip_ids, TRUE)) {
+      $form_state->setErrorByName(
+        'feat_selections][adapted-cantrip][selected_cantrip',
+        $this->t('Choose a valid cantrip from the selected tradition.')
+      );
+    }
+  }
+
+  /**
    * Builds a consolidated feats array from all feat sources.
    *
    * Collects ancestry feat, class feat, general feat, and background skill
@@ -3189,7 +4969,7 @@ class CharacterCreationStepForm extends FormBase {
     // Ancestry feat.
     if (!empty($character_data['ancestry_feat'])) {
       $ancestry_name = $this->resolveAncestryName($character_data['ancestry'] ?? '');
-      $ancestry_feats = CharacterManager::ANCESTRY_FEATS[$ancestry_name] ?? [];
+      $ancestry_feats = CharacterManager::getAncestryFeats($ancestry_name);
       foreach ($ancestry_feats as $f) {
         if ($f['id'] === $character_data['ancestry_feat']) {
           $feats[] = ['type' => 'ancestry', 'id' => $f['id'], 'name' => $f['name'], 'level' => 1];
@@ -3200,20 +4980,96 @@ class CharacterCreationStepForm extends FormBase {
 
     // Class feat.
     if (!empty($character_data['class_feat'])) {
-      $class_feats = CharacterManager::CLASS_FEATS[$character_data['class'] ?? ''] ?? [];
+      $class_feats = CharacterManager::getClassFeats($character_data['class'] ?? '');
       foreach ($class_feats as $f) {
         if ($f['id'] === $character_data['class_feat']) {
           $feats[] = ['type' => 'class', 'id' => $f['id'], 'name' => $f['name'], 'level' => 1];
           break;
         }
       }
+
+      if (($character_data['ancestry_feat'] ?? '') === 'natural-ambition') {
+        $bonus_class_feat = trim((string) ($character_data['feat_selections']['natural-ambition']['bonus_class_feat'] ?? ''));
+        foreach ($class_feats as $f) {
+          if ($f['id'] === $bonus_class_feat) {
+            $already_listed = in_array($bonus_class_feat, array_column($feats, 'id'), TRUE);
+            if (!$already_listed) {
+              $feats[] = [
+                'type' => 'class',
+                'id' => $f['id'],
+                'name' => $f['name'],
+                'level' => 1,
+                'source' => 'natural-ambition',
+              ];
+            }
+            break;
+          }
+        }
+      }
     }
 
     // General feat.
     if (!empty($character_data['general_feat'])) {
-      foreach (CharacterManager::GENERAL_FEATS as $f) {
+      foreach (CharacterManager::getGeneralFeats() as $f) {
         if ($f['id'] === $character_data['general_feat']) {
           $feats[] = ['type' => 'general', 'id' => $f['id'], 'name' => $f['name'], 'level' => 1];
+          break;
+        }
+      }
+    }
+
+    if (($character_data['ancestry_feat'] ?? '') === 'general-training') {
+      $bonus_general_feat = trim((string) ($character_data['feat_selections']['general-training']['bonus_general_feat'] ?? ''));
+      foreach (CharacterManager::getGeneralFeats() as $f) {
+        if ($f['id'] === $bonus_general_feat) {
+          $already_listed = in_array($bonus_general_feat, array_column($feats, 'id'), TRUE);
+          if (!$already_listed) {
+            $feats[] = [
+              'type' => 'general',
+              'id' => $f['id'],
+              'name' => $f['name'],
+              'level' => 1,
+              'source' => 'general-training',
+            ];
+          }
+          break;
+        }
+      }
+    }
+
+    if (($character_data['ancestry_feat'] ?? '') === 'elf-atavism') {
+      $bonus_elf_feat = trim((string) ($character_data['feat_selections']['elf-atavism']['selected_feat'] ?? ''));
+      foreach ($this->getElfAtavismFeatOptions() as $f) {
+        if ($f['id'] === $bonus_elf_feat) {
+          $already_listed = in_array($bonus_elf_feat, array_column($feats, 'id'), TRUE);
+          if (!$already_listed) {
+            $feats[] = [
+              'type' => 'ancestry',
+              'id' => $f['id'],
+              'name' => $f['name'],
+              'level' => (int) ($f['level'] ?? 1),
+              'source' => 'elf-atavism',
+            ];
+          }
+          break;
+        }
+      }
+    }
+
+    if (($character_data['ancestry_feat'] ?? '') === 'orc-atavism') {
+      $bonus_orc_feat = trim((string) ($character_data['feat_selections']['orc-atavism']['selected_feat'] ?? ''));
+      foreach ($this->getOrcAtavismFeatOptions() as $f) {
+        if ($f['id'] === $bonus_orc_feat) {
+          $already_listed = in_array($bonus_orc_feat, array_column($feats, 'id'), TRUE);
+          if (!$already_listed) {
+            $feats[] = [
+              'type' => 'ancestry',
+              'id' => $f['id'],
+              'name' => $f['name'],
+              'level' => (int) ($f['level'] ?? 1),
+              'source' => 'orc-atavism',
+            ];
+          }
           break;
         }
       }

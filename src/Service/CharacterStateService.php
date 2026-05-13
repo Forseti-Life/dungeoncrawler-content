@@ -71,6 +71,19 @@ class CharacterStateService {
     if ($type === 'pc') {
       $portrait_url = $this->resolvePortraitUrl($record, $campaign_id);
       $descriptors = $this->buildEntityDescriptors($merged_library, $type, (string) $record->name);
+      $features = is_array($merged_library['features'] ?? NULL) ? $merged_library['features'] : [];
+      $features = array_replace([
+        'ancestryFeatures' => [],
+        'classFeatures' => [],
+        'feats' => [],
+        'featSelections' => [],
+      ], $features);
+      if (is_array($merged_library['feats'] ?? NULL) && $merged_library['feats'] !== []) {
+        $features['feats'] = $merged_library['feats'];
+      }
+      if (is_array($merged_library['feat_selections'] ?? NULL) && $merged_library['feat_selections'] !== []) {
+        $features['featSelections'] = $merged_library['feat_selections'];
+      }
       $state = [
         'characterId' => (string) $record->id,
         'userId' => (string) $record->uid,
@@ -137,11 +150,7 @@ class CharacterStateService {
           'totalBulk' => 0,
           'encumbrance' => 'unencumbered',
         ],
-        'features' => is_array($merged_library['features'] ?? NULL) ? $merged_library['features'] : [
-          'ancestryFeatures' => [],
-          'classFeatures' => [],
-          'feats' => [],
-        ],
+        'features' => $features,
         'portrait_url' => $portrait_url,
         'portrait' => $portrait_url, // Legacy alias still read by older character-sheet callers.
         'descriptors' => $descriptors,
@@ -1545,6 +1554,7 @@ class CharacterStateService {
   private function applyFeatEffectsToState(array $state): array {
     $features = is_array($state['features'] ?? NULL) ? $state['features'] : [];
     $feats = is_array($features['feats'] ?? NULL) ? $features['feats'] : [];
+    $feat_selections = is_array($features['featSelections'] ?? NULL) ? $features['featSelections'] : [];
 
     $base_speed = (int) ($state['movement']['speed']['base'] ?? 25);
     $level = max(1, (int) ($state['basicInfo']['level'] ?? 1));
@@ -1552,6 +1562,7 @@ class CharacterStateService {
     $effects = $this->featEffectManager->buildEffectState([
       'level' => $level,
       'feats' => $feats,
+      'feat_selections' => $feat_selections,
       'feat_resources' => is_array($state['resources']['featResources'] ?? NULL) ? $state['resources']['featResources'] : [],
       'heritage' => $state['basicInfo']['heritage'] ?? '',
       'ancestry' => $state['basicInfo']['ancestry'] ?? '',
@@ -1600,6 +1611,7 @@ class CharacterStateService {
       'outcome_upgrades' => [],
     ];
     $state['features']['featSelectionGrants'] = $effects['selection_grants'] ?? [];
+    $state['features']['featSelections'] = $feat_selections;
     $state['features']['featTodoReview'] = $effects['todo_review_features'] ?? [];
 
     // Apply selected core stat adjustments directly into state.

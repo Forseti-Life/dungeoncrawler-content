@@ -32,29 +32,14 @@ class SpellCatalogServiceTest extends UnitTestCase {
   }
 
   /**
-   * @covers ::loadBundledCatalog
-   * @covers ::loadFromJson
    * @covers ::getSpell
+   * @covers ::getRegistryCatalog
+   * @covers ::fetchRegistrySpellRows
    */
-  public function testBundledCatalogProvidesCommonTavernSpellLookups(): void {
-    $message = $this->service->getSpell('message');
-    $command = $this->service->getSpell('command');
-    $pest_form = $this->service->getSpell('pest_form');
-    $thoughtful_gift = $this->service->getSpell('thoughtful_gift');
-
-    $this->assertNotNull($message);
-    $this->assertSame('Message', $message['name']);
-    $this->assertTrue($message['is_cantrip']);
-
-    $this->assertNotNull($command);
-    $this->assertSame('Command', $command['name']);
-    $this->assertSame(1, $command['rank']);
-
-    $this->assertNotNull($pest_form);
-    $this->assertSame('pest-form', $pest_form['id']);
-
-    $this->assertNotNull($thoughtful_gift);
-    $this->assertSame('thoughtful-gift', $thoughtful_gift['id']);
+  public function testGetSpellFailsWhenRegistryIsUnavailable(): void {
+    $this->expectException(\RuntimeException::class);
+    $this->expectExceptionMessage('Spell registry database connection is unavailable.');
+    $this->service->getSpell('message');
   }
 
   // -------------------------------------------------------------------------
@@ -562,32 +547,34 @@ class SpellCatalogServiceTest extends UnitTestCase {
    * @covers ::loadRegistryCatalog
    * @covers ::fetchRegistrySpellRows
    * @covers ::buildRegistrySpellRecord
+   * @covers ::getRegistryCatalog
    * @covers ::getSpell
    */
-  public function testRegistrySpellRowsOverrideBundledFallbacks(): void {
+  public function testRegistrySpellRowsProvideCanonicalSpellLookups(): void {
     $service = new TestableSpellCatalogService([
       (object) [
-        'content_id' => 'shield',
-        'name' => 'Shield',
+        'content_id' => 'message',
+        'name' => 'Message',
         'level' => 0,
-        'tags' => json_encode(['arcane', 'divine', 'occult']),
+        'tags' => json_encode(['arcane', 'occult']),
         'schema_data' => json_encode([
-          'id' => 'shield',
-          'name' => 'Shield',
+          'id' => 'message',
+          'name' => 'Message',
           'rank' => 0,
-          'school' => 'abjuration',
-          'traditions' => ['arcane', 'divine', 'occult'],
-          'description' => 'Registry-backed shield spell.',
+          'school' => 'illusion',
+          'traditions' => ['arcane', 'occult'],
+          'description' => 'Registry-backed message spell.',
           'cast_actions' => '1_action',
         ]),
       ],
     ]);
 
-    $spell = $service->getSpell('shield');
+    $spell = $service->getSpell('message');
 
     $this->assertNotNull($spell);
-    $this->assertSame('Registry-backed shield spell.', $spell['description']);
+    $this->assertSame('Registry-backed message spell.', $spell['description']);
     $this->assertSame('1_action', $spell['cast_actions']);
+    $this->assertTrue($spell['is_cantrip']);
   }
 
   /**
@@ -618,6 +605,62 @@ class SpellCatalogServiceTest extends UnitTestCase {
     $this->assertNotNull($spell);
     $this->assertSame('shadow-blast', $spell['id']);
     $this->assertSame('basic_reflex_or_will_choice', $spell['save_type']);
+  }
+
+  /**
+   * @covers ::getSpells
+   * @covers ::getRegistryCatalog
+   */
+  public function testGetSpellsFailsWhenRegistryIsEmpty(): void {
+    $service = new TestableSpellCatalogService([]);
+
+    $this->expectException(\RuntimeException::class);
+    $this->expectExceptionMessage('Spell registry contains no spell records.');
+    $service->getSpells();
+  }
+
+  /**
+   * @covers ::getSpells
+   * @covers ::getRegistryCatalog
+   */
+  public function testGetSpellsSupportsSpellTypeFilter(): void {
+    $service = new TestableSpellCatalogService([
+      (object) [
+        'content_id' => 'message',
+        'name' => 'Message',
+        'level' => 0,
+        'tags' => json_encode(['arcane', 'occult']),
+        'schema_data' => json_encode([
+          'id' => 'message',
+          'name' => 'Message',
+          'rank' => 0,
+          'spell_type' => 'cantrip',
+          'school' => 'illusion',
+          'traditions' => ['arcane', 'occult'],
+        ]),
+      ],
+      (object) [
+        'content_id' => 'hymn_of_healing',
+        'name' => 'Hymn of Healing',
+        'level' => 1,
+        'tags' => json_encode(['occult', 'focus']),
+        'schema_data' => json_encode([
+          'id' => 'hymn_of_healing',
+          'name' => 'Hymn of Healing',
+          'rank' => 1,
+          'spell_type' => 'focus',
+          'school' => 'enchantment',
+          'traditions' => ['occult'],
+          'focus_class' => 'bard',
+        ]),
+      ],
+    ]);
+
+    $focus = $service->getSpells(['spell_type' => 'focus']);
+
+    $this->assertCount(1, $focus);
+    $this->assertSame('hymn-of-healing', $focus[0]['id']);
+    $this->assertSame('focus', $focus[0]['spell_type']);
   }
 
 }

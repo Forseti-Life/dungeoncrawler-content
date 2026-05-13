@@ -64,16 +64,16 @@ class FeatCatalogController extends ControllerBase {
     }
     if ($type_filter === 'general') {
       // General feats = non-skill general feats only.
-      return CharacterManager::GENERAL_FEATS;
+      return CharacterManager::getGeneralFeats();
     }
     // No type filter — return both pools combined.
-    return array_merge(CharacterManager::GENERAL_FEATS, CharacterManager::SKILL_FEATS);
+    return array_merge(CharacterManager::getGeneralFeats(), CharacterManager::SKILL_FEATS);
   }
 
   /**
    * Filter feat pool by source_book.
    *
-   * CRB items have no source_book key (implicit crb).
+   * CRB items have no source_book key in the raw catalog; getters normalize them.
    */
   private function filterBySourceBook(array $feats, string $source_book): array {
     if ($source_book === 'all') {

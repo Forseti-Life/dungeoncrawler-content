@@ -56,6 +56,15 @@ Current game-facing messaging is intentionally tuned for former tabletop/classic
 - Ensure character_options_step3-8 schemas define min_length, max_length, pattern, and error_messages for fields that need them.
 - Keep Playwright workflow tests aligned with localhost-based URLs once access is verified.
 
+### Spell Source of Truth
+- **Canonical spell definitions**: `dungeoncrawler_content_registry` is the source of truth for ordinary spell definitions.
+- **Runtime spell reads**: `/api/spells`, `/api/spells/{spell_id}`, character creation spell choice lists, character sheet spell metadata, and `/spellcatalogue` are expected to resolve ordinary spell definitions from registry rows rather than bundled service-local spell catalogs.
+- **Canonical focus spell definitions**: `/api/focus-spells` now resolves focus spell records from the same registry-backed spell library instead of using `CharacterManager` as the definition source.
+- **Focus metadata note**: the focus catalog derives class/source-book filtering from registry metadata. The APG/SoM focus seed rows have been normalized to canonical unique spell IDs, and the remaining `focus_class = none` cases are limited to non-class/archetype-style entries.
+- **Packaged spell JSON role**: files under `content/intermediary/*spells_intermediary.json` are seed/import inputs for the registry, not a separate runtime source of truth.
+- **Failure mode**: if the registry is unavailable or empty, ordinary spell endpoints fail explicitly instead of silently falling back to bundled spell data.
+- **Deferred scope**: feat canonicalization remains follow-on work; it does not redefine the source-of-truth rule for registry-backed spell APIs.
+
 ### Feat Management Implementation Checklist
 This checklist tracks per-feat mechanics implementation for the feat-management system API. Mark a feat complete only when it has authoritative runtime effects (character sheet derivation, action availability, rest-cycle resources, and/or rules engine integration).
 
@@ -287,7 +296,8 @@ Implementation strategy (first-pass architecture):
 - **World Lore** (`/world`) - Living dungeon background and lore
 - **How to Play** (`/how-to-play`) - Game mechanics and tutorial
 - **About** (`/about`) - Game information, technology, and legacy-world framing for long-term character play
-- **Spell Catalogue** (`/spellcatalogue`) - Public review page for live spell records pulled from `dungeoncrawler_content_registry`
+- **Spell Catalogue** (`/spellcatalogue`) - Public review page for canonical spell records pulled from `dungeoncrawler_content_registry`
+- **Focus Spell API** (`/api/focus-spells`) - Registry-backed focus spell catalog with `source_book` filters (`crb`, `apg`, `som`, `all`) and class filters covering wizard, oracle, witch, bard, ranger, sorcerer, champion, cleric, druid, monk, magus, and summoner
 
 ### AI Image Generation Integration (Gemini + Vertex)
 - **Dashboard panel**: `/admin/content/dungeoncrawler` includes an **AI Image Generation (Gemini + Vertex)** panel.

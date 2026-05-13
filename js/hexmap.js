@@ -333,6 +333,14 @@ import { SpriteService } from './SpriteService.js';
     if (!spells || typeof spells !== 'object') {
       return [];
     }
+    const innateFeatSpells = Array.isArray(spells.featAugments?.innate_spells)
+      ? spells.featAugments.innate_spells.map((entry) => ({
+        ...entry,
+        id: entry?.spell_id || entry?.id || '',
+        name: entry?.spell_name || entry?.spell_id || entry?.name || '',
+        rank: 0,
+      }))
+      : [];
     const directGroups = Object.entries(spells)
       .map(([groupKey, groupSpells]) => {
         if (!Array.isArray(groupSpells) || groupSpells.length === 0) {
@@ -352,6 +360,20 @@ import { SpriteService } from './SpriteService.js';
       .filter(Boolean)
       .sort((a, b) => a.rank - b.rank);
     if (directGroups.length > 0) {
+      if (innateFeatSpells.length > 0) {
+        const cantripGroup = directGroups.find((group) => group.rank === 0);
+        if (cantripGroup) {
+          cantripGroup.spells = [...cantripGroup.spells, ...innateFeatSpells];
+        } else {
+          directGroups.push({
+            groupKey: 'cantrips',
+            rank: 0,
+            label: formatSpellRankLabel(0, { longForm: false }),
+            spells: innateFeatSpells,
+          });
+          directGroups.sort((a, b) => a.rank - b.rank);
+        }
+      }
       return directGroups;
     }
 
@@ -387,6 +409,7 @@ import { SpriteService } from './SpriteService.js';
     appendSpells(spells.focusSpells);
     appendSpells(spells.preparedSpells);
     appendSpells(spells.knownSpells);
+    appendSpells(innateFeatSpells, 0);
 
     return Array.from(grouped.entries())
       .map(([rank, rankSpells]) => ({
@@ -1093,6 +1116,7 @@ import { SpriteService } from './SpriteService.js';
         chatChannelLabel: document.getElementById('chat-channel-label'),
         chatSessionTabs: document.getElementById('chat-session-tabs'),
         chatPanelTitle: document.getElementById('chat-panel-title'),
+        chatShell: document.getElementById('hexmap-chat'),
 
         // Generated room view panel
         roomViewPanel: document.getElementById('room-view-panel'),
@@ -1524,8 +1548,10 @@ import { SpriteService } from './SpriteService.js';
 
       rankGroups.forEach(({ rank, label, spells: rankSpells }) => {
         rankSpells.forEach((spell) => {
-          const spellId = typeof spell === 'string' ? spell : (spell.id || spell.spell_id || '');
-          const spellName = typeof spell === 'string' ? spell.replace(/_/g, ' ') : (spell.name || spellId || 'Spell');
+          const spellId = typeof spell === 'string' ? spell : (spell.spell_id || spell.id || '');
+          const spellName = typeof spell === 'string'
+            ? spell.replace(/_/g, ' ')
+            : (spell.spell_name || spell.name || spellId || 'Spell');
           const slotState = rank > 0 ? runtimeSlots[String(rank)] || null : null;
           const isFocusSpell = Boolean(spell?.is_focus_spell || spell?.focus || spell?.focus_spell);
           const remaining = isFocusSpell
@@ -1538,6 +1564,7 @@ import { SpriteService } from './SpriteService.js';
             title: spellName,
             summary: buildActionRailEntrySummary([
               rank === 0 ? 'Cantrip' : label,
+              spell?.tradition ? `${String(spell.tradition).replace(/^./, (char) => char.toUpperCase())}` : '',
               isFocusSpell ? `Focus ${remaining}` : (slotState ? `Slots ${slotState.current}/${slotState.max}` : ''),
               formatActionRailCost(actionCost),
             ]),
@@ -2111,6 +2138,7 @@ import { SpriteService } from './SpriteService.js';
         statusLabel = 'Idle',
         placeholderText = 'Room transition imagery will appear here.',
         entries = [],
+        preserveChatBackground = false,
       } = state;
 
       if (this.elements.roomViewName) {
@@ -2139,6 +2167,89 @@ import { SpriteService } from './SpriteService.js';
       if (this.elements.roomViewPlaceholder) {
         this.elements.roomViewPlaceholder.hidden = entries.length > 0;
       }
+
+      const sceneImageSrc = this.resolveRoomViewImageSrc(entries);
+      if (sceneImageSrc || !preserveChatBackground) {
+        this.setChatPanelSceneBackground(sceneImageSrc, room);
+      }
+    }
+
+    resolveRoomViewImageSrc(entries = []) {
+      if (!Array.isArray(entries)) {
+        return '';
+      }
+      const firstImageEntry = entries.find((entry) => Boolean(entry?.image?.url || entry?.image?.data_uri));
+      return firstImageEntry?.image?.url || firstImageEntry?.image?.data_uri || '';
+    }
+
+    setChatPanelSceneBackground(imageSrc = '', room = null) {
+      const chatShell = this.elements.chatShell;
+      if (!chatShell) {
+        return;
+      }
+
+      const normalizedImageSrc = typeof imageSrc === 'string' ? imageSrc.trim() : '';
+      if (!normalizedImageSrc) {
+        chatShell.style.removeProperty('--chat-scene-image');
+        chatShell.style.removeProperty('background-image');
+        chatShell.style.removeProperty('background-position');
+        chatShell.style.removeProperty('background-size');
+        chatShell.style.removeProperty('background-repeat');
+        chatShell.dataset.sceneReady = 'false';
+        chatShell.removeAttribute('data-scene-room');
+        return;
+      }
+
+      chatShell.style.setProperty('--chat-scene-image', `url(${JSON.stringify(normalizedImageSrc)})`);
+      chatShell.style.backgroundImage = `linear-gradient(180deg, rgba(6, 10, 18, 0.22) 0%, rgba(6, 10, 18, 0.54) 55%, rgba(6, 10, 18, 0.72) 100%), url(${JSON.stringify(normalizedImageSrc)})`;
+      chatShell.style.backgroundPosition = 'center';
+      chatShell.style.backgroundSize = 'cover';
+      chatShell.style.backgroundRepeat = 'no-repeat';
+      chatShell.dataset.sceneReady = 'true';
+      if (room?.name) {
+        chatShell.dataset.sceneRoom = String(room.name);
+      } else {
+        chatShell.removeAttribute('data-scene-room');
+      }
+    }
+
+    activateGameShellTab(tabId) {
+      const requestedTab = typeof tabId === 'string' ? tabId.trim() : '';
+      if (!requestedTab) {
+        return;
+      }
+
+      const shell = document.querySelector('[data-game-shell]');
+      if (!shell) {
+        return;
+      }
+
+      const tabs = shell.querySelectorAll('[data-game-tab]');
+      const panels = shell.querySelectorAll('.game-shell__panel');
+      let matched = false;
+
+      tabs.forEach((tab) => {
+        const active = tab.dataset.gameTab === requestedTab;
+        matched = matched || active;
+        tab.classList.toggle('game-shell__tab--active', active);
+        tab.setAttribute('aria-selected', active ? 'true' : 'false');
+        tab.setAttribute('tabindex', active ? '0' : '-1');
+      });
+
+      if (!matched) {
+        return;
+      }
+
+      panels.forEach((panel) => {
+        const active = panel.id === `game-panel-${requestedTab}`;
+        panel.classList.toggle('game-shell__panel--active', active);
+        panel.hidden = !active;
+      });
+
+      shell.dispatchEvent(new CustomEvent('dungeoncrawler:activate-tab', {
+        detail: { tabId: requestedTab },
+      }));
+      window.dispatchEvent(new Event('resize'));
     }
 
     buildRoomViewCard(entry, room) {
@@ -2289,6 +2400,7 @@ import { SpriteService } from './SpriteService.js';
         this.updateRoomViewPanel(room, {
           statusLabel: 'Generating',
           placeholderText: 'Loading the latest room scene gallery...',
+          preserveChatBackground: hasExistingGallery,
         });
       }
 
@@ -3477,6 +3589,7 @@ import { SpriteService } from './SpriteService.js';
         const pendingRequest = this.buildPendingChatRequest(clientRequestId, characterName, message, roomId, {
           includePlayer: true,
           includePlaceholder: !queueOnly,
+          placeholderText: 'Game Master is reviewing the room...',
         });
         this.prefetchSessionViews();
         if (this.loadActiveRoomView) {
@@ -4213,8 +4326,9 @@ import { SpriteService } from './SpriteService.js';
         this.handleNavigationResult(result.data.navigation);
       }
 
-      if (this.loadActiveRoomView) {
-        this.loadActiveRoomView(roomId, { force: true, preserveExisting: true });
+      const activeRoomId = this.stateManager.hexmap?.resolveActiveRoomId?.() || roomId || null;
+      if (activeRoomId && this.loadActiveRoomView) {
+        this.loadActiveRoomView(activeRoomId, { force: true, preserveExisting: true });
       }
 
       this.invalidateChatCaches({
@@ -4453,6 +4567,10 @@ import { SpriteService } from './SpriteService.js';
       // 6. Switch to the new room (triggers full re-render, chat reload, banner).
       hexmap.setActiveRoom(targetRoomId);
       hexmap.updateLaunchLocationContext?.(targetRoomId, Number(entryHex.q), Number(entryHex.r));
+      this.activateGameShellTab('view');
+      if (targetRoomId && this.loadActiveRoomView) {
+        this.loadActiveRoomView(targetRoomId, { force: true, preserveExisting: true });
+      }
 
       // 7. Re-select the player entity in the new room.
       const newPlayerEntity = hexmap.findLaunchPlayerEntity();

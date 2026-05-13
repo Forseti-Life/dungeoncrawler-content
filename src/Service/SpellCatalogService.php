@@ -5,7 +5,7 @@ namespace Drupal\dungeoncrawler_content\Service;
 use Drupal\Core\Database\Connection;
 
 /**
- * Core spell catalog and rules service (dc-cr-spells-ch07).
+ * Core spell rules service with registry-backed spell definition reads.
  *
  * Owns:
  * - Spell data model constants (traditions, schools, components, save types)
@@ -14,7 +14,10 @@ use Drupal\Core\Database\Connection;
  * - Spontaneous caster signature-spell heightening gate
  * - Innate spell daily consumption tracking
  * - Focus pool hard cap (3)
- * - Spell data registry (keyed by spell_id; extends via loadFromJson())
+ *
+ * Ordinary spell definitions are sourced from dungeoncrawler_content_registry.
+ * Bundled/intermediary JSON files exist to seed that table, but runtime reads
+ * should not treat local files or service-local arrays as the source of truth.
  */
 class SpellCatalogService {
 
@@ -71,11 +74,18 @@ class SpellCatalogService {
   // -----------------------------------------------------------------------
 
   /**
-   * In-process spell registry. Populated by loadFromJson() or addSpell().
+   * Compatibility in-process spell registry used only by explicit import helpers.
    *
    * @var array<string, array>
    */
   protected array $spells = [];
+
+  /**
+   * Cached normalized spell records loaded from the DB registry.
+   *
+   * @var array<string, array>|null
+   */
+  protected ?array $registryCatalog = NULL;
 
   /**
    * Optional live content registry database connection.
@@ -84,12 +94,6 @@ class SpellCatalogService {
 
   public function __construct(?Connection $database = NULL) {
     $this->database = $database;
-    // Seed with representative sample spells for unit tests and live game.
-    // Full catalog population is handled via loadFromJson() at boot
-    // (see dungeoncrawler_content.services.yml or a LoadSpellsCommand).
-    $this->seedRepresentativeSample();
-    $this->loadBundledCatalog();
-    $this->loadRegistryCatalog();
   }
 
   // -----------------------------------------------------------------------
@@ -100,6 +104,7 @@ class SpellCatalogService {
    * Look up a spell by ID.
    */
   public function getSpell(string $spell_id): ?array {
+    $catalog = $this->getRegistryCatalog();
     $requested_id = $this->normalizeSpellId($spell_id);
     $candidate_ids = array_values(array_unique(array_filter([
       trim($spell_id),
@@ -108,8 +113,8 @@ class SpellCatalogService {
     ])));
 
     foreach ($candidate_ids as $candidate_id) {
-      if (isset($this->spells[$candidate_id])) {
-        return $this->normalizeSpellRecord($this->spells[$candidate_id], $requested_id);
+      if (isset($catalog[$candidate_id])) {
+        return $this->normalizeSpellRecord($catalog[$candidate_id], $requested_id);
       }
     }
 
@@ -125,10 +130,11 @@ class SpellCatalogService {
    *     - school (string): one of self::SPELL_SCHOOLS
    *     - rank (int): 0–10
    *     - is_cantrip (bool)
+   *     - spell_type (string): spell|cantrip|focus|ritual
    *     - rarity (string): one of self::RARITY_LEVELS
    */
   public function getSpells(array $filters = []): array {
-    $result = $this->spells;
+    $result = $this->getRegistryCatalog();
 
     if (isset($filters['tradition'])) {
       $t = strtolower($filters['tradition']);
@@ -145,6 +151,10 @@ class SpellCatalogService {
     if (isset($filters['is_cantrip'])) {
       $ic = (bool) $filters['is_cantrip'];
       $result = array_filter($result, fn($s) => !empty($s['is_cantrip']) === $ic);
+    }
+    if (isset($filters['spell_type'])) {
+      $spell_type = strtolower((string) $filters['spell_type']);
+      $result = array_filter($result, fn($s) => strtolower((string) ($s['spell_type'] ?? 'spell')) === $spell_type);
     }
     if (isset($filters['rarity'])) {
       $rar = strtolower($filters['rarity']);
@@ -201,6 +211,9 @@ class SpellCatalogService {
 
   /**
    * Load the bundled intermediary spell catalog when present.
+   *
+   * @deprecated Runtime spell-definition reads must come from the DB registry.
+   *   This helper remains only for explicit compatibility utilities/tests.
    */
   protected function loadBundledCatalog(): void {
     $bundled_path = dirname(__DIR__, 2) . '/content/intermediary/core_rulebook_spells_intermediary.json';
@@ -217,7 +230,10 @@ class SpellCatalogService {
   }
 
   /**
-   * Overlay live registry-backed spell records when a database is available.
+   * Overlay live registry-backed spell records into the compatibility cache.
+   *
+   * @deprecated Runtime spell-definition reads must come from the DB registry.
+   *   This helper remains only for explicit compatibility utilities/tests.
    */
   protected function loadRegistryCatalog(): void {
     foreach ($this->fetchRegistrySpellRows() as $row) {
@@ -398,7 +414,11 @@ class SpellCatalogService {
    */
   protected function fetchRegistrySpellRows(): array {
     if ($this->database === NULL) {
-      return [];
+      throw new \RuntimeException('Spell registry database connection is unavailable.');
+    }
+
+    if (!$this->database->schema()->tableExists('dungeoncrawler_content_registry')) {
+      throw new \RuntimeException('Spell registry table dungeoncrawler_content_registry is unavailable.');
     }
 
     return $this->database->select('dungeoncrawler_content_registry', 'r')
@@ -452,6 +472,37 @@ class SpellCatalogService {
     }
 
     return $spell['id'] !== '' ? $spell : NULL;
+  }
+
+  /**
+   * Load and cache normalized spell records from the DB registry.
+   *
+   * @return array<string, array>
+   *   Registry-backed spell catalog keyed by normalized spell ID variant.
+   */
+  protected function getRegistryCatalog(): array {
+    if ($this->registryCatalog !== NULL) {
+      return $this->registryCatalog;
+    }
+
+    $catalog = [];
+    foreach ($this->fetchRegistrySpellRows() as $row) {
+      $spell = $this->buildRegistrySpellRecord($row);
+      if ($spell === NULL) {
+        continue;
+      }
+
+      $normalized = $this->normalizeSpellRecord($spell);
+      $catalog[$normalized['id']] = $normalized;
+      $catalog[str_replace('-', '_', $normalized['id'])] = $normalized;
+    }
+
+    if ($catalog === []) {
+      throw new \RuntimeException('Spell registry contains no spell records. Import canonical spells into dungeoncrawler_content_registry before using spell APIs.');
+    }
+
+    $this->registryCatalog = $catalog;
+    return $this->registryCatalog;
   }
 
   // -----------------------------------------------------------------------

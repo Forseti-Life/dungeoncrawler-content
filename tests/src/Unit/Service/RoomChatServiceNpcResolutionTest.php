@@ -218,6 +218,44 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
   }
 
   /**
+   * @covers ::buildDeterministicGmResponse
+   */
+  public function testBuildDeterministicGmResponseUsesReturnNarrationForVisitedDestination(): void {
+    $response = $this->roomChatService->publicBuildDeterministicGmResponse(
+      17,
+      'navigation_travel',
+      [],
+      NULL,
+      'Then I leave for the goblin warrens',
+      ['name' => 'The Gilded Tankard', 'room_id' => 'room-tavern'],
+      'room-tavern',
+      [
+        'rooms' => [
+          [
+            'room_id' => 'room-warrens',
+            'name' => 'Goblin Warrens',
+            'chat' => [
+              ['speaker' => 'Game Master', 'message' => 'You arrive at Goblin Warrens.'],
+            ],
+          ],
+        ],
+        'location_history' => [
+          [
+            'room_id' => 'room-warrens',
+            'room_name' => 'Goblin Warrens',
+            'action' => 'arrived at',
+            'timestamp' => '2026-01-01T00:00:00+00:00',
+          ],
+        ],
+      ]
+    );
+
+    $this->assertNotNull($response);
+    $this->assertSame('navigate_to_location', $response['actions'][0]['type']);
+    $this->assertStringContainsString('make your way back toward Goblin Warrens', $response['narrative']);
+  }
+
+  /**
    * @covers ::extractNavigationDestination
    */
   public function testExtractNavigationDestinationStripsTrailingFillerWords(): void {

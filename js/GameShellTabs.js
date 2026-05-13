@@ -38,6 +38,13 @@
     const initialTab = shell.dataset.gameShellDefault || tabs[0]?.dataset.gameTab || 'map';
     activateGameShellTab(shell, initialTab);
 
+    shell.addEventListener('dungeoncrawler:activate-tab', (event) => {
+      const requestedTab = event?.detail?.tabId;
+      if (typeof requestedTab === 'string' && requestedTab.trim() !== '') {
+        activateGameShellTab(shell, requestedTab);
+      }
+    });
+
     tabs.forEach((tab) => {
       tab.addEventListener('click', () => {
         activateGameShellTab(shell, tab.dataset.gameTab);

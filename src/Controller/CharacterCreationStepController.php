@@ -1133,7 +1133,7 @@ class CharacterCreationStepController extends ControllerBase {
     foreach ($auto_grant_ids as $auto_id) {
       // Look up display name from ANCESTRY_FEATS if available; fall back to ID.
       $display_name = ucwords(str_replace('-', ' ', $auto_id));
-      $ancestry_feats_all = CharacterManager::ANCESTRY_FEATS[$ancestry_name] ?? [];
+      $ancestry_feats_all = CharacterManager::getAncestryFeats($ancestry_name);
       foreach ($ancestry_feats_all as $f) {
         if ($f['id'] === $auto_id) {
           $display_name = $f['name'];
@@ -1146,7 +1146,7 @@ class CharacterCreationStepController extends ControllerBase {
     // Ancestry feat.
     if (!empty($character_data['ancestry_feat'])) {
       $ancestry_name = ucfirst($character_data['ancestry'] ?? '');
-      $ancestry_feats = CharacterManager::ANCESTRY_FEATS[$ancestry_name] ?? [];
+      $ancestry_feats = CharacterManager::getAncestryFeats($ancestry_name);
       foreach ($ancestry_feats as $f) {
         if ($f['id'] === $character_data['ancestry_feat']) {
           $feats[] = ['type' => 'ancestry', 'id' => $f['id'], 'name' => $f['name'], 'level' => 1];
@@ -1157,7 +1157,7 @@ class CharacterCreationStepController extends ControllerBase {
 
     // Class feat.
     if (!empty($character_data['class_feat'])) {
-      $class_feats = CharacterManager::CLASS_FEATS[$character_data['class'] ?? ''] ?? [];
+      $class_feats = CharacterManager::getClassFeats($character_data['class'] ?? '');
       foreach ($class_feats as $f) {
         if ($f['id'] === $character_data['class_feat']) {
           $feats[] = ['type' => 'class', 'id' => $f['id'], 'name' => $f['name'], 'level' => 1];
@@ -1168,9 +1168,22 @@ class CharacterCreationStepController extends ControllerBase {
 
     // General feat.
     if (!empty($character_data['general_feat'])) {
-      foreach (CharacterManager::GENERAL_FEATS as $f) {
+      foreach (CharacterManager::getGeneralFeats() as $f) {
         if ($f['id'] === $character_data['general_feat']) {
           $feats[] = ['type' => 'general', 'id' => $f['id'], 'name' => $f['name'], 'level' => 1];
+          break;
+        }
+      }
+    }
+
+    if (($character_data['ancestry_feat'] ?? '') === 'general-training') {
+      $bonus_general_feat = trim((string) ($character_data['feat_selections']['general-training']['bonus_general_feat'] ?? ''));
+      foreach (CharacterManager::getGeneralFeats() as $f) {
+        if ($f['id'] === $bonus_general_feat) {
+          $already_listed = in_array($bonus_general_feat, array_column($feats, 'id'), TRUE);
+          if (!$already_listed) {
+            $feats[] = ['type' => 'general', 'id' => $f['id'], 'name' => $f['name'], 'level' => 1, 'source' => 'general-training'];
+          }
           break;
         }
       }

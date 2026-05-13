@@ -13,7 +13,7 @@ use Drupal\Core\Database\Connection;
  *     adds 1 to the pool, up to an absolute cap of 3.
  *   - Sources are tracked in dc_focus_spell_sources (character_id + source_type
  *     + granted_spell_id). The class's built-in starting pool is NOT stored as
- *     individual rows — the base count comes from FOCUS_POOLS[class]['start'].
+ *     individual rows — the base count comes from FocusSpellMetadata pool data.
  */
 class FocusPoolService {
 
@@ -41,11 +41,11 @@ class FocusPoolService {
    *   Maximum focus points (1–3).
    */
   public function computeMax(string $character_id, string $class): int {
-    $pools = CharacterManager::FOCUS_POOLS;
     $class = strtolower($class);
+    $pool = FocusSpellMetadata::getPoolConfig($class);
 
-    $start = (int) ($pools[$class]['start'] ?? 1);
-    $cap   = (int) ($pools[$class]['cap']   ?? 3);
+    $start = (int) ($pool['start'] ?? 1);
+    $cap   = (int) ($pool['cap'] ?? 3);
 
     // Count additional sources beyond the class base.
     $additional = 0;

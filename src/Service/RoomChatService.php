@@ -185,7 +185,8 @@ class RoomChatService {
     ?int $character_id = null,
     string $channel = 'room',
     bool $defer_npc_interjections = FALSE,
-    bool $suppress_gm = FALSE
+    bool $suppress_gm = FALSE,
+    ?callable $progress_callback = NULL
   ): array {
     $request_started_at = hrtime(true);
     $this->startDebugTrace([
@@ -298,6 +299,11 @@ class RoomChatService {
       'total_messages' => count($dungeon_data['rooms'][$room_index]['chat']),
       'room_entry' => $is_room_entry,
     ]);
+    $this->reportProgress($progress_callback, 'conversation_persisted', [
+      'channel' => $channel,
+      'room_entry' => $is_room_entry,
+      'total_messages' => count($dungeon_data['rooms'][$room_index]['chat']),
+    ]);
 
     // Log chat activity
     $this->logger->info('Chat message posted in room @room by user @uid: @message', [
@@ -314,6 +320,9 @@ class RoomChatService {
       $speaker, $message, $type, $character_id, $channel
     );
     $this->recordDebugStage('bridge_to_session_system', $stage_started_at);
+    $this->reportProgress($progress_callback, 'conversation_bridged', [
+      'channel' => $channel,
+    ]);
 
     // Generate AI response (GM for room channel, NPC for private channels).
     $gm_result = [];
@@ -327,7 +336,13 @@ class RoomChatService {
         $stage_started_at = hrtime(true);
         $this->ensureCurrentRoomNpcProfiles($campaign_id, $room_id, $dungeon_data, $room_index);
         $this->recordDebugStage('ensure_room_npc_profiles', $stage_started_at);
+        $this->reportProgress($progress_callback, 'npc_context_prepared', [
+          'channel' => $channel,
+        ]);
         // Room channel: GM responds.
+        $this->reportProgress($progress_callback, 'gm_reply_generating', [
+          'channel' => $channel,
+        ]);
         $stage_started_at = hrtime(true);
         $gm_result = $this->generateGmReply($campaign_id, $room_id, $room_index, $dungeon_id, $dungeon_data, $character_id);
         $this->recordDebugStage('generate_gm_reply', $stage_started_at, [
@@ -336,6 +351,9 @@ class RoomChatService {
       } else {
         // Private channel: target NPC responds.
         $channel_def = $dungeon_data['rooms'][$room_index]['channels'][$channel] ?? [];
+        $this->reportProgress($progress_callback, 'gm_reply_generating', [
+          'channel' => $channel,
+        ]);
         $stage_started_at = hrtime(true);
         $gm_result = $this->generateChannelNpcReply($campaign_id, $room_id, $room_index, $dungeon_id, $dungeon_data, $character_id, $channel, $channel_def);
         $this->recordDebugStage('generate_channel_npc_reply', $stage_started_at, [
@@ -426,7 +444,8 @@ class RoomChatService {
     int $campaign_id,
     string $room_id,
     ?int $character_id = NULL,
-    bool $defer_npc_interjections = FALSE
+    bool $defer_npc_interjections = FALSE,
+    ?callable $progress_callback = NULL
   ): array {
     $request_started_at = hrtime(true);
     $this->startDebugTrace([
@@ -480,11 +499,20 @@ class RoomChatService {
 
     $queued_player_summary = implode("\n", array_map(static fn(array $entry): string => (string) ($entry['message'] ?? ''), $queued_player_messages));
     $char_data = $character_id ? $this->actionProcessor->loadCharacterData($character_id) : NULL;
+    $this->reportProgress($progress_callback, 'queued_messages_loaded', [
+      'queued_player_count' => count($queued_player_messages),
+    ]);
 
     $stage_started_at = hrtime(true);
     $this->ensureCurrentRoomNpcProfiles($campaign_id, $room_id, $dungeon_data, $room_index);
     $this->recordDebugStage('ensure_room_npc_profiles', $stage_started_at);
+    $this->reportProgress($progress_callback, 'npc_context_prepared', [
+      'queued_player_count' => count($queued_player_messages),
+    ]);
 
+    $this->reportProgress($progress_callback, 'gm_reply_generating', [
+      'queued_player_count' => count($queued_player_messages),
+    ]);
     $stage_started_at = hrtime(true);
     $gm_result = $this->generateGmReply($campaign_id, $room_id, $room_index, $dungeon_id, $dungeon_data, $character_id);
     $this->recordDebugStage('generate_gm_reply', $stage_started_at, [
@@ -569,6 +597,20 @@ class RoomChatService {
       $gm_narrative,
       $char_data
     );
+  }
+
+  /**
+   * Report a coarse progress update back to a streaming caller.
+   */
+  protected function reportProgress(?callable $progress_callback, string $stage, array $context = []): void {
+    if ($progress_callback === NULL) {
+      return;
+    }
+
+    $progress_callback([
+      'stage' => $stage,
+      'context' => $context,
+    ]);
   }
 
   /**
@@ -1030,6 +1072,7 @@ class RoomChatService {
 
       // Record location transition in dungeon_data for GM context.
       if ($navigation_result && empty($navigation_result['error'])) {
+        $this->appendDestinationArrivalNarration($campaign_id, $dungeon_id, $dungeon_data, $navigation_result);
         $this->recordLocationTransition($dungeon_data, $room_meta, $navigation_result);
       }
       $this->recordDebugStage('gm.handle_navigation', $stage_started_at, [
@@ -1571,6 +1614,138 @@ class RoomChatService {
     if (count($dungeon_data['location_history']) > 50) {
       $dungeon_data['location_history'] = array_slice($dungeon_data['location_history'], -50);
     }
+  }
+
+  /**
+   * Append an arrival or return narration into the destination room chat.
+   */
+  protected function appendDestinationArrivalNarration(
+    int $campaign_id,
+    int|string $dungeon_id,
+    array &$dungeon_data,
+    array $navigation_result
+  ): void {
+    $destination_room = is_array($navigation_result['new_room'] ?? NULL) ? $navigation_result['new_room'] : [];
+    $destination_room_id = (string) ($destination_room['room_id'] ?? '');
+    if ($destination_room_id === '') {
+      return;
+    }
+
+    if (!isset($dungeon_data['rooms']) || !is_array($dungeon_data['rooms'])) {
+      $dungeon_data['rooms'] = [];
+    }
+
+    $room_index = $this->findRoomIndex($dungeon_data['rooms'], $destination_room_id);
+    if ($room_index === NULL) {
+      $dungeon_data['rooms'][] = [
+        'room_id' => $destination_room_id,
+        'name' => $destination_room['name'] ?? $navigation_result['destination'] ?? $destination_room_id,
+        'chat' => [],
+      ];
+      $room_index = array_key_last($dungeon_data['rooms']);
+    }
+
+    if (!isset($dungeon_data['rooms'][$room_index]['chat']) || !is_array($dungeon_data['rooms'][$room_index]['chat'])) {
+      $dungeon_data['rooms'][$room_index]['chat'] = [];
+    }
+
+    $destination_name = trim((string) ($destination_room['name'] ?? $navigation_result['destination'] ?? $destination_room_id));
+    $is_return_trip = $this->hasVisitedRoomId($dungeon_data, $destination_room_id);
+    $arrival_text = $is_return_trip
+      ? 'You return to ' . $destination_name . '.'
+      : 'You arrive at ' . $destination_name . '.';
+
+    $latest = end($dungeon_data['rooms'][$room_index]['chat']);
+    if (!is_array($latest) || ($latest['message'] ?? '') !== $arrival_text || ($latest['speaker'] ?? '') !== 'Game Master') {
+      $dungeon_data['rooms'][$room_index]['chat'][] = [
+        'speaker' => 'Game Master',
+        'message' => $arrival_text,
+        'type' => 'npc',
+        'channel' => 'room',
+        'timestamp' => date('c'),
+        'character_id' => NULL,
+        'user_id' => 0,
+      ];
+
+      $chat_count = count($dungeon_data['rooms'][$room_index]['chat']);
+      if ($chat_count > self::MAX_MESSAGES_PER_ROOM) {
+        $dungeon_data['rooms'][$room_index]['chat'] = array_slice(
+          $dungeon_data['rooms'][$room_index]['chat'],
+          $chat_count - self::MAX_MESSAGES_PER_ROOM
+        );
+      }
+    }
+
+    try {
+      $destination_session_key = $this->sessionManager->roomChatSessionKey($campaign_id, $destination_room_id);
+      $this->sessionManager->appendMessage($destination_session_key, $campaign_id, 'assistant', $arrival_text);
+    }
+    catch (\Exception $e) {
+      $this->logger->warning('Failed to append destination arrival to room session @room: @msg', [
+        '@room' => $destination_room_id,
+        '@msg' => $e->getMessage(),
+      ]);
+    }
+
+    $this->bridgeGmReplyToSessionSystem($campaign_id, $dungeon_id, $destination_room_id, $arrival_text);
+  }
+
+  /**
+   * Determine whether a room id has already been visited.
+   */
+  protected function hasVisitedRoomId(array $dungeon_data, string $room_id): bool {
+    if ($room_id === '') {
+      return FALSE;
+    }
+
+    foreach ($dungeon_data['location_history'] ?? [] as $entry) {
+      if (is_array($entry) && (string) ($entry['room_id'] ?? '') === $room_id) {
+        return TRUE;
+      }
+    }
+
+    $room_index = $this->findRoomIndex($dungeon_data['rooms'] ?? [], $room_id);
+    return $room_index !== NULL && !empty($dungeon_data['rooms'][$room_index]['chat']);
+  }
+
+  /**
+   * Determine whether the named destination corresponds to a prior visit.
+   */
+  protected function hasVisitedDestinationName(array $dungeon_data, string $destination): bool {
+    $needle = $this->normalizeNavigationLocationName($destination);
+    if ($needle === '') {
+      return FALSE;
+    }
+
+    foreach ($dungeon_data['rooms'] ?? [] as $room) {
+      if (!is_array($room)) {
+        continue;
+      }
+      if ($this->normalizeNavigationLocationName((string) ($room['name'] ?? '')) !== $needle) {
+        continue;
+      }
+      $room_id = (string) ($room['room_id'] ?? $room['id'] ?? '');
+      return $room_id !== '' ? $this->hasVisitedRoomId($dungeon_data, $room_id) : !empty($room['chat']);
+    }
+
+    foreach ($dungeon_data['location_history'] ?? [] as $entry) {
+      if (!is_array($entry)) {
+        continue;
+      }
+      if ($this->normalizeNavigationLocationName((string) ($entry['room_name'] ?? '')) === $needle) {
+        return TRUE;
+      }
+    }
+
+    return FALSE;
+  }
+
+  /**
+   * Normalize location names for revisit matching.
+   */
+  protected function normalizeNavigationLocationName(string $value): string {
+    $value = strtolower(trim($value));
+    return preg_replace('/\s+/', ' ', $value) ?? '';
   }
 
   /**
@@ -3515,6 +3690,7 @@ PROMPT;
 
     $origin_name = trim((string) ($room_meta['name'] ?? 'the room'));
     $destination_description = 'A new area reached from ' . $origin_name . ' by moving toward ' . $destination . '.';
+    $return_trip = $this->hasVisitedDestinationName($dungeon_data, $destination);
     $normalized = $this->normalizeNpcNameForMatch($player_message);
     $door_move = $this->textContainsAny($normalized, [
       'open the door',
@@ -3525,9 +3701,16 @@ PROMPT;
       'enter the ',
       'enter through',
     ]);
-    $narrative = $door_move
-      ? 'You move to the door, open it, and press onward toward ' . $destination . '.'
-      : 'You leave ' . $origin_name . ' and head toward ' . $destination . '.';
+    if ($door_move) {
+      $narrative = $return_trip
+        ? 'You move to the door, open it, and head back toward ' . $destination . '.'
+        : 'You move to the door, open it, and press onward toward ' . $destination . '.';
+    }
+    else {
+      $narrative = $return_trip
+        ? 'You leave ' . $origin_name . ' and make your way back toward ' . $destination . '.'
+        : 'You leave ' . $origin_name . ' and head toward ' . $destination . '.';
+    }
 
     return [
       'narrative' => $narrative,

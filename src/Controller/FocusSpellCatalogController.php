@@ -3,27 +3,25 @@
 namespace Drupal\dungeoncrawler_content\Controller;
 
 use Drupal\Core\Controller\ControllerBase;
-use Drupal\dungeoncrawler_content\Service\CharacterManager;
+use Drupal\dungeoncrawler_content\Service\FocusSpellMetadata;
 use Drupal\dungeoncrawler_content\Service\SpellCatalogService;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 
 /**
- * Focus spell catalog API endpoint.
+ * Focus spell catalog API endpoint backed by the DB spell registry.
  *
  * Routes:
- *   GET /api/focus-spells?source_book=crb|apg|all&class=oracle|witch|bard|ranger|all
+ *   GET /api/focus-spells?source_book=crb|apg|som|all&class=wizard|oracle|witch|bard|ranger|sorcerer|champion|cleric|druid|monk|magus|summoner|all
  *
- * Returns all focus spells from CharacterManager APG constants (and CRB
- * per-class focus_spells arrays when source_book=crb or all).
- * Reference data — public access, no auth required.
+ * Returns canonical focus spell definitions from dungeoncrawler_content_registry.
+ * Class and source-book filters are derived from registry metadata.
  */
 class FocusSpellCatalogController extends ControllerBase {
 
-  const VALID_BOOKS = ['crb', 'apg', 'all'];
-  const VALID_CLASSES = ['oracle', 'witch', 'bard', 'ranger', 'sorcerer', 'wizard', 'all'];
-
+  private const VALID_BOOKS = ['crb', 'apg', 'som', 'all'];
+  private const VALID_CLASSES = ['wizard', 'oracle', 'witch', 'bard', 'ranger', 'sorcerer', 'champion', 'cleric', 'druid', 'monk', 'magus', 'summoner', 'all'];
   public function __construct(protected SpellCatalogService $spellCatalog) {}
 
   public static function create(ContainerInterface $container): static {
@@ -54,14 +52,16 @@ class FocusSpellCatalogController extends ControllerBase {
       ], 400);
     }
 
-    $items = [];
-
-    if (in_array($source_book, ['apg', 'all'], TRUE)) {
-      $items = array_merge($items, $this->getApgSpells($class_filter));
+    try {
+      $items = array_values(array_filter(
+        array_map(fn(array $spell): array => $this->buildFocusSpellEntry($spell), $this->spellCatalog->getSpells(['spell_type' => 'focus'])),
+        fn(array $item): bool => $this->matchesFilters($item, $source_book, $class_filter),
+      ));
     }
-
-    if (in_array($source_book, ['crb', 'all'], TRUE)) {
-      $items = array_merge($items, $this->getCrbSpells($class_filter));
+    catch (\RuntimeException $e) {
+      return new JsonResponse([
+        'error' => $e->getMessage(),
+      ], 503);
     }
 
     return new JsonResponse([
@@ -73,114 +73,90 @@ class FocusSpellCatalogController extends ControllerBase {
   }
 
   /**
-   * Collect APG focus spells from CharacterManager constants.
-   * Covers oracle revelation spells, witch hexes, bard compositions, ranger
-   * warden spells, and focus pool metadata for all APG classes.
-   */
-  private function getApgSpells(string $class_filter): array {
-    $items = [];
-
-    if (in_array($class_filter, ['oracle', 'all'], TRUE)) {
-      foreach (CharacterManager::ORACLE_MYSTERIES as $mystery_id => $mystery) {
-        $base = [
-          'class'       => 'oracle',
-          'source_book' => 'apg',
-          'mystery'     => $mystery_id,
-          'tradition'   => $mystery['tradition'] ?? 'divine',
-          'curse_stages' => $mystery['curse_stages'] ?? [],
-        ];
-        foreach (['initial_revelation', 'advanced_revelation', 'greater_revelation'] as $tier) {
-          if (isset($mystery[$tier])) {
-            $items[] = $this->resolveFocusSpellEntry($mystery[$tier], $base + ['tier' => $tier]);
-          }
-        }
-      }
-    }
-
-    if (in_array($class_filter, ['witch', 'all'], TRUE)) {
-      foreach (CharacterManager::WITCH_HEXES['hex_cantrips'] as $spell) {
-        $items[] = $this->resolveFocusSpellEntry($spell, [
-          'class'       => 'witch',
-          'source_book' => 'apg',
-          'hex_type'    => 'hex_cantrip',
-        ]);
-      }
-      foreach (CharacterManager::WITCH_HEXES['regular_hexes'] as $spell) {
-        $items[] = $this->resolveFocusSpellEntry($spell, [
-          'class'       => 'witch',
-          'source_book' => 'apg',
-          'hex_type'    => 'regular_hex',
-        ]);
-      }
-    }
-
-    if (in_array($class_filter, ['bard', 'all'], TRUE)) {
-      foreach (CharacterManager::BARD_FOCUS_SPELLS as $spell) {
-        $items[] = $this->resolveFocusSpellEntry($spell, [
-          'class'       => 'bard',
-          'source_book' => 'apg',
-        ]);
-      }
-    }
-
-    if (in_array($class_filter, ['ranger', 'all'], TRUE)) {
-      foreach (CharacterManager::RANGER_WARDEN_SPELLS['spells'] as $spell) {
-        $items[] = $this->resolveFocusSpellEntry($spell, [
-          'class'         => 'ranger',
-          'source_book'   => 'apg',
-          'pool_info'     => CharacterManager::RANGER_WARDEN_SPELLS['pool'],
-        ]);
-      }
-    }
-
-    return $items;
-  }
-
-  /**
-   * Collect CRB focus spells from per-class CLASSES constant.
-   * Returns the raw focus_spells array entries tagged with class + source_book.
-   */
-  private function getCrbSpells(string $class_filter): array {
-    $items = [];
-    foreach (CharacterManager::CLASSES as $class_id => $class_data) {
-      if ($class_filter !== 'all' && $class_id !== $class_filter) {
-        continue;
-      }
-      if (empty($class_data['focus_spells'])) {
-        continue;
-      }
-      foreach ((array) $class_data['focus_spells'] as $spell_id) {
-        $items[] = $this->resolveFocusSpellEntry($spell_id, [
-          'class'       => $class_id,
-          'source_book' => 'crb',
-        ]);
-      }
-    }
-    return $items;
-  }
-
-  /**
-   * Resolve focus spell catalog entries against the live spell catalog when possible.
+   * Build a focus spell API entry from a registry-backed spell record.
    *
-   * @param array<string, mixed>|string $spell
-   *   Spell array or spell ID.
-   * @param array<string, mixed> $metadata
-   *   Additional response metadata to overlay.
+   * @param array<string, mixed> $spell
+   *   Registry-backed spell record.
    *
    * @return array<string, mixed>
    *   Focus spell response entry.
    */
-  private function resolveFocusSpellEntry(array|string $spell, array $metadata = []): array {
-    $base = is_array($spell) ? $spell : ['id' => $spell];
-    $spell_id = (string) ($base['id'] ?? '');
-    $resolved = $spell_id !== '' ? $this->spellCatalog->getSpell($spell_id) : NULL;
+  private function buildFocusSpellEntry(array $spell): array {
+    $focus_class = $this->inferFocusClass($spell);
+    $book_code = $this->normalizeSourceBookCode((string) ($spell['source_book'] ?? ''));
 
-    $entry = array_merge($base, $resolved ?? []);
-    if (!isset($entry['name']) && $spell_id !== '') {
-      $entry['name'] = ucwords(str_replace(['-', '_'], ' ', $spell_id));
+    $entry = $spell + [
+      'class' => $focus_class,
+      'source_book' => $book_code,
+    ];
+
+    if ($focus_class === 'witch') {
+      $entry['hex_type'] = !empty($spell['is_cantrip']) ? 'hex_cantrip' : 'regular_hex';
+    }
+    if ($focus_class === 'ranger') {
+      $entry['pool_info'] = FocusSpellMetadata::getRangerPoolInfo();
+    }
+    if (!empty($spell['focus_domain']) && $spell['focus_domain'] !== 'none') {
+      $entry['focus_domain'] = $spell['focus_domain'];
     }
 
-    return array_merge($entry, $metadata);
+    return $entry;
+  }
+
+  /**
+   * Determine whether a focus spell entry matches the requested filters.
+   *
+   * @param array<string, mixed> $item
+   *   Prepared focus spell entry.
+   * @param string $source_book
+   *   Requested source book filter.
+   * @param string $class_filter
+   *   Requested class filter.
+   */
+  private function matchesFilters(array $item, string $source_book, string $class_filter): bool {
+    if ($source_book !== 'all' && (string) ($item['source_book'] ?? '') !== $source_book) {
+      return FALSE;
+    }
+    if ($class_filter !== 'all' && (string) ($item['class'] ?? '') !== $class_filter) {
+      return FALSE;
+    }
+    return TRUE;
+  }
+
+  /**
+   * Normalize registry source-book metadata to the API filter values.
+   */
+  private function normalizeSourceBookCode(string $source_book): string {
+    return match ($source_book) {
+      'advanced_players_guide' => 'apg',
+      'secrets_of_magic' => 'som',
+      default => 'crb',
+    };
+  }
+
+  /**
+   * Infer a focus spell's owning class from registry metadata.
+   *
+   * @param array<string, mixed> $spell
+   *   Registry-backed spell record.
+   */
+  private function inferFocusClass(array $spell): string {
+    $focus_class = strtolower((string) ($spell['focus_class'] ?? ''));
+    if ($focus_class !== '' && $focus_class !== 'none') {
+      return $focus_class;
+    }
+
+    $traits = array_map(
+      static fn($trait): string => strtolower(str_replace('_', '-', (string) $trait)),
+      is_array($spell['traits'] ?? NULL) ? $spell['traits'] : []
+    );
+    foreach (['magus', 'summoner', 'witch', 'oracle', 'bard', 'ranger', 'wizard', 'champion', 'cleric', 'druid', 'monk', 'sorcerer'] as $candidate) {
+      if (in_array($candidate, $traits, TRUE)) {
+        return $candidate;
+      }
+    }
+
+    return 'none';
   }
 
 }

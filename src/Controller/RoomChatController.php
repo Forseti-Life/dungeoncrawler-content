@@ -246,14 +246,7 @@ class RoomChatController extends ControllerBase {
         ],
       ]);
 
-      $emit([
-        'type' => 'thinking',
-        'data' => [
-          'message' => 'Game Master is thinking...',
-          'phase' => 'gathering-context',
-          'client_request_id' => $client_request_id,
-        ],
-      ]);
+      $this->emitProgressUpdate($emit, $client_request_id, 'room_request_started');
 
       try {
         $result = $this->chatService->postMessage(
@@ -265,7 +258,15 @@ class RoomChatController extends ControllerBase {
           $character_id,
           $channel,
           TRUE,
-          FALSE
+          FALSE,
+          function (array $progress) use ($emit, $client_request_id): void {
+            $this->emitProgressUpdate(
+              $emit,
+              $client_request_id,
+              (string) ($progress['stage'] ?? ''),
+              is_array($progress['context'] ?? NULL) ? $progress['context'] : []
+            );
+          }
         );
 
         if (!empty($result['gm_response'])) {
@@ -343,11 +344,7 @@ class RoomChatController extends ControllerBase {
 
       $emit([
         'type' => 'thinking',
-        'data' => [
-          'message' => 'Game Master is catching up...',
-          'phase' => 'queued-room-analysis',
-          'client_request_id' => $client_request_id,
-        ],
+        'data' => $this->buildProgressEventData('queued_continuation_started', $client_request_id),
       ]);
 
       try {
@@ -355,7 +352,15 @@ class RoomChatController extends ControllerBase {
           $campaign_id,
           $room_id,
           $character_id,
-          TRUE
+          TRUE,
+          function (array $progress) use ($emit, $client_request_id): void {
+            $this->emitProgressUpdate(
+              $emit,
+              $client_request_id,
+              (string) ($progress['stage'] ?? ''),
+              is_array($progress['context'] ?? NULL) ? $progress['context'] : []
+            );
+          }
         );
 
         if (!empty($result['gm_response'])) {
@@ -410,6 +415,76 @@ class RoomChatController extends ControllerBase {
     $response->headers->set('X-Accel-Buffering', 'no');
 
     return $response;
+  }
+
+  /**
+   * Emit a client-facing progress event when a stage maps to visible status text.
+   */
+  protected function emitProgressUpdate(callable $emit, string $client_request_id, string $stage, array $context = []): void {
+    $payload = $this->buildProgressEventData($stage, $client_request_id, $context);
+    if ($payload === NULL) {
+      return;
+    }
+
+    $emit([
+      'type' => 'thinking',
+      'data' => $payload,
+    ]);
+  }
+
+  /**
+   * Convert service/controller progress stages into UI-facing progress text.
+   */
+  protected function buildProgressEventData(string $stage, string $client_request_id, array $context = []): ?array {
+    switch ($stage) {
+      case 'room_request_started':
+        return [
+          'message' => 'Game Master is reviewing the room...',
+          'phase' => 'reviewing-room',
+          'client_request_id' => $client_request_id,
+        ];
+
+      case 'conversation_persisted':
+        return [
+          'message' => 'Game Master is updating the conversation state...',
+          'phase' => 'updating-conversation',
+          'client_request_id' => $client_request_id,
+        ];
+
+      case 'conversation_bridged':
+        return [
+          'message' => 'Game Master is syncing the scene context...',
+          'phase' => 'syncing-context',
+          'client_request_id' => $client_request_id,
+        ];
+
+      case 'npc_context_prepared':
+        return [
+          'message' => 'Game Master is checking who reacts nearby...',
+          'phase' => 'checking-reactions',
+          'client_request_id' => $client_request_id,
+        ];
+
+      case 'gm_reply_generating':
+        return [
+          'message' => 'Game Master is drafting a response...',
+          'phase' => 'drafting-response',
+          'client_request_id' => $client_request_id,
+        ];
+
+      case 'queued_continuation_started':
+      case 'queued_messages_loaded':
+        $queued_count = max(1, (int) ($context['queued_player_count'] ?? 1));
+        return [
+          'message' => $queued_count === 1
+            ? 'Game Master is reviewing the queued message...'
+            : "Game Master is reviewing {$queued_count} queued messages...",
+          'phase' => 'reviewing-queue',
+          'client_request_id' => $client_request_id,
+        ];
+    }
+
+    return NULL;
   }
 
   /**
