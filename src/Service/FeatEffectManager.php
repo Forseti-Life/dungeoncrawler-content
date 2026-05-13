@@ -511,10 +511,7 @@ class FeatEffectManager {
           $effects['applied_feats'][] = $feat_id;
           break;
 
-        case 'crossbow-ace':
-        case 'hunted-shot':
         case 'monster-hunter':
-        case 'twin-takedown':
           $label = $this->humanizeFeatId($feat_id);
           $effects['available_actions']['at_will'][] = [
             'id' => $feat_id,
@@ -523,6 +520,46 @@ class FeatEffectManager {
             'description' => $label . ': first-pass feat action.',
           ];
           $effects['notes'][] = $label . ': explicit class-feat action handler applied.';
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'hunted-shot':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'hunted-shot',
+            'name' => 'Hunted Shot',
+            'action_cost' => 1,
+            'activity' => 'two_ranged_strikes',
+            'traits' => ['Flourish'],
+            'target_requirement' => 'hunted_prey',
+            'volley_weapons_reduce_to_one_strike' => TRUE,
+            'combine_damage_for_resistance_and_weakness_on_two_hits' => TRUE,
+            'map_attack_count' => 2,
+            'description' => 'Make two ranged Strikes against your hunted prey, or one if using a volley weapon. If both hit, combine damage for resistances and weaknesses.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'crossbow-ace':
+          $effects['feat_overrides']['crossbow-ace'] = [
+            'quick_draw_also_reloads_crossbow' => TRUE,
+            'loaded_crossbow_reload_requires_free_hand_draw' => FALSE,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'twin-takedown':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'twin-takedown',
+            'name' => 'Twin Takedown',
+            'action_cost' => 1,
+            'activity' => 'two_melee_strikes',
+            'traits' => ['Flourish'],
+            'weapon_requirement' => 'different_weapons',
+            'different_targets_required' => TRUE,
+            'second_strike_uses_normal_map' => TRUE,
+            'double_slice_damage_rule' => TRUE,
+            'description' => 'Make two Strikes with different weapons against different targets. The second Strike uses normal MAP, and Double Slice damage rules apply.',
+          ];
           $effects['applied_feats'][] = $feat_id;
           break;
 
@@ -780,6 +817,562 @@ class FeatEffectManager {
             'applies_to_next_spell_only' => TRUE,
             'description' => 'Metamagic: your next spell can be Sustained with a free action.',
           ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'bardic-lore':
+          $effects['feat_overrides']['bardic-lore'] = [
+            'can_attempt_lore_on_any_topic' => TRUE,
+            'uses_occultism_proficiency_for_bardic_lore_dc' => TRUE,
+            'roll_twice_take_better_on_lore_checks' => TRUE,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'lingering-composition':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'lingering-composition',
+            'name' => 'Lingering Composition',
+            'action_cost' => 1,
+            'activity' => 'performance_check_composition_extension',
+            'requirements' => ['composition_cantrip_duration_rounds' => 1],
+            'outcomes' => [
+              'critical_success' => 'extend_to_4_rounds',
+              'success' => 'extend_to_3_rounds',
+              'failure' => 'remain_1_round',
+              'critical_failure' => 'immediately_ends',
+            ],
+            'description' => 'Attempt a Performance check when casting a 1-round composition cantrip to extend its duration.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'versatile-performance':
+          $effects['feat_overrides']['versatile-performance'] = [
+            'skill_substitutions' => [
+              'make_an_impression' => 'Performance',
+              'lie' => 'Performance',
+              'demoralize' => 'Performance',
+            ],
+            'signature_spell_swap_uses_per_long_rest' => 1,
+          ];
+          $this->addLongRestLimitedAction(
+            $effects,
+            'versatile-performance-signature-swap',
+            'Versatile Performance Signature Swap',
+            'Once per long rest, swap one signature spell without leveling up.',
+            1,
+            (int) ($this->resolveFeatUsage($character_data, 'versatile-performance-signature-swap') ?? 0)
+          );
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'inspire-competence':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'inspire-competence',
+            'name' => 'Inspire Competence',
+            'action_cost' => 'free',
+            'activity' => 'composition_cantrip',
+            'range_feet' => 60,
+            'targets' => 'one_ally',
+            'skill_check_status_bonus' => 2,
+            'duration' => 'until_end_of_your_next_turn',
+            'sustain_duration' => 'up_to_1_minute',
+            'description' => 'Composition cantrip: one ally within 60 feet gains a +2 status bonus to a skill check before the end of your next turn; Sustain up to 1 minute.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'melodious-spell':
+          $effects['spell_augments']['metamagic'][] = [
+            'id' => 'melodious-spell',
+            'name' => 'Melodious Spell',
+            'applies_to_next_spell_only' => TRUE,
+            'remove_trait' => 'manipulate',
+            'add_trait' => 'auditory',
+            'somatic_components_do_not_require_free_hand' => TRUE,
+            'description' => 'Your next spell loses manipulate, gains auditory, and ignores the free-hand requirement for somatic components.',
+          ];
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'melodious-spell',
+            'name' => 'Melodious Spell',
+            'action_cost' => 1,
+            'activity' => 'metamagic',
+            'applies_to_next_spell_only' => TRUE,
+            'description' => 'Metamagic: your next spell becomes an auditory performance instead of requiring manipulate.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'triple-time':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'triple-time',
+            'name' => 'Triple Time',
+            'action_cost' => 'free',
+            'activity' => 'composition_cantrip',
+            'range_feet' => 60,
+            'targets' => 'all_allies_in_emanation',
+            'speed_status_bonus' => 10,
+            'sustain_duration' => 'while_sustained_up_to_1_minute',
+            'description' => 'Composition cantrip: allies in a 60-foot emanation gain a +10-foot status bonus to Speed while you Sustain the cantrip.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'versatile-signature':
+          $effects['feat_overrides']['versatile-signature'] = [
+            'signature_spell_swap_uses_per_long_rest' => 1,
+            'swap_timing' => 'daily_preparations',
+          ];
+          $this->addLongRestLimitedAction(
+            $effects,
+            'versatile-signature',
+            'Versatile Signature',
+            'Once per long rest during daily preparations, swap your designated signature spells.',
+            1,
+            (int) ($this->resolveFeatUsage($character_data, 'versatile-signature') ?? 0)
+          );
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'dirge-of-doom':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'dirge-of-doom',
+            'name' => 'Dirge of Doom',
+            'action_cost' => 'free',
+            'activity' => 'composition_cantrip',
+            'range_feet' => 30,
+            'targets' => 'all_enemies_in_emanation',
+            'condition' => 'frightened_1',
+            'reapplies_each_turn_in_aura' => TRUE,
+            'sustain_duration' => 'while_sustained_up_to_1_minute',
+            'description' => 'Composition cantrip: enemies in a 30-foot emanation are frightened 1 and become frightened 1 again if they end their turn in the aura.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'harmonize':
+          $effects['spell_augments']['metamagic'][] = [
+            'id' => 'harmonize',
+            'name' => 'Harmonize',
+            'applies_to_next_spell_only' => TRUE,
+            'requires_composition_spell' => TRUE,
+            'next_composition_does_not_end_existing_composition' => TRUE,
+            'allows_two_active_compositions' => TRUE,
+            'description' => 'Your next composition spell does not end an existing composition, allowing two compositions at once.',
+          ];
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'harmonize',
+            'name' => 'Harmonize',
+            'action_cost' => 1,
+            'activity' => 'metamagic',
+            'applies_to_next_spell_only' => TRUE,
+            'description' => 'Metamagic: your next composition spell can coexist with an already active composition.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'steady-spellcasting':
+          $effects['feat_overrides']['steady-spellcasting'] = [
+            'trigger' => 'reaction_would_disrupt_spellcasting',
+            'flat_check_dc' => 15,
+            'success_prevents_disruption' => TRUE,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'inspire-defense':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'inspire-defense',
+            'name' => 'Inspire Defense',
+            'action_cost' => 'free',
+            'activity' => 'composition_cantrip',
+            'range_feet' => 60,
+            'targets' => 'all_allies_in_emanation',
+            'ac_status_bonus' => 1,
+            'saving_throw_status_bonus' => 1,
+            'sustain_duration' => 'while_sustained',
+            'description' => 'Composition cantrip: allies in a 60-foot emanation gain a +1 status bonus to AC and saving throws while you Sustain the cantrip.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'inspire-heroics':
+          $effects['spell_augments']['metamagic'][] = [
+            'id' => 'inspire-heroics',
+            'name' => 'Inspire Heroics',
+            'applies_to_next_spell_only' => TRUE,
+            'eligible_spells' => ['inspire-courage', 'inspire-competence'],
+            'check' => 'performance_vs_composition_dc',
+            'success_bonus_increase' => 1,
+            'critical_success_bonus_increase' => 2,
+            'description' => 'Roll Performance against the composition DC to increase the bonus from your next Inspire Courage or Inspire Competence.',
+          ];
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'inspire-heroics',
+            'name' => 'Inspire Heroics',
+            'action_cost' => 1,
+            'activity' => 'metamagic',
+            'applies_to_next_spell_only' => TRUE,
+            'description' => 'Metamagic: empower your next Inspire Courage or Inspire Competence with a Performance check.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'house-of-imaginary-walls':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'house-of-imaginary-walls',
+            'name' => 'House of Imaginary Walls',
+            'action_cost' => 1,
+            'activity' => 'composition_cantrip',
+            'wall_length_feet' => 10,
+            'placement' => 'adjacent',
+            'save_type' => 'will',
+            'on_failed_save' => 'treat_wall_as_solid_barrier_for_1_round',
+            'description' => 'Composition cantrip: create an adjacent illusory 10-foot wall that creatures failing a Will save treat as solid for 1 round.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'quickened-casting-bard':
+          $effects['feat_overrides']['quickened-casting-bard'] = [
+            'applies_to_next_spell_only' => TRUE,
+            'spell_tradition' => 'occult',
+            'eligible_normal_action_costs' => [1, 2],
+            'action_cost_reduction' => 1,
+            'minimum_action_cost' => 1,
+            'excludes_10th_rank_slots' => TRUE,
+            'uses_per_long_rest' => 1,
+          ];
+          $this->addLongRestLimitedAction(
+            $effects,
+            'quickened-casting-bard',
+            'Quickened Casting',
+            'Once per long rest, reduce the casting time of your next 1-action or 2-action occult spell by 1 action (minimum 1), excluding 10th-rank slots.',
+            1,
+            (int) ($this->resolveFeatUsage($character_data, 'quickened-casting-bard') ?? 0)
+          );
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'eclectic-skill':
+          $effects['feat_overrides']['eclectic-skill'] = [
+            'treat_all_skills_as_trained' => TRUE,
+            'use_versatile_performance_when_untrained' => TRUE,
+            'untrained_improvisation_reduces_non_lore_skill_dcs' => TRUE,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'soothing-ballad':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'soothing-ballad',
+            'name' => 'Soothing Ballad',
+            'action_cost' => 2,
+            'activity' => 'focus_spell',
+            'range_feet' => 30,
+            'targets' => 'all_allies_in_emanation',
+            'healing_formula' => '1d8 + charisma_modifier',
+            'heightened_healing_per_rank' => '1d8',
+            'fear_counteract_effect' => TRUE,
+            'description' => 'Focus spell: allies in a 30-foot emanation regain 1d8 + Charisma modifier Hit Points and gain soothe-style counteract protection against fear effects.',
+          ];
+          $effects['feat_overrides']['soothing-ballad'] = [
+            'focus_cost' => 1,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'unusual-composition':
+          $effects['spell_augments']['metamagic'][] = [
+            'id' => 'unusual-composition',
+            'name' => 'Unusual Composition',
+            'applies_to_next_spell_only' => TRUE,
+            'requires_composition_spell' => TRUE,
+            'can_swap_visual_and_auditory_triggers' => TRUE,
+            'description' => 'Your next composition can swap a visual trigger for an auditory trigger, or vice versa.',
+          ];
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'unusual-composition',
+            'name' => 'Unusual Composition',
+            'action_cost' => 1,
+            'activity' => 'metamagic',
+            'applies_to_next_spell_only' => TRUE,
+            'description' => 'Metamagic: change the sensory trigger of your next composition between visual and auditory.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'inspire-magnificence':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'inspire-magnificence',
+            'name' => 'Inspire Magnificence',
+            'action_cost' => 'free',
+            'activity' => 'composition_cantrip',
+            'range_feet' => 60,
+            'targets' => 'all_allies_in_emanation',
+            'skill_check_status_bonus' => 2,
+            'saves_against_magic_status_bonus' => 2,
+            'critical_sustain_bonus' => 3,
+            'sustain_duration' => 'while_sustained',
+            'description' => 'Composition cantrip: allies in a 60-foot emanation gain +2 status to skill checks and saves against magic while you Sustain; on a critical success to Sustain, the bonus becomes +3.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'polymath-greater':
+          $effects['feat_overrides']['polymath-greater'] = [
+            'versatile_performance_applies_to_any_skill_check' => TRUE,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'allegro':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'allegro',
+            'name' => 'Allegro',
+            'action_cost' => 'free',
+            'activity' => 'composition_cantrip',
+            'range_feet' => 60,
+            'targets' => 'one_ally',
+            'reflex_status_bonus' => 1,
+            'free_step_once_per_turn' => TRUE,
+            'sustain_duration' => 'while_sustained',
+            'description' => 'Composition cantrip: one ally within 60 feet gains +1 status to Reflex saves and can Step as a free action once each turn while you Sustain.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'shared-assault':
+          $effects['feat_overrides']['shared-assault'] = [
+            'requires_active_composition' => ['inspire-courage', 'inspire-defense'],
+            'trigger' => 'critical_success_occult_spell_attack',
+            'effect' => 'target_flat_footed_to_next_strike_from_benefiting_ally',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'deep-lore':
+          $effects['feat_overrides']['deep-lore'] = [
+            'bardic_lore_identify_spells_via_occultism' => TRUE,
+            'bardic_lore_identify_creatures_via_occultism' => TRUE,
+            'bardic_lore_identify_magic_items_via_occultism' => TRUE,
+            'treat_occultism_as_highest_available_lore_specialization' => TRUE,
+          ];
+          $effects['conditional_modifiers']['skills'][] = [
+            'skill' => 'Lore',
+            'bonus' => 2,
+            'bonus_type' => 'circumstance',
+            'context' => 'all Lore checks',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'healing-hands':
+          $effects['feat_overrides']['healing-hands'] = [
+            'heal_spell_bonus_healing_equals_level' => TRUE,
+            'applies_to_divine_font_and_regular_slots' => TRUE,
+            'three_action_heal_applies_bonus_to_each_target' => TRUE,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'holy-castigation':
+          $effects['feat_overrides']['holy-castigation'] = [
+            'heal_also_damages_undead' => '1d6',
+            'ignores_undead_harm_resistance' => TRUE,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'reach-spell-cleric':
+          $effects['spell_augments']['metamagic'][] = [
+            'id' => 'reach-spell-cleric',
+            'name' => 'Reach Spell',
+            'description' => 'Increase the range of your next spell by 30 feet, or change touch range to 30 feet.',
+            'range_bonus_feet' => 30,
+            'touch_range_to_feet' => 30,
+            'applies_to_next_spell_only' => TRUE,
+          ];
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'reach-spell-cleric',
+            'name' => 'Reach Spell',
+            'action_cost' => 1,
+            'activity' => 'metamagic',
+            'applies_to_next_spell_only' => TRUE,
+            'description' => 'Metamagic: increase the range of your next spell by 30 feet, or extend touch range to 30 feet.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'widen-spell-cleric':
+          $effects['spell_augments']['metamagic'][] = [
+            'id' => 'widen-spell-cleric',
+            'name' => 'Widen Spell',
+            'description' => 'Increase the area of your next qualifying burst, cone, or line spell.',
+            'eligible_shapes' => ['burst', 'cone', 'line'],
+            'applies_to_next_spell_only' => TRUE,
+            'excludes_duration_spells' => TRUE,
+            'burst_minimum_radius_feet' => 10,
+            'burst_radius_bonus_feet' => 5,
+            'short_cone_or_line_threshold_feet' => 15,
+            'short_cone_or_line_bonus_feet' => 5,
+            'long_cone_or_line_bonus_feet' => 10,
+          ];
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'widen-spell-cleric',
+            'name' => 'Widen Spell',
+            'action_cost' => 1,
+            'activity' => 'metamagic',
+            'applies_to_next_spell_only' => TRUE,
+            'description' => 'Metamagic: widen the area of your next qualifying burst, cone, or line spell.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'communal-healing':
+          $effects['feat_overrides']['communal-healing'] = [
+            'trigger' => 'single_target_heal_on_living_creature_not_self',
+            'regain_hp_equal_to_spell_lowest_damage_die' => TRUE,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'sap-life':
+          $effects['feat_overrides']['sap-life'] = [
+            'trigger' => 'harm_spell_damages_at_least_one_creature',
+            'regain_hp_equal_to_spell_level' => TRUE,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'dangerous-sorcery':
+          $effects['feat_overrides']['dangerous-sorcery'] = [
+            'trigger' => 'cast_damaging_spell_from_spell_slot_without_duration',
+            'damage_bonus_equals_spell_rank' => TRUE,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'familiar-sorcerer':
+          $this->addSelectionGrant($effects, $feat_id, 'familiar_creation', 1, 'Create a familiar via the Familiar API.');
+          $effects['notes'][] = 'Familiar: use POST /api/character/{id}/familiar to create. Daily abilities selected each day.';
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'reach-spell-sorcerer':
+          $effects['spell_augments']['metamagic'][] = [
+            'id' => 'reach-spell-sorcerer',
+            'name' => 'Reach Spell',
+            'description' => 'Increase the range of your next spell by 30 feet, or change touch range to 30 feet.',
+            'range_bonus_feet' => 30,
+            'touch_range_to_feet' => 30,
+            'applies_to_next_spell_only' => TRUE,
+          ];
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'reach-spell-sorcerer',
+            'name' => 'Reach Spell',
+            'action_cost' => 1,
+            'activity' => 'metamagic',
+            'applies_to_next_spell_only' => TRUE,
+            'description' => 'Metamagic: increase the range of your next spell by 30 feet, or extend touch range to 30 feet.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'widen-spell-sorcerer':
+          $effects['spell_augments']['metamagic'][] = [
+            'id' => 'widen-spell-sorcerer',
+            'name' => 'Widen Spell',
+            'description' => 'Increase the area of your next qualifying burst, cone, or line spell.',
+            'eligible_shapes' => ['burst', 'cone', 'line'],
+            'applies_to_next_spell_only' => TRUE,
+            'excludes_duration_spells' => TRUE,
+            'burst_minimum_radius_feet' => 10,
+            'burst_radius_bonus_feet' => 5,
+            'short_cone_or_line_threshold_feet' => 15,
+            'short_cone_or_line_bonus_feet' => 5,
+            'long_cone_or_line_bonus_feet' => 10,
+          ];
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'widen-spell-sorcerer',
+            'name' => 'Widen Spell',
+            'action_cost' => 1,
+            'activity' => 'metamagic',
+            'applies_to_next_spell_only' => TRUE,
+            'description' => 'Metamagic: widen the area of your next qualifying burst, cone, or line spell.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'enhanced-familiar-sorcerer':
+          $effects['feat_overrides']['enhanced-familiar-sorcerer'] = [
+            'additional_familiar_abilities_per_day' => 2,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'steady-spellcasting-sorcerer':
+          $effects['feat_overrides']['steady-spellcasting-sorcerer'] = [
+            'trigger' => 'reaction_would_disrupt_spellcasting',
+            'flat_check_dc' => 15,
+            'success_prevents_disruption' => TRUE,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'instinctive-obfuscation':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'instinctive-obfuscation',
+            'name' => 'Instinctive Obfuscation',
+            'action_cost' => 'reaction',
+            'trigger' => 'creature_targets_you_with_spell',
+            'activity' => 'misdirect_spell',
+            'check' => 'deception_vs_caster_perception_dc',
+            'requires_alternate_target_in_range' => TRUE,
+            'description' => 'Trigger: a creature targets you with a spell. Attempt to misdirect the spell to a different valid target using Deception against the caster\'s Perception DC.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'overwhelming-energy':
+          $effects['spell_augments']['metamagic'][] = [
+            'id' => 'overwhelming-energy',
+            'name' => 'Overwhelming Energy',
+            'applies_to_next_spell_only' => TRUE,
+            'requires_energy_damage_spell' => TRUE,
+            'eligible_damage_types' => ['acid', 'cold', 'electricity', 'fire', 'sonic'],
+            'ignore_resistance_up_to' => 10,
+            'description' => 'Your next qualifying energy spell ignores up to 10 points of matching resistance.',
+          ];
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'overwhelming-energy',
+            'name' => 'Overwhelming Energy',
+            'action_cost' => 1,
+            'activity' => 'metamagic',
+            'applies_to_next_spell_only' => TRUE,
+            'description' => 'Metamagic: your next acid, cold, electricity, fire, or sonic spell ignores up to 10 resistance.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'quickened-casting-sorcerer':
+          $effects['feat_overrides']['quickened-casting-sorcerer'] = [
+            'applies_to_next_spell_only' => TRUE,
+            'spell_level_max' => 3,
+            'action_cost_reduction' => 1,
+            'minimum_action_cost' => 1,
+            'cannot_apply_to_already_reduced_casting_time' => TRUE,
+            'uses_per_long_rest' => 1,
+          ];
+          $this->addLongRestLimitedAction(
+            $effects,
+            'quickened-casting-sorcerer',
+            'Quickened Casting',
+            'Once per long rest, reduce the casting time of your next 3rd-level-or-lower spell by 1 action, to a minimum of 1 action.',
+            1,
+            (int) ($this->resolveFeatUsage($character_data, 'quickened-casting-sorcerer') ?? 0)
+          );
           $effects['applied_feats'][] = $feat_id;
           break;
 
