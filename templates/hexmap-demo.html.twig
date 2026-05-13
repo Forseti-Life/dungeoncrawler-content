@@ -13,32 +13,63 @@
   <div class="game-shell" data-game-shell data-game-shell-default="chat">
     <div class="game-shell__tabs" role="tablist" aria-label="{{ 'Campaign play views'|t }}">
       <button id="game-tab-map" class="game-shell__tab" type="button" role="tab" aria-selected="false" aria-controls="game-panel-map" data-game-tab="map">
-        <span class="game-shell__tab-icon">&#x1F5FA;</span>{{ 'Map'|t }}
+        {{ 'Map'|t }}
       </button>
       <button id="game-tab-chat" class="game-shell__tab game-shell__tab--active" type="button" role="tab" aria-selected="true" aria-controls="game-panel-chat" data-game-tab="chat">
-        <span class="game-shell__tab-icon">&#x1F4AC;</span>{{ 'Chat'|t }}
+        {{ 'Chat'|t }}
       </button>
       <button id="game-tab-view" class="game-shell__tab" type="button" role="tab" aria-selected="false" aria-controls="game-panel-view" data-game-tab="view">
-        <span class="game-shell__tab-icon">&#x1F5BC;</span>{{ 'View'|t }}
+        {{ 'View'|t }}
       </button>
       <button id="game-tab-character" class="game-shell__tab" type="button" role="tab" aria-selected="false" aria-controls="game-panel-character" data-game-tab="character">
-        <span class="game-shell__tab-icon">&#x1F464;</span>{{ 'Character'|t }}
+        {{ 'Character'|t }}
       </button>
       <div class="game-shell__tab-actions" role="presentation">
         {% if is_admin %}
-        <button id="debug-panel-toggle" class="btn btn-icon btn--debug-toggle" type="button" title="{{ 'Toggle dev panels'|t }}" aria-pressed="false">{{ '🛠'|t }}</button>
+        <button id="debug-panel-toggle" class="btn btn-icon btn--debug-toggle" type="button" title="{{ 'Toggle dev panels'|t }}" aria-pressed="false">{{ 'Dev Panels'|t }}</button>
         {% endif %}
         <button id="fullscreen-toggle" class="btn btn-primary btn--gameplay-fullscreen" type="button" title="{{ 'Enter fullscreen'|t }}" aria-pressed="false">
-          <span class="btn--gameplay-fullscreen__icon" data-fullscreen-icon>{{ '⛶'|t }}</span>
           <span class="btn--gameplay-fullscreen__label" data-fullscreen-label>{{ 'Enter Fullscreen'|t }}</span>
         </button>
       </div>
     </div>
 
+    <div class="game-shell__workspace">
+      <aside class="game-shell__action-rail" id="hexmap-action-rail" aria-label="{{ 'Player action bar'|t }}">
+        <div class="action-rail__header">
+          <p class="eyebrow">{{ 'Action Bar'|t }}</p>
+          <h3 id="action-rail-actor-name">{{ 'No actor selected'|t }}</h3>
+          <p class="action-rail__status" id="action-rail-status">{{ 'Select your character to unlock direct actions.'|t }}</p>
+        </div>
+
+        <div class="action-rail__categories" id="action-rail-categories">
+          <button type="button" class="action-rail__category" data-action-rail-category="attack">{{ 'Attack'|t }}</button>
+          <button type="button" class="action-rail__category" data-action-rail-category="navigate">{{ 'Navigate'|t }}</button>
+          <button type="button" class="action-rail__category" data-action-rail-direct="interact">{{ 'Interact'|t }}</button>
+          <button type="button" class="action-rail__category" data-action-rail-category="spells">{{ 'Spells'|t }}</button>
+          <button type="button" class="action-rail__category" data-action-rail-category="consumables">{{ 'Consumables'|t }}</button>
+          <button type="button" class="action-rail__category" data-action-rail-category="skills">{{ 'Skills'|t }}</button>
+          <button type="button" class="action-rail__category" data-action-rail-category="feats">{{ 'Feats'|t }}</button>
+          <button type="button" class="action-rail__category action-rail__category--alert" data-action-rail-direct="end-turn">{{ 'End Turn'|t }}</button>
+        </div>
+
+        <div class="action-rail__panel">
+          <div class="action-rail__panel-header">
+            <h4 id="action-rail-panel-title">{{ 'Quick actions'|t }}</h4>
+            <span class="chip chip-ghost" id="action-rail-panel-chip">{{ 'Direct'|t }}</span>
+          </div>
+          <div class="action-rail__panel-body" id="action-rail-panel-body">
+            <div class="action-rail__empty">
+              <p>{{ 'Choose a category to open direct player actions without using chat.'|t }}</p>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <div class="game-shell__content">
     <div class="game-shell__panel" id="game-panel-map" role="tabpanel" aria-labelledby="game-tab-map" hidden>
       <div class="game-shell__placeholder-panel">
         <div class="game-shell__placeholder-card">
-          <span class="game-shell__placeholder-icon">&#x1F6A7;</span>
           <h3>{{ 'Under Construction'|t }}</h3>
           <p>{{ 'The tactical map tab is being rebuilt. Use Chat for play and View for generated room scenes.'|t }}</p>
         </div>
@@ -92,18 +123,18 @@
           <h4>{{ 'Actions'|t }}</h4>
         </div>
         <div class="exploration-actions__buttons">
-          <button id="action-move" class="btn btn-action" data-action="move">{{ '🚶 Move'|t }}</button>
-          <button id="action-interact" class="btn btn-action" data-action="interact">{{ '🤝 Interact'|t }}</button>
-          <button id="action-talk" class="btn btn-action" data-action="talk">{{ '💬 Talk'|t }}</button>
-          <button id="action-search" class="btn btn-action" data-action="search">{{ '🔍 Search'|t }}</button>
-          <button id="action-rest" class="btn btn-action" data-action="rest">{{ '🛌 Rest'|t }}</button>
+          <button id="action-move" class="btn btn-action" data-action="move">{{ 'Navigate'|t }}</button>
+          <button id="action-interact" class="btn btn-action" data-action="interact">{{ 'Interact'|t }}</button>
+          <button id="action-talk" class="btn btn-action" data-action="talk">{{ 'Talk'|t }}</button>
+          <button id="action-search" class="btn btn-action" data-action="search">{{ 'Search'|t }}</button>
+          <button id="action-rest" class="btn btn-action" data-action="rest">{{ 'Rest'|t }}</button>
         </div>
       </div>
 
       {# Encounter-mode action buttons (managed by GameCoordinator) #}
       <div id="encounter-actions" class="encounter-actions" style="display:none;">
-        <button id="action-attack" class="btn btn-action btn-action--attack" data-action="attack">{{ '⚔️ Strike'|t }}</button>
-        <button id="end-turn" class="btn btn-action btn-action--end" data-action="end_turn">{{ '⏭️ End Turn'|t }}</button>
+        <button id="action-attack" class="btn btn-action btn-action--attack" data-action="attack">{{ 'Strike'|t }}</button>
+        <button id="end-turn" class="btn btn-action btn-action--end" data-action="end_turn">{{ 'End Turn'|t }}</button>
       </div>
 
       <div id="turn-hud" class="turn-hud dc-is-hidden">
@@ -121,15 +152,15 @@
         </div>
 
         <div id="turn-action-chips" class="turn-hud__actions">
-          <span class="chip chip-ghost">{{ 'Move'|t }}</span>
+          <span class="chip chip-ghost">{{ 'Navigate'|t }}</span>
           <span class="chip chip-ghost">{{ 'Strike'|t }}</span>
           <span class="chip chip-ghost">{{ 'Cast / Skill'|t }}</span>
           <span class="chip chip-end">{{ 'End Turn'|t }}</span>
         </div>
 
         <div id="combat-controls" class="turn-hud__controls">
-          <button id="start-combat" class="btn btn-success">{{ '⚔️ Start Combat'|t }}</button>
-          <button id="end-combat" class="btn btn-warning dc-is-hidden">{{ '🛑 End Combat'|t }}</button>
+          <button id="start-combat" class="btn btn-success">{{ 'Start Combat'|t }}</button>
+          <button id="end-combat" class="btn btn-warning dc-is-hidden">{{ 'End Combat'|t }}</button>
         </div>
 
         <div id="initiative-tracker" class="initiative-tracker dc-is-hidden">
@@ -157,27 +188,16 @@
             <button id="chat-dock-toggle" class="btn btn-icon btn--chat-dock-toggle" title="{{ 'Collapse chat'|t }}" aria-expanded="true">{{ '▾'|t }}</button>
           </div>
           <div class="hexmap-chat__session-tabs" id="chat-session-tabs">
-            <button class="session-view-tab session-view-tab--active" data-view="room" title="Room dialogue &amp; NPC channels">
-              <span class="session-view-tab__icon">&#x1F4E2;</span>{{ 'Room'|t }}
-            </button>
-            <button class="session-view-tab" data-view="narrative" title="Your character's perception-filtered story">
-              <span class="session-view-tab__icon">&#x1F4D6;</span>{{ 'My Story'|t }}
-            </button>
-            <button class="session-view-tab" data-view="party" title="Party-only huddle chat">
-              <span class="session-view-tab__icon">&#x1F6E1;</span>{{ 'Party'|t }}
-            </button>
-            <button class="session-view-tab" data-view="gm-private" title="Secret actions only the GM sees">
-              <span class="session-view-tab__icon">&#x1F575;</span>{{ 'GM Secret'|t }}
-            </button>
-            <button class="session-view-tab" data-view="system-log" title="Dice rolls, checks &amp; mechanical results">
-              <span class="session-view-tab__icon">&#x1F3B2;</span>{{ 'Dice Log'|t }}
-            </button>
+            <button class="session-view-tab session-view-tab--active" data-view="room" title="Room dialogue &amp; NPC channels">{{ 'Room'|t }}</button>
+            <button class="session-view-tab" data-view="narrative" title="Your character's perception-filtered story">{{ 'My Story'|t }}</button>
+            <button class="session-view-tab" data-view="party" title="Party-only huddle chat">{{ 'Party'|t }}</button>
+            <button class="session-view-tab" data-view="gm-private" title="Secret actions only the GM sees">{{ 'GM Secret'|t }}</button>
+            <button class="session-view-tab" data-view="system-log" title="Dice rolls, checks &amp; mechanical results">{{ 'Dice Log'|t }}</button>
           </div>
           <div class="hexmap-chat__channels" id="chat-channel-tabs">
             <button class="chat-channel-tab chat-channel-tab--active" data-channel="room" title="Main room channel">{{ 'Room'|t }}</button>
           </div>
           <div class="hexmap-chat__channel-indicator" id="chat-channel-indicator" data-channel-type="room">
-            <span class="channel-indicator__icon">&#x1F4E2;</span>
             <span class="channel-indicator__label" id="chat-channel-label">{{ 'Room — Everyone can hear'|t }}</span>
           </div>
           <div class="hexmap-chat__summary" id="chat-summary">{{ 'Quick summary: Jumping to the latest part of the conversation.'|t }}</div>
@@ -205,7 +225,6 @@
           </div>
           <div class="room-view-panel__gallery" id="room-view-gallery" hidden></div>
           <div class="room-view-panel__placeholder" id="room-view-placeholder">
-            <span class="room-view-panel__placeholder-icon">&#x2728;</span>
             <p id="room-view-placeholder-text">{{ 'Generating scene gallery...'|t }}</p>
           </div>
           <template id="room-view-card-template">
@@ -232,18 +251,10 @@
 
   {# Sidebar Tab Bar #}
   <div class="sidebar-tabs" id="sidebar-tabs">
-    <button class="sidebar-tab sidebar-tab--active" data-panel="character">
-      <span class="sidebar-tab__icon">&#x1F4DC;</span>{{ 'Character'|t }}
-    </button>
-    <button class="sidebar-tab" data-panel="spells-feats">
-      <span class="sidebar-tab__icon">&#x2728;</span>{{ 'Spells & Feats'|t }}
-    </button>
-    <button class="sidebar-tab" data-panel="inventory">
-      <span class="sidebar-tab__icon">&#x1F392;</span>{{ 'Inventory'|t }}
-    </button>
-    <button class="sidebar-tab" data-panel="quests">
-      <span class="sidebar-tab__icon">&#x1F3AF;</span>{{ 'Quests'|t }}
-    </button>
+    <button class="sidebar-tab sidebar-tab--active" data-panel="character">{{ 'Character'|t }}</button>
+    <button class="sidebar-tab" data-panel="spells-feats">{{ 'Spells & Feats'|t }}</button>
+    <button class="sidebar-tab" data-panel="inventory">{{ 'Inventory'|t }}</button>
+    <button class="sidebar-tab" data-panel="quests">{{ 'Quests'|t }}</button>
   </div>
 
   {# === Character Tab Panel === #}
@@ -446,17 +457,14 @@
 
       <div class="inventory-panel__currency">
         <div class="currency-coin currency-coin--gp">
-          <span class="currency-coin__icon">&#x1FA99;</span>
           <span id="inv-gp" class="currency-coin__amount">0</span>
           <span class="currency-coin__label">{{ 'GP'|t }}</span>
         </div>
         <div class="currency-coin currency-coin--sp">
-          <span class="currency-coin__icon">&#x26AA;</span>
           <span id="inv-sp" class="currency-coin__amount">0</span>
           <span class="currency-coin__label">{{ 'SP'|t }}</span>
         </div>
         <div class="currency-coin currency-coin--cp">
-          <span class="currency-coin__icon">&#x1F7E4;</span>
           <span id="inv-cp" class="currency-coin__amount">0</span>
           <span class="currency-coin__label">{{ 'CP'|t }}</span>
         </div>
@@ -464,11 +472,11 @@
 
       <div class="inventory-panel__filters">
         <button class="inv-filter inv-filter--active" data-filter="all">{{ 'All'|t }}</button>
-        <button class="inv-filter" data-filter="weapon">{{ '⚔️ Weapons'|t }}</button>
-        <button class="inv-filter" data-filter="armor">{{ '🛡️ Armor'|t }}</button>
-        <button class="inv-filter" data-filter="consumable">{{ '🧪 Consumables'|t }}</button>
-        <button class="inv-filter" data-filter="utility">{{ '🧰 Utility'|t }}</button>
-        <button class="inv-filter" data-filter="misc">{{ '🦴 Misc'|t }}</button>
+        <button class="inv-filter" data-filter="weapon">{{ 'Weapons'|t }}</button>
+        <button class="inv-filter" data-filter="armor">{{ 'Armor'|t }}</button>
+        <button class="inv-filter" data-filter="consumable">{{ 'Consumables'|t }}</button>
+        <button class="inv-filter" data-filter="utility">{{ 'Utility'|t }}</button>
+        <button class="inv-filter" data-filter="misc">{{ 'Misc'|t }}</button>
       </div>
 
       <ul class="inventory-panel__list" id="inv-item-list">
@@ -504,6 +512,8 @@
       </div>
     </div>
   </div>
+      </div>
+    </div>
 
   <script>
   /* Safe Drupal.t() fallback for inline scripts that run before drupal.js loads */
@@ -1096,7 +1106,7 @@
         var qty  = li.dataset.qty || '';
         var bulk = li.dataset.bulk || (info && info.bulk != null ? String(info.bulk) : '');
         var desc = li.dataset.desc || (info && info.desc) || '';
-        var icon = { weapon: '⚔️', armor: '🛡️', consumable: '🧪', utility: '🧰', misc: '🦴' }[type] || '📦';
+        var icon = { weapon: 'W', armor: 'A', consumable: 'C', utility: 'U', misc: 'M' }[type] || 'I';
         var el = document.createElement('li');
         el.className = 'inv-item';
         el.dataset.type = type;

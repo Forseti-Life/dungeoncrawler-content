@@ -1,0 +1,308 @@
+/**
+ * @file
+ * Theme styling for the public spell catalogue page.
+ */
+
+.spellcatalogue-page {
+  color: var(--dc-text-primary);
+}
+
+.spellcatalogue-hero-card,
+.spellcatalogue-filter-card,
+.spellcatalogue-results-card,
+.spellcatalogue-entry {
+  background: linear-gradient(135deg, var(--dc-dungeon-stone), var(--dc-deep-cavern));
+  border: 1px solid color-mix(in srgb, var(--dc-torch-gold) 18%, transparent);
+  box-shadow: 0 16px 40px color-mix(in srgb, var(--dc-abyss-dark) 45%, transparent);
+}
+
+.spellcatalogue-hero-card {
+  overflow: hidden;
+  position: relative;
+}
+
+.spellcatalogue-hero-card::before {
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, var(--dc-torch-gold) 20%, transparent) 0%, transparent 34%),
+    linear-gradient(135deg, color-mix(in srgb, var(--bs-primary) 18%, transparent) 0%, transparent 55%);
+  content: "";
+  inset: 0;
+  position: absolute;
+  z-index: 0;
+}
+
+.spellcatalogue-hero-card .card-body,
+.spellcatalogue-filter-card .card-body,
+.spellcatalogue-results-card .card-body,
+.spellcatalogue-entry .card-body {
+  position: relative;
+  z-index: 1;
+}
+
+.spellcatalogue-eyebrow {
+  color: color-mix(in srgb, var(--dc-torch-gold) 80%, white);
+  letter-spacing: 0.08em;
+}
+
+.spellcatalogue-stat-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+}
+
+.spellcatalogue-stat-chip {
+  background: color-mix(in srgb, var(--dc-abyss-dark) 72%, transparent);
+  border: 1px solid color-mix(in srgb, var(--dc-torch-gold) 16%, transparent);
+  border-radius: var(--card-border-radius);
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-height: 6.5rem;
+  padding: 1rem 1.1rem;
+}
+
+.spellcatalogue-stat-label {
+  color: var(--dc-text-secondary);
+  font-size: 0.85rem;
+  text-transform: uppercase;
+}
+
+.spellcatalogue-stat-value {
+  color: color-mix(in srgb, var(--dc-torch-gold) 85%, white);
+  font-family: "Cinzel", serif;
+  font-size: clamp(1.4rem, 2vw, 2rem);
+  line-height: 1.1;
+}
+
+.spellcatalogue-filter-summary {
+  background: color-mix(in srgb, var(--dc-abyss-dark) 50%, transparent);
+  border: 1px solid color-mix(in srgb, var(--dc-torch-gold) 12%, transparent);
+  border-radius: var(--card-border-radius);
+  padding: 1rem 1.1rem;
+}
+
+.spellcatalogue-filter-pills,
+.spellcatalogue-badge-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.spellcatalogue-filter-pill,
+.spellcatalogue-badge {
+  border-radius: 999px;
+  display: inline-flex;
+  font-size: 0.85rem;
+  line-height: 1;
+  padding: 0.55rem 0.8rem;
+}
+
+.spellcatalogue-filter-pill {
+  background: color-mix(in srgb, var(--dc-torch-gold) 18%, transparent);
+  border: 1px solid color-mix(in srgb, var(--dc-torch-gold) 28%, transparent);
+  color: color-mix(in srgb, var(--dc-torch-gold) 85%, white);
+}
+
+.spellcatalogue-filter-card .form-label {
+  color: color-mix(in srgb, var(--dc-torch-gold) 75%, white);
+  font-weight: 600;
+}
+
+.spellcatalogue-filter-card .form-control,
+.spellcatalogue-filter-card .form-select {
+  background: color-mix(in srgb, var(--dc-abyss-dark) 80%, transparent);
+  border-color: color-mix(in srgb, var(--dc-torch-gold) 16%, transparent);
+  color: var(--dc-text-primary);
+}
+
+.spellcatalogue-filter-card .form-control::placeholder {
+  color: color-mix(in srgb, var(--dc-text-secondary) 88%, transparent);
+}
+
+.spellcatalogue-filter-card .form-control:focus,
+.spellcatalogue-filter-card .form-select:focus {
+  background: color-mix(in srgb, var(--dc-abyss-dark) 90%, transparent);
+  border-color: color-mix(in srgb, var(--dc-torch-gold) 52%, transparent);
+  box-shadow: 0 0 0 0.25rem color-mix(in srgb, var(--dc-torch-gold) 20%, transparent);
+  color: var(--dc-text-primary);
+}
+
+.spellcatalogue-entry {
+  overflow: hidden;
+  position: relative;
+}
+
+.spellcatalogue-entry::before {
+  content: "";
+  inset: 0 auto 0 0;
+  position: absolute;
+  width: 4px;
+  z-index: 0;
+}
+
+.spellcatalogue-entry--rarity-common::before {
+  background: var(--dc-rarity-common);
+}
+
+.spellcatalogue-entry--rarity-uncommon::before {
+  background: var(--dc-rarity-uncommon);
+}
+
+.spellcatalogue-entry--rarity-rare::before {
+  background: var(--dc-rarity-rare);
+}
+
+.spellcatalogue-entry__kicker {
+  color: color-mix(in srgb, var(--dc-torch-gold) 78%, white);
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.spellcatalogue-entry .card-title {
+  color: color-mix(in srgb, var(--dc-torch-gold) 84%, white);
+}
+
+.spellcatalogue-entry__subtitle,
+.spellcatalogue-entry__id-label,
+.spellcatalogue-pager__status {
+  color: var(--dc-text-secondary);
+}
+
+.spellcatalogue-entry__id-value {
+  color: var(--dc-text-primary);
+  font-family: "JetBrains Mono", "Fira Code", monospace;
+  font-size: 0.95rem;
+  word-break: break-word;
+}
+
+.spellcatalogue-entry__description {
+  color: color-mix(in srgb, var(--dc-text-primary) 92%, white);
+  font-size: 1.05rem;
+  line-height: 1.75;
+}
+
+.spellcatalogue-badge {
+  border: 1px solid transparent;
+  font-weight: 600;
+}
+
+.spellcatalogue-badge--type {
+  background: color-mix(in srgb, var(--bs-primary) 18%, transparent);
+  border-color: color-mix(in srgb, var(--bs-primary) 38%, transparent);
+  color: color-mix(in srgb, var(--bs-primary) 72%, white);
+}
+
+.spellcatalogue-badge--school {
+  background: color-mix(in srgb, var(--bs-purple) 16%, transparent);
+  border-color: color-mix(in srgb, var(--bs-purple) 36%, transparent);
+  color: color-mix(in srgb, var(--bs-purple) 72%, white);
+}
+
+.spellcatalogue-badge--tradition {
+  background: color-mix(in srgb, var(--bs-success) 14%, transparent);
+  border-color: color-mix(in srgb, var(--bs-success) 32%, transparent);
+  color: color-mix(in srgb, var(--bs-success) 70%, white);
+}
+
+.spellcatalogue-badge--rarity-common {
+  background: color-mix(in srgb, var(--dc-rarity-common) 16%, transparent);
+  border-color: color-mix(in srgb, var(--dc-rarity-common) 38%, transparent);
+  color: color-mix(in srgb, var(--dc-rarity-common) 88%, white);
+}
+
+.spellcatalogue-badge--rarity-uncommon {
+  background: color-mix(in srgb, var(--dc-rarity-uncommon) 16%, transparent);
+  border-color: color-mix(in srgb, var(--dc-rarity-uncommon) 38%, transparent);
+  color: color-mix(in srgb, var(--dc-rarity-uncommon) 82%, white);
+}
+
+.spellcatalogue-badge--rarity-rare {
+  background: color-mix(in srgb, var(--dc-rarity-rare) 16%, transparent);
+  border-color: color-mix(in srgb, var(--dc-rarity-rare) 38%, transparent);
+  color: color-mix(in srgb, var(--dc-rarity-rare) 82%, white);
+}
+
+.spellcatalogue-metadata-list {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.spellcatalogue-metadata-row {
+  background: color-mix(in srgb, var(--dc-abyss-dark) 46%, transparent);
+  border: 1px solid color-mix(in srgb, var(--dc-torch-gold) 8%, transparent);
+  border-radius: var(--card-border-radius);
+  padding: 0.9rem 1rem;
+}
+
+.spellcatalogue-metadata-row dt {
+  color: var(--dc-text-secondary);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  margin-bottom: 0.35rem;
+  text-transform: uppercase;
+}
+
+.spellcatalogue-metadata-row dd {
+  color: var(--dc-text-primary);
+  margin: 0;
+}
+
+.spellcatalogue-advanced-details {
+  background: color-mix(in srgb, var(--dc-abyss-dark) 38%, transparent);
+  border: 1px solid color-mix(in srgb, var(--dc-torch-gold) 12%, transparent);
+  border-radius: var(--card-border-radius);
+  margin-top: 1rem;
+  padding: 1rem 1.1rem;
+}
+
+.spellcatalogue-advanced-details > summary {
+  color: color-mix(in srgb, var(--dc-torch-gold) 84%, white);
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.spellcatalogue-advanced-details[open] > summary {
+  margin-bottom: 1rem;
+}
+
+.spellcatalogue-pre {
+  background: color-mix(in srgb, var(--dc-abyss-dark) 76%, transparent);
+  border: 1px solid color-mix(in srgb, var(--dc-torch-gold) 10%, transparent);
+  border-radius: var(--card-border-radius);
+  color: color-mix(in srgb, var(--dc-text-primary) 92%, white);
+  font-size: 0.85rem;
+  margin: 0;
+  max-height: 24rem;
+  overflow: auto;
+  padding: 1rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.spellcatalogue-empty-state {
+  background: color-mix(in srgb, var(--dc-abyss-dark) 42%, transparent);
+  border: 1px dashed color-mix(in srgb, var(--dc-torch-gold) 25%, transparent);
+  border-radius: var(--card-border-radius);
+  padding: 1.25rem;
+}
+
+.spellcatalogue-pager .btn.disabled,
+.spellcatalogue-pager .btn:disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+@media (max-width: 767.98px) {
+  .spellcatalogue-stat-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 575.98px) {
+  .spellcatalogue-stat-grid {
+    grid-template-columns: 1fr;
+  }
+}

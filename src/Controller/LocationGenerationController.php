@@ -6,6 +6,7 @@ use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Database\Connection;
 use Drupal\dungeoncrawler_content\Service\DungeonGeneratorService;
 use Drupal\dungeoncrawler_content\Service\MapGeneratorService;
+use Drupal\dungeoncrawler_content\Service\NarrationEngine;
 use Drupal\dungeoncrawler_content\Service\QuestGeneratorService;
 use Drupal\dungeoncrawler_content\Service\RoomGeneratorService;
 use Drupal\dungeoncrawler_content\Service\RoomStateService;
@@ -59,6 +60,7 @@ class LocationGenerationController extends ControllerBase {
    * @var \Drupal\dungeoncrawler_content\Service\DungeonGeneratorService
    */
   protected DungeonGeneratorService $dungeonGenerator;
+  protected NarrationEngine $narrationEngine;
 
   /**
    * Constructs a LocationGenerationController.
@@ -69,7 +71,8 @@ class LocationGenerationController extends ControllerBase {
     RoomGeneratorService $room_generator,
     QuestGeneratorService $quest_generator,
     RoomStateService $room_state_service,
-    DungeonGeneratorService $dungeon_generator
+    DungeonGeneratorService $dungeon_generator,
+    NarrationEngine $narration_engine
   ) {
     $this->database = $database;
     $this->mapGenerator = $map_generator;
@@ -77,6 +80,7 @@ class LocationGenerationController extends ControllerBase {
     $this->questGenerator = $quest_generator;
     $this->roomStateService = $room_state_service;
     $this->dungeonGenerator = $dungeon_generator;
+    $this->narrationEngine = $narration_engine;
   }
 
   /**
@@ -89,7 +93,8 @@ class LocationGenerationController extends ControllerBase {
       $container->get('dungeoncrawler_content.room_generator'),
       $container->get('dungeoncrawler_content.quest_generator'),
       $container->get('dungeoncrawler_content.room_state_service'),
-      $container->get('dungeoncrawler_content.dungeon_generator')
+      $container->get('dungeoncrawler_content.dungeon_generator'),
+      $container->get('dungeoncrawler_content.narration_engine')
     );
   }
 
@@ -108,6 +113,7 @@ class LocationGenerationController extends ControllerBase {
     }
 
     $destination = trim((string) ($data['destination'] ?? ''));
+    $gm_private = $this->resolveGmPrivateRequestContext($data);
     if ($destination === '') {
       return new JsonResponse([
         'success' => FALSE,
@@ -160,6 +166,7 @@ class LocationGenerationController extends ControllerBase {
     ];
 
     try {
+      $this->recordGmPrivateRequest($campaign_id, $gm_private);
       if ($this->shouldGenerateRemoteDungeon($data, $dungeon_data, $origin_room_id, $destination)) {
         $remote_dungeon = $this->generateRemoteDungeon(
           $campaign_id,
@@ -170,6 +177,10 @@ class LocationGenerationController extends ControllerBase {
           $dungeon_data
         );
 
+        $this->recordGmPrivateResponse($campaign_id, $gm_private, (string) ($remote_dungeon['message'] ?? 'Generated remote dungeon site.'), [
+          'generated_by' => 'gm_request',
+          'request_type' => 'location',
+        ]);
         return new JsonResponse([
           'success' => TRUE,
           'data' => $remote_dungeon,
@@ -190,11 +201,17 @@ class LocationGenerationController extends ControllerBase {
         'dungeon_data' => $result['dungeon_data'] ?? [],
       ]);
       $room_name = (string) ($navigation['room']['name'] ?? $navigation['target_room_id'] ?? 'new location');
+      $response_message = sprintf('Generated location: %s.', $room_name);
+      $this->recordGmPrivateResponse($campaign_id, $gm_private, $response_message, [
+        'generated_by' => 'gm_request',
+        'request_type' => 'location',
+        'room_id' => $navigation['target_room_id'] ?? '',
+      ]);
 
       return new JsonResponse([
         'success' => TRUE,
         'data' => [
-          'message' => sprintf('Generated location: %s.', $room_name),
+          'message' => $response_message,
           'generated_by' => 'gm_request',
           'destination' => $destination,
           'origin_room_id' => $origin_room_id,
@@ -226,6 +243,7 @@ class LocationGenerationController extends ControllerBase {
    */
   public function requestRoom(Request $request, int $campaign_id): JsonResponse {
     $data = json_decode($request->getContent(), TRUE);
+    $gm_private = $this->resolveGmPrivateRequestContext($data);
     if (!is_array($data)) {
       return new JsonResponse([
         'success' => FALSE,
@@ -285,6 +303,7 @@ class LocationGenerationController extends ControllerBase {
     ];
 
     try {
+      $this->recordGmPrivateRequest($campaign_id, $gm_private);
       $room = $this->roomGenerator->generateRoom($context);
       $dungeon_data['rooms'][] = $room;
       $dungeon_data['entities'] = array_merge(
@@ -309,11 +328,17 @@ class LocationGenerationController extends ControllerBase {
         'entities' => $room['creatures'] ?? [],
         'dungeon_data' => $dungeon_data,
       ]);
+      $response_message = sprintf('Generated room: %s.', (string) ($room['name'] ?? $room['room_id'] ?? 'new room'));
+      $this->recordGmPrivateResponse($campaign_id, $gm_private, $response_message, [
+        'generated_by' => 'gm_room_request',
+        'request_type' => 'room',
+        'room_id' => $navigation['target_room_id'] ?? '',
+      ]);
 
       return new JsonResponse([
         'success' => TRUE,
         'data' => [
-          'message' => sprintf('Generated room: %s.', (string) ($room['name'] ?? $room['room_id'] ?? 'new room')),
+          'message' => $response_message,
           'generated_by' => 'gm_room_request',
           'origin_room_id' => $origin_room_id,
           'room_id' => $navigation['target_room_id'],
@@ -336,6 +361,7 @@ class LocationGenerationController extends ControllerBase {
    */
   public function requestLocationQuests(Request $request, int $campaign_id): JsonResponse {
     $data = json_decode($request->getContent(), TRUE);
+    $gm_private = $this->resolveGmPrivateRequestContext($data);
     if (!is_array($data)) {
       return new JsonResponse([
         'success' => FALSE,
@@ -379,6 +405,7 @@ class LocationGenerationController extends ControllerBase {
     ];
 
     try {
+      $this->recordGmPrivateRequest($campaign_id, $gm_private);
       $quests = $this->questGenerator->generateQuestsForLocation($campaign_id, $context, $count);
       foreach ($quests as $quest_data) {
         $this->database->insert('dc_campaign_quests')
@@ -394,11 +421,18 @@ class LocationGenerationController extends ControllerBase {
           'type' => $quest['quest_type'],
         ];
       }, $quests);
+      $response_message = sprintf('Generated %d quest%s for %s.', count($summary), count($summary) === 1 ? '' : 's', (string) ($room['name'] ?? $room_id));
+      $this->recordGmPrivateResponse($campaign_id, $gm_private, $response_message, [
+        'generated_by' => 'gm_quest_request',
+        'request_type' => 'quests',
+        'room_id' => (string) ($room['room_id'] ?? $room_id),
+        'quest_count' => count($summary),
+      ]);
 
       return new JsonResponse([
         'success' => TRUE,
         'data' => [
-          'message' => sprintf('Generated %d quest%s for %s.', count($summary), count($summary) === 1 ? '' : 's', (string) ($room['name'] ?? $room_id)),
+          'message' => $response_message,
           'room_id' => (string) ($room['room_id'] ?? $room_id),
           'quests' => $summary,
         ],
@@ -731,6 +765,49 @@ class LocationGenerationController extends ControllerBase {
       ($x_hash % 200000) + 1000,
       ($y_hash % 200000) + 1000,
     ];
+  }
+
+  /**
+   * Extract optional GM-private persistence context from request payload.
+   */
+  protected function resolveGmPrivateRequestContext(array $data): array {
+    return [
+      'character_id' => isset($data['character_id']) ? (int) $data['character_id'] : 0,
+      'speaker' => trim((string) ($data['speaker'] ?? '')),
+      'message' => trim((string) ($data['gm_private_message'] ?? '')),
+    ];
+  }
+
+  /**
+   * Persist the initiating GM-private request when character context is present.
+   */
+  protected function recordGmPrivateRequest(int $campaign_id, array $gm_private): void {
+    if (($gm_private['character_id'] ?? 0) <= 0 || ($gm_private['speaker'] ?? '') === '' || ($gm_private['message'] ?? '') === '') {
+      return;
+    }
+
+    $this->narrationEngine->recordSecretAction(
+      $campaign_id,
+      (int) $gm_private['character_id'],
+      (string) $gm_private['speaker'],
+      (string) $gm_private['message']
+    );
+  }
+
+  /**
+   * Persist the GM response for a GM-private request when character context is present.
+   */
+  protected function recordGmPrivateResponse(int $campaign_id, array $gm_private, string $response_message, array $metadata = []): void {
+    if (($gm_private['character_id'] ?? 0) <= 0 || trim($response_message) === '') {
+      return;
+    }
+
+    $this->narrationEngine->respondToSecretAction(
+      $campaign_id,
+      (int) $gm_private['character_id'],
+      trim($response_message),
+      $metadata
+    );
   }
 
 }

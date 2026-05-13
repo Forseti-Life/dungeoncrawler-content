@@ -203,6 +203,7 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
    */
   public function testBuildDeterministicGmResponseCreatesNavigationAction(): void {
     $response = $this->roomChatService->publicBuildDeterministicGmResponse(
+      17,
       'navigation_travel',
       [],
       NULL,
@@ -213,7 +214,7 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
     $this->assertNotNull($response);
     $this->assertSame('navigate_to_location', $response['actions'][0]['type']);
     $this->assertSame('Rat Dungeon', $response['actions'][0]['details']['destination']);
-    $this->assertStringContainsString('sets out toward Rat Dungeon', $response['narrative']);
+    $this->assertStringContainsString('head toward Rat Dungeon', $response['narrative']);
   }
 
   /**
@@ -243,6 +244,7 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
    */
   public function testBuildDeterministicGmResponseCreatesCombatInitiationAction(): void {
     $response = $this->roomChatService->publicBuildDeterministicGmResponse(
+      17,
       'combat_engagement',
       [],
       NULL,
@@ -295,6 +297,112 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
     $this->assertSame('You can target the rats with Sleep.', $sanitized);
   }
 
+  /**
+   * @covers ::classifyRoomTurnIntent
+   */
+  public function testClassifyRoomTurnIntentRecognizesNavigationQuery(): void {
+    $intent = $this->roomChatService->publicClassifyRoomTurnIntent(
+      'What is in the next room?'
+    );
+
+    $this->assertSame('navigation_query', $intent);
+  }
+
+  /**
+   * @covers ::buildDeterministicGmResponse
+   */
+  public function testBuildDeterministicGmResponseAnswersNavigationQueryFromGroundedExits(): void {
+    $actionProcessor = $this->createMock(GameplayActionProcessor::class);
+    $actionProcessor->method('getResolvedRoomExits')
+      ->willReturn([
+        [
+          'name' => 'The Gilded Tankard',
+          'room_id' => 'room-tavern',
+          'connection_type' => 'passage',
+          'explored' => TRUE,
+        ],
+        [
+          'name' => 'The Goblin Warrens',
+          'room_id' => 'room-warrens',
+          'connection_type' => 'passage',
+          'explored' => FALSE,
+        ],
+      ]);
+
+    $this->roomChatService->setActionProcessor($actionProcessor);
+
+    $response = $this->roomChatService->publicBuildDeterministicGmResponse(
+      22,
+      'navigation_query',
+      [],
+      NULL,
+      'What is in the next room?',
+      ['name' => 'Vermin-Ridden Antechamber', 'room_id' => 'room-rats'],
+      'room-rats',
+      []
+    );
+
+    $this->assertNotNull($response);
+    $this->assertSame([], $response['actions']);
+    $this->assertStringContainsString('The Goblin Warrens', $response['narrative']);
+    $this->assertStringContainsString('unexplored', $response['narrative']);
+  }
+
+  /**
+   * @covers ::extractNavigationDestination
+   */
+  public function testExtractNavigationDestinationUsesPreferredExitForGenericDoorPush(): void {
+    $actionProcessor = $this->createMock(GameplayActionProcessor::class);
+    $actionProcessor->method('getResolvedRoomExits')
+      ->willReturn([
+        [
+          'name' => 'The Gilded Tankard',
+          'room_id' => 'room-tavern',
+          'connection_type' => 'passage',
+          'explored' => TRUE,
+        ],
+        [
+          'name' => 'The Goblin Warrens',
+          'room_id' => 'room-warrens',
+          'connection_type' => 'passage',
+          'explored' => FALSE,
+        ],
+      ]);
+
+    $this->roomChatService->setActionProcessor($actionProcessor);
+
+    $destination = $this->roomChatService->publicExtractNavigationDestination(
+      'break down the door, lets go',
+      ['name' => 'Vermin-Ridden Antechamber', 'room_id' => 'room-rats'],
+      'room-rats',
+      []
+    );
+
+    $this->assertSame('The Goblin Warrens', $destination);
+  }
+
+  /**
+   * @covers ::recordLocationTransition
+   */
+  public function testRecordLocationTransitionPersistsCurrentAndActiveRoomIds(): void {
+    $dungeonData = [];
+
+    $this->roomChatService->publicRecordLocationTransition(
+      $dungeonData,
+      ['room_id' => 'room-rats', 'name' => 'Vermin-Ridden Antechamber'],
+      [
+        'new_room' => [
+          'room_id' => 'room-warrens',
+          'name' => 'The Goblin Warrens',
+        ],
+      ]
+    );
+
+    $this->assertSame('room-warrens', $dungeonData['current_room_id']);
+    $this->assertSame('room-warrens', $dungeonData['active_room_id']);
+    $this->assertSame('room-warrens', $dungeonData['last_navigation']['to_room_id']);
+  }
+
 }
 
 /**
@@ -327,6 +435,7 @@ class TestableRoomChatService extends RoomChatService {
   }
 
   public function publicBuildDeterministicGmResponse(
+    int $campaign_id,
     string $intent,
     array $room_npcs,
     ?array $directly_addressed_npc,
@@ -335,11 +444,11 @@ class TestableRoomChatService extends RoomChatService {
     string $room_id = '',
     array $dungeon_data = []
   ): ?array {
-    return $this->buildDeterministicGmResponse($intent, $room_npcs, $directly_addressed_npc, $player_message, $room_meta, $room_id, $dungeon_data);
+    return $this->buildDeterministicGmResponse($campaign_id, $intent, $room_npcs, $directly_addressed_npc, $player_message, $room_meta, $room_id, $dungeon_data);
   }
 
-  public function publicExtractNavigationDestination(string $player_message, array $room_meta = []): ?string {
-    return $this->extractNavigationDestination($player_message, $room_meta);
+  public function publicExtractNavigationDestination(string $player_message, array $room_meta = [], string $room_id = '', array $dungeon_data = []): ?string {
+    return $this->extractNavigationDestination($player_message, $room_meta, $room_id, $dungeon_data);
   }
 
   public function publicTrimIncompleteNarrative(string $narrative): string {
@@ -348,6 +457,14 @@ class TestableRoomChatService extends RoomChatService {
 
   public function publicStripPlayerVisibleActionBlocks(string $narrative): string {
     return $this->stripPlayerVisibleActionBlocks($narrative);
+  }
+
+  public function publicRecordLocationTransition(array &$dungeon_data, array $origin_room_meta, array $navigation_result): void {
+    $this->recordLocationTransition($dungeon_data, $origin_room_meta, $navigation_result);
+  }
+
+  public function setActionProcessor(GameplayActionProcessor $action_processor): void {
+    $this->actionProcessor = $action_processor;
   }
 
 }

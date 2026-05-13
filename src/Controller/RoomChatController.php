@@ -139,8 +139,21 @@ class RoomChatController extends ControllerBase {
       $character_id = isset($payload['character_id']) ? (int) $payload['character_id'] : null;
       $channel = $payload['channel'] ?? 'room';
       $client_request_id = (string) ($payload['client_request_id'] ?? '');
-      $stream = !empty($payload['stream']) && $channel === 'room' && $type === 'player';
-      $suppress_gm = !empty($payload['suppress_gm']) && $channel === 'room' && $type === 'player';
+      $is_primary_room_player_turn = $channel === 'room' && $type === 'player';
+
+      // stream: use NDJSON streaming for the primary room player turn so the
+      // client can render player ack, GM progress, GM reply, and interjections
+      // incrementally instead of waiting for one large JSON response.
+      $stream = !empty($payload['stream']) && $is_primary_room_player_turn;
+
+      // suppress_gm: persist the player's room message but intentionally skip
+      // GM generation for this request because a GM turn is already in flight.
+      // The queued player messages are folded into one later GM continuation.
+      $suppress_gm = !empty($payload['suppress_gm']) && $is_primary_room_player_turn;
+
+      // continue_gm: run exactly one follow-up GM pass over queued room-player
+      // messages after the active GM turn settles. This keeps GM analysis
+      // serialized while still allowing the player to keep sending messages.
       $continue_gm = !empty($payload['continue_gm']) && $channel === 'room';
 
       if ($stream && $continue_gm) {
@@ -264,15 +277,10 @@ class RoomChatController extends ControllerBase {
           ]);
         }
 
-        if (!empty($result['npc_interjections_deferred']) && !empty($result['gm_response']['message'])) {
-          $emit([
-            'type' => 'thinking',
-            'data' => [
-              'message' => 'Checking room reactions...',
-              'phase' => 'room-reactions',
-              'client_request_id' => $client_request_id,
-            ],
-          ]);
+        // Keep NPC interjections as an immediate post-GM follow-up for normal
+        // room turns, but suppress them for combat openings where extra NPC
+        // chatter would add noise or race the authoritative action flow.
+        if (!empty($result['npc_interjections_deferred']) && empty($result['canonical_actions']['combat_initiation']) && !empty($result['gm_response']['message'])) {
           $npc_interjections = $this->chatService->completeDeferredNpcInterjections(
             $campaign_id,
             $room_id,
@@ -359,15 +367,9 @@ class RoomChatController extends ControllerBase {
           ]);
         }
 
-        if (!empty($result['npc_interjections_deferred']) && !empty($result['gm_response']['message'])) {
-          $emit([
-            'type' => 'thinking',
-            'data' => [
-              'message' => 'Checking room reactions...',
-              'phase' => 'room-reactions',
-              'client_request_id' => $client_request_id,
-            ],
-          ]);
+        // Mirror the same immediate-follow-up interjection policy for queued
+        // continuations so primary and deferred room turns behave identically.
+        if (!empty($result['npc_interjections_deferred']) && empty($result['canonical_actions']['combat_initiation']) && !empty($result['gm_response']['message'])) {
           $npc_interjections = $this->chatService->completeDeferredNpcInterjections(
             $campaign_id,
             $room_id,

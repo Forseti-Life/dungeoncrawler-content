@@ -15,6 +15,14 @@ game-cards:
     - core/drupal
     - core/jquery
 
+spellcatalogue:
+  css:
+    theme:
+      css/spellcatalogue.css: {}
+  dependencies:
+    - dungeoncrawler_content/game-cards
+    - core/drupal
+
 character-sheet:
   css:
     theme:

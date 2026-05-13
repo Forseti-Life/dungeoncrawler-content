@@ -76,7 +76,15 @@ dungeoncrawler_content.menu.world:
   description: 'Explore the living dungeon lore and world information'
   route_name: dungeoncrawler_content.world
   menu_name: main
+  expanded: true
   weight: 30
+
+dungeoncrawler_content.menu.spellcatalogue:
+  title: 'Spell Catalogue'
+  description: 'Review canonical spell records from the live registry'
+  route_name: dungeoncrawler_content.spellcatalogue
+  parent: dungeoncrawler_content.menu.world
+  weight: 1
 
 dungeoncrawler_content.menu.dc_administration:
   title: 'DC Administration'

@@ -293,6 +293,96 @@ class ApiRoutesTest extends BrowserTestBase {
   }
 
   /**
+   * Tests combat generic action API route - positive case.
+   */
+  public function testCombatActionApiRoutePositive(): void {
+    $user = $this->drupalCreateUser(['access dungeoncrawler characters']);
+    $this->drupalLogin($user);
+
+    $this->getSession()->getDriver()->getClient()->request(
+      'POST',
+      $this->buildUrl('/api/combat/action'),
+      [],
+      [],
+      ['CONTENT_TYPE' => 'application/json'],
+      json_encode([])
+    );
+    $this->assertSession()->statusCodeNotEquals(404);
+  }
+
+  /**
+   * Tests character cast spell API route - positive case.
+   */
+  public function testCharacterCastSpellApiRoutePositive(): void {
+    $user = $this->drupalCreateUser(['access dungeoncrawler characters']);
+    $this->drupalLogin($user);
+
+    $this->getSession()->getDriver()->getClient()->request(
+      'POST',
+      $this->buildUrl('/api/character/1/cast-spell'),
+      [],
+      [],
+      ['CONTENT_TYPE' => 'application/json'],
+      json_encode([])
+    );
+    $this->assertSession()->statusCodeNotEquals(404);
+  }
+
+  /**
+   * Tests character inventory API route - positive case.
+   */
+  public function testCharacterInventoryApiRoutePositive(): void {
+    $user = $this->drupalCreateUser(['access dungeoncrawler characters']);
+    $this->drupalLogin($user);
+
+    $this->getSession()->getDriver()->getClient()->request(
+      'POST',
+      $this->buildUrl('/api/character/1/inventory'),
+      [],
+      [],
+      ['CONTENT_TYPE' => 'application/json'],
+      json_encode([])
+    );
+    $this->assertSession()->statusCodeNotEquals(404);
+  }
+
+  /**
+   * Tests character actions API route - positive case.
+   */
+  public function testCharacterActionsApiRoutePositive(): void {
+    $user = $this->drupalCreateUser(['access dungeoncrawler characters']);
+    $this->drupalLogin($user);
+
+    $this->getSession()->getDriver()->getClient()->request(
+      'POST',
+      $this->buildUrl('/api/character/1/actions'),
+      [],
+      [],
+      ['CONTENT_TYPE' => 'application/json'],
+      json_encode([])
+    );
+    $this->assertSession()->statusCodeNotEquals(404);
+  }
+
+  /**
+   * Tests character hit points API route - positive case.
+   */
+  public function testCharacterHitPointsApiRoutePositive(): void {
+    $user = $this->drupalCreateUser(['access dungeoncrawler characters']);
+    $this->drupalLogin($user);
+
+    $this->getSession()->getDriver()->getClient()->request(
+      'POST',
+      $this->buildUrl('/api/character/1/hp'),
+      [],
+      [],
+      ['CONTENT_TYPE' => 'application/json'],
+      json_encode([])
+    );
+    $this->assertSession()->statusCodeNotEquals(404);
+  }
+
+  /**
    * Tests API routes - negative case (no authentication).
    */
   public function testApiRoutesNegativeNoAuth(): void {

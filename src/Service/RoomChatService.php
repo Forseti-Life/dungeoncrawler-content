@@ -207,26 +207,12 @@ class RoomChatService {
     ]);
 
     $stage_started_at = hrtime(true);
-    $record = $this->database->select('dc_campaign_dungeons', 'd')
-      ->fields('d', ['dungeon_id', 'dungeon_data'])
-      ->condition('campaign_id', $campaign_id)
-      ->orderBy('updated', 'DESC')
-      ->range(0, 1)
-      ->execute()
-      ->fetchAssoc();
-
-    if (!$record) {
-      throw new \InvalidArgumentException('Dungeon not found', 404);
-    }
-
-    $dungeon_id = $record['dungeon_id'];
-    $dungeon_data = json_decode($record['dungeon_data'] ?? '{}', TRUE);
-    if (!is_array($dungeon_data)) {
-      $dungeon_data = [];
-    }
+    $dungeon_snapshot = $this->loadLatestDungeonSnapshot($campaign_id);
+    $dungeon_id = $dungeon_snapshot['dungeon_id'];
+    $dungeon_data = $dungeon_snapshot['dungeon_data'];
     $this->recordDebugStage('load_dungeon_data', $stage_started_at, [
       'dungeon_id' => $dungeon_id,
-      'encoded_bytes' => strlen((string) ($record['dungeon_data'] ?? '')),
+      'encoded_bytes' => $dungeon_snapshot['encoded_bytes'],
       'room_count' => count($dungeon_data['rooms'] ?? []),
     ]);
 
@@ -453,25 +439,12 @@ class RoomChatService {
     ]);
 
     $stage_started_at = hrtime(true);
-    $record = $this->database->select('dc_campaign_dungeons', 'd')
-      ->fields('d', ['dungeon_id', 'dungeon_data'])
-      ->condition('campaign_id', $campaign_id)
-      ->orderBy('updated', 'DESC')
-      ->range(0, 1)
-      ->execute()
-      ->fetchAssoc();
-
-    if (!$record) {
-      throw new \InvalidArgumentException('Dungeon not found', 404);
-    }
-
-    $dungeon_id = $record['dungeon_id'];
-    $dungeon_data = json_decode($record['dungeon_data'] ?? '{}', TRUE);
-    if (!is_array($dungeon_data)) {
-      $dungeon_data = [];
-    }
+    $dungeon_snapshot = $this->loadLatestDungeonSnapshot($campaign_id);
+    $dungeon_id = $dungeon_snapshot['dungeon_id'];
+    $dungeon_data = $dungeon_snapshot['dungeon_data'];
     $this->recordDebugStage('load_dungeon_data', $stage_started_at, [
       'dungeon_id' => $dungeon_id,
+      'encoded_bytes' => $dungeon_snapshot['encoded_bytes'],
       'room_count' => count($dungeon_data['rooms'] ?? []),
     ]);
 
@@ -568,23 +541,15 @@ class RoomChatService {
     string $gm_narrative,
     ?int $character_id = NULL
   ): array {
-    $record = $this->database->select('dc_campaign_dungeons', 'd')
-      ->fields('d', ['dungeon_id', 'dungeon_data'])
-      ->condition('campaign_id', $campaign_id)
-      ->orderBy('updated', 'DESC')
-      ->range(0, 1)
-      ->execute()
-      ->fetchAssoc();
-
-    if (!$record) {
+    try {
+      $dungeon_snapshot = $this->loadLatestDungeonSnapshot($campaign_id);
+    }
+    catch (\InvalidArgumentException $e) {
       return [];
     }
 
-    $dungeon_id = $record['dungeon_id'];
-    $dungeon_data = json_decode($record['dungeon_data'] ?? '{}', TRUE);
-    if (!is_array($dungeon_data)) {
-      $dungeon_data = [];
-    }
+    $dungeon_id = $dungeon_snapshot['dungeon_id'];
+    $dungeon_data = $dungeon_snapshot['dungeon_data'];
 
     $room_index = $this->findRoomIndex($dungeon_data['rooms'] ?? [], $room_id);
     if ($room_index === NULL) {
@@ -669,6 +634,7 @@ class RoomChatService {
     $room_meta = $dungeon_data['rooms'][$room_index] ?? [];
     $gm_response_cache_key = NULL;
     $checked_response = NULL;
+    $response_source = 'unresolved';
 
     // Build the user prompt from recent chat history.
     $stage_started_at = hrtime(true);
@@ -719,6 +685,7 @@ class RoomChatService {
     );
     if ($deterministic_response !== NULL) {
       $checked_response = $deterministic_response;
+      $response_source = 'deterministic';
       $this->recordDebugStage('gm.deterministic_short_path', $stage_started_at, [
         'intent' => $turn_intent,
         'narrative_length' => strlen((string) ($deterministic_response['narrative'] ?? '')),
@@ -727,7 +694,9 @@ class RoomChatService {
     }
     else {
       $quest_prompt_context = '';
-      if ($this->questTracker && $latest_player_message !== '') {
+      if ($this->questTracker
+        && $latest_player_message !== ''
+        && in_array($turn_intent, ['gm_narration', 'quest_query'], TRUE)) {
         $quest_prompt_context = $this->questTracker->buildRelevantQuestPromptContext(
           $campaign_id,
           $character_id,
@@ -738,8 +707,8 @@ class RoomChatService {
         }
       }
 
-      // Build session context scoped to this room so NPC conversations from
-      // previous rooms do not bleed into the current room's AI context.
+      // Build read-only prompt context scoped to this room so prior-room
+      // conversations and unrelated campaign notes do not bleed into this turn.
       $stage_started_at = hrtime(true);
       $session_context = $this->buildCompactSessionContext($session_key, $campaign_id, 2, 900, 320);
       $actor_grounding = $this->buildRoomActorGroundingSummary($campaign_id, $room_id, $dungeon_data);
@@ -771,12 +740,14 @@ class RoomChatService {
       }
       $prompt .= "Recent conversation:\n" . implode("\n", $history_lines);
       if ($is_room_entry) {
-        $prompt .= "\n\nTHIS IS A ROOM ENTRY — respond as the Game Master with a vivid but concise room-entry description (4-6 sentences, under 140 words). Cover atmosphere, sight, sound, smell/taste, and visible NPCs/creatures (appearance + demeanour, no names yet). After the description, briefly address whatever the player said. Include the JSON action block only if the player triggered a mechanical action.";
+        $prompt .= "\n\nTHIS IS A ROOM ENTRY — respond as the Game Master with a vivid but concise room-entry description (4-6 sentences, under 140 words). Cover atmosphere, sight, sound, smell/taste, and declare the named characters visibly present in the room on first load, along with their appearance/activity/demeanour. Keep the primary GM response focused on setting, consequences, and mechanics only. Include the JSON action block only if the player triggered a mechanical action.";
       }
       else {
-        $prompt .= "\n\nRespond in character as the Game Master. Keep your reply concise (2-4 sentences). If the player is performing a mechanical action (casting a spell, using a skill, using a feat, attacking, exploring), include the JSON action block as instructed in your system prompt.";
+        $prompt .= "\n\nRespond as the Game Master referee. Keep your reply concise (2-4 sentences) and limit it to setting, observable consequences, and mechanics. If the player is performing a mechanical action (casting a spell, using a skill, using a feat, attacking, exploring), include the JSON action block as instructed in your system prompt.";
       }
+      $prompt .= "\nIMPORTANT: The primary GM response is NOT character dialogue. It is scene framing, rulings, consequences, and mechanics only.";
       $prompt .= "\nIMPORTANT: Do NOT write dialogue for any NPC. Describe the scene, NPC body language and reactions, but let NPCs speak for themselves. Never put words in an NPC's mouth.";
+      $prompt .= "\nIMPORTANT: If the player addresses an NPC directly, the GM should only frame the handoff or visible reaction. Do NOT answer the conversation in that NPC's voice from the GM layer.";
       $prompt .= "\nIMPORTANT: Do NOT write dialogue for the player character, companions, or party members. Never decide what they say, agree to, feel, or choose beyond the action the player explicitly stated.";
       $prompt .= "\nIMPORTANT: For informational questions about who is present, demeanor, or what the room looks like, answer with direct observations only. Do NOT invent a scene, conversation, toast, agreement, plan, or travel setup.";
       $prompt .= "\nIMPORTANT: Named characters and NPCs must stay grounded in their provided canonical notes. If appearance, personality, attitude, motivations, role, or capabilities are not provided, do NOT invent them.";
@@ -864,6 +835,7 @@ class RoomChatService {
         $cached_gm_response = \Drupal::cache('default')->get($gm_response_cache_key);
         if ($cached_gm_response && is_array($cached_gm_response->data)) {
           $checked_response = $cached_gm_response->data;
+          $response_source = 'cache';
           $this->recordDebugStage('gm.response_cache', $cache_stage_started_at, [
             'cache' => 'hit',
             'turn_intent' => $turn_intent,
@@ -887,11 +859,20 @@ class RoomChatService {
           $room_inventory,
           $prompt_debug_meta
         );
+        if ($checked_response !== NULL) {
+          $response_source = 'reality_checked_generation';
+        }
         $this->recordDebugStage('gm.reality_checked_generation', $stage_started_at, [
           'success' => $checked_response !== NULL,
         ]);
       }
     }
+    $this->recordDebugStage('gm.primary_flow', $gm_started_at, [
+      'intent' => $turn_intent,
+      'response_source' => $response_source,
+      'room_entry' => $is_room_entry,
+      'cluster_hints' => $this->buildGmDefectClusterHints($turn_intent, $response_source),
+    ]);
     if ($checked_response === NULL) {
       return NULL;
     }
@@ -1144,6 +1125,11 @@ class RoomChatService {
    * If the generated mechanics fail the authoritative resource checks, the
    * model receives a second prompt containing the validated state snapshot and
    * must regenerate before the text is finalized.
+   *
+   * This is the authoritative generation wrapper for room GM replies. It owns
+   * parsing, validation, retry, and fallback correction text. The lower-level
+   * invokeGmModel() helper only performs the raw model call and token-budget
+   * trimming used by this wrapper.
    */
   protected function generateRealityCheckedGmResponse(
     string $prompt,
@@ -1280,6 +1266,10 @@ class RoomChatService {
 
   /**
    * Invoke the GM model for room chat.
+   *
+   * This helper is intentionally narrow: fit the prompt into budget, perform
+   * the raw model call, and return the unparsed text. It does not validate or
+   * correct actions; generateRealityCheckedGmResponse() is the policy layer.
    */
   protected function invokeGmModel(string $prompt, string $system_prompt, array $context_data, string $room_id, string $operation = 'room_chat_gm_reply', array $debug_meta = []): ?string {
     ['prompt' => $prompt, 'system_prompt' => $system_prompt, 'trim_meta' => $trim_meta] = $this->fitRoomChatContextBudget($prompt, $system_prompt);
@@ -1386,19 +1376,37 @@ class RoomChatService {
   }
 
   /**
-   * Reload latest dungeon_data from persistence.
+   * Load the latest dungeon row and decoded dungeon_data for a campaign.
+   *
+   * This keeps room chat entry points aligned on one persistence contract.
    */
-  protected function reloadDungeonData(int $campaign_id): array {
+  protected function loadLatestDungeonSnapshot(int $campaign_id): array {
     $record = $this->database->select('dc_campaign_dungeons', 'd')
-      ->fields('d', ['dungeon_data'])
+      ->fields('d', ['dungeon_id', 'dungeon_data'])
       ->condition('campaign_id', $campaign_id)
       ->orderBy('updated', 'DESC')
       ->range(0, 1)
       ->execute()
       ->fetchAssoc();
 
+    if (!$record) {
+      throw new \InvalidArgumentException('Dungeon not found', 404);
+    }
+
     $dungeon_data = json_decode($record['dungeon_data'] ?? '{}', TRUE);
-    return is_array($dungeon_data) ? $dungeon_data : [];
+
+    return [
+      'dungeon_id' => $record['dungeon_id'] ?? '',
+      'dungeon_data' => is_array($dungeon_data) ? $dungeon_data : [],
+      'encoded_bytes' => strlen((string) ($record['dungeon_data'] ?? '')),
+    ];
+  }
+
+  /**
+   * Reload latest dungeon_data from persistence.
+   */
+  protected function reloadDungeonData(int $campaign_id): array {
+    return $this->loadLatestDungeonSnapshot($campaign_id)['dungeon_data'];
   }
 
   /**
@@ -1554,6 +1562,10 @@ class RoomChatService {
       'travel_type' => $navigation_result['travel_type'] ?? 'traveled',
       'timestamp' => $timestamp,
     ];
+    if ($dest_id !== '') {
+      $dungeon_data['current_room_id'] = $dest_id;
+      $dungeon_data['active_room_id'] = $dest_id;
+    }
 
     // Cap location_history to 50 entries.
     if (count($dungeon_data['location_history']) > 50) {
@@ -3163,6 +3175,10 @@ PROMPT;
       return 'room_roster_query';
     }
 
+    if ($this->looksLikeNavigationQuery($normalized)) {
+      return 'navigation_query';
+    }
+
     if ($this->looksLikeNavigationTurn($normalized)) {
       return 'navigation_travel';
     }
@@ -3192,6 +3208,9 @@ PROMPT;
 
   /**
    * Build a deterministic GM narrative for short-path intents.
+   *
+   * This is the safest place to grow automatic low-variance room responses.
+   * Use it for grounded informational turns before expanding LLM caching.
    */
   protected function buildDeterministicGmResponse(
     int $campaign_id,
@@ -3204,7 +3223,7 @@ PROMPT;
     array $dungeon_data = []
   ): ?array {
     if ($intent === 'combat_engagement') {
-      $hostiles = $this->findRoomHostileEntities($room_id, $dungeon_data);
+      $hostiles = $this->findRoomHostileEntities($room_id, $dungeon_data, $player_message);
       if ($hostiles !== []) {
         $hostile_ids = [];
         $hostile_names = [];
@@ -3219,8 +3238,12 @@ PROMPT;
           }
         }
         $target_summary = $hostile_names !== [] ? implode(', ', array_unique($hostile_names)) : 'the hostiles in the room';
+        $normalized_message = $this->normalizeNpcNameForMatch($player_message);
+        $narrative = $this->textContainsAny($normalized_message, ['cast sleep', 'i cast sleep', 'sleep spell'])
+          ? 'You open the fight by casting Sleep into the swarm and ordering your allies to strike. Combat begins against ' . $target_summary . '.'
+          : 'The moment the order is given, the standoff breaks and combat begins against ' . $target_summary . '.';
         return [
-          'narrative' => 'The moment the order is given, the standoff breaks and combat begins against ' . $target_summary . '.',
+          'narrative' => $narrative,
           'actions' => [[
             'type' => 'combat_initiation',
             'name' => 'Engage hostiles',
@@ -3236,10 +3259,29 @@ PROMPT;
           'validation_errors' => [],
         ];
       }
+
+      return [
+        'narrative' => 'You commit to the attack, but no clear hostile target is grounded in the current room state yet.',
+        'actions' => [],
+        'dice_rolls' => [],
+        'validation_errors' => [],
+      ];
+    }
+
+    if ($intent === 'navigation_query') {
+      $navigation_narrative = $this->buildDeterministicNavigationQueryNarrative($room_meta, $room_id, $dungeon_data);
+      if ($navigation_narrative !== '') {
+        return [
+          'narrative' => $navigation_narrative,
+          'actions' => [],
+          'dice_rolls' => [],
+          'validation_errors' => [],
+        ];
+      }
     }
 
     if ($intent === 'navigation_travel') {
-      $navigation_action = $this->buildDeterministicNavigationAction($player_message, $room_meta);
+      $navigation_action = $this->buildDeterministicNavigationAction($player_message, $room_meta, $room_id, $dungeon_data);
       if ($navigation_action !== NULL) {
         return [
           'narrative' => $navigation_action['narrative'],
@@ -3381,6 +3423,15 @@ PROMPT;
       'leave this ',
       'i leave',
       'we leave',
+      'go to the next room',
+      'head to the next room',
+      'move to the next room',
+      'go deeper',
+      'head deeper',
+      'move deeper',
+      'press farther',
+      'press further',
+      'push on',
       'go in',
       'go inside',
       'head in',
@@ -3390,12 +3441,37 @@ PROMPT;
       'open the door',
       'open that door',
       'open this door',
+      'break down the door',
+      'kick in the door',
+      'bust it loose',
       'lets open the door',
       'let us open the door',
       'go outside',
       'head outside',
       'step outside',
       'meet you there',
+    ]);
+  }
+
+  /**
+   * Determine whether the player is asking about nearby rooms or exits.
+   */
+  protected function looksLikeNavigationQuery(string $normalized_message): bool {
+    return $this->textContainsAny($normalized_message, [
+      'what is the next room',
+      'what s the next room',
+      'what is in the next room',
+      'what s in the next room',
+      'what do we find in the next room',
+      'what is beyond the door',
+      'what s beyond the door',
+      'what is through the door',
+      'what s through the door',
+      'where does the door go',
+      'where does this door go',
+      'where does that door go',
+      'what is ahead',
+      'what s ahead',
     ]);
   }
 
@@ -3408,6 +3484,8 @@ PROMPT;
       'we attack',
       'attack the ',
       'kill the ',
+      'kill all these ',
+      'kill all the ',
       'kill those ',
       'fight the ',
       'fight those ',
@@ -3417,6 +3495,9 @@ PROMPT;
       'let us kill',
       'lets fight',
       'let us fight',
+      'smash them',
+      'start smashing',
+      'wipe them out',
       'take them down',
       'start combat',
       'begin combat',
@@ -3426,8 +3507,8 @@ PROMPT;
   /**
    * Build a deterministic navigation action from a travel-style player turn.
    */
-  protected function buildDeterministicNavigationAction(string $player_message, array $room_meta = []): ?array {
-    $destination = $this->extractNavigationDestination($player_message, $room_meta);
+  protected function buildDeterministicNavigationAction(string $player_message, array $room_meta = [], string $room_id = '', array $dungeon_data = []): ?array {
+    $destination = $this->extractNavigationDestination($player_message, $room_meta, $room_id, $dungeon_data);
     if ($destination === NULL) {
       return NULL;
     }
@@ -3470,7 +3551,7 @@ PROMPT;
   /**
    * Extract a destination phrase from a player navigation message.
    */
-  protected function extractNavigationDestination(string $player_message, array $room_meta = []): ?string {
+  protected function extractNavigationDestination(string $player_message, array $room_meta = [], string $room_id = '', array $dungeon_data = []): ?string {
     $patterns = [
       '/(?:leave(?:\s+for)?|head(?:ing)?\s+(?:to|for)|travel(?:ing)?\s+(?:to|for)|journey(?:ing)?\s+(?:to|for)|set out for|depart for|go to|navigation to|navigating to)\s+(?:the\s+)?([a-z0-9][a-z0-9\'\-\s]+)/i',
       '/(?:meet you there\.?\s*then i leave for)\s+(?:the\s+)?([a-z0-9][a-z0-9\'\-\s]+)/i',
@@ -3498,26 +3579,160 @@ PROMPT;
       return 'Outside ' . $origin_name;
     }
 
+    $preferred_exit = $this->resolvePreferredNavigationExit($room_meta, $room_id, $dungeon_data);
+    if ($preferred_exit !== NULL && $this->textContainsAny($normalized, [
+      'next room',
+      'through the door',
+      'beyond the door',
+      'go deeper',
+      'head deeper',
+      'move deeper',
+      'press farther',
+      'press further',
+      'push on',
+      'break down the door',
+      'kick in the door',
+      'bust it loose',
+    ])) {
+      return $preferred_exit['name'];
+    }
+
+    return NULL;
+  }
+
+  /**
+   * Build a grounded answer for nearby-room / exit questions.
+   */
+  protected function buildDeterministicNavigationQueryNarrative(array $room_meta = [], string $room_id = '', array $dungeon_data = []): string {
+    $current_room_id = $room_id !== '' ? $room_id : (string) ($room_meta['room_id'] ?? '');
+    if ($current_room_id === '') {
+      return '';
+    }
+
+    $exits = $this->actionProcessor->getResolvedRoomExits($dungeon_data, $current_room_id);
+    if ($exits === []) {
+      return 'No grounded exit is mapped from this room yet.';
+    }
+
+    $origin_name = trim((string) ($room_meta['name'] ?? 'this room'));
+    $preferred_exit = $this->resolvePreferredNavigationExit($room_meta, $room_id, $dungeon_data);
+    $formatted_exits = array_map(function (array $exit): string {
+      $name = trim((string) ($exit['name'] ?? 'Unknown passage'));
+      $type = trim((string) ($exit['connection_type'] ?? 'passage'));
+      $status = !empty($exit['explored']) ? 'visited' : 'unexplored';
+      return "{$name} ({$type}, {$status})";
+    }, $exits);
+
+    $narrative = 'From ' . $origin_name . ', the grounded exits are ' . implode('; ', $formatted_exits) . '.';
+    if ($preferred_exit !== NULL) {
+      $preferred_name = trim((string) ($preferred_exit['name'] ?? 'the next passage'));
+      $preferred_status = !empty($preferred_exit['explored']) ? 'already explored' : 'the next unexplored room';
+      $narrative .= ' If you press forward, ' . $preferred_name . ' is ' . $preferred_status . '.';
+    }
+
+    return $narrative;
+  }
+
+  /**
+   * Choose the most likely forward exit for generic travel language.
+   */
+  protected function resolvePreferredNavigationExit(array $room_meta = [], string $room_id = '', array $dungeon_data = []): ?array {
+    $current_room_id = $room_id !== '' ? $room_id : (string) ($room_meta['room_id'] ?? '');
+    if ($current_room_id === '') {
+      return NULL;
+    }
+
+    $exits = $this->actionProcessor->getResolvedRoomExits($dungeon_data, $current_room_id);
+    if ($exits === []) {
+      return NULL;
+    }
+
+    foreach ($exits as $exit) {
+      if (empty($exit['explored']) && !empty($exit['name'])) {
+        return $exit;
+      }
+    }
+
+    $backtrack_room_id = (string) ($dungeon_data['last_navigation']['from_room_id'] ?? '');
+    foreach ($exits as $exit) {
+      if (($exit['room_id'] ?? '') !== $backtrack_room_id && !empty($exit['name'])) {
+        return $exit;
+      }
+    }
+
+    foreach ($exits as $exit) {
+      if (!empty($exit['name'])) {
+        return $exit;
+      }
+    }
+
     return NULL;
   }
 
   /**
    * Collect hostile entities present in the current room.
    */
-  protected function findRoomHostileEntities(string $room_id, array $dungeon_data): array {
+  protected function findRoomHostileEntities(string $room_id, array $dungeon_data, string $player_message = ''): array {
     if ($room_id === '') {
       return [];
     }
 
+    $room_entities = [];
     $hostiles = [];
     foreach ($dungeon_data['entities'] ?? [] as $entity) {
       if (($entity['placement']['room_id'] ?? '') !== $room_id) {
         continue;
       }
+      $room_entities[] = $entity;
       $team = strtolower((string) ($entity['state']['metadata']['team'] ?? $entity['team'] ?? ''));
       if (in_array($team, ['hostile', 'enemy', 'monsters'], TRUE)) {
         $hostiles[] = $entity;
       }
+    }
+
+    if ($hostiles !== []) {
+      return $hostiles;
+    }
+
+    $normalized_message = $this->normalizeNpcNameForMatch($player_message);
+    if ($normalized_message === '' || $room_entities === []) {
+      return [];
+    }
+
+    $keywords = [];
+    foreach (['rat', 'vermin', 'goblin', 'spider', 'skeleton', 'zombie', 'wolf', 'bat'] as $keyword) {
+      if (str_contains($normalized_message, $keyword)) {
+        $keywords[] = $keyword;
+      }
+    }
+    if ($keywords === []) {
+      return [];
+    }
+
+    $matched = [];
+    foreach ($room_entities as $entity) {
+      $team = strtolower((string) ($entity['state']['metadata']['team'] ?? $entity['team'] ?? ''));
+      if (in_array($team, ['player', 'ally', 'friendly', 'party'], TRUE)) {
+        continue;
+      }
+
+      $haystack = strtolower(implode(' ', array_filter([
+        (string) ($entity['state']['metadata']['display_name'] ?? ''),
+        (string) ($entity['name'] ?? ''),
+        (string) ($entity['entity_ref']['content_id'] ?? ''),
+        (string) ($entity['state']['metadata']['creature_type'] ?? ''),
+        (string) ($entity['type'] ?? ''),
+      ])));
+      foreach ($keywords as $keyword) {
+        if (str_contains($haystack, $keyword)) {
+          $matched[] = $entity;
+          break;
+        }
+      }
+    }
+
+    if ($matched !== []) {
+      return $matched;
     }
 
     return $hostiles;
@@ -4358,6 +4573,7 @@ PROMPT;
     $stages = is_array($trace['stages'] ?? NULL) ? $trace['stages'] : [];
     $gm_stage = NULL;
     $cache_stage = NULL;
+    $primary_flow_stage = NULL;
     foreach ($stages as $stage) {
       if (!is_array($stage)) {
         continue;
@@ -4368,15 +4584,58 @@ PROMPT;
       if ($cache_stage === NULL && (string) ($stage['stage'] ?? '') === 'gm.response_cache') {
         $cache_stage = $stage;
       }
+      if ($primary_flow_stage === NULL && (string) ($stage['stage'] ?? '') === 'gm.primary_flow') {
+        $primary_flow_stage = $stage;
+      }
     }
+
+    $cache_status = is_array($cache_stage['meta'] ?? NULL)
+      ? (string) ($cache_stage['meta']['cache'] ?? '')
+      : '';
 
     return [
       'trace_id' => (string) ($trace['trace_id'] ?? ''),
       'total_ms' => (int) round((float) ($trace['total_ms'] ?? 0)),
       'gm_ms' => $gm_stage !== NULL ? (int) round((float) ($gm_stage['duration_ms'] ?? 0)) : NULL,
-      'cache_hit' => $cache_stage['meta']['cache_hit'] ?? $cache_stage['meta']['hit'] ?? NULL,
+      'cache_hit' => $cache_status === 'hit' ? TRUE : ($cache_status !== '' ? FALSE : NULL),
+      'cache_status' => $cache_status !== '' ? $cache_status : NULL,
+      'response_source' => is_array($primary_flow_stage['meta'] ?? NULL)
+        ? ($primary_flow_stage['meta']['response_source'] ?? NULL)
+        : NULL,
+      'cluster_hints' => is_array($primary_flow_stage['meta']['cluster_hints'] ?? NULL)
+        ? array_values($primary_flow_stage['meta']['cluster_hints'])
+        : [],
       'stage_count' => count($stages),
     ];
+  }
+
+  /**
+   * Build heuristic labels for the GM defect clusters we are tracking.
+   */
+  protected function buildGmDefectClusterHints(string $turn_intent, string $response_source): array {
+    $clusters = [];
+
+    if ($response_source === 'reality_checked_generation' && in_array($turn_intent, [
+      'combat_engagement',
+      'navigation_travel',
+      'room_roster_query',
+      'direct_npc_dialogue',
+      'direct_npc_transaction',
+      'quest_query',
+      'ooc_meta',
+    ], TRUE)) {
+      $clusters[] = 'deterministic_coverage_gap';
+    }
+
+    if ($response_source === 'reality_checked_generation' && $turn_intent === 'gm_narration') {
+      $clusters[] = 'prompt_fallback_path';
+    }
+
+    if ($response_source === 'unresolved') {
+      $clusters[] = 'generation_failure';
+    }
+
+    return $clusters;
   }
 
   /**
@@ -4658,9 +4917,12 @@ PROMPT;
 
   /**
    * Decide whether the main GM response is cacheable.
+   *
+   * Response caching is the fallback optimization layer for low-variance turns
+   * that still require LLM narration after deterministic handling is bypassed.
    */
   protected function shouldUseGmResponseCache(string $turn_intent, string $latest_player_message, bool $is_room_entry): bool {
-    if ($is_room_entry || !in_array($turn_intent, ['gm_narration', 'quest_query'], TRUE)) {
+    if ($is_room_entry || $turn_intent !== 'gm_narration') {
       return FALSE;
     }
 

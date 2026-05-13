@@ -21,15 +21,17 @@ class CharacterStateService {
   protected AccountProxyInterface $currentUser;
   protected FeatEffectManager $featEffectManager;
   protected GeneratedImageRepository $imageRepository;
+  protected NumberGenerationService $numberGeneration;
 
   /**
    * Constructor.
    */
-  public function __construct(Connection $database, AccountProxyInterface $current_user, FeatEffectManager $feat_effect_manager, GeneratedImageRepository $image_repository) {
+  public function __construct(Connection $database, AccountProxyInterface $current_user, FeatEffectManager $feat_effect_manager, GeneratedImageRepository $image_repository, NumberGenerationService $number_generation) {
     $this->database = $database;
     $this->currentUser = $current_user;
     $this->featEffectManager = $feat_effect_manager;
     $this->imageRepository = $image_repository;
+    $this->numberGeneration = $number_generation;
   }
 
   /**
@@ -361,8 +363,8 @@ class CharacterStateService {
    * 
    * @see docs/dungeoncrawler/issues/issue-4-enhanced-character-sheet-design.md#update-hit-points
    */
-  public function updateHitPoints(string $character_id, int $delta, bool $temporary = FALSE): array {
-    $state = $this->getState($character_id);
+  public function updateHitPoints(string $character_id, int $delta, bool $temporary = FALSE, ?int $campaign_id = NULL, ?string $instance_id = NULL): array {
+    $state = $this->getState($character_id, $campaign_id, $instance_id);
     
     if ($temporary) {
       // Temporary HP doesn't stack - take the higher value
@@ -382,7 +384,7 @@ class CharacterStateService {
     }
     
     // Save updated state
-    $this->saveState($character_id, $state);
+    $this->saveState($character_id, $state, $this->loadCampaignCharacter($campaign_id, $instance_id, (int) $character_id));
     
     return $state['resources']['hitPoints'];
   }
@@ -400,8 +402,8 @@ class CharacterStateService {
    * 
    * @see docs/dungeoncrawler/issues/issue-4-enhanced-character-sheet-design.md#add-condition-to-character
    */
-  public function addCondition(string $character_id, array $condition): array {
-    $state = $this->getState($character_id);
+  public function addCondition(string $character_id, array $condition, ?int $campaign_id = NULL, ?string $instance_id = NULL): array {
+    $state = $this->getState($character_id, $campaign_id, $instance_id);
     
     // Add required fields if not present
     if (empty($condition['id'])) {
@@ -415,7 +417,7 @@ class CharacterStateService {
     $state['conditions'][] = $condition;
     
     // Save updated state
-    $this->saveState($character_id, $state);
+    $this->saveState($character_id, $state, $this->loadCampaignCharacter($campaign_id, $instance_id, (int) $character_id));
     
     return $state['conditions'];
   }
@@ -433,8 +435,8 @@ class CharacterStateService {
    * 
    * @see docs/dungeoncrawler/issues/issue-4-enhanced-character-sheet-design.md#remove-condition-from-character
    */
-  public function removeCondition(string $character_id, string $condition_id): array {
-    $state = $this->getState($character_id);
+  public function removeCondition(string $character_id, string $condition_id, ?int $campaign_id = NULL, ?string $instance_id = NULL): array {
+    $state = $this->getState($character_id, $campaign_id, $instance_id);
     
     // Filter out the condition with matching ID
     $state['conditions'] = array_values(array_filter(
@@ -445,7 +447,7 @@ class CharacterStateService {
     ));
     
     // Save updated state
-    $this->saveState($character_id, $state);
+    $this->saveState($character_id, $state, $this->loadCampaignCharacter($campaign_id, $instance_id, (int) $character_id));
     
     return $state['conditions'];
   }
@@ -470,8 +472,8 @@ class CharacterStateService {
    * 
    * @see docs/dungeoncrawler/issues/issue-4-enhanced-character-sheet-design.md#cast-a-spell-consume-slot-or-focus-point
    */
-  public function castSpell(string $character_id, string $spell_id, int $level, bool $is_focus_spell = FALSE): array {
-    $state = $this->getState($character_id);
+  public function castSpell(string $character_id, string $spell_id, int $level, bool $is_focus_spell = FALSE, ?int $campaign_id = NULL, ?string $instance_id = NULL): array {
+    $state = $this->getState($character_id, $campaign_id, $instance_id);
     
     if ($is_focus_spell) {
       // Check and consume focus point
@@ -487,6 +489,14 @@ class CharacterStateService {
       ];
     }
     else {
+      if ($level <= 0) {
+        return [
+          'level' => 0,
+          'remaining' => NULL,
+          'consumed' => FALSE,
+        ];
+      }
+
       // Check and consume spell slot
       $slot_key = (string) $level;
       $current = $state['resources']['spellSlots'][$slot_key]['current'] ?? 0;
@@ -502,7 +512,7 @@ class CharacterStateService {
     }
     
     // Save updated state
-    $this->saveState($character_id, $state);
+    $this->saveState($character_id, $state, $this->loadCampaignCharacter($campaign_id, $instance_id, (int) $character_id));
     
     return $result;
   }
@@ -624,8 +634,8 @@ class CharacterStateService {
    * 
    * @see docs/dungeoncrawler/issues/issue-4-enhanced-character-sheet-design.md#update-inventory-add-remove-equip-items
    */
-  public function updateInventory(string $character_id, string $action, array $item): array {
-    $state = $this->getState($character_id);
+  public function updateInventory(string $character_id, string $action, array $item, ?int $campaign_id = NULL, ?string $instance_id = NULL): array {
+    $state = $this->getState($character_id, $campaign_id, $instance_id);
     
     switch ($action) {
       case 'add':
@@ -639,6 +649,58 @@ class CharacterStateService {
             return $i['id'] !== $item['id'];
           }
         ));
+        break;
+
+      case 'consume':
+        $consumed = FALSE;
+        $consume_collection = function (array $collection) use ($item, &$consumed): array {
+          $collection = array_values(array_map(
+            function ($inventory_item) use ($item, &$consumed) {
+              $inventory_item_id = (string) ($inventory_item['id'] ?? $inventory_item['item_id'] ?? '');
+              $target_item_id = (string) ($item['id'] ?? $item['item_id'] ?? '');
+              $inventory_item_name = strtolower(trim((string) ($inventory_item['name'] ?? '')));
+              $target_item_name = strtolower(trim((string) ($item['name'] ?? '')));
+              $matches = $target_item_id !== ''
+                ? ($inventory_item_id !== '' && $inventory_item_id === $target_item_id)
+                : ($inventory_item_name !== '' && $inventory_item_name === $target_item_name);
+              if ($consumed || !$matches) {
+                return $inventory_item;
+              }
+
+              $quantity = (int) ($inventory_item['quantity'] ?? 1);
+              if ($quantity > 1) {
+                $inventory_item['quantity'] = $quantity - 1;
+                $consumed = TRUE;
+                return $inventory_item;
+              }
+
+              $consumed = TRUE;
+              return NULL;
+            },
+            $collection
+          ));
+
+          return array_values(array_filter($collection));
+        };
+
+        $state['inventory']['carried'] = $consume_collection($state['inventory']['carried'] ?? []);
+        if (!$consumed) {
+          $state['inventory']['worn']['weapons'] = $consume_collection($state['inventory']['worn']['weapons'] ?? []);
+        }
+        if (!$consumed) {
+          $state['inventory']['worn']['accessories'] = $consume_collection($state['inventory']['worn']['accessories'] ?? []);
+        }
+        if (!$consumed && !empty($state['inventory']['worn']['armor'])) {
+          $consumed_armor = $consume_collection([$state['inventory']['worn']['armor']]);
+          $state['inventory']['worn']['armor'] = !empty($consumed_armor) ? reset($consumed_armor) : NULL;
+          if ($state['inventory']['worn']['armor'] === NULL) {
+            unset($state['inventory']['worn']['armor']);
+          }
+        }
+        $state['inventory']['carried'] = array_values(array_filter($state['inventory']['carried']));
+        if (!$consumed) {
+          throw new \InvalidArgumentException('Consumable item not found in inventory');
+        }
         break;
         
       case 'equip':
@@ -694,7 +756,7 @@ class CharacterStateService {
     $state['inventory']['encumbrance'] = $bulk_data['encumbrance'];
     
     // Save updated state
-    $this->saveState($character_id, $state);
+    $this->saveState($character_id, $state, $this->loadCampaignCharacter($campaign_id, $instance_id, (int) $character_id));
     
     return $state['inventory'];
   }
@@ -712,8 +774,8 @@ class CharacterStateService {
    * 
    * @see docs/dungeoncrawler/issues/issue-4-enhanced-character-sheet-design.md#gain-experience-points
    */
-  public function gainExperience(string $character_id, int $xp): array {
-    $state = $this->getState($character_id);
+  public function gainExperience(string $character_id, int $xp, ?int $campaign_id = NULL, ?string $instance_id = NULL): array {
+    $state = $this->getState($character_id, $campaign_id, $instance_id);
     
     // Add XP
     $current_xp = $state['basicInfo']['experiencePoints'] + $xp;
@@ -725,7 +787,7 @@ class CharacterStateService {
     $xp_to_next_level = (1000 * $current_level) - $current_xp;
     
     // Save updated state
-    $this->saveState($character_id, $state);
+    $this->saveState($character_id, $state, $this->loadCampaignCharacter($campaign_id, $instance_id, (int) $character_id));
     
     return [
       'experiencePoints' => $current_xp,
@@ -733,6 +795,232 @@ class CharacterStateService {
       'levelUpAvailable' => $level_up_available,
       'xpToNextLevel' => max(0, $xp_to_next_level),
     ];
+  }
+
+  /**
+   * Apply canonical self-targeted consumable effects to character state.
+   */
+  public function applyConsumableEffects(string $character_id, array $item, ?int $campaign_id = NULL, ?string $instance_id = NULL): array {
+    $state = $this->getState($character_id, $campaign_id, $instance_id);
+    $campaign_row = $this->loadCampaignCharacter($campaign_id, $instance_id, (int) $character_id);
+    $effects = [];
+    $changed = FALSE;
+
+    $healing = $this->resolveConsumableScalarValue([
+      $item['healing']['amount'] ?? NULL,
+      $item['healing_amount'] ?? NULL,
+      $item['heal_amount'] ?? NULL,
+      $item['healing'] ?? NULL,
+      $item['effects']['healing'] ?? NULL,
+      $item['effects']['heal_amount'] ?? NULL,
+      $item['consumable_stats']['healing_amount'] ?? NULL,
+      $item['consumable_stats']['effect'] ?? NULL,
+      $item['effect'] ?? NULL,
+      $item['description'] ?? NULL,
+    ], ['hit point', 'hit points', 'hp', 'heal', 'healing', 'regain', 'restore']);
+    if ($healing > 0) {
+      $resources = is_array($state['resources'] ?? NULL) ? $state['resources'] : [];
+      $hit_points = is_array($resources['hitPoints'] ?? NULL) ? $resources['hitPoints'] : ['current' => 0, 'max' => 0, 'temporary' => 0];
+      $hit_points['current'] = max(0, min((int) ($hit_points['max'] ?? 0), (int) ($hit_points['current'] ?? 0) + $healing));
+      $state['resources']['hitPoints'] = $hit_points;
+      $effects['healing'] = [
+        'amount' => $healing,
+        'current' => $hit_points['current'],
+        'max' => (int) ($hit_points['max'] ?? 0),
+      ];
+      $changed = TRUE;
+    }
+
+    $temporary_hit_points = $this->resolveConsumableScalarValue([
+      $item['temporary_hp'] ?? NULL,
+      $item['temp_hp'] ?? NULL,
+      $item['effects']['temporary_hp'] ?? NULL,
+      $item['effects']['temp_hp'] ?? NULL,
+      $item['consumable_stats']['temporary_hp'] ?? NULL,
+      $item['consumable_stats']['effect'] ?? NULL,
+      $item['effect'] ?? NULL,
+      $item['description'] ?? NULL,
+    ], ['temporary hit points', 'temp hp', 'temporary hp']);
+    if ($temporary_hit_points > 0) {
+      $current_temporary = (int) ($state['resources']['hitPoints']['temporary'] ?? 0);
+      $state['resources']['hitPoints']['temporary'] = max($current_temporary, $temporary_hit_points);
+      $effects['temporary_hit_points'] = [
+        'amount' => $temporary_hit_points,
+        'current' => (int) $state['resources']['hitPoints']['temporary'],
+      ];
+      $changed = TRUE;
+    }
+
+    $hero_point_delta = $this->resolveConsumableScalarValue([
+      $item['hero_points'] ?? NULL,
+      $item['effects']['hero_points'] ?? NULL,
+      $item['restore_hero_points'] ?? NULL,
+      $item['consumable_stats']['hero_points'] ?? NULL,
+    ]);
+    if ($hero_point_delta > 0) {
+      $hero_max = (int) ($state['resources']['heroPoints']['max'] ?? 3);
+      $hero_current = (int) ($state['resources']['heroPoints']['current'] ?? 0);
+      $state['resources']['heroPoints']['current'] = min($hero_max, $hero_current + $hero_point_delta);
+      $effects['hero_points'] = [
+        'delta' => $hero_point_delta,
+        'current' => (int) $state['resources']['heroPoints']['current'],
+        'max' => $hero_max,
+      ];
+      $changed = TRUE;
+    }
+
+    $focus_point_delta = $this->resolveConsumableScalarValue([
+      $item['focus_points'] ?? NULL,
+      $item['effects']['focus_points'] ?? NULL,
+      $item['restore_focus_points'] ?? NULL,
+      $item['consumable_stats']['focus_points'] ?? NULL,
+    ]);
+    if ($focus_point_delta > 0) {
+      $focus_max = (int) ($state['resources']['focusPoints']['max'] ?? $focus_point_delta);
+      $focus_current = (int) ($state['resources']['focusPoints']['current'] ?? 0);
+      $state['resources']['focusPoints']['current'] = min($focus_max, $focus_current + $focus_point_delta);
+      $state['resources']['focusPoints']['max'] = max($focus_max, (int) $state['resources']['focusPoints']['current']);
+      $effects['focus_points'] = [
+        'delta' => $focus_point_delta,
+        'current' => (int) $state['resources']['focusPoints']['current'],
+        'max' => (int) $state['resources']['focusPoints']['max'],
+      ];
+      $changed = TRUE;
+    }
+
+    $experience_delta = $this->resolveConsumableScalarValue([
+      $item['experience_points'] ?? NULL,
+      $item['xp'] ?? NULL,
+      $item['effects']['experience_points'] ?? NULL,
+      $item['effects']['xp'] ?? NULL,
+    ]);
+    if ($experience_delta > 0) {
+      $state['basicInfo']['experiencePoints'] = (int) ($state['basicInfo']['experiencePoints'] ?? 0) + $experience_delta;
+      $effects['experience_points'] = (int) $state['basicInfo']['experiencePoints'];
+      $changed = TRUE;
+    }
+
+    $removed_conditions = $this->extractConsumableConditionNames($item, TRUE);
+    if (!empty($removed_conditions) && is_array($state['conditions'] ?? NULL)) {
+      $before = count($state['conditions']);
+      $state['conditions'] = array_values(array_filter($state['conditions'], function ($condition) use ($removed_conditions) {
+        $condition_data = is_array($condition) ? $condition : ['name' => (string) $condition];
+        $condition_id = strtolower((string) ($condition_data['id'] ?? ''));
+        $condition_name = strtolower((string) ($condition_data['name'] ?? $condition_data['condition'] ?? $condition_data['type'] ?? ''));
+        foreach ($removed_conditions as $needle) {
+          if ($needle !== '' && ($condition_id === $needle || $condition_name === $needle)) {
+            return FALSE;
+          }
+        }
+        return TRUE;
+      }));
+      if (count($state['conditions']) !== $before) {
+        $effects['conditions_removed'] = $removed_conditions;
+        $changed = TRUE;
+      }
+    }
+
+    $added_conditions = $this->extractConsumableAddedConditions($item);
+    if (!empty($added_conditions)) {
+      if (!is_array($state['conditions'] ?? NULL)) {
+        $state['conditions'] = [];
+      }
+      foreach ($added_conditions as $condition) {
+        if (empty($condition['id'])) {
+          $condition['id'] = uniqid('cond_', TRUE);
+        }
+        if (empty($condition['appliedAt'])) {
+          $condition['appliedAt'] = date('c');
+        }
+        $state['conditions'][] = $condition;
+      }
+      $effects['conditions_added'] = array_map(static function (array $condition) {
+        return $condition['name'] ?? $condition['condition'] ?? $condition['type'] ?? $condition['id'] ?? 'condition';
+      }, $added_conditions);
+      $changed = TRUE;
+    }
+
+    $restored_slots = $this->extractConsumableSpellSlotRestoration($item);
+    if (!empty($restored_slots)) {
+      $effects['spell_slots'] = [];
+      foreach ($restored_slots as $slot_restore) {
+        $slot_key = (string) ($slot_restore['level'] ?? '');
+        $restore_amount = max(1, (int) ($slot_restore['amount'] ?? 1));
+        if ($slot_key === '') {
+          continue;
+        }
+        $current = (int) ($state['resources']['spellSlots'][$slot_key]['current'] ?? 0);
+        $max = (int) ($state['resources']['spellSlots'][$slot_key]['max'] ?? $current);
+        $next = min($max, $current + $restore_amount);
+        $state['resources']['spellSlots'][$slot_key]['current'] = $next;
+        $effects['spell_slots'][] = [
+          'level' => (int) $slot_key,
+          'restored' => $next - $current,
+          'current' => $next,
+          'max' => $max,
+        ];
+        $changed = $changed || $next !== $current;
+      }
+      if (empty($effects['spell_slots'])) {
+        unset($effects['spell_slots']);
+      }
+    }
+
+    $nutrition_days = $this->resolveProvisionDays($item, 'food');
+    if ($nutrition_days > 0) {
+      $state['days_without_food'] = 0;
+      unset($state['starvation_damage_phase']);
+      $effects['nutrition_days'] = $nutrition_days;
+      $changed = TRUE;
+    }
+
+    $hydration_days = $this->resolveProvisionDays($item, 'water');
+    if ($hydration_days > 0) {
+      $state['days_without_water'] = 0;
+      unset($state['thirst_damage_phase']);
+      $effects['hydration_days'] = $hydration_days;
+      $changed = TRUE;
+    }
+
+    if ($changed) {
+      $this->saveState($character_id, $state, $campaign_row);
+    }
+
+    return $effects;
+  }
+
+  /**
+   * Persist a player-triggered action in canonical character state.
+   */
+  public function recordPlayerAction(string $character_id, array $action, ?int $campaign_id = NULL, ?string $instance_id = NULL): array {
+    $state = $this->getState($character_id, $campaign_id, $instance_id);
+    $campaign_row = $this->loadCampaignCharacter($campaign_id, $instance_id, (int) $character_id);
+
+    $entry = [
+      'id' => uniqid('action_', TRUE),
+      'type' => trim((string) ($action['type'] ?? 'action')),
+      'name' => trim((string) ($action['name'] ?? $action['type'] ?? 'action')),
+      'summary' => trim((string) ($action['summary'] ?? '')),
+      'source' => trim((string) ($action['source'] ?? 'action_rail')),
+      'performedAt' => date('c'),
+      'payload' => is_array($action['payload'] ?? NULL) ? $action['payload'] : [],
+    ];
+
+    if ($entry['summary'] === '') {
+      $entry['summary'] = sprintf('%s uses %s.', (string) ($state['basicInfo']['name'] ?? 'Character'), $entry['name']);
+    }
+
+    if (!isset($state['activity']) || !is_array($state['activity'])) {
+      $state['activity'] = [];
+    }
+    $recent_actions = is_array($state['activity']['recentActions'] ?? NULL) ? $state['activity']['recentActions'] : [];
+    $recent_actions[] = $entry;
+    $state['activity']['recentActions'] = array_slice($recent_actions, -25);
+    $state['metadata']['lastPlayerAction'] = $entry;
+
+    $this->saveState($character_id, $state, $campaign_row);
+
+    return $entry;
   }
 
   /**
@@ -847,6 +1135,231 @@ class CharacterStateService {
     // PF2E XP table: 1000 XP per level (simplified)
     $xp_for_next_level = 1000 * $current_level;
     return $current_xp >= $xp_for_next_level;
+  }
+
+  /**
+   * Resolve a scalar consumable effect from raw values or inline text.
+   */
+  private function resolveConsumableScalarValue(array $candidates, array $required_terms = []): int {
+    foreach ($candidates as $candidate) {
+      if (is_numeric($candidate)) {
+        return max(0, (int) $candidate);
+      }
+      if (!is_string($candidate)) {
+        continue;
+      }
+      $text = trim($candidate);
+      if ($text === '') {
+        continue;
+      }
+      $normalized = strtolower($text);
+      if (!empty($required_terms)) {
+        $matched = FALSE;
+        foreach ($required_terms as $term) {
+          if (str_contains($normalized, strtolower($term))) {
+            $matched = TRUE;
+            break;
+          }
+        }
+        if (!$matched) {
+          continue;
+        }
+      }
+      if (preg_match('/(\d+d\d+(?:\s*[+-]\s*\d+)?)/i', $text, $matches)) {
+        $roll = $this->numberGeneration->rollExpression(str_replace(' ', '', $matches[1]));
+        if (empty($roll['error'])) {
+          return max(0, (int) ($roll['total'] ?? 0));
+        }
+      }
+      if (preg_match('/\b(\d+)\b/', $text, $matches)) {
+        return max(0, (int) $matches[1]);
+      }
+    }
+
+    return 0;
+  }
+
+  /**
+   * Extract conditions explicitly removed by an item.
+   */
+  private function extractConsumableConditionNames(array $item, bool $removal = FALSE): array {
+    $names = [];
+    $sources = $removal
+      ? [
+        $item['remove_condition'] ?? NULL,
+        $item['remove_conditions'] ?? NULL,
+        $item['removes_condition'] ?? NULL,
+        $item['removes_conditions'] ?? NULL,
+        $item['effects']['remove_condition'] ?? NULL,
+        $item['effects']['remove_conditions'] ?? NULL,
+        $item['effects']['removes_condition'] ?? NULL,
+        $item['effects']['removes_conditions'] ?? NULL,
+      ]
+      : [];
+
+    foreach ($sources as $source) {
+      foreach ((array) $source as $value) {
+        if (is_string($value) && trim($value) !== '') {
+          $names[] = strtolower(trim($value));
+        }
+      }
+    }
+
+    $text_sources = [
+      $item['consumable_stats']['effect'] ?? NULL,
+      $item['effect'] ?? NULL,
+      $item['description'] ?? NULL,
+    ];
+    foreach ($text_sources as $text) {
+      if (!is_string($text) || trim($text) === '') {
+        continue;
+      }
+      if (preg_match_all('/removes? (?:the )?([a-z][a-z _-]+?) condition/i', $text, $matches)) {
+        foreach ($matches[1] as $match) {
+          $names[] = strtolower(trim($match));
+        }
+      }
+      if (preg_match_all('/cures? (?:the )?([a-z][a-z _-]+?)(?: condition|\\b)/i', $text, $matches)) {
+        foreach ($matches[1] as $match) {
+          $names[] = strtolower(trim($match));
+        }
+      }
+    }
+
+    return array_values(array_unique(array_filter($names)));
+  }
+
+  /**
+   * Extract conditions explicitly granted by an item.
+   */
+  private function extractConsumableAddedConditions(array $item): array {
+    $conditions = [];
+    $sources = [
+      $item['condition'] ?? NULL,
+      $item['conditions'] ?? NULL,
+      $item['add_condition'] ?? NULL,
+      $item['add_conditions'] ?? NULL,
+      $item['grant_condition'] ?? NULL,
+      $item['grant_conditions'] ?? NULL,
+      $item['effects']['condition'] ?? NULL,
+      $item['effects']['conditions'] ?? NULL,
+      $item['effects']['add_condition'] ?? NULL,
+      $item['effects']['add_conditions'] ?? NULL,
+      $item['effects']['grant_condition'] ?? NULL,
+      $item['effects']['grant_conditions'] ?? NULL,
+    ];
+
+    foreach ($sources as $source) {
+      if ($source === NULL) {
+        continue;
+      }
+      $values = is_array($source) && array_is_list($source) ? $source : [$source];
+      foreach ($values as $value) {
+        if (is_string($value) && trim($value) !== '') {
+          $conditions[] = ['name' => trim($value)];
+        }
+        elseif (is_array($value) && !empty($value)) {
+          $conditions[] = $value;
+        }
+      }
+    }
+
+    return $conditions;
+  }
+
+  /**
+   * Extract spell slot restoration directives from an item.
+   */
+  private function extractConsumableSpellSlotRestoration(array $item): array {
+    $sources = [
+      $item['restore_spell_slot'] ?? NULL,
+      $item['restore_spell_slots'] ?? NULL,
+      $item['spell_slots'] ?? NULL,
+      $item['effects']['restore_spell_slot'] ?? NULL,
+      $item['effects']['restore_spell_slots'] ?? NULL,
+      $item['effects']['spell_slots'] ?? NULL,
+    ];
+
+    $restorations = [];
+    foreach ($sources as $source) {
+      if ($source === NULL) {
+        continue;
+      }
+      if (is_numeric($source)) {
+        $restorations[] = ['level' => (int) $source, 'amount' => 1];
+        continue;
+      }
+      if (is_array($source) && !array_is_list($source)) {
+        foreach ($source as $level => $amount) {
+          if (is_numeric($level) && is_numeric($amount)) {
+            $restorations[] = ['level' => (int) $level, 'amount' => (int) $amount];
+          }
+        }
+        continue;
+      }
+      foreach ((array) $source as $entry) {
+        if (is_numeric($entry)) {
+          $restorations[] = ['level' => (int) $entry, 'amount' => 1];
+        }
+        elseif (is_array($entry) && isset($entry['level'])) {
+          $restorations[] = [
+            'level' => (int) $entry['level'],
+            'amount' => max(1, (int) ($entry['amount'] ?? 1)),
+          ];
+        }
+      }
+    }
+
+    return $restorations;
+  }
+
+  /**
+   * Resolve food or water provisioning from explicit fields or item text.
+   */
+  private function resolveProvisionDays(array $item, string $type): int {
+    $explicit = $this->resolveConsumableScalarValue([
+      $type === 'food' ? ($item['nutrition_days'] ?? NULL) : ($item['hydration_days'] ?? NULL),
+      $type === 'food' ? ($item['food_days'] ?? NULL) : ($item['water_days'] ?? NULL),
+      $type === 'food' ? ($item['effects']['nutrition_days'] ?? NULL) : ($item['effects']['hydration_days'] ?? NULL),
+      $type === 'food' ? ($item['effects']['food_days'] ?? NULL) : ($item['effects']['water_days'] ?? NULL),
+    ]);
+    if ($explicit > 0) {
+      return $explicit;
+    }
+
+    $search_space = strtolower(implode(' ', array_filter([
+      is_array($item['traits'] ?? NULL) ? implode(' ', $item['traits']) : '',
+      (string) ($item['name'] ?? ''),
+      (string) ($item['description'] ?? ''),
+      (string) ($item['consumable_stats']['effect'] ?? ''),
+    ])));
+
+    $type_keywords = $type === 'food'
+      ? ['ration', 'food', 'meal', 'cheese', 'jerky', 'sustain', 'eat', 'eating']
+      : ['water', 'drink', 'drinking', 'waterskin', 'hydration'];
+
+    $matches_type = FALSE;
+    foreach ($type_keywords as $keyword) {
+      if (str_contains($search_space, $keyword)) {
+        $matches_type = TRUE;
+        break;
+      }
+    }
+    if (!$matches_type) {
+      return 0;
+    }
+
+    if (preg_match('/(\d+)\s*rations?\b/i', $search_space, $matches)) {
+      return max(1, (int) $matches[1]);
+    }
+    if (preg_match('/(\d+)\s*week[s]?\b/i', $search_space, $matches)) {
+      return max(1, (int) $matches[1]) * 7;
+    }
+    if (preg_match('/(\d+)\s*day[s]?\b/i', $search_space, $matches)) {
+      return max(1, (int) $matches[1]);
+    }
+
+    return str_contains($search_space, 'ration') || str_contains($search_space, 'waterskin') ? 1 : 0;
   }
 
   /**

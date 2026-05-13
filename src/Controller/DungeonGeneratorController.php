@@ -4,6 +4,7 @@ namespace Drupal\dungeoncrawler_content\Controller;
 
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\dungeoncrawler_content\Service\DungeonGeneratorService;
+use Drupal\dungeoncrawler_content\Service\NarrationEngine;
 use Drupal\dungeoncrawler_content\Service\SchemaLoader;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -31,6 +32,7 @@ class DungeonGeneratorController extends ControllerBase {
    * @var \Drupal\dungeoncrawler_content\Service\SchemaLoader
    */
   protected SchemaLoader $schemaLoader;
+  protected NarrationEngine $narrationEngine;
 
   /**
    * Constructs a DungeonGeneratorController object.
@@ -42,10 +44,12 @@ class DungeonGeneratorController extends ControllerBase {
    */
   public function __construct(
     DungeonGeneratorService $dungeon_generator,
-    SchemaLoader $schema_loader
+    SchemaLoader $schema_loader,
+    NarrationEngine $narration_engine
   ) {
     $this->dungeonGenerator = $dungeon_generator;
     $this->schemaLoader = $schema_loader;
+    $this->narrationEngine = $narration_engine;
   }
 
   /**
@@ -54,7 +58,8 @@ class DungeonGeneratorController extends ControllerBase {
   public static function create(ContainerInterface $container) {
     return new static(
       $container->get('dungeoncrawler_content.dungeon_generator'),
-      $container->get('dungeoncrawler_content.schema_loader')
+      $container->get('dungeoncrawler_content.schema_loader'),
+      $container->get('dungeoncrawler_content.narration_engine')
     );
   }
 
@@ -123,6 +128,11 @@ class DungeonGeneratorController extends ControllerBase {
     }
 
     $party_level = (int) $data['party_level'];
+    $gm_private = [
+      'character_id' => isset($data['character_id']) ? (int) $data['character_id'] : 0,
+      'speaker' => trim((string) ($data['speaker'] ?? '')),
+      'message' => trim((string) ($data['gm_private_message'] ?? '')),
+    ];
     if ($party_level < 1 || $party_level > 20) {
       return new JsonResponse(
         ['error' => 'party_level must be between 1 and 20'],
@@ -169,7 +179,28 @@ class DungeonGeneratorController extends ControllerBase {
 
     // 5. Generate the dungeon.
     try {
+      if (($gm_private['character_id'] ?? 0) > 0 && $gm_private['speaker'] !== '' && $gm_private['message'] !== '') {
+        $this->narrationEngine->recordSecretAction(
+          $campaign_id,
+          (int) $gm_private['character_id'],
+          (string) $gm_private['speaker'],
+          (string) $gm_private['message']
+        );
+      }
       $dungeon_data = $this->dungeonGenerator->generateDungeon($context);
+      if (($gm_private['character_id'] ?? 0) > 0) {
+        $dungeon_name = (string) ($dungeon_data['name'] ?? $dungeon_data['dungeon_id'] ?? 'new dungeon');
+        $this->narrationEngine->respondToSecretAction(
+          $campaign_id,
+          (int) $gm_private['character_id'],
+          sprintf('Generated dungeon site: %s.', $dungeon_name),
+          [
+            'generated_by' => 'gm_dungeon_request',
+            'request_type' => 'dungeon',
+            'dungeon_id' => (string) ($dungeon_data['dungeon_id'] ?? ''),
+          ]
+        );
+      }
       return new JsonResponse($dungeon_data, JsonResponse::HTTP_CREATED);
     }
     catch (\InvalidArgumentException $e) {

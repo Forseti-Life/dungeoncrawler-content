@@ -287,6 +287,7 @@ Implementation strategy (first-pass architecture):
 - **World Lore** (`/world`) - Living dungeon background and lore
 - **How to Play** (`/how-to-play`) - Game mechanics and tutorial
 - **About** (`/about`) - Game information, technology, and legacy-world framing for long-term character play
+- **Spell Catalogue** (`/spellcatalogue`) - Public review page for live spell records pulled from `dungeoncrawler_content_registry`
 
 ### AI Image Generation Integration (Gemini + Vertex)
 - **Dashboard panel**: `/admin/content/dungeoncrawler` includes an **AI Image Generation (Gemini + Vertex)** panel.
