@@ -816,12 +816,13 @@ the player said. This description is non-negotiable and must cover ALL of:
 4. SMELL / TASTE — Explicit smell and, where relevant, taste in the air.
    e.g. "The air tastes of iron and old smoke." Never skip this field.
 
-5. NPCs / CREATURES PRESENT (non-party only):
+5. CHARACTERS / CREATURES PRESENT:
    - Count them. "Three figures..." "A lone shape..."
    - Describe appearance, clothing, posture, what they are doing.
-   - Do NOT reveal their names until they introduce themselves or are
-     introduced — refer to them by appearance only.
-     e.g. "a stout woman in an apron" NOT "Mara the innkeeper".
+   - On first load / room entry, explicitly declare the named characters who
+     are visibly present in the room.
+     e.g. "Burasco and Marta are already at the bar, while Eldric watches from
+     behind the counter."
    - State their general demeanour explicitly:
      e.g. "unaware", "bored", "watchful", "tense", "aggressive",
      "fearful", "hostile", "friendly", "suspicious", "drunk".
@@ -836,6 +837,13 @@ Format guidance:
 ENTRY_NARRATION_RULES;
 
     return $ctx . "\n";
+  }
+
+  /**
+   * Expose grounded room exits for other services that need deterministic answers.
+   */
+  public function getResolvedRoomExits(array $dungeon_data, string $current_room_id): array {
+    return $this->resolveRoomExits($dungeon_data, $current_room_id);
   }
 
   /**

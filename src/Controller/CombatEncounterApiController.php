@@ -364,6 +364,8 @@ class CombatEncounterApiController extends ControllerBase {
 
     $target_ref = $data['targetId'] ?? NULL;
     $attacker_ref = $data['attackerId'] ?? NULL;
+    $weapon_id = isset($data['weaponId']) ? (string) $data['weaponId'] : '';
+    $weapon_name = isset($data['weaponName']) ? trim((string) $data['weaponName']) : '';
     $target = $this->findParticipantByReference($encounter['participants'], $target_ref);
     $attacker = $this->findParticipantByReference($encounter['participants'], $attacker_ref);
 
@@ -433,10 +435,13 @@ class CombatEncounterApiController extends ControllerBase {
       'payload' => json_encode([
         'attacker' => $attacker_ref,
         'target' => $target_ref,
+        'weapon_id' => $weapon_id !== '' ? $weapon_id : NULL,
+        'weapon_name' => $weapon_name !== '' ? $weapon_name : NULL,
       ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
       'result' => json_encode([
         'hit' => !empty($target),
         'damage' => $damage,
+        'weapon_name' => $weapon_name !== '' ? $weapon_name : NULL,
       ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
     ]);
 
@@ -450,6 +455,8 @@ class CombatEncounterApiController extends ControllerBase {
       'target_id' => $target_ref,
       'hit' => !empty($target),
       'damage' => $damage,
+      'weapon_id' => $weapon_id !== '' ? $weapon_id : NULL,
+      'weapon_name' => $weapon_name !== '' ? $weapon_name : NULL,
     ];
 
     return new JsonResponse($response);
@@ -472,7 +479,7 @@ class CombatEncounterApiController extends ControllerBase {
       return new JsonResponse(['error' => 'actionType is required'], 400);
     }
 
-    $allowed_types = ['interact', 'talk'];
+    $allowed_types = ['interact', 'talk', 'skill', 'feat', 'cast_spell', 'consume_item'];
     if (!in_array($action_type, $allowed_types, TRUE)) {
       return new JsonResponse([
         'error' => 'Unsupported actionType',
@@ -504,8 +511,12 @@ class CombatEncounterApiController extends ControllerBase {
     $cost_by_type = [
       'interact' => 1,
       'talk' => 0,
+      'skill' => 1,
+      'feat' => 1,
+      'cast_spell' => 2,
+      'consume_item' => 1,
     ];
-    $cost = $cost_by_type[$action_type] ?? 1;
+    $cost = max(0, min(3, (int) ($cost_by_type[$action_type] ?? 1)));
 
     if ($action_type === 'interact') {
       $target_hex = $data['targetHex'] ?? NULL;
@@ -521,6 +532,15 @@ class CombatEncounterApiController extends ControllerBase {
       }
     }
 
+    $action_effects = [];
+    $action_summary = '';
+    $character_id = isset($data['characterId']) ? (int) $data['characterId'] : (int) ($actor['entity_id'] ?? 0);
+    if ($character_id <= 0 && in_array($action_type, ['cast_spell', 'consume_item'], TRUE)) {
+      return new JsonResponse(['error' => 'Actor missing entity_id for character-scoped action'], 500);
+    }
+    $instance_id = !empty($actor['entity_ref']) ? (string) $actor['entity_ref'] : NULL;
+    $campaign_id = isset($encounter['campaign_id']) ? (int) $encounter['campaign_id'] : 0;
+
     $actions_remaining = (int) ($actor['actions_remaining'] ?? 0);
     if ($cost > 0 && $actions_remaining < $cost) {
       return new JsonResponse(['error' => 'Not enough actions remaining'], 409);
@@ -533,8 +553,88 @@ class CombatEncounterApiController extends ControllerBase {
     }
 
     $world_delta = NULL;
-    if ($action_type === 'interact') {
-      $world_delta = $this->applyInteractionWorldMutation($encounter, $data, $data['mapId'] ?? NULL);
+    try {
+      if ($action_type === 'interact') {
+        $world_delta = $this->applyInteractionWorldMutation($encounter, $data, $data['mapId'] ?? NULL);
+        $action_summary = sprintf('%s interacts with the environment.', (string) ($actor['name'] ?? 'Actor'));
+      }
+      elseif ($action_type === 'talk') {
+        $action_summary = sprintf('%s speaks.', (string) ($actor['name'] ?? 'Actor'));
+      }
+      elseif ($action_type === 'skill') {
+        $skill_name = trim((string) ($data['skillName'] ?? 'Skill'));
+        $skill_modifier = isset($data['skillModifier']) ? (int) $data['skillModifier'] : NULL;
+        $action_effects['skill_name'] = $skill_name;
+        $action_effects['skill_modifier'] = $skill_modifier;
+        $action_summary = sprintf(
+          '%s uses %s%s.',
+          (string) ($actor['name'] ?? 'Actor'),
+          $skill_name,
+          $skill_modifier !== NULL ? sprintf(' (%+d)', $skill_modifier) : ''
+        );
+      }
+      elseif ($action_type === 'feat') {
+        $feat_name = trim((string) ($data['featName'] ?? 'Feat action'));
+        $action_effects['feat_name'] = $feat_name;
+        $action_effects['feat_id'] = $data['featId'] ?? NULL;
+        $action_summary = sprintf('%s uses %s.', (string) ($actor['name'] ?? 'Actor'), $feat_name);
+      }
+      elseif ($action_type === 'cast_spell') {
+        $spell_id = trim((string) ($data['spellId'] ?? ''));
+        $spell_name = trim((string) ($data['spellName'] ?? $spell_id));
+        $spell_level = isset($data['spellLevel']) ? (int) $data['spellLevel'] : 0;
+        $is_focus_spell = !empty($data['isFocusSpell']);
+        if ($character_id <= 0 || $spell_id === '') {
+          return new JsonResponse(['error' => 'characterId and spellId are required for cast_spell'], 400);
+        }
+
+        $slot_result = $this->characterStateService->castSpell(
+          (string) $character_id,
+          $spell_id,
+          $spell_level,
+          $is_focus_spell,
+          $campaign_id > 0 ? $campaign_id : NULL,
+          $instance_id
+        );
+        $action_effects['spell'] = [
+          'spell_id' => $spell_id,
+          'spell_name' => $spell_name,
+          'spell_level' => $spell_level,
+          'focus' => $is_focus_spell,
+          'slot_result' => $slot_result,
+        ];
+        $action_summary = sprintf('%s casts %s.', (string) ($actor['name'] ?? 'Actor'), $spell_name ?: $spell_id);
+      }
+      elseif ($action_type === 'consume_item') {
+        $item = is_array($data['item'] ?? NULL) ? $data['item'] : [];
+        $item_name = trim((string) ($item['name'] ?? $item['id'] ?? $item['item_id'] ?? 'consumable'));
+        if ($character_id <= 0 || $item_name === '') {
+          return new JsonResponse(['error' => 'characterId and item are required for consume_item'], 400);
+        }
+
+        $inventory = $this->characterStateService->updateInventory(
+          (string) $character_id,
+          'consume',
+          $item,
+          $campaign_id > 0 ? $campaign_id : NULL,
+          $instance_id
+        );
+        $action_effects = array_merge(
+          $action_effects,
+          $this->characterStateService->applyConsumableEffects(
+            (string) $character_id,
+            $item,
+            $campaign_id > 0 ? $campaign_id : NULL,
+            $instance_id
+          )
+        );
+        $action_effects['inventory'] = $inventory;
+        $action_effects['item_name'] = $item_name;
+        $action_summary = $this->summarizeConsumableAction((string) ($actor['name'] ?? 'Actor'), $item_name, $action_effects);
+      }
+    }
+    catch (\InvalidArgumentException $exception) {
+      return new JsonResponse(['error' => $exception->getMessage()], 400);
     }
 
     $this->encounterStore->logAction([
@@ -554,6 +654,8 @@ class CombatEncounterApiController extends ControllerBase {
         'accepted' => TRUE,
         'cost' => $cost,
         'world_delta' => $world_delta,
+        'summary' => $action_summary,
+        'effects' => $action_effects,
       ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
     ]);
 
@@ -565,12 +667,56 @@ class CombatEncounterApiController extends ControllerBase {
       'actor_id' => $actor_ref,
       'cost' => $cost,
       'interaction_type' => $data['interactionType'] ?? NULL,
+      'summary' => $action_summary,
+      'effects' => $action_effects,
     ];
     if ($world_delta !== NULL) {
       $response['world_delta'] = $world_delta;
     }
 
     return new JsonResponse($response);
+  }
+
+  /**
+   * Build an action summary for a consumable use.
+   */
+  protected function summarizeConsumableAction(string $actor_name, string $item_name, array $effects): string {
+    $parts = [];
+    if (!empty($effects['healing']['amount'])) {
+      $parts[] = sprintf('recovers %d HP', (int) $effects['healing']['amount']);
+    }
+    if (!empty($effects['temporary_hit_points']['amount'])) {
+      $parts[] = sprintf('gains %d temporary HP', (int) $effects['temporary_hit_points']['amount']);
+    }
+    if (!empty($effects['conditions_removed'])) {
+      $parts[] = 'removes ' . implode(', ', array_map('strval', (array) $effects['conditions_removed']));
+    }
+    if (!empty($effects['conditions_added'])) {
+      $parts[] = 'applies ' . implode(', ', array_map('strval', (array) $effects['conditions_added']));
+    }
+    if (!empty($effects['focus_points']['delta'])) {
+      $parts[] = sprintf('restores %d focus point%s', (int) $effects['focus_points']['delta'], (int) $effects['focus_points']['delta'] === 1 ? '' : 's');
+    }
+    if (!empty($effects['hero_points']['delta'])) {
+      $parts[] = sprintf('restores %d hero point%s', (int) $effects['hero_points']['delta'], (int) $effects['hero_points']['delta'] === 1 ? '' : 's');
+    }
+    if (!empty($effects['nutrition_days'])) {
+      $parts[] = sprintf('resets food supply for %d day%s', (int) $effects['nutrition_days'], (int) $effects['nutrition_days'] === 1 ? '' : 's');
+    }
+    if (!empty($effects['hydration_days'])) {
+      $parts[] = sprintf('resets water supply for %d day%s', (int) $effects['hydration_days'], (int) $effects['hydration_days'] === 1 ? '' : 's');
+    }
+    if (!empty($effects['spell_slots']) && is_array($effects['spell_slots'])) {
+      foreach ($effects['spell_slots'] as $slot_restore) {
+        if (!empty($slot_restore['restored'])) {
+          $parts[] = sprintf('restores %d spell slot%s at rank %d', (int) $slot_restore['restored'], (int) $slot_restore['restored'] === 1 ? '' : 's', (int) ($slot_restore['level'] ?? 0));
+        }
+      }
+    }
+
+    return empty($parts)
+      ? sprintf('%s uses %s.', $actor_name, $item_name)
+      : sprintf('%s uses %s and %s.', $actor_name, $item_name, implode('; ', $parts));
   }
 
   /**

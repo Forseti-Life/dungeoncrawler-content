@@ -258,19 +258,41 @@ class CharacterStateController extends ControllerBase {
     }
     
     $data = json_decode($request->getContent(), TRUE);
+    $data = is_array($data) ? $data : [];
     
+    $runtime_context = $this->readRuntimeContext($data);
+
     try {
       $result = $this->characterStateService->castSpell(
         $character_id,
         $data['spellId'] ?? '',
         $data['level'] ?? 0,
-        $data['isFocusSpell'] ?? FALSE
+        $data['isFocusSpell'] ?? FALSE,
+        $runtime_context['campaignId'],
+        $runtime_context['instanceId']
+      );
+      $action_entry = $this->characterStateService->recordPlayerAction(
+        $character_id,
+        [
+          'type' => 'cast_spell',
+          'name' => (string) ($data['spellName'] ?? $data['spellId'] ?? 'spell'),
+          'summary' => sprintf('Casts %s.', (string) ($data['spellName'] ?? $data['spellId'] ?? 'a spell')),
+          'source' => (string) ($data['source'] ?? 'action_rail'),
+          'payload' => [
+            'spellId' => $data['spellId'] ?? '',
+            'level' => (int) ($data['level'] ?? 0),
+            'isFocusSpell' => !empty($data['isFocusSpell']),
+          ],
+        ],
+        $runtime_context['campaignId'],
+        $runtime_context['instanceId']
       );
       
       return new JsonResponse([
         'success' => TRUE,
         'spellSlotConsumed' => $result,
         'effects' => [],
+        'action' => $action_entry,
       ]);
     }
     catch (\InvalidArgumentException $e) {
@@ -302,17 +324,61 @@ class CharacterStateController extends ControllerBase {
     }
     
     $data = json_decode($request->getContent(), TRUE);
+    $data = is_array($data) ? $data : [];
     
+    $runtime_context = $this->readRuntimeContext($data);
+
     try {
       $result = $this->characterStateService->updateHitPoints(
         $character_id,
         $data['delta'] ?? 0,
-        $data['temporary'] ?? FALSE
+        $data['temporary'] ?? FALSE,
+        $runtime_context['campaignId'],
+        $runtime_context['instanceId']
       );
       
       return new JsonResponse([
         'success' => TRUE,
         'hitPoints' => $result,
+      ]);
+    }
+    catch (\Exception $e) {
+      return new JsonResponse([
+        'success' => FALSE,
+        'error' => $e->getMessage(),
+      ], 400);
+    }
+  }
+
+  /**
+   * Record a player action against canonical character state.
+   */
+  public function recordAction(string $character_id, Request $request): JsonResponse {
+    if (!$this->hasCharacterAccess($character_id)) {
+      return new JsonResponse(['success' => FALSE, 'error' => 'Access denied'], 403);
+    }
+
+    $data = json_decode($request->getContent(), TRUE);
+    $data = is_array($data) ? $data : [];
+    $runtime_context = $this->readRuntimeContext($data);
+
+    try {
+      $action = $this->characterStateService->recordPlayerAction(
+        $character_id,
+        [
+          'type' => (string) ($data['actionType'] ?? $data['type'] ?? 'action'),
+          'name' => (string) ($data['actionName'] ?? $data['name'] ?? $data['actionType'] ?? 'action'),
+          'summary' => (string) ($data['summary'] ?? ''),
+          'source' => (string) ($data['source'] ?? 'action_rail'),
+          'payload' => is_array($data['payload'] ?? NULL) ? $data['payload'] : [],
+        ],
+        $runtime_context['campaignId'],
+        $runtime_context['instanceId']
+      );
+
+      return new JsonResponse([
+        'success' => TRUE,
+        'action' => $action,
       ]);
     }
     catch (\Exception $e) {
@@ -344,11 +410,15 @@ class CharacterStateController extends ControllerBase {
     }
     
     $data = json_decode($request->getContent(), TRUE);
+    $data = is_array($data) ? $data : [];
+    $runtime_context = $this->readRuntimeContext($data);
     
     try {
       $conditions = $this->characterStateService->addCondition(
         $character_id,
-        $data['condition'] ?? []
+        $data['condition'] ?? [],
+        $runtime_context['campaignId'],
+        $runtime_context['instanceId']
       );
       
       return new JsonResponse([
@@ -379,13 +449,22 @@ class CharacterStateController extends ControllerBase {
    * 
    * @see docs/dungeoncrawler/issues/issue-4-enhanced-character-sheet-design.md#6-manage-conditions
    */
-  public function removeCondition(string $character_id, string $condition_id): JsonResponse {
+  public function removeCondition(string $character_id, string $condition_id, Request $request): JsonResponse {
     if (!$this->hasCharacterAccess($character_id)) {
       return new JsonResponse(['success' => FALSE, 'error' => 'Access denied'], 403);
     }
     
     try {
-      $this->characterStateService->removeCondition($character_id, $condition_id);
+      $data = json_decode($request->getContent(), TRUE);
+      $data = is_array($data) ? $data : [];
+      $runtime_context = $this->readRuntimeContext($data);
+
+      $this->characterStateService->removeCondition(
+        $character_id,
+        $condition_id,
+        $runtime_context['campaignId'],
+        $runtime_context['instanceId']
+      );
       
       return new JsonResponse([
         'success' => TRUE,
@@ -421,19 +500,52 @@ class CharacterStateController extends ControllerBase {
     }
     
     $data = json_decode($request->getContent(), TRUE);
-    
+    $data = is_array($data) ? $data : [];
+    $runtime_context = $this->readRuntimeContext($data);
+
     try {
+      $item_payload = is_array($data['item'] ?? NULL) ? $data['item'] : [];
       $result = $this->characterStateService->updateInventory(
         $character_id,
         $data['action'] ?? '',
-        $data['item'] ?? []
+        $item_payload,
+        $runtime_context['campaignId'],
+        $runtime_context['instanceId']
       );
+      $effect_result = NULL;
+      if (($data['action'] ?? '') === 'consume') {
+        $effect_result = $this->characterStateService->applyConsumableEffects(
+          $character_id,
+          $item_payload,
+          $runtime_context['campaignId'],
+          $runtime_context['instanceId']
+        );
+      }
       
       return new JsonResponse([
         'success' => TRUE,
         'inventory' => $result,
         'totalBulk' => $result['totalBulk'] ?? 0,
         'encumbrance' => $result['encumbrance'] ?? 'unencumbered',
+        'actionEffects' => $effect_result,
+        'actionSummary' => $effect_result !== NULL ? $this->summarizeConsumableEffects((string) ($item_payload['name'] ?? $item_payload['id'] ?? 'consumable'), $effect_result) : NULL,
+        'action' => (($data['action'] ?? '') === 'consume')
+          ? $this->characterStateService->recordPlayerAction(
+            $character_id,
+            [
+              'type' => 'consume_item',
+              'name' => (string) ($item_payload['name'] ?? $item_payload['id'] ?? 'consumable'),
+              'summary' => $this->summarizeConsumableEffects((string) ($item_payload['name'] ?? $item_payload['id'] ?? 'consumable'), $effect_result),
+              'source' => (string) ($data['source'] ?? 'action_rail'),
+              'payload' => [
+                'itemId' => $item_payload['id'] ?? $item_payload['item_id'] ?? NULL,
+                'effects' => $effect_result,
+              ],
+            ],
+            $runtime_context['campaignId'],
+            $runtime_context['instanceId']
+          )
+          : NULL,
       ]);
     }
     catch (\Exception $e) {
@@ -465,11 +577,15 @@ class CharacterStateController extends ControllerBase {
     }
     
     $data = json_decode($request->getContent(), TRUE);
+    $data = is_array($data) ? $data : [];
+    $runtime_context = $this->readRuntimeContext($data);
     
     try {
       $result = $this->characterStateService->gainExperience(
         $character_id,
-        $data['xp'] ?? 0
+        $data['xp'] ?? 0,
+        $runtime_context['campaignId'],
+        $runtime_context['instanceId']
       );
       
       return new JsonResponse([
@@ -552,6 +668,58 @@ class CharacterStateController extends ControllerBase {
         'error' => $e->getMessage(),
       ], 400);
     }
+  }
+
+  /**
+   * Extract optional campaign runtime context from a JSON request payload.
+   */
+  protected function readRuntimeContext(?array $data): array {
+    return [
+      'campaignId' => isset($data['campaignId']) ? (int) $data['campaignId'] : NULL,
+      'instanceId' => !empty($data['instanceId']) ? (string) $data['instanceId'] : NULL,
+    ];
+  }
+
+  /**
+   * Build a user-facing summary for canonical consumable effects.
+   */
+  protected function summarizeConsumableEffects(string $item_name, ?array $effects): string {
+    $parts = [];
+    if (!empty($effects['healing']['amount'])) {
+      $parts[] = sprintf('recovers %d HP', (int) $effects['healing']['amount']);
+    }
+    if (!empty($effects['temporary_hit_points']['amount'])) {
+      $parts[] = sprintf('gains %d temporary HP', (int) $effects['temporary_hit_points']['amount']);
+    }
+    if (!empty($effects['focus_points']['delta'])) {
+      $parts[] = sprintf('restores %d focus point%s', (int) $effects['focus_points']['delta'], (int) $effects['focus_points']['delta'] === 1 ? '' : 's');
+    }
+    if (!empty($effects['hero_points']['delta'])) {
+      $parts[] = sprintf('restores %d hero point%s', (int) $effects['hero_points']['delta'], (int) $effects['hero_points']['delta'] === 1 ? '' : 's');
+    }
+    if (!empty($effects['conditions_removed'])) {
+      $parts[] = 'removes ' . implode(', ', array_map('strval', (array) $effects['conditions_removed']));
+    }
+    if (!empty($effects['conditions_added'])) {
+      $parts[] = 'applies ' . implode(', ', array_map('strval', (array) $effects['conditions_added']));
+    }
+    if (!empty($effects['nutrition_days'])) {
+      $parts[] = sprintf('resets food supply for %d day%s', (int) $effects['nutrition_days'], (int) $effects['nutrition_days'] === 1 ? '' : 's');
+    }
+    if (!empty($effects['hydration_days'])) {
+      $parts[] = sprintf('resets water supply for %d day%s', (int) $effects['hydration_days'], (int) $effects['hydration_days'] === 1 ? '' : 's');
+    }
+    if (!empty($effects['spell_slots']) && is_array($effects['spell_slots'])) {
+      foreach ($effects['spell_slots'] as $slot_restore) {
+        if (!empty($slot_restore['restored'])) {
+          $parts[] = sprintf('restores %d spell slot%s at rank %d', (int) $slot_restore['restored'], (int) $slot_restore['restored'] === 1 ? '' : 's', (int) ($slot_restore['level'] ?? 0));
+        }
+      }
+    }
+
+    return empty($parts)
+      ? sprintf('Uses %s.', $item_name)
+      : sprintf('Uses %s and %s.', $item_name, implode('; ', $parts));
   }
 
 }

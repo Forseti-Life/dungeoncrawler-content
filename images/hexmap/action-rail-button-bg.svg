@@ -1,0 +1,19 @@
+<svg width="512" height="128" viewBox="0 0 512 128" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="buttonBase" x1="0" y1="0" x2="512" y2="128" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#25384A"/>
+      <stop offset="0.5" stop-color="#1A2835"/>
+      <stop offset="1" stop-color="#111A24"/>
+    </linearGradient>
+    <linearGradient id="buttonTrim" x1="24" y1="0" x2="488" y2="128" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#D4AF67" stop-opacity="0.75"/>
+      <stop offset="0.5" stop-color="#8F6A31" stop-opacity="0.2"/>
+      <stop offset="1" stop-color="#D4AF67" stop-opacity="0.75"/>
+    </linearGradient>
+  </defs>
+  <rect x="3" y="3" width="506" height="122" rx="18" fill="url(#buttonBase)"/>
+  <rect x="3" y="3" width="506" height="122" rx="18" stroke="url(#buttonTrim)" stroke-width="2.5"/>
+  <path d="M28 28H484" stroke="#89C7E4" stroke-opacity="0.18" stroke-width="2"/>
+  <path d="M52 100H460" stroke="#D4AF67" stroke-opacity="0.14" stroke-width="2"/>
+  <path d="M56 64H456" stroke="#FFFFFF" stroke-opacity="0.06" stroke-width="24" stroke-linecap="round"/>
+</svg>

@@ -1,0 +1,19 @@
+<svg width="512" height="128" viewBox="0 0 512 128" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="alertBase" x1="0" y1="0" x2="512" y2="128" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#4A261B"/>
+      <stop offset="0.5" stop-color="#321712"/>
+      <stop offset="1" stop-color="#22100E"/>
+    </linearGradient>
+    <linearGradient id="alertTrim" x1="24" y1="0" x2="488" y2="128" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#E29B5B" stop-opacity="0.82"/>
+      <stop offset="0.5" stop-color="#A44A25" stop-opacity="0.26"/>
+      <stop offset="1" stop-color="#E29B5B" stop-opacity="0.82"/>
+    </linearGradient>
+  </defs>
+  <rect x="3" y="3" width="506" height="122" rx="18" fill="url(#alertBase)"/>
+  <rect x="3" y="3" width="506" height="122" rx="18" stroke="url(#alertTrim)" stroke-width="2.5"/>
+  <path d="M28 28H484" stroke="#FFD4A7" stroke-opacity="0.16" stroke-width="2"/>
+  <path d="M52 100H460" stroke="#FFB879" stroke-opacity="0.16" stroke-width="2"/>
+  <path d="M72 64H440" stroke="#FFFFFF" stroke-opacity="0.05" stroke-width="24" stroke-linecap="round"/>
+</svg>

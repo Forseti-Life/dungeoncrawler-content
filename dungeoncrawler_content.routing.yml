@@ -121,6 +121,15 @@ dungeoncrawler_content.about:
   requirements:
     _access: 'TRUE'
 
+dungeoncrawler_content.spellcatalogue:
+  path: '/spellcatalogue'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\SpellCataloguePageController::index'
+    _title: 'Spell Catalogue'
+  methods: [GET]
+  requirements:
+    _access: 'TRUE'
+
 dungeoncrawler_content.privacy_policy:
   path: '/privacy-policy'
   defaults:
@@ -1040,6 +1049,18 @@ dungeoncrawler_content.api.character_inventory:
   options:
     _format: json
 
+dungeoncrawler_content.api.character_actions:
+  path: '/api/character/{character_id}/actions'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CharacterStateController::recordAction'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _character_access: 'TRUE'
+    character_id: '\d+'
+  options:
+    _format: json
+
 # ==============================================================================
 # INVENTORY MANAGEMENT API ENDPOINTS
 # ==============================================================================
@@ -1635,6 +1656,18 @@ dungeoncrawler_content.api.get_room:
     campaign_id: '\d+'
     dungeon_id: '[A-Za-z0-9_-]+'
     room_id: '[A-Za-z0-9_-]+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.campaign_visited_locations:
+  path: '/api/campaign/{campaign_id}/visited-locations'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CampaignController::listVisitedLocations'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+    _campaign_access: 'TRUE'
+    campaign_id: '\d+'
   options:
     _format: json
 

@@ -36,7 +36,7 @@ services:
 
   dungeoncrawler_content.character_state:
     class: Drupal\dungeoncrawler_content\Service\CharacterStateService
-    arguments: ['@database', '@current_user', '@dungeoncrawler_content.feat_effect_manager', '@dungeoncrawler_content.generated_image_repository']
+    arguments: ['@database', '@current_user', '@dungeoncrawler_content.feat_effect_manager', '@dungeoncrawler_content.generated_image_repository', '@dungeoncrawler_content.number_generation']
 
   dungeoncrawler_content.character_state_service:
     alias: dungeoncrawler_content.character_state

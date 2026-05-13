@@ -13,6 +13,7 @@ use Drupal\dungeoncrawler_content\Service\CharacterManager;
 use Drupal\dungeoncrawler_content\Service\GeneratedImageRepository;
 use Drupal\dungeoncrawler_content\Service\QuestTrackerService;
 use Symfony\Component\DependencyInjection\ContainerInterface;
+use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
@@ -506,6 +507,165 @@ class CampaignController extends ControllerBase {
   }
 
   /**
+   * Return previously visited campaign locations grouped by dungeon.
+   */
+  public function listVisitedLocations(int $campaign_id): JsonResponse {
+    $campaign = $this->database->select('dc_campaigns', 'c')
+      ->fields('c', ['id', 'uid', 'theme'])
+      ->condition('id', $campaign_id)
+      ->execute()
+      ->fetchObject();
+
+    if (!$campaign) {
+      throw new NotFoundHttpException();
+    }
+
+    if ((int) $campaign->uid !== (int) $this->currentUser()->id()) {
+      throw new AccessDeniedHttpException();
+    }
+
+    $this->ensureDefaultTavernDungeonExists($campaign_id, (string) ($campaign->theme ?? 'classic_dungeon'));
+
+    $dungeon_rows = $this->database->select('dc_campaign_dungeons', 'd')
+      ->fields('d', ['dungeon_id', 'name', 'dungeon_data', 'updated'])
+      ->condition('campaign_id', $campaign_id)
+      ->orderBy('updated', 'DESC')
+      ->execute()
+      ->fetchAllAssoc('dungeon_id');
+
+    $room_rows = $this->database->select('dc_campaign_rooms', 'r')
+      ->fields('r', ['room_id', 'name', 'description'])
+      ->condition('campaign_id', $campaign_id)
+      ->execute()
+      ->fetchAllAssoc('room_id');
+
+    $state_rows = $this->database->select('dc_campaign_room_states', 's')
+      ->fields('s', ['room_id', 'fog_state', 'last_visited'])
+      ->condition('campaign_id', $campaign_id)
+      ->execute()
+      ->fetchAllAssoc('room_id');
+
+    $groups = [];
+    foreach ($dungeon_rows as $dungeon_id => $dungeon_row) {
+      $payload = json_decode((string) ($dungeon_row->dungeon_data ?? '{}'), TRUE);
+      if (!is_array($payload)) {
+        $payload = [];
+      }
+
+      $room_lookup = $this->buildDungeonRoomLookup($payload, $room_rows);
+      $history_lookup = $this->buildDungeonHistoryLookup($payload, $room_rows);
+      $visited_locations = [];
+
+      foreach ($room_lookup as $room_id => $room_meta) {
+        $state_row = $state_rows[$room_id] ?? NULL;
+        $fog_state = json_decode((string) ($state_row->fog_state ?? '{}'), TRUE);
+        if (!is_array($fog_state)) {
+          $fog_state = [];
+        }
+
+        $history_meta = $history_lookup[$room_id] ?? [];
+        $last_visited = max(
+          (int) ($state_row->last_visited ?? 0),
+          (int) ($history_meta['last_visited'] ?? 0)
+        );
+        $visited = !empty($fog_state['explored']) || $last_visited > 0 || !empty($history_meta);
+        if (!$visited) {
+          continue;
+        }
+
+        $visited_locations[] = [
+          'room_id' => (string) $room_id,
+          'room_name' => (string) ($room_meta['name'] ?? $history_meta['name'] ?? $room_id),
+          'description' => (string) ($room_meta['description'] ?? ''),
+          'last_visited' => $last_visited,
+        ];
+      }
+
+      usort($visited_locations, static function (array $a, array $b): int {
+        if (($b['last_visited'] ?? 0) !== ($a['last_visited'] ?? 0)) {
+          return (int) ($b['last_visited'] ?? 0) <=> (int) ($a['last_visited'] ?? 0);
+        }
+        return strcasecmp((string) ($a['room_name'] ?? ''), (string) ($b['room_name'] ?? ''));
+      });
+
+      if ($visited_locations === []) {
+        continue;
+      }
+
+      $groups[] = [
+        'dungeon_id' => (string) $dungeon_id,
+        'dungeon_name' => (string) ($dungeon_row->name ?? $dungeon_id),
+        'map_id' => (string) ($payload['map_id'] ?? $dungeon_id),
+        'dungeon_level_id' => (string) ($payload['level_id'] ?? ''),
+        'locations' => $visited_locations,
+      ];
+    }
+
+    return new JsonResponse([
+      'success' => TRUE,
+      'campaign_id' => $campaign_id,
+      'dungeons' => $groups,
+    ]);
+  }
+
+  /**
+   * Build a room lookup for a dungeon payload.
+   */
+  protected function buildDungeonRoomLookup(array $payload, array $room_rows): array {
+    $lookup = [];
+    $rooms = $payload['rooms'] ?? [];
+
+    if (is_array($rooms)) {
+      foreach ($rooms as $key => $room) {
+        if (is_array($room)) {
+          $room_id = (string) ($room['room_id'] ?? (is_string($key) ? $key : ''));
+          if ($room_id === '') {
+            continue;
+          }
+          $row = $room_rows[$room_id] ?? NULL;
+          $lookup[$room_id] = [
+            'name' => (string) ($room['name'] ?? $row->name ?? $room_id),
+            'description' => (string) ($row->description ?? $room['description'] ?? ''),
+          ];
+        }
+      }
+    }
+
+    return $lookup;
+  }
+
+  /**
+   * Build a per-dungeon history lookup from dungeon_data.location_history.
+   */
+  protected function buildDungeonHistoryLookup(array $payload, array $room_rows): array {
+    $lookup = [];
+    $history = $payload['location_history'] ?? [];
+    if (!is_array($history)) {
+      return $lookup;
+    }
+
+    foreach ($history as $entry) {
+      if (!is_array($entry)) {
+        continue;
+      }
+      $room_id = (string) ($entry['room_id'] ?? '');
+      if ($room_id === '') {
+        continue;
+      }
+
+      $timestamp = !empty($entry['timestamp']) ? strtotime((string) $entry['timestamp']) : 0;
+      $row = $room_rows[$room_id] ?? NULL;
+      $existing = $lookup[$room_id]['last_visited'] ?? 0;
+      $lookup[$room_id] = [
+        'name' => (string) ($entry['room_name'] ?? $row->name ?? $room_id),
+        'last_visited' => max($existing, $timestamp ?: 0),
+      ];
+    }
+
+    return $lookup;
+  }
+
+  /**
    * Count rooms in a decoded dungeon payload.
    */
   private function countDungeonRooms(array $decoded): int {
@@ -547,7 +707,13 @@ class CampaignController extends ControllerBase {
   /**
    * Build canonical hexmap launch query payload.
    */
-  private function buildHexmapLaunchQuery(int $campaign_id, int $character_id, array $decoded, string $map_id): array {
+  private function buildHexmapLaunchQuery(
+    int $campaign_id,
+    int $character_id,
+    array $decoded,
+    string $map_id,
+    bool $resume_character_position = FALSE
+  ): array {
     if (empty($decoded)) {
       $seed_payload = $this->loadTavernDungeonSeedPayload();
       if (is_array($seed_payload)) {
@@ -562,18 +728,24 @@ class CampaignController extends ControllerBase {
       $map_id = (string) $decoded['hex_map']['map_id'];
     }
 
-    $room_context = $this->extractRoomContext($decoded);
-
-    return [
+    $query = [
       'campaign_id' => $campaign_id,
       'character_id' => $character_id,
       'dungeon_level_id' => (string) ($decoded['level_id'] ?? ''),
       'map_id' => $map_id,
-      'room_id' => $room_context['room_id'],
-      'next_room_id' => $room_context['next_room_id'],
-      'start_q' => 0,
-      'start_r' => 0,
     ];
+
+    if ($resume_character_position) {
+      return $query;
+    }
+
+    $room_context = $this->extractRoomContext($decoded);
+    $query['room_id'] = $room_context['room_id'];
+    $query['next_room_id'] = $room_context['next_room_id'];
+    $query['start_q'] = 0;
+    $query['start_r'] = 0;
+
+    return $query;
   }
 
   /**
@@ -714,6 +886,16 @@ class CampaignController extends ControllerBase {
       ->execute()
       ->fetchField();
 
+    $existing_location_state = NULL;
+    if ($existing_row_id) {
+      $existing_location_state = $this->database->select('dc_campaign_characters', 'cc')
+        ->fields('cc', ['position_q', 'position_r', 'last_room_id', 'location_type', 'location_ref'])
+        ->condition('id', (int) $existing_row_id)
+        ->range(0, 1)
+        ->execute()
+        ->fetchAssoc() ?: NULL;
+    }
+
     $fields = [
       'character_id' => $canonical_character_id,
       'instance_id' => $instance_id,
@@ -726,15 +908,15 @@ class CampaignController extends ControllerBase {
       'hp_max' => $hot['hp_max'],
       'armor_class' => $hot['armor_class'],
       'experience_points' => $hot['experience_points'],
-      'position_q' => 0,
-      'position_r' => 0,
-      'last_room_id' => '',
+      'position_q' => (int) ($existing_location_state['position_q'] ?? 0),
+      'position_r' => (int) ($existing_location_state['position_r'] ?? 0),
+      'last_room_id' => (string) ($existing_location_state['last_room_id'] ?? ''),
       'role' => 'player',
       'type' => 'pc',
       'state_data' => json_encode($character_data, JSON_UNESCAPED_UNICODE),
       'character_data' => json_encode($character_data, JSON_UNESCAPED_UNICODE),
-      'location_type' => 'global',
-      'location_ref' => '',
+      'location_type' => (string) ($existing_location_state['location_type'] ?? 'global'),
+      'location_ref' => (string) ($existing_location_state['location_ref'] ?? ''),
       'is_active' => 1,
       'joined' => $now,
       'changed' => $now,
@@ -781,7 +963,9 @@ class CampaignController extends ControllerBase {
 
     $this->ensureDefaultTavernDungeonExists($campaign_id, (string) ($campaign->theme ?? 'classic_dungeon'));
 
-    $launch_query = $this->buildHexmapLaunchQuery($campaign_id, $canonical_character_id, [], '');
+    $launch_character_id = $selected_row_id > 0 ? $selected_row_id : $canonical_character_id;
+
+    $launch_query = $this->buildHexmapLaunchQuery($campaign_id, $launch_character_id, [], '', TRUE);
 
     $campaign_dungeon = $this->loadLatestCampaignDungeon($campaign_id);
 
@@ -791,7 +975,13 @@ class CampaignController extends ControllerBase {
         $decoded = [];
       }
 
-      $launch_query = $this->buildHexmapLaunchQuery($campaign_id, $character_id, $decoded, (string) ($campaign_dungeon->dungeon_id ?? ''));
+      $launch_query = $this->buildHexmapLaunchQuery(
+        $campaign_id,
+        $launch_character_id,
+        $decoded,
+        (string) ($campaign_dungeon->dungeon_id ?? ''),
+        TRUE
+      );
     }
 
     return $this->redirect('dungeoncrawler_content.hexmap_demo', [], [

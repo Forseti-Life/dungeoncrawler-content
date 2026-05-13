@@ -440,16 +440,92 @@ import { SpriteService } from './SpriteService.js';
 
   function normalizeSkillsList(skills) {
     if (Array.isArray(skills)) {
-      return skills;
+      return skills.map((skill) => {
+        if (skill && typeof skill === 'object') {
+          return {
+            ...skill,
+            name: skill.name || skill.label || skill.id || 'Skill',
+            modifier: Number(skill.modifier ?? skill.bonus ?? 0),
+            proficiency: skill.proficiency || skill.proficiencyRank || skill.rank || '',
+          };
+        }
+        return {
+          name: String(skill || 'Skill'),
+          modifier: 0,
+          proficiency: '',
+        };
+      });
     }
     if (!skills || typeof skills !== 'object') {
       return [];
     }
     return Object.entries(skills).map(([name, skillState]) => ({
       name,
-      modifier: Number(skillState?.bonus ?? skillState?.modifier ?? 0),
-      proficiency: skillState?.proficiencyRank || skillState?.proficiency || '',
+      modifier: Number(
+        (skillState && typeof skillState === 'object')
+          ? (skillState.bonus ?? skillState.modifier ?? 0)
+          : 0
+      ),
+      proficiency: (skillState && typeof skillState === 'object')
+        ? (skillState.proficiencyRank || skillState.proficiency || skillState.rank || '')
+        : String(skillState || ''),
     }));
+  }
+
+  function collectCharacterSkillEntries(source) {
+    const state = source?.data || source || {};
+    const features = state.features || source?.features || {};
+    const featTraining = features.featTraining || {};
+    const conditionalSkillMods = Array.isArray(features?.featConditionalModifiers?.skills)
+      ? features.featConditionalModifiers.skills
+      : [];
+
+    const skillMap = new Map();
+    const upsert = (entry) => {
+      const name = String(entry?.name || '').trim();
+      if (!name) {
+        return;
+      }
+      const key = name.toLowerCase();
+      const existing = skillMap.get(key) || { name, modifier: 0, proficiency: '' };
+      const nextModifier = Number(entry?.modifier ?? existing.modifier ?? 0);
+      const nextProficiency = entry?.proficiency || existing.proficiency || '';
+      skillMap.set(key, {
+        name,
+        modifier: Number.isFinite(nextModifier) ? nextModifier : 0,
+        proficiency: nextProficiency,
+      });
+    };
+
+    normalizeSkillsList(state.skills || source?.skills || []).forEach(upsert);
+
+    if (Array.isArray(featTraining.skills)) {
+      featTraining.skills.forEach((name) => {
+        upsert({ name, modifier: 0, proficiency: 'trained' });
+      });
+    }
+
+    if (Array.isArray(featTraining.lore)) {
+      featTraining.lore.forEach((name) => {
+        upsert({ name: `${name} Lore`, modifier: 0, proficiency: 'trained' });
+      });
+    }
+
+    conditionalSkillMods.forEach((entry) => {
+      const targetName = String(entry?.target || entry?.skill || entry?.name || '').trim();
+      if (!targetName) {
+        return;
+      }
+      const modifier = Number(entry?.modifier ?? entry?.value ?? 0);
+      const existing = skillMap.get(targetName.toLowerCase()) || { name: targetName, modifier: 0, proficiency: '' };
+      upsert({
+        name: existing.name,
+        modifier: (Number.isFinite(existing.modifier) ? existing.modifier : 0) + (Number.isFinite(modifier) ? modifier : 0),
+        proficiency: existing.proficiency,
+      });
+    });
+
+    return Array.from(skillMap.values());
   }
 
   function formatInventoryItemList(items) {
@@ -469,6 +545,166 @@ import { SpriteService } from './SpriteService.js';
         return `<li data-item-id="${itemId}" data-type="${type}" data-qty="${qty}" data-bulk="${bulk}" data-desc="${String(desc).replace(/"/g, '&quot;')}">${itemName}${qtyLabel}${equipped}</li>`;
       })
       .join('');
+  }
+
+  function isConsumableItem(item) {
+    if (!item || typeof item !== 'object') {
+      return false;
+    }
+    const searchSpace = [
+      item.type,
+      item.category,
+      item.subtype,
+      item.traits,
+      item.name,
+    ]
+      .flatMap((value) => Array.isArray(value) ? value : [value])
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+
+    return [
+      'consumable',
+      'potion',
+      'elixir',
+      'bomb',
+      'scroll',
+      'oil',
+      'mutagen',
+      'talisman',
+      'wand',
+      'ammo',
+      'ammunition',
+      'food',
+      'ration',
+      'water',
+      'waterskin',
+    ].some((keyword) => searchSpace.includes(keyword));
+  }
+
+  function extractConsumableItems(inventory, equipment = []) {
+    const normalizedInventory = normalizeInventoryState(inventory);
+    const worn = normalizedInventory.worn || {};
+    const wornItems = [
+      ...(Array.isArray(worn.weapons) ? worn.weapons : []),
+      ...(Array.isArray(worn.accessories) ? worn.accessories : []),
+      ...(worn.armor ? [worn.armor] : []),
+    ];
+    return [...normalizedInventory.carried, ...wornItems, ...(Array.isArray(equipment) ? equipment : [])]
+      .filter((item) => item && typeof item === 'object')
+      .filter(isConsumableItem);
+  }
+
+  function isWeaponItem(item) {
+    if (!item || typeof item !== 'object') {
+      return false;
+    }
+    const searchSpace = [
+      item.type,
+      item.category,
+      item.subtype,
+      item.group,
+      item.weapon_group,
+      item.traits,
+      item.name,
+      item.damage,
+    ]
+      .flatMap((value) => Array.isArray(value) ? value : [value])
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+
+    return ['weapon', 'strike', 'bow', 'blade', 'hammer', 'sword', 'axe', 'spear', 'crossbow'].some((keyword) => searchSpace.includes(keyword));
+  }
+
+  function extractReadyWeapons(inventory, equipment = []) {
+    const normalizedInventory = normalizeInventoryState(inventory);
+    const worn = normalizedInventory.worn || {};
+    const wornWeapons = (Array.isArray(worn.weapons) ? worn.weapons : [])
+      .filter((item) => item && typeof item === 'object')
+      .map((item) => ({ ...item, __ready: true, __source: 'equipped' }));
+    const packedWeapons = [...normalizedInventory.carried, ...(Array.isArray(equipment) ? equipment : [])]
+      .filter((item) => item && typeof item === 'object')
+      .filter(isWeaponItem)
+      .map((item) => ({
+        ...item,
+        __ready: Boolean(item.equipped || item.readied || item.ready || item.worn),
+        __source: item.equipped || item.readied || item.ready || item.worn ? 'equipped' : 'carried',
+      }));
+    const dedupe = new Map();
+    [...wornWeapons, ...packedWeapons].forEach((item) => {
+      const key = String(item?.item_id || item?.id || item?.name || '').trim().toLowerCase();
+      if (!key || dedupe.has(key)) {
+        return;
+      }
+      dedupe.set(key, item);
+    });
+
+    const allWeapons = Array.from(dedupe.values());
+    const readyWeapons = allWeapons.filter((item) => item.__ready);
+    return (readyWeapons.length ? readyWeapons : allWeapons).map((item) => ({
+      id: item.item_id || item.id || item.name || 'weapon',
+      name: item.name || item.item_id || 'Weapon',
+      damage: item.damage || item.weapon_damage || '',
+      traits: Array.isArray(item.traits) ? item.traits.join(', ') : (item.traits || ''),
+      description: item.description || item.desc || '',
+      sourceLabel: item.__source === 'equipped' ? 'Ready' : 'Carried',
+    }));
+  }
+
+  function resolveConsumableHealing(item) {
+    const candidates = [
+      item?.healing?.amount,
+      item?.healing_amount,
+      item?.heal_amount,
+      item?.healing,
+      item?.effects?.healing,
+    ];
+
+    for (const candidate of candidates) {
+      const numeric = Number(candidate);
+      if (Number.isFinite(numeric) && numeric > 0) {
+        return numeric;
+      }
+    }
+
+    return 0;
+  }
+
+  function getActionRailCost(rawValue, fallback = 1) {
+    if (typeof rawValue === 'number' && Number.isFinite(rawValue)) {
+      return Math.max(0, Math.min(3, rawValue));
+    }
+    const normalized = String(rawValue ?? '').trim().toLowerCase();
+    if (normalized === '') {
+      return fallback;
+    }
+    if (normalized === 'free' || normalized === 'reaction' || normalized === '0') {
+      return 0;
+    }
+    const numeric = Number(normalized);
+    if (Number.isFinite(numeric)) {
+      return Math.max(0, Math.min(3, numeric));
+    }
+    return fallback;
+  }
+
+  function formatActionRailCost(cost) {
+    const numericCost = Number(cost);
+    if (!Number.isFinite(numericCost)) {
+      return '';
+    }
+    if (numericCost <= 0) {
+      return 'Free';
+    }
+    return `${numericCost} action${numericCost === 1 ? '' : 's'}`;
+  }
+
+  function buildActionRailEntrySummary(parts) {
+    return (Array.isArray(parts) ? parts : [])
+      .map((part) => String(part ?? '').trim())
+      .filter(Boolean)
+      .join(' • ');
   }
 
   function estimateInventoryBulk(items) {
@@ -601,6 +837,11 @@ import { SpriteService } from './SpriteService.js';
       this.roomChatInflight = new Map();
       this.sessionViewCache = new Map();
       this.sessionViewInflight = new Map();
+      this.chatViewStateCache = new Map();
+      this.activeActionRailCategory = null;
+      this.navigateLocationGroups = [];
+      this.navigateLocationsCampaignId = null;
+      this.navigateLocationsInflight = null;
       this.setupActionFooterToggle();
       this.setupFullscreenToggle();
       this.cacheElements();
@@ -608,6 +849,7 @@ import { SpriteService } from './SpriteService.js';
       this.setupChatLog();
       this.setupChannelTabs();
       this.setupSessionViewTabs();
+      this.setupActionRail();
     }
 
     /**
@@ -782,6 +1024,13 @@ import { SpriteService } from './SpriteService.js';
         actionInteractBtn: document.getElementById('action-interact'),
         actionTalkBtn: document.getElementById('action-talk'),
         endTurnBtn: document.getElementById('end-turn'),
+        actionRail: document.getElementById('hexmap-action-rail'),
+        actionRailActorName: document.getElementById('action-rail-actor-name'),
+        actionRailStatus: document.getElementById('action-rail-status'),
+        actionRailCategories: document.getElementById('action-rail-categories'),
+        actionRailPanelTitle: document.getElementById('action-rail-panel-title'),
+        actionRailPanelChip: document.getElementById('action-rail-panel-chip'),
+        actionRailPanelBody: document.getElementById('action-rail-panel-body'),
 
         // Character sheet panel
         characterSheetEmbedWrap: document.getElementById('char-sheet-embed-wrap'),
@@ -864,6 +1113,984 @@ import { SpriteService } from './SpriteService.js';
       };
 
       this.setupCharacterSheetSections();
+    }
+
+    setupActionRail() {
+      const categories = this.elements.actionRailCategories;
+      const panelBody = this.elements.actionRailPanelBody;
+      if (!categories || categories.dataset.bound === 'true') {
+        this.refreshActionRail();
+        return;
+      }
+
+      categories.dataset.bound = 'true';
+      categories.addEventListener('click', (event) => {
+        const button = event.target instanceof HTMLElement
+          ? event.target.closest('[data-action-rail-category], [data-action-rail-direct]')
+          : null;
+        if (!(button instanceof HTMLButtonElement) || button.disabled) {
+          return;
+        }
+
+        const directAction = button.dataset.actionRailDirect || '';
+        const category = button.dataset.actionRailCategory || '';
+        if (directAction) {
+          this.activeActionRailCategory = null;
+          this.handleActionRailDirectAction(directAction);
+          this.refreshActionRail();
+          return;
+        }
+
+        if (category) {
+          this.activeActionRailCategory = this.activeActionRailCategory === category ? null : category;
+          this.refreshActionRail();
+        }
+      });
+
+      if (panelBody) {
+        panelBody.addEventListener('click', (event) => {
+          const button = event.target instanceof HTMLElement
+            ? event.target.closest('[data-action-rail-execute]')
+            : null;
+          if (!(button instanceof HTMLButtonElement) || button.disabled) {
+            return;
+          }
+          this.handleActionRailPanelAction(button);
+        });
+      }
+
+      this.refreshActionRail();
+    }
+
+    refreshActionRail() {
+      const categories = this.elements.actionRailCategories;
+      const panelTitle = this.elements.actionRailPanelTitle;
+      const panelChip = this.elements.actionRailPanelChip;
+      const panelBody = this.elements.actionRailPanelBody;
+      const actorName = this.elements.actionRailActorName;
+      const status = this.elements.actionRailStatus;
+
+      if (!categories || !panelBody || !actorName || !status) {
+        return;
+      }
+
+      const context = this.getActionRailContext();
+      actorName.textContent = context.actorLabel;
+      status.textContent = context.statusLabel;
+
+      categories.querySelectorAll('[data-action-rail-category], [data-action-rail-direct]').forEach((button) => {
+        const nextButton = /** @type {HTMLButtonElement} */ (button);
+        const category = nextButton.dataset.actionRailCategory || '';
+        const directAction = nextButton.dataset.actionRailDirect || '';
+        const disabled = this.isActionRailButtonDisabled(category || directAction, context);
+        nextButton.disabled = disabled;
+        nextButton.setAttribute('aria-disabled', disabled ? 'true' : 'false');
+        nextButton.classList.toggle('action-rail__category--active', Boolean(category) && this.activeActionRailCategory === category);
+      });
+
+      if (!this.activeActionRailCategory) {
+        if (panelTitle) {
+          panelTitle.textContent = 'Quick actions';
+        }
+        if (panelChip) {
+          panelChip.textContent = context.encounterActive ? 'Encounter' : 'Direct';
+        }
+        panelBody.innerHTML = this.renderActionRailEmptyState(context);
+        return;
+      }
+
+      const panel = this.buildActionRailPanel(this.activeActionRailCategory, context);
+      if (panelTitle) {
+        panelTitle.textContent = panel.title;
+      }
+      if (panelChip) {
+        panelChip.textContent = panel.chip;
+      }
+      panelBody.innerHTML = panel.html;
+    }
+
+    getActionRailContext() {
+      const hexmap = this.stateManager?.hexmap || null;
+      const selected = this.stateManager?.get?.('selectedEntity') || null;
+      const current = hexmap?.turnManagementSystem?.getCurrentTurnEntity?.() || null;
+      const actor = selected || current || hexmap?.findLaunchPlayerEntity?.() || null;
+      const state = hexmap?.launchCharacter || hexmap?.characterData || {};
+      const basicInfo = state?.basicInfo || {};
+      const actorName = basicInfo.name || state?.name || actor?.getComponent?.('IdentityComponent')?.name || 'No actor selected';
+      const encounterActive = Boolean(hexmap?.stateManager?.get?.('encounterId'));
+      const runtimeContext = hexmap?.resolveLaunchCharacterRuntimeContext?.() || {};
+      const actions = actor?.getComponent?.('ActionsComponent') || null;
+      const movement = actor?.getComponent?.('MovementComponent') || null;
+      const actionText = actions ? `${actions.actionsRemaining}/${actions.maxActions ?? actions.actionsRemaining} actions` : null;
+      const movementText = movement && Number.isFinite(movement.movementRemaining)
+        ? `${movement.movementRemaining} ft move`
+        : null;
+
+      return {
+        hexmap,
+        state,
+        actor,
+        actorLabel: actorName,
+        characterId: Number(state?.characterId || state?.id || 0) || 0,
+        runtimeContext,
+        encounterActive,
+        actions,
+        movement,
+        statusLabel: buildActionRailEntrySummary([
+          encounterActive ? 'Encounter active' : 'Exploration ready',
+          actionText,
+          movementText,
+        ]) || 'Select your character to unlock direct actions.',
+      };
+    }
+
+    isActionRailButtonDisabled(actionKey, context) {
+      if (!context.characterId) {
+        return true;
+      }
+
+      if (actionKey === 'end-turn') {
+        return !context.encounterActive;
+      }
+
+      if (actionKey === 'attack' || actionKey === 'interact') {
+        return !context.actor;
+      }
+
+      return false;
+    }
+
+    renderActionRailEmptyState(context) {
+      if (!context.characterId) {
+        return `<div class="action-rail__empty"><p>Select or load a character to enable direct action buttons.</p></div>`;
+      }
+
+      return `<div class="action-rail__empty"><p>Choose Attack, Navigate, Spells, Consumables, Skills, or Feats to open direct action buttons for ${escapeQuestHtml(context.actorLabel)}.</p></div>`;
+    }
+
+    buildActionRailPanel(category, context) {
+      const builders = {
+        attack: () => this.buildAttackActionRailPanel(context),
+        navigate: () => this.buildNavigateActionRailPanel(context),
+        spells: () => this.buildSpellActionRailPanel(context),
+        consumables: () => this.buildConsumableActionRailPanel(context),
+        skills: () => this.buildSkillActionRailPanel(context),
+        feats: () => this.buildFeatActionRailPanel(context),
+      };
+      const builder = builders[category];
+      if (!builder) {
+        return {
+          title: 'Quick actions',
+          chip: 'Direct',
+          html: this.renderActionRailEmptyState(context),
+        };
+      }
+      return builder();
+    }
+
+    buildAttackActionRailPanel(context) {
+      if (!context.encounterActive) {
+        return {
+          title: 'Attack options',
+          chip: 'Encounter only',
+          html: `<div class="action-rail__empty"><p>Attack choices appear here when an encounter is active.</p></div>`,
+        };
+      }
+
+      const weapons = extractReadyWeapons(context.state?.inventory || {}, context.state?.equipment || []);
+      const hostileTargets = Array.isArray(context.hexmap?.getHostileTargets?.(context.actor))
+        ? context.hexmap.getHostileTargets(context.actor)
+        : [];
+      const availableTargets = hostileTargets.filter(({ target }) => {
+        const check = context.hexmap?.combatSystem?.canAttack?.(context.actor, target);
+        return check ? check.canAttack !== false : true;
+      });
+
+      if (!weapons.length) {
+        return {
+          title: 'Attack options',
+          chip: 'No weapons',
+          html: `<div class="action-rail__empty"><p>No ready weapons are available for ${escapeQuestHtml(context.actorLabel)}.</p></div>`,
+        };
+      }
+
+      if (!availableTargets.length) {
+        return {
+          title: 'Attack options',
+          chip: 'No targets',
+          html: `<div class="action-rail__empty"><p>No hostile targets are currently available for attack.</p></div>`,
+        };
+      }
+
+      const entries = [];
+      weapons.forEach((weapon) => {
+        availableTargets.forEach(({ target, distance }) => {
+          const targetName = target?.getComponent?.('IdentityComponent')?.name || 'Target';
+          entries.push(this.renderActionRailEntry({
+            execute: 'attack',
+            title: `${weapon.name} -> ${targetName}`,
+            summary: buildActionRailEntrySummary([
+              weapon.sourceLabel,
+              weapon.damage || '',
+              Number.isFinite(distance) ? `${distance} hex` : '',
+              formatActionRailCost(1),
+            ]),
+            meta: buildActionRailEntrySummary([
+              weapon.traits || '',
+              weapon.description || '',
+            ]),
+            dataset: {
+              targetId: String(target?.id || ''),
+              targetName,
+              weaponId: String(weapon.id || ''),
+              weaponName: weapon.name,
+            },
+            actionLabel: 'Strike target',
+          }));
+        });
+      });
+
+      return {
+        title: 'Attack options',
+        chip: `${availableTargets.length} targets`,
+        html: entries.join(''),
+      };
+    }
+
+    buildNavigateActionRailPanel(context) {
+      const campaignId = Number(context.runtimeContext?.campaignId || context.hexmap?.resolveCampaignId?.() || 0);
+      this.ensureNavigateLocationGroups(campaignId);
+
+      const groups = (campaignId > 0 && this.navigateLocationsCampaignId === campaignId && Array.isArray(this.navigateLocationGroups) && this.navigateLocationGroups.length)
+        ? this.navigateLocationGroups
+        : this.collectNavigateLocationGroups(context);
+
+      if (!groups.length) {
+        return {
+          title: 'Navigate',
+          chip: this.navigateLocationsInflight ? 'Loading' : 'No history',
+          html: `<div class="action-rail__empty"><p>${this.navigateLocationsInflight ? 'Loading previously visited dungeons and rooms...' : 'No previously visited dungeons or rooms are available yet.'}</p></div>`,
+        };
+      }
+
+      const entryCount = groups.reduce((total, group) => total + group.locations.length, 0);
+      const html = groups.map((group) => {
+        const entries = group.locations.map((location) => this.renderActionRailEntry({
+          execute: 'navigate',
+          title: location.roomName,
+          summary: buildActionRailEntrySummary([
+            group.dungeonName,
+            location.lastVisitedLabel,
+          ]),
+          meta: location.meta,
+          dataset: {
+            roomId: location.roomId,
+            roomName: location.roomName,
+            mapId: group.mapId,
+            dungeonLevelId: group.dungeonLevelId,
+          },
+          actionLabel: 'Travel here',
+        })).join('');
+        return `<section class="action-rail__group"><p class="action-rail__group-label">${escapeQuestHtml(group.dungeonName)}</p>${entries}</section>`;
+      }).join('');
+
+      return {
+        title: 'Navigate',
+        chip: `${entryCount} visited`,
+        html,
+      };
+    }
+
+    collectNavigateLocationGroups(context) {
+      const hexmap = context.hexmap;
+      const dungeonData = hexmap?.dungeonData || {};
+      const rooms = dungeonData?.rooms && typeof dungeonData.rooms === 'object' ? dungeonData.rooms : {};
+      const activeRoomId = hexmap?.resolveActiveRoomId?.() || null;
+      const currentDungeonName = String(
+        dungeonData?.name
+        || dungeonData?.title
+        || dungeonData?.dungeon_name
+        || dungeonData?.level_name
+        || 'Current dungeon'
+      );
+      const visitOrder = new Map();
+      const history = Array.isArray(dungeonData?.location_history) ? dungeonData.location_history : [];
+
+      history.forEach((entry, index) => {
+        const roomId = String(entry?.room_id || '').trim();
+        if (roomId) {
+          visitOrder.set(roomId, index);
+        }
+      });
+
+      Object.entries(rooms).forEach(([roomId, room]) => {
+        if (room?.state?.explored) {
+          visitOrder.set(String(roomId), Math.max(visitOrder.get(String(roomId)) ?? -1, history.length));
+        }
+      });
+
+      const destinations = Array.from(visitOrder.entries())
+        .map(([roomId, order]) => {
+          const room = rooms[roomId] || {};
+          const roomName = String(room?.name || history.find((entry) => String(entry?.room_id || '') === roomId)?.room_name || roomId);
+          const lastHistoryEntry = [...history].reverse().find((entry) => String(entry?.room_id || '') === roomId) || null;
+          return {
+            roomId,
+            roomName,
+            lastVisitedLabel: lastHistoryEntry?.timestamp ? `Seen ${lastHistoryEntry.timestamp}` : 'Visited by party',
+            meta: room?.description || room?.short_description || '',
+            order,
+          };
+        })
+        .filter((destination) => destination.roomId && destination.roomId !== activeRoomId)
+        .sort((a, b) => {
+          if (b.order !== a.order) {
+            return b.order - a.order;
+          }
+          return a.roomName.localeCompare(b.roomName);
+        });
+
+      if (!destinations.length) {
+        return [];
+      }
+
+      return [{
+        dungeonId: String(dungeonData?.map_id || hexmap?.launchContext?.map_id || 'current-dungeon'),
+        dungeonName: currentDungeonName,
+        mapId: String(dungeonData?.map_id || hexmap?.launchContext?.map_id || ''),
+        dungeonLevelId: String(dungeonData?.level_id || hexmap?.launchContext?.dungeon_level_id || ''),
+        locations: destinations,
+      }];
+    }
+
+    ensureNavigateLocationGroups(campaignId) {
+      if (!campaignId || (this.navigateLocationsCampaignId === campaignId && Array.isArray(this.navigateLocationGroups) && this.navigateLocationGroups.length)) {
+        return;
+      }
+      if (this.navigateLocationsInflight) {
+        return;
+      }
+
+      this.navigateLocationsInflight = fetch(`/api/campaign/${campaignId}/visited-locations`, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+        credentials: 'include',
+      })
+        .then(async (response) => {
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok || !data.success) {
+            throw new Error(data.error || 'Unable to load visited locations.');
+          }
+
+          this.navigateLocationsCampaignId = campaignId;
+          this.navigateLocationGroups = (Array.isArray(data.dungeons) ? data.dungeons : [])
+            .map((group) => ({
+              dungeonId: String(group?.dungeon_id || ''),
+              dungeonName: String(group?.dungeon_name || group?.dungeon_id || 'Dungeon'),
+              mapId: String(group?.map_id || group?.dungeon_id || ''),
+              dungeonLevelId: String(group?.dungeon_level_id || ''),
+              locations: Array.isArray(group?.locations)
+                ? group.locations.map((location) => ({
+                  roomId: String(location?.room_id || ''),
+                  roomName: String(location?.room_name || location?.room_id || 'Room'),
+                  meta: String(location?.description || ''),
+                  lastVisitedLabel: Number(location?.last_visited || 0) > 0
+                    ? `Visited ${new Date(Number(location.last_visited) * 1000).toLocaleString()}`
+                    : 'Visited by party',
+                })).filter((location) => location.roomId)
+                : [],
+            }))
+            .filter((group) => group.locations.length > 0);
+        })
+        .catch((error) => {
+          console.warn('Failed to load campaign visited locations:', error);
+        })
+        .finally(() => {
+          this.navigateLocationsInflight = null;
+          if (this.activeActionRailCategory === 'navigate') {
+            this.refreshActionRail();
+          }
+        });
+    }
+
+    buildSpellActionRailPanel(context) {
+      const spells = normalizeSpellcastingData(context.state?.spells || {});
+      const rankGroups = collectSpellRankGroups(spells);
+      const runtimeSlots = normalizeDisplayedSpellSlots(context.state?.resources?.spellSlots, spells.slots);
+      const entries = [];
+
+      rankGroups.forEach(({ rank, label, spells: rankSpells }) => {
+        rankSpells.forEach((spell) => {
+          const spellId = typeof spell === 'string' ? spell : (spell.id || spell.spell_id || '');
+          const spellName = typeof spell === 'string' ? spell.replace(/_/g, ' ') : (spell.name || spellId || 'Spell');
+          const slotState = rank > 0 ? runtimeSlots[String(rank)] || null : null;
+          const isFocusSpell = Boolean(spell?.is_focus_spell || spell?.focus || spell?.focus_spell);
+          const remaining = isFocusSpell
+            ? Number(context.state?.resources?.focusPoints?.current ?? 0)
+            : Number(slotState?.current ?? 0);
+          const disabled = rank > 0 && !isFocusSpell ? remaining <= 0 : false;
+          const actionCost = getActionRailCost(spell?.action_cost ?? spell?.actions ?? spell?.cast_actions, 2);
+          entries.push(this.renderActionRailEntry({
+            execute: 'spell',
+            title: spellName,
+            summary: buildActionRailEntrySummary([
+              rank === 0 ? 'Cantrip' : label,
+              isFocusSpell ? `Focus ${remaining}` : (slotState ? `Slots ${slotState.current}/${slotState.max}` : ''),
+              formatActionRailCost(actionCost),
+            ]),
+            meta: typeof spell === 'object' ? (spell.description || spell.desc || '') : '',
+            disabled,
+            dataset: {
+              spellId,
+              spellName,
+              spellLevel: String(rank),
+              isFocusSpell: isFocusSpell ? '1' : '0',
+              actionCost: String(actionCost),
+            },
+          }));
+        });
+      });
+
+      return {
+        title: 'Spell actions',
+        chip: `${entries.length} loaded`,
+        html: entries.length
+          ? entries.join('')
+          : `<div class="action-rail__empty"><p>No spell actions are available for this character.</p></div>`,
+      };
+    }
+
+    buildConsumableActionRailPanel(context) {
+      const items = extractConsumableItems(context.state?.inventory || {}, context.state?.equipment || []);
+      const entries = items.map((item) => {
+        const itemId = item.id || item.item_id || item.name || '';
+        const quantity = Number(item.quantity || 1);
+        const actionCost = getActionRailCost(item.action_cost ?? item.actions, 1);
+        return this.renderActionRailEntry({
+          execute: 'consumable',
+          title: item.name || itemId || 'Consumable',
+          summary: buildActionRailEntrySummary([
+            item.type || item.category || 'Consumable',
+            quantity > 1 ? `x${quantity}` : '',
+            formatActionRailCost(actionCost),
+          ]),
+          meta: item.consumable_stats?.effect || item.effect || item.description || item.desc || '',
+          dataset: {
+            itemId: String(itemId),
+            actionCost: String(actionCost),
+          },
+        });
+      });
+
+      return {
+        title: 'Consumables',
+        chip: `${entries.length} ready`,
+        html: entries.length
+          ? entries.join('')
+          : `<div class="action-rail__empty"><p>No consumables are currently available.</p></div>`,
+      };
+    }
+
+    buildSkillActionRailPanel(context) {
+      const skills = collectCharacterSkillEntries(context.state)
+        .sort((a, b) => Number(b.modifier || 0) - Number(a.modifier || 0));
+      const entries = skills.map((skill) => {
+        const modifier = Number(skill.modifier || 0);
+        return this.renderActionRailEntry({
+          execute: 'skill',
+          title: String(skill.name || 'Skill').replace(/_/g, ' '),
+          summary: buildActionRailEntrySummary([
+            modifier >= 0 ? `+${modifier}` : `${modifier}`,
+            skill.proficiency || 'untrained',
+            context.encounterActive ? formatActionRailCost(1) : 'Direct log',
+          ]),
+          meta: context.encounterActive
+            ? 'Resolve this skill directly without using chat.'
+            : 'Logs the declared skill action directly in the shell.',
+          dataset: {
+            skillName: String(skill.name || ''),
+            skillModifier: String(modifier),
+          },
+        });
+      });
+
+      return {
+        title: 'Skill actions',
+        chip: `${entries.length} skills`,
+        html: entries.length
+          ? entries.join('')
+          : `<div class="action-rail__empty"><p>No skill actions are available yet.</p></div>`,
+      };
+    }
+
+    buildFeatActionRailPanel(context) {
+      const features = context.state?.features || {};
+      const featActions = flattenTooltipBuckets(context.state?.actions?.availableActions?.feat || features?.featEffects?.available_actions || {});
+      const fallbackFeats = [
+        ...(Array.isArray(features.ancestryFeatures) ? features.ancestryFeatures : []),
+        ...(Array.isArray(features.classFeatures) ? features.classFeatures : []),
+        ...(Array.isArray(features.feats) ? features.feats : []),
+      ];
+
+      const actionEntries = featActions.length > 0
+        ? featActions.map((action) => ({
+          title: action.name || 'Feat action',
+          summary: buildActionRailEntrySummary([
+            action.source_feat || '',
+            formatActionRailCost(getActionRailCost(action.action_cost, 1)),
+            action.uses_remaining != null && action.uses_max != null ? `${action.uses_remaining}/${action.uses_max} uses` : '',
+          ]),
+          meta: action.description || '',
+          dataset: {
+            featName: action.name || 'Feat action',
+            featId: action.id || action.source_feat || '',
+            actionCost: String(getActionRailCost(action.action_cost, 1)),
+          },
+        }))
+        : fallbackFeats.map((feat) => ({
+          title: feat.name || String(feat || 'Feat'),
+          summary: buildActionRailEntrySummary([
+            feat.type || 'feat',
+            feat.level ? `Lv ${feat.level}` : '',
+            context.encounterActive ? formatActionRailCost(1) : 'Direct log',
+          ]),
+          meta: feat.description || feat.desc || feat.benefit || '',
+          dataset: {
+            featName: feat.name || String(feat || 'Feat'),
+            featId: feat.id || slugifyTooltipKey(feat.name || String(feat || 'feat')),
+            actionCost: '1',
+          },
+        }));
+
+      const entries = actionEntries.map((entry) => this.renderActionRailEntry({
+        execute: 'feat',
+        title: entry.title,
+        summary: entry.summary,
+        meta: entry.meta,
+        dataset: entry.dataset,
+      }));
+
+      return {
+        title: 'Feat actions',
+        chip: `${entries.length} available`,
+        html: entries.length
+          ? entries.join('')
+          : `<div class="action-rail__empty"><p>No direct feat actions are currently available.</p></div>`,
+      };
+    }
+
+    renderActionRailEntry({ execute, title, summary = '', meta = '', disabled = false, dataset = {}, actionLabel = 'Use action' }) {
+      const encodedDataset = Object.entries(dataset)
+        .map(([key, value]) => ` data-${key.replace(/[A-Z]/g, (match) => `-${match.toLowerCase()}`)}="${escapeTooltipAttr(value)}"`)
+        .join('');
+      return `<article class="action-rail__entry">
+        <div class="action-rail__entry-top">
+          <div>
+            <p class="action-rail__entry-title">${escapeQuestHtml(title)}</p>
+            ${summary ? `<p class="action-rail__entry-summary">${escapeQuestHtml(summary)}</p>` : ''}
+          </div>
+        </div>
+        ${meta ? `<p class="action-rail__entry-meta">${escapeQuestHtml(meta)}</p>` : ''}
+        <button type="button" class="btn btn-action action-rail__entry-action" data-action-rail-execute="${escapeTooltipAttr(execute)}"${encodedDataset}${disabled ? ' disabled aria-disabled="true"' : ''}>${escapeQuestHtml(actionLabel)}</button>
+      </article>`;
+    }
+
+    handleActionRailDirectAction(actionKey) {
+      const context = this.getActionRailContext();
+      const hexmap = context.hexmap;
+      if (!hexmap) {
+        return;
+      }
+      if (actionKey === 'end-turn') {
+        hexmap.endTurn?.();
+        return;
+      }
+
+      const guidance = {
+        interact: 'Interact stays in-place now. Choose the object, door, or NPC on the map when you are ready.',
+      };
+      this.appendChatLine('System', guidance[actionKey] || 'That action is not available right now.', 'system');
+    }
+
+    handleActionRailPanelAction(button) {
+      const actionType = button.dataset.actionRailExecute || '';
+      if (actionType === 'spell') {
+        this.executeDirectSpell(button);
+        return;
+      }
+      if (actionType === 'attack') {
+        this.executeDirectAttack(button);
+        return;
+      }
+      if (actionType === 'consumable') {
+        this.executeDirectConsumable(button);
+        return;
+      }
+      if (actionType === 'skill') {
+        this.executeDirectSkill(button);
+        return;
+      }
+      if (actionType === 'feat') {
+        this.executeDirectFeat(button);
+        return;
+      }
+      if (actionType === 'navigate') {
+        this.executeDirectNavigate(button);
+      }
+    }
+
+    beginActionRailRequest(button) {
+      if (!(button instanceof HTMLButtonElement)) {
+        return false;
+      }
+      if (button.dataset.actionRailPending === '1') {
+        return false;
+      }
+      button.dataset.actionRailPending = '1';
+      button.disabled = true;
+      button.setAttribute('aria-busy', 'true');
+      return true;
+    }
+
+    endActionRailRequest(button) {
+      if (!(button instanceof HTMLButtonElement)) {
+        return;
+      }
+      delete button.dataset.actionRailPending;
+      button.disabled = false;
+      button.removeAttribute('aria-busy');
+    }
+
+    async executeDirectSpell(button) {
+      if (!this.beginActionRailRequest(button)) {
+        return;
+      }
+
+      try {
+      const context = this.getActionRailContext();
+      const hexmap = context.hexmap;
+      if (!hexmap || !context.characterId) {
+        return;
+      }
+
+      const spellName = button.dataset.spellName || 'spell';
+      const payload = {
+        spellId: button.dataset.spellId || '',
+        spellName,
+        spellLevel: Number(button.dataset.spellLevel || 0),
+        isFocusSpell: button.dataset.isFocusSpell === '1',
+        actionCost: getActionRailCost(button.dataset.actionCost, 2),
+      };
+
+      if (context.encounterActive && context.actor) {
+        const response = await hexmap.performCombatAction({
+          actorId: context.actor.id,
+          actionType: 'cast_spell',
+          actionCost: payload.actionCost,
+          characterId: context.characterId,
+          spellId: payload.spellId,
+          spellName: payload.spellName,
+          spellLevel: payload.spellLevel,
+          isFocusSpell: payload.isFocusSpell,
+        });
+        if (response) {
+          this.appendChatLine('System', response.action_result?.summary || `${context.actorLabel} casts ${spellName}.`, 'system');
+          hexmap.loadCharacterFromApi(context.characterId);
+        }
+        return;
+      }
+
+      const runtimeContext = context.runtimeContext || {};
+      const response = await fetch(`/api/character/${context.characterId}/cast-spell`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          spellId: payload.spellId,
+          level: payload.spellLevel,
+          isFocusSpell: payload.isFocusSpell,
+          campaignId: runtimeContext.campaignId || null,
+          instanceId: runtimeContext.instanceId || null,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        this.appendChatLine('System', data.error || `Unable to cast ${spellName}.`, 'system');
+        return;
+      }
+
+      this.appendChatLine('System', `${context.actorLabel} casts ${spellName}.`, 'system');
+      hexmap.loadCharacterFromApi(context.characterId);
+      } finally {
+        this.endActionRailRequest(button);
+      }
+    }
+
+    async executeDirectAttack(button) {
+      if (!this.beginActionRailRequest(button)) {
+        return;
+      }
+
+      try {
+        const context = this.getActionRailContext();
+        const hexmap = context.hexmap;
+        const targetId = Number(button.dataset.targetId || 0);
+        const weaponId = String(button.dataset.weaponId || '').trim();
+        const weaponName = button.dataset.weaponName || 'weapon';
+
+        if (!hexmap || !context.actor || !context.encounterActive || !targetId) {
+          this.appendChatLine('System', 'Attack options are only available during an active encounter.', 'system');
+          return;
+        }
+
+        const target = hexmap.entityManager?.getEntity?.(targetId) || null;
+        if (!target) {
+          this.appendChatLine('System', 'That target is no longer available.', 'system');
+          return;
+        }
+
+        await hexmap.performAttack?.(context.actor, target, {
+          weaponId,
+          weaponName,
+        });
+        this.refreshActionRail();
+      } finally {
+        this.endActionRailRequest(button);
+      }
+    }
+
+    async executeDirectNavigate(button) {
+      if (!this.beginActionRailRequest(button)) {
+        return;
+      }
+
+      try {
+        const context = this.getActionRailContext();
+        const hexmap = context.hexmap;
+        const roomId = String(button.dataset.roomId || '').trim();
+        const roomName = button.dataset.roomName || roomId || 'that room';
+        const mapId = String(button.dataset.mapId || '').trim();
+        const dungeonLevelId = String(button.dataset.dungeonLevelId || '').trim();
+
+        if (!hexmap || !roomId) {
+          return;
+        }
+
+        const currentMapId = String(hexmap?.dungeonData?.map_id || hexmap?.launchContext?.map_id || this.stateManager?.get?.('mapId') || '').trim();
+        let changed = false;
+        if (hexmap?.dungeonData?.rooms?.[roomId] && (!mapId || !currentMapId || mapId === currentMapId)) {
+          changed = Boolean(hexmap.navigateToVisitedRoom?.(roomId));
+        } else if (mapId) {
+          this.appendChatLine('System', `Navigating to ${roomName} in ${button.closest('.action-rail__group')?.querySelector('.action-rail__group-label')?.textContent || 'another dungeon'}.`, 'system');
+          this.navigateToDungeonContext({
+            map_id: mapId,
+            dungeon_level_id: dungeonLevelId,
+            room_id: roomId,
+            next_room_id: '',
+          });
+          changed = true;
+        }
+        if (!changed) {
+          this.appendChatLine('System', 'That visited destination is not available right now.', 'system');
+          return;
+        }
+
+        if (!mapId || !currentMapId || mapId === currentMapId) {
+          this.appendChatLine('System', `Navigating to ${roomName}.`, 'system');
+        }
+        this.refreshActionRail();
+      } finally {
+        this.endActionRailRequest(button);
+      }
+    }
+
+    async executeDirectConsumable(button) {
+      if (!this.beginActionRailRequest(button)) {
+        return;
+      }
+
+      try {
+      const context = this.getActionRailContext();
+      const hexmap = context.hexmap;
+      const items = extractConsumableItems(context.state?.inventory || {}, context.state?.equipment || []);
+      const item = items.find((entry) => String(entry.id || entry.item_id || entry.name || '') === String(button.dataset.itemId || ''));
+
+      if (!hexmap || !context.characterId || !item) {
+        return;
+      }
+
+      const actionCost = getActionRailCost(button.dataset.actionCost, 1);
+      const itemLabel = item.name || 'consumable';
+
+      if (context.encounterActive && context.actor) {
+        const response = await hexmap.performCombatAction({
+          actorId: context.actor.id,
+          actionType: 'consume_item',
+          actionCost,
+          characterId: context.characterId,
+          item,
+        });
+        if (response) {
+          this.appendChatLine('System', response.action_result?.summary || `${context.actorLabel} uses ${itemLabel}.`, 'system');
+          hexmap.loadCharacterFromApi(context.characterId);
+        }
+        return;
+      }
+
+      const runtimeContext = context.runtimeContext || {};
+      const response = await fetch(`/api/character/${context.characterId}/inventory`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          action: 'consume',
+          item,
+          campaignId: runtimeContext.campaignId || null,
+          instanceId: runtimeContext.instanceId || null,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        this.appendChatLine('System', data.error || `Unable to use ${itemLabel}.`, 'system');
+        return;
+      }
+
+      this.appendChatLine('System', data.actionSummary || `${context.actorLabel} uses ${itemLabel}.`, 'system');
+      hexmap.loadCharacterFromApi(context.characterId);
+      } finally {
+        this.endActionRailRequest(button);
+      }
+    }
+
+    async executeDirectSkill(button) {
+      if (!this.beginActionRailRequest(button)) {
+        return;
+      }
+
+      try {
+      const context = this.getActionRailContext();
+      const skillName = String(button.dataset.skillName || '').replace(/_/g, ' ');
+      const skillModifier = Number(button.dataset.skillModifier || 0);
+      const label = `${skillName}${Number.isFinite(skillModifier) ? ` (${skillModifier >= 0 ? '+' : ''}${skillModifier})` : ''}`;
+
+      if (context.encounterActive && context.actor && context.hexmap) {
+        const response = await context.hexmap.performCombatAction({
+          actorId: context.actor.id,
+          actionType: 'skill',
+          actionCost: 1,
+          skillName,
+          skillModifier,
+        });
+        if (response) {
+          this.appendChatLine('System', response.action_result?.summary || `${context.actorLabel} uses ${label}.`, 'system');
+        }
+        return;
+      }
+
+      const runtimeContext = context.runtimeContext || {};
+      const response = await fetch(`/api/character/${context.characterId}/actions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          actionType: 'skill',
+          actionName: skillName,
+          summary: `${context.actorLabel} uses ${label}.`,
+          source: 'action_rail',
+          payload: {
+            skillName,
+            skillModifier,
+          },
+          campaignId: runtimeContext.campaignId || null,
+          instanceId: runtimeContext.instanceId || null,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        this.appendChatLine('System', data.error || `Unable to use ${label}.`, 'system');
+        return;
+      }
+
+      this.appendChatLine('System', data.action?.summary || `${context.actorLabel} uses ${label}.`, 'system');
+      context.hexmap?.loadCharacterFromApi(context.characterId);
+      } finally {
+        this.endActionRailRequest(button);
+      }
+    }
+
+    async executeDirectFeat(button) {
+      if (!this.beginActionRailRequest(button)) {
+        return;
+      }
+
+      try {
+      const context = this.getActionRailContext();
+      const featName = button.dataset.featName || 'feat action';
+      const actionCost = getActionRailCost(button.dataset.actionCost, 1);
+
+      if (context.encounterActive && context.actor && context.hexmap) {
+        const response = await context.hexmap.performCombatAction({
+          actorId: context.actor.id,
+          actionType: 'feat',
+          actionCost,
+          featId: button.dataset.featId || '',
+          featName,
+        });
+        if (response) {
+          this.appendChatLine('System', response.action_result?.summary || `${context.actorLabel} uses ${featName}.`, 'system');
+        }
+        return;
+      }
+
+      const runtimeContext = context.runtimeContext || {};
+      const response = await fetch(`/api/character/${context.characterId}/actions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          actionType: 'feat',
+          actionName: featName,
+          summary: `${context.actorLabel} uses ${featName}.`,
+          source: 'action_rail',
+          payload: {
+            featId: button.dataset.featId || '',
+            featName,
+            actionCost,
+          },
+          campaignId: runtimeContext.campaignId || null,
+          instanceId: runtimeContext.instanceId || null,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        this.appendChatLine('System', data.error || `Unable to use ${featName}.`, 'system');
+        return;
+      }
+
+      this.appendChatLine('System', data.action?.summary || `${context.actorLabel} uses ${featName}.`, 'system');
+      context.hexmap?.loadCharacterFromApi(context.characterId);
+      } finally {
+        this.endActionRailRequest(button);
+      }
     }
 
     formatRoomViewMeta(room) {
@@ -1225,7 +2452,7 @@ import { SpriteService } from './SpriteService.js';
         const canAct = actions ? actions.actionsRemaining > 0 : false;
         const moveLeft = movement ? movement.movementRemaining > 0 : false;
         this.elements.turnActionChips.innerHTML = `
-          <span class="chip ${moveLeft ? 'chip-live' : 'chip-dim'}">Move</span>
+          <span class="chip ${moveLeft ? 'chip-live' : 'chip-dim'}">Navigate</span>
           <span class="chip ${canAct ? 'chip-live' : 'chip-dim'}">Strike</span>
           <span class="chip ${canAct ? 'chip-live' : 'chip-dim'}">Interact</span>
           <span class="chip chip-live">Talk</span>
@@ -1236,9 +2463,9 @@ import { SpriteService } from './SpriteService.js';
         if (!isPlayersTurn) {
           this.elements.actionInstruction.textContent = 'Watching enemy turn...';
         } else if (actions && actions.actionsRemaining > 0) {
-          this.elements.actionInstruction.textContent = 'Select a hostile target to attack or click a blue hex to move.';
+          this.elements.actionInstruction.textContent = 'Select a hostile target to attack or click a blue hex to navigate.';
         } else if (movement && movement.movementRemaining > 0) {
-          this.elements.actionInstruction.textContent = 'Move to a blue hex, then end turn.';
+          this.elements.actionInstruction.textContent = 'Navigate to a blue hex, then end turn.';
         } else {
           this.elements.actionInstruction.textContent = 'No actions left — end your turn.';
         }
@@ -1282,7 +2509,7 @@ import { SpriteService } from './SpriteService.js';
         if (!isPlayersTurn) {
           actionInstruction.textContent = 'Watching enemy turn...';
         } else if (mode === 'move') {
-          actionInstruction.textContent = moveLeft > 0 ? `Click a blue hex to move (${moveLeft} ft left).` : 'No movement left; switch to attack or end turn.';
+          actionInstruction.textContent = moveLeft > 0 ? `Click a blue hex to navigate (${moveLeft} ft left).` : 'No movement left; switch to attack or end turn.';
         } else if (mode === 'interact') {
           actionInstruction.textContent = canInteract ? 'Click an adjacent item, NPC, door, or obstacle to interact.' : 'No interaction actions remaining; attack, move, or end turn.';
         } else {
@@ -1310,8 +2537,8 @@ import { SpriteService } from './SpriteService.js';
 
       if (actionMoveBtn) {
         const moveLabel = movement && Number.isFinite(movement.movementRemaining)
-          ? `Move (${movement.movementRemaining} ft)`
-          : 'Move';
+          ? `Navigate (${movement.movementRemaining} ft)`
+          : 'Navigate';
         actionMoveBtn.textContent = moveLabel;
         applyDisabledState(actionMoveBtn, !canMove);
       }
@@ -1339,6 +2566,8 @@ import { SpriteService } from './SpriteService.js';
       if (endTurnBtn) {
         applyDisabledState(endTurnBtn, !isPlayersTurn);
       }
+
+      this.refreshActionRail();
     }
 
     /**
@@ -1438,6 +2667,8 @@ import { SpriteService } from './SpriteService.js';
       if (this.elements.turnOwner) {
         this.elements.turnOwner.textContent = isInactive ? 'No active combat' : 'Active encounter';
       }
+
+      this.refreshActionRail();
     }
 
     /**
@@ -1568,7 +2799,7 @@ import { SpriteService } from './SpriteService.js';
       const resources = state.resources || {};
       const defenses = state.defenses || {};
       const conditions = state.conditions || [];
-      const skills = normalizeSkillsList(state.skills || launchCharacter.skills || []);
+      const skills = collectCharacterSkillEntries(launchCharacter);
       const features = state.features || {};
       const feats = state.feats || []; // Direct feats array from legacy format
       const equipment = state.equipment || [];
@@ -1997,6 +3228,8 @@ import { SpriteService } from './SpriteService.js';
           this.elements.characterSpellsSection.style.display = 'none';
         }
       }
+
+      this.refreshActionRail();
     }
 
     /**
@@ -2593,6 +3826,169 @@ import { SpriteService } from './SpriteService.js';
       }
     }
 
+    buildChatViewStateKey(view = this.activeSessionView, context = null, channelKey = null) {
+      const resolved = context || this.getChatContext();
+      if (!resolved.campaignId || !view) {
+        return '';
+      }
+
+      if (view === 'room') {
+        if (!resolved.roomId) {
+          return '';
+        }
+        return [
+          'view',
+          'room',
+          resolved.campaignId,
+          resolved.roomId,
+          resolved.characterId || 0,
+          channelKey || this.activeChannel || 'room',
+        ].join(':');
+      }
+
+      return this.buildSessionViewCacheKey(view, resolved);
+    }
+
+    normalizeChatLineRecord(line = {}) {
+      return {
+        speaker: String(line.speaker || ''),
+        message: String(line.message || ''),
+        type: String(line.type || 'npc'),
+        transient: Boolean(line.transient),
+        lineId: String(line.lineId || ''),
+        messageId: Number.isFinite(Number(line.messageId)) ? Number(line.messageId) : null,
+        sourceMessageId: Number.isFinite(Number(line.sourceMessageId)) ? Number(line.sourceMessageId) : null,
+        created: Number.isFinite(Number(line.created)) ? Number(line.created) : 0,
+      };
+    }
+
+    buildChatLineContentKey(line = {}) {
+      const normalized = this.normalizeChatLineRecord(line);
+      return [
+        normalized.speaker,
+        normalized.type,
+        normalized.message,
+      ].join('|');
+    }
+
+    buildChatLineExactKey(line = {}) {
+      const normalized = this.normalizeChatLineRecord(line);
+      if (normalized.messageId) {
+        return `message:${normalized.messageId}`;
+      }
+      if (normalized.sourceMessageId) {
+        return `source:${normalized.sourceMessageId}`;
+      }
+      if (normalized.lineId) {
+        return `line:${normalized.lineId}`;
+      }
+      return `content:${this.buildChatLineContentKey(normalized)}`;
+    }
+
+    mergeChatLineRecord(existing = {}, incoming = {}) {
+      const base = this.normalizeChatLineRecord(existing);
+      const next = this.normalizeChatLineRecord(incoming);
+      return {
+        ...base,
+        ...next,
+        speaker: next.speaker || base.speaker,
+        message: next.message || base.message,
+        type: next.type || base.type,
+        transient: base.transient && next.transient,
+        lineId: next.lineId || base.lineId,
+        messageId: next.messageId || base.messageId,
+        sourceMessageId: next.sourceMessageId || base.sourceMessageId,
+        created: next.created || base.created || 0,
+      };
+    }
+
+    mergeRememberedChatLines(existingLines = [], incomingLines = []) {
+      const merged = (Array.isArray(existingLines) ? existingLines : [])
+        .map((line) => this.normalizeChatLineRecord(line))
+        .filter((line) => line.message !== '');
+
+      (Array.isArray(incomingLines) ? incomingLines : []).forEach((line) => {
+        const normalized = this.normalizeChatLineRecord(line);
+        if (!normalized.message) {
+          return;
+        }
+
+        const exactKey = this.buildChatLineExactKey(normalized);
+        const exactIndex = merged.findIndex((candidate) => this.buildChatLineExactKey(candidate) === exactKey);
+        if (exactIndex !== -1) {
+          merged[exactIndex] = this.mergeChatLineRecord(merged[exactIndex], normalized);
+          return;
+        }
+
+        const contentKey = this.buildChatLineContentKey(normalized);
+        const contentIndex = merged.findIndex((candidate) => {
+          if (candidate.transient || normalized.transient) {
+            return false;
+          }
+          return this.buildChatLineContentKey(candidate) === contentKey;
+        });
+        if (contentIndex !== -1) {
+          merged[contentIndex] = this.mergeChatLineRecord(merged[contentIndex], normalized);
+          return;
+        }
+
+        merged.push(normalized);
+      });
+
+      return merged.filter((line) => !line.transient && line.message !== '');
+    }
+
+    getRememberedChatLines(view = this.activeSessionView, options = {}) {
+      const key = this.buildChatViewStateKey(view, options.context, options.channelKey);
+      if (!key) {
+        return [];
+      }
+      return this.chatViewStateCache.get(key) || [];
+    }
+
+    rememberChatLines(view = this.activeSessionView, lines = [], options = {}) {
+      const key = this.buildChatViewStateKey(view, options.context, options.channelKey);
+      if (!key) {
+        return [];
+      }
+      const existing = options.replace ? [] : (this.chatViewStateCache.get(key) || []);
+      const merged = this.mergeRememberedChatLines(existing, lines);
+      this.chatViewStateCache.set(key, merged);
+      return merged;
+    }
+
+    syncCurrentChatViewState(view = this.activeSessionView, options = {}) {
+      const lines = this.collectRenderedChatMessages();
+      this.rememberChatLines(view, lines, {
+        ...options,
+        replace: true,
+      });
+    }
+
+    renderChatLineRecords(lines = [], view = this.activeSessionView, options = {}) {
+      const log = this.elements.chatLog;
+      if (log) {
+        log.innerHTML = '';
+      }
+
+      lines.forEach((line) => {
+        this.appendChatLine(line.speaker, line.message, line.type, {
+          lineId: line.lineId,
+          transient: line.transient,
+          messageId: line.messageId,
+          sourceMessageId: line.sourceMessageId,
+          created: line.created,
+          suppressRemember: true,
+        });
+      });
+
+      this.rememberChatLines(view, lines, {
+        context: options.context,
+        channelKey: options.channelKey,
+        replace: true,
+      });
+    }
+
     invalidateChatCaches({ room = false, sessionViews = [] } = {}) {
       if (room) {
         const context = this.getChatContext();
@@ -2677,20 +4073,26 @@ import { SpriteService } from './SpriteService.js';
         return;
       }
 
-      const log = this.elements.chatLog;
-      if (log) {
-        log.innerHTML = '';
-      }
-
-      result.data.messages.forEach(msg => {
-        this.appendChatLine(msg.speaker, msg.message, msg.type);
+      const context = this.getChatContext();
+      const incoming = result.data.messages.map((msg) => ({
+        speaker: msg.speaker,
+        message: msg.message,
+        type: msg.type,
+      }));
+      const merged = this.rememberChatLines('room', incoming, {
+        context,
+        channelKey: this.activeChannel,
+      });
+      this.renderChatLineRecords(merged, 'room', {
+        context,
+        channelKey: this.activeChannel,
       });
 
-      this.updateChatSummary(result.data.messages, {
+      this.updateChatSummary(merged, {
         emptyText: 'Quick summary: No one has said anything in this room yet.',
       });
 
-      if (result.data.messages.length === 0) {
+      if (merged.length === 0 && result.data.messages.length === 0) {
         const roomData = this.stateManager.hexmap?.getActiveRoomData?.() || null;
         if (roomData?.name) {
           const terrain = roomData.terrain?.type ? roomData.terrain.type.replace(/_/g, ' ') : '';
@@ -2704,6 +4106,10 @@ import { SpriteService } from './SpriteService.js';
           this.appendChatLine('System', roomData.description, 'system');
         } else {
           this.appendChatLine('System', 'Welcome to the room. Start a conversation!', 'system');
+        }
+        const occupantSummary = this.stateManager.hexmap?.buildActiveRoomOccupantSummary?.() || '';
+        if (occupantSummary) {
+          this.appendChatLine('System', occupantSummary, 'system');
         }
       }
 
@@ -3136,6 +4542,21 @@ import { SpriteService } from './SpriteService.js';
       } else {
         delete line.dataset.lineId;
       }
+      if (options.messageId) {
+        line.dataset.messageId = String(options.messageId);
+      } else {
+        delete line.dataset.messageId;
+      }
+      if (options.sourceMessageId) {
+        line.dataset.sourceMessageId = String(options.sourceMessageId);
+      } else {
+        delete line.dataset.sourceMessageId;
+      }
+      if (options.created) {
+        line.dataset.created = String(options.created);
+      } else {
+        delete line.dataset.created;
+      }
       line.dataset.transient = options.transient ? '1' : '0';
 
       if (!existingLine) {
@@ -3143,6 +4564,9 @@ import { SpriteService } from './SpriteService.js';
       }
       this.scrollChatToBottom();
       this.updateChatSummary();
+      if (!options.transient && !options.suppressRemember) {
+        this.syncCurrentChatViewState();
+      }
       return line;
     }
 
@@ -3161,6 +4585,7 @@ import { SpriteService } from './SpriteService.js';
       }
       line.remove();
       this.updateChatSummary();
+      this.syncCurrentChatViewState();
     }
 
     buildPendingChatRequest(requestId, speaker, message, roomId, options = {}) {
@@ -3349,11 +4774,15 @@ import { SpriteService } from './SpriteService.js';
       }
 
       return Array.from(log.querySelectorAll('.chat-line'))
-        .map((line) => ({
+        .map((line) => this.normalizeChatLineRecord({
           transient: line.dataset.transient === '1',
           speaker: line.dataset.speaker || '',
           message: line.dataset.message || line.textContent || '',
           type: line.dataset.type || 'npc',
+          lineId: line.dataset.lineId || '',
+          messageId: line.dataset.messageId || null,
+          sourceMessageId: line.dataset.sourceMessageId || null,
+          created: line.dataset.created || 0,
         }))
         .filter((line) => !line.transient);
     }
@@ -3495,17 +4924,20 @@ import { SpriteService } from './SpriteService.js';
     }
 
     renderSessionViewData(view, data) {
-      const log = this.elements.chatLog;
-      if (log) {
-        log.innerHTML = '';
-      }
+      const context = this.getChatContext();
 
       if (data && data.messages && data.messages.length > 0) {
-        data.messages.forEach(msg => {
-          const lineType = this.resolveSessionLineType(msg, view);
-          this.appendChatLine(msg.speaker, msg.message, lineType);
-        });
-        this.updateChatSummary(data.messages, {
+        const incoming = data.messages.map((msg) => ({
+          speaker: msg.speaker,
+          message: msg.message,
+          type: this.resolveSessionLineType(msg, view),
+          messageId: msg.id || null,
+          sourceMessageId: msg.source_message_id || null,
+          created: msg.created || 0,
+        }));
+        const merged = this.rememberChatLines(view, incoming, { context });
+        this.renderChatLineRecords(merged, view, { context });
+        this.updateChatSummary(merged, {
           emptyText: 'Quick summary: No messages in this view yet.',
         });
       } else {
@@ -3515,10 +4947,21 @@ import { SpriteService } from './SpriteService.js';
           'gm-private': 'No secret actions. GMs can use /location, /room, /quests, or /dungeon.',
           'system-log': 'No dice rolls yet.',
         };
-        this.appendChatLine('System', emptyMessages[view] || 'No messages.', 'system');
-        this.updateChatSummary([], {
-          emptyText: 'Quick summary: No messages in this view yet.',
-        });
+        const remembered = this.getRememberedChatLines(view, { context });
+        if (remembered.length > 0) {
+          this.renderChatLineRecords(remembered, view, { context });
+          this.updateChatSummary(remembered, {
+            emptyText: 'Quick summary: No messages in this view yet.',
+          });
+        } else {
+          this.renderChatLineRecords([], view, { context });
+          this.appendChatLine('System', emptyMessages[view] || 'No messages.', 'system', {
+            suppressRemember: true,
+          });
+          this.updateChatSummary([], {
+            emptyText: 'Quick summary: No messages in this view yet.',
+          });
+        }
       }
       this.scrollChatToBottom({ defer: true });
     }
@@ -3603,8 +5046,10 @@ import { SpriteService } from './SpriteService.js';
       // Show/hide channel sub-tabs and indicator (only for room view).
       const channelTabs = this.elements.chatChannelTabs;
       const channelIndicator = this.elements.chatChannelIndicator;
+      const quickActions = this.elements.chatQuickActions;
       if (channelTabs) channelTabs.style.display = view === 'room' ? '' : 'none';
       if (channelIndicator) channelIndicator.style.display = view === 'room' ? '' : 'none';
+      if (quickActions) quickActions.style.display = view === 'room' ? '' : 'none';
 
       // Update panel title.
       const titles = {
@@ -3716,8 +5161,12 @@ import { SpriteService } from './SpriteService.js';
       try {
         switch (this.activeSessionView) {
           case 'party':
-            this.appendChatLine(speaker, message, 'player');
-            await api.postPartyChat(speaker, message, String(characterId || ''));
+            const partyLine = this.appendChatLine(speaker, message, 'player');
+            const partyResult = await api.postPartyChat(speaker, message, String(characterId || ''));
+            if (partyLine && partyResult?.message_id) {
+              partyLine.dataset.messageId = String(partyResult.message_id);
+              this.syncCurrentChatViewState('party');
+            }
             this.invalidateChatCaches({ sessionViews: ['party'] });
             break;
 
@@ -3741,6 +5190,9 @@ import { SpriteService } from './SpriteService.js';
                 room_type: requestedRoom.roomType,
                 terrain_type: requestedRoom.terrainType,
                 room_size: requestedRoom.roomSize,
+                character_id: characterId,
+                speaker,
+                gm_private_message: message,
               });
               if (roomResult?.message) {
                 this.appendChatLine('Game Master', roomResult.message, 'gm');
@@ -3762,6 +5214,9 @@ import { SpriteService } from './SpriteService.js';
               const questResult = await api.requestLocationQuests({
                 room_id: roomId,
                 count: requestedQuests.count,
+                character_id: characterId,
+                speaker,
+                gm_private_message: message,
               });
               if (questResult?.message) {
                 this.appendChatLine('Game Master', questResult.message, 'gm');
@@ -3778,6 +5233,9 @@ import { SpriteService } from './SpriteService.js';
                 location_y: requestedDungeon.locationY,
                 party_level: requestedDungeon.partyLevel || 1,
                 theme: requestedDungeon.theme || undefined,
+                character_id: characterId,
+                speaker,
+                gm_private_message: message,
               });
               const dungeonName = dungeonResult?.name || dungeonResult?.data?.name || dungeonResult?.dungeon_id || 'new dungeon';
               this.appendChatLine('Game Master', `Generated dungeon site: ${dungeonName}.`, 'gm');
@@ -3795,6 +5253,9 @@ import { SpriteService } from './SpriteService.js';
               const locationResult = await api.requestLocationGeneration({
                 destination: requestedDestination,
                 origin_room_id: originRoomId,
+                character_id: characterId,
+                speaker,
+                gm_private_message: message,
               });
               if (locationResult?.message) {
                 this.appendChatLine('Game Master', locationResult.message, 'gm');
@@ -3805,8 +5266,12 @@ import { SpriteService } from './SpriteService.js';
               this.invalidateChatCaches({ sessionViews: ['gm-private', 'narrative', 'system-log'] });
               break;
             }
-            this.appendChatLine(speaker, message, 'secret');
-            await api.postGmPrivate(characterId, speaker, message);
+            const gmPrivateLine = this.appendChatLine(speaker, message, 'secret');
+            const gmPrivateResult = await api.postGmPrivate(characterId, speaker, message);
+            if (gmPrivateLine && gmPrivateResult?.message_id) {
+              gmPrivateLine.dataset.messageId = String(gmPrivateResult.message_id);
+              this.syncCurrentChatViewState('gm-private');
+            }
             this.invalidateChatCaches({ sessionViews: ['gm-private'] });
             break;
 
@@ -5651,6 +7116,7 @@ import { SpriteService } from './SpriteService.js';
         moveLeft: movement ? movement.movementRemaining : 0,
         isPlayersTurn
       });
+      this.uiManager.refreshActionRail();
       this.refreshFogOfWar(entity);
       this.syncTokenBadgeState();
     },
@@ -5677,6 +7143,7 @@ import { SpriteService } from './SpriteService.js';
       
       // Hide entity info panel
       this.uiManager.hideEntityInfo();
+      this.uiManager.refreshActionRail();
       
       this.syncTokenBadgeState();
       
@@ -6182,6 +7649,10 @@ import { SpriteService } from './SpriteService.js';
           this.syncSelectedToCurrentTurn();
         }
 
+        if (serverState.world_delta) {
+          this.applyWorldDelta(serverState.world_delta);
+        }
+
         return serverState;
       } catch (err) {
         console.error('Combat action via API failed; client will not fall back.', err);
@@ -6367,6 +7838,7 @@ import { SpriteService } from './SpriteService.js';
           }
 
           this.applyWorldDelta(serverState.world_delta || null);
+          this.uiManager?.appendChatLine('System', serverState.action_result?.summary || 'Interaction completed.', 'system');
           console.info('Interaction: opened room connection', { connectionId: connection.connection_id, q: targetQ, r: targetR });
         });
         return true;
@@ -6417,6 +7889,7 @@ import { SpriteService } from './SpriteService.js';
           }
 
           this.applyWorldDelta(serverState.world_delta || null);
+          this.uiManager?.appendChatLine('System', serverState.action_result?.summary || 'Interaction completed.', 'system');
 
           console.info('Interaction: moved obstacle', {
             from: { q: targetQ, r: targetR },
@@ -6445,6 +7918,7 @@ import { SpriteService } from './SpriteService.js';
             }
 
             this.applyWorldDelta(serverState.world_delta || null);
+            this.uiManager?.appendChatLine('System', serverState.action_result?.summary || 'Interaction completed.', 'system');
 
             console.info('Interaction: opened door-like obstacle', { q: targetQ, r: targetR, label });
           });
@@ -6683,6 +8157,8 @@ import { SpriteService } from './SpriteService.js';
       }
 
       const currentTurn = this.turnManagementSystem?.getCurrentTurn?.();
+      const currentActor = this.turnManagementSystem?.getCurrentTurnEntity?.();
+      const currentActorName = currentActor?.getComponent?.('IdentityComponent')?.name || 'Current actor';
       const payload = {
         encounterId,
         participantId: currentTurn?.entityId
@@ -6705,6 +8181,8 @@ import { SpriteService } from './SpriteService.js';
           this.turnManagementSystem.hydrateFromServer(serverState);
           this.syncSelectedToCurrentTurn();
         }
+
+        this.uiManager?.appendChatLine('System', `${currentActorName} ends their turn.`, 'system');
       } catch (err) {
         console.error('Turn end via API failed.', err);
         this.notifyServerUnavailable();
@@ -6748,7 +8226,7 @@ import { SpriteService } from './SpriteService.js';
     },
 
     /**
-     * Free-action talk interface hook for AI conversation integration.
+     * Free-action talk without invoking the GM/LLM chat pipeline.
      * @param {Entity} speaker - Speaking entity
      * @param {string} message - Utterance content
      */
@@ -6769,18 +8247,7 @@ import { SpriteService } from './SpriteService.js';
       }
 
       const identity = speaker.getComponent('IdentityComponent');
-      const combat = speaker.getComponent('CombatComponent');
-
-      // Emit an event for downstream ai_conversation listeners.
-      window.dispatchEvent(new CustomEvent('dungeoncrawler:talk', {
-        detail: {
-          entityId: speaker.id,
-          name: identity?.name || `Entity ${speaker.id}`,
-          team: combat?.team || null,
-          roomId: this.activeRoomId || null,
-          message: message
-        }
-      }));
+      this.uiManager?.appendChatLine(identity?.name || `Entity ${speaker.id}`, message, 'player');
     },
 
     /**
@@ -6788,7 +8255,7 @@ import { SpriteService } from './SpriteService.js';
      * @param {Entity} attacker - Attacking entity
      * @param {Entity} target - Target entity
      */
-    performAttack: async function (attacker, target) {
+    performAttack: async function (attacker, target, options = {}) {
       const combatActive = this.stateManager.get('combatActive');
       if (combatActive && this.turnManagementSystem) {
         if (!this.turnManagementSystem.isEntityTurn(attacker)) {
@@ -6808,7 +8275,9 @@ import { SpriteService } from './SpriteService.js';
         ...(this.stateManager.get('mapId') ? { mapId: this.stateManager.get('mapId') } : {}),
         attackerId: attacker?.id,
         targetId: target?.id,
-        action: 'attack'
+        action: 'attack',
+        weaponId: options.weaponId || null,
+        weaponName: options.weaponName || null,
       };
 
       try {
@@ -6841,9 +8310,23 @@ import { SpriteService } from './SpriteService.js';
         if (this.combatSystem && attacker && target) {
           this.combatSystem.makeAttack(attacker, target, projectedResult);
         }
+        const attackerName = attacker?.getComponent?.('IdentityComponent')?.name || 'Attacker';
+        const targetName = target?.getComponent?.('IdentityComponent')?.name || 'target';
+        const weaponName = actionResult.weapon_name || options.weaponName || 'weapon';
+        const hit = Boolean(actionResult.hit);
+        const damage = Number(actionResult.damage || 0);
+        this.uiManager?.appendChatLine(
+          'System',
+          hit
+            ? `${attackerName} attacks ${targetName} with ${weaponName} for ${damage} damage.`
+            : `${attackerName} attacks ${targetName} with ${weaponName} but misses.`,
+          'system'
+        );
+        return true;
       } catch (err) {
         console.error('Attack via API failed; client will not fall back.', err);
         this.notifyServerUnavailable();
+        return false;
       }
     },
 
@@ -7097,7 +8580,7 @@ import { SpriteService } from './SpriteService.js';
           self.uiManager.showEntityInfo(actor);
         }
 
-        console.info('UI: Move button clicked', {
+        console.info('UI: Navigate button clicked', {
           actorId: actor.id,
           actionsRemaining: actions?.actionsRemaining,
           movementRemaining: movement?.movementRemaining
@@ -7111,6 +8594,7 @@ import { SpriteService } from './SpriteService.js';
           moveLeft: movement ? movement.movementRemaining : 0,
           isPlayersTurn
         });
+        self.uiManager?.appendChatLine('System', 'Navigate selected. Choose a destination hex.', 'system');
       });
 
       const actionAttackBtn = document.getElementById('action-attack');
@@ -7147,6 +8631,7 @@ import { SpriteService } from './SpriteService.js';
           moveLeft: movement ? movement.movementRemaining : 0,
           isPlayersTurn
         });
+        self.uiManager?.appendChatLine('System', 'Attack selected. Choose a target.', 'system');
       });
 
       const actionInteractBtn = document.getElementById('action-interact');
@@ -7181,6 +8666,7 @@ import { SpriteService } from './SpriteService.js';
           moveLeft: movement ? movement.movementRemaining : 0,
           isPlayersTurn
         });
+        self.uiManager?.appendChatLine('System', 'Interact selected. Choose an adjacent hex, object, or NPC.', 'system');
       });
 
       const actionTalkBtn = document.getElementById('action-talk');
@@ -7694,6 +9180,72 @@ import { SpriteService } from './SpriteService.js';
         return null;
       }
       return this.dungeonData.rooms[this.activeRoomId] || null;
+    },
+
+    /**
+     * Build a summary of named actors visibly present in the active room.
+     * @returns {string}
+     */
+    buildActiveRoomOccupantSummary: function () {
+      if (!this.dungeonData || !this.activeRoomId) {
+        return '';
+      }
+
+      const entities = Array.isArray(this.dungeonData.entities) ? this.dungeonData.entities : [];
+      const groupedNames = { pc: [], npc: [], creature: [] };
+      const seen = new Set();
+
+      entities.forEach((entity) => {
+        const placement = entity?.placement;
+        if (!placement || placement.room_id !== this.activeRoomId) {
+          return;
+        }
+
+        const rawType = entity?.entity_type ? String(entity.entity_type).toLowerCase() : '';
+        let bucket = '';
+        if (rawType === 'player_character' || rawType === 'player') {
+          bucket = 'pc';
+        } else if (rawType === 'npc') {
+          bucket = 'npc';
+        } else if (rawType === 'creature') {
+          bucket = 'creature';
+        }
+
+        if (!bucket) {
+          return;
+        }
+
+        const metadata = entity?.state?.metadata || {};
+        const contentId = entity?.entity_ref?.content_id;
+        const objectDefinition = this.getObjectDefinition(contentId);
+        const name = String(
+          metadata.display_name || metadata.name || entity?.display_name || objectDefinition?.label || ''
+        ).trim();
+
+        if (!name) {
+          return;
+        }
+
+        const dedupeKey = `${bucket}:${name.toLowerCase()}`;
+        if (seen.has(dedupeKey)) {
+          return;
+        }
+        seen.add(dedupeKey);
+        groupedNames[bucket].push(name);
+      });
+
+      const parts = [];
+      if (groupedNames.pc.length) {
+        parts.push(`Party present: ${groupedNames.pc.join(', ')}`);
+      }
+      if (groupedNames.npc.length) {
+        parts.push(`NPCs present: ${groupedNames.npc.join(', ')}`);
+      }
+      if (groupedNames.creature.length) {
+        parts.push(`Other creatures present: ${groupedNames.creature.join(', ')}`);
+      }
+
+      return parts.join('. ');
     },
 
     /**
@@ -8211,6 +9763,10 @@ import { SpriteService } from './SpriteService.js';
         }
         if (room.description) {
           this.uiManager.appendChatLine('System', room.description, 'system');
+        }
+        const occupantSummary = this.buildActiveRoomOccupantSummary();
+        if (occupantSummary) {
+          this.uiManager.appendChatLine('System', occupantSummary, 'system');
         }
 
         // Show active gameplay effects if any.
@@ -8991,6 +10547,115 @@ import { SpriteService } from './SpriteService.js';
     },
 
     /**
+     * Resolve a reasonable entry hex for a previously visited room.
+     * @param {string} roomId
+     * @returns {{q:number, r:number}}
+     */
+    resolveVisitedRoomEntryHex: function (roomId) {
+      const connections = Array.isArray(this.dungeonData?.connections) ? this.dungeonData.connections : [];
+      const connection = connections.find((candidate) => {
+        if (!candidate || candidate.is_passable === false) {
+          return false;
+        }
+        return candidate.from_room === roomId || candidate.to_room === roomId;
+      });
+
+      if (connection) {
+        const connectionHex = connection.from_room === roomId ? connection.from_hex : connection.to_hex;
+        if (connectionHex && Number.isFinite(Number(connectionHex.q)) && Number.isFinite(Number(connectionHex.r))) {
+          return {
+            q: Number(connectionHex.q),
+            r: Number(connectionHex.r),
+          };
+        }
+      }
+
+      const room = this.dungeonData?.rooms?.[roomId] || null;
+      const startQ = Number(room?.start_q ?? room?.entry_hex?.q ?? room?.spawn_hex?.q ?? 0);
+      const startR = Number(room?.start_r ?? room?.entry_hex?.r ?? room?.spawn_hex?.r ?? 0);
+      return { q: startQ, r: startR };
+    },
+
+    /**
+     * Switch to a previously visited room in the current dungeon context.
+     * @param {string} roomId
+     * @returns {boolean}
+     */
+    navigateToVisitedRoom: function (roomId) {
+      if (!roomId || !this.dungeonData?.rooms?.[roomId] || roomId === this.activeRoomId) {
+        return false;
+      }
+
+      const nextHex = this.resolveVisitedRoomEntryHex(roomId);
+      const selectedEntity = this.stateManager.get('selectedEntity');
+
+      if (selectedEntity && Array.isArray(this.dungeonData?.entities)) {
+        const identity = selectedEntity.getComponent?.('IdentityComponent');
+        const combat = selectedEntity.getComponent?.('CombatComponent');
+        const isPlayer = combat?.isPlayerTeam ? combat.isPlayerTeam() : (combat?.team === Team.PLAYER || combat?.team === 'player');
+
+        if (isPlayer || identity) {
+          const entityRef = selectedEntity.dcEntityRef;
+          for (const de of this.dungeonData.entities) {
+            const deRef = de.instance_id || de.entity_instance_id;
+            if (deRef === entityRef || (selectedEntity.dcCharacterId && de?.state?.metadata?.character_id == selectedEntity.dcCharacterId)) {
+              de.placement = {
+                room_id: roomId,
+                hex: { q: Number(nextHex?.q || 0), r: Number(nextHex?.r || 0) },
+              };
+              break;
+            }
+          }
+
+          const npcEntities = this.dungeonData.entities.filter((entity) =>
+            entity.entity_type === 'npc' && entity?.state?.metadata?.team === 'ally'
+          );
+          const destQ = Number(nextHex?.q || 0);
+          const destR = Number(nextHex?.r || 0);
+          const offsets = [{ q: 1, r: 0 }, { q: -1, r: 0 }, { q: 0, r: 1 }, { q: 0, r: -1 }, { q: 1, r: -1 }, { q: -1, r: 1 }];
+          npcEntities.forEach((npc, i) => {
+            const offset = offsets[i % offsets.length];
+            const npcQ = destQ + offset.q;
+            const npcR = destR + offset.r;
+            npc.placement = {
+              room_id: roomId,
+              hex: { q: npcQ, r: npcR },
+            };
+            this.persistLaunchLocationContext(roomId, npcQ, npcR, npc.instance_id || npc.entity_instance_id || null);
+          });
+        }
+      }
+
+      this.persistLaunchLocationContext(roomId, Number(nextHex?.q || 0), Number(nextHex?.r || 0), selectedEntity?.dcEntityRef || null);
+
+      if (selectedEntity) {
+        this.deselectEntity();
+      }
+
+      this.setActiveRoom(roomId);
+      this.updateLaunchLocationContext(roomId, Number(nextHex?.q || 0), Number(nextHex?.r || 0));
+
+      const destinationHex = this.findHexByCoords(Number(nextHex?.q), Number(nextHex?.r));
+      if (destinationHex) {
+        const previousSelectedHex = this.stateManager.get('selectedHex');
+        if (previousSelectedHex && previousSelectedHex !== destinationHex) {
+          this.onHexOut(previousSelectedHex);
+        }
+        this.setSelectedHex(destinationHex);
+      }
+
+      const newPlayerEntity = this.findLaunchPlayerEntity();
+      if (newPlayerEntity) {
+        this.selectEntity(newPlayerEntity);
+        if (this.launchCharacter) {
+          this.uiManager?.showLaunchCharacter?.(this.launchCharacter);
+        }
+      }
+
+      return true;
+    },
+
+    /**
      * Try to transition to a connected room at a given hex.
      * @param {number} q - Axial q coordinate
      * @param {number} r - Axial r coordinate
@@ -9533,6 +11198,7 @@ import { SpriteService } from './SpriteService.js';
             this.characterData = this.launchCharacter;
             this.uiManager.showLaunchCharacter(this.launchCharacter);
             this.syncLaunchCharacterRuntimeFromEntity(this.stateManager?.get('selectedEntity'));
+            this.uiManager.refreshActionRail();
           }
         })
         .catch(error => {

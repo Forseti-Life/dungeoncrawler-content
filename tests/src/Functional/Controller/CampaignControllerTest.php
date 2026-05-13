@@ -295,6 +295,137 @@ class CampaignControllerTest extends BrowserTestBase {
   }
 
   /**
+   * Tests selecting an attached character resumes that character's saved room.
+   */
+  public function testSelectCharacterUsesSelectedCharactersSavedLocation(): void {
+    $user = $this->drupalCreateUser(['access dungeoncrawler characters']);
+    $this->drupalLogin($user);
+
+    $database = \Drupal::database();
+    $uuid = \Drupal::service('uuid');
+    $now = time();
+
+    $campaign_id = $database->insert('dc_campaigns')
+      ->fields([
+        'uuid' => $uuid->generate(),
+        'uid' => $user->id(),
+        'name' => 'Resume Test Campaign',
+        'status' => 'draft',
+        'campaign_data' => json_encode([]),
+        'created' => $now,
+        'changed' => $now,
+      ])
+      ->execute();
+
+    $dungeon_data = [
+      'schema_version' => '1.0.0',
+      'level_id' => 'resume-level-1',
+      'hex_map' => [
+        'map_id' => 'resume-map-1',
+        'connections' => [],
+      ],
+      'rooms' => [
+        [
+          'room_id' => 'room-entry',
+          'name' => 'Entry Room',
+          'description' => 'Default launch room.',
+          'hexes' => [
+            ['q' => 0, 'r' => 0],
+            ['q' => 1, 'r' => 0],
+          ],
+        ],
+        [
+          'room_id' => 'room-current',
+          'name' => 'Current Room',
+          'description' => 'Persisted character room.',
+          'hexes' => [
+            ['q' => 4, 'r' => 2],
+            ['q' => 5, 'r' => 2],
+          ],
+        ],
+      ],
+    ];
+
+    $database->insert('dc_campaign_dungeons')
+      ->fields([
+        'campaign_id' => $campaign_id,
+        'dungeon_id' => 'resume-map-1',
+        'name' => 'Resume Dungeon',
+        'description' => 'Dungeon for launch resume test.',
+        'theme' => 'classic_dungeon',
+        'dungeon_data' => json_encode($dungeon_data),
+        'created' => $now,
+        'updated' => $now,
+      ])
+      ->execute();
+
+    $character_row_id = (int) $database->insert('dc_campaign_characters')
+      ->fields([
+        'uuid' => $uuid->generate(),
+        'campaign_id' => $campaign_id,
+        'character_id' => 4242,
+        'instance_id' => sprintf('pc-%d-%d', $campaign_id, 4242),
+        'uid' => $user->id(),
+        'name' => 'Resume Hero',
+        'class' => 'fighter',
+        'ancestry' => 'human',
+        'level' => 3,
+        'hp_current' => 18,
+        'hp_max' => 24,
+        'armor_class' => 17,
+        'experience_points' => 90,
+        'position_q' => 4,
+        'position_r' => 2,
+        'last_room_id' => 'room-current',
+        'role' => 'player',
+        'type' => 'pc',
+        'state_data' => json_encode(['step' => 8]),
+        'character_data' => json_encode(['step' => 8]),
+        'location_type' => 'room',
+        'location_ref' => 'room-current',
+        'is_active' => 1,
+        'status' => 1,
+        'joined' => $now,
+        'created' => $now,
+        'changed' => $now,
+        'updated' => $now,
+      ])
+      ->execute();
+
+    $this->drupalGet("/campaigns/{$campaign_id}/select-character/{$character_row_id}");
+    $this->assertSession()->statusCodeEquals(200);
+    $this->assertSession()->pageTextContains('Map');
+
+    $refreshed_character = $database->select('dc_campaign_characters', 'cc')
+      ->fields('cc', ['position_q', 'position_r', 'last_room_id', 'location_ref'])
+      ->condition('id', $character_row_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+
+    $this->assertSame('room-current', $refreshed_character['last_room_id'] ?? '');
+    $this->assertSame('room-current', $refreshed_character['location_ref'] ?? '');
+    $this->assertSame('4', (string) ($refreshed_character['position_q'] ?? ''));
+    $this->assertSame('2', (string) ($refreshed_character['position_r'] ?? ''));
+
+    $settings_script = $this->getSession()->getPage()->find('css', 'script[data-drupal-selector="drupal-settings-json"]');
+    $this->assertNotNull($settings_script);
+
+    $settings = json_decode($settings_script->getText(), TRUE);
+    $this->assertIsArray($settings);
+    $this->assertArrayHasKey('dungeoncrawlerContent', $settings);
+
+    $launch_context = $settings['dungeoncrawlerContent']['hexmapLaunchContext'] ?? [];
+    $dungeon_payload_loaded = $settings['dungeoncrawlerContent']['hexmapDungeonData'] ?? [];
+
+    $this->assertSame($character_row_id, (int) ($launch_context['character_id'] ?? 0));
+    $this->assertSame('room-current', (string) ($launch_context['room_id'] ?? ''));
+    $this->assertSame(4, (int) ($launch_context['start_q'] ?? -1));
+    $this->assertSame(2, (int) ($launch_context['start_r'] ?? -1));
+    $this->assertSame('room-current', (string) ($dungeon_payload_loaded['active_room_id'] ?? ''));
+  }
+
+  /**
    * Tests campaign archive uses standard ConfirmFormBase confirmation only.
    */
   public function testCampaignArchiveCheckboxConfirmation(): void {
