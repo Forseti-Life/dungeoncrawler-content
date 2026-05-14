@@ -1,0 +1,142 @@
+{
+  "rows": [
+    {
+      "template_id": "ltba-enter-the-vault",
+      "name": "Enter the Vault",
+      "description": "Lead the Hookclaw kobolds into the newly discovered vault site.",
+      "quest_type": "module_story",
+      "level_min": 1,
+      "level_max": 1,
+      "tags": ["module", "little-trouble", "kobold", "intro"],
+      "objectives_schema": [
+        {
+          "phase": 1,
+          "objectives": [
+            {
+              "objective_id": "enter_vault",
+              "type": "explore",
+              "description": "Reach the vault entry and begin the delve."
+            }
+          ]
+        }
+      ],
+      "rewards_schema": {
+        "xp": 40,
+        "gold": 0,
+        "items": []
+      },
+      "prerequisites": [],
+      "story_impact": {
+        "storyline_id": "little-trouble-in-big-absalom",
+        "chapter_id": "the-tomb",
+        "scene_id": "vault-entry"
+      },
+      "estimated_duration_minutes": 20,
+      "version": "1.0.0"
+    },
+    {
+      "template_id": "ltba-clear-the-tomb",
+      "name": "Clear the Tomb Hazards",
+      "description": "Overcome the traps and dangers guarding the treasure site.",
+      "quest_type": "module_story",
+      "level_min": 1,
+      "level_max": 1,
+      "tags": ["module", "little-trouble", "hazard", "vault"],
+      "objectives_schema": [
+        {
+          "phase": 1,
+          "objectives": [
+            {
+              "objective_id": "clear_tomb_hazards",
+              "type": "interact",
+              "description": "Disarm or bypass the chamber hazards."
+            }
+          ]
+        }
+      ],
+      "rewards_schema": {
+        "xp": 60,
+        "gold": 0,
+        "items": []
+      },
+      "prerequisites": [],
+      "story_impact": {
+        "storyline_id": "little-trouble-in-big-absalom",
+        "chapter_id": "the-tomb",
+        "scene_id": "tomb-hazards"
+      },
+      "estimated_duration_minutes": 30,
+      "version": "1.0.0"
+    },
+    {
+      "template_id": "ltba-accept-the-task",
+      "name": "Accept Grandmother's Request",
+      "description": "Take on the upstairs mission to recover the magical hedge trimmer.",
+      "quest_type": "module_story",
+      "level_min": 1,
+      "level_max": 1,
+      "tags": ["module", "little-trouble", "social", "quest-giver"],
+      "objectives_schema": [
+        {
+          "phase": 1,
+          "objectives": [
+            {
+              "objective_id": "accept_request",
+              "type": "interact",
+              "description": "Speak with the old lady and accept the job."
+            }
+          ]
+        }
+      ],
+      "rewards_schema": {
+        "xp": 20,
+        "gold": 0,
+        "items": []
+      },
+      "prerequisites": [],
+      "story_impact": {
+        "storyline_id": "little-trouble-in-big-absalom",
+        "chapter_id": "upstairs",
+        "scene_id": "grandmothers-request"
+      },
+      "estimated_duration_minutes": 10,
+      "version": "1.0.0"
+    },
+    {
+      "template_id": "ltba-retrieve-hedge-trimmer",
+      "name": "Retrieve the Magical Hedge Trimmer",
+      "description": "Recover the magical hedge trimmer and finish the kobolds' job.",
+      "quest_type": "module_story",
+      "level_min": 1,
+      "level_max": 1,
+      "tags": ["module", "little-trouble", "item", "objective"],
+      "objectives_schema": [
+        {
+          "phase": 1,
+          "objectives": [
+            {
+              "objective_id": "retrieve_trimmer",
+              "type": "collect",
+              "item": "ltba-magical-hedge-trimmer",
+              "target_count_range": [1, 1],
+              "description": "Recover the magical hedge trimmer."
+            }
+          ]
+        }
+      ],
+      "rewards_schema": {
+        "xp": 80,
+        "gold": 0,
+        "items": ["ltba-magical-hedge-trimmer"]
+      },
+      "prerequisites": [],
+      "story_impact": {
+        "storyline_id": "little-trouble-in-big-absalom",
+        "chapter_id": "upstairs",
+        "scene_id": "recover-the-trimmer"
+      },
+      "estimated_duration_minutes": 35,
+      "version": "1.0.0"
+    }
+  ]
+}

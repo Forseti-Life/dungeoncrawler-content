@@ -88,15 +88,56 @@ class TemplateImportServiceTest extends UnitTestCase {
   }
 
   /**
+   * @covers ::getExpectedTemplateTable
+   */
+  public function testGetExpectedTemplateTableIgnoresRuntimeOnlyCampaignTables(): void {
+    $service = $this->buildService();
+
+    $this->assertSame('', $service->callGetExpectedTemplateTable('dc_campaign_storyline_log'));
+    $this->assertSame('', $service->callGetExpectedTemplateTable('dc_campaign_storyline_links'));
+    $this->assertSame('', $service->callGetExpectedTemplateTable('dc_campaign_quest_log'));
+    $this->assertSame('dungeoncrawler_content_storylines', $service->callGetExpectedTemplateTable('dc_campaign_storylines'));
+  }
+
+  /**
+   * @covers ::resolveTableJsonFiles
+   */
+  public function testResolveTableJsonFilesReturnsOnlyRequestedJsonFiles(): void {
+    $templates_root = sys_get_temp_dir() . '/dc-template-import-' . uniqid('', TRUE);
+    $table_dir = $templates_root . '/dungeoncrawler_content_registry';
+    mkdir($table_dir, 0777, TRUE);
+    file_put_contents($table_dir . '/little_trouble_registry_examples.json', '{"rows":[]}');
+    file_put_contents($table_dir . '/ignore-me.txt', 'nope');
+
+    $service = $this->buildService($templates_root);
+
+    $resolved = $service->callResolveTableJsonFiles('dungeoncrawler_content_registry', [
+      'little_trouble_registry_examples.json',
+      'missing.json',
+      'ignore-me.txt',
+    ]);
+
+    $this->assertSame([$table_dir . '/little_trouble_registry_examples.json'], $resolved['files']);
+    $this->assertCount(2, $resolved['errors']);
+  }
+
+  /**
    * Builds a lightweight service double exposing normalizeRow.
    */
-  private function buildService(): object {
-    return new class extends TemplateImportService {
+  private function buildService(?string $templates_root = NULL): object {
+    return new class($templates_root) extends TemplateImportService {
+
+      /**
+       * Fake templates root for file-resolution tests.
+       */
+      private ?string $templatesRoot;
 
       /**
        * Test double constructor avoids framework dependencies.
        */
-      public function __construct() {}
+      public function __construct(?string $templates_root = NULL) {
+        $this->templatesRoot = $templates_root;
+      }
 
       /**
        * Exposes protected normalization helper for unit tests.
@@ -106,10 +147,31 @@ class TemplateImportServiceTest extends UnitTestCase {
       }
 
       /**
+       * Exposes expected template table resolution for unit tests.
+       */
+      public function callGetExpectedTemplateTable(string $campaign_table): string {
+        return $this->getExpectedTemplateTable($campaign_table);
+      }
+
+      /**
+       * Exposes JSON file resolution helper for unit tests.
+       */
+      public function callResolveTableJsonFiles(string $table_name, array $requested_files): array {
+        return $this->resolveTableJsonFiles($table_name, $requested_files);
+      }
+
+      /**
        * Uses a stable fake module-relative path for assertions.
        */
       protected function relativePath(string $absolute_path): string {
         return 'templates/' . basename($absolute_path);
+      }
+
+      /**
+       * Overrides template root when tests need a real filesystem path.
+       */
+      public function getTemplatesRootPath(): string {
+        return $this->templatesRoot ?? '/tmp';
       }
 
     };

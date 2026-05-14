@@ -1,0 +1,38 @@
+{
+  "rows": [
+    {
+      "room_id": "ltba-vault-entry",
+      "name": "Vault Entry",
+      "description": "The entry chamber to the discovered treasure vault explored by the Hookclaw kobolds.",
+      "environment_tags": ["kobold", "vault", "introductory", "underground"],
+      "layout_data": {
+        "shape": "chamber",
+        "width": 8,
+        "height": 6
+      },
+      "contents_data": {
+        "obstacles": ["stone-door", "scattered-crates"],
+        "npcs": [],
+        "creatures": [],
+        "items": []
+      }
+    },
+    {
+      "room_id": "ltba-tomb-hazard-room",
+      "name": "Tomb Hazards",
+      "description": "A dangerous vault chamber containing traps and protective hazards.",
+      "environment_tags": ["kobold", "vault", "hazard", "trap"],
+      "layout_data": {
+        "shape": "hall",
+        "width": 10,
+        "height": 7
+      },
+      "contents_data": {
+        "obstacles": ["pressure-plate", "dart-slots"],
+        "npcs": [],
+        "creatures": [],
+        "hazards": ["ltba-tomb-hazard"]
+      }
+    }
+  ]
+}

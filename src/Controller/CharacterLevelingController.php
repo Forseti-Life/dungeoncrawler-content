@@ -164,6 +164,7 @@ class CharacterLevelingController extends ControllerBase {
     $data = json_decode($request->getContent(), TRUE);
     $slot_type = $data['slot_type'] ?? NULL;
     $feat_id   = $data['feat_id'] ?? NULL;
+    $feat_params = $data['feat_params'] ?? [];
 
     if (!is_string($slot_type) || $slot_type === '' || !is_string($feat_id) || $feat_id === '') {
       return new JsonResponse([
@@ -171,9 +172,15 @@ class CharacterLevelingController extends ControllerBase {
         'error'   => 'Missing required fields: slot_type (string), feat_id (string)',
       ], 400);
     }
+    if (!is_array($feat_params)) {
+      return new JsonResponse([
+        'success' => FALSE,
+        'error'   => 'feat_params must be an object when provided',
+      ], 400);
+    }
 
     try {
-      $result = $this->levelingService->submitFeat($character_id, $slot_type, $feat_id);
+      $result = $this->levelingService->submitFeat($character_id, $slot_type, $feat_id, $feat_params);
       return new JsonResponse($result);
     }
     catch (\InvalidArgumentException $e) {

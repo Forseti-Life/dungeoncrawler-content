@@ -1,0 +1,42 @@
+{
+  "rows": [
+    {
+      "character_id": 4101,
+      "instance_id": "hookclaw-kobold-party",
+      "type": "party",
+      "uid": 1,
+      "role": "player",
+      "state_data": {
+        "name": "Hookclaw Kobold Party",
+        "class": "party",
+        "level": 1,
+        "hp_current": 100,
+        "conditions": [],
+        "party_size": 5,
+        "species": "kobold",
+        "source_module": "little-trouble-in-big-absalom",
+        "description": "Five pregenerated kobold protagonists from Little Trouble in Big Absalom."
+      },
+      "location_type": "global",
+      "location_ref": ""
+    },
+    {
+      "character_id": 4102,
+      "instance_id": "ltba-grandmother",
+      "type": "npc",
+      "uid": 1,
+      "role": "npc",
+      "state_data": {
+        "name": "The Kind Old Lady",
+        "class": "quest_giver",
+        "level": 1,
+        "hp_current": 12,
+        "conditions": [],
+        "source_module": "little-trouble-in-big-absalom",
+        "description": "The old woman who asks the kobolds to recover her magical hedge trimmer."
+      },
+      "location_type": "global",
+      "location_ref": ""
+    }
+  ]
+}

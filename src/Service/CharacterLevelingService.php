@@ -507,7 +507,7 @@ class CharacterLevelingService {
       'class_feat'    => CharacterManager::getClassFeats($class_name),
       'skill_feat'    => CharacterManager::SKILL_FEATS,
       'general_feat'  => CharacterManager::getGeneralFeats(),
-      'ancestry_feat' => CharacterManager::getAncestryFeats(),
+      'ancestry_feat' => $this->getAvailableAncestryFeatCatalog($char_data),
       default         => [],
     };
 
@@ -522,7 +522,7 @@ class CharacterLevelingService {
     $deity_id = $char_data['personality']['deity'] ?? $char_data['basicInfo']['deity'] ?? '';
     $deity_domains = [];
     if ($deity_id !== '' && $this->deityService !== NULL) {
-      $deity_domains = $this->deityService->getDomains($deity_id);
+      $deity_domains = $this->deityService->getDomainsForInput($deity_id);
     }
     $deityService = $this->deityService;
 
@@ -688,7 +688,7 @@ class CharacterLevelingService {
       'class_feat'    => CharacterManager::getClassFeats($class_name),
       'skill_feat'    => CharacterManager::SKILL_FEATS,
       'general_feat'  => CharacterManager::getGeneralFeats(),
-      'ancestry_feat' => CharacterManager::getAncestryFeats(),
+      'ancestry_feat' => $this->getAvailableAncestryFeatCatalog($char_data),
       default         => array_merge(
         CharacterManager::getClassFeats($class_name),
         CharacterManager::SKILL_FEATS,
@@ -816,7 +816,697 @@ class CharacterLevelingService {
       }
     }
 
+    if ($feat_id === 'lesson-of-elements') {
+      $selected_spell = strtolower(trim((string) ($feat_params['selected_spell'] ?? '')));
+      $valid_spells = ['burning-hands', 'gust-of-wind', 'hydraulic-push', 'pummeling-rubble'];
+      if ($selected_spell === '' || !in_array($selected_spell, $valid_spells, TRUE)) {
+        throw new \InvalidArgumentException(
+          "Feat 'lesson-of-elements' requires feat_params['selected_spell'] to be one of: "
+          . implode(', ', $valid_spells),
+          400
+        );
+      }
+    }
+    if ($feat_id === 'weapon-proficiency') {
+      $grant_state = CharacterManager::resolveWeaponProficiencyGrant($char_data);
+      if (($grant_state['mode'] ?? '') === 'no_upgrade') {
+        throw new \InvalidArgumentException(
+          "Feat 'weapon-proficiency' does not grant an additional benefit for the character's current class",
+          400
+        );
+      }
+      if (($grant_state['mode'] ?? '') === 'advanced_choice') {
+        $selected_weapon_id = trim((string) ($feat_params['selected_weapon_id'] ?? ''));
+        $advanced_weapon_options = CharacterManager::getAdvancedWeaponOptions();
+        if ($selected_weapon_id === '' || !array_key_exists($selected_weapon_id, $advanced_weapon_options)) {
+          throw new \InvalidArgumentException(
+            "Feat 'weapon-proficiency' requires feat_params['selected_weapon_id'] to be a valid advanced weapon id",
+            400
+          );
+        }
+        if (in_array($selected_weapon_id, $grant_state['owned_advanced_weapon_ids'] ?? [], TRUE)) {
+          throw new \InvalidArgumentException(
+            "Feat 'weapon-proficiency' already grants the advanced weapon '{$selected_weapon_id}'",
+            400
+          );
+        }
+      }
+    }
+    if ($feat_id === 'adopted-ancestry') {
+      $this->validateAdoptedAncestrySelection($char_data, $feat_params);
+    }
+    if ($feat_id === 'unconventional-weaponry') {
+      $selected_weapon_id = trim((string) ($feat_params['selected_weapon_id'] ?? ''));
+      $weapon_options = CharacterManager::getUnconventionalWeaponOptions();
+      if ($selected_weapon_id === '' || !array_key_exists($selected_weapon_id, $weapon_options)) {
+        throw new \InvalidArgumentException(
+          "Feat 'unconventional-weaponry' requires feat_params['selected_weapon_id'] to be a valid uncommon weapon id",
+          400
+        );
+      }
+    }
+    if ($feat_id === 'domain-initiate') {
+      $this->validateDomainFeatSelection($char_data, $feat_params, 'domain-initiate');
+    }
+    if ($feat_id === 'advanced-domain') {
+      $selected_domain = $this->validateDomainFeatSelection($char_data, $feat_params, 'advanced-domain');
+      if (!in_array($selected_domain, $this->getOwnedDomainInitiateDomains($char_data), TRUE)) {
+        throw new \InvalidArgumentException(
+          "Feat 'advanced-domain' requires feat_params['selected_domain'] to match a domain already granted by Domain Initiate",
+          400
+        );
+      }
+    }
+    if ($feat_id === 'advanced-school-spell') {
+      $school_id = $this->resolveWizardSchoolId($char_data);
+      if ($school_id === NULL || $school_id === 'universalist' || !isset(CharacterManager::ARCANE_SCHOOLS[$school_id])) {
+        throw new \InvalidArgumentException(
+          "Feat 'advanced-school-spell' requires a persisted specialist wizard school",
+          400
+        );
+      }
+    }
+    if ($feat_id === 'spell-combination') {
+      $school_id = $this->resolveWizardSchoolId($char_data);
+      $thesis_id = $this->resolveWizardArcaneThesisId($char_data);
+      if ($school_id !== 'universalist' && $thesis_id !== 'spell-blending') {
+        throw new \InvalidArgumentException(
+          "Feat 'spell-combination' requires a persisted Spell Blending thesis or Universalist school",
+          400
+        );
+      }
+    }
+    if ($feat_id === 'cantrip-expansion-wizard') {
+      $this->validateSelectedCantripsForTradition($feat_params, 'arcane', 'cantrip-expansion-wizard');
+    }
+    if ($feat_id === 'cantrip-expansion') {
+      $this->validateSelectedCantripsForTradition($feat_params, 'occult', 'cantrip-expansion');
+    }
+    if ($feat_id === 'cantrip-expansion-sorcerer') {
+      $tradition = $this->resolveSorcererTradition($char_data);
+      if ($tradition === NULL) {
+        throw new \InvalidArgumentException(
+          "Feat 'cantrip-expansion-sorcerer' requires a persisted sorcerer bloodline to resolve its spell tradition",
+          400
+        );
+      }
+      $this->validateSelectedCantripsForTradition($feat_params, $tradition, 'cantrip-expansion-sorcerer');
+    }
+    if ($feat_id === 'arcane-evolution') {
+      if ($this->resolveSorcererTradition($char_data) !== 'arcane') {
+        throw new \InvalidArgumentException(
+          "Feat 'arcane-evolution' requires a sorcerer with an arcane bloodline",
+          400
+        );
+      }
+      $highest_rank = $this->resolveHighestSpellRank($char_data);
+      $this->validateSelectedRankedSpellForTradition($feat_params, 'arcane', $highest_rank, 'arcane-evolution');
+    }
+    if ($feat_id === 'crossblooded-evolution') {
+      $current_bloodline = $this->resolveSorcererBloodline($char_data);
+      $current_tradition = $this->resolveSorcererTradition($char_data);
+      if ($current_bloodline === NULL || $current_tradition === NULL) {
+        throw new \InvalidArgumentException(
+          "Feat 'crossblooded-evolution' requires a persisted sorcerer bloodline",
+          400
+        );
+      }
+      $selected_bloodline = strtolower(trim((string) ($feat_params['selected_bloodline'] ?? '')));
+      if ($selected_bloodline === '' || !isset(CharacterManager::SORCERER_BLOODLINES[$selected_bloodline])) {
+        throw new \InvalidArgumentException(
+          "Feat 'crossblooded-evolution' requires feat_params['selected_bloodline'] to be a valid sorcerer bloodline id",
+          400
+        );
+      }
+      if ($selected_bloodline === $current_bloodline) {
+        throw new \InvalidArgumentException(
+          "Feat 'crossblooded-evolution' requires feat_params['selected_bloodline'] to differ from the character's current bloodline",
+          400
+        );
+      }
+      if ((CharacterManager::SORCERER_BLOODLINES[$selected_bloodline]['tradition'] ?? NULL) !== $current_tradition) {
+        throw new \InvalidArgumentException(
+          "Feat 'crossblooded-evolution' requires the selected bloodline to share the character's bloodline tradition",
+          400
+        );
+      }
+      $highest_rank = $this->resolveHighestSpellRank($char_data);
+      $this->validateSelectedRankedSpellForTradition($feat_params, $current_tradition, $highest_rank, 'crossblooded-evolution');
+    }
+    if ($feat_id === 'greater-mental-evolution') {
+      $selected_spell = trim((string) ($feat_params['selected_spell'] ?? ''));
+      if ($selected_spell === '') {
+        throw new \InvalidArgumentException(
+          "Feat 'greater-mental-evolution' requires feat_params['selected_spell'] to be a valid mental spell id",
+          400
+        );
+      }
+      $spell = $this->loadSpellRegistryEntry($selected_spell);
+      if ($spell === NULL) {
+        throw new \InvalidArgumentException(
+          "Feat 'greater-mental-evolution' spell '{$selected_spell}' is not a known spell id",
+          400
+        );
+      }
+      $spell_rank = (int) ($spell['level'] ?? 0);
+      if ($spell_rank < 1 || $spell_rank > 6) {
+        throw new \InvalidArgumentException(
+          "Feat 'greater-mental-evolution' requires a spell of rank 1 through 6",
+          400
+        );
+      }
+      $traits = array_map('strtolower', $spell['traits'] ?? []);
+      if (!in_array('mental', $traits, TRUE)) {
+        throw new \InvalidArgumentException(
+          "Feat 'greater-mental-evolution' requires a spell with the Mental trait",
+          400
+        );
+      }
+    }
+    if ($feat_id === 'studious-capacity') {
+      $this->validateSelectedCantripsForTradition($feat_params, 'occult', 'studious-capacity');
+      $highest_rank = $this->resolveHighestSpellRank($char_data);
+      $selected_spell = trim((string) ($feat_params['selected_spell'] ?? ''));
+      if ($selected_spell === '') {
+        throw new \InvalidArgumentException(
+          "Feat 'studious-capacity' requires feat_params['selected_spell'] for your highest available spell rank",
+          400
+        );
+      }
+      $valid_spell_ids = array_map(
+        static fn(array $spell): string => (string) ($spell['id'] ?? ''),
+        $this->getCharacterManager()->getSpellsByTradition('occult', $highest_rank)
+      );
+      if (!in_array($selected_spell, $valid_spell_ids, TRUE)) {
+        throw new \InvalidArgumentException(
+          "Feat 'studious-capacity' spell '{$selected_spell}' is not a valid occult rank {$highest_rank} spell",
+          400
+        );
+      }
+    }
+    if ($feat_id === 'greater-vital-evolution') {
+      $selected_spells = $feat_params['selected_spells'] ?? [];
+      if (!is_array($selected_spells) || count($selected_spells) !== 2) {
+        throw new \InvalidArgumentException(
+          "Feat 'greater-vital-evolution' requires feat_params['selected_spells'] with exactly 2 arcane spell ids",
+          400
+        );
+      }
+      $normalized = [];
+      foreach ($selected_spells as $spell_id) {
+        if (!is_string($spell_id) || trim($spell_id) === '') {
+          throw new \InvalidArgumentException(
+            "Feat 'greater-vital-evolution' requires non-empty spell ids in feat_params['selected_spells']",
+            400
+          );
+        }
+        $normalized[] = trim($spell_id);
+      }
+      if (count(array_unique($normalized)) !== 2) {
+        throw new \InvalidArgumentException(
+          "Feat 'greater-vital-evolution' requires two distinct arcane spell ids",
+          400
+        );
+      }
+      $valid_spell_ids = [];
+      for ($rank = 1; $rank <= 10; $rank++) {
+        foreach ($this->getCharacterManager()->getSpellsByTradition('arcane', $rank) as $spell) {
+          $valid_spell_ids[] = (string) ($spell['id'] ?? '');
+        }
+      }
+      foreach ($normalized as $spell_id) {
+        if (!in_array($spell_id, $valid_spell_ids, TRUE)) {
+          throw new \InvalidArgumentException(
+            "Feat 'greater-vital-evolution' spell '{$spell_id}' is not a valid arcane spell",
+            400
+          );
+        }
+      }
+    }
+    if ($feat_id === 'spell-mastery') {
+      $selected_spells = $feat_params['selected_spells'] ?? [];
+      if (!is_array($selected_spells) || count($selected_spells) !== 4) {
+        throw new \InvalidArgumentException(
+          "Feat 'spell-mastery' requires feat_params['selected_spells'] with exactly 4 arcane spell ids",
+          400
+        );
+      }
+      $normalized = [];
+      foreach ($selected_spells as $spell_id) {
+        if (!is_string($spell_id) || trim($spell_id) === '') {
+          throw new \InvalidArgumentException(
+            "Feat 'spell-mastery' requires non-empty spell ids in feat_params['selected_spells']",
+            400
+          );
+        }
+        $normalized[] = trim($spell_id);
+      }
+      if (count(array_unique($normalized)) !== 4) {
+        throw new \InvalidArgumentException(
+          "Feat 'spell-mastery' requires four distinct arcane spell ids",
+          400
+        );
+      }
+      $valid_spell_ids = [];
+      for ($rank = 1; $rank <= 9; $rank++) {
+        foreach ($this->getCharacterManager()->getSpellsByTradition('arcane', $rank) as $spell) {
+          $valid_spell_ids[] = (string) ($spell['id'] ?? '');
+        }
+      }
+      foreach ($normalized as $spell_id) {
+        if (!in_array($spell_id, $valid_spell_ids, TRUE)) {
+          throw new \InvalidArgumentException(
+            "Feat 'spell-mastery' spell '{$spell_id}' is not a valid arcane rank-9-or-lower spell",
+            400
+          );
+        }
+      }
+    }
+    if ($feat_id === 'infinite-possibilities') {
+      $selected_spells = $feat_params['selected_spells'] ?? [];
+      if (!is_array($selected_spells) || count($selected_spells) < 1 || count($selected_spells) > 3) {
+        throw new \InvalidArgumentException(
+          "Feat 'infinite-possibilities' requires feat_params['selected_spells'] with 1 to 3 spell ids",
+          400
+        );
+      }
+      $normalized = [];
+      foreach ($selected_spells as $spell_id) {
+        if (!is_string($spell_id) || trim($spell_id) === '') {
+          throw new \InvalidArgumentException(
+            "Feat 'infinite-possibilities' requires non-empty spell ids in feat_params['selected_spells']",
+            400
+          );
+        }
+        $normalized[] = trim($spell_id);
+      }
+      if (count(array_unique($normalized)) !== count($normalized)) {
+        throw new \InvalidArgumentException(
+          "Feat 'infinite-possibilities' requires distinct spell ids",
+          400
+        );
+      }
+      $valid_spell_ids = [];
+      foreach (['arcane', 'divine', 'occult', 'primal'] as $tradition) {
+        for ($rank = 1; $rank <= 10; $rank++) {
+          foreach ($this->getCharacterManager()->getSpellsByTradition($tradition, $rank) as $spell) {
+            $valid_spell_ids[] = (string) ($spell['id'] ?? '');
+          }
+        }
+      }
+      foreach ($normalized as $spell_id) {
+        if (!in_array($spell_id, $valid_spell_ids, TRUE)) {
+          throw new \InvalidArgumentException(
+            "Feat 'infinite-possibilities' spell '{$spell_id}' is not a valid common spell id",
+            400
+          );
+        }
+      }
+    }
+    if ($feat_id === 'scroll-savant') {
+      $selected_spells = $feat_params['selected_spells'] ?? [];
+      if (!is_array($selected_spells) || count($selected_spells) !== 2) {
+        throw new \InvalidArgumentException(
+          "Feat 'scroll-savant' requires feat_params['selected_spells'] with exactly 2 arcane spell ids",
+          400
+        );
+      }
+      $normalized = [];
+      foreach ($selected_spells as $spell_id) {
+        if (!is_string($spell_id) || trim($spell_id) === '') {
+          throw new \InvalidArgumentException(
+            "Feat 'scroll-savant' requires non-empty spell ids in feat_params['selected_spells']",
+            400
+          );
+        }
+        $normalized[] = trim($spell_id);
+      }
+      if (count(array_unique($normalized)) !== 2) {
+        throw new \InvalidArgumentException(
+          "Feat 'scroll-savant' requires two distinct arcane spell ids",
+          400
+        );
+      }
+      $valid_spell_ids = [];
+      for ($rank = 1; $rank <= 10; $rank++) {
+        foreach ($this->getCharacterManager()->getSpellsByTradition('arcane', $rank) as $spell) {
+          $valid_spell_ids[] = (string) ($spell['id'] ?? '');
+        }
+      }
+      foreach ($normalized as $spell_id) {
+        if (!in_array($spell_id, $valid_spell_ids, TRUE)) {
+          throw new \InvalidArgumentException(
+            "Feat 'scroll-savant' spell '{$spell_id}' is not a valid arcane spell",
+            400
+          );
+        }
+      }
+    }
+
     return $feat;
+  }
+
+  /**
+   * Resolve the canonical ancestry name from persisted character data.
+   */
+  private function resolveCharacterAncestryName(array $char_data): string {
+    $ancestry_value = trim((string) ($char_data['basicInfo']['ancestry'] ?? $char_data['ancestry'] ?? ''));
+    return $this->resolveCanonicalAncestryName($ancestry_value);
+  }
+
+  /**
+   * Build the ancestry feat catalog available to the character.
+   */
+  private function getAvailableAncestryFeatCatalog(array $char_data): array {
+    $ancestry_name = $this->resolveCharacterAncestryName($char_data);
+    if ($ancestry_name === '') {
+      return [];
+    }
+
+    $heritage_id = trim((string) ($char_data['basicInfo']['heritage'] ?? $char_data['heritage'] ?? ''));
+    $catalog = CharacterManager::getEligibleAncestryFeats($ancestry_name, $heritage_id);
+    $adopted_ancestry = $this->getSelectedAdoptedAncestryName($char_data);
+    if ($adopted_ancestry === '') {
+      return $catalog;
+    }
+
+    $seen = [];
+    foreach ($catalog as $feat) {
+      $feat_id = (string) ($feat['id'] ?? '');
+      if ($feat_id !== '') {
+        $seen[$feat_id] = TRUE;
+      }
+    }
+
+    foreach (CharacterManager::getAncestryFeats($adopted_ancestry) as $feat) {
+      $feat_id = (string) ($feat['id'] ?? '');
+      if ($feat_id === '' || isset($seen[$feat_id])) {
+        continue;
+      }
+      $seen[$feat_id] = TRUE;
+      $catalog[] = $feat;
+    }
+
+    return $catalog;
+  }
+
+  /**
+   * Validate Adopted Ancestry selection and return canonical ancestry name.
+   */
+  private function validateAdoptedAncestrySelection(array $char_data, array $feat_params): string {
+    $selected_ancestry = trim((string) ($feat_params['selected_ancestry'] ?? $feat_params['ancestry'] ?? ''));
+    $canonical_ancestry = $this->resolveCanonicalAncestryName($selected_ancestry);
+    $current_ancestry = $this->resolveCharacterAncestryName($char_data);
+    if ($canonical_ancestry === '' || $canonical_ancestry === $current_ancestry) {
+      throw new \InvalidArgumentException(
+        "Feat 'adopted-ancestry' requires feat_params['selected_ancestry'] to be a different valid ancestry id",
+        400
+      );
+    }
+
+    return $canonical_ancestry;
+  }
+
+  /**
+   * Resolve selected Adopted Ancestry from persisted character data.
+   */
+  private function getSelectedAdoptedAncestryName(array $char_data): string {
+    foreach ([
+      $char_data['feat_selections']['adopted-ancestry'] ?? NULL,
+      $char_data['features']['featSelections']['adopted-ancestry'] ?? NULL,
+    ] as $selection) {
+      if (!is_array($selection)) {
+        continue;
+      }
+      $canonical_ancestry = $this->resolveCanonicalAncestryName((string) ($selection['selected_ancestry'] ?? $selection['ancestry'] ?? ''));
+      if ($canonical_ancestry !== '') {
+        return $canonical_ancestry;
+      }
+    }
+
+    foreach ($char_data['features']['feats'] ?? [] as $feat) {
+      if (($feat['id'] ?? '') !== 'adopted-ancestry') {
+        continue;
+      }
+      $canonical_ancestry = $this->resolveCanonicalAncestryName((string) (($feat['feat_params']['selected_ancestry'] ?? $feat['feat_params']['ancestry'] ?? '')));
+      if ($canonical_ancestry !== '') {
+        return $canonical_ancestry;
+      }
+    }
+
+    return '';
+  }
+
+  /**
+   * Resolve a canonical ancestry name from an input id or display name.
+   */
+  private function resolveCanonicalAncestryName(string $ancestry_value): string {
+    $ancestry_value = trim($ancestry_value);
+    if ($ancestry_value === '') {
+      return '';
+    }
+    if (isset(CharacterManager::ANCESTRIES[$ancestry_value])) {
+      return $ancestry_value;
+    }
+
+    $normalized_input = strtolower(str_replace([' ', "'"], ['-', ''], $ancestry_value));
+    foreach (array_keys(CharacterManager::ANCESTRIES) as $ancestry_name) {
+      $normalized_name = strtolower(str_replace([' ', "'"], ['-', ''], $ancestry_name));
+      if ($normalized_name === $normalized_input) {
+        return $ancestry_name;
+      }
+    }
+
+    return '';
+  }
+
+  /**
+   * Validate a domain-based feat selection against the character's deity.
+   */
+  private function validateDomainFeatSelection(array $char_data, array $feat_params, string $feat_id): string {
+    $selected_domain = trim((string) ($feat_params['selected_domain'] ?? ''));
+    $deity_input = trim((string) ($char_data['personality']['deity'] ?? $char_data['basicInfo']['deity'] ?? $char_data['deity'] ?? ''));
+    $valid_domains = $deity_input !== '' && $this->deityService !== NULL
+      ? $this->deityService->getDomainsForInput($deity_input)
+      : [];
+
+    if ($selected_domain === '' || !in_array($selected_domain, $valid_domains, TRUE)) {
+      throw new \InvalidArgumentException(
+        "Feat '{$feat_id}' requires feat_params['selected_domain'] to be one of the character deity's domains",
+        400
+      );
+    }
+
+    return $selected_domain;
+  }
+
+  /**
+   * Resolve domains already granted by Domain Initiate across persisted feat data.
+   *
+   * @return string[]
+   *   Canonical selected domain ids.
+   */
+  private function getOwnedDomainInitiateDomains(array $char_data): array {
+    $owned_domains = [];
+
+    foreach ([
+      $char_data['feat_selections']['domain-initiate'] ?? NULL,
+      $char_data['features']['featSelections']['domain-initiate'] ?? NULL,
+    ] as $selection) {
+      if (!is_array($selection)) {
+        continue;
+      }
+      $selected_domain = trim((string) ($selection['selected_domain'] ?? $selection['domain'] ?? ''));
+      if ($selected_domain !== '') {
+        $owned_domains[] = $selected_domain;
+      }
+    }
+
+    foreach ($char_data['features']['feats'] ?? [] as $feat) {
+      if (($feat['id'] ?? '') !== 'domain-initiate') {
+        continue;
+      }
+      $selected_domain = trim((string) (($feat['feat_params']['selected_domain'] ?? $feat['feat_params']['domain'] ?? '')));
+      if ($selected_domain !== '') {
+        $owned_domains[] = $selected_domain;
+      }
+    }
+
+    return array_values(array_unique($owned_domains));
+  }
+
+  /**
+   * Validates fixed cantrip selections for repertoire/spellbook expansion feats.
+   */
+  private function validateSelectedCantripsForTradition(array $feat_params, string $tradition, string $feat_id): void {
+    $selected_cantrips = $feat_params['selected_cantrips'] ?? [];
+    if (!is_array($selected_cantrips) || count($selected_cantrips) !== 2) {
+      throw new \InvalidArgumentException(
+        "Feat '{$feat_id}' requires feat_params['selected_cantrips'] with exactly 2 cantrip ids",
+        400
+      );
+    }
+
+    $normalized = [];
+    foreach ($selected_cantrips as $cantrip_id) {
+      if (!is_string($cantrip_id) || trim($cantrip_id) === '') {
+        throw new \InvalidArgumentException(
+          "Feat '{$feat_id}' requires non-empty cantrip ids in feat_params['selected_cantrips']",
+          400
+        );
+      }
+      $normalized[] = trim($cantrip_id);
+    }
+    if (count(array_unique($normalized)) !== 2) {
+      throw new \InvalidArgumentException(
+        "Feat '{$feat_id}' requires two distinct cantrip ids",
+        400
+      );
+    }
+
+    $valid_cantrip_ids = array_map(
+      static fn(array $spell): string => (string) ($spell['id'] ?? ''),
+      CharacterManager::SPELLS[$tradition]['cantrips'] ?? []
+    );
+    foreach ($normalized as $cantrip_id) {
+      if (!in_array($cantrip_id, $valid_cantrip_ids, TRUE)) {
+        throw new \InvalidArgumentException(
+          "Feat '{$feat_id}' cantrip '{$cantrip_id}' is not a valid {$tradition} cantrip",
+          400
+        );
+      }
+    }
+  }
+
+  /**
+   * Resolve sorcerer tradition from persisted bloodline/subclass data.
+   */
+  private function resolveSorcererTradition(array $char_data): ?string {
+    $bloodline = $this->resolveSorcererBloodline($char_data);
+    if ($bloodline === '') {
+      return NULL;
+    }
+
+    return CharacterManager::SORCERER_BLOODLINES[$bloodline]['tradition'] ?? NULL;
+  }
+
+  /**
+   * Resolve sorcerer bloodline id from persisted data.
+   */
+  private function resolveSorcererBloodline(array $char_data): ?string {
+    $bloodline = strtolower(trim((string) (
+      $char_data['subclass']
+      ?? $char_data['bloodline']
+      ?? $char_data['basicInfo']['subclass']
+      ?? $char_data['basicInfo']['bloodline']
+      ?? ''
+    )));
+    return $bloodline !== '' ? $bloodline : NULL;
+  }
+
+  /**
+   * Resolve wizard arcane school id from persisted data.
+   */
+  private function resolveWizardSchoolId(array $char_data): ?string {
+    $school_id = strtolower(trim((string) (
+      $char_data['subclass']
+      ?? $char_data['arcane_school']
+      ?? $char_data['wizard']['subclass']
+      ?? $char_data['wizard']['arcane_school']
+      ?? $char_data['basicInfo']['subclass']
+      ?? $char_data['basicInfo']['arcane_school']
+      ?? ''
+    )));
+    return $school_id !== '' ? $school_id : NULL;
+  }
+
+  /**
+   * Resolve wizard arcane thesis id from persisted data.
+   */
+  private function resolveWizardArcaneThesisId(array $char_data): ?string {
+    $thesis_id = strtolower(trim((string) (
+      $char_data['arcane_thesis']
+      ?? $char_data['wizard']['arcane_thesis']
+      ?? $char_data['basicInfo']['arcane_thesis']
+      ?? ''
+    )));
+    return $thesis_id !== '' ? $thesis_id : NULL;
+  }
+
+  /**
+   * Resolve highest spell rank available to a full caster by level.
+   */
+  private function resolveHighestSpellRank(array $char_data): int {
+    $level = max(1, (int) ($char_data['level'] ?? $char_data['basicInfo']['level'] ?? 1));
+    if ($level >= 19) {
+      return 10;
+    }
+    return (int) floor(($level + 1) / 2);
+  }
+
+  /**
+   * Validate a selected ranked spell against a tradition and max spell rank.
+   */
+  private function validateSelectedRankedSpellForTradition(array $feat_params, string $tradition, int $highest_rank, string $feat_id): string {
+    $selected_spell = trim((string) ($feat_params['selected_spell'] ?? ''));
+    if ($selected_spell === '') {
+      throw new \InvalidArgumentException(
+        "Feat '{$feat_id}' requires feat_params['selected_spell'] to be a valid {$tradition} spell id",
+        400
+      );
+    }
+
+    $valid_spell_ids = [];
+    for ($rank = 1; $rank <= $highest_rank; $rank++) {
+      foreach ($this->getCharacterManager()->getSpellsByTradition($tradition, $rank) as $spell) {
+        $valid_spell_ids[] = (string) ($spell['id'] ?? '');
+      }
+    }
+
+    if (!in_array($selected_spell, $valid_spell_ids, TRUE)) {
+      throw new \InvalidArgumentException(
+        "Feat '{$feat_id}' spell '{$selected_spell}' is not a valid {$tradition} spell of rank {$highest_rank} or lower",
+        400
+      );
+    }
+
+    return $selected_spell;
+  }
+
+  /**
+   * Load a spell registry entry with schema metadata needed for validation.
+   *
+   * @return array<string,mixed>|null
+   *   Normalized spell metadata or NULL when not found.
+   */
+  private function loadSpellRegistryEntry(string $spell_id): ?array {
+    $row = $this->database->select('dungeoncrawler_content_registry', 'r')
+      ->fields('r', ['content_id', 'level', 'schema_data'])
+      ->condition('content_type', 'spell')
+      ->condition('content_id', $spell_id)
+      ->execute()
+      ->fetchAssoc();
+
+    if (!$row) {
+      return NULL;
+    }
+
+    $schema = json_decode((string) ($row['schema_data'] ?? ''), TRUE) ?: [];
+    return [
+      'id' => (string) ($row['content_id'] ?? ''),
+      'level' => (int) ($row['level'] ?? 0),
+      'traits' => is_array($schema['traits'] ?? NULL) ? $schema['traits'] : [],
+      'traditions' => is_array($schema['traditions'] ?? NULL) ? $schema['traditions'] : [],
+    ];
+  }
+
+  /**
+   * Resolve the character manager service on demand.
+   */
+  private function getCharacterManager(): CharacterManager {
+    /** @var \Drupal\dungeoncrawler_content\Service\CharacterManager $character_manager */
+    $character_manager = \Drupal::service('dungeoncrawler_content.character_manager');
+    return $character_manager;
   }
 
   /**

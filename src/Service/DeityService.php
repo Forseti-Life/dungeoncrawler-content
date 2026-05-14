@@ -386,6 +386,42 @@ class DeityService {
   }
 
   /**
+   * Resolve a deity input string to its canonical deity ID.
+   *
+   * Accepts either a stored deity ID or a display name so free-text character
+   * data can still resolve to the canonical deity catalog entry.
+   */
+  public function resolveId(string $deity_input): string {
+    $deity_input = trim($deity_input);
+    if ($deity_input === '') {
+      return '';
+    }
+
+    if ($this->getById($deity_input) !== NULL) {
+      return $deity_input;
+    }
+
+    $normalized_input = strtolower($deity_input);
+    foreach ($this->getAll() as $deity) {
+      $candidate_id = strtolower((string) ($deity['id'] ?? ''));
+      $candidate_name = strtolower((string) ($deity['name'] ?? ''));
+      if ($candidate_id === $normalized_input || $candidate_name === $normalized_input) {
+        return (string) ($deity['id'] ?? '');
+      }
+    }
+
+    return '';
+  }
+
+  /**
+   * Return a single deity by canonical ID or display-name input.
+   */
+  public function getByInput(string $deity_input): ?array {
+    $resolved_id = $this->resolveId($deity_input);
+    return $resolved_id !== '' ? $this->getById($resolved_id) : NULL;
+  }
+
+  /**
    * Validate that a deity ID exists in the catalog.
    *
    * @param string $deity_id
@@ -441,6 +477,24 @@ class DeityService {
     if (!$deity) {
       return [];
     }
+    return array_unique(array_merge(
+      $deity['domains']['primary'] ?? [],
+      $deity['domains']['alternate'] ?? []
+    ));
+  }
+
+  /**
+   * Return all domains for a deity input that may be an ID or display name.
+   *
+   * @param string $deity_input
+   * @return string[]
+   */
+  public function getDomainsForInput(string $deity_input): array {
+    $deity = $this->getByInput($deity_input);
+    if (!$deity) {
+      return [];
+    }
+
     return array_unique(array_merge(
       $deity['domains']['primary'] ?? [],
       $deity['domains']['alternate'] ?? []

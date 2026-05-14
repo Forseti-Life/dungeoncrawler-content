@@ -66,6 +66,33 @@ class CharacterManagerFeatMetadataTest extends UnitTestCase {
   }
 
   /**
+   * @coversNothing
+   */
+  public function testDruidOrdersGrantCanonicalFeatIds(): void {
+    $animal_order = CharacterManager::CLASSES['druid']['order']['orders']['animal'] ?? [];
+    $leaf_order = CharacterManager::CLASSES['druid']['order']['orders']['leaf'] ?? [];
+
+    $this->assertSame(['animal-companion-druid'], $animal_order['granted_feats'] ?? []);
+    $this->assertSame(['leshy-familiar-druid'], $leaf_order['granted_feats'] ?? []);
+  }
+
+  /**
+   * @covers ::getAdvancedWeaponOptions
+   * @covers ::resolveWeaponProficiencyGrant
+   */
+  public function testWeaponProficiencyHelpersExposeAdvancedChoicesAndProgression(): void {
+    $advanced_weapons = CharacterManager::getAdvancedWeaponOptions();
+    $uncommon_weapons = CharacterManager::getUnconventionalWeaponOptions();
+
+    $this->assertSame('Dwarven Waraxe', $advanced_weapons['dwarven-waraxe'] ?? NULL);
+    $this->assertSame('Gnome Hooked Hammer', $uncommon_weapons['gnome-hooked-hammer'] ?? NULL);
+    $this->assertSame('advanced_choice', CharacterManager::resolveWeaponProficiencyGrant(['class' => 'ranger'])['mode'] ?? NULL);
+    $this->assertSame('simple', CharacterManager::resolveWeaponProficiencyGrant(['class' => 'wizard'])['granted_target'] ?? NULL);
+    $this->assertSame('martial', CharacterManager::resolveWeaponProficiencyGrant(['class' => 'rogue'])['granted_target'] ?? NULL);
+    $this->assertSame('no_upgrade', CharacterManager::resolveWeaponProficiencyGrant(['class' => 'fighter'])['mode'] ?? NULL);
+  }
+
+  /**
    * Finds a feat by ID within a normalized feat list.
    */
   private function findFeatById(array $feats, string $id): ?array {

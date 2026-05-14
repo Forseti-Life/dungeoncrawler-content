@@ -49,6 +49,21 @@ class FeatEffectManagerTest extends UnitTestCase {
     ], $extra_character);
   }
 
+  /**
+   * Build a leveled-character payload using features.feats + feat_params shape.
+   */
+  private function buildLeveledCharacterWithFeatParams(string $feat_id, array $feat_params, array $extra_character = []): array {
+    return array_merge([
+      'level' => 3,
+      'features' => [
+        'feats' => [[
+          'id' => $feat_id,
+          'feat_params' => $feat_params,
+        ]],
+      ],
+    ], $extra_character);
+  }
+
   // ---------------------------------------------------------------------------
   // TC-FEAT-01: Battle Medicine — at_will action registered with correct shape
   // ---------------------------------------------------------------------------
@@ -493,6 +508,37 @@ class FeatEffectManagerTest extends UnitTestCase {
     $this->assertSame('animal-accomplice', $effects['selection_grants'][0]['feat_id']);
     $this->assertSame('familiar_creation', $effects['selection_grants'][0]['selection_type']);
     $this->assertContains('animal-accomplice', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testMonsterHunterAddsChosenCreatureBonuses(): void {
+    $character = $this->buildCharacterWithFeatSelection('monster-hunter', [
+      'selected_monster_type' => 'undead',
+    ]);
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['monster-hunter'];
+    $this->assertSame('undead', $override['chosen_creature_trait']);
+    $this->assertSame(2, $override['recall_knowledge_bonus']);
+    $this->assertSame(2, $override['investigation_bonus']);
+    $this->assertSame('recall_knowledge', $effects['modifiers']['skills'][0]['skill']);
+    $this->assertSame('investigation', $effects['modifiers']['skills'][1]['skill']);
+    $this->assertContains('monster-hunter', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testMonsterHunterAddsPendingSelectionWhenCreatureTypeMissing(): void {
+    $character = $this->buildCharacterWithFeat('monster-hunter');
+    $effects = $this->manager->buildEffectState($character);
+
+    $grant = $effects['selection_grants'][0];
+    $this->assertSame('monster-hunter', $grant['source_feat']);
+    $this->assertSame('monster_type_choice', $grant['selection_type']);
+    $this->assertContains('monster-hunter', $effects['applied_feats']);
   }
 
   /**
@@ -1813,6 +1859,35 @@ class FeatEffectManagerTest extends UnitTestCase {
   /**
    * @covers ::buildEffectState
    */
+  public function testAnimalCompanionAddsCreationSelectionGrant(): void {
+    $character = $this->buildCharacterWithFeat('animal-companion');
+    $effects = $this->manager->buildEffectState($character);
+
+    $grant = $effects['selection_grants'][0];
+    $this->assertSame('animal-companion', $grant['source_feat']);
+    $this->assertSame('animal_companion_choice', $grant['selection_type']);
+    $this->assertSame(1, $grant['count']);
+    $this->assertContains('animal-companion', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testAnimalCompanionDoesNotAddSelectionGrantWhenResolved(): void {
+    $character = $this->buildCharacterWithFeat('animal-companion');
+    $character['feat_selections']['animal-companion'] = [
+      'selected_companion_species' => 'wolf',
+    ];
+
+    $effects = $this->manager->buildEffectState($character);
+
+    $this->assertSame([], $effects['selection_grants']);
+    $this->assertSame('wolf', $effects['feat_overrides']['animal-companion']['selected_companion_species']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
   public function testHandOfTheApprenticeAddsFocusSpellAction(): void {
     $character = $this->buildCharacterWithFeat('hand-of-the-apprentice');
     $effects = $this->manager->buildEffectState($character);
@@ -1827,6 +1902,68 @@ class FeatEffectManagerTest extends UnitTestCase {
     $this->assertSame(1, $override['grants_focus_pool_if_none']);
     $this->assertSame('study_spellbook', $override['refocus_requirement']);
     $this->assertContains('hand-of-the-apprentice', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testStaffNexusRequestsEmbeddedSpellSelectionWhenMissing(): void {
+    $character = $this->buildCharacterWithFeat('staff-nexus');
+    $effects = $this->manager->buildEffectState($character);
+
+    $grant = $effects['selection_grants'][0];
+    $this->assertSame('staff-nexus', $grant['source_feat']);
+    $this->assertSame('staff_nexus_spell_selection', $grant['selection_type']);
+    $this->assertSame(2, $grant['count']);
+    $this->assertContains('staff-nexus', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testStaffNexusAppliesSelectedEmbeddedSpells(): void {
+    $character = $this->buildCharacterWithFeatSelection('staff-nexus', [
+      'selected_cantrip' => 'detect-magic',
+      'selected_spell' => 'magic-missile',
+    ], [
+      'class' => 'wizard',
+    ]);
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['staff-nexus'];
+    $this->assertSame('makeshift_staff', $override['type']);
+    $this->assertSame('detect-magic', $override['selected_cantrip']);
+    $this->assertSame('magic-missile', $override['selected_spell']);
+    $this->assertSame('slot_rank', $override['charges_gained_per_slot']);
+    $this->assertSame([], $effects['selection_grants']);
+    $this->assertContains('staff-nexus', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testStaffNexusResolvesSelectionsFromCanonicalWizardPayload(): void {
+    $character = [
+      'features' => [
+        'feats' => [
+          ['id' => 'staff-nexus'],
+        ],
+      ],
+      'wizard' => [
+        'feat_selections' => [
+          'staff-nexus' => [
+            'selected_cantrip' => 'detect-magic',
+            'selected_spell' => 'magic-missile',
+          ],
+        ],
+      ],
+    ];
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['staff-nexus'];
+    $this->assertSame('detect-magic', $override['selected_cantrip']);
+    $this->assertSame('magic-missile', $override['selected_spell']);
+    $this->assertSame([], $effects['selection_grants']);
   }
 
   /**
@@ -1879,6 +2016,23 @@ class FeatEffectManagerTest extends UnitTestCase {
     $this->assertSame('perception_vs_arcana_dc', $augment['observers_notice_via']);
     $this->assertTrue($action['applies_to_next_spell_only']);
     $this->assertContains('conceal-spell', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testCantripExpansionWizardAddsSpellbookCantripExpansion(): void {
+    $character = $this->buildLeveledCharacterWithFeatParams('cantrip-expansion-wizard', [
+      'selected_cantrips' => ['detect-magic', 'shield'],
+    ]);
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['cantrip-expansion-wizard'];
+    $this->assertSame('spellbook_cantrip_expansion', $override['type']);
+    $this->assertSame('arcane', $override['tradition']);
+    $this->assertSame(['detect-magic', 'shield'], $override['added_cantrips']);
+    $this->assertTrue($override['prepared_cantrips_do_not_count_against_limit']);
+    $this->assertContains('cantrip-expansion-wizard', $effects['applied_feats']);
   }
 
   /**
@@ -2171,6 +2325,23 @@ class FeatEffectManagerTest extends UnitTestCase {
     $this->assertSame(2, $action['skill_check_status_bonus']);
     $this->assertSame('up_to_1_minute', $action['sustain_duration']);
     $this->assertContains('inspire-competence', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testCantripExpansionBardAddsRepertoireCantrips(): void {
+    $character = $this->buildLeveledCharacterWithFeatParams('cantrip-expansion', [
+      'selected_cantrips' => ['daze', 'read-aura'],
+    ]);
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['cantrip-expansion'];
+    $this->assertSame('repertoire_cantrip_expansion', $override['type']);
+    $this->assertSame('occult', $override['tradition']);
+    $this->assertSame(['daze', 'read-aura'], $override['added_cantrips']);
+    $this->assertSame(2, $override['extra_repertoire_cantrips']);
+    $this->assertContains('cantrip-expansion', $effects['applied_feats']);
   }
 
   /**
@@ -2672,6 +2843,3268 @@ class FeatEffectManagerTest extends UnitTestCase {
     $this->assertTrue($override['cannot_apply_to_already_reduced_casting_time']);
     $this->assertSame('Quickened Casting', $action['name']);
     $this->assertContains('quickened-casting-sorcerer', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testAlchemicalFamiliarAddsCreationGrantAndOverrides(): void {
+    $character = $this->buildCharacterWithFeat('alchemical-familiar');
+    $effects = $this->manager->buildEffectState($character);
+
+    $grant = $effects['selection_grants'][0];
+    $override = $effects['feat_overrides']['alchemical-familiar'];
+    $this->assertSame('alchemical-familiar', $grant['source']);
+    $this->assertSame('familiar_creation', $grant['id']);
+    $this->assertTrue($override['familiar_uses_int_for_perception_acrobatics_stealth']);
+    $this->assertTrue($override['counts_as_alchemical_item_for_infused_reagents']);
+    $this->assertContains('alchemical-familiar', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testAlchemicalSavantAddsIdentifyAction(): void {
+    $character = $this->buildCharacterWithFeat('alchemical-savant');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame('Alchemical Savant', $action['name']);
+    $this->assertSame('identify_alchemical_item', $action['activity']);
+    $this->assertTrue($action['requirements']['held_alchemical_item']);
+    $this->assertSame(['Concentrate', 'Manipulate'], $action['traits']);
+    $this->assertContains('alchemical-savant', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testFarLobberAddsBombRangeOverride(): void {
+    $character = $this->buildCharacterWithFeat('far-lobber');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['far-lobber'];
+    $this->assertSame(30, $override['alchemical_bomb_range_increment_feet']);
+    $this->assertContains('far-lobber', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testQuickBomberAddsDrawAndStrikeAction(): void {
+    $character = $this->buildCharacterWithFeat('quick-bomber');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame('Quick Bomber', $action['name']);
+    $this->assertSame(1, $action['action_cost']);
+    $this->assertSame('draw_bomb_and_strike', $action['activity']);
+    $this->assertContains('quick-bomber', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testPoisonResistanceAddsResistanceAndSaveBonus(): void {
+    $character = $this->buildCharacterWithFeat('poison-resistance');
+    $effects = $this->manager->buildEffectState($character, ['level' => 6]);
+
+    $override = $effects['feat_overrides']['poison-resistance'];
+    $modifier = $effects['conditional_modifiers']['saving_throws'][0];
+    $this->assertSame('poison', $override['damage_type']);
+    $this->assertSame(3, $override['resistance']);
+    $this->assertSame(1, $modifier['bonus']);
+    $this->assertSame('status', $modifier['bonus_type']);
+    $this->assertSame('against poison', $modifier['context']);
+    $this->assertContains('poison-resistance', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testRevivifyingMutagenAddsEndMutagenHealingAction(): void {
+    $character = $this->buildCharacterWithFeat('revivifying-mutagen');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame('Revivifying Mutagen', $action['name']);
+    $this->assertSame('end_mutagen_to_heal', $action['activity']);
+    $this->assertTrue($action['requirements']['under_mutagen']);
+    $this->assertSame('1d6 per 2 mutagen item levels (minimum 1d6)', $action['healing_formula']);
+    $this->assertContains('revivifying-mutagen', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testSmokeBombAddsQuickAlchemySmokeAdditive(): void {
+    $character = $this->buildCharacterWithFeat('smoke-bomb');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame('Smoke Bomb', $action['name']);
+    $this->assertSame('free', $action['action_cost']);
+    $this->assertSame('quick_alchemy_additive', $action['activity']);
+    $this->assertSame('quick_alchemy_creates_qualifying_bomb', $action['trigger']);
+    $this->assertSame(10, $action['smoke_burst_feet']);
+    $this->assertContains('smoke-bomb', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testCalculatedSplashAddsIntelligenceSplashOverride(): void {
+    $character = $this->buildCharacterWithFeat('calculated-splash');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['calculated-splash'];
+    $this->assertSame('max(0, intelligence_modifier)', $override['bomb_splash_damage_formula']);
+    $this->assertContains('calculated-splash', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testEfficientAlchemyAddsCraftingOutputOverride(): void {
+    $character = $this->buildCharacterWithFeat('efficient-alchemy');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['efficient-alchemy'];
+    $this->assertSame(2, $override['craft_alchemical_batch_output_multiplier']);
+    $this->assertTrue($override['no_extra_time_required']);
+    $this->assertContains('efficient-alchemy', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testEnduringAlchemyExtendsQuickAlchemyDuration(): void {
+    $character = $this->buildCharacterWithFeat('enduring-alchemy');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['enduring-alchemy'];
+    $this->assertSame('end_of_your_next_turn', $override['quick_alchemy_tools_and_elixirs_expire']);
+    $this->assertContains('enduring-alchemy', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testCombineElixirsAddsQuickAlchemyElixirAdditive(): void {
+    $character = $this->buildCharacterWithFeat('combine-elixirs');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame('Combine Elixirs', $action['name']);
+    $this->assertSame('quick_alchemy_additive', $action['activity']);
+    $this->assertSame('quick_alchemy_creates_qualifying_elixir', $action['trigger']);
+    $this->assertSame(2, $action['advanced_alchemy_gap']);
+    $this->assertSame('same_or_lower', $action['secondary_elixir_level']);
+    $this->assertContains('combine-elixirs', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testDebilitatingBombAddsOnHitConditionChoice(): void {
+    $character = $this->buildCharacterWithFeat('debilitating-bomb');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame('Debilitating Bomb', $action['name']);
+    $this->assertSame('quick_alchemy_additive', $action['activity']);
+    $this->assertSame(['dazzled', 'deafened', 'flat-footed', 'speed_penalty_5'], $action['on_hit_choose_one']);
+    $this->assertSame('until_start_of_your_next_turn', $action['duration']);
+    $this->assertContains('debilitating-bomb', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testDirectionalBombsAddsConeSplashOverride(): void {
+    $character = $this->buildCharacterWithFeat('directional-bombs');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['directional-bombs'];
+    $this->assertTrue($override['bomb_splash_can_be_directed_as_cone']);
+    $this->assertSame(15, $override['cone_length_feet']);
+    $this->assertSame('away_from_you', $override['cone_direction']);
+    $this->assertContains('directional-bombs', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testFeralMutagenAddsBestialCombatOverrides(): void {
+    $character = $this->buildCharacterWithFeat('feral-mutagen');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['feral-mutagen'];
+    $this->assertSame('bestial', $override['requires_mutagen']);
+    $this->assertTrue($override['bestial_mutagen_item_bonus_applies_to_intimidation']);
+    $this->assertSame('deadly_d10', $override['claws_gain_trait']);
+    $this->assertSame('deadly_d10', $override['jaws_gain_trait']);
+    $this->assertContains('feral-mutagen', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testStickyBombAddsPersistentDamageAdditive(): void {
+    $character = $this->buildCharacterWithFeat('sticky-bomb');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame('Sticky Bomb', $action['name']);
+    $this->assertSame('quick_alchemy_additive', $action['activity']);
+    $this->assertSame('quick_alchemy_creates_qualifying_bomb', $action['trigger']);
+    $this->assertSame('bomb_item_level', $action['on_direct_hit_persistent_damage']);
+    $this->assertSame('bomb_main_damage_type', $action['persistent_damage_type']);
+    $this->assertContains('sticky-bomb', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testElasticMutagenAddsMobilityOverrides(): void {
+    $character = $this->buildCharacterWithFeat('elastic-mutagen');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['elastic-mutagen'];
+    $this->assertSame('quicksilver', $override['requires_mutagen']);
+    $this->assertSame(10, $override['step_distance_feet']);
+    $this->assertTrue($override['squeeze_as_size_smaller']);
+    $this->assertContains('elastic-mutagen', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testExpandedSplashAddsDamageAndRadiusOverrides(): void {
+    $character = $this->buildCharacterWithFeat('expanded-splash');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['expanded-splash'];
+    $this->assertSame('normal_splash + intelligence_modifier', $override['bomb_splash_damage_formula']);
+    $this->assertSame(10, $override['bomb_splash_radius_feet']);
+    $this->assertContains('expanded-splash', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testGreaterDebilitatingBombAddsMoreConditionChoices(): void {
+    $character = $this->buildCharacterWithFeat('greater-debilitating-bomb');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['greater-debilitating-bomb'];
+    $this->assertSame('debilitating-bomb', $override['modifies_feat']);
+    $this->assertSame(['clumsy_1', 'enfeebled_1', 'stupefied_1', 'speed_penalty_10'], $override['additional_on_hit_options']);
+    $this->assertContains('greater-debilitating-bomb', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testMercifulElixirAddsCounteractAdditive(): void {
+    $character = $this->buildCharacterWithFeat('merciful-elixir');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame('Merciful Elixir', $action['name']);
+    $this->assertSame('quick_alchemy_additive', $action['activity']);
+    $this->assertSame('quick_alchemy_creates_elixir_of_life', $action['trigger']);
+    $this->assertSame(['fear', 'poison'], $action['counteract_options']);
+    $this->assertContains('merciful-elixir', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testPotentPoisonerAddsPoisonDcCraftingOverride(): void {
+    $character = $this->buildCharacterWithFeat('potent-poisoner');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['potent-poisoner'];
+    $this->assertSame(4, $override['crafted_poison_dc_bonus_max']);
+    $this->assertTrue($override['crafted_poison_dc_capped_by_class_dc']);
+    $this->assertContains('potent-poisoner', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testExtendElixirAddsDurationMultiplierOverride(): void {
+    $character = $this->buildCharacterWithFeat('extend-elixir');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['extend-elixir'];
+    $this->assertSame('drink_own_infused_elixir_with_duration_at_least_1_minute', $override['trigger']);
+    $this->assertSame(2, $override['duration_multiplier']);
+    $this->assertContains('extend-elixir', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testInvincibleMutagenAddsPhysicalResistanceFormula(): void {
+    $character = $this->buildCharacterWithFeat('invincible-mutagen');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['invincible-mutagen'];
+    $this->assertSame('juggernaut', $override['requires_mutagen']);
+    $this->assertSame('intelligence_modifier', $override['physical_resistance_formula']);
+    $this->assertContains('invincible-mutagen', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testUncannyBombsAddsRangeCoverAndConcealmentOverrides(): void {
+    $character = $this->buildCharacterWithFeat('uncanny-bombs');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['uncanny-bombs'];
+    $this->assertSame(60, $override['alchemical_bomb_range_increment_feet']);
+    $this->assertSame(1, $override['reduce_cover_ac_bonus_against_bombs_by']);
+    $this->assertTrue($override['automatically_succeed_concealed_flat_check_with_bombs']);
+    $this->assertContains('uncanny-bombs', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testGlibMutagenAddsSocialPenaltyBypassOverrides(): void {
+    $character = $this->buildCharacterWithFeat('glib-mutagen');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['glib-mutagen'];
+    $this->assertSame('silvertongue', $override['requires_mutagen']);
+    $this->assertSame(['Deception', 'Diplomacy', 'Intimidation', 'Performance'], $override['ignore_circumstance_penalties_to']);
+    $this->assertTrue($override['lies_become_more_convincing']);
+    $this->assertContains('glib-mutagen', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testGreaterMercifulElixirAddsMoreCounteractOptions(): void {
+    $character = $this->buildCharacterWithFeat('greater-merciful-elixir');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['greater-merciful-elixir'];
+    $this->assertSame('merciful-elixir', $override['modifies_feat']);
+    $this->assertSame(['blinded', 'deafened', 'sickened', 'slowed'], $override['additional_counteract_options']);
+    $this->assertContains('greater-merciful-elixir', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testTrueDebilitatingBombAddsStrongerConditionChoices(): void {
+    $character = $this->buildCharacterWithFeat('true-debilitating-bomb');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['true-debilitating-bomb'];
+    $this->assertSame('debilitating-bomb', $override['modifies_feat']);
+    $this->assertSame(['enfeebled_2', 'stupefied_2', 'speed_penalty_15'], $override['additional_on_hit_options']);
+    $this->assertSame('until_end_of_targets_next_turn', $override['duration']);
+    $this->assertContains('true-debilitating-bomb', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testEternalElixirAddsDailyExtendedElixirAction(): void {
+    $character = $this->buildCharacterWithFeat('eternal-elixir');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['per_long_rest'][0];
+    $this->assertSame('Eternal Elixir', $action['name']);
+    $this->assertSame('consume_elixir_with_extended_duration', $action['activity']);
+    $this->assertSame('once_per_long_rest', $action['frequency']);
+    $this->assertSame('until_next_daily_preparations', $action['duration']);
+    $this->assertContains('eternal-elixir', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testExploitiveBombAddsResistanceReductionAdditive(): void {
+    $character = $this->buildCharacterWithFeat('exploitive-bomb');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame('Exploitive Bomb', $action['name']);
+    $this->assertSame('quick_alchemy_additive', $action['activity']);
+    $this->assertSame('bomb_item_level', $action['on_hit_reduce_resistance_by']);
+    $this->assertSame('bomb_damage_type', $action['affected_resistance']);
+    $this->assertContains('exploitive-bomb', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testGeniusMutagenAddsCognitiveSkillExpansion(): void {
+    $character = $this->buildCharacterWithFeat('genius-mutagen');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['genius-mutagen'];
+    $this->assertSame('cognitive', $override['requires_mutagen']);
+    $this->assertSame(['Deception', 'Diplomacy', 'Intimidation', 'Medicine', 'Nature', 'Performance', 'Religion', 'Survival'], $override['cognitive_mutagen_item_bonus_applies_to']);
+    $this->assertContains('genius-mutagen', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testPersistentMutagenAddsDailyExtendedMutagenAction(): void {
+    $character = $this->buildCharacterWithFeat('persistent-mutagen');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['per_long_rest'][0];
+    $this->assertSame('Persistent Mutagen', $action['name']);
+    $this->assertSame('consume_mutagen_with_extended_duration', $action['activity']);
+    $this->assertSame('once_per_long_rest', $action['frequency']);
+    $this->assertSame('until_next_daily_preparations', $action['duration']);
+    $this->assertContains('persistent-mutagen', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testMindblankMutagenAddsDetectionBlockers(): void {
+    $character = $this->buildCharacterWithFeat('mindblank-mutagen');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['mindblank-mutagen'];
+    $this->assertSame('serene', $override['requires_mutagen']);
+    $this->assertTrue($override['blocks_detection_revelation_and_scrying']);
+    $this->assertSame(9, $override['effect_level_cap']);
+    $this->assertTrue($override['as_if_under_mind_blank']);
+    $this->assertContains('mindblank-mutagen', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testMiracleWorkerAddsResurrectionAction(): void {
+    $character = $this->buildCharacterWithFeat('miracle-worker');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame('Miracle Worker', $action['name']);
+    $this->assertSame('once_per_10_minutes', $action['frequency']);
+    $this->assertSame('creature_dead_for_2_rounds_or_fewer', $action['target_requirement']);
+    $this->assertSame('returns_to_life_at_1_hp', $action['result']);
+    $this->assertTrue($action['consumes_item']);
+    $this->assertContains('miracle-worker', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testPerfectDebilitationAddsCriticalSuccessAvoidanceGate(): void {
+    $character = $this->buildCharacterWithFeat('perfect-debilitation');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['perfect-debilitation'];
+    $this->assertSame('debilitating-bomb', $override['modifies_feat']);
+    $this->assertTrue($override['conditions_avoided_only_on_critical_save_success']);
+    $this->assertContains('perfect-debilitation', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testCraftPhilosophersStoneAddsFormulaGrant(): void {
+    $character = $this->buildCharacterWithFeat('craft-philosophers-stone');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['craft-philosophers-stone'];
+    $this->assertSame(["philosopher's stone"], $override['formula_grants']);
+    $this->assertTrue($override['add_to_formula_book']);
+    $this->assertContains('craft-philosophers-stone', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testInfiniteEyeAddsAuraSenseAndTruesightUses(): void {
+    $character = $this->buildCharacterWithFeat('infinite-eye');
+    $effects = $this->manager->buildEffectState($character);
+
+    $sense = $effects['senses'][0];
+    $this->assertSame('detect_magic_auras', $sense['type']);
+    $this->assertSame('at_will', $sense['mode']);
+    $action = $effects['available_actions']['per_long_rest'][0];
+    $this->assertSame('Infinite Eye', $action['name']);
+    $this->assertSame('3_per_long_rest', $action['frequency']);
+    $this->assertSame('gain_truesight', $action['activity']);
+    $this->assertSame(30, $action['range_feet']);
+    $this->assertContains('infinite-eye', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testReprepareSpellAddsDailyPreparationAction(): void {
+    $character = $this->buildCharacterWithFeat('reprepare-spell');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['per_long_rest'][0];
+    $this->assertSame('Reprepare Spell', $action['name']);
+    $this->assertSame('10_minutes', $action['action_cost']);
+    $this->assertSame('3_per_long_rest', $action['frequency']);
+    $this->assertSame('prepare_spellbook_spell_into_slot', $action['activity']);
+    $this->assertSame('spellbook', $action['source']);
+    $this->assertContains('reprepare-spell', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testMetamagicMasteryAddsMetamagicActionOverride(): void {
+    $character = $this->buildCharacterWithFeat('metamagic-mastery');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['metamagic-mastery'];
+    $this->assertTrue($override['metamagic_does_not_increase_spell_action_cost']);
+    $this->assertTrue($override['can_apply_two_metamagic_feats_to_same_spell']);
+    $this->assertContains('metamagic-mastery', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testEternalCompositionAddsCompositionCapacityOverride(): void {
+    $character = $this->buildCharacterWithFeat('eternal-composition');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['eternal-composition'];
+    $this->assertSame(3, $override['max_simultaneous_compositions']);
+    $this->assertTrue($override['single_sustain_can_maintain_all_active_compositions']);
+    $this->assertContains('eternal-composition', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testMelodicCastingAddsTwoSpellMelodiousAugment(): void {
+    $character = $this->buildCharacterWithFeat('melodic-casting');
+    $effects = $this->manager->buildEffectState($character);
+
+    $augment = $effects['spell_augments']['metamagic'][0];
+    $this->assertSame('Melodic Casting', $augment['name']);
+    $this->assertSame(2, $augment['applies_melodious_spell_to_next_spells_this_turn']);
+    $this->assertTrue($augment['replaces_separate_metamagic_actions']);
+    $this->assertContains('melodic-casting', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testFatalAriaAddsDailyFocusSpell(): void {
+    $character = $this->buildCharacterWithFeat('fatal-aria');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['per_long_rest'][0];
+    $this->assertSame('Fatal Aria', $action['name']);
+    $this->assertSame(2, $action['action_cost']);
+    $this->assertSame('once_per_long_rest', $action['frequency']);
+    $this->assertSame('will', $action['save']);
+    $this->assertSame('dies', $action['outcomes']['critical_failure']);
+    $this->assertContains('fatal-aria', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testPerfectEncoreAddsFocusBoostOverride(): void {
+    $character = $this->buildCharacterWithFeat('perfect-encore');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['perfect-encore'];
+    $this->assertSame('cast_non_cantrip_composition_spell', $override['trigger']);
+    $this->assertSame(1, $override['focus_point_cost']);
+    $this->assertSame(2, $override['treat_focus_points_spent_as']);
+    $this->assertTrue($override['spell_slot_cost_unchanged']);
+    $this->assertContains('perfect-encore', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testPiedPiperAddsCompulsionFocusSpell(): void {
+    $character = $this->buildCharacterWithFeat('pied-piper');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame('Pied Piper', $action['name']);
+    $this->assertSame(2, $action['action_cost']);
+    $this->assertSame('all_creatures_in_range', $action['target']);
+    $this->assertTrue($action['repeat_save_each_turn']);
+    $this->assertTrue($action['critical_success_ends_effect']);
+    $this->assertContains('pied-piper', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testPolymathApexAddsExpertMinimumToVersatilePerformance(): void {
+    $character = $this->buildCharacterWithFeat('polymath-apex');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['polymath-apex'];
+    $this->assertTrue($override['when_using_versatile_performance']);
+    $this->assertSame('expert', $override['minimum_substitute_skill_proficiency']);
+    $this->assertTrue($override['use_higher_of_performance_or_expert']);
+    $this->assertContains('polymath-apex', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testSymphonyOfTheMuseAddsFreeCompositionAugment(): void {
+    $character = $this->buildCharacterWithFeat('symphony-of-the-muse');
+    $effects = $this->manager->buildEffectState($character);
+
+    $augment = $effects['spell_augments']['metamagic'][0];
+    $this->assertSame('Symphony of the Muse', $augment['name']);
+    $this->assertSame('free', $augment['next_composition_action_cost']);
+    $this->assertTrue($augment['does_not_count_against_one_composition_per_turn_limit']);
+    $this->assertContains('symphony-of-the-muse', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testMegaBombAddsLargeAreaBombAction(): void {
+    $character = $this->buildCharacterWithFeat('mega-bomb');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame('Mega Bomb', $action['name']);
+    $this->assertSame('mega_bomb_throw', $action['activity']);
+    $this->assertSame(3, $action['advanced_alchemy_gap']);
+    $this->assertSame(30, $action['detonation_radius_feet']);
+    $this->assertTrue($action['all_creatures_take_full_damage_and_splash']);
+    $this->assertContains('mega-bomb', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testPerfectMutagenRemovesOwnMutagenDrawbacks(): void {
+    $character = $this->buildCharacterWithFeat('perfect-mutagen');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['perfect-mutagen'];
+    $this->assertTrue($override['ignores_drawbacks_of_own_crafted_mutagens']);
+    $this->assertContains('perfect-mutagen', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testAcuteVisionAddsConditionalDarkvision(): void {
+    $character = $this->buildCharacterWithFeat('acute-vision');
+    $effects = $this->manager->buildEffectState($character);
+
+    $sense = $effects['senses'][0];
+    $this->assertSame('darkvision', $sense['type']);
+    $this->assertSame('while_raging', $sense['condition']);
+    $this->assertContains('acute-vision', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testMomentOfClarityAddsConcentrateWindowAction(): void {
+    $character = $this->buildCharacterWithFeat('moment-of-clarity');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame('Moment of Clarity', $action['name']);
+    $this->assertSame('allow_concentrate_action_while_raging', $action['activity']);
+    $this->assertContains('moment-of-clarity', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testRagingIntimidationAddsRageTraitAndBonusFeat(): void {
+    $character = $this->buildCharacterWithFeat('raging-intimidation');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['raging-intimidation'];
+    $this->assertSame(['demoralize', 'scare_to_death'], $override['actions_gain_rage_trait']);
+    $this->assertSame(['demoralize', 'scare_to_death'], $override['actions_usable_while_raging']);
+    $this->assertSame(['intimidating-glare'], $override['bonus_feat_grants']);
+    $this->assertContains('raging-intimidation', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testRagingThrowerAddsThrownRageDamageOverrides(): void {
+    $character = $this->buildCharacterWithFeat('raging-thrower');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['raging-thrower'];
+    $this->assertTrue($override['thrown_attacks_gain_rage_melee_damage_bonus']);
+    $this->assertSame(6, $override['giant_instinct_oversized_thrown_bonus_damage']);
+    $this->assertContains('raging-thrower', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testAcuteScentAddsConditionalImpreciseScent(): void {
+    $character = $this->buildCharacterWithFeat('acute-scent');
+    $effects = $this->manager->buildEffectState($character);
+
+    $sense = $effects['senses'][0];
+    $this->assertSame('imprecise_scent', $sense['type']);
+    $this->assertSame(30, $sense['range_feet']);
+    $this->assertSame('while_raging', $sense['condition']);
+    $this->assertContains('acute-scent', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testFuriousFinishAddsMaximumDamageStrikeAction(): void {
+    $character = $this->buildCharacterWithFeat('furious-finish');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame('Furious Finish', $action['name']);
+    $this->assertSame('strike_with_maximum_weapon_damage_dice', $action['activity']);
+    $this->assertTrue($action['spends_remaining_rage_rounds']);
+    $this->assertTrue($action['rage_ends_after_action']);
+    $this->assertContains('furious-finish', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testNoEscapeAddsReactionStride(): void {
+    $character = $this->buildCharacterWithFeat('no-escape');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame('No Escape', $action['name']);
+    $this->assertSame('reaction_stride', $action['activity']);
+    $this->assertSame('adjacent_enemy_moves_away', $action['trigger']);
+    $this->assertSame('stride_to_remain_adjacent', $action['result']);
+    $this->assertContains('no-escape', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testSecondWindAddsDailyRecoveryAction(): void {
+    $character = $this->buildCharacterWithFeat('second-wind');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['per_long_rest'][0];
+    $this->assertSame('Second Wind', $action['name']);
+    $this->assertSame('once_per_long_rest', $action['frequency']);
+    $this->assertSame('self_heal', $action['activity']);
+    $this->assertSame('barbarian_level', $action['healing_formula']);
+    $this->assertSame(1, $action['dying_override']['hp_after_stabilizing']);
+    $this->assertContains('second-wind', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testShakeItOffAddsConditionReductionAction(): void {
+    $character = $this->buildCharacterWithFeat('shake-it-off');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame('Shake It Off', $action['name']);
+    $this->assertSame('reduce_condition', $action['activity']);
+    $this->assertSame(['persistent_damage', 'frightened', 'sickened', 'slowed'], $action['condition_options']);
+    $this->assertSame(1, $action['juggernaut_persistent_damage_bonus_reduction']);
+    $this->assertContains('shake-it-off', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testFastMovementAddsWhileRagingSpeedBonus(): void {
+    $character = $this->buildCharacterWithFeat('fast-movement');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['fast-movement'];
+    $this->assertSame(10, $override['while_raging_speed_bonus']);
+    $this->assertContains('fast-movement', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testRagingAthleteAddsMobilityOverrides(): void {
+    $character = $this->buildCharacterWithFeat('raging-athlete');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['raging-athlete'];
+    $this->assertTrue($override['athletics_uses_rage_proficiency']);
+    $this->assertTrue($override['climb_speed_equals_land_speed']);
+    $this->assertTrue($override['jumps_treat_athletics_roll_as_10']);
+    $this->assertTrue($override['difficult_terrain_does_not_reduce_jump_distance']);
+    $this->assertContains('raging-athlete', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testSwipeAddsTwoTargetStrikeAction(): void {
+    $character = $this->buildCharacterWithFeat('swipe');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame('Swipe', $action['name']);
+    $this->assertSame('melee_strike_two_adjacent_foes', $action['activity']);
+    $this->assertTrue($action['same_damage_roll_applies_to_each_target']);
+    $this->assertTrue($action['each_target_counts_as_own_strike_for_map']);
+    $this->assertContains('swipe', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testWoundedRageAddsDailyReactionRage(): void {
+    $character = $this->buildCharacterWithFeat('wounded-rage');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['per_long_rest'][0];
+    $this->assertSame('Wounded Rage', $action['name']);
+    $this->assertSame('reaction', $action['action_cost']);
+    $this->assertSame('once_per_long_rest', $action['frequency']);
+    $this->assertSame('enter_rage', $action['activity']);
+    $this->assertSame('you_take_damage', $action['trigger']);
+    $this->assertContains('wounded-rage', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testAnimalSkinAddsRagingAcBonuses(): void {
+    $character = $this->buildCharacterWithFeat('animal-skin');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['animal-skin'];
+    $this->assertSame('while_raging', $override['condition']);
+    $this->assertSame(2, $override['unarmored_ac_item_bonus']);
+    $this->assertSame(1, $override['light_armor_ac_item_bonus']);
+    $this->assertContains('animal-skin', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testAttackOfOpportunityBarbarianAddsReactionStrike(): void {
+    $character = $this->buildCharacterWithFeat('attack-of-opportunity-barbarian');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame('Attack of Opportunity', $action['name']);
+    $this->assertSame('reaction', $action['action_cost']);
+    $this->assertTrue($action['disrupts_manipulate_on_hit']);
+    $this->assertContains('attack-of-opportunity-barbarian', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testBrutalBullyAddsCombatManeuverDamage(): void {
+    $character = $this->buildCharacterWithFeat('brutal-bully');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['brutal-bully'];
+    $this->assertSame(['grapple_success', 'shove_success', 'trip_success'], $override['triggers']);
+    $this->assertSame('rage_melee_damage_bonus', $override['extra_damage']);
+    $this->assertSame('bludgeoning', $override['extra_damage_type']);
+    $this->assertContains('brutal-bully', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testCleaveAddsReactionFollowupStrike(): void {
+    $character = $this->buildCharacterWithFeat('cleave');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame('Cleave', $action['name']);
+    $this->assertSame('you_kill_or_critically_hit_a_foe', $action['trigger']);
+    $this->assertSame('adjacent_enemy', $action['target_requirement']);
+    $this->assertContains('cleave', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testDragonsRageBreathAddsOncePerRageCone(): void {
+    $character = $this->buildCharacterWithFeat('dragons-rage-breath');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame("Dragon's Rage Breath", $action['name']);
+    $this->assertSame('once_per_rage', $action['usage_limit']);
+    $this->assertSame('30_foot_cone', $action['area']);
+    $this->assertSame('1d6_per_level', $action['damage_formula']);
+    $this->assertContains('dragons-rage-breath', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testSpiritsInterferenceAddsPhysicalDamageReductionRoll(): void {
+    $character = $this->buildCharacterWithFeat('spirits-interference');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['spirits-interference'];
+    $this->assertSame('would_take_physical_damage', $override['trigger']);
+    $this->assertSame('1d4', $override['roll']);
+    $this->assertSame(1, $override['failure_on']);
+    $this->assertSame('rolled_amount', $override['reduction_on_other_results']);
+    $this->assertContains('spirits-interference', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testAnimalRageAddsTransformationAction(): void {
+    $character = $this->buildCharacterWithFeat('animal-rage');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame('Animal Rage', $action['name']);
+    $this->assertSame('transform_into_instinct_animal', $action['activity']);
+    $this->assertSame('animal_form_rank_4', $action['form_reference']);
+    $this->assertTrue($action['retains_rage_effects']);
+    $this->assertContains('animal-rage', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testSpiritsWrathAddsOncePerRageRangedBurst(): void {
+    $character = $this->buildCharacterWithFeat('spirits-wrath');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame("Spirit's Wrath", $action['name']);
+    $this->assertSame('once_per_rage', $action['usage_limit']);
+    $this->assertSame(['negative', 'positive'], $action['damage_type_options']);
+    $this->assertSame('fortitude', $action['save']);
+    $this->assertContains('spirits-wrath', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testGiantFootprintAddsReachOverrides(): void {
+    $character = $this->buildCharacterWithFeat('giant-footprint');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['giant-footprint'];
+    $this->assertSame(5, $override['reach_bonus_feet']);
+    $this->assertSame(10, $override['medium_reach_becomes_feet']);
+    $this->assertSame(15, $override['medium_reach_weapon_reach_becomes_feet']);
+    $this->assertContains('giant-footprint', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testRenewedVigorAddsTemporaryHitPointAction(): void {
+    $character = $this->buildCharacterWithFeat('renewed-vigor');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame('Renewed Vigor', $action['name']);
+    $this->assertSame('gain_temporary_hit_points', $action['activity']);
+    $this->assertSame('floor(level/2) + constitution_modifier', $action['temporary_hp_formula']);
+    $this->assertTrue($action['replaces_existing_rage_temp_hp']);
+    $this->assertContains('renewed-vigor', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testShareThePainAddsRetaliationReaction(): void {
+    $character = $this->buildCharacterWithFeat('share-the-pain');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame('Share the Pain', $action['name']);
+    $this->assertSame('hit_by_enemy_melee_strike', $action['trigger']);
+    $this->assertSame('rage_melee_damage_bonus', $action['retaliation_damage']);
+    $this->assertSame('bludgeoning', $action['retaliation_damage_type']);
+    $this->assertContains('share-the-pain', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testSuddenLeapAddsJumpStrikeAction(): void {
+    $character = $this->buildCharacterWithFeat('sudden-leap');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame('Sudden Leap', $action['name']);
+    $this->assertSame('jump_then_strike', $action['activity']);
+    $this->assertTrue($action['can_target_enemy_jumped_over']);
+    $this->assertTrue($action['jump_does_not_provoke_reactions']);
+    $this->assertContains('sudden-leap', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testAwesomeBlowAddsPushAndProneReaction(): void {
+    $character = $this->buildCharacterWithFeat('awesome-blow');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame('Awesome Blow', $action['name']);
+    $this->assertSame('critically_hit_enemy_with_melee_strike_while_raging', $action['trigger']);
+    $this->assertSame(20, $action['outcomes']['critical_failure']['push_feet']);
+    $this->assertTrue($action['outcomes']['failure']['prone']);
+    $this->assertContains('awesome-blow', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testGiantStatureAddsLargeSizeOverride(): void {
+    $character = $this->buildCharacterWithFeat('giant-stature');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['giant-stature'];
+    $this->assertSame('large', $override['size_becomes']);
+    $this->assertTrue($override['oversized_weapon_grows_with_you']);
+    $this->assertTrue($override['space_and_reach_increase']);
+    $this->assertContains('giant-stature', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testKnockbackAddsFreeShoveAction(): void {
+    $character = $this->buildCharacterWithFeat('knockback');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame('Knockback', $action['name']);
+    $this->assertSame('free_shove_after_melee_strike', $action['activity']);
+    $this->assertFalse($action['multiple_attack_penalty_applies']);
+    $this->assertContains('knockback', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testTerrifyingHowlAddsAreaDemoralizeAction(): void {
+    $character = $this->buildCharacterWithFeat('terrifying-howl');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame('Terrifying Howl', $action['name']);
+    $this->assertSame('demoralize_area', $action['activity']);
+    $this->assertSame('all_enemies_in_range', $action['targets']);
+    $this->assertSame('frightened_2', $action['critical_success_effect']);
+    $this->assertContains('terrifying-howl', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testDragonsRageWingsAddsConditionalFlight(): void {
+    $character = $this->buildCharacterWithFeat('dragons-rage-wings');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['dragons-rage-wings'];
+    $this->assertTrue($override['gain_fly_speed_equal_to_land_speed']);
+    $this->assertTrue($override['wings_retract_when_rage_ends']);
+    $this->assertContains('dragons-rage-wings', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testInvulnerableJuggernautAddsPhysicalResistanceBonus(): void {
+    $character = $this->buildCharacterWithFeat('invulnerable-juggernaut');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['invulnerable-juggernaut'];
+    $this->assertSame(2, $override['physical_resistance_bonus']);
+    $this->assertTrue($override['stacks_with_raging_resistance']);
+    $this->assertContains('invulnerable-juggernaut', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testPredatorInstinctAddsAnimalAttackUpgrades(): void {
+    $character = $this->buildCharacterWithFeat('predator-instinct');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['predator-instinct'];
+    $this->assertSame('d10', $override['animal_instinct_attack_damage_die']);
+    $this->assertSame('deadly_d8', $override['animal_instinct_attack_gains_trait']);
+    $this->assertContains('predator-instinct', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testRavagerAddsCriticalSpecializationOverride(): void {
+    $character = $this->buildCharacterWithFeat('ravager');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['ravager'];
+    $this->assertTrue($override['critical_hits_gain_weapon_critical_specialization_without_mastery']);
+    $this->assertTrue($override['existing_critical_specialization_can_add_additional_effect']);
+    $this->assertContains('ravager', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testComeAndGetMeAddsChallengeStanceAction(): void {
+    $character = $this->buildCharacterWithFeat('come-and-get-me');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame('Come and Get Me', $action['name']);
+    $this->assertSame('raging_challenge_stance', $action['activity']);
+    $this->assertSame(-2, $action['ac_penalty']);
+    $this->assertTrue($action['enemies_that_hit_you_become_flat_footed_to_your_next_strike']);
+    $this->assertContains('come-and-get-me', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testAuraOfFuryAddsAlliedDamageAura(): void {
+    $character = $this->buildCharacterWithFeat('aura-of-fury');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['aura-of-fury'];
+    $this->assertSame(10, $override['aura_radius_feet']);
+    $this->assertSame(1, $override['allies_gain_status_bonus_to_damage']);
+    $this->assertContains('aura-of-fury', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testSpiritsRageRemovesSpiritsWrathLimit(): void {
+    $character = $this->buildCharacterWithFeat('spirits-rage');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['spirits-rage'];
+    $this->assertSame('spirits-wrath', $override['modifies_feat']);
+    $this->assertTrue($override['removes_once_per_rage_limit']);
+    $this->assertContains('spirits-rage', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testVengefulStrikeAddsTriggeredReactionStrike(): void {
+    $character = $this->buildCharacterWithFeat('vengeful-strike');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame('Vengeful Strike', $action['name']);
+    $this->assertSame('ally_within_60_feet_is_critically_hit', $action['trigger']);
+    $this->assertSame('triggering_enemy_within_reach', $action['target_requirement']);
+    $this->assertContains('vengeful-strike', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testWhirlwindStrikeAddsAllAdjacentStrikeAction(): void {
+    $character = $this->buildCharacterWithFeat('whirlwind-strike');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame('Whirlwind Strike', $action['name']);
+    $this->assertSame(3, $action['action_cost']);
+    $this->assertSame('melee_strike_all_adjacent_creatures', $action['activity']);
+    $this->assertTrue($action['same_damage_roll_applies_to_all_targets']);
+    $this->assertContains('whirlwind-strike', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testCollateralDamageAddsAdjacentSplashDamageOverride(): void {
+    $character = $this->buildCharacterWithFeat('collateral-damage');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['collateral-damage'];
+    $this->assertSame('deal_damage_with_melee_strike', $override['trigger']);
+    $this->assertSame('rage_melee_damage_bonus', $override['adjacent_secondary_target_damage']);
+    $this->assertSame('bludgeoning', $override['adjacent_secondary_target_damage_type']);
+    $this->assertContains('collateral-damage', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testGreatCleaveAddsChainOverride(): void {
+    $character = $this->buildCharacterWithFeat('great-cleave');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['great-cleave'];
+    $this->assertSame('cleave', $override['modifies_feat']);
+    $this->assertTrue($override['cleave_can_chain_repeatedly']);
+    $this->assertSame(['miss', 'no_new_adjacent_foe'], $override['chain_stops_when']);
+    $this->assertContains('great-cleave', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testAccurateSwingAddsSwipeAccuracyOverrides(): void {
+    $character = $this->buildCharacterWithFeat('accurate-swing');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['accurate-swing'];
+    $this->assertSame('swipe', $override['modifies_feat']);
+    $this->assertSame('sweep', $override['swipe_gains_trait']);
+    $this->assertSame(1, $override['swipe_attack_bonus']);
+    $this->assertContains('accurate-swing', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testImpalingStrikeAddsImmobilizingBleedAction(): void {
+    $character = $this->buildCharacterWithFeat('impaling-strike');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame('Impaling Strike', $action['name']);
+    $this->assertSame(2, $action['multiple_attack_penalty_counts_as']);
+    $this->assertTrue($action['on_hit_effects']['immobilized']);
+    $this->assertSame('1d8', $action['on_hit_effects']['persistent_bleed_damage']);
+    $this->assertContains('impaling-strike', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testAwakenTheInnerMonolithAddsHugeSizeOverride(): void {
+    $character = $this->buildCharacterWithFeat('awaken-the-inner-monolith');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['awaken-the-inner-monolith'];
+    $this->assertSame('while_raging_with_giant_stature', $override['condition']);
+    $this->assertSame('huge', $override['size_becomes']);
+    $this->assertTrue($override['oversized_weapon_grows_with_you']);
+    $this->assertContains('awaken-the-inner-monolith', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testApexOfFuryAddsUnlimitedRageOverride(): void {
+    $character = $this->buildCharacterWithFeat('apex-of-fury');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['apex-of-fury'];
+    $this->assertSame('unlimited', $override['rage_uses_per_day']);
+    $this->assertTrue($override['removes_rage_cooldown']);
+    $this->assertContains('apex-of-fury', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testTrueBeastAddsFinalAnimalInstinctOverrides(): void {
+    $character = $this->buildCharacterWithFeat('true-beast');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['true-beast'];
+    $this->assertTrue($override['can_enter_true_beast_form']);
+    $this->assertSame(['medium', 'large'], $override['true_beast_form_size_options']);
+    $this->assertSame('2d6', $override['animal_instinct_attack_base_damage']);
+    $this->assertSame('deadly_d10', $override['animal_instinct_attack_gains_trait']);
+    $this->assertContains('true-beast', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testHarmingHandsAddsBonusHarmDamageOverride(): void {
+    $character = $this->buildCharacterWithFeat('harming-hands');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['harming-hands'];
+    $this->assertTrue($override['harm_bonus_damage_equals_level']);
+    $this->assertTrue($override['applies_to_font_and_regular_slots']);
+    $this->assertContains('harming-hands', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testDeadlySimplicityAddsFavoredWeaponDeadlyUpgrade(): void {
+    $character = $this->buildCharacterWithFeat('deadly-simplicity');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['deadly-simplicity'];
+    $this->assertTrue($override['deity_favored_simple_weapon_gains_deadly_d6']);
+    $this->assertTrue($override['existing_deadly_trait_increases_one_step']);
+    $this->assertContains('deadly-simplicity', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testEmblazonArmamentAddsExplorationAction(): void {
+    $character = $this->buildCharacterWithFeat('emblazon-armament');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame('Emblazon Armament', $action['name']);
+    $this->assertSame('10_minutes', $action['action_cost']);
+    $this->assertSame(['weapon', 'shield'], $action['target_options']);
+    $this->assertTrue($action['only_one_item_can_be_emblazoned_at_a_time']);
+    $this->assertContains('emblazon-armament', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testChannelSmiteAddsStructuredStrikeAction(): void {
+    $character = $this->buildCharacterWithFeat('channel-smite');
+    $effects = $this->manager->buildEffectState($character);
+
+    $this->assertTrue($effects['derived_adjustments']['flags']['channel_smite_available']);
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame('Channel Smite', $action['name']);
+    $this->assertSame('melee_strike_plus_divine_font', $action['activity']);
+    $this->assertSame('divine_font_slot', $action['expends_resource']);
+    $this->assertTrue($action['use_higher_of_weapon_or_spell_dc']);
+    $this->assertContains('channel-smite', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testRaiseSymbolAddsShortBuffAction(): void {
+    $character = $this->buildCharacterWithFeat('raise-symbol');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame('Raise Symbol', $action['name']);
+    $this->assertSame(2, $action['spell_attack_roll_bonus']);
+    $this->assertSame(2, $action['save_bonus_against_opposed_alignment_spells']);
+    $this->assertContains('raise-symbol', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testCantripExpansionClericAddsPreparedCantripCapacity(): void {
+    $character = $this->buildLeveledCharacterWithFeatParams('cantrip-expansion-cleric', []);
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['cantrip-expansion-cleric'];
+    $this->assertSame('prepared_cantrip_capacity_increase', $override['type']);
+    $this->assertSame('divine', $override['tradition']);
+    $this->assertSame(2, $override['extra_prepared_cantrips']);
+    $this->assertContains('cantrip-expansion-cleric', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testCantripExpansionSorcererAddsBloodlineTraditionCantrips(): void {
+    $character = $this->buildLeveledCharacterWithFeatParams('cantrip-expansion-sorcerer', [
+      'selected_cantrips' => ['electric-arc', 'mage-hand'],
+    ], [
+      'subclass' => 'draconic',
+    ]);
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['cantrip-expansion-sorcerer'];
+    $this->assertSame('repertoire_cantrip_expansion', $override['type']);
+    $this->assertSame('arcane', $override['tradition']);
+    $this->assertSame('draconic', $override['bloodline']);
+    $this->assertSame(['electric-arc', 'mage-hand'], $override['added_cantrips']);
+    $this->assertSame(2, $override['extra_repertoire_cantrips']);
+    $this->assertContains('cantrip-expansion-sorcerer', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testStudiousCapacityAddsMixedRepertoireExpansion(): void {
+    $character = $this->buildLeveledCharacterWithFeatParams('studious-capacity', [
+      'selected_cantrips' => ['daze', 'read-aura'],
+      'selected_spell' => 'spirit-blast',
+    ], [
+      'level' => 12,
+    ]);
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['studious-capacity'];
+    $this->assertSame('mixed_repertoire_expansion', $override['type']);
+    $this->assertSame('occult', $override['tradition']);
+    $this->assertSame(['daze', 'read-aura'], $override['added_cantrips']);
+    $this->assertSame(6, $override['highest_available_rank']);
+    $this->assertSame('spirit-blast', $override['added_highest_rank_spell']);
+    $this->assertContains('studious-capacity', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testGreaterVitalEvolutionAddsSpellbookSpellsAndInitiativeBonus(): void {
+    $character = $this->buildLeveledCharacterWithFeatParams('greater-vital-evolution', [
+      'selected_spells' => ['fireball', 'haste'],
+    ], [
+      'level' => 8,
+      'abilities' => [
+        'intelligence' => 18,
+      ],
+    ]);
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['greater-vital-evolution'];
+    $this->assertSame('spellbook_expansion', $override['type']);
+    $this->assertSame('arcane', $override['tradition']);
+    $this->assertSame(['fireball', 'haste'], $override['added_spells']);
+    $this->assertSame('intelligence_modifier', $override['initiative_ability_bonus']);
+    $this->assertSame(4, $effects['derived_adjustments']['initiative_bonus']);
+    $this->assertContains('greater-vital-evolution', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testSpellMasteryAddsMasteredFreeCastSpells(): void {
+    $character = $this->buildLeveledCharacterWithFeatParams('spell-mastery', [
+      'selected_spells' => ['fireball', 'haste', 'disintegrate', 'teleport'],
+    ], [
+      'level' => 20,
+    ]);
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['spell-mastery'];
+    $this->assertSame('mastered_spell_preparation', $override['type']);
+    $this->assertSame(['fireball', 'haste', 'disintegrate', 'teleport'], $override['mastered_spells']);
+    $this->assertSame(1, $override['free_casts_per_spell_per_day']);
+    $this->assertTrue($override['does_not_count_against_prepared_slots']);
+    $this->assertContains('spell-mastery', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testInfinitePossibilitiesAddsTemporarySpellbookEntries(): void {
+    $character = $this->buildLeveledCharacterWithFeatParams('infinite-possibilities', [
+      'selected_spells' => ['heal', 'synesthesia', 'wall-of-stone'],
+    ], [
+      'level' => 18,
+    ]);
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['infinite-possibilities'];
+    $this->assertSame('temporary_spellbook_entries', $override['type']);
+    $this->assertSame(['heal', 'synesthesia', 'wall-of-stone'], $override['added_spells']);
+    $this->assertSame('next_daily_preparations', $override['temporary_until']);
+    $this->assertTrue($override['prepared_from_entries_count_as_arcane']);
+    $this->assertContains('infinite-possibilities', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testScrollSavantAddsDailyTemporaryScrollCreation(): void {
+    $character = $this->buildLeveledCharacterWithFeatParams('scroll-savant', [
+      'selected_spells' => ['fireball', 'teleport'],
+    ], [
+      'level' => 10,
+    ]);
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['scroll-savant'];
+    $this->assertSame('daily_temporary_scrolls', $override['type']);
+    $this->assertSame(['fireball', 'teleport'], $override['created_scroll_spells']);
+    $action = $effects['available_actions']['per_long_rest'][0];
+    $this->assertSame('create_temporary_arcane_scrolls', $action['activity']);
+    $this->assertSame(2, $action['scroll_count']);
+    $this->assertContains('scroll-savant', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testBondConservationAddsDrainBondedMetamagic(): void {
+    $character = $this->buildCharacterWithFeat('bond-conservation');
+    $effects = $this->manager->buildEffectState($character);
+
+    $augment = $effects['spell_augments']['metamagic'][0];
+    $this->assertSame('bond-conservation', $augment['id']);
+    $this->assertTrue($augment['drain_bonded_item_can_be_part_of_same_activity']);
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame('metamagic', $action['activity']);
+    $override = $effects['feat_overrides']['bond-conservation'];
+    $this->assertTrue($override['combined_activity_with_next_arcane_spell']);
+    $this->assertContains('bond-conservation', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testUniversalVersatilityAddsBorrowedSchoolSpellAction(): void {
+    $character = $this->buildCharacterWithFeat('universal-versatility');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['universal-versatility'];
+    $this->assertSame('borrow_school_spell', $override['type']);
+    $this->assertContains('abjuration', $override['available_schools']);
+    $this->assertNotContains('universalist', $override['available_schools']);
+    $action = $effects['available_actions']['per_long_rest'][0];
+    $this->assertSame('borrow_arcane_school_spell', $action['activity']);
+    $this->assertContains('universal-versatility', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testAdvancedSchoolSpellAddsSelectedSchoolFocusSpell(): void {
+    $character = $this->buildCharacterWithFeat('advanced-school-spell', [], [
+      'class' => 'wizard',
+      'subclass' => 'evocation',
+    ]);
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['advanced-school-spell'];
+    $this->assertSame('advanced_school_focus_spell', $override['type']);
+    $this->assertSame('evocation', $override['school_id']);
+    $this->assertSame('thunderburst', $override['advanced_focus_spell']);
+    $this->assertSame(1, $override['focus_pool_bonus']);
+    $this->assertContains('advanced-school-spell', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testAlterRealityAddsWishLikeDailyAction(): void {
+    $character = $this->buildCharacterWithFeat('alter-reality');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['per_long_rest'][0];
+    $this->assertSame('alter-reality', $action['id']);
+    $override = $effects['feat_overrides']['alter-reality'];
+    $this->assertSame('wish_like_arcane_duplication', $override['type']);
+    $this->assertSame(7, $override['spell_rank_cap']);
+    $this->assertContains('alter-reality', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testSpellCombinationAddsDailyPreparationCombinationAction(): void {
+    $character = $this->buildCharacterWithFeat('spell-combination');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['per_long_rest'][0];
+    $this->assertSame('combine_prepared_spells_into_dual_slot', $action['activity']);
+    $override = $effects['feat_overrides']['spell-combination'];
+    $this->assertSame('dual_prepared_slot', $override['type']);
+    $this->assertTrue($override['casts_both_effects_simultaneously']);
+    $this->assertContains('spell-combination', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testMiracleAddsWishLikeDivineDailyAction(): void {
+    $character = $this->buildCharacterWithFeat('miracle');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['per_long_rest'][0];
+    $this->assertSame('miracle', $action['id']);
+    $override = $effects['feat_overrides']['miracle'];
+    $this->assertSame('wish_like_divine_duplication', $override['type']);
+    $this->assertSame(9, $override['spell_rank_cap']);
+    $this->assertSame('divine', $override['spell_tradition']);
+    $this->assertContains('miracle', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testSteadySpellcastingClericAddsDisruptionCheckOverride(): void {
+    $character = $this->buildCharacterWithFeat('steady-spellcasting-cleric');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['steady-spellcasting-cleric'];
+    $this->assertSame(15, $override['flat_check_to_avoid_spell_disruption']);
+    $this->assertContains('steady-spellcasting-cleric', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testDivineWeaponAddsPostFontDamageOverride(): void {
+    $character = $this->buildCharacterWithFeat('divine-weapon');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['divine-weapon'];
+    $this->assertSame('cast_divine_font_spell', $override['trigger']);
+    $this->assertSame('1d4', $override['next_strike_with_favored_weapon_extra_damage']);
+    $this->assertSame(['fire', 'radiant'], $override['damage_type_mapping']['positive']);
+    $this->assertContains('divine-weapon', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testSelectiveEnergyAddsBurstExclusionOverride(): void {
+    $character = $this->buildCharacterWithFeat('selective-energy');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['selective-energy'];
+    $this->assertSame(['heal_burst', 'harm_burst'], $override['applies_to']);
+    $this->assertSame('max(1, wisdom_modifier)', $override['excluded_targets_formula']);
+    $this->assertContains('selective-energy', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testVersatileFontAddsMixedFontPreparationOverride(): void {
+    $character = $this->buildCharacterWithFeat('versatile-font');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['versatile-font'];
+    $this->assertTrue($override['can_prepare_heal_and_harm_in_divine_font_slots']);
+    $this->assertSame('half_rounded_up', $override['minimum_default_font_share']);
+    $this->assertContains('versatile-font', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testAlignArmamentAddsAlignmentWeaponAction(): void {
+    $character = $this->buildCharacterWithFeat('align-armament');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame('Align Armament', $action['name']);
+    $this->assertSame('imbue_weapon_alignment', $action['activity']);
+    $this->assertSame('1_minute', $action['duration']);
+    $this->assertSame('1d6', $action['extra_damage']);
+    $this->assertContains('align-armament', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testCastigatingWeaponAddsUndeadDamageOverride(): void {
+    $character = $this->buildCharacterWithFeat('castigating-weapon');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['castigating-weapon'];
+    $this->assertSame('hit_undead_with_deity_favored_weapon', $override['trigger']);
+    $this->assertSame('max(1, wisdom_modifier)', $override['extra_positive_damage_formula']);
+    $this->assertContains('castigating-weapon', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testHeroicRecoveryAddsFreeRecoveryCheckOverride(): void {
+    $character = $this->buildCharacterWithFeat('heroic-recovery');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['heroic-recovery'];
+    $this->assertSame('cast_heal_rank_3_or_higher_on_creature_at_0_hp', $override['trigger']);
+    $this->assertTrue($override['target_gets_free_recovery_check']);
+    $this->assertContains('heroic-recovery', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testReplenishingStrikeAddsDailyFontRecoveryTrigger(): void {
+    $character = $this->buildCharacterWithFeat('replenishing-strike');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['per_long_rest'][0];
+    $this->assertSame('Replenishing Strike', $action['name']);
+    $this->assertSame('once_per_long_rest', $action['frequency']);
+    $this->assertSame('restore_divine_font_slot', $action['activity']);
+    $this->assertContains('replenishing-strike', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testSharedReplenishmentRedirectsCommunalHealing(): void {
+    $character = $this->buildCharacterWithFeat('shared-replenishment');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['shared-replenishment'];
+    $this->assertSame('communal-healing', $override['modifies_feat']);
+    $this->assertTrue($override['bonus_healing_goes_to_healed_ally_instead_of_self']);
+    $this->assertContains('shared-replenishment', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testDivineRebuttalAddsCounteractReaction(): void {
+    $character = $this->buildCharacterWithFeat('divine-rebuttal');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame('Divine Rebuttal', $action['name']);
+    $this->assertSame('reaction', $action['action_cost']);
+    $this->assertSame('once_per_10_minutes', $action['frequency']);
+    $this->assertSame('counteract_triggering_spell', $action['activity']);
+    $this->assertContains('divine-rebuttal', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testEchoingChannelAddsChannelSmiteBurstOverride(): void {
+    $character = $this->buildCharacterWithFeat('echoing-channel');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['echoing-channel'];
+    $this->assertSame('channel-smite', $override['modifies_feat']);
+    $this->assertSame(5, $override['secondary_burst_radius_feet']);
+    $this->assertSame('half', $override['secondary_burst_damage_fraction']);
+    $this->assertContains('echoing-channel', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testEmblazonEnergyAddsPersistentCritDamageOverride(): void {
+    $character = $this->buildCharacterWithFeat('emblazon-energy');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['emblazon-energy'];
+    $this->assertTrue($override['requires_emblazoned_weapon']);
+    $this->assertSame('1d4', $override['persistent_damage']);
+    $this->assertSame('fire', $override['damage_type_mapping']['holy']);
+    $this->assertContains('emblazon-energy', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testUseElixirAddsOneActionAdministration(): void {
+    $character = $this->buildCharacterWithFeat('use-elixir');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame('Use Elixir', $action['name']);
+    $this->assertSame('administer_held_potion_or_elixir', $action['activity']);
+    $this->assertSame('willing_adjacent_creature', $action['target']);
+    $this->assertContains('use-elixir', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testAvatarsAudienceAddsDailyVisionAction(): void {
+    $character = $this->buildCharacterWithFeat('avatar-s-audience');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['per_long_rest'][0];
+    $this->assertSame("Avatar's Audience", $action['name']);
+    $this->assertSame('once_per_long_rest', $action['frequency']);
+    $this->assertSame('receive_divine_vision', $action['activity']);
+    $this->assertTrue($action['automatic_success']);
+    $this->assertSame(6, $action['max_yes_no_questions']);
+    $this->assertContains('avatar-s-audience', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testExtendedChannelAddsMetamagicBurstIncrease(): void {
+    $character = $this->buildCharacterWithFeat('extended-channel');
+    $effects = $this->manager->buildEffectState($character);
+
+    $augment = $effects['spell_augments']['metamagic'][0];
+    $this->assertSame('Extended Channel', $augment['name']);
+    $this->assertSame(['heal_burst', 'harm_burst'], $augment['applies_to']);
+    $this->assertSame(60, $augment['three_action_burst_radius_feet']);
+    $this->assertContains('extended-channel', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testSwiftBanishmentAddsTriggeredFreeSpellAction(): void {
+    $character = $this->buildCharacterWithFeat('swift-banishment');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame('Swift Banishment', $action['name']);
+    $this->assertSame('free', $action['action_cost']);
+    $this->assertSame('critically_hit_creature_with_strike', $action['trigger']);
+    $this->assertSame('prepared_banishment_spell_slot', $action['expends_resource']);
+    $this->assertContains('swift-banishment', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testAvatarAddsDailyTransformationAction(): void {
+    $character = $this->buildCharacterWithFeat('avatar');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['per_long_rest'][0];
+    $this->assertSame('Avatar', $action['name']);
+    $this->assertSame('once_per_long_rest', $action['frequency']);
+    $this->assertSame('transform_into_deific_avatar', $action['activity']);
+    $this->assertSame('large', $action['size_becomes']);
+    $this->assertSame(60, $action['fly_speed_feet']);
+    $this->assertContains('avatar', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testLeshyFamiliarDruidAddsLeshyCreationGrant(): void {
+    $character = $this->buildCharacterWithFeat('leshy-familiar-druid');
+    $effects = $this->manager->buildEffectState($character);
+
+    $grant = $effects['selection_grants'][0];
+    $this->assertSame('familiar_creation', $grant['selection_type']);
+    $override = $effects['feat_overrides']['leshy-familiar-druid'];
+    $this->assertSame('leshy', $override['familiar_type']);
+    $this->assertTrue($override['can_regain_plant_trait']);
+    $this->assertContains('leshy-familiar-druid', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testReachSpellDruidAddsMetamagicAugment(): void {
+    $character = $this->buildCharacterWithFeat('reach-spell-druid');
+    $effects = $this->manager->buildEffectState($character);
+
+    $augment = $effects['spell_augments']['metamagic'][0];
+    $this->assertSame('Reach Spell', $augment['name']);
+    $this->assertSame(30, $augment['range_bonus_feet']);
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame('metamagic', $action['activity']);
+    $this->assertContains('reach-spell-druid', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testWidenSpellDruidAddsAreaAugment(): void {
+    $character = $this->buildCharacterWithFeat('widen-spell-druid');
+    $effects = $this->manager->buildEffectState($character);
+
+    $augment = $effects['spell_augments']['metamagic'][0];
+    $this->assertSame(['burst', 'cone', 'line'], $augment['eligible_shapes']);
+    $this->assertSame(5, $augment['burst_radius_bonus_feet']);
+    $this->assertContains('widen-spell-druid', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testStormBornAddsWeatherOverrides(): void {
+    $character = $this->buildCharacterWithFeat('storm-born');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['storm-born'];
+    $this->assertTrue($override['ignore_natural_weather_penalties']);
+    $this->assertTrue($override['not_buffeted_or_blinded_by_wind']);
+    $this->assertContains('storm-born', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testWildShapeDruidAddsFocusSpellAction(): void {
+    $character = $this->buildCharacterWithFeat('wild-shape-druid');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame('Wild Shape', $action['name']);
+    $this->assertSame('focus_spell', $action['activity']);
+    $this->assertSame('once_per_hour', $action['wild_order_free_cast_frequency']);
+    $override = $effects['feat_overrides']['wild-shape-druid'];
+    $this->assertSame(1, $override['grants_focus_point']);
+    $this->assertContains('wild-shape-druid', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testFamiliarDruidAddsFamiliarCreationGrant(): void {
+    $character = $this->buildCharacterWithFeat('familiar-druid');
+    $effects = $this->manager->buildEffectState($character);
+
+    $grant = $effects['selection_grants'][0];
+    $this->assertSame('familiar_creation', $grant['selection_type']);
+    $this->assertContains('familiar-druid', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testAnimalCompanionDruidAddsCompanionCreationGrant(): void {
+    $character = $this->buildCharacterWithFeat('animal-companion-druid');
+    $effects = $this->manager->buildEffectState($character);
+
+    $grant = $effects['selection_grants'][0];
+    $this->assertSame('animal-companion-druid', $grant['source_feat']);
+    $this->assertSame('animal_companion_choice', $grant['selection_type']);
+    $this->assertContains('animal-companion-druid', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testSpecializedCompanionDruidAddsSpecializationGrantWhenMissing(): void {
+    $character = $this->buildCharacterWithFeat('specialized-companion-druid');
+    $effects = $this->manager->buildEffectState($character);
+
+    $grant = $effects['selection_grants'][0];
+    $this->assertSame('animal_companion_specialization_choice', $grant['selection_type']);
+    $this->assertSame('mature', $effects['feat_overrides']['specialized-companion-druid']['animal_companion_stage']);
+    $this->assertContains('specialized-companion-druid', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testGoodberryAddsFocusSpellAction(): void {
+    $character = $this->buildCharacterWithFeat('goodberry');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame('goodberry', $action['id']);
+    $this->assertSame('focus_spell', $action['activity']);
+    $this->assertTrue($action['creates_healing_and_sustaining_berry']);
+    $this->assertContains('goodberry', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testHealAnimalAddsAnimalHealingFocusSpell(): void {
+    $character = $this->buildCharacterWithFeat('heal-animal');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame('heal_animal', $action['spell_reference']);
+    $this->assertSame(['animal_companion', 'animal'], $action['preferred_targets']);
+    $this->assertContains('heal-animal', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testTempestSurgeAddsStormFocusSpell(): void {
+    $character = $this->buildCharacterWithFeat('tempest-surge');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame('tempest_surge', $action['spell_reference']);
+    $this->assertSame(['electricity', 'bludgeoning'], $action['damage_types']);
+    $this->assertContains('tempest-surge', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testSteadySpellcastingDruidAddsDisruptionCheckOverride(): void {
+    $character = $this->buildCharacterWithFeat('steady-spellcasting-druid');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['steady-spellcasting-druid'];
+    $this->assertSame(15, $override['flat_check_to_avoid_spell_disruption']);
+    $this->assertContains('steady-spellcasting-druid', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testCallOfTheWildAddsSummoningAction(): void {
+    $character = $this->buildCharacterWithFeat('call-of-the-wild');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame('summon_bound_natural_servant', $action['activity']);
+    $this->assertSame(['animal', 'elemental', 'plant'], $action['eligible_traits']);
+    $this->assertSame('24_hours', $action['duration']);
+    $this->assertContains('call-of-the-wild', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testEnhancedFamiliarDruidAddsMoreAbilities(): void {
+    $character = $this->buildCharacterWithFeat('enhanced-familiar-druid');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['enhanced-familiar-druid'];
+    $this->assertSame(2, $override['additional_familiar_abilities_per_day']);
+    $this->assertContains('enhanced-familiar-druid', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testFerociousShapeAddsLargeAnimalForms(): void {
+    $character = $this->buildCharacterWithFeat('ferocious-shape');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['ferocious-shape'];
+    $this->assertSame('wild-shape-druid', $override['modifies_feat']);
+    $this->assertTrue($override['wild_shape_unlocks_large_animal_forms']);
+    $this->assertContains('ferocious-shape', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testSoaringShapeAddsWingedWildForms(): void {
+    $character = $this->buildCharacterWithFeat('soaring-shape');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['soaring-shape'];
+    $this->assertTrue($override['wild_shape_unlocks_winged_forms']);
+    $this->assertTrue($override['wild_shape_forms_gain_fly_speed']);
+    $this->assertContains('soaring-shape', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testWindCallerAddsStormwindFlightSpell(): void {
+    $character = $this->buildCharacterWithFeat('wind-caller');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame('stormwind_flight', $action['spell_reference']);
+    $this->assertContains('wind-caller', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testCurrentSpellAddsColdAndElectricityRangeAugment(): void {
+    $character = $this->buildCharacterWithFeat('current-spell');
+    $effects = $this->manager->buildEffectState($character);
+
+    $augment = $effects['spell_augments']['metamagic'][0];
+    $this->assertSame(['electricity', 'cold'], $augment['requires_traits']);
+    $this->assertSame(30, $augment['range_bonus_feet']);
+    $this->assertContains('current-spell', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testGreenEmpathyAddsPlantWildEmpathyOverride(): void {
+    $character = $this->buildCharacterWithFeat('green-empathy');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['green-empathy'];
+    $this->assertTrue($override['wild_empathy_applies_to_plants']);
+    $this->assertTrue($override['mindless_plants_are_immune']);
+    $this->assertContains('green-empathy', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testInsectShapeAddsTinyWildForms(): void {
+    $character = $this->buildCharacterWithFeat('insect-shape');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['insect-shape'];
+    $this->assertSame('wild-shape-druid', $override['modifies_feat']);
+    $this->assertTrue($override['wild_shape_unlocks_tiny_insect_forms']);
+    $this->assertContains('insect-shape', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testStormRetributionAddsReactionTempestSurge(): void {
+    $character = $this->buildCharacterWithFeat('storm-retribution');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame('reaction', $action['action_cost']);
+    $this->assertSame('cast_tempest_surge', $action['activity']);
+    $this->assertSame('creature_deals_damage_to_you_with_melee_attack', $action['trigger']);
+    $this->assertContains('storm-retribution', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testAerialFormImprovesSoaringShape(): void {
+    $character = $this->buildCharacterWithFeat('aerial-form');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['aerial-form'];
+    $this->assertSame('soaring-shape', $override['modifies_feat']);
+    $this->assertTrue($override['wild_shape_aerial_forms_improved']);
+    $this->assertContains('aerial-form', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testTimelessNatureAddsAgingImmunityOverride(): void {
+    $character = $this->buildCharacterWithFeat('deadly-simplicity-druid');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['deadly-simplicity-druid'];
+    $this->assertTrue($override['ignore_aging_ability_penalties']);
+    $this->assertTrue($override['cannot_die_of_old_age']);
+    $this->assertContains('deadly-simplicity-druid', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testThousandFacesAddsHumanoidForms(): void {
+    $character = $this->buildCharacterWithFeat('thousand-faces');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['thousand-faces'];
+    $this->assertSame('wild-shape-druid', $override['modifies_feat']);
+    $this->assertTrue($override['wild_shape_unlocks_small_and_medium_humanoids']);
+    $this->assertContains('thousand-faces', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testWoodlandStrideAddsNaturalTerrainFlags(): void {
+    $character = $this->buildCharacterWithFeat('woodland-stride');
+    $effects = $this->manager->buildEffectState($character);
+
+    $this->assertTrue($effects['derived_adjustments']['flags']['ignore_difficult_terrain_natural_undergrowth']);
+    $this->assertTrue($effects['derived_adjustments']['flags']['ignore_natural_plant_hazards']);
+    $this->assertContains('woodland-stride', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testOverwhelmingEnergyDruidAddsResistanceBypassAugment(): void {
+    $character = $this->buildCharacterWithFeat('overwhelming-energy-druid');
+    $effects = $this->manager->buildEffectState($character);
+
+    $augment = $effects['spell_augments']['metamagic'][0];
+    $this->assertSame(['acid', 'cold', 'electricity', 'fire', 'sonic'], $augment['eligible_damage_types']);
+    $this->assertSame(10, $augment['ignore_resistance_up_to']);
+    $this->assertContains('overwhelming-energy-druid', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testPlantShapeAddsPlantForms(): void {
+    $character = $this->buildCharacterWithFeat('plant-shape');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['plant-shape'];
+    $this->assertTrue($override['wild_shape_unlocks_small_and_medium_plant_forms']);
+    $this->assertContains('plant-shape', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testPrimalFocusAddsSecondDailyRefocus(): void {
+    $character = $this->buildCharacterWithFeat('primal-focus');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['primal-focus'];
+    $this->assertSame(2, $override['max_refocuses_per_day']);
+    $this->assertSame(1, $override['focus_points_restored_per_refocus']);
+    $this->assertContains('primal-focus', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testElementalShapeAddsElementalForms(): void {
+    $character = $this->buildCharacterWithFeat('elemental-shape');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['elemental-shape'];
+    $this->assertSame(['air', 'earth', 'fire', 'water'], $override['wild_shape_unlocks_elemental_forms']);
+    $this->assertSame(['small', 'medium', 'large'], $override['wild_shape_elemental_size_options']);
+    $this->assertContains('elemental-shape', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testPristineWeaponAddsMaterialOverrides(): void {
+    $character = $this->buildCharacterWithFeat('pristine-weapon');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['pristine-weapon'];
+    $this->assertSame(['cold_iron', 'silver'], $override['weapons_count_as_materials']);
+    $this->assertContains('pristine-weapon', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testStormOrderResilienceAddsResistanceAndSwimSpeed(): void {
+    $character = $this->buildCharacterWithFeat('storm-order-resilience');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['storm-order-resilience'];
+    $this->assertSame('electricity', $override['resistance']['damage_type']);
+    $this->assertSame(10, $override['resistance']['value']);
+    $this->assertSame(30, $override['grant_swim_speed_feet']);
+    $this->assertContains('storm-order-resilience', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testDragonShapeAddsDragonWildForms(): void {
+    $character = $this->buildCharacterWithFeat('dragon-shape');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['dragon-shape'];
+    $this->assertTrue($override['wild_shape_unlocks_large_dragon_form']);
+    $this->assertTrue($override['dragon_form_includes_breath_weapon']);
+    $this->assertContains('dragon-shape', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testTrueShapeshifterAddsDailyReshapeAction(): void {
+    $character = $this->buildCharacterWithFeat('true-shapeshifter');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['per_long_rest'][0];
+    $this->assertSame('True Shapeshifter', $action['name']);
+    $this->assertSame('once_per_long_rest', $action['frequency']);
+    $this->assertSame('change_wild_shape_form', $action['activity']);
+    $this->assertContains('true-shapeshifter', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testMonstrosityShapeAddsGargantuanForms(): void {
+    $character = $this->buildCharacterWithFeat('monstrosity-shape');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['monstrosity-shape'];
+    $this->assertTrue($override['wild_shape_unlocks_gargantuan_monstrosity_forms']);
+    $this->assertContains('monstrosity-shape', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testPrimalWellspringAddsThirdDailyRefocus(): void {
+    $character = $this->buildCharacterWithFeat('primal-wellspring');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['primal-wellspring'];
+    $this->assertSame(3, $override['max_refocuses_per_day']);
+    $this->assertSame(1, $override['focus_points_restored_per_refocus']);
+    $this->assertContains('primal-wellspring', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testInvokeDisasterAddsOrderSpellAction(): void {
+    $character = $this->buildCharacterWithFeat('invoke-disaster');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame('invoke_disaster', $action['spell_reference']);
+    $this->assertSame('focus_spell', $action['activity']);
+    $this->assertContains('invoke-disaster', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testPerfectFormControlAddsCastingAndPenaltyOverride(): void {
+    $character = $this->buildCharacterWithFeat('perfect-form-control');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['perfect-form-control'];
+    $this->assertTrue($override['can_cast_spells_while_wild_shaped_if_form_allows']);
+    $this->assertSame(2, $override['ignore_wild_shape_metamagic_spell_level_penalty']);
+    $this->assertContains('perfect-form-control', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testNaturesAegisAddsRegenerationAndResistance(): void {
+    $character = $this->buildCharacterWithFeat('natures-aegis');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['natures-aegis'];
+    $this->assertSame(5, $override['regeneration']);
+    $this->assertSame(['fire', 'acid'], $override['regeneration_deactivated_by']);
+    $this->assertSame(10, $override['physical_resistance_bonus_against_natural_sources']);
+    $this->assertContains('natures-aegis', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testLeylineConduitAddsDailySpellSlotBuff(): void {
+    $character = $this->buildCharacterWithFeat('leyline-conduit');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['per_long_rest'][0];
+    $this->assertSame('Leyline Conduit', $action['name']);
+    $this->assertSame('once_per_long_rest', $action['frequency']);
+    $this->assertSame('10_minutes', $action['duration']);
+    $this->assertTrue($action['grants_extra_highest_rank_primal_slot']);
+    $this->assertContains('leyline-conduit', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testBreathControlAddsHoldBreathAndInhaledThreatBenefits(): void {
+    $character = $this->buildCharacterWithFeat('breath-control');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['breath-control'];
+    $this->assertSame(25, $override['hold_breath_multiplier']);
+    $modifier = $effects['conditional_modifiers']['saving_throws'][0];
+    $this->assertSame(1, $modifier['bonus']);
+    $this->assertSame('against inhaled threats', $modifier['context']);
+    $this->assertContains('breath-control', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testDiehardRaisesDyingDeathThreshold(): void {
+    $character = $this->buildCharacterWithFeat('diehard');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['diehard'];
+    $this->assertSame(5, $override['die_from_dying_value']);
+    $this->assertContains('diehard', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testFastRecoveryAddsRestAndMaladyRecoveryOverrides(): void {
+    $character = $this->buildCharacterWithFeat('fast-recovery');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['fast-recovery'];
+    $this->assertSame(2, $override['rest_healing_multiplier']);
+    $this->assertSame(2, $override['fortitude_success_reduces_disease_or_poison_stage_by']);
+    $this->assertContains('fast-recovery', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testFeatherStepAddsLightTerrainMovementFlag(): void {
+    $character = $this->buildCharacterWithFeat('feather-step');
+    $effects = $this->manager->buildEffectState($character);
+
+    $this->assertTrue($effects['derived_adjustments']['flags']['ignore_difficult_terrain_light']);
+    $this->assertContains('feather-step', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testFleetAddsFiveFootSpeedBonus(): void {
+    $character = $this->buildCharacterWithFeat('fleet');
+    $effects = $this->manager->buildEffectState($character);
+
+    $this->assertSame(5, $effects['derived_adjustments']['speed_bonus']);
+    $this->assertContains('fleet', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testIncredibleInitiativeAddsInitiativeBonus(): void {
+    $character = $this->buildCharacterWithFeat('incredible-initiative');
+    $effects = $this->manager->buildEffectState($character);
+
+    $this->assertSame(2, $effects['derived_adjustments']['initiative_bonus']);
+    $this->assertContains('incredible-initiative', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testRideRemovesMountedCheckAndAttackPenalty(): void {
+    $character = $this->buildCharacterWithFeat('ride');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['ride'];
+    $this->assertTrue($override['command_an_animal_mount_auto_succeeds']);
+    $this->assertTrue($override['ignore_mounted_attack_penalty']);
+    $this->assertContains('ride', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testShieldBlockAddsDamageReductionReaction(): void {
+    $character = $this->buildCharacterWithFeat('shield-block');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame('Shield Block', $action['name']);
+    $this->assertSame('reduce_damage_with_shield', $action['activity']);
+    $this->assertSame('shield_hardness', $action['prevent_damage_up_to']);
+    $this->assertContains('shield-block', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testToughnessAddsHpAndRecoveryBenefit(): void {
+    $character = $this->buildCharacterWithFeat('toughness');
+    $effects = $this->manager->buildEffectState($character, ['level' => 7]);
+
+    $this->assertSame(7, $effects['derived_adjustments']['hp_max_bonus']);
+    $this->assertSame('9 + dying_value', $effects['feat_overrides']['toughness']['recovery_check_dc_formula']);
+    $this->assertContains('toughness', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testHirelingManagerAddsHirelingBonus(): void {
+    $character = $this->buildCharacterWithFeat('hireling-manager');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['hireling-manager'];
+    $this->assertSame(2, $override['hireling_skill_check_bonus']);
+    $this->assertSame('circumstance', $override['bonus_type']);
+    $this->assertContains('hireling-manager', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testImprovisedRepairAddsTemporaryPatchAction(): void {
+    $character = $this->buildCharacterWithFeat('improvised-repair');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame(3, $action['action_cost']);
+    $this->assertSame('temporary_item_patch', $action['activity']);
+    $this->assertSame('broken_nonmagical_item', $action['target_requirement']);
+    $this->assertContains('improvised-repair', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testKeenFollowerImprovesFollowTheExpertBonuses(): void {
+    $character = $this->buildCharacterWithFeat('keen-follower');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['keen-follower'];
+    $this->assertSame('follow_the_expert', $override['modifies_activity']);
+    $this->assertSame(3, $override['expert_leader_bonus']);
+    $this->assertSame(4, $override['master_leader_bonus']);
+    $this->assertContains('keen-follower', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testPickUpThePaceAddsAdditionalHustleTime(): void {
+    $character = $this->buildCharacterWithFeat('pick-up-the-pace');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['pick-up-the-pace'];
+    $this->assertSame(20, $override['additional_hustle_minutes']);
+    $this->assertTrue($override['group_hustle_cap_uses_highest_constitution_member']);
+    $this->assertContains('pick-up-the-pace', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testPrescientPlannerAddsRetroactivePurchaseOverride(): void {
+    $character = $this->buildCharacterWithFeat('prescient-planner');
+    $effects = $this->manager->buildEffectState($character, ['level' => 8]);
+
+    $override = $effects['feat_overrides']['prescient-planner'];
+    $this->assertSame(1, $override['uses_per_shopping_opportunity']);
+    $this->assertTrue($override['retroactive_purchase_allowed']);
+    $this->assertSame('floor(level/2)', $override['item_requirements']['level_max_formula']);
+    $this->assertContains('prescient-planner', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testSkitterAddsHalfSpeedCrawlOverride(): void {
+    $character = $this->buildCharacterWithFeat('skitter');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['skitter'];
+    $this->assertSame('half_speed', $override['crawl_speed_formula']);
+    $this->assertContains('skitter', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testThoroughSearchAddsCarefulSearchBonus(): void {
+    $character = $this->buildCharacterWithFeat('thorough-search');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['thorough-search'];
+    $this->assertSame(2, $override['search_time_multiplier']);
+    $this->assertSame(2, $override['seek_bonus_when_searching_carefully']);
+    $this->assertContains('thorough-search', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testPrescientConsumableExtendsPrescientPlanner(): void {
+    $character = $this->buildCharacterWithFeat('prescient-consumable');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['prescient-consumable'];
+    $this->assertSame('prescient-planner', $override['modifies_feat']);
+    $this->assertTrue($override['retroactive_purchase_allows_consumables']);
+    $this->assertContains('prescient-consumable', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testSupertasterAddsPoisonDetectionAndRecallBonus(): void {
+    $character = $this->buildCharacterWithFeat('supertaster');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['supertaster'];
+    $this->assertTrue($override['secret_perception_check_when_eating_or_drinking_near_poison']);
+    $this->assertSame(2, $override['recall_knowledge_bonus_when_taste_relevant']);
+    $this->assertContains('supertaster', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testAHomeInEveryPortAddsDowntimeLodgingAction(): void {
+    $character = $this->buildCharacterWithFeat('a-home-in-every-port');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame('secure_lodging', $action['activity']);
+    $this->assertSame(7, $action['max_total_occupants']);
+    $this->assertSame('24_hours', $action['duration']);
+    $this->assertContains('a-home-in-every-port', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testCaravanLeaderImprovesGroupHustle(): void {
+    $character = $this->buildCharacterWithFeat('caravan-leader');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['caravan-leader'];
+    $this->assertSame('hustle', $override['modifies_activity']);
+    $this->assertTrue($override['group_uses_longest_solo_hustle_limit']);
+    $this->assertSame(20, $override['additional_group_hustle_minutes']);
+    $this->assertContains('caravan-leader', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testIncredibleScoutImprovesScoutBonus(): void {
+    $character = $this->buildCharacterWithFeat('incredible-scout');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['incredible-scout'];
+    $this->assertSame('scout', $override['modifies_activity']);
+    $this->assertSame(2, $override['allies_initiative_bonus']);
+    $this->assertContains('incredible-scout', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testTruePerceptionAddsAlwaysOnTrueSeeing(): void {
+    $character = $this->buildCharacterWithFeat('true-perception');
+    $effects = $this->manager->buildEffectState($character);
+
+    $sense = $effects['senses'][0];
+    $this->assertSame('true_seeing', $sense['type']);
+    $this->assertTrue($sense['always_on']);
+    $this->assertSame('perception', $sense['counteract_modifier']);
+    $this->assertContains('true-perception', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testTrueBloodAddsDualBloodMagicOverride(): void {
+    $character = $this->buildCharacterWithFeat('true-blood');
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['true-blood'];
+    $this->assertTrue($override['blood_magic_automatically_triggers_on_bloodline_spell']);
+    $this->assertTrue($override['blood_magic_can_apply_to_caster_and_target_simultaneously']);
+    $this->assertContains('true-blood', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testBloodlineConduitAddsDailyTenthRankSlot(): void {
+    $character = $this->buildCharacterWithFeat('bloodline-conduit');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['per_long_rest'][0];
+    $this->assertSame('Bloodline Conduit', $action['name']);
+    $this->assertSame('once_per_long_rest', $action['frequency']);
+    $this->assertSame('gain_extra_10th_level_spell_slot', $action['activity']);
+    $this->assertTrue($action['heighten_any_repertoire_spell_to_10th']);
+    $this->assertContains('bloodline-conduit', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testLessonOfDreamsAddsHexAndFamiliarSpell(): void {
+    $character = $this->buildCharacterWithFeat('lesson-of-dreams');
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame('veil-of-dreams', $action['id']);
+    $override = $effects['feat_overrides']['lesson-of-dreams'];
+    $this->assertSame('basic', $override['lesson_tier']);
+    $this->assertSame('sleep', $override['familiar_learns_spell']);
+    $this->assertContains('lesson-of-dreams', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testLessonOfLifeAddsHexAndFamiliarSpell(): void {
+    $character = $this->buildCharacterWithFeat('lesson-of-life');
+    $effects = $this->manager->buildEffectState($character);
+
+    $this->assertSame('life-boost', $effects['available_actions']['at_will'][0]['id']);
+    $this->assertSame('spirit-link', $effects['feat_overrides']['lesson-of-life']['familiar_learns_spell']);
+    $this->assertContains('lesson-of-life', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testLessonOfElementsReadsLeveledFeatParamsAndAddsFamiliarSpell(): void {
+    $character = $this->buildLeveledCharacterWithFeatParams('lesson-of-elements', [
+      'selected_spell' => 'hydraulic-push',
+    ]);
+    $effects = $this->manager->buildEffectState($character);
+
+    $action = $effects['available_actions']['at_will'][0];
+    $this->assertSame('elemental-betrayal', $action['id']);
+    $override = $effects['feat_overrides']['lesson-of-elements'];
+    $this->assertSame('basic', $override['lesson_tier']);
+    $this->assertSame('hydraulic-push', $override['familiar_learns_spell']);
+    $this->assertContains('lesson-of-elements', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testLessonOfElementsAddsPendingChoiceWithoutSpellSelection(): void {
+    $character = $this->buildCharacterWithFeat('lesson-of-elements');
+    $effects = $this->manager->buildEffectState($character);
+
+    $grant = $effects['selection_grants'][0];
+    $this->assertSame('lesson-of-elements', $grant['source_feat']);
+    $this->assertSame('lesson_of_elements_spell_choice', $grant['selection_type']);
+    $this->assertContains('lesson-of-elements', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testLessonOfProtectionAddsHexAndFamiliarSpell(): void {
+    $character = $this->buildCharacterWithFeat('lesson-of-protection');
+    $effects = $this->manager->buildEffectState($character);
+
+    $this->assertSame('blood-ward', $effects['available_actions']['at_will'][0]['id']);
+    $this->assertSame('mage-armor', $effects['feat_overrides']['lesson-of-protection']['familiar_learns_spell']);
+    $this->assertContains('lesson-of-protection', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testLessonOfVengeanceAddsHexAndFamiliarSpell(): void {
+    $character = $this->buildCharacterWithFeat('lesson-of-vengeance');
+    $effects = $this->manager->buildEffectState($character);
+
+    $this->assertSame('needle-of-vengeance', $effects['available_actions']['at_will'][0]['id']);
+    $this->assertSame('phantom-pain', $effects['feat_overrides']['lesson-of-vengeance']['familiar_learns_spell']);
+    $this->assertContains('lesson-of-vengeance', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testLessonOfMischiefAddsHexAndFamiliarSpell(): void {
+    $character = $this->buildCharacterWithFeat('lesson-of-mischief');
+    $effects = $this->manager->buildEffectState($character);
+
+    $this->assertSame('deceivers-cloak', $effects['available_actions']['at_will'][0]['id']);
+    $this->assertSame('mad-monkeys', $effects['feat_overrides']['lesson-of-mischief']['familiar_learns_spell']);
+    $this->assertContains('lesson-of-mischief', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testLessonOfShadowAddsHexAndFamiliarSpell(): void {
+    $character = $this->buildCharacterWithFeat('lesson-of-shadow');
+    $effects = $this->manager->buildEffectState($character);
+
+    $this->assertSame('malicious-shadow', $effects['available_actions']['at_will'][0]['id']);
+    $this->assertSame('chilling-darkness', $effects['feat_overrides']['lesson-of-shadow']['familiar_learns_spell']);
+    $this->assertContains('lesson-of-shadow', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testLessonOfSnowAddsHexAndFamiliarSpell(): void {
+    $character = $this->buildCharacterWithFeat('lesson-of-snow');
+    $effects = $this->manager->buildEffectState($character);
+
+    $this->assertSame('personal-blizzard', $effects['available_actions']['at_will'][0]['id']);
+    $this->assertSame('wall-of-wind', $effects['feat_overrides']['lesson-of-snow']['familiar_learns_spell']);
+    $this->assertContains('lesson-of-snow', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testLessonOfDeathAddsHexAndFamiliarSpell(): void {
+    $character = $this->buildCharacterWithFeat('lesson-of-death');
+    $effects = $this->manager->buildEffectState($character);
+
+    $this->assertSame('curse-of-death', $effects['available_actions']['at_will'][0]['id']);
+    $this->assertSame('raise-dead', $effects['feat_overrides']['lesson-of-death']['familiar_learns_spell']);
+    $this->assertContains('lesson-of-death', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testLessonOfRenewalAddsHexAndFamiliarSpell(): void {
+    $character = $this->buildCharacterWithFeat('lesson-of-renewal');
+    $effects = $this->manager->buildEffectState($character);
+
+    $this->assertSame('restorative-moment', $effects['available_actions']['at_will'][0]['id']);
+    $this->assertSame('field-of-life', $effects['feat_overrides']['lesson-of-renewal']['familiar_learns_spell']);
+    $this->assertContains('lesson-of-renewal', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testCannyAcumenAddsPendingChoiceWithoutSelection(): void {
+    $character = $this->buildCharacterWithFeat('canny-acumen');
+    $effects = $this->manager->buildEffectState($character);
+
+    $grant = $effects['selection_grants'][0];
+    $this->assertSame('canny-acumen', $grant['source_feat']);
+    $this->assertSame('proficiency_upgrade_choice', $grant['selection_type']);
+    $this->assertContains('canny-acumen', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testCannyAcumenUpgradesSelectedTrainedProficiency(): void {
+    $character = $this->buildCharacterWithFeatSelection('canny-acumen', [
+      'selected_proficiency' => 'fortitude',
+    ], [
+      'class' => 'wizard',
+      'class_proficiencies' => [
+        'perception' => 'Trained',
+        'fortitude' => 'Trained',
+        'reflex' => 'Trained',
+        'will' => 'Expert',
+      ],
+    ]);
+    $effects = $this->manager->buildEffectState($character);
+
+    $grant = $effects['training_grants']['proficiencies'][0];
+    $this->assertSame('saving_throw', $grant['category']);
+    $this->assertSame('fortitude', $grant['target']);
+    $this->assertSame('expert', $grant['rank']);
+    $override = $effects['feat_overrides']['canny-acumen'];
+    $this->assertSame('fortitude', $override['selected_proficiency']);
+    $this->assertSame('trained', $override['current_rank']);
+    $this->assertSame('expert', $override['granted_rank']);
+    $this->assertSame(1, $override['active_at_level']);
+    $this->assertContains('canny-acumen', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testCannyAcumenDefersMasterUpgradeUntilLevelSeventeen(): void {
+    $character = $this->buildCharacterWithFeatSelection('canny-acumen', [
+      'selected_proficiency' => 'will',
+    ], [
+      'class' => 'wizard',
+      'level' => 3,
+      'class_proficiencies' => [
+        'perception' => 'Trained',
+        'fortitude' => 'Trained',
+        'reflex' => 'Trained',
+        'will' => 'Expert',
+      ],
+    ]);
+    $effects = $this->manager->buildEffectState($character);
+
+    $this->assertSame([], $effects['training_grants']['proficiencies']);
+    $override = $effects['feat_overrides']['canny-acumen'];
+    $this->assertSame('will', $override['selected_proficiency']);
+    $this->assertSame('expert', $override['current_rank']);
+    $this->assertSame('master', $override['granted_rank']);
+    $this->assertSame(17, $override['active_at_level']);
+    $this->assertContains('canny-acumen', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testArmorProficiencyGrantsNextArmorTier(): void {
+    $character = $this->buildCharacterWithFeat('armor-proficiency', [], [
+      'class' => 'wizard',
+    ]);
+    $effects = $this->manager->buildEffectState($character);
+
+    $grant = $effects['training_grants']['proficiencies'][0];
+    $this->assertSame('armor', $grant['category']);
+    $this->assertSame('light', $grant['target']);
+    $this->assertSame('trained', $grant['rank']);
+    $override = $effects['feat_overrides']['armor-proficiency'];
+    $this->assertSame('armor_tier_upgrade', $override['type']);
+    $this->assertSame('light', $override['granted_tier']);
+    $this->assertContains('armor-proficiency', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testArmorProficiencyLeavesHeavyArmorClassesUnchanged(): void {
+    $character = $this->buildCharacterWithFeat('armor-proficiency', [], [
+      'class' => 'fighter',
+    ]);
+    $effects = $this->manager->buildEffectState($character);
+
+    $this->assertSame([], $effects['training_grants']['proficiencies']);
+    $this->assertArrayNotHasKey('armor-proficiency', $effects['feat_overrides']);
+    $this->assertContains('armor-proficiency', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testWeaponProficiencyGrantsSimpleWeaponsForClassesWithoutSimpleTraining(): void {
+    $character = $this->buildCharacterWithFeat('weapon-proficiency', [], [
+      'class' => 'wizard',
+    ]);
+    $effects = $this->manager->buildEffectState($character);
+
+    $grant = $effects['training_grants']['proficiencies'][0];
+    $this->assertSame('weapon', $grant['category']);
+    $this->assertSame('simple', $grant['target']);
+    $this->assertSame('trained', $grant['rank']);
+    $override = $effects['feat_overrides']['weapon-proficiency'];
+    $this->assertSame('weapon_category_upgrade', $override['type']);
+    $this->assertSame('simple', $override['granted_target']);
+    $this->assertContains('weapon-proficiency', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testWeaponProficiencyGrantsMartialWeaponsForSimpleWeaponClasses(): void {
+    $character = $this->buildCharacterWithFeat('weapon-proficiency', [], [
+      'class' => 'rogue',
+    ]);
+    $effects = $this->manager->buildEffectState($character);
+
+    $grant = $effects['training_grants']['proficiencies'][0];
+    $this->assertSame('weapon', $grant['category']);
+    $this->assertSame('martial', $grant['target']);
+    $this->assertSame('trained', $grant['rank']);
+    $override = $effects['feat_overrides']['weapon-proficiency'];
+    $this->assertSame('weapon_category_upgrade', $override['type']);
+    $this->assertSame('martial', $override['granted_target']);
+    $this->assertContains('weapon-proficiency', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testWeaponProficiencyRequestsAdvancedWeaponChoiceWhenClassAlreadyHasMartialTraining(): void {
+    $character = $this->buildCharacterWithFeat('weapon-proficiency', [], [
+      'class' => 'ranger',
+    ]);
+    $effects = $this->manager->buildEffectState($character);
+
+    $grant = $effects['selection_grants'][0];
+    $this->assertSame('weapon-proficiency', $grant['source_feat']);
+    $this->assertSame('advanced_weapon_choice', $grant['selection_type']);
+    $this->assertSame(1, $grant['count']);
+    $this->assertContains('weapon-proficiency', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testWeaponProficiencyAppliesSelectedAdvancedWeaponFromCharacterCreationSelection(): void {
+    $character = $this->buildCharacterWithFeatSelection('weapon-proficiency', [
+      'selected_weapon_id' => 'dwarven-waraxe',
+    ], [
+      'class' => 'ranger',
+    ]);
+    $effects = $this->manager->buildEffectState($character);
+
+    $grant = $effects['training_grants']['proficiencies'][0];
+    $this->assertSame('weapon', $grant['category']);
+    $this->assertSame('dwarven-waraxe', $grant['target']);
+    $this->assertSame('trained', $grant['rank']);
+    $override = $effects['feat_overrides']['weapon-proficiency'];
+    $this->assertSame('advanced_weapon_training', $override['type']);
+    $this->assertSame('dwarven-waraxe', $override['selected_weapon_id']);
+    $this->assertSame('Dwarven Waraxe', $override['selected_weapon_name']);
+    $this->assertContains('weapon-proficiency', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testWeaponProficiencyAppliesSelectedAdvancedWeaponFromLeveledFeatParams(): void {
+    $character = $this->buildLeveledCharacterWithFeatParams('weapon-proficiency', [
+      'selected_weapon_id' => 'flickmace',
+    ], [
+      'class' => 'ranger',
+    ]);
+    $effects = $this->manager->buildEffectState($character);
+
+    $grant = $effects['training_grants']['proficiencies'][0];
+    $this->assertSame('flickmace', $grant['target']);
+    $override = $effects['feat_overrides']['weapon-proficiency'];
+    $this->assertSame('flickmace', $override['selected_weapon_id']);
+    $this->assertSame('Flickmace', $override['selected_weapon_name']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testUnconventionalWeaponryRequestsWeaponSelectionWhenMissing(): void {
+    $character = $this->buildCharacterWithFeat('unconventional-weaponry');
+    $effects = $this->manager->buildEffectState($character);
+
+    $grant = $effects['selection_grants'][0];
+    $this->assertSame('unconventional-weaponry', $grant['source_feat']);
+    $this->assertSame('unconventional_weapon_choice', $grant['selection_type']);
+    $this->assertSame(1, $grant['count']);
+    $this->assertContains('unconventional-weaponry', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testUnconventionalWeaponryAppliesSelectedWeaponFromCharacterCreationSelection(): void {
+    $character = $this->buildCharacterWithFeatSelection('unconventional-weaponry', [
+      'selected_weapon_id' => 'gnome-hooked-hammer',
+    ]);
+    $effects = $this->manager->buildEffectState($character);
+
+    $grant = $effects['training_grants']['proficiencies'][0];
+    $this->assertSame('weapon', $grant['category']);
+    $this->assertSame('gnome-hooked-hammer', $grant['target']);
+    $this->assertSame('trained', $grant['rank']);
+    $override = $effects['feat_overrides']['unconventional-weaponry'];
+    $this->assertSame('uncommon_weapon_training', $override['type']);
+    $this->assertSame('gnome-hooked-hammer', $override['selected_weapon_id']);
+    $this->assertSame('Gnome Hooked Hammer', $override['selected_weapon_name']);
+    $this->assertTrue($override['grants_access']);
+    $this->assertContains('unconventional-weaponry', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testUnconventionalWeaponryAppliesSelectedWeaponFromLeveledFeatParams(): void {
+    $character = $this->buildLeveledCharacterWithFeatParams('unconventional-weaponry', [
+      'selected_weapon_id' => 'flickmace',
+    ]);
+    $effects = $this->manager->buildEffectState($character);
+
+    $grant = $effects['training_grants']['proficiencies'][0];
+    $this->assertSame('flickmace', $grant['target']);
+    $override = $effects['feat_overrides']['unconventional-weaponry'];
+    $this->assertSame('flickmace', $override['selected_weapon_id']);
+    $this->assertSame('Flickmace', $override['selected_weapon_name']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testAdoptedAncestryRequestsAncestrySelectionWhenMissing(): void {
+    $character = $this->buildCharacterWithFeat('adopted-ancestry');
+    $effects = $this->manager->buildEffectState($character);
+
+    $grant = $effects['selection_grants'][0];
+    $this->assertSame('adopted-ancestry', $grant['source_feat']);
+    $this->assertSame('adopted_ancestry_choice', $grant['selection_type']);
+    $this->assertSame(1, $grant['count']);
+    $this->assertContains('adopted-ancestry', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testAdoptedAncestryAppliesSelectedAncestryPoolOverride(): void {
+    $character = $this->buildCharacterWithFeatSelection('adopted-ancestry', [
+      'selected_ancestry' => 'elf',
+    ]);
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['adopted-ancestry'];
+    $this->assertSame('adopted_ancestry_pool_unlock', $override['type']);
+    $this->assertSame('elf', $override['selected_ancestry']);
+    $this->assertSame([], $effects['selection_grants']);
+    $this->assertContains('adopted-ancestry', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testArcaneEvolutionRequestsSpellSelectionWhenMissing(): void {
+    $character = $this->buildLeveledCharacterWithFeatParams('arcane-evolution', [], [
+      'class' => 'sorcerer',
+      'subclass' => 'imperial',
+      'bloodline' => 'imperial',
+    ]);
+    $effects = $this->manager->buildEffectState($character);
+
+    $grant = $effects['selection_grants'][0];
+    $this->assertSame('arcane-evolution', $grant['source_feat']);
+    $this->assertSame('arcane_evolution_spell_choice', $grant['selection_type']);
+    $this->assertSame(1, $grant['count']);
+    $this->assertContains('arcane-evolution', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testArcaneEvolutionPersistsSelectedSpellFromLeveledFeat(): void {
+    $character = $this->buildLeveledCharacterWithFeatParams('arcane-evolution', [
+      'selected_spell' => 'magic-missile',
+    ], [
+      'class' => 'sorcerer',
+      'subclass' => 'imperial',
+      'bloodline' => 'imperial',
+    ]);
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['arcane-evolution'];
+    $this->assertSame('repertoire_spell_expansion', $override['type']);
+    $this->assertSame('arcane', $override['tradition']);
+    $this->assertSame('magic-missile', $override['selected_spell']);
+    $this->assertTrue($override['add_one_arcane_spell_each_new_rank']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testCrossbloodedEvolutionRequestsSelectionWhenMissing(): void {
+    $character = $this->buildLeveledCharacterWithFeatParams('crossblooded-evolution', [], [
+      'class' => 'sorcerer',
+      'subclass' => 'imperial',
+      'bloodline' => 'imperial',
+    ]);
+    $effects = $this->manager->buildEffectState($character);
+
+    $grant = $effects['selection_grants'][0];
+    $this->assertSame('crossblooded-evolution', $grant['source_feat']);
+    $this->assertSame('crossblooded_evolution_spell_choice', $grant['selection_type']);
+    $this->assertSame(1, $grant['count']);
+    $this->assertContains('crossblooded-evolution', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testCrossbloodedEvolutionPersistsSelectedSpellAndBloodline(): void {
+    $character = $this->buildLeveledCharacterWithFeatParams('crossblooded-evolution', [
+      'selected_bloodline' => 'draconic',
+      'selected_spell' => 'magic-missile',
+    ], [
+      'class' => 'sorcerer',
+      'subclass' => 'imperial',
+      'bloodline' => 'imperial',
+    ]);
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['crossblooded-evolution'];
+    $this->assertSame('crossblooded_repertoire_expansion', $override['type']);
+    $this->assertSame('draconic', $override['selected_bloodline']);
+    $this->assertSame('Draconic', $override['selected_bloodline_label']);
+    $this->assertSame('magic-missile', $override['selected_spell']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testGreaterMentalEvolutionRequestsSpellSelectionWhenMissing(): void {
+    $character = $this->buildLeveledCharacterWithFeatParams('greater-mental-evolution', [], [
+      'class' => 'sorcerer',
+      'subclass' => 'imperial',
+      'bloodline' => 'imperial',
+    ]);
+    $effects = $this->manager->buildEffectState($character);
+
+    $grant = $effects['selection_grants'][0];
+    $this->assertSame('greater-mental-evolution', $grant['source_feat']);
+    $this->assertSame('greater_mental_evolution_spell_choice', $grant['selection_type']);
+    $this->assertSame(1, $grant['count']);
+    $this->assertContains('greater-mental-evolution', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testGreaterMentalEvolutionPersistsSelectedSpellFromLeveledFeat(): void {
+    $character = $this->buildLeveledCharacterWithFeatParams('greater-mental-evolution', [
+      'selected_spell' => 'charm',
+    ], [
+      'class' => 'sorcerer',
+      'subclass' => 'imperial',
+      'bloodline' => 'imperial',
+    ]);
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['greater-mental-evolution'];
+    $this->assertSame('cross_tradition_mental_repertoire_spell', $override['type']);
+    $this->assertSame('charm', $override['selected_spell']);
+    $this->assertTrue($override['cast_using_bloodline_tradition']);
+    $this->assertSame('arcane', $override['bloodline_tradition']);
+    $this->assertSame(1, $override['uses_per_long_rest']);
+    $this->assertSame(6, $override['max_selected_spell_rank']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testDomainInitiateRequestsDomainSelectionWhenMissing(): void {
+    $character = $this->buildCharacterWithFeat('domain-initiate');
+    $effects = $this->manager->buildEffectState($character);
+
+    $grant = $effects['selection_grants'][0];
+    $this->assertSame('domain-initiate', $grant['source_feat']);
+    $this->assertSame('domain_initiate_domain_choice', $grant['selection_type']);
+    $this->assertSame(1, $grant['count']);
+    $this->assertTrue($effects['derived_adjustments']['flags']['domain_initiate'] ?? FALSE);
+    $this->assertContains('domain-initiate', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testDomainInitiatePersistsSelectedDomainFlag(): void {
+    $character = $this->buildCharacterWithFeatSelection('domain-initiate', [
+      'selected_domain' => 'travel',
+    ]);
+    $effects = $this->manager->buildEffectState($character);
+
+    $this->assertSame('travel', $effects['derived_adjustments']['flags']['domain_initiate_domain'] ?? NULL);
+    $this->assertSame([], $effects['selection_grants']);
+    $this->assertContains('domain-initiate', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testAdvancedDomainRequestsDomainSelectionWhenMissing(): void {
+    $character = $this->buildLeveledCharacterWithFeatParams('advanced-domain', []);
+    $effects = $this->manager->buildEffectState($character);
+
+    $grant = $effects['selection_grants'][0];
+    $this->assertSame('advanced-domain', $grant['source_feat']);
+    $this->assertSame('advanced_domain_domain_choice', $grant['selection_type']);
+    $this->assertSame(1, $grant['count']);
+    $this->assertTrue($effects['derived_adjustments']['flags']['advanced_domain'] ?? FALSE);
+    $this->assertContains('advanced-domain', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testAdvancedDomainPersistsSelectedDomainFlagFromLeveledFeat(): void {
+    $character = $this->buildLeveledCharacterWithFeatParams('advanced-domain', [
+      'selected_domain' => 'travel',
+    ]);
+    $effects = $this->manager->buildEffectState($character);
+
+    $this->assertSame('travel', $effects['derived_adjustments']['flags']['advanced_domain_domain'] ?? NULL);
+    $this->assertSame([], $effects['selection_grants']);
+    $this->assertContains('advanced-domain', $effects['applied_feats']);
   }
 
   /**

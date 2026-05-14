@@ -1,0 +1,18 @@
+{
+  "rows": [
+    {
+      "item_instance_id": "ltba-magical-hedge-trimmer-default",
+      "item_id": "ltba-magical-hedge-trimmer",
+      "location_type": "library",
+      "location_ref": "little-trouble-in-big-absalom",
+      "quantity": 1,
+      "state_data": {
+        "condition": "new",
+        "availability": "template",
+        "category": "quest_item",
+        "magical": true,
+        "source_module": "little-trouble-in-big-absalom"
+      }
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "rows": [
+    {
+      "content_type": "item",
+      "content_id": "ltba-magical-hedge-trimmer",
+      "name": "Magical Hedge Trimmer",
+      "level": 1,
+      "rarity": "uncommon",
+      "tags": [
+        "item",
+        "magic_item",
+        "quest_item",
+        "little_trouble_in_big_absalom"
+      ],
+      "schema_data": {
+        "item_id": "ltba-magical-hedge-trimmer",
+        "item_type": "magic_item",
+        "source_book": "paizo_free_rpg_day",
+        "source_module": "little-trouble-in-big-absalom",
+        "price_gp": 0,
+        "description": "A magical hedge trimmer sought during the Upstairs! chapter."
+      },
+      "version": "1.0.0"
+    }
+  ]
+}

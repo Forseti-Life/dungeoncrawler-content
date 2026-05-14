@@ -1,0 +1,239 @@
+{
+  "rows": [
+    {
+      "template_id": "little-trouble-in-big-absalom",
+      "name": "Little Trouble in Big Absalom",
+      "synopsis": "A light, chaptered kobold adventure that works as a compact campaign storyline or side arc.",
+      "level_range": "1",
+      "source": "Paizo Free RPG Day",
+      "tags": ["kobold", "chaptered", "introductory", "urban", "comedic"],
+      "template_data": {
+        "template_id": "little-trouble-in-big-absalom",
+        "name": "Little Trouble in Big Absalom",
+        "synopsis": "A two-part kobold caper with a tomb delve followed by an upstairs neighborhood objective.",
+        "level_range": "1",
+        "source": "Paizo Free RPG Day",
+        "metadata": {
+          "recommended_party_size": "4-5",
+          "campaign_role": "side_arc"
+        },
+        "asset_references": [
+          {
+            "asset_type": "character_group",
+            "asset_id": "hookclaw-kobold-party",
+            "asset_role": "player_party",
+            "notes": "Pregenerated kobold protagonists for the module."
+          },
+          {
+            "asset_type": "dungeon",
+            "asset_id": "ltba-tomb-site",
+            "asset_role": "chapter-space",
+            "chapter_id": "the-tomb",
+            "notes": "The initial tomb/vault crawl area."
+          },
+          {
+            "asset_type": "room",
+            "asset_id": "ltba-vault-entry",
+            "asset_role": "entry-room",
+            "chapter_id": "the-tomb",
+            "scene_id": "vault-entry"
+          },
+          {
+            "asset_type": "room",
+            "asset_id": "ltba-tomb-hazard-room",
+            "asset_role": "hazard-room",
+            "chapter_id": "the-tomb",
+            "scene_id": "tomb-hazards"
+          },
+          {
+            "asset_type": "npc",
+            "asset_id": "ltba-grandmother",
+            "asset_role": "quest-giver",
+            "chapter_id": "upstairs",
+            "scene_id": "grandmothers-request"
+          },
+          {
+            "asset_type": "item",
+            "asset_id": "ltba-magical-hedge-trimmer",
+            "asset_role": "objective-item",
+            "chapter_id": "upstairs",
+            "scene_id": "recover-the-trimmer"
+          }
+        ],
+        "chapters": [
+          {
+            "chapter_id": "the-tomb",
+            "name": "The Tomb",
+            "summary": "Explore the treasure vault and survive the initial dungeon crawl chaos.",
+            "scenes": [
+              {
+                "scene_id": "vault-entry",
+                "name": "Vault Entry",
+                "summary": "Enter the discovered vault and establish the kobold party's goal.",
+                "quest_ids": ["ltba-enter-the-vault"]
+              },
+              {
+                "scene_id": "tomb-hazards",
+                "name": "Tomb Hazards",
+                "summary": "Overcome traps, hazards, and defenses protecting the treasure site.",
+                "quest_ids": ["ltba-clear-the-tomb"]
+              }
+            ]
+          },
+          {
+            "chapter_id": "upstairs",
+            "name": "Upstairs!",
+            "summary": "Move the action into the neighborhood and recover the magical hedge trimmer.",
+            "scenes": [
+              {
+                "scene_id": "grandmothers-request",
+                "name": "Grandmother's Request",
+                "summary": "Accept the follow-up objective and pivot the storyline into social/exploration play.",
+                "quest_ids": ["ltba-accept-the-task"]
+              },
+              {
+                "scene_id": "recover-the-trimmer",
+                "name": "Recover the Trimmer",
+                "summary": "Retrieve the magical hedge trimmer and resolve the kobolds' mission.",
+                "quest_ids": ["ltba-retrieve-hedge-trimmer"]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "template_id": "threshold-of-knowledge",
+      "name": "Threshold of Knowledge",
+      "synopsis": "An academy mystery storyline with recurring institutional context and cross-location progression.",
+      "level_range": "1",
+      "source": "Paizo Free RPG Day",
+      "tags": ["mystery", "academy", "magic", "investigation", "city"],
+      "template_data": {
+        "template_id": "threshold-of-knowledge",
+        "name": "Threshold of Knowledge",
+        "synopsis": "First-year students at the Magaambya investigate a missing teacher and a wider threat to the academy.",
+        "level_range": "1",
+        "source": "Paizo Free RPG Day",
+        "metadata": {
+          "recommended_party_size": "4-5",
+          "campaign_role": "primary_arc"
+        },
+        "asset_references": [
+          {
+            "asset_type": "faction",
+            "asset_id": "magaambya",
+            "asset_role": "home-institution"
+          },
+          {
+            "asset_type": "location",
+            "asset_id": "nantambu",
+            "asset_role": "city-hub",
+            "chapter_id": "nantambu-investigation"
+          },
+          {
+            "asset_type": "npc",
+            "asset_id": "tok-missing-teacher",
+            "asset_role": "primary-mystery-target",
+            "chapter_id": "magaambya-campus",
+            "scene_id": "missing-teacher"
+          }
+        ],
+        "chapters": [
+          {
+            "chapter_id": "magaambya-campus",
+            "name": "Magaambya Campus",
+            "summary": "Establish the school, mentors, and the teacher's disappearance.",
+            "scenes": [
+              {
+                "scene_id": "missing-teacher",
+                "name": "The Missing Teacher",
+                "summary": "Discover the inciting mystery and gather the first leads.",
+                "quest_ids": ["tok-find-the-missing-teacher"]
+              },
+              {
+                "scene_id": "campus-clues",
+                "name": "Campus Clues",
+                "summary": "Interview allies and inspect academy spaces for evidence.",
+                "quest_ids": ["tok-gather-campus-clues"]
+              }
+            ]
+          },
+          {
+            "chapter_id": "nantambu-investigation",
+            "name": "Nantambu Investigation",
+            "summary": "Follow leads beyond the campus and connect the missing teacher to the larger threat.",
+            "scenes": [
+              {
+                "scene_id": "city-follow-up",
+                "name": "Follow the Leads",
+                "summary": "Move through nearby Nantambu to pursue the mystery.",
+                "quest_ids": ["tok-follow-city-leads"]
+              },
+              {
+                "scene_id": "threat-revealed",
+                "name": "Threat Revealed",
+                "summary": "Resolve the underlying danger threatening the Magaambya.",
+                "quest_ids": ["tok-resolve-the-threat"]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "template_id": "torment-and-legacy",
+      "name": "Torment and Legacy",
+      "synopsis": "A minimal, tutorial-sized storyline template for quick introductory play.",
+      "level_range": "1",
+      "source": "Paizo Demo Adventure",
+      "tags": ["demo", "tutorial", "introductory", "combat", "one-shot"],
+      "template_data": {
+        "template_id": "torment-and-legacy",
+        "name": "Torment and Legacy",
+        "synopsis": "A compact onboarding adventure designed to teach the game through a short sequence of encounters.",
+        "level_range": "1",
+        "source": "Paizo Demo Adventure",
+        "metadata": {
+          "recommended_party_size": "4-6",
+          "campaign_role": "tutorial"
+        },
+        "asset_references": [
+          {
+            "asset_type": "character_group",
+            "asset_id": "pathfinder-iconic-demo-party",
+            "asset_role": "player_party"
+          },
+          {
+            "asset_type": "encounter",
+            "asset_id": "tal-opening-encounter",
+            "asset_role": "tutorial-combat",
+            "chapter_id": "onboarding",
+            "scene_id": "first-engagement"
+          }
+        ],
+        "chapters": [
+          {
+            "chapter_id": "onboarding",
+            "name": "Onboarding",
+            "summary": "Introduce the party, the stakes, and the first tactical challenge.",
+            "scenes": [
+              {
+                "scene_id": "briefing",
+                "name": "Adventure Briefing",
+                "summary": "Set expectations and explain the immediate objective.",
+                "quest_ids": ["tal-accept-the-mission"]
+              },
+              {
+                "scene_id": "first-engagement",
+                "name": "First Engagement",
+                "summary": "Deliver the core tutorial encounter.",
+                "quest_ids": ["tal-win-the-opening-fight"]
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
