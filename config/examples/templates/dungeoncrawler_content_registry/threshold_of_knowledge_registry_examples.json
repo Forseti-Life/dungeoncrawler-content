@@ -1,0 +1,46 @@
+{
+  "rows": [
+    {
+      "content_type": "faction",
+      "content_id": "magaambya",
+      "name": "Magaambya",
+      "level": 1,
+      "rarity": "common",
+      "tags": [
+        "faction",
+        "academy",
+        "magic",
+        "threshold_of_knowledge"
+      ],
+      "schema_data": {
+        "faction_id": "magaambya",
+        "faction_type": "academy",
+        "source_book": "paizo_free_rpg_day",
+        "source_module": "threshold-of-knowledge",
+        "description": "The storied Magaambya academy serves as the home institution for Threshold of Knowledge."
+      },
+      "version": "1.0.0"
+    },
+    {
+      "content_type": "location",
+      "content_id": "nantambu",
+      "name": "Nantambu",
+      "level": 1,
+      "rarity": "common",
+      "tags": [
+        "location",
+        "city",
+        "magic",
+        "threshold_of_knowledge"
+      ],
+      "schema_data": {
+        "location_id": "nantambu",
+        "location_type": "city_hub",
+        "source_book": "paizo_free_rpg_day",
+        "source_module": "threshold-of-knowledge",
+        "description": "The nearby city of Nantambu provides the broader investigation space for Threshold of Knowledge."
+      },
+      "version": "1.0.0"
+    }
+  ]
+}

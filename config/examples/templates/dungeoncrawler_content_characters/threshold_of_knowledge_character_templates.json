@@ -1,0 +1,22 @@
+{
+  "rows": [
+    {
+      "character_id": 4201,
+      "instance_id": "tok-missing-teacher",
+      "type": "npc",
+      "uid": 1,
+      "role": "npc",
+      "state_data": {
+        "name": "Missing Magaambya Teacher",
+        "class": "mentor",
+        "level": 2,
+        "hp_current": 18,
+        "conditions": [],
+        "source_module": "threshold-of-knowledge",
+        "description": "The missing teacher whose disappearance drives the central mystery of Threshold of Knowledge."
+      },
+      "location_type": "global",
+      "location_ref": ""
+    }
+  ]
+}

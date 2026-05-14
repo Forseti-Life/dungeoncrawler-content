@@ -22,6 +22,7 @@
  * - 10055: Import bundled storyline template examples
  * - 10056: Storyline asset-link storage and template refresh
  * - 10057: Import Little Trouble asset templates into the library
+ * - 10058: Import remaining bundled module asset templates into the library
  *
  * @see dungeoncrawler_content_schema()
  */
@@ -6609,6 +6610,36 @@ function dungeoncrawler_content_update_10057() {
 
   return t(
     'Little Trouble asset import complete. Processed: @processed, inserted: @inserted, updated: @updated, skipped: @skipped.',
+    [
+      '@processed' => (int) ($summary['table_rows_processed'] ?? 0),
+      '@inserted' => (int) ($summary['table_rows_inserted'] ?? 0),
+      '@updated' => (int) ($summary['table_rows_updated'] ?? 0),
+      '@skipped' => (int) ($summary['table_rows_skipped'] ?? 0),
+    ]
+  );
+}
+
+/**
+ * Import remaining bundled module asset templates into the library tables.
+ */
+function dungeoncrawler_content_update_10058() {
+  /** @var \Drupal\dungeoncrawler_content\Service\TemplateImportService $importer */
+  $importer = \Drupal::service('dungeoncrawler_content.template_importer');
+  $summary = $importer->importTemplateFiles([
+    'dungeoncrawler_content_registry' => ['threshold_of_knowledge_registry_examples.json'],
+    'dungeoncrawler_content_characters' => [
+      'threshold_of_knowledge_character_templates.json',
+      'torment_and_legacy_character_templates.json',
+    ],
+    'dungeoncrawler_content_encounter_instances' => ['torment_and_legacy_encounter_templates.json'],
+    'dungeoncrawler_content_quest_templates' => [
+      'threshold_of_knowledge_quest_templates.json',
+      'torment_and_legacy_quest_templates.json',
+    ],
+  ]);
+
+  return t(
+    'Bundled module asset import complete. Processed: @processed, inserted: @inserted, updated: @updated, skipped: @skipped.',
     [
       '@processed' => (int) ($summary['table_rows_processed'] ?? 0),
       '@inserted' => (int) ($summary['table_rows_inserted'] ?? 0),

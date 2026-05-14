@@ -1,0 +1,23 @@
+{
+  "rows": [
+    {
+      "character_id": 4301,
+      "instance_id": "pathfinder-iconic-demo-party",
+      "type": "party",
+      "uid": 1,
+      "role": "player",
+      "state_data": {
+        "name": "Pathfinder Iconic Demo Party",
+        "class": "party",
+        "level": 1,
+        "hp_current": 120,
+        "conditions": [],
+        "party_size": 6,
+        "source_module": "torment-and-legacy",
+        "description": "A six-character iconic demo party used to launch Torment and Legacy."
+      },
+      "location_type": "global",
+      "location_ref": ""
+    }
+  ]
+}
