@@ -488,7 +488,7 @@ class QuestTrackerController extends ControllerBase {
       $payload = json_decode($request->getContent(), TRUE) ?? [];
       $resolution = (string) ($payload['resolution'] ?? 'rejected');
       $selected_objective_id = !empty($payload['selected_objective_id']) ? (string) $payload['selected_objective_id'] : NULL;
-      $resolved_by = (string) ($payload['resolved_by'] ?? 'player');
+      $resolved_by = (string) ($payload['resolved_by'] ?? 'gm');
 
       /** @var \Drupal\dungeoncrawler_content\Service\QuestConfirmationService $confirmation_service */
       $confirmation_service = \Drupal::service('dungeoncrawler_content.quest_confirmation');

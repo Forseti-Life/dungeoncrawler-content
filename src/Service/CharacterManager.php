@@ -191,6 +191,188 @@ class CharacterManager {
   }
 
   /**
+   * Resolve a deity input string to a canonical deity catalog entry.
+   */
+  public function resolveDeityInput(string $deity_input): ?array {
+    return $this->deityService?->getByInput($deity_input);
+  }
+
+  /**
+   * Return all domains for a deity input string.
+   *
+   * Accepts either a canonical deity ID or a display name.
+   */
+  public function getDeityDomainsForInput(string $deity_input): array {
+    return $this->deityService?->getDomainsForInput($deity_input) ?? [];
+  }
+
+  /**
+   * Curated advanced weapon options used by Weapon Proficiency.
+   *
+   * The broader checkout still lacks a full advanced-weapon equipment catalog,
+   * so this list serves as the canonical advanced-weapon choice set for feat
+   * selection, persistence, and runtime proficiency grants.
+   */
+  const ADVANCED_WEAPON_OPTIONS = [
+    'aldori-dueling-sword' => 'Aldori Dueling Sword',
+    'dwarven-waraxe' => 'Dwarven Waraxe',
+    'dwarven-dorn-dergar' => 'Dwarven Dorn-Dergar',
+    'flickmace' => 'Flickmace',
+    'gnome-hooked-hammer' => 'Gnome Hooked Hammer',
+    'halfling-sling-staff' => 'Halfling Sling Staff',
+  ];
+
+  /**
+   * Return the canonical advanced-weapon options for Weapon Proficiency.
+   *
+   * @return array<string,string>
+   *   Map of weapon id => weapon label.
+   */
+  public static function getAdvancedWeaponOptions(): array {
+    return self::ADVANCED_WEAPON_OPTIONS;
+  }
+
+  /**
+   * Curated uncommon weapon options used by Unconventional Weaponry.
+   *
+   * The checkout does not yet expose a broader uncommon-weapon equipment
+   * catalog, so this list serves as the canonical choice set for the feat's
+   * creation, leveling, and runtime paths.
+   */
+  const UNCONVENTIONAL_WEAPON_OPTIONS = [
+    'aldori-dueling-sword' => 'Aldori Dueling Sword',
+    'dwarven-waraxe' => 'Dwarven Waraxe',
+    'flickmace' => 'Flickmace',
+    'gnome-hooked-hammer' => 'Gnome Hooked Hammer',
+    'halfling-sling-staff' => 'Halfling Sling Staff',
+    'orc-knuckle-dagger' => 'Orc Knuckle Dagger',
+  ];
+
+  /**
+   * Return the canonical uncommon-weapon options for Unconventional Weaponry.
+   *
+   * @return array<string,string>
+   *   Map of weapon id => weapon label.
+   */
+  public static function getUnconventionalWeaponOptions(): array {
+    return self::UNCONVENTIONAL_WEAPON_OPTIONS;
+  }
+
+  /**
+   * Resolve the next Weapon Proficiency grant for a character.
+   *
+   * @param array $character_data
+   *   Character data with at least a class and optionally existing feat state.
+   * @param int|null $owned_weapon_proficiency_count
+   *   Override for how many prior Weapon Proficiency selections should be
+   *   considered before resolving the next grant. This is used during runtime
+   *   processing when multiple copies are being applied in sequence.
+   *
+   * @return array<string,mixed>
+   *   A normalized state array describing the next grant:
+   *   - mode: category_upgrade|advanced_choice|no_upgrade
+   *   - granted_target: simple|martial|null
+   *   - owned_advanced_weapon_ids: string[]
+   */
+  public static function resolveWeaponProficiencyGrant(array $character_data, ?int $owned_weapon_proficiency_count = NULL): array {
+    $class_value = $character_data['class'] ?? $character_data['basicInfo']['class'] ?? $character_data['basic_info']['class'] ?? '';
+    if (is_array($class_value)) {
+      $class_value = $class_value['id'] ?? $class_value['machine_name'] ?? $class_value['name'] ?? '';
+    }
+    $class_id = strtolower(trim((string) $class_value));
+    $class_data = self::CLASSES[$class_id] ?? [];
+    $weapon_text = strtolower(trim((string) ($class_data['weapons'] ?? '')));
+    $proficiencies = is_array($class_data['proficiencies'] ?? NULL)
+      ? array_change_key_case($class_data['proficiencies'], CASE_LOWER)
+      : [];
+
+    $has_simple = str_contains($weapon_text, 'simple') || array_key_exists('simple_weapons', $proficiencies);
+    $has_martial = str_contains($weapon_text, 'martial') || array_key_exists('martial_weapons', $proficiencies);
+    $has_advanced_all = str_contains($weapon_text, 'advanced weapons') || array_key_exists('advanced_weapons', $proficiencies);
+
+    $prior_count = $owned_weapon_proficiency_count ?? self::countOwnedFeatInstances($character_data, 'weapon-proficiency');
+    for ($i = 0; $i < $prior_count; $i++) {
+      if (!$has_simple) {
+        $has_simple = TRUE;
+        continue;
+      }
+      if (!$has_martial) {
+        $has_martial = TRUE;
+      }
+    }
+
+    $state = [
+      'mode' => 'advanced_choice',
+      'granted_target' => NULL,
+      'owned_advanced_weapon_ids' => self::getOwnedWeaponProficiencyAdvancedWeaponIds($character_data),
+    ];
+
+    if (!$has_simple) {
+      $state['mode'] = 'category_upgrade';
+      $state['granted_target'] = 'simple';
+      return $state;
+    }
+    if (!$has_martial) {
+      $state['mode'] = 'category_upgrade';
+      $state['granted_target'] = 'martial';
+      return $state;
+    }
+    if ($has_advanced_all) {
+      $state['mode'] = 'no_upgrade';
+    }
+
+    return $state;
+  }
+
+  /**
+   * Count owned instances of a feat across character creation and level-up data.
+   */
+  private static function countOwnedFeatInstances(array $character_data, string $feat_id): int {
+    $count = 0;
+    foreach ($character_data['feats'] ?? [] as $feat) {
+      if (($feat['id'] ?? '') === $feat_id) {
+        $count++;
+      }
+    }
+    foreach (($character_data['features']['feats'] ?? []) as $feat) {
+      if (($feat['id'] ?? '') === $feat_id) {
+        $count++;
+      }
+    }
+    return $count;
+  }
+
+  /**
+   * Return advanced weapons already chosen through prior Weapon Proficiency picks.
+   *
+   * @return string[]
+   *   Selected advanced weapon ids.
+   */
+  private static function getOwnedWeaponProficiencyAdvancedWeaponIds(array $character_data): array {
+    $owned_ids = [];
+
+    $selection_entry = $character_data['feat_selections']['weapon-proficiency'] ?? NULL;
+    if (is_array($selection_entry)) {
+      $selected_weapon_id = trim((string) ($selection_entry['selected_weapon_id'] ?? ''));
+      if ($selected_weapon_id !== '') {
+        $owned_ids[] = $selected_weapon_id;
+      }
+    }
+
+    foreach (($character_data['features']['feats'] ?? []) as $feat) {
+      if (($feat['id'] ?? '') !== 'weapon-proficiency') {
+        continue;
+      }
+      $selected_weapon_id = trim((string) (($feat['feat_params']['selected_weapon_id'] ?? '')));
+      if ($selected_weapon_id !== '') {
+        $owned_ids[] = $selected_weapon_id;
+      }
+    }
+
+    return array_values(array_unique($owned_ids));
+  }
+
+  /**
    * Returns fixed and free ancestry boosts for the selected ancestry/heritage.
    *
    * Heritage boost metadata is optional; if present, supported keys are:
@@ -1981,7 +2163,7 @@ class CharacterManager {
             'order_spell'   => 'heal_animal',
             'focus_pool'    => 1,
             'description'   => 'You revere animals and their wild nature. You gain the heal animal order spell and an animal companion at level 1. Your animal companion advances as per the animal companion rules.',
-            'granted_feats'  => ['animal_companion'],
+            'granted_feats'  => ['animal-companion-druid'],
             'level_1_bonus'  => 'Animal companion (young). Heal Animal order spell. +1 Focus Point to pool.',
             'anathema'       => 'Harming animals wantonly, hunting for sport or trophy kills, allowing allies to harm animals without intervention.',
           ],
@@ -1991,7 +2173,7 @@ class CharacterManager {
             'order_spell'   => 'goodberry',
             'focus_pool'    => 2,
             'description'   => 'You protect plant life and seek to preserve untamed forests. You gain the goodberry order spell and a leshy familiar at level 1. You add Diplomacy to your class skills.',
-            'granted_feats'  => ['leshy_familiar'],
+            'granted_feats'  => ['leshy-familiar-druid'],
             'level_1_bonus'  => 'Leshy familiar. Goodberry and Speak with Plants order spells. +2 Focus Points to pool.',
             'anathema'       => 'Allowing wanton destruction of plants, using fire recklessly in natural settings, harvesting plants without replanting or giving back.',
           ],
@@ -10663,9 +10845,10 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
 
     // Resolve deity-granted features (Cleric/Champion favored weapon, divine font type).
     $deity_features = [];
-    $deity_id = $options['deity'] ?? '';
-    if ($deity_id !== '' && $this->deityService !== NULL && $this->deityService->isValid($deity_id)) {
-      $deity_data = $this->deityService->getById($deity_id);
+    $deity_input = (string) ($options['deity'] ?? '');
+    $deity_data = $this->resolveDeityInput($deity_input);
+    if ($deity_data !== NULL) {
+      $deity_id = (string) ($deity_data['id'] ?? $deity_input);
       $favored_weapon = $deity_data['favored_weapon'] ?? '';
       if ($favored_weapon !== '') {
         $deity_features['favored_weapon_proficiency'] = [

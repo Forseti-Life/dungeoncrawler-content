@@ -155,6 +155,38 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
   }
 
   /**
+   * @covers ::buildNpcTurnPlan
+   */
+  public function testBuildNpcTurnPlanPrioritizesDirectlyAddressedNpc(): void {
+    $roomNpcs = [
+      [
+        'entity_ref' => 'scholar_npc',
+        'profile' => [
+          'display_name' => 'Marta the Scholar',
+          'attitude' => 'indifferent',
+        ],
+      ],
+      [
+        'entity_ref' => 'tavern_keeper',
+        'profile' => [
+          'display_name' => 'Eldric',
+          'attitude' => 'friendly',
+        ],
+      ],
+    ];
+
+    $plan = $this->roomChatService->publicBuildNpcTurnPlan(
+      $roomNpcs,
+      'Eldric, answer me plainly.',
+      'The tavern settles into a tense quiet.'
+    );
+
+    $this->assertSame('tavern_keeper', $plan['directly_addressed_npc']['entity_ref']);
+    $this->assertCount(1, $plan['ordered_npcs']);
+    $this->assertSame('tavern_keeper', $plan['ordered_npcs'][0]['entity_ref']);
+  }
+
+  /**
    * @covers ::buildRoomConversationTranscript
    * @covers ::buildRoomObservationFromChat
    */
@@ -214,7 +246,7 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
     $this->assertNotNull($response);
     $this->assertSame('navigate_to_location', $response['actions'][0]['type']);
     $this->assertSame('Rat Dungeon', $response['actions'][0]['details']['destination']);
-    $this->assertStringContainsString('head toward Rat Dungeon', $response['narrative']);
+    $this->assertStringContainsString('leads toward Rat Dungeon', $response['narrative']);
   }
 
   /**
@@ -252,7 +284,7 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
 
     $this->assertNotNull($response);
     $this->assertSame('navigate_to_location', $response['actions'][0]['type']);
-    $this->assertStringContainsString('make your way back toward Goblin Warrens', $response['narrative']);
+    $this->assertStringContainsString('route back toward Goblin Warrens', $response['narrative']);
   }
 
   /**
@@ -310,7 +342,7 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
     $this->assertNotNull($response);
     $this->assertSame('combat_initiation', $response['actions'][0]['type']);
     $this->assertSame(['giant_rat_alpha', 'giant_rat_beta'], $response['actions'][0]['details']['combat']['enemy_entity_ids']);
-    $this->assertStringContainsString('combat begins', strtolower($response['narrative']));
+    $this->assertStringContainsString('erupts into combat', strtolower($response['narrative']));
   }
 
   /**
@@ -341,6 +373,17 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
   public function testClassifyRoomTurnIntentRecognizesNavigationQuery(): void {
     $intent = $this->roomChatService->publicClassifyRoomTurnIntent(
       'What is in the next room?'
+    );
+
+    $this->assertSame('navigation_query', $intent);
+  }
+
+  /**
+   * @covers ::classifyRoomTurnIntent
+   */
+  public function testClassifyRoomTurnIntentRecognizesUnexploredNavigationQuery(): void {
+    $intent = $this->roomChatService->publicClassifyRoomTurnIntent(
+      "Which way haven't I been?"
     );
 
     $this->assertSame('navigation_query', $intent);
@@ -420,6 +463,172 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
   }
 
   /**
+   * @covers ::extractNavigationDestination
+   */
+  public function testExtractNavigationDestinationUsesPreferredExitForGoThereFollowup(): void {
+    $actionProcessor = $this->createMock(GameplayActionProcessor::class);
+    $actionProcessor->method('getResolvedRoomExits')
+      ->willReturn([
+        [
+          'name' => 'The Gilded Tankard',
+          'room_id' => 'room-tavern',
+          'connection_type' => 'passage',
+          'explored' => TRUE,
+        ],
+        [
+          'name' => 'Northeast Passage',
+          'room_id' => 'room-passage',
+          'connection_type' => 'tunnel',
+          'explored' => FALSE,
+        ],
+      ]);
+
+    $this->roomChatService->setActionProcessor($actionProcessor);
+
+    $destination = $this->roomChatService->publicExtractNavigationDestination(
+      'yea, lets go there',
+      ['name' => 'The Glowing Cavern', 'room_id' => 'room-cavern'],
+      'room-cavern',
+      []
+    );
+
+    $this->assertSame('Northeast Passage', $destination);
+  }
+
+  /**
+   * @covers ::classifyRoomTurnIntent
+   */
+  public function testClassifyRoomTurnIntentRecognizesRoomDescriptionQuery(): void {
+    $intent = $this->roomChatService->publicClassifyRoomTurnIntent('explanation, description?');
+
+    $this->assertSame('room_description_query', $intent);
+  }
+
+  /**
+   * @covers ::classifyRoomTurnIntent
+   */
+  public function testClassifyRoomTurnIntentRecognizesImplicitRosterQuestion(): void {
+    $intent = $this->roomChatService->publicClassifyRoomTurnIntent(
+      'Its just this one Kobold in the room with me? Any others hiding?'
+    );
+
+    $this->assertSame('room_roster_query', $intent);
+  }
+
+  /**
+   * @covers ::buildDeterministicGmResponse
+   */
+  public function testBuildDeterministicGmResponseAnswersRoomDescriptionQueryWithoutNpcDialogue(): void {
+    $response = $this->roomChatService->publicBuildDeterministicGmResponse(
+      22,
+      'room_description_query',
+      [
+        [
+          'entity_ref' => 'tikka',
+          'profile' => [
+            'display_name' => 'Tikka the Trapmaster',
+          ],
+        ],
+      ],
+      NULL,
+      'explanation, description?',
+      [
+        'name' => 'Kobold Burrow',
+        'description' => 'A network of meticulous tunnels opens into a cleverly trapped chamber.',
+        'characters' => [
+          ['name' => 'Burasco'],
+        ],
+      ],
+      'room-burrow',
+      []
+    );
+
+    $this->assertNotNull($response);
+    $this->assertSame([], $response['actions']);
+    $this->assertStringContainsString('Kobold Burrow', $response['narrative']);
+    $this->assertStringContainsString('Visible here: Burasco, Tikka the Trapmaster.', $response['narrative']);
+    $this->assertTrue($response['suppress_npc_interjections']);
+  }
+
+  /**
+   * @covers ::isEffectiveRoomEntryTurn
+   */
+  public function testEffectiveRoomEntryTurnTreatsArrivalPlusFirstPlayerPromptAsEntry(): void {
+    $is_entry = $this->roomChatService->publicIsEffectiveRoomEntryTurn([
+      [
+        'speaker' => 'System',
+        'message' => 'You arrive at Kobold Burrow.',
+        'type' => 'system',
+      ],
+      [
+        'speaker' => 'Burasco',
+        'message' => 'explanation, description?',
+        'type' => 'player',
+      ],
+    ]);
+
+    $this->assertTrue($is_entry);
+  }
+
+  /**
+   * @covers ::buildDeterministicNpcDialogue
+   */
+  public function testDeterministicNpcDialogueAnswersAloneAndColonyQuestion(): void {
+    $this->psychologyService->method('loadProfile')
+      ->willReturnMap([
+        [22, 'tikka', ['display_name' => 'Tikka the Trapmaster', 'attitude' => 'indifferent', 'role' => 'guide', 'motivations' => 'protect the burrow']],
+      ]);
+
+    $reply = $this->roomChatService->publicBuildDeterministicNpcDialogue(
+      22,
+      'tikka',
+      'Tikka the Trapmaster',
+      'Are you alone Tikka? How big is this Kobold colony?',
+      'room-burrow',
+      [
+        'rooms' => [
+          [
+            'room_id' => 'room-burrow',
+            'name' => 'Kobold Burrow',
+            'description' => 'A network of small tunnels opens into an organized underground chamber.',
+          ],
+        ],
+      ]
+    );
+
+    $this->assertNotNull($reply);
+    $this->assertStringContainsString('In this chamber, yes. In the burrow, no.', $reply);
+    $this->assertStringContainsString('The burrow runs deeper through the tunnels', $reply);
+  }
+
+  /**
+   * @covers ::buildCompactSessionContext
+   */
+  public function testBuildCompactSessionContextCanDropRecentMessages(): void {
+    $session_manager = $this->createMock(AiSessionManager::class);
+    $session_manager->expects($this->once())
+      ->method('buildSessionContext')
+      ->with('campaign.17.room_chat.room-1', 17, 2)
+      ->willReturn("PRIOR SESSION CONTEXT (summary of earlier interactions):\nEarlier summary.\n\nRECENT CONVERSATION:\n[USER]: Old question\n[ASSISTANT]: Old answer");
+
+    $this->roomChatService->setSessionManager($session_manager);
+
+    $context = $this->roomChatService->publicBuildCompactSessionContext(
+      'campaign.17.room_chat.room-1',
+      17,
+      2,
+      900,
+      320,
+      FALSE
+    );
+
+    $this->assertStringContainsString('PRIOR SESSION CONTEXT', $context);
+    $this->assertStringContainsString('Earlier summary.', $context);
+    $this->assertStringNotContainsString('RECENT CONVERSATION', $context);
+    $this->assertStringNotContainsString('Old question', $context);
+  }
+
+  /**
    * @covers ::recordLocationTransition
    */
   public function testRecordLocationTransitionPersistsCurrentAndActiveRoomIds(): void {
@@ -480,9 +689,10 @@ class TestableRoomChatService extends RoomChatService {
     string $player_message,
     array $room_meta = [],
     string $room_id = '',
-    array $dungeon_data = []
+    array $dungeon_data = [],
+    bool $is_room_entry = FALSE
   ): ?array {
-    return $this->buildDeterministicGmResponse($campaign_id, $intent, $room_npcs, $directly_addressed_npc, $player_message, $room_meta, $room_id, $dungeon_data);
+    return $this->buildDeterministicGmResponse($campaign_id, $intent, $room_npcs, $directly_addressed_npc, $player_message, $room_meta, $room_id, $dungeon_data, $is_room_entry);
   }
 
   public function publicExtractNavigationDestination(string $player_message, array $room_meta = [], string $room_id = '', array $dungeon_data = []): ?string {
@@ -499,6 +709,47 @@ class TestableRoomChatService extends RoomChatService {
 
   public function publicRecordLocationTransition(array &$dungeon_data, array $origin_room_meta, array $navigation_result): void {
     $this->recordLocationTransition($dungeon_data, $origin_room_meta, $navigation_result);
+  }
+
+  public function publicIsEffectiveRoomEntryTurn(array $chat): bool {
+    return $this->isEffectiveRoomEntryTurn($chat);
+  }
+
+  public function publicBuildNpcTurnPlan(array $room_npcs, string $player_message, string $gm_narrative): array {
+    return $this->buildNpcTurnPlan($room_npcs, $player_message, $gm_narrative);
+  }
+
+  public function publicBuildDeterministicNpcDialogue(
+    int $campaign_id,
+    string $entity_ref,
+    string $display_name,
+    string $player_message,
+    string $room_id = '',
+    array $dungeon_data = []
+  ): ?string {
+    return $this->buildDeterministicNpcDialogue($campaign_id, $entity_ref, $display_name, $player_message, $room_id, $dungeon_data);
+  }
+
+  public function setSessionManager(AiSessionManager $session_manager): void {
+    $this->sessionManager = $session_manager;
+  }
+
+  public function publicBuildCompactSessionContext(
+    string $session_key,
+    int $campaign_id,
+    int $max_recent = 3,
+    int $max_chars = 1200,
+    int $max_summary_chars = 400,
+    bool $include_recent_messages = TRUE
+  ): string {
+    return $this->buildCompactSessionContext(
+      $session_key,
+      $campaign_id,
+      $max_recent,
+      $max_chars,
+      $max_summary_chars,
+      $include_recent_messages
+    );
   }
 
   public function setActionProcessor(GameplayActionProcessor $action_processor): void {

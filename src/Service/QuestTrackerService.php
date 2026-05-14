@@ -41,6 +41,13 @@ class QuestTrackerService {
   protected TimeInterface $time;
 
   /**
+   * Optional storyline orchestration service.
+   *
+   * @var \Drupal\dungeoncrawler_content\Service\StorylineManagerService|null
+   */
+  protected ?StorylineManagerService $storylineManager;
+
+  /**
    * Constructs a QuestTrackerService object.
    *
    * @param \Drupal\Core\Database\Connection $database
@@ -53,11 +60,13 @@ class QuestTrackerService {
   public function __construct(
     Connection $database,
     LoggerChannelFactoryInterface $logger_factory,
-    TimeInterface $time
+    TimeInterface $time,
+    ?StorylineManagerService $storyline_manager = NULL
   ) {
     $this->database = $database;
     $this->logger = $logger_factory->get('dungeoncrawler_content');
     $this->time = $time;
+    $this->storylineManager = $storyline_manager;
   }
 
   /**
@@ -142,6 +151,11 @@ class QuestTrackerService {
       $this->logger->info('Started quest @quest for @entity', [
         '@quest' => $quest_id,
         '@entity' => $character_id ? "character $character_id" : "party $party_id",
+      ]);
+
+      $this->notifyStorylineManager($campaign_id, $quest_id, 'quest_started', $character_id, [
+        'party_id' => $party_id,
+        'status' => 'active',
       ]);
 
       return TRUE;
@@ -348,6 +362,11 @@ class QuestTrackerService {
       $this->logger->info('Completed quest @quest with outcome @outcome', [
         '@quest' => $quest_id,
         '@outcome' => $outcome,
+      ]);
+
+      $this->notifyStorylineManager($campaign_id, $quest_id, 'quest_completed', $character_id, [
+        'outcome' => $outcome,
+        'status' => 'completed',
       ]);
 
       return [
@@ -855,6 +874,37 @@ class QuestTrackerService {
     }
 
     return $query->countQuery()->execute()->fetchField() > 0;
+  }
+
+  /**
+   * Notifies storyline orchestration without breaking quest flows on failures.
+   */
+  protected function notifyStorylineManager(
+    int $campaign_id,
+    string $quest_id,
+    string $event_type,
+    ?int $character_id,
+    array $event_data = []
+  ): void {
+    if ($this->storylineManager === NULL) {
+      return;
+    }
+
+    try {
+      $this->storylineManager->recordQuestStateChange(
+        $campaign_id,
+        $quest_id,
+        $event_type,
+        $character_id,
+        $event_data
+      );
+    }
+    catch (\Throwable $throwable) {
+      $this->logger->warning('Storyline sync skipped for quest @quest: @message', [
+        '@quest' => $quest_id,
+        '@message' => $throwable->getMessage(),
+      ]);
+    }
   }
 
   /**

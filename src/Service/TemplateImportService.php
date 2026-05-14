@@ -80,6 +80,64 @@ class TemplateImportService {
   }
 
   /**
+   * Imports only bundled storyline template examples.
+   */
+  public function importStorylineTemplates(): array {
+    $table_name = 'dungeoncrawler_content_storylines';
+    $table_path = $this->getTemplatesRootPath() . '/' . $table_name;
+
+    if (!is_dir($table_path)) {
+      return [
+        'processed' => 0,
+        'inserted' => 0,
+        'updated' => 0,
+        'skipped' => 0,
+        'errors' => ['Storyline template directory not found: ' . $table_path],
+      ];
+    }
+
+    return $this->importTableDirectory($table_name, $table_path);
+  }
+
+  /**
+   * Imports specific template JSON files grouped by table.
+   *
+   * @param array<string, array<int, string>|string> $table_files
+   *   Mapping of table name to one or more JSON basenames within that table's
+   *   template directory.
+   */
+  public function importTemplateFiles(array $table_files): array {
+    $summary = [
+      'table_rows_processed' => 0,
+      'table_rows_inserted' => 0,
+      'table_rows_updated' => 0,
+      'table_rows_skipped' => 0,
+      'library_portrait_links_added' => 0,
+      'tables_processed' => [],
+      'errors' => [],
+      'missing_template_pairs' => [],
+    ];
+
+    foreach ($table_files as $table_name => $requested_files) {
+      $resolved = $this->resolveTableJsonFiles($table_name, (array) $requested_files);
+      $table_result = $this->importTableFiles($table_name, $resolved['files']);
+      $table_result['errors'] = array_merge($resolved['errors'], $table_result['errors']);
+
+      $summary['tables_processed'][$table_name] = $table_result;
+      $summary['table_rows_processed'] += $table_result['processed'];
+      $summary['table_rows_inserted'] += $table_result['inserted'];
+      $summary['table_rows_updated'] += $table_result['updated'];
+      $summary['table_rows_skipped'] += $table_result['skipped'];
+      $summary['errors'] = array_merge($summary['errors'], $table_result['errors']);
+    }
+
+    $summary['missing_template_pairs'] = $this->getMissingTemplatePairs();
+    $summary['library_portrait_links_added'] = $this->syncLibraryNpcPortraitLinks();
+
+    return $summary;
+  }
+
+  /**
    * Auto-links portraits for NPC template library characters when available.
    *
    * @return int
@@ -292,6 +350,19 @@ class TemplateImportService {
    * Gets expected template table name for a campaign table.
    */
   protected function getExpectedTemplateTable(string $campaign_table): string {
+    $runtime_only_tables = [
+      'dc_campaign_storyline_log',
+      'dc_campaign_storyline_links',
+      'dc_campaign_quest_progress',
+      'dc_campaign_quest_log',
+      'dc_campaign_quest_rewards_claimed',
+      'dc_campaign_quest_confirmations',
+    ];
+
+    if (in_array($campaign_table, $runtime_only_tables, TRUE)) {
+      return '';
+    }
+
     $explicit_mappings = [
       'dc_campaigns' => 'dungeoncrawler_content_campaigns',
       'dc_campaign_characters' => 'dungeoncrawler_content_characters',
@@ -318,6 +389,16 @@ class TemplateImportService {
    * Imports all rows from one table directory.
    */
   protected function importTableDirectory(string $table_name, string $table_path): array {
+    return $this->importTableFiles($table_name, $this->scanJsonFiles($table_path));
+  }
+
+  /**
+   * Imports all rows from explicit JSON files for one table.
+   *
+   * @param array<int, string> $json_files
+   *   Absolute JSON file paths to import.
+   */
+  protected function importTableFiles(string $table_name, array $json_files): array {
     $result = [
       'processed' => 0,
       'inserted' => 0,
@@ -333,7 +414,6 @@ class TemplateImportService {
 
     $columns = $this->getTableColumns($table_name);
     $merge_keys = $this->getMergeKeys($table_name);
-    $json_files = $this->scanJsonFiles($table_path);
 
     foreach ($json_files as $json_file) {
       $rows = $this->extractRows($json_file);
@@ -398,6 +478,51 @@ class TemplateImportService {
       }
     }
 
+    return $result;
+  }
+
+  /**
+   * Resolves requested JSON basenames for a table directory.
+   *
+   * @param array<int, string> $requested_files
+   *   JSON basenames relative to the table directory.
+   *
+   * @return array{files: array<int, string>, errors: array<int, string>}
+   *   Resolved absolute file paths and any resolution errors.
+   */
+  protected function resolveTableJsonFiles(string $table_name, array $requested_files): array {
+    $result = [
+      'files' => [],
+      'errors' => [],
+    ];
+
+    $table_path = $this->getTemplatesRootPath() . '/' . $table_name;
+    if (!is_dir($table_path)) {
+      $result['errors'][] = sprintf('Templates directory not found for table %s: %s', $table_name, $table_path);
+      return $result;
+    }
+
+    foreach ($requested_files as $file_name) {
+      $normalized_name = ltrim((string) $file_name, '/');
+      if ($normalized_name === '') {
+        continue;
+      }
+
+      $candidate = $table_path . '/' . $normalized_name;
+      if (!is_file($candidate)) {
+        $result['errors'][] = sprintf('Template file not found for table %s: %s', $table_name, $normalized_name);
+        continue;
+      }
+
+      if (strtolower((string) pathinfo($candidate, PATHINFO_EXTENSION)) !== 'json') {
+        $result['errors'][] = sprintf('Template file is not JSON for table %s: %s', $table_name, $normalized_name);
+        continue;
+      }
+
+      $result['files'][] = $candidate;
+    }
+
+    sort($result['files']);
     return $result;
   }
 

@@ -18,6 +18,10 @@
  * - 10010: Generated image asset/link tables
  * - 10014: Quest system tables (templates, chains, campaign quests, progress tracking)
  * - 10021: Import/refresh all game content from JSON files into content registry
+ * - 10054: Storyline template and campaign storyline storage
+ * - 10055: Import bundled storyline template examples
+ * - 10056: Storyline asset-link storage and template refresh
+ * - 10057: Import Little Trouble asset templates into the library
  *
  * @see dungeoncrawler_content_schema()
  */
@@ -2451,6 +2455,106 @@ function dungeoncrawler_content_schema() {
   ];
 
   // Campaign table: Active quests
+  $schema['dungeoncrawler_content_storylines'] = [
+    'description' => 'Authored storyline/module templates available for campaign use.',
+    'fields' => [
+      'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE, 'description' => 'Primary key.'],
+      'template_id' => ['type' => 'varchar', 'length' => 128, 'not null' => TRUE, 'description' => 'Stable storyline template identifier.'],
+      'name' => ['type' => 'varchar', 'length' => 255, 'not null' => TRUE, 'description' => 'Display name.'],
+      'synopsis' => ['type' => 'text', 'not null' => FALSE, 'description' => 'Short storyline summary.'],
+      'level_range' => ['type' => 'varchar', 'length' => 32, 'not null' => FALSE, 'description' => 'Recommended level band.'],
+      'source' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE, 'description' => 'Source/publisher/module reference.'],
+      'tags' => ['type' => 'text', 'not null' => FALSE, 'description' => 'JSON tag list.'],
+      'template_data' => ['type' => 'text', 'size' => 'big', 'not null' => TRUE, 'description' => 'JSON storyline/module definition.'],
+      'created' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Created timestamp.'],
+      'updated' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Updated timestamp.'],
+    ],
+    'primary key' => ['id'],
+    'unique keys' => [
+      'template_id' => ['template_id'],
+    ],
+    'indexes' => [
+      'source' => ['source'],
+    ],
+  ];
+
+  $schema['dc_campaign_storylines'] = [
+    'description' => 'Campaign-scoped storyline instances with current runtime progression.',
+    'fields' => [
+      'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE, 'description' => 'Primary key.'],
+      'campaign_id' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'description' => 'Owning campaign.'],
+      'storyline_id' => ['type' => 'varchar', 'length' => 128, 'not null' => TRUE, 'description' => 'Campaign-scoped storyline identifier.'],
+      'template_id' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE, 'description' => 'Source storyline template identifier.'],
+      'name' => ['type' => 'varchar', 'length' => 255, 'not null' => TRUE, 'description' => 'Display name.'],
+      'status' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => 'available', 'description' => 'Status: available, active, paused, completed, failed, archived.'],
+      'priority' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Ordering/priority weight.'],
+      'is_primary' => ['type' => 'int', 'size' => 'tiny', 'not null' => TRUE, 'default' => 0, 'description' => 'Whether this is the campaign primary storyline.'],
+      'current_chapter_id' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE, 'description' => 'Current active chapter id.'],
+      'current_scene_id' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE, 'description' => 'Current active scene id.'],
+      'storyline_data' => ['type' => 'text', 'size' => 'big', 'not null' => TRUE, 'description' => 'JSON storyline definition plus runtime unlock state.'],
+      'variables' => ['type' => 'text', 'size' => 'big', 'not null' => FALSE, 'description' => 'JSON storyline runtime variables.'],
+      'created_at' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Created timestamp.'],
+      'updated_at' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Updated timestamp.'],
+      'activated_at' => ['type' => 'int', 'not null' => FALSE, 'description' => 'Activation timestamp.'],
+      'completed_at' => ['type' => 'int', 'not null' => FALSE, 'description' => 'Completion timestamp.'],
+    ],
+    'primary key' => ['id'],
+    'unique keys' => [
+      'campaign_storyline' => ['campaign_id', 'storyline_id'],
+    ],
+    'indexes' => [
+      'campaign_status' => ['campaign_id', 'status'],
+      'campaign_primary' => ['campaign_id', 'is_primary'],
+      'template_id' => ['template_id'],
+    ],
+  ];
+
+  $schema['dc_campaign_storyline_log'] = [
+    'description' => 'Durable storyline journal and progression event log.',
+    'fields' => [
+      'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE, 'description' => 'Primary key.'],
+      'campaign_id' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'description' => 'Owning campaign.'],
+      'storyline_id' => ['type' => 'varchar', 'length' => 128, 'not null' => TRUE, 'description' => 'Campaign storyline identifier.'],
+      'event_type' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE, 'description' => 'Progression event type.'],
+      'event_data' => ['type' => 'text', 'size' => 'big', 'not null' => TRUE, 'description' => 'JSON event payload.'],
+      'narrative_text' => ['type' => 'text', 'not null' => FALSE, 'description' => 'Optional journal/narrative text.'],
+      'created_at' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Created timestamp.'],
+    ],
+    'primary key' => ['id'],
+    'indexes' => [
+      'campaign_storyline_created' => ['campaign_id', 'storyline_id', 'created_at'],
+      'event_type' => ['event_type'],
+    ],
+  ];
+
+  $schema['dc_campaign_storyline_links'] = [
+    'description' => 'Normalized asset references required by a campaign storyline instance.',
+    'fields' => [
+      'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE, 'description' => 'Primary key.'],
+      'campaign_id' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'description' => 'Owning campaign.'],
+      'storyline_id' => ['type' => 'varchar', 'length' => 128, 'not null' => TRUE, 'description' => 'Campaign storyline identifier.'],
+      'asset_type' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE, 'description' => 'Referenced asset type (character, room, dungeon, item, quest, etc.).'],
+      'asset_id' => ['type' => 'varchar', 'length' => 191, 'not null' => TRUE, 'description' => 'Referenced asset identifier.'],
+      'asset_role' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE, 'description' => 'Narrative/system role for the asset.'],
+      'chapter_id' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE, 'description' => 'Chapter scope for the reference, if any.'],
+      'scene_id' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE, 'description' => 'Scene scope for the reference, if any.'],
+      'source_scope' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => 'storyline', 'description' => 'Where the link was declared: storyline, chapter, scene, or derived.'],
+      'notes' => ['type' => 'text', 'not null' => FALSE, 'description' => 'Optional human-readable notes for the reference.'],
+      'link_data' => ['type' => 'text', 'size' => 'big', 'not null' => FALSE, 'description' => 'JSON metadata for the link.'],
+      'created_at' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Created timestamp.'],
+      'updated_at' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Updated timestamp.'],
+    ],
+    'primary key' => ['id'],
+    'unique keys' => [
+      'campaign_storyline_asset' => ['campaign_id', 'storyline_id', 'asset_type', 'asset_id', 'source_scope', 'chapter_id', 'scene_id'],
+    ],
+    'indexes' => [
+      'campaign_storyline' => ['campaign_id', 'storyline_id'],
+      'asset_lookup' => ['asset_type', 'asset_id'],
+      'chapter_scene' => ['chapter_id', 'scene_id'],
+    ],
+  ];
+
   $schema['dc_campaign_quests'] = [
     'description' => 'Active quests in campaigns, instantiated from templates.',
     'fields' => [
@@ -2467,6 +2571,9 @@ function dungeoncrawler_content_schema() {
       'status' => ['type' => 'varchar', 'length' => 50, 'not null' => TRUE, 'default' => 'available', 'description' => 'Status: available, active, completed, failed, abandoned.'],
       'giver_npc_id' => ['type' => 'int', 'not null' => FALSE, 'description' => 'NPC who gave the quest.'],
       'location_id' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE, 'description' => 'Location where quest is available/active.'],
+      'storyline_id' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE, 'description' => 'Owning campaign storyline identifier, if any.'],
+      'storyline_chapter_id' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE, 'description' => 'Storyline chapter reference, if linked.'],
+      'storyline_scene_id' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE, 'description' => 'Storyline scene reference, if linked.'],
       'parent_chain_id' => ['type' => 'int', 'not null' => FALSE, 'description' => 'If part of a chain, references chain.'],
       'chain_position' => ['type' => 'int', 'not null' => FALSE, 'description' => 'Position in quest chain.'],
       'created_at' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Unix timestamp when quest generated.'],
@@ -2479,6 +2586,9 @@ function dungeoncrawler_content_schema() {
       'campaign_status' => ['campaign_id', 'status'],
       'source_template' => ['source_template_id'],
       'location' => ['location_id'],
+      'campaign_storyline' => ['campaign_id', 'storyline_id'],
+      'storyline_chapter' => ['storyline_chapter_id'],
+      'storyline_scene' => ['storyline_scene_id'],
     ],
   ];
 
@@ -2545,6 +2655,36 @@ function dungeoncrawler_content_schema() {
     'primary key' => ['id'],
     'unique keys' => ['campaign_quest_character' => ['campaign_id', 'quest_id', 'character_id']],
     'indexes' => ['character' => ['character_id', 'claimed_at']],
+  ];
+
+  // Runtime table: Pending/resolved quest confirmations.
+  $schema['dc_campaign_quest_confirmations'] = [
+    'description' => 'Durable workflow state for ambiguous quest touchpoint confirmations.',
+    'fields' => [
+      'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE, 'description' => 'Primary key.'],
+      'confirmation_id' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE, 'description' => 'Stable external confirmation identifier.'],
+      'campaign_id' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'description' => 'Campaign ID.'],
+      'character_id' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => FALSE, 'description' => 'Character tied to the confirmation, if applicable.'],
+      'status' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => 'pending', 'description' => 'Status: pending, approved, rejected, expired.'],
+      'prompt' => ['type' => 'text', 'not null' => FALSE, 'description' => 'Human-readable prompt shown to the resolver.'],
+      'touchpoint_event' => ['type' => 'text', 'size' => 'big', 'not null' => TRUE, 'description' => 'JSON payload for the ambiguous touchpoint event.'],
+      'candidates' => ['type' => 'text', 'size' => 'big', 'not null' => TRUE, 'description' => 'JSON array of candidate quest/objective matches.'],
+      'selected_objective_id' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE, 'description' => 'Chosen objective id when approved manually.'],
+      'resolved_by' => ['type' => 'varchar', 'length' => 32, 'not null' => FALSE, 'description' => 'Resolver type: gm, player, or system.'],
+      'created_at' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Unix timestamp when the confirmation was created.'],
+      'expires_at' => ['type' => 'int', 'not null' => FALSE, 'description' => 'Unix timestamp when the confirmation expires.'],
+      'resolved_at' => ['type' => 'int', 'not null' => FALSE, 'description' => 'Unix timestamp when the confirmation was resolved or expired.'],
+    ],
+    'primary key' => ['id'],
+    'unique keys' => [
+      'confirmation_id' => ['confirmation_id'],
+    ],
+    'indexes' => [
+      'campaign_status_created' => ['campaign_id', 'status', 'created_at'],
+      'character_status_created' => ['character_id', 'status', 'created_at'],
+      'campaign_character_status' => ['campaign_id', 'character_id', 'status'],
+      'expires_at' => ['expires_at'],
+    ],
   ];
 
   // Library table: Room templates for procedural dungeon generation.
@@ -6283,6 +6423,199 @@ function dungeoncrawler_content_update_10052() {
   $count = $registry->importContentFromJson('spell');
 
   return t('Imported @count spell records from packaged intermediary payloads.', ['@count' => $count]);
+}
+
+/**
+ * Create durable quest confirmation storage and migrate key-value entries.
+ */
+function dungeoncrawler_content_update_10053() {
+  $database = \Drupal::database();
+  $schema = dungeoncrawler_content_schema();
+  $schema_handler = $database->schema();
+  $table_name = 'dc_campaign_quest_confirmations';
+
+  if (!$schema_handler->tableExists($table_name)) {
+    $schema_handler->createTable($table_name, $schema[$table_name]);
+  }
+
+  $store = \Drupal::keyValue('dungeoncrawler_content.quest_confirmations');
+  $legacy_rows = $store->getAll();
+  $migrated = 0;
+  $skipped = 0;
+
+  foreach ($legacy_rows as $confirmation_id => $row) {
+    if (!is_array($row)) {
+      $skipped++;
+      continue;
+    }
+
+    $existing = $database->select($table_name, 'q')
+      ->fields('q', ['confirmation_id'])
+      ->condition('confirmation_id', (string) ($row['confirmation_id'] ?? $confirmation_id))
+      ->execute()
+      ->fetchField();
+
+    if ($existing) {
+      $skipped++;
+      continue;
+    }
+
+    $database->insert($table_name)
+      ->fields([
+        'confirmation_id' => (string) ($row['confirmation_id'] ?? $confirmation_id),
+        'campaign_id' => (int) ($row['campaign_id'] ?? 0),
+        'character_id' => isset($row['character_id']) ? (int) $row['character_id'] : NULL,
+        'status' => (string) ($row['status'] ?? 'pending'),
+        'prompt' => isset($row['prompt']) ? (string) $row['prompt'] : NULL,
+        'touchpoint_event' => json_encode($row['touchpoint_event'] ?? [], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        'candidates' => json_encode($row['candidates'] ?? [], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        'selected_objective_id' => isset($row['selected_objective_id']) ? (string) $row['selected_objective_id'] : NULL,
+        'resolved_by' => isset($row['resolved_by']) ? (string) $row['resolved_by'] : NULL,
+        'created_at' => (int) ($row['created_at'] ?? 0),
+        'expires_at' => isset($row['expires_at']) ? (int) $row['expires_at'] : NULL,
+        'resolved_at' => isset($row['resolved_at']) ? (int) $row['resolved_at'] : NULL,
+      ])
+      ->execute();
+
+    $migrated++;
+  }
+
+  if (!empty($legacy_rows)) {
+    $store->deleteMultiple(array_keys($legacy_rows));
+  }
+
+  return t('Quest confirmation storage ready. Migrated @migrated legacy confirmation rows and skipped @skipped existing/invalid rows.', [
+    '@migrated' => $migrated,
+    '@skipped' => $skipped,
+  ]);
+}
+
+/**
+ * Create storyline storage tables and quest-link columns.
+ */
+function dungeoncrawler_content_update_10054() {
+  $database = \Drupal::database();
+  $schema = dungeoncrawler_content_schema();
+  $schema_handler = $database->schema();
+  $messages = [];
+
+  foreach ([
+    'dungeoncrawler_content_storylines',
+    'dc_campaign_storylines',
+    'dc_campaign_storyline_log',
+  ] as $table_name) {
+    if (!$schema_handler->tableExists($table_name)) {
+      $schema_handler->createTable($table_name, $schema[$table_name]);
+      $messages[] = "Created {$table_name}.";
+    }
+  }
+
+  foreach ([
+    'storyline_id',
+    'storyline_chapter_id',
+    'storyline_scene_id',
+  ] as $field_name) {
+    if (
+      $schema_handler->tableExists('dc_campaign_quests')
+      && !$schema_handler->fieldExists('dc_campaign_quests', $field_name)
+    ) {
+      $schema_handler->addField('dc_campaign_quests', $field_name, $schema['dc_campaign_quests']['fields'][$field_name]);
+      $messages[] = "Added dc_campaign_quests.{$field_name}.";
+    }
+  }
+
+  foreach ([
+    'campaign_storyline' => ['campaign_id', 'storyline_id'],
+    'storyline_chapter' => ['storyline_chapter_id'],
+    'storyline_scene' => ['storyline_scene_id'],
+  ] as $index_name => $index_columns) {
+    if (
+      $schema_handler->tableExists('dc_campaign_quests')
+      && !$schema_handler->indexExists('dc_campaign_quests', $index_name)
+    ) {
+      $schema_handler->addIndex('dc_campaign_quests', $index_name, $index_columns, $schema['dc_campaign_quests']);
+      $messages[] = "Added index dc_campaign_quests.{$index_name}.";
+    }
+  }
+
+  return $messages === []
+    ? t('Storyline storage already existed; no schema changes were required.')
+    : implode(' ', $messages);
+}
+
+/**
+ * Import bundled storyline template examples.
+ */
+function dungeoncrawler_content_update_10055() {
+  /** @var \Drupal\dungeoncrawler_content\Service\TemplateImportService $importer */
+  $importer = \Drupal::service('dungeoncrawler_content.template_importer');
+  $summary = $importer->importStorylineTemplates();
+
+  return t(
+    'Storyline template import complete. Processed: @processed, inserted: @inserted, updated: @updated, skipped: @skipped.',
+    [
+      '@processed' => (int) ($summary['processed'] ?? 0),
+      '@inserted' => (int) ($summary['inserted'] ?? 0),
+      '@updated' => (int) ($summary['updated'] ?? 0),
+      '@skipped' => (int) ($summary['skipped'] ?? 0),
+    ]
+  );
+}
+
+/**
+ * Create storyline asset-link storage and refresh bundled storyline templates.
+ */
+function dungeoncrawler_content_update_10056() {
+  $database = \Drupal::database();
+  $schema = dungeoncrawler_content_schema();
+  $schema_handler = $database->schema();
+  $messages = [];
+
+  if (!$schema_handler->tableExists('dc_campaign_storyline_links')) {
+    $schema_handler->createTable('dc_campaign_storyline_links', $schema['dc_campaign_storyline_links']);
+    $messages[] = 'Created dc_campaign_storyline_links.';
+  }
+
+  /** @var \Drupal\dungeoncrawler_content\Service\TemplateImportService $importer */
+  $importer = \Drupal::service('dungeoncrawler_content.template_importer');
+  $summary = $importer->importStorylineTemplates();
+  $messages[] = t(
+    'Storyline templates refreshed (processed: @processed, inserted: @inserted, updated: @updated, skipped: @skipped).',
+    [
+      '@processed' => (int) ($summary['processed'] ?? 0),
+      '@inserted' => (int) ($summary['inserted'] ?? 0),
+      '@updated' => (int) ($summary['updated'] ?? 0),
+      '@skipped' => (int) ($summary['skipped'] ?? 0),
+    ]
+  );
+
+  return implode(' ', array_map('strval', $messages));
+}
+
+/**
+ * Import Little Trouble asset templates into the library tables.
+ */
+function dungeoncrawler_content_update_10057() {
+  /** @var \Drupal\dungeoncrawler_content\Service\TemplateImportService $importer */
+  $importer = \Drupal::service('dungeoncrawler_content.template_importer');
+  $summary = $importer->importTemplateFiles([
+    'dungeoncrawler_content_registry' => ['little_trouble_registry_examples.json'],
+    'dungeoncrawler_content_characters' => ['little_trouble_character_templates.json'],
+    'dungeoncrawler_content_rooms' => ['little_trouble_room_templates.json'],
+    'dungeoncrawler_content_dungeons' => ['little_trouble_dungeon_templates.json'],
+    'dungeoncrawler_content_item_instances' => ['little_trouble_item_templates.json'],
+    'dungeoncrawler_content_quest_templates' => ['little_trouble_quest_templates.json'],
+  ]);
+
+  return t(
+    'Little Trouble asset import complete. Processed: @processed, inserted: @inserted, updated: @updated, skipped: @skipped.',
+    [
+      '@processed' => (int) ($summary['table_rows_processed'] ?? 0),
+      '@inserted' => (int) ($summary['table_rows_inserted'] ?? 0),
+      '@updated' => (int) ($summary['table_rows_updated'] ?? 0),
+      '@skipped' => (int) ($summary['table_rows_skipped'] ?? 0),
+    ]
+  );
 }
 
 /**

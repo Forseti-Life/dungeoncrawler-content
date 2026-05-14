@@ -200,15 +200,15 @@ try {
   $has_weapon_proficiency = FALSE;
   $has_armor_proficiency = FALSE;
   foreach ($trained_proficiencies as $proficiency) {
-    if (($proficiency['category'] ?? '') === 'weapon' && ($proficiency['target'] ?? '') === 'martial_or_advanced_choice' && ($proficiency['rank'] ?? '') === 'trained') {
+    if (($proficiency['category'] ?? '') === 'weapon' && ($proficiency['target'] ?? '') === 'martial' && ($proficiency['rank'] ?? '') === 'trained') {
       $has_weapon_proficiency = TRUE;
     }
-    if (($proficiency['category'] ?? '') === 'armor' && ($proficiency['target'] ?? '') === 'light_or_medium_or_heavy_choice' && ($proficiency['rank'] ?? '') === 'trained') {
+    if (($proficiency['category'] ?? '') === 'armor' && ($proficiency['target'] ?? '') === 'light' && ($proficiency['rank'] ?? '') === 'trained') {
       $has_armor_proficiency = TRUE;
     }
   }
-  assert_true($has_weapon_proficiency, 'Weapon Proficiency generic proficiency grant persisted');
-  assert_true($has_armor_proficiency, 'Armor Proficiency generic proficiency grant persisted');
+  assert_true($has_weapon_proficiency, 'Weapon Proficiency resolved proficiency grant persisted');
+  assert_true($has_armor_proficiency, 'Armor Proficiency resolved proficiency grant persisted');
 
   $selection_grants = $state['features']['featSelectionGrants'] ?? [];
   $selection_types = array_map(function ($grant) {

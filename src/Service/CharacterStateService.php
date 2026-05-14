@@ -1566,6 +1566,8 @@ class CharacterStateService {
       'feat_resources' => is_array($state['resources']['featResources'] ?? NULL) ? $state['resources']['featResources'] : [],
       'heritage' => $state['basicInfo']['heritage'] ?? '',
       'ancestry' => $state['basicInfo']['ancestry'] ?? '',
+      'class' => $state['basicInfo']['class'] ?? '',
+      'deity' => $state['basicInfo']['deity'] ?? '',
       'class_features' => is_array($features['classFeatures'] ?? NULL) ? $features['classFeatures'] : [],
     ], [
       'level' => $level,

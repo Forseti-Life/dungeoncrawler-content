@@ -1,0 +1,19 @@
+{
+  "rows": [
+    {
+      "dungeon_id": "ltba-tomb-site",
+      "name": "Hookclaw Vault Site",
+      "description": "The compact tomb/vault complex at the center of Little Trouble in Big Absalom's opening chapter.",
+      "theme": "kobold_vault",
+      "dungeon_data": {
+        "levels": 1,
+        "entry_room": "ltba-vault-entry",
+        "rooms": [
+          "ltba-vault-entry",
+          "ltba-tomb-hazard-room"
+        ],
+        "source_module": "little-trouble-in-big-absalom"
+      }
+    }
+  ]
+}

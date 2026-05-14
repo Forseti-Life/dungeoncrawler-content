@@ -74,6 +74,9 @@ class FeatEffectManager {
       switch ($feat_id) {
         case 'toughness':
           $effects['derived_adjustments']['hp_max_bonus'] += $level;
+          $effects['feat_overrides']['toughness'] = [
+            'recovery_check_dc_formula' => '9 + dying_value',
+          ];
           $effects['notes'][] = 'Toughness: +1 max HP per level.';
           $effects['applied_feats'][] = $feat_id;
           break;
@@ -493,8 +496,56 @@ class FeatEffectManager {
           break;
 
         case 'animal-companion':
-          $this->addSelectionGrant($effects, 'animal-companion', 'animal_companion_choice', 1, 'Select one animal companion.');
-          $effects['notes'][] = 'Animal Companion: pending companion selection slot.';
+          $selected_companion = $this->resolveFeatSelectionValue($character_data, 'animal-companion', ['selected_companion_species', 'species_id']);
+          if ($selected_companion === NULL || $selected_companion === '') {
+            $this->addSelectionGrant($effects, 'animal-companion', 'animal_companion_choice', 1, 'Create an animal companion via the Animal Companion API.');
+            $effects['notes'][] = 'Animal Companion: pending companion selection slot.';
+          }
+          else {
+            $effects['feat_overrides']['animal-companion'] = [
+              'selected_companion_species' => $selected_companion,
+            ];
+            $effects['notes'][] = 'Animal Companion: ' . $selected_companion . ' companion selected.';
+          }
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'animal-companion-druid':
+          $selected_companion = $this->resolveFeatSelectionValue($character_data, 'animal-companion-druid', ['selected_companion_species', 'species_id']);
+          if ($selected_companion === NULL || $selected_companion === '') {
+            $this->addSelectionGrant($effects, 'animal-companion-druid', 'animal_companion_choice', 1, 'Create an animal companion via the Animal Companion API.');
+            $effects['notes'][] = 'Animal Companion (Druid): pending companion selection slot.';
+          }
+          else {
+            $effects['feat_overrides']['animal-companion-druid'] = [
+              'selected_companion_species' => $selected_companion,
+            ];
+            $effects['notes'][] = 'Animal Companion (Druid): ' . $selected_companion . ' companion selected.';
+          }
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'mature-animal-companion-druid':
+          $effects['feat_overrides']['mature-animal-companion-druid'] = [
+            'animal_companion_stage' => 'mature',
+          ];
+          $effects['notes'][] = 'Mature Animal Companion: active companion advances to mature stage.';
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'specialized-companion-druid':
+          $selected_specialization = $this->resolveFeatSelectionValue($character_data, 'specialized-companion-druid', ['selected_specialization', 'specialization']);
+          $effects['feat_overrides']['specialized-companion-druid'] = [
+            'animal_companion_stage' => 'mature',
+          ];
+          if ($selected_specialization === NULL || $selected_specialization === '') {
+            $this->addSelectionGrant($effects, 'specialized-companion-druid', 'animal_companion_specialization_choice', 1, 'Select a specialization for the active animal companion.');
+            $effects['notes'][] = 'Specialized Companion: pending specialization choice.';
+          }
+          else {
+            $effects['feat_overrides']['specialized-companion-druid']['selected_specialization'] = $selected_specialization;
+            $effects['notes'][] = 'Specialized Companion: ' . $selected_specialization . ' specialization selected.';
+          }
           $effects['applied_feats'][] = $feat_id;
           break;
 
@@ -512,14 +563,39 @@ class FeatEffectManager {
           break;
 
         case 'monster-hunter':
-          $label = $this->humanizeFeatId($feat_id);
-          $effects['available_actions']['at_will'][] = [
-            'id' => $feat_id,
-            'name' => $label,
-            'action_cost' => 1,
-            'description' => $label . ': first-pass feat action.',
-          ];
-          $effects['notes'][] = $label . ': explicit class-feat action handler applied.';
+          $selected_monster_type = $this->resolveFeatSelectionValue($character_data, 'monster-hunter', ['selected_monster_type', 'monster_type']);
+          if ($selected_monster_type === NULL || $selected_monster_type === '') {
+            $this->addSelectionGrant(
+              $effects,
+              'monster-hunter',
+              'monster_type_choice',
+              1,
+              'Choose a creature type for Monster Hunter.'
+            );
+            $effects['notes'][] = 'Monster Hunter: choose a creature type to gain the feat’s Recall Knowledge and Investigation bonuses.';
+          }
+          else {
+            $effects['modifiers']['skills'][] = [
+              'skill' => 'recall_knowledge',
+              'type' => 'circumstance',
+              'value' => 2,
+              'condition' => 'against creatures with the ' . $selected_monster_type . ' trait',
+              'source' => 'monster-hunter',
+            ];
+            $effects['modifiers']['skills'][] = [
+              'skill' => 'investigation',
+              'type' => 'circumstance',
+              'value' => 2,
+              'condition' => 'against creatures with the ' . $selected_monster_type . ' trait',
+              'source' => 'monster-hunter',
+            ];
+            $effects['feat_overrides']['monster-hunter'] = [
+              'chosen_creature_trait' => $selected_monster_type,
+              'recall_knowledge_bonus' => 2,
+              'investigation_bonus' => 2,
+            ];
+            $effects['notes'][] = 'Monster Hunter: +2 circumstance bonus to Recall Knowledge and Investigation against ' . $selected_monster_type . ' creatures.';
+          }
           $effects['applied_feats'][] = $feat_id;
           break;
 
@@ -593,6 +669,48 @@ class FeatEffectManager {
           $effects['applied_feats'][] = $feat_id;
           break;
 
+        case 'staff-nexus':
+          $selected_cantrip = $this->resolveFeatSelectionValue($character_data, 'staff-nexus', ['selected_cantrip', 'cantrip']);
+          $selected_spell = $this->resolveFeatSelectionValue($character_data, 'staff-nexus', ['selected_spell', 'spell']);
+          $missing_selection_count = 0;
+          if ($selected_cantrip === NULL || $selected_cantrip === '') {
+            $missing_selection_count++;
+          }
+          if ($selected_spell === NULL || $selected_spell === '') {
+            $missing_selection_count++;
+          }
+          if ($missing_selection_count > 0) {
+            $this->addSelectionGrant(
+              $effects,
+              'staff-nexus',
+              'staff_nexus_spell_selection',
+              $missing_selection_count,
+              'Choose one selected cantrip and one selected 1st-rank spell to embed in your makeshift staff.'
+            );
+          }
+          $effects['feat_overrides']['staff-nexus'] = [
+            'type' => 'makeshift_staff',
+            'selected_cantrip' => $selected_cantrip,
+            'selected_spell' => $selected_spell,
+            'starting_spell_count' => 2,
+            'charge_source' => 'expended_spell_slots',
+            'charges_gained_per_slot' => 'slot_rank',
+            'daily_slot_expenditure_limit_by_level' => [
+              1 => 1,
+              8 => 2,
+              16 => 3,
+            ],
+            'craft_upgrade_retains_original_spells' => TRUE,
+          ];
+          if ($selected_cantrip !== NULL || $selected_spell !== NULL) {
+            $embedded_spells = array_values(array_filter([$selected_cantrip, $selected_spell]));
+            if (!empty($embedded_spells)) {
+              $effects['notes'][] = 'Staff Nexus: makeshift staff contains ' . implode(' and ', $embedded_spells) . '.';
+            }
+          }
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
         case 'conceal-spell':
           $effects['spell_augments']['metamagic'][] = [
             'id' => 'conceal-spell',
@@ -610,6 +728,34 @@ class FeatEffectManager {
             'applies_to_next_spell_only' => TRUE,
             'description' => 'Metamagic: make your next spell subtle and harder to notice.',
           ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'cantrip-expansion-wizard':
+          $selected_cantrips = array_slice(
+            $this->resolveFeatSelectionList($character_data, 'cantrip-expansion-wizard', ['selected_cantrips', 'cantrips']),
+            0,
+            2
+          );
+          if (count($selected_cantrips) < 2) {
+            $this->addSelectionGrant(
+              $effects,
+              'cantrip-expansion-wizard',
+              'wizard_cantrip_expansion_choice',
+              2 - count($selected_cantrips),
+              'Select two additional arcane cantrips to add to your spellbook.'
+            );
+          }
+          $effects['feat_overrides']['cantrip-expansion-wizard'] = [
+            'type' => 'spellbook_cantrip_expansion',
+            'tradition' => 'arcane',
+            'added_cantrips' => $selected_cantrips,
+            'extra_prepared_cantrips' => 2,
+            'prepared_cantrips_do_not_count_against_limit' => TRUE,
+          ];
+          $effects['notes'][] = !empty($selected_cantrips)
+            ? ('Cantrip Expansion (Wizard): add ' . implode(', ', $selected_cantrips) . ' to your spellbook and prepare them without using your normal cantrip limit.')
+            : 'Cantrip Expansion (Wizard): select two additional arcane cantrips to add to your spellbook.';
           $effects['applied_feats'][] = $feat_id;
           break;
 
@@ -728,6 +874,56 @@ class FeatEffectManager {
           $effects['applied_feats'][] = $feat_id;
           break;
 
+        case 'bond-conservation':
+          $effects['spell_augments']['metamagic'][] = [
+            'id' => 'bond-conservation',
+            'name' => 'Bond Conservation',
+            'applies_to_next_spell_only' => TRUE,
+            'requires_spell_tradition' => 'arcane',
+            'requires_action_cost_in' => [1, 2],
+            'drain_bonded_item_can_be_part_of_same_activity' => TRUE,
+            'recovers_additional_lower_slot_when_spell_below_highest_rank' => TRUE,
+            'description' => 'The next 1-action or 2-action arcane spell you cast can include Drain Bonded Item as part of the same activity, and if the spell is below your highest rank you recover an additional lower-rank slot.',
+          ];
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'bond-conservation',
+            'name' => 'Bond Conservation',
+            'action_cost' => 1,
+            'activity' => 'metamagic',
+            'applies_to_next_spell_only' => TRUE,
+            'description' => 'Metamagic: fold Drain Bonded Item into your next 1-action or 2-action arcane spell.',
+          ];
+          $effects['feat_overrides']['bond-conservation'] = [
+            'modifies_resource' => 'drain-bonded-item',
+            'combined_activity_with_next_arcane_spell' => TRUE,
+            'extra_lower_slot_recovery_when_spell_below_highest_rank' => TRUE,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'advanced-school-spell':
+          $school_id = $this->resolveWizardSchoolId($character_data);
+          $school_data = $school_id !== '' ? (CharacterManager::ARCANE_SCHOOLS[$school_id] ?? NULL) : NULL;
+          $advanced_focus_spell = is_array($school_data)
+            ? (string) ($school_data['focus_spells'][1] ?? $school_data['school_spells'][1] ?? '')
+            : '';
+          $effects['feat_overrides']['advanced-school-spell'] = [
+            'type' => 'advanced_school_focus_spell',
+            'school_id' => $school_id,
+            'school_name' => $school_data['name'] ?? '',
+            'advanced_focus_spell' => $advanced_focus_spell,
+            'focus_pool_bonus' => 1,
+            'requires_specialist_school' => TRUE,
+          ];
+          if ($school_id !== '' && $school_id !== 'universalist' && $advanced_focus_spell !== '') {
+            $effects['notes'][] = 'Advanced School Spell: gain ' . $advanced_focus_spell . ' from the ' . ($school_data['name'] ?? $school_id) . '.';
+          }
+          else {
+            $effects['notes'][] = 'Advanced School Spell: requires a persisted specialist arcane school to identify the granted focus spell.';
+          }
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
         case 'overwhelming-energy-wizard':
           $effects['spell_augments']['metamagic'][] = [
             'id' => 'overwhelming-energy-wizard',
@@ -769,12 +965,99 @@ class FeatEffectManager {
           $effects['applied_feats'][] = $feat_id;
           break;
 
+        case 'greater-vital-evolution':
+          $selected_spells = array_slice(
+            $this->resolveFeatSelectionList($character_data, 'greater-vital-evolution', ['selected_spells', 'spells']),
+            0,
+            2
+          );
+          if (count($selected_spells) < 2) {
+            $this->addSelectionGrant(
+              $effects,
+              'greater-vital-evolution',
+              'wizard_spellbook_spell_choices',
+              2 - count($selected_spells),
+              'Select two additional arcane spells to add to your spellbook.'
+            );
+          }
+          $effects['derived_adjustments']['initiative_bonus'] += (int) ($this->resolveAbilityModifier($character_data, 'intelligence') ?? 0);
+          $effects['feat_overrides']['greater-vital-evolution'] = [
+            'type' => 'spellbook_expansion',
+            'tradition' => 'arcane',
+            'added_spells' => $selected_spells,
+            'initiative_ability_bonus' => 'intelligence_modifier',
+          ];
+          $effects['notes'][] = !empty($selected_spells)
+            ? ('Greater Mental Evolution: add ' . implode(', ', $selected_spells) . ' to your spellbook and add Intelligence modifier to initiative.')
+            : 'Greater Mental Evolution: select two additional arcane spells to add to your spellbook and add Intelligence modifier to initiative.';
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'universal-versatility':
+          $school_ids = array_values(array_filter(
+            array_keys(CharacterManager::ARCANE_SCHOOLS),
+            static fn(string $school_id): bool => $school_id !== 'universalist'
+          ));
+          $effects['feat_overrides']['universal-versatility'] = [
+            'type' => 'borrow_school_spell',
+            'available_schools' => $school_ids,
+            'grants_school_spell_once_per_long_rest' => TRUE,
+            'uses_focus_pool' => TRUE,
+          ];
+          $effects['available_actions']['per_long_rest'][] = [
+            'id' => 'universal-versatility',
+            'name' => 'Universal Versatility',
+            'action_cost' => 'free',
+            'frequency' => 'once_per_long_rest',
+            'activity' => 'borrow_arcane_school_spell',
+            'available_school_options' => $school_ids,
+            'uses_focus_pool' => TRUE,
+            'description' => 'Once per day, choose one arcane school and gain its trained school spell, castable using your focus pool.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
         case 'clever-counterspell':
           $effects['feat_overrides']['clever-counterspell'] = [
             'modifies_feat' => 'counterspell',
             'prepared_spell_requirement' => 'same_or_higher_rank_from_spellbook',
             'expended_spell_must_be_prepared' => TRUE,
             'description' => 'When using Counterspell, you may expend any prepared spell of the same or higher rank from your spellbook instead of the exact same spell.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'scroll-savant':
+          $selected_spells = array_slice(
+            $this->resolveFeatSelectionList($character_data, 'scroll-savant', ['selected_spells', 'spells']),
+            0,
+            2
+          );
+          if (count($selected_spells) < 2) {
+            $this->addSelectionGrant(
+              $effects,
+              'scroll-savant',
+              'wizard_scroll_spell_choices',
+              2 - count($selected_spells),
+              'Select two arcane spells from your spellbook for your daily Scroll Savant scrolls.'
+            );
+          }
+          $effects['feat_overrides']['scroll-savant'] = [
+            'type' => 'daily_temporary_scrolls',
+            'temporary_until' => 'next_daily_preparations',
+            'created_scroll_spells' => $selected_spells,
+            'created_scroll_count' => 2,
+          ];
+          $effects['available_actions']['per_long_rest'][] = [
+            'id' => 'scroll-savant',
+            'name' => 'Scroll Savant',
+            'action_cost' => 'daily_preparations',
+            'frequency' => 'once_per_long_rest',
+            'activity' => 'create_temporary_arcane_scrolls',
+            'scroll_count' => 2,
+            'selected_spells' => $selected_spells,
+            'expires_at' => 'next_daily_preparations',
+            'description' => 'During daily preparations, create two temporary arcane scrolls from selected spellbook spells; they expire at your next daily preparations.',
           ];
           $effects['applied_feats'][] = $feat_id;
           break;
@@ -880,6 +1163,72 @@ class FeatEffectManager {
             'sustain_duration' => 'up_to_1_minute',
             'description' => 'Composition cantrip: one ally within 60 feet gains a +2 status bonus to a skill check before the end of your next turn; Sustain up to 1 minute.',
           ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'cantrip-expansion':
+          $selected_cantrips = array_slice(
+            $this->resolveFeatSelectionList($character_data, 'cantrip-expansion', ['selected_cantrips', 'cantrips']),
+            0,
+            2
+          );
+          if (count($selected_cantrips) < 2) {
+            $this->addSelectionGrant(
+              $effects,
+              'cantrip-expansion',
+              'bard_cantrip_expansion_choice',
+              2 - count($selected_cantrips),
+              'Select two additional occult cantrips to add to your spell repertoire.'
+            );
+          }
+          $effects['feat_overrides']['cantrip-expansion'] = [
+            'type' => 'repertoire_cantrip_expansion',
+            'tradition' => 'occult',
+            'added_cantrips' => $selected_cantrips,
+            'extra_repertoire_cantrips' => 2,
+          ];
+          $effects['notes'][] = !empty($selected_cantrips)
+            ? ('Cantrip Expansion (Bard): add ' . implode(', ', $selected_cantrips) . ' to your occult spell repertoire.')
+            : 'Cantrip Expansion (Bard): select two additional occult cantrips to add to your repertoire.';
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'studious-capacity':
+          $selected_cantrips = array_slice(
+            $this->resolveFeatSelectionList($character_data, 'studious-capacity', ['selected_cantrips', 'cantrips']),
+            0,
+            2
+          );
+          $selected_spell = $this->resolveFeatSelectionValue($character_data, 'studious-capacity', ['selected_spell']);
+          $highest_rank = $this->resolveHighestSpellRank($character_data);
+          if (count($selected_cantrips) < 2) {
+            $this->addSelectionGrant(
+              $effects,
+              'studious-capacity',
+              'bard_extra_cantrip_choices',
+              2 - count($selected_cantrips),
+              'Select two additional occult cantrips for Studious Capacity.'
+            );
+          }
+          if ($selected_spell === NULL || $selected_spell === '') {
+            $this->addSelectionGrant(
+              $effects,
+              'studious-capacity',
+              'bard_highest_rank_spell_choice',
+              1,
+              'Select one additional occult spell of your highest available spell rank for Studious Capacity.'
+            );
+          }
+          $effects['feat_overrides']['studious-capacity'] = [
+            'type' => 'mixed_repertoire_expansion',
+            'tradition' => 'occult',
+            'added_cantrips' => $selected_cantrips,
+            'extra_repertoire_cantrips' => 2,
+            'highest_available_rank' => $highest_rank,
+            'added_highest_rank_spell' => $selected_spell,
+            'extra_highest_rank_spells_known' => 1,
+          ];
+          $effects['notes'][] = 'Studious Capacity: add two occult cantrips and one additional occult spell known of rank ' . $highest_rank . '.';
           $effects['applied_feats'][] = $feat_id;
           break;
 
@@ -1373,6 +1722,1169 @@ class FeatEffectManager {
             1,
             (int) ($this->resolveFeatUsage($character_data, 'quickened-casting-sorcerer') ?? 0)
           );
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'alchemical-familiar':
+          $this->addSelectionGrant($effects, $feat_id, 'familiar_creation', 1, 'Create an alchemical familiar via the Familiar API.');
+          $effects['feat_overrides']['alchemical-familiar'] = [
+            'familiar_uses_int_for_perception_acrobatics_stealth' => TRUE,
+            'counts_as_alchemical_item_for_infused_reagents' => TRUE,
+          ];
+          $effects['notes'][] = 'Alchemical Familiar: use POST /api/character/{id}/familiar to create. The familiar uses Intelligence for Perception, Acrobatics, and Stealth.';
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'alchemical-savant':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'alchemical-savant',
+            'name' => 'Alchemical Savant',
+            'action_cost' => 1,
+            'activity' => 'identify_alchemical_item',
+            'requirements' => ['held_alchemical_item' => TRUE],
+            'traits' => ['Concentrate', 'Manipulate'],
+            'description' => 'Identify a held alchemical item as a 1-action activity.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'far-lobber':
+          $effects['feat_overrides']['far-lobber'] = [
+            'alchemical_bomb_range_increment_feet' => 30,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'quick-bomber':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'quick-bomber',
+            'name' => 'Quick Bomber',
+            'action_cost' => 1,
+            'activity' => 'draw_bomb_and_strike',
+            'description' => 'Draw a bomb and Strike with it as one combined action.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'poison-resistance':
+          $effects['feat_overrides']['poison-resistance'] = [
+            'type' => 'resistance',
+            'damage_type' => 'poison',
+            'resistance' => max(1, intdiv($level, 2)),
+          ];
+          $effects['conditional_modifiers']['saving_throws'][] = [
+            'save' => 'all',
+            'bonus' => 1,
+            'bonus_type' => 'status',
+            'context' => 'against poison',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'revivifying-mutagen':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'revivifying-mutagen',
+            'name' => 'Revivifying Mutagen',
+            'action_cost' => 1,
+            'activity' => 'end_mutagen_to_heal',
+            'requirements' => ['under_mutagen' => TRUE],
+            'healing_formula' => '1d6 per 2 mutagen item levels (minimum 1d6)',
+            'traits' => ['Concentrate', 'Manipulate'],
+            'description' => 'End an active mutagen to regain 1d6 HP per 2 item levels of the mutagen, minimum 1d6.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'smoke-bomb':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'smoke-bomb',
+            'name' => 'Smoke Bomb',
+            'action_cost' => 'free',
+            'activity' => 'quick_alchemy_additive',
+            'trigger' => 'quick_alchemy_creates_qualifying_bomb',
+            'frequency' => 'once_per_round',
+            'minimum_item_level' => 1,
+            'advanced_alchemy_gap' => 1,
+            'smoke_burst_feet' => 10,
+            'smoke_effect' => 'creatures_concealed_until_start_of_your_next_turn',
+            'description' => 'When Quick Alchemy creates a qualifying bomb, it also creates a 10-foot burst of smoke that conceals creatures until the start of your next turn.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'calculated-splash':
+          $effects['feat_overrides']['calculated-splash'] = [
+            'bomb_splash_damage_formula' => 'max(0, intelligence_modifier)',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'efficient-alchemy':
+          $effects['feat_overrides']['efficient-alchemy'] = [
+            'craft_alchemical_batch_output_multiplier' => 2,
+            'no_extra_time_required' => TRUE,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'enduring-alchemy':
+          $effects['feat_overrides']['enduring-alchemy'] = [
+            'quick_alchemy_tools_and_elixirs_expire' => 'end_of_your_next_turn',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'combine-elixirs':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'combine-elixirs',
+            'name' => 'Combine Elixirs',
+            'action_cost' => 'free',
+            'activity' => 'quick_alchemy_additive',
+            'trigger' => 'quick_alchemy_creates_qualifying_elixir',
+            'frequency' => 'once_per_round',
+            'advanced_alchemy_gap' => 2,
+            'secondary_elixir_level' => 'same_or_lower',
+            'source' => 'formula_book',
+            'effect' => 'consuming_elixir_grants_both_effects',
+            'description' => 'When Quick Alchemy creates a qualifying elixir, add the effects of a second same-or-lower-level elixir from your formula book.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'debilitating-bomb':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'debilitating-bomb',
+            'name' => 'Debilitating Bomb',
+            'action_cost' => 'free',
+            'activity' => 'quick_alchemy_additive',
+            'trigger' => 'quick_alchemy_creates_qualifying_bomb',
+            'frequency' => 'once_per_round',
+            'advanced_alchemy_gap' => 2,
+            'on_hit_choose_one' => ['dazzled', 'deafened', 'flat-footed', 'speed_penalty_5'],
+            'duration' => 'until_start_of_your_next_turn',
+            'description' => 'When Quick Alchemy creates a qualifying bomb, on a hit you can also inflict dazzled, deafened, flat-footed, or a 5-foot Speed penalty until the start of your next turn.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'directional-bombs':
+          $effects['feat_overrides']['directional-bombs'] = [
+            'bomb_splash_can_be_directed_as_cone' => TRUE,
+            'cone_length_feet' => 15,
+            'cone_direction' => 'away_from_you',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'feral-mutagen':
+          $effects['feat_overrides']['feral-mutagen'] = [
+            'requires_mutagen' => 'bestial',
+            'bestial_mutagen_item_bonus_applies_to_intimidation' => TRUE,
+            'claws_gain_trait' => 'deadly_d10',
+            'jaws_gain_trait' => 'deadly_d10',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'sticky-bomb':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'sticky-bomb',
+            'name' => 'Sticky Bomb',
+            'action_cost' => 'free',
+            'activity' => 'quick_alchemy_additive',
+            'trigger' => 'quick_alchemy_creates_qualifying_bomb',
+            'frequency' => 'once_per_round',
+            'advanced_alchemy_gap' => 2,
+            'on_direct_hit_persistent_damage' => 'bomb_item_level',
+            'persistent_damage_type' => 'bomb_main_damage_type',
+            'description' => 'When Quick Alchemy creates a qualifying bomb, a direct hit also deals persistent damage equal to the bomb item level of the bomb\'s main damage type.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'elastic-mutagen':
+          $effects['feat_overrides']['elastic-mutagen'] = [
+            'requires_mutagen' => 'quicksilver',
+            'step_distance_feet' => 10,
+            'squeeze_as_size_smaller' => TRUE,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'expanded-splash':
+          $effects['feat_overrides']['expanded-splash'] = [
+            'bomb_splash_damage_formula' => 'normal_splash + intelligence_modifier',
+            'bomb_splash_radius_feet' => 10,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'greater-debilitating-bomb':
+          $effects['feat_overrides']['greater-debilitating-bomb'] = [
+            'modifies_feat' => 'debilitating-bomb',
+            'additional_on_hit_options' => ['clumsy_1', 'enfeebled_1', 'stupefied_1', 'speed_penalty_10'],
+            'duration' => 'until_start_of_your_next_turn',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'merciful-elixir':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'merciful-elixir',
+            'name' => 'Merciful Elixir',
+            'action_cost' => 'free',
+            'activity' => 'quick_alchemy_additive',
+            'trigger' => 'quick_alchemy_creates_elixir_of_life',
+            'frequency' => 'once_per_round',
+            'advanced_alchemy_gap' => 2,
+            'counteract_options' => ['fear', 'poison'],
+            'description' => 'When Quick Alchemy creates a qualifying elixir of life, the consumer can also counteract one fear or poison effect of their choice.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'potent-poisoner':
+          $effects['feat_overrides']['potent-poisoner'] = [
+            'crafted_poison_dc_bonus_max' => 4,
+            'crafted_poison_dc_capped_by_class_dc' => TRUE,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'extend-elixir':
+          $effects['feat_overrides']['extend-elixir'] = [
+            'trigger' => 'drink_own_infused_elixir_with_duration_at_least_1_minute',
+            'duration_multiplier' => 2,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'invincible-mutagen':
+          $effects['feat_overrides']['invincible-mutagen'] = [
+            'requires_mutagen' => 'juggernaut',
+            'physical_resistance_formula' => 'intelligence_modifier',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'uncanny-bombs':
+          $effects['feat_overrides']['uncanny-bombs'] = [
+            'alchemical_bomb_range_increment_feet' => 60,
+            'reduce_cover_ac_bonus_against_bombs_by' => 1,
+            'automatically_succeed_concealed_flat_check_with_bombs' => TRUE,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'glib-mutagen':
+          $effects['feat_overrides']['glib-mutagen'] = [
+            'requires_mutagen' => 'silvertongue',
+            'ignore_circumstance_penalties_to' => ['Deception', 'Diplomacy', 'Intimidation', 'Performance'],
+            'lies_become_more_convincing' => TRUE,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'greater-merciful-elixir':
+          $effects['feat_overrides']['greater-merciful-elixir'] = [
+            'modifies_feat' => 'merciful-elixir',
+            'additional_counteract_options' => ['blinded', 'deafened', 'sickened', 'slowed'],
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'true-debilitating-bomb':
+          $effects['feat_overrides']['true-debilitating-bomb'] = [
+            'modifies_feat' => 'debilitating-bomb',
+            'additional_on_hit_options' => ['enfeebled_2', 'stupefied_2', 'speed_penalty_15'],
+            'duration' => 'until_end_of_targets_next_turn',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'eternal-elixir':
+          $effects['available_actions']['per_long_rest'][] = [
+            'id' => 'eternal-elixir',
+            'name' => 'Eternal Elixir',
+            'action_cost' => 'special',
+            'frequency' => 'once_per_long_rest',
+            'activity' => 'consume_elixir_with_extended_duration',
+            'trigger' => 'consume_own_infused_elixir_of_level_at_most_half_your_level',
+            'duration' => 'until_next_daily_preparations',
+            'dismiss_action' => 'free',
+            'description' => 'Once per day, when you consume one of your qualifying infused elixirs, its duration becomes indefinite until your next daily preparations.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'exploitive-bomb':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'exploitive-bomb',
+            'name' => 'Exploitive Bomb',
+            'action_cost' => 'free',
+            'activity' => 'quick_alchemy_additive',
+            'trigger' => 'quick_alchemy_creates_qualifying_bomb',
+            'frequency' => 'once_per_round',
+            'advanced_alchemy_gap' => 2,
+            'on_hit_reduce_resistance_by' => 'bomb_item_level',
+            'affected_resistance' => 'bomb_damage_type',
+            'duration' => 'until_start_of_your_next_turn',
+            'description' => 'When Quick Alchemy creates a qualifying bomb, on a hit it reduces the target\'s resistance to the bomb\'s damage type by the bomb item level until the start of your next turn.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'genius-mutagen':
+          $effects['feat_overrides']['genius-mutagen'] = [
+            'requires_mutagen' => 'cognitive',
+            'cognitive_mutagen_item_bonus_applies_to' => ['Deception', 'Diplomacy', 'Intimidation', 'Medicine', 'Nature', 'Performance', 'Religion', 'Survival'],
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'persistent-mutagen':
+          $effects['available_actions']['per_long_rest'][] = [
+            'id' => 'persistent-mutagen',
+            'name' => 'Persistent Mutagen',
+            'action_cost' => 'special',
+            'frequency' => 'once_per_long_rest',
+            'activity' => 'consume_mutagen_with_extended_duration',
+            'trigger' => 'consume_own_infused_mutagen',
+            'duration' => 'until_next_daily_preparations',
+            'description' => 'Once per day, when you consume one of your qualifying infused mutagens, its effects last until your next daily preparations.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'mindblank-mutagen':
+          $effects['feat_overrides']['mindblank-mutagen'] = [
+            'requires_mutagen' => 'serene',
+            'blocks_detection_revelation_and_scrying' => TRUE,
+            'effect_level_cap' => 9,
+            'as_if_under_mind_blank' => TRUE,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'miracle-worker':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'miracle-worker',
+            'name' => 'Miracle Worker',
+            'action_cost' => 'special',
+            'frequency' => 'once_per_10_minutes',
+            'activity' => 'administer_true_elixir_of_life',
+            'target_requirement' => 'creature_dead_for_2_rounds_or_fewer',
+            'result' => 'returns_to_life_at_1_hp',
+            'consumes_item' => TRUE,
+            'description' => 'Administer a true elixir of life to a creature that died within the last 2 rounds to return it to life at 1 HP.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'perfect-debilitation':
+          $effects['feat_overrides']['perfect-debilitation'] = [
+            'modifies_feat' => 'debilitating-bomb',
+            'conditions_avoided_only_on_critical_save_success' => TRUE,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'craft-philosophers-stone':
+          $effects['feat_overrides']['craft-philosophers-stone'] = [
+            'formula_grants' => ["philosopher's stone"],
+            'add_to_formula_book' => TRUE,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'infinite-eye':
+          $effects['senses'][] = [
+            'type' => 'detect_magic_auras',
+            'range_feet' => 'line_of_sight',
+            'mode' => 'at_will',
+            'details' => 'Perceive magical auras at will.',
+          ];
+          $effects['available_actions']['per_long_rest'][] = [
+            'id' => 'infinite-eye',
+            'name' => 'Infinite Eye',
+            'action_cost' => 'free',
+            'frequency' => '3_per_long_rest',
+            'activity' => 'gain_truesight',
+            'range_feet' => 30,
+            'duration' => '1_round',
+            'description' => 'Gain truesight with a 30-foot range for 1 round.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'reprepare-spell':
+          $effects['available_actions']['per_long_rest'][] = [
+            'id' => 'reprepare-spell',
+            'name' => 'Reprepare Spell',
+            'action_cost' => '10_minutes',
+            'frequency' => '3_per_long_rest',
+            'activity' => 'prepare_spellbook_spell_into_slot',
+            'target_slot' => 'empty_or_expended_appropriate_rank_slot',
+            'source' => 'spellbook',
+            'description' => 'Three times per day, spend 10 minutes to prepare a spellbook spell into an empty or expended spell slot of the appropriate rank.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'alter-reality':
+          $this->addLongRestLimitedAction(
+            $effects,
+            'alter-reality',
+            'Alter Reality',
+            'Once per long rest, duplicate any arcane spell of 7th rank or lower without expending a spell slot.',
+            1,
+            (int) ($this->resolveFeatUsage($character_data, 'alter-reality') ?? 0)
+          );
+          $effects['feat_overrides']['alter-reality'] = [
+            'type' => 'wish_like_arcane_duplication',
+            'spell_rank_cap' => 7,
+            'spell_tradition' => 'arcane',
+            'consumes_spell_slot' => FALSE,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'metamagic-mastery':
+          $effects['feat_overrides']['metamagic-mastery'] = [
+            'metamagic_does_not_increase_spell_action_cost' => TRUE,
+            'can_apply_two_metamagic_feats_to_same_spell' => TRUE,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'spell-combination':
+          $effects['available_actions']['per_long_rest'][] = [
+            'id' => 'spell-combination',
+            'name' => 'Spell Combination',
+            'action_cost' => 'daily_preparations',
+            'frequency' => 'once_per_long_rest',
+            'activity' => 'combine_prepared_spells_into_dual_slot',
+            'requires_two_prepared_spells_same_rank' => TRUE,
+            'combined_effects_cast_simultaneously' => TRUE,
+            'consumes_one_combined_slot' => TRUE,
+            'description' => 'During daily preparations, combine two prepared spells of the same rank into one dual spell slot that casts both effects simultaneously.',
+          ];
+          $effects['feat_overrides']['spell-combination'] = [
+            'type' => 'dual_prepared_slot',
+            'combines_two_same_rank_prepared_spells' => TRUE,
+            'casts_both_effects_simultaneously' => TRUE,
+            'uses_per_long_rest' => 1,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'infinite-possibilities':
+          $selected_spells = array_slice(
+            $this->resolveFeatSelectionList($character_data, 'infinite-possibilities', ['selected_spells', 'spells']),
+            0,
+            3
+          );
+          if (count($selected_spells) < 1) {
+            $this->addSelectionGrant(
+              $effects,
+              'infinite-possibilities',
+              'temporary_cross_tradition_spell_choices',
+              3,
+              'Select up to three temporary spells from any tradition to add to your spellbook.'
+            );
+          }
+          $effects['feat_overrides']['infinite-possibilities'] = [
+            'type' => 'temporary_spellbook_entries',
+            'temporary_until' => 'next_daily_preparations',
+            'max_temporary_spells' => 3,
+            'added_spells' => $selected_spells,
+            'prepared_from_entries_count_as_arcane' => TRUE,
+          ];
+          $effects['notes'][] = !empty($selected_spells)
+            ? ('Infinite Possibilities: temporarily add ' . implode(', ', $selected_spells) . ' to your spellbook until next daily preparations.')
+            : 'Infinite Possibilities: select up to three temporary spells from any tradition to add to your spellbook.';
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'spell-mastery':
+          $selected_spells = array_slice(
+            $this->resolveFeatSelectionList($character_data, 'spell-mastery', ['selected_spells', 'spells']),
+            0,
+            4
+          );
+          if (count($selected_spells) < 4) {
+            $this->addSelectionGrant(
+              $effects,
+              'spell-mastery',
+              'wizard_mastered_spell_choices',
+              4 - count($selected_spells),
+              'Select four arcane spells of rank 9 or lower to master.'
+            );
+          }
+          $effects['feat_overrides']['spell-mastery'] = [
+            'type' => 'mastered_spell_preparation',
+            'tradition' => 'arcane',
+            'mastered_spells' => $selected_spells,
+            'free_casts_per_spell_per_day' => 1,
+            'does_not_count_against_prepared_slots' => TRUE,
+          ];
+          $effects['notes'][] = !empty($selected_spells)
+            ? ('Spell Mastery: ' . implode(', ', $selected_spells) . ' can each be cast once per day without counting against prepared spell slots.')
+            : 'Spell Mastery: select four arcane spells of rank 9 or lower to master for daily free casts.';
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'eternal-composition':
+          $effects['feat_overrides']['eternal-composition'] = [
+            'max_simultaneous_compositions' => 3,
+            'single_sustain_can_maintain_all_active_compositions' => TRUE,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'melodic-casting':
+          $effects['spell_augments']['metamagic'][] = [
+            'id' => 'melodic-casting',
+            'name' => 'Melodic Casting',
+            'applies_melodious_spell_to_next_spells_this_turn' => 2,
+            'replaces_separate_metamagic_actions' => TRUE,
+            'description' => 'The next two spells you cast this turn each gain the Melodious Spell effect without separate metamagic actions.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'fatal-aria':
+          $effects['available_actions']['per_long_rest'][] = [
+            'id' => 'fatal-aria',
+            'name' => 'Fatal Aria',
+            'action_cost' => 2,
+            'activity' => 'focus_spell',
+            'frequency' => 'once_per_long_rest',
+            'range_feet' => 30,
+            'target' => 'one_creature',
+            'save' => 'will',
+            'save_dc' => 'class_dc',
+            'outcomes' => [
+              'critical_failure' => 'dies',
+              'failure' => 'reduced_to_0_hp_and_dying_1',
+              'success' => 'frightened_2',
+              'critical_success' => 'unaffected',
+            ],
+            'focus_cost' => 1,
+            'description' => 'Target one creature within 30 feet with a deadly aria that can kill, drop, or frighten based on its Will save.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'perfect-encore':
+          $effects['feat_overrides']['perfect-encore'] = [
+            'trigger' => 'cast_non_cantrip_composition_spell',
+            'focus_point_cost' => 1,
+            'treat_focus_points_spent_as' => 2,
+            'composition_cast_once' => TRUE,
+            'spell_slot_cost_unchanged' => TRUE,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'pied-piper':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'pied-piper',
+            'name' => 'Pied Piper',
+            'action_cost' => 2,
+            'activity' => 'focus_spell',
+            'range_feet' => 30,
+            'target' => 'all_creatures_in_range',
+            'save' => 'will',
+            'save_dc' => 'class_dc',
+            'failure_effect' => 'must_use_next_action_to_move_toward_or_follow_you',
+            'repeat_save_each_turn' => TRUE,
+            'critical_success_ends_effect' => TRUE,
+            'focus_cost' => 1,
+            'description' => 'Compel nearby creatures to spend their next action moving toward you or following you, with repeated saves each turn.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'polymath-apex':
+          $effects['feat_overrides']['polymath-apex'] = [
+            'when_using_versatile_performance' => TRUE,
+            'minimum_substitute_skill_proficiency' => 'expert',
+            'use_higher_of_performance_or_expert' => TRUE,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'symphony-of-the-muse':
+          $effects['spell_augments']['metamagic'][] = [
+            'id' => 'symphony-of-the-muse',
+            'name' => 'Symphony of the Muse',
+            'next_composition_action_cost' => 'free',
+            'does_not_count_against_one_composition_per_turn_limit' => TRUE,
+            'description' => 'Cast your next composition spell as a free action without using your normal one-composition-per-turn allowance.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'mega-bomb':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'mega-bomb',
+            'name' => 'Mega Bomb',
+            'action_cost' => 1,
+            'activity' => 'mega_bomb_throw',
+            'item_requirement' => 'held_infused_bomb',
+            'minimum_bomb_level' => 3,
+            'advanced_alchemy_gap' => 3,
+            'detonation_radius_feet' => 30,
+            'all_creatures_take_full_damage_and_splash' => TRUE,
+            'combine_bomb_and_additive_effects' => TRUE,
+            'description' => 'Throw a qualifying infused bomb so every creature within 30 feet of the detonation point takes the bomb’s full damage and splash damage, along with the bomb’s additive effects.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'perfect-mutagen':
+          $effects['feat_overrides']['perfect-mutagen'] = [
+            'ignores_drawbacks_of_own_crafted_mutagens' => TRUE,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'acute-vision':
+          $effects['senses'][] = [
+            'type' => 'darkvision',
+            'condition' => 'while_raging',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'moment-of-clarity':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'moment-of-clarity',
+            'name' => 'Moment of Clarity',
+            'action_cost' => 1,
+            'activity' => 'allow_concentrate_action_while_raging',
+            'description' => 'Briefly quell your rage so you can use a concentrate action even while raging.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'raging-intimidation':
+          $effects['feat_overrides']['raging-intimidation'] = [
+            'actions_gain_rage_trait' => ['demoralize', 'scare_to_death'],
+            'actions_usable_while_raging' => ['demoralize', 'scare_to_death'],
+            'bonus_feat_grants' => ['intimidating-glare'],
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'raging-thrower':
+          $effects['feat_overrides']['raging-thrower'] = [
+            'thrown_attacks_gain_rage_melee_damage_bonus' => TRUE,
+            'giant_instinct_oversized_thrown_bonus_damage' => 6,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'acute-scent':
+          $effects['senses'][] = [
+            'type' => 'imprecise_scent',
+            'range_feet' => 30,
+            'condition' => 'while_raging',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'furious-finish':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'furious-finish',
+            'name' => 'Furious Finish',
+            'action_cost' => 1,
+            'activity' => 'strike_with_maximum_weapon_damage_dice',
+            'spends_remaining_rage_rounds' => TRUE,
+            'minimum_rage_rounds_spent' => 1,
+            'rage_ends_after_action' => TRUE,
+            'description' => 'Spend all remaining Rage rounds to make a Strike that deals maximum weapon damage dice, then end your Rage.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'no-escape':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'no-escape',
+            'name' => 'No Escape',
+            'action_cost' => 'reaction',
+            'activity' => 'reaction_stride',
+            'trigger' => 'adjacent_enemy_moves_away',
+            'result' => 'stride_to_remain_adjacent',
+            'description' => 'When an adjacent enemy moves away, Stride as a reaction to remain adjacent to it.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'second-wind':
+          $effects['available_actions']['per_long_rest'][] = [
+            'id' => 'second-wind',
+            'name' => 'Second Wind',
+            'action_cost' => 1,
+            'frequency' => 'once_per_long_rest',
+            'activity' => 'self_heal',
+            'healing_formula' => 'barbarian_level',
+            'dying_override' => [
+              'stabilize_at' => 0,
+              'hp_after_stabilizing' => 1,
+            ],
+            'description' => 'Once per day, recover HP equal to your barbarian level, or if dying, stabilize and regain 1 HP instead.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'shake-it-off':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'shake-it-off',
+            'name' => 'Shake It Off',
+            'action_cost' => 1,
+            'activity' => 'reduce_condition',
+            'condition_options' => ['persistent_damage', 'frightened', 'sickened', 'slowed'],
+            'reduce_by' => 1,
+            'juggernaut_persistent_damage_bonus_reduction' => 1,
+            'description' => 'Reduce one qualifying condition by 1; if it is persistent damage and Juggernaut is active, reduce it by 1 additional point.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'fast-movement':
+          $effects['feat_overrides']['fast-movement'] = [
+            'while_raging_speed_bonus' => 10,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'raging-athlete':
+          $effects['feat_overrides']['raging-athlete'] = [
+            'condition' => 'while_raging',
+            'athletics_uses_rage_proficiency' => TRUE,
+            'climb_speed_equals_land_speed' => TRUE,
+            'jumps_treat_athletics_roll_as_10' => TRUE,
+            'difficult_terrain_does_not_reduce_jump_distance' => TRUE,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'swipe':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'swipe',
+            'name' => 'Swipe',
+            'action_cost' => 2,
+            'activity' => 'melee_strike_two_adjacent_foes',
+            'same_damage_roll_applies_to_each_target' => TRUE,
+            'each_target_counts_as_own_strike_for_map' => TRUE,
+            'description' => 'Make a melee Strike against up to two adjacent foes, applying the same damage roll to both targets.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'wounded-rage':
+          $effects['available_actions']['per_long_rest'][] = [
+            'id' => 'wounded-rage',
+            'name' => 'Wounded Rage',
+            'action_cost' => 'reaction',
+            'frequency' => 'once_per_long_rest',
+            'activity' => 'enter_rage',
+            'trigger' => 'you_take_damage',
+            'description' => 'Once per day, when you take damage, enter Rage immediately as a reaction.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'animal-skin':
+          $effects['feat_overrides']['animal-skin'] = [
+            'condition' => 'while_raging',
+            'unarmored_ac_item_bonus' => 2,
+            'light_armor_ac_item_bonus' => 1,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'attack-of-opportunity-barbarian':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'attack-of-opportunity-barbarian',
+            'name' => 'Attack of Opportunity',
+            'action_cost' => 'reaction',
+            'activity' => 'melee_strike',
+            'trigger' => 'enemy_within_reach_manipulates_moves_or_makes_ranged_attack',
+            'multiple_attack_penalty_applies' => TRUE,
+            'disrupts_manipulate_on_hit' => TRUE,
+            'description' => 'Make a melee Strike against a foe in reach that manipulates, moves, or makes a ranged attack; manipulate actions are disrupted on a hit.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'brutal-bully':
+          $effects['feat_overrides']['brutal-bully'] = [
+            'condition' => 'while_raging',
+            'triggers' => ['grapple_success', 'shove_success', 'trip_success'],
+            'extra_damage' => 'rage_melee_damage_bonus',
+            'extra_damage_type' => 'bludgeoning',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'cleave':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'cleave',
+            'name' => 'Cleave',
+            'action_cost' => 'reaction',
+            'activity' => 'melee_strike',
+            'trigger' => 'you_kill_or_critically_hit_a_foe',
+            'target_requirement' => 'adjacent_enemy',
+            'multiple_attack_penalty_applies' => TRUE,
+            'description' => 'When you kill or critically hit a foe, make a melee Strike against an adjacent enemy.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'dragons-rage-breath':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'dragons-rage-breath',
+            'name' => "Dragon's Rage Breath",
+            'action_cost' => 2,
+            'activity' => 'area_breath_weapon',
+            'usage_limit' => 'once_per_rage',
+            'area' => '30_foot_cone',
+            'damage_formula' => '1d6_per_level',
+            'damage_type' => 'dragon_instinct_energy_type',
+            'save' => 'reflex',
+            'save_dc' => 'class_dc',
+            'success_effect' => 'half_damage',
+            'critical_failure_effect' => 'double_damage',
+            'description' => 'Exhale dragon energy in a 30-foot cone, dealing 1d6 per level with a Reflex save against your class DC.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'spirits-interference':
+          $effects['feat_overrides']['spirits-interference'] = [
+            'condition' => 'while_raging',
+            'trigger' => 'would_take_physical_damage',
+            'roll' => '1d4',
+            'failure_on' => 1,
+            'reduction_on_other_results' => 'rolled_amount',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'animal-rage':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'animal-rage',
+            'name' => 'Animal Rage',
+            'action_cost' => 2,
+            'activity' => 'transform_into_instinct_animal',
+            'form_reference' => 'animal_form_rank_4',
+            'duration' => 'sustained_or_1_minute',
+            'retains_rage_effects' => TRUE,
+            'description' => 'Transform into your instinct animal as a 4th-rank animal form while retaining the effects of Rage.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'spirits-wrath':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'spirits-wrath',
+            'name' => "Spirit's Wrath",
+            'action_cost' => 2,
+            'activity' => 'targeted_damage_burst',
+            'usage_limit' => 'once_per_rage',
+            'range_feet' => 30,
+            'target' => 'one_enemy',
+            'damage_formula' => '4d8',
+            'damage_type_options' => ['negative', 'positive'],
+            'save' => 'fortitude',
+            'save_dc' => 'class_dc',
+            'success_effect' => 'half_damage',
+            'critical_failure_effect' => 'double_damage',
+            'description' => 'Torment one enemy within 30 feet with spirit power, dealing positive or negative damage with a Fortitude save.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'giant-footprint':
+          $effects['feat_overrides']['giant-footprint'] = [
+            'condition' => 'while_raging_with_oversized_weapon',
+            'reach_bonus_feet' => 5,
+            'medium_reach_becomes_feet' => 10,
+            'medium_reach_weapon_reach_becomes_feet' => 15,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'renewed-vigor':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'renewed-vigor',
+            'name' => 'Renewed Vigor',
+            'action_cost' => 1,
+            'activity' => 'gain_temporary_hit_points',
+            'temporary_hp_formula' => 'floor(level/2) + constitution_modifier',
+            'duration' => 'until_rage_ends',
+            'replaces_existing_rage_temp_hp' => TRUE,
+            'description' => 'Gain temporary HP equal to half your level plus your Constitution modifier until your Rage ends.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'share-the-pain':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'share-the-pain',
+            'name' => 'Share the Pain',
+            'action_cost' => 'reaction',
+            'activity' => 'retaliatory_damage',
+            'trigger' => 'hit_by_enemy_melee_strike',
+            'retaliation_damage' => 'rage_melee_damage_bonus',
+            'retaliation_damage_type' => 'bludgeoning',
+            'description' => 'When hit by an enemy melee Strike, deal bludgeoning damage back to the attacker equal to your Rage melee damage bonus.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'sudden-leap':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'sudden-leap',
+            'name' => 'Sudden Leap',
+            'action_cost' => 2,
+            'activity' => 'jump_then_strike',
+            'jump_options' => ['high_jump', 'long_jump'],
+            'can_target_enemy_jumped_over' => TRUE,
+            'jump_does_not_provoke_reactions' => TRUE,
+            'description' => 'Leap and make a Strike at any point during the jump, including against a foe you jump over.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'awesome-blow':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'awesome-blow',
+            'name' => 'Awesome Blow',
+            'action_cost' => 'reaction',
+            'activity' => 'force_movement_and_prone',
+            'trigger' => 'critically_hit_enemy_with_melee_strike_while_raging',
+            'save' => 'fortitude',
+            'save_dc' => 'class_dc',
+            'outcomes' => [
+              'critical_failure' => ['push_feet' => 20, 'prone' => TRUE],
+              'failure' => ['push_feet' => 10, 'prone' => TRUE],
+              'success' => ['push_feet' => 5, 'prone' => FALSE],
+            ],
+            'description' => 'When you critically hit while raging, force the target to save or be pushed back and knocked prone.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'giant-stature':
+          $effects['feat_overrides']['giant-stature'] = [
+            'condition' => 'while_raging_with_oversized_weapon',
+            'size_becomes' => 'large',
+            'oversized_weapon_grows_with_you' => TRUE,
+            'space_and_reach_increase' => TRUE,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'knockback':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'knockback',
+            'name' => 'Knockback',
+            'action_cost' => 1,
+            'activity' => 'free_shove_after_melee_strike',
+            'trigger' => 'successful_melee_strike_while_raging',
+            'multiple_attack_penalty_applies' => FALSE,
+            'description' => 'After a successful melee Strike while raging, make a Shove against the same target without applying MAP.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'terrifying-howl':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'terrifying-howl',
+            'name' => 'Terrifying Howl',
+            'action_cost' => 1,
+            'activity' => 'demoralize_area',
+            'range_feet' => 30,
+            'targets' => 'all_enemies_in_range',
+            'single_check_with_separate_enemy_results' => TRUE,
+            'success_effect' => 'frightened_1',
+            'critical_success_effect' => 'frightened_2',
+            'description' => 'Demoralize all enemies within 30 feet with one check, resolving each target separately.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'dragons-rage-wings':
+          $effects['feat_overrides']['dragons-rage-wings'] = [
+            'condition' => 'while_raging',
+            'gain_fly_speed_equal_to_land_speed' => TRUE,
+            'wings_retract_when_rage_ends' => TRUE,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'invulnerable-juggernaut':
+          $effects['feat_overrides']['invulnerable-juggernaut'] = [
+            'condition' => 'while_raging',
+            'physical_resistance_bonus' => 2,
+            'stacks_with_raging_resistance' => TRUE,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'predator-instinct':
+          $effects['feat_overrides']['predator-instinct'] = [
+            'animal_instinct_attack_damage_die' => 'd10',
+            'animal_instinct_attack_gains_trait' => 'deadly_d8',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'ravager':
+          $effects['feat_overrides']['ravager'] = [
+            'condition' => 'while_raging',
+            'critical_hits_gain_weapon_critical_specialization_without_mastery' => TRUE,
+            'existing_critical_specialization_can_add_additional_effect' => TRUE,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'come-and-get-me':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'come-and-get-me',
+            'name' => 'Come and Get Me',
+            'action_cost' => 1,
+            'activity' => 'raging_challenge_stance',
+            'duration' => 'until_start_of_your_next_turn',
+            'ac_penalty' => -2,
+            'enemies_that_hit_you_become_flat_footed_to_your_next_strike' => TRUE,
+            'extra_damage_against_triggering_enemy' => 'rage_melee_damage_bonus',
+            'description' => 'Until the start of your next turn, enemies that hit you are flat-footed to your next Strike and that Strike deals extra damage equal to your Rage melee bonus, but you take a -2 AC penalty.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'aura-of-fury':
+          $effects['feat_overrides']['aura-of-fury'] = [
+            'condition' => 'while_raging',
+            'aura_radius_feet' => 10,
+            'allies_gain_status_bonus_to_damage' => 1,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'spirits-rage':
+          $effects['feat_overrides']['spirits-rage'] = [
+            'modifies_feat' => 'spirits-wrath',
+            'removes_once_per_rage_limit' => TRUE,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'vengeful-strike':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'vengeful-strike',
+            'name' => 'Vengeful Strike',
+            'action_cost' => 'reaction',
+            'activity' => 'melee_strike',
+            'trigger' => 'ally_within_60_feet_is_critically_hit',
+            'target_requirement' => 'triggering_enemy_within_reach',
+            'multiple_attack_penalty_applies' => TRUE,
+            'description' => 'When an ally within 60 feet is critically hit, Strike the triggering enemy if it is within your reach.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'whirlwind-strike':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'whirlwind-strike',
+            'name' => 'Whirlwind Strike',
+            'action_cost' => 3,
+            'activity' => 'melee_strike_all_adjacent_creatures',
+            'same_damage_roll_applies_to_all_targets' => TRUE,
+            'each_target_counts_as_own_strike_for_map' => TRUE,
+            'description' => 'Make one melee Strike against every adjacent creature, using the same damage roll for all struck targets.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'collateral-damage':
+          $effects['feat_overrides']['collateral-damage'] = [
+            'condition' => 'while_raging',
+            'trigger' => 'deal_damage_with_melee_strike',
+            'adjacent_secondary_target_damage' => 'rage_melee_damage_bonus',
+            'adjacent_secondary_target_damage_type' => 'bludgeoning',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'great-cleave':
+          $effects['feat_overrides']['great-cleave'] = [
+            'modifies_feat' => 'cleave',
+            'cleave_can_chain_repeatedly' => TRUE,
+            'chain_stops_when' => ['miss', 'no_new_adjacent_foe'],
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'accurate-swing':
+          $effects['feat_overrides']['accurate-swing'] = [
+            'modifies_feat' => 'swipe',
+            'swipe_gains_trait' => 'sweep',
+            'swipe_attack_bonus' => 1,
+            'swipe_attack_bonus_type' => 'circumstance',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'impaling-strike':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'impaling-strike',
+            'name' => 'Impaling Strike',
+            'action_cost' => 2,
+            'activity' => 'melee_strike',
+            'multiple_attack_penalty_counts_as' => 2,
+            'on_hit_effects' => [
+              'immobilized' => TRUE,
+              'persistent_bleed_damage' => '1d8',
+            ],
+            'escape_options' => ['athletics_dc_20', 'escape'],
+            'weapon_must_be_freed_or_pulled_free' => TRUE,
+            'description' => 'Make a melee Strike that can impale the target on a hit, immobilizing it and causing 1d8 persistent bleed damage.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'awaken-the-inner-monolith':
+          $effects['feat_overrides']['awaken-the-inner-monolith'] = [
+            'condition' => 'while_raging_with_giant_stature',
+            'size_becomes' => 'huge',
+            'oversized_weapon_grows_with_you' => TRUE,
+            'space_and_reach_increase' => TRUE,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'apex-of-fury':
+          $effects['feat_overrides']['apex-of-fury'] = [
+            'rage_uses_per_day' => 'unlimited',
+            'removes_rage_cooldown' => TRUE,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'true-beast':
+          $effects['feat_overrides']['true-beast'] = [
+            'condition' => 'while_raging',
+            'can_enter_true_beast_form' => TRUE,
+            'true_beast_form_size_options' => ['medium', 'large'],
+            'animal_instinct_attack_base_damage' => '2d6',
+            'animal_instinct_attack_gains_trait' => 'deadly_d10',
+          ];
           $effects['applied_feats'][] = $feat_id;
           break;
 
@@ -1940,34 +3452,119 @@ class FeatEffectManager {
           break;
 
         case 'adopted-ancestry':
-          $this->addSelectionGrant(
-            $effects,
-            'adopted-ancestry',
-            'adopted_ancestry_choice',
-            1,
-            'Select an ancestry to access adopted-ancestry feat options.'
-          );
+          $selected_ancestry = $this->resolveFeatSelectionValue($character_data, 'adopted-ancestry', ['selected_ancestry', 'ancestry']);
+          if ($selected_ancestry === NULL || $selected_ancestry === '') {
+            $this->addSelectionGrant(
+              $effects,
+              'adopted-ancestry',
+              'adopted_ancestry_choice',
+              1,
+              'Select an ancestry to access adopted-ancestry feat options.'
+            );
+          }
+          else {
+            $effects['feat_overrides']['adopted-ancestry'] = [
+              'type' => 'adopted_ancestry_pool_unlock',
+              'selected_ancestry' => $selected_ancestry,
+            ];
+            $effects['notes'][] = 'Adopted Ancestry: unlock ancestry feat access for ' . str_replace('-', ' ', $selected_ancestry) . '.';
+          }
           $effects['applied_feats'][] = $feat_id;
           break;
 
         case 'canny-acumen':
-          $this->addSelectionGrant(
-            $effects,
-            'canny-acumen',
-            'proficiency_upgrade_choice',
-            1,
-            'Select Perception or one save to improve proficiency.'
-          );
+          $selected_proficiency = $this->resolveFeatSelectionValue($character_data, 'canny-acumen', ['selected_proficiency', 'selected_target', 'target']);
+          if ($selected_proficiency === NULL) {
+            $this->addSelectionGrant(
+              $effects,
+              'canny-acumen',
+              'proficiency_upgrade_choice',
+              1,
+              'Select Perception or one save to improve proficiency.'
+            );
+            $effects['notes'][] = 'Canny Acumen: select Perception, Fortitude, Reflex, or Will to apply the proficiency increase.';
+            $effects['applied_feats'][] = $feat_id;
+            break;
+          }
+
+          $current_rank = $this->resolveCannyAcumenCurrentRank($character_data, $selected_proficiency);
+          $granted_rank = $current_rank === 'expert' ? 'master' : 'expert';
+          $active_level = $current_rank === 'expert' ? 17 : 1;
+          $current_level = (int) ($character_data['level'] ?? 1);
+
+          if ($current_level >= $active_level) {
+            $category = $selected_proficiency === 'perception' ? 'perception' : 'saving_throw';
+            $target = $selected_proficiency === 'perception' ? 'perception' : $selected_proficiency;
+            $this->addProficiencyGrant($effects, $category, $target, $granted_rank);
+          }
+
+          $effects['feat_overrides']['canny-acumen'] = [
+            'type' => 'selected_proficiency_upgrade',
+            'selected_proficiency' => $selected_proficiency,
+            'current_rank' => $current_rank,
+            'granted_rank' => $granted_rank,
+            'active_at_level' => $active_level,
+          ];
+          $effects['notes'][] = $current_level >= $active_level
+            ? ('Canny Acumen: ' . ucfirst($selected_proficiency) . ' proficiency improves from ' . $current_rank . ' to ' . $granted_rank . '.')
+            : ('Canny Acumen: ' . ucfirst($selected_proficiency) . ' proficiency is already expert and will improve to master at level 17.');
           $effects['applied_feats'][] = $feat_id;
           break;
 
         case 'weapon-proficiency':
-          $this->addProficiencyGrant($effects, 'weapon', 'martial_or_advanced_choice', 'trained');
+          $prior_weapon_proficiency_count = count(array_keys($effects['applied_feats'], 'weapon-proficiency', TRUE));
+          $grant_state = CharacterManager::resolveWeaponProficiencyGrant($character_data, $prior_weapon_proficiency_count);
+          if (($grant_state['mode'] ?? '') === 'category_upgrade') {
+            $granted_target = (string) ($grant_state['granted_target'] ?? 'martial');
+            $this->addProficiencyGrant($effects, 'weapon', $granted_target, 'trained');
+            $effects['feat_overrides']['weapon-proficiency'] = [
+              'type' => 'weapon_category_upgrade',
+              'granted_target' => $granted_target,
+            ];
+            $effects['notes'][] = 'Weapon Proficiency: gain trained proficiency in all ' . $granted_target . ' weapons.';
+          }
+          elseif (($grant_state['mode'] ?? '') === 'advanced_choice') {
+            $selected_weapon_id = $this->resolveFeatSelectionValue($character_data, 'weapon-proficiency', ['selected_weapon_id', 'weapon_id', 'selected_weapon']);
+            $advanced_weapon_options = CharacterManager::getAdvancedWeaponOptions();
+            if ($selected_weapon_id === NULL || !isset($advanced_weapon_options[$selected_weapon_id])) {
+              $this->addSelectionGrant(
+                $effects,
+                'weapon-proficiency',
+                'advanced_weapon_choice',
+                1,
+                'Select one advanced weapon to gain trained proficiency.'
+              );
+              $effects['notes'][] = 'Weapon Proficiency: select one advanced weapon to gain trained proficiency.';
+            }
+            else {
+              $this->addProficiencyGrant($effects, 'weapon', $selected_weapon_id, 'trained');
+              $effects['feat_overrides']['weapon-proficiency'] = [
+                'type' => 'advanced_weapon_training',
+                'selected_weapon_id' => $selected_weapon_id,
+                'selected_weapon_name' => $advanced_weapon_options[$selected_weapon_id],
+              ];
+              $effects['notes'][] = 'Weapon Proficiency: gain trained proficiency with ' . $advanced_weapon_options[$selected_weapon_id] . '.';
+            }
+          }
+          else {
+            $effects['notes'][] = 'Weapon Proficiency: no additional weapon training is available from the current class baseline.';
+          }
           $effects['applied_feats'][] = $feat_id;
           break;
 
         case 'armor-proficiency':
-          $this->addProficiencyGrant($effects, 'armor', 'light_or_medium_or_heavy_choice', 'trained');
+          $granted_tier = $this->resolveArmorProficiencyTarget($character_data);
+          if ($granted_tier !== NULL) {
+            $this->addProficiencyGrant($effects, 'armor', $granted_tier, 'trained');
+            $effects['feat_overrides']['armor-proficiency'] = [
+              'type' => 'armor_tier_upgrade',
+              'granted_tier' => $granted_tier,
+            ];
+            $effects['notes'][] = 'Armor Proficiency: gain trained proficiency in ' . $granted_tier . ' armor.';
+          }
+          else {
+            $effects['notes'][] = 'Armor Proficiency: no additional armor tier is available from the current class armor training.';
+          }
           $effects['applied_feats'][] = $feat_id;
           break;
 
@@ -2127,17 +3724,18 @@ class FeatEffectManager {
           break;
 
         case 'channel-smite':
-          // Channel Smite (Cleric L4): set flag so combat layer can resolve the
-          // 2-action Strike + Divine Font expenditure. Font slot management is
-          // tracked client-side; this flag signals the feat is active.
           $effects['derived_adjustments']['flags']['channel_smite_available'] = TRUE;
           $effects['available_actions']['at_will'][] = [
-            'id'          => 'channel-smite',
-            'name'        => 'Channel Smite',
+            'id' => 'channel-smite',
+            'name' => 'Channel Smite',
             'action_cost' => 2,
-            'description' => '[two-actions] Make a melee Strike. On hit, expend a Divine Font slot to deal the channeled spell\'s damage in addition to weapon damage (no attack roll for the spell portion).',
+            'activity' => 'melee_strike_plus_divine_font',
+            'requires_hit' => TRUE,
+            'expends_resource' => 'divine_font_slot',
+            'spell_damage_applies_without_spell_attack_roll' => TRUE,
+            'use_higher_of_weapon_or_spell_dc' => TRUE,
+            'description' => 'Make a melee Strike and, on a hit, expend a Divine Font slot to deal the spell’s damage in addition to weapon damage without a separate spell attack roll.',
           ];
-          $effects['notes'][] = 'Channel Smite: expend a Healing/Harmful Font slot on a hit to channel the spell through your weapon strike.';
           $effects['applied_feats'][] = $feat_id;
           break;
 
@@ -2182,6 +3780,1025 @@ class FeatEffectManager {
             );
             $effects['notes'][] = 'Advanced Domain: select a domain you already have Domain Initiate for.';
           }
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'harming-hands':
+          $effects['feat_overrides']['harming-hands'] = [
+            'harm_bonus_damage_equals_level' => TRUE,
+            'applies_to_font_and_regular_slots' => TRUE,
+            'three_action_burst_targets_also_take_bonus_damage' => TRUE,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'deadly-simplicity':
+          $effects['feat_overrides']['deadly-simplicity'] = [
+            'deity_favored_simple_weapon_gains_deadly_d6' => TRUE,
+            'existing_deadly_trait_increases_one_step' => TRUE,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'emblazon-armament':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'emblazon-armament',
+            'name' => 'Emblazon Armament',
+            'action_cost' => '10_minutes',
+            'activity' => 'emblazon_deity_symbol',
+            'target_options' => ['weapon', 'shield'],
+            'weapon_gains_alignment_trait_from_deity' => TRUE,
+            'shield_grants_bonus_against_opposed_alignment_effects' => TRUE,
+            'only_one_item_can_be_emblazoned_at_a_time' => TRUE,
+            'description' => 'Spend 10 minutes emblazoning a weapon or shield with your deity’s symbol, granting the matching alignment trait or shield protection until replaced.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'raise-symbol':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'raise-symbol',
+            'name' => 'Raise Symbol',
+            'action_cost' => 1,
+            'activity' => 'raise_religious_symbol',
+            'duration' => 'until_start_of_your_next_turn',
+            'spell_attack_roll_bonus' => 2,
+            'spell_attack_roll_bonus_type' => 'circumstance',
+            'save_bonus_against_opposed_alignment_spells' => 2,
+            'save_bonus_type' => 'circumstance',
+            'description' => 'Hold your religious symbol aloft to gain a +2 circumstance bonus to spell attack rolls and saving throws against spells from your deity’s opposed alignment until your next turn.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'cantrip-expansion-cleric':
+          $effects['feat_overrides']['cantrip-expansion-cleric'] = [
+            'type' => 'prepared_cantrip_capacity_increase',
+            'tradition' => 'divine',
+            'extra_prepared_cantrips' => 2,
+          ];
+          $effects['notes'][] = 'Cantrip Expansion (Cleric): prepare two additional divine cantrips each day.';
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'cantrip-expansion-sorcerer':
+          $selected_cantrips = array_slice(
+            $this->resolveFeatSelectionList($character_data, 'cantrip-expansion-sorcerer', ['selected_cantrips', 'cantrips']),
+            0,
+            2
+          );
+          $bloodline = strtolower(trim((string) (
+            $character_data['subclass']
+            ?? $character_data['bloodline']
+            ?? $character_data['basicInfo']['subclass']
+            ?? $character_data['basicInfo']['bloodline']
+            ?? ''
+          )));
+          $tradition = $bloodline !== '' ? (CharacterManager::SORCERER_BLOODLINES[$bloodline]['tradition'] ?? NULL) : NULL;
+          if (count($selected_cantrips) < 2) {
+            $this->addSelectionGrant(
+              $effects,
+              'cantrip-expansion-sorcerer',
+              'sorcerer_cantrip_expansion_choice',
+              2 - count($selected_cantrips),
+              'Select two additional cantrips from your bloodline tradition to add to your spell repertoire.'
+            );
+          }
+          $effects['feat_overrides']['cantrip-expansion-sorcerer'] = [
+            'type' => 'repertoire_cantrip_expansion',
+            'tradition' => $tradition,
+            'bloodline' => $bloodline !== '' ? $bloodline : NULL,
+            'added_cantrips' => $selected_cantrips,
+            'extra_repertoire_cantrips' => 2,
+          ];
+          $effects['notes'][] = !empty($selected_cantrips)
+            ? ('Cantrip Expansion (Sorcerer): add ' . implode(', ', $selected_cantrips) . ' to your bloodline spell repertoire.')
+            : 'Cantrip Expansion (Sorcerer): select two additional cantrips from your bloodline tradition.';
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'arcane-evolution':
+          $selected_spell = $this->resolveFeatSelectionValue($character_data, 'arcane-evolution', ['selected_spell', 'spell_id', 'spell']);
+          if ($selected_spell === NULL || $selected_spell === '') {
+            $this->addSelectionGrant(
+              $effects,
+              'arcane-evolution',
+              'arcane_evolution_spell_choice',
+              1,
+              'Select one arcane spell of a rank you can cast to add to your spell repertoire.'
+            );
+          }
+          $effects['feat_overrides']['arcane-evolution'] = [
+            'type' => 'repertoire_spell_expansion',
+            'tradition' => 'arcane',
+            'selected_spell' => $selected_spell,
+            'add_one_arcane_spell_each_new_rank' => TRUE,
+          ];
+          $effects['notes'][] = $selected_spell !== NULL && $selected_spell !== ''
+            ? ('Arcane Evolution: add ' . $selected_spell . ' to your repertoire and gain one additional arcane spell each time you unlock a new spell rank.')
+            : 'Arcane Evolution: select one arcane spell to add to your repertoire, then add one additional arcane spell whenever you gain a new spell rank.';
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'crossblooded-evolution':
+          $selected_spell = $this->resolveFeatSelectionValue($character_data, 'crossblooded-evolution', ['selected_spell', 'spell_id', 'spell']);
+          $selected_bloodline = $this->resolveFeatSelectionValue($character_data, 'crossblooded-evolution', ['selected_bloodline', 'bloodline']);
+          $selected_bloodline = $selected_bloodline !== NULL ? strtolower(trim($selected_bloodline)) : NULL;
+          $bloodline_label = $selected_bloodline !== NULL && isset(CharacterManager::SORCERER_BLOODLINES[$selected_bloodline])
+            ? (CharacterManager::SORCERER_BLOODLINES[$selected_bloodline]['label'] ?? $selected_bloodline)
+            : NULL;
+          if ($selected_spell === NULL || $selected_spell === '' || $selected_bloodline === NULL || !isset(CharacterManager::SORCERER_BLOODLINES[$selected_bloodline])) {
+            $this->addSelectionGrant(
+              $effects,
+              'crossblooded-evolution',
+              'crossblooded_evolution_spell_choice',
+              1,
+              'Select a different sorcerer bloodline and one spell from your tradition to add to your spell repertoire.'
+            );
+          }
+          $effects['feat_overrides']['crossblooded-evolution'] = [
+            'type' => 'crossblooded_repertoire_expansion',
+            'selected_spell' => $selected_spell,
+            'selected_bloodline' => $selected_bloodline,
+            'selected_bloodline_label' => $bloodline_label,
+          ];
+          $effects['notes'][] = $selected_spell !== NULL && $selected_spell !== '' && $bloodline_label !== NULL
+            ? ('Crossblooded Evolution: add ' . $selected_spell . ' to your repertoire through the ' . $bloodline_label . ' bloodline.')
+            : 'Crossblooded Evolution: select a different bloodline and one spell from your tradition to add to your repertoire.';
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'greater-mental-evolution':
+          $selected_spell = $this->resolveFeatSelectionValue($character_data, 'greater-mental-evolution', ['selected_spell', 'spell_id', 'spell']);
+          $bloodline = strtolower(trim((string) (
+            $character_data['subclass']
+            ?? $character_data['bloodline']
+            ?? $character_data['basicInfo']['subclass']
+            ?? $character_data['basicInfo']['bloodline']
+            ?? ''
+          )));
+          $tradition = $bloodline !== '' ? (CharacterManager::SORCERER_BLOODLINES[$bloodline]['tradition'] ?? NULL) : NULL;
+          if ($selected_spell === NULL || $selected_spell === '') {
+            $this->addSelectionGrant(
+              $effects,
+              'greater-mental-evolution',
+              'greater_mental_evolution_spell_choice',
+              1,
+              'Select one 6th-rank-or-lower mental spell from any tradition to add to your spell repertoire.'
+            );
+          }
+          $effects['feat_overrides']['greater-mental-evolution'] = [
+            'type' => 'cross_tradition_mental_repertoire_spell',
+            'selected_spell' => $selected_spell,
+            'cast_using_bloodline_tradition' => TRUE,
+            'bloodline_tradition' => $tradition,
+            'uses_per_long_rest' => 1,
+            'max_selected_spell_rank' => 6,
+          ];
+          $effects['notes'][] = $selected_spell !== NULL && $selected_spell !== ''
+            ? ('Greater Mental Evolution: add ' . $selected_spell . ' to your repertoire and cast it once per day as a bloodline spell.')
+            : 'Greater Mental Evolution: select one 6th-rank-or-lower mental spell from any tradition to add to your repertoire.';
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'steady-spellcasting-cleric':
+          $effects['feat_overrides']['steady-spellcasting-cleric'] = [
+            'flat_check_to_avoid_spell_disruption' => 15,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'divine-weapon':
+          $effects['feat_overrides']['divine-weapon'] = [
+            'trigger' => 'cast_divine_font_spell',
+            'window' => 'before_start_of_your_next_turn',
+            'next_strike_with_favored_weapon_extra_damage' => '1d4',
+            'damage_type_mapping' => [
+              'positive' => ['fire', 'radiant'],
+              'negative' => ['cold', 'void'],
+            ],
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'selective-energy':
+          $effects['feat_overrides']['selective-energy'] = [
+            'applies_to' => ['heal_burst', 'harm_burst'],
+            'excluded_targets_formula' => 'max(1, wisdom_modifier)',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'versatile-font':
+          $effects['feat_overrides']['versatile-font'] = [
+            'can_prepare_heal_and_harm_in_divine_font_slots' => TRUE,
+            'minimum_default_font_share' => 'half_rounded_up',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'align-armament':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'align-armament',
+            'name' => 'Align Armament',
+            'action_cost' => 1,
+            'activity' => 'imbue_weapon_alignment',
+            'duration' => '1_minute',
+            'target' => 'one_held_weapon',
+            'gains_deity_alignment_trait' => TRUE,
+            'extra_damage' => '1d6',
+            'extra_damage_applies_vs_opposed_alignment' => TRUE,
+            'description' => 'Imbue a held weapon with your deity’s alignment for 1 minute so it deals 1d6 extra alignment damage to creatures of the opposing alignment.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'castigating-weapon':
+          $effects['feat_overrides']['castigating-weapon'] = [
+            'trigger' => 'hit_undead_with_deity_favored_weapon',
+            'extra_positive_damage_formula' => 'max(1, wisdom_modifier)',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'heroic-recovery':
+          $effects['feat_overrides']['heroic-recovery'] = [
+            'trigger' => 'cast_heal_rank_3_or_higher_on_creature_at_0_hp',
+            'target_gets_free_recovery_check' => TRUE,
+            'applies_before_standing_from_unconscious' => TRUE,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'replenishing-strike':
+          $effects['available_actions']['per_long_rest'][] = [
+            'id' => 'replenishing-strike',
+            'name' => 'Replenishing Strike',
+            'action_cost' => 'passive',
+            'frequency' => 'once_per_long_rest',
+            'trigger' => 'kill_enemy_with_melee_strike_while_divine_font_active',
+            'activity' => 'restore_divine_font_slot',
+            'restores_resource' => 'divine_font_slot',
+            'description' => 'Once per day, when you kill an enemy with a melee Strike while your Divine Font is active, regain 1 Divine Font slot.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'shared-replenishment':
+          $effects['feat_overrides']['shared-replenishment'] = [
+            'modifies_feat' => 'communal-healing',
+            'bonus_healing_goes_to_healed_ally_instead_of_self' => TRUE,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'divine-rebuttal':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'divine-rebuttal',
+            'name' => 'Divine Rebuttal',
+            'action_cost' => 'reaction',
+            'frequency' => 'once_per_10_minutes',
+            'activity' => 'counteract_triggering_spell',
+            'trigger' => 'critically_succeed_on_save_against_magical_effect',
+            'counteract_check' => 'divine_spell_dc_vs_spell_dc',
+            'description' => 'When you critically succeed on a saving throw against a magical effect, counteract the triggering spell as a reaction once every 10 minutes.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'echoing-channel':
+          $effects['feat_overrides']['echoing-channel'] = [
+            'modifies_feat' => 'channel-smite',
+            'secondary_burst_radius_feet' => 5,
+            'secondary_burst_damage_fraction' => 'half',
+            'secondary_burst_save' => 'basic_save_vs_divine_dc',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'emblazon-energy':
+          $effects['feat_overrides']['emblazon-energy'] = [
+            'requires_emblazoned_weapon' => TRUE,
+            'trigger' => 'critical_hit_with_emblazoned_weapon',
+            'persistent_damage' => '1d4',
+            'damage_type_mapping' => [
+              'holy' => 'fire',
+              'unholy' => 'void',
+            ],
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'use-elixir':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'use-elixir',
+            'name' => 'Use Elixir',
+            'action_cost' => 1,
+            'activity' => 'administer_held_potion_or_elixir',
+            'target' => 'willing_adjacent_creature',
+            'description' => 'Use a held potion or elixir on a willing adjacent creature as a 1-action Interact.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'avatar-s-audience':
+          $effects['available_actions']['per_long_rest'][] = [
+            'id' => 'avatar-s-audience',
+            'name' => "Avatar's Audience",
+            'action_cost' => '1_minute',
+            'frequency' => 'once_per_long_rest',
+            'activity' => 'receive_divine_vision',
+            'effect_reference' => 'contact_other_plane_like',
+            'automatic_success' => TRUE,
+            'max_yes_no_questions' => 6,
+            'description' => 'Once per day, spend 1 minute in prayer to receive a divine vision equivalent to contact other plane with automatic success.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'miracle':
+          $this->addLongRestLimitedAction(
+            $effects,
+            'miracle',
+            'Miracle',
+            'Once per long rest, petition your deity to duplicate any divine spell of 9th rank or lower without expending a spell slot.',
+            1,
+            (int) ($this->resolveFeatUsage($character_data, 'miracle') ?? 0)
+          );
+          $effects['feat_overrides']['miracle'] = [
+            'type' => 'wish_like_divine_duplication',
+            'spell_rank_cap' => 9,
+            'spell_tradition' => 'divine',
+            'consumes_spell_slot' => FALSE,
+            'requires_deity_portfolio_alignment' => TRUE,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'extended-channel':
+          $effects['spell_augments']['metamagic'][] = [
+            'id' => 'extended-channel',
+            'name' => 'Extended Channel',
+            'applies_to' => ['heal_burst', 'harm_burst'],
+            'three_action_burst_radius_feet' => 60,
+            'description' => 'Your next 3-action heal or harm burst increases from 30 feet to 60 feet.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'swift-banishment':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'swift-banishment',
+            'name' => 'Swift Banishment',
+            'action_cost' => 'free',
+            'activity' => 'cast_prepared_banishment',
+            'trigger' => 'critically_hit_creature_with_strike',
+            'expends_resource' => 'prepared_banishment_spell_slot',
+            'target' => 'triggering_creature',
+            'description' => 'When you critically hit with a Strike, cast a prepared banishment targeting that creature as a free action by expending an appropriate spell slot.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'avatar':
+          $effects['available_actions']['per_long_rest'][] = [
+            'id' => 'avatar',
+            'name' => 'Avatar',
+            'action_cost' => 'special',
+            'frequency' => 'once_per_long_rest',
+            'activity' => 'transform_into_deific_avatar',
+            'focus_point_cost' => 'all_remaining',
+            'minimum_focus_point_cost' => 1,
+            'duration' => '1_minute',
+            'size_becomes' => 'large',
+            'fly_speed_feet' => 60,
+            'ac_status_bonus' => 2,
+            'grants_two_divine_strikes' => TRUE,
+            'description' => 'Spend 1 Focus Point and all remaining Focus Points to become a Large divine avatar for 1 minute with wings, +2 AC, and two deity-aligned divine strikes.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'leshy-familiar-druid':
+          $this->addSelectionGrant($effects, $feat_id, 'familiar_creation', 1, 'Create a leshy familiar via the Familiar API.');
+          $effects['feat_overrides']['leshy-familiar-druid'] = [
+            'familiar_type' => 'leshy',
+            'can_regain_plant_trait' => TRUE,
+            'familiar_hp_bonus_per_level' => 1,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'reach-spell-druid':
+          $effects['spell_augments']['metamagic'][] = [
+            'id' => 'reach-spell-druid',
+            'name' => 'Reach Spell',
+            'range_bonus_feet' => 30,
+            'touch_range_to_feet' => 30,
+            'applies_to_next_spell_only' => TRUE,
+            'description' => 'Increase the range of your next spell by 30 feet, or change touch range to 30 feet.',
+          ];
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'reach-spell-druid',
+            'name' => 'Reach Spell',
+            'action_cost' => 1,
+            'activity' => 'metamagic',
+            'applies_to_next_spell_only' => TRUE,
+            'description' => 'Metamagic: increase the range of your next spell by 30 feet, or change touch range to 30 feet.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'widen-spell-druid':
+          $effects['spell_augments']['metamagic'][] = [
+            'id' => 'widen-spell-druid',
+            'name' => 'Widen Spell',
+            'eligible_shapes' => ['burst', 'cone', 'line'],
+            'applies_to_next_spell_only' => TRUE,
+            'excludes_duration_spells' => TRUE,
+            'burst_minimum_radius_feet' => 10,
+            'burst_radius_bonus_feet' => 5,
+            'short_cone_or_line_threshold_feet' => 15,
+            'short_cone_or_line_bonus_feet' => 5,
+            'long_cone_or_line_bonus_feet' => 10,
+            'description' => 'Increase the area of your next qualifying burst, cone, or line spell.',
+          ];
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'widen-spell-druid',
+            'name' => 'Widen Spell',
+            'action_cost' => 1,
+            'activity' => 'metamagic',
+            'applies_to_next_spell_only' => TRUE,
+            'description' => 'Metamagic: increase the area of your next qualifying burst, cone, or line spell.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'storm-born':
+          $effects['feat_overrides']['storm-born'] = [
+            'ignore_natural_weather_penalties' => TRUE,
+            'not_buffeted_or_blinded_by_wind' => TRUE,
+            'weather_no_longer_grants_ac_bonus_against_your_ranged_attacks' => TRUE,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'wild-shape-druid':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'wild-shape-druid',
+            'name' => 'Wild Shape',
+            'action_cost' => 2,
+            'activity' => 'focus_spell',
+            'spell_reference' => 'wild_shape',
+            'focus_cost' => 1,
+            'wild_order_free_cast_frequency' => 'once_per_hour',
+            'description' => 'Gain the wild shape order spell. Wild Order druids can cast it once per hour without expending a spell slot and gain +1 Focus Point.',
+          ];
+          $effects['feat_overrides']['wild-shape-druid'] = [
+            'grants_focus_point' => 1,
+            'wild_order_free_cast_frequency' => 'once_per_hour',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'familiar-druid':
+          $this->addSelectionGrant($effects, $feat_id, 'familiar_creation', 1, 'Create a familiar via the Familiar API.');
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'goodberry':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'goodberry',
+            'name' => 'Goodberry',
+            'action_cost' => 2,
+            'activity' => 'focus_spell',
+            'spell_reference' => 'goodberry',
+            'focus_cost' => 1,
+            'creates_healing_and_sustaining_berry' => TRUE,
+            'description' => 'Gain the goodberry order spell to create a magical berry that heals and can sustain a creature.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'heal-animal':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'heal-animal',
+            'name' => 'Heal Animal',
+            'action_cost' => 2,
+            'activity' => 'focus_spell',
+            'spell_reference' => 'heal_animal',
+            'focus_cost' => 1,
+            'preferred_targets' => ['animal_companion', 'animal'],
+            'description' => 'Gain the heal animal order spell to restore Hit Points to your animal companion or another animal.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'tempest-surge':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'tempest-surge',
+            'name' => 'Tempest Surge',
+            'action_cost' => 2,
+            'activity' => 'focus_spell',
+            'spell_reference' => 'tempest_surge',
+            'focus_cost' => 1,
+            'target' => 'one_creature',
+            'damage_types' => ['electricity', 'bludgeoning'],
+            'description' => 'Gain the tempest surge order spell, surrounding a foe with a crackling storm.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'steady-spellcasting-druid':
+          $effects['feat_overrides']['steady-spellcasting-druid'] = [
+            'flat_check_to_avoid_spell_disruption' => 15,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'call-of-the-wild':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'call-of-the-wild',
+            'name' => 'Call of the Wild',
+            'action_cost' => '10_minutes',
+            'activity' => 'summon_bound_natural_servant',
+            'eligible_traits' => ['animal', 'elemental', 'plant'],
+            'duration' => '24_hours',
+            'spell_reference' => 'summon_animal_like',
+            'description' => 'Spend 10 minutes to call an animal, elemental, or plant creature to serve you for 24 hours.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'enhanced-familiar-druid':
+          $effects['feat_overrides']['enhanced-familiar-druid'] = [
+            'additional_familiar_abilities_per_day' => 2,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'ferocious-shape':
+          $effects['feat_overrides']['ferocious-shape'] = [
+            'modifies_feat' => 'wild-shape-druid',
+            'wild_shape_unlocks_large_animal_forms' => TRUE,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'soaring-shape':
+          $effects['feat_overrides']['soaring-shape'] = [
+            'modifies_feat' => 'wild-shape-druid',
+            'wild_shape_unlocks_winged_forms' => TRUE,
+            'wild_shape_forms_gain_fly_speed' => TRUE,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'wind-caller':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'wind-caller',
+            'name' => 'Wind Caller',
+            'action_cost' => 2,
+            'activity' => 'focus_spell',
+            'spell_reference' => 'stormwind_flight',
+            'focus_cost' => 1,
+            'description' => 'Gain the stormwind flight order spell to conjure winds and soar through the air.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'current-spell':
+          $effects['spell_augments']['metamagic'][] = [
+            'id' => 'current-spell',
+            'name' => 'Current Spell',
+            'applies_to_next_spell_only' => TRUE,
+            'requires_traits' => ['electricity', 'cold'],
+            'range_bonus_feet' => 30,
+            'touch_range_to_feet' => 30,
+            'description' => 'Increase the range of your next electricity or cold spell by 30 feet, or change touch range to 30 feet.',
+          ];
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'current-spell',
+            'name' => 'Current Spell',
+            'action_cost' => 1,
+            'activity' => 'metamagic',
+            'applies_to_next_spell_only' => TRUE,
+            'description' => 'Metamagic: extend the range of your next electricity or cold spell.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'green-empathy':
+          $effects['feat_overrides']['green-empathy'] = [
+            'wild_empathy_applies_to_plants' => TRUE,
+            'mindless_plants_are_immune' => TRUE,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'insect-shape':
+          $effects['feat_overrides']['insect-shape'] = [
+            'modifies_feat' => 'wild-shape-druid',
+            'wild_shape_unlocks_tiny_insect_forms' => TRUE,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'storm-retribution':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'storm-retribution',
+            'name' => 'Storm Retribution',
+            'action_cost' => 'reaction',
+            'activity' => 'cast_tempest_surge',
+            'trigger' => 'creature_deals_damage_to_you_with_melee_attack',
+            'focus_cost' => 1,
+            'uses_spell_reference' => 'tempest_surge',
+            'description' => 'When a creature damages you with a melee attack, use Tempest Surge against it as a reaction by spending 1 Focus Point.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'aerial-form':
+          $effects['feat_overrides']['aerial-form'] = [
+            'modifies_feat' => 'soaring-shape',
+            'wild_shape_aerial_forms_improved' => TRUE,
+            'grants_additional_aerial_form' => TRUE,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'deadly-simplicity-druid':
+          $effects['feat_overrides']['deadly-simplicity-druid'] = [
+            'ignore_aging_ability_penalties' => TRUE,
+            'cannot_die_of_old_age' => TRUE,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'thousand-faces':
+          $effects['feat_overrides']['thousand-faces'] = [
+            'modifies_feat' => 'wild-shape-druid',
+            'wild_shape_unlocks_small_and_medium_humanoids' => TRUE,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'woodland-stride':
+          $effects['derived_adjustments']['flags']['ignore_difficult_terrain_natural_undergrowth'] = TRUE;
+          $effects['derived_adjustments']['flags']['ignore_natural_plant_hazards'] = TRUE;
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'overwhelming-energy-druid':
+          $effects['spell_augments']['metamagic'][] = [
+            'id' => 'overwhelming-energy-druid',
+            'name' => 'Overwhelming Energy',
+            'applies_to_next_spell_only' => TRUE,
+            'requires_energy_damage_spell' => TRUE,
+            'eligible_damage_types' => ['acid', 'cold', 'electricity', 'fire', 'sonic'],
+            'ignore_resistance_up_to' => 10,
+            'description' => 'Your next qualifying primal energy spell ignores up to 10 points of matching resistance.',
+          ];
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'overwhelming-energy-druid',
+            'name' => 'Overwhelming Energy',
+            'action_cost' => 1,
+            'activity' => 'metamagic',
+            'applies_to_next_spell_only' => TRUE,
+            'description' => 'Metamagic: your next acid, cold, electricity, fire, or sonic spell ignores up to 10 resistance.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'plant-shape':
+          $effects['feat_overrides']['plant-shape'] = [
+            'modifies_feat' => 'wild-shape-druid',
+            'wild_shape_unlocks_small_and_medium_plant_forms' => TRUE,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'primal-focus':
+          $effects['feat_overrides']['primal-focus'] = [
+            'max_refocuses_per_day' => 2,
+            'focus_points_restored_per_refocus' => 1,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'elemental-shape':
+          $effects['feat_overrides']['elemental-shape'] = [
+            'modifies_feat' => 'wild-shape-druid',
+            'wild_shape_unlocks_elemental_forms' => ['air', 'earth', 'fire', 'water'],
+            'wild_shape_elemental_size_options' => ['small', 'medium', 'large'],
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'pristine-weapon':
+          $effects['feat_overrides']['pristine-weapon'] = [
+            'weapons_count_as_materials' => ['cold_iron', 'silver'],
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'storm-order-resilience':
+          $effects['feat_overrides']['storm-order-resilience'] = [
+            'resistance' => [
+              'damage_type' => 'electricity',
+              'value' => 10,
+            ],
+            'grant_swim_speed_feet' => 30,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'dragon-shape':
+          $effects['feat_overrides']['dragon-shape'] = [
+            'modifies_feat' => 'wild-shape-druid',
+            'wild_shape_unlocks_large_dragon_form' => TRUE,
+            'dragon_form_includes_breath_weapon' => TRUE,
+            'dragon_form_includes_flight' => TRUE,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'true-shapeshifter':
+          $effects['available_actions']['per_long_rest'][] = [
+            'id' => 'true-shapeshifter',
+            'name' => 'True Shapeshifter',
+            'action_cost' => 1,
+            'frequency' => 'once_per_long_rest',
+            'activity' => 'change_wild_shape_form',
+            'description' => 'Once per day, change directly into a different wild shape form without dismissing and recasting wild shape.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'monstrosity-shape':
+          $effects['feat_overrides']['monstrosity-shape'] = [
+            'modifies_feat' => 'wild-shape-druid',
+            'wild_shape_unlocks_gargantuan_monstrosity_forms' => TRUE,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'primal-wellspring':
+          $effects['feat_overrides']['primal-wellspring'] = [
+            'max_refocuses_per_day' => 3,
+            'focus_points_restored_per_refocus' => 1,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'invoke-disaster':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'invoke-disaster',
+            'name' => 'Invoke Disaster',
+            'action_cost' => 2,
+            'activity' => 'focus_spell',
+            'spell_reference' => 'invoke_disaster',
+            'focus_cost' => 1,
+            'description' => 'Gain the invoke disaster order spell to call down a devastating natural catastrophe on your foes.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'perfect-form-control':
+          $effects['feat_overrides']['perfect-form-control'] = [
+            'modifies_feat' => 'wild-shape-druid',
+            'can_cast_spells_while_wild_shaped_if_form_allows' => TRUE,
+            'ignore_wild_shape_metamagic_spell_level_penalty' => 2,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'natures-aegis':
+          $effects['feat_overrides']['natures-aegis'] = [
+            'regeneration' => 5,
+            'regeneration_deactivated_by' => ['fire', 'acid'],
+            'physical_resistance_bonus_against_natural_sources' => 10,
+            'natural_source_traits' => ['animal', 'plant', 'elemental'],
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'leyline-conduit':
+          $effects['available_actions']['per_long_rest'][] = [
+            'id' => 'leyline-conduit',
+            'name' => 'Leyline Conduit',
+            'action_cost' => 'special',
+            'frequency' => 'once_per_long_rest',
+            'activity' => 'attune_to_ley_lines',
+            'duration' => '10_minutes',
+            'grants_extra_highest_rank_primal_slot' => TRUE,
+            'description' => 'Once per day, attune to nearby ley lines for 10 minutes, letting you cast prepared primal spells as though you had one additional highest-rank spell slot.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'true-blood':
+          $effects['feat_overrides']['true-blood'] = [
+            'blood_magic_automatically_triggers_on_bloodline_spell' => TRUE,
+            'blood_magic_can_apply_to_caster_and_target_simultaneously' => TRUE,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'bloodline-conduit':
+          $effects['available_actions']['per_long_rest'][] = [
+            'id' => 'bloodline-conduit',
+            'name' => 'Bloodline Conduit',
+            'action_cost' => 'special',
+            'frequency' => 'once_per_long_rest',
+            'activity' => 'gain_extra_10th_level_spell_slot',
+            'heighten_any_repertoire_spell_to_10th' => TRUE,
+            'description' => 'Once per day, channel raw bloodline power to gain an extra 10th-level spell slot that can heighten any spell in your repertoire to 10th level.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'lesson-of-dreams':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'veil-of-dreams',
+            'name' => 'Veil of Dreams',
+            'action_cost' => 2,
+            'activity' => 'focus_spell',
+            'focus_cost' => 1,
+            'spell_reference' => 'veil_of_dreams',
+            'description' => 'Learn the Veil of Dreams hex.',
+          ];
+          $effects['feat_overrides']['lesson-of-dreams'] = [
+            'lesson_tier' => 'basic',
+            'familiar_learns_spell' => 'sleep',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'lesson-of-elements':
+          $selected_spell = $this->resolveFeatSelectionValue($character_data, 'lesson-of-elements', ['selected_spell', 'spell_id', 'spell']);
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'elemental-betrayal',
+            'name' => 'Elemental Betrayal',
+            'action_cost' => 2,
+            'activity' => 'focus_spell',
+            'focus_cost' => 1,
+            'spell_reference' => 'elemental_betrayal',
+            'description' => 'Learn the Elemental Betrayal hex.',
+          ];
+          if ($selected_spell !== NULL) {
+            $effects['feat_overrides']['lesson-of-elements'] = [
+              'lesson_tier' => 'basic',
+              'familiar_learns_spell' => $selected_spell,
+            ];
+            $effects['notes'][] = 'Lesson of Elements: familiar learns ' . $selected_spell . '.';
+          }
+          else {
+            $this->addSelectionGrant(
+              $effects,
+              'lesson-of-elements',
+              'lesson_of_elements_spell_choice',
+              1,
+              'Select burning hands, gust of wind, hydraulic push, or pummeling rubble for your familiar.'
+            );
+            $effects['notes'][] = 'Lesson of Elements: select the familiar spell granted by the lesson.';
+          }
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'lesson-of-life':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'life-boost',
+            'name' => 'Life Boost',
+            'action_cost' => 1,
+            'activity' => 'focus_spell',
+            'focus_cost' => 1,
+            'spell_reference' => 'life_boost',
+            'description' => 'Learn the Life Boost hex.',
+          ];
+          $effects['feat_overrides']['lesson-of-life'] = [
+            'lesson_tier' => 'basic',
+            'familiar_learns_spell' => 'spirit-link',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'lesson-of-protection':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'blood-ward',
+            'name' => 'Blood Ward',
+            'action_cost' => 2,
+            'activity' => 'focus_spell',
+            'focus_cost' => 1,
+            'spell_reference' => 'blood_ward',
+            'description' => 'Learn the Blood Ward hex.',
+          ];
+          $effects['feat_overrides']['lesson-of-protection'] = [
+            'lesson_tier' => 'basic',
+            'familiar_learns_spell' => 'mage-armor',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'lesson-of-vengeance':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'needle-of-vengeance',
+            'name' => 'Needle of Vengeance',
+            'action_cost' => 1,
+            'activity' => 'focus_spell',
+            'focus_cost' => 1,
+            'spell_reference' => 'needle_of_vengeance',
+            'description' => 'Learn the Needle of Vengeance hex.',
+          ];
+          $effects['feat_overrides']['lesson-of-vengeance'] = [
+            'lesson_tier' => 'basic',
+            'familiar_learns_spell' => 'phantom-pain',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'lesson-of-mischief':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'deceivers-cloak',
+            'name' => "Deceiver's Cloak",
+            'action_cost' => 2,
+            'activity' => 'focus_spell',
+            'focus_cost' => 1,
+            'spell_reference' => 'deceivers_cloak',
+            'description' => 'Learn the Deceiver\'s Cloak hex.',
+          ];
+          $effects['feat_overrides']['lesson-of-mischief'] = [
+            'lesson_tier' => 'greater',
+            'familiar_learns_spell' => 'mad-monkeys',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'lesson-of-shadow':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'malicious-shadow',
+            'name' => 'Malicious Shadow',
+            'action_cost' => 2,
+            'activity' => 'focus_spell',
+            'focus_cost' => 1,
+            'spell_reference' => 'malicious_shadow',
+            'description' => 'Learn the Malicious Shadow hex.',
+          ];
+          $effects['feat_overrides']['lesson-of-shadow'] = [
+            'lesson_tier' => 'greater',
+            'familiar_learns_spell' => 'chilling-darkness',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'lesson-of-snow':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'personal-blizzard',
+            'name' => 'Personal Blizzard',
+            'action_cost' => 2,
+            'activity' => 'focus_spell',
+            'focus_cost' => 1,
+            'spell_reference' => 'personal_blizzard',
+            'description' => 'Learn the Personal Blizzard hex.',
+          ];
+          $effects['feat_overrides']['lesson-of-snow'] = [
+            'lesson_tier' => 'greater',
+            'familiar_learns_spell' => 'wall-of-wind',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'lesson-of-death':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'curse-of-death',
+            'name' => 'Curse of Death',
+            'action_cost' => 2,
+            'activity' => 'focus_spell',
+            'focus_cost' => 1,
+            'spell_reference' => 'curse_of_death',
+            'description' => 'Learn the Curse of Death hex.',
+          ];
+          $effects['feat_overrides']['lesson-of-death'] = [
+            'lesson_tier' => 'major',
+            'familiar_learns_spell' => 'raise-dead',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'lesson-of-renewal':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'restorative-moment',
+            'name' => 'Restorative Moment',
+            'action_cost' => 2,
+            'activity' => 'focus_spell',
+            'focus_cost' => 1,
+            'spell_reference' => 'restorative_moment',
+            'description' => 'Learn the Restorative Moment hex.',
+          ];
+          $effects['feat_overrides']['lesson-of-renewal'] = [
+            'lesson_tier' => 'major',
+            'familiar_learns_spell' => 'field-of-life',
+          ];
           $effects['applied_feats'][] = $feat_id;
           break;
 
@@ -2474,14 +5091,28 @@ class FeatEffectManager {
           break;
 
         case 'unconventional-weaponry':
-          $this->addSelectionGrant(
-            $effects,
-            'unconventional-weaponry',
-            'unconventional_weapon_choice',
-            1,
-            'Select one uncommon weapon for familiarity benefits.'
-          );
-          $effects['notes'][] = 'Unconventional Weaponry: pending uncommon weapon selection.';
+          $selected_weapon_id = $this->resolveFeatSelectionValue($character_data, 'unconventional-weaponry', ['selected_weapon_id', 'weapon_id', 'selected_weapon']);
+          $weapon_options = CharacterManager::getUnconventionalWeaponOptions();
+          if ($selected_weapon_id === NULL || !isset($weapon_options[$selected_weapon_id])) {
+            $this->addSelectionGrant(
+              $effects,
+              'unconventional-weaponry',
+              'unconventional_weapon_choice',
+              1,
+              'Select one uncommon weapon for familiarity benefits.'
+            );
+            $effects['notes'][] = 'Unconventional Weaponry: pending uncommon weapon selection.';
+          }
+          else {
+            $this->addProficiencyGrant($effects, 'weapon', $selected_weapon_id, 'trained');
+            $effects['feat_overrides']['unconventional-weaponry'] = [
+              'type' => 'uncommon_weapon_training',
+              'selected_weapon_id' => $selected_weapon_id,
+              'selected_weapon_name' => $weapon_options[$selected_weapon_id],
+              'grants_access' => TRUE,
+            ];
+            $effects['notes'][] = 'Unconventional Weaponry: gain access to and trained proficiency with ' . $weapon_options[$selected_weapon_id] . '.';
+          }
           $effects['applied_feats'][] = $feat_id;
           break;
 
@@ -2666,18 +5297,30 @@ class FeatEffectManager {
           break;
 
         case 'breath-control':
+          $effects['feat_overrides']['breath-control'] = [
+            'hold_breath_multiplier' => 25,
+          ];
+          $effects['conditional_modifiers']['saving_throws'][] = [
+            'save' => 'all',
+            'bonus' => 1,
+            'bonus_type' => 'circumstance',
+            'context' => 'against inhaled threats',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
         case 'diehard':
+          $effects['feat_overrides']['diehard'] = [
+            'die_from_dying_value' => 5,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
         case 'fast-recovery':
-          $label = $this->humanizeFeatId($feat_id);
-          $this->addLongRestLimitedAction(
-            $effects,
-            $feat_id,
-            $label,
-            $label . ': explicit long-rest resource.',
-            1,
-            (int) ($this->resolveFeatUsage($character_data, $feat_id) ?? 0)
-          );
-          $effects['notes'][] = $label . ': explicit long-rest handler applied.';
+          $effects['feat_overrides']['fast-recovery'] = [
+            'rest_healing_multiplier' => 2,
+            'fortitude_success_reduces_disease_or_poison_stage_by' => 2,
+          ];
           $effects['applied_feats'][] = $feat_id;
           break;
 
@@ -2688,8 +5331,10 @@ class FeatEffectManager {
           break;
 
         case 'ride':
-          $this->addConditionalSaveModifier($effects, 'Reflex', 1, 'while mounted');
-          $effects['notes'][] = 'Ride: +1 conditional Reflex save while mounted.';
+          $effects['feat_overrides']['ride'] = [
+            'command_an_animal_mount_auto_succeeds' => TRUE,
+            'ignore_mounted_attack_penalty' => TRUE,
+          ];
           $effects['applied_feats'][] = $feat_id;
           break;
 
@@ -2698,9 +5343,140 @@ class FeatEffectManager {
             'id' => 'shield-block',
             'name' => 'Shield Block',
             'action_cost' => 'reaction',
-            'description' => 'Block incoming damage with a shield.',
+            'activity' => 'reduce_damage_with_shield',
+            'prevent_damage_up_to' => 'shield_hardness',
+            'remaining_damage_applies_to_you_and_shield' => TRUE,
+            'description' => 'Block incoming damage with a shield, preventing damage up to the shield’s Hardness and splitting the remainder between you and the shield.',
           ];
-          $effects['notes'][] = 'Shield Block: explicit reaction action handler.';
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'hireling-manager':
+          $effects['feat_overrides']['hireling-manager'] = [
+            'hireling_skill_check_bonus' => 2,
+            'bonus_type' => 'circumstance',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'improvised-repair':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'improvised-repair',
+            'name' => 'Improvised Repair',
+            'action_cost' => 3,
+            'activity' => 'temporary_item_patch',
+            'target_requirement' => 'broken_nonmagical_item',
+            'result' => 'functions_as_shoddy_until_damaged_again',
+            'description' => 'Quickly patch a broken non-magical item so it functions as a shoddy version of itself until it is damaged again.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'keen-follower':
+          $effects['feat_overrides']['keen-follower'] = [
+            'modifies_activity' => 'follow_the_expert',
+            'expert_leader_bonus' => 3,
+            'master_leader_bonus' => 4,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'pick-up-the-pace':
+          $effects['feat_overrides']['pick-up-the-pace'] = [
+            'additional_hustle_minutes' => 20,
+            'group_hustle_cap_uses_highest_constitution_member' => TRUE,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'prescient-planner':
+          $effects['feat_overrides']['prescient-planner'] = [
+            'uses_per_shopping_opportunity' => 1,
+            'retroactive_purchase_allowed' => TRUE,
+            'item_requirements' => [
+              'rarity' => 'common',
+              'level_max_formula' => 'floor(level/2)',
+              'must_fit_encumbrance_limits' => TRUE,
+              'disallowed_categories' => ['weapon', 'armor', 'alchemical', 'magic'],
+            ],
+            'must_pay_listed_price' => TRUE,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'skitter':
+          $effects['feat_overrides']['skitter'] = [
+            'crawl_speed_formula' => 'half_speed',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'thorough-search':
+          $effects['feat_overrides']['thorough-search'] = [
+            'search_time_multiplier' => 2,
+            'seek_bonus_when_searching_carefully' => 2,
+            'bonus_type' => 'circumstance',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'prescient-consumable':
+          $effects['feat_overrides']['prescient-consumable'] = [
+            'modifies_feat' => 'prescient-planner',
+            'retroactive_purchase_allows_consumables' => TRUE,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'supertaster':
+          $effects['feat_overrides']['supertaster'] = [
+            'secret_perception_check_when_eating_or_drinking_near_poison' => TRUE,
+            'success_reveals_something_wrong_without_identifying_poison' => TRUE,
+            'recall_knowledge_bonus_when_taste_relevant' => 2,
+            'bonus_type' => 'circumstance',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'a-home-in-every-port':
+          $effects['available_actions']['at_will'][] = [
+            'id' => 'a-home-in-every-port',
+            'name' => 'A Home in Every Port',
+            'action_cost' => '1_day_downtime',
+            'activity' => 'secure_lodging',
+            'max_total_occupants' => 7,
+            'lodging_quality' => 'comfortable',
+            'cost' => 0,
+            'duration' => '24_hours',
+            'description' => 'Spend a day of downtime in a settlement to secure free comfortable lodging for yourself and up to 6 additional characters for 24 hours.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'caravan-leader':
+          $effects['feat_overrides']['caravan-leader'] = [
+            'modifies_activity' => 'hustle',
+            'group_uses_longest_solo_hustle_limit' => TRUE,
+            'additional_group_hustle_minutes' => 20,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'incredible-scout':
+          $effects['feat_overrides']['incredible-scout'] = [
+            'modifies_activity' => 'scout',
+            'allies_initiative_bonus' => 2,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'true-perception':
+          $effects['senses'][] = [
+            'id' => 'true-perception',
+            'type' => 'true_seeing',
+            'always_on' => TRUE,
+            'counteract_modifier' => 'perception',
+          ];
           $effects['applied_feats'][] = $feat_id;
           break;
 
@@ -3225,6 +6001,14 @@ class FeatEffectManager {
       }
     }
 
+    if (!empty($character_data['features']['feats']) && is_array($character_data['features']['feats'])) {
+      foreach ($character_data['features']['feats'] as $feat) {
+        if (is_array($feat) && !empty($feat['id'])) {
+          $ids[] = (string) $feat['id'];
+        }
+      }
+    }
+
     foreach (['ancestry_feat', 'class_feat', 'general_feat', 'skill_feat', 'background_skill_feat'] as $key) {
       if (!empty($character_data[$key]) && is_string($character_data[$key])) {
         $ids[] = strtolower(str_replace(' ', '-', $character_data[$key]));
@@ -3255,6 +6039,78 @@ class FeatEffectManager {
       return (int) $character_data['speed'];
     }
     return 25;
+  }
+
+  /**
+   * Resolve the current rank relevant to Canny Acumen.
+   */
+  private function resolveCannyAcumenCurrentRank(array $character_data, string $selected_proficiency): string {
+    $selected_proficiency = strtolower(trim($selected_proficiency));
+    $current_rank = '';
+
+    if (isset($character_data['class_proficiencies']) && is_array($character_data['class_proficiencies'])) {
+      $current_rank = (string) ($character_data['class_proficiencies'][$selected_proficiency] ?? '');
+    }
+
+    if ($current_rank === '') {
+      $selected_class = $this->resolveCharacterClassId($character_data);
+      if ($selected_class !== '' && isset(CharacterManager::CLASSES[$selected_class]['proficiencies'][$selected_proficiency])) {
+        $current_rank = (string) CharacterManager::CLASSES[$selected_class]['proficiencies'][$selected_proficiency];
+      }
+    }
+
+    $normalized_rank = strtolower(trim($current_rank));
+    return $normalized_rank !== '' ? $normalized_rank : 'trained';
+  }
+
+  /**
+   * Resolve the armor tier granted by Armor Proficiency from the current class.
+   */
+  private function resolveArmorProficiencyTarget(array $character_data): ?string {
+    $selected_class = $this->resolveCharacterClassId($character_data);
+    if ($selected_class === '' || !isset(CharacterManager::CLASSES[$selected_class])) {
+      return NULL;
+    }
+
+    $armor_proficiencies = CharacterManager::CLASSES[$selected_class]['armor_proficiency'] ?? [];
+    if (is_string($armor_proficiencies)) {
+      $armor_proficiencies = $armor_proficiencies === 'unarmored_only' ? ['unarmored'] : [$armor_proficiencies];
+    }
+
+    $owned_tiers = array_map(static fn(string $tier): string => strtolower(trim($tier)), $armor_proficiencies);
+    if (in_array('heavy', $owned_tiers, TRUE)) {
+      return NULL;
+    }
+    if (in_array('medium', $owned_tiers, TRUE)) {
+      return 'heavy';
+    }
+    if (in_array('light', $owned_tiers, TRUE)) {
+      return 'medium';
+    }
+
+    return 'light';
+  }
+
+  /**
+   * Resolve the highest spell rank currently available to a full caster.
+   */
+  private function resolveHighestSpellRank(array $character_data): int {
+    $level = max(1, (int) ($character_data['level'] ?? 1));
+    if ($level >= 19) {
+      return 10;
+    }
+    return (int) floor(($level + 1) / 2);
+  }
+
+  /**
+   * Resolve an ability modifier from stored character ability scores.
+   */
+  private function resolveAbilityModifier(array $character_data, string $ability): int {
+    $ability = strtolower(trim($ability));
+    $score = $character_data['abilities'][$ability]
+      ?? $character_data[$ability]
+      ?? 10;
+    return (int) floor((((int) $score) - 10) / 2);
   }
 
   /**
@@ -3415,7 +6271,9 @@ class FeatEffectManager {
       }
     }
     $effects['selection_grants'][] = [
+      'source' => $source_feat,
       'source_feat' => $source_feat,
+      'id' => $selection_type,
       'selection_type' => $selection_type,
       'count' => $count,
       'status' => 'pending_choice',
@@ -3489,6 +6347,27 @@ class FeatEffectManager {
         }
       }
     }
+    if (!empty($character_data['features']['feats']) && is_array($character_data['features']['feats'])) {
+      foreach ($character_data['features']['feats'] as $feat) {
+        if (is_array($feat) && (($feat['id'] ?? '') === $feat_id)) {
+          return $feat;
+        }
+      }
+    }
+    if (!empty($character_data['wizard']['feats']) && is_array($character_data['wizard']['feats'])) {
+      foreach ($character_data['wizard']['feats'] as $feat) {
+        if (is_array($feat) && (($feat['id'] ?? '') === $feat_id)) {
+          return $feat;
+        }
+      }
+    }
+    if (!empty($character_data['wizard']['features']['feats']) && is_array($character_data['wizard']['features']['feats'])) {
+      foreach ($character_data['wizard']['features']['feats'] as $feat) {
+        if (is_array($feat) && (($feat['id'] ?? '') === $feat_id)) {
+          return $feat;
+        }
+      }
+    }
     return [];
   }
 
@@ -3502,6 +6381,13 @@ class FeatEffectManager {
         return trim($meta[$key]);
       }
     }
+    if (isset($meta['feat_params']) && is_array($meta['feat_params'])) {
+      foreach ($candidate_keys as $key) {
+        if (isset($meta['feat_params'][$key]) && is_string($meta['feat_params'][$key]) && trim($meta['feat_params'][$key]) !== '') {
+          return trim($meta['feat_params'][$key]);
+        }
+      }
+    }
 
     if (isset($character_data['feat_selections']) && is_array($character_data['feat_selections'])) {
       $selection_entry = $character_data['feat_selections'][$feat_id] ?? NULL;
@@ -3513,8 +6399,44 @@ class FeatEffectManager {
         }
       }
     }
+    if (isset($character_data['wizard']['feat_selections']) && is_array($character_data['wizard']['feat_selections'])) {
+      $selection_entry = $character_data['wizard']['feat_selections'][$feat_id] ?? NULL;
+      if (is_array($selection_entry)) {
+        foreach ($candidate_keys as $key) {
+          if (isset($selection_entry[$key]) && is_string($selection_entry[$key]) && trim($selection_entry[$key]) !== '') {
+            return trim($selection_entry[$key]);
+          }
+        }
+      }
+    }
 
     return NULL;
+  }
+
+  /**
+   * Resolve a character class id from supported runtime data shapes.
+   */
+  private function resolveCharacterClassId(array $character_data): string {
+    $class_value = $character_data['class'] ?? $character_data['basicInfo']['class'] ?? $character_data['basic_info']['class'] ?? '';
+    if (is_array($class_value)) {
+      $class_value = $class_value['id'] ?? $class_value['machine_name'] ?? $class_value['name'] ?? '';
+    }
+    return strtolower(trim((string) $class_value));
+  }
+
+  /**
+   * Resolve persisted wizard arcane school id from supported data shapes.
+   */
+  private function resolveWizardSchoolId(array $character_data): string {
+    $school_value = $character_data['subclass']
+      ?? $character_data['arcane_school']
+      ?? $character_data['wizard']['subclass']
+      ?? $character_data['wizard']['arcane_school']
+      ?? $character_data['basicInfo']['subclass']
+      ?? $character_data['basicInfo']['arcane_school']
+      ?? '';
+
+    return strtolower(trim((string) $school_value));
   }
 
   /**
@@ -3544,8 +6466,50 @@ class FeatEffectManager {
       }
     }
 
+    if (isset($meta['feat_params']) && is_array($meta['feat_params'])) {
+      foreach ($candidate_keys as $key) {
+        if (!isset($meta['feat_params'][$key])) {
+          continue;
+        }
+
+        $value = $meta['feat_params'][$key];
+        if (is_string($value) && trim($value) !== '') {
+          $candidates = array_merge($candidates, preg_split('/\s*,\s*/', trim($value)) ?: []);
+        }
+        elseif (is_array($value)) {
+          foreach ($value as $entry) {
+            if (is_string($entry) && trim($entry) !== '') {
+              $candidates[] = trim($entry);
+            }
+          }
+        }
+      }
+    }
+
     if (isset($character_data['feat_selections']) && is_array($character_data['feat_selections'])) {
       $selection_entry = $character_data['feat_selections'][$feat_id] ?? NULL;
+      if (is_array($selection_entry)) {
+        foreach ($candidate_keys as $key) {
+          if (!isset($selection_entry[$key])) {
+            continue;
+          }
+
+          $value = $selection_entry[$key];
+          if (is_string($value) && trim($value) !== '') {
+            $candidates = array_merge($candidates, preg_split('/\s*,\s*/', trim($value)) ?: []);
+          }
+          elseif (is_array($value)) {
+            foreach ($value as $entry) {
+              if (is_string($entry) && trim($entry) !== '') {
+                $candidates[] = trim($entry);
+              }
+            }
+          }
+        }
+      }
+    }
+    if (isset($character_data['wizard']['feat_selections']) && is_array($character_data['wizard']['feat_selections'])) {
+      $selection_entry = $character_data['wizard']['feat_selections'][$feat_id] ?? NULL;
       if (is_array($selection_entry)) {
         foreach ($candidate_keys as $key) {
           if (!isset($selection_entry[$key])) {
@@ -3757,7 +6721,10 @@ class FeatEffectManager {
       $applied_any = TRUE;
     }
     if ($feat_id === 'animal-companion') {
-      $this->addSelectionGrant($effects, 'animal-companion', 'animal_companion_choice', 1, 'Select one animal companion.');
+      $selected_companion = $this->resolveFeatSelectionValue($character_data, 'animal-companion', ['selected_companion_species', 'species_id']);
+      if ($selected_companion === NULL || $selected_companion === '') {
+        $this->addSelectionGrant($effects, 'animal-companion', 'animal_companion_choice', 1, 'Create an animal companion via the Animal Companion API.');
+      }
       $applied_any = TRUE;
     }
     if ($feat_id === 'titan-wrestler') {

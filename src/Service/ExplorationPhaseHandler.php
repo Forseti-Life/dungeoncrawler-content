@@ -99,6 +99,11 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
   protected MagicItemService $magicItemService;
 
   /**
+   * @var \Drupal\dungeoncrawler_content\Service\GameplayActionProcessor|null
+   */
+  protected ?GameplayActionProcessor $gameplayActionProcessor;
+
+  /**
    * Constructs an ExplorationPhaseHandler.
    */
   public function __construct(
@@ -112,7 +117,8 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
     ?NarrationEngine $narration_engine = NULL,
     ?KnowledgeAcquisitionService $knowledge_acquisition = NULL,
     ?HazardService $hazard_service = NULL,
-    ?MagicItemService $magic_item_service = NULL
+    ?MagicItemService $magic_item_service = NULL,
+    ?GameplayActionProcessor $gameplay_action_processor = NULL
   ) {
     $this->database = $database;
     $this->logger = $logger_factory->get('dungeoncrawler');
@@ -132,6 +138,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
       );
     $this->hazardService = $hazard_service ?? new HazardService($number_generation_service);
     $this->magicItemService = $magic_item_service ?? new MagicItemService($number_generation_service);
+    $this->gameplayActionProcessor = $gameplay_action_processor;
   }
 
   /**
@@ -2179,11 +2186,13 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
    */
   protected function processCastSpell(string $actor_id, array $params, array &$game_state, array &$dungeon_data, int $campaign_id): array {
     $spell_name = $params['spell_name'] ?? 'unknown';
+    $spell_id = (string) ($params['spell_id'] ?? '');
     $spell_level = (int) ($params['spell_level'] ?? 0);
     $cast_at_level = (int) ($params['cast_at_level'] ?? $spell_level);
     $is_cantrip = !empty($params['is_cantrip']);
     $is_focus_spell = !empty($params['is_focus_spell']);
     $spell_tradition = $params['spell_tradition'] ?? NULL;
+    $is_detect_magic = $this->isDetectMagicSpell($spell_name, $spell_id);
 
     $entity_ep = &$this->findEntityInDungeon($actor_id, $dungeon_data, TRUE);
     if (!$entity_ep) {
@@ -2198,7 +2207,13 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
 
     // AC-006: Cantrips never consume slots.
     if ($is_cantrip) {
-      return ['cast' => TRUE, 'spell' => $spell_name, 'is_cantrip' => TRUE, 'narration' => NULL, 'mutations' => []];
+      return [
+        'cast' => TRUE,
+        'spell' => $spell_name,
+        'is_cantrip' => TRUE,
+        'narration' => $is_detect_magic ? $this->buildDetectMagicNarration($campaign_id, $dungeon_data) : NULL,
+        'mutations' => [],
+      ];
     }
 
     // AC-007: Focus spells consume 1 Focus Point.
@@ -2209,7 +2224,14 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
       }
       $entity_ep['state']['focus_points'] = $fp_ep - 1;
       $this->persistDungeonData($campaign_id, $dungeon_data);
-      return ['cast' => TRUE, 'spell' => $spell_name, 'is_focus_spell' => TRUE, 'focus_points_remaining' => $fp_ep - 1, 'narration' => NULL, 'mutations' => []];
+      return [
+        'cast' => TRUE,
+        'spell' => $spell_name,
+        'is_focus_spell' => TRUE,
+        'focus_points_remaining' => $fp_ep - 1,
+        'narration' => $is_detect_magic ? $this->buildDetectMagicNarration($campaign_id, $dungeon_data) : NULL,
+        'mutations' => [],
+      ];
     }
 
     // Slot-consuming spell.
@@ -2245,9 +2267,155 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
       'cast_at_level' => $slot_level_ep,
       'heightened' => $slot_level_ep > $spell_level,
       'slots_remaining' => $avail_ep - 1,
-      'narration' => NULL,
+      'narration' => $is_detect_magic ? $this->buildDetectMagicNarration($campaign_id, $dungeon_data) : NULL,
       'mutations' => [],
     ];
+  }
+
+  /**
+   * Determine whether the current spell cast is Detect Magic.
+   */
+  protected function isDetectMagicSpell(string $spell_name, string $spell_id = ''): bool {
+    $normalized_name = strtolower(str_replace(['_', ' '], '-', trim($spell_name)));
+    $normalized_id = strtolower(str_replace(['_', ' '], '-', trim($spell_id)));
+
+    return in_array('detect-magic', [$normalized_name, $normalized_id], TRUE);
+  }
+
+  /**
+   * Build grounded narration for Detect Magic in the active room.
+   */
+  protected function buildDetectMagicNarration(int $campaign_id, array &$dungeon_data): string {
+    $magical_hazards = [];
+    foreach ($this->hazardService->getRoomHazards($dungeon_data, TRUE) as $hazard) {
+      if (empty($hazard['is_magical'])) {
+        continue;
+      }
+      $magical_hazards[] = (string) ($hazard['name'] ?? $hazard['instance_id'] ?? 'unknown hazard');
+    }
+
+    $room_meta = $this->findActiveRoomMeta($dungeon_data);
+    $room_inventory = [];
+    $active_room_id = (string) ($dungeon_data['active_room_id'] ?? '');
+    if ($this->gameplayActionProcessor && $active_room_id !== '') {
+      $room_inventory = $this->gameplayActionProcessor->buildRoomInventory(
+        $campaign_id,
+        $active_room_id,
+        $room_meta,
+        $dungeon_data
+      );
+    }
+
+    $magical_items = [];
+    foreach (($room_inventory['items'] ?? ($room_meta['items'] ?? [])) as $item) {
+      if (!$this->looksLikeMagicalRoomItem($item)) {
+        continue;
+      }
+      $magical_items[] = (string) ($item['name'] ?? 'unknown item');
+    }
+
+    $magical_carried_items = [];
+    foreach (($room_inventory['storage_owner_details'] ?? []) as $owner_detail) {
+      if (($owner_detail['owner_type'] ?? '') === 'room') {
+        continue;
+      }
+
+      $owner_name = trim((string) ($owner_detail['name'] ?? 'Someone here'));
+      $owner_items = [];
+      foreach (($owner_detail['items'] ?? []) as $item) {
+        if (!$this->looksLikeMagicalRoomItem($item)) {
+          continue;
+        }
+        $owner_items[] = (string) ($item['name'] ?? 'unknown item');
+      }
+
+      $owner_items = array_values(array_unique(array_filter($owner_items)));
+      if ($owner_items !== []) {
+        $magical_carried_items[] = $owner_name . ' carries ' . $this->joinNaturalLanguageList($owner_items) . '.';
+      }
+    }
+
+    $magical_hazards = array_values(array_unique(array_filter($magical_hazards)));
+    $magical_items = array_values(array_unique(array_filter($magical_items)));
+
+    if ($magical_hazards === [] && $magical_items === [] && $magical_carried_items === []) {
+      return 'Detect Magic reveals no obvious magical auras in this room.';
+    }
+
+    $parts = [];
+    if ($magical_items !== []) {
+      $parts[] = 'You sense magical auras from ' . $this->joinNaturalLanguageList($magical_items) . '.';
+    }
+    if ($magical_carried_items !== []) {
+      $parts[] = implode(' ', $magical_carried_items);
+    }
+    if ($magical_hazards !== []) {
+      $parts[] = 'A magical hazard aura also clings to ' . $this->joinNaturalLanguageList($magical_hazards) . '.';
+    }
+
+    return implode(' ', $parts);
+  }
+
+  /**
+   * Find the active room metadata block.
+   */
+  protected function findActiveRoomMeta(array $dungeon_data): array {
+    $active_room_id = (string) ($dungeon_data['active_room_id'] ?? '');
+    foreach (($dungeon_data['rooms'] ?? []) as $room) {
+      if ((string) ($room['room_id'] ?? '') === $active_room_id) {
+        return is_array($room) ? $room : [];
+      }
+    }
+
+    return [];
+  }
+
+  /**
+   * Conservative heuristic for room items that should register to Detect Magic.
+   */
+  protected function looksLikeMagicalRoomItem(array $item): bool {
+    if (!empty($item['is_magical']) || !empty($item['magical'])) {
+      return TRUE;
+    }
+
+    $traits = array_map('strtolower', array_filter(array_map('strval', $item['traits'] ?? [])));
+    if (array_intersect($traits, ['magical', 'arcane', 'divine', 'occult', 'primal'])) {
+      return TRUE;
+    }
+
+    $signals = strtolower(implode(' ', array_filter([
+      (string) ($item['name'] ?? ''),
+      (string) ($item['type'] ?? ''),
+      (string) ($item['category'] ?? ''),
+      (string) ($item['description'] ?? ''),
+    ])));
+
+    foreach (['magic', 'magical', 'wand', 'scroll', 'staff', 'rune', 'talisman', 'potion', 'elixir', 'spellheart'] as $needle) {
+      if (str_contains($signals, $needle)) {
+        return TRUE;
+      }
+    }
+
+    return FALSE;
+  }
+
+  /**
+   * Join a short list into natural language.
+   */
+  protected function joinNaturalLanguageList(array $values): string {
+    $values = array_values(array_filter(array_map('trim', $values), static fn (string $value): bool => $value !== ''));
+    if ($values === []) {
+      return '';
+    }
+    if (count($values) === 1) {
+      return $values[0];
+    }
+    if (count($values) === 2) {
+      return $values[0] . ' and ' . $values[1];
+    }
+
+    $last = array_pop($values);
+    return implode(', ', $values) . ', and ' . $last;
   }
 
   // =========================================================================

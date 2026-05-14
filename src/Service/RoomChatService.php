@@ -330,6 +330,7 @@ class RoomChatService {
     $state_diff = NULL;
     $navigation = NULL;
     $npc_interjections = [];
+    $turn_harness_result = NULL;
     $char_data = $character_id ? $this->actionProcessor->loadCharacterData($character_id) : NULL;
     if ($type === 'player' && !$suppress_gm) {
       if ($channel === 'room') {
@@ -369,7 +370,7 @@ class RoomChatService {
 
       // After GM replies on the room channel, evaluate NPC interjections.
       // Room NPCs monitor the conversation and may chime in if motivated.
-      if ($channel === 'room' && $gm_response !== NULL) {
+      if ($channel === 'room' && $gm_response !== NULL && empty($gm_result['suppress_npc_interjections'])) {
         $stage_started_at = hrtime(true);
         if ($defer_npc_interjections) {
           $this->recordDebugStage('evaluate_npc_interjections', $stage_started_at, [
@@ -379,9 +380,11 @@ class RoomChatService {
         }
         else {
           $stage_started_at = hrtime(true);
-          $npc_interjections = $this->evaluateNpcInterjections(
+          $npc_turn_result = $this->runRoomTurnHarness(
             $campaign_id, $room_id, $room_index, $dungeon_id, $dungeon_data, $message, $gm_response['message'] ?? '', $char_data
           );
+          $turn_harness_result = $npc_turn_result;
+          $npc_interjections = $npc_turn_result['messages'] ?? [];
           $this->recordDebugStage('evaluate_npc_interjections', $stage_started_at, [
             'count' => count($npc_interjections),
             'deferred' => FALSE,
@@ -405,6 +408,9 @@ class RoomChatService {
     }
     if (!empty($npc_interjections)) {
       $result['npc_interjections'] = $npc_interjections;
+    }
+    if ($turn_harness_result !== NULL) {
+      $result['turn_harness'] = $turn_harness_result;
     }
     if ($defer_npc_interjections && $channel === 'room' && $gm_response !== NULL) {
       $result['npc_interjections_deferred'] = TRUE;
@@ -587,7 +593,7 @@ class RoomChatService {
     $this->ensureCurrentRoomNpcProfiles($campaign_id, $room_id, $dungeon_data, $room_index);
     $char_data = $character_id ? $this->actionProcessor->loadCharacterData($character_id) : NULL;
 
-    return $this->evaluateNpcInterjections(
+    $npc_turn_result = $this->runRoomTurnHarness(
       $campaign_id,
       $room_id,
       $room_index,
@@ -597,6 +603,7 @@ class RoomChatService {
       $gm_narrative,
       $char_data
     );
+    return $npc_turn_result['messages'] ?? [];
   }
 
   /**
@@ -672,7 +679,7 @@ class RoomChatService {
   protected function generateGmReply(int $campaign_id, string $room_id, int|string $room_index, int|string $dungeon_id, array &$dungeon_data, ?int $character_id = NULL): ?array {
     $gm_started_at = hrtime(true);
     $chat = $dungeon_data['rooms'][$room_index]['chat'] ?? [];
-    $is_room_entry = count($chat) === 1;
+    $is_room_entry = $this->isEffectiveRoomEntryTurn($chat);
     $room_meta = $dungeon_data['rooms'][$room_index] ?? [];
     $gm_response_cache_key = NULL;
     $checked_response = NULL;
@@ -723,7 +730,8 @@ class RoomChatService {
       $latest_player_message,
       $room_meta,
       $room_id,
-      $dungeon_data
+      $dungeon_data,
+      $is_room_entry
     );
     if ($deterministic_response !== NULL) {
       $checked_response = $deterministic_response;
@@ -752,7 +760,7 @@ class RoomChatService {
       // Build read-only prompt context scoped to this room so prior-room
       // conversations and unrelated campaign notes do not bleed into this turn.
       $stage_started_at = hrtime(true);
-      $session_context = $this->buildCompactSessionContext($session_key, $campaign_id, 2, 900, 320);
+      $session_context = $this->buildCompactSessionContext($session_key, $campaign_id, 2, 900, 320, FALSE);
       $actor_grounding = $this->buildRoomActorGroundingSummary($campaign_id, $room_id, $dungeon_data);
 
       $prompt = '';
@@ -782,15 +790,16 @@ class RoomChatService {
       }
       $prompt .= "Recent conversation:\n" . implode("\n", $history_lines);
       if ($is_room_entry) {
-        $prompt .= "\n\nTHIS IS A ROOM ENTRY — respond as the Game Master with a vivid but concise room-entry description (4-6 sentences, under 140 words). Cover atmosphere, sight, sound, smell/taste, and declare the named characters visibly present in the room on first load, along with their appearance/activity/demeanour. Keep the primary GM response focused on setting, consequences, and mechanics only. Include the JSON action block only if the player triggered a mechanical action.";
+        $prompt .= "\n\nTHIS IS A ROOM ENTRY — respond as the Game Master with a vivid but concise room-entry description (4-6 sentences, under 140 words). Cover atmosphere, sight, sound, smell/taste, and visible grounded occupants. Keep the primary GM response limited to environmental and setting narration only. Include the JSON action block only if the player triggered a mechanical action.";
       }
       else {
-        $prompt .= "\n\nRespond as the Game Master referee. Keep your reply concise (2-4 sentences) and limit it to setting, observable consequences, and mechanics. If the player is performing a mechanical action (casting a spell, using a skill, using a feat, attacking, exploring), include the JSON action block as instructed in your system prompt.";
+        $prompt .= "\n\nRespond as the Game Master referee. Keep your reply concise (2-4 sentences) and limit it to environmental and setting narration only. If the player is performing a mechanical action (casting a spell, using a skill, using a feat, attacking, exploring), include the JSON action block as instructed in your system prompt.";
       }
-      $prompt .= "\nIMPORTANT: The primary GM response is NOT character dialogue. It is scene framing, rulings, consequences, and mechanics only.";
-      $prompt .= "\nIMPORTANT: Do NOT write dialogue for any NPC. Describe the scene, NPC body language and reactions, but let NPCs speak for themselves. Never put words in an NPC's mouth.";
-      $prompt .= "\nIMPORTANT: If the player addresses an NPC directly, the GM should only frame the handoff or visible reaction. Do NOT answer the conversation in that NPC's voice from the GM layer.";
-      $prompt .= "\nIMPORTANT: Do NOT write dialogue for the player character, companions, or party members. Never decide what they say, agree to, feel, or choose beyond the action the player explicitly stated.";
+      $prompt .= "\nIMPORTANT: You are not a character in the scene. You are not an NPC, not a party member, not the player character, and not an in-world speaker.";
+      $prompt .= "\nIMPORTANT: The primary GM response is NOT character dialogue. It is setting narration only.";
+      $prompt .= "\nIMPORTANT: Do NOT write dialogue for any NPC. Do NOT describe NPC actions, NPC body language, or NPC reactions from the GM layer.";
+      $prompt .= "\nIMPORTANT: If the player addresses an NPC directly, the GM should not hand off, paraphrase, or preview that NPC's response from the GM layer.";
+      $prompt .= "\nIMPORTANT: Do NOT write dialogue for the player character, companions, or party members. Do NOT narrate PC actions, choices, emotions, or intent beyond the player's exact stated input.";
       $prompt .= "\nIMPORTANT: For informational questions about who is present, demeanor, or what the room looks like, answer with direct observations only. Do NOT invent a scene, conversation, toast, agreement, plan, or travel setup.";
       $prompt .= "\nIMPORTANT: Named characters and NPCs must stay grounded in their provided canonical notes. If appearance, personality, attitude, motivations, role, or capabilities are not provided, do NOT invent them.";
       $prompt .= "\nIMPORTANT: Questions about whether an action is possible, wise, or legal are not actions. Answer those verbally and do NOT emit or mention any JSON, action block, code fence, or structured output unless the player is clearly taking the action right now.";
@@ -837,6 +846,7 @@ class RoomChatService {
           );
         }
       }
+      $system_prompt .= "\nYou are not a character in the scene. You are the Game Master layer only, and you must never speak as an NPC, party member, companion, or player character.";
       $this->recordDebugStage('gm.system_prompt_assembly', $stage_started_at, [
         'base_system_prompt_length' => strlen($base_system_prompt),
         'system_prompt_length' => strlen($system_prompt),
@@ -1658,9 +1668,9 @@ class RoomChatService {
     $latest = end($dungeon_data['rooms'][$room_index]['chat']);
     if (!is_array($latest) || ($latest['message'] ?? '') !== $arrival_text || ($latest['speaker'] ?? '') !== 'Game Master') {
       $dungeon_data['rooms'][$room_index]['chat'][] = [
-        'speaker' => 'Game Master',
+        'speaker' => 'System',
         'message' => $arrival_text,
-        'type' => 'npc',
+        'type' => 'system',
         'channel' => 'room',
         'timestamp' => date('c'),
         'character_id' => NULL,
@@ -1678,7 +1688,7 @@ class RoomChatService {
 
     try {
       $destination_session_key = $this->sessionManager->roomChatSessionKey($campaign_id, $destination_room_id);
-      $this->sessionManager->appendMessage($destination_session_key, $campaign_id, 'assistant', $arrival_text);
+      $this->sessionManager->appendMessage($destination_session_key, $campaign_id, 'system', $arrival_text);
     }
     catch (\Exception $e) {
       $this->logger->warning('Failed to append destination arrival to room session @room: @msg', [
@@ -1686,8 +1696,6 @@ class RoomChatService {
         '@msg' => $e->getMessage(),
       ]);
     }
-
-    $this->bridgeGmReplyToSessionSystem($campaign_id, $dungeon_id, $destination_room_id, $arrival_text);
   }
 
   /**
@@ -2771,16 +2779,48 @@ class RoomChatService {
     string $gm_narrative,
     ?array $active_character_data = NULL
   ): array {
+    $result = $this->runRoomTurnHarness(
+      $campaign_id,
+      $room_id,
+      $room_index,
+      $dungeon_id,
+      $dungeon_data,
+      $player_message,
+      $gm_narrative,
+      $active_character_data
+    );
+
+    return $result['messages'] ?? [];
+  }
+
+  /**
+   * Run the ordered room turn harness: GM scene narration, then NPC turns.
+   */
+  protected function runRoomTurnHarness(
+    int $campaign_id,
+    string $room_id,
+    int|string $room_index,
+    int|string $dungeon_id,
+    array &$dungeon_data,
+    string $player_message,
+    string $gm_narrative,
+    ?array $active_character_data = NULL
+  ): array {
     // Gather room NPCs with psychology profiles.
     $room_npcs = $this->gatherRoomNpcsWithProfiles($campaign_id, $room_id, $dungeon_data);
 
     if (empty($room_npcs)) {
-      return [];
+      return [
+        'gm' => ['narrative' => $gm_narrative],
+        'npc_turns' => [],
+        'messages' => [],
+      ];
     }
 
-    $directly_addressed_npc = $this->resolveDirectlyAddressedNpc($room_npcs, $player_message);
+    $turn_plan = $this->buildNpcTurnPlan($room_npcs, $player_message, $gm_narrative);
+    $directly_addressed_npc = $turn_plan['directly_addressed_npc'];
     $stage_started_at = hrtime(true);
-    $ordered_npcs = $this->buildNpcInterjectionCandidates($room_npcs, $player_message, $gm_narrative, $directly_addressed_npc);
+    $ordered_npcs = $turn_plan['ordered_npcs'];
     $this->recordDebugStage('npc.candidate_filter', $stage_started_at, [
       'room_npc_count' => count($room_npcs),
       'candidate_count' => count($ordered_npcs),
@@ -2795,7 +2835,12 @@ class RoomChatService {
         NULL,
         $this->buildRoomObservationFromChat($dungeon_data['rooms'][$room_index]['chat'] ?? [])
       );
-      return [];
+      return [
+        'gm' => ['narrative' => $gm_narrative],
+        'directly_addressed_npc' => $directly_addressed_npc['entity_ref'] ?? NULL,
+        'npc_turns' => [],
+        'messages' => [],
+      ];
     }
 
     $messages = [];
@@ -2846,7 +2891,16 @@ class RoomChatService {
         NULL,
         $this->buildRoomObservationFromChat($dungeon_data['rooms'][$room_index]['chat'] ?? [])
       );
-      return [];
+      return [
+        'gm' => ['narrative' => $gm_narrative],
+        'directly_addressed_npc' => $directly_addressed_npc['entity_ref'] ?? NULL,
+        'npc_turns' => array_values(array_map(static fn(array $npc): array => [
+          'entity_ref' => (string) ($npc['entity_ref'] ?? ''),
+          'display_name' => (string) ($npc['profile']['display_name'] ?? $npc['entity_ref'] ?? ''),
+          'spoke' => FALSE,
+        ], $ordered_npcs)),
+        'messages' => [],
+      ];
     }
 
     $this->feedRoomChatToNpcSessions(
@@ -2857,7 +2911,32 @@ class RoomChatService {
       $spoken_refs,
       $this->buildRoomObservationFromChat($dungeon_data['rooms'][$room_index]['chat'] ?? [])
     );
-    return $messages;
+    return [
+      'gm' => ['narrative' => $gm_narrative],
+      'directly_addressed_npc' => $directly_addressed_npc['entity_ref'] ?? NULL,
+      'npc_turns' => array_values(array_map(static function (array $npc) use ($spoken_refs): array {
+        $entity_ref = (string) ($npc['entity_ref'] ?? '');
+        return [
+          'entity_ref' => $entity_ref,
+          'display_name' => (string) ($npc['profile']['display_name'] ?? $entity_ref),
+          'spoke' => in_array($entity_ref, $spoken_refs, TRUE),
+        ];
+      }, $ordered_npcs)),
+      'messages' => $messages,
+    ];
+  }
+
+  /**
+   * Build an ordered NPC turn plan for the current room round.
+   */
+  protected function buildNpcTurnPlan(array $room_npcs, string $player_message, string $gm_narrative): array {
+    $directly_addressed_npc = $this->resolveDirectlyAddressedNpc($room_npcs, $player_message);
+    $ordered_npcs = $this->buildNpcInterjectionCandidates($room_npcs, $player_message, $gm_narrative, $directly_addressed_npc);
+
+    return [
+      'directly_addressed_npc' => $directly_addressed_npc,
+      'ordered_npcs' => $ordered_npcs,
+    ];
   }
 
   /**
@@ -3346,8 +3425,24 @@ PROMPT;
       'what is their demeanour',
       'describe everyone here',
       'who is in the room and',
+      'just this one',
+      'just this kobold',
+      'only one kobold',
+      'only kobold',
+      'any others',
+      'anyone else',
+      'anybody else',
+      'others hiding',
+      'any others hiding',
+      'anyone hiding',
+      'is anyone hiding',
+      'is anybody hiding',
     ])) {
       return 'room_roster_query';
+    }
+
+    if ($this->looksLikeRoomDescriptionQuery($normalized)) {
+      return 'room_description_query';
     }
 
     if ($this->looksLikeNavigationQuery($normalized)) {
@@ -3395,8 +3490,22 @@ PROMPT;
     string $player_message,
     array $room_meta = [],
     string $room_id = '',
-    array $dungeon_data = []
+    array $dungeon_data = [],
+    bool $is_room_entry = FALSE
   ): ?array {
+    if ($intent === 'room_description_query' || ($is_room_entry && $intent === 'gm_narration')) {
+      $room_description = $this->buildDeterministicRoomDescriptionNarrative($campaign_id, $room_id, $room_meta, $dungeon_data, $room_npcs);
+      if ($room_description !== '') {
+        return [
+          'narrative' => $room_description,
+          'actions' => [],
+          'dice_rolls' => [],
+          'validation_errors' => [],
+          'suppress_npc_interjections' => TRUE,
+        ];
+      }
+    }
+
     if ($intent === 'combat_engagement') {
       $hostiles = $this->findRoomHostileEntities($room_id, $dungeon_data, $player_message);
       if ($hostiles !== []) {
@@ -3415,8 +3524,8 @@ PROMPT;
         $target_summary = $hostile_names !== [] ? implode(', ', array_unique($hostile_names)) : 'the hostiles in the room';
         $normalized_message = $this->normalizeNpcNameForMatch($player_message);
         $narrative = $this->textContainsAny($normalized_message, ['cast sleep', 'i cast sleep', 'sleep spell'])
-          ? 'You open the fight by casting Sleep into the swarm and ordering your allies to strike. Combat begins against ' . $target_summary . '.'
-          : 'The moment the order is given, the standoff breaks and combat begins against ' . $target_summary . '.';
+          ? 'The room lurches from tense silence into open combat around ' . $target_summary . '.'
+          : 'The standoff breaks, and the room erupts into combat around ' . $target_summary . '.';
         return [
           'narrative' => $narrative,
           'actions' => [[
@@ -3471,7 +3580,7 @@ PROMPT;
       $roster_narrative = $this->buildDeterministicRoomRosterNarrative($campaign_id, $room_id, $room_meta, $dungeon_data, $room_npcs);
       if ($roster_narrative === '') {
         return [
-          'narrative' => 'No one in this room looks ready to answer right now.',
+          'narrative' => 'No other grounded named occupants are clearly established in this room right now.',
           'actions' => [],
           'dice_rolls' => [],
           'validation_errors' => [],
@@ -3495,17 +3604,16 @@ PROMPT;
     }
 
     if (($intent === 'direct_npc_dialogue' || $intent === 'direct_npc_transaction') && $directly_addressed_npc !== NULL) {
-      $name = $directly_addressed_npc['profile']['display_name'] ?? $directly_addressed_npc['entity_ref'] ?? 'The NPC';
       if ($intent === 'direct_npc_transaction') {
         return [
-          'narrative' => "{$name} turns toward you, ready to answer the practical details directly.",
+          'narrative' => 'The room settles into a direct exchange focused on practical details.',
           'actions' => [],
           'dice_rolls' => [],
           'validation_errors' => [],
         ];
       }
       return [
-        'narrative' => "{$name} shifts attention to you, ready to answer in their own words.",
+        'narrative' => 'The space narrows to a direct conversation.',
         'actions' => [],
         'dice_rolls' => [],
         'validation_errors' => [],
@@ -3525,7 +3633,7 @@ PROMPT;
       }
       if ($quest_givers !== []) {
         return [
-          'narrative' => implode(' and ', array_slice($quest_givers, 0, 2)) . ' both look like the people most likely to have useful leads or work for you.',
+          'narrative' => 'The clearest local quest leads are ' . implode(' and ', array_slice($quest_givers, 0, 2)) . '.',
           'actions' => [],
           'dice_rolls' => [],
           'validation_errors' => [],
@@ -3582,7 +3690,11 @@ PROMPT;
       return '';
     }
 
-    return 'In ' . ($room_meta['name'] ?? 'the room') . ', ' . implode(' ', $descriptions);
+    if (count($descriptions) === 1) {
+      return 'In ' . ($room_meta['name'] ?? 'the room') . ', the only clearly visible named occupant is ' . $descriptions[0];
+    }
+
+    return 'Visible named occupants in ' . ($room_meta['name'] ?? 'the room') . ': ' . implode(' ', $descriptions);
   }
 
   /**
@@ -3625,6 +3737,15 @@ PROMPT;
       'head outside',
       'step outside',
       'meet you there',
+      'go there',
+      'head there',
+      'move there',
+      'go that way',
+      'head that way',
+      'lets go there',
+      'let us go there',
+      'lets go',
+      'let us go',
     ]);
   }
 
@@ -3645,8 +3766,57 @@ PROMPT;
       'where does the door go',
       'where does this door go',
       'where does that door go',
+      'which way have not i been',
+      'which way havent i been',
+      'which way haven t i been',
+      'which way have we not been',
+      'which way havent we been',
+      'where have not i been',
+      'where havent i been',
+      'where have not we been',
+      'where havent we been',
+      'what have i not explored',
+      'what have we not explored',
+      'which path is unexplored',
+      'which tunnel is unexplored',
+      'which passage is unexplored',
+      'which door is unexplored',
+      'what is the unexplored path',
+      'what is the unexplored tunnel',
+      'what is the unexplored passage',
       'what is ahead',
       'what s ahead',
+    ]);
+  }
+
+  /**
+   * Determine whether the player wants a grounded room description.
+   */
+  protected function looksLikeRoomDescriptionQuery(string $normalized_message): bool {
+    return $this->textContainsAny($normalized_message, [
+      'describe the room',
+      'describe this room',
+      'describe this place',
+      'describe the area',
+      'describe where i am',
+      'describe where we are',
+      'what do i see',
+      'what do we see',
+      'what does it look like',
+      'what does this place look like',
+      'what is this place',
+      'what is this room',
+      'what s this place',
+      'what s this room',
+      'what is here',
+      'what s here',
+      'look around',
+      'room description',
+      'give me the description',
+      'give me a description',
+      'description please',
+      'explanation',
+      'description',
     ]);
   }
 
@@ -3703,13 +3873,13 @@ PROMPT;
     ]);
     if ($door_move) {
       $narrative = $return_trip
-        ? 'You move to the door, open it, and head back toward ' . $destination . '.'
-        : 'You move to the door, open it, and press onward toward ' . $destination . '.';
+        ? 'Beyond the door, the way back toward ' . $destination . ' lies open.'
+        : 'Beyond the door, the way onward toward ' . $destination . ' opens up.';
     }
     else {
       $narrative = $return_trip
-        ? 'You leave ' . $origin_name . ' and make your way back toward ' . $destination . '.'
-        : 'You leave ' . $origin_name . ' and head toward ' . $destination . '.';
+        ? 'The route back toward ' . $destination . ' opens from ' . $origin_name . '.'
+        : 'From ' . $origin_name . ', the way onward leads toward ' . $destination . '.';
     }
 
     return [
@@ -3776,11 +3946,117 @@ PROMPT;
       'break down the door',
       'kick in the door',
       'bust it loose',
+      'go there',
+      'head there',
+      'move there',
+      'go that way',
+      'head that way',
+      'lets go there',
+      'let us go there',
+      'lets go',
+      'let us go',
+      'unexplored path',
+      'unexplored tunnel',
+      'unexplored passage',
     ])) {
       return $preferred_exit['name'];
     }
 
+    if ($preferred_exit !== NULL && preg_match('/^(?:ok|okay|yeah|yea|yep|sure|alright|all right)?\s*(?:lets|let us)?\s*go(?:\s+there|\s+that way)?[.!?]*$/i', trim($player_message))) {
+      return $preferred_exit['name'];
+    }
+
     return NULL;
+  }
+
+  /**
+   * Determine whether the latest player turn should still count as room entry.
+   */
+  protected function isEffectiveRoomEntryTurn(array $chat): bool {
+    if ($chat === []) {
+      return FALSE;
+    }
+
+    $latest = end($chat);
+    if (!is_array($latest) || ($latest['type'] ?? '') !== 'player') {
+      return FALSE;
+    }
+
+    $prior = array_slice($chat, 0, -1);
+    if ($prior === []) {
+      return TRUE;
+    }
+
+    foreach ($prior as $entry) {
+      if (!$this->isArrivalNarrationMessage($entry)) {
+        return FALSE;
+      }
+    }
+
+    return TRUE;
+  }
+
+  /**
+   * Check whether a chat entry is the automatic arrival/return narration.
+   */
+  protected function isArrivalNarrationMessage(array $entry): bool {
+    $speaker = (string) ($entry['speaker'] ?? '');
+    $message = trim((string) ($entry['message'] ?? ''));
+
+    return in_array($speaker, ['Game Master', 'System'], TRUE)
+      && preg_match('/^You (arrive|return) at .+\.$/i', $message) === 1;
+  }
+
+  /**
+   * Build a direct, grounded room description without NPC dialogue.
+   */
+  protected function buildDeterministicRoomDescriptionNarrative(
+    int $campaign_id,
+    string $room_id,
+    array $room_meta,
+    array $dungeon_data,
+    array $room_npcs = []
+  ): string {
+    $parts = [];
+
+    $room_name = trim((string) ($room_meta['name'] ?? ''));
+    $room_description = trim((string) ($room_meta['description'] ?? ''));
+    if ($room_description !== '') {
+      $parts[] = $room_name !== '' && !str_starts_with(strtolower($room_description), strtolower($room_name))
+        ? $room_name . ': ' . $room_description
+        : $room_description;
+    }
+    elseif ($room_name !== '') {
+      $parts[] = 'You are in ' . $room_name . '.';
+    }
+
+    $present_names = [];
+    foreach (($room_meta['characters'] ?? []) as $character) {
+      $name = trim((string) ($character['name'] ?? $character['display_name'] ?? ''));
+      if ($name !== '') {
+        $present_names[strtolower($name)] = $name;
+      }
+    }
+    foreach ($room_npcs as $npc) {
+      $name = trim((string) ($npc['profile']['display_name'] ?? ''));
+      if ($name !== '') {
+        $present_names[strtolower($name)] = $name;
+      }
+    }
+
+    if ($present_names !== []) {
+      $parts[] = 'Visible here: ' . implode(', ', array_values($present_names)) . '.';
+    }
+    else {
+      $actor_grounding = trim($this->buildRoomActorGroundingSummary($campaign_id, $room_id, $dungeon_data));
+      if ($actor_grounding !== '') {
+        $actor_grounding = preg_replace('/^Canonical actor notes for named room occupants:\s*/', '', $actor_grounding) ?? $actor_grounding;
+        $actor_grounding = preg_replace('/^- /m', '', $actor_grounding) ?? $actor_grounding;
+        $parts[] = 'Named occupants here: ' . str_replace("\n", ' ', trim($actor_grounding));
+      }
+    }
+
+    return implode(' ', array_filter($parts, static fn(string $part): bool => $part !== ''));
   }
 
   /**
@@ -4054,7 +4330,7 @@ PROMPT;
     string $player_message,
     string $gm_narrative
   ): ?string {
-    $deterministic_reply = $this->buildDeterministicNpcDialogue($campaign_id, $entity_ref, $display_name, $player_message);
+    $deterministic_reply = $this->buildDeterministicNpcDialogue($campaign_id, $entity_ref, $display_name, $player_message, $room_id, $dungeon_data);
     if ($deterministic_reply !== NULL) {
       $this->recordDebugStage('npc.deterministic_reply', hrtime(true), [
         'npc_entity' => $entity_ref,
@@ -4121,7 +4397,8 @@ PROMPT;
     $prompt .= "The Game Master narrated: \"{$gm_narrative}\"\n\n";
     $prompt .= "Respond in character as {$display_name}. Speak naturally in your own voice.\n";
     $prompt .= "Your response should reflect your personality, backstory, current attitude, and knowledge.\n";
-    $prompt .= "Keep your reply concise (1-3 sentences). Do not narrate actions — just speak your dialogue.";
+    $prompt .= "Keep your reply concise (1-3 sentences). Do not narrate actions — just speak your dialogue.\n";
+    $prompt .= "Answer the player's actual question directly. If they asked multiple grounded questions, answer each one in order. If you do not know something, say so plainly instead of deflecting.";
 
     // Get NPC's current attitude for system prompt.
     $npc_attitude = $this->psychologyService->getAttitude($campaign_id, $entity_ref) ?? 'indifferent';
@@ -4179,7 +4456,9 @@ PROMPT;
     int $campaign_id,
     string $entity_ref,
     string $display_name,
-    string $player_message
+    string $player_message,
+    string $room_id = '',
+    array $dungeon_data = []
   ): ?string {
     $normalized = $this->normalizeNpcNameForMatch($player_message);
     if ($normalized === '') {
@@ -4191,7 +4470,7 @@ PROMPT;
     $role = strtolower((string) ($profile['role'] ?? ''));
     $descriptor = strtolower($display_name . ' ' . $entity_ref . ' ' . ($profile['motivations'] ?? ''));
 
-    if ($this->textContainsAny($normalized, ['hello', 'hi', 'hey', 'greetings'])) {
+    if (preg_match('/\b(?:hello|hi|hey|greetings)\b/u', $normalized)) {
       return match ($attitude) {
         'friendly', 'helpful' => "\"Hello. What can I do for you?\"",
         'unfriendly', 'hostile' => "\"Make it quick.\"",
@@ -4199,7 +4478,7 @@ PROMPT;
       };
     }
 
-    if ($this->textContainsAny($normalized, ['thanks', 'thank you'])) {
+    if (preg_match('/\b(?:thanks|thank you)\b/u', $normalized)) {
       return match ($attitude) {
         'friendly', 'helpful' => "\"You're welcome.\"",
         'unfriendly', 'hostile' => "\"Mm.\"",
@@ -4217,6 +4496,53 @@ PROMPT;
         return "\"State the item, quantity, and what coin you're paying with, and I'll settle the amount cleanly.\"";
       }
       return "\"Name what you want and how much of it, and I'll give you the price plainly.\"";
+    }
+
+    $answers = [];
+    if ($room_id !== '') {
+      $asks_if_alone = $this->textContainsAny($normalized, ['are you alone', 'you alone', 'by yourself', 'just you']);
+      $asks_colony_size = $this->textContainsAny($normalized, ['how big is this colony', 'how big is this kobold colony', 'how big is the colony', 'how large is this colony', 'how large is this kobold colony', 'how large is the colony', 'how big is this burrow', 'how big is the burrow', 'how many kobolds', 'how many are in this colony']);
+
+      if ($asks_if_alone) {
+        $room_meta = $this->findRoomByRoomId($dungeon_data['rooms'] ?? [], $room_id);
+        $other_names = [];
+        foreach (($room_meta['entities'] ?? []) as $entity) {
+          $entity_type = strtolower((string) ($entity['entity_type'] ?? $entity['type'] ?? ''));
+          if ($entity_type !== 'npc') {
+            continue;
+          }
+          $entity_ref_value = (string) ($entity['entity_ref']['content_id'] ?? $entity['entity_ref'] ?? '');
+          if ($entity_ref_value === $entity_ref) {
+            continue;
+          }
+          $name = trim((string) ($entity['state']['metadata']['display_name'] ?? $entity['name'] ?? ''));
+          if ($name !== '') {
+            $other_names[] = $name;
+          }
+        }
+        if ($other_names !== []) {
+          $answers[] = $other_names !== []
+            ? '"No. You can see ' . implode(', ', array_slice($other_names, 0, 2)) . ' here too."'
+            : '"No."';
+        }
+        else {
+          $answers[] = $this->textContainsAny($normalized, ['colony', 'burrow', 'kobold'])
+            ? '"In this chamber, yes. In the burrow, no."'
+            : '"In this chamber, yes."';
+        }
+      }
+
+      if ($asks_colony_size) {
+        $room_meta = $this->findRoomByRoomId($dungeon_data['rooms'] ?? [], $room_id);
+        $room_grounding = strtolower(trim((string) (($room_meta['name'] ?? '') . ' ' . ($room_meta['description'] ?? ''))));
+        $answers[] = str_contains($room_grounding, 'network') || str_contains($room_grounding, 'burrow') || str_contains($room_grounding, 'tunnel')
+          ? '"This chamber is only one piece of it. The burrow runs deeper through the tunnels beyond what you can see from here."'
+          : '"You are only seeing one part of the colony from here."';
+      }
+    }
+
+    if ($answers !== []) {
+      return implode(' ', $answers);
     }
 
     return NULL;
@@ -4632,7 +4958,8 @@ PROMPT;
     int $campaign_id,
     int $max_recent = 3,
     int $max_chars = 1200,
-    int $max_summary_chars = 400
+    int $max_summary_chars = 400,
+    bool $include_recent_messages = TRUE
   ): string {
     $context = $this->sessionManager->buildSessionContext($session_key, $campaign_id, $max_recent);
     if ($context === '') {
@@ -4660,6 +4987,9 @@ PROMPT;
       }
 
       if (str_starts_with($section, 'RECENT CONVERSATION')) {
+        if (!$include_recent_messages) {
+          continue;
+        }
         [$heading, $body] = array_pad(explode("\n", $section, 2), 2, '');
         $lines = preg_split("/\r?\n/", trim($body)) ?: [];
         $lines = array_slice(array_values(array_filter(array_map('trim', $lines))), -$max_recent);

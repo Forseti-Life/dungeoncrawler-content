@@ -1237,11 +1237,14 @@ import { SpriteService } from './SpriteService.js';
       const hexmap = this.stateManager?.hexmap || null;
       const selected = this.stateManager?.get?.('selectedEntity') || null;
       const current = hexmap?.turnManagementSystem?.getCurrentTurnEntity?.() || null;
-      const actor = selected || current || hexmap?.findLaunchPlayerEntity?.() || null;
+      const encounterActive = Boolean(hexmap?.stateManager?.get?.('encounterId'));
+      const launchPlayer = hexmap?.findLaunchPlayerEntity?.() || null;
+      const actor = encounterActive
+        ? (selected || current || launchPlayer || null)
+        : (launchPlayer || selected || current || null);
       const state = hexmap?.launchCharacter || hexmap?.characterData || {};
       const basicInfo = state?.basicInfo || {};
       const actorName = basicInfo.name || state?.name || actor?.getComponent?.('IdentityComponent')?.name || 'No actor selected';
-      const encounterActive = Boolean(hexmap?.stateManager?.get?.('encounterId'));
       const runtimeContext = hexmap?.resolveLaunchCharacterRuntimeContext?.() || {};
       const actions = actor?.getComponent?.('ActionsComponent') || null;
       const movement = actor?.getComponent?.('MovementComponent') || null;
@@ -1254,6 +1257,7 @@ import { SpriteService } from './SpriteService.js';
         hexmap,
         state,
         actor,
+        actorRef: actor?.dcEntityRef || actor?.dcEntityInstanceId || null,
         actorLabel: actorName,
         characterId: Number(state?.characterId || state?.id || 0) || 0,
         runtimeContext,
@@ -1289,13 +1293,14 @@ import { SpriteService } from './SpriteService.js';
         return `<div class="action-rail__empty"><p>Select or load a character to enable direct action buttons.</p></div>`;
       }
 
-      return `<div class="action-rail__empty"><p>Choose Attack, Navigate, Spells, Consumables, Skills, or Feats to open direct action buttons for ${escapeQuestHtml(context.actorLabel)}.</p></div>`;
+      return `<div class="action-rail__empty"><p>Choose Attack, Navigate, Interact, Spells, Consumables, Skills, or Feats to open direct action buttons for ${escapeQuestHtml(context.actorLabel)}.</p></div>`;
     }
 
     buildActionRailPanel(category, context) {
       const builders = {
         attack: () => this.buildAttackActionRailPanel(context),
         navigate: () => this.buildNavigateActionRailPanel(context),
+        interact: () => this.buildInteractActionRailPanel(context),
         spells: () => this.buildSpellActionRailPanel(context),
         consumables: () => this.buildConsumableActionRailPanel(context),
         skills: () => this.buildSkillActionRailPanel(context),
@@ -1313,22 +1318,8 @@ import { SpriteService } from './SpriteService.js';
     }
 
     buildAttackActionRailPanel(context) {
-      if (!context.encounterActive) {
-        return {
-          title: 'Attack options',
-          chip: 'Encounter only',
-          html: `<div class="action-rail__empty"><p>Attack choices appear here when an encounter is active.</p></div>`,
-        };
-      }
-
       const weapons = extractReadyWeapons(context.state?.inventory || {}, context.state?.equipment || []);
-      const hostileTargets = Array.isArray(context.hexmap?.getHostileTargets?.(context.actor))
-        ? context.hexmap.getHostileTargets(context.actor)
-        : [];
-      const availableTargets = hostileTargets.filter(({ target }) => {
-        const check = context.hexmap?.combatSystem?.canAttack?.(context.actor, target);
-        return check ? check.canAttack !== false : true;
-      });
+      const availableTargets = this.collectAttackTargets(context);
 
       if (!weapons.length) {
         return {
@@ -1338,27 +1329,36 @@ import { SpriteService } from './SpriteService.js';
         };
       }
 
+      if (!context.actor) {
+        return {
+          title: 'Attack options',
+          chip: 'No attacker',
+          html: `<div class="action-rail__empty"><p>Select or load a character to enable attacks.</p></div>`,
+        };
+      }
+
       if (!availableTargets.length) {
         return {
           title: 'Attack options',
           chip: 'No targets',
-          html: `<div class="action-rail__empty"><p>No hostile targets are currently available for attack.</p></div>`,
+          html: `<div class="action-rail__empty"><p>${context.encounterActive ? 'No hostile targets are currently available for attack.' : 'No other room occupants are currently available to target.'}</p></div>`,
         };
       }
 
-      const entries = [];
-      weapons.forEach((weapon) => {
-        availableTargets.forEach(({ target, distance }) => {
+      const sections = weapons.map((weapon) => {
+        const entries = availableTargets.map(({ target, distance, teamLabel = '' }) => {
           const targetName = target?.getComponent?.('IdentityComponent')?.name || 'Target';
-          entries.push(this.renderActionRailEntry({
+          const summaryParts = [
+            weapon.sourceLabel,
+            weapon.damage || '',
+            teamLabel,
+            Number.isFinite(distance) ? `${distance} hex` : '',
+            context.encounterActive ? formatActionRailCost(1) : 'Starts combat',
+          ];
+          return this.renderActionRailEntry({
             execute: 'attack',
-            title: `${weapon.name} -> ${targetName}`,
-            summary: buildActionRailEntrySummary([
-              weapon.sourceLabel,
-              weapon.damage || '',
-              Number.isFinite(distance) ? `${distance} hex` : '',
-              formatActionRailCost(1),
-            ]),
+            title: targetName,
+            summary: buildActionRailEntrySummary(summaryParts),
             meta: buildActionRailEntrySummary([
               weapon.traits || '',
               weapon.description || '',
@@ -1369,16 +1369,79 @@ import { SpriteService } from './SpriteService.js';
               weaponId: String(weapon.id || ''),
               weaponName: weapon.name,
             },
-            actionLabel: 'Strike target',
-          }));
-        });
-      });
+            actionLabel: context.encounterActive ? 'Strike target' : 'Start combat',
+          });
+        }).join('');
+
+        return `<section class="action-rail__group"><p class="action-rail__group-label">${escapeQuestHtml(weapon.name || 'Weapon')}</p>${entries}</section>`;
+      }).join('');
 
       return {
         title: 'Attack options',
-        chip: `${availableTargets.length} targets`,
-        html: entries.join(''),
+        chip: `${weapons.length} weapon${weapons.length === 1 ? '' : 's'} / ${availableTargets.length} target${availableTargets.length === 1 ? '' : 's'}`,
+        html: sections,
       };
+    }
+
+    collectAttackTargets(context) {
+      const actor = context.actor;
+      const hexmap = context.hexmap;
+      if (!actor || !hexmap?.entityManager) {
+        return [];
+      }
+
+      if (context.encounterActive) {
+        const hostileTargets = Array.isArray(hexmap.getHostileTargets?.(actor))
+          ? hexmap.getHostileTargets(actor)
+          : [];
+        return hostileTargets.filter(({ target }) => {
+          const check = hexmap?.combatSystem?.canAttack?.(actor, target);
+          return check ? check.canAttack !== false : true;
+        }).map(({ target, distance }) => ({
+          target,
+          distance,
+          teamLabel: this.describeCombatantTeam(target),
+        }));
+      }
+
+      const actorPos = actor.getComponent?.('PositionComponent');
+      const candidates = hexmap.entityManager.getEntitiesWith('CombatComponent', 'StatsComponent', 'PositionComponent', 'IdentityComponent') || [];
+      return candidates
+        .filter((candidate) => {
+          if (!candidate || candidate.id === actor.id) {
+            return false;
+          }
+          const identity = candidate.getComponent?.('IdentityComponent');
+          const stats = candidate.getComponent?.('StatsComponent');
+          const pos = candidate.getComponent?.('PositionComponent');
+          if (!identity?.isCreature?.() || !stats?.isAlive?.() || !pos || !actorPos) {
+            return false;
+          }
+          return hexmap.hasLineOfSight(actorPos.q, actorPos.r, pos.q, pos.r);
+        })
+        .map((target) => {
+          const pos = target.getComponent?.('PositionComponent');
+          const distance = actorPos && pos ? hexmap.movementSystem?.hexDistance?.(actorPos.q, actorPos.r, pos.q, pos.r) : null;
+          return {
+            target,
+            distance,
+            teamLabel: this.describeCombatantTeam(target),
+          };
+        })
+        .sort((left, right) => {
+          const leftName = left.target?.getComponent?.('IdentityComponent')?.name || '';
+          const rightName = right.target?.getComponent?.('IdentityComponent')?.name || '';
+          return leftName.localeCompare(rightName);
+        });
+    }
+
+    describeCombatantTeam(entity) {
+      const combat = entity?.getComponent?.('CombatComponent');
+      const rawTeam = String(combat?.team || '').trim();
+      if (!rawTeam) {
+        return '';
+      }
+      return rawTeam.charAt(0).toUpperCase() + rawTeam.slice(1);
     }
 
     buildNavigateActionRailPanel(context) {
@@ -1485,6 +1548,39 @@ import { SpriteService } from './SpriteService.js';
         dungeonLevelId: String(dungeonData?.level_id || hexmap?.launchContext?.dungeon_level_id || ''),
         locations: destinations,
       }];
+    }
+
+    buildInteractActionRailPanel(context) {
+      const interactables = context.hexmap?.collectInteractableEntriesForActionRail?.(context.actor) || [];
+      const entries = interactables.map((entry) => this.renderActionRailEntry({
+        execute: 'interact',
+        title: entry.title || 'Interactable',
+        summary: buildActionRailEntrySummary([
+          entry.typeLabel || '',
+          entry.optionsLabel || '',
+          entry.distanceLabel || '',
+          context.encounterActive && entry.canUse ? formatActionRailCost(1) : '',
+        ]),
+        meta: entry.meta || '',
+        disabled: false,
+        dataset: {
+          targetEntityId: entry.entityId || '',
+          targetQ: Number.isFinite(entry.q) ? String(entry.q) : '',
+          targetR: Number.isFinite(entry.r) ? String(entry.r) : '',
+          targetName: entry.title || 'Interactable',
+          actionLabel: entry.actionLabel || 'Inspect',
+          canUse: entry.canUse ? '1' : '0',
+        },
+        actionLabel: entry.canUse ? (entry.actionLabel || 'Use') : 'Focus',
+      }));
+
+      return {
+        title: 'Interactables',
+        chip: `${entries.length} in room`,
+        html: entries.length
+          ? entries.join('')
+          : `<div class="action-rail__empty"><p>No obvious interactables are currently visible in this room.</p></div>`,
+      };
     }
 
     ensureNavigateLocationGroups(campaignId) {
@@ -1764,6 +1860,10 @@ import { SpriteService } from './SpriteService.js';
         this.executeDirectFeat(button);
         return;
       }
+      if (actionType === 'interact') {
+        this.executeDirectInteract(button);
+        return;
+      }
       if (actionType === 'navigate') {
         this.executeDirectNavigate(button);
       }
@@ -1831,6 +1931,43 @@ import { SpriteService } from './SpriteService.js';
       }
 
       const runtimeContext = context.runtimeContext || {};
+      if (runtimeContext.campaignId && context.actorRef && hexmap) {
+        const response = await fetch(`/api/game/${runtimeContext.campaignId}/action`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest',
+          },
+          credentials: 'include',
+          body: JSON.stringify({
+            type: 'cast_spell',
+            actor: context.actorRef,
+            params: {
+              spell_id: payload.spellId,
+              spell_name: payload.spellName,
+              spell_level: payload.spellLevel,
+              cast_at_level: payload.spellLevel,
+              is_focus_spell: payload.isFocusSpell,
+              is_cantrip: payload.spellLevel === 0,
+              character_id: context.characterId,
+            },
+          }),
+        });
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+          this.appendChatLine('System', data.error || data.result?.error || `Unable to cast ${spellName}.`, 'system');
+          return;
+        }
+
+        this.appendChatLine('System', `${context.actorLabel} casts ${spellName}.`, 'system');
+        if (typeof data.narration === 'string' && data.narration.trim()) {
+          this.appendChatLine('Game Master', data.narration.trim(), 'gm');
+        }
+        hexmap.loadCharacterFromApi(context.characterId);
+        return;
+      }
+
       const response = await fetch(`/api/character/${context.characterId}/cast-spell`, {
         method: 'POST',
         headers: {
@@ -1860,6 +1997,67 @@ import { SpriteService } from './SpriteService.js';
       }
     }
 
+    async executeDirectInteract(button) {
+      if (!this.beginActionRailRequest(button)) {
+        return;
+      }
+
+      try {
+        const context = this.getActionRailContext();
+        const hexmap = context.hexmap;
+        const actor = context.actor;
+        if (!hexmap || !actor) {
+          return;
+        }
+
+        const targetQ = Number(button.dataset.targetQ);
+        const targetR = Number(button.dataset.targetR);
+        const hasTargetHex = Number.isFinite(targetQ) && Number.isFinite(targetR);
+        const targetEntityId = button.dataset.targetEntityId || '';
+        const targetName = button.dataset.targetName || 'target';
+        let targetEntity = null;
+        if (targetEntityId && hexmap.entityManager?.getEntitiesWith) {
+          const candidates = hexmap.entityManager.getEntitiesWith('PositionComponent', 'IdentityComponent');
+          targetEntity = candidates.find((entity) => {
+            const instanceId = String(entity?.dcEntityInstanceId || entity?.instanceId || '');
+            return String(entity?.id || '') === targetEntityId || instanceId === targetEntityId;
+          }) || null;
+        }
+        if (!targetEntity && hasTargetHex && hexmap.getLiveEntitiesAtHex) {
+          targetEntity = hexmap.getLiveEntitiesAtHex(targetQ, targetR)?.[0] || null;
+        }
+
+        if (targetEntity) {
+          hexmap.selectEntity?.(actor);
+          this.showEntityInfo(targetEntity);
+        }
+
+        if (!hasTargetHex) {
+          this.appendChatLine('System', `Inspect ${targetName} in the room view or on the map for more detail.`, 'system');
+          return;
+        }
+
+        hexmap.refreshSelectedHexContents?.(targetQ, targetR);
+
+        const actorPos = actor.getComponent?.('PositionComponent');
+        const distance = actorPos && hexmap.movementSystem?.hexDistance
+          ? hexmap.movementSystem.hexDistance(actorPos.q, actorPos.r, targetQ, targetR)
+          : null;
+
+        if (distance !== null && distance > 1) {
+          this.appendChatLine('System', `${targetName} is in hex (${targetQ}, ${targetR}). Move adjacent to use ${button.dataset.actionLabel || 'that interaction'}.`, 'system');
+          return;
+        }
+
+        const interacted = hexmap.performInteractAtHex(actor, targetQ, targetR, targetEntity || undefined);
+        if (!interacted) {
+          this.appendChatLine('System', `No direct interaction resolved for ${targetName}. Inspect it or move closer if needed.`, 'system');
+        }
+      } finally {
+        this.endActionRailRequest(button);
+      }
+    }
+
     async executeDirectAttack(button) {
       if (!this.beginActionRailRequest(button)) {
         return;
@@ -1872,15 +2070,32 @@ import { SpriteService } from './SpriteService.js';
         const weaponId = String(button.dataset.weaponId || '').trim();
         const weaponName = button.dataset.weaponName || 'weapon';
 
-        if (!hexmap || !context.actor || !context.encounterActive || !targetId) {
-          this.appendChatLine('System', 'Attack options are only available during an active encounter.', 'system');
+        if (!hexmap || !context.actor || !targetId) {
+          this.appendChatLine('System', 'Attack options require an active character and target.', 'system');
           return;
         }
 
-        const target = hexmap.entityManager?.getEntity?.(targetId) || null;
+        let target = hexmap.entityManager?.getEntity?.(targetId) || null;
         if (!target) {
           this.appendChatLine('System', 'That target is no longer available.', 'system');
           return;
+        }
+
+        if (!context.encounterActive) {
+          const combatState = await hexmap.startCombat?.();
+          if (!combatState || !hexmap.stateManager?.get?.('encounterId')) {
+            this.appendChatLine('System', 'Unable to start combat for that attack.', 'system');
+            return;
+          }
+
+          target = hexmap.entityManager?.getEntity?.(targetId) || target;
+          const currentTurnEntity = hexmap.turnManagementSystem?.getCurrentTurnEntity?.() || null;
+          if (!currentTurnEntity || currentTurnEntity.id !== context.actor.id) {
+            const actingName = currentTurnEntity?.getComponent?.('IdentityComponent')?.name || 'another combatant';
+            this.appendChatLine('System', `Combat begins and initiative is rolled. It is ${actingName}'s turn.`, 'system');
+            this.refreshActionRail();
+            return;
+          }
         }
 
         await hexmap.performAttack?.(context.actor, target, {
@@ -7731,6 +7946,205 @@ import { SpriteService } from './SpriteService.js';
     },
 
     /**
+     * Collect obvious room interactables for the action rail.
+     * @param {Entity|null} actor
+     * @returns {Array<Object>}
+     */
+    collectInteractableEntriesForActionRail: function (actor = null) {
+      const roomId = this.resolveActiveRoomId?.() || this.activeRoomId || null;
+      if (!roomId) {
+        return [];
+      }
+
+      const actorPos = actor?.getComponent?.('PositionComponent') || null;
+      const objectDefinitions = this.dungeonData?.object_definitions && typeof this.dungeonData.object_definitions === 'object'
+        ? this.dungeonData.object_definitions
+        : {};
+      const entities = Array.isArray(this.dungeonData?.entities) ? this.dungeonData.entities : [];
+      const roomEntities = entities.filter((entity) => String(entity?.placement?.room_id || '') === roomId);
+      const interactables = [];
+      const seenKeys = new Set();
+      const typeOrder = {
+        npc: 1,
+        item: 2,
+        obstacle: 3,
+        passage: 4,
+        interactable: 5,
+      };
+
+      const buildDistanceLabel = (q, r) => {
+        if (!actorPos || !Number.isFinite(q) || !Number.isFinite(r)) {
+          return '';
+        }
+        const distance = this.movementSystem?.hexDistance
+          ? this.movementSystem.hexDistance(actorPos.q, actorPos.r, q, r)
+          : Math.max(Math.abs(actorPos.q - q), Math.abs(actorPos.r - r), Math.abs((actorPos.q + actorPos.r) - (q + r)));
+        if (!Number.isFinite(distance)) {
+          return '';
+        }
+        return distance <= 1 ? 'Adjacent' : `${distance} hex away`;
+      };
+
+      const pushEntry = (entry) => {
+        const key = entry.key || `${entry.typeLabel}:${entry.title}:${entry.q}:${entry.r}`;
+        if (seenKeys.has(key)) {
+          return;
+        }
+        seenKeys.add(key);
+        interactables.push({
+          ...entry,
+          distanceLabel: entry.distanceLabel || buildDistanceLabel(entry.q, entry.r),
+        });
+      };
+
+      roomEntities.forEach((entity) => {
+        if (!entity || entity.entity_type === 'player_character') {
+          return;
+        }
+
+        const placement = entity.placement || {};
+        const hex = placement.hex || {};
+        const q = Number(hex.q);
+        const r = Number(hex.r);
+        const metadata = entity?.state?.metadata || {};
+        const contentId = String(entity?.entity_ref?.content_id || '');
+        const objectDefinition = contentId ? (objectDefinitions[contentId] || {}) : {};
+        const title = String(
+          metadata.display_name
+          || metadata.name
+          || objectDefinition.label
+          || contentId
+          || entity.entity_type
+        ).trim();
+
+        if (!title) {
+          return;
+        }
+
+        const description = String(
+          metadata.description
+          || metadata.item_description
+          || objectDefinition.description
+          || ''
+        ).trim();
+        const type = String(entity.entity_type || '').toLowerCase();
+        const objectId = contentId || String(entity.instance_id || title);
+        const options = [];
+
+        if (type === 'npc') {
+          options.push('Talk');
+          if (this.questData) {
+            options.push('Quest turn-in');
+          }
+          options.push('Inspect');
+        } else if (type === 'item') {
+          if (metadata.collectible) {
+            options.push('Collect');
+          }
+          options.push('Inspect');
+        } else if (type === 'obstacle') {
+          const label = String(title).toLowerCase();
+          const passable = metadata.passable !== true;
+          if (/(door|gate|hatch|portal)/.test(label) && passable) {
+            options.push('Open');
+          }
+          if (metadata.movable) {
+            options.push('Move');
+          }
+          options.push('Inspect');
+        } else {
+          options.push('Inspect');
+        }
+
+        pushEntry({
+          key: `${type}:${objectId}:${q}:${r}`,
+          entityId: String(entity.instance_id || ''),
+          q,
+          r,
+          title,
+          typeLabel: type || 'interactable',
+          optionsLabel: options.join(', '),
+          meta: description || `Hex (${q}, ${r})`,
+          actionLabel: options[0] || 'Inspect',
+          canUse: Boolean(actorPos) && Number.isFinite(q) && Number.isFinite(r) && buildDistanceLabel(q, r) === 'Adjacent',
+          sortWeight: typeOrder[type] || 99,
+        });
+      });
+
+      const connections = Array.isArray(this.dungeonData?.connections) ? this.dungeonData.connections : [];
+      connections.forEach((connection) => {
+        const isFrom = String(connection?.from_room || '') === roomId;
+        const isTo = String(connection?.to_room || '') === roomId;
+        if (!isFrom && !isTo) {
+          return;
+        }
+
+        const hex = isFrom ? (connection?.from_hex || {}) : (connection?.to_hex || {});
+        const q = Number(hex.q);
+        const r = Number(hex.r);
+        if (!Number.isFinite(q) || !Number.isFinite(r)) {
+          return;
+        }
+
+        const destinationRoom = String(isFrom ? (connection?.to_room || '') : (connection?.from_room || ''));
+        const title = String(connection?.label || connection?.name || `Passage to ${destinationRoom || 'another room'}`);
+        const options = connection?.is_passable === false ? ['Open'] : ['Travel'];
+
+        pushEntry({
+          key: `connection:${connection?.connection_id || title}:${q}:${r}`,
+          entityId: '',
+          q,
+          r,
+          title,
+          typeLabel: 'passage',
+          optionsLabel: options.join(', '),
+          meta: `Hex (${q}, ${r})${destinationRoom ? ` • ${destinationRoom}` : ''}`,
+          actionLabel: options[0],
+          canUse: Boolean(actorPos) && buildDistanceLabel(q, r) === 'Adjacent' && connection?.is_passable === false,
+          sortWeight: 10,
+        });
+      });
+
+      const room = this.getActiveRoomData?.() || ((this.dungeonData?.rooms && roomId) ? this.dungeonData.rooms[roomId] : null) || {};
+      const authoredInteractables = Array.isArray(room?.interactables) ? room.interactables : [];
+      authoredInteractables.forEach((interactable, index) => {
+        const title = typeof interactable === 'string'
+          ? interactable
+          : String(interactable?.name || interactable?.label || interactable?.id || '');
+        if (!title) {
+          return;
+        }
+        pushEntry({
+          key: `authored:${title}:${index}`,
+          entityId: '',
+          q: Number(interactable?.position?.q),
+          r: Number(interactable?.position?.r),
+          title,
+          typeLabel: 'interactable',
+          optionsLabel: Array.isArray(interactable?.options) && interactable.options.length
+            ? interactable.options.map((option) => String(option?.label || option)).join(', ')
+            : 'Inspect',
+          meta: String(interactable?.description || ''),
+          actionLabel: 'Inspect',
+          canUse: false,
+          sortWeight: 20,
+        });
+      });
+
+      return interactables.sort((a, b) => {
+        const adjacentA = a.distanceLabel === 'Adjacent' ? 0 : 1;
+        const adjacentB = b.distanceLabel === 'Adjacent' ? 0 : 1;
+        if (adjacentA !== adjacentB) {
+          return adjacentA - adjacentB;
+        }
+        if ((a.sortWeight || 99) !== (b.sortWeight || 99)) {
+          return (a.sortWeight || 99) - (b.sortWeight || 99);
+        }
+        return String(a.title || '').localeCompare(String(b.title || ''));
+      });
+    },
+
+    /**
      * Send a generic non-attack action to server combat API and hydrate state.
      * @param {Object} payload
      * @returns {Promise<boolean>}
@@ -8055,12 +8469,21 @@ import { SpriteService } from './SpriteService.js';
         return [];
       }
 
-      const entities = this.entityManager.getEntitiesWith('IdentityComponent', 'CombatComponent');
+      const activeRoomId = this.resolveActiveRoomId();
+      const entities = this.entityManager.getEntitiesWith('IdentityComponent', 'CombatComponent', 'StatsComponent', 'PositionComponent');
       return entities.map((entity) => {
         const identity = entity.getComponent('IdentityComponent');
         const combat = entity.getComponent('CombatComponent');
         const stats = entity.getComponent('StatsComponent');
         const position = entity.getComponent('PositionComponent');
+        const entityRoomId = entity?.state?.placement?.room_id || entity?.dcStatePayload?.placement?.room_id || null;
+
+        if (!identity?.isCreature?.() || !stats?.isAlive?.()) {
+          return null;
+        }
+        if (activeRoomId && entityRoomId && entityRoomId !== activeRoomId) {
+          return null;
+        }
 
         return {
           entityId: entity.id,
@@ -8076,7 +8499,7 @@ import { SpriteService } from './SpriteService.js';
           max_hp: stats?.maxHp,
           position: position ? { q: position.q, r: position.r } : null,
         };
-      });
+      }).filter(Boolean);
     },
 
     /**
@@ -8232,7 +8655,7 @@ import { SpriteService } from './SpriteService.js';
         if (!serverState) {
           console.error('Combat start returned no state; aborting client start.');
           this.notifyServerUnavailable();
-          return;
+          return null;
         }
 
         if (serverState.encounter_id) {
@@ -8256,9 +8679,11 @@ import { SpriteService } from './SpriteService.js';
         if (typeof this.gameCoordinator?.syncCombatEncounterState === 'function') {
           this.gameCoordinator.syncCombatEncounterState(serverState);
         }
+        return serverState;
       } catch (err) {
         console.error('Combat start via API failed.', err);
         this.notifyServerUnavailable();
+        return null;
       }
     },
     
@@ -8778,13 +9203,17 @@ import { SpriteService } from './SpriteService.js';
 
         self.hideMovementRange();
         self.hideAttackTargets();
+        if (self.uiManager) {
+          self.uiManager.activeActionRailCategory = 'interact';
+          self.uiManager.refreshActionRail();
+        }
         self.uiManager.updateActionMode('interact', {
           canAct: actions ? actions.actionsRemaining > 0 : false,
           canInteract: actions ? actions.actionsRemaining > 0 : false,
           moveLeft: movement ? movement.movementRemaining : 0,
           isPlayersTurn
         });
-        self.uiManager?.appendChatLine('System', 'Interact selected. Choose an adjacent hex, object, or NPC.', 'system');
+        self.uiManager?.appendChatLine('System', 'Interact selected. Review the room list, then click an adjacent hex, object, or NPC when ready.', 'system');
       });
 
       const actionTalkBtn = document.getElementById('action-talk');

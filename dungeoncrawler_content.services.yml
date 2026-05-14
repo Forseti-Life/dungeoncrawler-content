@@ -145,6 +145,12 @@ services:
     tags:
       - {name: access_check, applies_to: _campaign_gm_access}
 
+  dungeoncrawler_content.campaign_quest_manage_access_check:
+    class: Drupal\dungeoncrawler_content\Access\CampaignQuestManageAccessCheck
+    arguments: ['@database']
+    tags:
+      - {name: access_check, applies_to: _campaign_quest_manage_access}
+
   # Game Content System Services
   dungeoncrawler_content.content_registry:
     class: Drupal\dungeoncrawler_content\Service\ContentRegistry
@@ -315,6 +321,14 @@ services:
     class: Drupal\dungeoncrawler_content\Service\CampaignStateService
     arguments: ['@database', '@logger.factory']
 
+  dungeoncrawler_content.storyline_manager:
+    class: Drupal\dungeoncrawler_content\Service\StorylineManagerService
+    arguments:
+      - '@database'
+      - '@logger.factory'
+      - '@uuid'
+      - '@dungeoncrawler_content.campaign_state_service'
+
   dungeoncrawler_content.gameplay_action_processor:
     class: Drupal\dungeoncrawler_content\Service\GameplayActionProcessor
     arguments: ['@database', '@logger.factory', '@dungeoncrawler_content.inventory_management', '@dungeoncrawler_content.canonical_action_registry']
@@ -476,6 +490,7 @@ services:
       - '@database'
       - '@logger.factory'
       - '@datetime.time'
+      - '@dungeoncrawler_content.storyline_manager'
 
   dungeoncrawler_content.quest_reward:
     class: Drupal\dungeoncrawler_content\Service\QuestRewardService
@@ -492,7 +507,7 @@ services:
   dungeoncrawler_content.quest_confirmation:
     class: Drupal\dungeoncrawler_content\Service\QuestConfirmationService
     arguments:
-      - '@keyvalue'
+      - '@database'
       - '@uuid'
       - '@datetime.time'
 
@@ -554,6 +569,7 @@ services:
       - '@dungeoncrawler_content.knowledge_acquisition'
       - '@dungeoncrawler_content.hazard_service'
       - '@dungeoncrawler_content.magic_item_service'
+      - '@dungeoncrawler_content.gameplay_action_processor'
 
   dungeoncrawler_content.encounter_phase_handler:
     class: Drupal\dungeoncrawler_content\Service\EncounterPhaseHandler
@@ -689,6 +705,11 @@ services:
 
   dungeoncrawler_content.familiar:
     class: Drupal\dungeoncrawler_content\Service\FamiliarService
+    arguments:
+      - '@database'
+
+  dungeoncrawler_content.animal_companion:
+    class: Drupal\dungeoncrawler_content\Service\AnimalCompanionService
     arguments:
       - '@database'
 
