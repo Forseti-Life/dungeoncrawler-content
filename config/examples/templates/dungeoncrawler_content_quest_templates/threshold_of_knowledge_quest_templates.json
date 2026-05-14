@@ -1,0 +1,140 @@
+{
+  "rows": [
+    {
+      "template_id": "tok-find-the-missing-teacher",
+      "name": "Find the Missing Teacher",
+      "description": "Investigate the initial disappearance and identify where the missing teacher was last seen.",
+      "quest_type": "module_story",
+      "level_min": 1,
+      "level_max": 1,
+      "tags": ["module", "threshold-of-knowledge", "mystery", "academy"],
+      "objectives_schema": [
+        {
+          "phase": 1,
+          "objectives": [
+            {
+              "objective_id": "identify_last_known_location",
+              "type": "investigate",
+              "description": "Determine where the teacher disappeared from the Magaambya."
+            }
+          ]
+        }
+      ],
+      "rewards_schema": {
+        "xp": 40,
+        "gold": 0,
+        "items": []
+      },
+      "prerequisites": [],
+      "story_impact": {
+        "storyline_id": "threshold-of-knowledge",
+        "chapter_id": "magaambya-campus",
+        "scene_id": "missing-teacher"
+      },
+      "estimated_duration_minutes": 20,
+      "version": "1.0.0"
+    },
+    {
+      "template_id": "tok-gather-campus-clues",
+      "name": "Gather Campus Clues",
+      "description": "Question allies and inspect the academy grounds for evidence connected to the disappearance.",
+      "quest_type": "module_story",
+      "level_min": 1,
+      "level_max": 1,
+      "tags": ["module", "threshold-of-knowledge", "investigation", "academy"],
+      "objectives_schema": [
+        {
+          "phase": 1,
+          "objectives": [
+            {
+              "objective_id": "collect_magaambya_clues",
+              "type": "investigate",
+              "description": "Collect enough evidence on campus to follow the mystery into Nantambu."
+            }
+          ]
+        }
+      ],
+      "rewards_schema": {
+        "xp": 50,
+        "gold": 0,
+        "items": []
+      },
+      "prerequisites": [],
+      "story_impact": {
+        "storyline_id": "threshold-of-knowledge",
+        "chapter_id": "magaambya-campus",
+        "scene_id": "campus-clues"
+      },
+      "estimated_duration_minutes": 30,
+      "version": "1.0.0"
+    },
+    {
+      "template_id": "tok-follow-city-leads",
+      "name": "Follow the City Leads",
+      "description": "Pursue the investigation beyond the academy and track the mystery through Nantambu.",
+      "quest_type": "module_story",
+      "level_min": 1,
+      "level_max": 1,
+      "tags": ["module", "threshold-of-knowledge", "city", "mystery"],
+      "objectives_schema": [
+        {
+          "phase": 1,
+          "objectives": [
+            {
+              "objective_id": "trace_nantambu_leads",
+              "type": "explore",
+              "description": "Follow the strongest leads through the city."
+            }
+          ]
+        }
+      ],
+      "rewards_schema": {
+        "xp": 60,
+        "gold": 0,
+        "items": []
+      },
+      "prerequisites": [],
+      "story_impact": {
+        "storyline_id": "threshold-of-knowledge",
+        "chapter_id": "nantambu-investigation",
+        "scene_id": "city-follow-up"
+      },
+      "estimated_duration_minutes": 30,
+      "version": "1.0.0"
+    },
+    {
+      "template_id": "tok-resolve-the-threat",
+      "name": "Resolve the Threat",
+      "description": "Confront the underlying danger and close out the mystery threatening the Magaambya.",
+      "quest_type": "module_story",
+      "level_min": 1,
+      "level_max": 1,
+      "tags": ["module", "threshold-of-knowledge", "resolution", "academy"],
+      "objectives_schema": [
+        {
+          "phase": 1,
+          "objectives": [
+            {
+              "objective_id": "stop_the_underlying_threat",
+              "type": "resolve",
+              "description": "Defuse the danger tied to the missing teacher and secure the academy."
+            }
+          ]
+        }
+      ],
+      "rewards_schema": {
+        "xp": 80,
+        "gold": 0,
+        "items": []
+      },
+      "prerequisites": [],
+      "story_impact": {
+        "storyline_id": "threshold-of-knowledge",
+        "chapter_id": "nantambu-investigation",
+        "scene_id": "threat-revealed"
+      },
+      "estimated_duration_minutes": 40,
+      "version": "1.0.0"
+    }
+  ]
+}

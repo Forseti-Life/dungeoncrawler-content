@@ -1,0 +1,17 @@
+{
+  "rows": [
+    {
+      "encounter_instance_id": "tal-opening-encounter",
+      "template_id": "tal-opening-encounter",
+      "name": "Torment and Legacy Opening Encounter",
+      "status": "pending",
+      "state_data": {
+        "round": 0,
+        "participants": [],
+        "effects": [],
+        "source_module": "torment-and-legacy",
+        "description": "The tutorial-style opening combat encounter for Torment and Legacy."
+      }
+    }
+  ]
+}
