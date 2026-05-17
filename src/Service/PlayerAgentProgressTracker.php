@@ -52,6 +52,30 @@ class PlayerAgentProgressTracker {
             [$room_id]
           )));
         }
+
+        $lead_excerpt = ($response['success'] ?? FALSE) ? $this->extractActionableLeadExcerpt($response) : '';
+        if ($automation_goal === 'conversation_follow_up' && ($response['success'] ?? FALSE)) {
+          if ($lead_excerpt !== '') {
+            $run_state['memory']['active_npc_lead'] = [
+              'target' => (string) $intent['target'],
+              'room_id' => $room_id,
+              'automation_goal' => $automation_goal,
+              'excerpt' => $lead_excerpt,
+            ];
+          }
+          elseif (is_array($run_state['memory']['pending_conversation_lead'] ?? NULL)) {
+            $run_state['memory']['active_npc_lead'] = $run_state['memory']['pending_conversation_lead'];
+          }
+          unset($run_state['memory']['pending_conversation_lead']);
+        }
+        elseif ($lead_excerpt !== '') {
+          $run_state['memory']['pending_conversation_lead'] = [
+            'target' => (string) $intent['target'],
+            'room_id' => $room_id,
+            'automation_goal' => $automation_goal,
+            'excerpt' => $lead_excerpt,
+          ];
+        }
       }
 
       if ($intent_type === 'talk' && !empty($snapshot['game_state']['encounter_id'])) {
@@ -59,6 +83,8 @@ class PlayerAgentProgressTracker {
       }
 
       if ($intent_type === 'transition' && ($response['success'] ?? FALSE)) {
+        unset($run_state['memory']['pending_conversation_lead']);
+        unset($run_state['memory']['active_npc_lead']);
         $target_room_id = (string) ($intent['params']['target_room_id'] ?? '');
         if ($target_room_id === '') {
           foreach ($response['events'] ?? [] as $event) {
@@ -75,6 +101,8 @@ class PlayerAgentProgressTracker {
       }
 
       if ($intent_type === 'rest' && ($response['success'] ?? FALSE) && $room_id !== '') {
+        unset($run_state['memory']['pending_conversation_lead']);
+        unset($run_state['memory']['active_npc_lead']);
         $run_state['memory']['rested_rooms'] = array_values(array_unique(array_merge(
           $run_state['memory']['rested_rooms'] ?? [],
           [$room_id]
@@ -141,6 +169,85 @@ class PlayerAgentProgressTracker {
     ];
 
     return $run_state;
+  }
+
+  /**
+   * Extract a concise actionable lead from a talk response.
+   */
+  protected function extractActionableLeadExcerpt(?array $response): string {
+    if (!is_array($response)) {
+      return '';
+    }
+
+    $candidates = [];
+    foreach (($response['result']['npc_interjections'] ?? []) as $interjection) {
+      if (!is_array($interjection)) {
+        continue;
+      }
+      $candidates[] = [
+        'text' => (string) ($interjection['message'] ?? ''),
+        'speaker_type' => (string) ($interjection['type'] ?? 'npc'),
+      ];
+    }
+    $candidates[] = [
+      'text' => (string) ($response['result']['gm_response']['message'] ?? ''),
+      'speaker_type' => (string) ($response['result']['gm_response']['type'] ?? 'gm'),
+    ];
+
+    foreach ($candidates as $candidate_row) {
+      $candidate = trim(preg_replace('/\s+/', ' ', (string) ($candidate_row['text'] ?? '')) ?? (string) ($candidate_row['text'] ?? ''), " \t\n\r\0\x0B\"'");
+      $speaker_type = strtolower((string) ($candidate_row['speaker_type'] ?? ''));
+      if ($candidate === '' || $this->isIgnorableAutomationReply($candidate) || !$this->containsActionableLeadCue($candidate, $speaker_type)) {
+        continue;
+      }
+
+      return strlen($candidate) > 220
+        ? rtrim(substr($candidate, 0, 217)) . '...'
+        : $candidate;
+    }
+
+    return '';
+  }
+
+  /**
+   * Heuristic: the response contains an actionable lead or direction.
+   */
+  protected function containsActionableLeadCue(string $text, string $speaker_type = ''): bool {
+    $normalized = strtolower($text);
+    foreach ([
+      'go to', 'head', 'north', 'south', 'east', 'west', 'cemetery', 'vault',
+      'speak with', 'talk to', 'ask', 'find', 'look for', 'check', 'follow',
+      'trail', 'proof', 'elders', 'guard', 'lights', 'missing', 'where',
+    ] as $cue) {
+      if (str_contains($normalized, $cue)) {
+        return TRUE;
+      }
+    }
+
+    return $speaker_type === 'npc' && strlen($normalized) >= 120;
+  }
+
+  /**
+   * Ignore boilerplate narrative and non-actionable acknowledgements.
+   */
+  protected function isIgnorableAutomationReply(string $text): bool {
+    $normalized = strtolower(trim($text, " \t\n\r\0\x0B\"'.!*"));
+
+    foreach ([
+      'the scene remains grounded around you, with the visible room occupants and current situation still before you',
+      'the space narrows to a direct conversation',
+      'hello what can i do for you',
+      'what do you need',
+      'make it quick',
+      'you\'re welcome',
+      'mm',
+    ] as $ignored) {
+      if ($normalized === $ignored) {
+        return TRUE;
+      }
+    }
+
+    return FALSE;
   }
 
 }

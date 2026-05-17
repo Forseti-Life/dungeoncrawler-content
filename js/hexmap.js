@@ -17,11 +17,212 @@ import { SpriteService } from './SpriteService.js';
 (function (Drupal, once) {
   'use strict';
 
+  const QUEST_SUMMARY_SCHEMA_VERSION = 'quest-summary-v1';
+  const QUEST_UPDATE_SCHEMA_VERSION = 'quest-update-v1';
+
   function resolveQuestTitle(quest) {
     if (!quest || typeof quest !== 'object') {
       return 'Unknown Quest';
     }
     return quest.title || quest.quest_name || quest.name || quest.quest_key || quest.quest_id || quest.id || 'Unknown Quest';
+  }
+
+  function normalizeQuestObjectivePayload(objective) {
+    if (!objective || typeof objective !== 'object') {
+      return null;
+    }
+
+    const objectiveId = String(objective.objective_id || '').trim();
+    const description = String(objective.description || objectiveId || '').trim();
+    const type = String(objective.type || '').trim();
+    if (!objectiveId || !description || !type) {
+      return null;
+    }
+
+    const normalized = {
+      objective_id: objectiveId,
+      type,
+      description,
+      completed: Boolean(objective.completed),
+    };
+
+    if (objective.current != null) {
+      normalized.current = Math.max(0, Number(objective.current || 0));
+    }
+    if (objective.target_count != null) {
+      normalized.target_count = Math.max(0, Number(objective.target_count || 0));
+    }
+    if (objective.target != null && String(objective.target).trim()) {
+      normalized.target = String(objective.target).trim();
+    }
+    if (objective.item != null && String(objective.item).trim()) {
+      normalized.item = String(objective.item).trim();
+    }
+    if (objective.location != null && String(objective.location).trim()) {
+      normalized.location = String(objective.location).trim();
+    }
+    if (objective.destination != null && String(objective.destination).trim()) {
+      normalized.destination = String(objective.destination).trim();
+    }
+    if (objective.npc_id != null && Number.isFinite(Number(objective.npc_id))) {
+      normalized.npc_id = Math.max(0, Number(objective.npc_id));
+    }
+    if (objective.discovered != null) {
+      normalized.discovered = Boolean(objective.discovered);
+    }
+    if (objective.arrived != null) {
+      normalized.arrived = Boolean(objective.arrived);
+    }
+
+    return normalized;
+  }
+
+  function normalizeQuestPhasePayload(phase, fallbackPhase = 1) {
+    if (!phase || typeof phase !== 'object') {
+      return null;
+    }
+
+    return {
+      phase: Math.max(1, Number(phase.phase || fallbackPhase || 1)),
+      objectives: (Array.isArray(phase.objectives) ? phase.objectives : [])
+        .map(normalizeQuestObjectivePayload)
+        .filter(Boolean),
+    };
+  }
+
+  function normalizeQuestEntryPayload(quest) {
+    if (!quest || typeof quest !== 'object') {
+      return null;
+    }
+
+    const questId = String(quest.quest_id || quest.id || '').trim();
+    const questKey = String(quest.quest_key || quest.source_template_id || questId).trim();
+    const questName = String(quest.quest_name || quest.title || quest.name || questId).trim();
+    const title = String(quest.title || questName || questKey).trim();
+    if (!questId || !questKey || !questName || !title) {
+      return null;
+    }
+
+    const parseArray = (value) => {
+      if (Array.isArray(value)) {
+        return value;
+      }
+      if (typeof value !== 'string' || !value.trim()) {
+        return [];
+      }
+      try {
+        const decoded = JSON.parse(value);
+        return Array.isArray(decoded) ? decoded : [];
+      } catch (error) {
+        return [];
+      }
+    };
+    const parseObject = (value) => {
+      if (value && typeof value === 'object' && !Array.isArray(value)) {
+        return value;
+      }
+      if (typeof value !== 'string' || !value.trim()) {
+        return {};
+      }
+      try {
+        const decoded = JSON.parse(value);
+        return decoded && typeof decoded === 'object' && !Array.isArray(decoded) ? decoded : {};
+      } catch (error) {
+        return {};
+      }
+    };
+
+    const storyline = quest.storyline && typeof quest.storyline === 'object'
+      ? quest.storyline
+      : {
+          storyline_id: quest.storyline_id,
+          chapter_id: quest.storyline_chapter_id,
+          scene_id: quest.storyline_scene_id,
+        };
+
+    return {
+      quest_id: questId,
+      quest_key: questKey,
+      source_template_id: quest.source_template_id == null || quest.source_template_id === '' ? null : String(quest.source_template_id),
+      title,
+      quest_name: questName,
+      status: String(quest.status || 'available').trim() || 'available',
+      current_phase: Math.max(1, Number(quest.current_phase || 1)),
+      generated_objectives: parseArray(quest.generated_objectives)
+        .map((phase, index) => normalizeQuestPhasePayload(phase, index + 1))
+        .filter(Boolean),
+      objective_states: parseArray(quest.objective_states)
+        .map((phase, index) => normalizeQuestPhasePayload(phase, index + 1))
+        .filter(Boolean),
+      generated_rewards: parseObject(quest.generated_rewards),
+      quest_data: parseObject(quest.quest_data),
+      location_id: quest.location_id == null || quest.location_id === '' ? null : String(quest.location_id),
+      storyline: {
+        storyline_id: storyline.storyline_id == null || storyline.storyline_id === '' ? null : String(storyline.storyline_id),
+        chapter_id: storyline.chapter_id == null || storyline.chapter_id === '' ? null : String(storyline.chapter_id),
+        scene_id: storyline.scene_id == null || storyline.scene_id === '' ? null : String(storyline.scene_id),
+      },
+    };
+  }
+
+  function normalizeQuestSummaryPayload(payload) {
+    const source = payload && typeof payload === 'object' ? payload : {};
+    const schemaVersion = String(source.schema_version || '').trim();
+    if (schemaVersion && schemaVersion !== QUEST_SUMMARY_SCHEMA_VERSION) {
+      console.warn(`Quest summary schema ${schemaVersion} may not be fully compatible. Expected ${QUEST_SUMMARY_SCHEMA_VERSION}.`);
+    } else if (!schemaVersion) {
+      console.warn(`Quest summary payload missing schema_version. Assuming ${QUEST_SUMMARY_SCHEMA_VERSION}.`);
+    }
+
+    const active = (Array.isArray(source.active) ? source.active : [])
+      .map(normalizeQuestEntryPayload)
+      .filter(Boolean);
+    const available = (Array.isArray(source.available) ? source.available : [])
+      .map(normalizeQuestEntryPayload)
+      .filter(Boolean);
+
+    return {
+      schema_version: QUEST_SUMMARY_SCHEMA_VERSION,
+      location_id: String(source.location_id || '').trim(),
+      active,
+      available,
+      counts: {
+        active: active.length,
+        available: available.length,
+      },
+    };
+  }
+
+  function normalizeQuestUpdatePayload(update) {
+    if (!update || typeof update !== 'object') {
+      return null;
+    }
+
+    const schemaVersion = String(update.schema_version || '').trim();
+    if (schemaVersion && schemaVersion !== QUEST_UPDATE_SCHEMA_VERSION) {
+      console.warn(`Quest update schema ${schemaVersion} may not be fully compatible. Expected ${QUEST_UPDATE_SCHEMA_VERSION}.`);
+    }
+
+    const questId = String(update.quest_id || '').trim();
+    const questName = String(update.quest_name || questId).trim();
+    const type = String(update.type || '').trim();
+    const source = String(update.source || '').trim();
+    if (!questId || !questName || type !== 'quest_started') {
+      return null;
+    }
+
+    return {
+      schema_version: QUEST_UPDATE_SCHEMA_VERSION,
+      type: 'quest_started',
+      quest_id: questId,
+      quest_name: questName,
+      status: String(update.status || 'active').trim() || 'active',
+      objectives: (Array.isArray(update.objectives) ? update.objectives : [])
+        .map((objective) => String(objective || '').trim())
+        .filter(Boolean),
+      source: source || 'available_quest',
+      storyline_id: update.storyline_id == null || update.storyline_id === '' ? null : String(update.storyline_id),
+    };
   }
 
   function escapeQuestHtml(value) {
@@ -1243,12 +1444,18 @@ import { SpriteService } from './SpriteService.js';
       const status = this.elements.actionRailStatus;
       const automationToggle = this.elements.actionRailAutomationToggle;
       const automationMeta = this.elements.actionRailAutomationMeta;
+      const hexmap = this.stateManager?.hexmap || null;
 
       if (!categories || !panelBody || !actorName || !status) {
         return;
       }
 
       const context = this.getActionRailContext();
+      const maybeWakeAutomation = () => {
+        if (context.automationState?.active) {
+          hexmap?.queuePlayerAutomationStep?.('action-rail-refresh');
+        }
+      };
       actorName.textContent = context.actorLabel;
       status.textContent = context.statusLabel;
       if (automationToggle) {
@@ -1286,6 +1493,7 @@ import { SpriteService } from './SpriteService.js';
           panelChip.textContent = context.encounterActive ? 'Encounter' : 'Direct';
         }
         panelBody.innerHTML = this.renderActionRailEmptyState(context);
+        maybeWakeAutomation();
         return;
       }
 
@@ -1306,6 +1514,7 @@ import { SpriteService } from './SpriteService.js';
         });
       }
       this.syncActionRailPanelState();
+      maybeWakeAutomation();
     }
 
     getActionRailContext() {
@@ -6797,6 +7006,7 @@ import { SpriteService } from './SpriteService.js';
         this.selectEntity(entity);
       }
       this.syncTokenBadgeState();
+      this.queuePlayerAutomationStep?.('turn-change');
     },
     
     /**
@@ -6819,6 +7029,7 @@ import { SpriteService } from './SpriteService.js';
       
       // Update UI
       this.uiManager.updateCombatControls(combatState);
+      this.queuePlayerAutomationStep?.(`combat-state:${combatState}`);
     },
 
     /**
@@ -9220,6 +9431,119 @@ import { SpriteService } from './SpriteService.js';
       return Number.isFinite(uid) && uid > 0;
     },
 
+    getPlayerAutomationTurnReadiness: function () {
+      const automation = this.playerAutomation || {};
+      if (!automation.active || automation.inflight || !automation.profile?.character_id) {
+        return {
+          ready: false,
+          reason: !automation.active
+            ? 'automation-inactive'
+            : (automation.inflight ? 'automation-inflight' : 'missing-character'),
+          phase: String(this.gameCoordinator?.phaseManager?.currentPhase || '').trim().toLowerCase() || null,
+          controlledEntityId: null,
+          currentTurnEntityId: null,
+        };
+      }
+
+      const currentPhase = String(
+        this.gameCoordinator?.phaseManager?.currentPhase
+        || automation?.lastResult?.response?.game_state?.phase
+        || automation?.lastResult?.snapshot?.phase
+        || ''
+      ).trim().toLowerCase();
+      const controlledEntity = this.resolvePlayerAutomationEntity?.(automation.profile) || null;
+      const controlledEntityId = String(controlledEntity?.id || '').trim() || null;
+      const controlledEntityRef = String(
+        controlledEntity?.dcEntityRef
+        || controlledEntity?.dcEntityInstanceId
+        || automation.profile?.actor_id
+        || ''
+      ).trim() || null;
+      const controlledCharacterId = String(
+        controlledEntity?.dcCharacterId
+        || controlledEntity?.dcStatePayload?.metadata?.character_id
+        || automation.profile?.character_id
+        || ''
+      ).trim() || null;
+      const controlledEntityName = String(
+        controlledEntity?.getComponent?.('IdentityComponent')?.name
+        || automation.profile?.character_name
+        || ''
+      ).trim() || null;
+      const controlledIds = new Set(
+        [controlledEntityId, controlledEntityRef, controlledCharacterId]
+          .map((value) => String(value || '').trim())
+          .filter(Boolean)
+      );
+
+      if (currentPhase !== 'encounter') {
+        return {
+          ready: true,
+          reason: currentPhase || 'non-encounter-phase',
+          phase: currentPhase || null,
+          controlledEntityId,
+          controlledEntityRef,
+          controlledEntityName,
+          phaseManagerTurnEntityId: null,
+          currentTurnEntityRef: null,
+          currentTurnEntityName: null,
+          currentTurnEntityId: null,
+        };
+      }
+
+      const phaseManagerTurnEntityId = String(this.gameCoordinator?.phaseManager?.getCurrentTurnEntity?.() || '').trim() || null;
+      const currentTurnEntity = this.turnManagementSystem?.getCurrentTurnEntity?.() || null;
+      const currentTurnEntityId = String(currentTurnEntity?.id || '').trim() || null;
+      const currentTurnEntityRef = String(currentTurnEntity?.dcEntityRef || currentTurnEntity?.dcEntityInstanceId || '').trim() || null;
+      const currentTurnEntityCharacterId = String(
+        currentTurnEntity?.dcCharacterId
+        || currentTurnEntity?.dcStatePayload?.metadata?.character_id
+        || ''
+      ).trim() || null;
+      const currentTurnEntityName = String(currentTurnEntity?.getComponent?.('IdentityComponent')?.name || '').trim() || null;
+      const phaseManagerMatches = phaseManagerTurnEntityId && controlledIds.has(phaseManagerTurnEntityId);
+      const turnManagementMatches = [currentTurnEntityId, currentTurnEntityRef, currentTurnEntityCharacterId]
+        .map((value) => String(value || '').trim())
+        .filter(Boolean)
+        .some((value) => controlledIds.has(value));
+
+      if (!controlledEntity || !currentTurnEntity) {
+        return {
+          ready: Boolean(controlledEntity && phaseManagerMatches),
+          reason: !controlledEntity
+            ? 'missing-controlled-entity'
+            : (phaseManagerMatches ? 'player-turn-ready-phase-manager' : 'missing-current-turn-entity'),
+          phase: currentPhase,
+          controlledEntityId,
+          controlledEntityRef,
+          controlledEntityName,
+          phaseManagerTurnEntityId,
+          currentTurnEntityId,
+          currentTurnEntityRef,
+          currentTurnEntityName,
+        };
+      }
+
+      return {
+        ready: Boolean(phaseManagerMatches || turnManagementMatches),
+        reason: phaseManagerMatches
+          ? 'player-turn-ready-phase-manager'
+          : (turnManagementMatches ? 'player-turn-ready-turn-manager' : 'waiting-for-other-turn'),
+        phase: currentPhase,
+        controlledEntityId,
+        controlledEntityRef,
+        controlledEntityName,
+        phaseManagerTurnEntityId,
+        currentTurnEntityId,
+        currentTurnEntityRef,
+        currentTurnEntityName,
+      };
+    },
+
+    isPlayerAutomationTurnReady: function () {
+      return this.getPlayerAutomationTurnReadiness().ready;
+    },
+
     getPlayerAutomationState: function () {
       const automation = this.playerAutomation || {};
       const stepCount = Number(automation?.stepCount || 0);
@@ -9229,7 +9553,7 @@ import { SpriteService } from './SpriteService.js';
       if (automation?.active) {
         statusLabel = buildActionRailEntrySummary([
           automation?.inflight ? 'Running next autonomous step…' : 'Automation active',
-          'Every 15s',
+          'Turn-based',
           stepCount > 0 ? `${stepCount} step${stepCount === 1 ? '' : 's'}` : '',
           !automation?.inflight && lastDecisionReason ? lastDecisionReason : '',
         ]) || 'Automation active';
@@ -9403,10 +9727,13 @@ import { SpriteService } from './SpriteService.js';
         activeSessionView: this.uiManager?.activeSessionView || 'room',
         activeChannel: this.uiManager?.activeChannel || 'room',
         phase: this.gameCoordinator?.phaseManager?.currentPhase || null,
+        ...Object.fromEntries(
+          Object.entries(this.getPlayerAutomationTurnReadiness()).map(([key, value]) => [`readiness_${key}`, value])
+        ),
       });
       this.uiManager?.appendChatLine('System', `${profile.character_name || 'Your character'} is now automated.`, 'system');
       this.uiManager?.refreshActionRail();
-      await this.runPlayerAutomationStep();
+      this.queuePlayerAutomationStep('automation-start');
       return true;
     },
 
@@ -9445,13 +9772,24 @@ import { SpriteService } from './SpriteService.js';
       this.uiManager?.refreshActionRail();
     },
 
-    schedulePlayerAutomationStep: function (delayMs = 15000) {
-      if (!this.playerAutomation?.active) {
+    queuePlayerAutomationStep: function (reason = 'state-ready') {
+      const readiness = this.getPlayerAutomationTurnReadiness();
+      if (!readiness.ready) {
+        console.info('[Automation] Step queue blocked', {
+          trigger: reason,
+          ...Object.fromEntries(
+            Object.entries(readiness).map(([key, value]) => [`readiness_${key}`, value])
+          ),
+          stepCount: Number(this.playerAutomation?.runState?.step_count || this.playerAutomation?.stepCount || 0),
+          roomId: this.resolveActiveRoomId?.() || this.activeRoomId || null,
+        });
         return;
       }
-      const nextDelay = Math.max(250, Number(delayMs) || 15000);
       console.info('[Automation] Scheduling next step', {
-        delayMs: nextDelay,
+        reason,
+        ...Object.fromEntries(
+          Object.entries(readiness).map(([key, value]) => [`readiness_${key}`, value])
+        ),
         stepCount: Number(this.playerAutomation?.runState?.step_count || this.playerAutomation?.stepCount || 0),
         phase: this.gameCoordinator?.phaseManager?.currentPhase || null,
         roomId: this.resolveActiveRoomId?.() || this.activeRoomId || null,
@@ -9462,7 +9800,7 @@ import { SpriteService } from './SpriteService.js';
           const message = error instanceof Error ? error.message : 'Automation step failed.';
           this.stopPlayerAutomation(message);
         });
-      }, nextDelay);
+      }, 0);
     },
 
     describePlayerAutomationResult: function (stepResult = {}) {
@@ -9778,7 +10116,7 @@ import { SpriteService } from './SpriteService.js';
         }
 
         if (automation.active) {
-          this.schedulePlayerAutomationStep(15000);
+          this.queuePlayerAutomationStep('post-step');
         }
 
         return stepResult;
@@ -11518,7 +11856,7 @@ import { SpriteService } from './SpriteService.js';
      */
     initQuestData: function () {
       const settings = drupalSettings || {};
-      this.questData = settings?.dungeoncrawlerContent?.hexmapQuestSummary || {};
+      this.questData = normalizeQuestSummaryPayload(settings?.dungeoncrawlerContent?.hexmapQuestSummary || {});
       const activeQuests = this.questData.active || [];
       if (this.uiManager) {
         this.uiManager.renderQuestJournal(activeQuests);
@@ -11556,7 +11894,9 @@ import { SpriteService } from './SpriteService.js';
           return;
         }
 
-        const tracking = Array.isArray(payload.tracking) ? payload.tracking : [];
+        const tracking = Array.isArray(payload.tracking)
+          ? payload.tracking.map(normalizeQuestEntryPayload).filter(Boolean)
+          : [];
         const inactiveStatuses = new Set(['completed', 'failed', 'abandoned', 'archived']);
         const activeQuests = tracking.filter((quest) => {
           const status = String(quest?.status || '').trim().toLowerCase();
@@ -11583,13 +11923,14 @@ import { SpriteService } from './SpriteService.js';
       await this.refreshQuestJournalFromApi();
 
       questUpdates.forEach((update) => {
-        if (!update || update.type !== 'quest_started') {
+        const normalizedUpdate = normalizeQuestUpdatePayload(update);
+        if (!normalizedUpdate) {
           return;
         }
 
-        const title = String(update.quest_name || update.quest_id || 'New quest');
-        const objectiveLines = Array.isArray(update.objectives)
-          ? update.objectives.filter(Boolean).map((line) => `- ${line}`)
+        const title = String(normalizedUpdate.quest_name || normalizedUpdate.quest_id || 'New quest');
+        const objectiveLines = Array.isArray(normalizedUpdate.objectives)
+          ? normalizedUpdate.objectives.filter(Boolean).map((line) => `- ${line}`)
           : [];
         const toastMessage = objectiveLines.length
           ? `Quest added: ${title}\n${objectiveLines.join('\n')}`

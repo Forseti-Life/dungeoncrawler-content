@@ -3036,6 +3036,31 @@ function dungeoncrawler_content_schema() {
     ],
   ];
 
+  $schema['dc_storyline_expansion_jobs'] = [
+    'description' => 'Background queue for deferred storyline expansion after bootstrap.',
+    'fields' => [
+      'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE],
+      'campaign_id' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0],
+      'storyline_id' => ['type' => 'varchar', 'length' => 128, 'not null' => TRUE, 'default' => ''],
+      'status' => ['type' => 'varchar', 'length' => 16, 'not null' => TRUE, 'default' => 'pending'],
+      'attempts' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0],
+      'payload_json' => ['type' => 'text', 'size' => 'big', 'not null' => TRUE],
+      'error_message' => ['type' => 'text', 'size' => 'medium', 'not null' => FALSE],
+      'started' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0],
+      'finished' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0],
+      'created' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0],
+      'updated' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0],
+    ],
+    'primary key' => ['id'],
+    'unique keys' => [
+      'campaign_storyline' => ['campaign_id', 'storyline_id'],
+    ],
+    'indexes' => [
+      'status_updated' => ['status', 'updated'],
+      'campaign_status' => ['campaign_id', 'status'],
+    ],
+  ];
+
   $schema['dc_room_turn_logs'] = [
     'description' => 'Structured troubleshooting log for room conversation turn order and speaker sequencing.',
     'fields' => [
@@ -6446,6 +6471,21 @@ function dungeoncrawler_content_update_10050() {
   }
 
   return t('Backfilled local metadata into @count cantrip/1st-rank spell registry rows.', ['@count' => $updated]);
+}
+
+/**
+ * Create the deferred storyline expansion queue table.
+ */
+function dungeoncrawler_content_update_10063() {
+  $schema = \Drupal::database()->schema();
+  if ($schema->tableExists('dc_storyline_expansion_jobs')) {
+    return t('dc_storyline_expansion_jobs already exists; no action taken.');
+  }
+
+  $module_schema = dungeoncrawler_content_schema();
+  $schema->createTable('dc_storyline_expansion_jobs', $module_schema['dc_storyline_expansion_jobs']);
+
+  return t('Created dc_storyline_expansion_jobs table.');
 }
 
 /**

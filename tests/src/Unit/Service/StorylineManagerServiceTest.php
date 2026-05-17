@@ -52,6 +52,11 @@ class StorylineManagerServiceTest extends UnitTestCase {
     $this->assertSame('the-tomb', $normalized['linked_quests']['kobold-scout']['chapter_id']);
     $this->assertSame('vault-entry', $normalized['linked_quests']['kobold-scout']['scene_id']);
     $this->assertSame('upstairs', $normalized['linked_quests']['find-trimmer']['chapter_id']);
+    $this->assertSame('questline', $normalized['storyline_type']);
+    $this->assertSame('kobold-scout', $normalized['questline']['primary_quest_id']);
+    $this->assertSame(['kobold-scout', 'find-trimmer'], $normalized['questline']['ordered_quest_ids']);
+    $this->assertSame(['find-trimmer'], $normalized['questline']['quest_nodes'][0]['unlocks_to']);
+    $this->assertSame(['kobold-scout'], $normalized['questline']['quest_nodes'][1]['unlocks_after']);
     $this->assertTrue(
       in_array('quest', array_column($normalized['asset_references'], 'asset_type'), TRUE)
     );

@@ -216,6 +216,8 @@ services:
 
   dungeoncrawler_content.player_agent_exploration_policy:
     class: Drupal\dungeoncrawler_content\Service\PlayerAgentExplorationPolicy
+    arguments:
+      - '@?dungeoncrawler_content.quest_tracker'
 
   dungeoncrawler_content.player_agent_encounter_policy:
     class: Drupal\dungeoncrawler_content\Service\PlayerAgentEncounterPolicy
@@ -386,6 +388,19 @@ services:
       - '@logger.factory'
       - '@uuid'
       - '@dungeoncrawler_content.campaign_state_service'
+      - '@dungeoncrawler_content.state_validation_service'
+
+  dungeoncrawler_content.storyline_generation_service:
+    class: Drupal\dungeoncrawler_content\Service\StorylineGenerationService
+    arguments:
+      - '@database'
+      - '@logger.factory'
+      - '@ai_conversation.ai_api_service'
+      - '@dungeoncrawler_content.storyline_manager'
+      - '@dungeoncrawler_content.campaign_state_service'
+      - '@dungeoncrawler_content.treasure_by_level'
+      - '@uuid'
+      - '@?dungeoncrawler_content.relationship_manager'
 
   dungeoncrawler_content.gameplay_action_processor:
     class: Drupal\dungeoncrawler_content\Service\GameplayActionProcessor
@@ -423,6 +438,8 @@ services:
       - '@http_client'
       - '@dungeoncrawler_content.inventory_management'
       - '@dungeoncrawler_content.quest_generator'
+      - '@dungeoncrawler_content.state_validation_service'
+      - '@?dungeoncrawler_content.storyline_generation_service'
 
   dungeoncrawler_content.campaign_initialization:
     class: Drupal\dungeoncrawler_content\Service\CampaignInitializationService

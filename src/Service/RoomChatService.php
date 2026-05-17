@@ -28,6 +28,7 @@ class RoomChatService {
   protected const ROOM_CHAT_MAX_USER_PROMPT_CHARS = 4000;
   protected const ROOM_CHAT_GM_MAX_TOKENS = 200;
   protected const NPC_FUZZY_MATCH_MIN_TOKEN_LENGTH = 4;
+  protected const QUEST_UPDATE_SCHEMA_VERSION = 'quest-update-v1';
 
   protected Connection $database;
   protected DungeonStateService $dungeonStateService;
@@ -47,6 +48,8 @@ class RoomChatService {
   protected ?QuestTrackerService $questTracker;
   protected ?RelationshipManagerService $relationshipManager;
   protected ?QuestGeneratorService $questGenerator;
+  protected ?StateValidationService $stateValidationService;
+  protected ?StorylineGenerationService $storylineGenerationService;
   protected MerchantBotService $merchantBotService;
   protected ?InventoryManagementService $inventoryManagementService;
   protected ?array $activeDebugTrace = NULL;
@@ -76,7 +79,9 @@ class RoomChatService {
     ?MerchantBotService $merchant_bot_service = NULL,
     ?ClientInterface $http_client = NULL,
     ?InventoryManagementService $inventory_management_service = NULL,
-    ?QuestGeneratorService $quest_generator = NULL
+    ?QuestGeneratorService $quest_generator = NULL,
+    ?StateValidationService $state_validation_service = NULL,
+    ?StorylineGenerationService $storyline_generation_service = NULL
   ) {
     $this->database = $database;
     $this->dungeonStateService = $dungeon_state_service;
@@ -98,6 +103,8 @@ class RoomChatService {
     $this->merchantBotService = $merchant_bot_service ?? new MerchantBotService($database, $logger_factory, $http_client);
     $this->inventoryManagementService = $inventory_management_service;
     $this->questGenerator = $quest_generator;
+    $this->stateValidationService = $state_validation_service;
+    $this->storylineGenerationService = $storyline_generation_service;
   }
 
   /**
@@ -211,8 +218,11 @@ class RoomChatService {
       $prompt .= "=== ACTIVE QUEST OBJECTIVES ===\n{$quest_context}\n\n";
     }
     $prompt .= "=== PLAYER CHARACTER SHEET ===\n{$character_context}\n\n";
+    $prompt .= "Before writing the line, answer internally: what is my next action, which active quest objective matters most, and how does this message help advance it?\n";
     $prompt .= "Write the single next room-chat message this character should send.\n";
     $prompt .= "Choose the next action and wording internally, then output only the exact message text to post.\n";
+    $prompt .= "Your core goal on every call is to review active quests, identify the next action, and use the available talk tool to advance that action.\n";
+    $prompt .= "If an NPC just gave a concrete lead, clue, direction, or suggested destination, acknowledge it and ask the most useful follow-up question before changing subjects or asking someone else for unrelated work.\n";
     $prompt .= "If a current quest objective or newly discovered lead is relevant, advance that objective instead of restarting the same generic inquiry.\n";
     $prompt .= "Stay fully in character. Keep it concise (1-2 sentences, max 240 characters). ";
     $prompt .= "Do not mention rules, dice, UI controls, JSON, or hidden GM knowledge.\n";
@@ -229,7 +239,9 @@ class RoomChatService {
       ],
       [
         'system_prompt' => "You are writing the next in-character chat line for {$character_name}. "
-          . "Base it only on the supplied character sheet, personality, and campaign chat history. "
+          . "Base it only on the supplied character sheet, personality, quest objectives, and campaign chat history. "
+          . "On every call, decide the next action first and make the line advance that action using the room-chat tool. "
+          . "If an NPC just helped, follow that lead or clarify it before starting a different topic. "
           . "Output only the message text to send.",
         'max_tokens' => 180,
         'skip_cache' => TRUE,
@@ -5440,6 +5452,11 @@ PROMPT;
       if ($brokered_leads !== NULL) {
         return $brokered_leads;
       }
+
+      $generated_bootstrap = $this->buildGeneratedStorylineLeadDialogue($campaign_id, $entity_ref, $display_name, $player_message, $normalized, $room_id);
+      if ($generated_bootstrap !== NULL) {
+        return $generated_bootstrap;
+      }
     }
 
     if ($this->looksLikeQuestOrLeadRequest($normalized) && ($this->npcSupportsQuestOrLeadRole($role) || $this->isBrokeredStorylineNpcRef($entity_ref))) {
@@ -5836,6 +5853,55 @@ PROMPT;
   }
 
   /**
+   * Bootstrap a new storyline lead directly from the active questgiver.
+   */
+  protected function buildGeneratedStorylineLeadDialogue(
+    int $campaign_id,
+    string $entity_ref,
+    string $display_name,
+    string $player_message,
+    string $normalized_message,
+    string $room_id = ''
+  ): ?string {
+    if ($this->storylineGenerationService === NULL || !$this->looksLikeStorylineBootstrapRequest($normalized_message)) {
+      return NULL;
+    }
+
+    $existing = $this->loadExistingQuestgiverStoryline($campaign_id, $entity_ref);
+    if ($existing !== NULL) {
+      return '"' . ($display_name !== '' ? $display_name . ' nods. ' : '')
+        . 'I already gave you the first thread. Start with ' . ((string) ($existing['name'] ?? 'that lead')) . '."';
+    }
+
+    try {
+      $result = $this->storylineGenerationService->bootstrapCampaignStoryline($campaign_id, [
+        'prompt' => $player_message,
+        'speaker_npc_id' => $entity_ref,
+        'speaker_name' => $display_name,
+        'lead_location_id' => $room_id,
+        'source' => 'npc-storyline-bootstrap',
+        'status' => 'bootstrapping',
+      ]);
+      $storyline = is_array($result['storyline'] ?? NULL) ? $result['storyline'] : [];
+      $storyline_data = is_array($storyline['storyline_data'] ?? NULL) ? $storyline['storyline_data'] : [];
+      $outline = is_array($storyline_data['metadata']['generated_outline'] ?? NULL) ? $storyline_data['metadata']['generated_outline'] : [];
+      $entry = is_array($outline['entry_dungeon'] ?? NULL) ? $outline['entry_dungeon'] : [];
+      $lead_name = trim((string) ($entry['name'] ?? $storyline['name'] ?? 'the first lead'));
+      $lead_hint = trim((string) ($entry['lead_location_hint'] ?? 'Follow the first dungeon entrance.'));
+      return '"' . ($display_name !== '' ? $display_name . ' says, ' : '')
+        . 'Start with ' . $lead_name . '. ' . $this->trimNpcDialogueClause($lead_hint) . '."';
+    }
+    catch (\Throwable $e) {
+      $this->logger->warning('Failed to bootstrap questgiver storyline for {campaign_id}/{entity_ref}: {error}', [
+        'campaign_id' => $campaign_id,
+        'entity_ref' => $entity_ref,
+        'error' => $e->getMessage(),
+      ]);
+      return NULL;
+    }
+  }
+
+  /**
    * Loads brokered storyline contacts for an NPC that introduces module starts.
    */
   protected function loadBrokeredStorylineContacts(int $campaign_id, string $entity_ref): array {
@@ -5856,6 +5922,51 @@ PROMPT;
       'lead', 'contact', 'start', 'story', 'stories', 'storyline',
       'storylines', 'module', 'modules',
     ]);
+  }
+
+  /**
+   * Determine whether the player is asking for a fresh storyline arc, not just any job.
+   */
+  protected function looksLikeStorylineBootstrapRequest(string $normalized_message): bool {
+    if ($this->textContainsAny($normalized_message, ['storyline', 'story line', 'adventure', 'campaign arc', 'quest arc'])) {
+      return TRUE;
+    }
+
+    return (bool) preg_match('/\b(?:looking for|want|need|seeking|after|hunt|track|stop|find|recover|investigate|break|destroy|slay)\b.{0,48}\b(?:cult|curse|relic|artifact|killer|necromancer|beast|bandit|ruin|mystery|plot|threat)\b/u', $normalized_message);
+  }
+
+  /**
+   * Find an existing generated storyline already attached to this questgiver.
+   */
+  protected function loadExistingQuestgiverStoryline(int $campaign_id, string $entity_ref): ?array {
+    $rows = $this->database->select('dc_campaign_storylines', 's')
+      ->fields('s')
+      ->condition('campaign_id', $campaign_id)
+      ->condition('status', ['bootstrapping', 'available', 'active'], 'IN')
+      ->orderBy('created_at', 'DESC')
+      ->range(0, 10)
+      ->execute()
+      ->fetchAllAssoc('storyline_id');
+
+    foreach ($rows as $row) {
+      $storyline_data = json_decode((string) ($row['storyline_data'] ?? '{}'), TRUE);
+      if (!is_array($storyline_data)) {
+        continue;
+      }
+
+      foreach ((array) ($storyline_data['contacts'] ?? []) as $contact) {
+        if (
+          is_array($contact)
+          && (string) ($contact['role'] ?? '') === 'quest_giver'
+          && strtolower(trim((string) ($contact['entity_id'] ?? ''))) === strtolower(trim($entity_ref))
+        ) {
+          $row['storyline_data'] = $storyline_data;
+          return $row;
+        }
+      }
+    }
+
+    return NULL;
   }
 
   /**
@@ -6539,13 +6650,13 @@ PROMPT;
         $objective_lines[] = $description;
       }
 
-      $updates[] = [
-        'type' => 'quest_started',
-        'quest_id' => $quest_id,
-        'quest_name' => (string) ($quest['quest_name'] ?? $quest_id),
-        'status' => 'active',
-        'objectives' => $objective_lines,
-      ];
+      $updates[] = $this->buildQuestUpdatePayload(
+        $quest_id,
+        (string) ($quest['quest_name'] ?? $quest_id),
+        'active',
+        $objective_lines,
+        'available_quest'
+      );
     }
 
     $storyline_updates = $this->activateMentionedBrokeredStorylineQuests(
@@ -6643,13 +6754,14 @@ PROMPT;
             continue;
           }
 
-          $updates[] = [
-            'type' => 'quest_started',
-            'quest_id' => $quest_id,
-            'quest_name' => (string) ($quest['quest_name'] ?? $quest_id),
-            'status' => 'active',
-            'objectives' => $this->extractQuestObjectiveDescriptions($quest),
-          ];
+          $updates[] = $this->buildQuestUpdatePayload(
+            $quest_id,
+            (string) ($quest['quest_name'] ?? $quest_id),
+            'active',
+            $this->extractQuestObjectiveDescriptions($quest),
+            'brokered_storyline',
+            (string) ($quest['storyline_id'] ?? '')
+          );
 
           $this->logger->info('Activated brokered storyline quest {quest_id} in campaign {campaign_id} for character {character_id} from NPC {speaker}', [
             'quest_id' => $quest_id,
@@ -6915,6 +7027,40 @@ PROMPT;
     }
 
     return [];
+  }
+
+  /**
+   * Build one canonical quest update payload for the client runtime.
+   */
+  protected function buildQuestUpdatePayload(
+    string $quest_id,
+    string $quest_name,
+    string $status,
+    array $objectives,
+    string $source,
+    string $storyline_id = ''
+  ): array {
+    $payload = [
+      'schema_version' => self::QUEST_UPDATE_SCHEMA_VERSION,
+      'type' => 'quest_started',
+      'quest_id' => $quest_id,
+      'quest_name' => $quest_name !== '' ? $quest_name : $quest_id,
+      'status' => $status !== '' ? $status : 'active',
+      'objectives' => array_values(array_filter(array_map(static fn($objective): string => trim((string) $objective), $objectives), static fn(string $objective): bool => $objective !== '')),
+      'source' => $source,
+      'storyline_id' => $storyline_id !== '' ? $storyline_id : NULL,
+    ];
+
+    if (!$this->stateValidationService) {
+      return $payload;
+    }
+
+    $validation = $this->stateValidationService->validateQuestUpdate($payload);
+    if (!empty($validation['valid'])) {
+      return $payload;
+    }
+
+    throw new \RuntimeException('Quest update contract violation: ' . implode('; ', $validation['errors'] ?? []));
   }
 
   /**
