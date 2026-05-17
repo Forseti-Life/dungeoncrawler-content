@@ -118,6 +118,43 @@ class StorylineManagerServiceTest extends UnitTestCase {
   }
 
   /**
+   * @covers ::normalizeTemplateDefinition
+   */
+  public function testNormalizeTemplateDefinitionNormalizesContactsAndSeedsBrokerFallback(): void {
+    $service = $this->buildService();
+    $method = new \ReflectionMethod(StorylineManagerService::class, 'normalizeTemplateDefinition');
+    $method->setAccessible(TRUE);
+
+    $normalized = $method->invoke($service, [
+      'name' => 'Contact Story',
+      'asset_references' => [
+        [
+          'asset_type' => 'npc',
+          'asset_id' => 'quest-contact',
+          'asset_role' => 'quest-giver',
+        ],
+      ],
+      'contacts' => [
+        [
+          'contact_id' => 'quest-giver-contact',
+          'entity_type' => 'npc_template',
+          'entity_id' => 'quest-contact',
+          'role' => 'quest_giver',
+          'display_name' => 'Quest Contact',
+          'attitude' => 'friendly',
+        ],
+      ],
+      'chapters' => [],
+    ]);
+
+    $this->assertCount(2, $normalized['contacts']);
+    $this->assertSame('quest_giver', $normalized['contacts'][0]['role']);
+    $this->assertSame('campaign_npc', $normalized['contacts'][1]['entity_type']);
+    $this->assertSame('npc_tavern_keeper', $normalized['contacts'][1]['entity_id']);
+    $this->assertSame('knows', $normalized['contacts'][1]['introduces_to'][0]['relationship_type']);
+  }
+
+  /**
    * @covers ::synchronizeStorylineDataWithQuestStates
    */
   public function testSynchronizeStorylineDataAdvancesToNextSceneWhenCurrentSceneQuestsComplete(): void {

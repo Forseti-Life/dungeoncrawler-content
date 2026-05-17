@@ -6,6 +6,7 @@ use Drupal\Core\Database\Connection;
 use Drupal\dungeoncrawler_content\Service\CombatEncounterStore;
 use Drupal\dungeoncrawler_content\Service\HPManager;
 use Drupal\dungeoncrawler_content\Service\CombatCalculator;
+use Drupal\dungeoncrawler_content\Service\Calculator;
 use Drupal\dungeoncrawler_content\Service\ConditionManager;
 use Drupal\dungeoncrawler_content\Service\MovementResolverService;
 use Drupal\dungeoncrawler_content\Service\AfflictionManager;
@@ -73,6 +74,11 @@ class CombatEngine {
   protected $combatCalculator;
 
   /**
+   * @var \Drupal\dungeoncrawler_content\Service\Calculator
+   */
+  protected $calculator;
+
+  /**
    * @var \Drupal\dungeoncrawler_content\Service\ConditionManager
    */
   protected $conditionManager;
@@ -87,7 +93,7 @@ class CombatEngine {
    */
   protected ?AfflictionManager $afflictionManager;
 
-  public function __construct(Connection $database, StateManager $state_manager, ActionProcessor $action_processor, CombatEncounterStore $store, HPManager $hp_manager, NumberGenerationService $number_generation, CombatCalculator $combat_calculator = NULL, ConditionManager $condition_manager = NULL, MovementResolverService $movement_resolver = NULL, AfflictionManager $affliction_manager = NULL) {
+  public function __construct(Connection $database, StateManager $state_manager, ActionProcessor $action_processor, CombatEncounterStore $store, HPManager $hp_manager, NumberGenerationService $number_generation, CombatCalculator $combat_calculator = NULL, Calculator $calculator = NULL, ConditionManager $condition_manager = NULL, MovementResolverService $movement_resolver = NULL, AfflictionManager $affliction_manager = NULL) {
     $this->database = $database;
     $this->stateManager = $state_manager;
     $this->actionProcessor = $action_processor;
@@ -95,6 +101,7 @@ class CombatEngine {
     $this->hpManager = $hp_manager;
     $this->numberGeneration = $number_generation;
     $this->combatCalculator = $combat_calculator ?? new CombatCalculator();
+    $this->calculator = $calculator ?? new Calculator($this->numberGeneration, $this->combatCalculator);
     $this->conditionManager = $condition_manager;
     $this->movementResolver = $movement_resolver;
     $this->afflictionManager = $affliction_manager;
@@ -159,19 +166,7 @@ class CombatEngine {
       return ['status' => 'error', 'message' => 'Encounter not found'];
     }
 
-    // Sort participants by initiative descending; ties broken by perception mod then ID.
     $participants = $encounter['participants'];
-    usort($participants, function (array $a, array $b): int {
-      $init_diff = (int) ($b['initiative'] ?? 0) - (int) ($a['initiative'] ?? 0);
-      if ($init_diff !== 0) {
-        return $init_diff;
-      }
-      $perc_diff = $this->resolvePerceptionModifier($b) - $this->resolvePerceptionModifier($a);
-      if ($perc_diff !== 0) {
-        return $perc_diff;
-      }
-      return (int) ($a['id'] ?? 0) - (int) ($b['id'] ?? 0);
-    });
 
     foreach ($participants as $participant) {
       $this->store->updateParticipant((int) $participant['id'], [
@@ -271,9 +266,12 @@ class CombatEngine {
       ->condition('id', $pid)
       ->execute()
       ->fetchAssoc();
+    $entity_data = $participant_row && !empty($participant_row['entity_ref'])
+      ? (json_decode($participant_row['entity_ref'], TRUE) ?: [])
+      : [];
+    $entity_data_changed = FALSE;
 
     if ($participant_row) {
-      $entity_data = !empty($participant_row['entity_ref']) ? json_decode($participant_row['entity_ref'], TRUE) : [];
       $mount_entity_id = $entity_data['mounted_on'] ?? NULL;
       if ($mount_entity_id) {
         // Find mount participant in this encounter.
@@ -285,9 +283,11 @@ class CombatEngine {
           ->fetchAssoc();
         if ($mount_participant) {
           // REQ 2258: Share mount's attacks_this_turn as base for MAP calculation.
+          $shared_attacks = (int) ($mount_participant['attacks_this_turn'] ?? 0);
           $this->store->updateParticipant($pid, [
-            'attacks_this_turn' => (int) ($mount_participant['attacks_this_turn'] ?? 0),
+            'attacks_this_turn' => $shared_attacks,
           ]);
+          $result_attacks_this_turn = $shared_attacks;
           $base_actions = max(0, $base_actions);
         }
       }
@@ -299,7 +299,7 @@ class CombatEngine {
       'turn_state' => 'awaiting_action',
       'actions_remaining' => $base_actions,
       'reaction_available' => TRUE,
-      'attacks_this_turn' => 0,
+      'attacks_this_turn' => $result_attacks_this_turn ?? 0,
       'current_round' => (int) ($encounter['current_round'] ?? 1),
     ];
 
@@ -313,16 +313,9 @@ class CombatEngine {
 
     // REQ 2177: Fast Healing — restore fast_healing HP at start of each turn.
     // REQ 2178: Regeneration — same, but prevents permanent death unless bypassed.
-    $participant_row = $this->database->select('combat_participants', 'p')
-      ->fields('p', ['entity_ref'])
-      ->condition('id', $pid)
-      ->execute()
-      ->fetchAssoc();
     if ($participant_row) {
-      $entity_data = !empty($participant_row['entity_ref']) ? json_decode($participant_row['entity_ref'], TRUE) : [];
       $fast_healing = (int) ($entity_data['fast_healing'] ?? 0);
       $regeneration = (int) ($entity_data['regeneration'] ?? 0);
-      $regen_bypassed_by = $entity_data['regeneration_bypassed_by'] ?? NULL;
       $regen_bypassed = !empty($entity_data['regeneration_bypassed']);
 
       if ($fast_healing > 0) {
@@ -336,10 +329,7 @@ class CombatEngine {
       // has been processed (or skipped) for this turn.
       if ($regen_bypassed) {
         $entity_data['regeneration_bypassed'] = FALSE;
-        $this->database->update('combat_participants')
-          ->fields(['entity_ref' => json_encode($entity_data)])
-          ->condition('id', $pid)
-          ->execute();
+        $entity_data_changed = TRUE;
       }
 
       // REQ 2265-2266: Held breath / suffocation tracking.
@@ -358,6 +348,7 @@ class CombatEngine {
         $air_remaining -= $air_decrement;
         $entity_data['air_remaining'] = $air_remaining;
         $entity_data['air_decrement_this_turn'] = 1;
+        $entity_data_changed = TRUE;
 
         if ($air_remaining <= 0) {
           // REQ 2266: At 0 air — unconscious, begin suffocating.
@@ -373,12 +364,13 @@ class CombatEngine {
           $result['air_remaining'] = $air_remaining;
         }
 
-        // Persist updated entity_data.
-        $this->database->update('combat_participants')
-          ->fields(['entity_ref' => json_encode($entity_data)])
-          ->condition('id', $pid)
-          ->execute();
       }
+    }
+
+    if ($participant_row && $entity_data_changed) {
+      $this->store->updateParticipant($pid, [
+        'entity_ref' => json_encode($entity_data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+      ]);
     }
 
     return $result;
@@ -830,21 +822,14 @@ class CombatEngine {
 
     $degree = $this->combatCalculator->calculateDegreeOfSuccess($total, $target_ac, $natural_roll);
 
-    // Record attack in participant state.
-    // REQ 2230: AoO (skip_map) is a reaction — do not consume actions or MAP count.
-    $updates = ['attacks_this_turn' => $attacks_this_turn];
-    if (!$skip_map) {
-      $updates['actions_remaining'] = max(0, (int) ($attacker['actions_remaining'] ?? 3) - 1);
-    }
-    $this->store->updateParticipant($participant_id, $updates);
-
     $damage_dealt = NULL;
     $damage_result = NULL;
 
     if ($degree === 'critical_success' || $degree === 'success') {
       $damage_roll = $this->numberGeneration->rollNotation($weapon['damage_dice'] ?? '1d4');
-      $dice_total = array_sum($damage_roll['rolls'] ?? [$damage_roll['total'] ?? 1]);
+      $dice_total = (int) ($damage_roll['subtotal'] ?? array_sum($damage_roll['rolls'] ?? [$damage_roll['total'] ?? 1]));
       $ability_mod = (int) ($weapon['ability_modifier'] ?? $damage_roll['modifier'] ?? 0);
+      $damage_static = (int) ($damage_roll['modifier'] ?? 0) + $ability_mod;
       $damage_type = $weapon['damage_type'] ?? 'untyped';
 
       // REQ 2264: Fire trait actions automatically fail underwater.
@@ -866,12 +851,19 @@ class CombatEngine {
         }
       }
 
+      // Record attack in participant state only after any auto-fail checks.
+      // REQ 2230: AoO (skip_map) is a reaction — do not consume actions or MAP count.
+      $updates = ['attacks_this_turn' => $attacks_this_turn];
+      if (!$skip_map) {
+        $updates['actions_remaining'] = max(0, (int) ($attacker['actions_remaining'] ?? 3) - 1);
+      }
+      $this->store->updateParticipant($participant_id, $updates);
+
       if ($degree === 'critical_success') {
-        // PF2E req 2115: double dice only, then add flat bonuses once.
-        $damage_dealt = $this->calculator->applyCriticalDamage($damage_roll['rolls'] ?? [], $ability_mod)['doubled_total'];
+        $damage_dealt = $this->calculator->applyCriticalDamage($damage_roll['rolls'] ?? [], $damage_static)['doubled_total'];
       }
       else {
-        $damage_dealt = $dice_total + $ability_mod;
+        $damage_dealt = $dice_total + $damage_static;
       }
 
       // REQ 2262: Resistance 5 to fire/acid for underwater targets.
@@ -891,6 +883,14 @@ class CombatEngine {
       if (($damage_result['new_status'] ?? '') === 'defeated') {
         $this->shiftInitiativeAfterAttacker($encounter_id, $target_id, $participant_id);
       }
+    }
+    else {
+      // Misses and other non-damaging outcomes still consume the declared attack.
+      $updates = ['attacks_this_turn' => $attacks_this_turn];
+      if (!$skip_map) {
+        $updates['actions_remaining'] = max(0, (int) ($attacker['actions_remaining'] ?? 3) - 1);
+      }
+      $this->store->updateParticipant($participant_id, $updates);
     }
 
     return [
@@ -926,25 +926,39 @@ class CombatEngine {
    * Determine whether the encounter has ended.
    */
   protected function evaluateEncounterOutcome(array $participants): array {
-    $active_teams = [];
+    $active_sides = [];
     foreach ($participants as $p) {
       if (empty($p['is_defeated'])) {
-        $team = $p['team'] ?? 'neutral';
-        $active_teams[$team] = TRUE;
+        $side = $this->normalizeCombatSide((string) ($p['team'] ?? 'neutral'));
+        if ($side !== NULL) {
+          $active_sides[$side] = TRUE;
+        }
       }
     }
 
-    $team_count = count($active_teams);
+    $team_count = count($active_sides);
     if ($team_count === 0) {
       return ['ended' => TRUE, 'outcome' => 'draw', 'victory_condition' => 'all combatants down'];
     }
 
     if ($team_count === 1) {
-      $team = array_keys($active_teams)[0];
-      return ['ended' => TRUE, 'outcome' => 'victory', 'victory_condition' => "team {$team} stands"];
+      $side = array_keys($active_sides)[0];
+      return ['ended' => TRUE, 'outcome' => 'victory', 'victory_condition' => "{$side} stand"];
     }
 
     return ['ended' => FALSE, 'outcome' => NULL, 'victory_condition' => NULL];
+  }
+
+  /**
+   * Normalize encounter teams into combat sides for outcome checks.
+   */
+  protected function normalizeCombatSide(string $team): ?string {
+    $team = strtolower(trim($team));
+    return match ($team) {
+      'player', 'ally', 'friendly', 'party' => 'heroes',
+      'enemy', 'hostile', 'monsters' => 'enemies',
+      default => NULL,
+    };
   }
 
   /**

@@ -9,6 +9,7 @@ use Drupal\Core\Url;
 use Drupal\Component\Uuid\UuidInterface;
 use Drupal\Component\Datetime\TimeInterface;
 use Drupal\Core\Session\AccountProxyInterface;
+use Drupal\dungeoncrawler_content\Service\CampaignClockService;
 use Drupal\dungeoncrawler_content\Service\SchemaLoader;
 use Drupal\dungeoncrawler_content\Service\CampaignInitializationService;
 use Drupal\dungeoncrawler_content\Service\CampaignNameGeneratorService;
@@ -23,6 +24,7 @@ class CampaignCreateForm extends FormBase {
   protected UuidInterface $uuid;
   protected TimeInterface $time;
   protected AccountProxyInterface $currentUser;
+  protected CampaignClockService $campaignClockService;
   protected SchemaLoader $schemaLoader;
   protected CampaignInitializationService $campaignInitialization;
   protected CampaignNameGeneratorService $campaignNameGenerator;
@@ -32,6 +34,7 @@ class CampaignCreateForm extends FormBase {
     UuidInterface $uuid,
     TimeInterface $time,
     AccountProxyInterface $current_user,
+    CampaignClockService $campaign_clock_service,
     SchemaLoader $schema_loader,
     CampaignInitializationService $campaign_initialization,
     CampaignNameGeneratorService $campaign_name_generator
@@ -40,6 +43,7 @@ class CampaignCreateForm extends FormBase {
     $this->uuid = $uuid;
     $this->time = $time;
     $this->currentUser = $current_user;
+    $this->campaignClockService = $campaign_clock_service;
     $this->schemaLoader = $schema_loader;
     $this->campaignInitialization = $campaign_initialization;
     $this->campaignNameGenerator = $campaign_name_generator;
@@ -54,6 +58,7 @@ class CampaignCreateForm extends FormBase {
       $container->get('uuid'),
       $container->get('datetime.time'),
       $container->get('current_user'),
+      $container->get('dungeoncrawler_content.campaign_clock'),
       $container->get('dungeoncrawler_content.schema_loader'),
       $container->get('dungeoncrawler_content.campaign_initialization'),
       $container->get('dungeoncrawler_content.campaign_name_generator'),
@@ -169,12 +174,19 @@ class CampaignCreateForm extends FormBase {
    * Build canonical campaign payload for campaign_data.
    */
   private function buildCampaignPayload(): array {
-    return [
+    $now = $this->time->getRequestTime();
+    $payload = [
       'schema_version' => '1.0.0',
       'created_by' => (int) $this->currentUser->id(),
       'started' => FALSE,
       'progress' => [],
+      'created_at' => gmdate('c', $now),
+      'updated_at' => gmdate('c', $now),
+      CampaignClockService::STATE_KEY => $this->campaignClockService->createClockFromTimestamp($now),
     ];
+    $this->campaignClockService->syncLegacyGameTime($payload);
+
+    return $payload;
   }
 
 }

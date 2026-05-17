@@ -3,6 +3,7 @@
 namespace Drupal\dungeoncrawler_content\Service;
 
 use Drupal\Core\Database\Connection;
+use GuzzleHttp\ClientInterface;
 
 /**
  * Core spell rules service with registry-backed spell definition reads.
@@ -20,6 +21,14 @@ use Drupal\Core\Database\Connection;
  * should not treat local files or service-local arrays as the source of truth.
  */
 class SpellCatalogService {
+
+  public const ARCHIVES_OF_NETHYS_SPELLS_URL = 'https://2e.aonprd.com/Spells.aspx';
+
+  public const ARCHIVES_OF_NETHYS_RITUALS_URL = 'https://2e.aonprd.com/Rituals.aspx';
+
+  public const ARCHIVES_OF_NETHYS_SEARCH_URL = 'https://2e.aonprd.com/Search.aspx';
+
+  public const ARCHIVES_OF_NETHYS_ELASTICSEARCH_URL = 'https://elasticsearch.aonprd.com/aon/_search';
 
   // -----------------------------------------------------------------------
   // Constants
@@ -90,10 +99,16 @@ class SpellCatalogService {
   /**
    * Optional live content registry database connection.
    */
-  protected ?Connection $database;
+  protected ?Connection $database = NULL;
 
-  public function __construct(?Connection $database = NULL) {
+  /**
+   * Optional HTTP client used for external Archives of Nethys lookup.
+   */
+  protected ?ClientInterface $httpClient = NULL;
+
+  public function __construct(?Connection $database = NULL, ?ClientInterface $http_client = NULL) {
     $this->database = $database;
+    $this->httpClient = $http_client;
   }
 
   // -----------------------------------------------------------------------
@@ -119,6 +134,133 @@ class SpellCatalogService {
     }
 
     return NULL;
+  }
+
+  /**
+   * Build an Archives of Nethys lookup payload for a spell missing locally.
+   *
+   * @param string $spell_id
+   *   The requested spell ID or name.
+   *
+   * @return array<string, mixed>
+   *   Provider metadata and lookup URLs.
+   */
+  public function buildArchivesOfNethysLookup(string $spell_id): array {
+    $requested_id = trim($spell_id);
+    $query = trim(str_replace(['_', '-'], ' ', $requested_id));
+    if ($query === '') {
+      $query = 'spell';
+    }
+
+    $lookup = [
+      'provider' => 'archives_of_nethys',
+      'provider_label' => 'Archives of Nethys',
+      'query' => $query,
+      'spells_url' => self::ARCHIVES_OF_NETHYS_SPELLS_URL,
+      'rituals_url' => self::ARCHIVES_OF_NETHYS_RITUALS_URL,
+      'search_url' => self::ARCHIVES_OF_NETHYS_SEARCH_URL . '?Query=' . rawurlencode($query),
+    ];
+
+    return array_merge($lookup, $this->searchArchivesOfNethys($query));
+  }
+
+  /**
+   * Query Archives of Nethys search for a direct match when possible.
+   *
+   * @param string $query
+   *   Human-readable spell query.
+   *
+   * @return array<string, mixed>
+   *   Direct match metadata when available, otherwise an empty array or error
+   *   status details.
+   */
+  protected function searchArchivesOfNethys(string $query): array {
+    if ($this->httpClient === NULL || $query === '') {
+      return [];
+    }
+
+    try {
+      $response = $this->httpClient->request('POST', self::ARCHIVES_OF_NETHYS_ELASTICSEARCH_URL, [
+        'headers' => ['Content-Type' => 'application/json'],
+        'body' => json_encode([
+          'query' => [
+            'multi_match' => [
+              'query' => $query,
+              'fields' => ['name^3', 'title^3', 'content'],
+            ],
+          ],
+          'size' => 5,
+        ], JSON_UNESCAPED_SLASHES),
+        'timeout' => 5,
+      ]);
+    }
+    catch (\Exception $e) {
+      return [
+        'lookup_status' => 'search_error',
+        'lookup_error' => $e->getMessage(),
+      ];
+    }
+
+    $payload = json_decode((string) $response->getBody(), TRUE);
+    if (!is_array($payload)) {
+      return [
+        'lookup_status' => 'invalid_search_response',
+      ];
+    }
+
+    $hits = $payload['hits']['hits'] ?? [];
+    if (!is_array($hits) || $hits === []) {
+      return [
+        'lookup_status' => 'no_match',
+      ];
+    }
+
+    $normalized_query = $this->normalizeArchivesOfNethysSearchName($query);
+    $selected_hit = NULL;
+    foreach ($hits as $candidate) {
+      $source = $candidate['_source'] ?? NULL;
+      if (!is_array($source) || empty($source['url'])) {
+        continue;
+      }
+      if ($this->normalizeArchivesOfNethysSearchName((string) ($source['name'] ?? '')) === $normalized_query) {
+        $selected_hit = $source;
+        break;
+      }
+    }
+
+    if ($selected_hit === NULL) {
+      $selected_hit = $hits[0]['_source'] ?? NULL;
+    }
+
+    $hit = $selected_hit;
+    if (!is_array($hit) || empty($hit['url'])) {
+      return [
+        'lookup_status' => 'no_match',
+      ];
+    }
+
+    $direct_url = (string) $hit['url'];
+    if (str_starts_with($direct_url, '/')) {
+      $direct_url = 'https://2e.aonprd.com' . $direct_url;
+    }
+
+    return [
+      'lookup_status' => 'matched',
+      'matched_name' => (string) ($hit['name'] ?? $query),
+      'matched_type' => (string) ($hit['type'] ?? ''),
+      'matched_category' => (string) ($hit['category'] ?? ''),
+      'direct_url' => $direct_url,
+    ];
+  }
+
+  /**
+   * Normalize AoN search names for exact-match comparison.
+   */
+  protected function normalizeArchivesOfNethysSearchName(string $value): string {
+    $value = strtolower(trim($value));
+    $value = str_replace(['’', '\''], '', $value);
+    $value = preg_replace('/[^a-z0-9]+/', ' ', $value) ?? '';
+    return trim($value);
   }
 
   /**
@@ -314,11 +456,15 @@ class SpellCatalogService {
     $normalized = $spell_data;
     $normalized_id = $this->normalizeSpellId((string) ($spell_data['id'] ?? $requested_id ?? ''));
     $rank = isset($spell_data['rank']) ? (int) $spell_data['rank'] : (int) ($spell_data['level'] ?? 0);
+    $description = trim((string) ($spell_data['description'] ?? ''));
 
     $normalized['id'] = $normalized_id;
     $normalized['rank'] = $rank;
     $normalized['level'] = $rank;
     $normalized['is_cantrip'] = !empty($spell_data['is_cantrip']) || $rank === 0;
+    $normalized['description_source'] = $this->hasCompleteSpellDescription($description)
+      ? 'description'
+      : (!empty($spell_data['description_snippet']) ? 'description_snippet' : 'fallback');
 
     if (!empty($spell_data['school'])) {
       $normalized['school'] = strtolower((string) $spell_data['school']);
@@ -340,6 +486,67 @@ class SpellCatalogService {
     }
 
     return $normalized;
+  }
+
+  /**
+   * Appends degree-of-success outcomes when the narrative text omits them.
+   */
+  protected function appendSpellOutcomeSummary(string $description, array $spell_data, string $fallback_name = ''): string {
+    $description = trim($description);
+    if ($description === '' && $fallback_name !== '') {
+      $description = $fallback_name;
+    }
+
+    $outcomes = $spell_data['effects']['outcomes'] ?? [];
+    if (!is_array($outcomes) || $outcomes === []) {
+      return $description;
+    }
+
+    $ordered_labels = ['Critical Success', 'Success', 'Failure', 'Critical Failure'];
+    $summary_parts = [];
+    foreach ($ordered_labels as $label) {
+      $text = trim((string) ($outcomes[$label] ?? ''));
+      if ($text !== '') {
+        if (stripos($description, $label . ':') !== FALSE) {
+          return $description;
+        }
+        $summary_parts[] = $label . ': ' . $text;
+      }
+      unset($outcomes[$label]);
+    }
+    foreach ($outcomes as $label => $text) {
+      $label = trim((string) $label);
+      $text = trim((string) $text);
+      if ($label === '' || $text === '') {
+        continue;
+      }
+      if (stripos($description, $label . ':') !== FALSE) {
+        return $description;
+      }
+      $summary_parts[] = $label . ': ' . $text;
+    }
+
+    if ($summary_parts === []) {
+      return $description;
+    }
+
+    return trim($description . ' ' . implode(' ', $summary_parts));
+  }
+
+  /**
+   * Heuristically determines whether a stored description reads as complete text.
+   */
+  protected function hasCompleteSpellDescription(string $description): bool {
+    $description = trim($description);
+    if ($description === '') {
+      return FALSE;
+    }
+
+    if (preg_match('/[.!?][\'")\]]?$/u', $description)) {
+      return TRUE;
+    }
+
+    return mb_strlen($description) >= 160;
   }
 
   /**
@@ -467,9 +674,15 @@ class SpellCatalogService {
       $spell['traditions'] = $traditions;
     }
 
-    if (!isset($spell['description']) && !empty($schema['description_snippet'])) {
+    $description = trim((string) ($spell['description'] ?? ''));
+    if (!$this->hasCompleteSpellDescription($description) && !empty($schema['description_snippet'])) {
       $spell['description'] = (string) $schema['description_snippet'];
     }
+    $spell['description'] = $this->appendSpellOutcomeSummary(
+      (string) ($spell['description'] ?? ''),
+      $spell,
+      (string) ($spell['name'] ?? $row->name ?? '')
+    );
 
     return $spell['id'] !== '' ? $spell : NULL;
   }

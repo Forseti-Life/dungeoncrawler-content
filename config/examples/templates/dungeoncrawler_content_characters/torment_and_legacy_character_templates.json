@@ -18,6 +18,24 @@
       },
       "location_type": "global",
       "location_ref": ""
+    },
+    {
+      "character_id": 4302,
+      "instance_id": "tal-mission-handler",
+      "type": "npc",
+      "uid": 1,
+      "role": "npc",
+      "state_data": {
+        "name": "Venture-Captain Celia Arvanxi",
+        "class": "patron",
+        "level": 2,
+        "hp_current": 22,
+        "conditions": [],
+        "source_module": "torment-and-legacy",
+        "description": "A Pathfinder handler who can brief new recruits on the opening mission and trusts Eldric to send promising adventurers."
+      },
+      "location_type": "global",
+      "location_ref": ""
     }
   ]
 }

@@ -23,6 +23,8 @@
  * - 10056: Storyline asset-link storage and template refresh
  * - 10057: Import Little Trouble asset templates into the library
  * - 10058: Import remaining bundled module asset templates into the library
+ * - 10059: Relationship template/runtime storage and default NPC relationship import
+ * - 10062: Structured room turn troubleshooting logs
  *
  * @see dungeoncrawler_content_schema()
  */
@@ -275,7 +277,7 @@ function dungeoncrawler_content_schema() {
       ],
       'entity_ref' => [
         'type' => 'varchar',
-        'length' => 128,
+        'length' => 768,
         'not null' => FALSE,
         'description' => 'External reference (character/content id).',
       ],
@@ -290,6 +292,13 @@ function dungeoncrawler_content_schema() {
         'length' => 32,
         'not null' => FALSE,
         'description' => 'Team designation (player/enemy/ally/neutral).',
+      ],
+      'status' => [
+        'type' => 'varchar',
+        'length' => 16,
+        'not null' => TRUE,
+        'default' => 'active',
+        'description' => 'Participant state (active, defeated, dead).',
       ],
       'initiative' => [
         'type' => 'int',
@@ -2556,6 +2565,64 @@ function dungeoncrawler_content_schema() {
     ],
   ];
 
+  $schema['dungeoncrawler_content_relationships'] = [
+    'description' => 'Library-default relationship templates between NPCs, contacts, and storyline brokers.',
+    'fields' => [
+      'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE, 'description' => 'Primary key.'],
+      'relationship_id' => ['type' => 'varchar', 'length' => 191, 'not null' => TRUE, 'description' => 'Stable relationship template identifier.'],
+      'source_type' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE, 'description' => 'Source entity type.'],
+      'source_id' => ['type' => 'varchar', 'length' => 191, 'not null' => TRUE, 'description' => 'Source entity identifier.'],
+      'target_type' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE, 'description' => 'Target entity type.'],
+      'target_id' => ['type' => 'varchar', 'length' => 191, 'not null' => TRUE, 'description' => 'Target entity identifier.'],
+      'relationship_type' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE, 'description' => 'Directed relationship type.'],
+      'attitude' => ['type' => 'varchar', 'length' => 16, 'not null' => TRUE, 'default' => 'indifferent', 'description' => 'Default PF2e-style attitude.'],
+      'status' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => 'known', 'description' => 'Template relationship status.'],
+      'notes' => ['type' => 'text', 'not null' => FALSE, 'description' => 'Optional narrative notes.'],
+      'relationship_data' => ['type' => 'text', 'size' => 'big', 'not null' => FALSE, 'description' => 'JSON metadata for default relationship state.'],
+      'created' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Created timestamp.'],
+      'updated' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Updated timestamp.'],
+    ],
+    'primary key' => ['id'],
+    'unique keys' => [
+      'relationship_id' => ['relationship_id'],
+    ],
+    'indexes' => [
+      'source_lookup' => ['source_type', 'source_id'],
+      'target_lookup' => ['target_type', 'target_id'],
+      'relationship_type' => ['relationship_type'],
+    ],
+  ];
+
+  $schema['dc_campaign_relationships'] = [
+    'description' => 'Campaign-specific runtime relationship graph seeded from library defaults and modified in play.',
+    'fields' => [
+      'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE, 'description' => 'Primary key.'],
+      'campaign_id' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'description' => 'Owning campaign.'],
+      'relationship_id' => ['type' => 'varchar', 'length' => 191, 'not null' => TRUE, 'description' => 'Deterministic runtime relationship identifier.'],
+      'default_relationship_id' => ['type' => 'varchar', 'length' => 191, 'not null' => FALSE, 'description' => 'Optional originating library relationship id.'],
+      'source_type' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE, 'description' => 'Source entity type.'],
+      'source_id' => ['type' => 'varchar', 'length' => 191, 'not null' => TRUE, 'description' => 'Source entity identifier.'],
+      'target_type' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE, 'description' => 'Target entity type.'],
+      'target_id' => ['type' => 'varchar', 'length' => 191, 'not null' => TRUE, 'description' => 'Target entity identifier.'],
+      'relationship_type' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE, 'description' => 'Directed relationship type.'],
+      'attitude' => ['type' => 'varchar', 'length' => 16, 'not null' => TRUE, 'default' => 'indifferent', 'description' => 'Current PF2e-style attitude.'],
+      'status' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => 'known', 'description' => 'Current runtime status.'],
+      'relationship_state' => ['type' => 'text', 'size' => 'big', 'not null' => FALSE, 'description' => 'JSON runtime metadata for the relationship.'],
+      'created_at' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Created timestamp.'],
+      'updated_at' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Updated timestamp.'],
+    ],
+    'primary key' => ['id'],
+    'unique keys' => [
+      'campaign_relationship' => ['campaign_id', 'relationship_id'],
+    ],
+    'indexes' => [
+      'campaign_source' => ['campaign_id', 'source_type', 'source_id'],
+      'campaign_target' => ['campaign_id', 'target_type', 'target_id'],
+      'campaign_relationship_type' => ['campaign_id', 'relationship_type'],
+      'default_relationship_id' => ['default_relationship_id'],
+    ],
+  ];
+
   $schema['dc_campaign_quests'] = [
     'description' => 'Active quests in campaigns, instantiated from templates.',
     'fields' => [
@@ -2966,6 +3033,31 @@ function dungeoncrawler_content_schema() {
     'indexes' => [
       'status_updated' => ['status', 'updated'],
       'campaign_status' => ['campaign_id', 'status'],
+    ],
+  ];
+
+  $schema['dc_room_turn_logs'] = [
+    'description' => 'Structured troubleshooting log for room conversation turn order and speaker sequencing.',
+    'fields' => [
+      'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE],
+      'campaign_id' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0],
+      'dungeon_id' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => FALSE],
+      'room_id' => ['type' => 'varchar', 'length' => 128, 'not null' => TRUE, 'default' => ''],
+      'channel' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => 'room'],
+      'turn_key' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE, 'default' => ''],
+      'sequence_index' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0],
+      'event_type' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => ''],
+      'actor_ref' => ['type' => 'varchar', 'length' => 255, 'not null' => FALSE],
+      'actor_name' => ['type' => 'varchar', 'length' => 255, 'not null' => FALSE],
+      'message_preview' => ['type' => 'text', 'size' => 'medium', 'not null' => FALSE],
+      'payload_json' => ['type' => 'text', 'size' => 'big', 'not null' => TRUE],
+      'created' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0],
+    ],
+    'primary key' => ['id'],
+    'indexes' => [
+      'campaign_room_created' => ['campaign_id', 'room_id', 'created'],
+      'turn_key_sequence' => ['turn_key', 'sequence_index'],
+      'event_type_created' => ['event_type', 'created'],
     ],
   ];
 
@@ -6647,6 +6739,124 @@ function dungeoncrawler_content_update_10058() {
       '@skipped' => (int) ($summary['table_rows_skipped'] ?? 0),
     ]
   );
+}
+
+/**
+ * Create relationship storage and import default NPC relationship templates.
+ */
+function dungeoncrawler_content_update_10059() {
+  $database = \Drupal::database();
+  $schema = dungeoncrawler_content_schema();
+  $schema_handler = $database->schema();
+  $messages = [];
+
+  foreach ([
+    'dungeoncrawler_content_relationships',
+    'dc_campaign_relationships',
+  ] as $table_name) {
+    if (!$schema_handler->tableExists($table_name)) {
+      $schema_handler->createTable($table_name, $schema[$table_name]);
+      $messages[] = "Created {$table_name}.";
+    }
+  }
+
+  /** @var \Drupal\dungeoncrawler_content\Service\TemplateImportService $importer */
+  $importer = \Drupal::service('dungeoncrawler_content.template_importer');
+  $summary = $importer->importTemplateFiles([
+    'dungeoncrawler_content_storylines' => ['default_storyline_templates.json'],
+    'dungeoncrawler_content_characters' => [
+      'threshold_of_knowledge_character_templates.json',
+      'torment_and_legacy_character_templates.json',
+    ],
+    'dungeoncrawler_content_relationships' => ['default_relationship_templates.json'],
+  ]);
+
+  $messages[] = t(
+    'Relationship import complete. Processed: @processed, inserted: @inserted, updated: @updated, skipped: @skipped.',
+    [
+      '@processed' => (int) ($summary['table_rows_processed'] ?? 0),
+      '@inserted' => (int) ($summary['table_rows_inserted'] ?? 0),
+      '@updated' => (int) ($summary['table_rows_updated'] ?? 0),
+      '@skipped' => (int) ($summary['table_rows_skipped'] ?? 0),
+    ]
+  );
+
+  return implode(' ', array_map('strval', $messages));
+}
+
+/**
+ * Backfill the combat damage log table for older installs.
+ */
+function dungeoncrawler_content_update_10060() {
+  $database = \Drupal::database();
+  $schema = dungeoncrawler_content_schema();
+  $schema_handler = $database->schema();
+
+  if ($schema_handler->tableExists('combat_damage_log')) {
+    return t('combat_damage_log already exists.');
+  }
+
+  $schema_handler->createTable('combat_damage_log', $schema['combat_damage_log']);
+  return t('Created combat_damage_log.');
+}
+
+/**
+ * Backfill combat_participants schema drift for status and entity_ref size.
+ */
+function dungeoncrawler_content_update_10061() {
+  $database = \Drupal::database();
+  $schema = dungeoncrawler_content_schema();
+  $schema_handler = $database->schema();
+  $messages = [];
+
+  if (!$schema_handler->tableExists('combat_participants')) {
+    $schema_handler->createTable('combat_participants', $schema['combat_participants']);
+    return t('Created combat_participants.');
+  }
+
+  if (!$schema_handler->fieldExists('combat_participants', 'status')) {
+    $schema_handler->addField('combat_participants', 'status', $schema['combat_participants']['fields']['status']);
+    $database->update('combat_participants')
+      ->fields(['status' => 'active'])
+      ->isNull('status')
+      ->execute();
+    $messages[] = 'Added combat_participants.status.';
+  }
+
+  $driver = method_exists($database, 'databaseType')
+    ? (string) $database->databaseType()
+    : (string) (($database->getConnectionOptions()['driver'] ?? ''));
+  if (in_array($driver, ['mysql', 'mysqli'], TRUE)) {
+    $database->query('ALTER TABLE {combat_participants} MODIFY entity_ref VARCHAR(768) NULL');
+    $messages[] = 'Expanded combat_participants.entity_ref to 768 chars.';
+  }
+  else {
+    $schema_handler->changeField(
+      'combat_participants',
+      'entity_ref',
+      'entity_ref',
+      $schema['combat_participants']['fields']['entity_ref']
+    );
+    $messages[] = 'Expanded combat_participants.entity_ref via schema API.';
+  }
+
+  return t(implode(' ', $messages));
+}
+
+/**
+ * Create structured room turn troubleshooting logs.
+ */
+function dungeoncrawler_content_update_10062() {
+  $database = \Drupal::database();
+  $schema = dungeoncrawler_content_schema();
+  $schema_handler = $database->schema();
+
+  if ($schema_handler->tableExists('dc_room_turn_logs')) {
+    return t('dc_room_turn_logs already exists.');
+  }
+
+  $schema_handler->createTable('dc_room_turn_logs', $schema['dc_room_turn_logs']);
+  return t('Created dc_room_turn_logs.');
 }
 
 /**

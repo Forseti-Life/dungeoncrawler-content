@@ -154,7 +154,7 @@ class CharacterListController extends ControllerBase {
       '#archived_url' => $campaign_id === NULL
         ? Url::fromRoute('dungeoncrawler_content.characters_archived')->toString()
         : NULL,
-      '#create_campaign_url' => Url::fromRoute('dungeoncrawler_content.campaign_create')->toString(),
+      '#campaigns_url' => Url::fromRoute('dungeoncrawler_content.campaigns')->toString(),
       '#campaign_id' => $campaign_id,
       '#campaign_name' => $campaign_name,
       '#attached' => [

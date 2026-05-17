@@ -60,6 +60,35 @@
             "scene_id": "recover-the-trimmer"
           }
         ],
+        "contacts": [
+          {
+            "contact_id": "eldric-broker",
+            "entity_type": "campaign_npc",
+            "entity_id": "npc_tavern_keeper",
+            "role": "broker",
+            "display_name": "Eldric",
+            "attitude": "friendly",
+            "notes": "Eldric knows the upstairs grandmother who needs help recovering a magical hedge trimmer.",
+            "introduces_to": [
+              {
+                "entity_type": "npc_template",
+                "entity_id": "ltba-grandmother",
+                "relationship_type": "knows",
+                "attitude": "friendly",
+                "display_name": "The Kind Old Lady"
+              }
+            ]
+          },
+          {
+            "contact_id": "ltba-grandmother-contact",
+            "entity_type": "npc_template",
+            "entity_id": "ltba-grandmother",
+            "role": "quest_giver",
+            "display_name": "The Kind Old Lady",
+            "attitude": "friendly",
+            "notes": "She asks the kobolds to recover her magical hedge trimmer."
+          }
+        ],
         "chapters": [
           {
             "chapter_id": "the-tomb",
@@ -133,10 +162,55 @@
           },
           {
             "asset_type": "npc",
+            "asset_id": "tok-campus-mentor",
+            "asset_role": "quest-giver",
+            "chapter_id": "magaambya-campus",
+            "scene_id": "missing-teacher"
+          },
+          {
+            "asset_type": "npc",
             "asset_id": "tok-missing-teacher",
             "asset_role": "primary-mystery-target",
             "chapter_id": "magaambya-campus",
             "scene_id": "missing-teacher"
+          }
+        ],
+        "contacts": [
+          {
+            "contact_id": "eldric-broker",
+            "entity_type": "campaign_npc",
+            "entity_id": "npc_tavern_keeper",
+            "role": "broker",
+            "display_name": "Eldric",
+            "attitude": "friendly",
+            "notes": "Eldric knows a Magaambya mentor who is looking for discreet help from capable adventurers.",
+            "introduces_to": [
+              {
+                "entity_type": "npc_template",
+                "entity_id": "tok-campus-mentor",
+                "relationship_type": "knows",
+                "attitude": "friendly",
+                "display_name": "Okoro of the Open Palm"
+              }
+            ]
+          },
+          {
+            "contact_id": "tok-campus-mentor-contact",
+            "entity_type": "npc_template",
+            "entity_id": "tok-campus-mentor",
+            "role": "quest_giver",
+            "display_name": "Okoro of the Open Palm",
+            "attitude": "friendly",
+            "notes": "Okoro briefs the party on the missing teacher and opens the Magaambya investigation."
+          },
+          {
+            "contact_id": "tok-missing-teacher-contact",
+            "entity_type": "npc_template",
+            "entity_id": "tok-missing-teacher",
+            "role": "mystery_target",
+            "display_name": "Missing Magaambya Teacher",
+            "attitude": "indifferent",
+            "notes": "The missing teacher is the person the party is trying to find."
           }
         ],
         "chapters": [
@@ -210,6 +284,43 @@
             "asset_role": "tutorial-combat",
             "chapter_id": "onboarding",
             "scene_id": "first-engagement"
+          }
+          ,
+          {
+            "asset_type": "npc",
+            "asset_id": "tal-mission-handler",
+            "asset_role": "quest-giver",
+            "chapter_id": "onboarding",
+            "scene_id": "briefing"
+          }
+        ],
+        "contacts": [
+          {
+            "contact_id": "eldric-broker",
+            "entity_type": "campaign_npc",
+            "entity_id": "npc_tavern_keeper",
+            "role": "broker",
+            "display_name": "Eldric",
+            "attitude": "friendly",
+            "notes": "Eldric can put the party in touch with a Pathfinder handler looking for recruits.",
+            "introduces_to": [
+              {
+                "entity_type": "npc_template",
+                "entity_id": "tal-mission-handler",
+                "relationship_type": "knows",
+                "attitude": "friendly",
+                "display_name": "Venture-Captain Celia Arvanxi"
+              }
+            ]
+          },
+          {
+            "contact_id": "tal-mission-handler-contact",
+            "entity_type": "npc_template",
+            "entity_id": "tal-mission-handler",
+            "role": "quest_giver",
+            "display_name": "Venture-Captain Celia Arvanxi",
+            "attitude": "friendly",
+            "notes": "Celia briefs the party on the opening mission and launches the tutorial storyline."
           }
         ],
         "chapters": [

@@ -85,10 +85,10 @@ class FocusSpellCatalogController extends ControllerBase {
     $focus_class = $this->inferFocusClass($spell);
     $book_code = $this->normalizeSourceBookCode((string) ($spell['source_book'] ?? ''));
 
-    $entry = $spell + [
+    $entry = array_merge($spell, [
       'class' => $focus_class,
       'source_book' => $book_code,
-    ];
+    ]);
 
     if ($focus_class === 'witch') {
       $entry['hex_type'] = !empty($spell['is_cantrip']) ? 'hex_cantrip' : 'regular_hex';

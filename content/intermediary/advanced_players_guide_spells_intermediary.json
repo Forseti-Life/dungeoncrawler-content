@@ -1555,102 +1555,8 @@
     },
     {
       "content_type": "spell",
-      "content_id": "curse_of_lost_time",
-      "name": "Curse of Lost Time",
-      "level": 1,
-      "rarity": "common",
-      "tags": [
-        "divine",
-        "none",
-        "primal",
-        "transmutation"
-      ],
-      "schema_data": {
-        "id": "curse_of_lost_time",
-        "name": "Curse of Lost Time",
-        "rank": 1,
-        "is_cantrip": false,
-        "spell_type": "spell",
-        "school": "transmutation",
-        "rarity": "common",
-        "traditions": [
-          "divine",
-          "primal"
-        ],
-        "traits": [
-          "none"
-        ],
-        "cast": "none",
-        "cast_actions": "none",
-        "components": [
-          "none"
-        ],
-        "range": "none",
-        "area": "none",
-        "targets": "none",
-        "duration": "none",
-        "save": "none",
-        "save_type": "none",
-        "trigger": "none",
-        "requirements": "none",
-        "cost": "none",
-        "primary_check": "none",
-        "secondary_casters": "none",
-        "description": "Artificially erode",
-        "description_snippet": "Artificially erode",
-        "heightened": [
-          {
-            "label": "none",
-            "type": "none",
-            "text": "No explicit heightened entry."
-          }
-        ],
-        "heightened_scaling": [
-          {
-            "label": "none",
-            "type": "none",
-            "text": "No explicit heightened entry."
-          }
-        ],
-        "damage": [
-          {
-            "formula": "none",
-            "type": "none",
-            "persistent": false
-          }
-        ],
-        "damage_type": [
-          "none"
-        ],
-        "effects": {
-          "description": "",
-          "outcomes": {}
-        },
-        "conditions_caused": [
-          "none"
-        ],
-        "focus_class": "none",
-        "focus_domain": "none",
-        "summon_level_cap_table": "none",
-        "source_book": "advanced_players_guide",
-        "source_display": "Advanced Player's Guide",
-        "source_file": "PF2E Advanced Players Guide.txt",
-        "source_line_start": "none",
-        "source_line_end": "none",
-        "raw_text_block": "none",
-        "parser_version": "apg-raw-text-v1",
-        "extraction_confidence": "medium",
-        "quarantine_reasons": [
-          "none"
-        ]
-      },
-      "source_file": "intermediary/PF2E Advanced Players Guide.txt",
-      "version": "apg-raw-text-v1"
-    },
-    {
-      "content_type": "spell",
-      "content_id": "brain-drain",
-      "name": "Brain Drain",
+      "content_id": "cursebound",
+      "name": "Cursebound",
       "level": 1,
       "rarity": "common",
       "tags": [
@@ -1659,8 +1565,8 @@
         "mental"
       ],
       "schema_data": {
-        "id": "brain-drain",
-        "name": "Brain Drain",
+        "id": "cursebound",
+        "name": "Cursebound",
         "rank": 1,
         "is_cantrip": false,
         "spell_type": "focus",
@@ -1743,8 +1649,8 @@
     },
     {
       "content_type": "spell",
-      "content_id": "incendiary-aura",
-      "name": "Incendiary Aura",
+      "content_id": "cursebound",
+      "name": "Cursebound",
       "level": 1,
       "rarity": "common",
       "tags": [
@@ -1753,8 +1659,8 @@
         "fire"
       ],
       "schema_data": {
-        "id": "incendiary-aura",
-        "name": "Incendiary Aura",
+        "id": "cursebound",
+        "name": "Cursebound",
         "rank": 1,
         "is_cantrip": false,
         "spell_type": "focus",
@@ -1837,8 +1743,8 @@
     },
     {
       "content_type": "spell",
-      "content_id": "soul-siphon",
-      "name": "Soul Siphon",
+      "content_id": "cursebound",
+      "name": "Cursebound",
       "level": 1,
       "rarity": "common",
       "tags": [
@@ -1847,8 +1753,8 @@
         "negative"
       ],
       "schema_data": {
-        "id": "soul-siphon",
-        "name": "Soul Siphon",
+        "id": "cursebound",
+        "name": "Cursebound",
         "rank": 1,
         "is_cantrip": false,
         "spell_type": "focus",
@@ -2315,16 +2221,16 @@
     },
     {
       "content_type": "spell",
-      "content_id": "elemental-betrayal",
-      "name": "Elemental Betrayal",
+      "content_id": "hex",
+      "name": "Hex",
       "level": 1,
       "rarity": "common",
       "tags": [
         "none"
       ],
       "schema_data": {
-        "id": "elemental-betrayal",
-        "name": "Elemental Betrayal",
+        "id": "hex",
+        "name": "Hex",
         "rank": 1,
         "is_cantrip": false,
         "spell_type": "focus",
@@ -2407,16 +2313,16 @@
     },
     {
       "content_type": "spell",
-      "content_id": "needle-of-vengeance",
-      "name": "Needle of Vengeance",
+      "content_id": "hex",
+      "name": "Hex",
       "level": 1,
       "rarity": "common",
       "tags": [
         "mental"
       ],
       "schema_data": {
-        "id": "needle-of-vengeance",
-        "name": "Needle of Vengeance",
+        "id": "hex",
+        "name": "Hex",
         "rank": 1,
         "is_cantrip": false,
         "spell_type": "focus",
@@ -5645,10 +5551,12 @@
       "level": 2,
       "rarity": "common",
       "tags": [
+        "death",
         "divine",
+        "light",
         "necromancy",
-        "none",
-        "occult"
+        "occult",
+        "primal"
       ],
       "schema_data": {
         "id": "reapers_lantern",
@@ -5660,29 +5568,32 @@
         "rarity": "common",
         "traditions": [
           "divine",
-          "occult"
+          "occult",
+          "primal"
         ],
         "traits": [
-          "none"
+          "death",
+          "light"
         ],
-        "cast": "none",
-        "cast_actions": "none",
+        "cast": "[two-actions] somatic, verbal",
+        "cast_actions": "2_actions",
         "components": [
-          "none"
+          "somatic",
+          "verbal"
         ],
         "range": "none",
-        "area": "none",
+        "area": "5-foot emanation",
         "targets": "none",
-        "duration": "none",
-        "save": "none",
-        "save_type": "none",
+        "duration": "1 minute",
+        "save": "Fortitude",
+        "save_type": "fortitude",
         "trigger": "none",
         "requirements": "none",
         "cost": "none",
         "primary_check": "none",
         "secondary_casters": "none",
-        "description": "A ghostly lantern",
-        "description_snippet": "A ghostly lantern",
+        "description": "You call forth a ghostly lantern that hampers healing for the living and weakens undead in its glow. The lantern sheds light around you, and you can expand its emanation over time.",
+        "description_snippet": "A ghostly lantern weakens the living and the undead differently.",
         "heightened": [
           {
             "label": "none",
@@ -5708,8 +5619,11 @@
           "none"
         ],
         "effects": {
-          "description": "",
-          "outcomes": {}
+          "description": "You call forth a ghostly lantern that hampers healing for the living and weakens undead in its glow. The lantern sheds light around you, and you can expand its emanation over time.",
+          "outcomes": {
+            "failure_living": "Living creatures gain only half the normal benefit from healing effects while within the area.",
+            "failure_undead": "Undead targets become enfeebled 1 while within the area."
+          }
         },
         "conditions_caused": [
           "none"
@@ -5720,9 +5634,9 @@
         "source_book": "advanced_players_guide",
         "source_display": "Advanced Player's Guide",
         "source_file": "PF2E Advanced Players Guide.txt",
-        "source_line_start": "none",
-        "source_line_end": "none",
-        "raw_text_block": "none",
+        "source_line_start": 31594,
+        "source_line_end": 31636,
+        "raw_text_block": "REAPER'S LANTERN\nDEATH\nLIGHT\nSPELL 2\nNECROMANCY\nTraditions divine, occult, primal\nCast [two-actions] somatic, verbal\nArea 5-foot emanation\nSaving Throw Fortitude; Duration 1 minute\nYou call forth a ghostly lantern that guides the living toward death and the undead toward true death. It sheds bright light in the spell's area, and dim light to twice that area. Though the lantern is insubstantial, you must keep a hand free to hold it or the spell ends.\nLiving creatures and undead in the area when you Cast the Spell, or that enter the area later, must attempt Fortitude saves. Living creatures that fail their Fortitude saves gain only half the normal benefit from healing effects while within the area. Undead targets that fail their Fortitude saves become enfeebled 1 while within the area.\nOnce per turn, starting on the turn after you cast reaper's lantern, you can use a single action with the concentrate trait to increase the emanation's radius by 5 feet. When you do so, you force creatures in the area that haven't yet attempted a save against reaper's lantern to attempt one.",
         "parser_version": "apg-raw-text-v1",
         "extraction_confidence": "medium",
         "quarantine_reasons": [
@@ -6322,8 +6236,109 @@
     },
     {
       "content_type": "spell",
-      "content_id": "access-lore",
-      "name": "Access Lore",
+      "content_id": "curse_of_lost_time",
+      "name": "Curse of Lost Time",
+      "level": 3,
+      "rarity": "common",
+      "tags": [
+        "arcane",
+        "curse",
+        "negative",
+        "occult",
+        "primal",
+        "transmutation"
+      ],
+      "schema_data": {
+        "id": "curse_of_lost_time",
+        "name": "Curse of Lost Time",
+        "rank": 3,
+        "is_cantrip": false,
+        "spell_type": "spell",
+        "school": "transmutation",
+        "rarity": "common",
+        "traditions": [
+          "arcane",
+          "occult",
+          "primal"
+        ],
+        "traits": [
+          "curse",
+          "negative"
+        ],
+        "cast": "[two-actions] somatic, verbal",
+        "cast_actions": "2_actions",
+        "components": [
+          "somatic",
+          "verbal"
+        ],
+        "range": "touch",
+        "area": "none",
+        "targets": "1 Large or smaller object, construct, or living creature",
+        "duration": "varies",
+        "save": "Fortitude",
+        "save_type": "fortitude",
+        "trigger": "none",
+        "requirements": "none",
+        "cost": "none",
+        "primary_check": "none",
+        "secondary_casters": "none",
+        "description": "You mimic the process of aging or erosion on the target. The effect depends on whether the target is an object, a construct, or a living creature. Attended objects can be protected by their bearer's Fortitude save, while constructs and living creatures are debilitated when they fail.",
+        "description_snippet": "Artificially erode or age a target.",
+        "heightened": [
+          {
+            "label": "+1",
+            "type": "step",
+            "step": 1,
+            "text": "The damage increases by 1d6."
+          }
+        ],
+        "heightened_scaling": [
+          {
+            "label": "+1",
+            "type": "step",
+            "step": 1,
+            "text": "The damage increases by 1d6."
+          }
+        ],
+        "damage": [
+          {
+            "formula": "none",
+            "type": "none",
+            "persistent": false
+          }
+        ],
+        "damage_type": [
+          "none"
+        ],
+        "effects": {
+          "description": "You mimic the process of aging or erosion on the target. The effect depends on whether the target is an object, a construct, or a living creature. Attended objects can be protected by their bearer's Fortitude save, while constructs and living creatures are debilitated when they fail.",
+          "outcomes": {}
+        },
+        "conditions_caused": [
+          "none"
+        ],
+        "focus_class": "none",
+        "focus_domain": "none",
+        "summon_level_cap_table": "none",
+        "source_book": "advanced_players_guide",
+        "source_display": "Advanced Player's Guide",
+        "source_file": "PF2E Advanced Players Guide.txt",
+        "source_line_start": 30724,
+        "source_line_end": 30748,
+        "raw_text_block": "CURSE OF LOST TIME\nCURSE\nNEGATIVE\nSPELL 3\nTRANSMUTATION\nTraditions arcane, occult, primal\nCast [two-actions] somatic, verbal\nRange touch; Targets 1 Large or smaller object, construct, or living creature\nSaving Throw Fortitude; Duration varies\nYou mimic the process of aging or erosion on the target. The effect depends on whether the target is an object, a construct, or a living creature. Artifacts and objects and constructs made of precious materials, as determined by the GM, are immune.\nObject If the object is attended, its bearer can attempt a Fortitude save. If the bearer fails or the object is unattended, the object immediately takes 4d6 damage (applying Hardness normally) and the item is cursed with an unlimited duration.\nConstruct The construct takes 4d6 damage (basic Fortitude save). On a failure, for 1 hour the construct is clumsy 1, is enfeebled 1, and can't be Repaired.\nLiving Creature The living creature must attempt a Fortitude save. Ageless creatures are immune. Success The living creature briefly ages, becoming clumsy 1 and enfeebled 1 for 1 round. Failure As success, with a duration of 1 hour. Critical Failure As success, with an unlimited duration.\nHeightened (+1) The damage increases by 1d6.",
+        "parser_version": "apg-raw-text-v1",
+        "extraction_confidence": "medium",
+        "quarantine_reasons": [
+          "none"
+        ]
+      },
+      "source_file": "intermediary/PF2E Advanced Players Guide.txt",
+      "version": "apg-raw-text-v1"
+    },
+    {
+      "content_type": "spell",
+      "content_id": "cursebound",
+      "name": "Cursebound",
       "level": 3,
       "rarity": "common",
       "tags": [
@@ -6332,8 +6347,8 @@
         "fortune"
       ],
       "schema_data": {
-        "id": "access-lore",
-        "name": "Access Lore",
+        "id": "cursebound",
+        "name": "Cursebound",
         "rank": 3,
         "is_cantrip": false,
         "spell_type": "focus",
@@ -6414,8 +6429,8 @@
     },
     {
       "content_type": "spell",
-      "content_id": "armor-of-bones",
-      "name": "Armor of Bones",
+      "content_id": "cursebound",
+      "name": "Cursebound",
       "level": 3,
       "rarity": "common",
       "tags": [
@@ -6424,8 +6439,8 @@
         "none"
       ],
       "schema_data": {
-        "id": "armor-of-bones",
-        "name": "Armor of Bones",
+        "id": "cursebound",
+        "name": "Cursebound",
         "rank": 3,
         "is_cantrip": false,
         "spell_type": "focus",
@@ -6508,8 +6523,8 @@
     },
     {
       "content_type": "spell",
-      "content_id": "battlefield-persistence",
-      "name": "Battlefield Persistence",
+      "content_id": "cursebound",
+      "name": "Cursebound",
       "level": 3,
       "rarity": "common",
       "tags": [
@@ -6517,8 +6532,8 @@
         "divine"
       ],
       "schema_data": {
-        "id": "battlefield-persistence",
-        "name": "Battlefield Persistence",
+        "id": "cursebound",
+        "name": "Cursebound",
         "rank": 3,
         "is_cantrip": false,
         "spell_type": "focus",
@@ -6599,8 +6614,8 @@
     },
     {
       "content_type": "spell",
-      "content_id": "delay-affliction",
-      "name": "Delay Affliction",
+      "content_id": "cursebound",
+      "name": "Cursebound",
       "level": 3,
       "rarity": "common",
       "tags": [
@@ -6610,8 +6625,8 @@
         "positive"
       ],
       "schema_data": {
-        "id": "delay-affliction",
-        "name": "Delay Affliction",
+        "id": "cursebound",
+        "name": "Cursebound",
         "rank": 3,
         "is_cantrip": false,
         "spell_type": "focus",
@@ -7099,15 +7114,16 @@
         "traits": [
           "none"
         ],
-        "cast": "none",
-        "cast_actions": "none",
+        "cast": "[two-actions] somatic, verbal",
+        "cast_actions": "2_actions",
         "components": [
-          "none"
+          "somatic",
+          "verbal"
         ],
-        "range": "none",
-        "area": "none",
+        "range": "30 feet",
+        "area": "5-foot burst",
         "targets": "none",
-        "duration": "none",
+        "duration": "sustained up to 1 minute",
         "save": "none",
         "save_type": "none",
         "trigger": "none",
@@ -7115,8 +7131,8 @@
         "cost": "none",
         "primary_check": "none",
         "secondary_casters": "none",
-        "description": "Monkey spirits",
-        "description_snippet": "Monkey spirits",
+        "description": "Magical monkey spirits fill the area as they pile and climb on top of one another. Because the monkeys are magical spirits, they can't be attacked or hurt. Casting calm emotions or a similar effect over the monkeys makes them docile, causing them to cease making mischief for the duration of mad monkeys. Choose the kind of mischief your monkeys make when you Cast the Spell. They produce the effect listed for that mischief when you Cast the Spell and each round when you Sustain the Spell. When you Sustain the Spell, you can move the area of the monkeys by 5 feet. • Flagrant Burglary The monkeys try to Steal any one item from one creature in the area. Use your spell DC - 10 as the monkeys' Thievery modifier. Their attempt relies more on distraction than subtlety, so the victim knows what item the monkeys were trying to take and whether it was taken. Getting a stolen item from the monkeys— even for the caster—requires Stealing it from them or Disarming them, using your spell DC. When the spell ends, any stolen items fall to the ground in any square of the spell's area you choose. • Raucous Din The monkeys screech loudly, potentially deafening creatures in the spell's area. Each creature in the spell's area must attempt a Fortitude save.",
+        "description_snippet": "Magical monkey spirits fill the area as they pile and climb on top of one another. Because the monkeys are magical spirits, they can't be attacked or hurt. Casting calm emotions or",
         "heightened": [
           {
             "label": "none",
@@ -7142,8 +7158,13 @@
           "none"
         ],
         "effects": {
-          "description": "",
-          "outcomes": {}
+          "description": "Magical monkey spirits fill the area as they pile and climb on top of one another. Because the monkeys are magical spirits, they can't be attacked or hurt. Casting calm emotions or a similar effect over the monkeys makes them docile, causing them to cease making mischief for the duration of mad monkeys. Choose the kind of mischief your monkeys make when you Cast the Spell. They produce the effect listed for that mischief when you Cast the Spell and each round when you Sustain the Spell. When you Sustain the Spell, you can move the area of the monkeys by 5 feet. • Flagrant Burglary The monkeys try to Steal any one item from one creature in the area. Use your spell DC - 10 as the monkeys' Thievery modifier. Their attempt relies more on distraction than subtlety, so the victim knows what item the monkeys were trying to take and whether it was taken. Getting a stolen item from the monkeys— even for the caster—requires Stealing it from them or Disarming them, using your spell DC. When the spell ends, any stolen items fall to the ground in any square of the spell's area you choose. • Raucous Din The monkeys screech loudly, potentially deafening creatures in the spell's area. Each creature in the spell's area must attempt a Fortitude save.",
+          "outcomes": {
+            "Critical Success": "The creature is unaffected and is temporarily immune for 10 minutes.",
+            "Success": "The creature is unaffected.",
+            "Failure": "For 1 round, the creature must succeed at a DC 5 flat check whenever it attempts a manipulate action. If it fails this check, the creature loses that action.",
+            "Critical Failure": "As failure, but the monkeys cling to the creature tenaciously, and the effect lasts until the spell ends, even if the creature leaves the spell's area. SPELL 3 CONJURATION"
+          }
         },
         "conditions_caused": [
           "none"
@@ -7154,11 +7175,11 @@
         "source_book": "advanced_players_guide",
         "source_display": "Advanced Player's Guide",
         "source_file": "PF2E Advanced Players Guide.txt",
-        "source_line_start": "none",
-        "source_line_end": "none",
-        "raw_text_block": "none",
+        "source_line_start": 31122,
+        "source_line_end": 31169,
+        "raw_text_block": "MAD MONKEYS\nTraditions primal\nCast [two-actions] somatic, verbal\nRange 30 feet; Area 5-foot burst\nDuration sustained up to 1 minute\nMagical monkey spirits fill the area as they pile and climb on top\nof one another. Because the monkeys are magical spirits, they\ncan't be attacked or hurt. Casting calm emotions or a similar\neffect over the monkeys makes them docile, causing them to\ncease making mischief for the duration of mad monkeys.\nChoose the kind of mischief your monkeys make when you\nCast the Spell. They produce the effect listed for that mischief\nwhen you Cast the Spell and each round when you Sustain the\nSpell. When you Sustain the Spell, you can move the area of\nthe monkeys by 5 feet.\n• Flagrant Burglary The monkeys try to Steal any one item\nfrom one creature in the area. Use your spell DC - 10\nas the monkeys' Thievery modifier. Their attempt relies\nmore on distraction than subtlety, so the victim knows\nwhat item the monkeys were trying to take and whether\nit was taken. Getting a stolen item from the monkeys—\neven for the caster—requires Stealing it from them or\nDisarming them, using your spell DC. When the spell\nends, any stolen items fall to the ground in any square of\nthe spell's area you choose.\n• Raucous Din The monkeys screech loudly, potentially\ndeafening creatures in the spell's area. Each creature in\nthe spell's area must attempt a Fortitude save.\nCritical Success The creature is unaffected and is\ntemporarily immune for 10 minutes.\nSuccess The creature is unaffected.\nFailure The creature is deafened for 1 round.\nCritical Failure The creature is deafened for 1 minute.\n• Tumultuous Gymnastics The monkeys jump and climb\nall over creatures in the spell's area, interfering with\ncomplex movements. Each creature in the spell's area\nmust attempt a Reflex save.\nCritical Success The creature is unaffected and is\ntemporarily immune for 10 minutes.\nSuccess The creature is unaffected.\nFailure For 1 round, the creature must succeed at a DC 5\nflat check whenever it attempts a manipulate action. If\nit fails this check, the creature loses that action.\nCritical Failure As failure, but the monkeys cling to the\ncreature tenaciously, and the effect lasts until the spell\nends, even if the creature leaves the spell's area.\nSPELL 3\nCONJURATION",
         "parser_version": "apg-raw-text-v1",
-        "extraction_confidence": "medium",
+        "extraction_confidence": "high",
         "quarantine_reasons": [
           "none"
         ]
@@ -7369,8 +7390,8 @@
     },
     {
       "content_type": "spell",
-      "content_id": "whirling-flames",
-      "name": "Whirling Flames",
+      "content_id": "oracle",
+      "name": "Oracle",
       "level": 3,
       "rarity": "uncommon",
       "tags": [
@@ -7379,8 +7400,8 @@
         "fire"
       ],
       "schema_data": {
-        "id": "whirling-flames",
-        "name": "Whirling Flames",
+        "id": "oracle",
+        "name": "Oracle",
         "rank": 3,
         "is_cantrip": false,
         "spell_type": "focus",
@@ -8519,8 +8540,8 @@
     },
     {
       "content_type": "spell",
-      "content_id": "debilitating-dichotomy",
-      "name": "Debilitating Dichotomy",
+      "content_id": "cursebound",
+      "name": "Cursebound",
       "level": 4,
       "rarity": "common",
       "tags": [
@@ -8529,8 +8550,8 @@
         "mental"
       ],
       "schema_data": {
-        "id": "debilitating-dichotomy",
-        "name": "Debilitating Dichotomy",
+        "id": "cursebound",
+        "name": "Cursebound",
         "rank": 4,
         "is_cantrip": false,
         "spell_type": "focus",
@@ -8836,8 +8857,8 @@
       "rarity": "common",
       "tags": [
         "conjuration",
-        "none",
-        "occult"
+        "poison",
+        "primal"
       ],
       "schema_data": {
         "id": "fungal_infestation",
@@ -8848,41 +8869,44 @@
         "school": "conjuration",
         "rarity": "common",
         "traditions": [
-          "occult"
+          "primal"
         ],
         "traits": [
-          "none"
+          "poison"
         ],
-        "cast": "none",
-        "cast_actions": "none",
+        "cast": "[two-actions] somatic, verbal",
+        "cast_actions": "2_actions",
         "components": [
-          "none"
+          "somatic",
+          "verbal"
         ],
-        "range": "none",
-        "area": "none",
+        "range": "touch",
+        "area": "15-foot cone",
         "targets": "none",
         "duration": "none",
-        "save": "none",
-        "save_type": "none",
+        "save": "Fortitude",
+        "save_type": "fortitude",
         "trigger": "none",
         "requirements": "none",
         "cost": "none",
         "primary_check": "none",
         "secondary_casters": "none",
-        "description": "Plant poisonous",
-        "description_snippet": "Plant poisonous",
+        "description": "Toxic spores swarm over creatures, causing grotesque fungal growths that deal persistent poison damage and make the victims more vulnerable to fire and slashing.",
+        "description_snippet": "Plant poisonous fungal growths in a creature.",
         "heightened": [
           {
-            "label": "none",
-            "type": "none",
-            "text": "No explicit heightened entry."
+            "label": "+2",
+            "type": "step",
+            "step": 2,
+            "text": "The persistent damage increases by 2d6, and the weakness increases by 1, or by 2 on a critical failure."
           }
         ],
         "heightened_scaling": [
           {
-            "label": "none",
-            "type": "none",
-            "text": "No explicit heightened entry."
+            "label": "+2",
+            "type": "step",
+            "step": 2,
+            "text": "The persistent damage increases by 2d6, and the weakness increases by 1, or by 2 on a critical failure."
           }
         ],
         "damage": [
@@ -8896,8 +8920,13 @@
           "none"
         ],
         "effects": {
-          "description": "",
-          "outcomes": {}
+          "description": "Toxic spores swarm over creatures, causing grotesque fungal growths that deal persistent poison damage and make the victims more vulnerable to fire and slashing.",
+          "outcomes": {
+            "critical_success": "The creature is unaffected.",
+            "success": "The target takes half the persistent poison damage.",
+            "failure": "The target takes the full persistent poison damage and has weakness 1 to fire and slashing while taking it.",
+            "critical_failure": "As failure, but double the persistent poison damage and weakness 2 to fire and slashing."
+          }
         },
         "conditions_caused": [
           "none"
@@ -8908,9 +8937,9 @@
         "source_book": "advanced_players_guide",
         "source_display": "Advanced Player's Guide",
         "source_file": "PF2E Advanced Players Guide.txt",
-        "source_line_start": "none",
-        "source_line_end": "none",
-        "raw_text_block": "none",
+        "source_line_start": 31013,
+        "source_line_end": 31032,
+        "raw_text_block": "FUNGAL INFESTATION\nSPELL 4\nCONJURATION\nPOISON\nTraditions primal\nCast [two-actions] somatic, verbal\nRange touch; Area 15-foot cone\nSaving Throw Fortitude\nToxic spores swarm over creatures in the area, causing them to erupt in grotesque fungal growths. These noxious growths deal 2d6 persistent poison damage, and each creature must attempt a Fortitude save.\nHeightened (+2) The persistent damage increases by 2d6, and the weakness increases by 1, or by 2 on a critical failure.",
         "parser_version": "apg-raw-text-v1",
         "extraction_confidence": "medium",
         "quarantine_reasons": [
@@ -8947,15 +8976,17 @@
         "traits": [
           "none"
         ],
-        "cast": "none",
-        "cast_actions": "none",
+        "cast": "1 minute (material, somatic, verbal)",
+        "cast_actions": "1_minute",
         "components": [
-          "none"
+          "material",
+          "somatic",
+          "verbal"
         ],
         "range": "none",
-        "area": "none",
+        "area": "60-foot emanation",
         "targets": "none",
-        "duration": "none",
+        "duration": "10 minutes",
         "save": "none",
         "save_type": "none",
         "trigger": "none",
@@ -8963,8 +8994,8 @@
         "cost": "none",
         "primary_check": "none",
         "secondary_casters": "none",
-        "description": "Have spirits",
-        "description_snippet": "Have spirits",
+        "description": "This spell compels local spirits to reenact a violent event from the recent past, letting observers investigate the scene for clues at the cost of negative backlash.",
+        "description_snippet": "Have spirits reenact a violent event.",
         "heightened": [
           {
             "label": "none",
@@ -8990,7 +9021,7 @@
           "none"
         ],
         "effects": {
-          "description": "",
+          "description": "This spell compels local spirits to reenact a violent event from the recent past, letting observers investigate the scene for clues at the cost of negative backlash.",
           "outcomes": {}
         },
         "conditions_caused": [
@@ -9002,9 +9033,9 @@
         "source_book": "advanced_players_guide",
         "source_display": "Advanced Player's Guide",
         "source_file": "PF2E Advanced Players Guide.txt",
-        "source_line_start": 30885,
-        "source_line_end": 30890,
-        "raw_text_block": "GHOSTLY TRAGEDY\nSPELL 4\nDIVINATION",
+        "source_line_start": 31053,
+        "source_line_end": 31071,
+        "raw_text_block": "GHOSTLY TRAGEDY\nUNCOMMON\nSPELL 4\nDIVINATION\nTraditions divine, occult\nCast 1 minute (material, somatic, verbal)\nArea 60-foot emanation\nDuration 10 minutes\nThis spell compels local spirits to reenact a violent event of the recent past that you're aware of and name as you Cast the Spell. You take the role of the primary victim. The reenactment plays out the final 9 minutes leading up to the death or injury of the victim and the minute after.\nOnce the scene ends, you take 2d6 negative damage for each ghostly apparition that participated in the scene. Any creature that observed the ghostly recreation can attempt checks to investigate the event.",
         "parser_version": "apg-raw-text-v1",
         "extraction_confidence": "medium",
         "quarantine_reasons": [
@@ -9022,8 +9053,8 @@
       "rarity": "common",
       "tags": [
         "arcane",
+        "cold",
         "evocation",
-        "none",
         "primal"
       ],
       "schema_data": {
@@ -9039,38 +9070,42 @@
           "primal"
         ],
         "traits": [
-          "none"
+          "cold"
         ],
-        "cast": "none",
-        "cast_actions": "none",
+        "cast": "[three-actions] material, somatic, verbal",
+        "cast_actions": "3_actions",
         "components": [
-          "none"
+          "material",
+          "somatic",
+          "verbal"
         ],
-        "range": "none",
-        "area": "none",
+        "range": "120 feet",
+        "area": "5-foot burst",
         "targets": "none",
-        "duration": "none",
-        "save": "none",
-        "save_type": "none",
+        "duration": "1 minute",
+        "save": "basic Reflex",
+        "save_type": "basic_reflex",
         "trigger": "none",
         "requirements": "none",
         "cost": "none",
         "primary_check": "none",
         "secondary_casters": "none",
-        "description": "Call a storm cloud that",
-        "description_snippet": "Call a storm cloud that",
+        "description": "You create a gray storm cloud that pelts creatures with magical hail and continues to fill the area with snow, sleet, concealment, and cold.",
+        "description_snippet": "Call a storm cloud that pelts creatures with an icy deluge.",
         "heightened": [
           {
-            "label": "none",
-            "type": "none",
-            "text": "No explicit heightened entry."
+            "label": "+2",
+            "type": "step",
+            "step": 2,
+            "text": "The initial bludgeoning and cold damage each increase by 1d8, and the end-of-turn cold damage increases by 2."
           }
         ],
         "heightened_scaling": [
           {
-            "label": "none",
-            "type": "none",
-            "text": "No explicit heightened entry."
+            "label": "+2",
+            "type": "step",
+            "step": 2,
+            "text": "The initial bludgeoning and cold damage each increase by 1d8, and the end-of-turn cold damage increases by 2."
           }
         ],
         "damage": [
@@ -9084,7 +9119,7 @@
           "none"
         ],
         "effects": {
-          "description": "",
+          "description": "You create a gray storm cloud that pelts creatures with magical hail and continues to fill the area with snow, sleet, concealment, and cold.",
           "outcomes": {}
         },
         "conditions_caused": [
@@ -9096,9 +9131,9 @@
         "source_book": "advanced_players_guide",
         "source_display": "Advanced Player's Guide",
         "source_file": "PF2E Advanced Players Guide.txt",
-        "source_line_start": "none",
-        "source_line_end": "none",
-        "raw_text_block": "none",
+        "source_line_start": 31361,
+        "source_line_end": 31401,
+        "raw_text_block": "ICE STORM\nSPELL 4\nEVOCATION\nCOLD\nTraditions arcane, primal\nCast [three-actions] material, somatic, verbal\nRange 120 feet; Area 5-foot burst\nSaving Throw basic Reflex; Duration 1 minute\nYou create a gray storm cloud that pelts creatures with an icy deluge. When you Cast the Spell, a burst of magical hail deals 2d8 bludgeoning damage and 2d8 cold damage to each creature in the area below the cloud. Snow and sleet continue to rain down in the area for the remainder of the spell's duration, making the area difficult terrain and causing creatures in the storm to be concealed. Any creature that ends its turn in the storm takes 4 cold damage. If you Cast this Spell outdoors, you can create two non-overlapping clouds instead of one.\nHeightened (+2) The initial bludgeoning damage and cold damage increase by 1d8 each, and the cold damage creatures take at the end of their turns increases by 2.",
         "parser_version": "apg-raw-text-v1",
         "extraction_confidence": "medium",
         "quarantine_reasons": [
@@ -9205,8 +9240,8 @@
     },
     {
       "content_type": "spell",
-      "content_id": "enlarge-companion",
-      "name": "Enlarge Companion",
+      "content_id": "ranger",
+      "name": "Ranger",
       "level": 4,
       "rarity": "common",
       "tags": [
@@ -9214,8 +9249,8 @@
         "transmutation"
       ],
       "schema_data": {
-        "id": "enlarge-companion",
-        "name": "Enlarge Companion",
+        "id": "ranger",
+        "name": "Ranger",
         "rank": 4,
         "is_cantrip": false,
         "spell_type": "focus",
@@ -9277,7 +9312,7 @@
         "conditions_caused": [
           "none"
         ],
-        "focus_class": "ranger",
+        "focus_class": "none",
         "focus_domain": "none",
         "summon_level_cap_table": "none",
         "source_book": "advanced_players_guide",
@@ -9502,16 +9537,16 @@
     },
     {
       "content_type": "spell",
-      "content_id": "clinging-shadows-stance",
-      "name": "Clinging Shadows Stance",
+      "content_id": "shadow",
+      "name": "Shadow",
       "level": 4,
       "rarity": "common",
       "tags": [
         "stance"
       ],
       "schema_data": {
-        "id": "clinging-shadows-stance",
-        "name": "Clinging Shadows Stance",
+        "id": "shadow",
+        "name": "Shadow",
         "rank": 4,
         "is_cantrip": false,
         "spell_type": "focus",
@@ -9572,7 +9607,7 @@
         "conditions_caused": [
           "none"
         ],
-        "focus_class": "monk",
+        "focus_class": "none",
         "focus_domain": "none",
         "summon_level_cap_table": "none",
         "source_book": "advanced_players_guide",
@@ -10440,24 +10475,25 @@
         "traits": [
           "none"
         ],
-        "cast": "none",
-        "cast_actions": "none",
+        "cast": "[two-actions] somatic, verbal",
+        "cast_actions": "2_actions",
         "components": [
-          "none"
+          "somatic",
+          "verbal"
         ],
-        "range": "none",
+        "range": "60 feet",
         "area": "none",
-        "targets": "none",
+        "targets": "1 corporeal creature",
         "duration": "none",
-        "save": "none",
-        "save_type": "none",
+        "save": "basic Fortitude",
+        "save_type": "basic_fortitude",
         "trigger": "none",
         "requirements": "none",
         "cost": "none",
         "primary_check": "none",
         "secondary_casters": "none",
-        "description": "A creature grows",
-        "description_snippet": "A creature grows",
+        "description": "This gruesome spell causes a target to erupt with excess limbs and organs, dealing piercing damage unless it resists the transformation.",
+        "description_snippet": "A creature grows excess limbs and organs.",
         "heightened": [
           {
             "label": "none",
@@ -10483,7 +10519,7 @@
           "none"
         ],
         "effects": {
-          "description": "",
+          "description": "This gruesome spell causes a target to erupt with excess limbs and organs, dealing piercing damage unless it resists the transformation.",
           "outcomes": {}
         },
         "conditions_caused": [
@@ -10495,9 +10531,9 @@
         "source_book": "advanced_players_guide",
         "source_display": "Advanced Player's Guide",
         "source_file": "PF2E Advanced Players Guide.txt",
-        "source_line_start": "none",
-        "source_line_end": "none",
-        "raw_text_block": "none",
+        "source_line_start": 31127,
+        "source_line_end": 31137,
+        "raw_text_block": "GRISLY GROWTHS\nSPELL 5\nTRANSMUTATION\nTraditions arcane, primal\nCast [two-actions] somatic, verbal\nRange 60 feet; Targets 1 corporeal creature\nSaving Throw basic Fortitude\nThis gruesome spell causes the target to grow excess limbs and organs, whether it be fingers multiplying until hands resemble bushes, eyes popping open in bizarre places, legs sprouting from the side of the body, or some other result. The target takes 10d6 piercing damage (basic Fortitude save) as the new features erupt.",
         "parser_version": "apg-raw-text-v1",
         "extraction_confidence": "medium",
         "quarantine_reasons": [
@@ -11193,16 +11229,16 @@
     },
     {
       "content_type": "spell",
-      "content_id": "consuming-darkness",
-      "name": "Consuming Darkness",
+      "content_id": "shadow",
+      "name": "Shadow",
       "level": 5,
       "rarity": "common",
       "tags": [
         "none"
       ],
       "schema_data": {
-        "id": "consuming-darkness",
-        "name": "Consuming Darkness",
+        "id": "shadow",
+        "name": "Shadow",
         "rank": 5,
         "is_cantrip": false,
         "spell_type": "focus",
@@ -11511,24 +11547,26 @@
         "traits": [
           "none"
         ],
-        "cast": "none",
-        "cast_actions": "none",
+        "cast": "[three-actions] material, somatic, verbal",
+        "cast_actions": "3_actions",
         "components": [
-          "none"
+          "material",
+          "somatic",
+          "verbal"
         ],
-        "range": "none",
-        "area": "none",
+        "range": "60 feet",
+        "area": "4 cubes, each 10 feet on a side",
         "targets": "none",
-        "duration": "none",
-        "save": "none",
-        "save_type": "none",
+        "duration": "1 minute",
+        "save": "Will",
+        "save_type": "will",
         "trigger": "none",
         "requirements": "none",
         "cost": "none",
         "primary_check": "none",
         "secondary_casters": "none",
-        "description": "Confoundingly",
-        "description_snippet": "Confoundingly",
+        "description": "You cause the areas to appear to swell, bend, and break, twisting together in a bizarre spatial geometry. The cubes of the spell's area can't be adjacent to one another. A creature must attempt a Will save if it's in one of the cubes when you Cast the Spell, or if it later enters one of the areas, with the following effects. A creature interacting with the illusion can also attempt a Will save to disbelieve the illusion, as normal.",
+        "description_snippet": "You cause the areas to appear to swell, bend, and break, twisting together in a bizarre spatial geometry. The cubes of the spell's area can't be adjacent to one another. A creature",
         "heightened": [
           {
             "label": "none",
@@ -11554,8 +11592,11 @@
           "none"
         ],
         "effects": {
-          "description": "",
-          "outcomes": {}
+          "description": "You cause the areas to appear to swell, bend, and break, twisting together in a bizarre spatial geometry. The cubes of the spell's area can't be adjacent to one another. A creature must attempt a Will save if it's in one of the cubes when you Cast the Spell, or if it later enters one of the areas, with the following effects. A creature interacting with the illusion can also attempt a Will save to disbelieve the illusion, as normal.",
+          "outcomes": {
+            "Success": "The creature disbelieves the illusion.",
+            "Failure": "All terrain in the cubes is difficult terrain for the creature, including the air if the creature is flying, walls if it's climbing, and so on. When the creature would exit one of the cubes, it exits from one randomly determined by the GM. This is a teleportation effect. It can exit from any edge of that cube it chooses. When selecting a random cube, the GM excludes any that don't match the creature's terrain; for instance, if the creature were exiting along the ground, the GM would exclude any cube that didn't have an exit on the ground. SPELL 5 ILLUSION"
+          }
         },
         "conditions_caused": [
           "none"
@@ -11566,11 +11607,11 @@
         "source_book": "advanced_players_guide",
         "source_display": "Advanced Player's Guide",
         "source_file": "PF2E Advanced Players Guide.txt",
-        "source_line_start": "none",
-        "source_line_end": "none",
-        "raw_text_block": "none",
+        "source_line_start": 31709,
+        "source_line_end": 31732,
+        "raw_text_block": "STRANGE GEOMETRY\nTraditions occult\nCast [three-actions] material, somatic, verbal\nRange 60 feet; Area 4 cubes, each 10 feet on a side\nSaving Throw Will; Duration 1 minute\nYou cause the areas to appear to swell, bend, and break,\ntwisting together in a bizarre spatial geometry. The cubes of\nthe spell's area can't be adjacent to one another. A creature\nmust attempt a Will save if it's in one of the cubes when you\nCast the Spell, or if it later enters one of the areas, with the\nfollowing effects. A creature interacting with the illusion can\nalso attempt a Will save to disbelieve the illusion, as normal.\nSuccess The creature disbelieves the illusion.\nFailure All terrain in the cubes is difficult terrain for the creature,\nincluding the air if the creature is flying, walls if it's climbing,\nand so on. When the creature would exit one of the cubes,\nit exits from one randomly determined by the GM. This is a\nteleportation effect. It can exit from any edge of that cube it\nchooses. When selecting a random cube, the GM excludes\nany that don't match the creature's terrain; for instance, if\nthe creature were exiting along the ground, the GM would\nexclude any cube that didn't have an exit on the ground.\nSPELL 5\nILLUSION",
         "parser_version": "apg-raw-text-v1",
-        "extraction_confidence": "medium",
+        "extraction_confidence": "high",
         "quarantine_reasons": [
           "none"
         ]
@@ -11680,7 +11721,7 @@
     },
     {
       "content_type": "spell",
-      "content_id": "terrain-transposition",
+      "content_id": "terrain_transposition",
       "name": "Terrain Transposition",
       "level": 5,
       "rarity": "common",
@@ -11688,7 +11729,7 @@
         "none"
       ],
       "schema_data": {
-        "id": "terrain-transposition",
+        "id": "terrain_transposition",
         "name": "Terrain Transposition",
         "rank": 5,
         "is_cantrip": false,
@@ -11751,7 +11792,7 @@
         "conditions_caused": [
           "none"
         ],
-        "focus_class": "ranger",
+        "focus_class": "none",
         "focus_domain": "none",
         "summon_level_cap_table": "none",
         "source_book": "advanced_players_guide",
@@ -12280,8 +12321,8 @@
     },
     {
       "content_type": "spell",
-      "content_id": "ancestral-form",
-      "name": "Ancestral Form",
+      "content_id": "cursebound",
+      "name": "Cursebound",
       "level": 6,
       "rarity": "common",
       "tags": [
@@ -12290,8 +12331,8 @@
         "transmutation"
       ],
       "schema_data": {
-        "id": "ancestral-form",
-        "name": "Ancestral Form",
+        "id": "cursebound",
+        "name": "Cursebound",
         "rank": 6,
         "is_cantrip": false,
         "spell_type": "focus",
@@ -12374,8 +12415,8 @@
     },
     {
       "content_type": "spell",
-      "content_id": "claim-undead",
-      "name": "Claim Undead",
+      "content_id": "cursebound",
+      "name": "Cursebound",
       "level": 6,
       "rarity": "common",
       "tags": [
@@ -12384,8 +12425,8 @@
         "necromancy"
       ],
       "schema_data": {
-        "id": "claim-undead",
-        "name": "Claim Undead",
+        "id": "cursebound",
+        "name": "Cursebound",
         "rank": 6,
         "is_cantrip": false,
         "spell_type": "focus",
@@ -12471,8 +12512,8 @@
     },
     {
       "content_type": "spell",
-      "content_id": "flaming-fusillade",
-      "name": "Flaming Fusillade",
+      "content_id": "cursebound",
+      "name": "Cursebound",
       "level": 6,
       "rarity": "uncommon",
       "tags": [
@@ -12481,8 +12522,8 @@
         "fire"
       ],
       "schema_data": {
-        "id": "flaming-fusillade",
-        "name": "Flaming Fusillade",
+        "id": "cursebound",
+        "name": "Cursebound",
         "rank": 6,
         "is_cantrip": false,
         "spell_type": "focus",
@@ -12758,8 +12799,8 @@
     },
     {
       "content_type": "spell",
-      "content_id": "tempest-form",
-      "name": "Tempest Form",
+      "content_id": "oracle",
+      "name": "Oracle",
       "level": 6,
       "rarity": "common",
       "tags": [
@@ -12767,8 +12808,8 @@
         "transmutation"
       ],
       "schema_data": {
-        "id": "tempest-form",
-        "name": "Tempest Form",
+        "id": "oracle",
+        "name": "Oracle",
         "rank": 6,
         "is_cantrip": false,
         "spell_type": "focus",
@@ -12831,7 +12872,7 @@
         "conditions_caused": [
           "concealed"
         ],
-        "focus_class": "oracle",
+        "focus_class": "none",
         "focus_domain": "none",
         "summon_level_cap_table": "none",
         "source_book": "advanced_players_guide",

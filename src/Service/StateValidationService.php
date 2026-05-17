@@ -15,24 +15,14 @@ class StateValidationService {
 
   /**
    * Constructor.
-   *
-   * @param \Drupal\Core\Logger\LoggerChannelFactoryInterface $logger_factory
-   *   Logger factory service.
    */
   public function __construct(LoggerChannelFactoryInterface $logger_factory) {
     $this->logger = $logger_factory->get('dungeoncrawler');
-    // Schema files are in config/schemas/ directory.
     $this->schemaBasePath = dirname(__DIR__) . '/../config/schemas';
   }
 
   /**
    * Validate campaign state against schema.
-   *
-   * @param array $state
-   *   Campaign state data.
-   *
-   * @return array
-   *   Validation result with 'valid' boolean and 'errors' array.
    */
   public function validateCampaignState(array $state): array {
     return $this->validateAgainstSchema($state, 'campaign.schema.json');
@@ -40,12 +30,6 @@ class StateValidationService {
 
   /**
    * Validate dungeon state against schema.
-   *
-   * @param array $state
-   *   Dungeon state data.
-   *
-   * @return array
-   *   Validation result with 'valid' boolean and 'errors' array.
    */
   public function validateDungeonState(array $state): array {
     return $this->validateAgainstSchema($state, 'dungeon_level.schema.json');
@@ -53,12 +37,6 @@ class StateValidationService {
 
   /**
    * Validate room state against schema.
-   *
-   * @param array $state
-   *   Room state data.
-   *
-   * @return array
-   *   Validation result with 'valid' boolean and 'errors' array.
    */
   public function validateRoomState(array $state): array {
     return $this->validateAgainstSchema($state, 'room.schema.json');
@@ -66,120 +44,130 @@ class StateValidationService {
 
   /**
    * Validate NPC definition against schema.
-   *
-   * @param array $npc
-   *   NPC definition data.
-   *
-   * @return array
-   *   Validation result with 'valid' boolean and 'errors' array.
    */
   public function validateNpcDefinition(array $npc): array {
-    // NPC schema is in docs/dungeoncrawler/schemas.
-    $schemaPath = dirname(__DIR__) . '/../../../../../docs/dungeoncrawler/schemas/pf2e-npc-definition.schema.json';
-    return $this->validateAgainstSchemaFile($npc, $schemaPath);
+    $schema_path = dirname(__DIR__) . '/../../../../../docs/dungeoncrawler/schemas/pf2e-npc-definition.schema.json';
+    return $this->validateAgainstSchemaFile($npc, $schema_path);
+  }
+
+  /**
+   * Validate a generated NPC sheet against the canonical contract schema.
+   */
+  public function validateNpcSheet(array $sheet): array {
+    return $this->validateAgainstSchema($sheet, 'npc_sheet.schema.json');
   }
 
   /**
    * Validate data against a schema file.
-   *
-   * @param array $data
-   *   Data to validate.
-   * @param string $schema_filename
-   *   Schema filename relative to schemaBasePath.
-   *
-   * @return array
-   *   Validation result with 'valid' boolean and 'errors' array.
    */
   private function validateAgainstSchema(array $data, string $schema_filename): array {
-    $schemaPath = $this->schemaBasePath . '/' . $schema_filename;
-    return $this->validateAgainstSchemaFile($data, $schemaPath);
+    $schema_path = $this->schemaBasePath . '/' . $schema_filename;
+    return $this->validateAgainstSchemaFile($data, $schema_path);
   }
 
   /**
    * Validate data against a schema file path.
-   *
-   * @param array $data
-   *   Data to validate.
-   * @param string $schema_path
-   *   Full path to schema file.
-   *
-   * @return array
-   *   Validation result with 'valid' boolean and 'errors' array.
    */
   private function validateAgainstSchemaFile(array $data, string $schema_path): array {
-    // Check if schema file exists.
     if (!file_exists($schema_path)) {
       $this->logger->error('Schema file not found: {path}', ['path' => $schema_path]);
       return ['valid' => FALSE, 'errors' => ["Schema file not found: {$schema_path}"]];
     }
 
-    // Load schema.
     $schema_content = file_get_contents($schema_path);
-    $schema = json_decode($schema_content, TRUE);
-    
+    $schema = json_decode((string) $schema_content, TRUE);
+
     if (!is_array($schema)) {
       $this->logger->error('Invalid schema file: {path}', ['path' => $schema_path]);
       return ['valid' => FALSE, 'errors' => ["Invalid schema file: {$schema_path}"]];
     }
 
-    // Perform basic validation.
-    $errors = $this->basicValidate($data, $schema);
-    
-    if (empty($errors)) {
-      return ['valid' => TRUE, 'errors' => []];
-    }
-
-    return ['valid' => FALSE, 'errors' => $errors];
+    $errors = $this->validateValueAgainstSchema($data, $schema, '');
+    return ['valid' => empty($errors), 'errors' => $errors];
   }
 
   /**
-   * Basic JSON schema validation.
+   * Recursively validate a value against a schema fragment.
    *
-   * This is a simplified validator that checks:
-   * - Required fields
-   * - Type validation
-   * - Basic constraints
-   *
-   * For production, consider using a full JSON Schema validator library.
-   *
-   * @param array $data
-   *   Data to validate.
+   * @param mixed $value
+   *   Value to validate.
    * @param array $schema
-   *   Schema definition.
+   *   Schema fragment.
+   * @param string $field_path
+   *   Dot-notated field path.
    *
-   * @return array
-   *   Array of error messages.
+   * @return array<int, string>
+   *   Validation errors.
    */
-  private function basicValidate(array $data, array $schema): array {
+  private function validateValueAgainstSchema($value, array $schema, string $field_path): array {
     $errors = [];
+    $field_name = $field_path === '' ? 'root' : $field_path;
 
-    // Check required fields.
-    if (isset($schema['required']) && is_array($schema['required'])) {
-      foreach ($schema['required'] as $required_field) {
-        if (!array_key_exists($required_field, $data)) {
-          $errors[] = "Missing required field: {$required_field}";
-        }
+    $type_errors = $this->validateType($value, $schema, $field_name);
+    if ($type_errors !== []) {
+      return $type_errors;
+    }
+
+    if (isset($schema['enum']) && is_array($schema['enum']) && !in_array($value, $schema['enum'], TRUE)) {
+      $errors[] = "Field '{$field_name}' must be one of: " . implode(', ', array_map('strval', $schema['enum']));
+    }
+
+    if (is_string($value) && isset($schema['pattern']) && is_string($schema['pattern'])) {
+      $pattern = '/' . str_replace('/', '\/', $schema['pattern']) . '/';
+      if (@preg_match($pattern, '') !== FALSE && !preg_match($pattern, $value)) {
+        $errors[] = "Field '{$field_name}' does not match required pattern";
       }
     }
 
-    // Check properties types.
-    if (isset($schema['properties']) && is_array($schema['properties'])) {
-      foreach ($data as $key => $value) {
-        if (!isset($schema['properties'][$key])) {
-          // Skip unknown properties if additionalProperties is allowed.
-          if (isset($schema['additionalProperties']) && $schema['additionalProperties'] === FALSE) {
-            $errors[] = "Unknown property: {$key}";
+    $json_type = $this->resolveJsonType($value);
+
+    if ($json_type === 'object') {
+      if (isset($schema['required']) && is_array($schema['required'])) {
+        foreach ($schema['required'] as $required_field) {
+          if (!array_key_exists($required_field, $value)) {
+            $required_path = $field_path === '' ? (string) $required_field : $field_path . '.' . $required_field;
+            $errors[] = "Missing required field: {$required_path}";
+          }
+        }
+      }
+
+      $properties = is_array($schema['properties'] ?? NULL) ? $schema['properties'] : [];
+      foreach ($value as $key => $property_value) {
+        $property_path = $field_path === '' ? (string) $key : $field_path . '.' . $key;
+        if (!isset($properties[$key])) {
+          if (($schema['additionalProperties'] ?? TRUE) === FALSE) {
+            $errors[] = "Unknown property: {$property_path}";
           }
           continue;
         }
-
-        $property_schema = $schema['properties'][$key];
-        $type_errors = $this->validateType($value, $property_schema, $key);
-        $errors = array_merge($errors, $type_errors);
+        $errors = array_merge($errors, $this->validateValueAgainstSchema($property_value, $properties[$key], $property_path));
+      }
+    }
+    elseif ($json_type === 'array' && isset($schema['items']) && is_array($schema['items'])) {
+      foreach ($value as $index => $item) {
+        $item_path = $field_name . '[' . $index . ']';
+        $errors = array_merge($errors, $this->validateValueAgainstSchema($item, $schema['items'], $item_path));
       }
     }
 
     return $errors;
+  }
+
+  /**
+   * Resolve a PHP value to a JSON schema type label.
+   */
+  private function resolveJsonType($value): string {
+    $actual_type = gettype($value);
+    $is_sequential_array = is_array($value) && (empty($value) || array_keys($value) === range(0, count($value) - 1));
+
+    return [
+      'boolean' => 'boolean',
+      'integer' => 'integer',
+      'double' => 'number',
+      'string' => 'string',
+      'array' => $is_sequential_array ? 'array' : 'object',
+      'NULL' => 'null',
+    ][$actual_type] ?? 'unknown';
   }
 
   /**
@@ -192,8 +180,8 @@ class StateValidationService {
    * @param string $field_name
    *   Field name for error messages.
    *
-   * @return array
-   *   Array of error messages.
+   * @return array<int, string>
+   *   Type validation errors.
    */
   private function validateType($value, array $schema, string $field_name): array {
     $errors = [];
@@ -202,35 +190,14 @@ class StateValidationService {
       return $errors;
     }
 
-    $expected_type = $schema['type'];
-    $actual_type = gettype($value);
-
-    // Map PHP types to JSON Schema types.
-    // For arrays: check if keys are sequential integers starting from 0.
-    $is_sequential_array = is_array($value) && (
-      empty($value) || array_keys($value) === range(0, count($value) - 1)
-    );
-    
-    $type_map = [
-      'boolean' => 'boolean',
-      'integer' => 'integer',
-      'double' => 'number',
-      'string' => 'string',
-      'array' => $is_sequential_array ? 'array' : 'object',
-      'NULL' => 'null',
-    ];
-
-    $json_type = $type_map[$actual_type] ?? 'unknown';
-
-    // Allow multiple types.
-    $allowed_types = is_array($expected_type) ? $expected_type : [$expected_type];
-
+    $json_type = $this->resolveJsonType($value);
+    $allowed_types = is_array($schema['type']) ? $schema['type'] : [$schema['type']];
     if (!in_array($json_type, $allowed_types, TRUE)) {
       $errors[] = "Field '{$field_name}' has invalid type. Expected " . implode('|', $allowed_types) . ", got {$json_type}";
+      return $errors;
     }
 
-    // Validate constraints.
-    if ($json_type === 'integer' || $json_type === 'number') {
+    if (($json_type === 'integer' || $json_type === 'number') && is_numeric($value)) {
       if (isset($schema['minimum']) && $value < $schema['minimum']) {
         $errors[] = "Field '{$field_name}' is below minimum value {$schema['minimum']}";
       }
@@ -254,6 +221,12 @@ class StateValidationService {
       }
       if (isset($schema['maxItems']) && count($value) > $schema['maxItems']) {
         $errors[] = "Field '{$field_name}' has too many items (maximum {$schema['maxItems']})";
+      }
+      if (!empty($schema['uniqueItems'])) {
+        $encoded = array_map(static fn($item) => json_encode($item, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), $value);
+        if (count($encoded) !== count(array_unique($encoded))) {
+          $errors[] = "Field '{$field_name}' must contain unique items";
+        }
       }
     }
 

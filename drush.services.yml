@@ -36,3 +36,10 @@ services:
       - '@dungeoncrawler_content.npc_sheet_generation'
     tags:
       - { name: drush.command }
+
+  dungeoncrawler_content.commands.player_agent:
+    class: Drupal\dungeoncrawler_content\Commands\PlayerAgentCommands
+    arguments:
+      - '@dungeoncrawler_content.player_agent_harness'
+    tags:
+      - { name: drush.command }

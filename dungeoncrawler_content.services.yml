@@ -59,6 +59,7 @@ services:
       - '@logger.factory'
       - '@?ai_conversation.ai_api_service'
       - '@?dungeoncrawler_content.npc_psychology_service'
+      - '@dungeoncrawler_content.state_validation_service'
 
   dungeoncrawler_content.character_leveling:
     class: Drupal\dungeoncrawler_content\Service\CharacterLevelingService
@@ -197,7 +198,40 @@ services:
       - '@dungeoncrawler_content.image_generation_integration'
       - '@dungeoncrawler_content.generated_image_repository'
       - '@dungeoncrawler_content.character_image_prompt_builder'
+      - '@database'
       - '@logger.factory'
+
+  dungeoncrawler_content.campaign_character_runtime_sync:
+    class: Drupal\dungeoncrawler_content\Service\CampaignCharacterRuntimeSyncService
+    arguments:
+      - '@database'
+      - '@dungeoncrawler_content.animal_companion'
+
+  dungeoncrawler_content.player_agent_runtime_adapter:
+    class: Drupal\dungeoncrawler_content\Service\PlayerAgentRuntimeAdapter
+    arguments:
+      - '@dungeoncrawler_content.game_coordinator'
+      - '@database'
+      - '@dungeoncrawler_content.campaign_character_runtime_sync'
+
+  dungeoncrawler_content.player_agent_exploration_policy:
+    class: Drupal\dungeoncrawler_content\Service\PlayerAgentExplorationPolicy
+
+  dungeoncrawler_content.player_agent_encounter_policy:
+    class: Drupal\dungeoncrawler_content\Service\PlayerAgentEncounterPolicy
+
+  dungeoncrawler_content.player_agent_progress_tracker:
+    class: Drupal\dungeoncrawler_content\Service\PlayerAgentProgressTracker
+    arguments:
+      - '@dungeoncrawler_content.session_service'
+
+  dungeoncrawler_content.player_agent_harness:
+    class: Drupal\dungeoncrawler_content\Service\PlayerAgentHarnessService
+    arguments:
+      - '@dungeoncrawler_content.player_agent_runtime_adapter'
+      - '@dungeoncrawler_content.player_agent_exploration_policy'
+      - '@dungeoncrawler_content.player_agent_encounter_policy'
+      - '@dungeoncrawler_content.player_agent_progress_tracker'
 
   dungeoncrawler_content.sprite_generator:
     class: Drupal\dungeoncrawler_content\Service\SpriteGenerationService
@@ -254,6 +288,13 @@ services:
   dungeoncrawler_content.equipment_catalog:
     class: Drupal\dungeoncrawler_content\Service\EquipmentCatalogService
 
+  dungeoncrawler_content.merchant_bot:
+    class: Drupal\dungeoncrawler_content\Service\MerchantBotService
+    arguments:
+      - '@database'
+      - '@logger.factory'
+      - '@http_client'
+
   dungeoncrawler_content.focus_pool:
     class: Drupal\dungeoncrawler_content\Service\FocusPoolService
     arguments:
@@ -289,6 +330,7 @@ services:
       - '@dungeoncrawler_content.hp_manager'
       - '@dungeoncrawler_content.number_generation'
       - '@dungeoncrawler_content.combat_calculator'
+      - '@dungeoncrawler_content.calculator'
       - '@dungeoncrawler_content.condition_manager'
       - '@dungeoncrawler_content.movement_resolver'
       - '@dungeoncrawler_content.affliction_manager'
@@ -319,7 +361,23 @@ services:
 
   dungeoncrawler_content.campaign_state_service:
     class: Drupal\dungeoncrawler_content\Service\CampaignStateService
-    arguments: ['@database', '@logger.factory']
+    arguments: ['@database', '@logger.factory', '@dungeoncrawler_content.campaign_clock']
+
+  dungeoncrawler_content.campaign_clock:
+    class: Drupal\dungeoncrawler_content\Service\CampaignClockService
+
+  dungeoncrawler_content.campaign_time_resolver:
+    class: Drupal\dungeoncrawler_content\Service\CampaignTimeResolverService
+    arguments:
+      - '@dungeoncrawler_content.campaign_clock'
+
+  dungeoncrawler_content.relationship_manager:
+    class: Drupal\dungeoncrawler_content\Service\RelationshipManagerService
+    arguments:
+      - '@database'
+      - '@logger.factory'
+      - '@dungeoncrawler_content.campaign_state_service'
+      - '@dungeoncrawler_content.storyline_manager'
 
   dungeoncrawler_content.storyline_manager:
     class: Drupal\dungeoncrawler_content\Service\StorylineManagerService
@@ -360,6 +418,11 @@ services:
       - '@dungeoncrawler_content.canonical_action_registry'
       - '@dungeoncrawler_content.gm_orchestration_broker'
       - '@dungeoncrawler_content.quest_tracker'
+      - '@dungeoncrawler_content.relationship_manager'
+      - '@dungeoncrawler_content.merchant_bot'
+      - '@http_client'
+      - '@dungeoncrawler_content.inventory_management'
+      - '@dungeoncrawler_content.quest_generator'
 
   dungeoncrawler_content.campaign_initialization:
     class: Drupal\dungeoncrawler_content\Service\CampaignInitializationService
@@ -371,9 +434,12 @@ services:
       - '@extension.list.module'
       - '@dungeoncrawler_content.quest_generator'
       - '@dungeoncrawler_content.campaign_name_generator'
+      - '@dungeoncrawler_content.campaign_clock'
       - '@dungeoncrawler_content.chat_session_manager'
       - '@dungeoncrawler_content.npc_sheet_generation'
       - '@dungeoncrawler_content.room_view_image'
+      - '@dungeoncrawler_content.storyline_manager'
+      - '@dungeoncrawler_content.relationship_manager'
 
   dungeoncrawler_content.room_state_service:
     class: Drupal\dungeoncrawler_content\Service\RoomStateService
@@ -570,6 +636,9 @@ services:
       - '@dungeoncrawler_content.hazard_service'
       - '@dungeoncrawler_content.magic_item_service'
       - '@dungeoncrawler_content.gameplay_action_processor'
+      - '@dungeoncrawler_content.campaign_clock'
+      - '@dungeoncrawler_content.text_to_speech_integration'
+      - '@file_url_generator'
 
   dungeoncrawler_content.encounter_phase_handler:
     class: Drupal\dungeoncrawler_content\Service\EncounterPhaseHandler
@@ -613,18 +682,23 @@ services:
       - '@dungeoncrawler_content.npc_psychology_service'
       - '@dungeoncrawler_content.magic_item_service'
       - '@dungeoncrawler_content.number_generation'
+      - '@dungeoncrawler_content.campaign_clock'
 
   dungeoncrawler_content.game_coordinator:
     class: Drupal\dungeoncrawler_content\Service\GameCoordinatorService
     arguments:
       - '@database'
+      - '@dungeoncrawler_content.campaign_character_runtime_sync'
       - '@logger.factory'
       - '@dungeoncrawler_content.game_event_logger'
       - '@dungeoncrawler_content.exploration_phase_handler'
       - '@dungeoncrawler_content.encounter_phase_handler'
       - '@dungeoncrawler_content.downtime_phase_handler'
       - '@dungeoncrawler_content.ai_gm'
+      - '@dungeoncrawler_content.campaign_time_resolver'
       - '@dungeoncrawler_content.narration_engine'
+      - '@dungeoncrawler_content.text_to_speech_integration'
+      - '@file_url_generator'
 
   dungeoncrawler_content.ai_session_manager:
     class: Drupal\dungeoncrawler_content\Service\AiSessionManager
@@ -731,6 +805,7 @@ services:
     class: Drupal\dungeoncrawler_content\Service\SpellCatalogService
     arguments:
       - '@database'
+      - '@http_client'
 
   dungeoncrawler_content.learn_a_spell:
     class: Drupal\dungeoncrawler_content\Service\LearnASpellService

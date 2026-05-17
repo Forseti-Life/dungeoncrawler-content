@@ -146,7 +146,7 @@ class InventoryManagementService {
 
       switch ($location) {
         case 'worn':
-          $type = $state['type'] ?? 'accessory';
+          $type = $state['type'] ?? $state['item_type'] ?? 'accessory';
           if ($type === 'weapon') {
             $inventory['worn']['weapons'][] = $item_data;
           }
@@ -215,12 +215,15 @@ class InventoryManagementService {
     int $quantity = 1,
     ?int $campaign_id = NULL
   ): array {
+    $item = $this->normalizeIncomingItemData($item);
     $this->validateItemData($item);
     $this->validateOwner($owner_id, $owner_type);
 
     if ($quantity < 1) {
       throw new \InvalidArgumentException('Quantity must be at least 1');
     }
+
+    $this->validateAddCapacity($owner_id, $owner_type, $item, $quantity, $campaign_id);
 
     try {
       $transaction = $this->database->startTransaction();
@@ -1473,23 +1476,86 @@ class InventoryManagementService {
     string $owner_type = 'character',
     ?int $campaign_id = NULL
   ): float {
-    $items = $this->database->select('dc_campaign_item_instances', 'i')
-      ->fields('i', ['state_data', 'quantity'])
-      ->condition('location_ref', $owner_id)
-      ->condition('location_type', $this->ownerTypeToLocationType($owner_type));
-    if ($campaign_id !== NULL) {
-      $items->condition('campaign_id', $campaign_id);
+    return $this->calculateCurrentBulkRecursive($owner_id, $owner_type, $campaign_id, []);
+  }
+
+  /**
+   * Recursively calculate carried bulk for an owner and any nested containers.
+   */
+  protected function calculateCurrentBulkRecursive(
+    string $owner_id,
+    string $owner_type,
+    ?int $campaign_id,
+    array $visited
+  ): float {
+    $visited_key = $owner_type . ':' . $owner_id;
+    if (isset($visited[$visited_key])) {
+      return 0.0;
     }
-    $items = $items->execute()->fetchAll();
+    $visited[$visited_key] = TRUE;
+
+    $items = $this->loadBulkItemRows($owner_id, $owner_type, $campaign_id);
 
     $total_bulk = 0.0;
     foreach ($items as $item) {
-      $state = json_decode($item->state_data, TRUE) ?? [];
-      $qty = (int) $item->quantity;
+      $state = json_decode((string) ($item->state_data ?? '{}'), TRUE) ?? [];
+      $qty = (int) ($item->quantity ?? 0);
       $total_bulk += $this->calculateItemBulk($state, $qty);
+
+      if ($this->isContainer($state)) {
+        $container_properties = $this->getContainerProperties($state);
+        $contents_bulk = $this->calculateCurrentBulkRecursive(
+          (string) ($item->item_instance_id ?? ''),
+          'container',
+          $campaign_id,
+          $visited
+        );
+        $multiplied_bulk = $contents_bulk * (float) ($container_properties['capacity_reduction'] ?? 1.0);
+        $effective_bulk = max(0.0, $multiplied_bulk - (float) ($container_properties['bulk_reduction'] ?? 0.0));
+        $total_bulk += $effective_bulk;
+      }
     }
 
     return $total_bulk;
+  }
+
+  /**
+   * Load item rows relevant for bulk calculation.
+   */
+  protected function loadBulkItemRows(
+    string $owner_id,
+    string $owner_type,
+    ?int $campaign_id = NULL
+  ): array {
+    $query = $this->database->select('dc_campaign_item_instances', 'i')
+      ->fields('i', ['item_instance_id', 'state_data', 'quantity']);
+
+    $query->condition('location_ref', $owner_id);
+    $location_types = $this->getBulkLocationTypesForOwnerType($owner_type);
+    if (count($location_types) === 1) {
+      $query->condition('location_type', $location_types[0]);
+    }
+    else {
+      $query->condition('location_type', $location_types, 'IN');
+    }
+
+    if ($campaign_id !== NULL) {
+      $query->condition('campaign_id', $campaign_id);
+    }
+
+    return $query->execute()->fetchAll();
+  }
+
+  /**
+   * Get the location types that should count for bulk for a given owner type.
+   */
+  protected function getBulkLocationTypesForOwnerType(string $owner_type): array {
+    return match ($owner_type) {
+      'character' => ['carried', 'worn', 'equipped', 'stashed'],
+      'container' => ['container'],
+      'room' => ['room'],
+      default => [$this->ownerTypeToLocationType($owner_type)],
+    };
   }
 
   /**
@@ -1633,12 +1699,181 @@ class InventoryManagementService {
    *   If item is invalid.
    */
   protected function validateItemData(array $item): void {
-    if (empty($item['id'])) {
+    if (trim((string) ($item['id'] ?? '')) === '') {
       throw new \InvalidArgumentException('Item must have an id');
     }
-    if (empty($item['name'])) {
+    if (trim((string) ($item['name'] ?? '')) === '') {
       throw new \InvalidArgumentException('Item must have a name');
     }
+    if (trim((string) ($item['item_type'] ?? $item['type'] ?? '')) === '') {
+      throw new \InvalidArgumentException('Item must have a type');
+    }
+    if (array_key_exists('bulk', $item)) {
+      $this->normalizeBulkValue($item['bulk']);
+    }
+    if (isset($item['traits']) && !is_array($item['traits'])) {
+      throw new \InvalidArgumentException('Item traits must be an array when provided');
+    }
+    if (isset($item['price']) && !is_array($item['price'])) {
+      throw new \InvalidArgumentException('Item price must be an array when provided');
+    }
+    if (isset($item['price_gp']) && !is_numeric($item['price_gp'])) {
+      throw new \InvalidArgumentException('Item price_gp must be numeric when provided');
+    }
+    if (isset($item['container_stats']) && !is_array($item['container_stats'])) {
+      throw new \InvalidArgumentException('Item container_stats must be an array when provided');
+    }
+    if (is_array($item['container_stats'] ?? NULL) && !isset($item['container_stats']['capacity'])) {
+      throw new \InvalidArgumentException('Container items must define container_stats.capacity');
+    }
+    if (isset($item['container_stats']['capacity']) && (!is_numeric($item['container_stats']['capacity']) || (float) $item['container_stats']['capacity'] <= 0)) {
+      throw new \InvalidArgumentException('Container capacity must be greater than 0');
+    }
+    if (isset($item['container_stats']['bulk_reduction']) && (!is_numeric($item['container_stats']['bulk_reduction']) || (float) $item['container_stats']['bulk_reduction'] < 0)) {
+      throw new \InvalidArgumentException('Container bulk_reduction must be 0 or greater');
+    }
+  }
+
+  /**
+   * Normalize incoming item payloads against the canonical registry when possible.
+   */
+  protected function normalizeIncomingItemData(array $item): array {
+    $item_id = trim((string) ($item['id'] ?? ''));
+    if ($item_id === '') {
+      return $item;
+    }
+
+    $normalized = [];
+    $template = $this->getRegistryItemTemplate($item_id);
+    if ($template !== NULL) {
+      $normalized = $template['schema'];
+      $normalized['id'] = $item_id;
+      if (empty($normalized['name'])) {
+        $normalized['name'] = $template['name'];
+      }
+    }
+
+    foreach ($item as $key => $value) {
+      if (!array_key_exists($key, $normalized)) {
+        $normalized[$key] = $value;
+      }
+    }
+
+    $normalized['id'] = $item_id;
+    $normalized['name'] = trim((string) ($normalized['name'] ?? $item['name'] ?? ''));
+
+    $item_type = trim((string) ($normalized['item_type'] ?? $item['item_type'] ?? $item['type'] ?? ''));
+    if ($item_type !== '') {
+      $normalized['item_type'] = $item_type;
+      $normalized['type'] = $item_type;
+    }
+
+    if (array_key_exists('bulk', $normalized)) {
+      $normalized['bulk'] = $this->normalizeBulkStorageValue($normalized['bulk']);
+    }
+
+    if (isset($normalized['price']) && is_array($normalized['price'])) {
+      $normalized['price_gp'] = $this->buildPriceGpFromPrice($normalized['price']);
+    }
+    elseif (isset($item['price']) && is_array($item['price'])) {
+      $normalized['price'] = $item['price'];
+      $normalized['price_gp'] = $this->buildPriceGpFromPrice($item['price']);
+    }
+    elseif (!isset($normalized['price_gp']) && isset($item['price_gp']) && is_numeric($item['price_gp'])) {
+      $normalized['price_gp'] = (float) $item['price_gp'];
+    }
+
+    if (isset($normalized['traits']) && !is_array($normalized['traits'])) {
+      $normalized['traits'] = [];
+    }
+
+    return $normalized;
+  }
+
+  /**
+   * Load the canonical registry template for an item when available.
+   */
+  protected function getRegistryItemTemplate(string $item_id): ?array {
+    if (!$this->database->schema()->tableExists('dungeoncrawler_content_registry')) {
+      return NULL;
+    }
+
+    $row = $this->database->select('dungeoncrawler_content_registry', 'r')
+      ->fields('r', ['name', 'schema_data'])
+      ->condition('content_id', $item_id)
+      ->condition('content_type', 'item')
+      ->execute()
+      ->fetchAssoc();
+
+    if (!$row) {
+      return NULL;
+    }
+
+    $schema = json_decode((string) ($row['schema_data'] ?? '{}'), TRUE);
+    if (!is_array($schema)) {
+      return NULL;
+    }
+
+    return [
+      'name' => (string) ($row['name'] ?? ''),
+      'schema' => $schema,
+    ];
+  }
+
+  /**
+   * Convert bulk input into a numeric carried-weight value.
+   */
+  protected function normalizeBulkValue($bulk_value): float {
+    if (is_int($bulk_value) || is_float($bulk_value)) {
+      return (float) $bulk_value;
+    }
+
+    $bulk_key = trim((string) $bulk_value);
+    if ($bulk_key === '') {
+      return 0.0;
+    }
+
+    if (array_key_exists($bulk_key, self::BULK_MAP)) {
+      return self::BULK_MAP[$bulk_key];
+    }
+    if ($bulk_key === '-') {
+      return 0.0;
+    }
+    if (is_numeric($bulk_key)) {
+      return (float) $bulk_key;
+    }
+
+    throw new \InvalidArgumentException("Invalid bulk value: {$bulk_key}");
+  }
+
+  /**
+   * Normalize bulk values for persisted state data.
+   */
+  protected function normalizeBulkStorageValue($bulk_value): string {
+    if (is_int($bulk_value) || is_float($bulk_value)) {
+      return (string) $bulk_value;
+    }
+
+    $bulk_key = trim((string) $bulk_value);
+    if ($bulk_key === 'light') {
+      return 'L';
+    }
+    if ($bulk_key === 'negligible') {
+      return '-';
+    }
+
+    $this->normalizeBulkValue($bulk_key);
+    return $bulk_key;
+  }
+
+  /**
+   * Convert nested PF2e price objects into gp-compatible floats.
+   */
+  protected function buildPriceGpFromPrice(array $price): float {
+    return (float) ($price['gp'] ?? 0)
+      + ((float) ($price['sp'] ?? 0) / 10)
+      + ((float) ($price['cp'] ?? 0) / 100)
+      + ((float) ($price['pp'] ?? 0) * 10);
   }
 
   /**
@@ -1804,6 +2039,27 @@ class InventoryManagementService {
   }
 
   /**
+   * Validate that a direct item add does not exceed the destination capacity.
+   */
+  protected function validateAddCapacity(
+    string $owner_id,
+    string $owner_type,
+    array $item,
+    int $quantity,
+    ?int $campaign_id = NULL
+  ): void {
+    $item_bulk = $this->calculateItemBulk($item, $quantity);
+    $current_bulk = $this->calculateCurrentBulk($owner_id, $owner_type, $campaign_id);
+    $capacity = $this->getInventoryCapacity($owner_id, $owner_type);
+
+    if (($current_bulk + $item_bulk) > $capacity) {
+      throw new \InvalidArgumentException(
+        "Cannot add item: would exceed capacity (current: {$current_bulk}, capacity: {$capacity}, item bulk: {$item_bulk})."
+      );
+    }
+  }
+
+  /**
    * Calculate bulk for item(s).
    *
    * @param array $item_state
@@ -1815,9 +2071,7 @@ class InventoryManagementService {
    *   Total bulk for this item quantity.
    */
   protected function calculateItemBulk(array $item_state, int $quantity = 1): float {
-    $bulk_value = $item_state['bulk'] ?? 'light';
-    $bulk = self::BULK_MAP[$bulk_value] ?? 0;
-    return ($bulk * $quantity);
+    return $this->normalizeBulkValue($item_state['bulk'] ?? 'light') * $quantity;
   }
 
   /**
@@ -1852,6 +2106,7 @@ class InventoryManagementService {
     return [
       'capacity' => (float) $stats['capacity'],
       'capacity_reduction' => (float) ($stats['capacity_reduction'] ?? 1.0),
+      'bulk_reduction' => (float) ($stats['bulk_reduction'] ?? 0.0),
       'can_lock' => (bool) ($stats['can_lock'] ?? FALSE),
       'lock_dc' => (int) ($stats['lock_dc'] ?? 0),
       'is_locked' => (bool) ($stats['is_locked'] ?? FALSE),

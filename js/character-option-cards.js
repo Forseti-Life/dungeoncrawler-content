@@ -22,6 +22,38 @@
       .trim();
   }
 
+  function normalizeSearchText(value) {
+    return normalizePlainText(value)
+      .toLowerCase()
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function buildSearchText(option, labelText, fallbackValue) {
+    if (!option) {
+      return normalizeSearchText(labelText || fallbackValue);
+    }
+
+    var parts = [
+      labelText,
+      fallbackValue,
+      option.description || '',
+    ];
+
+    if (Array.isArray(option.tags)) {
+      parts = parts.concat(option.tags);
+    }
+
+    if (option.facts && typeof option.facts === 'object') {
+      Object.keys(option.facts).forEach(function (label) {
+        parts.push(label);
+        parts.push(option.facts[label]);
+      });
+    }
+
+    return normalizeSearchText(parts.join(' '));
+  }
+
   function buildTooltipText(option, labelText) {
     if (!option) {
       return '';
@@ -116,6 +148,69 @@
     });
   }
 
+  function applyGroupFilter(wrapper) {
+    if (!wrapper) {
+      return;
+    }
+
+    var query = normalizeSearchText(wrapper.dataset.optionFilterQuery || '');
+    var cards = Array.prototype.slice.call(wrapper.querySelectorAll('.option-selector-card'));
+    var visibleCount = 0;
+
+    cards.forEach(function (card) {
+      var matches = !query || String(card.dataset.optionSearch || '').indexOf(query) !== -1;
+      card.hidden = !matches;
+      if (matches) {
+        visibleCount += 1;
+      }
+    });
+
+    var emptyState = wrapper.parentNode
+      ? wrapper.parentNode.querySelector('[data-option-filter-empty-for="' + wrapper.dataset.optionFilterGroup + '"]')
+      : null;
+    if (emptyState) {
+      emptyState.hidden = visibleCount !== 0;
+    }
+  }
+
+  function ensureGroupFilter(wrapper, groupName) {
+    if (!wrapper || wrapper.dataset.optionFilterReady === '1') {
+      applyGroupFilter(wrapper);
+      return;
+    }
+
+    wrapper.dataset.optionFilterReady = '1';
+    wrapper.dataset.optionFilterGroup = groupName;
+    wrapper.dataset.optionFilterQuery = '';
+
+    var controls = document.createElement('div');
+    controls.className = 'option-selector-filter';
+    controls.innerHTML = ''
+      + '<label class="option-selector-filter__label">'
+      + '<span class="option-selector-filter__text">Search this section</span>'
+      + '<input type="search" class="option-selector-filter__input" placeholder="Filter options" autocomplete="off" spellcheck="false" />'
+      + '</label>';
+
+    wrapper.parentNode.insertBefore(controls, wrapper);
+
+    var emptyState = document.createElement('p');
+    emptyState.className = 'option-selector-filter__empty';
+    emptyState.setAttribute('data-option-filter-empty-for', groupName);
+    emptyState.hidden = true;
+    emptyState.textContent = 'No options match this filter.';
+    wrapper.parentNode.insertBefore(emptyState, wrapper.nextSibling);
+
+    var input = controls.querySelector('.option-selector-filter__input');
+    if (input) {
+      input.addEventListener('input', function () {
+        wrapper.dataset.optionFilterQuery = input.value || '';
+        applyGroupFilter(wrapper);
+      });
+    }
+
+    applyGroupFilter(wrapper);
+  }
+
   function enhanceGroup(form, groupName, config, context) {
     var selectionType = config.selectionType || 'single';
     var selector = selectionType === 'multiple'
@@ -152,6 +247,7 @@
       }
 
       input.classList.add('option-selector-card__control');
+      card.dataset.optionSearch = buildSearchText(option, label ? label.textContent : input.value, input.value);
 
       var tooltipText = buildTooltipText(option, label ? label.textContent : input.value);
       if (tooltipText) {
@@ -184,6 +280,12 @@
     });
 
     syncGroupState(form, groupName, selectionType);
+    form.querySelectorAll(selector).forEach(function (input) {
+      var wrapper = input.closest('.form-radios, .form-checkboxes');
+      if (wrapper) {
+        ensureGroupFilter(wrapper, groupName);
+      }
+    });
   }
 
   Drupal.behaviors.characterOptionCards = {

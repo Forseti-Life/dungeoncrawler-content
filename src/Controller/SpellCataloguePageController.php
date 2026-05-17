@@ -101,16 +101,37 @@ class SpellCataloguePageController extends ControllerBase {
       ->execute()
       ->fetchAll();
 
+    return array_values($this->normalizeRegistrySpellRows($rows));
+  }
+
+  /**
+   * Deduplicates and normalizes spell registry rows for catalogue display.
+   *
+   * @param array<int, object> $rows
+   *   Raw database rows.
+   *
+   * @return array<string, array<string, mixed>>
+   *   Normalized spell rows keyed by canonical content ID.
+   */
+  protected function normalizeRegistrySpellRows(array $rows): array {
     $spells = [];
+    $scores = [];
     foreach ($rows as $row) {
+      $content_id = (string) ($row->content_id ?? '');
+      if ($content_id === '' || preg_match('/_c$/', $content_id)) {
+        continue;
+      }
+
       $schema_data = json_decode((string) ($row->schema_data ?? ''), TRUE);
       if (!is_array($schema_data)) {
         continue;
       }
 
+      $schema_data['description'] = $this->resolveSpellDescription($schema_data);
       $tags = json_decode((string) ($row->tags ?? '[]'), TRUE);
-      $spells[] = [
-        'content_id' => (string) $row->content_id,
+      $normalized_id = $this->normalizeSpellContentId($content_id);
+      $candidate = [
+        'content_id' => str_contains($content_id, '-') ? $content_id : $normalized_id,
         'name' => (string) $row->name,
         'level' => (int) $row->level,
         'rarity' => (string) $row->rarity,
@@ -119,9 +140,122 @@ class SpellCataloguePageController extends ControllerBase {
         'source_file' => (string) $row->source_file,
         'version' => (string) $row->version,
       ];
+
+      $candidate_score = $this->scoreSpellRow($content_id, $schema_data);
+      if (!isset($spells[$normalized_id]) || $candidate_score > $scores[$normalized_id]) {
+        $spells[$normalized_id] = $candidate;
+        $scores[$normalized_id] = $candidate_score;
+      }
     }
 
     return $spells;
+  }
+
+  /**
+   * Normalizes spell IDs to the canonical hyphenated form.
+   */
+  protected function normalizeSpellContentId(string $content_id): string {
+    return str_replace('_', '-', strtolower(trim($content_id)));
+  }
+
+  /**
+   * Chooses the best available spell description for review surfaces.
+   */
+  protected function resolveSpellDescription(array $schema_data): string {
+    $description = trim((string) ($schema_data['description'] ?? ''));
+    $display_description = trim((string) ($schema_data['name'] ?? ''));
+    if ($this->hasCompleteSpellDescription($description)) {
+      $display_description = $description;
+    }
+    elseif ($description !== '') {
+      $display_description = $description;
+    }
+    else {
+      $snippet = trim((string) ($schema_data['description_snippet'] ?? ''));
+      if ($snippet !== '') {
+        $display_description = $snippet;
+      }
+    }
+
+    return $this->appendSpellOutcomeSummary($display_description, $schema_data);
+  }
+
+  /**
+   * Scores spell rows so canonical full-text records win over legacy imports.
+   */
+  protected function scoreSpellRow(string $content_id, array $schema_data): int {
+    $score = 0;
+
+    if (str_contains($content_id, '-')) {
+      $score += 100;
+    }
+
+    if ($this->hasCompleteSpellDescription(trim((string) ($schema_data['description'] ?? '')))) {
+      $score += 50;
+    }
+
+    if (trim((string) ($schema_data['description_snippet'] ?? '')) !== '') {
+      $score += 10;
+    }
+
+    return $score;
+  }
+
+  /**
+   * Heuristically determines whether a stored description reads as complete text.
+   */
+  protected function hasCompleteSpellDescription(string $description): bool {
+    $description = trim($description);
+    if ($description === '') {
+      return FALSE;
+    }
+
+    if (preg_match('/[.!?][\'")\]]?$/u', $description)) {
+      return TRUE;
+    }
+
+    return mb_strlen($description) >= 160;
+  }
+
+  /**
+   * Appends parsed degree-of-success outcomes when the base description omits them.
+   */
+  protected function appendSpellOutcomeSummary(string $description, array $schema_data): string {
+    $description = trim($description);
+    $outcomes = $schema_data['effects']['outcomes'] ?? [];
+    if (!is_array($outcomes) || $outcomes === []) {
+      return $description;
+    }
+
+    $ordered_labels = ['Critical Success', 'Success', 'Failure', 'Critical Failure'];
+    $summary_parts = [];
+    foreach ($ordered_labels as $label) {
+      $text = trim((string) ($outcomes[$label] ?? ''));
+      if ($text !== '') {
+        if (stripos($description, $label . ':') !== FALSE) {
+          return $description;
+        }
+        $summary_parts[] = $label . ': ' . $text;
+      }
+      unset($outcomes[$label]);
+    }
+    foreach ($outcomes as $label => $text) {
+      $label = trim((string) $label);
+      $text = trim((string) $text);
+      if ($label === '' || $text === '') {
+        continue;
+      }
+      if (stripos($description, $label . ':') !== FALSE) {
+        return $description;
+      }
+      $summary_parts[] = $label . ': ' . $text;
+    }
+
+    if ($summary_parts === []) {
+      return $description;
+    }
+
+    return trim($description . ' ' . implode(' ', $summary_parts));
   }
 
   /**

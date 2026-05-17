@@ -71,6 +71,7 @@ An item is a container if it has `container_stats` defined in its schema:
   "container_stats": {
     "capacity": 4,
     "capacity_reduction": 1,
+    "bulk_reduction": 2,
     "access_time": "interact",
     "container_type": "backpack"
   }
@@ -98,12 +99,12 @@ An item is a container if it has `container_stats` defined in its schema:
 **Purpose**: Determines how much container weight counts toward carrier's burden
 
 ```
-Effective Bulk = container_bulk + (contents_bulk × capacity_reduction)
+Effective Bulk = container_bulk + max(0, (contents_bulk × capacity_reduction) - bulk_reduction)
 ```
 
 **Examples**:
-- **capacity_reduction = 1.0** (Standard containers): Full weight of contents counts
-  - Backpack with 3 bulk inside = L (backpack) + 3 (contents) = 3.1 bulk total
+- **capacity_reduction = 1.0, bulk_reduction = 2.0** (PF2e backpack): first 2 Bulk of contents don't count
+  - Backpack with 3 bulk inside = L (backpack) + max(0, 3 - 2) = 1.1 bulk total
 - **capacity_reduction = 0.0** (Bag of Holding): Contents are weightless
   - Bag with 20 bulk inside = 1 (bag) + 0 (contents) = 1 bulk total
 - **capacity_reduction = 0.5** (Efficient Pack): Half weight of contents
@@ -627,11 +628,12 @@ Response
 
 1. **Always define container_stats** for containers:
    ```json
-   "container_stats": {
-     "capacity": 4.0,
-     "capacity_reduction": 1.0,
-     "container_type": "backpack"
-   }
+    "container_stats": {
+      "capacity": 4.0,
+      "capacity_reduction": 1.0,
+      "bulk_reduction": 2.0,
+      "container_type": "backpack"
+    }
    ```
 
 2. **Set appropriate bulk** for items:

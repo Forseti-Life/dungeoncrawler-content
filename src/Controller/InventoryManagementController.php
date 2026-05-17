@@ -72,7 +72,7 @@ class InventoryManagementController extends ControllerBase {
       $inventory = $this->inventoryService->getInventory($owner_id, $owner_type, $campaign_id);
 
       // Calculate bulk and encumbrance
-      $current_bulk = $this->inventoryService->calculateCurrentBulk($owner_id, $owner_type);
+      $current_bulk = $this->inventoryService->calculateCurrentBulk($owner_id, $owner_type, $campaign_id);
       $capacity = $this->inventoryService->getInventoryCapacity($owner_id, $owner_type);
       $str_score = 10.0;
       if ($owner_type === 'character') {

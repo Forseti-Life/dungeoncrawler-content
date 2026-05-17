@@ -7,6 +7,7 @@ use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Drupal\Core\Session\AccountProxyInterface;
 use Drupal\ai_conversation\Service\AIApiService;
 use Drupal\ai_conversation\Service\PromptManager;
+use GuzzleHttp\ClientInterface;
 use Psr\Log\LoggerInterface;
 
 // Hierarchical chat session integration.
@@ -21,10 +22,12 @@ class RoomChatService {
 
   const MAX_MESSAGE_LENGTH = 2000;
   const MAX_MESSAGES_PER_ROOM = 500;
+  protected const PLAYER_AUTOMATION_ROOM_CHAT_LIMIT = 25;
   protected const ROOM_CHAT_MAX_INPUT_CHARS = 6800;
   protected const ROOM_CHAT_MAX_SYSTEM_PROMPT_CHARS = 7600;
   protected const ROOM_CHAT_MAX_USER_PROMPT_CHARS = 4000;
   protected const ROOM_CHAT_GM_MAX_TOKENS = 200;
+  protected const NPC_FUZZY_MATCH_MIN_TOKEN_LENGTH = 4;
 
   protected Connection $database;
   protected DungeonStateService $dungeonStateService;
@@ -42,7 +45,12 @@ class RoomChatService {
   protected CanonicalActionRegistryService $canonicalActionRegistry;
   protected GmOrchestrationBrokerService $gmOrchestrationBroker;
   protected ?QuestTrackerService $questTracker;
+  protected ?RelationshipManagerService $relationshipManager;
+  protected ?QuestGeneratorService $questGenerator;
+  protected MerchantBotService $merchantBotService;
+  protected ?InventoryManagementService $inventoryManagementService;
   protected ?array $activeDebugTrace = NULL;
+  protected ?bool $roomTurnLogStoreAvailable = NULL;
 
   /**
    * Constructor.
@@ -63,7 +71,12 @@ class RoomChatService {
     ?MapGeneratorService $map_generator = NULL,
     ?CanonicalActionRegistryService $canonical_action_registry = NULL,
     ?GmOrchestrationBrokerService $gm_orchestration_broker = NULL,
-    ?QuestTrackerService $quest_tracker = NULL
+    ?QuestTrackerService $quest_tracker = NULL,
+    ?RelationshipManagerService $relationship_manager = NULL,
+    ?MerchantBotService $merchant_bot_service = NULL,
+    ?ClientInterface $http_client = NULL,
+    ?InventoryManagementService $inventory_management_service = NULL,
+    ?QuestGeneratorService $quest_generator = NULL
   ) {
     $this->database = $database;
     $this->dungeonStateService = $dungeon_state_service;
@@ -81,6 +94,10 @@ class RoomChatService {
     $this->canonicalActionRegistry = $canonical_action_registry ?? new CanonicalActionRegistryService($database, $current_user);
     $this->gmOrchestrationBroker = $gm_orchestration_broker ?? new GmOrchestrationBrokerService($database, $this->canonicalActionRegistry);
     $this->questTracker = $quest_tracker;
+    $this->relationshipManager = $relationship_manager;
+    $this->merchantBotService = $merchant_bot_service ?? new MerchantBotService($database, $logger_factory, $http_client);
+    $this->inventoryManagementService = $inventory_management_service;
+    $this->questGenerator = $quest_generator;
   }
 
   /**
@@ -146,8 +163,97 @@ class RoomChatService {
         'timestamp' => $msg['timestamp'] ?? date('c'),
         'character_id' => $msg['character_id'] ?? null,
         'user_id' => $msg['user_id'] ?? null,
+        'internal_log' => !empty($msg['internal_log']),
       ];
     }, $chat);
+  }
+
+  /**
+   * Generate a single in-character player chat suggestion for automation.
+   */
+  public function suggestPlayerAutomationMessage(
+    int $campaign_id,
+    string $room_id,
+    int $character_id,
+    string $channel = 'room'
+  ): array {
+    if ($character_id <= 0) {
+      throw new \InvalidArgumentException('Character ID is required.', 400);
+    }
+    if ($channel !== 'room') {
+      throw new \InvalidArgumentException('Player automation only supports the room channel.', 400);
+    }
+
+    $character_data = $this->actionProcessor->loadCharacterData($character_id);
+    if (!is_array($character_data) || $character_data === []) {
+      throw new \InvalidArgumentException('Character not found.', 404);
+    }
+
+    $basic_info = is_array($character_data['basicInfo'] ?? NULL) ? $character_data['basicInfo'] : [];
+    $character_name = trim((string) ($basic_info['name'] ?? $character_data['name'] ?? 'Adventurer'));
+    if ($character_name === '') {
+      $character_name = 'Adventurer';
+    }
+
+    $history = $this->getChatHistory($campaign_id, $room_id, $channel, $character_id);
+    $session_key = $this->sessionManager->roomChatSessionKey($campaign_id, $room_id);
+    $session_context = $this->buildCompactSessionContext($session_key, $campaign_id, 4, 1200, 400, TRUE);
+    $character_context = $this->buildPlayerAutomationCharacterContext($character_data);
+    $quest_context = $this->buildPlayerAutomationQuestContext($campaign_id, $character_id);
+    $conversation_context = $this->buildRoomConversationTranscript($history, self::PLAYER_AUTOMATION_ROOM_CHAT_LIMIT);
+
+    $prompt = '';
+    if ($session_context !== '') {
+      $prompt .= "=== CAMPAIGN CHAT HISTORY ===\n{$session_context}\n\n---\n";
+    }
+    $prompt .= "=== RECENT ROOM CHAT ===\n{$conversation_context}\n\n";
+    if ($quest_context !== '') {
+      $prompt .= "=== ACTIVE QUEST OBJECTIVES ===\n{$quest_context}\n\n";
+    }
+    $prompt .= "=== PLAYER CHARACTER SHEET ===\n{$character_context}\n\n";
+    $prompt .= "Write the single next room-chat message this character should send.\n";
+    $prompt .= "Choose the next action and wording internally, then output only the exact message text to post.\n";
+    $prompt .= "If a current quest objective or newly discovered lead is relevant, advance that objective instead of restarting the same generic inquiry.\n";
+    $prompt .= "Stay fully in character. Keep it concise (1-2 sentences, max 240 characters). ";
+    $prompt .= "Do not mention rules, dice, UI controls, JSON, or hidden GM knowledge.\n";
+
+    $result = $this->invokeTimedModelCall(
+      $prompt,
+      'dungeoncrawler_content',
+      'player_chat_suggestion',
+      [
+        'campaign_id' => $campaign_id,
+        'room_id' => $room_id,
+        'character_id' => $character_id,
+        'channel' => $channel,
+      ],
+      [
+        'system_prompt' => "You are writing the next in-character chat line for {$character_name}. "
+          . "Base it only on the supplied character sheet, personality, and campaign chat history. "
+          . "Output only the message text to send.",
+        'max_tokens' => 180,
+        'skip_cache' => TRUE,
+      ],
+      [
+        'character_name' => $character_name,
+        'history_line_count' => count($history),
+        'transcript_line_limit' => self::PLAYER_AUTOMATION_ROOM_CHAT_LIMIT,
+        'session_context_length' => strlen($session_context),
+        'quest_context_length' => strlen($quest_context),
+        'character_context_length' => strlen($character_context),
+      ]
+    );
+
+    $message = $this->sanitizePlayerAutomationSuggestion((string) ($result['response'] ?? ''));
+    if ($message === '') {
+      throw new \RuntimeException('Suggestion generation returned an empty message.');
+    }
+
+    return [
+      'message' => $message,
+      'character_name' => $character_name,
+      'channel' => $channel,
+    ];
   }
 
   /**
@@ -396,6 +502,7 @@ class RoomChatService {
     $result = [
       'message' => $new_message,
       'totalMessages' => count($dungeon_data['rooms'][$room_index]['chat']),
+      'dungeon_data' => $dungeon_data,
     ];
     if ($gm_response !== NULL) {
       $result['gm_response'] = $gm_response;
@@ -409,8 +516,25 @@ class RoomChatService {
     if (!empty($npc_interjections)) {
       $result['npc_interjections'] = $npc_interjections;
     }
+    $quest_updates = $this->activateMentionedAvailableQuests(
+      $campaign_id,
+      $room_id,
+      $character_id,
+      $dungeon_data,
+      $gm_response,
+      $npc_interjections
+    );
+    if ($quest_updates !== []) {
+      $result['quest_updates'] = $quest_updates;
+    }
     if ($turn_harness_result !== NULL) {
       $result['turn_harness'] = $turn_harness_result;
+      if (!empty($turn_harness_result['turn_log_key'])) {
+        $result['turn_log_key'] = $turn_harness_result['turn_log_key'];
+      }
+      if (!empty($turn_harness_result['turn_logs'])) {
+        $result['turn_logs'] = $turn_harness_result['turn_logs'];
+      }
     }
     if ($defer_npc_interjections && $channel === 'room' && $gm_response !== NULL) {
       $result['npc_interjections_deferred'] = TRUE;
@@ -450,6 +574,7 @@ class RoomChatService {
     int $campaign_id,
     string $room_id,
     ?int $character_id = NULL,
+    string $channel = 'room',
     bool $defer_npc_interjections = FALSE,
     ?callable $progress_callback = NULL
   ): array {
@@ -457,7 +582,7 @@ class RoomChatService {
     $this->startDebugTrace([
       'campaign_id' => $campaign_id,
       'room_id' => $room_id,
-      'channel' => 'room',
+      'channel' => $channel,
       'type' => 'gm_continuation',
       'character_id' => $character_id,
       'user_id' => (int) $this->currentUser->id(),
@@ -486,7 +611,7 @@ class RoomChatService {
     for ($i = count($chat) - 1; $i >= 0; $i--) {
       $entry = $chat[$i] ?? [];
       $entry_channel = (string) ($entry['channel'] ?? 'room');
-      if ($entry_channel !== 'room') {
+      if ($entry_channel !== $channel) {
         continue;
       }
       if (($entry['type'] ?? '') === 'player') {
@@ -507,6 +632,7 @@ class RoomChatService {
     $char_data = $character_id ? $this->actionProcessor->loadCharacterData($character_id) : NULL;
     $this->reportProgress($progress_callback, 'queued_messages_loaded', [
       'queued_player_count' => count($queued_player_messages),
+      'channel' => $channel,
     ]);
 
     $stage_started_at = hrtime(true);
@@ -514,16 +640,21 @@ class RoomChatService {
     $this->recordDebugStage('ensure_room_npc_profiles', $stage_started_at);
     $this->reportProgress($progress_callback, 'npc_context_prepared', [
       'queued_player_count' => count($queued_player_messages),
+      'channel' => $channel,
     ]);
 
     $this->reportProgress($progress_callback, 'gm_reply_generating', [
       'queued_player_count' => count($queued_player_messages),
+      'channel' => $channel,
     ]);
     $stage_started_at = hrtime(true);
-    $gm_result = $this->generateGmReply($campaign_id, $room_id, $room_index, $dungeon_id, $dungeon_data, $character_id);
+    $gm_result = $channel === 'room'
+      ? $this->generateGmReply($campaign_id, $room_id, $room_index, $dungeon_id, $dungeon_data, $character_id)
+      : $this->generateQueuedChannelReply($campaign_id, $room_id, $room_index, $dungeon_id, $dungeon_data, $character_id, $channel);
     $this->recordDebugStage('generate_gm_reply', $stage_started_at, [
       'generated' => $gm_result !== NULL,
       'queued_player_count' => count($queued_player_messages),
+      'channel' => $channel,
     ]);
 
     $gm_response = $gm_result['message'] ?? NULL;
@@ -531,6 +662,7 @@ class RoomChatService {
       'continued' => $gm_response !== NULL,
       'queued_player_count' => count($queued_player_messages),
       'queued_player_summary' => $queued_player_summary,
+      'channel' => $channel,
     ];
 
     if ($gm_response !== NULL) {
@@ -545,7 +677,7 @@ class RoomChatService {
       if ($navigation !== NULL && empty($navigation['error']) && $this->mapGenerator) {
         $result['navigation'] = $this->mapGenerator->buildClientNavigationPayload($navigation);
       }
-      if ($defer_npc_interjections) {
+      if ($defer_npc_interjections && $channel === 'room') {
         $result['npc_interjections_deferred'] = TRUE;
       }
     }
@@ -553,7 +685,7 @@ class RoomChatService {
     $debug_trace = $this->finalizeDebugTrace($request_started_at, [
       'gm_reply_generated' => $gm_response !== NULL,
       'queued_player_count' => count($queued_player_messages),
-      'npc_interjections_deferred' => $defer_npc_interjections && $gm_response !== NULL,
+      'npc_interjections_deferred' => $defer_npc_interjections && $channel === 'room' && $gm_response !== NULL,
     ]);
     if ($debug_trace !== NULL) {
       $result['timing'] = $this->buildClientTimingSummary($debug_trace);
@@ -593,7 +725,7 @@ class RoomChatService {
     $this->ensureCurrentRoomNpcProfiles($campaign_id, $room_id, $dungeon_data, $room_index);
     $char_data = $character_id ? $this->actionProcessor->loadCharacterData($character_id) : NULL;
 
-    $npc_turn_result = $this->runRoomTurnHarness(
+    return $this->runRoomTurnHarness(
       $campaign_id,
       $room_id,
       $room_index,
@@ -603,7 +735,6 @@ class RoomChatService {
       $gm_narrative,
       $char_data
     );
-    return $npc_turn_result['messages'] ?? [];
   }
 
   /**
@@ -618,6 +749,31 @@ class RoomChatService {
       'stage' => $stage,
       'context' => $context,
     ]);
+  }
+
+  /**
+   * Generate a queued reply for a non-room channel using its current transcript.
+   */
+  protected function generateQueuedChannelReply(
+    int $campaign_id,
+    string $room_id,
+    int|string $room_index,
+    int|string $dungeon_id,
+    array &$dungeon_data,
+    ?int $character_id,
+    string $channel
+  ): ?array {
+    $channel_def = $dungeon_data['rooms'][$room_index]['channels'][$channel] ?? [];
+    return $this->generateChannelNpcReply(
+      $campaign_id,
+      $room_id,
+      $room_index,
+      $dungeon_id,
+      $dungeon_data,
+      $character_id,
+      $channel,
+      $channel_def
+    );
   }
 
   /**
@@ -700,14 +856,21 @@ class RoomChatService {
       $history_lines[] = "{$speaker}: {$text}";
     }
 
+    $char_data = $character_id ? $this->actionProcessor->loadCharacterData($character_id) : NULL;
+
     $stage_started_at = hrtime(true);
     $room_npcs = $this->gatherRoomNpcsWithProfiles($campaign_id, $room_id, $dungeon_data);
     $directly_addressed_npc = $this->resolveDirectlyAddressedNpc($room_npcs, $latest_player_message);
-    $turn_intent = $this->classifyRoomTurnIntent($latest_player_message, $room_npcs, $directly_addressed_npc);
+    $active_conversation_npc = $this->resolveActiveDirectConversationNpc(array_slice($chat, 0, -1), $room_npcs);
+    $turn_intent = $this->classifyRoomTurnIntent($latest_player_message, $room_npcs, $directly_addressed_npc, $active_conversation_npc);
+    $effective_direct_npc = $directly_addressed_npc ?? ($turn_intent === 'direct_npc_dialogue' || $turn_intent === 'direct_npc_transaction'
+      ? $active_conversation_npc
+      : NULL);
     $this->recordDebugStage('gm.intent_classification', $stage_started_at, [
       'intent' => $turn_intent,
       'room_npc_count' => count($room_npcs),
-      'direct_addressed' => $directly_addressed_npc['entity_ref'] ?? NULL,
+      'direct_addressed' => $effective_direct_npc['entity_ref'] ?? NULL,
+      'continued_conversation' => $directly_addressed_npc === NULL && $effective_direct_npc !== NULL,
     ]);
 
     $stage_started_at = hrtime(true);
@@ -726,20 +889,33 @@ class RoomChatService {
       $campaign_id,
       $turn_intent,
       $room_npcs,
-      $directly_addressed_npc,
+      $effective_direct_npc,
       $latest_player_message,
       $room_meta,
       $room_id,
       $dungeon_data,
-      $is_room_entry
+      $is_room_entry,
+      $char_data,
+      $character_id
     );
     if ($deterministic_response !== NULL) {
+      $deterministic_boundary_errors = $this->validateGmNarrativeRoleBoundary((string) ($deterministic_response['narrative'] ?? ''), $char_data);
+      if ($deterministic_boundary_errors !== []) {
+        $deterministic_response['narrative'] = $this->buildSafeGmBoundaryFallbackNarrative($this->extractPlayerCharacterName($char_data));
+        $deterministic_response['actions'] = [];
+        $deterministic_response['dice_rolls'] = [];
+        $deterministic_response['validation_errors'] = array_values(array_unique(array_merge(
+          $deterministic_response['validation_errors'] ?? [],
+          $deterministic_boundary_errors
+        )));
+      }
       $checked_response = $deterministic_response;
       $response_source = 'deterministic';
       $this->recordDebugStage('gm.deterministic_short_path', $stage_started_at, [
         'intent' => $turn_intent,
         'narrative_length' => strlen((string) ($deterministic_response['narrative'] ?? '')),
         'action_count' => count($deterministic_response['actions'] ?? []),
+        'role_boundary_violation_count' => count($deterministic_boundary_errors ?? []),
       ]);
     }
     else {
@@ -795,14 +971,7 @@ class RoomChatService {
       else {
         $prompt .= "\n\nRespond as the Game Master referee. Keep your reply concise (2-4 sentences) and limit it to environmental and setting narration only. If the player is performing a mechanical action (casting a spell, using a skill, using a feat, attacking, exploring), include the JSON action block as instructed in your system prompt.";
       }
-      $prompt .= "\nIMPORTANT: You are not a character in the scene. You are not an NPC, not a party member, not the player character, and not an in-world speaker.";
-      $prompt .= "\nIMPORTANT: The primary GM response is NOT character dialogue. It is setting narration only.";
-      $prompt .= "\nIMPORTANT: Do NOT write dialogue for any NPC. Do NOT describe NPC actions, NPC body language, or NPC reactions from the GM layer.";
-      $prompt .= "\nIMPORTANT: If the player addresses an NPC directly, the GM should not hand off, paraphrase, or preview that NPC's response from the GM layer.";
-      $prompt .= "\nIMPORTANT: Do NOT write dialogue for the player character, companions, or party members. Do NOT narrate PC actions, choices, emotions, or intent beyond the player's exact stated input.";
-      $prompt .= "\nIMPORTANT: For informational questions about who is present, demeanor, or what the room looks like, answer with direct observations only. Do NOT invent a scene, conversation, toast, agreement, plan, or travel setup.";
-      $prompt .= "\nIMPORTANT: Named characters and NPCs must stay grounded in their provided canonical notes. If appearance, personality, attitude, motivations, role, or capabilities are not provided, do NOT invent them.";
-      $prompt .= "\nIMPORTANT: Questions about whether an action is possible, wise, or legal are not actions. Answer those verbally and do NOT emit or mention any JSON, action block, code fence, or structured output unless the player is clearly taking the action right now.";
+      $prompt .= $this->buildGmPromptGuardrails();
       $this->recordDebugStage('gm.user_prompt_assembly', $stage_started_at, [
         'recent_message_count' => count($recent),
         'history_line_count' => count($history_lines),
@@ -832,21 +1001,17 @@ class RoomChatService {
         'summary' => $this->summarizeRoomInventory($room_inventory),
       ]);
 
-      $char_data = NULL;
-      if ($character_id) {
-        $char_data = $this->actionProcessor->loadCharacterData($character_id);
-        if ($char_data) {
-          $system_prompt = $this->actionProcessor->buildEnhancedSystemPrompt(
-            $base_system_prompt,
-            $char_data,
-            $room_meta,
-            $room_inventory,
-            $dungeon_data,
-            $room_index
-          );
-        }
+      if ($char_data) {
+        $system_prompt = $this->actionProcessor->buildEnhancedSystemPrompt(
+          $base_system_prompt,
+          $char_data,
+          $room_meta,
+          $room_inventory,
+          $dungeon_data,
+          $room_index
+        );
       }
-      $system_prompt .= "\nYou are not a character in the scene. You are the Game Master layer only, and you must never speak as an NPC, party member, companion, or player character.";
+      $system_prompt .= $this->buildGmSystemGuardrails();
       $this->recordDebugStage('gm.system_prompt_assembly', $stage_started_at, [
         'base_system_prompt_length' => strlen($base_system_prompt),
         'system_prompt_length' => strlen($system_prompt),
@@ -961,6 +1126,7 @@ class RoomChatService {
     }
     $narrative = $this->stripPlayerVisibleActionBlocks($narrative);
     $narrative = $this->trimIncompleteNarrative($narrative);
+    $narrative = $this->sanitizePlayerVisibleNarrative($narrative);
     $this->recordDebugStage('gm.suggestion_extraction', $stage_started_at);
 
     if (!empty($gm_response_cache_key)
@@ -1173,6 +1339,31 @@ class RoomChatService {
   }
 
   /**
+   * Stable user-prompt guardrails for the GM layer.
+   */
+  protected function buildGmPromptGuardrails(): string {
+    return "\nIMPORTANT: Scene context precedence: use the supplied room, roster, actor, quest, and inventory context as authoritative grounding over chat implication or genre habit."
+      . "\nIMPORTANT: You are not a character in the scene. You are not an NPC, not a party member, not the player character, and not an in-world speaker."
+      . "\nIMPORTANT: The primary GM response is NOT character dialogue. It is setting narration only."
+      . "\nIMPORTANT: Do NOT write dialogue for any NPC. Do NOT describe NPC actions, NPC body language, or NPC reactions from the GM layer."
+      . "\nIMPORTANT: If the player addresses an NPC directly, the GM should not hand off, paraphrase, or preview that NPC's response from the GM layer."
+      . "\nIMPORTANT: Do NOT write dialogue for the player character, companions, or party members. Do NOT narrate PC actions, choices, emotions, or intent beyond the player's exact stated input."
+      . "\nIMPORTANT: For informational questions about who is present, demeanor, or what the room looks like, answer with direct observations only. Do NOT invent a scene, conversation, toast, agreement, plan, or travel setup."
+      . "\nIMPORTANT: Named characters and NPCs must stay grounded in their provided canonical notes. If appearance, personality, attitude, motivations, role, or capabilities are not provided, do NOT invent them."
+      . "\nIMPORTANT: Preserve uncertainty when the provided context is uncertain or partial. Do not resolve hidden motives, off-screen activity, or unverified scene details."
+      . "\nIMPORTANT: Questions about whether an action is possible, wise, or legal are not actions. Answer those verbally and do NOT emit or mention any JSON, action block, code fence, or structured output unless the player is clearly taking the action right now.";
+  }
+
+  /**
+   * Stable system-prompt guardrails for the GM layer.
+   */
+  protected function buildGmSystemGuardrails(): string {
+    return "\nYou are not a character in the scene. You are the Game Master layer only, and you must never speak as an NPC, party member, companion, or player character."
+      . "\nUse supplied room, roster, actor, quest, and inventory context as authoritative grounding."
+      . "\nDo not invent missing canonical facts, hidden outcomes, or off-screen changes.";
+  }
+
+  /**
    * Generate a GM response and run centralized reality validation with retry.
    *
    * If the generated mechanics fail the authoritative resource checks, the
@@ -1195,6 +1386,7 @@ class RoomChatService {
     array $room_inventory,
     array $prompt_debug_meta = []
   ): ?array {
+    $player_character_name = $this->extractPlayerCharacterName($character_data);
     $stage_started_at = hrtime(true);
     $attempt = $this->invokeGmModel($prompt, $system_prompt, $context_data, $room_id, 'room_chat_gm_reply', $prompt_debug_meta + [
       'attempt' => 1,
@@ -1210,10 +1402,14 @@ class RoomChatService {
     $parsed = $this->actionProcessor->parseResponse($attempt);
     $actions = $parsed['actions'] ?? [];
     $validation_errors = [];
+    $role_boundary_errors = $this->validateGmNarrativeRoleBoundary((string) ($parsed['narrative'] ?? ''), $character_data);
     $this->recordDebugStage('gm.parse_primary_response', $stage_started_at, [
       'action_count' => count($actions),
       'dice_roll_count' => count($parsed['dice_rolls'] ?? []),
       'narrative_length' => strlen((string) ($parsed['narrative'] ?? '')),
+    ]);
+    $this->recordDebugStage('gm.validate_primary_narrative_boundary', hrtime(true), [
+      'violation_count' => count($role_boundary_errors),
     ]);
 
     $this->recordCanonicalActionBatch($campaign_id, $actions, 'proposed', [
@@ -1231,82 +1427,102 @@ class RoomChatService {
         'action_count' => count($actions),
         'validation_error_count' => count($validation_errors),
       ]);
+    }
 
-      if (!empty($validation_errors)) {
+    if (!empty($validation_errors) || !empty($role_boundary_errors)) {
+      $retry_prompt = $prompt;
+      if (!empty($validation_errors) && $character_id) {
         $snapshot = $this->actionProcessor->buildRealitySnapshot($character_data, $room_inventory);
-        $retry_prompt = $prompt . "\n\n---\n" . $this->actionProcessor->buildRealityRetryPrompt($validation_errors, $snapshot);
-        $retry_context = $context_data + [
-          'reality_retry' => 1,
-          'campaign_id' => $campaign_id,
-        ];
+        $retry_prompt .= "\n\n---\n" . $this->actionProcessor->buildRealityRetryPrompt($validation_errors, $snapshot);
+      }
+      if (!empty($role_boundary_errors)) {
+        $retry_prompt .= "\n\n---\n" . $this->buildGmRoleBoundaryRetryPrompt($player_character_name, $role_boundary_errors);
+      }
+      $retry_context = $context_data + [
+        'reality_retry' => 1,
+        'campaign_id' => $campaign_id,
+      ];
 
+      $stage_started_at = hrtime(true);
+      $retry = $this->invokeGmModel($retry_prompt, $system_prompt, $retry_context, $room_id, 'room_chat_gm_retry', $prompt_debug_meta + [
+        'attempt' => 2,
+        'validation_error_count' => count($validation_errors),
+        'role_boundary_error_count' => count($role_boundary_errors),
+      ]);
+      $this->recordDebugStage('gm.llm_retry', $stage_started_at, [
+        'success' => $retry !== NULL,
+      ]);
+      if ($retry !== NULL) {
         $stage_started_at = hrtime(true);
-        $retry = $this->invokeGmModel($retry_prompt, $system_prompt, $retry_context, $room_id, 'room_chat_gm_retry', $prompt_debug_meta + [
+        $retry_parsed = $this->actionProcessor->parseResponse($retry);
+        $retry_actions = $retry_parsed['actions'] ?? [];
+        $retry_validation_errors = [];
+        $retry_role_boundary_errors = $this->validateGmNarrativeRoleBoundary((string) ($retry_parsed['narrative'] ?? ''), $character_data);
+        $this->recordDebugStage('gm.parse_retry_response', $stage_started_at, [
+          'action_count' => count($retry_actions),
+          'dice_roll_count' => count($retry_parsed['dice_rolls'] ?? []),
+          'narrative_length' => strlen((string) ($retry_parsed['narrative'] ?? '')),
+        ]);
+        $this->recordDebugStage('gm.validate_retry_narrative_boundary', hrtime(true), [
+          'violation_count' => count($retry_role_boundary_errors),
+        ]);
+
+        $this->recordCanonicalActionBatch($campaign_id, $retry_actions, 'proposed_retry', [
+          'room_id' => $room_id,
+          'character_id' => $character_id,
           'attempt' => 2,
-          'validation_error_count' => count($validation_errors),
-          'snapshot_length' => strlen($snapshot),
         ]);
-        $this->recordDebugStage('gm.llm_retry', $stage_started_at, [
-          'success' => $retry !== NULL,
-        ]);
-        if ($retry !== NULL) {
+
+        if (!empty($retry_actions) && $character_id) {
           $stage_started_at = hrtime(true);
-          $retry_parsed = $this->actionProcessor->parseResponse($retry);
-          $retry_actions = $retry_parsed['actions'] ?? [];
-          $retry_validation_errors = [];
-          $this->recordDebugStage('gm.parse_retry_response', $stage_started_at, [
+          $retry_validation = $this->actionProcessor->validateCharacterActionResources($character_id, $retry_actions, $campaign_id);
+          $retry_actions = $retry_validation['actions'] ?? [];
+          $retry_validation_errors = $retry_validation['errors'] ?? [];
+          $this->recordDebugStage('gm.validate_retry_actions', $stage_started_at, [
             'action_count' => count($retry_actions),
-            'dice_roll_count' => count($retry_parsed['dice_rolls'] ?? []),
-            'narrative_length' => strlen((string) ($retry_parsed['narrative'] ?? '')),
+            'validation_error_count' => count($retry_validation_errors),
           ]);
-
-          $this->recordCanonicalActionBatch($campaign_id, $retry_actions, 'proposed_retry', [
-            'room_id' => $room_id,
-            'character_id' => $character_id,
-            'attempt' => 2,
-          ]);
-
-          if (!empty($retry_actions) && $character_id) {
-            $stage_started_at = hrtime(true);
-            $retry_validation = $this->actionProcessor->validateCharacterActionResources($character_id, $retry_actions, $campaign_id);
-            $retry_actions = $retry_validation['actions'] ?? [];
-            $retry_validation_errors = $retry_validation['errors'] ?? [];
-            $this->recordDebugStage('gm.validate_retry_actions', $stage_started_at, [
-              'action_count' => count($retry_actions),
-              'validation_error_count' => count($retry_validation_errors),
-            ]);
-          }
-
-          if (empty($retry_validation_errors)) {
-            return [
-              'narrative' => $retry_parsed['narrative'] ?? '',
-              'actions' => $retry_actions,
-              'dice_rolls' => $retry_parsed['dice_rolls'] ?? [],
-              'validation_errors' => [],
-            ];
-          }
-
-          $validation_errors = $retry_validation_errors;
-          $parsed = $retry_parsed;
-          $actions = [];
-        }
-        else {
-          $actions = [];
         }
 
-        $narrative = rtrim((string) ($parsed['narrative'] ?? ''));
-        $correction = $this->actionProcessor->buildValidationFailureSummary($validation_errors);
-        if ($correction !== '') {
-          $narrative .= ($narrative !== '' ? "\n\n" : '') . $correction;
+        if (empty($retry_validation_errors) && empty($retry_role_boundary_errors)) {
+          return [
+            'narrative' => $retry_parsed['narrative'] ?? '',
+            'actions' => $retry_actions,
+            'dice_rolls' => $retry_parsed['dice_rolls'] ?? [],
+            'validation_errors' => [],
+          ];
         }
 
+        $validation_errors = $retry_validation_errors;
+        $role_boundary_errors = $retry_role_boundary_errors;
+        $parsed = $retry_parsed;
+        $actions = [];
+      }
+      else {
+        $actions = [];
+      }
+
+      if (!empty($role_boundary_errors)) {
         return [
-          'narrative' => $narrative,
+          'narrative' => $this->buildSafeGmBoundaryFallbackNarrative($player_character_name),
           'actions' => [],
           'dice_rolls' => [],
-          'validation_errors' => $validation_errors,
+          'validation_errors' => array_values(array_unique(array_merge($validation_errors, $role_boundary_errors))),
         ];
       }
+
+      $narrative = rtrim((string) ($parsed['narrative'] ?? ''));
+      $correction = $this->actionProcessor->buildValidationFailureSummary($validation_errors);
+      if ($correction !== '') {
+        $narrative .= ($narrative !== '' ? "\n\n" : '') . $correction;
+      }
+
+      return [
+        'narrative' => $narrative,
+        'actions' => [],
+        'dice_rolls' => [],
+        'validation_errors' => $validation_errors,
+      ];
     }
 
     return [
@@ -1315,6 +1531,74 @@ class RoomChatService {
       'dice_rolls' => $parsed['dice_rolls'] ?? [],
       'validation_errors' => [],
     ];
+  }
+
+  /**
+   * Extract the active player-character display name from character data.
+   */
+  protected function extractPlayerCharacterName(?array $character_data): string {
+    if (!is_array($character_data)) {
+      return '';
+    }
+
+    $basic_info = is_array($character_data['basicInfo'] ?? NULL) ? $character_data['basicInfo'] : [];
+    return trim((string) ($basic_info['name'] ?? $character_data['name'] ?? ''));
+  }
+
+  /**
+   * Detect when the GM narrative has slipped into player-character roleplay.
+   *
+   * @return string[]
+   *   Stable error codes describing the boundary violation.
+   */
+  protected function validateGmNarrativeRoleBoundary(string $narrative, ?array $character_data): array {
+    $trimmed = trim($narrative);
+    if ($trimmed === '') {
+      return [];
+    }
+
+    $errors = [];
+    if (preg_match('/(^|[\s\(\["“‘])I(?:\'m| am|\'ve|\'ll|\'d)?\b/ui', $trimmed)
+      || preg_match('/(^|[\s\(\["“‘])(?:me|my|mine)\b/ui', $trimmed)) {
+      $errors[] = 'gm_role_boundary_first_person_voice';
+    }
+
+    $player_character_name = $this->extractPlayerCharacterName($character_data);
+    if ($player_character_name !== '') {
+      $escaped_name = preg_quote($player_character_name, '/');
+      if (preg_match('/\b' . $escaped_name . '\b.{0,120}\b(?:say|says|said|ask|asks|asked|reply|replies|replied|lean|leans|leaned|gesture|gestures|gestured|grin|grins|grinned|smile|smiles|smiled|nod|nods|nodded|flash|flashes|flashed|brace|braces|braced|tap|taps|tapped|wave|waves|waved|look|looks|looked|keep|keeps|kept|drum|drums|drummed)\b/uis', $trimmed)
+        || preg_match('/\b' . $escaped_name . '\b.{0,120}(?:["“]|\'[A-Za-z])/uis', $trimmed)) {
+        $errors[] = 'gm_role_boundary_player_character_roleplay';
+      }
+    }
+
+    if (preg_match('/^\s*(?:\*.*?\*|(?:He|She|They)\s+(?:leans|braces|gestures|smiles|grins|nods|taps|waves|looks|keeps|drums|lets|takes|flashes)\b)/uis', $trimmed)) {
+      $errors[] = 'gm_role_boundary_staged_in_world_roleplay';
+    }
+
+    return array_values(array_unique($errors));
+  }
+
+  /**
+   * Build a retry prompt when the GM speaks as the player or in-world actor.
+   */
+  protected function buildGmRoleBoundaryRetryPrompt(string $player_character_name, array $role_boundary_errors): string {
+    $character_label = $player_character_name !== '' ? $player_character_name : 'the player character';
+    $codes = implode(', ', array_values(array_unique($role_boundary_errors)));
+
+    return "Your previous response violated the GM role boundary ({$codes})."
+      . "\nRegenerate the entire response as the Game Master referee layer only."
+      . "\nDo NOT speak as {$character_label}."
+      . "\nDo NOT write first-person player-character dialogue, inner thoughts, body language, or staged in-world performance."
+      . "\nDo NOT write dialogue for NPCs from the GM layer."
+      . "\nReturn only grounded scene narration/adjudication from the GM perspective.";
+  }
+
+  /**
+   * Safe fallback when repeated retries still cross the GM/player boundary.
+   */
+  protected function buildSafeGmBoundaryFallbackNarrative(string $player_character_name = ''): string {
+    return 'The scene remains grounded around you, with the visible room occupants and current situation still before you.';
   }
 
   /**
@@ -1909,6 +2193,11 @@ class RoomChatService {
     $prompt .= "You are {$target_name}, an NPC in a Pathfinder 2e dungeon crawl.\n";
     $prompt .= "The player character is communicating with you via {$source_ability}.\n";
     $prompt .= "Stay in character as {$target_name}. Do NOT respond as the Game Master.\n";
+    $prompt .= "You are only allowed to speak and react as this NPC. You have no authority to change campaign state, room state, character sheets, the content library, rules, or application code.\n";
+    $prompt .= "The tools available to you are only the same player-facing lookup and action surfaces available to a player character. ";
+    $prompt .= "Lookup tools: /api/spells, /api/spells/{spell_id}, /api/focus-spells, /api/feats, and /api/feats/{feat_id}. ";
+    $prompt .= "Action tools: only the player action-bar / coordinator functions move or stride, strike or attack, interact, talk, search, cast_spell, consume_item, skill actions, feat actions, navigate, and end_turn, as represented by GameCoordinatorApi sendAction()/move()/strike()/interact()/talk()/search()/castSpell()/endTurn(), the direct action-rail handlers executeDirectAttack/executeDirectNavigate/executeDirectInteract/executeDirectSpell/executeDirectConsumable/executeDirectSkill/executeDirectFeat, and the matching player routes /api/game/{campaign_id}/action, /api/combat/attack, /api/combat/action, /api/character/{character_id}/cast-spell, /api/character/{character_id}/actions, and /api/character/{character_id}/inventory. ";
+    $prompt .= "No GM-only, admin-only, campaign-state mutation, library mutation, or code-changing tool is available to you.\n";
     $prompt .= "Your responses should reflect your personality traits, current attitude, and motivations as described above.\n\n";
     $prompt .= "Conversation so far:\n" . implode("\n", $history_lines);
     $prompt .= "\n\nRespond in character as {$target_name}. Keep your reply concise (1-3 sentences).";
@@ -1934,7 +2223,7 @@ class RoomChatService {
         'channel_npc_reply',
         $context_data,
         [
-          'system_prompt' => "You are {$target_name}, a character in a tabletop RPG. Your current attitude toward the party is: {$npc_attitude}. Use the character sheet and psychology profile provided in the user prompt to stay in character. Reflect your personality traits, motivations, and recent inner thoughts in your tone and word choice. Do not break the fourth wall. Do not mention that you are an AI.",
+          'system_prompt' => "You are {$target_name}, a character in a tabletop RPG. Your current attitude toward the party is: {$npc_attitude}. Use the character sheet and psychology profile provided in the user prompt to stay in character. Reflect your personality traits, motivations, and recent inner thoughts in your tone and word choice. You have no authority to change campaign state, room state, character sheets, the content library, rules, or application code; you can only speak as this NPC using the same player-facing lookup and action surfaces available to a player character: /api/spells, /api/spells/{spell_id}, /api/focus-spells, /api/feats, /api/feats/{feat_id}, and the player action-bar / coordinator actions move/stride, strike/attack, interact, talk, search, cast_spell, consume_item, skill, feat, navigate, and end_turn via GameCoordinatorApi and the matching player routes. Do not break the fourth wall. Do not mention that you are an AI.",
           'max_tokens' => 400,
           'skip_cache' => TRUE,
         ],
@@ -2794,7 +3083,11 @@ class RoomChatService {
   }
 
   /**
-   * Run the ordered room turn harness: GM scene narration, then NPC turns.
+   * Run the ordered room turn harness: player context, narrator, then NPC turns.
+   *
+   * This method also emits two troubleshooting outputs:
+   * - player-visible room-chat system lines (`turn_logs`) for turn order and next speaker
+   * - structured rows in `dc_room_turn_logs` for durable sequence debugging
    */
   protected function runRoomTurnHarness(
     int $campaign_id,
@@ -2808,25 +3101,81 @@ class RoomChatService {
   ): array {
     // Gather room NPCs with psychology profiles.
     $room_npcs = $this->gatherRoomNpcsWithProfiles($campaign_id, $room_id, $dungeon_data);
+    $turn_log_key = uniqid('room_turn_', TRUE);
 
     if (empty($room_npcs)) {
+      $this->persistStructuredRoomTurnLog(
+        $campaign_id,
+        $dungeon_id,
+        $room_id,
+        $turn_log_key,
+        0,
+        'turn_order',
+        NULL,
+        'Narrator',
+        [
+          'gm_addressed' => FALSE,
+          'ordered_npcs' => [],
+          'room_npc_count' => 0,
+        ]
+      );
       return [
+        'player' => ['message' => $player_message],
         'gm' => ['narrative' => $gm_narrative],
+        'gm_addressed' => FALSE,
         'npc_turns' => [],
+        'turn_log_key' => $turn_log_key,
+        'turn_logs' => [],
         'messages' => [],
       ];
     }
 
-    $turn_plan = $this->buildNpcTurnPlan($room_npcs, $player_message, $gm_narrative);
+    $turn_plan = $this->buildNpcTurnPlan($room_npcs, $player_message, $gm_narrative, $dungeon_data, $room_id);
     $directly_addressed_npc = $turn_plan['directly_addressed_npc'];
+    $gm_addressed = !empty($turn_plan['gm_addressed']);
     $stage_started_at = hrtime(true);
     $ordered_npcs = $turn_plan['ordered_npcs'];
     $this->recordDebugStage('npc.candidate_filter', $stage_started_at, [
       'room_npc_count' => count($room_npcs),
       'candidate_count' => count($ordered_npcs),
       'direct_addressed' => $directly_addressed_npc['entity_ref'] ?? NULL,
+      'gm_addressed' => $gm_addressed,
+    ]);
+    $turn_logs = [];
+    $turn_order_log = $this->buildRoomTurnOrderLogMessage($ordered_npcs, $gm_addressed);
+    $ordered_npc_payload = array_values(array_map(static fn(array $npc): array => [
+      'entity_ref' => (string) ($npc['entity_ref'] ?? ''),
+      'display_name' => (string) ($npc['profile']['display_name'] ?? $npc['entity_ref'] ?? ''),
+    ], $ordered_npcs));
+    $this->persistStructuredRoomTurnLog(
+      $campaign_id,
+      $dungeon_id,
+      $room_id,
+      $turn_log_key,
+      0,
+      'turn_order',
+      $directly_addressed_npc['entity_ref'] ?? NULL,
+      'Narrator',
+      [
+        'gm_addressed' => $gm_addressed,
+        'directly_addressed_npc' => $directly_addressed_npc['entity_ref'] ?? NULL,
+        'ordered_npcs' => $ordered_npc_payload,
+        'player_message' => $player_message,
+        'gm_narrative' => $gm_narrative,
+      ]
+    );
+    if ($turn_order_log !== '') {
+      $turn_logs[] = $this->appendInternalRoomLogMessage($dungeon_data, $room_index, $turn_order_log);
+    }
+    $this->logger->info('Room turn order for room @room (turn @turn_key): @order', [
+      '@room' => $room_id,
+      '@turn_key' => $turn_log_key,
+      '@order' => $turn_order_log !== '' ? $turn_order_log : '[no turn order]',
     ]);
     if ($ordered_npcs === []) {
+      if ($turn_logs !== []) {
+        $this->persistDungeonChatState($campaign_id, $dungeon_id, $dungeon_data);
+      }
       $this->feedRoomChatToNpcSessions(
         $campaign_id,
         $room_npcs,
@@ -2836,32 +3185,46 @@ class RoomChatService {
         $this->buildRoomObservationFromChat($dungeon_data['rooms'][$room_index]['chat'] ?? [])
       );
       return [
+        'player' => ['message' => $player_message],
         'gm' => ['narrative' => $gm_narrative],
+        'gm_addressed' => $gm_addressed,
         'directly_addressed_npc' => $directly_addressed_npc['entity_ref'] ?? NULL,
         'npc_turns' => [],
+        'turn_log_key' => $turn_log_key,
+        'turn_logs' => $turn_logs,
         'messages' => [],
       ];
     }
 
     $messages = [];
     $spoken_refs = [];
+    $turn_log_sequence = 1;
     foreach ($ordered_npcs as $npc) {
-      $is_directly_addressed = $directly_addressed_npc !== NULL
-        && $npc['entity_ref'] === $directly_addressed_npc['entity_ref'];
-
-      if (!$is_directly_addressed && !$this->shouldNpcTakeTurnThisRound(
+      $next_speaker = (string) ($npc['profile']['display_name'] ?? $npc['entity_ref'] ?? 'Unknown');
+      $this->persistStructuredRoomTurnLog(
         $campaign_id,
+        $dungeon_id,
         $room_id,
-        $room_index,
+        $turn_log_key,
+        $turn_log_sequence++,
+        'next_speaker',
+        (string) ($npc['entity_ref'] ?? ''),
+        $next_speaker,
+        [
+          'player_message' => $player_message,
+          'gm_narrative' => $gm_narrative,
+        ]
+      );
+      $turn_logs[] = $this->appendInternalRoomLogMessage(
         $dungeon_data,
-        $npc,
-        $active_character_data,
-        $player_message,
-        $gm_narrative
-      )) {
-        continue;
-      }
-
+        $room_index,
+        'Next speaker: ' . $next_speaker . '.'
+      );
+      $this->logger->info('Room turn next speaker in room @room (turn @turn_key): @speaker', [
+        '@room' => $room_id,
+        '@turn_key' => $turn_log_key,
+        '@speaker' => $next_speaker,
+      ]);
       $built_messages = $this->buildNpcInterjectionMessage(
         $campaign_id,
         $room_id,
@@ -2879,6 +3242,37 @@ class RoomChatService {
       if (!empty($built_messages)) {
         $messages = array_merge($messages, $built_messages);
         $spoken_refs[] = $npc['entity_ref'];
+        $this->persistStructuredRoomTurnLog(
+          $campaign_id,
+          $dungeon_id,
+          $room_id,
+          $turn_log_key,
+          $turn_log_sequence++,
+          'speaker_completed',
+          (string) ($npc['entity_ref'] ?? ''),
+          $next_speaker,
+          [
+            'spoke' => TRUE,
+            'message_count' => count($built_messages),
+            'message_preview' => (string) (($built_messages[0]['message'] ?? '')),
+          ]
+        );
+      }
+      else {
+        $this->persistStructuredRoomTurnLog(
+          $campaign_id,
+          $dungeon_id,
+          $room_id,
+          $turn_log_key,
+          $turn_log_sequence++,
+          'speaker_completed',
+          (string) ($npc['entity_ref'] ?? ''),
+          $next_speaker,
+          [
+            'spoke' => FALSE,
+            'message_count' => 0,
+          ]
+        );
       }
     }
 
@@ -2892,13 +3286,17 @@ class RoomChatService {
         $this->buildRoomObservationFromChat($dungeon_data['rooms'][$room_index]['chat'] ?? [])
       );
       return [
+        'player' => ['message' => $player_message],
         'gm' => ['narrative' => $gm_narrative],
+        'gm_addressed' => $gm_addressed,
         'directly_addressed_npc' => $directly_addressed_npc['entity_ref'] ?? NULL,
         'npc_turns' => array_values(array_map(static fn(array $npc): array => [
           'entity_ref' => (string) ($npc['entity_ref'] ?? ''),
           'display_name' => (string) ($npc['profile']['display_name'] ?? $npc['entity_ref'] ?? ''),
           'spoke' => FALSE,
         ], $ordered_npcs)),
+        'turn_log_key' => $turn_log_key,
+        'turn_logs' => $turn_logs,
         'messages' => [],
       ];
     }
@@ -2912,8 +3310,11 @@ class RoomChatService {
       $this->buildRoomObservationFromChat($dungeon_data['rooms'][$room_index]['chat'] ?? [])
     );
     return [
+      'player' => ['message' => $player_message],
       'gm' => ['narrative' => $gm_narrative],
+      'gm_addressed' => $gm_addressed,
       'directly_addressed_npc' => $directly_addressed_npc['entity_ref'] ?? NULL,
+      'turn_log_key' => $turn_log_key,
       'npc_turns' => array_values(array_map(static function (array $npc) use ($spoken_refs): array {
         $entity_ref = (string) ($npc['entity_ref'] ?? '');
         return [
@@ -2922,6 +3323,7 @@ class RoomChatService {
           'spoke' => in_array($entity_ref, $spoken_refs, TRUE),
         ];
       }, $ordered_npcs)),
+      'turn_logs' => $turn_logs,
       'messages' => $messages,
     ];
   }
@@ -2929,14 +3331,229 @@ class RoomChatService {
   /**
    * Build an ordered NPC turn plan for the current room round.
    */
-  protected function buildNpcTurnPlan(array $room_npcs, string $player_message, string $gm_narrative): array {
+  protected function buildNpcTurnPlan(
+    array $room_npcs,
+    string $player_message,
+    string $gm_narrative,
+    array $dungeon_data = [],
+    string $room_id = ''
+  ): array {
     $directly_addressed_npc = $this->resolveDirectlyAddressedNpc($room_npcs, $player_message);
-    $ordered_npcs = $this->buildNpcInterjectionCandidates($room_npcs, $player_message, $gm_narrative, $directly_addressed_npc);
+    $gm_addressed = $this->isExplicitRoomGmAddress($player_message);
+    $ordered_npcs = $gm_addressed
+      ? []
+      : $this->buildRoomNpcInitiativeOrder($room_npcs, $dungeon_data, $room_id);
 
     return [
       'directly_addressed_npc' => $directly_addressed_npc,
+      'gm_addressed' => $gm_addressed,
       'ordered_npcs' => $ordered_npcs,
     ];
+  }
+
+  /**
+   * Determine whether the player is explicitly addressing the GM in room chat.
+   */
+  protected function isExplicitRoomGmAddress(string $player_message): bool {
+    return (bool) preg_match('/(?:^|[.!?]\s+|,\s*)(?:gm|game master)\b\s*[,:-]?/iu', trim($player_message));
+  }
+
+  /**
+   * Build the full room NPC speaking order for the current round.
+   */
+  protected function buildRoomNpcInitiativeOrder(array $room_npcs, array $dungeon_data = [], string $room_id = ''): array {
+    if ($room_npcs === []) {
+      return [];
+    }
+
+    $initiative_order = is_array($dungeon_data['game_state']['initiative_order'] ?? NULL)
+      ? $dungeon_data['game_state']['initiative_order']
+      : [];
+    $ordered_npcs = [];
+    $seen_refs = [];
+
+    foreach ($initiative_order as $participant) {
+      if (!is_array($participant)) {
+        continue;
+      }
+
+      $matched_npc = $this->matchRoomNpcFromInitiativeParticipant($room_npcs, $participant, $room_id);
+      if ($matched_npc === NULL) {
+        continue;
+      }
+
+      $entity_ref = (string) ($matched_npc['entity_ref'] ?? '');
+      if ($entity_ref === '' || isset($seen_refs[$entity_ref])) {
+        continue;
+      }
+
+      $ordered_npcs[] = $matched_npc;
+      $seen_refs[$entity_ref] = TRUE;
+    }
+
+    foreach ($room_npcs as $npc) {
+      $entity_ref = (string) ($npc['entity_ref'] ?? '');
+      if ($entity_ref === '' || isset($seen_refs[$entity_ref])) {
+        continue;
+      }
+
+      $ordered_npcs[] = $npc;
+      $seen_refs[$entity_ref] = TRUE;
+    }
+
+    return $ordered_npcs;
+  }
+
+  /**
+   * Match one initiative participant back to a gathered room NPC.
+   */
+  protected function matchRoomNpcFromInitiativeParticipant(array $room_npcs, array $participant, string $room_id = ''): ?array {
+    $participant_room_id = (string) ($participant['room_id'] ?? $participant['placement']['room_id'] ?? '');
+    if ($room_id !== '' && $participant_room_id !== '' && $participant_room_id !== $room_id) {
+      return NULL;
+    }
+
+    $candidate_ids = array_filter([
+      (string) ($participant['entity_ref'] ?? ''),
+      (string) ($participant['entity_id'] ?? ''),
+      (string) ($participant['participant_ref'] ?? ''),
+      (string) ($participant['id'] ?? ''),
+    ]);
+    $candidate_names = array_filter([
+      (string) ($participant['display_name'] ?? ''),
+      (string) ($participant['name'] ?? ''),
+    ]);
+
+    foreach ($room_npcs as $npc) {
+      $entity_ref = (string) ($npc['entity_ref'] ?? '');
+      $display_name = (string) ($npc['profile']['display_name'] ?? '');
+      if ($entity_ref !== '' && in_array($entity_ref, $candidate_ids, TRUE)) {
+        return $npc;
+      }
+      if ($display_name !== '' && in_array($display_name, $candidate_names, TRUE)) {
+        return $npc;
+      }
+    }
+
+    return NULL;
+  }
+
+  /**
+   * Build a player-visible system log message for the current turn order.
+   */
+  protected function buildRoomTurnOrderLogMessage(array $ordered_npcs, bool $gm_addressed): string {
+    if ($gm_addressed) {
+      return 'Turn order: Player -> Narrator. GM was addressed directly, so NPC turns are skipped this round.';
+    }
+
+    $speaker_names = array_map(static function (array $npc): string {
+      return (string) ($npc['profile']['display_name'] ?? $npc['entity_ref'] ?? 'Unknown');
+    }, $ordered_npcs);
+
+    return 'Turn order: Player -> Narrator -> ' . implode(' -> ', $speaker_names) . '.';
+  }
+
+  /**
+   * Append an internal turn-log system message to room chat.
+   */
+  protected function appendInternalRoomLogMessage(array &$dungeon_data, int|string $room_index, string $message): array {
+    $system_message = [
+      'speaker' => 'System',
+      'message' => $message,
+      'type' => 'system',
+      'channel' => 'room',
+      'timestamp' => date('c'),
+      'character_id' => NULL,
+      'user_id' => 0,
+      'internal_log' => TRUE,
+    ];
+    $dungeon_data['rooms'][$room_index]['chat'][] = $system_message;
+
+    $chat_count = count($dungeon_data['rooms'][$room_index]['chat']);
+    if ($chat_count > self::MAX_MESSAGES_PER_ROOM) {
+      $dungeon_data['rooms'][$room_index]['chat'] = array_slice(
+        $dungeon_data['rooms'][$room_index]['chat'],
+        $chat_count - self::MAX_MESSAGES_PER_ROOM
+      );
+    }
+
+    return $system_message;
+  }
+
+  /**
+   * Persist the current dungeon chat state.
+   */
+  protected function persistDungeonChatState(int $campaign_id, int|string $dungeon_id, array $dungeon_data): void {
+    $this->database->update('dc_campaign_dungeons')
+      ->fields([
+        'dungeon_data' => json_encode($dungeon_data),
+        'updated' => time(),
+      ])
+      ->condition('dungeon_id', $dungeon_id)
+      ->condition('campaign_id', $campaign_id)
+      ->execute();
+  }
+
+  /**
+   * Determine whether the structured room turn log table is available.
+   */
+  protected function isRoomTurnLogStoreAvailable(): bool {
+    if ($this->roomTurnLogStoreAvailable !== NULL) {
+      return $this->roomTurnLogStoreAvailable;
+    }
+
+    try {
+      $this->roomTurnLogStoreAvailable = $this->database->schema()->tableExists('dc_room_turn_logs');
+    }
+    catch (\Exception $e) {
+      $this->roomTurnLogStoreAvailable = FALSE;
+    }
+
+    return $this->roomTurnLogStoreAvailable;
+  }
+
+  /**
+   * Persist one structured room turn log row for troubleshooting.
+   */
+  protected function persistStructuredRoomTurnLog(
+    int $campaign_id,
+    int|string $dungeon_id,
+    string $room_id,
+    string $turn_key,
+    int $sequence_index,
+    string $event_type,
+    ?string $actor_ref = NULL,
+    ?string $actor_name = NULL,
+    array $payload = []
+  ): void {
+    if (!$this->isRoomTurnLogStoreAvailable()) {
+      return;
+    }
+
+    try {
+      $this->database->insert('dc_room_turn_logs')
+        ->fields([
+          'campaign_id' => $campaign_id,
+          'dungeon_id' => is_numeric((string) $dungeon_id) ? (int) $dungeon_id : NULL,
+          'room_id' => $room_id,
+          'channel' => 'room',
+          'turn_key' => $turn_key,
+          'sequence_index' => $sequence_index,
+          'event_type' => $event_type,
+          'actor_ref' => $actor_ref,
+          'actor_name' => $actor_name,
+          'message_preview' => isset($payload['message_preview']) ? substr((string) $payload['message_preview'], 0, 500) : NULL,
+          'payload_json' => json_encode($payload, JSON_UNESCAPED_SLASHES) ?: '{}',
+          'created' => time(),
+        ])
+        ->execute();
+    }
+    catch (\Exception $e) {
+      $this->logger->warning('Failed to persist room turn log for room @room: @err', [
+        '@room' => $room_id,
+        '@err' => $e->getMessage(),
+      ]);
+    }
   }
 
   /**
@@ -3114,7 +3731,7 @@ PROMPT;
 
     // Record the interjection in the NPC's own AI session.
     $session_key = $this->sessionManager->npcSessionKey($campaign_id, $speaker_ref);
-    $context_for_npc = $this->buildRoomObservationFromChat($dungeon_data['rooms'][$room_index]['chat'] ?? []);
+    $context_for_npc = $this->buildRoomObservationFromChat(array_slice($dungeon_data['rooms'][$room_index]['chat'] ?? [], 0, -1));
     $this->sessionManager->appendMessage($session_key, $campaign_id, 'user', $context_for_npc);
     $this->sessionManager->appendMessage($session_key, $campaign_id, 'assistant', $npc_dialogue);
 
@@ -3183,12 +3800,7 @@ PROMPT;
       return NULL;
     }
 
-    usort($matches, static fn(array $a, array $b): int => $b['score'] <=> $a['score']);
-    if (count($matches) > 1 && $matches[0]['score'] === $matches[1]['score']) {
-      return NULL;
-    }
-
-    return $matches[0]['npc'];
+    return $this->selectHighestScoredNpc($matches);
   }
 
   /**
@@ -3256,7 +3868,7 @@ PROMPT;
     }
 
     if ($this->textContainsAny($combined_text, ['quest', 'job', 'task', 'mission', 'objective', 'reward', 'deliver', 'gather', 'help'])) {
-      if (in_array($role, ['quest_giver', 'guide'], TRUE)) {
+      if ($this->npcSupportsQuestOrLeadDialogue($npc)) {
         $score += 50;
       }
       if (str_contains($motivations, 'help') || str_contains($motivations, 'answer')) {
@@ -3271,7 +3883,7 @@ PROMPT;
     }
 
     if ($this->textContainsAny($combined_text, ['where', 'go', 'lead', 'guide', 'direction', 'path', 'way'])) {
-      if ($role === 'guide') {
+      if ($role === 'guide' || $this->npcSupportsQuestOrLeadDialogue($npc)) {
         $score += 45;
       }
     }
@@ -3293,13 +3905,30 @@ PROMPT;
    * Check if normalized text contains any keyword fragment.
    */
   protected function textContainsAny(string $normalized_text, array $keywords): bool {
+    $expanded_text = $this->expandCommonNormalizedContractions($normalized_text);
     foreach ($keywords as $keyword) {
       $normalized_keyword = $this->normalizeNpcNameForMatch($keyword);
-      if ($normalized_keyword !== '' && str_contains($normalized_text, $normalized_keyword)) {
+      if ($normalized_keyword !== '' && (
+        str_contains($normalized_text, $normalized_keyword)
+        || str_contains($expanded_text, $normalized_keyword)
+      )) {
         return TRUE;
       }
     }
     return FALSE;
+  }
+
+  /**
+   * Expand a small set of common contractions after normalization.
+   */
+  protected function expandCommonNormalizedContractions(string $normalized_text): string {
+    return preg_replace([
+      '/\b(who|what|where|when|why|how|that|there|here|it|he|she)\s+s\b/u',
+      '/\bi\s+m\b/u',
+    ], [
+      '$1 is',
+      'i am',
+    ], $normalized_text) ?? $normalized_text;
   }
 
   /**
@@ -3368,7 +3997,7 @@ PROMPT;
 
     $tokens = preg_split('/\s+/', $normalized_name) ?: [];
     foreach ($tokens as $token) {
-      if (strlen($token) < 4) {
+      if (strlen($token) < self::NPC_FUZZY_MATCH_MIN_TOKEN_LENGTH) {
         continue;
       }
       if (preg_match('/\b' . preg_quote($token, '/') . '\b/u', $normalized_message)) {
@@ -3378,11 +4007,11 @@ PROMPT;
 
     $message_tokens = preg_split('/\s+/', $normalized_message) ?: [];
     foreach ($tokens as $token) {
-      if (strlen($token) < 4) {
+      if (strlen($token) < self::NPC_FUZZY_MATCH_MIN_TOKEN_LENGTH) {
         continue;
       }
       foreach ($message_tokens as $message_token) {
-        if (strlen($message_token) < 4) {
+        if (strlen($message_token) < self::NPC_FUZZY_MATCH_MIN_TOKEN_LENGTH) {
           continue;
         }
         $distance = levenshtein($token, $message_token);
@@ -3398,14 +4027,27 @@ PROMPT;
   /**
    * Classify the current room turn for deterministic shortcuts.
    */
-  protected function classifyRoomTurnIntent(string $player_message, array $room_npcs = [], ?array $directly_addressed_npc = NULL): string {
+  protected function classifyRoomTurnIntent(
+    string $player_message,
+    array $room_npcs = [],
+    ?array $directly_addressed_npc = NULL,
+    ?array $active_conversation_npc = NULL
+  ): string {
     $normalized = $this->normalizeNpcNameForMatch($player_message);
     if ($normalized === '') {
       return 'gm_narration';
     }
 
+    if ($this->looksLikeGmRoleBoundaryCorrection($normalized)) {
+      return 'gm_role_correction';
+    }
+
     if ($this->textContainsAny($normalized, ['ooc', 'out of character', 'meta'])) {
       return 'ooc_meta';
+    }
+
+    if ($this->looksLikeGmAdjudicationQuery($player_message, $normalized)) {
+      return 'gm_adjudication_query';
     }
 
     if ($this->textContainsAny($normalized, [
@@ -3458,16 +4100,36 @@ PROMPT;
     }
 
     if ($directly_addressed_npc !== NULL) {
-      if ($this->textContainsAny($normalized, ['buy', 'sell', 'price', 'cost', 'coin', 'gold', 'silver', 'copper', 'change', 'pay', 'paid', 'torch', 'ale', 'drink', 'room', 'rent', 'tab'])) {
+      if ($this->looksLikeQuestOrLeadRequest($normalized)) {
+        return 'direct_npc_dialogue';
+      }
+      if ($this->looksLikeMerchantTransactionText($normalized) && $this->npcSupportsMerchantDialogue($directly_addressed_npc)) {
         return 'direct_npc_transaction';
       }
       return 'direct_npc_dialogue';
     }
 
-    if ($this->textContainsAny($normalized, ['quest', 'job', 'task', 'mission', 'reward', 'objective'])) {
+    if ($active_conversation_npc !== NULL && $this->looksLikeDirectNpcConversationContinuation($player_message, $normalized)) {
+      if ($this->looksLikeQuestOrLeadRequest($normalized)) {
+        return 'direct_npc_dialogue';
+      }
+      if ($this->looksLikeMerchantTransactionText($normalized) && $this->npcSupportsMerchantDialogue($active_conversation_npc)) {
+        return 'direct_npc_transaction';
+      }
+      return 'direct_npc_dialogue';
+    }
+
+    if ($this->looksLikeMerchantTransactionText($normalized)) {
       foreach ($room_npcs as $npc) {
-        $role = strtolower((string) (($npc['profile']['role'] ?? $npc['entity']['role'] ?? '')));
-        if (in_array($role, ['quest_giver', 'guide'], TRUE)) {
+        if ($this->npcSupportsMerchantDialogue($npc)) {
+          return 'merchant_inquiry';
+        }
+      }
+    }
+
+    if ($this->looksLikeQuestOrLeadRequest($normalized)) {
+      foreach ($room_npcs as $npc) {
+        if ($this->npcSupportsQuestOrLeadDialogue($npc)) {
           return 'quest_query';
         }
       }
@@ -3491,7 +4153,9 @@ PROMPT;
     array $room_meta = [],
     string $room_id = '',
     array $dungeon_data = [],
-    bool $is_room_entry = FALSE
+    bool $is_room_entry = FALSE,
+    ?array $character_data = NULL,
+    ?int $character_id = NULL
   ): ?array {
     if ($intent === 'room_description_query' || ($is_room_entry && $intent === 'gm_narration')) {
       $room_description = $this->buildDeterministicRoomDescriptionNarrative($campaign_id, $room_id, $room_meta, $dungeon_data, $room_npcs);
@@ -3603,13 +4267,64 @@ PROMPT;
       ];
     }
 
+    if ($intent === 'gm_role_correction') {
+      return [
+        'narrative' => 'Understood. I will stay in referee narration and leave your character\'s words, thoughts, and choices to you.',
+        'actions' => [],
+        'dice_rolls' => [],
+        'validation_errors' => [],
+        'suppress_npc_interjections' => TRUE,
+      ];
+    }
+
+    if ($intent === 'gm_adjudication_query') {
+      return [
+        'narrative' => $this->buildDeterministicGmAdjudicationNarrative($player_message, $campaign_id, $room_id, $room_meta, $dungeon_data, $room_npcs, $character_data),
+        'actions' => [],
+        'dice_rolls' => [],
+        'validation_errors' => [],
+      ];
+    }
+
+    if ($intent === 'merchant_inquiry') {
+      $merchant = $this->findMerchantNpc($room_npcs);
+      $merchant_response = $this->buildDeterministicMerchantResponse(
+        $campaign_id,
+        $merchant,
+        $player_message,
+        $character_id
+      );
+      if ($merchant_response !== NULL) {
+        return $merchant_response;
+      }
+      $merchant_name = trim((string) ($merchant['profile']['display_name'] ?? 'The nearest merchant'));
+      return [
+        'narrative' => $merchant_name . ' turns toward the trade talk, ready to quote prices and haggle plainly.',
+        'actions' => [],
+        'dice_rolls' => [],
+        'validation_errors' => [],
+        'suppress_npc_interjections' => TRUE,
+      ];
+    }
+
     if (($intent === 'direct_npc_dialogue' || $intent === 'direct_npc_transaction') && $directly_addressed_npc !== NULL) {
       if ($intent === 'direct_npc_transaction') {
+        $merchant_response = $this->buildDeterministicMerchantResponse(
+          $campaign_id,
+          $directly_addressed_npc,
+          $player_message,
+          $character_id
+        );
+        if ($merchant_response !== NULL) {
+          return $merchant_response;
+        }
+        $merchant_name = trim((string) ($directly_addressed_npc['profile']['display_name'] ?? 'The merchant'));
         return [
-          'narrative' => 'The room settles into a direct exchange focused on practical details.',
+          'narrative' => $merchant_name . ' gives you their full attention and shifts into a practical exchange about goods and prices.',
           'actions' => [],
           'dice_rolls' => [],
           'validation_errors' => [],
+          'suppress_npc_interjections' => TRUE,
         ];
       }
       return [
@@ -3623,8 +4338,7 @@ PROMPT;
     if ($intent === 'quest_query') {
       $quest_givers = [];
       foreach ($room_npcs as $npc) {
-        $role = strtolower((string) (($npc['profile']['role'] ?? $npc['entity']['role'] ?? '')));
-        if (in_array($role, ['quest_giver', 'guide'], TRUE)) {
+        if ($this->npcSupportsQuestOrLeadDialogue($npc)) {
           $name = trim((string) ($npc['profile']['display_name'] ?? ''));
           if ($name !== '') {
             $quest_givers[] = $name;
@@ -3695,6 +4409,43 @@ PROMPT;
     }
 
     return 'Visible named occupants in ' . ($room_meta['name'] ?? 'the room') . ': ' . implode(' ', $descriptions);
+  }
+
+  /**
+   * Build a grounded referee answer for explicit GM/adjudication questions.
+   */
+  protected function buildDeterministicGmAdjudicationNarrative(
+    string $player_message,
+    int $campaign_id,
+    string $room_id,
+    array $room_meta,
+    array $dungeon_data,
+    array $room_npcs = [],
+    ?array $character_data = NULL
+  ): string {
+    $normalized = $this->normalizeNpcNameForMatch($player_message);
+    $character_name = $this->extractPlayerCharacterName($character_data);
+    $subject = $character_name !== '' ? $character_name : 'your character';
+    $roster_narrative = $this->buildDeterministicRoomRosterNarrative($campaign_id, $room_id, $room_meta, $dungeon_data, $room_npcs);
+    $room_description = trim((string) ($room_meta['description'] ?? ''));
+
+    if ($this->textContainsAny($normalized, ['notice', 'see', 'tell', 'sense', 'spot'])) {
+      $parts = ['From what is immediately apparent in the grounded scene,'];
+      if ($room_description !== '') {
+        $parts[] = $this->truncateContextBlock($room_description, 140, 1.0);
+      }
+      if ($roster_narrative !== '') {
+        $parts[] = $roster_narrative;
+      }
+      return implode(' ', $parts);
+    }
+
+    $narrative = 'From what is grounded in the current scene, ' . $subject . ' has no additional prior knowledge confirmed yet.';
+    if ($roster_narrative !== '') {
+      $narrative .= ' ' . $roster_narrative;
+    }
+
+    return $narrative;
   }
 
   /**
@@ -3818,6 +4569,152 @@ PROMPT;
       'explanation',
       'description',
     ]);
+  }
+
+  /**
+   * Determine whether the player is explicitly asking the GM for adjudication.
+   */
+  protected function looksLikeGmAdjudicationQuery(string $player_message, string $normalized_message): bool {
+    if (preg_match('/(?:^|[.!?]\s+|,\s*)(?:gm|game master)\b\s*[,:-]?/iu', trim($player_message))) {
+      return TRUE;
+    }
+
+    if ($this->textContainsAny($normalized_message, [
+      'do i know',
+      'would i know',
+      'do we know',
+      'would we know',
+      'what do i know',
+      'what would i know',
+      'have i heard',
+      'have we heard',
+      'have i seen',
+      'have we seen',
+      'do i recognize',
+      'would i recognize',
+      'do i recognise',
+      'would i recognise',
+      'would i remember',
+      'do i remember',
+      'would i recall',
+      'do i recall',
+      'can i tell',
+      'can we tell',
+      'do i notice',
+      'what do i notice',
+      'would burasco know',
+      'would burasco recognize',
+      'would burasco recognise',
+      'would burasco remember',
+      'would burasco recall',
+      'would burasco notice',
+    ])) {
+      return TRUE;
+    }
+
+    return (bool) preg_match('/\bwould\s+[a-z][a-z\'-]*\s+(?:know|recognize|recognise|remember|recall|notice)\b/ui', $normalized_message);
+  }
+
+  /**
+   * Detect explicit user correction about GM/player role boundaries.
+   */
+  protected function looksLikeGmRoleBoundaryCorrection(string $normalized_message): bool {
+    return $this->textContainsAny($normalized_message, [
+      'gm isnt supposed to act as the player',
+      'gm isn t supposed to act as the player',
+      'gm shouldnt act as the player',
+      'gm shouldn t act as the player',
+      'dont act as the player',
+      'don t act as the player',
+      'dont play my character',
+      'don t play my character',
+      'dont speak for me',
+      'don t speak for me',
+      'leave my character to me',
+      'you are not supposed to act as the player',
+      'you should not act as the player',
+      'stay in referee narration',
+    ]);
+  }
+
+  /**
+   * Treat scoped follow-ups as continuing the active direct NPC thread.
+   */
+  protected function looksLikeDirectNpcConversationContinuation(string $player_message, string $normalized_message = ''): bool {
+    if ($normalized_message === '') {
+      $normalized_message = $this->normalizeNpcNameForMatch($player_message);
+    }
+    if ($normalized_message === '') {
+      return FALSE;
+    }
+
+    if (preg_match('/\?$/u', trim($player_message))) {
+      return TRUE;
+    }
+
+    // Player-facing chat often includes emotes or quoted speech while staying
+    // on the same NPC thread. Keep those turns scoped to the active NPC
+    // instead of dropping them into the generic GM narration path.
+    if (preg_match('/^\s*\*/u', $player_message) || preg_match('/["“”]/u', $player_message)) {
+      return TRUE;
+    }
+
+    if ($this->textContainsAny($normalized_message, [
+      'deal',
+      'done',
+      'agreed',
+      'ill take it',
+      'i ll take it',
+      'take it',
+      'no more',
+      'point me to',
+      'nearest tavern',
+      'sent me',
+      'tell me',
+      'show me',
+      'let me look',
+      'im looking',
+      'i m looking',
+      'look at',
+      'what does',
+      'what is',
+      'what s',
+      'why',
+      'how',
+      'where',
+      'when',
+      'who',
+      'can you',
+      'could you',
+      'would you',
+      'do you',
+      'did you',
+      'are you',
+      'this',
+      'that',
+      'it',
+      'text',
+      'note',
+      'letter',
+      'phrase',
+      'presented',
+      'showed',
+      'handed',
+      'mission',
+      'job',
+      'quest',
+      'work',
+      'story',
+      'stories',
+      'storyline',
+      'storylines',
+      'module',
+      'modules',
+    ])) {
+      return TRUE;
+    }
+
+    return FALSE;
   }
 
   /**
@@ -4237,6 +5134,26 @@ PROMPT;
   }
 
   /**
+   * Remove prompt scaffolding or summary headings that should never be visible.
+   */
+  protected function sanitizePlayerVisibleNarrative(string $narrative): string {
+    $sanitized = preg_replace([
+      '/^\s*===.*?===\s*$/m',
+      '/^\s*PRIOR SESSION CONTEXT.*$/mi',
+      '/^\s*RECENT CONVERSATION.*$/mi',
+      '/^\s*Current room:.*$/mi',
+      '/^\s*Room description:.*$/mi',
+      '/^\s*People ready to answer in this room:.*$/mi',
+      '/^\s*NPC profile notes for GM use:.*$/mi',
+      '/^\s*Canonical actor notes for named room occupants:.*$/mi',
+      '/^\s*\[(?:USER|ASSISTANT)\]:.*$/mi',
+    ], '', $narrative);
+
+    $sanitized = preg_replace("/\n{3,}/", "\n\n", (string) $sanitized) ?? $sanitized;
+    return trim((string) $sanitized);
+  }
+
+  /**
    * Resolve an NPC by model-returned speaker name.
    */
   protected function resolveNamedRoomNpc(array $room_npcs, string $speaker_name): ?array {
@@ -4255,10 +5172,15 @@ PROMPT;
     $matches = [];
     foreach ($room_npcs as $npc) {
       $display_name = (string) ($npc['profile']['display_name'] ?? '');
-      $score = $this->scoreNpcDirectAddressMatch($display_name, $normalized_speaker);
-      if ($score > 0) {
-        $matches[] = ['score' => $score, 'npc' => $npc];
+      if ($display_name === '') {
+        continue;
       }
+
+      $score = $this->scoreNpcDirectAddressMatch($display_name, $normalized_speaker);
+      if ($score <= 0) {
+        continue;
+      }
+      $matches[] = ['score' => $score, 'npc' => $npc];
     }
 
     if ($matches === []) {
@@ -4274,12 +5196,23 @@ PROMPT;
       return NULL;
     }
 
+    return $this->selectHighestScoredNpc($matches);
+  }
+
+  /**
+   * Select the highest-scored NPC, rejecting ambiguous ties.
+   */
+  protected function selectHighestScoredNpc(array $matches): ?array {
+    if ($matches === []) {
+      return NULL;
+    }
+
     usort($matches, static fn(array $a, array $b): int => $b['score'] <=> $a['score']);
     if (count($matches) > 1 && $matches[0]['score'] === $matches[1]['score']) {
       return NULL;
     }
 
-    return $matches[0]['npc'];
+    return $matches[0]['npc'] ?? NULL;
   }
 
   /**
@@ -4392,11 +5325,21 @@ PROMPT;
     if ($npc_context) {
       $prompt .= $npc_context . "\n\n";
     }
+    $storyline_leads_context = $this->buildBrokeredStorylinePromptContext($campaign_id, $entity_ref);
+    if ($storyline_leads_context !== '') {
+      $prompt .= $storyline_leads_context . "\n\n";
+    }
     $prompt .= "=== CURRENT ROOM CONVERSATION ===\n" . implode("\n", $history_lines) . "\n\n";
     $prompt .= "The player just said: \"{$player_message}\"\n";
     $prompt .= "The Game Master narrated: \"{$gm_narrative}\"\n\n";
     $prompt .= "Respond in character as {$display_name}. Speak naturally in your own voice.\n";
     $prompt .= "Your response should reflect your personality, backstory, current attitude, and knowledge.\n";
+    $prompt .= "You are only speaking as this NPC. You cannot update campaign state, room state, character sheets, the content library, rules, or application code.\n";
+    $prompt .= "Your available tools are only the same player-facing lookup and action surfaces available to a player character. ";
+    $prompt .= "Lookup tools: /api/spells, /api/spells/{spell_id}, /api/focus-spells, /api/feats, and /api/feats/{feat_id}. ";
+    $prompt .= "Action tools: only the player action-bar / coordinator functions move or stride, strike or attack, interact, talk, search, cast_spell, consume_item, skill actions, feat actions, navigate, and end_turn, as represented by GameCoordinatorApi sendAction()/move()/strike()/interact()/talk()/search()/castSpell()/endTurn(), the direct action-rail handlers executeDirectAttack/executeDirectNavigate/executeDirectInteract/executeDirectSpell/executeDirectConsumable/executeDirectSkill/executeDirectFeat, and the matching player routes /api/game/{campaign_id}/action, /api/combat/attack, /api/combat/action, /api/character/{character_id}/cast-spell, /api/character/{character_id}/actions, and /api/character/{character_id}/inventory. ";
+    $prompt .= "No GM-only, admin-only, campaign-state mutation, library mutation, or code-changing tool is available to you.\n";
+    $prompt .= "You are taking your turn after every room message shown above, including any earlier NPC turns from this same round. Build on what has already been said instead of repeating it.\n";
     $prompt .= "Keep your reply concise (1-3 sentences). Do not narrate actions — just speak your dialogue.\n";
     $prompt .= "Answer the player's actual question directly. If they asked multiple grounded questions, answer each one in order. If you do not know something, say so plainly instead of deflecting.";
 
@@ -4408,6 +5351,7 @@ PROMPT;
       . "Use the character sheet and psychology profile provided to stay fully in character. "
       . "Reflect your ancestry, background, personality traits, motivations, and recent inner thoughts in your tone and word choice. "
       . "Speak in your own distinct voice — you know who you are, where you come from, and what you want. "
+      . "You have no authority to change campaign state, room state, character sheets, the content library, rules, or application code; you can only speak as this NPC using the same player-facing lookup and action surfaces available to a player character: /api/spells, /api/spells/{spell_id}, /api/focus-spells, /api/feats, /api/feats/{feat_id}, and the player action-bar / coordinator actions move/stride, strike/attack, interact, talk, search, cast_spell, consume_item, skill, feat, navigate, and end_turn via GameCoordinatorApi and the matching player routes. "
       . "Do not break the fourth wall. Do not mention that you are an AI. Do not narrate — just speak.";
 
     try {
@@ -4468,7 +5412,7 @@ PROMPT;
     $profile = $this->psychologyService->loadProfile($campaign_id, $entity_ref) ?? [];
     $attitude = strtolower((string) ($profile['attitude'] ?? 'indifferent'));
     $role = strtolower((string) ($profile['role'] ?? ''));
-    $descriptor = strtolower($display_name . ' ' . $entity_ref . ' ' . ($profile['motivations'] ?? ''));
+    $descriptor = strtolower($display_name . ' ' . $entity_ref . ' ' . $role . ' ' . ($profile['motivations'] ?? ''));
 
     if (preg_match('/\b(?:hello|hi|hey|greetings)\b/u', $normalized)) {
       return match ($attitude) {
@@ -4486,12 +5430,27 @@ PROMPT;
       };
     }
 
-    if ($this->textContainsAny($normalized, ['quest', 'job', 'task', 'mission', 'work', 'reward', 'objective']) && in_array($role, ['quest_giver', 'guide'], TRUE)) {
+    $asks_for_leads = $this->textContainsAny($normalized, [
+      'quest', 'job', 'task', 'mission', 'work', 'reward', 'objective',
+      'lead', 'where', 'go', 'start', 'contact', 'looking for work',
+      'story', 'stories', 'storyline', 'storylines', 'module', 'modules',
+    ]);
+    if ($asks_for_leads) {
+      $brokered_leads = $this->buildBrokeredStorylineLeadDialogue($campaign_id, $entity_ref, $display_name);
+      if ($brokered_leads !== NULL) {
+        return $brokered_leads;
+      }
+    }
+
+    if ($this->looksLikeQuestOrLeadRequest($normalized) && ($this->npcSupportsQuestOrLeadRole($role) || $this->isBrokeredStorylineNpcRef($entity_ref))) {
       return "\"If you're asking about work, be specific — I can point you toward leads, objectives, or anything ready to turn in.\"";
     }
 
-    if ($this->textContainsAny($normalized, ['buy', 'sell', 'price', 'cost', 'coin', 'gold', 'silver', 'copper', 'change', 'pay', 'paid', 'torch', 'ale', 'drink', 'room', 'rent', 'tab'])
-      && $this->textContainsAny($descriptor, ['keeper', 'merchant', 'vendor', 'shop', 'tavern', 'inn', 'bar', 'sell'])) {
+    if ($this->looksLikeMerchantTransactionText($normalized) && $this->npcSupportsMerchantDescriptor($descriptor)) {
+      $merchant_reply = $this->merchantBotService->buildMerchantReply($player_message);
+      if ($merchant_reply !== NULL) {
+        return '"' . $merchant_reply . '"';
+      }
       if ($this->textContainsAny($normalized, ['change', 'pay', 'paid', 'coin', 'gold', 'silver', 'copper'])) {
         return "\"State the item, quantity, and what coin you're paying with, and I'll settle the amount cleanly.\"";
       }
@@ -4566,6 +5525,389 @@ PROMPT;
       'unfriendly' => sprintf('%s looks up with obvious reluctance. "I am listening. Speak quickly."', $display_name),
       default => sprintf('%s looks up. "You have my attention. What is it?"', $display_name),
     };
+  }
+
+  /**
+   * Check whether the player is clearly trying to buy or sell something.
+   */
+  protected function looksLikeMerchantTransactionText(string $normalized): bool {
+    return (bool) preg_match('/\b(?:buy|purchase|sell|price|cost|quote|rent|tab|wares)\b/u', $normalized)
+      || (bool) preg_match('/\b(?:trade\s+in|looking\s+for|how much\s+(?:for|is))\b/u', $normalized)
+      || (bool) preg_match('/\b(?:pay|paid|change)\b.+\b(?:for|with)\b/u', $normalized)
+      || (bool) preg_match('/\b(?:coin|gold|silver|copper)\b.+\b(?:for|price|cost|buy|sell)\b/u', $normalized)
+      || (bool) preg_match('/\b(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred)\s+(?:gold|silver|copper|coin|coins|silvers|coppers|golds)\b/u', $normalized)
+      || (bool) preg_match('/\b(?:deal|done|agreed|ill take it|i ll take it|take it|no more|too much|fair price|knock a copper off)\b/u', $normalized);
+  }
+
+  /**
+   * Determine whether an NPC is merchant-capable.
+   */
+  protected function npcSupportsMerchantDialogue(array $npc): bool {
+    $profile = $npc['profile'] ?? [];
+    $descriptor = strtolower(trim((string) (
+      ($profile['display_name'] ?? '') . ' '
+      . ($profile['role'] ?? '') . ' '
+      . ($profile['motivations'] ?? '')
+    )));
+    return $this->npcSupportsMerchantDescriptor($descriptor);
+  }
+
+  /**
+   * Determine whether descriptor text implies merchant behavior.
+   */
+  protected function npcSupportsMerchantDescriptor(string $descriptor): bool {
+    return $this->textContainsAny($descriptor, ['keeper', 'merchant', 'vendor', 'shop', 'tavern', 'inn', 'bar', 'sell']);
+  }
+
+  /**
+   * Return the first obvious merchant in the room, if any.
+   */
+  protected function findMerchantNpc(array $room_npcs): ?array {
+    foreach ($room_npcs as $npc) {
+      if ($this->npcSupportsMerchantDialogue($npc)) {
+        return $npc;
+      }
+    }
+    return NULL;
+  }
+
+  /**
+   * Build and execute a deterministic merchant response when possible.
+   */
+  protected function buildDeterministicMerchantResponse(
+    int $campaign_id,
+    ?array $merchant_npc,
+    string $player_message,
+    ?int $character_id = NULL
+  ): ?array {
+    $merchant_name = trim((string) ($merchant_npc['profile']['display_name'] ?? 'The merchant'));
+    $plan = $this->merchantBotService->planMerchantTransaction($character_id, $player_message, $campaign_id);
+    if ($plan === NULL) {
+      return NULL;
+    }
+
+    if (($plan['status'] ?? '') === 'needs_item') {
+      return [
+        'narrative' => $merchant_name . ' waits for you to name the item and quantity clearly.',
+        'actions' => [],
+        'dice_rolls' => [],
+        'validation_errors' => [],
+        'suppress_npc_interjections' => TRUE,
+      ];
+    }
+
+    if (($plan['status'] ?? '') === 'quoted') {
+      return [
+        'narrative' => $merchant_name . ' quotes the trade plainly: ' . rtrim((string) ($plan['message'] ?? ''), '. ') . '.',
+        'actions' => [],
+        'dice_rolls' => [],
+        'validation_errors' => [],
+        'suppress_npc_interjections' => TRUE,
+      ];
+    }
+
+    if (($plan['status'] ?? '') === 'blocked') {
+      return [
+        'narrative' => $merchant_name . ' cannot close the deal: ' . rtrim((string) ($plan['message'] ?? 'The trade cannot be completed right now.'), '. ') . '.',
+        'actions' => [],
+        'dice_rolls' => [],
+        'validation_errors' => [],
+        'suppress_npc_interjections' => TRUE,
+      ];
+    }
+
+    if ($character_id === NULL) {
+      return [
+        'narrative' => $merchant_name . ' is ready to trade, but no acting character is grounded for the transaction.',
+        'actions' => [],
+        'dice_rolls' => [],
+        'validation_errors' => [],
+        'suppress_npc_interjections' => TRUE,
+      ];
+    }
+
+    if (($plan['status'] ?? '') === 'ready_purchase') {
+      if ($this->inventoryManagementService === NULL) {
+        return [
+          'narrative' => $merchant_name . ' is ready to complete the sale, but the inventory service is unavailable in this context.',
+          'actions' => [],
+          'dice_rolls' => [],
+          'validation_errors' => [],
+          'suppress_npc_interjections' => TRUE,
+        ];
+      }
+      $item = is_array($plan['item'] ?? NULL) ? $plan['item'] : NULL;
+      if ($item === NULL) {
+        return NULL;
+      }
+
+      $result = $this->inventoryManagementService->purchaseItem(
+        (string) $character_id,
+        $item,
+        'downtime',
+        max(1, (int) ($plan['quantity'] ?? 1)),
+        $campaign_id
+      );
+
+      if (empty($result['success'])) {
+        return [
+          'narrative' => $merchant_name . ' cannot finish the sale: ' . rtrim((string) ($result['message'] ?? 'The transaction failed.'), '. ') . '.',
+          'actions' => [],
+          'dice_rolls' => [],
+          'validation_errors' => [],
+          'suppress_npc_interjections' => TRUE,
+        ];
+      }
+
+      return [
+        'narrative' => $merchant_name . ' completes the sale, handing over '
+          . $this->formatMerchantQuantityLabel(max(1, (int) ($plan['quantity'] ?? 1)), (string) ($item['name'] ?? 'the item'))
+          . ' for ' . $this->formatMerchantCpAmount((int) ($plan['price_cp'] ?? 0)) . '.',
+        'actions' => [],
+        'dice_rolls' => [],
+        'validation_errors' => [],
+        'suppress_npc_interjections' => TRUE,
+      ];
+    }
+
+    if (($plan['status'] ?? '') === 'ready_sale') {
+      if ($this->inventoryManagementService === NULL) {
+        return [
+          'narrative' => $merchant_name . ' is ready to buy the item, but the inventory service is unavailable in this context.',
+          'actions' => [],
+          'dice_rolls' => [],
+          'validation_errors' => [],
+          'suppress_npc_interjections' => TRUE,
+        ];
+      }
+      $transaction = $this->database->startTransaction();
+      try {
+        foreach (($plan['sale_units'] ?? []) as $sale_unit) {
+          $item_instance_id = (string) ($sale_unit['item_instance_id'] ?? '');
+          $quantity = max(1, (int) ($sale_unit['quantity'] ?? 1));
+          for ($i = 0; $i < $quantity; $i++) {
+            $result = $this->inventoryManagementService->sellItem(
+              (string) $character_id,
+              'character',
+              $item_instance_id,
+              FALSE,
+              $campaign_id,
+              'downtime'
+            );
+            if (empty($result['success'])) {
+              throw new \RuntimeException((string) ($result['message'] ?? 'The sale failed.'));
+            }
+          }
+        }
+      }
+      catch (\Throwable $e) {
+        $transaction->rollBack();
+        return [
+          'narrative' => $merchant_name . ' cannot finish the purchase: ' . rtrim($e->getMessage(), '. ') . '.',
+          'actions' => [],
+          'dice_rolls' => [],
+          'validation_errors' => [],
+          'suppress_npc_interjections' => TRUE,
+        ];
+      }
+
+      return [
+        'narrative' => $merchant_name . ' buys '
+          . $this->formatMerchantQuantityLabel(max(1, (int) ($plan['quantity'] ?? 1)), (string) ($plan['item_name'] ?? 'the goods'))
+          . ' from you for ' . $this->formatMerchantCpAmount((int) ($plan['offer_cp'] ?? 0)) . '.',
+        'actions' => [],
+        'dice_rolls' => [],
+        'validation_errors' => [],
+        'suppress_npc_interjections' => TRUE,
+      ];
+    }
+
+    return NULL;
+  }
+
+  protected function formatMerchantCpAmount(int $cp): string {
+    if ($cp <= 0) {
+      return '0 cp';
+    }
+
+    $parts = [];
+    $pp = intdiv($cp, 1000);
+    $cp -= $pp * 1000;
+    $gp = intdiv($cp, 100);
+    $cp -= $gp * 100;
+    $sp = intdiv($cp, 10);
+    $cp -= $sp * 10;
+
+    if ($pp > 0) {
+      $parts[] = $pp . ' pp';
+    }
+    if ($gp > 0) {
+      $parts[] = $gp . ' gp';
+    }
+    if ($sp > 0) {
+      $parts[] = $sp . ' sp';
+    }
+    if ($cp > 0) {
+      $parts[] = $cp . ' cp';
+    }
+
+    return implode(' ', $parts);
+  }
+
+  protected function formatMerchantQuantityLabel(int $quantity, string $item_name): string {
+    return $quantity > 1 ? $quantity . ' x ' . $item_name : $item_name;
+  }
+
+  /**
+   * Builds additional prompt context for brokers like Eldric.
+   */
+  protected function buildBrokeredStorylinePromptContext(int $campaign_id, string $entity_ref): string {
+    $contacts = $this->loadBrokeredStorylineContacts($campaign_id, $entity_ref);
+    if ($contacts === []) {
+      return '';
+    }
+
+    $lines = ["=== AVAILABLE STORYLINE LEADS ==="];
+    foreach (array_slice($contacts, 0, 5) as $contact) {
+      $storyline_name = trim((string) ($contact['name'] ?? ''));
+      $quest_giver_name = trim((string) ($contact['quest_giver']['display_name'] ?? ''));
+      $lead_location = trim((string) ($contact['lead_location']['label'] ?? ''));
+      $line = '- ';
+      if ($storyline_name !== '') {
+        $line .= $storyline_name;
+      }
+      if ($quest_giver_name !== '') {
+        $line .= $storyline_name !== '' ? ': ' : '';
+        $line .= 'contact ' . $quest_giver_name;
+      }
+      if ($lead_location !== '') {
+        $line .= ' at ' . $lead_location;
+      }
+      $notes = trim((string) ($contact['lead_location']['notes'] ?? $contact['quest_giver']['relationship_state']['notes'] ?? $contact['synopsis'] ?? ''));
+      if ($notes !== '') {
+        $line .= '. ' . $notes;
+      }
+      $lines[] = rtrim($line, '. ') . '.';
+    }
+
+    return implode("\n", $lines);
+  }
+
+  /**
+   * Builds Eldric's deterministic lead handoff.
+   */
+  protected function buildBrokeredStorylineLeadDialogue(int $campaign_id, string $entity_ref, string $display_name): ?string {
+    $contacts = $this->loadBrokeredStorylineContacts($campaign_id, $entity_ref);
+    if ($contacts === []) {
+      return NULL;
+    }
+
+    $lead_lines = [];
+    foreach (array_slice($contacts, 0, 3) as $contact) {
+      $storyline_name = trim((string) ($contact['name'] ?? ''));
+      $quest_giver_name = trim((string) ($contact['quest_giver']['display_name'] ?? ''));
+      $lead_location = trim((string) ($contact['lead_location']['label'] ?? ''));
+      $lead_notes = trim((string) ($contact['quest_giver']['notes'] ?? $contact['quest_giver']['relationship_state']['notes'] ?? $contact['lead_location']['notes'] ?? ''));
+
+      if ($quest_giver_name === '' && $storyline_name === '') {
+        continue;
+      }
+
+      $line = '';
+      if ($storyline_name !== '') {
+        $line .= 'For ' . $storyline_name . ', ';
+      }
+      $line .= 'look for ' . ($quest_giver_name !== '' ? $quest_giver_name : 'my contact');
+      if ($lead_location !== '') {
+        $line .= ' at ' . $lead_location;
+      }
+      if ($lead_notes !== '') {
+        $line .= '; ' . $this->trimNpcDialogueClause($lead_notes);
+      }
+      $lead_lines[] = $line;
+    }
+
+    if ($lead_lines === []) {
+      return NULL;
+    }
+
+    $prefix = $display_name !== '' ? 'If you want work, ' : '';
+    return '"' . $prefix . implode('. Also, ', $lead_lines) . '."';
+  }
+
+  /**
+   * Loads brokered storyline contacts for an NPC that introduces module starts.
+   */
+  protected function loadBrokeredStorylineContacts(int $campaign_id, string $entity_ref): array {
+    $canonical_entity_ref = $this->canonicalBrokeredStorylineEntityRef($entity_ref);
+    if (!$this->relationshipManager || $canonical_entity_ref === NULL) {
+      return [];
+    }
+
+    return $this->relationshipManager->getCampaignStorylineContacts($campaign_id, $canonical_entity_ref);
+  }
+
+  /**
+   * Determine whether text is asking for quest, mission, or storyline leads.
+   */
+  protected function looksLikeQuestOrLeadRequest(string $normalized_message): bool {
+    return $this->textContainsAny($normalized_message, [
+      'quest', 'job', 'task', 'mission', 'reward', 'objective', 'work',
+      'lead', 'contact', 'start', 'story', 'stories', 'storyline',
+      'storylines', 'module', 'modules',
+    ]);
+  }
+
+  /**
+   * Determine whether a room NPC should be treated as a quest/lead contact.
+   */
+  protected function npcSupportsQuestOrLeadDialogue(array $npc): bool {
+    $role = strtolower((string) (($npc['profile']['role'] ?? $npc['entity']['role'] ?? '')));
+    if ($this->npcSupportsQuestOrLeadRole($role)) {
+      return TRUE;
+    }
+
+    $entity_ref = (string) ($npc['entity_ref'] ?? '');
+    if ($this->isBrokeredStorylineNpcRef($entity_ref)) {
+      return TRUE;
+    }
+
+    $motivations = strtolower((string) ($npc['profile']['motivations'] ?? ''));
+    return $this->textContainsAny($motivations, [
+      'work', 'guide', 'lead', 'quest', 'mission', 'objective', 'broker',
+    ]);
+  }
+
+  /**
+   * Determine whether a role label implies quest or guidance authority.
+   */
+  protected function npcSupportsQuestOrLeadRole(string $role): bool {
+    return in_array(strtolower($role), ['quest_giver', 'guide'], TRUE);
+  }
+
+  /**
+   * Normalize broker NPC aliases to the canonical storyline-contact key.
+   */
+  protected function canonicalBrokeredStorylineEntityRef(string $entity_ref): ?string {
+    return $this->isBrokeredStorylineNpcRef($entity_ref)
+      ? 'npc_tavern_keeper'
+      : NULL;
+  }
+
+  /**
+   * Determine whether an entity ref maps to the tavern broker NPC.
+   */
+  protected function isBrokeredStorylineNpcRef(string $entity_ref): bool {
+    return in_array(strtolower(trim($entity_ref)), ['npc_tavern_keeper', 'tavern_keeper'], TRUE);
+  }
+
+  /**
+   * Normalizes authored notes for short NPC dialogue clauses.
+   */
+  protected function trimNpcDialogueClause(string $value): string {
+    $value = trim($value);
+    $value = preg_replace('/\s+/', ' ', $value) ?? $value;
+    return rtrim($value, ". \t\n\r\0\x0B");
   }
 
   /**
@@ -4797,6 +6139,66 @@ PROMPT;
   }
 
   /**
+   * Recover the currently active direct NPC thread from the recent room chat.
+   */
+  protected function resolveActiveDirectConversationNpc(array $chat, array $room_npcs): ?array {
+    $recent = array_values(array_filter(array_slice($chat, -8), static function ($entry): bool {
+      return is_array($entry) && (string) ($entry['channel'] ?? 'room') === 'room';
+    }));
+
+    for ($i = count($recent) - 1; $i >= 0; $i--) {
+      $entry = $recent[$i] ?? [];
+      if (($entry['type'] ?? '') !== 'player') {
+        continue;
+      }
+
+      $candidate = $this->resolveDirectlyAddressedNpc($room_npcs, (string) ($entry['message'] ?? ''));
+      if ($candidate === NULL) {
+        continue;
+      }
+
+      for ($j = $i + 1; $j < count($recent); $j++) {
+        $follow_up = $recent[$j] ?? [];
+        if (($follow_up['type'] ?? '') === 'player') {
+          $follow_up_addressed_npc = $this->resolveDirectlyAddressedNpc($room_npcs, (string) ($follow_up['message'] ?? ''));
+          $follow_up_intent = $this->classifyRoomTurnIntent(
+            (string) ($follow_up['message'] ?? ''),
+            $room_npcs,
+            $follow_up_addressed_npc,
+            $candidate
+          );
+
+          $same_candidate = $follow_up_addressed_npc === NULL
+            || ($follow_up_addressed_npc['entity_ref'] ?? '') === ($candidate['entity_ref'] ?? '');
+          if (!$same_candidate || !in_array($follow_up_intent, [
+            'direct_npc_dialogue',
+            'direct_npc_transaction',
+            'gm_narration',
+            'quest_query',
+          ], TRUE)) {
+            continue 2;
+          }
+          continue;
+        }
+
+        $speaker = trim((string) ($follow_up['speaker'] ?? ''));
+        if ($speaker === '' || in_array($speaker, ['Game Master', 'System'], TRUE)) {
+          continue;
+        }
+
+        $resolved = $this->resolveNamedRoomNpc($room_npcs, $speaker);
+        if ($resolved === NULL || ($resolved['entity_ref'] ?? '') !== ($candidate['entity_ref'] ?? '')) {
+          continue 2;
+        }
+      }
+
+      return $candidate;
+    }
+
+    return NULL;
+  }
+
+  /**
    * Resolve or seed a psychology profile for a room-local campaign NPC row.
    *
    * @param array $seen_refs
@@ -4936,7 +6338,8 @@ PROMPT;
    * Build a concise room-conversation transcript for NPC prompting.
    */
   protected function buildRoomConversationTranscript(array $chat, int $limit = 8): string {
-    $recent = array_slice($chat, -1 * max(1, $limit));
+    $visible_chat = array_values(array_filter($chat, fn(array $msg): bool => !$this->isInternalRoomLogMessage($msg)));
+    $recent = array_slice($visible_chat, -1 * max(1, $limit));
     $history_lines = [];
     foreach ($recent as $msg) {
       $speaker = $msg['speaker'] ?? 'Unknown';
@@ -4948,6 +6351,680 @@ PROMPT;
     }
 
     return $history_lines === [] ? '[No recent room dialogue]' : implode("\n", $history_lines);
+  }
+
+  /**
+   * Detect internal room turn-log messages that should stay out of prompts.
+   */
+  protected function isInternalRoomLogMessage(array $msg): bool {
+    return !empty($msg['internal_log']);
+  }
+
+  /**
+   * Build a compact character-sheet block for player automation prompts.
+   */
+  protected function buildPlayerAutomationCharacterContext(array $character_data): string {
+    $basic_info = is_array($character_data['basicInfo'] ?? NULL) ? $character_data['basicInfo'] : [];
+    $profile = is_array($character_data['profile'] ?? NULL) ? $character_data['profile'] : [];
+    $sheet = is_array($profile['character_sheet'] ?? NULL)
+      ? $profile['character_sheet']
+      : (is_array($character_data['character_sheet'] ?? NULL) ? $character_data['character_sheet'] : []);
+
+    $equipment_names = [];
+    foreach (array_slice(array_values(is_array($character_data['equipment'] ?? NULL) ? $character_data['equipment'] : []), 0, 6) as $item) {
+      if (!is_array($item)) {
+        continue;
+      }
+      $name = trim((string) ($item['name'] ?? $item['label'] ?? ''));
+      if ($name !== '') {
+        $equipment_names[] = $name;
+      }
+    }
+
+    $inventory_names = [];
+    foreach (array_slice(array_values(is_array($character_data['inventory'] ?? NULL) ? $character_data['inventory'] : []), 0, 8) as $item) {
+      if (!is_array($item)) {
+        continue;
+      }
+      $name = trim((string) ($item['name'] ?? $item['label'] ?? ''));
+      if ($name !== '') {
+        $inventory_names[] = $name;
+      }
+    }
+
+    $excerpt = array_filter([
+      'basic_info' => array_filter([
+        'name' => $basic_info['name'] ?? $character_data['name'] ?? '',
+        'ancestry' => $basic_info['ancestry'] ?? $sheet['ancestry'] ?? '',
+        'class' => $basic_info['class'] ?? $sheet['class'] ?? '',
+        'level' => $basic_info['level'] ?? $sheet['level'] ?? '',
+        'background' => $basic_info['background'] ?? $sheet['background'] ?? '',
+        'appearance' => $basic_info['appearance'] ?? $sheet['appearance'] ?? '',
+      ], static fn($value) => $value !== '' && $value !== NULL),
+      'personality' => array_filter([
+        'personality' => $basic_info['personality'] ?? $profile['personality_traits'] ?? $profile['personality'] ?? $character_data['personality'] ?? '',
+        'motivations' => $profile['motivations'] ?? $character_data['motivations'] ?? '',
+        'goals' => $profile['goals'] ?? [],
+        'backstory' => $profile['backstory'] ?? $character_data['backstory'] ?? '',
+      ], static fn($value) => $value !== '' && $value !== [] && $value !== NULL),
+      'sheet' => array_filter([
+        'summary' => $sheet['summary'] ?? '',
+        'traits' => $sheet['traits'] ?? [],
+        'languages' => $sheet['languages'] ?? [],
+        'skills' => $sheet['skills'] ?? [],
+        'feats' => $sheet['feats'] ?? [],
+        'spells' => $sheet['spells'] ?? [],
+      ], static fn($value) => $value !== '' && $value !== [] && $value !== NULL),
+      'equipment' => $equipment_names,
+      'inventory' => $inventory_names,
+    ], static fn($value) => $value !== '' && $value !== [] && $value !== NULL);
+
+    $json = json_encode($excerpt, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+    if (!is_string($json) || trim($json) === '' || $json === '[]' || $json === '{}') {
+      $json = json_encode($character_data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) ?: '[No character sheet data available]';
+    }
+
+    return $this->truncateContextBlock($json, 2600, 0.75);
+  }
+
+  /**
+   * Build a compact active-quest block for player automation prompts.
+   */
+  protected function buildPlayerAutomationQuestContext(int $campaign_id, int $character_id, int $max_quests = 3): string {
+    if ($campaign_id <= 0 || !$this->questTracker) {
+      return '';
+    }
+
+    $quests = $character_id > 0
+      ? $this->questTracker->getActiveQuests($campaign_id, $character_id)
+      : [];
+
+    if ($quests === []) {
+      $quests = array_values(array_filter($this->questTracker->getCampaignQuestTracking($campaign_id), static function (array $quest): bool {
+        return empty($quest['completed_at']) && (($quest['status'] ?? '') === 'active');
+      }));
+    }
+
+    if ($quests === []) {
+      return '';
+    }
+
+    usort($quests, static function (array $a, array $b): int {
+      return ((int) ($b['last_updated'] ?? 0)) <=> ((int) ($a['last_updated'] ?? 0));
+    });
+
+    $lines = [];
+    foreach (array_slice($quests, 0, max(1, $max_quests)) as $quest) {
+      $quest_name = trim((string) ($quest['quest_name'] ?? $quest['quest_id'] ?? 'Active quest'));
+      $status = trim((string) ($quest['status'] ?? 'active'));
+      $current_phase = max(1, (int) ($quest['current_phase'] ?? 1));
+      $lines[] = sprintf('- %s [status: %s, phase: %d]', $quest_name, $status !== '' ? $status : 'active', $current_phase);
+
+      foreach (array_slice($this->extractIncompleteObjectivesForPhase($quest, $current_phase), 0, 3) as $objective) {
+        $lines[] = '  Objective: ' . $this->truncateContextBlock($objective, 180, 0.85);
+      }
+    }
+
+    return $lines === [] ? '' : $this->truncateContextBlock(implode("\n", $lines), 900, 0.75);
+  }
+
+  /**
+   * Start clearly mentioned location quests for the acting character.
+   */
+  protected function activateMentionedAvailableQuests(
+    int $campaign_id,
+    string $room_id,
+    ?int $character_id,
+    array $dungeon_data,
+    ?array $gm_response,
+    array $npc_interjections
+  ): array {
+    if (!$this->questTracker || $campaign_id <= 0 || $room_id === '' || !$character_id) {
+      return [];
+    }
+
+    $message_chunks = [];
+    if (!empty($npc_interjections)) {
+      foreach ($npc_interjections as $entry) {
+        if (!is_array($entry)) {
+          continue;
+        }
+        $text = trim((string) ($entry['message'] ?? ''));
+        if ($text !== '') {
+          $message_chunks[] = $text;
+        }
+      }
+    }
+    elseif (!empty($gm_response['message'])) {
+      $message_chunks[] = trim((string) $gm_response['message']);
+    }
+
+    $combined_text = trim(implode("\n", array_filter($message_chunks)));
+    if ($combined_text === '') {
+      return [];
+    }
+
+    $location_id = $this->resolveRoomSlugForQuery($campaign_id, $room_id, $dungeon_data) ?? $room_id;
+
+    $matches = $this->questTracker->findMentionedAvailableQuests(
+      $campaign_id,
+      $location_id,
+      (int) $character_id,
+      $combined_text,
+      2,
+      5
+    );
+    if ($matches === []) {
+      return [];
+    }
+
+    $updates = [];
+    foreach ($matches as $quest) {
+      $quest_id = (string) ($quest['quest_id'] ?? '');
+      if ($quest_id === '' || !$this->questTracker->startQuest($campaign_id, $quest_id, (int) $character_id)) {
+        continue;
+      }
+
+      $objective_lines = [];
+      foreach (array_slice(is_array($quest['current_objectives'] ?? NULL) ? $quest['current_objectives'] : [], 0, 3) as $objective) {
+        $description = trim((string) ($objective['description'] ?? $objective['objective_id'] ?? ''));
+        if ($description === '') {
+          continue;
+        }
+        $target_count = (int) ($objective['target_count'] ?? 0);
+        $current = (int) ($objective['current'] ?? 0);
+        if ($target_count > 0) {
+          $description .= sprintf(' (%d/%d)', $current, $target_count);
+        }
+        $objective_lines[] = $description;
+      }
+
+      $updates[] = [
+        'type' => 'quest_started',
+        'quest_id' => $quest_id,
+        'quest_name' => (string) ($quest['quest_name'] ?? $quest_id),
+        'status' => 'active',
+        'objectives' => $objective_lines,
+      ];
+    }
+
+    $storyline_updates = $this->activateMentionedBrokeredStorylineQuests(
+      $campaign_id,
+      $location_id,
+      (int) $character_id,
+      $combined_text,
+      $npc_interjections
+    );
+    if ($storyline_updates !== []) {
+      $updates = array_merge($updates, $storyline_updates);
+    }
+
+    if ($updates === [] && $this->looksLikeQuestOrLeadRequest($this->normalizeQuestLeadMatchText($combined_text))) {
+      $this->logger->info('Quest-like NPC dialogue had no backed quest match in campaign {campaign_id} for character {character_id}. Speakers: {speakers}. Text: {text}', [
+        'campaign_id' => $campaign_id,
+        'character_id' => (int) $character_id,
+        'speakers' => implode(', ', array_values(array_unique(array_filter(array_map(static function ($entry): string {
+          return trim((string) ($entry['speaker'] ?? $entry['name'] ?? $entry['entity_ref'] ?? ''));
+        }, $npc_interjections))))),
+        'text' => $this->truncateContextBlock($combined_text, 240, 0.85),
+      ]);
+    }
+
+    return $updates;
+  }
+
+  /**
+   * Materialize brokered storyline leads into real quest rows and activate them.
+   */
+  protected function activateMentionedBrokeredStorylineQuests(
+    int $campaign_id,
+    string $location_id,
+    int $character_id,
+    string $combined_text,
+    array $npc_interjections = []
+  ): array {
+    if (
+      $campaign_id <= 0
+      || $location_id === ''
+      || $character_id <= 0
+      || !$this->questTracker
+      || !$this->relationshipManager
+      || !$this->questGenerator
+    ) {
+      return [];
+    }
+
+    $updates = [];
+    $entries = [];
+    foreach ($npc_interjections as $entry) {
+      if (!is_array($entry)) {
+        continue;
+      }
+      $message = trim((string) ($entry['message'] ?? ''));
+      if ($message === '') {
+        continue;
+      }
+      $entries[] = [
+        'entity_ref' => trim((string) ($entry['entity_ref'] ?? '')),
+        'speaker' => trim((string) ($entry['speaker'] ?? $entry['name'] ?? '')),
+        'message' => $message,
+      ];
+    }
+
+    if ($entries === []) {
+      $entries[] = [
+        'entity_ref' => '',
+        'speaker' => '',
+        'message' => $combined_text,
+      ];
+    }
+
+    foreach ($entries as $entry) {
+      $entity_ref = (string) ($entry['entity_ref'] ?? '');
+      if (!$this->isBrokeredStorylineNpcRef($entity_ref)) {
+        continue;
+      }
+
+      $contacts = $this->loadBrokeredStorylineContacts($campaign_id, $entity_ref);
+      if ($contacts === []) {
+        continue;
+      }
+
+      $matched_contacts = $this->selectMentionedBrokeredStorylineContacts($contacts, (string) ($entry['message'] ?? ''));
+      if ($matched_contacts === []) {
+        continue;
+      }
+
+      foreach ($matched_contacts as $contact) {
+        $quest_rows = $this->ensureBrokeredStorylineQuestRows($campaign_id, $location_id, $character_id, $contact);
+        foreach ($quest_rows as $quest) {
+          $quest_id = (string) ($quest['quest_id'] ?? '');
+          if ($quest_id === '' || !$this->questTracker->startQuest($campaign_id, $quest_id, $character_id)) {
+            continue;
+          }
+
+          $updates[] = [
+            'type' => 'quest_started',
+            'quest_id' => $quest_id,
+            'quest_name' => (string) ($quest['quest_name'] ?? $quest_id),
+            'status' => 'active',
+            'objectives' => $this->extractQuestObjectiveDescriptions($quest),
+          ];
+
+          $this->logger->info('Activated brokered storyline quest {quest_id} in campaign {campaign_id} for character {character_id} from NPC {speaker}', [
+            'quest_id' => $quest_id,
+            'campaign_id' => $campaign_id,
+            'character_id' => $character_id,
+            'speaker' => (string) ($entry['speaker'] ?? $entity_ref),
+          ]);
+        }
+      }
+    }
+
+    return $updates;
+  }
+
+  /**
+   * Select brokered storyline contacts explicitly referenced by dialogue text.
+   *
+   * @param array<int, array<string, mixed>> $contacts
+   * @return array<int, array<string, mixed>>
+   */
+  protected function selectMentionedBrokeredStorylineContacts(array $contacts, string $text, int $max_matches = 3, int $minimum_score = 2): array {
+    $normalized_text = $this->normalizeQuestLeadMatchText($text);
+    if ($normalized_text === '' || $contacts === []) {
+      return [];
+    }
+
+    $matches = [];
+    foreach ($contacts as $contact) {
+      if (!is_array($contact)) {
+        continue;
+      }
+
+      $needles = array_filter([
+        $this->normalizeQuestLeadMatchText((string) ($contact['storyline_id'] ?? '')),
+        $this->normalizeQuestLeadMatchText((string) ($contact['template_id'] ?? '')),
+        $this->normalizeQuestLeadMatchText((string) ($contact['name'] ?? '')),
+        $this->normalizeQuestLeadMatchText((string) ($contact['quest_giver']['display_name'] ?? '')),
+        $this->normalizeQuestLeadMatchText((string) ($contact['lead_location']['label'] ?? '')),
+        $this->normalizeQuestLeadMatchText((string) ($contact['quest_giver']['notes'] ?? '')),
+        $this->normalizeQuestLeadMatchText((string) ($contact['synopsis'] ?? '')),
+      ]);
+
+      $score = 0;
+      foreach ($needles as $needle) {
+        if ($needle === '') {
+          continue;
+        }
+        if (str_contains($normalized_text, $needle)) {
+          $score += 4;
+          continue;
+        }
+        $needle_tokens = array_values(array_filter(explode(' ', $needle), static fn(string $token): bool => strlen($token) >= 4));
+        $token_matches = 0;
+        foreach ($needle_tokens as $token) {
+          if (str_contains($normalized_text, $token)) {
+            $token_matches++;
+          }
+        }
+        $score += min(3, $token_matches);
+      }
+
+      if ($score < $minimum_score) {
+        continue;
+      }
+
+      $contact['match_score'] = $score;
+      $matches[] = $contact;
+    }
+
+    usort($matches, static function (array $a, array $b): int {
+      return ((int) ($b['match_score'] ?? 0)) <=> ((int) ($a['match_score'] ?? 0));
+    });
+
+    return array_slice($matches, 0, max(1, $max_matches));
+  }
+
+  /**
+   * Ensure campaign quest rows exist for a brokered storyline contact.
+   *
+   * @return array<int, array<string, mixed>>
+   */
+  protected function ensureBrokeredStorylineQuestRows(int $campaign_id, string $location_id, int $character_id, array $contact): array {
+    $storyline_id = trim((string) ($contact['storyline_id'] ?? ''));
+    if ($storyline_id === '') {
+      return [];
+    }
+
+    $storyline_row = $this->database->select('dc_campaign_storylines', 's')
+      ->fields('s', ['storyline_id', 'storyline_data'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('storyline_id', $storyline_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    if (!is_array($storyline_row)) {
+      $this->logger->warning('Brokered storyline contact {storyline_id} has no campaign storyline row in campaign {campaign_id}.', [
+        'storyline_id' => $storyline_id,
+        'campaign_id' => $campaign_id,
+      ]);
+      return [];
+    }
+
+    $storyline_data = json_decode((string) ($storyline_row['storyline_data'] ?? '{}'), TRUE);
+    if (!is_array($storyline_data)) {
+      return [];
+    }
+
+    $template_ids = $this->getStorylineQuestTemplateIdsForActivation($storyline_data);
+    if ($template_ids === []) {
+      $this->logger->warning('Brokered storyline contact {storyline_id} has no linked quest templates ready for activation in campaign {campaign_id}.', [
+        'storyline_id' => $storyline_id,
+        'campaign_id' => $campaign_id,
+      ]);
+      return [];
+    }
+
+    $quest_rows = [];
+    foreach ($template_ids as $template_id) {
+      $existing = $this->database->select('dc_campaign_quests', 'q')
+        ->fields('q')
+        ->condition('campaign_id', $campaign_id)
+        ->condition('source_template_id', $template_id)
+        ->range(0, 1)
+        ->execute()
+        ->fetchAssoc();
+
+      if (!is_array($existing)) {
+        $quest_data = $this->questGenerator->generateQuestFromTemplate($template_id, $campaign_id, [
+          'party_level' => $this->loadCharacterQuestLevel($campaign_id, $character_id),
+          'difficulty' => 'moderate',
+          'location' => $location_id,
+          'location_tags' => [$location_id, 'storyline_lead'],
+          'giver_npc_id' => $this->resolveCampaignNpcIdForBrokeredContact($campaign_id, $contact),
+        ]);
+        if ($quest_data === []) {
+          $this->logger->warning('Failed to generate brokered storyline quest from template {template_id} in campaign {campaign_id}.', [
+            'template_id' => $template_id,
+            'campaign_id' => $campaign_id,
+          ]);
+          continue;
+        }
+
+        $this->database->insert('dc_campaign_quests')
+          ->fields($quest_data)
+          ->execute();
+
+        $existing = $this->database->select('dc_campaign_quests', 'q')
+          ->fields('q')
+          ->condition('campaign_id', $campaign_id)
+          ->condition('source_template_id', $template_id)
+          ->range(0, 1)
+          ->execute()
+          ->fetchAssoc();
+      }
+
+      if (!is_array($existing)) {
+        continue;
+      }
+
+      $this->attachStorylineReferenceToQuestRow(
+        $campaign_id,
+        (string) ($existing['quest_id'] ?? ''),
+        $storyline_id,
+        is_array($storyline_data['linked_quests'][$template_id] ?? NULL) ? $storyline_data['linked_quests'][$template_id] : []
+      );
+      $quest_rows[] = $existing;
+    }
+
+    return $quest_rows;
+  }
+
+  /**
+   * Determine which storyline-linked quest templates should activate next.
+   *
+   * @return array<int, string>
+   */
+  protected function getStorylineQuestTemplateIdsForActivation(array $storyline_data): array {
+    $chapter_id = trim((string) ($storyline_data['current_chapter_id'] ?? ''));
+    $scene_id = trim((string) ($storyline_data['current_scene_id'] ?? ''));
+    $chapters = array_values(is_array($storyline_data['chapters'] ?? NULL) ? $storyline_data['chapters'] : []);
+
+    if ($chapter_id === '' && !empty($chapters[0]['chapter_id'])) {
+      $chapter_id = (string) $chapters[0]['chapter_id'];
+    }
+
+    if ($scene_id === '' && $chapter_id !== '') {
+      foreach ($chapters as $chapter) {
+        if ((string) ($chapter['chapter_id'] ?? '') !== $chapter_id) {
+          continue;
+        }
+        $scene_id = (string) ($chapter['scenes'][0]['scene_id'] ?? '');
+        break;
+      }
+    }
+
+    foreach ($chapters as $chapter) {
+      if ($chapter_id !== '' && (string) ($chapter['chapter_id'] ?? '') !== $chapter_id) {
+        continue;
+      }
+
+      if ($scene_id !== '') {
+        foreach (($chapter['scenes'] ?? []) as $scene) {
+          if ((string) ($scene['scene_id'] ?? '') === $scene_id) {
+            return array_values(array_unique(array_filter(array_map('strval', $scene['quest_ids'] ?? []))));
+          }
+        }
+      }
+
+      $chapter_quest_ids = array_values(array_unique(array_filter(array_map('strval', $chapter['quest_ids'] ?? []))));
+      if ($chapter_quest_ids !== []) {
+        return $chapter_quest_ids;
+      }
+    }
+
+    $linked = is_array($storyline_data['linked_quests'] ?? NULL) ? $storyline_data['linked_quests'] : [];
+    return array_values(array_unique(array_filter(array_map('strval', array_keys($linked)))));
+  }
+
+  /**
+   * Attach storyline metadata to a materialized quest row.
+   */
+  protected function attachStorylineReferenceToQuestRow(int $campaign_id, string $quest_id, string $storyline_id, array $quest_link): void {
+    if ($campaign_id <= 0 || $quest_id === '' || $storyline_id === '') {
+      return;
+    }
+
+    $this->database->update('dc_campaign_quests')
+      ->fields([
+        'storyline_id' => $storyline_id,
+        'storyline_chapter_id' => !empty($quest_link['chapter_id']) ? (string) $quest_link['chapter_id'] : NULL,
+        'storyline_scene_id' => !empty($quest_link['scene_id']) ? (string) $quest_link['scene_id'] : NULL,
+      ])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('quest_id', $quest_id)
+      ->execute();
+  }
+
+  /**
+   * Build compact objective lines for quest update payloads.
+   *
+   * @return array<int, string>
+   */
+  protected function extractQuestObjectiveDescriptions(array $quest): array {
+    $phases = json_decode((string) ($quest['generated_objectives'] ?? '[]'), TRUE);
+    if (!is_array($phases)) {
+      return [];
+    }
+
+    foreach ($phases as $phase) {
+      $objectives = is_array($phase['objectives'] ?? NULL) ? $phase['objectives'] : [];
+      if ($objectives === []) {
+        continue;
+      }
+
+      $lines = [];
+      foreach (array_slice($objectives, 0, 3) as $objective) {
+        $description = trim((string) ($objective['description'] ?? $objective['objective_id'] ?? ''));
+        if ($description !== '') {
+          $lines[] = $description;
+        }
+      }
+      return $lines;
+    }
+
+    return [];
+  }
+
+  /**
+   * Normalize freeform dialogue into a search-friendly quest lead string.
+   */
+  protected function normalizeQuestLeadMatchText(string $value): string {
+    $value = strtolower(trim($value));
+    $value = str_replace(['_', '-', ';', ':', ',', '.', '"', "'", '(', ')', '!', '?'], ' ', $value);
+    $value = preg_replace('/\s+/', ' ', $value) ?? $value;
+    return trim($value);
+  }
+
+  /**
+   * Resolve a reasonable party level for generated brokered storyline quests.
+   */
+  protected function loadCharacterQuestLevel(int $campaign_id, int $character_id): int {
+    if ($campaign_id <= 0 || $character_id <= 0) {
+      return 1;
+    }
+
+    $level = $this->database->select('dc_campaign_characters', 'cc')
+      ->fields('cc', ['level'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('id', $character_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchField();
+
+    return max(1, (int) $level);
+  }
+
+  /**
+   * Resolve the numeric broker NPC id when the contact references a campaign NPC.
+   */
+  protected function resolveCampaignNpcIdForBrokeredContact(int $campaign_id, array $contact): ?int {
+    $broker = is_array($contact['broker'] ?? NULL) ? $contact['broker'] : [];
+    $entity_type = trim((string) ($broker['entity_type'] ?? ''));
+    $entity_id = trim((string) ($broker['entity_id'] ?? ''));
+    if ($campaign_id <= 0 || $entity_type !== 'campaign_npc' || $entity_id === '') {
+      return NULL;
+    }
+
+    $npc_id = $this->database->select('dc_campaign_characters', 'cc')
+      ->fields('cc', ['id'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('instance_id', $entity_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchField();
+
+    return $npc_id === FALSE ? NULL : (int) $npc_id;
+  }
+
+  /**
+   * Extract incomplete objective descriptions for the current quest phase.
+   */
+  protected function extractIncompleteObjectivesForPhase(array $quest, int $phase): array {
+    $objective_states = json_decode((string) ($quest['objective_states'] ?? '[]'), TRUE);
+    $generated_objectives = json_decode((string) ($quest['generated_objectives'] ?? '[]'), TRUE);
+    $phase_rows = is_array($objective_states) && $objective_states !== [] ? $objective_states : $generated_objectives;
+
+    foreach ($phase_rows as $phase_row) {
+      if ((int) ($phase_row['phase'] ?? 0) !== $phase) {
+        continue;
+      }
+
+      $objectives = is_array($phase_row['objectives'] ?? NULL) ? $phase_row['objectives'] : [];
+      $descriptions = [];
+      foreach ($objectives as $objective) {
+        if (!is_array($objective) || !empty($objective['completed'])) {
+          continue;
+        }
+
+        $target_count = (int) ($objective['target_count'] ?? 0);
+        $current = (int) ($objective['current'] ?? 0);
+        if ($target_count > 0 && $current >= $target_count) {
+          continue;
+        }
+
+        $description = trim((string) ($objective['description'] ?? $objective['objective_id'] ?? ''));
+        if ($description === '') {
+          continue;
+        }
+
+        if ($target_count > 0) {
+          $description .= sprintf(' (%d/%d)', $current, $target_count);
+        }
+        $descriptions[] = $description;
+      }
+
+      return $descriptions;
+    }
+
+    return [];
+  }
+
+  /**
+   * Normalize a generated player-automation suggestion into chat-ready text.
+   */
+  protected function sanitizePlayerAutomationSuggestion(string $text): string {
+    $text = trim($text);
+    $text = preg_replace('/^```(?:text)?\s*/i', '', $text) ?? $text;
+    $text = preg_replace('/\s*```$/', '', $text) ?? $text;
+    $text = preg_replace('/^(?:message|reply|chat message)\s*:\s*/i', '', $text) ?? $text;
+    $text = trim($text, " \t\n\r\0\x0B\"'");
+    $text = preg_replace('/\s+/', ' ', $text) ?? $text;
+    if (strlen($text) > 240) {
+      $text = rtrim(substr($text, 0, 237)) . '...';
+    }
+    return trim($text);
   }
 
   /**
@@ -5366,7 +7443,7 @@ PROMPT;
       $npc_names[] = $name;
       $role = strtolower((string) ($npc['profile']['role'] ?? ($npc['entity']['role'] ?? '')));
       $descriptor = strtolower($name . ' ' . ($npc['entity_ref'] ?? '') . ' ' . ($npc['profile']['motivations'] ?? ''));
-      if (in_array($role, ['quest_giver', 'guide'], TRUE)) {
+      if ($this->npcSupportsQuestOrLeadDialogue($npc)) {
         $quest_givers[] = $name;
       }
       if ($this->textContainsAny($descriptor, ['keeper', 'merchant', 'vendor', 'shop', 'tavern', 'inn', 'bar', 'sell'])) {

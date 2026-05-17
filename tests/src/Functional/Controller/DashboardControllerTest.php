@@ -33,6 +33,7 @@ class DashboardControllerTest extends BrowserTestBase {
     $this->assertSession()->statusCodeEquals(200);
     $this->assertSession()->pageTextContains('Game Content Dashboard');
     $this->assertSession()->pageTextContains('AI Image Generation (Gemini + Vertex)');
+    $this->assertSession()->pageTextContains('Open Room Turn Logs');
   }
 
   /**

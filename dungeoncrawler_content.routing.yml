@@ -62,6 +62,24 @@ dungeoncrawler_content.image_generation_interface:
   requirements:
     _permission: 'access content overview'
 
+dungeoncrawler_content.generated_image_browser:
+  path: '/admin/content/dungeoncrawler/generated-images'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\GeneratedImageBrowserController::content'
+    _title: 'Generated Images'
+  methods: [GET]
+  requirements:
+    _permission: 'access content overview'
+
+dungeoncrawler_content.room_turn_log_browser:
+  path: '/admin/content/dungeoncrawler/room-turn-logs'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\RoomTurnLogBrowserController::content'
+    _title: 'Room Turn Logs'
+  methods: [GET]
+  requirements:
+    _permission: 'access content overview'
+
 dungeoncrawler_content.text_to_speech_interface:
   path: '/admin/config/content/dungeoncrawler/text-to-speech'
   defaults:
@@ -99,6 +117,15 @@ dungeoncrawler_content.world:
   defaults:
     _controller: '\Drupal\dungeoncrawler_content\Controller\WorldController::index'
     _title: 'The Living Dungeon'
+  methods: [GET]
+  requirements:
+    _access: 'TRUE'
+
+dungeoncrawler_content.world_game_flow:
+  path: '/world/game-flow'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\WorldGameFlowController::index'
+    _title: 'Game Flow'
   methods: [GET]
   requirements:
     _access: 'TRUE'
@@ -773,6 +800,19 @@ dungeoncrawler_content.api.room_chat_post:
   path: '/api/campaign/{campaign_id}/room/{room_id}/chat'
   defaults:
     _controller: '\Drupal\dungeoncrawler_content\Controller\RoomChatController::postChatMessage'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _campaign_access: 'TRUE'
+    campaign_id: '\d+'
+    room_id: '[A-Za-z0-9_-]+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.room_chat_player_suggestion:
+  path: '/api/campaign/{campaign_id}/room/{room_id}/chat/player-suggestion'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\RoomChatController::suggestPlayerAutomationMessage'
   methods: [POST]
   requirements:
     _csrf_request_header_mode: TRUE
@@ -1835,6 +1875,18 @@ dungeoncrawler_content.api.storylines_journal:
   options:
     _format: json
 
+# Get tavern/storyline contact graph for a campaign.
+dungeoncrawler_content.api.storylines_contacts:
+  path: '/api/campaign/{campaign_id}/storylines/contacts'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\StorylineController::getCampaignStorylineContacts'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+    campaign_id: '\d+'
+  options:
+    _format: json
+
 # Start a quest
 dungeoncrawler_content.api.quest_start:
   path: '/api/campaign/{campaign_id}/quests/{quest_id}/start'
@@ -2143,6 +2195,19 @@ dungeoncrawler_content.api.game_events:
   methods: [GET]
   requirements:
     _permission: 'access dungeoncrawler characters'
+    campaign_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.game_player_agent_step:
+  path: '/api/game/{campaign_id}/player-agent/step'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\GameCoordinatorController::playerAgentStep'
+  methods: [POST]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+    _campaign_access: 'TRUE'
+    _csrf_request_header_mode: TRUE
     campaign_id: '\d+'
   options:
     _format: json
@@ -2606,6 +2671,16 @@ dungeoncrawler_content.api.feat_catalog:
   path: '/api/feats'
   defaults:
     _controller: '\Drupal\dungeoncrawler_content\Controller\FeatCatalogController::catalog'
+  methods: [GET]
+  requirements:
+    _access: 'TRUE'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.feat_catalog_get:
+  path: '/api/feats/{feat_id}'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\FeatCatalogController::get'
   methods: [GET]
   requirements:
     _access: 'TRUE'

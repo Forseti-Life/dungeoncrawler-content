@@ -43,7 +43,10 @@
         "focus_domain": "abjuration",
         "source_book": "core_rulebook_4th_printing",
         "source_display": "Core Rulebook",
-        "source_file": "wizard_school_focus_spells_intermediary.json"
+        "source_file": "wizard_school_focus_spells_intermediary.json",
+        "source_line_start": 65189,
+        "source_line_end": 65194,
+        "raw_text_block": "ENERGY ABSORPTION\nUNCOMMON\nABJURATION\nFOCUS 1\nWIZARD\nCast [reaction] verbal; Trigger An effect would deal acid, cold, electricity, or fire damage to you.\nYou gain resistance 15 to acid, cold, electricity, or fire damage from the triggering effect (one type of your choice). The resistance applies only to the triggering effect's initial damage.\nHeightened (+1) The resistance increases by 5."
       }
     },
     {
@@ -89,7 +92,10 @@
         "focus_domain": "conjuration",
         "source_book": "core_rulebook_4th_printing",
         "source_display": "Core Rulebook",
-        "source_file": "wizard_school_focus_spells_intermediary.json"
+        "source_file": "wizard_school_focus_spells_intermediary.json",
+        "source_line_start": 65103,
+        "source_line_end": 65108,
+        "raw_text_block": "AUGMENT SUMMONING\nUNCOMMON\nCONJURATION\nFOCUS 1\nWIZARD\nCast [free-action]; Requirements You have a summoned creature.\nTargets 1 summoned creature you control\nDuration 1 minute\nYou augment the abilities of a summoned creature. The target gains a +1 status bonus to all checks (this also applies to the creature's DCs, including its AC) for the duration of its summoning, up to 1 minute."
       }
     },
     {
@@ -135,7 +141,10 @@
         "focus_domain": "conjuration",
         "source_book": "core_rulebook_4th_printing",
         "source_display": "Core Rulebook",
-        "source_file": "wizard_school_focus_spells_intermediary.json"
+        "source_file": "wizard_school_focus_spells_intermediary.json",
+        "source_line_start": 64979,
+        "source_line_end": 64983,
+        "raw_text_block": "DIMENSIONAL STEPS\nUNCOMMON\nCONJURATION\nTELEPORTATION\nWIZARD\nCast [one-action] somatic\nRange self\nYou flicker through space. Teleport up to 20 feet to a space you can see."
       }
     },
     {
@@ -181,7 +190,10 @@
         "focus_domain": "divination",
         "source_book": "core_rulebook_4th_printing",
         "source_display": "Core Rulebook",
-        "source_file": "wizard_school_focus_spells_intermediary.json"
+        "source_file": "wizard_school_focus_spells_intermediary.json",
+        "source_line_start": 143,
+        "source_line_end": 184,
+        "raw_text_block": "SCHOLASTIC DISSERTATION\nUNCOMMON\nDIVINATION\nFOCUS 1\nWIZARD\nCast [one-action]\nRange self; Targets self\nDuration 1 minute\nYou focus your scholarship into a burst of magical clarity, drawing on disciplined study to improve your next Recall Knowledge or spell-identification effort during the duration."
       }
     },
     {
@@ -227,7 +239,10 @@
         "focus_domain": "enchantment",
         "source_book": "core_rulebook_4th_printing",
         "source_display": "Core Rulebook",
-        "source_file": "wizard_school_focus_spells_intermediary.json"
+        "source_file": "wizard_school_focus_spells_intermediary.json",
+        "source_line_start": 64963,
+        "source_line_end": 64973,
+        "raw_text_block": "CHARMING WORDS\nUNCOMMON\nAUDITORY\nENCHANTMENT\nINCAPACITATION\nLINGUISTIC\nMENTAL\nWIZARD\nCast [one-action] verbal\nRange 30 feet; Targets 1 creature\nSaving Throw Will; Duration until the start of your next turn\nYou whisper enchanting words to deflect your foe's ire. The target must attempt a Will save.\nCritical Success The target is unaffected.\nSuccess The target takes a -1 circumstance penalty to attack rolls and damage rolls against you.\nFailure The target can't use hostile actions against you.\nCritical Failure The target is stunned 1 and can't use hostile actions against you."
       }
     },
     {
@@ -273,7 +288,10 @@
         "focus_domain": "enchantment",
         "source_book": "core_rulebook_4th_printing",
         "source_display": "Core Rulebook",
-        "source_file": "wizard_school_focus_spells_intermediary.json"
+        "source_file": "wizard_school_focus_spells_intermediary.json",
+        "source_line_start": 65125,
+        "source_line_end": 65129,
+        "raw_text_block": "DREAD AURA\nUNCOMMON\nAURA\nFOCUS 1\nENCHANTMENT\nEMOTION\nFEAR\nMENTAL\nWIZARD\nCast [one-action] verbal\nArea 30-foot-radius emanation\nDuration sustained up to 1 minute\nYou emit an aura of terror. Foes in the area are frightened 1 and unable to reduce the condition."
       }
     },
     {
@@ -319,7 +337,10 @@
         "focus_domain": "evocation",
         "source_book": "core_rulebook_4th_printing",
         "source_display": "Core Rulebook",
-        "source_file": "wizard_school_focus_spells_intermediary.json"
+        "source_file": "wizard_school_focus_spells_intermediary.json",
+        "source_line_start": 65226,
+        "source_line_end": 65230,
+        "raw_text_block": "FORCE BOLT\nUNCOMMON\nEVOCATION\nFORCE\nWIZARD\nCast [one-action] somatic\nRange 30 feet; Targets 1 creature\nYou fire an unerring dart of force from your fingertips. It automatically hits and deals 1d4+1 force damage to the target.\nHeightened (+2) The damage increases by 1d4+1."
       }
     },
     {
@@ -365,7 +386,10 @@
         "focus_domain": "illusion",
         "source_book": "core_rulebook_4th_printing",
         "source_display": "Core Rulebook",
-        "source_file": "wizard_school_focus_spells_intermediary.json"
+        "source_file": "wizard_school_focus_spells_intermediary.json",
+        "source_line_start": 65345,
+        "source_line_end": 65379,
+        "raw_text_block": "WARPED TERRAIN\nUNCOMMON\nILLUSION\nVISUAL\nFOCUS 1\nWIZARD\nCast [one-action] to [three-actions] somatic, verbal\nRange 60 feet; Area 5-foot burst or more\nDuration 1 minute\nYou create illusory hazards that cover all surfaces in the area (typically the ground). Any creature moving through the illusion treats the squares as difficult terrain. A creature can attempt to disbelieve the effect as normal after using a Seek action or otherwise spending actions interacting with the illusion. If it successfully disbelieves, it ignores the effect for the remaining duration. For each additional action you use casting the spell, the burst's radius increases by 5 feet, to a maximum of 10 extra feet for 3 actions.\nHeightened (4th) You can make the illusion appear in the air rather than on a surface, causing it to function as difficult terrain for flying creatures."
       }
     },
     {
@@ -411,7 +435,10 @@
         "focus_domain": "necromancy",
         "source_book": "core_rulebook_4th_printing",
         "source_display": "Core Rulebook",
-        "source_file": "wizard_school_focus_spells_intermediary.json"
+        "source_file": "wizard_school_focus_spells_intermediary.json",
+        "source_line_start": 65057,
+        "source_line_end": 65063,
+        "raw_text_block": "CALL OF THE GRAVE\nUNCOMMON\nFOCUS 1\nATTACK\nNECROMANCY\nAUDITORY\nMENTAL\nWIZARD\nCast [two-actions] somatic, verbal\nRange 30 feet; Targets 1 living creature\nYou fire a ray of sickening energy. Make a spell attack roll.\nCritical Success The target becomes sickened 2 and slowed 1 as long as it's sickened.\nSuccess The target becomes sickened 1.\nFailure The target is unaffected."
       }
     }
   ]

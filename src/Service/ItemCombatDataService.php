@@ -106,32 +106,28 @@ class ItemCombatDataService {
     }
 
     $schema_data = json_decode($result['schema_data'], TRUE) ?? [];
+    $weapon_stats = is_array($schema_data['weapon_stats'] ?? NULL)
+      ? $schema_data['weapon_stats']
+      : [];
     $item_type = $schema_data['item_type'] ?? NULL;
 
     if ($item_type !== 'weapon') {
       return NULL;
     }
 
-    // Parse damage string (e.g., "1d8 slashing" → ['1d8', 'slashing'])
-    $damage_string = $schema_data['damage'] ?? '';
-    $damage_parts = $this->parseDamageString($damage_string);
-
-    // Extract traits
-    $traits = $schema_data['traits'] ?? [];
-    if (!is_array($traits)) {
-      $traits = [];
-    }
-
-    // Determine range (for ranged weapons)
-    $range = $this->extractRangeFromTraits($traits);
+    $damage_parts = $this->extractWeaponDamage($schema_data, $weapon_stats);
+    $traits = $this->extractWeaponTraits($schema_data, $weapon_stats);
+    $range = $this->extractWeaponRange($traits, $weapon_stats);
 
     // Determine category (simple/martial) with fallback
-    $category = $schema_data['weapon_category'] ?? 
+    $category = $weapon_stats['category'] ??
+                $schema_data['weapon_category'] ??
                 self::CATEGORY_DEFAULTS[$item_id] ?? 
                 $this->inferCategoryFromTraits($traits);
 
     // Determine weapon group
-    $group = $schema_data['weapon_group'] ?? 
+    $group = $weapon_stats['group'] ??
+             $schema_data['weapon_group'] ?? 
              self::GROUP_DEFAULTS[$item_id] ?? 
              'unknown';
 
@@ -165,11 +161,63 @@ class ItemCombatDataService {
       'damage_type' => $damage_parts['type'] ?? 'bludgeoning',
       'category' => $category,
       'group' => $group,
-      'hands' => (int) ($schema_data['hands'] ?? 1),
+      'hands' => $this->normalizeHands($schema_data['hands'] ?? 1),
       'traits' => $normalized_traits,
       'range' => $range,
       'damage_str_mode' => $damage_str_mode,
     ];
+  }
+
+  /**
+   * Extract weapon damage from canonical or legacy schema locations.
+   */
+  protected function extractWeaponDamage(array $schema_data, array $weapon_stats): array {
+    $damage = $weapon_stats['damage'] ?? NULL;
+    if (is_array($damage)) {
+      $dice_count = max(1, (int) ($damage['dice_count'] ?? 1));
+      $die_size = (string) ($damage['die_size'] ?? 'd4');
+      $damage_type = strtolower((string) ($damage['damage_type'] ?? 'bludgeoning'));
+
+      if (preg_match('/^d\d+$/', $die_size)) {
+        return [
+          'dice' => $dice_count . $die_size,
+          'type' => $damage_type !== '' ? $damage_type : 'bludgeoning',
+        ];
+      }
+    }
+
+    return $this->parseDamageString((string) ($schema_data['damage'] ?? ''));
+  }
+
+  /**
+   * Extract weapon traits from canonical and legacy schema locations.
+   */
+  protected function extractWeaponTraits(array $schema_data, array $weapon_stats): array {
+    $traits = $schema_data['traits'] ?? [];
+    if (!is_array($traits)) {
+      $traits = [];
+    }
+
+    $weapon_traits = $weapon_stats['weapon_traits'] ?? [];
+    if (!is_array($weapon_traits)) {
+      $weapon_traits = [];
+    }
+
+    return array_values(array_unique(array_merge($traits, $weapon_traits)));
+  }
+
+  /**
+   * Extract weapon range from canonical stats or legacy traits.
+   */
+  protected function extractWeaponRange(array $traits, array $weapon_stats): ?string {
+    if (array_key_exists('range', $weapon_stats) && $weapon_stats['range'] !== NULL) {
+      $range = (int) $weapon_stats['range'];
+      if ($range > 0) {
+        return $range . ' feet';
+      }
+    }
+
+    return $this->extractRangeFromTraits($traits);
   }
 
   /**
@@ -252,6 +300,23 @@ class ItemCombatDataService {
     }
 
     return NULL;
+  }
+
+  /**
+   * Normalize hands values from schema strings like "1+".
+   */
+  protected function normalizeHands($hands): int {
+    if (is_int($hands)) {
+      return $hands;
+    }
+
+    $hands = trim((string) $hands);
+    return match ($hands) {
+      '0' => 0,
+      '1', '1+' => 1,
+      '2' => 2,
+      default => 1,
+    };
   }
 
   /**

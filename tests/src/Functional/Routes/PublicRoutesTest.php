@@ -63,6 +63,23 @@ class PublicRoutesTest extends BrowserTestBase {
   }
 
   /**
+   * Tests world game-flow route - positive case.
+   */
+  public function testWorldGameFlowRoutePositive(): void {
+    $this->drupalGet('/world/game-flow');
+    $this->assertSession()->statusCodeEquals(200);
+    $this->assertSession()->pageTextContains('Game Flow');
+  }
+
+  /**
+   * Tests world game-flow route - negative case.
+   */
+  public function testWorldGameFlowRouteNegative(): void {
+    $this->drupalGet('/world/game-flow/extra');
+    $this->assertSession()->statusCodeEquals(404);
+  }
+
+  /**
    * Tests how-to-play route - positive case.
    */
   public function testHowToPlayRoutePositive(): void {

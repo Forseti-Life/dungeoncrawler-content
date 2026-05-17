@@ -634,7 +634,7 @@ class RulesEngine {
     $query = $this->database->select('combat_conditions', 'cc')
       ->fields('cc', ['condition_type'])
       ->condition('participant_id', $participant_id)
-      ->condition('is_active', 1);
+      ->isNull('removed_at_round');
     if ($encounter_id) {
       $query->condition('encounter_id', $encounter_id);
     }

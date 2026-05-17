@@ -12,6 +12,59 @@
 (function ($, Drupal, once) {
   'use strict';
 
+  function activateTab($wrapper, tabId) {
+    var $tabs = $wrapper.find('[data-step4-tab]');
+    var $panels = $wrapper.find('[data-step4-tab-panel]');
+    var $hidden = $wrapper.find('[data-step4-active-tab-input]');
+
+    $tabs.each(function () {
+      var $tab = $(this);
+      var active = $tab.data('step4Tab') === tabId;
+      $tab.toggleClass('is-active', active);
+      $tab.attr('aria-selected', active ? 'true' : 'false');
+    });
+
+    $panels.each(function () {
+      var $panel = $(this);
+      var active = $panel.data('step4TabPanel') === tabId;
+      $panel.toggleClass('is-active', active);
+      $panel.prop('hidden', !active);
+    });
+
+    if ($hidden.length) {
+      $hidden.val(tabId);
+    }
+  }
+
+  function wireTabShell($wrapper) {
+    var $tabs = $wrapper.find('[data-step4-tab]');
+    var $panels = $wrapper.find('[data-step4-tab-panel]');
+    if ($tabs.length < 2 || !$panels.length) {
+      return;
+    }
+
+    var $hidden = $wrapper.find('[data-step4-active-tab-input]');
+    var initialTab = $hidden.val() || '';
+    var $errorPanel = $panels.filter(function () {
+      return $(this).find('[aria-invalid="true"], .form-item--error-message, .messages--error, .error').length > 0;
+    }).first();
+    if ($errorPanel.length) {
+      initialTab = $errorPanel.data('step4TabPanel');
+    }
+    if (!initialTab) {
+      initialTab = $tabs.first().data('step4Tab');
+    }
+
+    $tabs.each(function () {
+      var $tab = $(this);
+      $tab.on('click.step4Tabs', function () {
+        activateTab($wrapper, $tab.data('step4Tab'));
+      });
+    });
+
+    activateTab($wrapper, initialTab);
+  }
+
   /**
    * Wires up a checkbox-limit enforcer for a group of checkboxes.
    *
@@ -89,6 +142,10 @@
       if (!$wrapper.length) {
         return;
       }
+
+      once('step4-tabs', $wrapper.get()).forEach(function (el) {
+        wireTabShell($(el));
+      });
 
       var cfg = (settings && settings.characterStep4) || {};
       var cantripLimit = cfg.cantripLimit || 0;

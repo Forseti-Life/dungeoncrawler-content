@@ -126,6 +126,20 @@ export class GameCoordinatorApi {
     return getJson(`${this.baseUrl}/events?since=${since}`);
   }
 
+  /**
+   * Run one browser-driven player-agent harness step.
+   *
+   * @param {object} profile
+   * @param {object} [runState={}]
+   * @returns {Promise<object>}
+   */
+  async runPlayerAgentStep(profile, runState = {}) {
+    return postJson(`${this.baseUrl}/player-agent/step`, {
+      profile: profile || {},
+      run_state: runState || {},
+    });
+  }
+
   // =========================================================================
   // Convenience Methods (typed wrappers around sendAction)
   // =========================================================================

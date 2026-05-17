@@ -45,6 +45,9 @@ export class PhaseManager {
     /** @type {number} */
     this.eventLogCursor = 0;
 
+    /** @type {object|null} */
+    this.serverState = null;
+
     // Listeners keyed by event name.
     /** @private */
     this._listeners = {
@@ -75,15 +78,20 @@ export class PhaseManager {
     const previousPhase = this.currentPhase;
     const previousRound = this.round;
     const previousTurnEntity = this.turn?.entity;
+    const mergedState = {
+      ...(this.serverState || {}),
+      ...serverState,
+    };
 
     // Core state.
-    this.currentPhase = serverState.phase || 'exploration';
-    this.stateVersion = serverState.state_version || 0;
-    this.round = serverState.round;
-    this.turn = serverState.turn;
-    this.encounterId = serverState.encounter_id;
-    this.initiativeOrder = serverState.initiative_order;
-    this.eventLogCursor = serverState.event_log_cursor || 0;
+    this.serverState = mergedState;
+    this.currentPhase = mergedState.phase || 'exploration';
+    this.stateVersion = mergedState.state_version || 0;
+    this.round = mergedState.round;
+    this.turn = mergedState.turn;
+    this.encounterId = mergedState.encounter_id;
+    this.initiativeOrder = mergedState.initiative_order;
+    this.eventLogCursor = mergedState.event_log_cursor || 0;
 
     if (availableActions) {
       this.availableActions = availableActions;
@@ -195,6 +203,9 @@ export class PhaseManager {
       initiativeOrder: this.initiativeOrder ? [...this.initiativeOrder] : null,
       availableActions: [...this.availableActions],
       eventLogCursor: this.eventLogCursor,
+      campaignClock: this.serverState?.campaign_clock || null,
+      gameTime: this.serverState?.game_time || null,
+      timedActivities: Array.isArray(this.serverState?.timed_activities) ? [...this.serverState.timed_activities] : [],
     };
   }
 

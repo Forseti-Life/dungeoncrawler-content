@@ -203,10 +203,10 @@ try {
 
   echo "--- Stage 1: Narrative starts combat ---\n";
 
-  $room_ref = new ReflectionClass($room_chat);
+  $room_ref = new ReflectionClass(\Drupal::service('dungeoncrawler_content.gm_orchestration_broker'));
   $start_combat = $room_ref->getMethod('handleCombatInitiationAction');
   $start_combat->setAccessible(TRUE);
-  $combat_result = $start_combat->invoke($room_chat, $campaign_id, $room_id, $room_meta, $dungeon_data, [
+  $combat_result = $start_combat->invoke(\Drupal::service('dungeoncrawler_content.gm_orchestration_broker'), $campaign_id, $room_id, $room_meta, $dungeon_data, [
     'type' => 'combat_initiation',
     'name' => 'Attack Gribbles',
     'details' => [

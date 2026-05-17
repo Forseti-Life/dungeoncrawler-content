@@ -379,11 +379,11 @@ class ExtractCoreRulebookSpellsTest(unittest.TestCase):
         )
         schema = record["schema_data"]
 
-        self.assertEqual(46638, schema["source_line_start"])
-        self.assertEqual("Alarm H (abj): Be alerted if a creature", schema["raw_text_block"])
+        self.assertEqual(48908, schema["source_line_start"])
+        self.assertIn("You ward an area to alert you", schema["raw_text_block"])
         self.assertEqual("common", schema["rarity"])
-        self.assertEqual("none", schema["cast"])
-        self.assertEqual("none", schema["cast_actions"])
+        self.assertEqual("10 minutes (material, somatic, verbal)", schema["cast"])
+        self.assertEqual("10_minutes", schema["cast_actions"])
         self.assertEqual("medium", schema["extraction_confidence"])
 
     def test_generic_list_fallback_is_medium_confidence(self) -> None:
@@ -402,8 +402,8 @@ class ExtractCoreRulebookSpellsTest(unittest.TestCase):
 
         self.assertEqual("medium", schema["extraction_confidence"])
         self.assertEqual("common", schema["rarity"])
-        self.assertEqual("none", schema["cast"])
-        self.assertEqual("none", schema["cast_actions"])
+        self.assertEqual("[two-actions] somatic, verbal", schema["cast"])
+        self.assertEqual("2_actions", schema["cast_actions"])
 
     def test_later_matching_rank_segment_is_selected(self) -> None:
         block = {

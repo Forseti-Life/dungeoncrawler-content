@@ -154,7 +154,31 @@ class DowntimePhaseHandlerTest extends UnitTestCase {
    * Helper: build a minimal game state for earn_income tests.
    */
   private function makeGameState(): array {
-    return ['phase' => 'downtime', 'downtime' => ['days_elapsed' => 0]];
+    return [
+      'phase' => 'downtime',
+      'downtime' => ['days_elapsed' => 0],
+      'campaign_clock' => [
+        'datetime' => '2024-01-01T08:00:00Z',
+        'date' => '2024-01-01',
+        'time' => '08:00',
+        'timezone' => 'UTC',
+        'year' => 2024,
+        'month' => 1,
+        'day' => 1,
+        'hour' => 8,
+        'minute' => 0,
+        'weekday' => 'Monday',
+        'season' => 'winter',
+      ],
+      'game_time' => [
+        'day' => 1,
+        'hour' => 8,
+        'minute' => 0,
+        'date' => '2024-01-01',
+        'datetime' => '2024-01-01T08:00:00Z',
+        'timezone' => 'UTC',
+      ],
+    ];
   }
 
   /**
@@ -454,6 +478,8 @@ class DowntimePhaseHandlerTest extends UnitTestCase {
     $this->assertTrue($response['success']);
     $this->assertSame(270, $response['result']['earned_cp']); // 90 × 3.
     $this->assertSame(3, $response['result']['days_elapsed']);
+    $this->assertSame('2024-01-04', $game_state['campaign_clock']['date']);
+    $this->assertSame(4, $game_state['game_time']['day']);
   }
 
   // ---------------------------------------------------------------------------

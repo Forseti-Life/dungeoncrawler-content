@@ -241,6 +241,10 @@ class RoomViewImageService {
    *   Newest-first gallery entries.
    */
   protected function buildConversationGalleryEntries(int $campaign_id, string $dungeon_id, string $room_id, array $room, int $room_session_id): array {
+    if (!$this->hasRoomViewGalleryTable()) {
+      return [];
+    }
+
     $messages = $this->loadRoomSessionMessages($room_session_id);
     if (count($messages) < self::GALLERY_BATCH_SIZE) {
       return [];
@@ -287,7 +291,7 @@ class RoomViewImageService {
    * Generate and store a conversation-gallery entry.
    */
   protected function generateConversationGalleryEntry(int $campaign_id, string $dungeon_id, string $room_id, array $room, int $room_session_id, int $window_index, array $messages): ?array {
-    if (!$this->isVertexAvailable() || count($messages) < self::GALLERY_BATCH_SIZE) {
+    if (!$this->hasRoomViewGalleryTable() || !$this->isVertexAvailable() || count($messages) < self::GALLERY_BATCH_SIZE) {
       return NULL;
     }
 
@@ -332,10 +336,8 @@ class RoomViewImageService {
     ];
 
     $this->database->merge('dc_room_view_gallery')
-      ->key([
-        'room_session_id' => $room_session_id,
-        'window_index' => $window_index,
-      ])
+      ->key('room_session_id', $room_session_id)
+      ->key('window_index', $window_index)
       ->fields($fields)
       ->execute();
 
@@ -398,6 +400,10 @@ class RoomViewImageService {
    *   Stored rows.
    */
   protected function loadStoredGalleryEntries(int $campaign_id, string $dungeon_id, string $room_id, int $room_session_id): array {
+    if (!$this->hasRoomViewGalleryTable()) {
+      return [];
+    }
+
     return $this->database->select('dc_room_view_gallery', 'g')
       ->fields('g')
       ->condition('campaign_id', $campaign_id)
@@ -819,15 +825,7 @@ class RoomViewImageService {
    * Load a persisted establishing-shot image for the campaign room when present.
    */
   protected function loadStoredRoomViewImage(int $campaign_id, string $cache_object_id, array $room_meta): ?array {
-    $rows = $this->generatedImageRepository->loadImagesForObject(
-      'dc_campaign_rooms',
-      $cache_object_id,
-      $campaign_id,
-      'room_view',
-      'establishing'
-    );
-
-    $row = $rows[0] ?? NULL;
+    $row = $this->resolveStoredRoomViewRow($campaign_id, $cache_object_id, $room_meta);
     if (!is_array($row)) {
       return NULL;
     }
@@ -851,6 +849,53 @@ class RoomViewImageService {
         'mime_type' => $row['mime_type'] ?? NULL,
       ],
     ];
+  }
+
+  /**
+   * Resolve the best stored room-view row across legacy link conventions.
+   */
+  protected function resolveStoredRoomViewRow(int $campaign_id, string $cache_object_id, array $room_meta): ?array {
+    $object_ids = array_values(array_unique(array_filter([
+      trim($cache_object_id),
+      trim((string) ($room_meta['room_id'] ?? '')),
+    ])));
+
+    foreach ($object_ids as $object_id) {
+      $rows = $this->generatedImageRepository->loadImagesForObject(
+        'dc_campaign_rooms',
+        $object_id,
+        $campaign_id,
+        'room_view',
+        'establishing'
+      );
+      if (!empty($rows[0]) && is_array($rows[0])) {
+        return $rows[0];
+      }
+
+      $rows = $this->generatedImageRepository->loadImagesForObject(
+        'dc_campaign_rooms',
+        $object_id,
+        $campaign_id,
+        'room_view',
+        NULL
+      );
+      if (!empty($rows[0]) && is_array($rows[0])) {
+        return $rows[0];
+      }
+
+      $rows = $this->generatedImageRepository->loadImagesForObject(
+        'dc_campaign_rooms',
+        $object_id,
+        $campaign_id,
+        NULL,
+        NULL
+      );
+      if (!empty($rows[0]) && is_array($rows[0])) {
+        return $rows[0];
+      }
+    }
+
+    return NULL;
   }
 
   /**
@@ -893,6 +938,21 @@ class RoomViewImageService {
         'mime_type' => $output['mime_type'] ?? NULL,
       ],
     ];
+  }
+
+  /**
+   * Determine whether the optional room-view gallery table exists.
+   */
+  protected function hasRoomViewGalleryTable(): bool {
+    try {
+      return $this->database->schema()->tableExists('dc_room_view_gallery');
+    }
+    catch (\Throwable $exception) {
+      $this->logger->warning('Room view gallery availability check failed: @message', [
+        '@message' => $exception->getMessage(),
+      ]);
+      return FALSE;
+    }
   }
 
 }

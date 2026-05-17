@@ -104,6 +104,7 @@ class CharacterStateService {
           'age' => $merged_library['basicInfo']['age'] ?? ($merged_library['age'] ?? NULL),
           'appearance' => $merged_library['basicInfo']['appearance'] ?? ($merged_library['appearance'] ?? NULL),
           'personality' => $merged_library['basicInfo']['personality'] ?? ($merged_library['personality'] ?? NULL),
+          'backstory' => $merged_library['basicInfo']['backstory'] ?? ($merged_library['backstory'] ?? NULL),
         ],
 
         'abilities' => $merged_library['abilities'] ?? [

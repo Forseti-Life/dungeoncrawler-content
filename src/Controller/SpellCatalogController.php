@@ -115,7 +115,11 @@ class SpellCatalogController extends ControllerBase {
     }
 
     if (!$spell) {
-      return new JsonResponse(['error' => "Spell '{$spell_id}' not found."], 404);
+      return new JsonResponse([
+        'error' => "Spell '{$spell_id}' not found in the DC spell inventory.",
+        'not_in_inventory' => TRUE,
+        'fallback_lookup' => $this->spellCatalog->buildArchivesOfNethysLookup($spell_id),
+      ], 404);
     }
     return new JsonResponse($spell, 200);
   }

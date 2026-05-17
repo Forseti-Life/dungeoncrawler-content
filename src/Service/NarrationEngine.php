@@ -458,6 +458,7 @@ class NarrationEngine {
     $prompt_parts[] = "Event: {$speaker} speaks.";
     $prompt_parts[] = "Volume: {$volume}.";
     $prompt_parts[] = "Language spoken: {$language}.";
+    $prompt_parts[] = "Scope: narrate only what {$character_name} perceives from this single speech event.";
 
     if ($understood) {
       $prompt_parts[] = "{$character_name} understands {$language}.";
@@ -475,6 +476,7 @@ class NarrationEngine {
     elseif ($volume === 'shout') {
       $prompt_parts[] = "The speech was shouted loudly.";
     }
+    $prompt_parts[] = "Do not advance the scene, invent motives, add reactions from other creatures, or describe actions that were not stated.";
 
     $prompt = implode("\n", $prompt_parts);
 
@@ -489,7 +491,7 @@ class NarrationEngine {
           'event_type' => 'speech',
         ],
         [
-          'system_prompt' => 'You are a concise Game Master narrator for a Pathfinder 2e dungeon crawl. Narrate in second person ("You hear..."). Keep narration under 2 sentences. Do not add actions the character did not take. ONLY reference NPCs, creatures, items, and objects provided in the context. Do NOT invent new characters or objects — use exact names from the room data.',
+          'system_prompt' => $this->buildNarratorSystemPrompt('speech'),
           'max_tokens' => 200,
           'skip_cache' => TRUE,
         ]
@@ -638,6 +640,8 @@ class NarrationEngine {
     $prompt .= "\n\nNarrate these events from {$character_name}'s perspective as a single cohesive scene beat.";
     $prompt .= " Use second person (\"You notice...\", \"You see...\"). 2-4 sentences.";
     $prompt .= " This should read like a Game Master's description at the table.";
+    $prompt .= "\nUse only the listed perceived events. Do not add new events, hidden motives, follow-up dialogue, or outcomes not present in the event list.";
+    $prompt .= "\nIf an event description is partial or uncertain, preserve that uncertainty instead of resolving it.";
 
     try {
       $result = $this->aiApiService->invokeModelDirect(
@@ -649,7 +653,7 @@ class NarrationEngine {
           'character_id' => $character_id,
         ],
         [
-          'system_prompt' => 'You are a concise Game Master narrator for a Pathfinder 2e dungeon crawl. Combine multiple events into a single narrative beat. Use second person. Do not add events that were not listed. ONLY reference NPCs, creatures, items, and objects provided in the context. Do NOT invent new characters or objects — use exact names from the room data.',
+          'system_prompt' => $this->buildNarratorSystemPrompt('scene_beat'),
           'max_tokens' => 400,
           'skip_cache' => TRUE,
         ]
@@ -665,6 +669,24 @@ class NarrationEngine {
 
     // Fallback: concatenate event descriptions.
     return implode(' ', array_map(fn($pe) => $pe['event']['content'] ?? '', $perceived_events));
+  }
+
+  /**
+   * Build a consistent narrator system prompt for perception-filtered calls.
+   */
+  protected function buildNarratorSystemPrompt(string $mode): string {
+    $base = 'You are a concise Game Master narrator for a Pathfinder 2e dungeon crawl.'
+      . ' Use second person ("You ...").'
+      . ' Only narrate details explicitly present in the user prompt.'
+      . ' Do not invent new characters, creatures, objects, actions, motives, or outcomes.'
+      . ' Preserve uncertainty when the prompt says the character only partially perceived something.'
+      . ' Do not speak for the player character beyond describing what they perceive.';
+
+    if ($mode === 'scene_beat') {
+      return $base . ' Combine multiple listed events into a single cohesive narrative beat in 2-4 sentences.';
+    }
+
+    return $base . ' Narrate a single speech-perception moment in 1-2 sentences.';
   }
 
   // =========================================================================

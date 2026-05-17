@@ -49,7 +49,7 @@ This schema directory primarily defines JSON payload contracts used in **Fact** 
 | `entity_instance.schema.json` | Placed entities (runtime) | ✓ | 289 | Runtime entity management |
 | `hazard.schema.json` | Environmental hazards | ✓ | 476 | PF2e hazards |
 | `hexmap.schema.json` | Hex-based dungeon map | ✓ | 247 | Map structure |
-| `item.schema.json` | Equipment & loot | ✓ | 441 | Inventory system |
+| `item.schema.json` | Equipment & loot | ✓ | 531 | Inventory system |
 | `obstacle.schema.json` | Map obstacles | ✓ | 231 | Traversal blockers |
 | `obstacle_object_catalog.schema.json` | Reusable obstacle definitions | ✓ | 224 | Obstacle templates |
 | `party.schema.json` | Adventuring party | ✓ | 441 | Party management |

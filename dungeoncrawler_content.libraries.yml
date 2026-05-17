@@ -123,6 +123,9 @@ character-step-3:
     - dungeoncrawler_content/character-step-base
 
 character-step-4:
+  css:
+    theme:
+      css/character-step-4-tabs.css: {}
   js:
     js/character-step-4.js: {}
   dependencies:
@@ -201,6 +204,18 @@ architecture:
       css/architecture.css: {}
   dependencies:
     - core/drupal
+
+world-game-flow:
+  css:
+    theme:
+      css/world-game-flow.css: {}
+  js:
+    https://cdn.jsdelivr.net/npm/mermaid@11.6.0/dist/mermaid.min.js: { type: external, minified: true }
+    js/world-game-flow.js: {}
+  dependencies:
+    - dungeoncrawler_content/architecture
+    - core/drupal
+    - core/once
 
 dungeoncrawler_roadmap:
   css:

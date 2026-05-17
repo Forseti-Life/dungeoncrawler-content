@@ -2,6 +2,7 @@
 
 namespace Drupal\dungeoncrawler_content\Service;
 
+use Drupal\Core\Database\Connection;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 
 /**
@@ -25,6 +26,11 @@ class CharacterPortraitGenerationService {
   protected CharacterImagePromptBuilder $promptBuilder;
 
   /**
+   * Database connection for legacy compatibility mirrors.
+   */
+  protected Connection $database;
+
+  /**
    * Logger channel.
    */
   protected $logger;
@@ -36,11 +42,13 @@ class CharacterPortraitGenerationService {
     ImageGenerationIntegrationService $integration_service,
     GeneratedImageRepository $generated_image_repository,
     CharacterImagePromptBuilder $prompt_builder,
+    Connection $database,
     LoggerChannelFactoryInterface $logger_factory
   ) {
     $this->integrationService = $integration_service;
     $this->generatedImageRepository = $generated_image_repository;
     $this->promptBuilder = $prompt_builder;
+    $this->database = $database;
     $this->logger = $logger_factory->get('dungeoncrawler_content');
   }
 
@@ -79,9 +87,13 @@ class CharacterPortraitGenerationService {
 
     $force_regenerate = !empty($options['force_regenerate']);
     if (!$force_regenerate && $this->hasExistingPortrait($character_id, $campaign_id)) {
+      $existing_url = $this->syncExistingPortraitUrl($character_id, $campaign_id);
       return [
         'attempted' => FALSE,
         'reason' => 'already_exists',
+        'storage' => [
+          'url' => $existing_url,
+        ],
       ];
     }
 
@@ -133,6 +145,7 @@ class CharacterPortraitGenerationService {
         'visibility' => 'owner',
         'is_primary' => 1,
       ]);
+      $this->syncLegacyPortraitColumn($character_id, (string) ($storage['url'] ?? ''));
 
       return [
         'attempted' => TRUE,
@@ -166,6 +179,46 @@ class CharacterPortraitGenerationService {
     );
 
     return !empty($images);
+  }
+
+  /**
+   * Sync an existing generated portrait URL into the legacy portrait column.
+   */
+  private function syncExistingPortraitUrl(int $character_id, ?int $campaign_id): string {
+    $images = $this->generatedImageRepository->loadImagesForObject(
+      'dc_campaign_characters',
+      (string) $character_id,
+      $campaign_id,
+      'portrait',
+      'original'
+    );
+    $url = '';
+    if (!empty($images[0]['public_url']) && is_string($images[0]['public_url'])) {
+      $url = $images[0]['public_url'];
+    }
+    elseif (!empty($images[0]['url']) && is_string($images[0]['url'])) {
+      $url = $images[0]['url'];
+    }
+
+    $this->syncLegacyPortraitColumn($character_id, $url);
+    return $url;
+  }
+
+  /**
+   * Writes the generated portrait URL into the legacy character row.
+   */
+  private function syncLegacyPortraitColumn(int $character_id, string $portrait_url): void {
+    $portrait_url = trim($portrait_url);
+    if ($character_id <= 0 || $portrait_url === '') {
+      return;
+    }
+
+    $this->database->update('dc_campaign_characters')
+      ->fields([
+        'portrait' => $portrait_url,
+      ])
+      ->condition('id', $character_id)
+      ->execute();
   }
 
   /**

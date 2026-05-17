@@ -121,6 +121,7 @@ Add `container_stats` to the item definition:
   "container_stats": {
     "capacity": 4.0,
     "capacity_reduction": 1.0,
+    "bulk_reduction": 2.0,
     "can_lock": false,
     "access_time": "interact",
     "container_type": "backpack"

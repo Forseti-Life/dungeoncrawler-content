@@ -271,7 +271,7 @@ class FeatEffectManager {
               'adapted-cantrip',
               'adapted_cantrip_choice',
               1,
-              'Select one cantrip from a non-native magical tradition for Adapted Cantrip.'
+              'Select one cantrip from any magical tradition, including your class tradition, for Adapted Cantrip.'
             );
           }
 
@@ -284,7 +284,7 @@ class FeatEffectManager {
             'spell_id' => $selected_cantrip,
             'description' => $selected_cantrip
               ? ('Innate cantrip: ' . $selected_cantrip . ($selected_tradition ? (' (' . $selected_tradition . ')') : '') . '.')
-              : 'One extra innate cantrip from another tradition.',
+              : 'One extra innate cantrip from a chosen tradition.',
           ];
           $effects['available_actions']['at_will'][] = [
             'id' => 'adapted-cantrip-cast',
@@ -1150,6 +1150,43 @@ class FeatEffectManager {
           $effects['applied_feats'][] = $feat_id;
           break;
 
+        case 'esoteric-polymath':
+          $selected_spell = $this->resolveBardPolymathSpell($character_data);
+          if ($selected_spell === NULL || $selected_spell === '') {
+            $this->addSelectionGrant(
+              $effects,
+              'esoteric-polymath',
+              'esoteric_polymath_spell_choice',
+              1,
+              'Select one common spell from another tradition to add to your repertoire as the signature spell granted by Esoteric Polymath.'
+            );
+          }
+          $effects['feat_overrides']['esoteric-polymath'] = [
+            'type' => 'cross_tradition_signature_repertoire_spell',
+            'selected_spell' => $selected_spell,
+            'selected_spell_source' => 'esoteric-polymath',
+            'selected_spell_must_be_common' => TRUE,
+            'selected_spell_must_be_cross_tradition' => TRUE,
+            'selected_spell_is_signature_spell' => TRUE,
+            'add_selected_spell_to_repertoire' => TRUE,
+            'signature_spell_swap_uses_per_long_rest' => 1,
+            'swap_timing' => 'daily_preparations',
+            'special_repertoire_entry_key' => 'esoteric_polymath_spell',
+          ];
+          $this->addLongRestLimitedAction(
+            $effects,
+            'esoteric-polymath-spell-swap',
+            'Esoteric Polymath Spell Swap',
+            'Once per long rest during daily preparations, swap the Esoteric Polymath signature spell for another eligible common spell from a different tradition.',
+            1,
+            (int) ($this->resolveFeatUsage($character_data, 'esoteric-polymath-spell-swap') ?? 0)
+          );
+          $effects['notes'][] = $selected_spell !== NULL && $selected_spell !== ''
+            ? ('Esoteric Polymath: add ' . $selected_spell . ' to your repertoire as a signature spell and allow a once-per-day daily-preparations swap.')
+            : 'Esoteric Polymath: select one common spell from another tradition to add to your repertoire as a signature spell, then swap it once per day during daily preparations.';
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
         case 'inspire-competence':
           $effects['available_actions']['at_will'][] = [
             'id' => 'inspire-competence',
@@ -1281,6 +1318,31 @@ class FeatEffectManager {
             1,
             (int) ($this->resolveFeatUsage($character_data, 'versatile-signature') ?? 0)
           );
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'eclectic-polymath':
+          $selected_spell = $this->resolveBardPolymathSpell($character_data);
+          if ($selected_spell === NULL || $selected_spell === '') {
+            $this->addSelectionGrant(
+              $effects,
+              'esoteric-polymath',
+              'esoteric_polymath_spell_choice',
+              1,
+              'Select the Esoteric Polymath spell before Eclectic Polymath can upgrade it.'
+            );
+          }
+          $effects['feat_overrides']['eclectic-polymath'] = [
+            'type' => 'cross_tradition_signature_spellcasting_upgrade',
+            'selected_spell' => $selected_spell,
+            'selected_spell_source' => 'esoteric-polymath',
+            'selected_spell_is_signature_spell' => TRUE,
+            'selected_spell_treated_as_prepared_at_any_available_rank' => TRUE,
+            'selected_spell_ignores_spontaneous_rank_repertoire_requirement' => TRUE,
+          ];
+          $effects['notes'][] = $selected_spell !== NULL && $selected_spell !== ''
+            ? ('Eclectic Polymath: cast ' . $selected_spell . ' as though it were prepared at any spell rank you can cast.')
+            : 'Eclectic Polymath: once an Esoteric Polymath spell is selected, cast it as though it were prepared at any spell rank you can cast.';
           $effects['applied_feats'][] = $feat_id;
           break;
 
@@ -2097,6 +2159,43 @@ class FeatEffectManager {
           $effects['applied_feats'][] = $feat_id;
           break;
 
+        case 'improbable-elixirs':
+          $requested_formula_count = max(1, $this->resolveAbilityModifier($character_data, 'intelligence'));
+          $eligible_formulas = $this->resolveEligibleImprobableElixirPotions();
+          $selection_cap = max(1, min($requested_formula_count, max(1, count($eligible_formulas))));
+          $selected_formulas = $this->resolveImprobableElixirsSelections($character_data, $selection_cap);
+
+          if (count($selected_formulas) < $selection_cap) {
+            $this->addSelectionGrant(
+              $effects,
+              'improbable-elixirs',
+              'improbable_elixirs_formula_choice',
+              $selection_cap,
+              'Select up to ' . $selection_cap . ' eligible potion formulas to add to your formula book and craft as alchemical elixirs.'
+            );
+          }
+
+          if (!empty($selected_formulas)) {
+            $effects['feat_overrides']['improbable-elixirs'] = [
+              'type' => 'improbable_elixirs_formula_conversion',
+              'formula_grants' => array_column($selected_formulas, 'formula_id'),
+              'add_to_formula_book' => TRUE,
+              'requested_formula_count' => $requested_formula_count,
+              'formula_selection_cap' => $selection_cap,
+              'eligible_formula_level_max' => 9,
+              'treat_selected_potion_formulas_as_alchemical_elixirs' => TRUE,
+              'formula_source' => 'improbable-elixirs',
+              'formula_source_label' => 'Improbable Elixirs',
+              'display_in_formula_book_as' => 'alchemical_elixir_via_potion_formula',
+              'selection_pending' => count($selected_formulas) < $selection_cap,
+              'converted_formulas' => $selected_formulas,
+            ];
+            $effects['notes'][] = 'Improbable Elixirs: selected potion formulas can be crafted through your formula book as alchemical elixirs.';
+          }
+
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
         case 'infinite-eye':
           $effects['senses'][] = [
             'type' => 'detect_magic_auras',
@@ -2323,6 +2422,42 @@ class FeatEffectManager {
             'does_not_count_against_one_composition_per_turn_limit' => TRUE,
             'description' => 'Cast your next composition spell as a free action without using your normal one-composition-per-turn allowance.',
           ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'true-facets':
+          $second_muse = $this->resolveValidBardSecondMuseSelection($character_data);
+          if ($second_muse === NULL) {
+            $this->addSelectionGrant(
+              $effects,
+              'true-facets',
+              'bard_second_muse_choice',
+              1,
+              'Select a second bard muse distinct from your primary muse to gain its feat, bonus spell, and feat-prerequisite access.'
+            );
+          }
+          else {
+            $primary_muse = $second_muse['primary_muse'];
+            $selected_muse = $second_muse['selected_muse'];
+            $selected_muse_metadata = $second_muse['selected_muse_metadata'];
+            $bonus_feat = $selected_muse_metadata['bonus_feat_id'] ?? NULL;
+            $bonus_spell = $selected_muse_metadata['bonus_spell'] ?? NULL;
+            $effects['feat_overrides']['true-facets'] = [
+              'type' => 'bard_second_muse_unlock',
+              'primary_muse' => $primary_muse,
+              'selected_second_muse' => $selected_muse,
+              'selected_second_muse_label' => $selected_muse_metadata['name'] ?? NULL,
+              'bonus_feat_grants' => $bonus_feat !== NULL ? [$bonus_feat] : [],
+              'bonus_spell_grants' => $bonus_spell !== NULL ? [[
+                'spell_id' => $this->normalizeSpellReference($bonus_spell),
+                'spell_name' => $bonus_spell,
+              ]] : [],
+              'unlocked_muse_prerequisites' => [$selected_muse],
+              'grants_second_muse_feat_graph_access' => TRUE,
+              'selection_must_differ_from_primary_muse' => TRUE,
+            ];
+            $effects['notes'][] = 'True Facets: gain the ' . ($selected_muse_metadata['name'] ?? $selected_muse) . ' muse\'s feat, bonus spell, and feat-prerequisite access as a second muse.';
+          }
           $effects['applied_feats'][] = $feat_id;
           break;
 
@@ -2993,6 +3128,80 @@ class FeatEffectManager {
             ],
             'ignore_normal_demoralize_range_limit' => TRUE,
             'description' => 'Trigger: you reduce an enemy to 0 Hit Points. Attempt to Demoralize one creature you can see with a +2 circumstance bonus; it need not be within 30 feet, but must be able to perceive the fallen foe.',
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'eldritch-trickster-racket':
+          $selected_dedication = $this->resolveEldritchTricksterDedication($character_data);
+          $available_dedications = $this->resolveEldritchTricksterDedicationOptions();
+          if ($selected_dedication === NULL) {
+            $effects['selection_grants']['eldritch-trickster-racket'] = [
+              'type' => 'single',
+              'required' => TRUE,
+              'prompt' => 'Choose a free multiclass spellcasting dedication.',
+              'options' => array_map(
+                static fn(array $dedication): string => (string) ($dedication['name'] ?? $dedication['id'] ?? ''),
+                $available_dedications
+              ),
+            ];
+            $effects['feat_overrides']['eldritch-trickster-racket'] = [
+              'selection_pending' => TRUE,
+              'available_dedications' => array_values($available_dedications),
+              'granted_dedication_type' => 'multiclass_spellcasting_archetype',
+              'magical_trickster_available_at_level' => 2,
+            ];
+            $effects['applied_feats'][] = $feat_id;
+            break;
+          }
+
+          $effects['feat_overrides']['eldritch-trickster-racket'] = [
+            'selected_dedication' => $selected_dedication['id'],
+            'selected_dedication_name' => $selected_dedication['name'],
+            'selected_dedication_source_class' => $selected_dedication['source_class'],
+            'selected_dedication_tradition' => $selected_dedication['tradition'],
+            'granted_dedication_type' => 'multiclass_spellcasting_archetype',
+            'grants_free_dedication' => TRUE,
+            'magical_trickster_available_at_level' => 2,
+          ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'mastermind-racket':
+          $selected_skill = $this->resolveMastermindKnowledgeSkill($character_data);
+          if ($selected_skill === NULL) {
+            $effects['selection_grants']['mastermind-racket'] = [
+              'type' => 'single',
+              'required' => TRUE,
+              'prompt' => 'Choose an additional knowledge skill.',
+              'options' => $this->resolveMastermindKnowledgeSkillOptions(),
+            ];
+            $effects['feat_overrides']['mastermind-racket'] = [
+              'selection_pending' => TRUE,
+              'granted_skill' => 'Society',
+              'available_knowledge_skills' => $this->resolveMastermindKnowledgeSkillOptions(),
+            ];
+            $this->addSkillTraining($effects, 'Society');
+            $effects['applied_feats'][] = $feat_id;
+            break;
+          }
+
+          $this->addSkillTraining($effects, 'Society');
+          $this->addSkillTraining($effects, $selected_skill['name']);
+          $effects['feat_overrides']['mastermind-racket'] = [
+            'granted_skill' => 'Society',
+            'selected_knowledge_skill' => $selected_skill['id'],
+            'selected_knowledge_skill_name' => $selected_skill['name'],
+            'recall_knowledge_flat_footed_on_success' => TRUE,
+            'recall_knowledge_flat_footed_duration' => 'until_start_of_next_turn',
+            'recall_knowledge_critical_success_duration' => '1_minute',
+          ];
+          $effects['conditional_modifiers'][] = [
+            'type' => 'combat_advantage',
+            'target' => 'recalled_knowledge_target',
+            'benefit' => 'target_flat_footed_to_your_attacks',
+            'duration' => 'until_start_of_next_turn',
+            'source' => 'Mastermind',
           ];
           $effects['applied_feats'][] = $feat_id;
           break;
@@ -3847,14 +4056,7 @@ class FeatEffectManager {
             0,
             2
           );
-          $bloodline = strtolower(trim((string) (
-            $character_data['subclass']
-            ?? $character_data['bloodline']
-            ?? $character_data['basicInfo']['subclass']
-            ?? $character_data['basicInfo']['bloodline']
-            ?? ''
-          )));
-          $tradition = $bloodline !== '' ? (CharacterManager::SORCERER_BLOODLINES[$bloodline]['tradition'] ?? NULL) : NULL;
+          $bloodline_metadata = $this->resolveSorcererBloodlineMetadata($character_data);
           if (count($selected_cantrips) < 2) {
             $this->addSelectionGrant(
               $effects,
@@ -3866,8 +4068,8 @@ class FeatEffectManager {
           }
           $effects['feat_overrides']['cantrip-expansion-sorcerer'] = [
             'type' => 'repertoire_cantrip_expansion',
-            'tradition' => $tradition,
-            'bloodline' => $bloodline !== '' ? $bloodline : NULL,
+            'tradition' => $bloodline_metadata['tradition'] ?? NULL,
+            'bloodline' => $bloodline_metadata['bloodline'] ?? NULL,
             'added_cantrips' => $selected_cantrips,
             'extra_repertoire_cantrips' => 2,
           ];
@@ -3904,9 +4106,8 @@ class FeatEffectManager {
           $selected_spell = $this->resolveFeatSelectionValue($character_data, 'crossblooded-evolution', ['selected_spell', 'spell_id', 'spell']);
           $selected_bloodline = $this->resolveFeatSelectionValue($character_data, 'crossblooded-evolution', ['selected_bloodline', 'bloodline']);
           $selected_bloodline = $selected_bloodline !== NULL ? strtolower(trim($selected_bloodline)) : NULL;
-          $bloodline_label = $selected_bloodline !== NULL && isset(CharacterManager::SORCERER_BLOODLINES[$selected_bloodline])
-            ? (CharacterManager::SORCERER_BLOODLINES[$selected_bloodline]['label'] ?? $selected_bloodline)
-            : NULL;
+          $selected_bloodline_metadata = $this->resolveSorcererBloodlineMetadataForId($selected_bloodline);
+          $bloodline_label = $selected_bloodline_metadata['label'] ?? NULL;
           if ($selected_spell === NULL || $selected_spell === '' || $selected_bloodline === NULL || !isset(CharacterManager::SORCERER_BLOODLINES[$selected_bloodline])) {
             $this->addSelectionGrant(
               $effects,
@@ -3930,14 +4131,7 @@ class FeatEffectManager {
 
         case 'greater-mental-evolution':
           $selected_spell = $this->resolveFeatSelectionValue($character_data, 'greater-mental-evolution', ['selected_spell', 'spell_id', 'spell']);
-          $bloodline = strtolower(trim((string) (
-            $character_data['subclass']
-            ?? $character_data['bloodline']
-            ?? $character_data['basicInfo']['subclass']
-            ?? $character_data['basicInfo']['bloodline']
-            ?? ''
-          )));
-          $tradition = $bloodline !== '' ? (CharacterManager::SORCERER_BLOODLINES[$bloodline]['tradition'] ?? NULL) : NULL;
+          $bloodline_metadata = $this->resolveSorcererBloodlineMetadata($character_data);
           if ($selected_spell === NULL || $selected_spell === '') {
             $this->addSelectionGrant(
               $effects,
@@ -3951,13 +4145,78 @@ class FeatEffectManager {
             'type' => 'cross_tradition_mental_repertoire_spell',
             'selected_spell' => $selected_spell,
             'cast_using_bloodline_tradition' => TRUE,
-            'bloodline_tradition' => $tradition,
+            'bloodline_tradition' => $bloodline_metadata['tradition'] ?? NULL,
             'uses_per_long_rest' => 1,
             'max_selected_spell_rank' => 6,
           ];
           $effects['notes'][] = $selected_spell !== NULL && $selected_spell !== ''
             ? ('Greater Mental Evolution: add ' . $selected_spell . ' to your repertoire and cast it once per day as a bloodline spell.')
             : 'Greater Mental Evolution: select one 6th-rank-or-lower mental spell from any tradition to add to your repertoire.';
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'bloodline-breadth':
+          $bloodline_metadata = $this->resolveSorcererBloodlineMetadata($character_data);
+          $highest_rank = $this->resolveHighestSpellRank($character_data);
+          $available_spells = $bloodline_metadata !== NULL
+            ? $this->resolveGrantedSpellsUpToRank($bloodline_metadata['granted_spells_by_rank'], $highest_rank)
+            : [];
+          $effects['feat_overrides']['bloodline-breadth'] = [
+            'type' => 'bloodline_granted_spell_expansion',
+            'bloodline' => $bloodline_metadata['bloodline'] ?? NULL,
+            'bloodline_label' => $bloodline_metadata['label'] ?? NULL,
+            'bloodline_subtype' => $bloodline_metadata['subtype'] ?? NULL,
+            'highest_available_rank' => $highest_rank,
+            'granted_spells_by_rank' => $bloodline_metadata['granted_spells_by_rank'] ?? [],
+            'granted_spells_up_to_highest_rank' => $available_spells,
+            'adds_one_granted_spell_per_rank' => TRUE,
+          ];
+          $effects['notes'][] = !empty($available_spells)
+            ? ('Bloodline Breadth: add the bloodline granted spells for ranks 1-' . $highest_rank . ' to your repertoire.')
+            : 'Bloodline Breadth: no persisted sorcerer bloodline granted-spell table was available to resolve additional repertoire spells.';
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'greater-bloodline':
+          $bloodline_metadata = $this->resolveSorcererBloodlineMetadata($character_data);
+          $highest_rank = $this->resolveHighestSpellRank($character_data);
+          $highest_rank_spell = $bloodline_metadata !== NULL
+            ? $this->resolveHighestGrantedSpellForRank($bloodline_metadata['granted_spells_by_rank'], $highest_rank)
+            : NULL;
+          $effects['feat_overrides']['greater-bloodline'] = [
+            'type' => 'bloodline_highest_rank_spell_expansion',
+            'bloodline' => $bloodline_metadata['bloodline'] ?? NULL,
+            'bloodline_label' => $bloodline_metadata['label'] ?? NULL,
+            'bloodline_subtype' => $bloodline_metadata['subtype'] ?? NULL,
+            'highest_available_rank' => $highest_rank,
+            'selected_spell' => $highest_rank_spell['spell_id'] ?? NULL,
+            'selected_spell_label' => $highest_rank_spell['spell_name'] ?? NULL,
+            'selected_spell_rank' => $highest_rank_spell['rank'] ?? NULL,
+            'selected_spell_gains_blood_magic' => TRUE,
+            'granted_spells_by_rank' => $bloodline_metadata['granted_spells_by_rank'] ?? [],
+          ];
+          $effects['notes'][] = $highest_rank_spell !== NULL
+            ? ('Greater Bloodline: add ' . $highest_rank_spell['spell_name'] . ' (rank ' . $highest_rank_spell['rank'] . ') to your repertoire and apply blood magic when you cast it.')
+            : 'Greater Bloodline: no persisted sorcerer bloodline granted-spell table was available to resolve the highest-rank bloodline spell.';
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'bloodline-resistance':
+          $bloodline_metadata = $this->resolveSorcererBloodlineMetadata($character_data);
+          $damage_type = $bloodline_metadata['blood_magic_damage_type'] ?? NULL;
+          $effects['feat_overrides']['bloodline-resistance'] = [
+            'bloodline' => $bloodline_metadata['bloodline'] ?? NULL,
+            'bloodline_label' => $bloodline_metadata['label'] ?? NULL,
+            'bloodline_subtype' => $bloodline_metadata['subtype'] ?? NULL,
+            'blood_magic_damage_type' => $damage_type,
+            'resistance' => $damage_type !== NULL ? [
+              'damage_type' => $damage_type,
+              'value' => 10,
+            ] : NULL,
+          ];
+          $effects['notes'][] = $damage_type !== NULL
+            ? ('Bloodline Resistance: gain resistance 10 to ' . $damage_type . ' damage.')
+            : 'Bloodline Resistance: no persisted blood-magic damage mapping was available for the current sorcerer bloodline.';
           $effects['applied_feats'][] = $feat_id;
           break;
 
@@ -4231,6 +4490,42 @@ class FeatEffectManager {
             'applies_to_next_spell_only' => TRUE,
             'description' => 'Metamagic: increase the area of your next qualifying burst, cone, or line spell.',
           ];
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'order-explorer':
+          $second_order = $this->resolveValidDruidSecondOrderSelection($character_data);
+          if ($second_order === NULL) {
+            $this->addSelectionGrant(
+              $effects,
+              'order-explorer',
+              'druid_second_order_choice',
+              1,
+              'Select a second druid order distinct from your primary order to gain its feat access, focus benefits, and secondary-anathema tracking.'
+            );
+          }
+          else {
+            $primary_order = $second_order['primary_order'];
+            $selected_order = $second_order['selected_order'];
+            $selected_order_metadata = $second_order['selected_order_metadata'];
+            $effects['feat_overrides']['order-explorer'] = [
+              'type' => 'druid_second_order_unlock',
+              'primary_order' => $primary_order,
+              'selected_second_order' => $selected_order,
+              'selected_second_order_label' => $selected_order_metadata['name'] ?? NULL,
+              'focus_pool_bonus' => (int) ($selected_order_metadata['focus_pool'] ?? 0),
+              'order_spell_not_granted' => TRUE,
+              'suppressed_order_spell' => $selected_order_metadata['order_spell'] ?? NULL,
+              'secondary_order_granted_feat_access' => $selected_order_metadata['granted_feat_ids'] ?? [],
+              'secondary_order_anathema' => $selected_order_metadata['anathema'] ?? NULL,
+              'secondary_order_runtime_flags' => $selected_order_metadata['runtime_flags'] ?? [],
+              'unlocked_order_prerequisites' => [$selected_order],
+              'grants_second_order_feat_graph_access' => TRUE,
+              'selection_must_differ_from_primary_order' => TRUE,
+              'secondary_order_anathema_scope' => 'remove_secondary_order_feats_only',
+            ];
+            $effects['notes'][] = 'Order Explorer: gain ' . ($selected_order_metadata['name'] ?? $selected_order) . ' feat-prerequisite access and focus benefits as a second order without gaining its order spell; violating that order\'s anathema removes only its feats.';
+          }
           $effects['applied_feats'][] = $feat_id;
           break;
 
@@ -6282,6 +6577,202 @@ class FeatEffectManager {
   }
 
   /**
+   * Resolve persisted sorcerer bloodline id from the character payload.
+   */
+  private function resolveSorcererBloodlineId(array $character_data): ?string {
+    $bloodline = strtolower(trim((string) (
+      $character_data['subclass']
+      ?? $character_data['bloodline']
+      ?? $character_data['basicInfo']['subclass']
+      ?? $character_data['basicInfo']['bloodline']
+      ?? ''
+    )));
+
+    if ($bloodline === '' || !isset(CharacterManager::SORCERER_BLOODLINES[$bloodline])) {
+      return NULL;
+    }
+
+    return $bloodline;
+  }
+
+  /**
+   * Resolve any persisted subtype required by a sorcerer bloodline.
+   */
+  private function resolveSorcererBloodlineSubtype(array $character_data, array $bloodline_metadata): ?string {
+    if (empty($bloodline_metadata['subtype_required']) || empty($bloodline_metadata['subtypes'])) {
+      return NULL;
+    }
+
+    $candidates = [
+      $character_data['bloodline_subtype'] ?? NULL,
+      $character_data['genie_type'] ?? NULL,
+      $character_data['dragon_type'] ?? NULL,
+      $character_data['dragon_damage_type'] ?? NULL,
+      $character_data['draconic_damage_type'] ?? NULL,
+      $character_data['elemental_type'] ?? NULL,
+      $character_data['element_type'] ?? NULL,
+      $character_data['elemental_damage_type'] ?? NULL,
+      $character_data['damage_type'] ?? NULL,
+      $character_data['class_data']['bloodline_subtype'] ?? NULL,
+      $character_data['class_data']['genie_type'] ?? NULL,
+      $character_data['class_data']['dragon_type'] ?? NULL,
+      $character_data['class_data']['dragon_damage_type'] ?? NULL,
+      $character_data['class_data']['draconic_damage_type'] ?? NULL,
+      $character_data['class_data']['elemental_type'] ?? NULL,
+      $character_data['class_data']['element_type'] ?? NULL,
+      $character_data['class_data']['elemental_damage_type'] ?? NULL,
+      $character_data['class_data']['damage_type'] ?? NULL,
+      $character_data['basicInfo']['bloodline_subtype'] ?? NULL,
+      $character_data['basicInfo']['genie_type'] ?? NULL,
+      $character_data['basicInfo']['dragon_type'] ?? NULL,
+      $character_data['basicInfo']['dragon_damage_type'] ?? NULL,
+      $character_data['basicInfo']['draconic_damage_type'] ?? NULL,
+      $character_data['basicInfo']['elemental_type'] ?? NULL,
+      $character_data['basicInfo']['element_type'] ?? NULL,
+      $character_data['basicInfo']['elemental_damage_type'] ?? NULL,
+      $character_data['basicInfo']['damage_type'] ?? NULL,
+      $character_data['subtype'] ?? NULL,
+    ];
+
+    foreach ($candidates as $candidate) {
+      $candidate = strtolower(trim((string) $candidate));
+      if ($candidate !== '' && in_array($candidate, $bloodline_metadata['subtypes'], TRUE)) {
+        return $candidate;
+      }
+    }
+
+    return NULL;
+  }
+
+  /**
+   * Build normalized sorcerer bloodline metadata for feat/runtime consumers.
+   *
+   * @return array<string,mixed>|null
+   */
+  private function resolveSorcererBloodlineMetadata(array $character_data): ?array {
+    $bloodline = $this->resolveSorcererBloodlineId($character_data);
+    if ($bloodline === NULL) {
+      return NULL;
+    }
+
+    $metadata = CharacterManager::SORCERER_BLOODLINES[$bloodline];
+    $subtype = $this->resolveSorcererBloodlineSubtype($character_data, $metadata);
+
+    return $this->resolveSorcererBloodlineMetadataForId($bloodline, $subtype);
+  }
+
+  /**
+   * Build normalized sorcerer bloodline metadata for a specific bloodline id.
+   *
+   * @return array<string,mixed>|null
+   */
+  private function resolveSorcererBloodlineMetadataForId(?string $bloodline, ?string $subtype = NULL): ?array {
+    if ($bloodline === NULL || !isset(CharacterManager::SORCERER_BLOODLINES[$bloodline])) {
+      return NULL;
+    }
+
+    $metadata = CharacterManager::SORCERER_BLOODLINES[$bloodline];
+    $granted_spells = (array) ($metadata['granted_spells'] ?? []);
+
+    if ($subtype !== NULL && isset($metadata['granted_spells_by_subtype'][$subtype])) {
+      $granted_spells = array_replace($granted_spells, (array) $metadata['granted_spells_by_subtype'][$subtype]);
+    }
+
+    ksort($granted_spells);
+
+    $normalized_spells = [];
+    foreach ($granted_spells as $rank => $spell_name) {
+      $normalized_spells[(int) $rank] = [
+        'rank' => (int) $rank,
+        'spell_name' => (string) $spell_name,
+        'spell_id' => $this->normalizeSpellReference((string) $spell_name),
+      ];
+    }
+
+    return [
+      'bloodline' => $bloodline,
+      'label' => $metadata['label'] ?? $bloodline,
+      'tradition' => $metadata['tradition'] ?? NULL,
+      'subtype' => $subtype,
+      'granted_spells_by_rank' => $normalized_spells,
+      'bloodline_spells' => $metadata['bloodline_spells'] ?? [],
+      'blood_magic' => $metadata['blood_magic'] ?? NULL,
+      'blood_magic_damage_type' => $this->resolveSorcererBloodMagicDamageType($metadata, $subtype),
+    ];
+  }
+
+  /**
+   * Resolve the canonical blood-magic damage type for a sorcerer bloodline.
+   *
+   * @param array<string,mixed> $bloodline_metadata
+   */
+  private function resolveSorcererBloodMagicDamageType(array $bloodline_metadata, ?string $subtype): ?string {
+    if ($subtype !== NULL && isset($bloodline_metadata['blood_magic_damage_type_by_subtype'][$subtype])) {
+      return (string) $bloodline_metadata['blood_magic_damage_type_by_subtype'][$subtype];
+    }
+
+    if (isset($bloodline_metadata['blood_magic_damage_type'])) {
+      return (string) $bloodline_metadata['blood_magic_damage_type'];
+    }
+
+    return NULL;
+  }
+
+  /**
+   * Pick the highest granted spell at or below the currently available rank.
+   *
+   * @param array<int,array<string,mixed>> $granted_spells_by_rank
+   * @return array<string,mixed>|null
+   */
+  private function resolveHighestGrantedSpellForRank(array $granted_spells_by_rank, int $highest_rank): ?array {
+    for ($rank = $highest_rank; $rank >= 1; $rank--) {
+      if (isset($granted_spells_by_rank[$rank])) {
+        return $granted_spells_by_rank[$rank];
+      }
+    }
+
+    return NULL;
+  }
+
+  /**
+   * Filter granted spells down to the ranks currently available to the character.
+   *
+   * @param array<int,array<string,mixed>> $granted_spells_by_rank
+   * @return array<int,array<string,mixed>>
+   */
+  private function resolveGrantedSpellsUpToRank(array $granted_spells_by_rank, int $highest_rank): array {
+    $available = [];
+    foreach ($granted_spells_by_rank as $rank => $spell) {
+      if ((int) $rank >= 1 && (int) $rank <= $highest_rank) {
+        $available[(int) $rank] = $spell;
+      }
+    }
+
+    return $available;
+  }
+
+  /**
+   * Normalize a source-style spell reference into the repo's canonical content id.
+   */
+  private function normalizeSpellReference(string $spell_name): string {
+    $normalized = strtolower(trim($spell_name));
+    $normalized = preg_replace('/\\([^)]*\\)/', '', $normalized) ?? $normalized;
+    $normalized = str_replace(['*', '\'', '’'], '', $normalized);
+    $normalized = preg_replace('/[^a-z0-9]+/', '_', $normalized) ?? $normalized;
+    return trim($normalized, '_');
+  }
+
+  /**
+   * Normalize a feat label into the repo's canonical feat id slug.
+   */
+  private function normalizeFeatReference(string $feat_name): string {
+    $normalized = strtolower(trim($feat_name));
+    $normalized = str_replace(['\'', '’'], '', $normalized);
+    $normalized = preg_replace('/[^a-z0-9]+/', '-', $normalized) ?? $normalized;
+    return trim($normalized, '-');
+  }
+
+  /**
    * Add conditional saving throw modifier.
    */
   private function addConditionalSaveModifier(array &$effects, string $save, int $bonus, string $context): void {
@@ -6411,6 +6902,345 @@ class FeatEffectManager {
     }
 
     return NULL;
+  }
+
+  /**
+   * Resolve the persisted spell granted by Esoteric Polymath.
+   */
+  private function resolveBardPolymathSpell(array $character_data): ?string {
+    $candidate_keys = ['selected_spell', 'spell_id', 'spell'];
+    $selected_spell = $this->resolveFeatSelectionValue($character_data, 'esoteric-polymath', $candidate_keys);
+    if ($selected_spell !== NULL && $selected_spell !== '') {
+      return $selected_spell;
+    }
+
+    return $this->resolveFeatSelectionValue($character_data, 'eclectic-polymath', $candidate_keys);
+  }
+
+  /**
+   * Resolve persisted bard muse id from the character payload.
+   */
+  private function resolveBardMuseId(array $character_data): ?string {
+    $muse = strtolower(trim((string) (
+      $character_data['subclass']
+      ?? $character_data['muse']
+      ?? $character_data['basicInfo']['subclass']
+      ?? $character_data['basicInfo']['muse']
+      ?? ''
+    )));
+
+    if ($muse === '' || !isset(CharacterManager::CLASSES['bard']['muse']['options'][$muse])) {
+      return NULL;
+    }
+
+    return $muse;
+  }
+
+  /**
+   * Build normalized bard muse metadata for runtime consumers.
+   *
+   * @return array<string,mixed>|null
+   */
+  private function resolveBardMuseMetadataForId(?string $muse): ?array {
+    if ($muse === NULL || !isset(CharacterManager::CLASSES['bard']['muse']['options'][$muse])) {
+      return NULL;
+    }
+
+    $metadata = CharacterManager::CLASSES['bard']['muse']['options'][$muse];
+    return [
+      'id' => $muse,
+      'name' => $metadata['name'] ?? ucfirst($muse),
+      'bonus_feat' => $metadata['bonus_feat'] ?? NULL,
+      'bonus_feat_id' => isset($metadata['bonus_feat']) ? $this->normalizeFeatReference((string) $metadata['bonus_feat']) : NULL,
+      'bonus_spell' => $metadata['bonus_spell'] ?? NULL,
+    ];
+  }
+
+  /**
+   * Resolve a valid bard second-muse selection for True Facets.
+   *
+   * @return array{primary_muse:string,selected_muse:string,selected_muse_metadata:array<string,mixed>}|null
+   */
+  private function resolveValidBardSecondMuseSelection(array $character_data): ?array {
+    $primary_muse = $this->resolveBardMuseId($character_data);
+    if ($primary_muse === NULL) {
+      return NULL;
+    }
+
+    $selected_muse = $this->resolveFeatSelectionValue($character_data, 'true-facets', ['selected_muse', 'second_muse', 'muse']);
+    $selected_muse = $selected_muse !== NULL ? strtolower(trim($selected_muse)) : NULL;
+    $selected_muse_metadata = $this->resolveBardMuseMetadataForId($selected_muse);
+    if ($selected_muse === NULL || $selected_muse === '' || $selected_muse_metadata === NULL || $selected_muse === $primary_muse) {
+      return NULL;
+    }
+
+    return [
+      'primary_muse' => $primary_muse,
+      'selected_muse' => $selected_muse,
+      'selected_muse_metadata' => $selected_muse_metadata,
+    ];
+  }
+
+  /**
+   * Resolve persisted druid order id from supported character-data shapes.
+   */
+  private function resolveDruidOrderId(array $character_data): ?string {
+    $candidates = [
+      $character_data['subclass'] ?? NULL,
+      $character_data['druid_order'] ?? NULL,
+      $character_data['order'] ?? NULL,
+      $character_data['class_data']['subclass'] ?? NULL,
+      $character_data['class_data']['druid_order'] ?? NULL,
+      $character_data['class_data']['order'] ?? NULL,
+      $character_data['druid']['subclass'] ?? NULL,
+      $character_data['druid']['druid_order'] ?? NULL,
+      $character_data['druid']['order'] ?? NULL,
+      $character_data['basicInfo']['subclass'] ?? NULL,
+      $character_data['basicInfo']['druid_order'] ?? NULL,
+      $character_data['basicInfo']['order'] ?? NULL,
+    ];
+
+    foreach ($candidates as $candidate) {
+      $candidate = strtolower(trim((string) $candidate));
+      if ($candidate !== '' && isset(CharacterManager::CLASSES['druid']['order']['orders'][$candidate])) {
+        return $candidate;
+      }
+    }
+
+    return NULL;
+  }
+
+  /**
+   * Build normalized druid order metadata for runtime consumers.
+   *
+   * @return array<string,mixed>|null
+   */
+  private function resolveDruidOrderMetadataForId(?string $order): ?array {
+    if ($order === NULL || !isset(CharacterManager::CLASSES['druid']['order']['orders'][$order])) {
+      return NULL;
+    }
+
+    $metadata = CharacterManager::CLASSES['druid']['order']['orders'][$order];
+    $granted_feat_ids = [];
+    foreach ((array) ($metadata['granted_feats'] ?? []) as $granted_feat) {
+      $normalized_feat = strtolower(str_replace('_', '-', trim((string) $granted_feat)));
+      if ($normalized_feat !== '') {
+        $granted_feat_ids[] = $normalized_feat;
+      }
+    }
+
+    return [
+      'id' => $order,
+      'name' => $metadata['name'] ?? ucfirst($order),
+      'order_spell' => $metadata['order_spell'] ?? NULL,
+      'focus_pool' => (int) ($metadata['focus_pool'] ?? 0),
+      'granted_feat_ids' => $granted_feat_ids,
+      'anathema' => $metadata['anathema'] ?? NULL,
+      'runtime_flags' => $this->resolveDruidOrderRuntimeFlags($order),
+    ];
+  }
+
+  /**
+   * Resolve order-specific druid runtime flags for prerequisite and rules consumers.
+   *
+   * @return array<string,bool>
+   */
+  private function resolveDruidOrderRuntimeFlags(string $order): array {
+    return [
+      $order . '_order_access' => TRUE,
+      $order . '_order_feat_access' => TRUE,
+    ];
+  }
+
+  /**
+   * Resolve a valid druid second-order selection for Order Explorer.
+   *
+   * @return array{primary_order:string,selected_order:string,selected_order_metadata:array<string,mixed>}|null
+   */
+  private function resolveValidDruidSecondOrderSelection(array $character_data): ?array {
+    $primary_order = $this->resolveDruidOrderId($character_data);
+    if ($primary_order === NULL) {
+      return NULL;
+    }
+
+    $selected_order = $this->resolveFeatSelectionValue($character_data, 'order-explorer', ['selected_order', 'second_order', 'order', 'druid_order']);
+    $selected_order = $selected_order !== NULL ? strtolower(trim($selected_order)) : NULL;
+    $selected_order_metadata = $this->resolveDruidOrderMetadataForId($selected_order);
+    if ($selected_order === NULL || $selected_order === '' || $selected_order_metadata === NULL || $selected_order === $primary_order) {
+      return NULL;
+    }
+
+    return [
+      'primary_order' => $primary_order,
+      'selected_order' => $selected_order,
+      'selected_order_metadata' => $selected_order_metadata,
+    ];
+  }
+
+  /**
+   * Build the eligible potion catalog for Improbable Elixirs.
+   *
+   * @return array<string,array<string,mixed>>
+   */
+  private function resolveEligibleImprobableElixirPotions(): array {
+    $eligible = [];
+
+    foreach (CharacterManager::MAGICAL_GEAR_CATALOG as $item_id => $item) {
+      $type = strtolower((string) ($item['type'] ?? ''));
+      $item_level = isset($item['level']) ? (int) $item['level'] : NULL;
+      if ($type !== 'potion' || ($item_level !== NULL && $item_level > 9)) {
+        continue;
+      }
+
+      $eligible[$item_id] = [
+        'formula_id' => $item_id,
+        'formula_name' => (string) ($item['name'] ?? $item_id),
+        'item_level' => $item_level,
+        'original_item_type' => 'potion',
+        'converted_item_type' => 'elixir',
+        'formula_source' => 'improbable-elixirs',
+        'display_category' => 'alchemical_elixir_via_potion_formula',
+        'source_catalog' => 'character_manager_magic_gear',
+        'requires_catalog_level_confirmation' => FALSE,
+      ];
+    }
+
+    foreach (EquipmentCatalogService::CATALOG as $item_id => $item) {
+      $traits = array_map('strtolower', (array) ($item['consumable_stats']['traits'] ?? []));
+      if (!in_array('potion', $traits, TRUE)) {
+        continue;
+      }
+
+      $item_level = isset($item['level'])
+        ? (int) $item['level']
+        : (isset($item['magic_stats']['item_level']) ? (int) $item['magic_stats']['item_level'] : NULL);
+      if ($item_level !== NULL && $item_level > 9) {
+        continue;
+      }
+
+      $eligible[$item_id] = [
+        'formula_id' => $item_id,
+        'formula_name' => (string) ($item['name'] ?? $item_id),
+        'item_level' => $item_level,
+        'original_item_type' => 'potion',
+        'converted_item_type' => 'elixir',
+        'formula_source' => 'improbable-elixirs',
+        'display_category' => 'alchemical_elixir_via_potion_formula',
+        'source_catalog' => 'equipment_catalog',
+        'requires_catalog_level_confirmation' => $item_level === NULL,
+      ];
+    }
+
+    return $eligible;
+  }
+
+  /**
+   * Resolve selected potion formulas for Improbable Elixirs.
+   *
+   * @return array<int,array<string,mixed>>
+   */
+  private function resolveImprobableElixirsSelections(array $character_data, int $selection_cap): array {
+    $selected_entries = $this->resolveFeatSelectionList($character_data, 'improbable-elixirs', [
+      'selected_formulas',
+      'formula_ids',
+      'formulas',
+      'selected_items',
+      'item_ids',
+      'items',
+      'selected_potions',
+      'potions',
+    ]);
+    $eligible_formulas = $this->resolveEligibleImprobableElixirPotions();
+    $selected_formulas = [];
+
+    foreach ($selected_entries as $entry) {
+      $normalized_entry = strtolower(trim($entry));
+      $normalized_slug = $this->normalizeFeatReference($entry);
+      $matched_formula = $eligible_formulas[$normalized_entry] ?? NULL;
+
+      if ($matched_formula === NULL) {
+        foreach ($eligible_formulas as $formula) {
+          if ($this->normalizeFeatReference((string) ($formula['formula_name'] ?? '')) === $normalized_slug) {
+            $matched_formula = $formula;
+            break;
+          }
+        }
+      }
+
+      if ($matched_formula === NULL) {
+        continue;
+      }
+
+      $formula_id = (string) ($matched_formula['formula_id'] ?? '');
+      if ($formula_id === '' || in_array($formula_id, array_column($selected_formulas, 'formula_id'), TRUE)) {
+        continue;
+      }
+
+      $selected_formulas[] = $matched_formula;
+      if (count($selected_formulas) >= $selection_cap) {
+        break;
+      }
+    }
+
+    return $selected_formulas;
+  }
+
+  /**
+   * Resolve valid Eldritch Trickster dedication options.
+   *
+   * @return array<string,array<string,string>>
+   */
+  private function resolveEldritchTricksterDedicationOptions(): array {
+    return CharacterManager::getSpellcastingMulticlassDedicationOptions();
+  }
+
+  /**
+   * Resolve a persisted Eldritch Trickster dedication selection.
+   */
+  private function resolveEldritchTricksterDedication(array $character_data): ?array {
+    $selected_value = strtolower(trim((string) ($this->resolveFeatSelectionValue($character_data, 'eldritch-trickster-racket', [
+      'selected_dedication',
+      'dedication',
+    ]) ?? '')));
+    if ($selected_value === '') {
+      return NULL;
+    }
+
+    $options = $this->resolveEldritchTricksterDedicationOptions();
+    return $options[$selected_value] ?? NULL;
+  }
+
+  /**
+   * Resolve valid Mastermind knowledge skill options.
+   *
+   * @return array<string,string>
+   */
+  private function resolveMastermindKnowledgeSkillOptions(): array {
+    return [
+      'arcana' => 'Arcana',
+      'nature' => 'Nature',
+      'occultism' => 'Occultism',
+      'religion' => 'Religion',
+    ];
+  }
+
+  /**
+   * Resolve a persisted Mastermind knowledge skill selection.
+   */
+  private function resolveMastermindKnowledgeSkill(array $character_data): ?array {
+    $selected_value = strtolower(trim((string) ($this->resolveFeatSelectionValue($character_data, 'mastermind-racket', [
+      'selected_skill',
+      'knowledge_skill',
+    ]) ?? '')));
+    $options = $this->resolveMastermindKnowledgeSkillOptions();
+    if ($selected_value === '' || !isset($options[$selected_value])) {
+      return NULL;
+    }
+
+    return [
+      'id' => $selected_value,
+      'name' => $options[$selected_value],
+    ];
   }
 
   /**

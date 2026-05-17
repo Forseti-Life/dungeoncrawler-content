@@ -101,13 +101,20 @@ class FailingFocusSpellCatalogService extends SpellCatalogService {
 class StubFocusSpellCatalogService extends SpellCatalogService {
 
   /**
+   * @var array<int, array<string, mixed>>
+   */
+  private array $stubSpells;
+
+  /**
    * @param array<int, array<string, mixed>> $spells
    *   Stub focus spell rows.
    */
-  public function __construct(private array $spells) {}
+  public function __construct(array $spells) {
+    $this->stubSpells = $spells;
+  }
 
   public function getSpells(array $filters = []): array {
-    return $this->spells;
+    return $this->stubSpells;
   }
 
 }

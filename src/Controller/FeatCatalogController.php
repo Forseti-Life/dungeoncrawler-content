@@ -4,6 +4,8 @@ namespace Drupal\dungeoncrawler_content\Controller;
 
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\dungeoncrawler_content\Service\CharacterManager;
+use GuzzleHttp\ClientInterface;
+use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 
@@ -13,11 +15,23 @@ use Symfony\Component\HttpFoundation\Request;
  * GET /api/feats
  *   ?source_book=crb|apg|all  (default: all)
  *   ?type=general|skill        (optional)
+ *
+ * GET /api/feats/{feat_id}
+ *   Returns a single local feat entry or an Archives of Nethys fallback.
  */
 class FeatCatalogController extends ControllerBase {
 
   const VALID_SOURCE_BOOKS = ['crb', 'apg', 'all'];
   const VALID_TYPES = ['general', 'skill'];
+  const ARCHIVES_OF_NETHYS_FEATS_URL = 'https://2e.aonprd.com/Feats.aspx';
+  const ARCHIVES_OF_NETHYS_SEARCH_URL = 'https://2e.aonprd.com/Search.aspx';
+  const ARCHIVES_OF_NETHYS_ELASTICSEARCH_URL = 'https://elasticsearch.aonprd.com/aon/_search';
+
+  public function __construct(protected ?ClientInterface $httpClient = NULL) {}
+
+  public static function create(ContainerInterface $container): static {
+    return new static($container->get('http_client'));
+  }
 
   /**
    * GET /api/feats
@@ -56,6 +70,22 @@ class FeatCatalogController extends ControllerBase {
   }
 
   /**
+   * GET /api/feats/{feat_id}
+   */
+  public function get(string $feat_id): JsonResponse {
+    $feat = $this->findFeat($feat_id);
+    if ($feat !== NULL) {
+      return new JsonResponse($feat, 200);
+    }
+
+    return new JsonResponse([
+      'error' => "Feat '{$feat_id}' not found in the DC feat catalog.",
+      'not_in_catalog' => TRUE,
+      'fallback_lookup' => $this->buildArchivesOfNethysLookup($feat_id),
+    ], 404);
+  }
+
+  /**
    * Build the initial feat pool based on type filter.
    */
   private function buildPool(string $type_filter): array {
@@ -83,6 +113,129 @@ class FeatCatalogController extends ControllerBase {
       $book = $feat['source_book'] ?? 'crb';
       return $book === $source_book;
     });
+  }
+
+  /**
+   * Find a local feat by canonical ID or name.
+   */
+  private function findFeat(string $feat_id): ?array {
+    $requested = $this->normalizeFeatId($feat_id);
+    foreach ($this->buildPool('') as $feat) {
+      if (!is_array($feat)) {
+        continue;
+      }
+      $candidate = $this->normalizeFeatId((string) ($feat['id'] ?? $feat['name'] ?? ''));
+      if ($candidate === $requested) {
+        return $feat;
+      }
+    }
+
+    return NULL;
+  }
+
+  /**
+   * Normalize feat IDs between display text and slug forms.
+   */
+  private function normalizeFeatId(string $value): string {
+    $value = strtolower(trim($value));
+    $value = str_replace(['_', '\''], ['-', ''], $value);
+    $value = preg_replace('/[^a-z0-9]+/', '-', $value) ?? '';
+    return trim($value, '-');
+  }
+
+  /**
+   * Build an Archives of Nethys lookup payload for a missing feat.
+   *
+   * @return array<string, mixed>
+   */
+  private function buildArchivesOfNethysLookup(string $feat_id): array {
+    $query = trim(str_replace(['_', '-'], ' ', $feat_id));
+    if ($query === '') {
+      $query = 'feat';
+    }
+
+    $lookup = [
+      'provider' => 'archives_of_nethys',
+      'provider_label' => 'Archives of Nethys',
+      'query' => $query,
+      'feats_url' => self::ARCHIVES_OF_NETHYS_FEATS_URL,
+      'search_url' => self::ARCHIVES_OF_NETHYS_SEARCH_URL . '?Query=' . rawurlencode($query),
+    ];
+
+    if ($this->httpClient === NULL) {
+      return $lookup;
+    }
+
+    try {
+      $response = $this->httpClient->request('POST', self::ARCHIVES_OF_NETHYS_ELASTICSEARCH_URL, [
+        'json' => [
+          'size' => 5,
+          '_source' => ['name', 'url', 'type', 'category', 'summary'],
+          'query' => [
+            'bool' => [
+              'must' => [[
+                'multi_match' => [
+                  'query' => $query,
+                  'fields' => ['name^6', 'title^6', 'summary', 'markdown', 'category', 'type'],
+                  'type' => 'best_fields',
+                ],
+              ]],
+              'filter' => [[
+                'terms' => [
+                  'category' => ['feat'],
+                ],
+              ]],
+            ],
+          ],
+        ],
+        'timeout' => 8.0,
+      ]);
+      $decoded = json_decode((string) $response->getBody(), TRUE);
+    }
+    catch (\Exception $e) {
+      return $lookup + [
+        'lookup_status' => 'search_error',
+        'lookup_error' => $e->getMessage(),
+      ];
+    }
+
+    $hits = $decoded['hits']['hits'] ?? [];
+    if (!is_array($hits) || $hits === []) {
+      return $lookup + ['lookup_status' => 'no_match'];
+    }
+
+    $query_key = $this->normalizeFeatId($query);
+    $best = NULL;
+    foreach ($hits as $hit) {
+      $source = is_array($hit['_source'] ?? NULL) ? $hit['_source'] : [];
+      if ($source === []) {
+        continue;
+      }
+      if ($this->normalizeFeatId((string) ($source['name'] ?? '')) === $query_key) {
+        $best = $source;
+        break;
+      }
+    }
+    if ($best === NULL) {
+      $best = is_array($hits[0]['_source'] ?? NULL) ? $hits[0]['_source'] : [];
+    }
+    if ($best === [] || empty($best['url'])) {
+      return $lookup + ['lookup_status' => 'no_match'];
+    }
+
+    $direct_url = (string) $best['url'];
+    if (str_starts_with($direct_url, '/')) {
+      $direct_url = 'https://2e.aonprd.com' . $direct_url;
+    }
+
+    return $lookup + [
+      'lookup_status' => 'matched',
+      'matched_name' => (string) ($best['name'] ?? $query),
+      'matched_type' => (string) ($best['type'] ?? ''),
+      'matched_category' => (string) ($best['category'] ?? ''),
+      'summary' => (string) ($best['summary'] ?? ''),
+      'direct_url' => $direct_url,
+    ];
   }
 
 }
