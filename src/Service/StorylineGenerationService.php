@@ -16,6 +16,8 @@ class StorylineGenerationService {
 
   private const QUEST_TEMPLATE_VERSION = '1.0.0';
   private const STORYLINE_EXPANSION_JOB_SCHEMA_VERSION = 'storyline-expansion-job-v1';
+  private const GENERATED_STORYLINE_SLUG_MAX_LENGTH = 48;
+  private const GENERATED_TEMPLATE_ID_MAX_LENGTH = 64;
 
   protected LoggerInterface $logger;
 
@@ -636,7 +638,10 @@ class StorylineGenerationService {
   protected function generateFallbackPackage(int $campaign_id, array $request, array $context): array {
     $goal = $this->normalizeSentence($request['prompt']);
     $base_name = $request['name'] !== '' ? $request['name'] : $this->deriveStorylineName($request['prompt']);
-    $base_slug = $this->sanitizeIdentifier($request['template_id'] !== '' ? $request['template_id'] : $base_name);
+    $base_slug = $this->sanitizeIdentifier(
+      $request['template_id'] !== '' ? $request['template_id'] : $base_name,
+      self::GENERATED_STORYLINE_SLUG_MAX_LENGTH
+    );
     if ($base_slug === '') {
       $base_slug = 'generated-storyline-' . substr(str_replace('-', '', $this->uuid->generate()), 0, 8);
     }
@@ -787,7 +792,7 @@ class StorylineGenerationService {
   protected function generateFallbackBootstrapPackage(int $campaign_id, array $request, array $context): array {
     $goal = $this->normalizeSentence($request['prompt']);
     $base_name = $request['name'] !== '' ? $request['name'] : $this->deriveStorylineName($request['prompt']);
-    $base_slug = $this->sanitizeIdentifier($base_name);
+    $base_slug = $this->sanitizeIdentifier($base_name, self::GENERATED_STORYLINE_SLUG_MAX_LENGTH);
     if ($base_slug === '') {
       $base_slug = 'storyline-bootstrap-' . substr(str_replace('-', '', $this->uuid->generate()), 0, 8);
     }
@@ -956,7 +961,10 @@ class StorylineGenerationService {
     }
 
     $storyline['name'] = trim((string) ($storyline['name'] ?? $request['name'] ?? $this->deriveStorylineName($request['prompt'])));
-    $storyline['template_id'] = $this->sanitizeIdentifier((string) ($storyline['template_id'] ?? $storyline['name'] ?? 'generated-storyline'));
+    $storyline['template_id'] = $this->sanitizeIdentifier(
+      (string) ($storyline['template_id'] ?? $storyline['name'] ?? 'generated-storyline'),
+      self::GENERATED_TEMPLATE_ID_MAX_LENGTH
+    );
     $storyline['synopsis'] = trim((string) ($storyline['synopsis'] ?? 'Generated storyline based on the supplied campaign goal.'));
     $storyline['level_range'] = trim((string) ($storyline['level_range'] ?? $request['level_range']));
     $storyline['source'] = trim((string) ($storyline['source'] ?? $request['source'])) ?: 'storyline-generator';
@@ -1085,7 +1093,10 @@ class StorylineGenerationService {
     }
 
     $storyline['name'] = trim((string) ($storyline['name'] ?? $request['name'] ?? $this->deriveStorylineName($request['prompt'])));
-    $storyline['template_id'] = $this->sanitizeIdentifier((string) ($storyline['template_id'] ?? $storyline['name'] ?? 'generated-storyline-bootstrap'));
+    $storyline['template_id'] = $this->sanitizeIdentifier(
+      (string) ($storyline['template_id'] ?? $storyline['name'] ?? 'generated-storyline-bootstrap'),
+      self::GENERATED_TEMPLATE_ID_MAX_LENGTH
+    );
     $storyline['synopsis'] = trim((string) ($storyline['synopsis'] ?? 'Generated storyline bootstrap based on the supplied campaign goal.'));
     $storyline['level_range'] = trim((string) ($storyline['level_range'] ?? $request['level_range']));
     $storyline['source'] = trim((string) ($storyline['source'] ?? $request['source'])) ?: 'storyline-bootstrap';
@@ -1970,10 +1981,14 @@ class StorylineGenerationService {
   /**
    * Sanitize identifiers into stable slugs.
    */
-  protected function sanitizeIdentifier(string $value): string {
+  protected function sanitizeIdentifier(string $value, int $max_length = 0): string {
     $value = strtolower(trim($value));
     $value = preg_replace('/[^a-z0-9]+/', '-', $value) ?? '';
-    return trim($value, '-');
+    $value = trim($value, '-');
+    if ($max_length > 0 && strlen($value) > $max_length) {
+      $value = rtrim(substr($value, 0, $max_length), '-');
+    }
+    return $value;
   }
 
   /**
