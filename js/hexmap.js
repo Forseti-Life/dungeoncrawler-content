@@ -8227,8 +8227,15 @@ import { SpriteService } from './SpriteService.js';
      * @param {Entity} entity - Entity to select
      */
     selectEntity: function (entity) {
-      // Deselect previous entity
       const previousEntity = this.stateManager.get('selectedEntity');
+      if (previousEntity?.id === entity?.id) {
+        this.stateManager.set('selectedEntity', entity);
+        this.syncLaunchCharacterRuntimeFromEntity(entity);
+        this.syncTokenBadgeState();
+        return;
+      }
+
+      // Deselect previous entity
       if (previousEntity) {
         this.deselectEntity();
       }
@@ -9982,6 +9989,9 @@ import { SpriteService } from './SpriteService.js';
     queuePlayerAutomationStep: function (reason = 'state-ready') {
       const readiness = this.getPlayerAutomationTurnReadiness();
       if (!readiness.ready) {
+        if (readiness.reason === 'automation-inactive') {
+          return;
+        }
         this.maybeAdvancePlayerAutomationEncounterTurn(readiness, reason);
         console.info('[Automation] Step queue blocked', {
           trigger: reason,
