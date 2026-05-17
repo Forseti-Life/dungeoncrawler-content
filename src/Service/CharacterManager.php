@@ -12,6 +12,8 @@ use Drupal\dungeoncrawler_content\Service\InventoryManagementService;
  */
 class CharacterManager {
 
+  private const QUICKPLAY_PROFILE_VERSION = 3;
+
   protected Connection $database;
   protected AccountProxyInterface $currentUser;
   protected UuidInterface $uuid;
@@ -1462,7 +1464,7 @@ class CharacterManager {
       'name' => 'Rogue',
       'description' => 'You are skilled and opportunistic. Using your sharp wits and quick reactions, you take advantage of your opponents\' missteps.',
       'hp' => 8,
-      'key_ability' => 'Dexterity',
+      'key_ability' => 'Dexterity or Strength or Charisma or Intelligence',
       'proficiencies' => [
         'perception' => 'Expert',
         'fortitude' => 'Trained',
@@ -1507,6 +1509,21 @@ class CharacterManager {
             'dex_to_damage' => TRUE,
             'dex_to_damage_note' => 'Add Dexterity modifier to damage rolls with finesse melee weapons (in place of Strength)',
             'note' => 'Thief rogues are the archetypal DEX-based sneak attacker.',
+          ],
+          'eldritch-trickster-racket' => [
+            'key_ability' => 'Intelligence',
+            'granted_dedication_choice' => TRUE,
+            'granted_dedication_type' => 'multiclass_spellcasting_archetype',
+            'magical_trickster_available_at_level' => 2,
+            'note' => 'Eldritch Tricksters gain a free multiclass spellcasting dedication at level 1 and can take Magical Trickster at level 2.',
+          ],
+          'mastermind-racket' => [
+            'key_ability' => 'Intelligence',
+            'trained_skill' => 'Society',
+            'knowledge_skill_choice' => ['Arcana', 'Nature', 'Occultism', 'Religion'],
+            'recall_knowledge_flat_footed' => 'success_until_start_of_next_turn',
+            'recall_knowledge_flat_footed_critical' => '1_minute',
+            'note' => 'Masterminds train Society plus one knowledge skill, then exploit successful Recall Knowledge to make foes flat-footed to their attacks.',
           ],
         ],
       ],
@@ -4369,20 +4386,147 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
   ];
 
   /**
-   * Sorcerer bloodline → tradition mapping.
+   * Canonical sorcerer bloodline metadata.
+   *
+   * `granted_spells` are keyed by spell rank, with `0` representing the cantrip
+   * granted at level 1. Genie uses `granted_spells_by_subtype` to fill the
+   * variable ranks determined by the selected genie lineage.
    */
   const SORCERER_BLOODLINES = [
-    'aberrant'    => ['tradition' => 'occult',  'label' => 'Aberrant',    'description' => 'Something extradimensional warped your lineage, granting occult power.'],
-    'angelic'     => ['tradition' => 'divine',  'label' => 'Angelic',     'description' => 'Celestial blood flows through you, granting divine spellcasting.'],
-    'demonic'     => ['tradition' => 'divine',  'label' => 'Demonic',     'description' => 'Fiendish ancestry grants you raw divine power twisted toward destruction.'],
-    'draconic'    => ['tradition' => 'arcane',  'label' => 'Draconic',    'description' => 'The blood of dragons flows through your veins, granting arcane mastery.'],
-    'elemental'   => ['tradition' => 'primal',  'label' => 'Elemental',   'description' => 'Elemental forces surge within you, granting primal spellcasting.'],
-    'fey'         => ['tradition' => 'primal',  'label' => 'Fey',         'description' => 'Fey creatures somewhere in your lineage grant primal power.'],
-    'hag'         => ['tradition' => 'occult',  'label' => 'Hag',         'description' => 'A hag ancestor grants you occult spellcasting.'],
-    'imperial'    => ['tradition' => 'arcane',  'label' => 'Imperial',    'description' => 'Your bloodline carries arcane power from ancient rulers or conquerors.'],
-    'undead'      => ['tradition' => 'divine',  'label' => 'Undead',      'description' => 'Undead taint in your lineage grants you divine necromantic power.'],
-    'genie'       => ['tradition' => 'arcane',  'label' => 'Genie',       'description' => 'Elemental genie power flows in your blood. Choose a subtype at 1st level: Janni, Djinni, Efreeti, Marid, or Shaitan — each determines certain granted spells.', 'subtype_required' => TRUE, 'subtypes' => ['janni', 'djinni', 'efreeti', 'marid', 'shaitan']],
-    'nymph'       => ['tradition' => 'primal',  'label' => 'Nymph',       'description' => 'A nymph ancestor grants you primal connection to natural beauty and elemental forces.'],
+    'aberrant'    => [
+      'tradition' => 'occult',
+      'label' => 'Aberrant',
+      'description' => 'Something extradimensional warped your lineage, granting occult power.',
+      'granted_spells' => [0 => 'daze', 1 => 'spider sting', 2 => 'touch of idiocy', 3 => 'vampiric touch', 4 => 'confusion', 5 => 'black tentacles', 6 => 'feeblemind', 7 => 'warp mind', 8 => 'uncontrollable dance', 9 => 'unfathomable song'],
+      'bloodline_spells' => ['initial' => 'tentacular limbs', 'advanced' => 'aberrant whispers', 'greater' => 'unusual anatomy'],
+      'blood_magic' => 'Aberrant whispers shield one target\'s mind or your own, granting a +2 status bonus to Will saving throws for 1 round.',
+      'blood_magic_damage_type' => 'mental',
+    ],
+    'angelic'     => [
+      'tradition' => 'divine',
+      'label' => 'Angelic',
+      'description' => 'Celestial blood flows through you, granting divine spellcasting.',
+      'granted_spells' => [0 => 'light', 1 => 'heal', 2 => 'spiritual weapon', 3 => 'searing light', 4 => 'divine wrath', 5 => 'flame strike', 6 => 'blade barrier', 7 => 'divine decree', 8 => 'divine aura', 9 => 'foresight'],
+      'bloodline_spells' => ['initial' => 'angelic halo', 'advanced' => 'angelic wings', 'greater' => 'celestial brand'],
+      'blood_magic' => 'An angelic aura protects you or one target, granting a +1 status bonus to saving throws for 1 round.',
+      'blood_magic_damage_type' => 'positive',
+    ],
+    'demonic'     => [
+      'tradition' => 'divine',
+      'label' => 'Demonic',
+      'description' => 'Fiendish ancestry grants you raw divine power twisted toward destruction.',
+      'granted_spells' => [0 => 'acid splash', 1 => 'fear', 2 => 'enlarge', 3 => 'slow', 4 => 'divine wrath', 5 => 'abyssal plague', 6 => 'disintegrate', 7 => 'divine decree', 8 => 'divine aura', 9 => 'implosion'],
+      'bloodline_spells' => ['initial' => 'glutton\'s jaw', 'advanced' => 'swamp of sloth', 'greater' => 'abyssal wrath'],
+      'blood_magic' => 'The corruption of sin weakens a target\'s defenses or makes you more imposing. Either a target takes a -1 status penalty to AC for 1 round, or you gain a +1 status bonus to Intimidation checks for 1 round.',
+      'blood_magic_damage_type' => 'acid',
+    ],
+    'draconic'    => [
+      'tradition' => 'arcane',
+      'label' => 'Draconic',
+      'description' => 'The blood of dragons flows through your veins, granting arcane mastery.',
+      'subtype_required' => TRUE,
+      'subtypes' => ['black', 'blue', 'brass', 'bronze', 'copper', 'gold', 'green', 'red', 'silver', 'white', 'acid', 'cold', 'electricity', 'fire', 'poison'],
+      'granted_spells' => [0 => 'shield', 1 => 'true strike', 2 => 'resist energy', 3 => 'haste', 4 => 'spell immunity', 5 => 'chromatic wall', 6 => 'dragon form', 7 => 'mask of terror', 8 => 'prismatic wall', 9 => 'overwhelming presence'],
+      'bloodline_spells' => ['initial' => 'dragon claws', 'advanced' => 'dragon breath', 'greater' => 'dragon wings'],
+      'blood_magic' => 'Draconic scales grow briefly on you or one target, granting a +1 status bonus to AC for 1 round.',
+      'blood_magic_damage_type_by_subtype' => [
+        'black' => 'acid',
+        'blue' => 'electricity',
+        'brass' => 'fire',
+        'bronze' => 'electricity',
+        'copper' => 'acid',
+        'gold' => 'fire',
+        'green' => 'poison',
+        'red' => 'fire',
+        'silver' => 'cold',
+        'white' => 'cold',
+        'acid' => 'acid',
+        'cold' => 'cold',
+        'electricity' => 'electricity',
+        'fire' => 'fire',
+        'poison' => 'poison',
+      ],
+    ],
+    'elemental'   => [
+      'tradition' => 'primal',
+      'label' => 'Elemental',
+      'description' => 'Elemental forces surge within you, granting primal spellcasting.',
+      'subtype_required' => TRUE,
+      'subtypes' => ['air', 'earth', 'fire', 'water', 'bludgeoning'],
+      'granted_spells' => [0 => 'produce flame', 1 => 'burning hands', 2 => 'resist energy', 3 => 'fireball', 4 => 'freedom of movement', 5 => 'elemental form', 6 => 'repulsion', 7 => 'energy aegis', 8 => 'prismatic wall', 9 => 'storm of vengeance'],
+      'bloodline_spells' => ['initial' => 'elemental toss', 'advanced' => 'elemental motion', 'greater' => 'elemental blast'],
+      'blood_magic' => 'Elemental energy surrounds you or a target. Either you gain a +1 status bonus to Intimidation checks for 1 round, or a target takes 1 damage per spell level.',
+      'blood_magic_damage_type_by_subtype' => [
+        'air' => 'bludgeoning',
+        'earth' => 'bludgeoning',
+        'fire' => 'fire',
+        'water' => 'bludgeoning',
+        'bludgeoning' => 'bludgeoning',
+      ],
+    ],
+    'fey'         => [
+      'tradition' => 'primal',
+      'label' => 'Fey',
+      'description' => 'Fey creatures somewhere in your lineage grant primal power.',
+      'granted_spells' => [0 => 'ghost sound', 1 => 'charm', 2 => 'hideous laughter', 3 => 'enthrall', 4 => 'suggestion', 5 => 'cloak of colors', 6 => 'mislead', 7 => 'visions of danger', 8 => 'uncontrollable dance', 9 => 'resplendent mansion'],
+      'bloodline_spells' => ['initial' => 'faerie dust', 'advanced' => 'fey disappearance', 'greater' => 'fey glamour'],
+      'blood_magic' => 'Colorful fey glamours dance around you or one target, causing them to be concealed for 1 round.',
+      'blood_magic_damage_type' => 'mental',
+    ],
+    'hag'         => [
+      'tradition' => 'occult',
+      'label' => 'Hag',
+      'description' => 'A hag ancestor grants you occult spellcasting.',
+      'granted_spells' => [0 => 'daze', 1 => 'illusory disguise', 2 => 'touch of idiocy', 3 => 'blindness', 4 => 'outcast\'s curse', 5 => 'mariner\'s curse', 6 => 'baleful polymorph', 7 => 'warp mind', 8 => 'spiritual epidemic', 9 => 'nature\'s enmity'],
+      'bloodline_spells' => ['initial' => 'jealous hex', 'advanced' => 'horrific visage', 'greater' => 'you\'re mine'],
+      'blood_magic' => 'Spiteful curses punish your foes. The first creature that deals damage to you before the end of your next turn takes 2 mental damage per spell level and must attempt a basic Will save.',
+      'blood_magic_damage_type' => 'mental',
+    ],
+    'imperial'    => [
+      'tradition' => 'arcane',
+      'label' => 'Imperial',
+      'description' => 'Your bloodline carries arcane power from ancient rulers or conquerors.',
+      'granted_spells' => [0 => 'detect magic', 1 => 'magic missile', 2 => 'dispel magic', 3 => 'haste', 4 => 'dimension door', 5 => 'prying eye', 6 => 'disintegrate', 7 => 'prismatic spray', 8 => 'maze', 9 => 'prismatic sphere'],
+      'bloodline_spells' => ['initial' => 'ancestral memories', 'advanced' => 'extend spell', 'greater' => 'arcane countermeasure'],
+      'blood_magic' => 'A surge of ancestral memories grants you or one target a +1 status bonus to skill checks for 1 round.',
+      'blood_magic_damage_type' => 'force',
+    ],
+    'undead'      => [
+      'tradition' => 'divine',
+      'label' => 'Undead',
+      'description' => 'Undead taint in your lineage grants you divine necromantic power.',
+      'granted_spells' => [0 => 'chill touch', 1 => 'harm', 2 => 'false life', 3 => 'bind undead', 4 => 'talking corpse', 5 => 'cloudkill', 6 => 'vampiric exsanguination', 7 => 'finger of death', 8 => 'horrid wilting', 9 => 'wail of the banshee'],
+      'bloodline_spells' => ['initial' => 'undeath\'s blessing', 'advanced' => 'drain life', 'greater' => 'grasping grave'],
+      'blood_magic' => 'Necromantic energy flows through you or one target. Either you gain temporary Hit Points equal to the spell\'s level for 1 round, or a target takes 1 negative damage per spell level.',
+      'blood_magic_damage_type' => 'negative',
+    ],
+    'genie'       => [
+      'tradition' => 'arcane',
+      'label' => 'Genie',
+      'description' => 'Elemental genie power flows in your blood. Choose a subtype at 1st level: Janni, Djinni, Efreeti, Marid, or Shaitan — each determines certain granted spells.',
+      'subtype_required' => TRUE,
+      'subtypes' => ['janni', 'djinni', 'efreeti', 'marid', 'shaitan'],
+      'granted_spells' => [0 => 'detect magic', 1 => 'illusory disguise', 3 => 'enthrall', 4 => 'creation', 6 => 'true seeing', 7 => 'energy aegis', 9 => 'resplendent mansion'],
+      'granted_spells_by_subtype' => [
+        'janni' => [2 => 'create food', 5 => 'banishment', 8 => 'scintillating pattern'],
+        'djinni' => [2 => 'invisibility', 5 => 'illusory scene', 8 => 'punishing winds'],
+        'efreeti' => [2 => 'enlarge', 5 => 'elemental form (fire only)', 8 => 'maze'],
+        'marid' => [2 => 'water walk', 5 => 'control water', 8 => 'horrid wilting'],
+        'shaitan' => [2 => 'glitterdust', 5 => 'wall of stone', 8 => 'earthquake'],
+      ],
+      'bloodline_spells' => ['initial' => 'genie\'s veil', 'advanced' => 'heart\'s desire', 'greater' => 'wish-twisted form'],
+      'blood_magic' => 'Your spellcasting warps reality and distracts your foes. Either you gain a +1 status bonus to Deception checks for 1 round, or a target takes a -1 status penalty to Perception for 1 round.',
+      'blood_magic_damage_type' => 'mental',
+    ],
+    'nymph'       => [
+      'tradition' => 'primal',
+      'label' => 'Nymph',
+      'description' => 'A nymph ancestor grants you primal connection to natural beauty and elemental forces.',
+      'granted_spells' => [0 => 'tanglefoot', 1 => 'charm', 2 => 'calm emotions', 3 => 'animal vision', 4 => 'vital beacon', 5 => 'crushing despair', 6 => 'repulsion', 7 => 'unfettered pack', 8 => 'moment of renewal', 9 => 'overwhelming presence'],
+      'bloodline_spells' => ['initial' => 'nymph\'s token', 'advanced' => 'blinding beauty', 'greater' => 'establish ward'],
+      'blood_magic' => 'Nymph grace accentuates your movements and distracts your foes, either granting you a +1 status bonus to Diplomacy checks for 1 round or imposing a -1 status penalty on one target\'s Will saves for 1 round.',
+      'blood_magic_damage_type' => 'mental',
+    ],
   ];
 
   /**
@@ -8803,7 +8947,7 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
     'rogue' => [
       1  => ['auto_features' => [
         ['id' => 'rogue-racket', 'name' => 'Rogue Racket',
-          'description' => 'Choose one racket at L1 (permanent). Ruffian: STR key ability, Intimidation skill, sneak attack with any simple weapon, crit specialization on sneak crits. Scoundrel: CHA key ability, Deception skill, critical Feint makes target flat-footed vs all melee attacks until your next turn. Thief: DEX key ability, Thievery skill, add DEX modifier to damage with finesse melee weapons.'],
+          'description' => 'Choose one racket at L1 (permanent). Ruffian: STR key ability option, Intimidation skill, sneak attack with any simple weapon, crit specialization on sneak crits. Scoundrel: CHA key ability option, Deception skill, critical Feint makes target flat-footed vs all melee attacks until your next turn. Thief: DEX to damage with finesse melee weapons. Eldritch Trickster: INT key ability option, free multiclass spellcasting dedication, Magical Trickster available at L2. Mastermind: INT key ability option, Society plus one knowledge skill, successful Recall Knowledge makes the target flat-footed to your attacks.'],
         ['id' => 'sneak-attack', 'name' => 'Sneak Attack',
           'description' => 'When your target is flat-footed to you, you deal an extra 1d6 precision damage. This increases to 2d6 at L5, 3d6 at L11, 4d6 at L17. Ineffective against creatures without vital organs.'],
         ['id' => 'surprise-attack', 'name' => 'Surprise Attack',
@@ -10186,10 +10330,7 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
    * Create a new character with full PF2e JSON.
    */
   public function createCharacter(string $name, string $ancestry, string $class, array $options = []): int {
-    $character_data = $this->canonicalizeCharacterData(
-      $this->buildCharacterJson($name, $ancestry, $class, $options)
-    );
-    $hot = $this->extractHotColumnValues($character_data);
+    ['character_data' => $character_data, 'hot' => $hot] = $this->buildStoredCharacterPayload($name, $ancestry, $class, $options);
 
     $now = \Drupal::time()->getRequestTime();
     $instanceId = $this->uuid->generate();
@@ -10222,6 +10363,1322 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
     $this->grantAncestryStartingEquipment((int) $id, $ancestry);
 
     return (int) $id;
+  }
+
+  /**
+   * Ensure the current user has a GM-generated quick-play library pool.
+   *
+   * Creates one unattached ready-to-play library character per class when the
+   * pool is missing, then returns a map of class id => character id.
+   *
+   * @return array<string, int>
+   *   Quick-play character ids keyed by class id.
+   */
+  public function ensureQuickPlayCharacterLibrary(): array {
+    $uid = (int) $this->currentUser->id();
+    if ($uid <= 0) {
+      return [];
+    }
+
+    $class_ids = array_keys(self::CLASSES);
+    $class_positions = array_flip($class_ids);
+    $pool = [];
+    $records = $this->database->select('dc_campaign_characters', 'c')
+      ->fields('c', ['id', 'character_data', 'name'])
+      ->condition('uid', $uid)
+      ->condition('campaign_id', 0)
+      ->condition('status', 1)
+      ->execute()
+      ->fetchAll();
+
+    foreach ($records as $record) {
+      $character_data = json_decode((string) ($record->character_data ?? '{}'), TRUE);
+      if (!is_array($character_data)) {
+        continue;
+      }
+
+      $quickplay = $character_data['quickplay_prefab'] ?? NULL;
+      if (!is_array($quickplay) || empty($quickplay['generated'])) {
+        continue;
+      }
+
+      $class_id = strtolower(trim((string) ($quickplay['class'] ?? '')));
+      if ($class_id === '' || !isset(self::CLASSES[$class_id])) {
+        continue;
+      }
+
+      $class_index = (int) ($class_positions[$class_id] ?? 0);
+      if (!$this->isQuickPlayCharacterCurrent($character_data, $class_id)) {
+        $profile = $this->buildQuickPlayCharacterProfile($class_id, $class_index);
+        $this->refreshQuickPlayCharacterRecord((int) $record->id, $profile);
+      }
+
+      $pool[$class_id] = (int) $record->id;
+    }
+
+    foreach ($class_ids as $index => $class_id) {
+      if (isset($pool[$class_id])) {
+        continue;
+      }
+
+      $profile = $this->buildQuickPlayCharacterProfile($class_id, $index);
+      $pool[$class_id] = $this->createCharacter(
+        $profile['name'],
+        $profile['ancestry'],
+        $class_id,
+        $profile['options']
+      );
+    }
+
+    return $pool;
+  }
+
+  /**
+   * Return a random quick-play library character id for the current user.
+   */
+  public function getRandomQuickPlayCharacterId(): ?int {
+    $pool = $this->ensureQuickPlayCharacterLibrary();
+    if ($pool === []) {
+      return NULL;
+    }
+
+    $ids = array_values($pool);
+    $random_index = random_int(0, count($ids) - 1);
+    return (int) $ids[$random_index];
+  }
+
+  /**
+   * Build a deterministic quick-play character profile for a class.
+   *
+   * @return array{name: string, ancestry: string, options: array<string, mixed>}
+   *   Quick-play character inputs.
+   */
+  private function buildQuickPlayCharacterProfile(string $class_id, int $class_index): array {
+    $ancestries = array_keys(self::ANCESTRIES);
+    $background_ids = array_keys(self::BACKGROUNDS);
+    $alignment_cycle = [
+      'Lawful Good',
+      'Neutral Good',
+      'Chaotic Good',
+      'Lawful Neutral',
+      'Neutral',
+      'Chaotic Neutral',
+    ];
+
+    $ancestry = $ancestries[$class_index % max(1, count($ancestries))] ?? 'Human';
+    $background_id = $background_ids[$class_index % max(1, count($background_ids))] ?? '';
+    $background_name = $background_id !== ''
+      ? (string) (self::BACKGROUNDS[$background_id]['name'] ?? $this->humanizeIdentifier($background_id))
+      : '';
+    $alignment = $alignment_cycle[$class_index % count($alignment_cycle)];
+    $class_name = $this->humanizeIdentifier($class_id);
+    $name_seed = ((int) $this->currentUser->id() * 100) + $class_index + 1;
+    $suggested_name = $this->generateSuggestedName($ancestry, $name_seed);
+    $name = trim((string) ($suggested_name['name'] ?? ''));
+    if ($name === '') {
+      $name = $class_name . ' Adventurer';
+    }
+
+    $completion = $this->buildQuickPlayCompletionOptions(
+      $name,
+      $class_id,
+      $class_index,
+      $ancestry,
+      $background_id,
+      $background_name,
+      $alignment
+    );
+
+    return [
+      'name' => $name,
+      'ancestry' => $ancestry,
+      'options' => array_merge([
+        'alignment' => $alignment,
+        'background' => $background_name,
+        'backstory' => sprintf('GM-generated quick-play %s prepared for immediate campaign entry.', $class_name),
+        'concept' => sprintf('Quick-play %s ready for the tavern.', $class_name),
+        'roleplay_style' => 'balanced',
+        'step' => 8,
+        'wizard_complete' => TRUE,
+        'quickplay_prefab' => [
+          'generated' => TRUE,
+          'class' => $class_id,
+          'source' => 'wizard_quick_play',
+          'version' => self::QUICKPLAY_PROFILE_VERSION,
+        ],
+      ], $completion),
+    ];
+  }
+
+  /**
+   * Build the stored payload used for inserts and quick-play refreshes.
+   *
+   * @return array{character_data: array<string,mixed>, hot: array<string,int>}
+   *   Canonical payload plus relational hot-column values.
+   */
+  private function buildStoredCharacterPayload(string $name, string $ancestry, string $class, array $options): array {
+    $raw_character_data = $this->buildCharacterJson($name, $ancestry, $class, $options);
+    $character_data = $this->canonicalizeCharacterData($raw_character_data);
+    $character_data['step'] = (int) ($options['step'] ?? 8);
+    $character_data['wizard_complete'] = array_key_exists('wizard_complete', $options)
+      ? !empty($options['wizard_complete'])
+      : TRUE;
+
+    $scalar_fields = [
+      'concept',
+      'roleplay_style',
+      'heritage',
+      'class_key_ability',
+      'class_feat',
+      'subclass',
+      'alignment',
+      'deity',
+      'general_feat',
+      'age',
+      'gender',
+      'appearance',
+      'personality',
+      'backstory',
+      'portrait_prompt',
+      'arcane_thesis',
+      'background_skill_training',
+      'background_lore_skill',
+      'background_skill_feat',
+    ];
+    foreach ($scalar_fields as $field) {
+      if (array_key_exists($field, $options)) {
+        $character_data[$field] = $options[$field];
+      }
+    }
+
+    $array_fields = [
+      'wizard',
+      'quickplay_prefab',
+      'ancestry_boosts',
+      'background_boosts',
+      'cantrips',
+      'spells_first',
+      'free_boosts',
+      'trained_skills',
+      'gm_equipment_ids',
+      'inventory',
+      'skills',
+      'spells',
+      'feats',
+      'feat_selections',
+      'class_proficiencies',
+    ];
+    foreach ($array_fields as $field) {
+      if (array_key_exists($field, $options) && is_array($options[$field])) {
+        $character_data[$field] = $options[$field];
+      }
+    }
+
+    if (array_key_exists('portrait_generate', $options)) {
+      $character_data['portrait_generate'] = !empty($options['portrait_generate']) ? 1 : 0;
+    }
+    if (array_key_exists('gold', $options)) {
+      $character_data['gold'] = (float) $options['gold'];
+      if (!empty($character_data['inventory']['currency']) && is_array($character_data['inventory']['currency'])) {
+        if (array_key_exists('gp', $character_data['inventory']['currency'])) {
+          $character_data['inventory']['currency']['gp'] = (float) $options['gold'];
+        }
+        if (array_key_exists('gold', $character_data['inventory']['currency'])) {
+          $character_data['inventory']['currency']['gold'] = (float) $options['gold'];
+        }
+      }
+    }
+    $character_data = $this->completeCharacterData($character_data, [
+      'name' => $name,
+      'ancestry' => $ancestry,
+      'class' => $class,
+    ]);
+    if (!empty($character_data['spells']) && is_array($character_data['spells'])) {
+      $normalized_spellcasting = self::normalizeSpellcastingResources(
+        $character_data['spells'],
+        is_array($character_data['resources'] ?? NULL) ? $character_data['resources'] : [],
+        (string) ($character_data['class'] ?? '')
+      );
+      $character_data['spells'] = $normalized_spellcasting['spells'];
+      $character_data['resources'] = $normalized_spellcasting['resources'];
+    }
+
+    $hot = $this->extractHotColumnValues($character_data);
+    return [
+      'character_data' => $character_data,
+      'hot' => $hot,
+    ];
+  }
+
+  /**
+   * Completes missing character fields and resynchronizes legacy mirrors.
+   *
+   * @param array<string, mixed> $character_data
+   *   Existing character payload.
+   * @param array<string, mixed> $context
+   *   Optional row-level defaults (name, ancestry, class).
+   *
+   * @return array<string, mixed>
+   *   Completed canonical character payload.
+   */
+  public function completeCharacterData(array $character_data, array $context = []): array {
+    $canonical = $this->canonicalizeCharacterData($character_data);
+    $canonical['name'] = $this->firstNonEmptyString([
+      $canonical['name'] ?? '',
+      $context['name'] ?? '',
+      'Unnamed Character',
+    ], 'Unnamed Character');
+
+    $resolved_ancestry = $this->firstNonEmptyString([
+      $canonical['ancestry'] ?? '',
+      $context['ancestry'] ?? '',
+      'Human',
+    ], 'Human');
+    $canonical['ancestry'] = self::resolveAncestryCanonicalName($resolved_ancestry) ?: $resolved_ancestry;
+
+    $class_id = strtolower($this->firstNonEmptyString([
+      $canonical['class'] ?? '',
+      $context['class'] ?? '',
+      'npc',
+    ], 'npc'));
+    $canonical['class'] = $class_id;
+
+    $is_supported_class = isset(self::CLASSES[$class_id]);
+    $is_npc = $class_id === 'npc' || !$is_supported_class;
+    $background_id = $this->resolveBackgroundMachineId((string) ($canonical['background'] ?? ''));
+    $background_name = $background_id !== ''
+      ? (string) (self::BACKGROUNDS[$background_id]['name'] ?? $this->humanizeIdentifier($background_id))
+      : $this->firstNonEmptyString([
+        $canonical['background'] ?? '',
+        $is_npc ? 'Resident' : 'Wanderer',
+      ], $is_npc ? 'Resident' : 'Wanderer');
+    $canonical['background'] = $background_name;
+
+    $stable_index = ((int) sprintf('%u', crc32(strtolower(implode('|', [
+      $canonical['name'],
+      $canonical['ancestry'],
+      $class_id,
+      $background_name,
+    ]))))) % max(1, count(self::CLASSES));
+    $canonical['alignment'] = $this->firstNonEmptyString([
+      $canonical['alignment'] ?? '',
+      'Neutral',
+    ], 'Neutral');
+    $canonical['roleplay_style'] = $this->firstNonEmptyString([
+      $canonical['roleplay_style'] ?? '',
+      'balanced',
+    ], 'balanced');
+    $canonical['age'] = $this->firstNonEmptyString([
+      $canonical['age'] ?? '',
+      $is_npc ? 'adult' : (string) (24 + ($stable_index % 9)),
+    ], $is_npc ? 'adult' : (string) (24 + ($stable_index % 9)));
+    $canonical['gender'] = $this->firstNonEmptyString([
+      $canonical['gender'] ?? '',
+      $this->selectQuickPlayGenderPresentation($stable_index),
+    ], $this->selectQuickPlayGenderPresentation($stable_index));
+    $canonical['appearance'] = $this->firstNonEmptyString([
+      $canonical['appearance'] ?? '',
+      $this->buildCompletionAppearance((string) $canonical['ancestry'], $class_id, $stable_index, $is_npc),
+    ]);
+    $canonical['personality'] = $this->firstNonEmptyString([
+      $canonical['personality'] ?? '',
+      $this->buildCompletionPersonality($class_id, $is_npc),
+    ]);
+    $canonical['concept'] = $this->firstNonEmptyString([
+      $canonical['concept'] ?? '',
+      $this->buildCompletionConcept((string) $canonical['ancestry'], $class_id, $is_npc),
+    ]);
+    $canonical['backstory'] = $this->firstNonEmptyString([
+      $canonical['backstory'] ?? '',
+      $this->buildCompletionBackstory($canonical['name'], $class_id, $background_name, $is_npc),
+    ]);
+    $canonical['deity'] = $this->firstNonEmptyString([
+      $canonical['deity'] ?? '',
+      !$is_npc ? $this->selectQuickPlayDeity($class_id, (string) $canonical['alignment']) : 'None',
+    ], $is_npc ? 'None' : '');
+    $canonical['portrait_generate'] = !empty($canonical['portrait_generate']) ? 1 : 1;
+    $canonical['portrait_prompt'] = $this->firstNonEmptyString([
+      $canonical['portrait_prompt'] ?? '',
+      sprintf(
+        '%s %s, %s background, %s, %s, fantasy portrait, Pathfinder 2E %s',
+        (string) $canonical['ancestry'],
+        $this->humanizeIdentifier($class_id),
+        $background_name,
+        (string) $canonical['appearance'],
+        (string) $canonical['personality'],
+        $is_npc ? 'NPC' : 'adventurer'
+      ),
+    ]);
+
+    if ($is_supported_class) {
+      $ancestry_machine_id = strtolower(str_replace(' ', '-', (string) $canonical['ancestry']));
+      $canonical['heritage'] = $this->firstNonEmptyString([
+        $canonical['heritage'] ?? '',
+        $this->selectQuickPlayHeritage((string) $canonical['ancestry']),
+      ]);
+      $canonical['class_key_ability'] = $this->firstNonEmptyString([
+        $canonical['class_key_ability'] ?? '',
+        $this->selectQuickPlayClassKeyAbility($class_id),
+      ]);
+      $canonical['subclass'] = $this->firstNonEmptyString([
+        $canonical['subclass'] ?? '',
+        $this->selectQuickPlaySubclass($class_id),
+      ]);
+      if ($class_id === 'wizard') {
+        $canonical['arcane_thesis'] = $this->firstNonEmptyString([
+          $canonical['arcane_thesis'] ?? '',
+          $this->selectQuickPlayArcaneThesis(),
+        ]);
+      }
+      $canonical['general_feat'] = $this->firstNonEmptyString([
+        $canonical['general_feat'] ?? '',
+        $this->selectQuickPlayGeneralFeat($class_id),
+      ]);
+      $canonical['class_feat'] = $this->firstNonEmptyString([
+        $canonical['class_feat'] ?? '',
+        $this->selectQuickPlayClassFeat($class_id),
+      ]);
+
+      if (!is_array($canonical['ancestry_boosts'] ?? NULL) || $canonical['ancestry_boosts'] === []) {
+        $canonical['ancestry_boosts'] = $this->selectQuickPlayAncestryBoosts($ancestry_machine_id, (string) $canonical['heritage'], $class_id);
+      }
+      if (!is_array($canonical['background_boosts'] ?? NULL) || $canonical['background_boosts'] === []) {
+        $canonical['background_boosts'] = $background_id !== ''
+          ? $this->selectQuickPlayBackgroundBoosts($background_id, $class_id)
+          : [];
+      }
+      if (!is_array($canonical['free_boosts'] ?? NULL) || $canonical['free_boosts'] === []) {
+        $canonical['free_boosts'] = $this->selectQuickPlayFreeBoosts($class_id, (string) $canonical['class_key_ability']);
+      }
+
+      $ability_tracker = new AbilityScoreTracker($this);
+      $ability_calculation = $ability_tracker->calculateAbilityScores([
+        'ancestry' => $ancestry_machine_id,
+        'heritage' => (string) $canonical['heritage'],
+        'ancestry_boosts' => is_array($canonical['ancestry_boosts'] ?? NULL) ? $canonical['ancestry_boosts'] : [],
+        'background' => $background_id,
+        'background_boosts' => is_array($canonical['background_boosts'] ?? NULL) ? $canonical['background_boosts'] : [],
+        'class' => $class_id,
+        'class_key_ability' => (string) $canonical['class_key_ability'],
+        'free_boosts' => is_array($canonical['free_boosts'] ?? NULL) ? $canonical['free_boosts'] : [],
+      ]);
+
+      if (!is_array($canonical['trained_skills'] ?? NULL) || $canonical['trained_skills'] === []) {
+        $canonical['trained_skills'] = $this->selectQuickPlaySkills(
+          $class_id,
+          $background_id,
+          (array) ($ability_calculation['modifiers'] ?? [])
+        );
+      }
+
+      $background_data = self::BACKGROUNDS[$background_id] ?? [];
+      $canonical['background_skill_training'] = $this->firstNonEmptyString([
+        $canonical['background_skill_training'] ?? '',
+        (string) ($background_data['skill'] ?? ''),
+      ]);
+      $canonical['background_lore_skill'] = $this->firstNonEmptyString([
+        $canonical['background_lore_skill'] ?? '',
+        (string) ($background_data['lore'] ?? ''),
+      ]);
+      $canonical['background_skill_feat'] = $this->firstNonEmptyString([
+        $canonical['background_skill_feat'] ?? '',
+        (string) ($background_data['feat'] ?? ''),
+      ]);
+
+      if (empty($canonical['inventory']['carried'])) {
+        $equipment_data = $this->buildQuickPlayEquipmentData(
+          $class_id,
+          (int) (($ability_calculation['scores']['strength'] ?? $canonical['abilities']['str'] ?? 10))
+        );
+        $canonical['inventory'] = $equipment_data['inventory'];
+        $canonical['gm_equipment_ids'] = $equipment_data['ids'];
+        $canonical['gold'] = (float) $equipment_data['gold'];
+      }
+
+      if ($this->resolveClassTradition($class_id, $canonical) !== NULL && empty($canonical['spells'])) {
+        $spell_data = $this->buildQuickPlaySpellData($class_id, (string) ($canonical['subclass'] ?? ''));
+        $canonical['cantrips'] = $spell_data['cantrips'];
+        $canonical['spells_first'] = $spell_data['spells_first'];
+        $canonical['spells'] = $spell_data['spells'];
+      }
+
+      if (!is_array($canonical['feat_selections'] ?? NULL)) {
+        $canonical['feat_selections'] = [];
+      }
+      if (!is_array($canonical['feats'] ?? NULL) || $canonical['feats'] === []) {
+        $canonical['feats'] = $this->buildQuickPlayFeatList(
+          $class_id,
+          (string) $canonical['class_feat'],
+          (string) $canonical['general_feat'],
+          (string) ($background_data['feat'] ?? '')
+        );
+      }
+    }
+    else {
+      $canonical['general_feat'] = $this->firstNonEmptyString([
+        $canonical['general_feat'] ?? '',
+        'N/A',
+      ], 'N/A');
+      if (empty($canonical['inventory']['carried'])) {
+        $canonical['inventory'] = [
+          'worn' => ['weapons' => [], 'accessories' => []],
+          'carried' => [
+            [
+              'id' => 'personal-effects',
+              'name' => 'Personal Effects',
+              'type' => 'misc',
+              'quantity' => 1,
+            ],
+          ],
+          'currency' => ['cp' => 0, 'sp' => 0, 'gp' => 0, 'pp' => 0],
+          'totalBulk' => 0,
+          'encumbrance' => 'unencumbered',
+        ];
+      }
+      if (!is_array($canonical['feats'] ?? NULL) || $canonical['feats'] === []) {
+        $canonical['feats'] = [
+          [
+            'id' => 'na',
+            'name' => 'N/A',
+            'source' => 'character-backfill',
+          ],
+        ];
+      }
+    }
+
+    $wizard = is_array($canonical['wizard'] ?? NULL) ? $canonical['wizard'] : [];
+    $wizard['step'] = max(1, (int) ($wizard['step'] ?? $canonical['step'] ?? 8));
+    $wizard['name'] = $canonical['name'];
+    $wizard['concept'] = $canonical['concept'];
+    $wizard['level'] = (int) ($canonical['level'] ?? 1);
+    $wizard['experience_points'] = (int) ($canonical['experience_points'] ?? 0);
+    $wizard['ancestry'] = strtolower(str_replace(' ', '-', (string) $canonical['ancestry']));
+    $wizard['heritage'] = (string) ($canonical['heritage'] ?? '');
+    $wizard['background'] = $background_id !== '' ? $background_id : strtolower(str_replace(' ', '-', $background_name));
+    $wizard['class'] = $class_id;
+    $wizard['class_key_ability'] = (string) ($canonical['class_key_ability'] ?? '');
+    $wizard['class_feat'] = (string) ($canonical['class_feat'] ?? '');
+    $wizard['subclass'] = (string) ($canonical['subclass'] ?? '');
+    $wizard['cantrips'] = is_array($canonical['cantrips'] ?? NULL) ? $canonical['cantrips'] : [];
+    $wizard['spells_first'] = is_array($canonical['spells_first'] ?? NULL) ? $canonical['spells_first'] : [];
+    $wizard['free_boosts'] = is_array($canonical['free_boosts'] ?? NULL) ? $canonical['free_boosts'] : [];
+    $wizard['trained_skills'] = is_array($canonical['trained_skills'] ?? NULL) ? $canonical['trained_skills'] : [];
+    $wizard['alignment'] = $this->normalizeAlignmentCode((string) $canonical['alignment']);
+    $wizard['deity'] = (string) ($canonical['deity'] ?? '');
+    $wizard['general_feat'] = (string) ($canonical['general_feat'] ?? '');
+    $wizard['age'] = (string) ($canonical['age'] ?? '');
+    $wizard['gender'] = (string) ($canonical['gender'] ?? '');
+    $wizard['appearance'] = (string) ($canonical['appearance'] ?? '');
+    $wizard['personality'] = (string) ($canonical['personality'] ?? '');
+    $wizard['roleplay_style'] = (string) ($canonical['roleplay_style'] ?? 'balanced');
+    $wizard['backstory'] = (string) ($canonical['backstory'] ?? '');
+    $wizard['portrait_generate'] = !empty($canonical['portrait_generate']) ? 1 : 0;
+    $wizard['portrait_prompt'] = (string) ($canonical['portrait_prompt'] ?? '');
+    $wizard['gold'] = (float) ($canonical['gold'] ?? 0);
+    $wizard['hero_points'] = (int) ($canonical['hero_points'] ?? 1);
+    $wizard['gm_equipment_ids'] = is_array($canonical['gm_equipment_ids'] ?? NULL) ? $canonical['gm_equipment_ids'] : [];
+    $wizard['gm_chat'] = is_array($wizard['gm_chat'] ?? NULL) ? $wizard['gm_chat'] : ['messages' => []];
+    if (!empty($canonical['arcane_thesis'])) {
+      $wizard['arcane_thesis'] = (string) $canonical['arcane_thesis'];
+    }
+    $canonical['wizard'] = $wizard;
+    $canonical['step'] = max(1, (int) ($canonical['step'] ?? $wizard['step'] ?? 8));
+    if (!$canonical['wizard_complete'] && $canonical['step'] >= 8) {
+      $canonical['wizard_complete'] = TRUE;
+    }
+
+    return $this->synchronizeLegacyCharacterMirrors($canonical);
+  }
+
+  /**
+   * Refresh an existing quick-play prefab in place.
+   */
+  private function refreshQuickPlayCharacterRecord(int $character_id, array $profile): void {
+    $record = $this->loadCharacter($character_id);
+    if (!$record) {
+      return;
+    }
+
+    ['character_data' => $character_data, 'hot' => $hot] = $this->buildStoredCharacterPayload(
+      $profile['name'],
+      $profile['ancestry'],
+      $record->class ?: ($profile['options']['quickplay_prefab']['class'] ?? ''),
+      $profile['options']
+    );
+
+    $now = \Drupal::time()->getRequestTime();
+    $this->database->update('dc_campaign_characters')
+      ->fields([
+        'name' => $profile['name'],
+        'ancestry' => $profile['ancestry'],
+        'class' => $record->class ?: ($profile['options']['quickplay_prefab']['class'] ?? ''),
+        'level' => 1,
+        'hp_current' => $hot['hp_current'],
+        'hp_max' => $hot['hp_max'],
+        'armor_class' => $hot['armor_class'],
+        'experience_points' => $hot['experience_points'],
+        'character_data' => json_encode($character_data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE),
+        'status' => 1,
+        'changed' => $now,
+        'version' => (int) ($record->version ?? 0) + 1,
+      ])
+      ->condition('id', $character_id)
+      ->execute();
+  }
+
+  /**
+   * Determine whether a prefab is current and actually filled out.
+   */
+  private function isQuickPlayCharacterCurrent(array $character_data, string $class_id): bool {
+    $quickplay = $character_data['quickplay_prefab'] ?? [];
+    $version = (int) ($quickplay['version'] ?? 0);
+    if ($version < self::QUICKPLAY_PROFILE_VERSION) {
+      return FALSE;
+    }
+
+    if ((int) ($character_data['step'] ?? 0) < 8 || empty($character_data['wizard_complete'])) {
+      return FALSE;
+    }
+    if (!is_array($character_data['wizard'] ?? NULL) || empty($character_data['wizard']['trained_skills'])) {
+      return FALSE;
+    }
+    if (empty($character_data['inventory']['carried'])) {
+      return FALSE;
+    }
+    if (empty($character_data['general_feat']) || empty($character_data['appearance']) || empty($character_data['personality'])) {
+      return FALSE;
+    }
+
+    $tradition = $this->resolveClassTradition($class_id, $character_data);
+    if ($tradition !== NULL && empty($character_data['spells']['cantrips'])) {
+      return FALSE;
+    }
+
+    return TRUE;
+  }
+
+  /**
+   * Build deterministic completion options for quick-play prefabs.
+   *
+   * @return array<string,mixed>
+   *   Additional options merged into the base profile.
+   */
+  private function buildQuickPlayCompletionOptions(
+    string $name,
+    string $class_id,
+    int $class_index,
+    string $ancestry_name,
+    string $background_id,
+    string $background_name,
+    string $alignment
+  ): array {
+    $ancestry_machine_id = strtolower(str_replace(' ', '-', $ancestry_name));
+    $heritage_id = $this->selectQuickPlayHeritage($ancestry_name);
+    $class_key_ability = $this->selectQuickPlayClassKeyAbility($class_id);
+    $subclass = $this->selectQuickPlaySubclass($class_id);
+    $arcane_thesis = $class_id === 'wizard' ? $this->selectQuickPlayArcaneThesis() : '';
+    $ancestry_boosts = $this->selectQuickPlayAncestryBoosts($ancestry_machine_id, $heritage_id, $class_id);
+    $background_boosts = $this->selectQuickPlayBackgroundBoosts($background_id, $class_id);
+    $free_boosts = $this->selectQuickPlayFreeBoosts($class_id, $class_key_ability);
+    $ability_tracker = new AbilityScoreTracker($this);
+    $ability_input = [
+      'ancestry' => $ancestry_machine_id,
+      'heritage' => $heritage_id,
+      'ancestry_boosts' => $ancestry_boosts,
+      'background' => $background_id,
+      'background_boosts' => $background_boosts,
+      'class' => $class_id,
+      'class_key_ability' => $class_key_ability,
+      'free_boosts' => $free_boosts,
+    ];
+    $ability_calculation = $ability_tracker->calculateAbilityScores($ability_input);
+    $ability_boosts = [];
+    foreach (($ability_calculation['scores'] ?? []) as $ability => $score) {
+      $ability_boosts[$ability] = (int) $score - 10;
+    }
+
+    $class_feat = $this->selectQuickPlayClassFeat($class_id);
+    $general_feat = $this->selectQuickPlayGeneralFeat($class_id);
+    $deity = $this->selectQuickPlayDeity($class_id, $alignment);
+    $trained_skills = $this->selectQuickPlaySkills(
+      $class_id,
+      $background_id,
+      (array) ($ability_calculation['modifiers'] ?? [])
+    );
+    $spell_data = $this->buildQuickPlaySpellData($class_id, $subclass);
+    $equipment_data = $this->buildQuickPlayEquipmentData(
+      $class_id,
+      (int) (($ability_calculation['scores']['strength'] ?? 10))
+    );
+    $gender = $this->selectQuickPlayGenderPresentation($class_index);
+    $appearance = $this->buildQuickPlayAppearance($ancestry_name, $class_id, $class_index);
+    $personality = $this->buildQuickPlayPersonality($class_id);
+    $backstory = sprintf(
+      '%s trained as a %s before answering the call to adventure as a %s.',
+      $name,
+      $background_name,
+      $this->humanizeIdentifier($class_id)
+    );
+    $concept = sprintf('%s %s ready for immediate play.', $ancestry_name, $this->humanizeIdentifier($class_id));
+    $portrait_prompt = sprintf(
+      '%s %s, %s background, %s, %s, fantasy portrait, Pathfinder 2E adventurer',
+      $ancestry_name,
+      $this->humanizeIdentifier($class_id),
+      $background_name,
+      $appearance,
+      $personality
+    );
+
+    $wizard = [
+      'step' => 8,
+      'name' => $name,
+      'concept' => $concept,
+      'level' => 1,
+      'experience_points' => 0,
+      'ancestry' => $ancestry_machine_id,
+      'heritage' => $heritage_id,
+      'ancestry_boosts' => $ancestry_boosts,
+      'background' => $background_id,
+      'background_boosts' => $background_boosts,
+      'class' => $class_id,
+      'class_key_ability' => $class_key_ability,
+      'class_feat' => $class_feat,
+      'subclass' => $subclass,
+      'cantrips' => $spell_data['cantrips'],
+      'spells_first' => $spell_data['spells_first'],
+      'free_boosts' => $free_boosts,
+      'trained_skills' => $trained_skills,
+      'alignment' => $this->normalizeAlignmentCode($alignment),
+      'deity' => $deity,
+      'general_feat' => $general_feat,
+      'age' => (string) (24 + ($class_index % 9)),
+      'gender' => $gender,
+      'appearance' => $appearance,
+      'personality' => $personality,
+      'roleplay_style' => 'balanced',
+      'backstory' => $backstory,
+      'portrait_generate' => 1,
+      'portrait_prompt' => $portrait_prompt,
+      'gold' => $equipment_data['gold'],
+      'hero_points' => 1,
+      'gm_equipment_ids' => $equipment_data['ids'],
+      'gm_chat' => ['messages' => []],
+    ];
+    if ($arcane_thesis !== '') {
+      $wizard['arcane_thesis'] = $arcane_thesis;
+    }
+
+    $background = self::BACKGROUNDS[$background_id] ?? [];
+    $skills = $this->buildQuickPlaySkillMap($trained_skills, (string) ($background['skill'] ?? ''));
+    $feats = $this->buildQuickPlayFeatList($class_id, $class_feat, $general_feat, (string) ($background['feat'] ?? ''));
+
+    return [
+      'wizard' => $wizard,
+      'ability_boosts' => $ability_boosts,
+      'heritage' => $heritage_id,
+      'ancestry_boosts' => $ancestry_boosts,
+      'background_boosts' => $background_boosts,
+      'class_key_ability' => $class_key_ability,
+      'class_feat' => $class_feat,
+      'subclass' => $subclass,
+      'cantrips' => $spell_data['cantrips'],
+      'spells_first' => $spell_data['spells_first'],
+      'free_boosts' => $free_boosts,
+      'trained_skills' => $trained_skills,
+      'alignment' => $alignment,
+      'deity' => $deity,
+      'general_feat' => $general_feat,
+      'age' => $wizard['age'],
+      'gender' => $gender,
+      'appearance' => $appearance,
+      'personality' => $personality,
+      'backstory' => $backstory,
+      'concept' => $concept,
+      'portrait_generate' => 1,
+      'portrait_prompt' => $portrait_prompt,
+      'gm_equipment_ids' => $equipment_data['ids'],
+      'inventory' => $equipment_data['inventory'],
+      'gold' => $equipment_data['gold'],
+      'skills' => $skills,
+      'spells' => $spell_data['spells'],
+      'feats' => $feats,
+      'background_skill_training' => (string) ($background['skill'] ?? ''),
+      'background_lore_skill' => (string) ($background['lore'] ?? ''),
+      'background_skill_feat' => (string) ($background['feat'] ?? ''),
+      'arcane_thesis' => $arcane_thesis,
+    ];
+  }
+
+  /**
+   * Select the first available heritage for a quick-play ancestry.
+   */
+  private function selectQuickPlayHeritage(string $ancestry_name): string {
+    $heritages = self::HERITAGES[$ancestry_name] ?? [];
+    return (string) (($heritages[0]['id'] ?? ''));
+  }
+
+  /**
+   * Select a stable key ability for classes with a choice.
+   */
+  private function selectQuickPlayClassKeyAbility(string $class_id): string {
+    $raw_key_ability = self::CLASSES[$class_id]['key_ability'] ?? 'strength';
+    if (is_array($raw_key_ability)) {
+      $raw_key_ability = (string) ($raw_key_ability[0] ?? 'strength');
+    }
+    if (str_contains((string) $raw_key_ability, ' or ')) {
+      $raw_key_ability = explode(' or ', (string) $raw_key_ability)[0];
+    }
+
+    return match ($class_id) {
+      'fighter' => 'strength',
+      'ranger' => 'dexterity',
+      'rogue' => 'dexterity',
+      default => $this->normalizeAbilityLabel((string) $raw_key_ability),
+    };
+  }
+
+  /**
+   * Select ancestry free boosts using class priorities.
+   *
+   * @return string[]
+   *   Long-form ability names.
+   */
+  private function selectQuickPlayAncestryBoosts(string $ancestry_machine_id, string $heritage_id, string $class_id): array {
+    $config = self::getAncestryBoostConfig($ancestry_machine_id, $heritage_id);
+    $fixed = array_map([$this, 'normalizeAbilityLabel'], (array) ($config['fixed_boosts'] ?? []));
+    $selected = [];
+    foreach ($this->getQuickPlayAbilityPriorities($class_id) as $ability) {
+      if (in_array($ability, $selected, TRUE) || in_array($ability, $fixed, TRUE)) {
+        continue;
+      }
+      $selected[] = $ability;
+      if (count($selected) >= (int) ($config['free_boosts'] ?? 0)) {
+        break;
+      }
+    }
+    return $selected;
+  }
+
+  /**
+   * Select background boosts (fixed + one free choice).
+   *
+   * @return string[]
+   *   Long-form ability names.
+   */
+  private function selectQuickPlayBackgroundBoosts(string $background_id, string $class_id): array {
+    $background = self::BACKGROUNDS[$background_id] ?? [];
+    $fixed = $this->normalizeAbilityLabel((string) ($background['fixed_boost'] ?? 'strength'));
+    foreach ($this->getQuickPlayAbilityPriorities($class_id) as $ability) {
+      if ($ability === $fixed) {
+        continue;
+      }
+      return [$ability];
+    }
+    return [];
+  }
+
+  /**
+   * Select the four free boosts for step 5.
+   *
+   * @return string[]
+   *   Long-form ability names.
+   */
+  private function selectQuickPlayFreeBoosts(string $class_id, string $class_key_ability): array {
+    $selected = [];
+    $priorities = array_values(array_unique(array_merge([$class_key_ability], $this->getQuickPlayAbilityPriorities($class_id))));
+    foreach ($priorities as $ability) {
+      if (in_array($ability, $selected, TRUE)) {
+        continue;
+      }
+      $selected[] = $ability;
+      if (count($selected) >= 4) {
+        break;
+      }
+    }
+    return $selected;
+  }
+
+  /**
+   * Determine ability priorities for deterministic quick-play builds.
+   *
+   * @return string[]
+   *   Long-form ability names.
+   */
+  private function getQuickPlayAbilityPriorities(string $class_id): array {
+    return match ($class_id) {
+      'barbarian', 'fighter', 'champion' => ['strength', 'constitution', 'dexterity', 'wisdom', 'charisma', 'intelligence'],
+      'rogue', 'swashbuckler' => ['dexterity', 'charisma', 'constitution', 'wisdom', 'intelligence', 'strength'],
+      'ranger' => ['dexterity', 'wisdom', 'constitution', 'strength', 'intelligence', 'charisma'],
+      'monk' => ['dexterity', 'wisdom', 'constitution', 'strength', 'charisma', 'intelligence'],
+      'bard', 'sorcerer', 'oracle', 'summoner' => ['charisma', 'dexterity', 'constitution', 'wisdom', 'intelligence', 'strength'],
+      'wizard', 'witch', 'inventor', 'investigator', 'alchemist' => ['intelligence', 'dexterity', 'constitution', 'wisdom', 'charisma', 'strength'],
+      'cleric', 'druid' => ['wisdom', 'constitution', 'dexterity', 'charisma', 'strength', 'intelligence'],
+      'magus' => ['intelligence', 'strength', 'dexterity', 'constitution', 'wisdom', 'charisma'],
+      default => ['strength', 'dexterity', 'constitution', 'wisdom', 'intelligence', 'charisma'],
+    };
+  }
+
+  /**
+   * Select a safe class feat that does not require extra wizard inputs.
+   */
+  private function selectQuickPlayClassFeat(string $class_id): string {
+    $excluded = [
+      'monster-hunter',
+      'staff-nexus',
+      'eldritch-trickster-racket',
+      'mastermind-racket',
+      'domain-initiate',
+    ];
+    $fallback = '';
+    foreach (self::getClassFeats($class_id) as $feat) {
+      $feat_id = trim((string) ($feat['id'] ?? ''));
+      if ($feat_id === '' || in_array($feat_id, $excluded, TRUE)) {
+        continue;
+      }
+      if ($fallback === '') {
+        $fallback = $feat_id;
+      }
+      $level = (int) ($feat['level'] ?? 1);
+      $prerequisites = strtolower(trim((string) ($feat['prerequisites'] ?? 'none')));
+      if ($level <= 1 && ($prerequisites === '' || $prerequisites === 'none')) {
+        return $feat_id;
+      }
+    }
+
+    return $fallback;
+  }
+
+  /**
+   * Select a stable general feat.
+   */
+  private function selectQuickPlayGeneralFeat(string $class_id): string {
+    $preferred = match ($class_id) {
+      'bard', 'rogue', 'ranger', 'swashbuckler' => 'fleet',
+      default => 'toughness',
+    };
+    foreach (self::getGeneralFeats() as $feat) {
+      if (($feat['id'] ?? '') === $preferred) {
+        return $preferred;
+      }
+    }
+    foreach (self::getGeneralFeats() as $feat) {
+      $feat_id = trim((string) ($feat['id'] ?? ''));
+      $prerequisites = strtolower(trim((string) ($feat['prerequisites'] ?? 'none')));
+      if ($feat_id !== '' && ($prerequisites === '' || $prerequisites === 'none')) {
+        return $feat_id;
+      }
+    }
+    return '';
+  }
+
+  /**
+   * Select subclass choices for classes that require one in the wizard.
+   */
+  private function selectQuickPlaySubclass(string $class_id): string {
+    return match ($class_id) {
+      'sorcerer' => array_key_first(self::SORCERER_BLOODLINES) ?? '',
+      'witch' => array_key_first(self::WITCH_PATRONS) ?? '',
+      'wizard' => array_key_first(self::ARCANE_SCHOOLS) ?? '',
+      default => '',
+    };
+  }
+
+  /**
+   * Select a stable arcane thesis for Wizards.
+   */
+  private function selectQuickPlayArcaneThesis(): string {
+    $options = self::CLASSES['wizard']['arcane_thesis']['options'] ?? [];
+    return (string) (array_key_first($options) ?? '');
+  }
+
+  /**
+   * Select a deity or guiding belief for classes that need stronger flavor.
+   */
+  private function selectQuickPlayDeity(string $class_id, string $alignment): string {
+    return match ($class_id) {
+      'cleric' => 'Sarenrae',
+      'champion' => 'Iomedae',
+      'oracle' => 'Pharasma',
+      default => str_contains($alignment, 'Good') ? 'Guided by mercy and duty' : 'Guided by practical balance',
+    };
+  }
+
+  /**
+   * Select trained skills for step 6.
+   *
+   * @param array<string,int> $modifiers
+   *   Calculated ability modifiers keyed by long-form ability name.
+   *
+   * @return string[]
+   *   Display-form skill labels used by the wizard.
+   */
+  private function selectQuickPlaySkills(string $class_id, string $background_id, array $modifiers): array {
+    $class_data = self::CLASSES[$class_id] ?? [];
+    $background_skill = (string) (self::BACKGROUNDS[$background_id]['skill'] ?? '');
+    $base_count = (int) ($class_data['trained_skills'] ?? 3);
+    $int_modifier = (int) ($modifiers['intelligence'] ?? 0);
+    $required = max(1, $base_count + $int_modifier);
+    $selected = [];
+    $priority_map = [
+      'strength' => ['Athletics'],
+      'dexterity' => ['Acrobatics', 'Stealth', 'Thievery'],
+      'constitution' => ['Athletics', 'Medicine'],
+      'intelligence' => ['Arcana', 'Crafting', 'Occultism', 'Society'],
+      'wisdom' => ['Medicine', 'Nature', 'Religion', 'Survival'],
+      'charisma' => ['Diplomacy', 'Intimidation', 'Performance', 'Deception'],
+    ];
+    foreach ($this->getQuickPlayAbilityPriorities($class_id) as $ability) {
+      foreach ($priority_map[$ability] ?? [] as $skill) {
+        if ($skill === $background_skill || in_array($skill, $selected, TRUE)) {
+          continue;
+        }
+        $selected[] = $skill;
+        if (count($selected) >= $required) {
+          return $selected;
+        }
+      }
+    }
+
+    $all_skills = ['Acrobatics', 'Arcana', 'Athletics', 'Crafting', 'Deception', 'Diplomacy', 'Intimidation', 'Medicine', 'Nature', 'Occultism', 'Performance', 'Religion', 'Society', 'Stealth', 'Survival', 'Thievery'];
+    foreach ($all_skills as $skill) {
+      if ($skill === $background_skill || in_array($skill, $selected, TRUE)) {
+        continue;
+      }
+      $selected[] = $skill;
+      if (count($selected) >= $required) {
+        break;
+      }
+    }
+
+    return $selected;
+  }
+
+  /**
+   * Build structured spell data for caster prefabs.
+   *
+   * @return array{cantrips: string[], spells_first: string[], spells: array<string,mixed>}
+   *   Wizard-field lists plus structured runtime spell data.
+   */
+  private function buildQuickPlaySpellData(string $class_id, string $subclass): array {
+    $tradition = $this->resolveClassTradition($class_id, ['subclass' => $subclass]);
+    $spell_slots = self::CASTER_SPELL_SLOTS[$class_id] ?? NULL;
+    if ($tradition === NULL || !is_array($spell_slots)) {
+      return [
+        'cantrips' => [],
+        'spells_first' => [],
+        'spells' => [],
+      ];
+    }
+
+    $cantrip_limit = (int) ($spell_slots['cantrips'] ?? 5);
+    $first_limit = (int) ($spell_slots['first'] ?? 2);
+    $wizard_spellbook_limit = (int) ($spell_slots['spellbook'] ?? $first_limit);
+    $cantrip_ids = array_column(array_slice($this->getSpellsByTradition($tradition, 0), 0, $cantrip_limit), 'id');
+    $first_ids = array_column(
+      array_slice($this->getSpellsByTradition($tradition, 1), 0, $class_id === 'wizard' ? $wizard_spellbook_limit : $first_limit),
+      'id'
+    );
+
+    $spells = [
+      'tradition' => $tradition,
+      'casting_ability' => $this->resolveQuickPlaySpellcastingAbility($class_id),
+      'cantrips' => $cantrip_ids,
+      'first_level' => $first_ids,
+      'slots' => [
+        'cantrips' => $cantrip_limit,
+        'first' => $first_limit,
+      ],
+    ];
+    if ($class_id === 'wizard') {
+      $spells['spellbook_size'] = $wizard_spellbook_limit;
+    }
+
+    return [
+      'cantrips' => $cantrip_ids,
+      'spells_first' => $first_ids,
+      'spells' => $spells,
+    ];
+  }
+
+  /**
+   * Resolve spellcasting ability for quick-play casters.
+   */
+  private function resolveQuickPlaySpellcastingAbility(string $class_id): string {
+    return match ($class_id) {
+      'wizard', 'witch', 'magus', 'inventor', 'alchemist', 'investigator' => 'intelligence',
+      'cleric', 'druid' => 'wisdom',
+      default => 'charisma',
+    };
+  }
+
+  /**
+   * Build equipment payload and remaining gold.
+   *
+   * @return array{ids: string[], inventory: array<string,mixed>, gold: float}
+   *   Selected equipment ids, structured inventory, and leftover gold.
+   */
+  private function buildQuickPlayEquipmentData(string $class_id, int $strength_score): array {
+    $catalog = $this->getQuickPlayEquipmentCatalog();
+    $catalog_by_id = [];
+    foreach ($catalog as $items) {
+      foreach ($items as $item) {
+        $catalog_by_id[$item['id']] = $item;
+      }
+    }
+
+    $selected_ids = $this->getQuickPlayEquipmentLoadoutIds($class_id);
+    $selected_items = [];
+    $total_cost = 0.0;
+    foreach ($selected_ids as $item_id) {
+      if (!isset($catalog_by_id[$item_id])) {
+        continue;
+      }
+      $selected_items[] = $catalog_by_id[$item_id];
+      $total_cost += (float) $catalog_by_id[$item_id]['cost'];
+    }
+
+    $carried = [];
+    $total_bulk = 0.0;
+    foreach ($selected_items as $item) {
+      $carried[] = [
+        'id' => $item['id'],
+        'name' => $item['name'],
+        'type' => $item['type'],
+        'bulk' => $item['bulk'] ?? 'L',
+        'quantity' => 1,
+        'traits' => $item['traits'] ?? [],
+      ];
+      $bulk_value = $item['bulk'] ?? 'L';
+      if ($bulk_value === 'L' || $bulk_value === 'light') {
+        $total_bulk += 0.1;
+      }
+      elseif (is_numeric($bulk_value)) {
+        $total_bulk += (float) $bulk_value;
+      }
+    }
+
+    $remaining_gp = max(0, round(15 - $total_cost, 2));
+    $encumbered_at = 5 + $strength_score;
+    $overloaded_at = 10 + $strength_score;
+    $encumbrance = 'unencumbered';
+    if ($total_bulk >= $overloaded_at) {
+      $encumbrance = 'overloaded';
+    }
+    elseif ($total_bulk >= $encumbered_at) {
+      $encumbrance = 'encumbered';
+    }
+
+    return [
+      'ids' => $selected_ids,
+      'gold' => $remaining_gp,
+      'inventory' => [
+        'worn' => [
+          'weapons' => [],
+          'armor' => NULL,
+          'accessories' => [],
+        ],
+        'carried' => $carried,
+        'currency' => [
+          'cp' => 0,
+          'sp' => 0,
+          'gp' => $remaining_gp,
+          'pp' => 0,
+        ],
+        'totalBulk' => round($total_bulk, 1),
+        'encumbrance' => $encumbrance,
+      ],
+    ];
+  }
+
+  /**
+   * Return a deterministic starter loadout for a class.
+   *
+   * @return string[]
+   *   Equipment ids from the wizard starter catalog.
+   */
+  private function getQuickPlayEquipmentLoadoutIds(string $class_id): array {
+    $shared = ['backpack', 'bedroll', 'torches', 'rations', 'waterskin'];
+    return match ($class_id) {
+      'fighter' => array_merge(['longsword', 'chain_mail', 'wooden_shield'], $shared),
+      'barbarian' => array_merge(['battleaxe', 'hide_armor'], $shared),
+      'champion' => array_merge(['longsword', 'chain_mail', 'wooden_shield'], $shared),
+      'rogue' => array_merge(['shortsword', 'dagger', 'studded_leather_armor', 'thieves_tools'], $shared),
+      'ranger' => array_merge(['longbow', 'shortsword', 'leather', 'rope'], $shared),
+      'bard' => array_merge(['rapier', 'leather'], $shared),
+      'cleric' => array_merge(['warhammer', 'chain_shirt', 'wooden_shield'], $shared),
+      'druid' => array_merge(['staff', 'hide_armor'], $shared),
+      'monk' => array_merge(['staff', 'rope'], $shared),
+      'sorcerer', 'oracle', 'witch', 'summoner' => array_merge(['staff'], $shared),
+      'alchemist' => array_merge(['dagger', 'leather', 'healers_tools'], $shared),
+      'investigator' => array_merge(['rapier', 'leather', 'thieves_tools'], $shared),
+      'inventor' => array_merge(['warhammer', 'leather', 'grappling_hook', 'rope'], $shared),
+      'magus' => array_merge(['longsword', 'chain_shirt'], $shared),
+      'swashbuckler' => array_merge(['rapier', 'leather'], $shared),
+      default => array_merge(['staff'], $shared),
+    };
+  }
+
+  /**
+   * Starter equipment catalog for quick-play completion.
+   *
+   * @return array<string,array<int,array<string,mixed>>>
+   *   Equipment grouped by category.
+   */
+  private function getQuickPlayEquipmentCatalog(): array {
+    return [
+      'weapons' => [
+        ['id' => 'longsword', 'name' => 'Longsword', 'type' => 'weapon', 'cost' => 1.0, 'bulk' => 1, 'traits' => ['versatile P']],
+        ['id' => 'shortsword', 'name' => 'Shortsword', 'type' => 'weapon', 'cost' => 0.9, 'bulk' => 'L', 'traits' => ['agile', 'finesse']],
+        ['id' => 'dagger', 'name' => 'Dagger', 'type' => 'weapon', 'cost' => 0.2, 'bulk' => 'L', 'traits' => ['agile', 'finesse', 'thrown 10 ft.']],
+        ['id' => 'rapier', 'name' => 'Rapier', 'type' => 'weapon', 'cost' => 2.0, 'bulk' => 1, 'traits' => ['deadly d8', 'disarm', 'finesse']],
+        ['id' => 'battleaxe', 'name' => 'Battle Axe', 'type' => 'weapon', 'cost' => 1.0, 'bulk' => 1, 'traits' => ['sweep']],
+        ['id' => 'warhammer', 'name' => 'Warhammer', 'type' => 'weapon', 'cost' => 1.0, 'bulk' => 1, 'traits' => ['shove']],
+        ['id' => 'shortbow', 'name' => 'Shortbow', 'type' => 'weapon', 'cost' => 3.0, 'bulk' => 1, 'traits' => ['range 60 ft.']],
+        ['id' => 'longbow', 'name' => 'Longbow', 'type' => 'weapon', 'cost' => 6.0, 'bulk' => 2, 'traits' => ['range 100 ft.']],
+        ['id' => 'staff', 'name' => 'Staff', 'type' => 'weapon', 'cost' => 0.0, 'bulk' => 1, 'traits' => ['two-hand d8']],
+      ],
+      'armor' => [
+        ['id' => 'leather', 'name' => 'Leather Armor', 'type' => 'armor', 'cost' => 2.0, 'bulk' => 1, 'traits' => []],
+        ['id' => 'studded_leather_armor', 'name' => 'Studded Leather Armor', 'type' => 'armor', 'cost' => 3.0, 'bulk' => 1, 'traits' => []],
+        ['id' => 'chain_shirt', 'name' => 'Chain Shirt', 'type' => 'armor', 'cost' => 5.0, 'bulk' => 1, 'traits' => ['flexible', 'noisy']],
+        ['id' => 'hide_armor', 'name' => 'Hide Armor', 'type' => 'armor', 'cost' => 2.0, 'bulk' => 2, 'traits' => []],
+        ['id' => 'chain_mail', 'name' => 'Chain Mail', 'type' => 'armor', 'cost' => 6.0, 'bulk' => 2, 'traits' => ['flexible', 'noisy']],
+        ['id' => 'wooden_shield', 'name' => 'Wooden Shield', 'type' => 'armor', 'cost' => 1.0, 'bulk' => 1, 'traits' => []],
+      ],
+      'gear' => [
+        ['id' => 'backpack', 'name' => 'Backpack', 'type' => 'adventuring_gear', 'cost' => 0.1, 'bulk' => 'L', 'traits' => []],
+        ['id' => 'bedroll', 'name' => 'Bedroll', 'type' => 'adventuring_gear', 'cost' => 0.1, 'bulk' => 'L', 'traits' => []],
+        ['id' => 'rope', 'name' => 'Rope (50 ft.)', 'type' => 'adventuring_gear', 'cost' => 0.5, 'bulk' => 'L', 'traits' => []],
+        ['id' => 'torches', 'name' => 'Torches (5)', 'type' => 'adventuring_gear', 'cost' => 0.05, 'bulk' => 'L', 'traits' => []],
+        ['id' => 'rations', 'name' => 'Rations (1 week)', 'type' => 'adventuring_gear', 'cost' => 0.4, 'bulk' => 'L', 'traits' => []],
+        ['id' => 'waterskin', 'name' => 'Waterskin', 'type' => 'adventuring_gear', 'cost' => 0.05, 'bulk' => 'L', 'traits' => []],
+        ['id' => 'healers_tools', 'name' => "Healer's Tools", 'type' => 'adventuring_gear', 'cost' => 5.0, 'bulk' => 1, 'traits' => []],
+        ['id' => 'thieves_tools', 'name' => "Thieves' Tools", 'type' => 'adventuring_gear', 'cost' => 3.0, 'bulk' => 'L', 'traits' => []],
+        ['id' => 'grappling_hook', 'name' => 'Grappling Hook', 'type' => 'adventuring_gear', 'cost' => 0.1, 'bulk' => 'L', 'traits' => []],
+      ],
+    ];
+  }
+
+  /**
+   * Build a runtime skill map from wizard selections.
+   *
+   * @return array<string,string>
+   *   Canonical skill proficiency map.
+   */
+  private function buildQuickPlaySkillMap(array $trained_skills, string $background_skill): array {
+    $skills = [];
+    foreach ($trained_skills as $skill_name) {
+      $skills[strtolower($skill_name)] = 'trained';
+    }
+    if ($background_skill !== '') {
+      $skills[strtolower($background_skill)] = 'trained';
+    }
+    return $skills;
+  }
+
+  /**
+   * Build a concise feat list for quick-play runtime state.
+   *
+   * @return array<int,array<string,string>>
+   *   Lightweight feat records.
+   */
+  private function buildQuickPlayFeatList(string $class_id, string $class_feat_id, string $general_feat_id, string $background_feat_name): array {
+    $feats = [];
+    foreach (self::getClassFeats($class_id) as $feat) {
+      if (($feat['id'] ?? '') === $class_feat_id) {
+        $feats[] = [
+          'id' => $class_feat_id,
+          'name' => (string) ($feat['name'] ?? $class_feat_id),
+          'source' => 'class',
+        ];
+        break;
+      }
+    }
+    foreach (self::getGeneralFeats() as $feat) {
+      if (($feat['id'] ?? '') === $general_feat_id) {
+        $feats[] = [
+          'id' => $general_feat_id,
+          'name' => (string) ($feat['name'] ?? $general_feat_id),
+          'source' => 'general',
+        ];
+        break;
+      }
+    }
+    if ($background_feat_name !== '') {
+      $feats[] = [
+        'id' => strtolower(str_replace([' ', '(', ')'], ['-', '', ''], $background_feat_name)),
+        'name' => $background_feat_name,
+        'source' => 'background',
+      ];
+    }
+    return $feats;
+  }
+
+  /**
+   * Normalize long-form ability labels.
+   */
+  private function normalizeAbilityLabel(string $ability): string {
+    $ability = strtolower(trim($ability));
+    return AbilityScoreTracker::ABILITY_MAP[$ability] ?? $ability;
+  }
+
+  /**
+   * Convert display alignment text to the wizard code.
+   */
+  private function normalizeAlignmentCode(string $alignment): string {
+    return match ($alignment) {
+      'Lawful Good' => 'LG',
+      'Neutral Good' => 'NG',
+      'Chaotic Good' => 'CG',
+      'Lawful Neutral' => 'LN',
+      'Neutral' => 'N',
+      'Chaotic Neutral' => 'CN',
+      'Lawful Evil' => 'LE',
+      'Neutral Evil' => 'NE',
+      'Chaotic Evil' => 'CE',
+      default => 'N',
+    };
+  }
+
+  /**
+   * Deterministic gender/pronoun presentation for prefab variety.
+   */
+  private function selectQuickPlayGenderPresentation(int $class_index): string {
+    $options = ['she/her', 'he/him', 'they/them'];
+    return $options[$class_index % count($options)];
+  }
+
+  /**
+   * Build a concise appearance sentence.
+   */
+  private function buildQuickPlayAppearance(string $ancestry_name, string $class_id, int $class_index): string {
+    $accents = ['weathered leathers', 'carefully maintained kit', 'travel-stained cloak', 'well-worn adventuring gear'];
+    return sprintf(
+      '%s %s with %s and an alert, dungeon-ready posture.',
+      strtolower($ancestry_name),
+      strtolower($this->humanizeIdentifier($class_id)),
+      $accents[$class_index % count($accents)]
+    );
+  }
+
+  /**
+   * Build a concise personality sentence.
+   */
+  private function buildQuickPlayPersonality(string $class_id): string {
+    return match ($class_id) {
+      'bard', 'swashbuckler' => 'Quick-witted, confident, and eager to keep the party moving.',
+      'cleric', 'champion', 'oracle' => 'Steady, compassionate, and committed to protecting allies.',
+      'rogue', 'investigator' => 'Observant, skeptical, and always looking for the angle others miss.',
+      'wizard', 'witch', 'alchemist', 'inventor', 'magus' => 'Curious, methodical, and confident in hard-won expertise.',
+      default => 'Practical, brave, and ready to press deeper into danger.',
+    };
+  }
+
+  /**
+   * Humanize a machine identifier for UI-safe fallback labels.
+   */
+  private function humanizeIdentifier(string $value): string {
+    return ucwords(str_replace(['-', '_'], ' ', $value));
   }
 
   /**
@@ -10272,22 +11729,49 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
     $currency = is_array($inventory['currency'] ?? NULL) ? $inventory['currency'] : [];
 
     $canonical['schema_version'] = 'character-state-v1';
-    $canonical['name'] = (string) ($basic_info['name'] ?? $characterData['name'] ?? '');
+    $canonical['name'] = $this->firstNonEmptyString([
+      $basic_info['name'] ?? '',
+      $characterData['name'] ?? '',
+    ]);
     $canonical['level'] = (int) ($basic_info['level'] ?? $characterData['level'] ?? 1);
     $canonical['experience_points'] = (int) ($basic_info['experiencePoints'] ?? $characterData['experience_points'] ?? 0);
     $canonical['ancestry'] = (string) ($basic_info['ancestry'] ?? $characterData['ancestry'] ?? '');
     $canonical['heritage'] = (string) ($basic_info['heritage'] ?? $characterData['heritage'] ?? '');
     $canonical['background'] = (string) ($basic_info['background'] ?? $characterData['background'] ?? '');
     $canonical['class'] = (string) ($basic_info['class'] ?? $characterData['class'] ?? '');
-    $canonical['alignment'] = (string) ($basic_info['alignment'] ?? $characterData['alignment'] ?? '');
-    $canonical['deity'] = (string) ($basic_info['deity'] ?? $characterData['deity'] ?? '');
+    $canonical['alignment'] = $this->firstNonEmptyString([
+      $basic_info['alignment'] ?? '',
+      $characterData['alignment'] ?? '',
+    ]);
+    $canonical['deity'] = $this->firstNonEmptyString([
+      $basic_info['deity'] ?? '',
+      $characterData['deity'] ?? '',
+    ]);
     $canonical['age'] = $basic_info['age'] ?? ($characterData['age'] ?? NULL);
     $canonical['gender'] = $characterData['gender'] ?? ($canonical['gender'] ?? '');
-    $canonical['appearance'] = (string) ($basic_info['appearance'] ?? $characterData['appearance'] ?? '');
-    $canonical['personality'] = (string) ($basic_info['personality'] ?? $characterData['personality'] ?? '');
-    $canonical['backstory'] = (string) ($basic_info['backstory'] ?? $characterData['backstory'] ?? '');
-    $canonical['concept'] = $characterData['concept'] ?? ($canonical['concept'] ?? '');
-    $canonical['roleplay_style'] = $characterData['roleplay_style'] ?? ($canonical['roleplay_style'] ?? 'balanced');
+    $canonical['appearance'] = $this->firstNonEmptyString([
+      $basic_info['appearance'] ?? '',
+      $characterData['appearance'] ?? '',
+      $canonical['appearance'] ?? '',
+    ]);
+    $canonical['personality'] = $this->firstNonEmptyString([
+      $basic_info['personality'] ?? '',
+      $characterData['personality'] ?? '',
+      $canonical['personality'] ?? '',
+    ]);
+    $canonical['backstory'] = $this->firstNonEmptyString([
+      $basic_info['backstory'] ?? '',
+      $characterData['backstory'] ?? '',
+      $canonical['backstory'] ?? '',
+    ]);
+    $canonical['concept'] = $this->firstNonEmptyString([
+      $characterData['concept'] ?? '',
+      $canonical['concept'] ?? '',
+    ]);
+    $canonical['roleplay_style'] = $this->firstNonEmptyString([
+      $characterData['roleplay_style'] ?? '',
+      $canonical['roleplay_style'] ?? 'balanced',
+    ], 'balanced');
     $canonical['portrait_generate'] = (int) ($characterData['portrait_generate'] ?? ($canonical['portrait_generate'] ?? 1));
     $canonical['portrait_prompt'] = (string) ($characterData['portrait_prompt'] ?? ($canonical['portrait_prompt'] ?? ''));
     $canonical['step'] = (int) ($characterData['step'] ?? ($canonical['step'] ?? 1));
@@ -10325,12 +11809,145 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
       'classFeatures' => [],
       'feats' => [],
     ];
-    $canonical['feats'] = is_array($canonical['features']['feats'] ?? NULL) ? $canonical['features']['feats'] : [];
+    $canonical['feats'] = (!empty($canonical['features']['feats']) && is_array($canonical['features']['feats']))
+      ? $canonical['features']['feats']
+      : (is_array($characterData['feats'] ?? NULL) ? $characterData['feats'] : []);
     $canonical['position'] = is_array($characterData['position'] ?? NULL)
       ? $characterData['position']
       : (is_array($canonical['position'] ?? NULL) ? $canonical['position'] : ['q' => 0, 'r' => 0, 'room_id' => '']);
 
-    return $canonical;
+    return $this->synchronizeLegacyCharacterMirrors($canonical);
+  }
+
+  /**
+   * Returns the first non-empty scalar value as a trimmed string.
+   */
+  private function firstNonEmptyString(array $values, string $default = ''): string {
+    foreach ($values as $value) {
+      if (!is_scalar($value)) {
+        continue;
+      }
+      $normalized = trim((string) $value);
+      if ($normalized !== '') {
+        return $normalized;
+      }
+    }
+
+    return $default;
+  }
+
+  /**
+   * Resolve a stored background label to the canonical machine id.
+   */
+  private function resolveBackgroundMachineId(string $background): string {
+    $normalized = strtolower(trim(str_replace(['_', ' '], '-', $background)));
+    if ($normalized === '') {
+      return '';
+    }
+
+    foreach (self::BACKGROUNDS as $background_id => $background_data) {
+      $candidate_name = strtolower(trim(str_replace(['_', ' '], '-', (string) ($background_data['name'] ?? ''))));
+      if ($normalized === $background_id || ($candidate_name !== '' && $normalized === $candidate_name)) {
+        return $background_id;
+      }
+    }
+
+    return $normalized;
+  }
+
+  /**
+   * Build fallback appearance text for incomplete records.
+   */
+  private function buildCompletionAppearance(string $ancestry_name, string $class_id, int $class_index, bool $is_npc): string {
+    if ($is_npc) {
+      return sprintf(
+        '%s with practical clothes, a readable expression, and a presence suited to an active dungeon scene.',
+        strtolower($ancestry_name !== '' ? $ancestry_name : 'individual')
+      );
+    }
+
+    return $this->buildQuickPlayAppearance($ancestry_name !== '' ? $ancestry_name : 'Human', $class_id, $class_index);
+  }
+
+  /**
+   * Build fallback personality text for incomplete records.
+   */
+  private function buildCompletionPersonality(string $class_id, bool $is_npc): string {
+    if ($is_npc) {
+      return 'Approachable, alert, and ready to react to what the party says next.';
+    }
+
+    return $this->buildQuickPlayPersonality($class_id);
+  }
+
+  /**
+   * Build fallback concept text for incomplete records.
+   */
+  private function buildCompletionConcept(string $ancestry_name, string $class_id, bool $is_npc): string {
+    if ($is_npc) {
+      return 'Supporting NPC with a clear role in the current scene.';
+    }
+
+    return sprintf('%s %s ready for immediate play.', $ancestry_name, $this->humanizeIdentifier($class_id));
+  }
+
+  /**
+   * Build fallback backstory text for incomplete records.
+   */
+  private function buildCompletionBackstory(string $name, string $class_id, string $background_name, bool $is_npc): string {
+    if ($is_npc) {
+      return sprintf('%s is a local figure whose recent choices now intersect with the party\'s adventure.', $name);
+    }
+
+    return sprintf(
+      '%s trained as a %s before stepping into danger as a %s.',
+      $name,
+      $background_name,
+      $this->humanizeIdentifier($class_id)
+    );
+  }
+
+  /**
+   * Keep canonical and legacy mirror structures synchronized.
+   */
+  private function synchronizeLegacyCharacterMirrors(array $character_data): array {
+    $character_data['basicInfo'] = array_replace(
+      is_array($character_data['basicInfo'] ?? NULL) ? $character_data['basicInfo'] : [],
+      [
+        'name' => (string) ($character_data['name'] ?? ''),
+        'level' => (int) ($character_data['level'] ?? 1),
+        'experiencePoints' => (int) ($character_data['experience_points'] ?? 0),
+        'ancestry' => (string) ($character_data['ancestry'] ?? ''),
+        'heritage' => (string) ($character_data['heritage'] ?? ''),
+        'background' => (string) ($character_data['background'] ?? ''),
+        'class' => (string) ($character_data['class'] ?? ''),
+        'alignment' => (string) ($character_data['alignment'] ?? ''),
+        'deity' => (string) ($character_data['deity'] ?? ''),
+        'age' => $character_data['age'] ?? NULL,
+        'appearance' => (string) ($character_data['appearance'] ?? ''),
+        'personality' => (string) ($character_data['personality'] ?? ''),
+        'backstory' => (string) ($character_data['backstory'] ?? ''),
+      ]
+    );
+
+    $features = is_array($character_data['features'] ?? NULL) ? $character_data['features'] : [];
+    $features['ancestryFeatures'] = is_array($features['ancestryFeatures'] ?? NULL) ? $features['ancestryFeatures'] : [];
+    $features['classFeatures'] = is_array($features['classFeatures'] ?? NULL) ? $features['classFeatures'] : [];
+    $features['featSelections'] = is_array($features['featSelections'] ?? NULL)
+      ? $features['featSelections']
+      : (is_array($character_data['feat_selections'] ?? NULL) ? $character_data['feat_selections'] : []);
+
+    $raw_feature_feats = (!empty($features['feats']) && is_array($features['feats']))
+      ? $features['feats']
+      : (is_array($character_data['feats'] ?? NULL) ? $character_data['feats'] : []);
+    $feature_feats = $this->normalizeFeatureEntries($raw_feature_feats);
+    $features['feats'] = $this->dedupeFeatureEntries($feature_feats);
+
+    $character_data['features'] = $features;
+    $character_data['feats'] = $features['feats'];
+    $character_data['feat_selections'] = $features['featSelections'];
+
+    return $character_data;
   }
 
   /**
@@ -10482,6 +12099,7 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
         'encumbrance' => 'unencumbered',
       ],
       'skills' => is_array($character['skills'] ?? NULL) ? $character['skills'] : [],
+      'class_features' => is_array($class['class_features'] ?? NULL) ? $class['class_features'] : [],
       'feats' => array_values(array_merge(
         is_array($class['class_feats'] ?? NULL) ? $class['class_feats'] : [],
         is_array($class['skill_feats'] ?? NULL) ? $class['skill_feats'] : []
@@ -10528,6 +12146,24 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
       $perception = $perception['modifier'] ?? 0;
     }
     $inventory = $this->normalizeInventoryPayload($data);
+    $deity_features = [];
+    $deity_input = (string) ($data['deity'] ?? '');
+    $deity_data = $this->resolveDeityInput($deity_input);
+    if ($deity_data !== NULL) {
+      $deity_id = (string) ($deity_data['id'] ?? $deity_input);
+      $favored_weapon = $deity_data['favored_weapon'] ?? '';
+      if ($favored_weapon !== '') {
+        $deity_features['favored_weapon_proficiency'] = [
+          'weapon' => $favored_weapon,
+          'proficiency' => 'trained',
+          'source' => 'deity',
+          'deity_id' => $deity_id,
+        ];
+      }
+      $deity_features['divine_font_type'] = $deity_data['divine_font'] ?? 'heal';
+      $deity_features['divine_skill'] = $deity_data['divine_skill'] ?? '';
+      $deity_features['domains'] = $deity_data['domains'] ?? ['primary' => [], 'alternate' => []];
+    }
     $heritage = (string) ($data['heritage'] ?? '');
     $traits = is_array($data['traits'] ?? NULL) ? $data['traits'] : [];
     if ($ancestry) {
@@ -10539,12 +12175,9 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
         }
       }
     }
-    $features = is_array($data['features'] ?? NULL) ? $data['features'] : [];
-    $features += [
-      'ancestryFeatures' => is_array($data['ancestryFeatures'] ?? NULL) ? $data['ancestryFeatures'] : [],
-      'classFeatures' => is_array($data['classFeatures'] ?? NULL) ? $data['classFeatures'] : [],
-      'feats' => is_array($data['feats'] ?? NULL) ? $data['feats'] : [],
-    ];
+    $features = $this->buildCanonicalFeaturePayload($data, $canonical_ancestry ?: $ancestry_name, $heritage, $class_name, $level);
+    $spells = $this->buildCanonicalSpellPayload($data, $class_name);
+    $skills = $this->buildCanonicalSkillPayload($data, $abilities, $level, $class_name, $deity_features);
 
     return [
       'basicInfo' => [
@@ -10588,8 +12221,8 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
         ],
         'availableActions' => [],
       ],
-      'spells' => is_array($data['spells'] ?? NULL) ? $data['spells'] : [],
-      'skills' => is_array($data['skills'] ?? NULL) ? $data['skills'] : [],
+      'spells' => $spells,
+      'skills' => $skills,
       'inventory' => $inventory,
       'features' => $features,
       'traits' => $traits,
@@ -10603,6 +12236,290 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
       'updated_at' => $data['updated_at'] ?? NULL,
       'version' => (int) ($data['version'] ?? 0),
     ];
+  }
+
+  /**
+   * Build canonical feature payload from mixed wizard/runtime sources.
+   */
+  private function buildCanonicalFeaturePayload(array $data, string $ancestry_name, string $heritage, string $class_name, int $level): array {
+    $existing = is_array($data['features'] ?? NULL) ? $data['features'] : [];
+    $ancestry_features = $this->normalizeFeatureEntries($existing['ancestryFeatures'] ?? $data['ancestryFeatures'] ?? []);
+    $class_features = $this->normalizeFeatureEntries($existing['classFeatures'] ?? $data['classFeatures'] ?? $data['class_features'] ?? []);
+
+    if ($class_features === [] && !empty(self::CLASS_ADVANCEMENT[strtolower($class_name)][$level]['auto_features'])) {
+      $class_features = $this->normalizeFeatureEntries(self::CLASS_ADVANCEMENT[strtolower($class_name)][$level]['auto_features']);
+    }
+
+    $feat_selections = is_array($existing['featSelections'] ?? NULL)
+      ? $existing['featSelections']
+      : (is_array($data['feat_selections'] ?? NULL) ? $data['feat_selections'] : []);
+
+    $feats = $this->normalizeFeatureEntries($existing['feats'] ?? $data['feats'] ?? []);
+    $selected_feat_fields = [
+      $this->resolveFeatChoice($data['ancestry_feat'] ?? '', 'ancestry_feat', self::getEligibleAncestryFeats($ancestry_name, $heritage)),
+      $this->resolveFeatChoice($data['class_feat'] ?? '', 'class_feat', self::getClassFeats(strtolower($class_name))),
+      $this->resolveFeatChoice($data['general_feat'] ?? '', 'general_feat', self::getGeneralFeats()),
+      $this->resolveFeatChoice($data['background_skill_feat'] ?? '', 'background_feat', self::getGeneralFeats()),
+    ];
+
+    foreach ($selected_feat_fields as $resolved_feat) {
+      if ($resolved_feat !== NULL) {
+        $feats[] = $resolved_feat;
+      }
+    }
+
+    $feats = $this->dedupeFeatureEntries($feats);
+
+    return array_replace($existing, [
+      'ancestryFeatures' => $ancestry_features,
+      'classFeatures' => $class_features,
+      'feats' => $feats,
+      'featSelections' => $feat_selections,
+    ]);
+  }
+
+  /**
+   * Build canonical spell payload from wizard/runtime sources.
+   */
+  private function buildCanonicalSpellPayload(array $data, string $class_name): array {
+    $spells = is_array($data['spells'] ?? NULL) ? $data['spells'] : [];
+    if ($spells !== []) {
+      return $spells;
+    }
+
+    $tradition = $this->resolveClassTradition($class_name, $data);
+    $cantrips = is_array($data['cantrips'] ?? NULL) ? array_values(array_filter($data['cantrips'])) : [];
+    $first_level = is_array($data['spells_first'] ?? NULL) ? array_values(array_filter($data['spells_first'])) : [];
+
+    if ($tradition === NULL && $cantrips === [] && $first_level === []) {
+      return [];
+    }
+
+    $class_key = strtolower(trim($class_name));
+    $ability_map = [
+      'wizard' => 'intelligence',
+      'witch' => 'intelligence',
+      'cleric' => 'wisdom',
+      'druid' => 'wisdom',
+      'bard' => 'charisma',
+      'sorcerer' => 'charisma',
+      'oracle' => 'charisma',
+    ];
+    $slot_config = self::CASTER_SPELL_SLOTS[$class_key] ?? [];
+
+    $payload = [
+      'tradition' => $tradition ?? '',
+      'casting_ability' => $ability_map[$class_key] ?? 'charisma',
+      'cantrips' => $cantrips,
+      'first_level' => $first_level,
+    ];
+
+    if ($slot_config !== []) {
+      $payload['slots'] = [
+        'cantrips' => (int) ($slot_config['cantrips'] ?? count($cantrips)),
+        'first' => (int) ($slot_config['first'] ?? count($first_level)),
+      ];
+      if (!empty($slot_config['spellbook'])) {
+        $payload['spellbook_size'] = (int) $slot_config['spellbook'];
+      }
+      if (!empty($slot_config['focus_pool_start'])) {
+        $payload['focus_pool_start'] = (int) $slot_config['focus_pool_start'];
+      }
+    }
+
+    return $payload;
+  }
+
+  /**
+   * Build a complete canonical skill list for runtime consumers.
+   */
+  private function buildCanonicalSkillPayload(array $data, array $abilities, int $level, string $class_name, array $deity_features = []): array {
+    $stored_skills = is_array($data['skills'] ?? NULL) ? $data['skills'] : [];
+    if ($stored_skills !== [] && array_is_list($stored_skills)) {
+      return $stored_skills;
+    }
+
+    $calculator = new CharacterCalculator();
+    $class_key = strtolower(trim($class_name));
+    $skill_ranks = [];
+
+    foreach ($stored_skills as $skill_name => $skill_state) {
+      $normalized = $this->normalizeSkillName(is_string($skill_name) ? $skill_name : (string) ($skill_state['name'] ?? ''));
+      if ($normalized === NULL) {
+        continue;
+      }
+      $rank = is_array($skill_state)
+        ? strtolower((string) ($skill_state['proficiency'] ?? $skill_state['proficiencyRank'] ?? $skill_state['rank'] ?? 'untrained'))
+        : strtolower((string) $skill_state);
+      $skill_ranks[$normalized] = in_array($rank, CharacterCalculator::PROFICIENCY_RANKS, TRUE) ? $rank : 'untrained';
+    }
+
+    foreach ((array) (self::CLASSES[$class_key]['fixed_skills'] ?? []) as $skill_name) {
+      $normalized = $this->normalizeSkillName((string) $skill_name);
+      if ($normalized !== NULL) {
+        $skill_ranks[$normalized] = 'trained';
+      }
+    }
+
+    foreach ((array) ($data['trained_skills'] ?? []) as $skill_name) {
+      $normalized = $this->normalizeSkillName((string) $skill_name);
+      if ($normalized !== NULL) {
+        $skill_ranks[$normalized] = 'trained';
+      }
+    }
+
+    foreach ([(string) ($data['background_skill_training'] ?? ''), (string) ($deity_features['divine_skill'] ?? '')] as $skill_name) {
+      $normalized = $this->normalizeSkillName($skill_name);
+      if ($normalized !== NULL) {
+        $skill_ranks[$normalized] = 'trained';
+      }
+    }
+
+    $skills = [];
+    foreach (CharacterCalculator::SKILLS as $skill_key => $ability_key) {
+      if ($skill_key === 'lore') {
+        continue;
+      }
+      $ability_score = (int) ($abilities[$ability_key] ?? $abilities[substr($ability_key, 0, 3)] ?? 10);
+      $rank = $skill_ranks[$skill_key] ?? 'untrained';
+      $skills[] = [
+        'name' => ucwords($skill_key),
+        'modifier' => $calculator->calculateAbilityModifier($ability_score)
+          + $calculator->calculateProficiencyBonus($rank, $level),
+        'proficiency' => $rank,
+      ];
+    }
+
+    $background_lore = trim((string) ($data['background_lore_skill'] ?? ''));
+    if ($background_lore !== '') {
+      $lore_name = str_ends_with(strtolower($background_lore), ' lore') ? $background_lore : $background_lore . ' Lore';
+      $ability_score = (int) ($abilities['intelligence'] ?? $abilities['int'] ?? 10);
+      $skills[] = [
+        'name' => $lore_name,
+        'modifier' => $calculator->calculateAbilityModifier($ability_score) + $calculator->calculateProficiencyBonus('trained', $level),
+        'proficiency' => 'trained',
+      ];
+    }
+
+    return $skills;
+  }
+
+  /**
+   * Normalize a skill name to CharacterCalculator::SKILLS keys.
+   */
+  private function normalizeSkillName(string $skill_name): ?string {
+    $normalized = strtolower(trim($skill_name));
+    if ($normalized === '') {
+      return NULL;
+    }
+    if (isset(CharacterCalculator::SKILLS[$normalized])) {
+      return $normalized;
+    }
+
+    $collapsed = str_replace([' ', '_'], '', $normalized);
+    foreach (array_keys(CharacterCalculator::SKILLS) as $skill_key) {
+      if (str_replace(' ', '', strtolower($skill_key)) === $collapsed) {
+        return $skill_key;
+      }
+    }
+
+    return NULL;
+  }
+
+  /**
+   * Normalize a list of mixed feature payloads into canonical arrays.
+   */
+  private function normalizeFeatureEntries(array $entries): array {
+    $normalized = [];
+    foreach ($entries as $entry) {
+      if (is_string($entry) && trim($entry) !== '') {
+        $normalized[] = [
+          'id' => $this->normalizeFeatureIdentifier($entry),
+          'name' => $this->humanizeIdentifier($entry),
+          'description' => '',
+        ];
+        continue;
+      }
+
+      if (!is_array($entry)) {
+        continue;
+      }
+
+      $id = trim((string) ($entry['id'] ?? $entry['name'] ?? ''));
+      $name = trim((string) ($entry['name'] ?? $entry['label'] ?? $id));
+      if ($id === '' && $name === '') {
+        continue;
+      }
+
+      $normalized[] = $entry + [
+        'id' => $id !== '' ? $this->normalizeFeatureIdentifier($id) : $this->normalizeFeatureIdentifier($name),
+        'name' => $name !== '' ? $name : $this->humanizeIdentifier($id),
+        'description' => trim((string) ($entry['description'] ?? $entry['benefit'] ?? $entry['desc'] ?? '')),
+      ];
+    }
+
+    return $this->dedupeFeatureEntries($normalized);
+  }
+
+  /**
+   * Resolve a selected feat against canonical candidates.
+   */
+  private function resolveFeatChoice(mixed $selection, string $slot_type, array $candidates): ?array {
+    $selected = trim((string) $selection);
+    if ($selected === '') {
+      return NULL;
+    }
+
+    $normalized_selected = $this->normalizeFeatureIdentifier($selected);
+    foreach ($candidates as $candidate) {
+      $candidate_id = $this->normalizeFeatureIdentifier((string) ($candidate['id'] ?? ''));
+      $candidate_name = $this->normalizeFeatureIdentifier((string) ($candidate['name'] ?? ''));
+      if ($normalized_selected === $candidate_id || $normalized_selected === $candidate_name) {
+        return [
+          'id' => $candidate['id'] ?? $normalized_selected,
+          'name' => $candidate['name'] ?? $this->humanizeIdentifier($selected),
+          'description' => trim((string) ($candidate['description'] ?? $candidate['benefit'] ?? $candidate['desc'] ?? '')),
+          'slot_type' => $slot_type,
+          'source_book' => $candidate['source_book'] ?? NULL,
+        ];
+      }
+    }
+
+    return [
+      'id' => $normalized_selected,
+      'name' => $this->humanizeIdentifier($selected),
+      'description' => '',
+      'slot_type' => $slot_type,
+    ];
+  }
+
+  /**
+   * Dedupe normalized feature entries by id/name.
+   */
+  private function dedupeFeatureEntries(array $entries): array {
+    $deduped = [];
+    foreach ($entries as $entry) {
+      $key = $this->normalizeFeatureIdentifier((string) ($entry['id'] ?? $entry['name'] ?? ''));
+      if ($key === '') {
+        continue;
+      }
+      if (!isset($deduped[$key])) {
+        $deduped[$key] = $entry;
+      }
+    }
+
+    return array_values($deduped);
+  }
+
+  /**
+   * Normalize feature identifiers into hyphenated canonical keys.
+   */
+  private function normalizeFeatureIdentifier(string $value): string {
+    $normalized = strtolower(trim($value));
+    $normalized = str_replace('_', '-', $normalized);
+    $normalized = preg_replace('/[^a-z0-9\-]+/', '-', $normalized) ?? $normalized;
+    $normalized = preg_replace('/-+/', '-', $normalized) ?? $normalized;
+    return trim($normalized, '-');
   }
 
   /**
@@ -10923,7 +12840,7 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
             'reflex' => $class_proficiencies['reflex'],
             'will' => $class_proficiencies['will'],
           ],
-          'class_features' => [],
+          'class_features' => self::CLASS_ADVANCEMENT[$class_name][1]['auto_features'] ?? [],
           'class_feats' => [],
           'skill_feats' => [],
         ],
@@ -11623,6 +13540,7 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
     $rows = $query->execute()->fetchAll();
 
     $spells = [];
+    $spell_scores = [];
     foreach ($rows as $row) {
       $schema = json_decode($row->schema_data, TRUE) ?: [];
 
@@ -11638,19 +13556,150 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
         continue;
       }
 
-      $spells[] = [
-        'id' => $row->content_id,
+      $normalized_id = $this->normalizeSpellCatalogId((string) $row->content_id);
+      $candidate = [
+        'id' => str_contains((string) $row->content_id, '-') ? (string) $row->content_id : $normalized_id,
         'name' => $row->name,
         'level' => (int) $row->level,
         'school' => $school ?: 'unknown',
         'traditions' => $schema['traditions'] ?? [],
-        'description' => $schema['description_snippet'] ?? $row->name,
+        'description' => $this->resolveSpellCatalogDescription($schema, (string) $row->name),
+        'description_source' => $this->resolveSpellCatalogDescriptionSource($schema),
         'rarity' => $spell_rarity,
         'source' => trim((string) ($schema['source_display'] ?? $schema['source_book'] ?? '')),
         'heightenable' => !empty($schema['heightenable']),
       ];
+
+      $candidate_score = $this->scoreSpellCatalogRow((string) $row->content_id, $schema);
+      if (!isset($spells[$normalized_id]) || $candidate_score > $spell_scores[$normalized_id]) {
+        $spells[$normalized_id] = $candidate;
+        $spell_scores[$normalized_id] = $candidate_score;
+      }
     }
-    return $spells;
+
+    return array_values($spells);
+  }
+
+  /**
+   * Normalizes spell catalog IDs to the canonical hyphenated form.
+   */
+  protected function normalizeSpellCatalogId(string $content_id): string {
+    return str_replace('_', '-', strtolower(trim($content_id)));
+  }
+
+  /**
+   * Chooses the best available spell description for UI display.
+   */
+  protected function resolveSpellCatalogDescription(array $schema, string $fallback_name): string {
+    $description = trim((string) ($schema['description'] ?? ''));
+    $display_description = $fallback_name;
+    if ($this->hasCompleteSpellDescription($description)) {
+      $display_description = $description;
+    }
+    elseif ($description !== '') {
+      $display_description = $description;
+    }
+    else {
+      $snippet = trim((string) ($schema['description_snippet'] ?? ''));
+      if ($snippet !== '') {
+        $display_description = $snippet;
+      }
+    }
+
+    return $this->appendSpellOutcomeSummary($display_description, $schema);
+  }
+
+  /**
+   * Identifies which field supplied the spell description.
+   */
+  protected function resolveSpellCatalogDescriptionSource(array $schema): string {
+    if ($this->hasCompleteSpellDescription(trim((string) ($schema['description'] ?? '')))) {
+      return 'description';
+    }
+
+    if (trim((string) ($schema['description_snippet'] ?? '')) !== '') {
+      return 'description_snippet';
+    }
+
+    return 'fallback';
+  }
+
+  /**
+   * Appends degree-of-success outcomes when the base description omits them.
+   */
+  protected function appendSpellOutcomeSummary(string $description, array $schema): string {
+    $description = trim($description);
+    $outcomes = $schema['effects']['outcomes'] ?? [];
+    if (!is_array($outcomes) || $outcomes === []) {
+      return $description;
+    }
+
+    $ordered_labels = ['Critical Success', 'Success', 'Failure', 'Critical Failure'];
+    $summary_parts = [];
+    foreach ($ordered_labels as $label) {
+      $text = trim((string) ($outcomes[$label] ?? ''));
+      if ($text !== '') {
+        if (stripos($description, $label . ':') !== FALSE) {
+          return $description;
+        }
+        $summary_parts[] = $label . ': ' . $text;
+      }
+      unset($outcomes[$label]);
+    }
+    foreach ($outcomes as $label => $text) {
+      $label = trim((string) $label);
+      $text = trim((string) $text);
+      if ($label === '' || $text === '') {
+        continue;
+      }
+      if (stripos($description, $label . ':') !== FALSE) {
+        return $description;
+      }
+      $summary_parts[] = $label . ': ' . $text;
+    }
+
+    if ($summary_parts === []) {
+      return $description;
+    }
+
+    return trim($description . ' ' . implode(' ', $summary_parts));
+  }
+
+  /**
+   * Scores a spell registry row so canonical, full-description records win.
+   */
+  protected function scoreSpellCatalogRow(string $content_id, array $schema): int {
+    $score = 0;
+
+    if (str_contains($content_id, '-')) {
+      $score += 100;
+    }
+
+    if ($this->hasCompleteSpellDescription(trim((string) ($schema['description'] ?? '')))) {
+      $score += 50;
+    }
+
+    if (trim((string) ($schema['description_snippet'] ?? '')) !== '') {
+      $score += 10;
+    }
+
+    return $score;
+  }
+
+  /**
+   * Heuristically determines whether a stored description reads as complete text.
+   */
+  protected function hasCompleteSpellDescription(string $description): bool {
+    $description = trim($description);
+    if ($description === '') {
+      return FALSE;
+    }
+
+    if (preg_match('/[.!?][\'")\]]?$/u', $description)) {
+      return TRUE;
+    }
+
+    return mb_strlen($description) >= 160;
   }
 
   /**
@@ -11693,6 +13742,40 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
     }
 
     return NULL;
+  }
+
+  /**
+   * Returns spellcasting multiclass dedication options keyed by dedication id.
+   *
+   * @return array<string,array<string,string>>
+   *   Each entry includes id, name, source_class, and tradition.
+   */
+  public static function getSpellcastingMulticlassDedicationOptions(): array {
+    $options = [];
+    foreach (self::MULTICLASS_ARCHETYPES as $archetype) {
+      $source_class = strtolower(trim((string) ($archetype['source_class'] ?? '')));
+      $tradition = self::CLASS_TRADITIONS[$source_class] ?? NULL;
+      if ($source_class === 'rogue' || !is_string($tradition) || $tradition === '') {
+        continue;
+      }
+
+      $dedication = $archetype['dedication'] ?? [];
+      $dedication_id = strtolower(trim((string) ($dedication['id'] ?? $archetype['id'] ?? '')));
+      $dedication_name = trim((string) ($dedication['name'] ?? $archetype['name'] ?? ''));
+      if ($dedication_id === '' || $dedication_name === '') {
+        continue;
+      }
+
+      $options[$dedication_id] = [
+        'id' => $dedication_id,
+        'name' => $dedication_name,
+        'source_class' => $source_class,
+        'tradition' => $tradition,
+      ];
+    }
+
+    uasort($options, static fn(array $a, array $b): int => strcmp($a['name'], $b['name']));
+    return $options;
   }
 
   /**

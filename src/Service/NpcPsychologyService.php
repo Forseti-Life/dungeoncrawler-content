@@ -409,7 +409,13 @@ class NpcPsychologyService {
       $prompt .= "Skill check: {$context['skill_check_result']}\n";
     }
 
-    $prompt .= "\nGenerate this NPC's private inner thought reaction. Consider their personality, motivations, and current attitude.\n\n";
+    $prompt .= "\nScope limit: you are only generating this NPC's private reaction to the event. ";
+    $prompt .= "You do not control campaign state, room state, character sheets, the content library, rules adjudication, or application code.\n";
+    $prompt .= "Your available tools are limited to the same player-facing lookup and action surfaces a player character has. ";
+    $prompt .= "Lookup tools: spell/focus-spell lookups via /api/spells, /api/spells/{spell_id}, and /api/focus-spells, plus feat lookups via /api/feats and /api/feats/{feat_id}. ";
+    $prompt .= "Action tools: only the player action-bar / coordinator actions move or stride, strike or attack, interact, talk, search, cast_spell, consume_item, skill actions, feat actions, navigate, and end_turn, as represented by GameCoordinatorApi sendAction()/move()/strike()/interact()/talk()/search()/castSpell()/endTurn(), the direct action-rail handlers executeDirectAttack/executeDirectNavigate/executeDirectInteract/executeDirectSpell/executeDirectConsumable/executeDirectSkill/executeDirectFeat, and the matching player routes /api/game/{campaign_id}/action, /api/combat/attack, /api/combat/action, /api/character/{character_id}/cast-spell, /api/character/{character_id}/actions, and /api/character/{character_id}/inventory. ";
+    $prompt .= "Do not assume any GM-only, admin-only, campaign-state mutation, library mutation, or code-changing tool exists for you.\n";
+    $prompt .= "\nGenerate this NPC's private inner thought reaction. Consider their personality, motivations, internal conflict, coping habits, stress response, and current attitude.\n\n";
     $prompt .= "Respond ONLY with valid JSON:\n";
     $prompt .= "{\n";
     $prompt .= "  \"thought\": \"1-2 sentence inner monologue in first person\",\n";
@@ -419,15 +425,15 @@ class NpcPsychologyService {
     $prompt .= "}";
 
     $result = $this->aiApiService->invokeModelDirect(
-      $prompt,
-      'dungeoncrawler_content',
-      'npc_inner_monologue',
-      ['campaign_id' => $profile['campaign_id'], 'npc' => $profile['entity_ref']],
-      [
-        'system_prompt' => "You generate NPC inner monologue as JSON. Stay in character. Be concise. The attitude_shift should reflect how significant the event is — most events are 0 or ±1, only extreme events warrant ±2.",
-        'max_tokens' => 250,
-        'skip_cache' => TRUE,
-      ]
+        $prompt,
+        'dungeoncrawler_content',
+        'npc_inner_monologue',
+        ['campaign_id' => $profile['campaign_id'], 'npc' => $profile['entity_ref']],
+        [
+          'system_prompt' => "You generate NPC inner monologue as JSON. Stay in character. Be concise. This NPC has no authority to change code, campaign state, room state, character sheets, rules, or the content library. Its available tools are only the same player-facing lookup and action surfaces available to a player character: spell/focus-spell lookups via /api/spells, /api/spells/{spell_id}, and /api/focus-spells; feat lookups via /api/feats and /api/feats/{feat_id}; and the player action-bar / coordinator actions move/stride, strike/attack, interact, talk, search, cast_spell, consume_item, skill, feat, navigate, and end_turn via GameCoordinatorApi and the matching player routes. The attitude_shift should reflect how significant the event is — most events are 0 or ±1, only extreme events warrant ±2.",
+          'max_tokens' => 250,
+          'skip_cache' => TRUE,
+        ]
     );
 
     if (!empty($result['success']) && !empty($result['response'])) {
@@ -700,6 +706,23 @@ class NpcPsychologyService {
     }
     if (!empty($profile['bonds'])) {
       $parts[] = "Bonds: {$profile['bonds']}";
+    }
+    $psychology = is_array($sheet['psychology'] ?? NULL) ? $sheet['psychology'] : [];
+    $psychology_labels = [
+      'inner_conflict' => 'Inner conflict',
+      'coping_mechanism' => 'Coping mechanism',
+      'stress_response' => 'Stress response',
+      'insecurity' => 'Core insecurity',
+      'secret' => 'Private secret',
+      'desire' => 'Surface desire',
+      'need' => 'Underlying need',
+      'trigger' => 'Emotional trigger',
+      'anchor' => 'Anchor',
+    ];
+    foreach ($psychology_labels as $field => $label) {
+      if (!empty($psychology[$field])) {
+        $parts[] = "{$label}: {$psychology[$field]}";
+      }
     }
 
     // Personality axes as behavioral guidance.

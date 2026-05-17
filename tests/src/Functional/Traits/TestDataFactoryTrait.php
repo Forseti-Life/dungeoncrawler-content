@@ -2,6 +2,8 @@
 
 namespace Drupal\Tests\dungeoncrawler_content\Functional\Traits;
 
+use Drupal\dungeoncrawler_content\Service\CampaignClockService;
+
 /**
  * Provides test data factory methods for functional tests.
  */
@@ -69,6 +71,7 @@ trait TestDataFactoryTrait {
    */
   protected function createCampaignState(array $overrides = []): array {
     $defaults = [
+      'schema_version' => '1.0.0',
       'created_by' => $this->loggedInUser ? $this->loggedInUser->id() : 1,
       'started' => TRUE,
       'progress' => [],
@@ -78,13 +81,17 @@ trait TestDataFactoryTrait {
       'completed_quests' => [],
       'active_quests' => [],
       'discovered_locations' => ['town'],
-      'game_time' => [
-        'day' => 1,
-        'hour' => 8,
-      ],
     ];
-    
-    return array_merge($defaults, $overrides);
+
+    $state = array_merge($defaults, $overrides);
+    $clock_service = \Drupal::service('dungeoncrawler_content.campaign_clock');
+    if ($clock_service instanceof CampaignClockService) {
+      $clock = $clock_service->createClockFromTimestamp(time());
+      $state[CampaignClockService::STATE_KEY] = $overrides[CampaignClockService::STATE_KEY] ?? $clock;
+      $clock_service->syncLegacyGameTime($state);
+    }
+
+    return $state;
   }
 
   /**

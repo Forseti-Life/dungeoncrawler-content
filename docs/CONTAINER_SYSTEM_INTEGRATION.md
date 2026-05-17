@@ -203,7 +203,8 @@ Created comprehensive documentation index linking:
 
 **Key Features Demonstrated**:
 - **capacity_reduction = 0.0** for bags of holding (contents weightless)
-- **capacity_reduction = 1.0** for standard containers (full weight)
+- **capacity_reduction = 1.0** for standard containers that count full contents weight
+- **bulk_reduction = 2.0** for PF2e backpacks (first 2 Bulk of contents ignored)
 - **can_lock / lock_dc** for secured containers
 - **access_time** variations (free for quick-draw, interact for standard, 2_actions for digging)
 - **water_resistant** for protective containers
@@ -235,11 +236,11 @@ Created comprehensive documentation index linking:
 
 **Effective Weight Calculation**:
 ```
-Effective Bulk = container_bulk + (contents_bulk × capacity_reduction)
+Effective Bulk = container_bulk + max(0, (contents_bulk × capacity_reduction) - bulk_reduction)
 ```
 
 **Examples**:
-- Backpack (reduction 1.0): 4 bulk inside = L + 4 = 4.1 bulk total
+- Backpack (reduction 1.0, bulk reduction 2.0): 4 bulk inside = L + max(0, 4 - 2) = 2.1 bulk total
 - Bag of Holding (reduction 0.0): 20 bulk inside = 1 + 0 = 1 bulk total
 
 **Source**: `dc_campaign_item_instances.state_data` with `container_stats`

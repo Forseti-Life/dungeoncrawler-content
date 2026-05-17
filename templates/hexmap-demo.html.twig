@@ -40,6 +40,25 @@
           <p class="eyebrow">{{ 'Action Bar'|t }}</p>
           <h3 id="action-rail-actor-name">{{ 'No actor selected'|t }}</h3>
           <p class="action-rail__status" id="action-rail-status">{{ 'Select your character to unlock direct actions.'|t }}</p>
+          <div class="action-rail__automation">
+            <button type="button" class="btn btn-action action-rail__automation-toggle" id="action-rail-automate-toggle" aria-pressed="false">
+              {{ 'Automate'|t }}
+            </button>
+            <p class="action-rail__automation-meta" id="action-rail-automation-meta">{{ 'Let your character act autonomously using the player-agent harness.'|t }}</p>
+          </div>
+        </div>
+
+        <div class="action-rail__clocks" aria-label="{{ 'Time references'|t }}">
+          <div class="action-rail__clock-card">
+            <p class="action-rail__clock-label">{{ 'Real world'|t }}</p>
+            <p class="action-rail__clock-value" id="action-rail-real-clock">{{ 'Loading…'|t }}</p>
+            <p class="action-rail__clock-meta" id="action-rail-real-clock-meta">{{ 'Local device time'|t }}</p>
+          </div>
+          <div class="action-rail__clock-card">
+            <p class="action-rail__clock-label">{{ 'Campaign'|t }}</p>
+            <p class="action-rail__clock-value" id="action-rail-campaign-clock">{{ 'Unavailable'|t }}</p>
+            <p class="action-rail__clock-meta" id="action-rail-campaign-clock-meta">{{ 'Advances when actions consume time'|t }}</p>
+          </div>
         </div>
 
         <div class="action-rail__categories" id="action-rail-categories">
@@ -270,6 +289,14 @@
         <h2 id="char-name">{{ 'Select a character'|t }}</h2>
         <p id="char-type" class="muted">{{ 'Type —'|t }}</p>
         <p id="char-subtitle" class="muted small" style="display:none;"></p>
+        <div id="char-personality-wrap" class="character-sheet__bio" style="display:none;">
+          <span class="character-sheet__bio-label">{{ 'Personality'|t }}</span>
+          <p id="char-personality" class="character-sheet__bio-text"></p>
+        </div>
+        <div id="char-backstory-wrap" class="character-sheet__bio" style="display:none;">
+          <span class="character-sheet__bio-label">{{ 'Backstory'|t }}</span>
+          <p id="char-backstory" class="character-sheet__bio-text"></p>
+        </div>
       </div>
       <div class="character-badges">
         <span id="char-ancestry" class="pill pill-muted">{{ 'Ancestry —'|t }}</span>
@@ -794,6 +821,12 @@
       var html = '<div class="inv-tooltip__name">' + escapeTooltipHtml(payload.name || '') + '</div>';
       if (payload.type) html += '<div class="inv-tooltip__type">' + escapeTooltipHtml(payload.type) + '</div>';
       if (payload.desc) html += '<div class="inv-tooltip__desc">' + escapeTooltipHtml(payload.desc) + '</div>';
+      if (payload.externalLookupUrl) {
+        html += '<div class="inv-tooltip__section">';
+        html += '<div class="inv-tooltip__section-label">Lookup</div>';
+        html += '<div class="inv-tooltip__desc"><a href="' + escapeTooltipHtml(payload.externalLookupUrl) + '" target="_blank" rel="noopener noreferrer">' + escapeTooltipHtml(payload.externalLookupLabel || payload.externalLookupUrl) + '</a></div>';
+        html += '</div>';
+      }
 
       if (payload.loading) {
         html += '<div class="inv-tooltip__loading">Loading full entry...</div>';
@@ -855,6 +888,8 @@
       var dataMods = parseTooltipJson(el.dataset.tooltipMods);
       var dataEffects = parseTooltipJson(el.dataset.tooltipEffects);
       var dataNotes = parseTooltipJson(el.dataset.tooltipNotes);
+      var externalLookupUrl = el.dataset.tooltipExternalUrl || '';
+      var externalLookupLabel = el.dataset.tooltipExternalLabel || '';
 
       var desc = dataDesc || (info && (info.description || info.desc)) || (info && info.effect_text) || '';
       var bulk = dataBulk || (info && info.bulk != null ? info.bulk : '');
@@ -878,7 +913,9 @@
         effects: dataEffects,
         mods: dataMods.length ? dataMods : ((info && info.mods) || []),
         notes: dataNotes,
-        loading: el.dataset.tooltipResolver === 'spell' && !!el.dataset.itemId && !el.dataset.tooltipLoaded
+        loading: el.dataset.tooltipResolver === 'spell' && !!el.dataset.itemId && !el.dataset.tooltipLoaded,
+        externalLookupUrl: externalLookupUrl,
+        externalLookupLabel: externalLookupLabel
       };
     }
 
@@ -888,6 +925,25 @@
       var effects = parseTooltipJson(el.dataset.tooltipEffects);
       var mods = parseTooltipJson(el.dataset.tooltipMods);
       var notes = parseTooltipJson(el.dataset.tooltipNotes);
+
+      if (spell.not_in_inventory && spell.fallback_lookup) {
+        el.dataset.tooltipType = 'External Lookup';
+        el.dataset.tooltipDesc = 'This spell is not in the DC inventory. Search Archives of Nethys for the authoritative spell entry.';
+        el.dataset.tooltipExternalUrl = spell.fallback_lookup.direct_url || spell.fallback_lookup.search_url || spell.fallback_lookup.rituals_url || spell.fallback_lookup.spells_url || '';
+        el.dataset.tooltipExternalLabel = spell.fallback_lookup.direct_url
+          ? 'Open Archives of Nethys entry for "' + (spell.fallback_lookup.matched_name || spell.fallback_lookup.query || (spell.name || 'this spell')) + '"'
+          : 'Search Archives of Nethys for "' + (spell.fallback_lookup.query || (spell.name || 'this spell')) + '"';
+        notes.push('Local spell inventory miss.');
+        if (spell.fallback_lookup.query) {
+          notes.push('AoN query: ' + spell.fallback_lookup.query);
+        }
+        if (spell.fallback_lookup.matched_type) {
+          notes.push('AoN matched type: ' + spell.fallback_lookup.matched_type);
+        }
+        el.dataset.tooltipNotes = JSON.stringify(Array.from(new Set(notes.filter(Boolean))));
+        el.dataset.tooltipLoaded = 'true';
+        return;
+      }
 
       var rankLabel = spellRankLabel(spell.rank, spell.is_cantrip);
       var typeParts = [rankLabel, spell.school ? humanizeSpellValue(spell.school) : 'Spell'];
@@ -980,7 +1036,9 @@
 
       spellTooltipPending[itemId] = fetch('/api/spells/' + encodeURIComponent(itemId), { credentials: 'same-origin' })
         .then(function (response) {
-          if (!response.ok) return null;
+          if (!response.ok) {
+            return response.json().catch(function () { return null; });
+          }
           return response.json();
         })
         .then(function (data) {

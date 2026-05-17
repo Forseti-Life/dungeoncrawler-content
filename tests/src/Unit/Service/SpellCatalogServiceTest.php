@@ -42,6 +42,89 @@ class SpellCatalogServiceTest extends UnitTestCase {
     $this->service->getSpell('message');
   }
 
+  /**
+   * @covers ::buildRegistrySpellRecord
+   * @covers ::normalizeSpellRecord
+   */
+  public function testBuildRegistrySpellRecordTreatsFragmentAsSnippetFallback(): void {
+    $service = new class extends SpellCatalogService {
+
+      public function __construct() {}
+
+      public function buildRecordForTest(object $row): ?array {
+        $record = $this->buildRegistrySpellRecord($row);
+        return $record === NULL ? NULL : $this->normalizeSpellRecord($record);
+      }
+
+    };
+
+    $record = $service->buildRecordForTest((object) [
+      'content_id' => 'detect-magic',
+      'name' => 'Detect Magic',
+      'level' => 0,
+      'tags' => '["arcane","divine","occult","primal"]',
+      'schema_data' => json_encode([
+        'id' => 'detect-magic',
+        'name' => 'Detect Magic',
+        'rank' => 0,
+        'spell_type' => 'cantrip',
+        'school' => 'divination',
+        'rarity' => 'common',
+        'traditions' => ['arcane', 'divine', 'occult', 'primal'],
+        'description' => 'Sense whether',
+        'description_snippet' => 'Sense whether',
+      ]),
+    ]);
+
+    $this->assertNotNull($record);
+    $this->assertSame('Sense whether', $record['description']);
+    $this->assertSame('description_snippet', $record['description_source']);
+  }
+
+  /**
+   * @covers ::buildRegistrySpellRecord
+   * @covers ::normalizeSpellRecord
+   */
+  public function testBuildRegistrySpellRecordAppendsOutcomeSummary(): void {
+    $service = new class extends SpellCatalogService {
+
+      public function __construct() {}
+
+      public function buildRecordForTest(object $row): ?array {
+        $record = $this->buildRegistrySpellRecord($row);
+        return $record === NULL ? NULL : $this->normalizeSpellRecord($record);
+      }
+
+    };
+
+    $record = $service->buildRecordForTest((object) [
+      'content_id' => 'tanglefoot',
+      'name' => 'Tanglefoot',
+      'level' => 0,
+      'tags' => '["arcane","primal","cantrip","attack","conjuration"]',
+      'schema_data' => json_encode([
+        'id' => 'tanglefoot',
+        'name' => 'Tanglefoot',
+        'rank' => 0,
+        'spell_type' => 'cantrip',
+        'school' => 'conjuration',
+        'rarity' => 'common',
+        'traditions' => ['arcane', 'primal'],
+        'description' => 'A vine covered in sticky sap appears from thin air, flicking from your hand and lashing itself to the target. Attempt a spell attack against the target.',
+        'effects' => [
+          'outcomes' => [
+            'Critical Success' => 'The target gains the immobilized condition and takes a -10-foot circumstance penalty to its Speeds for 1 round.',
+            'Success' => 'The target takes a -10-foot circumstance penalty to its Speeds for 1 round.',
+          ],
+        ],
+      ]),
+    ]);
+
+    $this->assertNotNull($record);
+    $this->assertStringContainsString('Critical Success:', $record['description']);
+    $this->assertStringContainsString('Success: The target takes a -10-foot circumstance penalty', $record['description']);
+  }
+
   // -------------------------------------------------------------------------
   // Cantrip auto-heightening
   // -------------------------------------------------------------------------

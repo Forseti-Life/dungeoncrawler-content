@@ -134,7 +134,7 @@ class TextToSpeechIntegrationService {
    * @return array<string, mixed>
    *   Storage payload.
    */
-  public function storeAudioResult(array $result): array {
+  public function storeAudioResult(array $result, string $directory = 'public://forseti-tts-tests'): array {
     $service = $this->getProviderService();
     if ($service === NULL) {
       return [
@@ -151,7 +151,7 @@ class TextToSpeechIntegrationService {
     }
 
     try {
-      $stored = $service->storeAudioResult($result);
+      $stored = $service->storeAudioResult($result, $directory);
       return is_array($stored) ? $stored : [
         'success' => FALSE,
         'message' => 'Forseti TTS storage returned an unexpected response shape.',

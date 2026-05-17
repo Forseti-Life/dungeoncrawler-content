@@ -2,6 +2,7 @@
   "name": "basic_campaign_state",
   "description": "Basic campaign state for testing new campaigns",
   "state": {
+    "schema_version": "1.0.0",
     "created_by": 1,
     "started": true,
     "progress": [],
@@ -11,10 +12,26 @@
     "completed_quests": [],
     "active_quests": [],
     "discovered_locations": ["town_square"],
+    "campaign_clock": {
+      "datetime": "2024-01-01T08:00:00Z",
+      "date": "2024-01-01",
+      "time": "08:00",
+      "timezone": "UTC",
+      "year": 2024,
+      "month": 1,
+      "day": 1,
+      "hour": 8,
+      "minute": 0,
+      "weekday": "Monday",
+      "season": "winter"
+    },
     "game_time": {
       "day": 1,
       "hour": 8,
-      "minute": 0
+      "minute": 0,
+      "date": "2024-01-01",
+      "datetime": "2024-01-01T08:00:00Z",
+      "timezone": "UTC"
     },
     "party_inventory": [],
     "flags": {}
@@ -24,9 +41,9 @@
     "updatedAt": "2024-01-01T08:00:00Z"
   },
   "test_cases": {
-    "state_fields": {
-      "required": ["created_by", "started", "progress"],
-      "optional": ["active_hex", "current_location", "party_gold"]
-    }
+      "state_fields": {
+        "required": ["created_by", "started", "progress", "campaign_clock"],
+        "optional": ["active_hex", "current_location", "party_gold"]
+      }
   }
 }

@@ -19,6 +19,7 @@ use Drupal\dungeoncrawler_content\Service\CharacterManager;
 use Drupal\dungeoncrawler_content\Service\ImageGenerationIntegrationService;
 use Drupal\dungeoncrawler_content\Service\CharacterPortraitGenerationService;
 use Drupal\dungeoncrawler_content\Service\SchemaLoader;
+use Drupal\dungeoncrawler_content\Service\SpellCatalogService;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 
 /**
@@ -144,6 +145,14 @@ class CharacterCreationStepForm extends FormBase {
       . '<div class="character-creation-step' . ($compact_layout ? ' character-creation-step--embedded' : '') . '"><div class="creation-container">' . $progress_markup . '<div class="step-content">');
     $form['#suffix'] = Markup::create('</div></div></div></div>');
 
+    if ($campaign_id !== NULL && $campaign_id !== '') {
+      $form['quick_play_banner'] = [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['character-creation-quick-play']],
+        'button' => $this->buildQuickPlayButton(),
+      ];
+    }
+
     $form['header'] = [
       '#markup' => "<h2>{$step_name}</h2><p class=\"step-description\">{$step_description}</p>",
     ];
@@ -199,6 +208,20 @@ class CharacterCreationStepForm extends FormBase {
     ];
 
     return $form;
+  }
+
+  /**
+   * Builds the quick-play submit button.
+   */
+  private function buildQuickPlayButton(): array {
+    return [
+      '#type' => 'submit',
+      '#value' => $this->t('I Just Want to Play'),
+      '#name' => 'quick_play',
+      '#submit' => ['::quickPlaySubmit'],
+      '#limit_validation_errors' => [],
+      '#attributes' => ['class' => ['btn', 'btn-secondary']],
+    ];
   }
 
   /**
@@ -962,7 +985,11 @@ class CharacterCreationStepForm extends FormBase {
     $form['class_dynamic'] = [
       '#type' => 'container',
       '#tree' => FALSE,
-      '#attributes' => ['id' => 'class-dynamic-wrapper'],
+      '#attributes' => [
+        'id' => 'class-dynamic-wrapper',
+        'class' => ['step4-class-tabs'],
+        'data-step4-tab-root' => 'true',
+      ],
     ];
 
     // Resolve selected class: form_state (AJAX) takes priority over DB data.
@@ -976,9 +1003,13 @@ class CharacterCreationStepForm extends FormBase {
       return;
     }
 
+    $selected_class_feat = (string) ($form_state->getValue('class_feat') ?: ($character_data['class_feat'] ?? ''));
+
     // Key Ability Selection
     $key_ability_raw = $class_data['key_ability'] ?? '';
-    $key_options = array_map('trim', explode(' or ', strtolower($key_ability_raw)));
+    $key_options = $selected_class === 'rogue'
+      ? $this->resolveRogueKeyAbilityOptions($selected_class_feat)
+      : $this->abilityScoreTracker->normalizeAbilityOptions($key_ability_raw);
 
     if (count($key_options) > 1) {
       $form['class_dynamic']['class_key_ability_help'] = [
@@ -1000,7 +1031,7 @@ class CharacterCreationStepForm extends FormBase {
         '#type' => 'radios',
         '#title' => $this->t('Select Key Ability'),
         '#options' => $key_ability_options,
-        '#default_value' => $character_data['class_key_ability'] ?? '',
+        '#default_value' => $this->abilityScoreTracker->normalizeAbilityKey($character_data['class_key_ability'] ?? NULL) ?? array_key_first($key_ability_options),
         '#required' => TRUE,
         '#description' => $this->t('This ability will receive a +2 boost and is the primary ability for your class features.'),
       ];
@@ -1046,12 +1077,22 @@ class CharacterCreationStepForm extends FormBase {
         '#default_value' => $character_data['class_feat'] ?? '',
         '#required' => TRUE,
         '#description' => $this->t('Each feat provides unique tactical options that define your combat style.'),
+        '#ajax' => [
+          'callback' => '::updateClassOptions',
+          'wrapper' => 'class-dynamic-wrapper',
+          'event' => 'change',
+        ],
       ];
       $this->attachOptionCardSettings($form['class_dynamic'], 'class_feat', $feat_cards, 'single');
 
-      $selected_class_feat = (string) ($form_state->getValue('class_feat') ?: ($character_data['class_feat'] ?? ''));
       if ($selected_class_feat === 'monster-hunter') {
         $this->buildMonsterHunterSelectionSection($form['class_dynamic'], $form_state, $character_data);
+      }
+      if ($selected_class === 'rogue' && $selected_class_feat === 'eldritch-trickster-racket') {
+        $this->buildEldritchTricksterSelectionSection($form['class_dynamic'], $form_state, $character_data);
+      }
+      if ($selected_class === 'rogue' && $selected_class_feat === 'mastermind-racket') {
+        $this->buildMastermindSelectionSection($form['class_dynamic'], $form_state, $character_data);
       }
 
       if (($character_data['ancestry_feat'] ?? '') === 'natural-ambition') {
@@ -1062,6 +1103,12 @@ class CharacterCreationStepForm extends FormBase {
         );
         if ($selected_class_feat !== 'monster-hunter' && $selected_bonus_feat === 'monster-hunter') {
           $this->buildMonsterHunterSelectionSection($form['class_dynamic'], $form_state, $character_data);
+        }
+        if ($selected_class === 'rogue' && $selected_class_feat !== 'eldritch-trickster-racket' && $selected_bonus_feat === 'eldritch-trickster-racket') {
+          $this->buildEldritchTricksterSelectionSection($form['class_dynamic'], $form_state, $character_data);
+        }
+        if ($selected_class === 'rogue' && $selected_class_feat !== 'mastermind-racket' && $selected_bonus_feat === 'mastermind-racket') {
+          $this->buildMastermindSelectionSection($form['class_dynamic'], $form_state, $character_data);
         }
       }
 
@@ -1245,7 +1292,6 @@ class CharacterCreationStepForm extends FormBase {
       $cantrips = $this->characterManager->getSpellsByTradition($tradition, 0);
       $cantrip_options = [];
       $cantrip_cards = [];
-      $cantrip_reference_cards = [];
       foreach ($cantrips as $cantrip) {
         $cantrip_options[$cantrip['id']] = $cantrip['name'];
         $tags = ['Cantrip'];
@@ -1254,16 +1300,10 @@ class CharacterCreationStepForm extends FormBase {
         }
         $facts = $this->extractSpellFacts($cantrip);
         $cantrip_cards[$cantrip['id']] = $this->buildOptionCardData(
-          $cantrip['description'] ?? '',
+          ($cantrip['description_source'] ?? '') === 'description' ? ($cantrip['description'] ?? '') : '',
           $tags,
           $facts,
         );
-        $cantrip_reference_cards[] = [
-          'title' => $cantrip['name'],
-          'description' => $cantrip['description'] ?? '',
-          'tags' => $tags,
-          'facts' => $facts,
-        ];
       }
 
       $form['class_dynamic']['cantrips_help'] = [
@@ -1281,22 +1321,11 @@ class CharacterCreationStepForm extends FormBase {
         '#description' => $this->t('Select exactly @count cantrips from the @tradition spell list.', ['@count' => $num_cantrips, '@tradition' => $tradition_label]),
       ];
       $this->attachOptionCardSettings($form['class_dynamic'], 'cantrips', $cantrip_cards, 'multiple');
-      $form['class_dynamic']['cantrips_reference'] = [
-        '#type' => 'container',
-        '#attributes' => ['class' => ['spell-reference-section']],
-        'heading' => [
-          '#markup' => '<h4>' . $this->t('Cantrip reference') . '</h4>',
-        ],
-        'cards' => [
-          '#markup' => $this->buildOptionDetailStackMarkup($cantrip_reference_cards),
-        ],
-      ];
 
       // --- 1st Level Spell Selection ---
       $first_level_spells = $this->characterManager->getSpellsByTradition($tradition, 1);
       $spell_options = [];
       $spell_cards = [];
-      $spell_reference_cards = [];
       foreach ($first_level_spells as $spell) {
         $spell_options[$spell['id']] = $spell['name'];
         $tags = ['1st-level spell'];
@@ -1305,16 +1334,10 @@ class CharacterCreationStepForm extends FormBase {
         }
         $facts = $this->extractSpellFacts($spell);
         $spell_cards[$spell['id']] = $this->buildOptionCardData(
-          $spell['description'] ?? '',
+          ($spell['description_source'] ?? '') === 'description' ? ($spell['description'] ?? '') : '',
           $tags,
           $facts,
         );
-        $spell_reference_cards[] = [
-          'title' => $spell['name'],
-          'description' => $spell['description'] ?? '',
-          'tags' => $tags,
-          'facts' => $facts,
-        ];
       }
 
       $form['class_dynamic']['spells_help'] = [
@@ -1332,16 +1355,6 @@ class CharacterCreationStepForm extends FormBase {
         '#description' => $this->t('Select your starting 1st-level @tradition spells.', ['@tradition' => $tradition_label]),
       ];
       $this->attachOptionCardSettings($form['class_dynamic'], 'spells_first', $spell_cards, 'multiple');
-      $form['class_dynamic']['spells_first_reference'] = [
-        '#type' => 'container',
-        '#attributes' => ['class' => ['spell-reference-section']],
-        'heading' => [
-          '#markup' => '<h4>' . $this->t('1st-level spell reference') . '</h4>',
-        ],
-        'cards' => [
-          '#markup' => $this->buildOptionDetailStackMarkup($spell_reference_cards),
-        ],
-      ];
 
       if (($character_data['ancestry_feat'] ?? '') === 'adapted-cantrip') {
         $this->buildAdaptedCantripSelectionSection($form, $form_state, $character_data, $tradition);
@@ -1366,6 +1379,215 @@ class CharacterCreationStepForm extends FormBase {
           . '</div>',
       ];
     }
+
+    $this->applyStep4TabbedLayout($form['class_dynamic'], $form_state, $selected_class);
+  }
+
+  /**
+   * Applies a tabbed layout to the dynamic Step 4 class-selection sections.
+   */
+  private function applyStep4TabbedLayout(array &$container, FormStateInterface $form_state, string $selected_class): void {
+    $tabs = [];
+
+    $this->registerStep4Panel($container, $tabs, 'key-ability', $this->t('Key Ability'), [
+      'class_key_ability_help',
+      'class_key_ability_readonly',
+    ], [
+      'class_key_ability',
+      'class_key_ability_readonly',
+    ]);
+
+    $this->registerStep4Panel($container, $tabs, 'subclass', $this->getStep4SubclassTabLabel($selected_class), [
+      'bloodline_section',
+      'patron_section',
+      'arcane_school_section',
+    ], [
+      'subclass',
+    ]);
+
+    $this->registerStep4Panel($container, $tabs, 'arcane-thesis', $this->t('Arcane Thesis'), [
+      'arcane_thesis_section',
+    ], [
+      'arcane_thesis',
+    ]);
+
+    $this->registerStep4Panel($container, $tabs, 'class-feat', $this->t('Class Feat'), [
+      'class_feat_section',
+    ], [
+      'class_feat',
+    ]);
+
+    $this->registerStep4Panel($container, $tabs, 'cantrips', $this->t('Cantrips'), [
+      'spells_section',
+    ], [
+      'cantrips',
+    ]);
+
+    $this->registerStep4Panel($container, $tabs, 'first-level-spells', $this->t('1st-Level Spells'), [
+      'spells_help',
+    ], [
+      'spells_first',
+    ]);
+
+    $this->registerStep4Panel($container, $tabs, 'spellcasting', $this->t('Spellcasting'), [
+      'spells_pending',
+    ], [
+      'spells_pending',
+    ]);
+
+    if (isset($container['feat_selections']) && is_array($container['feat_selections'])) {
+      foreach (array_keys($container['feat_selections']) as $selection_key) {
+        if (str_starts_with((string) $selection_key, '#') || !is_array($container['feat_selections'][$selection_key])) {
+          continue;
+        }
+        $tab_id = 'feat-' . str_replace('_', '-', Html::getId((string) $selection_key));
+        $tabs[$tab_id] = [
+          'label' => $this->getStep4FeatSelectionTabLabel((string) $selection_key),
+          'panel_id' => 'step4-tab-panel-' . $tab_id,
+          'selection_key' => (string) $selection_key,
+        ];
+      }
+    }
+
+    if (count($tabs) < 2) {
+      return;
+    }
+
+    $active_tab = trim((string) $form_state->getValue('step4_active_tab', ''));
+    if ($active_tab === '' || !isset($tabs[$active_tab])) {
+      $active_tab = array_key_first($tabs);
+    }
+
+    foreach ($tabs as $tab_id => $tab) {
+      if (!str_starts_with($tab_id, 'feat-')) {
+        continue;
+      }
+      $selection_key = $tab['selection_key'] ?? NULL;
+      if (!isset($container['feat_selections'][$selection_key])) {
+        continue;
+      }
+      $container['feat_selections'][$selection_key]['#attributes']['id'] = $tab['panel_id'];
+      $container['feat_selections'][$selection_key]['#attributes']['role'] = 'tabpanel';
+      $container['feat_selections'][$selection_key]['#attributes']['aria-labelledby'] = 'step4-tab-' . $tab_id;
+      $container['feat_selections'][$selection_key]['#attributes']['data-step4-tab-panel'] = $tab_id;
+      $container['feat_selections'][$selection_key]['#attributes']['class'][] = 'step4-class-tabs__panel';
+      if ($tab_id !== $active_tab) {
+        $container['feat_selections'][$selection_key]['#attributes']['hidden'] = 'hidden';
+      }
+    }
+
+    $container['step4_active_tab'] = [
+      '#type' => 'hidden',
+      '#default_value' => $active_tab,
+      '#attributes' => ['data-step4-active-tab-input' => 'true'],
+    ];
+
+    $tab_navigation = [
+      '#type' => 'container',
+      '#attributes' => [
+        'class' => ['step4-class-tabs__nav'],
+        'role' => 'tablist',
+        'aria-label' => (string) $this->t('Step 4 class selection sections'),
+      ],
+      '#weight' => -100,
+    ];
+
+    foreach ($tabs as $tab_id => $tab) {
+      $tab_navigation[$tab_id] = [
+        '#type' => 'html_tag',
+        '#tag' => 'button',
+        '#value' => (string) $tab['label'],
+        '#attributes' => [
+          'id' => 'step4-tab-' . $tab_id,
+          'class' => array_filter([
+            'step4-class-tabs__tab',
+            $tab_id === $active_tab ? 'is-active' : NULL,
+          ]),
+          'type' => 'button',
+          'role' => 'tab',
+          'aria-selected' => $tab_id === $active_tab ? 'true' : 'false',
+          'aria-controls' => $tab['panel_id'],
+          'data-step4-tab' => $tab_id,
+        ],
+      ];
+    }
+
+    $rebuilt = [];
+    foreach ($container as $key => $value) {
+      if (str_starts_with((string) $key, '#')) {
+        $rebuilt[$key] = $value;
+      }
+    }
+    $rebuilt['step4_active_tab'] = $container['step4_active_tab'];
+    $rebuilt['step4_tabs_nav'] = $tab_navigation;
+    foreach ($container as $key => $value) {
+      if (str_starts_with((string) $key, '#') || in_array($key, ['step4_active_tab', 'step4_tabs_nav'], TRUE)) {
+        continue;
+      }
+      $rebuilt[$key] = $value;
+    }
+    $container = $rebuilt;
+  }
+
+  /**
+   * Registers a top-level Step 4 panel by wrapping existing sibling elements.
+   */
+  private function registerStep4Panel(array &$container, array &$tabs, string $tab_id, string|\Stringable $label, array $start_candidates, array $end_candidates): void {
+    $start_key = NULL;
+    foreach ($start_candidates as $candidate) {
+      if (isset($container[$candidate])) {
+        $start_key = $candidate;
+        break;
+      }
+    }
+
+    $end_key = NULL;
+    foreach ($end_candidates as $candidate) {
+      if (isset($container[$candidate])) {
+        $end_key = $candidate;
+        break;
+      }
+    }
+
+    if ($start_key === NULL || $end_key === NULL) {
+      return;
+    }
+
+    $panel_id = 'step4-tab-panel-' . $tab_id;
+    $container[$start_key]['#prefix'] = ($container[$start_key]['#prefix'] ?? '') . '<div id="' . $panel_id . '" class="step4-class-tabs__panel" role="tabpanel" aria-labelledby="step4-tab-' . $tab_id . '" data-step4-tab-panel="' . $tab_id . '">';
+    $container[$end_key]['#suffix'] = ($container[$end_key]['#suffix'] ?? '') . '</div>';
+    $tabs[$tab_id] = [
+      'label' => (string) $label,
+      'panel_id' => $panel_id,
+    ];
+  }
+
+  /**
+   * Returns the most appropriate subclass tab label for Step 4.
+   */
+  private function getStep4SubclassTabLabel(string $selected_class): string {
+    return match ($selected_class) {
+      'sorcerer' => (string) $this->t('Bloodline'),
+      'witch' => (string) $this->t('Patron'),
+      'wizard' => (string) $this->t('Arcane School'),
+      default => (string) $this->t('Subclass'),
+    };
+  }
+
+  /**
+   * Returns the tab label for a Step 4 feat selection panel.
+   */
+  private function getStep4FeatSelectionTabLabel(string $selection_key): string {
+    return match ($selection_key) {
+      'adapted-cantrip' => (string) $this->t('Adapted Cantrip'),
+      'natural-ambition' => (string) $this->t('Natural Ambition'),
+      'animal-companion', 'animal-companion-druid' => (string) $this->t('Animal Companion'),
+      'monster-hunter' => (string) $this->t('Monster Hunter'),
+      'eldritch-trickster-racket' => (string) $this->t('Eldritch Trickster'),
+      'mastermind-racket' => (string) $this->t('Mastermind'),
+      'staff-nexus' => (string) $this->t('Staff Nexus'),
+      default => ucwords(str_replace(['-', '_'], ' ', $selection_key)),
+    };
   }
 
   /**
@@ -1947,10 +2169,16 @@ class CharacterCreationStepForm extends FormBase {
         if ($class_val_for_ka !== '') {
           $class_data_for_ka = CharacterManager::CLASSES[$class_val_for_ka] ?? NULL;
           if ($class_data_for_ka) {
-            $ka_raw = $class_data_for_ka['key_ability'] ?? '';
-            $ka_opts = array_map('trim', explode(' or ', strtolower($ka_raw)));
-            if (count($ka_opts) > 1 && trim((string) $form_state->getValue('class_key_ability', '')) === '') {
+            $selected_class_feat_for_ka = trim((string) $form_state->getValue('class_feat', ''));
+            $ka_opts = $class_val_for_ka === 'rogue'
+              ? $this->resolveRogueKeyAbilityOptions($selected_class_feat_for_ka)
+              : $this->abilityScoreTracker->normalizeAbilityOptions($class_data_for_ka['key_ability'] ?? '');
+            $selected_key_ability = $this->abilityScoreTracker->normalizeAbilityKey($form_state->getValue('class_key_ability', ''));
+            if (count($ka_opts) > 1 && $selected_key_ability === NULL) {
               $form_state->setErrorByName('class_key_ability', $this->t('You must choose a key ability for this class.'));
+            }
+            elseif ($selected_key_ability !== NULL && !in_array($selected_key_ability, $ka_opts, TRUE)) {
+              $form_state->setErrorByName('class_key_ability', $this->t('That key ability is not allowed for your selected class feat.'));
             }
           }
         }
@@ -2025,6 +2253,12 @@ class CharacterCreationStepForm extends FormBase {
         }
         if ($selected_class_feat === 'staff-nexus' || $selected_bonus_feat === 'staff-nexus') {
           $this->validateStaffNexusSelection($form_state, $class_val);
+        }
+        if ($selected_class_feat === 'eldritch-trickster-racket' || $selected_bonus_feat === 'eldritch-trickster-racket') {
+          $this->validateEldritchTricksterSelection($form_state, $class_val);
+        }
+        if ($selected_class_feat === 'mastermind-racket' || $selected_bonus_feat === 'mastermind-racket') {
+          $this->validateMastermindSelection($form_state, $class_val);
         }
         $animal_companion_source = $this->resolveAnimalCompanionSelectionSource($form_state, $this->loadCharacterData((int) $form_state->get('character_id')), $class_val);
         if ($animal_companion_source !== NULL) {
@@ -2132,6 +2366,11 @@ class CharacterCreationStepForm extends FormBase {
    * {@inheritdoc}
    */
   public function submitForm(array &$form, FormStateInterface $form_state): void {
+    $trigger = $form_state->getTriggeringElement();
+    if (($trigger['#name'] ?? '') === 'quick_play') {
+      return;
+    }
+
     $step = $form_state->get('step');
     $character_id = $form_state->get('character_id');
     $campaign_id = $form_state->get('campaign_id');
@@ -2478,6 +2717,30 @@ class CharacterCreationStepForm extends FormBase {
         $character_data['feat_selections']['staff-nexus'] = $selection;
       }
 
+      if ($selected_class_feat !== 'eldritch-trickster-racket' && $selected_bonus_feat !== 'eldritch-trickster-racket') {
+        unset($character_data['feat_selections']['eldritch-trickster-racket']);
+      }
+      else {
+        $selection = $character_data['feat_selections']['eldritch-trickster-racket'] ?? [];
+        if (!is_array($selection)) {
+          $selection = [];
+        }
+        $selection['selected_dedication'] = trim((string) ($selection['selected_dedication'] ?? $selection['dedication'] ?? ''));
+        $character_data['feat_selections']['eldritch-trickster-racket'] = $selection;
+      }
+
+      if ($selected_class_feat !== 'mastermind-racket' && $selected_bonus_feat !== 'mastermind-racket') {
+        unset($character_data['feat_selections']['mastermind-racket']);
+      }
+      else {
+        $selection = $character_data['feat_selections']['mastermind-racket'] ?? [];
+        if (!is_array($selection)) {
+          $selection = [];
+        }
+        $selection['selected_skill'] = trim((string) ($selection['selected_skill'] ?? $selection['knowledge_skill'] ?? ''));
+        $character_data['feat_selections']['mastermind-racket'] = $selection;
+      }
+
       $animal_companion_source = $this->resolveAnimalCompanionSelectionSource($form_state, $character_data, $selected_class);
       foreach (['animal-companion', 'animal-companion-druid'] as $feat_id) {
         if ($animal_companion_source !== $feat_id) {
@@ -2730,6 +2993,28 @@ class CharacterCreationStepForm extends FormBase {
         'step' => $redirect_step,
       ], ['query' => $next_query]);
     }
+  }
+
+  /**
+   * Shortcut submit handler that assigns a random GM-generated library character.
+   */
+  public function quickPlaySubmit(array &$form, FormStateInterface $form_state): void {
+    $campaign_id = $form_state->get('campaign_id');
+    if ($campaign_id === NULL || $campaign_id === '' || (int) $campaign_id <= 0) {
+      $this->messenger()->addError($this->t('Quick play is only available when launching from a campaign.'));
+      return;
+    }
+
+    $character_id = $this->characterManager->getRandomQuickPlayCharacterId();
+    if (!$character_id) {
+      $this->messenger()->addError($this->t('Unable to prepare a quick-play character right now.'));
+      return;
+    }
+
+    $form_state->setRedirect('dungeoncrawler_content.campaign_select_character', [
+      'campaign_id' => (int) $campaign_id,
+      'character_id' => (int) $character_id,
+    ]);
   }
 
   /**
@@ -3555,6 +3840,19 @@ class CharacterCreationStepForm extends FormBase {
           $user_input['arcane_thesis'],
           $user_input['cantrips'],
           $user_input['spells_first']
+        );
+        $form_state->setUserInput($user_input);
+      }
+    }
+
+    if ($trigger_name === 'class_feat') {
+      $form_state->setValue('class_key_ability', '');
+      $user_input = $form_state->getUserInput();
+      if (is_array($user_input)) {
+        unset(
+          $user_input['class_key_ability'],
+          $user_input['feat_selections']['eldritch-trickster-racket'],
+          $user_input['feat_selections']['mastermind-racket']
         );
         $form_state->setUserInput($user_input);
       }
@@ -4699,6 +4997,88 @@ class CharacterCreationStepForm extends FormBase {
   }
 
   /**
+   * Adds Step 4 selection UI for Eldritch Trickster's free dedication.
+   */
+  private function buildEldritchTricksterSelectionSection(array &$container, FormStateInterface $form_state, array $character_data): void {
+    if (!isset($container['feat_selections']) || !is_array($container['feat_selections'])) {
+      $container['feat_selections'] = [
+        '#type' => 'container',
+        '#tree' => TRUE,
+      ];
+    }
+
+    $options = $this->getEldritchTricksterDedicationOptions();
+    $selected_dedication = trim((string) $form_state->getValue(
+      ['feat_selections', 'eldritch-trickster-racket', 'selected_dedication'],
+      $character_data['feat_selections']['eldritch-trickster-racket']['selected_dedication'] ?? ''
+    ));
+    if (!array_key_exists($selected_dedication, $options)) {
+      $selected_dedication = '';
+    }
+
+    $container['feat_selections']['eldritch-trickster-racket'] = [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['feat-selection-section']],
+    ];
+    $container['feat_selections']['eldritch-trickster-racket']['intro'] = [
+      '#markup' => '<div class="spell-help"><strong>'
+        . $this->t('Eldritch Trickster Racket')
+        . '</strong><br>'
+        . $this->t('Choose the free multiclass spellcasting dedication granted by your racket.')
+        . '</div>',
+    ];
+    $container['feat_selections']['eldritch-trickster-racket']['selected_dedication'] = [
+      '#type' => 'radios',
+      '#title' => $this->t('Choose your spellcasting dedication'),
+      '#options' => $options,
+      '#default_value' => $selected_dedication,
+      '#required' => FALSE,
+      '#description' => $this->t('This dedication is granted for free at level 1 and is added to your character state.'),
+    ];
+  }
+
+  /**
+   * Adds Step 4 selection UI for Mastermind's extra knowledge skill.
+   */
+  private function buildMastermindSelectionSection(array &$container, FormStateInterface $form_state, array $character_data): void {
+    if (!isset($container['feat_selections']) || !is_array($container['feat_selections'])) {
+      $container['feat_selections'] = [
+        '#type' => 'container',
+        '#tree' => TRUE,
+      ];
+    }
+
+    $options = $this->getMastermindKnowledgeSkillOptions();
+    $selected_skill = trim((string) $form_state->getValue(
+      ['feat_selections', 'mastermind-racket', 'selected_skill'],
+      $character_data['feat_selections']['mastermind-racket']['selected_skill'] ?? ''
+    ));
+    if (!array_key_exists($selected_skill, $options)) {
+      $selected_skill = '';
+    }
+
+    $container['feat_selections']['mastermind-racket'] = [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['feat-selection-section']],
+    ];
+    $container['feat_selections']['mastermind-racket']['intro'] = [
+      '#markup' => '<div class="spell-help"><strong>'
+        . $this->t('Mastermind Racket')
+        . '</strong><br>'
+        . $this->t('Choose the additional knowledge skill granted by your racket alongside Society.')
+        . '</div>',
+    ];
+    $container['feat_selections']['mastermind-racket']['selected_skill'] = [
+      '#type' => 'select',
+      '#title' => $this->t('Choose your additional knowledge skill'),
+      '#options' => $options,
+      '#default_value' => $selected_skill,
+      '#empty_option' => $this->t('- Select a knowledge skill -'),
+      '#description' => $this->t('Mastermind grants Society automatically plus one additional Recall Knowledge skill.'),
+    ];
+  }
+
+  /**
    * Adds Step 6 selection UI for Specialty Crafting.
    */
   private function buildSpecialtyCraftingSelectionSection(array &$container, FormStateInterface $form_state, array $character_data): void {
@@ -5487,6 +5867,42 @@ class CharacterCreationStepForm extends FormBase {
   }
 
   /**
+   * Validates Eldritch Trickster dedication selection.
+   */
+  private function validateEldritchTricksterSelection(FormStateInterface $form_state, string $selected_class): void {
+    if ($selected_class !== 'rogue') {
+      $form_state->setErrorByName('class_feat', $this->t('Eldritch Trickster is only available to rogues.'));
+      return;
+    }
+
+    $selected_dedication = trim((string) $form_state->getValue(['feat_selections', 'eldritch-trickster-racket', 'selected_dedication'], ''));
+    if ($selected_dedication === '' || !array_key_exists($selected_dedication, $this->getEldritchTricksterDedicationOptions())) {
+      $form_state->setErrorByName(
+        'feat_selections][eldritch-trickster-racket][selected_dedication',
+        $this->t('Choose a valid spellcasting dedication for Eldritch Trickster.')
+      );
+    }
+  }
+
+  /**
+   * Validates Mastermind knowledge skill selection.
+   */
+  private function validateMastermindSelection(FormStateInterface $form_state, string $selected_class): void {
+    if ($selected_class !== 'rogue') {
+      $form_state->setErrorByName('class_feat', $this->t('Mastermind is only available to rogues.'));
+      return;
+    }
+
+    $selected_skill = trim((string) $form_state->getValue(['feat_selections', 'mastermind-racket', 'selected_skill'], ''));
+    if ($selected_skill === '' || !array_key_exists($selected_skill, $this->getMastermindKnowledgeSkillOptions())) {
+      $form_state->setErrorByName(
+        'feat_selections][mastermind-racket][selected_skill',
+        $this->t('Choose a valid knowledge skill for Mastermind.')
+      );
+    }
+  }
+
+  /**
    * Validates Animal Companion species selection.
    */
   private function validateAnimalCompanionSelection(FormStateInterface $form_state, string $source_feat_id): void {
@@ -5638,6 +6054,45 @@ class CharacterCreationStepForm extends FormBase {
   }
 
   /**
+   * Returns the valid rogue key ability options for the selected racket feat.
+   */
+  private function resolveRogueKeyAbilityOptions(string $selected_class_feat): array {
+    return match ($selected_class_feat) {
+      'ruffian' => ['dexterity', 'strength'],
+      'scoundrel' => ['dexterity', 'charisma'],
+      'eldritch-trickster-racket', 'mastermind-racket' => ['dexterity', 'intelligence'],
+      default => ['dexterity'],
+    };
+  }
+
+  /**
+   * Returns valid Eldritch Trickster multiclass dedication options.
+   */
+  private function getEldritchTricksterDedicationOptions(): array {
+    $options = [];
+    foreach (CharacterManager::getSpellcastingMulticlassDedicationOptions() as $dedication) {
+      $dedication_id = (string) ($dedication['id'] ?? '');
+      $dedication_name = (string) ($dedication['name'] ?? '');
+      if ($dedication_id !== '' && $dedication_name !== '') {
+        $options[$dedication_id] = $dedication_name;
+      }
+    }
+    return $options;
+  }
+
+  /**
+   * Returns valid Mastermind knowledge skill options.
+   */
+  private function getMastermindKnowledgeSkillOptions(): array {
+    return [
+      'arcana' => $this->t('Arcana'),
+      'nature' => $this->t('Nature'),
+      'occultism' => $this->t('Occultism'),
+      'religion' => $this->t('Religion'),
+    ];
+  }
+
+  /**
    * Resolves the armor tier granted by Armor Proficiency for the current class.
    */
   private function resolveArmorProficiencyTarget(array $character_data): ?string {
@@ -5744,7 +6199,7 @@ class CharacterCreationStepForm extends FormBase {
    * Adds Adapted Cantrip step-4 selection UI once class tradition is known.
    */
   private function buildAdaptedCantripSelectionSection(array &$form, FormStateInterface $form_state, array $character_data, string $native_tradition): void {
-    $available_traditions = array_values(array_diff(['arcane', 'divine', 'occult', 'primal'], [$native_tradition]));
+    $available_traditions = SpellCatalogService::TRADITIONS;
     $stored_selection = $character_data['feat_selections']['adapted-cantrip'] ?? [];
     $selected_tradition = (string) $form_state->getValue(
       ['feat_selections', 'adapted-cantrip', 'selected_tradition'],
@@ -5766,14 +6221,14 @@ class CharacterCreationStepForm extends FormBase {
       '#markup' => '<div class="spell-help"><strong>'
         . $this->t('Adapted Cantrip')
         . '</strong><br>'
-        . $this->t('Choose one cantrip from a tradition other than your native @tradition tradition.', [
+        . $this->t('Choose one cantrip from any tradition, including your native @tradition tradition.', [
           '@tradition' => ucfirst($native_tradition),
         ])
         . '</div>',
     ];
     $form['class_dynamic']['feat_selections']['adapted-cantrip']['selected_tradition'] = [
       '#type' => 'radios',
-      '#title' => $this->t('Choose a non-native tradition'),
+      '#title' => $this->t('Choose a tradition'),
       '#options' => array_combine(
         $available_traditions,
         array_map(static fn(string $tradition): string => ucfirst($tradition), $available_traditions)
@@ -5858,12 +6313,12 @@ class CharacterCreationStepForm extends FormBase {
 
     $selected_tradition = trim((string) $form_state->getValue(['feat_selections', 'adapted-cantrip', 'selected_tradition'], ''));
     $selected_cantrip = trim((string) $form_state->getValue(['feat_selections', 'adapted-cantrip', 'selected_cantrip'], ''));
-    $available_traditions = array_values(array_diff(['arcane', 'divine', 'occult', 'primal'], [$native_tradition]));
+    $available_traditions = SpellCatalogService::TRADITIONS;
 
     if ($selected_tradition === '' || !in_array($selected_tradition, $available_traditions, TRUE)) {
       $form_state->setErrorByName(
         'feat_selections][adapted-cantrip][selected_tradition',
-        $this->t('Choose a non-native tradition for Adapted Cantrip.')
+        $this->t('Choose a tradition for Adapted Cantrip.')
       );
       return;
     }
@@ -5942,6 +6397,27 @@ class CharacterCreationStepForm extends FormBase {
             }
             break;
           }
+        }
+      }
+    }
+
+    $bonus_class_feat = trim((string) ($character_data['feat_selections']['natural-ambition']['bonus_class_feat'] ?? ''));
+    if (($character_data['class_feat'] ?? '') === 'eldritch-trickster-racket' || $bonus_class_feat === 'eldritch-trickster-racket') {
+      $selected_dedication = trim((string) ($character_data['feat_selections']['eldritch-trickster-racket']['selected_dedication'] ?? ''));
+      foreach (CharacterManager::MULTICLASS_ARCHETYPES as $archetype) {
+        $dedication = $archetype['dedication'] ?? [];
+        if (($dedication['id'] ?? '') === $selected_dedication) {
+          $already_listed = in_array($selected_dedication, array_column($feats, 'id'), TRUE);
+          if (!$already_listed) {
+            $feats[] = [
+              'type' => 'class',
+              'id' => $dedication['id'],
+              'name' => $dedication['name'],
+              'level' => 1,
+              'source' => 'eldritch-trickster-racket',
+            ];
+          }
+          break;
         }
       }
     }

@@ -63,6 +63,15 @@ export class GameCoordinator {
     /** @type {NarrationOverlay|null} */
     this.narrationOverlay = null;
 
+    /** @type {HTMLAudioElement|null} */
+    this.narrationAudio = null;
+
+    /** @type {string|null} */
+    this.pendingNarrationAudioUrl = null;
+
+    /** @type {Function|null} */
+    this._interactionUnlockHandler = null;
+
     // State subscriptions for cleanup.
     /** @type {Function[]} */
     this._unsubscribers = [];
@@ -100,6 +109,7 @@ export class GameCoordinator {
 
     // Wire phase manager events.
     this._wirePhaseEvents();
+    this._armNarrationAudioUnlock();
 
     // Load initial state from server.
     try {
@@ -107,6 +117,13 @@ export class GameCoordinator {
       if (state?.success) {
         this.phaseManager.applyServerState(state.game_state, state.available_actions);
         this.eventCursor = state.game_state?.event_log_cursor || 0;
+        if (state.events?.length) {
+          const latestBootstrapEventId = Math.max(...state.events.map((event) => Number(event?.id || 0)));
+          if (latestBootstrapEventId > this.eventCursor) {
+            this.eventCursor = latestBootstrapEventId;
+          }
+          this._processNewEvents(state.events);
+        }
         console.log('[GameCoordinator] Initial state loaded:', this.phaseManager.currentPhase, 'v' + this.phaseManager.stateVersion);
       } else {
         console.warn('[GameCoordinator] Failed to load initial state:', state?.error);
@@ -137,6 +154,12 @@ export class GameCoordinator {
       this.narrationOverlay.destroy();
       this.narrationOverlay = null;
     }
+    if (this.narrationAudio) {
+      this.narrationAudio.pause();
+      this.narrationAudio = null;
+    }
+    this.pendingNarrationAudioUrl = null;
+    this._disarmNarrationAudioUnlock();
     for (const unsub of this._unsubscribers) {
       unsub();
     }
@@ -236,6 +259,37 @@ export class GameCoordinator {
     } catch (err) {
       console.error('[GameCoordinator] Transition failed:', err);
       return null;
+    }
+  }
+
+  /**
+   * Apply an authoritative coordinator payload returned by the server.
+   *
+   * Accepts either full-state responses or action responses that include
+   * { game_state, available_actions, events }.
+   *
+   * @param {object} result
+   */
+  applyAuthoritativeUpdate(result = {}) {
+    if (!result || typeof result !== 'object') {
+      return;
+    }
+
+    if (result.game_state) {
+      this.phaseManager.applyServerState(result.game_state, result.available_actions || []);
+      const cursor = Number(
+        result.game_state?.event_log_cursor
+        ?? result.event_log_cursor
+        ?? this.eventCursor
+        ?? 0
+      );
+      if (cursor > this.eventCursor) {
+        this.eventCursor = cursor;
+      }
+    }
+
+    if (Array.isArray(result.events) && result.events.length > 0) {
+      this._processNewEvents(result.events);
     }
   }
 
@@ -444,8 +498,6 @@ export class GameCoordinator {
    * @private
    */
   _showNarrations(events) {
-    if (!this.narrationOverlay) return;
-
     for (const event of events) {
       let text = null;
       let style = event.type || 'default';
@@ -457,10 +509,86 @@ export class GameCoordinator {
         text = event.narration;
       }
 
-      if (text) {
+      if (text && this.narrationOverlay) {
         this.narrationOverlay.show(text, { style });
       }
+
+      const audioUrl = event.data?.narration_audio_url || null;
+      if (audioUrl) {
+        this._playNarrationAudio(audioUrl);
+      }
     }
+  }
+
+  /**
+   * Play narrator audio for a newly received event.
+   *
+   * @param {string} audioUrl
+   * @private
+   */
+  _playNarrationAudio(audioUrl) {
+    if (!audioUrl) return;
+
+    this.pendingNarrationAudioUrl = null;
+
+    if (this.narrationAudio) {
+      this.narrationAudio.pause();
+      this.narrationAudio = null;
+    }
+
+    const audio = new Audio(audioUrl);
+    audio.preload = 'auto';
+    this.narrationAudio = audio;
+    audio.addEventListener('ended', () => {
+      if (this.narrationAudio === audio) {
+        this.narrationAudio = null;
+      }
+    }, { once: true });
+    audio.play().catch((err) => {
+      const blockedByAutoplay = err?.name === 'NotAllowedError';
+      if (blockedByAutoplay) {
+        this.pendingNarrationAudioUrl = audioUrl;
+      }
+      console.warn('[GameCoordinator] Narration audio playback failed:', err);
+    });
+  }
+
+  /**
+   * Retry blocked narration audio once the user interacts with the page.
+   * @private
+   */
+  _armNarrationAudioUnlock() {
+    if (this._interactionUnlockHandler) {
+      return;
+    }
+
+    this._interactionUnlockHandler = () => {
+      if (!this.pendingNarrationAudioUrl) {
+        return;
+      }
+      const pendingUrl = this.pendingNarrationAudioUrl;
+      this.pendingNarrationAudioUrl = null;
+      this._playNarrationAudio(pendingUrl);
+    };
+
+    for (const eventName of ['pointerdown', 'keydown', 'touchstart']) {
+      document.addEventListener(eventName, this._interactionUnlockHandler, { passive: true });
+    }
+  }
+
+  /**
+   * Remove user-interaction listeners used for deferred narration playback.
+   * @private
+   */
+  _disarmNarrationAudioUnlock() {
+    if (!this._interactionUnlockHandler) {
+      return;
+    }
+
+    for (const eventName of ['pointerdown', 'keydown', 'touchstart']) {
+      document.removeEventListener(eventName, this._interactionUnlockHandler);
+    }
+    this._interactionUnlockHandler = null;
   }
 
   // =========================================================================

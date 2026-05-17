@@ -13,10 +13,12 @@ class CampaignStateService {
 
   private Connection $database;
   private LoggerInterface $logger;
+  private CampaignClockService $campaignClockService;
 
-  public function __construct(Connection $database, LoggerChannelFactoryInterface $logger_factory) {
+  public function __construct(Connection $database, LoggerChannelFactoryInterface $logger_factory, CampaignClockService $campaign_clock_service) {
     $this->database = $database;
     $this->logger = $logger_factory->get('dungeoncrawler');
+    $this->campaignClockService = $campaign_clock_service;
   }
 
   /**
@@ -39,6 +41,16 @@ class CampaignStateService {
     }
 
     $state = $campaign_data['state'] ?? [];
+    if (!is_array($state)) {
+      $state = [];
+    }
+
+    $fallback_timestamp = isset($record['created']) ? (int) $record['created'] : NULL;
+    $this->campaignClockService->ensureClock($state, $fallback_timestamp);
+    $this->campaignClockService->syncLegacyGameTime($state);
+    $state['updated_at'] = $state['updated_at'] ?? ($record['changed'] ? gmdate('c', (int) $record['changed']) : gmdate('c'));
+    $state['created_at'] = $state['created_at'] ?? ($record['created'] ? gmdate('c', (int) $record['created']) : gmdate('c'));
+
     $meta = $campaign_data['state_meta'] ?? [];
     $version = (int) ($meta['version'] ?? $record['changed'] ?? $record['created'] ?? 0);
     $updated_at = $meta['updatedAt'] ?? ($record['changed'] ? date('c', (int) $record['changed']) : date('c'));
@@ -68,7 +80,7 @@ class CampaignStateService {
     }
 
     $record = $this->database->select('dc_campaigns', 'c')
-      ->fields('c', ['campaign_data'])
+      ->fields('c', ['campaign_data', 'created'])
       ->condition('id', $campaign_id)
       ->execute()
       ->fetchAssoc();
@@ -77,6 +89,20 @@ class CampaignStateService {
     if (!is_array($campaign_data)) {
       $campaign_data = [];
     }
+
+    $existing_state = $campaign_data['state'] ?? [];
+    if (!is_array($existing_state)) {
+      $existing_state = [];
+    }
+    $fallback_timestamp = isset($record['created']) ? (int) $record['created'] : NULL;
+    $existing_clock = $this->campaignClockService->ensureClock($existing_state, $fallback_timestamp);
+    if (!isset($state[CampaignClockService::STATE_KEY]) && !isset($state['game_time'])) {
+      $state[CampaignClockService::STATE_KEY] = $existing_clock;
+    }
+    $this->campaignClockService->ensureClock($state, $fallback_timestamp);
+    $this->campaignClockService->syncLegacyGameTime($state);
+    $state['created_at'] = $state['created_at'] ?? ($fallback_timestamp ? gmdate('c', $fallback_timestamp) : gmdate('c'));
+    $state['updated_at'] = gmdate('c');
 
     $next_version = $current_version + 1;
     $campaign_data['state'] = $state;

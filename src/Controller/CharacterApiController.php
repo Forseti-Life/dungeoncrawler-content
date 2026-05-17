@@ -289,6 +289,7 @@ class CharacterApiController extends ControllerBase {
         'step' => $result['step'],
         'history' => $result['history'],
         'applied_updates' => $result['applied_updates'],
+        'reload_required' => !empty($result['reload_required']),
         'reload_url' => $result['reload_url'],
         'summary' => $result['summary'],
       ]);

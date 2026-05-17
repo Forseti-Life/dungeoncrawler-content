@@ -11,6 +11,7 @@ This implementation successfully addresses all requirements from the issue "Hard
 ## Document References
 
 - **[API_DOCUMENTATION.md](./API_DOCUMENTATION.md)** - Detailed API endpoint specifications, request/response formats, and usage examples
+- **[GM_TOOLKIT_API_REFERENCE.md](./GM_TOOLKIT_API_REFERENCE.md)** - Full GM-facing `/api` inventory grouped by domain, including rules reference, GM orchestration, combat, NPC, campaign, and progression tooling
 - **[README.md](./README.md)** - Module overview, database schema, test coverage, and setup instructions
 - **[HEXMAP_ARCHITECTURE.md](./HEXMAP_ARCHITECTURE.md)** - Hex map system architecture and design
 

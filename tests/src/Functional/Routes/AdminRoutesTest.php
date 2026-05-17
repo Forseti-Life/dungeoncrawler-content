@@ -59,6 +59,31 @@ class AdminRoutesTest extends BrowserTestBase {
   }
 
   /**
+   * Tests generated image browser route - positive case.
+   */
+  public function testGeneratedImageBrowserRoutePositive(): void {
+    $user = $this->createTestUser(['access content overview']);
+    $this->drupalLogin($user);
+
+    $this->drupalGet('/admin/content/dungeoncrawler/generated-images');
+    $this->assertSession()->statusCodeEquals(200);
+    $this->assertSession()->pageTextContains('Generated Images');
+    $this->assertSession()->pageTextContains('Generated Image Browser');
+  }
+
+  /**
+   * Tests room turn log browser route - positive case.
+   */
+  public function testRoomTurnLogBrowserRoutePositive(): void {
+    $user = $this->createTestUser(['access content overview']);
+    $this->drupalLogin($user);
+
+    $this->drupalGet('/admin/content/dungeoncrawler/room-turn-logs');
+    $this->assertSession()->statusCodeEquals(200);
+    $this->assertSession()->pageTextContains('Room Turn Logs');
+  }
+
+  /**
    * Tests text-to-speech smoke route without the external provider module.
    */
   public function testTextToSpeechRoutePositiveWithoutProvider(): void {
@@ -85,6 +110,22 @@ class AdminRoutesTest extends BrowserTestBase {
    */
   public function testDashboardRouteNegativeAnonymous(): void {
     $this->drupalGet('/admin/content/dungeoncrawler');
+    $this->assertSession()->statusCodeEquals(403);
+  }
+
+  /**
+   * Tests generated image browser route - negative case (anonymous user).
+   */
+  public function testGeneratedImageBrowserRouteNegativeAnonymous(): void {
+    $this->drupalGet('/admin/content/dungeoncrawler/generated-images');
+    $this->assertSession()->statusCodeEquals(403);
+  }
+
+  /**
+   * Tests room turn log browser route - negative case (anonymous user).
+   */
+  public function testRoomTurnLogBrowserRouteNegativeAnonymous(): void {
+    $this->drupalGet('/admin/content/dungeoncrawler/room-turn-logs');
     $this->assertSession()->statusCodeEquals(403);
   }
 

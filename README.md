@@ -59,6 +59,8 @@ Current game-facing messaging is intentionally tuned for former tabletop/classic
 ### Spell Source of Truth
 - **Canonical spell definitions**: `dungeoncrawler_content_registry` is the source of truth for ordinary spell definitions.
 - **Runtime spell reads**: `/api/spells`, `/api/spells/{spell_id}`, character creation spell choice lists, character sheet spell metadata, and `/spellcatalogue` are expected to resolve ordinary spell definitions from registry rows rather than bundled service-local spell catalogs.
+- **Miss behavior**: when `/api/spells/{spell_id}` misses the local registry, it now returns an Archives of Nethys fallback lookup payload so player-facing consumers can direct the user to AoN rather than failing silently.
+- **Feat miss behavior**: `/api/feats/{feat_id}` now returns either the local feat entry or an Archives of Nethys fallback payload pointing at `Feats.aspx` and, when AoN finds an exact hit, the direct feat page.
 - **Canonical focus spell definitions**: `/api/focus-spells` now resolves focus spell records from the same registry-backed spell library instead of using `CharacterManager` as the definition source.
 - **Focus metadata note**: the focus catalog derives class/source-book filtering from registry metadata. The APG/SoM focus seed rows have been normalized to canonical unique spell IDs, and the remaining `focus_class = none` cases are limited to non-class/archetype-style entries.
 - **Packaged spell JSON role**: files under `content/intermediary/*spells_intermediary.json` are seed/import inputs for the registry, not a separate runtime source of truth.
@@ -269,8 +271,24 @@ Implementation strategy (first-pass architecture):
    - Campaign character selection resolves hexmap launch context (`dungeon_level_id`, `map_id`, `room_id`, `next_room_id`) from the latest campaign dungeon record instead of static IDs
    - `/hexmap` now receives a launch-character summary from campaign context and uses it to hydrate the bottom character sheet immediately on initial load (before entity selection/combat turn hydration)
    - Campaign initialization now seeds starter quest templates from `templates/quests` when missing and generates default tavern quests for new campaigns
-   - Selecting a character auto-starts a starter quest and `/hexmap` attaches a quest summary payload in `drupalSettings.dungeoncrawlerContent.hexmapQuestSummary`
-   - Quest completion posts an NPC dialog line into the tavern entrance room chat log for immediate player feedback
+    - Selecting a character auto-starts a starter quest and `/hexmap` attaches a quest summary payload in `drupalSettings.dungeoncrawlerContent.hexmapQuestSummary`
+    - Quest completion posts an NPC dialog line into the tavern entrance room chat log for immediate player feedback
+
+### Room Chat Turn Logging
+- **Visible turn logs in room chat**: room chat now posts system lines for `Turn order: Player -> Narrator -> ...` and `Next speaker: ...` so actor sequencing is explicit to players and operators.
+- **Structured troubleshooting store**: `dc_room_turn_logs` captures room-turn sequencing as structured rows with `turn_key`, `sequence_index`, `event_type`, actor metadata, and JSON payload context.
+- **Admin log browser**: `/admin/content/dungeoncrawler/room-turn-logs` provides filterable inspection of `dc_room_turn_logs` by campaign, room, turn key, event type, and actor.
+- **Event types currently persisted**:
+   - `turn_order`
+   - `next_speaker`
+   - `speaker_completed`
+- **Streaming parity**: streamed room-chat responses emit these turn-log system messages as `system_message` events so the chat window reflects the same order information incrementally, not only after completion.
+- **Correlation handle**: room chat responses now expose `turn_log_key`, matching the `dc_room_turn_logs.turn_key` grouping value used for one harness pass.
+- **Prompt isolation**: internal turn-log system messages are flagged as `internal_log` and are excluded from GM/NPC/player-automation transcript assembly so troubleshooting output does not pollute AI conversation context.
+- **Primary implementation points**:
+   - `Drupal\\dungeoncrawler_content\\Service\\RoomChatService::runRoomTurnHarness()`
+   - `Drupal\\dungeoncrawler_content\\Controller\\RoomChatController::emitStreamedTurnResult()`
+   - `js/hexmap.js` room chat streaming/non-stream rendering
 
 ### Game Object Management
 - **Table inventory interface**: Admin page inventories all Dungeon Crawler custom tables (`dc_*` and `dungeoncrawler_content_*`) and summarizes what objects they store.

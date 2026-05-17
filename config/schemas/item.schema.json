@@ -15,8 +15,10 @@
     },
     "item_id": { 
       "type": "string", 
-      "format": "uuid",
-      "description": "Unique item identifier."
+      "minLength": 1,
+      "maxLength": 100,
+      "pattern": "^[a-z0-9]+(?:[_-][a-z0-9]+)*$",
+      "description": "Unique item identifier slug used by the canonical item library."
     },
     "name": { 
       "type": "string",
@@ -337,6 +339,13 @@
           "maximum": 1,
           "default": 0,
           "description": "Fraction of contained bulk that counts toward carrier's burden. 0 = weightless (bag of holding), 1 = full weight, 0.5 = half weight."
+        },
+        "bulk_reduction": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1000,
+          "default": 0,
+          "description": "Flat amount of contained Bulk ignored after any capacity_reduction multiplier. Use this for PF2e backpacks, where the first 2 Bulk of contents don't count."
         },
         "can_lock": {
           "type": "boolean",

@@ -111,9 +111,14 @@
             }
 
             const appliedKeys = Object.keys(payload.applied_updates || {});
-            setStatus(appliedKeys.length ? 'Updated: ' + appliedKeys.join(', ') : 'Advice ready. Reloading your step...');
+            const shouldReload = Boolean(payload.reload_required && payload.reload_url);
+            setStatus(
+              appliedKeys.length
+                ? 'Updated: ' + appliedKeys.join(', ')
+                : (shouldReload ? 'Advice ready. Refreshing your step...' : 'Advice ready.')
+            );
 
-            if (payload.reload_url) {
+            if (shouldReload) {
               window.setTimeout(() => {
                 if (settings.shellMode === 'character_setup') {
                   window.dispatchEvent(new CustomEvent('dungeoncrawler:character-setup-gm-update', {

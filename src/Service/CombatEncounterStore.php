@@ -28,48 +28,60 @@ class CombatEncounterStore {
    * @return int Encounter ID.
    */
   public function createEncounter(?int $campaign_id, ?string $room_id, array $participants, ?string $map_id = NULL): int {
+    if ($participants === []) {
+      throw new \InvalidArgumentException('Cannot create encounter without participants.');
+    }
+
     $txn = $this->database->startTransaction();
     $now = time();
 
-    $encounter_id = (int) $this->database->insert('combat_encounters')
-      ->fields([
-        'campaign_id' => $campaign_id,
-        'room_id' => $room_id,
-        'map_id' => $map_id,
-        'status' => 'active',
-        'current_round' => 1,
-        'turn_index' => 0,
-        'created' => $now,
-        'updated' => $now,
-      ])
-      ->execute();
-
-    foreach ($participants as $participant) {
-      $this->database->insert('combat_participants')
+    try {
+      $encounter_id = (int) $this->database->insert('combat_encounters')
         ->fields([
-          'encounter_id' => $encounter_id,
-          'entity_id' => $participant['entity_id'] ?? ($participant['id'] ?? 0),
-          'entity_ref' => $participant['entity_ref'] ?? NULL,
-          'name' => $participant['name'] ?? 'Entity',
-          'team' => $participant['team'] ?? NULL,
-          'initiative' => (int) ($participant['initiative'] ?? 0),
-          'initiative_roll' => $participant['initiative_roll'] ?? NULL,
-          'ac' => $participant['ac'] ?? NULL,
-          'hp' => $participant['hp'] ?? NULL,
-          'max_hp' => $participant['max_hp'] ?? NULL,
-          'actions_remaining' => $participant['actions_remaining'] ?? 3,
-          'attacks_this_turn' => $participant['attacks_this_turn'] ?? 0,
-          'reaction_available' => isset($participant['reaction_available']) ? (int) $participant['reaction_available'] : 1,
-          'position_q' => $participant['position_q'] ?? NULL,
-          'position_r' => $participant['position_r'] ?? NULL,
-          'is_defeated' => !empty($participant['is_defeated']) ? 1 : 0,
+          'campaign_id' => $campaign_id,
+          'room_id' => $room_id,
+          'map_id' => $map_id,
+          'status' => 'active',
+          'current_round' => 1,
+          'turn_index' => 0,
           'created' => $now,
           'updated' => $now,
         ])
         ->execute();
-    }
 
-    return $encounter_id;
+      foreach ($participants as $participant) {
+        $participant = $this->normalizeParticipantRow($participant);
+        $this->database->insert('combat_participants')
+          ->fields([
+            'encounter_id' => $encounter_id,
+            'entity_id' => $participant['entity_id'] ?? ($participant['id'] ?? 0),
+            'entity_ref' => $participant['entity_ref'] ?? NULL,
+            'name' => $participant['name'] ?? 'Entity',
+            'team' => $participant['team'] ?? NULL,
+            'status' => $participant['status'] ?? 'active',
+            'initiative' => (int) ($participant['initiative'] ?? 0),
+            'initiative_roll' => $participant['initiative_roll'] ?? NULL,
+            'ac' => $participant['ac'] ?? NULL,
+            'hp' => $participant['hp'] ?? NULL,
+            'max_hp' => $participant['max_hp'] ?? NULL,
+            'actions_remaining' => $participant['actions_remaining'] ?? 3,
+            'attacks_this_turn' => $participant['attacks_this_turn'] ?? 0,
+            'reaction_available' => isset($participant['reaction_available']) ? (int) $participant['reaction_available'] : 1,
+            'position_q' => $participant['position_q'] ?? NULL,
+            'position_r' => $participant['position_r'] ?? NULL,
+            'is_defeated' => !empty($participant['is_defeated']) ? 1 : 0,
+            'created' => $now,
+            'updated' => $now,
+          ])
+          ->execute();
+      }
+
+      return $encounter_id;
+    }
+    catch (\Throwable $e) {
+      $txn->rollBack();
+      throw $e;
+    }
   }
 
   /**
@@ -92,13 +104,22 @@ class CombatEncounterStore {
     $participants = $this->database->select('combat_participants', 'p')
       ->fields('p')
       ->condition('encounter_id', $encounter_id)
-      ->orderBy('initiative', 'DESC')
-      ->orderBy('initiative_roll', 'DESC')
-      ->orderBy('name', 'ASC')
       ->execute()
-      ->fetchAllAssoc('id', \PDO::FETCH_ASSOC);
+      ->fetchAll(\PDO::FETCH_ASSOC);
 
-    $encounter['participants'] = array_values($participants);
+    usort($participants, function (array $a, array $b): int {
+      $init_diff = (int) ($b['initiative'] ?? 0) - (int) ($a['initiative'] ?? 0);
+      if ($init_diff !== 0) {
+        return $init_diff;
+      }
+      $perc_diff = $this->resolvePerceptionModifier($b) - $this->resolvePerceptionModifier($a);
+      if ($perc_diff !== 0) {
+        return $perc_diff;
+      }
+      return (int) ($a['id'] ?? 0) - (int) ($b['id'] ?? 0);
+    });
+
+    $encounter['participants'] = $participants;
     $encounter['encounter_id'] = $encounter['id'];
     return $encounter;
   }
@@ -134,44 +155,54 @@ class CombatEncounterStore {
   public function saveParticipants(int $encounter_id, array $participants): bool {
     $txn = $this->database->startTransaction();
 
-    // Remove existing participants for this encounter.
-    $this->database->delete('combat_participants')
-      ->condition('encounter_id', $encounter_id)
-      ->execute();
-
-    $now = time();
-    foreach ($participants as $participant) {
-      $this->database->insert('combat_participants')
-        ->fields([
-          'encounter_id' => $encounter_id,
-          'entity_id' => $participant['entity_id'] ?? ($participant['id'] ?? 0),
-          'entity_ref' => $participant['entity_ref'] ?? NULL,
-          'name' => $participant['name'] ?? 'Entity',
-          'team' => $participant['team'] ?? NULL,
-          'initiative' => (int) ($participant['initiative'] ?? 0),
-          'initiative_roll' => $participant['initiative_roll'] ?? NULL,
-          'ac' => $participant['ac'] ?? NULL,
-          'hp' => $participant['hp'] ?? NULL,
-          'max_hp' => $participant['max_hp'] ?? NULL,
-          'actions_remaining' => $participant['actions_remaining'] ?? 3,
-          'attacks_this_turn' => $participant['attacks_this_turn'] ?? 0,
-          'reaction_available' => isset($participant['reaction_available']) ? (int) $participant['reaction_available'] : 1,
-          'position_q' => $participant['position_q'] ?? NULL,
-          'position_r' => $participant['position_r'] ?? NULL,
-          'is_defeated' => !empty($participant['is_defeated']) ? 1 : 0,
-          'created' => $now,
-          'updated' => $now,
-        ])
+    try {
+      // Remove existing participants for this encounter.
+      $this->database->delete('combat_participants')
+        ->condition('encounter_id', $encounter_id)
         ->execute();
+
+      $now = time();
+      foreach ($participants as $participant) {
+        $participant = $this->normalizeParticipantRow($participant);
+        $this->database->insert('combat_participants')
+          ->fields([
+            'encounter_id' => $encounter_id,
+            'entity_id' => $participant['entity_id'] ?? ($participant['id'] ?? 0),
+            'entity_ref' => $participant['entity_ref'] ?? NULL,
+            'name' => $participant['name'] ?? 'Entity',
+            'team' => $participant['team'] ?? NULL,
+            'status' => $participant['status'] ?? 'active',
+            'initiative' => (int) ($participant['initiative'] ?? 0),
+            'initiative_roll' => $participant['initiative_roll'] ?? NULL,
+            'ac' => $participant['ac'] ?? NULL,
+            'hp' => $participant['hp'] ?? NULL,
+            'max_hp' => $participant['max_hp'] ?? NULL,
+            'actions_remaining' => $participant['actions_remaining'] ?? 3,
+            'attacks_this_turn' => $participant['attacks_this_turn'] ?? 0,
+            'reaction_available' => isset($participant['reaction_available']) ? (int) $participant['reaction_available'] : 1,
+            'position_q' => $participant['position_q'] ?? NULL,
+            'position_r' => $participant['position_r'] ?? NULL,
+            'is_defeated' => !empty($participant['is_defeated']) ? 1 : 0,
+            'created' => $now,
+            'updated' => $now,
+          ])
+          ->execute();
+      }
+
+      // Bump encounter updated to signal a new version of state.
+      $this->database->update('combat_encounters')
+        ->fields([
+          'updated' => time(),
+        ])
+        ->condition('id', $encounter_id)
+        ->execute();
+
+      return TRUE;
     }
-
-    // Bump encounter updated to signal a new version of state.
-    $this->database->update('combat_encounters')
-      ->fields(['updated' => time()])
-      ->condition('id', $encounter_id)
-      ->execute();
-
-    return TRUE;
+    catch (\Throwable $e) {
+      $txn->rollBack();
+      throw $e;
+    }
   }
 
   /**
@@ -186,6 +217,10 @@ class CombatEncounterStore {
       return TRUE;
     }
 
+    if (array_key_exists('entity_ref', $fields)) {
+      $fields['entity_ref'] = $this->normalizeEntityRef($fields['entity_ref']);
+    }
+
     $fields['updated'] = time();
     $count = $this->database->update('combat_participants')
       ->fields($fields)
@@ -193,6 +228,50 @@ class CombatEncounterStore {
       ->execute();
 
     return $count > 0;
+  }
+
+  /**
+   * Normalize participant rows before persistence.
+   */
+  protected function normalizeParticipantRow(array $participant): array {
+    if (array_key_exists('entity_ref', $participant)) {
+      $participant['entity_ref'] = $this->normalizeEntityRef($participant['entity_ref']);
+    }
+    $participant['status'] = (string) ($participant['status'] ?? 'active');
+    return $participant;
+  }
+
+  /**
+   * Normalize entity_ref payloads to the stored string format.
+   */
+  protected function normalizeEntityRef($entity_ref): ?string {
+    if ($entity_ref === NULL || $entity_ref === '') {
+      return NULL;
+    }
+    if (is_array($entity_ref)) {
+      return json_encode($entity_ref, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    }
+    if (is_object($entity_ref)) {
+      return json_encode($entity_ref, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    }
+    return (string) $entity_ref;
+  }
+
+  /**
+   * Resolve the stored perception modifier used for initiative tie-breaks.
+   */
+  protected function resolvePerceptionModifier(array $participant): int {
+    $entity_ref = $participant['entity_ref'] ?? NULL;
+    if (!is_string($entity_ref) || $entity_ref === '') {
+      return 0;
+    }
+
+    $decoded = json_decode($entity_ref, TRUE);
+    if (!is_array($decoded)) {
+      return 0;
+    }
+
+    return (int) ($decoded['perception_modifier'] ?? 0);
   }
 
   /**

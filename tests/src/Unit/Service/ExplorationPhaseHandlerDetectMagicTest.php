@@ -29,7 +29,31 @@ class ExplorationPhaseHandlerDetectMagicTest extends UnitTestCase {
    */
   public function testDetectMagicNarratesMagicalAurasInActiveRoom(): void {
     $handler = $this->buildHandler();
-    $game_state = ['phase' => 'exploration', 'exploration' => ['time_elapsed_minutes' => 0]];
+    $game_state = [
+      'phase' => 'exploration',
+      'exploration' => ['time_elapsed_minutes' => 0],
+      'campaign_clock' => [
+        'datetime' => '2024-01-01T08:00:00Z',
+        'date' => '2024-01-01',
+        'time' => '08:00',
+        'timezone' => 'UTC',
+        'year' => 2024,
+        'month' => 1,
+        'day' => 1,
+        'hour' => 8,
+        'minute' => 0,
+        'weekday' => 'Monday',
+        'season' => 'winter',
+      ],
+      'game_time' => [
+        'day' => 1,
+        'hour' => 8,
+        'minute' => 0,
+        'date' => '2024-01-01',
+        'datetime' => '2024-01-01T08:00:00Z',
+        'timezone' => 'UTC',
+      ],
+    ];
     $dungeon_data = [
       'active_room_id' => 'room-burrow',
       'rooms' => [
@@ -105,7 +129,31 @@ class ExplorationPhaseHandlerDetectMagicTest extends UnitTestCase {
       ]);
 
     $handler = $this->buildHandler($action_processor);
-    $game_state = ['phase' => 'exploration', 'exploration' => ['time_elapsed_minutes' => 0]];
+    $game_state = [
+      'phase' => 'exploration',
+      'exploration' => ['time_elapsed_minutes' => 0],
+      'campaign_clock' => [
+        'datetime' => '2024-01-01T08:00:00Z',
+        'date' => '2024-01-01',
+        'time' => '08:00',
+        'timezone' => 'UTC',
+        'year' => 2024,
+        'month' => 1,
+        'day' => 1,
+        'hour' => 8,
+        'minute' => 0,
+        'weekday' => 'Monday',
+        'season' => 'winter',
+      ],
+      'game_time' => [
+        'day' => 1,
+        'hour' => 8,
+        'minute' => 0,
+        'date' => '2024-01-01',
+        'datetime' => '2024-01-01T08:00:00Z',
+        'timezone' => 'UTC',
+      ],
+    ];
     $dungeon_data = [
       'active_room_id' => 'room-burrow',
       'rooms' => [

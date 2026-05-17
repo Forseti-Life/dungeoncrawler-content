@@ -160,6 +160,51 @@ class StorylineManagerService {
   }
 
   /**
+   * Ensures each bundled storyline template exists as a campaign storyline.
+   */
+  public function ensureBundledCampaignStorylines(int $campaign_id, array $options = []): array {
+    $this->assertStorylineStorageReady();
+
+    $templates = $this->listTemplates();
+    if ($templates === []) {
+      return [];
+    }
+
+    $existing = $this->database->select('dc_campaign_storylines', 's')
+      ->fields('s', ['template_id', 'storyline_id'])
+      ->condition('campaign_id', $campaign_id)
+      ->isNotNull('template_id')
+      ->execute()
+      ->fetchAllKeyed();
+
+    $instances = [];
+    $priority_base = (int) ($options['priority_base'] ?? 100);
+
+    foreach (array_values($templates) as $index => $template) {
+      $template_id = (string) ($template['template_id'] ?? '');
+      if ($template_id === '') {
+        continue;
+      }
+
+      if (!empty($existing[$template_id])) {
+        $instance = $this->getCampaignStoryline($campaign_id, (string) $existing[$template_id], TRUE);
+      }
+      else {
+        $instance_options = $options;
+        $instance_options['status'] = (string) ($options['status'] ?? 'available');
+        $instance_options['priority'] = (int) ($options['priority'] ?? ($priority_base - $index));
+        $instance = $this->instantiateStorylineTemplate($campaign_id, $template_id, $instance_options);
+      }
+
+      if (is_array($instance) && $instance !== []) {
+        $instances[] = $instance;
+      }
+    }
+
+    return $instances;
+  }
+
+  /**
    * Creates a campaign storyline instance from a stored template.
    */
   public function instantiateStorylineTemplate(int $campaign_id, string $template_id, array $options = []): array {
@@ -467,6 +512,7 @@ class StorylineManagerService {
     $chapters = $this->normalizeChapterDefinitions($definition['chapters'] ?? []);
     $linked_quests = $this->buildLinkedQuestMap($chapters);
     $asset_references = $this->buildAssetReferenceMap($definition, $chapters, $linked_quests);
+    $contacts = $this->normalizeContactDefinitions($definition['contacts'] ?? [], $asset_references);
     $tags = array_values(array_filter(array_map('strval', is_array($definition['tags'] ?? NULL) ? $definition['tags'] : [])));
 
     return [
@@ -480,6 +526,7 @@ class StorylineManagerService {
       'chapters' => $chapters,
       'linked_quests' => $linked_quests,
       'asset_references' => array_values($asset_references),
+      'contacts' => $contacts,
     ];
   }
 
@@ -706,6 +753,150 @@ class StorylineManagerService {
   }
 
   /**
+   * Normalizes storyline contact payloads and guarantees a tavern broker path.
+   */
+  protected function normalizeContactDefinitions(array $contacts, array $asset_references): array {
+    $normalized = [];
+
+    foreach (array_values($contacts) as $contact) {
+      if (!is_array($contact)) {
+        continue;
+      }
+
+      $entity_type = $this->sanitizeIdentifier((string) ($contact['entity_type'] ?? $contact['contact_type'] ?? $contact['type'] ?? ''));
+      $entity_id = trim((string) ($contact['entity_id'] ?? $contact['id'] ?? ''));
+      $role = $this->sanitizeIdentifier((string) ($contact['role'] ?? $contact['contact_role'] ?? 'contact'));
+      if ($entity_type === '' || $entity_id === '') {
+        continue;
+      }
+
+      $contact_id = $this->sanitizeIdentifier((string) ($contact['contact_id'] ?? ($role . '-' . $entity_id)));
+      $normalized[] = [
+        'contact_id' => $contact_id !== '' ? $contact_id : ($role !== '' ? $role : 'contact'),
+        'entity_type' => $entity_type,
+        'entity_id' => $entity_id,
+        'role' => $role !== '' ? $role : 'contact',
+        'display_name' => trim((string) ($contact['display_name'] ?? $contact['name'] ?? '')),
+        'attitude' => $this->normalizeAttitudeValue((string) ($contact['attitude'] ?? 'indifferent')),
+        'availability' => trim((string) ($contact['availability'] ?? 'available')) ?: 'available',
+        'notes' => trim((string) ($contact['notes'] ?? '')),
+        'relationship_state' => is_array($contact['relationship_state'] ?? NULL) ? $contact['relationship_state'] : [],
+        'introduces_to' => $this->normalizeContactIntroductions($contact['introduces_to'] ?? []),
+      ];
+    }
+
+    $quest_giver_contacts = [];
+    foreach ($normalized as $contact) {
+      if (($contact['role'] ?? '') === 'quest_giver') {
+        $quest_giver_contacts[] = $contact;
+      }
+    }
+
+    if ($quest_giver_contacts === []) {
+      foreach ($asset_references as $reference) {
+        if (!is_array($reference) || (string) ($reference['asset_role'] ?? '') !== 'quest-giver') {
+          continue;
+        }
+
+        $asset_type = (string) ($reference['asset_type'] ?? '');
+        $entity_type = $asset_type === 'npc' ? 'npc_template' : $asset_type;
+        $entity_id = trim((string) ($reference['asset_id'] ?? ''));
+        if ($entity_type === '' || $entity_id === '') {
+          continue;
+        }
+
+        $quest_giver_contacts[] = [
+          'contact_id' => 'quest-giver-' . $this->sanitizeIdentifier($entity_id),
+          'entity_type' => $entity_type,
+          'entity_id' => $entity_id,
+          'role' => 'quest_giver',
+          'display_name' => '',
+          'attitude' => 'friendly',
+          'availability' => 'available',
+          'notes' => trim((string) ($reference['notes'] ?? '')),
+          'relationship_state' => [],
+          'introduces_to' => [],
+        ];
+        break;
+      }
+
+      $normalized = array_merge($normalized, $quest_giver_contacts);
+    }
+
+    $has_broker = FALSE;
+    foreach ($normalized as $contact) {
+      if (($contact['role'] ?? '') === 'broker') {
+        $has_broker = TRUE;
+        break;
+      }
+    }
+
+    if (!$has_broker) {
+      $introductions = [];
+      foreach ($quest_giver_contacts as $contact) {
+        $introductions[] = [
+          'entity_type' => (string) ($contact['entity_type'] ?? ''),
+          'entity_id' => (string) ($contact['entity_id'] ?? ''),
+          'relationship_type' => 'knows',
+          'attitude' => (string) ($contact['attitude'] ?? 'friendly'),
+          'display_name' => (string) ($contact['display_name'] ?? ''),
+          'notes' => 'Eldric can point the party toward this storyline contact.',
+          'relationship_state' => ['seeded' => TRUE],
+        ];
+      }
+
+      $normalized[] = [
+        'contact_id' => 'eldric-broker',
+        'entity_type' => 'campaign_npc',
+        'entity_id' => 'npc_tavern_keeper',
+        'role' => 'broker',
+        'display_name' => 'Eldric',
+        'attitude' => 'friendly',
+        'availability' => 'available',
+        'notes' => 'Eldric knows who to talk to about this lead and can make the introduction from the tavern.',
+        'relationship_state' => ['seeded' => TRUE],
+        'introduces_to' => $introductions,
+      ];
+    }
+
+    return array_values($normalized);
+  }
+
+  /**
+   * Normalizes contact-introduction payloads.
+   */
+  protected function normalizeContactIntroductions(mixed $introductions): array {
+    if (!is_array($introductions)) {
+      return [];
+    }
+
+    $normalized = [];
+    foreach (array_values($introductions) as $introduction) {
+      if (!is_array($introduction)) {
+        continue;
+      }
+
+      $entity_type = $this->sanitizeIdentifier((string) ($introduction['entity_type'] ?? $introduction['contact_type'] ?? $introduction['type'] ?? ''));
+      $entity_id = trim((string) ($introduction['entity_id'] ?? $introduction['id'] ?? ''));
+      if ($entity_type === '' || $entity_id === '') {
+        continue;
+      }
+
+      $normalized[] = [
+        'entity_type' => $entity_type,
+        'entity_id' => $entity_id,
+        'relationship_type' => $this->sanitizeIdentifier((string) ($introduction['relationship_type'] ?? 'knows')) ?: 'knows',
+        'attitude' => $this->normalizeAttitudeValue((string) ($introduction['attitude'] ?? 'indifferent')),
+        'display_name' => trim((string) ($introduction['display_name'] ?? $introduction['name'] ?? '')),
+        'notes' => trim((string) ($introduction['notes'] ?? '')),
+        'relationship_state' => is_array($introduction['relationship_state'] ?? NULL) ? $introduction['relationship_state'] : [],
+      ];
+    }
+
+    return $normalized;
+  }
+
+  /**
    * Builds initial runtime state for a newly instantiated storyline.
    */
   protected function buildInitialStorylineState(array $normalized, array $options): array {
@@ -726,6 +917,7 @@ class StorylineManagerService {
       'chapters' => $normalized['chapters'] ?? [],
       'linked_quests' => $normalized['linked_quests'] ?? [],
       'asset_references' => $normalized['asset_references'] ?? [],
+      'contacts' => $normalized['contacts'] ?? [],
       'unlocked_chapter_ids' => $first_chapter_id !== '' ? [$first_chapter_id] : [],
       'unlocked_scene_ids' => $first_scene_id !== '' ? [$first_scene_id] : [],
       'current_chapter_id' => $first_chapter_id,
@@ -1069,6 +1261,15 @@ class StorylineManagerService {
 
     $ids[] = $candidate;
     return array_values(array_unique(array_filter(array_map('strval', $ids))));
+  }
+
+  /**
+   * Normalizes relationship attitudes to the supported PF2e social scale.
+   */
+  protected function normalizeAttitudeValue(string $attitude): string {
+    $attitude = strtolower(trim($attitude));
+    $valid = ['helpful', 'friendly', 'indifferent', 'unfriendly', 'hostile'];
+    return in_array($attitude, $valid, TRUE) ? $attitude : 'indifferent';
   }
 
   /**

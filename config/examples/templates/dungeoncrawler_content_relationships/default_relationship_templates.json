@@ -1,0 +1,106 @@
+{
+  "rows": [
+    {
+      "relationship_id": "eldric-knows-ltba-grandmother",
+      "source_type": "campaign_npc",
+      "source_id": "npc_tavern_keeper",
+      "target_type": "npc_template",
+      "target_id": "ltba-grandmother",
+      "relationship_type": "knows",
+      "attitude": "friendly",
+      "status": "known",
+      "notes": "Eldric knows the grandmother upstairs and can recommend adventurers to help her.",
+      "relationship_data": {
+        "source_display_name": "Eldric",
+        "target_display_name": "The Kind Old Lady",
+        "storyline_template_id": "little-trouble-in-big-absalom",
+        "seeded_default": true
+      }
+    },
+    {
+      "relationship_id": "ltba-grandmother-knows-eldric",
+      "source_type": "npc_template",
+      "source_id": "ltba-grandmother",
+      "target_type": "campaign_npc",
+      "target_id": "npc_tavern_keeper",
+      "relationship_type": "knows",
+      "attitude": "friendly",
+      "status": "known",
+      "notes": "The grandmother trusts Eldric to send reliable help.",
+      "relationship_data": {
+        "source_display_name": "The Kind Old Lady",
+        "target_display_name": "Eldric",
+        "storyline_template_id": "little-trouble-in-big-absalom",
+        "seeded_default": true
+      }
+    },
+    {
+      "relationship_id": "eldric-knows-tok-campus-mentor",
+      "source_type": "campaign_npc",
+      "source_id": "npc_tavern_keeper",
+      "target_type": "npc_template",
+      "target_id": "tok-campus-mentor",
+      "relationship_type": "knows",
+      "attitude": "friendly",
+      "status": "known",
+      "notes": "Eldric knows a Magaambya mentor seeking discreet aid.",
+      "relationship_data": {
+        "source_display_name": "Eldric",
+        "target_display_name": "Okoro of the Open Palm",
+        "storyline_template_id": "threshold-of-knowledge",
+        "seeded_default": true
+      }
+    },
+    {
+      "relationship_id": "tok-campus-mentor-knows-eldric",
+      "source_type": "npc_template",
+      "source_id": "tok-campus-mentor",
+      "target_type": "campaign_npc",
+      "target_id": "npc_tavern_keeper",
+      "relationship_type": "knows",
+      "attitude": "friendly",
+      "status": "known",
+      "notes": "Okoro trusts Eldric to connect the right adventurers to the academy.",
+      "relationship_data": {
+        "source_display_name": "Okoro of the Open Palm",
+        "target_display_name": "Eldric",
+        "storyline_template_id": "threshold-of-knowledge",
+        "seeded_default": true
+      }
+    },
+    {
+      "relationship_id": "eldric-knows-tal-mission-handler",
+      "source_type": "campaign_npc",
+      "source_id": "npc_tavern_keeper",
+      "target_type": "npc_template",
+      "target_id": "tal-mission-handler",
+      "relationship_type": "knows",
+      "attitude": "friendly",
+      "status": "known",
+      "notes": "Eldric knows the Pathfinder handler recruiting for the demo mission.",
+      "relationship_data": {
+        "source_display_name": "Eldric",
+        "target_display_name": "Venture-Captain Celia Arvanxi",
+        "storyline_template_id": "torment-and-legacy",
+        "seeded_default": true
+      }
+    },
+    {
+      "relationship_id": "tal-mission-handler-knows-eldric",
+      "source_type": "npc_template",
+      "source_id": "tal-mission-handler",
+      "target_type": "campaign_npc",
+      "target_id": "npc_tavern_keeper",
+      "relationship_type": "knows",
+      "attitude": "friendly",
+      "status": "known",
+      "notes": "Celia trusts Eldric to send promising recruits to her.",
+      "relationship_data": {
+        "source_display_name": "Venture-Captain Celia Arvanxi",
+        "target_display_name": "Eldric",
+        "storyline_template_id": "torment-and-legacy",
+        "seeded_default": true
+      }
+    }
+  ]
+}

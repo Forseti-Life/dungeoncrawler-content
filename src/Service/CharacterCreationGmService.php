@@ -34,6 +34,7 @@ class CharacterCreationGmService {
       throw new \RuntimeException('The GM chat AI service is unavailable.');
     }
 
+    $requested_character_id = $character_id ? (int) $character_id : 0;
     $record = $character_id ? $this->loadOwnedDraft($character_id) : NULL;
     $character_data = $this->loadCharacterData($record);
     $history = $this->getChatHistory($character_data);
@@ -104,6 +105,9 @@ class CharacterCreationGmService {
       'step' => $resolved_step,
       'history' => $character_data['gm_chat']['messages'],
       'applied_updates' => $applied_updates,
+      'reload_required' => !empty($applied_updates)
+        || $resolved_step !== max(1, min(8, $step))
+        || $saved_character_id !== $requested_character_id,
       'reload_url' => \Drupal\Core\Url::fromRoute('dungeoncrawler_content.character_step', ['step' => $resolved_step])
         ->setOption('query', $query)
         ->toString(),

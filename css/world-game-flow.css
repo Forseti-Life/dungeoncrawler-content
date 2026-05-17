@@ -1,0 +1,123 @@
+.world-game-flow {
+  --dc-flow-surface: var(--dc-surface-primary, var(--bs-body-bg));
+  --dc-flow-surface-muted: var(--dc-surface-elevated, var(--bs-tertiary-bg));
+  --dc-flow-surface-deep: var(--dc-surface-abyss, var(--bs-secondary-bg));
+  --dc-flow-border: var(--bs-border-color);
+  --dc-flow-text: var(--dc-text-primary, var(--bs-body-color));
+  --dc-flow-text-muted: var(--dc-text-secondary, var(--bs-secondary-color));
+  --dc-flow-accent: var(--bs-warning, #ffc107);
+
+  color: var(--dc-flow-text);
+  display: grid;
+  gap: 1.5rem;
+}
+
+.world-game-flow__hero-card,
+.world-game-flow__text-card,
+.world-game-flow__diagram-card {
+  background: var(--dc-flow-surface);
+  border: 1px solid var(--dc-flow-border);
+  color: var(--dc-flow-text);
+}
+
+.world-game-flow__hero-card {
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--dc-flow-accent) 20%, transparent) 0%, transparent 55%),
+    linear-gradient(180deg, color-mix(in srgb, var(--dc-flow-surface-deep) 72%, transparent) 0%, var(--dc-flow-surface) 100%);
+  border-radius: 20px;
+  overflow: hidden;
+}
+
+.world-game-flow__text-card,
+.world-game-flow__diagram-card {
+  border-radius: 16px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.08);
+}
+
+.world-game-flow__diagram-stack {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.world-game-flow__eyebrow {
+  color: var(--dc-flow-accent);
+  letter-spacing: 0.08em;
+}
+
+.world-game-flow__summary,
+.world-game-flow__text-card p,
+.world-game-flow__hero-card .lead,
+.world-game-flow__hero-card p {
+  color: var(--dc-flow-text-muted);
+}
+
+.world-game-flow__list {
+  padding-left: 1.2rem;
+}
+
+.world-game-flow__list li + li {
+  margin-top: 0.45rem;
+}
+
+.world-game-flow__mermaid-shell {
+  background: linear-gradient(180deg, var(--dc-flow-surface-muted) 0%, var(--dc-flow-surface) 100%);
+  border: 1px solid var(--dc-flow-border);
+  border-radius: 14px;
+  overflow-x: auto;
+  padding: 1rem;
+}
+
+.world-game-flow__mermaid {
+  min-width: 760px;
+}
+
+.world-game-flow__mermaid svg {
+  display: block;
+  height: auto;
+  margin: 0 auto;
+  max-width: 100%;
+}
+
+.world-game-flow__table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--dc-flow-surface);
+}
+
+.world-game-flow__table th,
+.world-game-flow__table td {
+  background: var(--dc-flow-surface);
+  border: 1px solid var(--dc-flow-border);
+  color: var(--dc-flow-text);
+  padding: 0.65rem 0.75rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.world-game-flow__table thead th {
+  background: var(--dc-flow-surface-muted);
+}
+
+.world-game-flow__table tbody tr:nth-child(even) td {
+  background: var(--dc-flow-surface-deep);
+}
+
+@media (max-width: 991.98px) {
+  .world-game-flow__mermaid {
+    min-width: 640px;
+  }
+}
+
+@media (max-width: 575.98px) {
+  .world-game-flow__hero-card .btn {
+    width: 100%;
+  }
+
+  .world-game-flow__mermaid-shell {
+    padding: 0.75rem;
+  }
+
+  .world-game-flow__mermaid {
+    min-width: 560px;
+  }
+}

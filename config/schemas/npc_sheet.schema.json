@@ -1,0 +1,240 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dungeoncrawler.life/schemas/npc_sheet.schema.json",
+  "title": "Generated NPC Sheet Schema",
+  "description": "Canonical contract for generated campaign NPC sheets, including combat stats, descriptive fields, and structured psychology.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "content_id",
+    "name",
+    "level",
+    "ancestry",
+    "class",
+    "occupation",
+    "role",
+    "alignment",
+    "description",
+    "backstory",
+    "personality_traits",
+    "psychology",
+    "motivations",
+    "fears",
+    "bonds",
+    "abilities",
+    "stats",
+    "skills",
+    "attacks",
+    "equipment",
+    "languages",
+    "senses",
+    "spells",
+    "source",
+    "generation_status",
+    "generated_at"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "content_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "level": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 25
+    },
+    "ancestry": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "class": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "occupation": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 150
+    },
+    "role": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 50
+    },
+    "alignment": {
+      "type": "string",
+      "enum": ["LG", "NG", "CG", "LN", "N", "CN", "LE", "NE", "CE"]
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 2000
+    },
+    "backstory": {
+      "type": "string",
+      "maxLength": 3000
+    },
+    "personality_traits": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 12,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 120
+      }
+    },
+    "psychology": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "inner_conflict",
+        "coping_mechanism",
+        "stress_response",
+        "insecurity",
+        "secret",
+        "desire",
+        "need",
+        "trigger",
+        "anchor"
+      ],
+      "properties": {
+        "inner_conflict": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "coping_mechanism": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "stress_response": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "insecurity": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "secret": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "desire": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "need": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "trigger": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "anchor": { "type": "string", "minLength": 1, "maxLength": 500 }
+      }
+    },
+    "motivations": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1000
+    },
+    "fears": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1000
+    },
+    "bonds": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1000
+    },
+    "abilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["strength", "dexterity", "constitution", "intelligence", "wisdom", "charisma"],
+      "properties": {
+        "strength": { "type": "integer", "minimum": 1, "maximum": 30 },
+        "dexterity": { "type": "integer", "minimum": 1, "maximum": 30 },
+        "constitution": { "type": "integer", "minimum": 1, "maximum": 30 },
+        "intelligence": { "type": "integer", "minimum": 1, "maximum": 30 },
+        "wisdom": { "type": "integer", "minimum": 1, "maximum": 30 },
+        "charisma": { "type": "integer", "minimum": 1, "maximum": 30 }
+      }
+    },
+    "stats": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ac", "perception", "fortitude", "reflex", "will", "currentHp", "maxHp"],
+      "properties": {
+        "ac": { "type": "integer", "minimum": 1, "maximum": 60 },
+        "perception": { "type": "integer", "minimum": -5, "maximum": 60 },
+        "fortitude": { "type": "integer", "minimum": -5, "maximum": 60 },
+        "reflex": { "type": "integer", "minimum": -5, "maximum": 60 },
+        "will": { "type": "integer", "minimum": -5, "maximum": 60 },
+        "currentHp": { "type": "integer", "minimum": 0, "maximum": 9999 },
+        "maxHp": { "type": "integer", "minimum": 1, "maximum": 9999 }
+      }
+    },
+    "skills": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "modifier"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1, "maxLength": 100 },
+          "modifier": { "type": "integer", "minimum": -10, "maximum": 60 }
+        }
+      }
+    },
+    "attacks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "bonus", "damage"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+          "bonus": { "type": "integer", "minimum": -10, "maximum": 60 },
+          "damage": { "type": "string", "minLength": 1, "maxLength": 120 }
+        }
+      }
+    },
+    "equipment": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 200
+      }
+    },
+    "languages": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 100
+      }
+    },
+    "senses": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 100
+      }
+    },
+    "spells": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 120
+      }
+    },
+    "source": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 50
+    },
+    "generation_status": {
+      "type": "string",
+      "enum": ["queued", "completed", "failed"]
+    },
+    "generated_at": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100
+    }
+  }
+}

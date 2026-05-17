@@ -12,6 +12,8 @@ use Psr\Log\LoggerInterface;
  */
 class NpcSheetGenerationService {
 
+  private const NPC_SHEET_SCHEMA_VERSION = '1.0.0';
+
   protected LoggerInterface $logger;
 
   public function __construct(
@@ -19,6 +21,7 @@ class NpcSheetGenerationService {
     LoggerChannelFactoryInterface $logger_factory,
     protected readonly ?AIApiService $aiApiService = NULL,
     protected readonly ?NpcPsychologyService $npcPsychologyService = NULL,
+    protected readonly ?StateValidationService $stateValidationService = NULL,
   ) {
     $this->logger = $logger_factory->get('dungeoncrawler_npc_sheet_generation');
   }
@@ -244,6 +247,7 @@ class NpcSheetGenerationService {
     $prompt .= "Seed data:\n" . json_encode($seed_data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n\n";
     $prompt .= "Return ONLY valid JSON with these keys:\n";
     $prompt .= "{\n";
+    $prompt .= '  "schema_version": string,' . "\n";
     $prompt .= '  "name": string,' . "\n";
     $prompt .= '  "level": integer,' . "\n";
     $prompt .= '  "ancestry": string,' . "\n";
@@ -254,6 +258,17 @@ class NpcSheetGenerationService {
     $prompt .= '  "description": string,' . "\n";
     $prompt .= '  "backstory": string,' . "\n";
     $prompt .= '  "personality_traits": [string, ...],' . "\n";
+    $prompt .= '  "psychology": {' . "\n";
+    $prompt .= '    "inner_conflict": string,' . "\n";
+    $prompt .= '    "coping_mechanism": string,' . "\n";
+    $prompt .= '    "stress_response": string,' . "\n";
+    $prompt .= '    "insecurity": string,' . "\n";
+    $prompt .= '    "secret": string,' . "\n";
+    $prompt .= '    "desire": string,' . "\n";
+    $prompt .= '    "need": string,' . "\n";
+    $prompt .= '    "trigger": string,' . "\n";
+    $prompt .= '    "anchor": string' . "\n";
+    $prompt .= '  },' . "\n";
     $prompt .= '  "motivations": string,' . "\n";
     $prompt .= '  "fears": string,' . "\n";
     $prompt .= '  "bonds": string,' . "\n";
@@ -273,7 +288,7 @@ class NpcSheetGenerationService {
       'npc_character_sheet_generation',
       ['campaign_id' => $campaign_id, 'content_id' => $content_id],
       [
-        'system_prompt' => 'You generate complete but concise Pathfinder 2e NPC sheets as strict JSON. Stay grounded in the provided seed data. Do not wrap the JSON in markdown fences.',
+        'system_prompt' => 'You generate complete but concise Pathfinder 2e NPC sheets as strict JSON. Stay grounded in the provided seed data. Create nuanced, non-stigmatizing psychology using inner conflict, coping habits, stress responses, attachments, and insecurities. Do not assign clinical diagnoses unless the seed data explicitly requests one. Do not wrap the JSON in markdown fences.',
         'max_tokens' => 1200,
         'skip_cache' => TRUE,
       ]
@@ -323,8 +338,15 @@ class NpcSheetGenerationService {
     }
 
     $default_hp = max(8, 8 + ($level * 6));
+    $psychology = $this->normalizePsychologyPayload([
+      'role' => $role,
+      'class' => $class,
+      'occupation' => $occupation,
+      'psychology' => $seed_data['psychology'] ?? [],
+    ], $seed_data, $content_id);
     $sheet = [
       'name' => $seed_data['name'] ?? $content_id,
+      'schema_version' => self::NPC_SHEET_SCHEMA_VERSION,
       'level' => $level,
       'ancestry' => $ancestry,
       'class' => $class,
@@ -337,9 +359,10 @@ class NpcSheetGenerationService {
         'observant',
         in_array($role, ['merchant', 'contact'], TRUE) ? 'socially adept' : 'cautious',
       ],
-      'motivations' => $seed_data['motivations'] ?? 'Stay safe, protect their interests, and respond to the party according to the situation.',
-      'fears' => $seed_data['fears'] ?? 'Being outmatched or losing control of the situation.',
-      'bonds' => $seed_data['bonds'] ?? 'Tied to the current room, town, or faction.',
+      'psychology' => $psychology,
+      'motivations' => $seed_data['motivations'] ?? $this->deriveMotivationsFromPsychology($psychology),
+      'fears' => $seed_data['fears'] ?? $this->deriveFearsFromPsychology($psychology),
+      'bonds' => $seed_data['bonds'] ?? $this->deriveBondsFromPsychology($psychology),
       'abilities' => $abilities,
       'stats' => [
         'ac' => (int) ($stats['ac'] ?? 14 + max(0, $level - 1)),
@@ -374,22 +397,83 @@ class NpcSheetGenerationService {
     $name = (string) ($sheet['name'] ?? $seed_data['name'] ?? $content_id);
     $level = max(1, (int) ($sheet['level'] ?? $seed_data['level'] ?? 1));
     $stats = $sheet['stats'] ?? [];
+    $psychology = $this->normalizePsychologyPayload($sheet, $seed_data, $content_id);
+    $ancestry = $this->firstNonEmptyString([
+      $sheet['ancestry'] ?? '',
+      $seed_data['ancestry'] ?? '',
+      'Humanoid',
+    ], 'Humanoid');
+    $class = $this->firstNonEmptyString([
+      $sheet['class'] ?? '',
+      $seed_data['class'] ?? '',
+      'Commoner',
+    ], 'Commoner');
+    $role = $this->firstNonEmptyString([
+      $sheet['role'] ?? '',
+      $seed_data['role'] ?? '',
+      'neutral',
+    ], 'neutral');
+    $alignment = $this->firstNonEmptyString([
+      $sheet['alignment'] ?? '',
+      $seed_data['alignment'] ?? '',
+      'N',
+    ], 'N');
+    $occupation = $this->firstNonEmptyString([
+      $sheet['occupation'] ?? '',
+      $seed_data['occupation'] ?? '',
+      $role,
+      'resident',
+    ], 'resident');
+    $personality_traits = array_values(array_filter(array_map('strval', $sheet['personality_traits'] ?? [])));
+    if ($personality_traits === []) {
+      $personality_traits = ['guarded'];
+    }
+    $equipment = $this->normalizeStringList($sheet['equipment'] ?? $seed_data['equipment'] ?? []);
+    $languages = $this->normalizeStringList($sheet['languages'] ?? $seed_data['languages'] ?? ['Common']);
+    if ($languages === []) {
+      $languages = ['Common'];
+    }
+    $senses = $this->normalizeStringList($sheet['senses'] ?? $seed_data['senses'] ?? []);
+    $spells = $this->normalizeStringList($sheet['spells'] ?? []);
+    $normalized_stats = [
+      'ac' => max(1, (int) ($stats['ac'] ?? $seed_data['stats']['ac'] ?? 10)),
+      'perception' => (int) ($stats['perception'] ?? $seed_data['stats']['perception'] ?? 0),
+      'fortitude' => (int) ($stats['fortitude'] ?? $seed_data['stats']['fortitude'] ?? 0),
+      'reflex' => (int) ($stats['reflex'] ?? $seed_data['stats']['reflex'] ?? 0),
+      'will' => (int) ($stats['will'] ?? $seed_data['stats']['will'] ?? 0),
+      'currentHp' => max(0, (int) ($stats['currentHp'] ?? $stats['maxHp'] ?? $seed_data['stats']['currentHp'] ?? $seed_data['stats']['maxHp'] ?? 1)),
+      'maxHp' => max(1, (int) ($stats['maxHp'] ?? $seed_data['stats']['maxHp'] ?? $stats['currentHp'] ?? 1)),
+    ];
 
-    return [
+    return $this->finalizeNpcSheetContract([
+      'schema_version' => self::NPC_SHEET_SCHEMA_VERSION,
       'content_id' => $content_id,
       'name' => $name,
       'level' => $level,
-      'ancestry' => (string) ($sheet['ancestry'] ?? $seed_data['ancestry'] ?? 'Humanoid'),
-      'class' => (string) ($sheet['class'] ?? $seed_data['class'] ?? 'Commoner'),
-      'occupation' => (string) ($sheet['occupation'] ?? $seed_data['occupation'] ?? ''),
-      'role' => (string) ($sheet['role'] ?? $seed_data['role'] ?? 'neutral'),
-      'alignment' => (string) ($sheet['alignment'] ?? $seed_data['alignment'] ?? 'N'),
+      'ancestry' => $ancestry,
+      'class' => $class,
+      'occupation' => $occupation,
+      'role' => $role,
+      'alignment' => $alignment,
       'description' => (string) ($sheet['description'] ?? $seed_data['description'] ?? ''),
       'backstory' => (string) ($sheet['backstory'] ?? $seed_data['backstory'] ?? ''),
-      'personality_traits' => array_values(array_filter(array_map('strval', $sheet['personality_traits'] ?? []))),
-      'motivations' => (string) ($sheet['motivations'] ?? $seed_data['motivations'] ?? ''),
-      'fears' => (string) ($sheet['fears'] ?? $seed_data['fears'] ?? ''),
-      'bonds' => (string) ($sheet['bonds'] ?? $seed_data['bonds'] ?? ''),
+      'personality_traits' => $personality_traits,
+      'psychology' => $psychology,
+      'motivations' => $this->firstNonEmptyString([
+        $sheet['motivations'] ?? '',
+        $seed_data['motivations'] ?? '',
+        $this->deriveMotivationsFromPsychology($psychology),
+      ]),
+      'fears' => $this->firstNonEmptyString([
+        $sheet['fears'] ?? '',
+        $seed_data['fears'] ?? '',
+        $this->deriveFearsFromPsychology($psychology),
+      ]),
+      'bonds' => $this->firstNonEmptyString([
+        $sheet['bonds'] ?? '',
+        $seed_data['bonds'] ?? '',
+        $this->deriveBondsFromPsychology($psychology),
+      ]),
       'abilities' => [
         'strength' => (int) (($sheet['abilities']['strength'] ?? 10)),
         'dexterity' => (int) (($sheet['abilities']['dexterity'] ?? 10)),
@@ -398,25 +482,17 @@ class NpcSheetGenerationService {
         'wisdom' => (int) (($sheet['abilities']['wisdom'] ?? 10)),
         'charisma' => (int) (($sheet['abilities']['charisma'] ?? 10)),
       ],
-      'stats' => [
-        'ac' => (int) ($stats['ac'] ?? $seed_data['stats']['ac'] ?? 10),
-        'perception' => (int) ($stats['perception'] ?? $seed_data['stats']['perception'] ?? 0),
-        'fortitude' => (int) ($stats['fortitude'] ?? $seed_data['stats']['fortitude'] ?? 0),
-        'reflex' => (int) ($stats['reflex'] ?? $seed_data['stats']['reflex'] ?? 0),
-        'will' => (int) ($stats['will'] ?? $seed_data['stats']['will'] ?? 0),
-        'currentHp' => (int) ($stats['currentHp'] ?? $stats['maxHp'] ?? $seed_data['stats']['currentHp'] ?? $seed_data['stats']['maxHp'] ?? 1),
-        'maxHp' => (int) ($stats['maxHp'] ?? $seed_data['stats']['maxHp'] ?? $stats['currentHp'] ?? 1),
-      ],
+      'stats' => $normalized_stats,
       'skills' => array_values($sheet['skills'] ?? []),
       'attacks' => array_values($sheet['attacks'] ?? []),
-      'equipment' => array_values($sheet['equipment'] ?? $seed_data['equipment'] ?? []),
-      'languages' => array_values($sheet['languages'] ?? $seed_data['languages'] ?? ['Common']),
-      'senses' => array_values($sheet['senses'] ?? $seed_data['senses'] ?? []),
-      'spells' => array_values($sheet['spells'] ?? []),
+      'equipment' => $equipment,
+      'languages' => $languages,
+      'senses' => $senses,
+      'spells' => $spells,
       'source' => 'generated_npc_sheet',
       'generation_status' => 'completed',
       'generated_at' => date('c'),
-    ];
+    ]);
   }
 
   /**
@@ -523,6 +599,7 @@ class NpcSheetGenerationService {
   protected function ensureNpcLibraryEntries(int $campaign_id, string $content_id, array $seed_data): void {
     $base_schema = [
       'content_id' => $content_id,
+      'schema_version' => self::NPC_SHEET_SCHEMA_VERSION,
       'name' => $seed_data['name'] ?? $content_id,
       'ancestry' => $seed_data['ancestry'] ?? 'Humanoid',
       'class' => $seed_data['class'] ?? 'Commoner',
@@ -530,6 +607,10 @@ class NpcSheetGenerationService {
       'occupation' => $seed_data['occupation'] ?? '',
       'description' => $seed_data['description'] ?? '',
       'backstory' => $seed_data['backstory'] ?? '',
+      'psychology' => is_array($seed_data['psychology'] ?? NULL) ? $seed_data['psychology'] : [],
+      'motivations' => $seed_data['motivations'] ?? '',
+      'fears' => $seed_data['fears'] ?? '',
+      'bonds' => $seed_data['bonds'] ?? '',
       'stats' => $seed_data['stats'] ?? [],
       'equipment' => $seed_data['equipment'] ?? [],
       'generation_status' => 'queued',
@@ -607,7 +688,22 @@ class NpcSheetGenerationService {
       'motivations' => (string) ($seed_data['motivations'] ?? ''),
       'fears' => (string) ($seed_data['fears'] ?? ''),
       'bonds' => (string) ($seed_data['bonds'] ?? ''),
+      'psychology' => is_array($seed_data['psychology'] ?? NULL) ? $seed_data['psychology'] : [],
     ];
+  }
+
+  /**
+   * Normalize and validate the final NPC sheet contract.
+   */
+  protected function finalizeNpcSheetContract(array $sheet): array {
+    if ($this->stateValidationService) {
+      $validation = $this->stateValidationService->validateNpcSheet($sheet);
+      if (!$validation['valid']) {
+        throw new \RuntimeException('NPC sheet contract violation: ' . implode('; ', $validation['errors']));
+      }
+    }
+
+    return $sheet;
   }
 
   /**
@@ -666,6 +762,7 @@ class NpcSheetGenerationService {
       'attacks' => $sheet['attacks'],
       'spells' => $sheet['spells'],
       'personality_traits' => $sheet['personality_traits'],
+      'psychology' => $sheet['psychology'] ?? [],
       'motivations' => $sheet['motivations'],
       'fears' => $sheet['fears'],
       'bonds' => $sheet['bonds'],
@@ -697,7 +794,326 @@ class NpcSheetGenerationService {
       'stats' => $sheet['stats'],
       'equipment' => $sheet['equipment'],
       'role' => $sheet['role'],
+      'psychology' => $sheet['psychology'] ?? [],
+      'motivations' => $sheet['motivations'] ?? '',
+      'fears' => $sheet['fears'] ?? '',
+      'bonds' => $sheet['bonds'] ?? '',
     ];
+  }
+
+  /**
+   * Normalize rich psychology fields, falling back to deterministic templates.
+   */
+  private function normalizePsychologyPayload(array $sheet, array $seed_data, string $content_id): array {
+    $role = (string) ($sheet['role'] ?? $seed_data['role'] ?? 'neutral');
+    $class = (string) ($sheet['class'] ?? $seed_data['class'] ?? 'Commoner');
+    $occupation = (string) ($sheet['occupation'] ?? $seed_data['occupation'] ?? $role);
+    $fallback = $this->buildFallbackPsychology($content_id, $role, $class, $occupation);
+    $provided = is_array($sheet['psychology'] ?? NULL)
+      ? $sheet['psychology']
+      : (is_array($seed_data['psychology'] ?? NULL) ? $seed_data['psychology'] : []);
+
+    $normalized = [];
+    foreach (['inner_conflict', 'coping_mechanism', 'stress_response', 'insecurity', 'secret', 'desire', 'need', 'trigger', 'anchor'] as $field) {
+      $normalized[$field] = $this->firstNonEmptyString([
+        $provided[$field] ?? '',
+        $fallback[$field] ?? '',
+      ]);
+    }
+
+    return $normalized;
+  }
+
+  /**
+   * Build a deterministic but richer fallback psychology profile.
+   */
+  private function buildFallbackPsychology(string $content_id, string $role, string $class, string $occupation): array {
+    $role_key = strtolower(trim($role));
+    $class_label = trim($class) !== '' ? $class : 'Commoner';
+    $occupation_label = trim($occupation) !== '' ? $occupation : $role_key;
+    $templates = [
+      'ally' => [
+        'inner_conflict' => [
+          'They want to be dependable, but they quietly resent how often everyone leans on them.',
+          'They crave closeness, but every promise they make reminds them how badly failure would hurt.',
+        ],
+        'coping_mechanism' => [
+          'They stay busy solving other people\'s problems so they do not have to sit with their own doubts.',
+          'They overprepare and rehearse difficult conversations before anyone can catch them off guard.',
+        ],
+        'stress_response' => [
+          'Under stress they become protective, overextend themselves, and stop asking for help.',
+          'Pressure makes them terse and self-sacrificing, even when they need rest.',
+        ],
+        'insecurity' => [
+          'They fear being useful only when they are needed in a crisis.',
+          'They worry their kindness is mistaken for weakness.',
+        ],
+        'secret' => [
+          "They still feel guilty about one person they could not protect.",
+          "They keep a private plan for leaving before anyone can rely on them too deeply.",
+        ],
+        'desire' => [
+          'To keep their circle safe without losing themselves in the process.',
+          'To prove they can be steady without becoming invisible.',
+        ],
+        'need' => [
+          'To believe they deserve care even when they are not being useful.',
+          'To trust others enough to share the weight.',
+        ],
+        'trigger' => [
+          'Watching someone dismiss vulnerability as weakness.',
+          'Being told they are responsible for everyone in the room.',
+        ],
+        'anchor' => [
+          "The people they have chosen to protect around the {$occupation_label}.",
+          "A promise they made to someone tied to the {$occupation_label}.",
+        ],
+      ],
+      'contact' => [
+        'inner_conflict' => [
+          'They want to be trusted, but survival has taught them to keep an escape route.',
+          'They enjoy being indispensable, but hate how that keeps them tangled in everyone else\'s secrets.',
+        ],
+        'coping_mechanism' => [
+          'They deflect with wit and selective honesty whenever a conversation cuts too close.',
+          'They compartmentalize everything into favors, debts, and manageable pieces.',
+        ],
+        'stress_response' => [
+          'When cornered, they grow slippery, vague, and hyperaware of leverage.',
+          'Stress makes them bargain first, then disappear if the room turns volatile.',
+        ],
+        'insecurity' => [
+          'They fear becoming disposable once their information loses value.',
+          'They worry that intimacy will cost them the one advantage they control.',
+        ],
+        'secret' => [
+          'They are quietly protecting someone whose name would change the power balance in town.',
+          'They have already sold part of the truth to a rival and regret it.',
+        ],
+        'desire' => [
+          'To stay informed, relevant, and one move ahead of the next betrayal.',
+          'To turn knowledge into lasting security.',
+        ],
+        'need' => [
+          'To find one relationship that does not feel transactional.',
+          'To admit that safety built only on leverage never feels safe enough.',
+        ],
+        'trigger' => [
+          'Public demands for absolute loyalty.',
+          'Anyone insisting that trust should be immediate.',
+        ],
+        'anchor' => [
+          "A fragile network of favors tied to the {$occupation_label}.",
+          "One person who still sees them as more than a source inside the {$occupation_label}.",
+        ],
+      ],
+      'merchant' => [
+        'inner_conflict' => [
+          'They want stability, but every opportunity to grow feels too dangerous to ignore.',
+          'They like being seen as generous, but panic whenever generosity threatens their margin.',
+        ],
+        'coping_mechanism' => [
+          'They soothe themselves by counting stock, rehearsing numbers, and controlling every small risk.',
+          'They turn uncertainty into negotiation, even when the room needs warmth more than terms.',
+        ],
+        'stress_response' => [
+          'Stress makes them brisk, guarded, and obsessed with contingency plans.',
+          'Under pressure they start treating relationships like contracts they can enforce.',
+        ],
+        'insecurity' => [
+          'They fear one bad season will undo everything they built.',
+          'They worry that people like the goods more than the person selling them.',
+        ],
+        'secret' => [
+          "They are extending credit to someone they should have cut off long ago.",
+          "They hide how close one recent loss came to ruining the {$occupation_label}.",
+        ],
+        'desire' => [
+          'To build a business no one can casually take from them.',
+          'To convert hustle into real, durable security.',
+        ],
+        'need' => [
+          'To feel safe enough to stop measuring every interaction for loss.',
+          'To remember that trust sometimes pays better than control.',
+        ],
+        'trigger' => [
+          'Sudden chaos that threatens property or reputation.',
+          'People acting as though their labor should be free or invisible.',
+        ],
+        'anchor' => [
+          "The staff, regulars, and routines that keep the {$occupation_label} standing.",
+          "A ledger, a family expectation, and the reputation wrapped around the {$occupation_label}.",
+        ],
+      ],
+      'villain' => [
+        'inner_conflict' => [
+          'They crave total control, but every victory deepens the fear that they are still vulnerable underneath it.',
+          'They despise dependence, yet secretly hunger for devotion they can believe is real.',
+        ],
+        'coping_mechanism' => [
+          'They manage anxiety by overplanning, tightening control, and punishing uncertainty.',
+          'They turn every emotional threat into a test of dominance before it can touch them.',
+        ],
+        'stress_response' => [
+          'Pressure makes them colder, sharper, and more willing to humiliate others first.',
+          'When stressed, they become controlling, retaliatory, and unable to tolerate dissent.',
+        ],
+        'insecurity' => [
+          'They fear public irrelevance more than death.',
+          'They cannot bear being seen as ordinary, weak, or replaceable.',
+        ],
+        'secret' => [
+          'They still measure themself against one humiliation they never truly survived.',
+          'They keep a private record of every slight because forgetting would feel like surrender.',
+        ],
+        'desire' => [
+          'To become untouchable and impossible to dismiss.',
+          'To shape the world until it can no longer surprise or shame them.',
+        ],
+        'need' => [
+          'To accept that control cannot substitute for trust or belonging.',
+          'To face the part of themself that still feels small without lashing out.',
+        ],
+        'trigger' => [
+          'Being laughed at, contradicted, or made to look foolish in public.',
+          'Any reminder that loyalty bought through fear is unstable.',
+        ],
+        'anchor' => [
+          "A cause, symbol, or chosen heir tied to the {$occupation_label} they refuse to lose.",
+          "The single person or ambition that still gives their ambition emotional weight.",
+        ],
+      ],
+      'neutral' => [
+        'inner_conflict' => [
+          'They want a quiet life, but they are drawn to the drama they pretend to avoid.',
+          'They value caution, yet resent how much caution has kept them from acting decisively.',
+        ],
+        'coping_mechanism' => [
+          'They minimize, joke, and redirect whenever conversation threatens to become personal.',
+          'They keep life manageable by reducing everything to routine and practical tasks.',
+        ],
+        'stress_response' => [
+          'When stressed they withdraw, go quiet, and hope the storm passes without naming what they feel.',
+          'Pressure makes them indecisive, watchful, and overly concerned with avoiding blame.',
+        ],
+        'insecurity' => [
+          'They worry they will matter only when something goes wrong.',
+          'They fear choosing a side and regretting it forever.',
+        ],
+        'secret' => [
+          "They know more about one recent conflict than they admit aloud.",
+          "They are quietly waiting for one chance to reinvent themself through the {$occupation_label}.",
+        ],
+        'desire' => [
+          'To stay secure without being dragged under by other people\'s chaos.',
+          'To keep enough freedom that no one can corner them into a life they hate.',
+        ],
+        'need' => [
+          'To accept that neutrality is also a choice with consequences.',
+          'To risk being known rather than living entirely through caution.',
+        ],
+        'trigger' => [
+          'Sudden demands to pick a side immediately.',
+          'Being treated like background when they know they are carrying context others missed.',
+        ],
+        'anchor' => [
+          "A familiar routine and a handful of people around the {$occupation_label}.",
+          "The place, work, or promise that still makes daily life feel worth preserving.",
+        ],
+      ],
+    ];
+
+    $template = $templates[$role_key] ?? $templates['neutral'];
+    $psychology = [];
+    foreach ($template as $field => $options) {
+      $psychology[$field] = $this->selectPsychologyOption($content_id . '|' . $class_label . '|' . $occupation_label, $field, $options);
+    }
+
+    return $psychology;
+  }
+
+  /**
+   * Select a deterministic option from a pool.
+   */
+  private function selectPsychologyOption(string $seed, string $bucket, array $options): string {
+    if ($options === []) {
+      return '';
+    }
+
+    $index = ((int) sprintf('%u', crc32($seed . '|' . $bucket))) % count($options);
+    return (string) ($options[$index] ?? '');
+  }
+
+  /**
+   * Derive legacy motivation text from structured psychology.
+   */
+  private function deriveMotivationsFromPsychology(array $psychology): string {
+    return $this->firstNonEmptyString([
+      trim(($psychology['desire'] ?? '') . '; ' . ($psychology['need'] ?? '')),
+      $psychology['desire'] ?? '',
+      $psychology['need'] ?? '',
+    ]);
+  }
+
+  /**
+   * Derive legacy fear text from structured psychology.
+   */
+  private function deriveFearsFromPsychology(array $psychology): string {
+    return $this->firstNonEmptyString([
+      trim(($psychology['insecurity'] ?? '') . '; Triggered by ' . ($psychology['trigger'] ?? '')),
+      $psychology['insecurity'] ?? '',
+      $psychology['trigger'] ?? '',
+    ]);
+  }
+
+  /**
+   * Derive legacy bond text from structured psychology.
+   */
+  private function deriveBondsFromPsychology(array $psychology): string {
+    return $this->firstNonEmptyString([
+      $psychology['anchor'] ?? '',
+      $psychology['need'] ?? '',
+    ]);
+  }
+
+  /**
+   * Return the first non-empty scalar string.
+   */
+  private function firstNonEmptyString(array $values, string $default = ''): string {
+    foreach ($values as $value) {
+      if (!is_scalar($value)) {
+        continue;
+      }
+      $normalized = trim((string) $value);
+      if ($normalized !== '') {
+        return $normalized;
+      }
+    }
+
+    return $default;
+  }
+
+  /**
+   * Normalize a scalar list into a trimmed string list.
+   */
+  private function normalizeStringList($values): array {
+    if (!is_array($values)) {
+      return [];
+    }
+
+    $normalized = [];
+    foreach ($values as $value) {
+      if (!is_scalar($value)) {
+        continue;
+      }
+      $trimmed = trim((string) $value);
+      if ($trimmed !== '') {
+        $normalized[] = $trimmed;
+      }
+    }
+
+    return array_values($normalized);
   }
 
   /**

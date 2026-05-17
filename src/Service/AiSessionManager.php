@@ -235,6 +235,8 @@ class AiSessionManager {
       $messages = array_slice($messages, -self::SUMMARY_THRESHOLD);
     }
 
+    $summary = $this->normalizeSummaryForStorage($summary);
+
     $this->database->update('dc_ai_sessions')
       ->fields([
         'messages' => json_encode($messages),
@@ -350,6 +352,40 @@ class AiSessionManager {
     }
 
     return $combined;
+  }
+
+  /**
+   * Normalize rolling summaries to database-safe punctuation.
+   */
+  protected function normalizeSummaryForStorage(string $summary): string {
+    if ($summary === '') {
+      return '';
+    }
+
+    $summary = str_replace([
+      "\xC2\xA0",
+      "\xE2\x80\x98",
+      "\xE2\x80\x99",
+      "\xE2\x80\x9C",
+      "\xE2\x80\x9D",
+      "\xE2\x80\x93",
+      "\xE2\x80\x94",
+      "\xE2\x80\xA6",
+      "\xEF\xBF\xBD",
+    ], [
+      ' ',
+      "'",
+      "'",
+      '"',
+      '"',
+      '-',
+      '-',
+      '...',
+      '',
+    ], $summary);
+    $summary = preg_replace('/[^\x09\x0A\x0D\x20-\x7E]/', '', $summary) ?? '';
+
+    return $summary;
   }
 
   /**

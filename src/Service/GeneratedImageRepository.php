@@ -176,6 +176,10 @@ class GeneratedImageRepository {
    * Loads an image by UUID.
    */
   public function loadImageByUuid(string $image_uuid): ?array {
+    if (!$this->hasGeneratedImageTables()) {
+      return NULL;
+    }
+
     $row = $this->database->select('dc_generated_images', 'i')
       ->fields('i')
       ->condition('image_uuid', $image_uuid)
@@ -194,6 +198,10 @@ class GeneratedImageRepository {
    *   Image links.
    */
   public function loadLinksForImageId(int $image_id): array {
+    if (!$this->hasGeneratedImageTables()) {
+      return [];
+    }
+
     $rows = $this->database->select('dc_generated_image_links', 'l')
       ->fields('l')
       ->condition('image_id', $image_id)
@@ -213,6 +221,10 @@ class GeneratedImageRepository {
    *   Image rows with link metadata.
    */
   public function loadImagesForObject(string $table_name, string $object_id, ?int $campaign_id = NULL, ?string $slot = NULL, ?string $variant = NULL): array {
+    if (!$this->hasGeneratedImageTables()) {
+      return [];
+    }
+
     $query = $this->database->select('dc_generated_image_links', 'l');
     $query->fields('l');
     $query->condition('l.table_name', $table_name);
@@ -280,6 +292,9 @@ class GeneratedImageRepository {
     }
 
     if (empty($clean_ids)) {
+      return [];
+    }
+    if (!$this->hasGeneratedImageTables()) {
       return [];
     }
 
@@ -359,6 +374,9 @@ class GeneratedImageRepository {
     if (empty($clean_ids)) {
       return [];
     }
+    if (!$this->hasGeneratedImageTables()) {
+      return [];
+    }
 
     $query = $this->database->select('dc_generated_image_links', 'l');
     $query->addField('l', 'object_id');
@@ -400,6 +418,10 @@ class GeneratedImageRepository {
    *   Image rows with link metadata.
    */
   public function loadCampaignImages(int $campaign_id, ?string $table_name = NULL, ?string $object_id = NULL, ?string $slot = NULL): array {
+    if (!$this->hasGeneratedImageTables()) {
+      return [];
+    }
+
     $query = $this->database->select('dc_generated_image_links', 'l');
     $query->fields('l');
     $query->condition('l.campaign_id', $campaign_id);
@@ -439,6 +461,22 @@ class GeneratedImageRepository {
 
     $rows = $query->execute()->fetchAll(\PDO::FETCH_ASSOC);
     return is_array($rows) ? $rows : [];
+  }
+
+  /**
+   * Determine whether generated-image storage tables are available.
+   */
+  protected function hasGeneratedImageTables(): bool {
+    try {
+      return $this->database->schema()->tableExists('dc_generated_images')
+        && $this->database->schema()->tableExists('dc_generated_image_links');
+    }
+    catch (\Throwable $exception) {
+      $this->logger->warning('Generated image table availability check failed: @message', [
+        '@message' => $exception->getMessage(),
+      ]);
+      return FALSE;
+    }
   }
 
   /**

@@ -54,4 +54,50 @@ class AbilityScoreTrackerTest extends UnitTestCase {
     );
   }
 
+  /**
+   * Tests classes with array-shaped key ability metadata still resolve boosts.
+   *
+   * @covers ::calculateAbilityScores
+   */
+  public function testArrayKeyAbilityMetadataIsAccepted(): void {
+    $tracker = new AbilityScoreTracker($this->createMock(CharacterManager::class));
+
+    $result = $tracker->calculateAbilityScores([
+      'ancestry' => 'human',
+      'ancestry_boosts' => ['strength', 'constitution'],
+      'background' => 'scholar',
+      'background_boosts' => ['dexterity'],
+      'class' => 'magus',
+      'class_key_ability' => 'strength',
+      'free_boosts' => ['strength', 'constitution', 'intelligence', 'wisdom'],
+    ]);
+
+    $this->assertSame([], $result['validation']);
+    $this->assertSame(16, $result['scores']['strength']);
+    $this->assertSame(14, $result['scores']['intelligence']);
+  }
+
+  /**
+   * Tests array-shaped selected key ability values are normalized safely.
+   *
+   * @covers ::calculateAbilityScores
+   */
+  public function testArraySelectedKeyAbilityIsAccepted(): void {
+    $tracker = new AbilityScoreTracker($this->createMock(CharacterManager::class));
+
+    $result = $tracker->calculateAbilityScores([
+      'ancestry' => 'human',
+      'ancestry_boosts' => ['strength', 'constitution'],
+      'background' => 'scholar',
+      'background_boosts' => ['dexterity'],
+      'class' => 'fighter',
+      'class_key_ability' => ['strength'],
+      'free_boosts' => ['strength', 'constitution', 'wisdom', 'charisma'],
+    ]);
+
+    $this->assertSame([], $result['validation']);
+    $this->assertSame(16, $result['scores']['strength']);
+    $this->assertSame(14, $result['scores']['constitution']);
+  }
+
 }

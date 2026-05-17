@@ -7,6 +7,8 @@ use Drupal\Core\Database\Connection;
 use Drupal\dungeoncrawler_content\Service\AnimalCompanionService;
 use Drupal\dungeoncrawler_content\Service\GeneratedImageRepository;
 use Drupal\dungeoncrawler_content\Service\QuestTrackerService;
+use Drupal\dungeoncrawler_content\Service\RelationshipManagerService;
+use Drupal\dungeoncrawler_content\Service\StorylineManagerService;
 use Symfony\Component\HttpFoundation\RequestStack;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
@@ -24,6 +26,8 @@ class HexMapController extends ControllerBase {
   protected AnimalCompanionService $animalCompanionService;
   protected QuestTrackerService $questTracker;
   protected GeneratedImageRepository $imageRepository;
+  protected StorylineManagerService $storylineManager;
+  protected RelationshipManagerService $relationshipManager;
 
   /**
    * Per-request cache of room contents_data to avoid redundant DB reads.
@@ -33,12 +37,14 @@ class HexMapController extends ControllerBase {
    * @var array<string, array|null>
    */
   protected array $roomContentsCache = [];
-  public function __construct(RequestStack $request_stack, Connection $database, AnimalCompanionService $animal_companion_service, QuestTrackerService $quest_tracker, GeneratedImageRepository $image_repository) {
+  public function __construct(RequestStack $request_stack, Connection $database, AnimalCompanionService $animal_companion_service, QuestTrackerService $quest_tracker, GeneratedImageRepository $image_repository, StorylineManagerService $storyline_manager, RelationshipManagerService $relationship_manager) {
     $this->requestStack = $request_stack;
     $this->database = $database;
     $this->animalCompanionService = $animal_companion_service;
     $this->questTracker = $quest_tracker;
     $this->imageRepository = $image_repository;
+    $this->storylineManager = $storyline_manager;
+    $this->relationshipManager = $relationship_manager;
   }
 
   /**
@@ -51,6 +57,8 @@ class HexMapController extends ControllerBase {
       $container->get('dungeoncrawler_content.animal_companion'),
       $container->get('dungeoncrawler_content.quest_tracker'),
       $container->get('dungeoncrawler_content.generated_image_repository'),
+      $container->get('dungeoncrawler_content.storyline_manager'),
+      $container->get('dungeoncrawler_content.relationship_manager'),
     );
   }
 
@@ -120,6 +128,7 @@ class HexMapController extends ControllerBase {
     $dungeon_payload = $this->injectCampaignCharacterEntities($dungeon_payload, $launch_context);
     $launch_character = $this->loadLaunchCharacterSummary($launch_context);
     $quest_summary = $this->loadQuestSummary($launch_context);
+    $storyline_contacts = $this->loadStorylineContactSummary($launch_context);
     $campaign_title = $this->loadCampaignTitle($launch_context);
     $dungeon_payload = $this->injectQuestItemEntities($dungeon_payload, $quest_summary);
     $dungeon_payload = $this->attachEntityPortraitUrls($dungeon_payload, $launch_context);
@@ -142,12 +151,13 @@ class HexMapController extends ControllerBase {
         'drupalSettings' => [
           'dungeoncrawlerContent' => [
             'hexmapLaunchContext' => $launch_context,
-            'hexmapDungeonData' => $dungeon_payload,
-            'hexmapLaunchCharacter' => $launch_character,
-            'hexmapQuestSummary' => $quest_summary,
-          ],
-        ],
-      ],
+             'hexmapDungeonData' => $dungeon_payload,
+             'hexmapLaunchCharacter' => $launch_character,
+             'hexmapQuestSummary' => $quest_summary,
+             'hexmapStorylineContacts' => $storyline_contacts,
+           ],
+         ],
+       ],
       '#cache' => [
         'max-age' => 0,
         'contexts' => ['url.query_args:campaign_id', 'url.query_args:character_id', 'url.query_args:dungeon_level_id', 'url.query_args:map_id', 'url.query_args:room_id', 'url.query_args:next_room_id', 'url.query_args:start_q', 'url.query_args:start_r'],
@@ -288,8 +298,9 @@ class HexMapController extends ControllerBase {
    *   Character summary for character sheet fallback.
    */
   protected function loadLaunchCharacterSummary(array $launch_context): array {
+    $campaign_id = (int) ($launch_context['campaign_id'] ?? 0);
     $character_id = (int) ($launch_context['character_id'] ?? 0);
-    if ((int) ($launch_context['campaign_id'] ?? 0) <= 0 || $character_id <= 0) {
+    if ($campaign_id <= 0 || $character_id <= 0) {
       return [];
     }
 
@@ -519,6 +530,32 @@ class HexMapController extends ControllerBase {
         'available' => count($available_summary),
       ],
     ];
+  }
+
+  /**
+   * Load tavern-brokered storyline contact summaries for the launch context.
+   */
+  protected function loadStorylineContactSummary(array $launch_context): array {
+    $campaign_id = (int) ($launch_context['campaign_id'] ?? 0);
+    if ($campaign_id <= 0 || !$this->relationshipManager->isRelationshipStorageReady()) {
+      return [];
+    }
+
+    try {
+      $storylines = $this->storylineManager->ensureBundledCampaignStorylines($campaign_id, [
+        'status' => 'available',
+        'priority_base' => 100,
+      ]);
+      $this->relationshipManager->seedLibraryRelationships($campaign_id);
+      foreach ($storylines as $storyline) {
+        $this->relationshipManager->seedStorylineContacts($campaign_id, $storyline);
+      }
+
+      return $this->relationshipManager->getCampaignStorylineContacts($campaign_id, 'npc_tavern_keeper');
+    }
+    catch (\InvalidArgumentException $e) {
+      return [];
+    }
   }
 
   /**

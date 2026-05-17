@@ -3,6 +3,7 @@
 namespace Drupal\dungeoncrawler_content\Controller;
 
 use Drupal\Core\Controller\ControllerBase;
+use Drupal\dungeoncrawler_content\Service\RelationshipManagerService;
 use Drupal\dungeoncrawler_content\Service\StorylineManagerService;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -14,14 +15,17 @@ use Symfony\Component\HttpFoundation\Request;
 class StorylineController extends ControllerBase {
 
   protected StorylineManagerService $storylineManager;
+  protected RelationshipManagerService $relationshipManager;
 
-  public function __construct(StorylineManagerService $storyline_manager) {
+  public function __construct(StorylineManagerService $storyline_manager, RelationshipManagerService $relationship_manager) {
     $this->storylineManager = $storyline_manager;
+    $this->relationshipManager = $relationship_manager;
   }
 
   public static function create(ContainerInterface $container): self {
     return new static(
-      $container->get('dungeoncrawler_content.storyline_manager')
+      $container->get('dungeoncrawler_content.storyline_manager'),
+      $container->get('dungeoncrawler_content.relationship_manager')
     );
   }
 
@@ -71,6 +75,15 @@ class StorylineController extends ControllerBase {
    */
   public function listCampaignStorylines(int $campaign_id): JsonResponse {
     try {
+      $storylines = $this->storylineManager->ensureBundledCampaignStorylines($campaign_id, [
+        'status' => 'available',
+        'priority_base' => 100,
+      ]);
+      $this->relationshipManager->seedLibraryRelationships($campaign_id);
+      foreach ($storylines as $storyline) {
+        $this->relationshipManager->seedStorylineContacts($campaign_id, $storyline);
+      }
+
       return new JsonResponse([
         'success' => TRUE,
         'storylines' => $this->storylineManager->listCampaignStorylines($campaign_id, TRUE),
@@ -128,6 +141,10 @@ class StorylineController extends ControllerBase {
         $definition = is_array($payload['template'] ?? NULL) ? $payload['template'] : $payload;
         $storyline = $this->storylineManager->createCampaignStoryline($campaign_id, $definition, $payload);
       }
+
+      $this->relationshipManager->seedLibraryRelationships($campaign_id);
+      $this->relationshipManager->seedStorylineContacts($campaign_id, $storyline);
+      $this->relationshipManager->refreshCampaignStorylineContacts($campaign_id, 'npc_tavern_keeper');
 
       return new JsonResponse([
         'success' => TRUE,
@@ -204,6 +221,33 @@ class StorylineController extends ControllerBase {
       return new JsonResponse([
         'success' => TRUE,
         'journal' => $this->storylineManager->getCampaignStorylineLog($campaign_id, $storyline_id),
+      ]);
+    }
+    catch (\InvalidArgumentException $e) {
+      return new JsonResponse(['success' => FALSE, 'error' => $e->getMessage()], $e->getCode() ?: 400);
+    }
+    catch (\Exception $e) {
+      return new JsonResponse(['success' => FALSE, 'error' => 'Internal server error'], 500);
+    }
+  }
+
+  /**
+   * Returns the tavern/storyline contact map for a campaign.
+   */
+  public function getCampaignStorylineContacts(int $campaign_id): JsonResponse {
+    try {
+      $storylines = $this->storylineManager->ensureBundledCampaignStorylines($campaign_id, [
+        'status' => 'available',
+        'priority_base' => 100,
+      ]);
+      $this->relationshipManager->seedLibraryRelationships($campaign_id);
+      foreach ($storylines as $storyline) {
+        $this->relationshipManager->seedStorylineContacts($campaign_id, $storyline);
+      }
+
+      return new JsonResponse([
+        'success' => TRUE,
+        'contacts' => $this->relationshipManager->refreshCampaignStorylineContacts($campaign_id, 'npc_tavern_keeper'),
       ]);
     }
     catch (\InvalidArgumentException $e) {

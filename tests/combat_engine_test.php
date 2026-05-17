@@ -12,6 +12,7 @@
 
 use Drupal\dungeoncrawler_content\Service\Calculator;
 use Drupal\dungeoncrawler_content\Service\CombatCalculator;
+use Drupal\dungeoncrawler_content\Service\CombatEngine;
 use Drupal\dungeoncrawler_content\Service\NumberGenerationService;
 use Drupal\dungeoncrawler_content\Service\RulesEngine;
 
@@ -623,6 +624,29 @@ assert_test($broke2 === FALSE, 'Shield at HP 15 (above BT 10) does not break');
 // =========================================================================
 // SUMMARY
 // =========================================================================
+
+echo "\n=== Combat Engine Outcome Checks ===\n\n";
+
+/** @var CombatEngine $combatEngine */
+$combatEngine = \Drupal::service('dungeoncrawler_content.combat_engine');
+$evaluate_outcome = new ReflectionMethod($combatEngine, 'evaluateEncounterOutcome');
+$evaluate_outcome->setAccessible(TRUE);
+
+$neutral_outcome = $evaluate_outcome->invoke($combatEngine, [
+  ['team' => 'player', 'is_defeated' => 0],
+  ['team' => 'hostile', 'is_defeated' => 1],
+  ['team' => 'neutral', 'is_defeated' => 0],
+]);
+assert_test($neutral_outcome['ended'] === TRUE, 'Neutral participants do not keep combat active after hostiles fall');
+assert_test($neutral_outcome['victory_condition'] === 'heroes stand', 'Neutral outcome resolves to hero victory');
+
+$ally_outcome = $evaluate_outcome->invoke($combatEngine, [
+  ['team' => 'player', 'is_defeated' => 0],
+  ['team' => 'ally', 'is_defeated' => 0],
+  ['team' => 'hostile', 'is_defeated' => 1],
+]);
+assert_test($ally_outcome['ended'] === TRUE, 'Player and ally remaining together end the encounter');
+assert_test($ally_outcome['victory_condition'] === 'heroes stand', 'Allies collapse onto the hero side for victory checks');
 
 echo "\n===================================\n";
 echo "Passed: {$GLOBALS['tests_passed']}\n";

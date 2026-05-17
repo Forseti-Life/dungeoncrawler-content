@@ -604,6 +604,82 @@ class QuestTrackerService {
   }
 
   /**
+   * Find location quests clearly referenced by text for a character.
+   */
+  public function findMentionedAvailableQuests(
+    int $campaign_id,
+    string $location_id,
+    int $character_id,
+    string $text,
+    int $max_matches = 3,
+    int $minimum_score = 4
+  ): array {
+    $normalized_text = $this->normalizeQuestSearchText($text);
+    if ($campaign_id <= 0 || $location_id === '' || $character_id <= 0 || $normalized_text === '') {
+      return [];
+    }
+
+    $active_quests = $this->getActiveQuests($campaign_id, $character_id);
+    $active_ids = array_fill_keys(array_map(static fn(array $quest): string => (string) ($quest['quest_id'] ?? ''), $active_quests), TRUE);
+    $matches = [];
+    $candidate_rows = [];
+
+    foreach ($this->getAvailableQuests($campaign_id, $location_id, $character_id) as $quest) {
+      if (is_array($quest)) {
+        $candidate_rows[(string) ($quest['quest_id'] ?? '')] = $quest;
+      }
+    }
+    foreach ($this->getCampaignQuestTracking($campaign_id) as $quest) {
+      if (!is_array($quest)) {
+        continue;
+      }
+      if ((string) ($quest['location_id'] ?? '') !== $location_id) {
+        continue;
+      }
+      if (!empty($quest['completed_at']) || strtolower((string) ($quest['status'] ?? '')) !== 'active') {
+        continue;
+      }
+      $candidate_rows[(string) ($quest['quest_id'] ?? '')] = $quest;
+    }
+
+    foreach ($candidate_rows as $quest) {
+      if (!is_array($quest)) {
+        continue;
+      }
+
+      $quest = $this->normalizeQuestPromptRow($quest);
+      $quest_id = (string) ($quest['quest_id'] ?? '');
+      if ($quest_id === '' || isset($active_ids[$quest_id])) {
+        continue;
+      }
+
+      $current_phase = max(1, (int) ($quest['current_phase'] ?? 1));
+      $quest['current_objectives'] = $this->getObjectivesForPhase($quest, $current_phase, TRUE);
+      $quest['next_objectives'] = $this->getObjectivesForPhase($quest, $current_phase + 1, FALSE);
+      $quest['match_score'] = $this->scoreQuestAgainstPrompt($normalized_text, $quest);
+      if ((int) $quest['match_score'] < $minimum_score) {
+        continue;
+      }
+
+      $matches[] = $quest;
+    }
+
+    if ($matches === []) {
+      return [];
+    }
+
+    usort($matches, static function (array $a, array $b): int {
+      $score_compare = ((int) ($b['match_score'] ?? 0)) <=> ((int) ($a['match_score'] ?? 0));
+      if ($score_compare !== 0) {
+        return $score_compare;
+      }
+      return strcmp((string) ($a['quest_id'] ?? ''), (string) ($b['quest_id'] ?? ''));
+    });
+
+    return array_slice($matches, 0, max(1, $max_matches));
+  }
+
+  /**
    * Load campaign quest.
    *
    * @param int $campaign_id

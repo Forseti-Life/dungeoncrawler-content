@@ -847,6 +847,7 @@ import { SpriteService } from './SpriteService.js';
       this.roomViewRefreshCooldownMs = 2500;
       this.pendingChatRequests = new Map();
       this.roomChatBusy = false;
+      this.roomChatQueueDraining = false;
       this.roomChatDeferredMessages = [];
       // Channel state
       this.activeChannel = 'room';
@@ -862,9 +863,13 @@ import { SpriteService } from './SpriteService.js';
       this.sessionViewInflight = new Map();
       this.chatViewStateCache = new Map();
       this.activeActionRailCategory = null;
+      this.actionRailFilters = {};
+      this.actionRailDescriptionsCollapsed = false;
       this.navigateLocationGroups = [];
       this.navigateLocationsCampaignId = null;
       this.navigateLocationsInflight = null;
+      this.actionRailRealClockTimer = null;
+      this.actionRailAutomationTogglePending = false;
       this.setupActionFooterToggle();
       this.setupFullscreenToggle();
       this.cacheElements();
@@ -1050,6 +1055,12 @@ import { SpriteService } from './SpriteService.js';
         actionRail: document.getElementById('hexmap-action-rail'),
         actionRailActorName: document.getElementById('action-rail-actor-name'),
         actionRailStatus: document.getElementById('action-rail-status'),
+        actionRailAutomationToggle: document.getElementById('action-rail-automate-toggle'),
+        actionRailAutomationMeta: document.getElementById('action-rail-automation-meta'),
+        actionRailRealClock: document.getElementById('action-rail-real-clock'),
+        actionRailRealClockMeta: document.getElementById('action-rail-real-clock-meta'),
+        actionRailCampaignClock: document.getElementById('action-rail-campaign-clock'),
+        actionRailCampaignClockMeta: document.getElementById('action-rail-campaign-clock-meta'),
         actionRailCategories: document.getElementById('action-rail-categories'),
         actionRailPanelTitle: document.getElementById('action-rail-panel-title'),
         actionRailPanelChip: document.getElementById('action-rail-panel-chip'),
@@ -1064,6 +1075,10 @@ import { SpriteService } from './SpriteService.js';
         characterName: document.getElementById('char-name'),
         characterType: document.getElementById('char-type'),
         characterSubtitle: document.getElementById('char-subtitle'),
+        characterPersonalityWrap: document.getElementById('char-personality-wrap'),
+        characterPersonality: document.getElementById('char-personality'),
+        characterBackstoryWrap: document.getElementById('char-backstory-wrap'),
+        characterBackstory: document.getElementById('char-backstory'),
         characterFullSheetLink: document.getElementById('char-full-sheet-link'),
         characterAncestry: document.getElementById('char-ancestry'),
         characterLevel: document.getElementById('char-level'),
@@ -1142,9 +1157,23 @@ import { SpriteService } from './SpriteService.js';
     setupActionRail() {
       const categories = this.elements.actionRailCategories;
       const panelBody = this.elements.actionRailPanelBody;
+      const automationToggle = this.elements.actionRailAutomationToggle;
+      this.updateActionRailClocks();
+      if (!this.actionRailRealClockTimer) {
+        this.actionRailRealClockTimer = window.setInterval(() => {
+          this.updateActionRailClocks();
+        }, 1000);
+      }
       if (!categories || categories.dataset.bound === 'true') {
         this.refreshActionRail();
         return;
+      }
+
+      if (automationToggle && automationToggle.dataset.bound !== 'true') {
+        automationToggle.dataset.bound = 'true';
+        automationToggle.addEventListener('click', () => {
+          this.handleActionRailAutomationToggle();
+        });
       }
 
       categories.dataset.bound = 'true';
@@ -1173,6 +1202,14 @@ import { SpriteService } from './SpriteService.js';
 
       if (panelBody) {
         panelBody.addEventListener('click', (event) => {
+          const toggle = event.target instanceof HTMLElement
+            ? event.target.closest('[data-action-rail-toggle-descriptions]')
+            : null;
+          if (toggle instanceof HTMLButtonElement) {
+            this.actionRailDescriptionsCollapsed = !this.actionRailDescriptionsCollapsed;
+            this.syncActionRailPanelState();
+            return;
+          }
           const button = event.target instanceof HTMLElement
             ? event.target.closest('[data-action-rail-execute]')
             : null;
@@ -1180,6 +1217,17 @@ import { SpriteService } from './SpriteService.js';
             return;
           }
           this.handleActionRailPanelAction(button);
+        });
+        panelBody.addEventListener('input', (event) => {
+          const input = event.target instanceof HTMLElement
+            ? event.target.closest('[data-action-rail-filter]')
+            : null;
+          if (!(input instanceof HTMLInputElement)) {
+            return;
+          }
+          const category = input.dataset.actionRailFilterCategory || this.activeActionRailCategory || '';
+          this.actionRailFilters[category] = input.value || '';
+          this.syncActionRailPanelState();
         });
       }
 
@@ -1193,6 +1241,8 @@ import { SpriteService } from './SpriteService.js';
       const panelBody = this.elements.actionRailPanelBody;
       const actorName = this.elements.actionRailActorName;
       const status = this.elements.actionRailStatus;
+      const automationToggle = this.elements.actionRailAutomationToggle;
+      const automationMeta = this.elements.actionRailAutomationMeta;
 
       if (!categories || !panelBody || !actorName || !status) {
         return;
@@ -1201,6 +1251,22 @@ import { SpriteService } from './SpriteService.js';
       const context = this.getActionRailContext();
       actorName.textContent = context.actorLabel;
       status.textContent = context.statusLabel;
+      if (automationToggle) {
+        const automationActive = Boolean(context.automationState?.active);
+        const automationBusy = Boolean(context.automationState?.inflight || this.actionRailAutomationTogglePending);
+        const canToggle = automationActive || context.canAutomate;
+        const toggleDisabled = !canToggle || (!automationActive && automationBusy);
+        automationToggle.disabled = toggleDisabled;
+        automationToggle.setAttribute('aria-disabled', toggleDisabled ? 'true' : 'false');
+        automationToggle.setAttribute('aria-pressed', automationActive ? 'true' : 'false');
+        automationToggle.textContent = automationActive ? 'Stop automation' : (automationBusy ? 'Thinking…' : 'Automate');
+        automationToggle.classList.toggle('action-rail__automation-toggle--active', automationActive);
+      }
+      if (automationMeta) {
+        automationMeta.textContent = context.automationState?.statusLabel
+          || 'Let your character act autonomously using the player-agent harness.';
+      }
+      this.updateActionRailClocks(context);
 
       categories.querySelectorAll('[data-action-rail-category], [data-action-rail-direct]').forEach((button) => {
         const nextButton = /** @type {HTMLButtonElement} */ (button);
@@ -1231,6 +1297,15 @@ import { SpriteService } from './SpriteService.js';
         panelChip.textContent = panel.chip;
       }
       panelBody.innerHTML = panel.html;
+      if (context.automationState?.active) {
+        panelBody.querySelectorAll('[data-action-rail-execute]').forEach((entry) => {
+          if (entry instanceof HTMLButtonElement) {
+            entry.disabled = true;
+            entry.setAttribute('aria-disabled', 'true');
+          }
+        });
+      }
+      this.syncActionRailPanelState();
     }
 
     getActionRailContext() {
@@ -1246,33 +1321,134 @@ import { SpriteService } from './SpriteService.js';
       const basicInfo = state?.basicInfo || {};
       const actorName = basicInfo.name || state?.name || actor?.getComponent?.('IdentityComponent')?.name || 'No actor selected';
       const runtimeContext = hexmap?.resolveLaunchCharacterRuntimeContext?.() || {};
+      const automationProfile = hexmap?.buildPlayerAutomationProfile?.() || {};
+      const phaseSnapshot = hexmap?.gameCoordinator?.phaseManager?.getSnapshot?.() || {};
+      const automationState = hexmap?.getPlayerAutomationState?.() || {};
       const actions = actor?.getComponent?.('ActionsComponent') || null;
       const movement = actor?.getComponent?.('MovementComponent') || null;
       const actionText = actions ? `${actions.actionsRemaining}/${actions.maxActions ?? actions.actionsRemaining} actions` : null;
       const movementText = movement && Number.isFinite(movement.movementRemaining)
         ? `${movement.movementRemaining} ft move`
         : null;
+      const actorRef = actor?.dcEntityRef || actor?.dcEntityInstanceId || runtimeContext?.instanceId || null;
+      const characterId = Number(state?.characterId || state?.id || 0) || 0;
+      const baseStatus = buildActionRailEntrySummary([
+        encounterActive ? 'Encounter active' : 'Exploration ready',
+        actionText,
+        movementText,
+      ]) || 'Select your character to unlock direct actions.';
 
       return {
         hexmap,
         state,
         actor,
-        actorRef: actor?.dcEntityRef || actor?.dcEntityInstanceId || null,
+        actorRef,
         actorLabel: actorName,
-        characterId: Number(state?.characterId || state?.id || 0) || 0,
+        characterId,
         runtimeContext,
+        phaseSnapshot,
+        campaignClock: phaseSnapshot?.campaignClock || null,
+        timedActivities: Array.isArray(phaseSnapshot?.timedActivities) ? phaseSnapshot.timedActivities : [],
         encounterActive,
+        automationState,
+        canAutomate: Boolean(
+          runtimeContext?.campaignId
+          && Number(automationProfile?.character_id || 0) > 0
+          && String(runtimeContext?.roomId || hexmap?.resolveActiveRoomId?.() || '').trim() !== ''
+        ),
         actions,
         movement,
         statusLabel: buildActionRailEntrySummary([
-          encounterActive ? 'Encounter active' : 'Exploration ready',
-          actionText,
-          movementText,
-        ]) || 'Select your character to unlock direct actions.',
+          baseStatus,
+          automationState?.inflight ? 'Running next autonomous step' : '',
+          automationState?.lastError ? 'Automation failed' : '',
+        ]) || baseStatus,
       };
     }
 
+    formatRealWorldClock(now = new Date()) {
+      const localLabel = new Intl.DateTimeFormat(undefined, {
+        dateStyle: 'medium',
+        timeStyle: 'medium',
+      }).format(now);
+      const timezoneLabel = new Intl.DateTimeFormat(undefined, {
+        timeZoneName: 'short',
+      }).formatToParts(now).find((part) => part.type === 'timeZoneName')?.value || 'Local time';
+
+      return {
+        value: localLabel,
+        meta: timezoneLabel,
+      };
+    }
+
+    formatCampaignClock(clock) {
+      if (!clock || typeof clock !== 'object') {
+        return {
+          value: 'Unavailable',
+          meta: 'Advances when actions consume time',
+        };
+      }
+
+      const timezone = typeof clock.timezone === 'string' && clock.timezone.trim() !== ''
+        ? clock.timezone.trim()
+        : 'UTC';
+      const datetime = typeof clock.datetime === 'string' ? clock.datetime : '';
+      const parsedDate = datetime ? new Date(datetime) : null;
+      const hasValidDate = parsedDate instanceof Date && !Number.isNaN(parsedDate.getTime());
+      const fallbackValue = [clock.date, clock.time, timezone].filter(Boolean).join(' ');
+      const formattedValue = hasValidDate
+        ? new Intl.DateTimeFormat(undefined, {
+          dateStyle: 'medium',
+          timeStyle: 'short',
+          timeZone: timezone,
+        }).format(parsedDate)
+        : (fallbackValue || 'Unavailable');
+      const metaParts = [clock.weekday, clock.season, timezone].filter(Boolean);
+
+      return {
+        value: formattedValue,
+        meta: metaParts.join(' • ') || 'Campaign time',
+      };
+    }
+
+    updateActionRailClocks(context = null) {
+      const realClock = this.elements.actionRailRealClock;
+      const realClockMeta = this.elements.actionRailRealClockMeta;
+      const campaignClock = this.elements.actionRailCampaignClock;
+      const campaignClockMeta = this.elements.actionRailCampaignClockMeta;
+
+      if (realClock || realClockMeta) {
+        const realWorld = this.formatRealWorldClock();
+        if (realClock) {
+          realClock.textContent = realWorld.value;
+        }
+        if (realClockMeta) {
+          realClockMeta.textContent = realWorld.meta;
+        }
+      }
+
+      if (campaignClock || campaignClockMeta) {
+        const resolvedContext = context || this.getActionRailContext();
+        const campaign = this.formatCampaignClock(resolvedContext?.campaignClock || null);
+        if (campaignClock) {
+          campaignClock.textContent = campaign.value;
+        }
+        if (campaignClockMeta) {
+          const activeCount = Array.isArray(resolvedContext?.timedActivities)
+            ? resolvedContext.timedActivities.filter((activity) => activity?.status === 'active').length
+            : 0;
+          campaignClockMeta.textContent = activeCount > 0
+            ? `${campaign.meta} • ${activeCount} active timed activit${activeCount === 1 ? 'y' : 'ies'}`
+            : campaign.meta;
+        }
+      }
+    }
+
     isActionRailButtonDisabled(actionKey, context) {
+      if (context.automationState?.active) {
+        return true;
+      }
+
       if (!context.characterId) {
         return true;
       }
@@ -1286,6 +1462,33 @@ import { SpriteService } from './SpriteService.js';
       }
 
       return false;
+    }
+
+    async handleActionRailAutomationToggle() {
+      if (this.actionRailAutomationTogglePending) {
+        return;
+      }
+
+      const hexmap = this.stateManager?.hexmap || null;
+      if (!hexmap) {
+        return;
+      }
+
+      const automationState = hexmap.getPlayerAutomationState?.() || {};
+      if (automationState.active) {
+        hexmap.stopPlayerAutomation?.('manual');
+        this.refreshActionRail();
+        return;
+      }
+
+      this.actionRailAutomationTogglePending = true;
+      this.refreshActionRail();
+      try {
+        await hexmap.startPlayerAutomation?.();
+      } finally {
+        this.actionRailAutomationTogglePending = false;
+        this.refreshActionRail();
+      }
     }
 
     renderActionRailEmptyState(context) {
@@ -1315,6 +1518,105 @@ import { SpriteService } from './SpriteService.js';
         };
       }
       return builder();
+    }
+
+    syncActionRailPanelState() {
+      const panelBody = this.elements.actionRailPanelBody;
+      if (!panelBody || !this.activeActionRailCategory) {
+        return;
+      }
+      const category = this.activeActionRailCategory;
+      const entries = Array.from(panelBody.querySelectorAll('.action-rail__entry'));
+      const groups = Array.from(panelBody.querySelectorAll('.action-rail__group'));
+      const standaloneEntries = entries.filter((entry) => !entry.closest('.action-rail__group'));
+      const activeFilter = this.normalizeActionRailSearchText(this.actionRailFilters[category] || '');
+      let toolbar = panelBody.querySelector('[data-action-rail-toolbar]');
+      if (!(toolbar instanceof HTMLElement)) {
+        toolbar = document.createElement('div');
+        toolbar.dataset.actionRailToolbar = 'true';
+        toolbar.className = 'action-rail__toolbar';
+        toolbar.innerHTML = `
+          <label class="action-rail__filter">
+            <span class="action-rail__filter-label">Filter options</span>
+            <input
+              type="search"
+              class="action-rail__filter-input"
+              data-action-rail-filter="true"
+              data-action-rail-filter-category="${escapeTooltipAttr(category)}"
+              placeholder="Filter actions, targets, or locations"
+              autocomplete="off"
+            />
+          </label>
+          <button
+            type="button"
+            class="action-rail__toggle-descriptions"
+            data-action-rail-toggle-descriptions="true"
+            aria-pressed="false"
+          >Hide descriptions</button>
+        `;
+        panelBody.prepend(toolbar);
+      }
+
+      const filterInput = toolbar.querySelector('[data-action-rail-filter]');
+      if (filterInput instanceof HTMLInputElement && filterInput.value !== (this.actionRailFilters[category] || '')) {
+        filterInput.value = this.actionRailFilters[category] || '';
+      }
+
+      const toggleButton = toolbar.querySelector('[data-action-rail-toggle-descriptions]');
+      if (toggleButton instanceof HTMLButtonElement) {
+        toggleButton.setAttribute('aria-pressed', this.actionRailDescriptionsCollapsed ? 'true' : 'false');
+        toggleButton.textContent = this.actionRailDescriptionsCollapsed ? 'Show descriptions' : 'Hide descriptions';
+      }
+
+      panelBody.classList.toggle('action-rail__panel-body--descriptions-collapsed', this.actionRailDescriptionsCollapsed);
+
+      let visibleEntries = 0;
+      groups.forEach((group) => {
+        const label = this.normalizeActionRailSearchText(group.querySelector('.action-rail__group-label')?.textContent || '');
+        let groupVisibleEntries = 0;
+        group.querySelectorAll('.action-rail__entry').forEach((entry) => {
+          if (!(entry instanceof HTMLElement)) {
+            return;
+          }
+          const haystack = entry.dataset.actionRailSearch || this.normalizeActionRailSearchText(entry.textContent || '');
+          const matches = !activeFilter || haystack.includes(activeFilter) || label.includes(activeFilter);
+          entry.hidden = !matches;
+          if (matches) {
+            groupVisibleEntries += 1;
+            visibleEntries += 1;
+          }
+        });
+        group.hidden = groupVisibleEntries === 0;
+      });
+
+      standaloneEntries.forEach((entry) => {
+        if (!(entry instanceof HTMLElement)) {
+          return;
+        }
+        const haystack = entry.dataset.actionRailSearch || this.normalizeActionRailSearchText(entry.textContent || '');
+        const matches = !activeFilter || haystack.includes(activeFilter);
+        entry.hidden = !matches;
+        if (matches) {
+          visibleEntries += 1;
+        }
+      });
+
+      let emptyState = panelBody.querySelector('[data-action-rail-filter-empty]');
+      if (!(emptyState instanceof HTMLElement)) {
+        emptyState = document.createElement('div');
+        emptyState.dataset.actionRailFilterEmpty = 'true';
+        emptyState.className = 'action-rail__empty action-rail__empty--filtered';
+        emptyState.innerHTML = '<p>No actions match the current filter.</p>';
+        panelBody.append(emptyState);
+      }
+      emptyState.hidden = !(activeFilter && entries.length > 0 && visibleEntries === 0);
+    }
+
+    normalizeActionRailSearchText(value = '') {
+      return String(value)
+        .toLowerCase()
+        .replace(/\s+/g, ' ')
+        .trim();
     }
 
     buildAttackActionRailPanel(context) {
@@ -1806,10 +2108,11 @@ import { SpriteService } from './SpriteService.js';
     }
 
     renderActionRailEntry({ execute, title, summary = '', meta = '', disabled = false, dataset = {}, actionLabel = 'Use action' }) {
+      const searchText = this.normalizeActionRailSearchText([title, summary, meta, actionLabel].filter(Boolean).join(' '));
       const encodedDataset = Object.entries(dataset)
         .map(([key, value]) => ` data-${key.replace(/[A-Z]/g, (match) => `-${match.toLowerCase()}`)}="${escapeTooltipAttr(value)}"`)
         .join('');
-      return `<article class="action-rail__entry">
+      return `<article class="action-rail__entry" data-action-rail-search="${escapeTooltipAttr(searchText)}">
         <div class="action-rail__entry-top">
           <div>
             <p class="action-rail__entry-title">${escapeQuestHtml(title)}</p>
@@ -3161,6 +3464,20 @@ import { SpriteService } from './SpriteService.js';
         charisma: abs.charisma || abs.cha || 10,
       });
       const normalizedAbilities = normalizeAbilities(abilities);
+      const firstNonEmptyText = (...values) => {
+        for (const value of values) {
+          if (typeof value === 'string' && value.trim()) {
+            return value.trim();
+          }
+          if (Array.isArray(value)) {
+            const nested = firstNonEmptyText(...value);
+            if (nested) {
+              return nested;
+            }
+          }
+        }
+        return '';
+      };
 
       // Basic info
       const name = basicInfo.name || state.name || launchCharacter.name || 'Selected character';
@@ -3168,6 +3485,24 @@ import { SpriteService } from './SpriteService.js';
       const heritage = state.heritage || launchCharacter.heritage || '';
       const characterClass = basicInfo.class || state.class || launchCharacter.class || '';
       const background = state.background || launchCharacter.background || '';
+      const personalityInfo = (state.personality && typeof state.personality === 'object') ? state.personality : {};
+      const launchPersonality = (launchCharacter.personality && typeof launchCharacter.personality === 'object') ? launchCharacter.personality : {};
+      const personalityText = firstNonEmptyText(
+        basicInfo.personality,
+        personalityInfo.personality,
+        Array.isArray(personalityInfo.traits) ? personalityInfo.traits[0] : '',
+        launchPersonality.personality,
+        Array.isArray(launchPersonality.traits) ? launchPersonality.traits[0] : '',
+        state.personality,
+        launchCharacter.personality
+      );
+      const backstoryText = firstNonEmptyText(
+        basicInfo.backstory,
+        personalityInfo.backstory,
+        launchPersonality.backstory,
+        state.backstory,
+        launchCharacter.backstory
+      );
       const level = Number(basicInfo.level || state.level || launchCharacter.level || 0);
       const speed = Number(state.speed || launchCharacter.speed || 25);
       const characterId = state.characterId || state.id || launchCharacter.characterId || launchCharacter.id || null;
@@ -3225,6 +3560,18 @@ import { SpriteService } from './SpriteService.js';
           this.elements.characterSubtitle.textContent = subtitleDetails.join(' · ');
           this.elements.characterSubtitle.style.display = '';
         }
+        else {
+          this.elements.characterSubtitle.textContent = '';
+          this.elements.characterSubtitle.style.display = 'none';
+        }
+      }
+      if (this.elements.characterPersonality && this.elements.characterPersonalityWrap) {
+        this.elements.characterPersonality.textContent = personalityText;
+        this.elements.characterPersonalityWrap.style.display = personalityText ? '' : 'none';
+      }
+      if (this.elements.characterBackstory && this.elements.characterBackstoryWrap) {
+        this.elements.characterBackstory.textContent = backstoryText;
+        this.elements.characterBackstoryWrap.style.display = backstoryText ? '' : 'none';
       }
       // "View Full Sheet" link
       if (this.elements.characterFullSheetLink && sheetCharacterId) {
@@ -3793,67 +4140,121 @@ import { SpriteService } from './SpriteService.js';
           return;
         }
 
-        // Send to legacy room chat server
-        if (!roomId) {
-          input.value = message;
-          this.appendChatLine('System', 'Unable to send message: No active room', 'system');
-          return;
-        }
-        const clientRequestId = `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-        const queueOnly = this.roomChatBusy;
-        const pendingRequest = this.buildPendingChatRequest(clientRequestId, characterName, message, roomId, {
-          includePlayer: true,
-          includePlaceholder: !queueOnly,
-          placeholderText: 'Game Master is reviewing the room...',
-        });
-        this.prefetchSessionViews();
-        if (this.loadActiveRoomView) {
-          this.loadActiveRoomView(roomId, { force: true, preserveExisting: true });
-        }
         try {
-          if (!queueOnly) {
-            this.roomChatBusy = true;
-          }
-          await this.postChatMessage(campaignId, roomId, characterName, message, characterId, {
-            clientRequestId,
-            pendingRequest,
-            suppressGm: queueOnly,
+          await this.submitRoomChatMessage(message, {
+            speaker: characterName,
+            characterId,
+            campaignId,
+            roomId,
+            channelKey: this.activeChannel || 'room',
           });
-          if (queueOnly) {
-            this.roomChatDeferredMessages.push({
-              requestId: clientRequestId,
-              roomId,
-              characterId,
-            });
-            this.updateQueuedChatStatus(this.roomChatDeferredMessages.length);
-          }
         } catch (error) {
-          this.settlePendingChatRequest(pendingRequest, {
-            removePlayer: true,
-            removePlaceholder: true,
-          });
-          // Handle permission errors silently (user doesn't have access)
           if (error.message.includes('403')) {
             console.warn('Chat message send denied (permission)');
-            // Don't show error in chat, don't restore message, just silently fail
           } else {
             console.error('Failed to send chat message:', error);
             this.appendChatLine('System', `Failed to send message: ${error.message}`, 'system');
-            // Restore message to input so user can retry (non-permission errors only)
             input.value = message;
-          }
-        } finally {
-          if (!queueOnly) {
-            this.roomChatBusy = false;
-            if (this.roomChatDeferredMessages.length > 0) {
-              void this.flushDeferredRoomMessages(campaignId, roomId, characterId);
-            }
           }
         }
       });
 
       // Chat history will be loaded when room becomes active
       // (via state subscription or explicit call from room change handler)
+    }
+
+    async submitRoomChatMessage(message, options = {}) {
+      const trimmedMessage = typeof message === 'string' ? message.trim() : '';
+      if (!trimmedMessage) {
+        throw new Error('Message is required.');
+      }
+      if (trimmedMessage.length > 2000) {
+        throw new Error('Message too long (max 2000 characters)');
+      }
+
+      const campaignId = options.campaignId || this.stateManager.hexmap?.resolveCampaignId?.() || null;
+      const roomId = options.roomId || this.stateManager.hexmap?.resolveActiveRoomId?.() || null;
+      const characterData = this.stateManager.hexmap?.characterData || {};
+      const characterName = options.speaker || characterData.name || 'You';
+      const characterId = options.characterId ?? characterData.id ?? null;
+      const activeChannelKey = options.channelKey || 'room';
+
+      if (!campaignId) {
+        throw new Error('Unable to send message: No active campaign');
+      }
+      if (!roomId) {
+        throw new Error('Unable to send message: No active room');
+      }
+
+      const clientRequestId = options.clientRequestId || `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const chatTarget = this.buildChatRenderTarget({
+        view: 'room',
+        channelKey: activeChannelKey,
+        context: {
+          campaignId,
+          roomId,
+          characterId,
+        },
+      });
+      const queueOnly = this.roomChatBusy || this.roomChatQueueDraining;
+      const pendingRequest = this.buildPendingChatRequest(clientRequestId, characterName, trimmedMessage, roomId, {
+        includePlayer: true,
+        includePlaceholder: !queueOnly,
+        placeholderText: activeChannelKey === 'room'
+          ? 'Turn 1: reviewing the room and what you just said...'
+          : 'Turn 1: reviewing what you just said...',
+        target: chatTarget,
+      });
+
+      this.prefetchSessionViews();
+      if (this.loadActiveRoomView) {
+        this.loadActiveRoomView(roomId, { force: true, preserveExisting: true });
+      }
+
+      try {
+        if (!queueOnly) {
+          this.roomChatBusy = true;
+        }
+        const result = await this.postChatMessage(campaignId, roomId, characterName, trimmedMessage, characterId, {
+          clientRequestId,
+          pendingRequest,
+          suppressGm: queueOnly,
+          channelKey: activeChannelKey,
+          context: chatTarget.context,
+          target: chatTarget,
+        });
+        if (queueOnly) {
+          this.roomChatDeferredMessages.push({
+            requestId: clientRequestId,
+            roomId,
+            characterId,
+            channel: activeChannelKey,
+          });
+          this.updateQueuedChatStatus(this.roomChatDeferredMessages.length);
+        }
+        return result;
+      } catch (error) {
+        this.settlePendingChatRequest(pendingRequest, {
+          removePlayer: true,
+          removePlaceholder: true,
+        });
+        throw error;
+      } finally {
+        if (!queueOnly) {
+          if (this.roomChatDeferredMessages.length > 0) {
+            this.roomChatQueueDraining = true;
+            this.roomChatBusy = false;
+            try {
+              await this.flushDeferredRoomMessages(campaignId, roomId, characterId);
+            } finally {
+              this.roomChatBusy = false;
+              this.roomChatQueueDraining = false;
+            }
+          } else {
+            this.roomChatBusy = false;
+          }
+        }
+      }
     }
 
     // ===================================================================
@@ -4076,9 +4477,40 @@ import { SpriteService } from './SpriteService.js';
       }
     }
 
+    resolvePinnedChatRoomId() {
+      if (typeof window !== 'undefined' && window.location?.search) {
+        const urlRoomId = String(new URLSearchParams(window.location.search).get('room_id') || '').trim();
+        if (urlRoomId) {
+          return urlRoomId;
+        }
+      }
+
+      const launchRoomId = String(this.stateManager.hexmap?.launchContext?.room_id || '').trim();
+      if (launchRoomId) {
+        return launchRoomId;
+      }
+
+      return this.stateManager.hexmap?.resolveActiveRoomId?.() || null;
+    }
+
+    resolvePinnedChatRoomTarget(preferredRoomId = null, fallbackRoomId = null) {
+      const preferred = String(preferredRoomId || '').trim();
+      if (preferred) {
+        return preferred;
+      }
+
+      const pinned = this.resolvePinnedChatRoomId();
+      if (pinned) {
+        return pinned;
+      }
+
+      const fallback = String(fallbackRoomId || '').trim();
+      return fallback || null;
+    }
+
     getChatContext() {
       const campaignId = this.stateManager.hexmap?.resolveCampaignId?.() || null;
-      const roomId = this.stateManager.hexmap?.resolveActiveRoomId?.() || null;
+      const roomId = this.resolvePinnedChatRoomId();
       const characterData = this.stateManager.hexmap?.characterData || {};
       const characterId = characterData.id || null;
 
@@ -4402,11 +4834,17 @@ import { SpriteService } from './SpriteService.js';
       }
 
       const context = this.getChatContext();
-      const incoming = result.data.messages.map((msg) => ({
-        speaker: msg.speaker,
-        message: msg.message,
-        type: msg.type,
-      }));
+      const incoming = result.data.messages.map((msg, index) => {
+        const timestamp = String(msg.timestamp || '').trim();
+        const created = timestamp !== '' ? Date.parse(timestamp) || 0 : 0;
+        return {
+          speaker: msg.speaker,
+          message: msg.message,
+          type: msg.type,
+          lineId: timestamp !== '' ? `${timestamp}:${index}` : `room-history:${index}:${msg.speaker || ''}:${msg.type || ''}`,
+          created,
+        };
+      });
       const merged = this.rememberChatLines('room', incoming, {
         context,
         channelKey: this.activeChannel,
@@ -4443,9 +4881,9 @@ import { SpriteService } from './SpriteService.js';
 
       this.scrollChatToBottom({ defer: true });
       if (this.loadActiveRoomView) {
-        const activeRoomId = this.stateManager.hexmap?.resolveActiveRoomId?.() || null;
-        if (activeRoomId) {
-          this.loadActiveRoomView(activeRoomId, { force: true });
+        const pinnedRoomId = this.resolvePinnedChatRoomTarget(context.roomId);
+        if (pinnedRoomId) {
+          this.loadActiveRoomView(pinnedRoomId, { force: true });
         }
       }
     }
@@ -4473,9 +4911,12 @@ import { SpriteService } from './SpriteService.js';
 
     async postChatMessage(campaignId, roomId, speaker, message, characterId = null, options = {}) {
       const supportsStreaming = typeof ReadableStream !== 'undefined';
-      const shouldStream = this.activeChannel === 'room'
-        && supportsStreaming
-        && !options.suppressGm;
+      const shouldStream = supportsStreaming && !options.suppressGm;
+      const chatTarget = this.buildChatRenderTarget(options.target || {
+        view: 'room',
+        channelKey: options.channelKey,
+        context: options.context,
+      });
       const response = await fetch(`/api/campaign/${campaignId}/room/${roomId}/chat`, {
         method: 'POST',
         headers: {
@@ -4487,7 +4928,7 @@ import { SpriteService } from './SpriteService.js';
           message,
           type: 'player',
           character_id: characterId,
-          channel: this.activeChannel,
+          channel: chatTarget.channelKey,
           stream: shouldStream,
           client_request_id: options.clientRequestId || '',
           suppress_gm: Boolean(options.suppressGm),
@@ -4502,7 +4943,10 @@ import { SpriteService } from './SpriteService.js';
 
       const contentType = response.headers.get('content-type') || '';
       if (contentType.includes('application/x-ndjson') && response.body?.getReader) {
-        return await this.consumeStreamedChatResponse(response, options);
+        return await this.consumeStreamedChatResponse(response, {
+          ...options,
+          target: chatTarget,
+        });
       }
 
       const result = await response.json();
@@ -4517,7 +4961,7 @@ import { SpriteService } from './SpriteService.js';
           removePlaceholder: !result.data?.gm_response,
         });
       } else {
-        this.appendChatLine(speaker, message, 'player');
+        this.appendChatLineToTarget(chatTarget, speaker, message, 'player');
       }
 
       // If the server returned a GM response, append it directly
@@ -4528,11 +4972,21 @@ import { SpriteService } from './SpriteService.js';
         await this.loadChatHistory();
       }
 
+      if (result.data?.turn_logs?.length) {
+        for (const logMsg of result.data.turn_logs) {
+          this.appendChatLineToTarget(chatTarget, logMsg.speaker || 'System', logMsg.message || '', logMsg.type || 'system');
+        }
+      }
+
       // If any NPCs interjected, render their messages after the GM response.
       if (result.data?.npc_interjections?.length) {
         for (const npcMsg of result.data.npc_interjections) {
-          this.appendChatLine(npcMsg.speaker, npcMsg.message, 'npc');
+          this.appendChatLineToTarget(chatTarget, npcMsg.speaker, npcMsg.message, 'npc');
         }
+      }
+
+      if (result.data?.quest_updates?.length) {
+        await this.applyQuestUpdates(result.data.quest_updates);
       }
 
       // Handle navigation: if the GM triggered a location change, inject the
@@ -4541,9 +4995,9 @@ import { SpriteService } from './SpriteService.js';
         this.handleNavigationResult(result.data.navigation);
       }
 
-      const activeRoomId = this.stateManager.hexmap?.resolveActiveRoomId?.() || roomId || null;
-      if (activeRoomId && this.loadActiveRoomView) {
-        this.loadActiveRoomView(activeRoomId, { force: true, preserveExisting: true });
+      const pinnedRoomId = this.resolvePinnedChatRoomTarget(chatTarget?.context?.roomId, roomId);
+      if (pinnedRoomId && this.loadActiveRoomView) {
+        this.loadActiveRoomView(pinnedRoomId, { force: true, preserveExisting: true });
       }
 
       this.invalidateChatCaches({
@@ -4563,6 +5017,11 @@ import { SpriteService } from './SpriteService.js';
       let completeResult = null;
       let primaryReleased = false;
       const pending = options.pendingRequest || null;
+      const chatTarget = pending?.target || this.buildChatRenderTarget(options.target || {
+        view: 'room',
+        channelKey: options.channelKey,
+        context: options.context,
+      });
       const releasePrimary = (payload = null) => {
         if (primaryReleased) return;
         primaryReleased = true;
@@ -4590,13 +5049,13 @@ import { SpriteService } from './SpriteService.js';
             if (event) {
               if (event.type === 'player_ack' && event.data) {
                 if (pending) {
-                  const playerLine = this.findChatLineById(pending.playerLineId);
+                  const playerLine = this.isChatTargetVisible(pending.target) ? this.findChatLineById(pending.playerLineId) : null;
                   if (playerLine) {
                     playerLine.classList.remove('chat-line--pending');
                     playerLine.dataset.transient = '0';
                   }
                 } else {
-                  this.appendChatLine(event.data.speaker || 'You', event.data.message || '', event.data.type || 'player');
+                  this.appendChatLineToTarget(chatTarget, event.data.speaker || 'You', event.data.message || '', event.data.type || 'player');
                 }
               } else if (event.type === 'thinking' && event.data) {
                 this.updatePendingChatProgress(
@@ -4607,8 +5066,10 @@ import { SpriteService } from './SpriteService.js';
               } else if (event.type === 'gm_response' && event.data) {
                 this.renderPendingGmResponse(pending, event.data);
                 releasePrimary(event.data);
+              } else if (event.type === 'system_message' && event.data) {
+                this.appendChatLineToTarget(chatTarget, event.data.speaker || 'System', event.data.message || '', event.data.type || 'system');
               } else if (event.type === 'npc_interjection' && event.data) {
-                this.appendChatLine(event.data.speaker, event.data.message, event.data.type || 'npc');
+                this.appendChatLineToTarget(chatTarget, event.data.speaker, event.data.message, event.data.type || 'npc');
               } else if (event.type === 'complete') {
                 completeResult = {
                   success: true,
@@ -4646,9 +5107,9 @@ import { SpriteService } from './SpriteService.js';
         throw new Error('Incomplete streamed chat response');
       }
 
-      const activeRoomId = this.stateManager.hexmap?.resolveActiveRoomId?.() || null;
-      if (activeRoomId && this.loadActiveRoomView) {
-        this.loadActiveRoomView(activeRoomId, { force: true, preserveExisting: true });
+      const pinnedRoomId = this.resolvePinnedChatRoomTarget(chatTarget?.context?.roomId);
+      if (pinnedRoomId && this.loadActiveRoomView) {
+        this.loadActiveRoomView(pinnedRoomId, { force: true, preserveExisting: true });
       }
 
       this.invalidateChatCaches({
@@ -4833,6 +5294,70 @@ import { SpriteService } from './SpriteService.js';
       window.location.assign(`${window.location.pathname}?${params.toString()}`);
     }
 
+    buildChatRenderTarget(options = {}) {
+      const context = options.context || this.getChatContext();
+      return {
+        view: options.view || this.activeSessionView || 'room',
+        channelKey: options.channelKey || this.activeChannel || 'room',
+        context: {
+          campaignId: context?.campaignId || null,
+          roomId: context?.roomId || null,
+          characterId: context?.characterId || null,
+        },
+      };
+    }
+
+    isSameChatContext(left = {}, right = {}) {
+      return String(left?.campaignId || '') === String(right?.campaignId || '')
+        && String(left?.roomId || '') === String(right?.roomId || '')
+        && String(left?.characterId || '') === String(right?.characterId || '');
+    }
+
+    isChatTargetVisible(target = {}) {
+      const normalizedTarget = this.buildChatRenderTarget(target);
+      if ((normalizedTarget.view || 'room') !== this.activeSessionView) {
+        return false;
+      }
+      if (!this.isSameChatContext(normalizedTarget.context, this.getChatContext())) {
+        return false;
+      }
+      if ((normalizedTarget.view || 'room') !== 'room') {
+        return true;
+      }
+      return (normalizedTarget.channelKey || 'room') === (this.activeChannel || 'room');
+    }
+
+    appendChatLineToTarget(target, speaker, message, type = 'npc', options = {}) {
+      const normalizedTarget = this.buildChatRenderTarget(target);
+      const lineRecord = {
+        speaker: speaker || '',
+        message: message || '',
+        type: type || 'npc',
+        transient: Boolean(options.transient),
+        lineId: options.lineId || '',
+        messageId: Number.isFinite(Number(options.messageId)) ? Number(options.messageId) : null,
+        sourceMessageId: Number.isFinite(Number(options.sourceMessageId)) ? Number(options.sourceMessageId) : null,
+        created: Number.isFinite(Number(options.created)) ? Number(options.created) : 0,
+      };
+
+      let line = null;
+      if (this.isChatTargetVisible(normalizedTarget)) {
+        line = this.appendChatLine(speaker, message, type, {
+          ...options,
+          suppressRemember: true,
+        });
+      }
+
+      if (!lineRecord.transient) {
+        this.rememberChatLines(normalizedTarget.view, [lineRecord], {
+          context: normalizedTarget.context,
+          channelKey: normalizedTarget.channelKey,
+        });
+      }
+
+      return line;
+    }
+
     appendChatLine(speaker, message, type = 'npc', options = {}) {
       const log = this.elements.chatLog;
       if (!log) {
@@ -4921,10 +5446,36 @@ import { SpriteService } from './SpriteService.js';
       this.syncCurrentChatViewState();
     }
 
+    removeRememberedChatLineById(target, lineId) {
+      if (!lineId) {
+        return;
+      }
+      const normalizedTarget = this.buildChatRenderTarget(target);
+      const key = this.buildChatViewStateKey(
+        normalizedTarget.view,
+        normalizedTarget.context,
+        normalizedTarget.channelKey
+      );
+      if (!key) {
+        return;
+      }
+      const existing = this.chatViewStateCache.get(key) || [];
+      const filtered = existing.filter((line) => line?.lineId !== lineId);
+      if (filtered.length === existing.length) {
+        return;
+      }
+      this.chatViewStateCache.set(key, filtered);
+    }
+
     buildPendingChatRequest(requestId, speaker, message, roomId, options = {}) {
       const includePlayer = options.includePlayer !== false;
       const includePlaceholder = options.includePlaceholder !== false;
       const placeholderText = options.placeholderText || 'Thinking...';
+      const target = this.buildChatRenderTarget(options.target || {
+        context: options.context,
+        channelKey: options.channelKey,
+        view: options.view,
+      });
       const startedAt = (typeof performance !== 'undefined' && typeof performance.now === 'function')
         ? performance.now()
         : Date.now();
@@ -4932,13 +5483,13 @@ import { SpriteService } from './SpriteService.js';
       const gmProgressLineId = `chat-gm-progress-${requestId}`;
       const gmResponseLineId = `chat-gm-${requestId}`;
       if (includePlayer) {
-        this.appendChatLine(speaker, message, 'player', {
+        this.appendChatLineToTarget(target, speaker, message, 'player', {
           lineId: playerLineId,
           pending: true,
         });
       }
       if (includePlaceholder) {
-        this.appendChatLine('Game Master', placeholderText, 'system', {
+        this.appendChatLineToTarget(target, 'System', placeholderText, 'system', {
           lineId: gmProgressLineId,
           pending: true,
           transient: true,
@@ -4951,6 +5502,7 @@ import { SpriteService } from './SpriteService.js';
         playerLineId: includePlayer ? playerLineId : '',
         gmProgressLineId: includePlaceholder ? gmProgressLineId : '',
         gmResponseLineId,
+        target,
       };
       this.pendingChatRequests.set(requestId, pending);
       return pending;
@@ -4962,8 +5514,8 @@ import { SpriteService } from './SpriteService.js';
         return;
       }
       const label = count === 1
-        ? '1 message queued for the next GM turn.'
-        : `${count} messages queued for the next GM turn.`;
+        ? '1 message queued for the next response turn.'
+        : `${count} messages queued for the next response turn.`;
       this.appendChatLine('System', label, 'system', {
         lineId: 'chat-gm-queue-status',
         pending: true,
@@ -4976,9 +5528,13 @@ import { SpriteService } from './SpriteService.js';
         return;
       }
       if (options.removePlayer) {
-        this.removeChatLineById(pending.playerLineId);
+        if (this.isChatTargetVisible(pending.target)) {
+          this.removeChatLineById(pending.playerLineId);
+        } else {
+          this.removeRememberedChatLineById(pending.target, pending.playerLineId);
+        }
       } else if (pending.playerLineId) {
-        const playerLine = this.findChatLineById(pending.playerLineId);
+        const playerLine = this.isChatTargetVisible(pending.target) ? this.findChatLineById(pending.playerLineId) : null;
         if (playerLine) {
           playerLine.classList.remove('chat-line--pending');
           playerLine.dataset.transient = '0';
@@ -4993,12 +5549,12 @@ import { SpriteService } from './SpriteService.js';
       if (!pending) {
         return;
       }
-      this.appendChatLine('Game Master', text, 'system', {
+      this.appendChatLineToTarget(pending.target, 'System', text, 'system', {
         lineId: pending.gmProgressLineId,
         pending: true,
         transient: true,
       });
-      const line = this.findChatLineById(pending.gmProgressLineId);
+      const line = this.isChatTargetVisible(pending.target) ? this.findChatLineById(pending.gmProgressLineId) : null;
       if (line) {
         if (phase) {
           line.dataset.phase = phase;
@@ -5012,8 +5568,10 @@ import { SpriteService } from './SpriteService.js';
       if (!response) {
         return;
       }
-      this.removeChatLineById(pending?.gmProgressLineId || '');
-      this.appendChatLine(response.speaker || 'Game Master', response.message || '', response.type || 'npc', {
+      if (this.isChatTargetVisible(pending?.target || {})) {
+        this.removeChatLineById(pending?.gmProgressLineId || '');
+      }
+      this.appendChatLineToTarget(pending?.target || null, response.speaker || 'Game Master', response.message || '', response.type || 'npc', {
         lineId: pending?.gmResponseLineId || '',
         pending: false,
         transient: false,
@@ -5025,22 +5583,50 @@ import { SpriteService } from './SpriteService.js';
         return;
       }
       this.roomChatBusy = true;
-      const deferredBatch = this.roomChatDeferredMessages.splice(0);
-      this.updateQueuedChatStatus(0);
+      const firstQueued = this.roomChatDeferredMessages[0];
+      const targetChannel = firstQueued?.channel || 'room';
+      const targetRoomId = firstQueued?.roomId || roomId;
+      const targetCharacterId = firstQueued?.characterId ?? characterId;
+      const deferredBatch = [];
+      this.roomChatDeferredMessages = this.roomChatDeferredMessages.filter((entry) => {
+        const sameChannel = (entry.channel || 'room') === targetChannel;
+        const sameRoom = entry.roomId === targetRoomId;
+        const sameCharacter = (entry.characterId ?? null) === (targetCharacterId ?? null);
+        if (sameChannel && sameRoom && sameCharacter) {
+          deferredBatch.push(entry);
+          return false;
+        }
+        return true;
+      });
+      this.updateQueuedChatStatus(this.roomChatDeferredMessages.length);
       const requestId = `chat-followup-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      const pendingRequest = this.buildPendingChatRequest(requestId, '', '', roomId, {
+      const targetContext = {
+        campaignId,
+        roomId: targetRoomId,
+        characterId: targetCharacterId,
+      };
+      const target = this.buildChatRenderTarget({
+        view: 'room',
+        channelKey: targetChannel,
+        context: targetContext,
+      });
+      const pendingRequest = this.buildPendingChatRequest(requestId, '', '', targetRoomId, {
         includePlayer: false,
         includePlaceholder: true,
         placeholderText: deferredBatch.length > 1
-          ? `Processing ${deferredBatch.length} queued messages...`
-          : 'Processing queued message...',
+          ? `Thinking about the ${deferredBatch.length} things you just said...`
+          : 'Thinking about what you just said...',
+        target,
       });
 
       try {
-        await this.postChatMessage(campaignId, roomId, '', '', characterId, {
+        await this.postChatMessage(campaignId, targetRoomId, '', '', targetCharacterId, {
           clientRequestId: requestId,
           pendingRequest,
           continueGm: true,
+          channelKey: targetChannel,
+          context: targetContext,
+          target,
         });
       } catch (error) {
         console.error('Failed to continue queued GM response:', error);
@@ -5051,7 +5637,7 @@ import { SpriteService } from './SpriteService.js';
         this.appendChatLine('System', `Failed to continue GM response: ${error.message}`, 'system');
       } finally {
         this.roomChatBusy = false;
-        if (this.roomChatDeferredMessages.length > 0 && deferredBatch.length >= 0) {
+        if (this.roomChatDeferredMessages.length > 0) {
           this.updateQueuedChatStatus(this.roomChatDeferredMessages.length);
           void this.flushDeferredRoomMessages(campaignId, roomId, characterId);
         }
@@ -5077,6 +5663,7 @@ import { SpriteService } from './SpriteService.js';
       console.info('[RoomChat] response telemetry', {
         requestId: pending?.requestId || result?.data?.client_request_id || null,
         roomId: pending?.roomId || this.stateManager?.hexmap?.resolveActiveRoomId?.() || null,
+        turnLogKey: result?.data?.turn_log_key || result?.data?.turn_harness?.turn_log_key || null,
         totalMs,
         gmMs: timing?.gm_ms ?? gmStage?.duration_ms ?? null,
         cacheHit,
@@ -5836,6 +6423,7 @@ import { SpriteService } from './SpriteService.js';
     // Launch character summary from campaign flow for initial sheet hydration.
     launchCharacter: {},
     lastCharacterStateRequestId: null,
+    playerAutomation: null,
 
     // Dungeon payload for room-aware rendering and transitions.
     dungeonData: {},
@@ -5882,6 +6470,16 @@ import { SpriteService } from './SpriteService.js';
       this.dungeonData = settings?.dungeoncrawlerContent?.hexmapDungeonData || {};
       this.launchCharacter = settings?.dungeoncrawlerContent?.hexmapLaunchCharacter || {};
       this.characterData = this.launchCharacter;
+      this.playerAutomation = {
+        active: false,
+        inflight: false,
+        timerId: null,
+        runState: {},
+        profile: null,
+        lastError: null,
+        lastResult: null,
+        stopReason: null,
+      };
 
       console.log('HexMap Init - Launch Context:', this.launchContext);
       console.log('HexMap Init - Launch Character:', this.launchCharacter);
@@ -5970,6 +6568,7 @@ import { SpriteService } from './SpriteService.js';
 
       this.stateSync?.stop();
       this.stateSync = null;
+      this.stopPlayerAutomation('detach', { silent: true });
 
       // Cleanup Game Coordinator.
       if (this.gameCoordinator) {
@@ -7033,6 +7632,11 @@ import { SpriteService } from './SpriteService.js';
      */
     onHexClick: function (hex, pointerEvent = null) {
       const { q, r } = hex.hexData;
+
+      if (this.playerAutomation?.active) {
+        this.notifyAutomationManualLock?.();
+        return;
+      }
 
       this.refreshSelectedHexContents(q, r);
 
@@ -8614,6 +9218,586 @@ import { SpriteService } from './SpriteService.js';
     canUseServerCombatApi: function () {
       const uid = Number(this.currentUserId || 0);
       return Number.isFinite(uid) && uid > 0;
+    },
+
+    getPlayerAutomationState: function () {
+      const automation = this.playerAutomation || {};
+      const stepCount = Number(automation?.stepCount || 0);
+      const lastDecisionReason = String(automation?.lastResult?.decision?.reason || '').trim();
+      let statusLabel = 'Let your character act autonomously using the player-agent harness.';
+
+      if (automation?.active) {
+        statusLabel = buildActionRailEntrySummary([
+          automation?.inflight ? 'Running next autonomous step…' : 'Automation active',
+          'Every 15s',
+          stepCount > 0 ? `${stepCount} step${stepCount === 1 ? '' : 's'}` : '',
+          !automation?.inflight && lastDecisionReason ? lastDecisionReason : '',
+        ]) || 'Automation active';
+      } else if (automation?.lastError) {
+        statusLabel = String(automation.lastError);
+      } else if (automation?.lastResult?.message) {
+        statusLabel = 'Automation stopped. Last autonomous step completed.';
+      }
+
+      return {
+        active: Boolean(automation?.active),
+        inflight: Boolean(automation?.inflight),
+        lastError: automation?.lastError || null,
+        stopReason: automation?.stopReason || null,
+        stepCount,
+        consecutiveWaits: 0,
+        consecutiveFailures: 0,
+        statusLabel,
+      };
+    },
+
+    notifyAutomationManualLock: function () {
+      const automation = this.playerAutomation || {};
+      const now = Date.now();
+      const lastNoticeAt = Number(automation?.lastManualInputNoticeAt || 0);
+      if (now - lastNoticeAt < 3000) {
+        return;
+      }
+
+      if (this.playerAutomation) {
+        this.playerAutomation.lastManualInputNoticeAt = now;
+      }
+      this.uiManager?.appendChatLine('System', 'Automation is controlling your character. Stop automation to act manually.', 'system');
+    },
+
+    resolvePlayerAutomationEntity: function (profile = null) {
+      const actorId = String(profile?.actor_id || '').trim();
+      const characterId = Number(
+        profile?.character_id
+        || this.launchCharacter?.characterId
+        || this.launchCharacter?.id
+        || this.launchContext?.character_id
+        || 0
+      ) || 0;
+      const entities = this.entityManager?.getEntitiesWith?.('CombatComponent', 'PositionComponent') || [];
+
+      if (actorId) {
+        const actorMatch = entities.find((entity) =>
+          String(entity?.dcEntityRef || entity?.dcEntityInstanceId || entity?.id || '') === actorId
+        );
+        if (actorMatch) {
+          return actorMatch;
+        }
+      }
+
+      if (characterId > 0) {
+        const characterMatch = entities.find((entity) =>
+          Number(entity?.dcCharacterId || entity?.dcStatePayload?.metadata?.character_id || 0) === characterId
+        );
+        if (characterMatch) {
+          return characterMatch;
+        }
+      }
+
+      return this.findLaunchPlayerEntity?.() || null;
+    },
+
+    buildPlayerAutomationProfile: function () {
+      const runtimeContext = this.resolveLaunchCharacterRuntimeContext?.() || {};
+      const state = this.launchCharacter || this.characterData || {};
+      const basicInfo = state?.basicInfo || {};
+      const characterId = Number(
+        runtimeContext?.characterId
+        || state?.characterId
+        || state?.character_id
+        || state?.sheet_character_id
+        || state?.id
+        || this.resolveLaunchCharacterStateId?.()
+        || this.launchContext?.character_id
+        || 0
+      ) || 0;
+      const characterName = basicInfo?.name || state?.name || 'Autonomous adventurer';
+      const selectedEntity = this.stateManager?.get?.('selectedEntity') || null;
+      const selectedCharacterId = Number(
+        selectedEntity?.dcCharacterId
+        || selectedEntity?.dcStatePayload?.metadata?.character_id
+        || 0
+      ) || 0;
+      const launchPlayerEntity = this.findLaunchPlayerEntity?.() || null;
+      const controlledEntity = (characterId > 0
+        ? this.resolvePlayerAutomationEntity?.({ character_id: characterId })
+        : null)
+        || (selectedCharacterId > 0 && selectedCharacterId === characterId ? selectedEntity : null)
+        || launchPlayerEntity
+        || selectedEntity
+        || null;
+      const actorId = String(
+        controlledEntity?.dcEntityRef
+        || controlledEntity?.dcEntityInstanceId
+        || runtimeContext?.instanceId
+        || this.launchContext?.instance_id
+        || ''
+      ).trim();
+
+      return {
+        actor_id: actorId,
+        character_id: characterId,
+        character_name: characterName,
+      };
+    },
+
+    requestPlayerAutomationStep: async function (campaignId, profile, runState = {}) {
+      if (typeof this.gameCoordinator?.api?.runPlayerAgentStep === 'function') {
+        const result = await this.gameCoordinator.api.runPlayerAgentStep(profile, runState);
+        if (!result || typeof result !== 'object') {
+          throw new Error('Automation step returned an invalid response.');
+        }
+        return result;
+      }
+
+      throw new Error('Automation harness is unavailable.');
+    },
+
+    clearPlayerAutomationTimer: function () {
+      if (this.playerAutomation?.timerId) {
+        clearTimeout(this.playerAutomation.timerId);
+        this.playerAutomation.timerId = null;
+      }
+    },
+
+    startPlayerAutomation: async function () {
+      const automation = this.playerAutomation || {};
+      if (automation.active) {
+        return true;
+      }
+
+      const campaignId = this.resolveCampaignId?.() || Number(this.launchContext?.campaign_id || 0);
+      const roomId = this.resolveActiveRoomId?.() || '';
+      if (!campaignId || !roomId) {
+        this.uiManager?.appendChatLine('System', 'Automation requires an active campaign room.', 'system');
+        return false;
+      }
+
+      const profile = this.buildPlayerAutomationProfile();
+      if (!profile.character_id) {
+        this.uiManager?.appendChatLine('System', 'Automation requires a loaded player character.', 'system');
+        return false;
+      }
+
+      this.playerAutomation = {
+        active: true,
+        inflight: false,
+        timerId: null,
+        runState: {},
+        profile,
+        lastError: null,
+        lastResult: null,
+        stopReason: null,
+        lastManualInputNoticeAt: 0,
+        lastDecisionSummary: '',
+        stepCount: 0,
+      };
+
+      console.info('[Automation] Starting player automation', {
+        campaignId,
+        roomId,
+        characterId: profile.character_id,
+        characterName: profile.character_name,
+        actorId: profile.actor_id,
+        selectedEntityId: this.stateManager?.get?.('selectedEntity')?.dcEntityRef || this.stateManager?.get?.('selectedEntity')?.id || null,
+        activeSessionView: this.uiManager?.activeSessionView || 'room',
+        activeChannel: this.uiManager?.activeChannel || 'room',
+        phase: this.gameCoordinator?.phaseManager?.currentPhase || null,
+      });
+      this.uiManager?.appendChatLine('System', `${profile.character_name || 'Your character'} is now automated.`, 'system');
+      this.uiManager?.refreshActionRail();
+      await this.runPlayerAutomationStep();
+      return true;
+    },
+
+    stopPlayerAutomation: function (reason = 'manual', options = {}) {
+      const { silent = false } = options;
+      const automation = this.playerAutomation || {};
+      const wasActive = Boolean(automation.active || automation.inflight || automation.timerId);
+      console.warn('[Automation] Stopping player automation', {
+        reason,
+        silent,
+        wasActive,
+        stepCount: Number(automation?.runState?.step_count || automation?.stepCount || 0),
+        phase: this.gameCoordinator?.phaseManager?.currentPhase || null,
+        roomId: this.resolveActiveRoomId?.() || this.activeRoomId || null,
+      });
+      this.clearPlayerAutomationTimer();
+
+      if (!this.playerAutomation) {
+        this.playerAutomation = {};
+      }
+
+      this.playerAutomation.active = false;
+      this.playerAutomation.inflight = false;
+      this.playerAutomation.stopReason = reason;
+      this.playerAutomation.lastError = reason && reason !== 'manual' && reason !== 'detach' && reason !== 'complete' ? reason : null;
+
+      if (!silent && wasActive) {
+        const message = reason === 'manual'
+          ? 'Automation paused. Manual control restored.'
+          : reason;
+        if (message) {
+          this.uiManager?.appendChatLine('System', message, 'system');
+        }
+      }
+
+      this.uiManager?.refreshActionRail();
+    },
+
+    schedulePlayerAutomationStep: function (delayMs = 15000) {
+      if (!this.playerAutomation?.active) {
+        return;
+      }
+      const nextDelay = Math.max(250, Number(delayMs) || 15000);
+      console.info('[Automation] Scheduling next step', {
+        delayMs: nextDelay,
+        stepCount: Number(this.playerAutomation?.runState?.step_count || this.playerAutomation?.stepCount || 0),
+        phase: this.gameCoordinator?.phaseManager?.currentPhase || null,
+        roomId: this.resolveActiveRoomId?.() || this.activeRoomId || null,
+      });
+      this.clearPlayerAutomationTimer();
+      this.playerAutomation.timerId = window.setTimeout(() => {
+        this.runPlayerAutomationStep().catch((error) => {
+          const message = error instanceof Error ? error.message : 'Automation step failed.';
+          this.stopPlayerAutomation(message);
+        });
+      }, nextDelay);
+    },
+
+    describePlayerAutomationResult: function (stepResult = {}) {
+      const decision = stepResult?.decision || {};
+      const decisionType = String(decision?.type || '').trim();
+      const decisionReason = String(decision?.reason || '').trim();
+      const result = stepResult?.response?.result || {};
+      const actorName = String(this.playerAutomation?.profile?.character_name || 'Automation').trim() || 'Automation';
+
+      if (result?.talked) {
+        return '';
+      }
+      if (result?.searched) {
+        return result?.narration
+          ? `${actorName} searched the room: ${result.narration}`
+          : `${actorName} searched the room.`;
+      }
+      if (result?.rested) {
+        const restType = String(result?.rest_type || 'short').trim();
+        return `${actorName} took a ${restType} rest.`;
+      }
+      if (Array.isArray(stepResult?.response?.events) && stepResult.response.events.some((event) => String(event?.type || '') === 'room_entered')) {
+        const roomEnteredEvent = stepResult.response.events.find((event) => String(event?.type || '') === 'room_entered');
+        const targetRoomId = String(roomEnteredEvent?.data?.to_room || '').trim();
+        return targetRoomId !== ''
+          ? `${actorName} moved to room ${targetRoomId}.`
+          : `${actorName} moved to a new room.`;
+      }
+      if (decisionType === 'wait' && decisionReason !== '') {
+        return `${actorName} is waiting: ${decisionReason}`;
+      }
+      if (decisionReason !== '') {
+        return `${actorName}: ${decisionReason}`;
+      }
+      if (decisionType !== '') {
+        return `${actorName}: ${decisionType}.`;
+      }
+      return '';
+    },
+
+    shouldStopPlayerAutomation: function (stepResult) {
+      const runState = stepResult?.run_state || {};
+      const guardrails = runState?.guardrails || {};
+      const consecutiveWaits = Number(guardrails?.consecutive_waits || 0);
+      const maxConsecutiveWaits = Number(guardrails?.max_consecutive_waits || 0);
+      const consecutiveFailures = Number(guardrails?.consecutive_failures || 0);
+      const maxConsecutiveFailures = Number(guardrails?.max_consecutive_failures || 0);
+
+      if (stepResult?.success === false) {
+        return stepResult?.error || 'Automation stopped after an invalid autonomous action.';
+      }
+      if (maxConsecutiveWaits > 0 && consecutiveWaits >= maxConsecutiveWaits) {
+        return 'Automation paused after waiting too many turns without progress.';
+      }
+      if (maxConsecutiveFailures > 0 && consecutiveFailures >= maxConsecutiveFailures) {
+        return 'Automation paused after repeated failed actions.';
+      }
+      return null;
+    },
+
+    applyPlayerAutomationRoomTransition: function (events = []) {
+      const roomEnteredEvent = Array.isArray(events)
+        ? events.find((event) => String(event?.type || '') === 'room_entered')
+        : null;
+      const targetRoomId = String(roomEnteredEvent?.data?.to_room || '').trim();
+      if (!targetRoomId || targetRoomId === this.activeRoomId) {
+        return false;
+      }
+
+      console.info('[Automation] Applying room transition', {
+        fromRoomId: this.activeRoomId || null,
+        toRoomId: targetRoomId,
+        eventCount: Array.isArray(events) ? events.length : 0,
+      });
+
+      const controlledEntity = this.resolvePlayerAutomationEntity?.(this.playerAutomation?.profile || null);
+      const selectedEntity = this.stateManager?.get('selectedEntity') || null;
+      if (controlledEntity && selectedEntity?.id !== controlledEntity.id) {
+        this.selectEntity(controlledEntity);
+      }
+
+      if (this.navigateToVisitedRoom?.(targetRoomId)) {
+        return true;
+      }
+
+      if (this.dungeonData?.rooms?.[targetRoomId]) {
+        this.setActiveRoom(targetRoomId);
+        this.updateLaunchLocationContext?.(targetRoomId);
+        return true;
+      }
+
+      return false;
+    },
+
+    renderPlayerAutomationChatResult: async function (stepResult = {}) {
+      const automation = this.playerAutomation || {};
+      const talkResult = stepResult?.response?.result || {};
+      if (!talkResult?.talked || !talkResult?.message) {
+        return;
+      }
+
+      const chatContext = this.uiManager?.getChatContext?.() || {};
+      const roomId = this.resolveActiveRoomId?.() || this.activeRoomId || '';
+      const roomTarget = this.uiManager?.buildChatRenderTarget?.({
+        view: 'room',
+        channelKey: 'room',
+        context: {
+          campaignId: chatContext?.campaignId || this.resolveCampaignId?.() || Number(this.launchContext?.campaign_id || 0) || null,
+          roomId,
+          characterId: chatContext?.characterId || Number(automation.profile?.character_id || 0) || null,
+        },
+      }) || null;
+
+      const fingerprint = JSON.stringify({
+        message: talkResult.message,
+        gm: talkResult?.gm_response?.timestamp || talkResult?.gm_response?.message || '',
+        npc: Array.isArray(talkResult?.npc_interjections) ? talkResult.npc_interjections.map((entry) => `${entry?.speaker || ''}:${entry?.timestamp || entry?.message || ''}`) : [],
+      });
+      if (fingerprint !== '' && fingerprint === automation.lastRenderedChatFingerprint) {
+        return;
+      }
+      automation.lastRenderedChatFingerprint = fingerprint;
+
+      console.info('[Automation] Rendering talk result', {
+        roomId,
+        roomTarget,
+        activeSessionView: this.uiManager?.activeSessionView || 'room',
+        visibleInCurrentView: typeof this.uiManager?.isChatTargetVisible === 'function'
+          ? this.uiManager.isChatTargetVisible(roomTarget)
+          : null,
+        playerMessage: talkResult.message,
+        gmMessageLength: String(talkResult?.gm_response?.message || '').length,
+        npcInterjectionCount: Array.isArray(talkResult?.npc_interjections) ? talkResult.npc_interjections.length : 0,
+      });
+
+      const playerName = automation.profile?.character_name || 'You';
+      this.uiManager?.appendChatLineToTarget?.(roomTarget, playerName, String(talkResult.message), 'player');
+
+      const gmResponse = talkResult?.gm_response || null;
+      if (gmResponse?.message) {
+        this.uiManager?.appendChatLineToTarget?.(
+          roomTarget,
+          String(gmResponse.speaker || 'Game Master'),
+          String(gmResponse.message),
+          String(gmResponse.type || 'npc')
+        );
+      }
+
+      if (Array.isArray(talkResult?.npc_interjections)) {
+        talkResult.npc_interjections.forEach((npcMessage) => {
+          if (!npcMessage?.message) {
+            return;
+          }
+          this.uiManager?.appendChatLineToTarget?.(
+            roomTarget,
+            String(npcMessage.speaker || 'NPC'),
+            String(npcMessage.message),
+            String(npcMessage.type || 'npc')
+          );
+        });
+      }
+
+      if (Array.isArray(talkResult?.quest_updates) && talkResult.quest_updates.length > 0) {
+        await this.applyQuestUpdates(talkResult.quest_updates);
+      }
+
+      if (this.uiManager?.activeSessionView !== 'room') {
+        this.uiManager?.appendChatLine(
+          'System',
+          `${playerName} posted an automated room turn.`,
+          'system'
+        );
+      }
+    },
+
+    applyPlayerAutomationResult: async function (stepResult = {}) {
+      const summary = this.describePlayerAutomationResult(stepResult);
+      if (summary && summary !== this.playerAutomation?.lastVisibleSummary) {
+        this.playerAutomation.lastVisibleSummary = summary;
+        this.uiManager?.appendChatLine('System', summary, 'system');
+      }
+
+      await this.renderPlayerAutomationChatResult(stepResult);
+      if (stepResult?.response?.result?.talked && this.uiManager?.activeSessionView === 'room') {
+        this.uiManager?.invalidateChatCaches?.({ room: true });
+        await this.uiManager?.loadChatHistory?.({ force: true });
+      }
+
+      const eventCount = Array.isArray(stepResult?.response?.events) ? stepResult.response.events.length : 0;
+      if (Array.isArray(stepResult?.response?.events) && stepResult.response.events.length > 0) {
+        this.applyPlayerAutomationRoomTransition(stepResult.response.events);
+      }
+
+      if (typeof this.gameCoordinator?.applyAuthoritativeUpdate === 'function') {
+        const updateSource = stepResult?.response?.game_state ? 'response' : (stepResult?.state_sync?.success ? 'state_sync' : 'none');
+        console.info('[Automation] Applying authoritative update', {
+          source: updateSource,
+          eventCount,
+          responsePhase: stepResult?.response?.game_state?.phase || null,
+          syncPhase: stepResult?.state_sync?.game_state?.phase || null,
+        });
+        if (stepResult?.response?.game_state) {
+          this.gameCoordinator.applyAuthoritativeUpdate(stepResult.response);
+        } else if (stepResult?.state_sync?.success) {
+          this.gameCoordinator.applyAuthoritativeUpdate(stepResult.state_sync);
+        }
+      }
+
+      try {
+        await this.stateSync?.sync({ force: true, silent: true });
+        console.info('[Automation] Background state sync completed', {
+          roomId: this.resolveActiveRoomId?.() || this.activeRoomId || null,
+          phase: this.gameCoordinator?.phaseManager?.currentPhase || null,
+          eventCount,
+        });
+      } catch (error) {
+        console.warn('[Automation] Background state sync failed', {
+          error: error instanceof Error ? error.message : error,
+          roomId: this.resolveActiveRoomId?.() || this.activeRoomId || null,
+          phase: this.gameCoordinator?.phaseManager?.currentPhase || null,
+        });
+      }
+
+      this.uiManager?.refreshActionRail();
+    },
+
+    runPlayerAutomationStep: async function () {
+      const automation = this.playerAutomation || {};
+      if (!automation.active || automation.inflight || !automation.profile?.character_id) {
+        return null;
+      }
+
+      automation.inflight = true;
+      this.uiManager?.refreshActionRail();
+
+      try {
+        const campaignId = this.resolveCampaignId?.() || Number(this.launchContext?.campaign_id || 0);
+        const roomId = this.resolveActiveRoomId?.() || '';
+        if (!campaignId || !roomId) {
+          throw new Error('Automation requires an active campaign room.');
+        }
+        if (!automation.profile?.actor_id) {
+          throw new Error('Automation requires a controlled actor in the current room.');
+        }
+
+        console.info('[Automation] Sending step request', {
+          campaignId,
+          roomId,
+          actorId: automation.profile.actor_id,
+          characterId: automation.profile.character_id,
+          runState: {
+            stepCount: Number(automation.runState?.step_count || 0),
+            visitedRooms: Array.isArray(automation.runState?.memory?.visited_rooms) ? automation.runState.memory.visited_rooms.length : 0,
+            searchedRooms: Array.isArray(automation.runState?.memory?.searched_rooms) ? automation.runState.memory.searched_rooms.length : 0,
+            talkedEntities: Array.isArray(automation.runState?.memory?.talked_entities) ? automation.runState.memory.talked_entities.length : 0,
+            restedRooms: Array.isArray(automation.runState?.memory?.rested_rooms) ? automation.runState.memory.rested_rooms.length : 0,
+            waits: Number(automation.runState?.guardrails?.consecutive_waits || 0),
+            failures: Number(automation.runState?.guardrails?.consecutive_failures || 0),
+          },
+          phase: this.gameCoordinator?.phaseManager?.currentPhase || null,
+        });
+
+        const stepResult = await this.requestPlayerAutomationStep(
+          campaignId,
+          automation.profile,
+          automation.runState || {}
+        );
+
+        const decisionType = String(stepResult?.decision?.type || 'unknown');
+        const decisionReason = String(stepResult?.decision?.reason || '').trim();
+        const decisionSummary = decisionReason || decisionType;
+        console.info('[Automation] Step result', {
+          decisionType,
+          decisionReason,
+          success: stepResult?.success !== false,
+          actorId: automation.profile?.actor_id || null,
+          responsePhase: stepResult?.response?.game_state?.phase || null,
+          snapshotPhase: stepResult?.snapshot?.phase || null,
+          talked: Boolean(stepResult?.response?.result?.talked),
+          searched: Boolean(stepResult?.response?.result?.searched),
+          rested: Boolean(stepResult?.response?.result?.rested),
+          narration: stepResult?.response?.result?.narration || null,
+          playerMessage: stepResult?.response?.result?.message || null,
+          gmMessage: stepResult?.response?.result?.gm_response?.message || null,
+          npcInterjectionCount: Array.isArray(stepResult?.response?.result?.npc_interjections) ? stepResult.response.result.npc_interjections.length : 0,
+          guardrails: stepResult?.run_state?.guardrails || null,
+          stepCount: Number(stepResult?.run_state?.step_count || 0),
+        });
+
+        automation.lastResult = stepResult;
+        automation.runState = stepResult?.run_state || automation.runState || {};
+        automation.lastError = null;
+        automation.stopReason = null;
+        if (decisionSummary !== '' && decisionSummary !== automation.lastDecisionSummary) {
+          automation.lastDecisionSummary = decisionSummary;
+          if (decisionType === 'wait') {
+            this.uiManager?.appendChatLine('System', `Automation waiting: ${decisionSummary}`, 'system');
+          }
+        }
+
+        if (!automation.active) {
+          return stepResult;
+        }
+
+        await this.applyPlayerAutomationResult(stepResult);
+
+        automation.stepCount = Number(automation.stepCount || 0) + 1;
+
+        const stopReason = this.shouldStopPlayerAutomation(stepResult);
+        if (stopReason) {
+          this.stopPlayerAutomation(stopReason);
+          return stepResult;
+        }
+
+        if (automation.active) {
+          this.schedulePlayerAutomationStep(15000);
+        }
+
+        return stepResult;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Automation step failed.';
+        console.error('[Automation] Step execution failed', {
+          message,
+          stepCount: Number(automation?.runState?.step_count || automation?.stepCount || 0),
+          roomId: this.resolveActiveRoomId?.() || this.activeRoomId || null,
+          phase: this.gameCoordinator?.phaseManager?.currentPhase || null,
+        });
+        this.stopPlayerAutomation(message);
+        return null;
+      } finally {
+        if (this.playerAutomation) {
+          this.playerAutomation.inflight = false;
+        }
+        this.uiManager?.refreshActionRail();
+      }
     },
 
     notifyServerUnavailable: function () {
@@ -10388,6 +11572,33 @@ import { SpriteService } from './SpriteService.js';
     },
 
     /**
+     * Apply quest update payloads from chat responses.
+     * @param {Array} questUpdates
+     */
+    applyQuestUpdates: async function (questUpdates = []) {
+      if (!Array.isArray(questUpdates) || questUpdates.length === 0) {
+        return;
+      }
+
+      await this.refreshQuestJournalFromApi();
+
+      questUpdates.forEach((update) => {
+        if (!update || update.type !== 'quest_started') {
+          return;
+        }
+
+        const title = String(update.quest_name || update.quest_id || 'New quest');
+        const objectiveLines = Array.isArray(update.objectives)
+          ? update.objectives.filter(Boolean).map((line) => `- ${line}`)
+          : [];
+        const toastMessage = objectiveLines.length
+          ? `Quest added: ${title}\n${objectiveLines.join('\n')}`
+          : `Quest added: ${title}`;
+        this.uiManager?.showQuestToast(toastMessage, 'success');
+      });
+    },
+
+    /**
      * Fetch and render pending quest confirmations.
      */
     refreshQuestConfirmations: async function () {
@@ -11513,6 +12724,7 @@ import { SpriteService } from './SpriteService.js';
       const selectedInstanceId = selectedEntity?.dcEntityRef || selectedEntity?.dcEntityInstanceId || null;
       return {
         campaignId: Number(this.launchContext?.campaign_id || 0) || null,
+        characterId: selectedCharacterId || launchCharacterId || null,
         instanceId: launchCharacterId > 0 && selectedCharacterId === launchCharacterId ? selectedInstanceId : (this.launchCharacter?.instanceId || null),
       };
     }

@@ -2,6 +2,7 @@
 
 namespace Drupal\Tests\dungeoncrawler_content\Unit\Service;
 
+use Drupal\dungeoncrawler_content\Service\CharacterManager;
 use Drupal\Tests\UnitTestCase;
 use Drupal\dungeoncrawler_content\Service\FeatEffectManager;
 
@@ -1764,13 +1765,20 @@ class FeatEffectManagerTest extends UnitTestCase {
     $character = $this->buildCharacterWithFeat('trap-finder');
     $effects = $this->manager->buildEffectState($character);
 
-    $this->assertCount(3, $effects['conditional_modifiers']);
-    $this->assertSame('perception', $effects['conditional_modifiers'][0]['type']);
-    $this->assertSame('find_traps', $effects['conditional_modifiers'][0]['target']);
-    $this->assertSame('ac', $effects['conditional_modifiers'][1]['type']);
-    $this->assertSame('attacks_by_traps', $effects['conditional_modifiers'][1]['target']);
-    $this->assertSame('saving_throw', $effects['conditional_modifiers'][2]['type']);
-    $this->assertSame('effects_from_traps', $effects['conditional_modifiers'][2]['target']);
+    $modifiers = [];
+    foreach ($effects['conditional_modifiers'] as $modifier) {
+      if (is_array($modifier) && isset($modifier['type'], $modifier['target'])) {
+        $modifiers[] = $modifier;
+      }
+    }
+
+    $this->assertCount(3, $modifiers);
+    $this->assertSame('perception', $modifiers[0]['type']);
+    $this->assertSame('find_traps', $modifiers[0]['target']);
+    $this->assertSame('ac', $modifiers[1]['type']);
+    $this->assertSame('attacks_by_traps', $modifiers[1]['target']);
+    $this->assertSame('saving_throw', $modifiers[2]['type']);
+    $this->assertSame('effects_from_traps', $modifiers[2]['target']);
     $this->assertTrue($effects['feat_overrides']['trap-finder']['can_find_legendary_traps']);
     $this->assertTrue($effects['feat_overrides']['trap-finder']['disable_device_critical_failure_does_not_trigger_trap']);
     $this->assertContains('trap-finder', $effects['applied_feats']);
@@ -1808,6 +1816,82 @@ class FeatEffectManagerTest extends UnitTestCase {
     $this->assertTrue($action['target_requirements']['must_perceive_defeated_creature']);
     $this->assertTrue($action['ignore_normal_demoralize_range_limit']);
     $this->assertContains('you-re-next', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testEldritchTricksterRequestsDedicationSelectionWhenMissing(): void {
+    $character = $this->buildCharacterWithFeat('eldritch-trickster-racket');
+    $effects = $this->manager->buildEffectState($character);
+
+    $grant = $effects['selection_grants']['eldritch-trickster-racket'];
+    $this->assertSame('single', $grant['type']);
+    $this->assertTrue($grant['required']);
+    $this->assertArrayHasKey('wizard-dedication', $grant['options']);
+    $this->assertTrue($effects['feat_overrides']['eldritch-trickster-racket']['selection_pending']);
+    $this->assertContains('eldritch-trickster-racket', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testEldritchTricksterPersistsSelectedDedicationMetadata(): void {
+    $character = $this->buildCharacterWithFeatSelection('eldritch-trickster-racket', [
+      'selected_dedication' => 'wizard-dedication',
+    ]);
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['eldritch-trickster-racket'];
+    $this->assertSame('wizard-dedication', $override['selected_dedication']);
+    $this->assertSame('Wizard Dedication', $override['selected_dedication_name']);
+    $this->assertSame('wizard', $override['selected_dedication_source_class']);
+    $this->assertSame('arcane', $override['selected_dedication_tradition']);
+    $this->assertTrue($override['grants_free_dedication']);
+    $this->assertContains('eldritch-trickster-racket', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testMastermindRequestsKnowledgeSkillSelectionWhenMissing(): void {
+    $character = $this->buildCharacterWithFeat('mastermind-racket');
+    $effects = $this->manager->buildEffectState($character);
+
+    $grant = $effects['selection_grants']['mastermind-racket'];
+    $this->assertSame('single', $grant['type']);
+    $this->assertTrue($grant['required']);
+    $this->assertArrayHasKey('arcana', $grant['options']);
+    $this->assertSame(['Society'], $effects['training_grants']['skills']);
+    $this->assertTrue($effects['feat_overrides']['mastermind-racket']['selection_pending']);
+    $this->assertContains('mastermind-racket', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testMastermindPersistsKnowledgeSkillAndRecallKnowledgeMetadata(): void {
+    $character = $this->buildCharacterWithFeatSelection('mastermind-racket', [
+      'selected_skill' => 'arcana',
+    ]);
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['mastermind-racket'];
+    $this->assertSame('Society', $override['granted_skill']);
+    $this->assertSame('arcana', $override['selected_knowledge_skill']);
+    $this->assertSame('Arcana', $override['selected_knowledge_skill_name']);
+    $this->assertTrue($override['recall_knowledge_flat_footed_on_success']);
+    $this->assertSame(['Society', 'Arcana'], $effects['training_grants']['skills']);
+    $combat_advantage = NULL;
+    foreach ($effects['conditional_modifiers'] as $modifier) {
+      if (is_array($modifier) && (($modifier['type'] ?? NULL) === 'combat_advantage')) {
+        $combat_advantage = $modifier;
+        break;
+      }
+    }
+    $this->assertNotNull($combat_advantage);
+    $this->assertSame('recalled_knowledge_target', $combat_advantage['target']);
+    $this->assertContains('mastermind-racket', $effects['applied_feats']);
   }
 
   /**
@@ -2313,6 +2397,51 @@ class FeatEffectManagerTest extends UnitTestCase {
   /**
    * @covers ::buildEffectState
    */
+  public function testEsotericPolymathRequestsCrossTraditionSpellSelectionWhenMissing(): void {
+    $character = $this->buildLeveledCharacterWithFeatParams('esoteric-polymath', [], [
+      'class' => 'bard',
+      'subclass' => 'polymath',
+    ]);
+    $effects = $this->manager->buildEffectState($character);
+
+    $grant = $effects['selection_grants'][0];
+    $this->assertSame('esoteric-polymath', $grant['source_feat']);
+    $this->assertSame('esoteric_polymath_spell_choice', $grant['selection_type']);
+    $this->assertSame(1, $grant['count']);
+    $this->assertContains('esoteric-polymath', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testEsotericPolymathPersistsSelectedSpellAndDailySwap(): void {
+    $character = $this->buildLeveledCharacterWithFeatParams('esoteric-polymath', [
+      'selected_spell' => 'magic-missile',
+    ], [
+      'class' => 'bard',
+      'subclass' => 'polymath',
+    ]);
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['esoteric-polymath'];
+    $action = $effects['available_actions']['per_long_rest'][0];
+    $this->assertSame('cross_tradition_signature_repertoire_spell', $override['type']);
+    $this->assertSame('magic-missile', $override['selected_spell']);
+    $this->assertSame('esoteric-polymath', $override['selected_spell_source']);
+    $this->assertTrue($override['selected_spell_must_be_common']);
+    $this->assertTrue($override['selected_spell_must_be_cross_tradition']);
+    $this->assertTrue($override['selected_spell_is_signature_spell']);
+    $this->assertTrue($override['add_selected_spell_to_repertoire']);
+    $this->assertSame(1, $override['signature_spell_swap_uses_per_long_rest']);
+    $this->assertSame('daily_preparations', $override['swap_timing']);
+    $this->assertSame('esoteric_polymath_spell', $override['special_repertoire_entry_key']);
+    $this->assertSame('Esoteric Polymath Spell Swap', $action['name']);
+    $this->assertContains('esoteric-polymath', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
   public function testInspireCompetenceAddsCompositionCantripAction(): void {
     $character = $this->buildCharacterWithFeat('inspire-competence');
     $effects = $this->manager->buildEffectState($character);
@@ -2389,6 +2518,41 @@ class FeatEffectManagerTest extends UnitTestCase {
     $this->assertSame('daily_preparations', $override['swap_timing']);
     $this->assertSame('Versatile Signature', $action['name']);
     $this->assertContains('versatile-signature', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testEclecticPolymathUsesPersistedEsotericSpellSelection(): void {
+    $character = [
+      'level' => 10,
+      'class' => 'bard',
+      'subclass' => 'polymath',
+      'features' => [
+        'feats' => [
+          [
+            'id' => 'esoteric-polymath',
+            'feat_params' => [
+              'selected_spell' => 'magic-missile',
+            ],
+          ],
+          [
+            'id' => 'eclectic-polymath',
+            'feat_params' => [],
+          ],
+        ],
+      ],
+    ];
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['eclectic-polymath'];
+    $this->assertSame('cross_tradition_signature_spellcasting_upgrade', $override['type']);
+    $this->assertSame('magic-missile', $override['selected_spell']);
+    $this->assertSame('esoteric-polymath', $override['selected_spell_source']);
+    $this->assertTrue($override['selected_spell_is_signature_spell']);
+    $this->assertTrue($override['selected_spell_treated_as_prepared_at_any_available_rank']);
+    $this->assertTrue($override['selected_spell_ignores_spontaneous_rank_repertoire_requirement']);
+    $this->assertContains('eclectic-polymath', $effects['applied_feats']);
   }
 
   /**
@@ -3330,6 +3494,74 @@ class FeatEffectManagerTest extends UnitTestCase {
   /**
    * @covers ::buildEffectState
    */
+  public function testImprobableElixirsRequestsFormulaSelectionWhenMissing(): void {
+    $character = $this->buildLeveledCharacterWithFeatParams('improbable-elixirs', [], [
+      'level' => 16,
+      'abilities' => [
+        'intelligence' => 12,
+      ],
+    ]);
+    $effects = $this->manager->buildEffectState($character);
+
+    $grant = $effects['selection_grants'][0];
+    $this->assertSame('improbable-elixirs', $grant['source_feat']);
+    $this->assertSame('improbable_elixirs_formula_choice', $grant['selection_type']);
+    $this->assertSame(1, $grant['count']);
+    $this->assertContains('improbable-elixirs', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testImprobableElixirsIgnoresInvalidSelectionsAndKeepsChoiceOpen(): void {
+    $character = $this->buildLeveledCharacterWithFeatParams('improbable-elixirs', [
+      'selected_formulas' => ['scroll-1st-level'],
+    ], [
+      'level' => 16,
+      'abilities' => [
+        'intelligence' => 12,
+      ],
+    ]);
+    $effects = $this->manager->buildEffectState($character);
+
+    $this->assertArrayNotHasKey('improbable-elixirs', $effects['feat_overrides']);
+    $this->assertSame('improbable_elixirs_formula_choice', $effects['selection_grants'][0]['selection_type']);
+    $this->assertContains('improbable-elixirs', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testImprobableElixirsPersistsConvertedPotionFormulaMetadata(): void {
+    $character = $this->buildLeveledCharacterWithFeatParams('improbable-elixirs', [
+      'selected_formulas' => ['potion-of-healing-lesser'],
+    ], [
+      'level' => 16,
+      'abilities' => [
+        'intelligence' => 12,
+      ],
+    ]);
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['improbable-elixirs'];
+    $this->assertSame('improbable_elixirs_formula_conversion', $override['type']);
+    $this->assertSame(['potion-of-healing-lesser'], $override['formula_grants']);
+    $this->assertTrue($override['add_to_formula_book']);
+    $this->assertTrue($override['treat_selected_potion_formulas_as_alchemical_elixirs']);
+    $this->assertSame('improbable-elixirs', $override['formula_source']);
+    $this->assertSame('alchemical_elixir_via_potion_formula', $override['display_in_formula_book_as']);
+    $this->assertFalse($override['selection_pending']);
+    $this->assertSame('potion-of-healing-lesser', $override['converted_formulas'][0]['formula_id']);
+    $this->assertSame('Potion of Healing (Lesser)', $override['converted_formulas'][0]['formula_name']);
+    $this->assertSame(1, $override['converted_formulas'][0]['item_level']);
+    $this->assertSame('potion', $override['converted_formulas'][0]['original_item_type']);
+    $this->assertSame('elixir', $override['converted_formulas'][0]['converted_item_type']);
+    $this->assertContains('improbable-elixirs', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
   public function testInfiniteEyeAddsAuraSenseAndTruesightUses(): void {
     $character = $this->buildCharacterWithFeat('infinite-eye');
     $effects = $this->manager->buildEffectState($character);
@@ -3474,6 +3706,71 @@ class FeatEffectManagerTest extends UnitTestCase {
     $this->assertSame('free', $augment['next_composition_action_cost']);
     $this->assertTrue($augment['does_not_count_against_one_composition_per_turn_limit']);
     $this->assertContains('symphony-of-the-muse', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testTrueFacetsRequestsSecondMuseSelectionWhenMissing(): void {
+    $character = $this->buildLeveledCharacterWithFeatParams('true-facets', [], [
+      'level' => 20,
+      'class' => 'bard',
+      'subclass' => 'enigma',
+    ]);
+    $effects = $this->manager->buildEffectState($character);
+
+    $grant = $effects['selection_grants'][0];
+    $this->assertSame('true-facets', $grant['source_feat']);
+    $this->assertSame('bard_second_muse_choice', $grant['selection_type']);
+    $this->assertSame(1, $grant['count']);
+    $this->assertContains('true-facets', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testTrueFacetsRequestsSelectionWhenPrimaryMuseIsMissing(): void {
+    $character = $this->buildLeveledCharacterWithFeatParams('true-facets', [
+      'selected_muse' => 'maestro',
+    ], [
+      'level' => 20,
+      'class' => 'bard',
+    ]);
+    $effects = $this->manager->buildEffectState($character);
+
+    $grant = $effects['selection_grants'][0];
+    $this->assertSame('true-facets', $grant['source_feat']);
+    $this->assertSame('bard_second_muse_choice', $grant['selection_type']);
+    $this->assertArrayNotHasKey('true-facets', $effects['feat_overrides']);
+    $this->assertContains('true-facets', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testTrueFacetsPersistsSecondMuseBenefitsAndUnlocks(): void {
+    $character = $this->buildLeveledCharacterWithFeatParams('true-facets', [
+      'selected_muse' => 'maestro',
+    ], [
+      'level' => 20,
+      'class' => 'bard',
+      'subclass' => 'enigma',
+    ]);
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['true-facets'];
+    $this->assertSame('bard_second_muse_unlock', $override['type']);
+    $this->assertSame('enigma', $override['primary_muse']);
+    $this->assertSame('maestro', $override['selected_second_muse']);
+    $this->assertSame('Maestro', $override['selected_second_muse_label']);
+    $this->assertSame(['lingering-composition'], $override['bonus_feat_grants']);
+    $this->assertSame('soothe', $override['bonus_spell_grants'][0]['spell_id']);
+    $this->assertSame('soothe', $override['bonus_spell_grants'][0]['spell_name']);
+    $this->assertSame(['maestro'], $override['unlocked_muse_prerequisites']);
+    $this->assertTrue($override['grants_second_muse_feat_graph_access']);
+    $this->assertTrue($override['selection_must_differ_from_primary_muse']);
+    $this->assertSame([], $effects['selection_grants']);
+    $this->assertContains('true-facets', $effects['applied_feats']);
   }
 
   /**
@@ -4727,6 +5024,67 @@ class FeatEffectManagerTest extends UnitTestCase {
     $this->assertSame(['burst', 'cone', 'line'], $augment['eligible_shapes']);
     $this->assertSame(5, $augment['burst_radius_bonus_feet']);
     $this->assertContains('widen-spell-druid', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testOrderExplorerRequestsSecondOrderSelectionWhenMissing(): void {
+    $character = $this->buildCharacterWithFeat('order-explorer', [], [
+      'class' => 'druid',
+      'subclass' => 'animal',
+    ]);
+    $effects = $this->manager->buildEffectState($character);
+
+    $grant = $effects['selection_grants'][0];
+    $this->assertSame('order-explorer', $grant['source_feat']);
+    $this->assertSame('druid_second_order_choice', $grant['selection_type']);
+    $this->assertContains('order-explorer', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testOrderExplorerRequestsSelectionWhenPrimaryOrderIsMissing(): void {
+    $character = $this->buildCharacterWithFeatSelection('order-explorer', [
+      'selected_order' => 'leaf',
+    ], [
+      'class' => 'druid',
+    ]);
+    $effects = $this->manager->buildEffectState($character);
+
+    $this->assertArrayNotHasKey('order-explorer', $effects['feat_overrides']);
+    $this->assertSame('druid_second_order_choice', $effects['selection_grants'][0]['selection_type']);
+    $this->assertContains('order-explorer', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testOrderExplorerPersistsSecondOrderBenefitsAndAnathemaScope(): void {
+    $character = $this->buildCharacterWithFeatSelection('order-explorer', [
+      'selected_order' => 'leaf',
+    ], [
+      'class' => 'druid',
+      'subclass' => 'animal',
+    ]);
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['order-explorer'];
+    $this->assertSame('druid_second_order_unlock', $override['type']);
+    $this->assertSame('animal', $override['primary_order']);
+    $this->assertSame('leaf', $override['selected_second_order']);
+    $this->assertSame('Order of the Leaf', $override['selected_second_order_label']);
+    $this->assertSame(2, $override['focus_pool_bonus']);
+    $this->assertTrue($override['order_spell_not_granted']);
+    $this->assertSame('goodberry', $override['suppressed_order_spell']);
+    $this->assertSame(['leshy-familiar-druid'], $override['secondary_order_granted_feat_access']);
+    $this->assertSame('Allowing wanton destruction of plants, using fire recklessly in natural settings, harvesting plants without replanting or giving back.', $override['secondary_order_anathema']);
+    $this->assertTrue($override['secondary_order_runtime_flags']['leaf_order_access']);
+    $this->assertTrue($override['secondary_order_runtime_flags']['leaf_order_feat_access']);
+    $this->assertSame(['leaf'], $override['unlocked_order_prerequisites']);
+    $this->assertSame('remove_secondary_order_feats_only', $override['secondary_order_anathema_scope']);
+    $this->assertContains('order-explorer', $effects['applied_feats']);
   }
 
   /**
@@ -6047,6 +6405,135 @@ class FeatEffectManagerTest extends UnitTestCase {
     $this->assertSame('arcane', $override['bloodline_tradition']);
     $this->assertSame(1, $override['uses_per_long_rest']);
     $this->assertSame(6, $override['max_selected_spell_rank']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testBloodlineBreadthExpandsImperialGrantedSpellsByRank(): void {
+    $character = $this->buildLeveledCharacterWithFeatParams('bloodline-breadth', [], [
+      'level' => 8,
+      'class' => 'sorcerer',
+      'subclass' => 'imperial',
+      'bloodline' => 'imperial',
+    ]);
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['bloodline-breadth'];
+    $this->assertSame('bloodline_granted_spell_expansion', $override['type']);
+    $this->assertSame('imperial', $override['bloodline']);
+    $this->assertSame('Imperial', $override['bloodline_label']);
+    $this->assertSame(4, $override['highest_available_rank']);
+    $this->assertTrue($override['adds_one_granted_spell_per_rank']);
+    $this->assertSame('magic_missile', $override['granted_spells_up_to_highest_rank'][1]['spell_id']);
+    $this->assertSame('dispel_magic', $override['granted_spells_up_to_highest_rank'][2]['spell_id']);
+    $this->assertSame('haste', $override['granted_spells_up_to_highest_rank'][3]['spell_id']);
+    $this->assertSame('dimension_door', $override['granted_spells_up_to_highest_rank'][4]['spell_id']);
+    $this->assertContains('bloodline-breadth', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testBloodlineBreadthUsesPersistedGenieSubtypeForVariableRanks(): void {
+    $character = $this->buildLeveledCharacterWithFeatParams('bloodline-breadth', [], [
+      'level' => 10,
+      'class' => 'sorcerer',
+      'subclass' => 'genie',
+      'bloodline' => 'genie',
+      'genie_type' => 'janni',
+    ]);
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['bloodline-breadth'];
+    $this->assertSame('genie', $override['bloodline']);
+    $this->assertSame('janni', $override['bloodline_subtype']);
+    $this->assertSame('create_food', $override['granted_spells_up_to_highest_rank'][2]['spell_id']);
+    $this->assertSame('banishment', $override['granted_spells_up_to_highest_rank'][5]['spell_id']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testGreaterBloodlineResolvesHighestImperialGrantedSpell(): void {
+    $character = $this->buildLeveledCharacterWithFeatParams('greater-bloodline', [], [
+      'level' => 12,
+      'class' => 'sorcerer',
+      'subclass' => 'imperial',
+      'bloodline' => 'imperial',
+    ]);
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['greater-bloodline'];
+    $this->assertSame('bloodline_highest_rank_spell_expansion', $override['type']);
+    $this->assertSame('imperial', $override['bloodline']);
+    $this->assertSame(6, $override['highest_available_rank']);
+    $this->assertSame('disintegrate', $override['selected_spell']);
+    $this->assertSame('disintegrate', $override['selected_spell_label']);
+    $this->assertSame(6, $override['selected_spell_rank']);
+    $this->assertTrue($override['selected_spell_gains_blood_magic']);
+    $this->assertContains('greater-bloodline', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testBloodlineResistanceResolvesDamageTypeForEverySupportedBloodline(): void {
+    $expected_damage_types = [
+      'aberrant' => ['damage_type' => 'mental'],
+      'angelic' => ['damage_type' => 'positive'],
+      'demonic' => ['damage_type' => 'acid'],
+      'draconic' => ['damage_type' => 'electricity', 'extra_character' => ['dragon_type' => 'blue'], 'expected_subtype' => 'blue'],
+      'elemental' => ['damage_type' => 'bludgeoning', 'extra_character' => ['elemental_type' => 'water'], 'expected_subtype' => 'water'],
+      'fey' => ['damage_type' => 'mental'],
+      'hag' => ['damage_type' => 'mental'],
+      'imperial' => ['damage_type' => 'force'],
+      'undead' => ['damage_type' => 'negative'],
+      'genie' => ['damage_type' => 'mental', 'extra_character' => ['genie_type' => 'janni'], 'expected_subtype' => 'janni'],
+      'nymph' => ['damage_type' => 'mental'],
+    ];
+
+    $this->assertSame(array_keys(CharacterManager::SORCERER_BLOODLINES), array_keys($expected_damage_types));
+
+    foreach ($expected_damage_types as $bloodline => $expectation) {
+      $character = $this->buildLeveledCharacterWithFeatParams('bloodline-resistance', [], array_merge([
+        'level' => 16,
+        'class' => 'sorcerer',
+        'subclass' => $bloodline,
+        'bloodline' => $bloodline,
+      ], $expectation['extra_character'] ?? []));
+      $effects = $this->manager->buildEffectState($character);
+
+      $override = $effects['feat_overrides']['bloodline-resistance'];
+      $this->assertSame($bloodline, $override['bloodline']);
+      $this->assertSame($expectation['damage_type'], $override['blood_magic_damage_type']);
+      $this->assertSame($expectation['damage_type'], $override['resistance']['damage_type']);
+      $this->assertSame(10, $override['resistance']['value']);
+      $this->assertSame($expectation['expected_subtype'] ?? NULL, $override['bloodline_subtype']);
+      $this->assertContains('bloodline-resistance', $effects['applied_feats']);
+    }
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testBloodlineResistanceKeepsFireElementalSubtypeOnFireDamage(): void {
+    $character = $this->buildLeveledCharacterWithFeatParams('bloodline-resistance', [], [
+      'level' => 16,
+      'class' => 'sorcerer',
+      'subclass' => 'elemental',
+      'bloodline' => 'elemental',
+      'elemental_type' => 'fire',
+    ]);
+    $effects = $this->manager->buildEffectState($character);
+
+    $override = $effects['feat_overrides']['bloodline-resistance'];
+    $this->assertSame('elemental', $override['bloodline']);
+    $this->assertSame('fire', $override['bloodline_subtype']);
+    $this->assertSame('fire', $override['blood_magic_damage_type']);
+    $this->assertSame('fire', $override['resistance']['damage_type']);
+    $this->assertSame(10, $override['resistance']['value']);
+    $this->assertContains('bloodline-resistance', $effects['applied_feats']);
   }
 
   /**

@@ -5,6 +5,8 @@ namespace Drupal\dungeoncrawler_content\Controller;
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\Core\Form\FormBuilderInterface;
+use Drupal\Core\Link;
+use Drupal\Core\Url;
 use Drupal\dungeoncrawler_content\Form\GeminiImageGenerationStubForm;
 use Drupal\dungeoncrawler_content\Service\ImageGenerationIntegrationService;
 use Symfony\Component\DependencyInjection\ContainerInterface;
@@ -169,6 +171,25 @@ cd /home/keithaumiller/forseti.life/sites/dungeoncrawler
 ./vendor/bin/drush cr</pre>',
       ],
       'form' => $this->formBuilder->getForm(GeminiImageGenerationStubForm::class),
+    ];
+
+    $build['debugging'] = [
+      '#type' => 'details',
+      '#title' => $this->t('Debugging & Troubleshooting'),
+      '#open' => TRUE,
+      '#attributes' => ['class' => ['game-content-dashboard']],
+      'overview' => [
+        '#markup' => '<p>' . $this->t('Open the structured room turn log browser to trace narrator and NPC sequencing problems by campaign, room, and turn key.') . '</p>',
+      ],
+      'links' => [
+        '#theme' => 'item_list',
+        '#items' => [
+          Link::fromTextAndUrl(
+            $this->t('Open Room Turn Logs'),
+            Url::fromRoute('dungeoncrawler_content.room_turn_log_browser')
+          )->toString(),
+        ],
+      ],
     ];
 
     return $build;

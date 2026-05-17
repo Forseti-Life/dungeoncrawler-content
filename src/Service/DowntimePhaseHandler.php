@@ -52,6 +52,7 @@ class DowntimePhaseHandler implements PhaseHandlerInterface {
    * @var \Drupal\dungeoncrawler_content\Service\NumberGenerationService
    */
   protected NumberGenerationService $numberGenerationService;
+  protected CampaignClockService $campaignClockService;
 
   /**
    * Constructs a DowntimePhaseHandler.
@@ -63,7 +64,8 @@ class DowntimePhaseHandler implements PhaseHandlerInterface {
     CraftingService $crafting_service,
     NpcPsychologyService $npc_psychology,
     ?MagicItemService $magic_item_service = NULL,
-    ?NumberGenerationService $number_generation_service = NULL
+    ?NumberGenerationService $number_generation_service = NULL,
+    ?CampaignClockService $campaign_clock_service = NULL
   ) {
     $this->database = $database;
     $this->logger = $logger_factory->get('dungeoncrawler');
@@ -72,6 +74,7 @@ class DowntimePhaseHandler implements PhaseHandlerInterface {
     $this->npcPsychology = $npc_psychology;
     $this->numberGenerationService = $number_generation_service ?? new NumberGenerationService();
     $this->magicItemService = $magic_item_service ?? new MagicItemService($this->numberGenerationService);
+    $this->campaignClockService = $campaign_clock_service ?? new CampaignClockService();
   }
 
   /**
@@ -734,7 +737,7 @@ class DowntimePhaseHandler implements PhaseHandlerInterface {
     // Persist dungeon_data.
     try {
       $this->database->update('dc_campaign_dungeons')
-        ->fields(['dungeon_data' => json_encode($dungeon_data)])
+        ->fields(['dungeon_data' => json_encode($this->sanitizeTransientTimeState($dungeon_data))])
         ->condition('campaign_id', $campaign_id)
         ->execute();
     }
@@ -943,13 +946,13 @@ class DowntimePhaseHandler implements PhaseHandlerInterface {
 
     // Advance downtime days.
     if (isset($game_state['downtime'])) {
-      $game_state['downtime']['days_elapsed'] = ($game_state['downtime']['days_elapsed'] ?? 0) + 1;
+      $this->advanceDowntimeDays($game_state, 1, $this->buildTimeEffectContext($actor_id, $params, 'long_rest'));
     }
 
     // Persist.
     try {
       $this->database->update('dc_campaign_dungeons')
-        ->fields(['dungeon_data' => json_encode($dungeon_data)])
+        ->fields(['dungeon_data' => json_encode($this->sanitizeTransientTimeState($dungeon_data))])
         ->condition('campaign_id', $campaign_id)
         ->execute();
     }
@@ -1059,12 +1062,12 @@ class DowntimePhaseHandler implements PhaseHandlerInterface {
     }
 
     if (isset($game_state['downtime'])) {
-      $game_state['downtime']['days_elapsed'] = ($game_state['downtime']['days_elapsed'] ?? 0) + 1;
+      $this->advanceDowntimeDays($game_state, 1, $this->buildTimeEffectContext($actor_id, $params, 'downtime_rest'));
     }
 
     try {
       $this->database->update('dc_campaign_dungeons')
-        ->fields(['dungeon_data' => json_encode($dungeon_data)])
+        ->fields(['dungeon_data' => json_encode($this->sanitizeTransientTimeState($dungeon_data))])
         ->condition('campaign_id', $campaign_id)
         ->execute();
     }
@@ -1147,7 +1150,7 @@ class DowntimePhaseHandler implements PhaseHandlerInterface {
     if (!isset($game_state['downtime'])) {
       $game_state['downtime'] = [];
     }
-    $game_state['downtime']['days_elapsed'] = ($game_state['downtime']['days_elapsed'] ?? 0) + 1;
+    $this->advanceDowntimeDays($game_state, 1, $this->buildTimeEffectContext($actor_id, [], 'advance_day'));
 
     $retrain_result = NULL;
     if (!empty($game_state['downtime']['retraining'])) {
@@ -1188,6 +1191,77 @@ class DowntimePhaseHandler implements PhaseHandlerInterface {
       'days_elapsed' => $game_state['downtime']['days_elapsed'],
       'retrain_completed' => $retrain_result,
     ];
+  }
+
+  /**
+   * Advances the downtime day counter and the canonical campaign clock.
+   */
+  protected function advanceDowntimeDays(array &$game_state, int $days, array $context = []): void {
+    if ($days <= 0) {
+      return;
+    }
+
+    if (!empty($game_state[CampaignTimeResolverService::INTERNAL_DEFER_KEY])) {
+      $actor_ids = $context['actor_ids'] ?? [];
+      if (!is_array($actor_ids)) {
+        $actor_ids = [$actor_ids];
+      }
+      $game_state[CampaignTimeResolverService::INTERNAL_PENDING_EFFECTS_KEY][] = [
+        'mode' => 'elapsed',
+        'phase' => 'downtime',
+        'action_type' => $context['action_type'] ?? 'downtime_action',
+        'actor_ids' => array_values(array_unique(array_filter(array_map(
+          static fn ($value) => is_scalar($value) ? (string) $value : '',
+          $actor_ids
+        )))),
+        'duration_days' => $days,
+        'concurrency_group' => (string) ($context['concurrency_group'] ?? ''),
+        'location_context' => is_array($context['location_context'] ?? NULL) ? $context['location_context'] : [],
+      ];
+      return;
+    }
+
+    if (!isset($game_state['downtime'])) {
+      $game_state['downtime'] = [];
+    }
+
+    $game_state['downtime']['days_elapsed'] = ($game_state['downtime']['days_elapsed'] ?? 0) + $days;
+    $this->campaignClockService->advanceClock($game_state, 0, $days);
+    $this->campaignClockService->syncLegacyGameTime($game_state);
+  }
+
+  /**
+   * Builds common metadata for deferred downtime time effects.
+   */
+  protected function buildTimeEffectContext(?string $actor_id, array $params, string $action_type, array $extra = []): array {
+    $actor_ids = [];
+
+    if (!empty($params['actor_ids']) && is_array($params['actor_ids'])) {
+      $actor_ids = $params['actor_ids'];
+    }
+    elseif ($actor_id !== NULL && $actor_id !== '') {
+      $actor_ids = [$actor_id];
+    }
+
+    return $extra + [
+      'action_type' => $action_type,
+      'actor_ids' => $actor_ids,
+      'concurrency_group' => (string) ($params['concurrency_group'] ?? $params['parallel_group'] ?? ''),
+    ];
+  }
+
+  /**
+   * Removes coordinator-only transient time keys before mid-action persistence.
+   */
+  protected function sanitizeTransientTimeState(array $dungeon_data): array {
+    if (isset($dungeon_data['game_state']) && is_array($dungeon_data['game_state'])) {
+      unset(
+        $dungeon_data['game_state'][CampaignTimeResolverService::INTERNAL_DEFER_KEY],
+        $dungeon_data['game_state'][CampaignTimeResolverService::INTERNAL_PENDING_EFFECTS_KEY]
+      );
+    }
+
+    return $dungeon_data;
   }
 
   // =========================================================================
@@ -1306,7 +1380,7 @@ class DowntimePhaseHandler implements PhaseHandlerInterface {
     if (!isset($game_state['downtime'])) {
       $game_state['downtime'] = [];
     }
-    $game_state['downtime']['days_elapsed'] = ($game_state['downtime']['days_elapsed'] ?? 0) + $days;
+    $this->advanceDowntimeDays($game_state, $days, $this->buildTimeEffectContext($actor_id, $params, 'earn_income'));
 
     // Decrement any active cooldowns by days spent.
     foreach ($game_state['downtime'] as $key => &$val) {
@@ -1558,7 +1632,7 @@ class DowntimePhaseHandler implements PhaseHandlerInterface {
     if (!isset($game_state['downtime'])) {
       $game_state['downtime'] = [];
     }
-    $game_state['downtime']['days_elapsed'] = ($game_state['downtime']['days_elapsed'] ?? 0) + 1;
+    $this->advanceDowntimeDays($game_state, 1, $this->buildTimeEffectContext($actor_id, $params, 'subsist'));
 
     switch ($degree) {
       case 'critical_success':
@@ -1653,7 +1727,7 @@ class DowntimePhaseHandler implements PhaseHandlerInterface {
     if (!isset($game_state['downtime'])) {
       $game_state['downtime'] = [];
     }
-    $game_state['downtime']['days_elapsed'] = ($game_state['downtime']['days_elapsed'] ?? 0) + 1;
+    $this->advanceDowntimeDays($game_state, 1, $this->buildTimeEffectContext($actor_id, $params, 'treat_disease'));
 
     if ($affliction_id === NULL) {
       return ['success' => FALSE, 'error' => 'missing_affliction_id', 'message' => 'affliction_id param required.'];
@@ -1908,7 +1982,7 @@ class DowntimePhaseHandler implements PhaseHandlerInterface {
       'actor_id'     => $actor_id,
     ];
 
-    $game_state['downtime']['days_elapsed'] = ($game_state['downtime']['days_elapsed'] ?? 0) + 1;
+    $this->advanceDowntimeDays($game_state, 1, $this->buildTimeEffectContext($actor_id, $params, 'create_forgery'));
 
     return [
       'success'     => TRUE,

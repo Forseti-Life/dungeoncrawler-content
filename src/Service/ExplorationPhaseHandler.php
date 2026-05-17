@@ -3,6 +3,7 @@
 namespace Drupal\dungeoncrawler_content\Service;
 
 use Drupal\Core\Database\Connection;
+use Drupal\Core\File\FileUrlGeneratorInterface;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Psr\Log\LoggerInterface;
 
@@ -40,6 +41,23 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
    * AC-002: Hustle causes fatigue after this many hustle-minutes elapsed.
    */
   protected const HUSTLE_FATIGUE_MINUTES = 10;
+  protected const ROOM_ENTRY_MAX_SENSORY_REVEALS = 10;
+  protected const ROOM_SENSORY_TIER_ORDER = [
+    'smell',
+    'sound',
+    'taste',
+    'touch_texture',
+    'atmosphere_mood',
+    'stability',
+    'air_current',
+    'temperature',
+    'resonance',
+    'pressure',
+  ];
+  protected const ROOM_ENTRY_NARRATOR_VOICE = 'en-US-Standard-D';
+  protected const ROOM_ENTRY_NARRATOR_SPEAKING_RATE = 0.85;
+  protected const ROOM_ENTRY_NARRATOR_PITCH = -6.0;
+  protected const ROOM_ENTRY_NARRATOR_VOLUME_GAIN_DB = 2.0;
 
   /**
    * @var \Drupal\Core\Database\Connection
@@ -102,6 +120,9 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
    * @var \Drupal\dungeoncrawler_content\Service\GameplayActionProcessor|null
    */
   protected ?GameplayActionProcessor $gameplayActionProcessor;
+  protected CampaignClockService $campaignClockService;
+  protected ?TextToSpeechIntegrationService $textToSpeechIntegration;
+  protected ?FileUrlGeneratorInterface $fileUrlGenerator;
 
   /**
    * Constructs an ExplorationPhaseHandler.
@@ -118,7 +139,10 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
     ?KnowledgeAcquisitionService $knowledge_acquisition = NULL,
     ?HazardService $hazard_service = NULL,
     ?MagicItemService $magic_item_service = NULL,
-    ?GameplayActionProcessor $gameplay_action_processor = NULL
+    ?GameplayActionProcessor $gameplay_action_processor = NULL,
+    ?CampaignClockService $campaign_clock_service = NULL,
+    ?TextToSpeechIntegrationService $text_to_speech_integration = NULL,
+    ?FileUrlGeneratorInterface $file_url_generator = NULL
   ) {
     $this->database = $database;
     $this->logger = $logger_factory->get('dungeoncrawler');
@@ -139,6 +163,9 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
     $this->hazardService = $hazard_service ?? new HazardService($number_generation_service);
     $this->magicItemService = $magic_item_service ?? new MagicItemService($number_generation_service);
     $this->gameplayActionProcessor = $gameplay_action_processor;
+    $this->campaignClockService = $campaign_clock_service ?? new CampaignClockService();
+    $this->textToSpeechIntegration = $text_to_speech_integration;
+    $this->fileUrlGenerator = $file_url_generator;
   }
 
   /**
@@ -294,6 +321,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
       case 'move':
         $result = $this->processMove($actor_id, $params, $game_state, $dungeon_data, $campaign_id);
         $mutations = $result['mutations'] ?? [];
+        $this->advanceExplorationTime($game_state, 1, $this->buildTimeEffectContext($actor_id, $params, 'move'));
         $events[] = GameEventLogger::buildEvent('move', 'exploration', $actor_id, [
           'from' => $params['from_hex'] ?? NULL,
           'to' => $params['to_hex'] ?? NULL,
@@ -335,7 +363,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
         $mutations = $result['mutations'] ?? [];
         $narration = $result['narration'] ?? NULL;
         // Searching advances time by 10 minutes.
-        $this->advanceExplorationTime($game_state, 10);
+        $this->advanceExplorationTime($game_state, 10, $this->buildTimeEffectContext($actor_id, $params, 'search'));
         $events[] = GameEventLogger::buildEvent('search', 'exploration', $actor_id, [
           'roll' => $result['roll'] ?? NULL,
           'dc' => $result['dc'] ?? NULL,
@@ -378,23 +406,36 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
         $mutations = $result['mutations'] ?? [];
         $narration = $result['narration'] ?? NULL;
         // Room transition advances time.
-        $this->advanceExplorationTime($game_state, 10);
+        $this->advanceExplorationTime($game_state, 10, $this->buildTimeEffectContext($actor_id, $params, 'transition'));
 
-        // AI GM narration for room entry.
         $target_room_id = $params['target_room_id'] ?? NULL;
         $room_data = $this->findRoomInDungeon($target_room_id, $dungeon_data);
+        $room_entry_audio = NULL;
+        $first_visit = TRUE;
         if ($room_data) {
           $first_visit = $this->isFirstVisit($target_room_id, $dungeon_data);
-          $gm_narration = $this->aiGmService->narrateRoomEntry($room_data, $dungeon_data, $first_visit, $campaign_id);
-          if ($gm_narration) {
-            $narration = $gm_narration;
+          $narration = $this->buildDeterministicRoomEntryNarration($room_data);
+          if (!empty($result['sensory_narration'])) {
+            $narration = $narration
+              ? trim($narration . ' ' . $result['sensory_narration'])
+              : $result['sensory_narration'];
+          }
+          if ($first_visit) {
+            $room_entry_audio = $this->buildRoomEntryNarrationAudio($room_data, $narration);
           }
         }
 
-        $events[] = GameEventLogger::buildEvent('room_entered', 'exploration', $actor_id, [
+        $room_entered_data = [
           'from_room' => $game_state['exploration']['previous_room'] ?? NULL,
           'to_room' => $target_room_id,
-        ], $narration);
+        ];
+        if (!empty($result['sensory_reveals'])) {
+          $room_entered_data['sensory_reveals'] = $result['sensory_reveals'];
+        }
+        if ($room_entry_audio) {
+          $room_entered_data += $room_entry_audio;
+        }
+        $events[] = GameEventLogger::buildEvent('room_entered', 'exploration', $actor_id, $room_entered_data, $narration);
 
         // Queue room entry for perception-filtered narration.
         $this->queueNarrationEvent($campaign_id, $dungeon_data, [
@@ -484,7 +525,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
           ];
         }
         else {
-          $this->advanceExplorationTime($game_state, 10);
+          $this->advanceExplorationTime($game_state, 10, $this->buildTimeEffectContext($actor_id, $params, 'rest'));
         }
         $events[] = GameEventLogger::buildEvent('rest', 'exploration', $actor_id, [
           'rest_type' => $rest_type,
@@ -540,7 +581,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
       case 'treat_wounds': {
         $result = $this->processTreatWounds($actor_id, $target_id, $params, $game_state, $dungeon_data, $campaign_id);
         $mutations = $result['mutations'] ?? [];
-        $this->advanceExplorationTime($game_state, 10);
+        $this->advanceExplorationTime($game_state, 10, $this->buildTimeEffectContext($actor_id, $params, 'treat_wounds'));
         $events[] = GameEventLogger::buildEvent('treat_wounds', 'exploration', $actor_id, [
           'target' => $target_id,
           'degree' => $result['degree'] ?? NULL,
@@ -658,7 +699,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
         $result_dw = $this->knowledgeAcquisition->processDecipherWriting(
           (string) $actor_id, $dw_params
         );
-        $this->advanceExplorationTime($game_state, $result_dw['time_cost_minutes'] ?? 1);
+        $this->advanceExplorationTime($game_state, $result_dw['time_cost_minutes'] ?? 1, $this->buildTimeEffectContext($actor_id, $params, 'decipher_writing'));
         $result = $result_dw;
         $events[] = GameEventLogger::buildEvent(
           'decipher_writing', 'exploration', $actor_id,
@@ -684,7 +725,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
         $result_im = $this->knowledgeAcquisition->processIdentifyMagic(
           (string) $actor_id, $im_params
         );
-        $this->advanceExplorationTime($game_state, $result_im['time_cost_minutes'] ?? 10);
+        $this->advanceExplorationTime($game_state, $result_im['time_cost_minutes'] ?? 10, $this->buildTimeEffectContext($actor_id, $params, 'identify_magic'));
         $result = $result_im;
         $events[] = GameEventLogger::buildEvent(
           'identify_magic', 'exploration', $actor_id,
@@ -714,7 +755,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
           $las_entity_val,
           $las_params
         );
-        $this->advanceExplorationTime($game_state, $result_las['time_cost_minutes'] ?? 60);
+        $this->advanceExplorationTime($game_state, $result_las['time_cost_minutes'] ?? 60, $this->buildTimeEffectContext($actor_id, $params, 'learn_a_spell'));
         $result = $result_las;
         $events[] = GameEventLogger::buildEvent(
           'learn_a_spell', 'exploration', $actor_id,
@@ -778,7 +819,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
         }
 
         // Refocus takes 10 minutes.
-        $this->advanceExplorationTime($game_state, 10);
+        $this->advanceExplorationTime($game_state, 10, $this->buildTimeEffectContext($actor_id, $params, 'refocus'));
         $events[] = GameEventLogger::buildEvent('refocus', 'exploration', $actor_id, ['focus_points' => $result['focus_points']]);
         break;
       }
@@ -801,7 +842,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
           $game_state['exploration']['squeeze_stuck_' . $actor_id] = TRUE;
         }
 
-        $this->advanceExplorationTime($game_state, 1);
+        $this->advanceExplorationTime($game_state, 1, $this->buildTimeEffectContext($actor_id, $params, 'squeeze'));
         $result = ['squeezed' => $squeezed, 'stuck' => $stuck, 'degree' => $degree, 'roll' => $total, 'dc' => $dc];
         $events[] = GameEventLogger::buildEvent('squeeze', 'exploration', $actor_id, $result);
         break;
@@ -849,7 +890,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
           $this->setBorrowArcaneSpellRetryBlocked($entity_bas);
         }
 
-        $this->advanceExplorationTime($game_state, 10);
+        $this->advanceExplorationTime($game_state, 10, $this->buildTimeEffectContext($actor_id, $params, 'borrow_arcane_spell'));
         $result = [
           'borrowed' => $borrowed,
           'spell' => $spell_name,
@@ -884,7 +925,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
             break;
         }
 
-        $this->advanceExplorationTime($game_state, 10);
+        $this->advanceExplorationTime($game_state, 10, $this->buildTimeEffectContext($actor_id, $params, 'repair'));
         $result = ['repaired_hp' => $repaired_hp, 'degree' => $degree, 'roll' => $total, 'dc' => $dc];
         $events[] = GameEventLogger::buildEvent('repair', 'exploration', $actor_id, $result);
         break;
@@ -908,7 +949,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
           $game_state['exploration']['identified_alchemy_' . $item_id] = TRUE;
         }
 
-        $this->advanceExplorationTime($game_state, 10);
+        $this->advanceExplorationTime($game_state, 10, $this->buildTimeEffectContext($actor_id, $params, 'identify_alchemy'));
         $result = ['identified' => $identified, 'item_id' => $item_id, 'degree' => $degree, 'roll' => $total, 'dc' => $dc];
         $events[] = GameEventLogger::buildEvent('identify_alchemy', 'exploration', $actor_id, $result);
         break;
@@ -931,7 +972,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
           $game_state['exploration']['impersonating_' . $actor_id] = TRUE;
         }
 
-        $this->advanceExplorationTime($game_state, 10);
+        $this->advanceExplorationTime($game_state, 10, $this->buildTimeEffectContext($actor_id, $params, 'impersonate'));
         $result = ['disguised' => $disguised, 'degree' => $degree, 'roll' => $total, 'dc' => $dc];
         $events[] = GameEventLogger::buildEvent('impersonate', 'exploration', $actor_id, $result);
         break;
@@ -984,7 +1025,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
 
         $obeyed = in_array($degree, ['success', 'critical_success'], TRUE);
 
-        $this->advanceExplorationTime($game_state, 1);
+        $this->advanceExplorationTime($game_state, 1, $this->buildTimeEffectContext($actor_id, $params, 'command_animal'));
         $result = ['obeyed' => $obeyed, 'degree' => $degree, 'roll' => $total, 'dc' => $dc];
         $events[] = GameEventLogger::buildEvent('command_animal', 'exploration', $actor_id, $result);
         break;
@@ -1440,7 +1481,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
         $game_state['entity_states'][$actor_id]['tracks_pursuer_dc'] = $pursuer_dc_ct;
 
         // Movement is at half speed this exploration turn.
-        $this->advanceExplorationTime($game_state, 20);
+        $this->advanceExplorationTime($game_state, 20, $this->buildTimeEffectContext($actor_id, $params, 'cover_tracks'));
 
         $result = [
           'tracks_covered' => TRUE,
@@ -1860,10 +1901,11 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
    * Process a talk action (delegates to AI GM via RoomChatService).
    */
   protected function processTalk(?string $actor_id, ?string $target_id, array $params, array &$game_state, array &$dungeon_data, int $campaign_id): array {
-    $message = $params['message'] ?? '';
+    $message = trim((string) ($params['message'] ?? ''));
     $room_id = $dungeon_data['active_room_id'] ?? NULL;
     $character_id = $params['character_id'] ?? NULL;
     $speaker = 'Player';
+    $target_name = '';
 
     if ($actor_id) {
       $actor_entity = $this->findEntityInDungeon($actor_id, $dungeon_data);
@@ -1872,8 +1914,39 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
         ?? $actor_id;
     }
 
+    if ($target_id) {
+      $target_entity = $this->findEntityInDungeon($target_id, $dungeon_data);
+      $target_name = trim((string) (
+        $target_entity['state']['metadata']['display_name']
+        ?? $target_entity['name']
+        ?? ''
+      ));
+    }
+
     if (!$room_id) {
       return ['error' => 'No active room set.'];
+    }
+
+    if ($message === '' && !empty($character_id)) {
+      $suggestion = $this->roomChatService->suggestPlayerAutomationMessage(
+        $campaign_id,
+        $room_id,
+        (int) $character_id,
+        'room'
+      );
+      $message = trim((string) ($suggestion['message'] ?? ''));
+    }
+
+    if ($target_name !== '' && $message !== '' && stripos($message, $target_name) === FALSE) {
+      $message = sprintf('%s, %s', $target_name, $message);
+    }
+
+    if ($message === '') {
+      return [
+        'talked' => FALSE,
+        'error' => 'Automation could not produce a room chat message.',
+        'mutations' => [],
+      ];
     }
 
     // Delegate to the existing RoomChatService for AI GM interaction.
@@ -1900,6 +1973,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
         'gm_response' => $chat_result['gm_response'] ?? NULL,
         'narration' => $chat_result['gm_response']['message'] ?? ($chat_result['gm_response']['text'] ?? NULL),
         'npc_interjections' => $chat_result['npc_interjections'] ?? [],
+        'quest_updates' => $chat_result['quest_updates'] ?? [],
         'state_diff' => $chat_result['state_diff'] ?? [],
         'combat_transition' => $chat_result['combat_transition'] ?? NULL,
         'canonical_actions' => $chat_result['canonical_actions'] ?? [],
@@ -1970,6 +2044,9 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
       }
     }
 
+    $sensory_result = $this->resolveRoomSensorySearch($dungeon_data, $total, $params, $search_dc);
+    $narration = $this->buildSearchNarration($discoveries, $sensory_result);
+
     return [
       'searched'     => TRUE,
       'roll'         => $roll_result,
@@ -1977,8 +2054,12 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
       'dc'           => $search_dc,
       'degree'       => $degree,
       'discoveries'  => $discoveries,
+      'sensory_target' => $sensory_result['target'] ?? NULL,
+      'sensory_reveals' => $sensory_result['reveals'] ?? [],
+      'sensory_status' => $sensory_result['status'] ?? 'unavailable',
       'hazard_events' => $hazard_events,
       'mutations'    => [],
+      'narration' => $narration,
     ];
   }
 
@@ -2004,6 +2085,8 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
       $entity['placement']['hex'] = $entry_hex;
       $entity['placement']['room_id'] = $target_room_id;
     }
+
+    $auto_sensory_reveal = $this->resolveAutomaticRoomEntrySensoryReveal($actor_id, $dungeon_data);
 
     // Persist.
     $this->persistDungeonData($campaign_id, $dungeon_data);
@@ -2038,6 +2121,8 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
       'transitioned' => TRUE,
       'from_room' => $game_state['exploration']['previous_room'],
       'to_room' => $target_room_id,
+      'sensory_reveals' => $auto_sensory_reveal['reveals'] ?? [],
+      'sensory_narration' => $this->buildRoomEntrySensoryNarration($auto_sensory_reveal),
       'mutations' => [
         ['entity' => $actor_id, 'field' => 'placement.room_id', 'to' => $target_room_id],
       ],
@@ -2514,11 +2599,14 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
     }
 
     // Daily prepare takes 1 hour.
-    $this->advanceExplorationTime($game_state, 60);
+    $this->advanceExplorationTime($game_state, 60, [
+      'action_type' => 'daily_prepare',
+      'actor_ids' => $actor_id ? [$actor_id] : [],
+    ]);
 
     try {
       $this->database->update('dc_campaign_dungeons')
-        ->fields(['dungeon_data' => json_encode($dungeon_data)])
+        ->fields(['dungeon_data' => json_encode($this->sanitizeTransientTimeState($dungeon_data))])
         ->condition('campaign_id', $campaign_id)
         ->execute();
     }
@@ -2536,11 +2624,57 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
   /**
    * Advances the exploration time tracker.
    */
-  protected function advanceExplorationTime(array &$game_state, int $minutes): void {
+  protected function advanceExplorationTime(array &$game_state, int $minutes, array $context = []): void {
+    if ($minutes <= 0) {
+      return;
+    }
+
+    if (!empty($game_state[CampaignTimeResolverService::INTERNAL_DEFER_KEY])) {
+      $actor_ids = $context['actor_ids'] ?? [];
+      if (!is_array($actor_ids)) {
+        $actor_ids = [$actor_ids];
+      }
+      $game_state[CampaignTimeResolverService::INTERNAL_PENDING_EFFECTS_KEY][] = [
+        'mode' => 'elapsed',
+        'phase' => 'exploration',
+        'action_type' => $context['action_type'] ?? 'exploration_action',
+        'actor_ids' => array_values(array_unique(array_filter(array_map(
+          static fn ($value) => is_scalar($value) ? (string) $value : '',
+          $actor_ids
+        )))),
+        'duration_minutes' => $minutes,
+        'concurrency_group' => (string) ($context['concurrency_group'] ?? ''),
+        'location_context' => is_array($context['location_context'] ?? NULL) ? $context['location_context'] : [],
+      ];
+      return;
+    }
+
     if (!isset($game_state['exploration']['time_elapsed_minutes'])) {
       $game_state['exploration']['time_elapsed_minutes'] = 0;
     }
     $game_state['exploration']['time_elapsed_minutes'] += $minutes;
+    $this->campaignClockService->advanceClock($game_state, $minutes);
+    $this->campaignClockService->syncLegacyGameTime($game_state);
+  }
+
+  /**
+   * Builds common metadata for deferred exploration time effects.
+   */
+  protected function buildTimeEffectContext(?string $actor_id, array $params, string $action_type, array $extra = []): array {
+    $actor_ids = [];
+
+    if (!empty($params['actor_ids']) && is_array($params['actor_ids'])) {
+      $actor_ids = $params['actor_ids'];
+    }
+    elseif ($actor_id !== NULL && $actor_id !== '') {
+      $actor_ids = [$actor_id];
+    }
+
+    return $extra + [
+      'action_type' => $action_type,
+      'actor_ids' => $actor_ids,
+      'concurrency_group' => (string) ($params['concurrency_group'] ?? $params['parallel_group'] ?? ''),
+    ];
   }
 
   /**
@@ -2818,6 +2952,541 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
   }
 
   /**
+   * Gets the index of the active room within dungeon data.
+   */
+  protected function getActiveRoomIndex(array $dungeon_data): ?int {
+    $active_id = $dungeon_data['active_room_id'] ?? NULL;
+    if (!$active_id || empty($dungeon_data['rooms']) || !is_array($dungeon_data['rooms'])) {
+      return NULL;
+    }
+
+    foreach ($dungeon_data['rooms'] as $index => $room) {
+      if (($room['room_id'] ?? '') === $active_id) {
+        return $index;
+      }
+    }
+
+    return NULL;
+  }
+
+  /**
+   * Resolve an optional room sensory reveal from a search action.
+   */
+  protected function resolveRoomSensorySearch(array &$dungeon_data, int $total, array $params, int $default_search_dc): array {
+    $room_index = $this->getActiveRoomIndex($dungeon_data);
+    if ($room_index === NULL || !isset($dungeon_data['rooms'][$room_index]) || !is_array($dungeon_data['rooms'][$room_index])) {
+      return [
+        'status' => 'unavailable',
+        'target' => NULL,
+        'reveals' => [],
+      ];
+    }
+
+    if (!isset($dungeon_data['rooms'][$room_index]['gameplay_state']) || !is_array($dungeon_data['rooms'][$room_index]['gameplay_state'])) {
+      $dungeon_data['rooms'][$room_index]['gameplay_state'] = [];
+    }
+
+    $catalog = $this->ensureRoomSensoryCatalogCached($dungeon_data['rooms'][$room_index], $default_search_dc);
+    $gameplay_state = &$dungeon_data['rooms'][$room_index]['gameplay_state'];
+    if ($catalog === []) {
+      return [
+        'status' => 'unavailable',
+        'target' => NULL,
+        'reveals' => [],
+      ];
+    }
+
+    if (!isset($gameplay_state['revealed_sensory_details']) || !is_array($gameplay_state['revealed_sensory_details'])) {
+      $gameplay_state['revealed_sensory_details'] = [];
+    }
+
+    $requested_tier = $this->normalizeSensoryTierKey($params['sense'] ?? $params['sensory_tier'] ?? NULL);
+    $target_tier = $requested_tier && isset($catalog[$requested_tier])
+      ? $requested_tier
+      : $this->resolveNextUnrevealedSensoryTier($catalog, $gameplay_state['revealed_sensory_details']);
+
+    if ($target_tier === NULL) {
+      return [
+        'status' => 'complete',
+        'target' => NULL,
+        'reveals' => [],
+      ];
+    }
+
+    $target = $catalog[$target_tier];
+    if ($total < (int) ($target['dc'] ?? $default_search_dc)) {
+      return [
+        'status' => 'miss',
+        'target' => [
+          'key' => $target_tier,
+          'label' => $target['label'],
+          'dc' => (int) ($target['dc'] ?? $default_search_dc),
+        ],
+        'reveals' => [],
+      ];
+    }
+
+    $gameplay_state['revealed_sensory_details'][$target_tier] = [
+      'revealed_at' => date('c'),
+      'label' => $target['label'],
+      'detail' => $target['text'],
+      'dc' => (int) ($target['dc'] ?? $default_search_dc),
+    ];
+
+    return [
+      'status' => 'revealed',
+      'target' => [
+        'key' => $target_tier,
+        'label' => $target['label'],
+        'dc' => (int) ($target['dc'] ?? $default_search_dc),
+      ],
+      'reveals' => [
+        [
+          'key' => $target_tier,
+          'label' => $target['label'],
+          'detail' => $target['text'],
+          'dc' => (int) ($target['dc'] ?? $default_search_dc),
+        ],
+      ],
+    ];
+  }
+
+  /**
+   * Resolve secret room-entry perception tiers until first failure.
+   */
+  protected function resolveAutomaticRoomEntrySensoryReveal(string $actor_id, array &$dungeon_data): array {
+    $room_index = $this->getActiveRoomIndex($dungeon_data);
+    $actor = $this->findEntityInDungeon($actor_id, $dungeon_data);
+    if ($room_index === NULL || !$actor || !isset($dungeon_data['rooms'][$room_index]) || !is_array($dungeon_data['rooms'][$room_index])) {
+      return [
+        'status' => 'unavailable',
+        'reveals' => [],
+      ];
+    }
+
+    if (!isset($dungeon_data['rooms'][$room_index]['gameplay_state']) || !is_array($dungeon_data['rooms'][$room_index]['gameplay_state'])) {
+      $dungeon_data['rooms'][$room_index]['gameplay_state'] = [];
+    }
+
+    $gameplay_state = &$dungeon_data['rooms'][$room_index]['gameplay_state'];
+    $default_search_dc = (int) ($gameplay_state['search_dc'] ?? 15);
+    $catalog = $this->ensureRoomSensoryCatalogCached($dungeon_data['rooms'][$room_index], $default_search_dc);
+    if ($catalog === []) {
+      return [
+        'status' => 'unavailable',
+        'reveals' => [],
+      ];
+    }
+
+    if (!isset($gameplay_state['revealed_sensory_details']) || !is_array($gameplay_state['revealed_sensory_details'])) {
+      $gameplay_state['revealed_sensory_details'] = [];
+    }
+
+    $perception_bonus = (int) ($actor['stats']['perception'] ?? ($actor['state']['skills']['perception'] ?? 0));
+    $reveals = [];
+    $revealed_from_cache = FALSE;
+    $rolled_any = FALSE;
+
+    foreach (array_slice(self::ROOM_SENSORY_TIER_ORDER, 0, self::ROOM_ENTRY_MAX_SENSORY_REVEALS) as $tier_key) {
+      if (!isset($catalog[$tier_key])) {
+        continue;
+      }
+
+      $tier = $catalog[$tier_key];
+      if (!empty($gameplay_state['revealed_sensory_details'][$tier_key])) {
+        $reveals[] = [
+          'key' => $tier_key,
+          'label' => $tier['label'],
+          'detail' => $tier['text'],
+          'dc' => (int) ($tier['dc'] ?? $default_search_dc),
+          'source' => 'cache',
+        ];
+        $revealed_from_cache = TRUE;
+        continue;
+      }
+
+      $rolled_any = TRUE;
+      $roll = $this->numberGenerationService->rollPathfinderDie(20);
+      $total = $roll + $perception_bonus;
+      if ($total < (int) ($tier['dc'] ?? $default_search_dc)) {
+        return [
+          'status' => $reveals !== [] || $revealed_from_cache ? 'partial' : 'miss',
+          'reveals' => $reveals,
+        ];
+      }
+
+      $gameplay_state['revealed_sensory_details'][$tier_key] = [
+        'revealed_at' => date('c'),
+        'label' => $tier['label'],
+        'detail' => $tier['text'],
+        'dc' => (int) ($tier['dc'] ?? $default_search_dc),
+      ];
+      $reveals[] = [
+        'key' => $tier_key,
+        'label' => $tier['label'],
+        'detail' => $tier['text'],
+        'dc' => (int) ($tier['dc'] ?? $default_search_dc),
+        'source' => 'secret_check',
+      ];
+    }
+
+    return [
+      'status' => !$rolled_any && $reveals !== [] ? 'cache' : ($reveals !== [] ? 'revealed' : 'miss'),
+      'reveals' => $reveals,
+    ];
+  }
+
+  /**
+   * Build authored or cached-derived sensory detail tiers for a room.
+   */
+  protected function ensureRoomSensoryCatalogCached(array &$room, int $default_search_dc): array {
+    $gameplay_state = is_array($room['gameplay_state'] ?? NULL) ? $room['gameplay_state'] : [];
+    $configured = is_array($gameplay_state['sensory_details'] ?? NULL) ? $gameplay_state['sensory_details'] : [];
+    $catalog = [];
+
+    foreach (self::ROOM_SENSORY_TIER_ORDER as $offset => $tier_key) {
+      $configured_tier = is_array($configured[$tier_key] ?? NULL) ? $configured[$tier_key] : [];
+      $detail = trim((string) ($configured_tier['text'] ?? $configured_tier['detail'] ?? ''));
+      if ($detail === '') {
+        $detail = $this->buildDerivedSensoryDetail($room, $tier_key);
+      }
+      if ($detail === '') {
+        continue;
+      }
+
+      $entry = [
+        'label' => $configured_tier['label'] ?? $this->sensoryTierLabel($tier_key),
+        'dc' => isset($configured_tier['dc']) ? (int) $configured_tier['dc'] : ($default_search_dc + ($offset * 5)),
+        'text' => $detail,
+      ];
+      $catalog[$tier_key] = $entry;
+      $configured[$tier_key] = $entry;
+    }
+
+    $gameplay_state['sensory_details'] = $configured;
+    $room['gameplay_state'] = $gameplay_state;
+
+    return $catalog;
+  }
+
+  /**
+   * Build fallback sensory detail text for existing rooms.
+   */
+  protected function buildDerivedSensoryDetail(array $room, string $tier_key): string {
+    $room_name = trim((string) ($room['name'] ?? 'the room'));
+    $terrain = strtolower(trim((string) ($room['terrain']['type'] ?? '')));
+    $room_type = strtolower(trim((string) ($room['room_type'] ?? '')));
+    $lighting = strtolower(trim((string) (is_array($room['lighting'] ?? NULL) ? ($room['lighting']['level'] ?? '') : ($room['lighting'] ?? ''))));
+
+    return match ($tier_key) {
+      'smell' => $this->deriveRoomSmellDetail($room_name, $terrain, $room_type),
+      'sound' => $this->deriveRoomSoundDetail($room_name, $terrain, $room_type),
+      'taste' => $this->deriveRoomTasteDetail($room_name, $terrain, $room_type),
+      'touch_texture' => $this->deriveRoomTouchDetail($room_name, $terrain, $room_type),
+      'atmosphere_mood' => $this->deriveRoomAtmosphereDetail($room_name, $lighting, $room_type),
+      'stability' => $this->deriveRoomStabilityDetail($room_name, $terrain, $room_type),
+      'air_current' => $this->deriveRoomAirCurrentDetail($room_name, $terrain, $room_type),
+      'temperature' => $this->deriveRoomTemperatureDetail($room_name, $terrain, $room_type),
+      'resonance' => $this->deriveRoomResonanceDetail($room_name, $terrain, $room_type),
+      'pressure' => $this->deriveRoomPressureDetail($room_name, $terrain, $room_type),
+      default => '',
+    };
+  }
+
+  /**
+   * Resolve the next unrevealed sensory tier.
+   */
+  protected function resolveNextUnrevealedSensoryTier(array $catalog, array $revealed_details): ?string {
+    foreach (self::ROOM_SENSORY_TIER_ORDER as $tier_key) {
+      if (isset($catalog[$tier_key]) && empty($revealed_details[$tier_key])) {
+        return $tier_key;
+      }
+    }
+
+    return NULL;
+  }
+
+  /**
+   * Normalize a sensory tier key from request params.
+   */
+  protected function normalizeSensoryTierKey(mixed $tier): ?string {
+    if (!is_string($tier)) {
+      return NULL;
+    }
+
+    $normalized = strtolower(trim($tier));
+    return match ($normalized) {
+      'smell' => 'smell',
+      'sound', 'hearing' => 'sound',
+      'taste' => 'taste',
+      'touch', 'texture', 'touch_texture', 'touch-texture' => 'touch_texture',
+      'atmosphere', 'mood', 'atmosphere_mood', 'atmosphere-mood' => 'atmosphere_mood',
+      'stability', 'structure' => 'stability',
+      'air', 'air_current', 'air-current', 'draft', 'drafts' => 'air_current',
+      'temperature', 'heat', 'cold' => 'temperature',
+      'resonance', 'echo', 'echoes' => 'resonance',
+      'pressure', 'weight' => 'pressure',
+      default => NULL,
+    };
+  }
+
+  /**
+   * Human-readable label for a sensory tier.
+   */
+  protected function sensoryTierLabel(string $tier_key): string {
+    return match ($tier_key) {
+      'smell' => 'Smell',
+      'sound' => 'Sound',
+      'taste' => 'Taste',
+      'touch_texture' => 'Touch/Texture',
+      'atmosphere_mood' => 'Atmosphere/Mood',
+      'stability' => 'Stability',
+      'air_current' => 'Air Current',
+      'temperature' => 'Temperature',
+      'resonance' => 'Resonance',
+      'pressure' => 'Pressure',
+      default => 'Perception',
+    };
+  }
+
+  /**
+   * Build search narration combining sensory and hidden-entity discoveries.
+   */
+  protected function buildSearchNarration(array $discoveries, array $sensory_result): ?string {
+    $parts = [];
+
+    if (!empty($sensory_result['reveals'])) {
+      $sensory_lines = array_map(
+        fn(array $reveal): string => sprintf('%s: %s', $reveal['label'] ?? 'Detail', $reveal['detail'] ?? ''),
+        array_filter($sensory_result['reveals'], fn(array $reveal): bool => trim((string) ($reveal['detail'] ?? '')) !== '')
+      );
+      if ($sensory_lines !== []) {
+        $parts[] = implode(' ', $sensory_lines);
+      }
+    }
+    elseif (($sensory_result['status'] ?? '') === 'miss') {
+      $label = $sensory_result['target']['label'] ?? 'deeper detail';
+      $parts[] = sprintf('You search carefully, but %s yields no new clues.', strtolower((string) $label));
+    }
+    elseif (($sensory_result['status'] ?? '') === 'complete') {
+      $parts[] = 'You have already gleaned the room\'s obvious sensory details.';
+    }
+
+    if ($discoveries !== []) {
+      $parts[] = 'You also uncover ' . $this->joinNaturalLanguageList(array_map(
+        fn(array $discovery): string => (string) ($discovery['name'] ?? $discovery['id'] ?? 'something hidden'),
+        $discoveries
+      )) . '.';
+    }
+
+    return $parts !== [] ? implode(' ', $parts) : NULL;
+  }
+
+  /**
+   * Build narration text for room-entry sensory reveals.
+   */
+  protected function buildRoomEntrySensoryNarration(array $sensory_result): ?string {
+    if (empty($sensory_result['reveals']) || !is_array($sensory_result['reveals'])) {
+      return NULL;
+    }
+
+    $lines = array_map(
+      static fn(array $reveal): string => sprintf('%s: %s', $reveal['label'] ?? 'Detail', $reveal['detail'] ?? ''),
+      array_filter($sensory_result['reveals'], static fn(array $reveal): bool => trim((string) ($reveal['detail'] ?? '')) !== '')
+    );
+
+    if ($lines === []) {
+      return NULL;
+    }
+
+    return 'Your trained senses immediately catch more of the room: ' . implode(' ', $lines);
+  }
+
+  /**
+   * Build deterministic room-entry narration without invoking the AI GM.
+   */
+  protected function buildDeterministicRoomEntryNarration(array $room): ?string {
+    $room_name = trim((string) ($room['name'] ?? ''));
+    $description = trim((string) ($room['description'] ?? ''));
+
+    if ($room_name === '' && $description === '') {
+      return NULL;
+    }
+    if ($description === '') {
+      return sprintf('You enter %s.', $room_name);
+    }
+    if ($room_name === '') {
+      return $description;
+    }
+
+    return sprintf('You enter %s. %s', $room_name, $description);
+  }
+
+  /**
+   * Derive a fallback smell detail for a room.
+   */
+  protected function deriveRoomSmellDetail(string $room_name, string $terrain, string $room_type): string {
+    if (str_contains($terrain, 'fung')) {
+      return 'A damp fungal musk clings to the air.';
+    }
+    if (str_contains($terrain, 'lava') || str_contains($terrain, 'ash')) {
+      return 'Heat carries a sharp mineral tang and the faint bite of smoke.';
+    }
+    if (str_contains($terrain, 'water') || str_contains($terrain, 'flood')) {
+      return 'The air smells damp, stale, and faintly metallic.';
+    }
+    if (str_contains($room_type, 'crypt') || str_contains($room_type, 'tomb')) {
+      return 'The room carries the dry, dusty smell of old stone and long-sealed air.';
+    }
+    if (str_contains($room_type, 'library')) {
+      return 'Dust and old bindings lend the air a papery, brittle smell.';
+    }
+
+    return sprintf('A stale, settled scent hangs in %s.', $room_name !== '' ? $room_name : 'the room');
+  }
+
+  /**
+   * Derive a fallback sound detail for a room.
+   */
+  protected function deriveRoomSoundDetail(string $room_name, string $terrain, string $room_type): string {
+    if (str_contains($terrain, 'water') || str_contains($terrain, 'flood')) {
+      return 'Soft dripping water and the faint lap of pooled runoff echo through the chamber.';
+    }
+    if (str_contains($room_type, 'crypt') || str_contains($room_type, 'tomb')) {
+      return 'The room swallows sound until the smallest scrape seems far too loud.';
+    }
+    if (str_contains($room_type, 'forge') || str_contains($room_type, 'mine')) {
+      return 'Every movement answers with a hard, mineral echo from the surrounding stone.';
+    }
+
+    return sprintf('Small sounds linger strangely in %s.', $room_name !== '' ? $room_name : 'the room');
+  }
+
+  /**
+   * Derive a fallback taste detail for a room.
+   */
+  protected function deriveRoomTasteDetail(string $room_name, string $terrain, string $room_type): string {
+    if (str_contains($terrain, 'water') || str_contains($terrain, 'flood')) {
+      return 'The damp air leaves a faint metallic taste on the tongue.';
+    }
+    if (str_contains($terrain, 'ash') || str_contains($terrain, 'lava')) {
+      return 'The air tastes dry and gritty, tinged with old smoke.';
+    }
+    if (str_contains($room_type, 'crypt') || str_contains($room_type, 'tomb')) {
+      return 'A dry, dusty taste settles at the back of the mouth.';
+    }
+
+    return sprintf('The air in %s leaves a flat mineral taste.', $room_name !== '' ? $room_name : 'the room');
+  }
+
+  /**
+   * Derive a fallback touch/texture detail for a room.
+   */
+  protected function deriveRoomTouchDetail(string $room_name, string $terrain, string $room_type): string {
+    if (str_contains($terrain, 'crystal')) {
+      return 'Nearby surfaces feel cool and sharply faceted under the fingertips.';
+    }
+    if (str_contains($terrain, 'sand')) {
+      return 'Loose grit shifts underfoot and drags against every step.';
+    }
+    if (str_contains($terrain, 'mud') || str_contains($terrain, 'water')) {
+      return 'Moisture beads on the floor and slickens the surrounding stone.';
+    }
+    if (str_contains($room_type, 'mine') || str_contains($room_type, 'corridor')) {
+      return 'The worked surfaces feel rough, chipped, and worn by repeated passage.';
+    }
+
+    return sprintf('The surfaces in %s feel uneven and time-worn.', $room_name !== '' ? $room_name : 'the room');
+  }
+
+  /**
+   * Derive a fallback atmosphere detail for a room.
+   */
+  protected function deriveRoomAtmosphereDetail(string $room_name, string $lighting, string $room_type): string {
+    if ($lighting === 'magical_darkness' || $lighting === 'darkness') {
+      return 'The darkness presses in with a claustrophobic, watchful stillness.';
+    }
+    if ($lighting === 'dim_light') {
+      return 'Muted light leaves the room feeling hushed and uncertain.';
+    }
+    if (str_contains($room_type, 'lair') || str_contains($room_type, 'den')) {
+      return 'There is a tense, occupied feeling here, as though something may return at any moment.';
+    }
+
+    return sprintf('%s carries a quiet, anticipatory tension.', $room_name !== '' ? $room_name : 'The room');
+  }
+
+  /**
+   * Derive a fallback stability detail for a room.
+   */
+  protected function deriveRoomStabilityDetail(string $room_name, string $terrain, string $room_type): string {
+    if (str_contains($terrain, 'cracked') || str_contains($terrain, 'rubble')) {
+      return 'The floor gives subtle warnings of age, with loose fragments shifting under pressure.';
+    }
+    if (str_contains($room_type, 'mine') || str_contains($room_type, 'tunnel')) {
+      return 'The supports feel serviceable, but the stone carries a faint promise of future collapse.';
+    }
+
+    return sprintf('%s feels structurally sound, though worn by time.', $room_name !== '' ? $room_name : 'The room');
+  }
+
+  /**
+   * Derive a fallback air-current detail for a room.
+   */
+  protected function deriveRoomAirCurrentDetail(string $room_name, string $terrain, string $room_type): string {
+    if (str_contains($room_type, 'corridor') || str_contains($room_type, 'hall')) {
+      return 'A thin draft slips through the passage, suggesting open space farther on.';
+    }
+    if (str_contains($terrain, 'flood') || str_contains($terrain, 'water')) {
+      return 'The air hangs heavy and slow, disturbed only by the faintest currents.';
+    }
+
+    return sprintf('The air in %s stirs just enough to hint at distant openings.', $room_name !== '' ? $room_name : 'the room');
+  }
+
+  /**
+   * Derive a fallback temperature detail for a room.
+   */
+  protected function deriveRoomTemperatureDetail(string $room_name, string $terrain, string $room_type): string {
+    if (str_contains($terrain, 'lava') || str_contains($terrain, 'ash')) {
+      return 'Heat radiates from the surroundings in dry, oppressive waves.';
+    }
+    if (str_contains($room_type, 'crypt') || str_contains($room_type, 'tomb')) {
+      return 'The chamber is unnaturally cool, as though it has not felt true warmth in ages.';
+    }
+
+    return sprintf('%s holds a steady chill against exposed skin.', $room_name !== '' ? $room_name : 'The room');
+  }
+
+  /**
+   * Derive a fallback resonance detail for a room.
+   */
+  protected function deriveRoomResonanceDetail(string $room_name, string $terrain, string $room_type): string {
+    if (str_contains($terrain, 'crystal')) {
+      return 'A faint ringing quality hangs in the space, as if the walls remember every sound.';
+    }
+    if (str_contains($room_type, 'hall') || str_contains($room_type, 'chamber')) {
+      return 'The room carries a broad echo that makes distances feel uncertain.';
+    }
+
+    return sprintf('%s answers noise with a muted, lingering resonance.', $room_name !== '' ? $room_name : 'The room');
+  }
+
+  /**
+   * Derive a fallback pressure detail for a room.
+   */
+  protected function deriveRoomPressureDetail(string $room_name, string $terrain, string $room_type): string {
+    if (str_contains($terrain, 'water') || str_contains($terrain, 'flood')) {
+      return 'The humid air presses close, making each breath feel slightly heavier.';
+    }
+    if (str_contains($room_type, 'vault') || str_contains($room_type, 'crypt')) {
+      return 'The enclosed space bears down with a close, sealed weight.';
+    }
+
+    return sprintf('%s carries a subtle pressure that makes the space feel close and intent.', $room_name !== '' ? $room_name : 'The room');
+  }
+
+  /**
    * Reveals hidden entities based on a successful search.
    */
   protected function revealHiddenEntities(array &$dungeon_data, bool $reveal_all = FALSE): array {
@@ -2874,13 +3543,27 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
   protected function persistDungeonData(int $campaign_id, array $dungeon_data): void {
     try {
       $this->database->update('dc_campaign_dungeons')
-        ->fields(['dungeon_data' => json_encode($dungeon_data)])
+        ->fields(['dungeon_data' => json_encode($this->sanitizeTransientTimeState($dungeon_data))])
         ->condition('campaign_id', $campaign_id)
         ->execute();
     }
     catch (\Exception $e) {
       $this->logger->error('Failed to persist dungeon data: @error', ['@error' => $e->getMessage()]);
     }
+  }
+
+  /**
+   * Removes coordinator-only transient time keys before mid-action persistence.
+   */
+  protected function sanitizeTransientTimeState(array $dungeon_data): array {
+    if (isset($dungeon_data['game_state']) && is_array($dungeon_data['game_state'])) {
+      unset(
+        $dungeon_data['game_state'][CampaignTimeResolverService::INTERNAL_DEFER_KEY],
+        $dungeon_data['game_state'][CampaignTimeResolverService::INTERNAL_PENDING_EFFECTS_KEY]
+      );
+    }
+
+    return $dungeon_data;
   }
 
   /**
@@ -2929,6 +3612,60 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
       }
     }
     return TRUE;
+  }
+
+  /**
+   * Builds narrator audio for a first-time room entry.
+   */
+  protected function buildRoomEntryNarrationAudio(array $room, ?string $narration_text = NULL): ?array {
+    if (!$this->textToSpeechIntegration || !$this->fileUrlGenerator) {
+      return NULL;
+    }
+
+    $narration_text = trim((string) $narration_text);
+    $description = trim((string) ($room['description'] ?? ''));
+    $text = $narration_text !== ''
+      ? $narration_text
+      : trim(sprintf('%s. %s', (string) ($room['name'] ?? 'New area'), $description));
+
+    if ($text === '') {
+      return NULL;
+    }
+
+    $result = $this->textToSpeechIntegration->synthesizeSpeech($text, [
+      'voice_name' => self::ROOM_ENTRY_NARRATOR_VOICE,
+      'audio_encoding' => 'MP3',
+      'speaking_rate' => self::ROOM_ENTRY_NARRATOR_SPEAKING_RATE,
+      'pitch' => self::ROOM_ENTRY_NARRATOR_PITCH,
+      'volume_gain_db' => self::ROOM_ENTRY_NARRATOR_VOLUME_GAIN_DB,
+    ]);
+    if (empty($result['success'])) {
+      $this->logger->warning('Room entry narration synthesis failed for %room: %message', [
+        '%room' => (string) ($room['name'] ?? $room['room_id'] ?? 'unknown room'),
+        '%message' => (string) ($result['message'] ?? 'Unknown synthesis error'),
+      ]);
+      return NULL;
+    }
+
+    $stored = $this->textToSpeechIntegration->storeAudioResult($result, 'public://forseti-tts-room-entry');
+    if (empty($stored['success']) || empty($stored['uri'])) {
+      $this->logger->warning('Room entry narration storage failed for %room: %message', [
+        '%room' => (string) ($room['name'] ?? $room['room_id'] ?? 'unknown room'),
+        '%message' => (string) ($stored['message'] ?? 'Unknown storage error'),
+      ]);
+      return NULL;
+    }
+
+    return [
+      'narration_audio_url' => $this->fileUrlGenerator->generateString((string) $stored['uri']),
+      'narration_audio_uri' => (string) $stored['uri'],
+      'narration_audio_text' => $text,
+      'narration_audio_voice' => self::ROOM_ENTRY_NARRATOR_VOICE,
+      'narration_audio_speaking_rate' => self::ROOM_ENTRY_NARRATOR_SPEAKING_RATE,
+      'narration_audio_pitch' => self::ROOM_ENTRY_NARRATOR_PITCH,
+      'narration_audio_volume_gain_db' => self::ROOM_ENTRY_NARRATOR_VOLUME_GAIN_DB,
+      'narration_audio_source' => $narration_text !== '' ? 'room_entry' : 'room_description',
+    ];
   }
 
   // =========================================================================

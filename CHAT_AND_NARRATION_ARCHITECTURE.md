@@ -105,6 +105,33 @@ When a message is posted to a child session with `feed_up = TRUE`:
 - Room messages feed up to dungeon session, then to campaign session
 - This gives the dungeon and campaign sessions an aggregate timeline of all activity
 
+### Room Chat Turn-Harness Logging
+
+Room chat now carries a second, troubleshooting-oriented log layer for actor sequencing:
+
+- **Visible room-chat system lines** announce:
+  - `Turn order: Player -> Narrator -> ...`
+  - `Next speaker: ...`
+- **Structured database audit rows** are written to `dc_room_turn_logs` for each room-chat harness pass.
+
+`dc_room_turn_logs` is intended for debugging room conversation ordering bugs. Each row stores:
+
+| Field group | Purpose |
+|---|---|
+| campaign / dungeon / room | locate the exact room turn |
+| `turn_key`, `sequence_index` | correlate one room-turn pass and its ordered sub-events |
+| `event_type` | `turn_order`, `next_speaker`, `speaker_completed` |
+| actor metadata | which NPC was scheduled or completed |
+| `payload_json` | grounded troubleshooting context without relying only on free-text chat |
+
+These internal turn-log chat lines are marked with `internal_log = TRUE` and are excluded from prompt-transcript assembly so GM/NPC/player-automation prompts continue to see only the actual conversation.
+
+Operators can inspect these rows through the admin route:
+
+- `/admin/content/dungeoncrawler/room-turn-logs`
+
+Room chat API responses also expose `turn_log_key`, which matches `dc_room_turn_logs.turn_key` and the server-side turn-order logger entries for the same harness pass.
+
 ---
 
 ## Chat Channel Manager

@@ -400,6 +400,12 @@ textarea.form-control {
 }
 
 /* Buttons */
+.character-creation-quick-play {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: var(--dc-space-lg);
+}
+
 .button-group {
   display: flex;
   justify-content: space-between;
@@ -631,6 +637,40 @@ textarea.form-control {
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: var(--dc-space-md);
   margin: var(--dc-space-md) 0 var(--dc-space-lg);
+}
+
+.option-selector-filter {
+  margin: var(--dc-space-md) 0 0;
+}
+
+.option-selector-filter__label {
+  display: grid;
+  gap: var(--dc-space-xs);
+}
+
+.option-selector-filter__text {
+  color: var(--dc-text-light);
+  font-weight: 700;
+  font-size: 0.95rem;
+}
+
+.option-selector-filter__input {
+  width: 100%;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid var(--dc-border-light);
+  border-radius: var(--dc-radius-md);
+  background: var(--dc-bg-dark-alt);
+  color: var(--dc-text-light);
+}
+
+.option-selector-filter__input::placeholder {
+  color: var(--dc-text-subtle);
+}
+
+.option-selector-filter__empty {
+  margin: calc(var(--dc-space-sm) * -1) 0 var(--dc-space-lg);
+  color: var(--dc-text-subtle);
+  font-style: italic;
 }
 
 .option-selector-card {

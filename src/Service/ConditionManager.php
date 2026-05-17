@@ -395,7 +395,11 @@ class ConditionManager {
         ->execute();
       // Mark participant as removed from encounter (dead).
       $this->database->update('combat_participants')
-        ->fields(['removed_at_round' => $current_round, 'status' => 'dead'])
+        ->fields([
+          'status' => 'dead',
+          'is_defeated' => 1,
+          'updated' => $now,
+        ])
         ->condition('id', $participant_id)
         ->execute();
       return [
@@ -673,7 +677,7 @@ class ConditionManager {
       ->fields('c', ['condition_type'])
       ->condition('participant_id', $participant_id)
       ->condition('encounter_id', $encounter_id)
-      ->condition('is_active', 1)
+      ->isNull('removed_at_round')
       ->execute()
       ->fetchCol();
 

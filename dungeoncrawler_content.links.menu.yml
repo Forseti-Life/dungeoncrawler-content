@@ -30,6 +30,20 @@ dungeoncrawler_content.image_generation_interface:
   parent: dungeoncrawler_content.dashboard
   weight: 6
 
+dungeoncrawler_content.generated_image_browser:
+  title: 'Generated Images'
+  description: 'Browse stored generated images and review their metadata.'
+  route_name: dungeoncrawler_content.generated_image_browser
+  parent: dungeoncrawler_content.dashboard
+  weight: 7
+
+dungeoncrawler_content.room_turn_log_browser:
+  title: 'Room Turn Logs'
+  description: 'Inspect structured room turn sequencing logs for troubleshooting.'
+  route_name: dungeoncrawler_content.room_turn_log_browser
+  parent: dungeoncrawler_content.dashboard
+  weight: 8
+
 dungeoncrawler_content.text_to_speech_interface:
   title: 'Text-to-Speech'
   description: 'Run a smoke test through the optional Forseti TTS integration module.'
@@ -86,6 +100,13 @@ dungeoncrawler_content.menu.spellcatalogue:
   parent: dungeoncrawler_content.menu.world
   weight: 1
 
+dungeoncrawler_content.menu.world_game_flow:
+  title: 'Game Flow'
+  description: 'Trace the live gameplay loops from tavern startup through exploration, chat, and combat'
+  route_name: dungeoncrawler_content.world_game_flow
+  parent: dungeoncrawler_content.menu.world
+  weight: 2
+
 dungeoncrawler_content.menu.dc_administration:
   title: 'DC Administration'
   description: 'Administrative tools for Dungeon Crawler.'
@@ -115,54 +136,61 @@ dungeoncrawler_content.menu.dc_administration_image_generation:
   parent: dungeoncrawler_content.menu.dc_administration
   weight: 3
 
+dungeoncrawler_content.menu.dc_administration_generated_images:
+  title: 'Generated Images'
+  description: 'Browse stored generated images and their metadata.'
+  route_name: dungeoncrawler_content.generated_image_browser
+  parent: dungeoncrawler_content.menu.dc_administration
+  weight: 4
+
 dungeoncrawler_content.menu.dc_administration_text_to_speech:
   title: 'Text-to-Speech'
   description: 'Run a smoke test through the optional Forseti TTS integration module.'
   route_name: dungeoncrawler_content.text_to_speech_interface
   parent: dungeoncrawler_content.menu.dc_administration
-  weight: 4
+  weight: 5
 
 dungeoncrawler_content.menu.dc_administration_settings:
   title: 'Dungeon Settings'
   description: 'Configure Dungeon Crawler content settings and integrations.'
   route_name: dungeoncrawler_content.settings
   parent: dungeoncrawler_content.menu.dc_administration
-  weight: 5
+  weight: 6
 
 dungeoncrawler_content.menu.dc_administration_testing:
   title: 'Testing Dashboard'
   description: 'Open the Dungeon Crawler testing dashboard.'
   route_name: dungeoncrawler_content.testing_home
   parent: dungeoncrawler_content.menu.dc_administration
-  weight: 6
+  weight: 7
 
 dungeoncrawler_content.menu.dc_administration_controller_architecture:
   title: 'Controller Architecture'
   description: 'Review controller architecture documentation.'
   route_name: dungeoncrawler_content.controller_architecture
   parent: dungeoncrawler_content.menu.dc_administration
-  weight: 7
+  weight: 8
 
 dungeoncrawler_content.menu.dc_administration_encounter_ai:
   title: 'Encounter AI Integration'
   description: 'Review encounter AI integration architecture.'
   route_name: dungeoncrawler_content.encounter_ai_integration
   parent: dungeoncrawler_content.menu.dc_administration
-  weight: 8
+  weight: 9
 
 dungeoncrawler_content.menu.dc_administration_architecture:
   title: 'System Architecture'
   description: 'Central hub for process flows, requirements, and release gates.'
   route_name: dungeoncrawler_content.architecture
   parent: dungeoncrawler_content.menu.dc_administration
-  weight: 9
+  weight: 10
 
 dungeoncrawler_content.menu.dc_administration_data_lineage:
   title: 'Data Lineage Architecture'
   description: 'Review hierarchical page/API/controller/table data lineage.'
   route_name: dungeoncrawler_content.data_lineage_architecture
   parent: dungeoncrawler_content.menu.dc_administration
-  weight: 10
+  weight: 11
 
 # ==============================================================================
 # FOOTER MENU LINKS

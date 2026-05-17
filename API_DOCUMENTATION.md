@@ -11,6 +11,8 @@
 | 1.0 | 2026-02-17 | Initial comprehensive documentation |
 | 1.0.1 | 2026-02-17 | Added Quick Reference table, practical examples, debugging tools, and testing patterns |
 
+> **GM toolkit note:** This document covers the hardened campaign/dungeon runtime slice. For the broader GM-facing `/api` inventory across spells, feats, NPCs, combat, storylines, subsystems, and GM orchestration tools, see [GM_TOOLKIT_API_REFERENCE.md](./GM_TOOLKIT_API_REFERENCE.md).
+
 ## Quick Reference
 
 | Endpoint | Method | Status | Description |

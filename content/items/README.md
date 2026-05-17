@@ -15,7 +15,7 @@ Each item file must include:
 
 ### Required Fields
 - `schema_version`: "1.0.0" (for migration tracking)
-- `item_id`: UUID string (unique identifier)
+- `item_id`: canonical slug string (for example `longsword`, `healing_potion_minor`)
 - `name`: Display name
 - `item_type`: One of: weapon, armor, shield, consumable, potion, scroll, wand, talisman, worn_item, held_item, material, adventuring_gear, relic, artifact
 - `level`: Integer 0-25 (item level)
@@ -114,11 +114,27 @@ See: `longsword.json`
 
 ## Best Practices
 
-1. **Use UUID for item_id**: Generate with `uuid` command or online UUID generator
+1. **Use canonical slug IDs for item_id**: lowercase slug identifiers with underscores or hyphens
 2. **Follow PF2e Standards**: Use official Pathfinder 2E terminology and mechanics
 3. **Include Timestamps**: Add `created_at` and `updated_at` for tracking
 4. **Validate Before Commit**: Ensure JSON is valid and schema-compliant
 5. **Document AI Generation**: Use `ai_generation` field if item is AI-generated
+
+## AoN fallback workflow for missing items
+
+When a player wants an item that is missing from `content/items/`, use the repo lookup tool to fetch Archives of Nethys metadata and turn it into a schema-compatible local stub:
+
+```bash
+cd /home/ubuntu/forseti.life/dungeoncrawler-content
+python3 tools/aon_equipment_lookup.py "Backpack"
+python3 tools/aon_equipment_lookup.py "Backpack" --write
+```
+
+Notes:
+
+1. This is a **maintenance/import helper**, not a live runtime dependency.
+2. The generated JSON is a **canonical stub**; review and enrich it before relying on it as a final item definition.
+3. AoN data is used as a fallback when the local canonical library is missing an item, after which the local JSON file remains the source of truth.
 
 ## References
 

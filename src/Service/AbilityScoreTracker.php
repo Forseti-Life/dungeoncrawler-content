@@ -433,18 +433,19 @@ class AbilityScoreTracker {
     }
 
     $class_name = $class_data['name'];
-    $key_abilities_raw = $class_data['key_ability'] ?? '';
-
-    // Parse key ability options (e.g., "strength or dexterity")
-    $key_options = array_map('trim', explode(' or ', strtolower($key_abilities_raw)));
+    $key_options = $this->normalizeAbilityOptions($class_data['key_ability'] ?? '');
+    $selected_key_ability = $this->normalizeAbilityKey($selected_key_ability);
 
     // Validate selection
-    if (count($key_options) > 1) {
+    if (empty($key_options)) {
+      $errors[] = 'No key ability configured for ' . $class_name;
+    }
+    elseif (count($key_options) > 1) {
       // Class has choice of key abilities
-      if (empty($selected_key_ability)) {
+      if (!$selected_key_ability) {
         $errors[] = 'Must select a key ability for ' . $class_name;
       }
-      elseif (!in_array(strtolower($selected_key_ability), $key_options, TRUE)) {
+      elseif (!in_array($selected_key_ability, $key_options, TRUE)) {
         $errors[] = 'Invalid key ability selection for ' . $class_name;
       }
     }
@@ -454,21 +455,18 @@ class AbilityScoreTracker {
     }
 
     if ($selected_key_ability) {
-      $ability = $this->normalizeAbilityKey($selected_key_ability);
-      if ($ability) {
-        $old_score = $scores[$ability];
-        $scores[$ability] = $this->applyBoost($scores[$ability]);
-        $boost_amount = $scores[$ability] - $old_score;
+      $old_score = $scores[$selected_key_ability];
+      $scores[$selected_key_ability] = $this->applyBoost($scores[$selected_key_ability]);
+      $boost_amount = $scores[$selected_key_ability] - $old_score;
 
-        $sources[$ability][] = [
-          'type' => 'boost',
-          'value' => $boost_amount,
-          'source' => $class_name . ' class',
-          'step' => 'class',
-        ];
+      $sources[$selected_key_ability][] = [
+        'type' => 'boost',
+        'value' => $boost_amount,
+        'source' => $class_name . ' class',
+        'step' => 'class',
+      ];
 
-        $boost_log[] = $this->formatAbilityChange($ability, $boost_amount);
-      }
+      $boost_log[] = $this->formatAbilityChange($selected_key_ability, $boost_amount);
     }
 
     $breakdown = 'Class (' . $class_name . '): ';
@@ -579,14 +577,19 @@ class AbilityScoreTracker {
    *
    * Accepts: 'str', 'STR', 'strength', 'Strength' → returns 'strength'
    * 
-   * @param string $key
+   * @param mixed $key
    *   The ability key to normalize.
    * 
    * @return string|null
    *   The normalized ability key, or NULL if invalid.
    */
-  public function normalizeAbilityKey(string $key): ?string {
-    $key = strtolower(trim($key));
+  public function normalizeAbilityKey($key): ?string {
+    $key = $this->extractFirstTextValue($key);
+    if ($key === '') {
+      return NULL;
+    }
+
+    $key = strtolower($key);
 
     // Direct match
     if (in_array($key, self::ABILITIES, TRUE)) {
@@ -599,6 +602,65 @@ class AbilityScoreTracker {
     }
 
     return NULL;
+  }
+
+  /**
+   * Normalizes raw key-ability metadata into canonical ability options.
+   *
+   * @param mixed $raw
+   *   Ability metadata from class config or submitted state.
+   *
+   * @return string[]
+   *   Canonical ability keys.
+   */
+  public function normalizeAbilityOptions($raw): array {
+    $raw_options = [];
+
+    if (is_array($raw)) {
+      foreach ($raw as $option) {
+        $value = $this->extractFirstTextValue($option);
+        if ($value !== '') {
+          $raw_options[] = $value;
+        }
+      }
+    }
+    else {
+      $value = $this->extractFirstTextValue($raw);
+      if ($value !== '') {
+        $raw_options = preg_split('/\s+or\s+/i', $value) ?: [];
+      }
+    }
+
+    $options = [];
+    foreach ($raw_options as $option) {
+      $ability = $this->normalizeAbilityKey($option);
+      if ($ability) {
+        $options[] = $ability;
+      }
+    }
+
+    return array_values(array_unique($options));
+  }
+
+  /**
+   * Extracts the first non-empty text value from scalar or array input.
+   */
+  protected function extractFirstTextValue($value): string {
+    if (is_array($value)) {
+      foreach ($value as $item) {
+        $candidate = $this->extractFirstTextValue($item);
+        if ($candidate !== '') {
+          return $candidate;
+        }
+      }
+      return '';
+    }
+
+    if ($value === NULL || is_bool($value) || is_object($value)) {
+      return '';
+    }
+
+    return trim((string) $value);
   }
 
   /**

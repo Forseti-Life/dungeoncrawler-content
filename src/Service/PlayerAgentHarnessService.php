@@ -1,0 +1,194 @@
+<?php
+
+namespace Drupal\dungeoncrawler_content\Service;
+
+/**
+ * Headless harness for running an in-character player agent.
+ */
+class PlayerAgentHarnessService {
+
+  protected PlayerAgentRuntimeAdapterInterface $runtimeAdapter;
+
+  protected PlayerAgentExplorationPolicy $explorationPolicy;
+
+  protected PlayerAgentEncounterPolicy $encounterPolicy;
+
+  protected PlayerAgentProgressTracker $progressTracker;
+
+  public function __construct(
+    PlayerAgentRuntimeAdapterInterface $runtime_adapter,
+    PlayerAgentExplorationPolicy $exploration_policy,
+    PlayerAgentEncounterPolicy $encounter_policy,
+    PlayerAgentProgressTracker $progress_tracker
+  ) {
+    $this->runtimeAdapter = $runtime_adapter;
+    $this->explorationPolicy = $exploration_policy;
+    $this->encounterPolicy = $encounter_policy;
+    $this->progressTracker = $progress_tracker;
+  }
+
+  /**
+   * Run a single player-agent step.
+   */
+  public function runStep(int $campaign_id, array $profile, array $run_state = []): array {
+    $profile = $this->normalizeProfile($profile);
+    $run_state = $this->normalizeRunState($run_state);
+    $actor_id = (string) ($profile['actor_id'] ?? '');
+    if ($actor_id === '') {
+      return [
+        'success' => FALSE,
+        'error' => 'Player agent profile requires actor_id.',
+        'run_state' => $run_state,
+      ];
+    }
+
+    $snapshot = $this->runtimeAdapter->buildSnapshot($campaign_id, $actor_id, $run_state);
+    if (empty($snapshot['success'])) {
+      return [
+        'success' => FALSE,
+        'error' => (string) ($snapshot['error'] ?? 'Failed to build player-agent snapshot.'),
+        'snapshot' => $snapshot,
+        'run_state' => $run_state,
+      ];
+    }
+
+    $policy = $this->resolvePolicy((string) ($snapshot['phase'] ?? 'exploration'));
+    if ($policy === NULL) {
+      return [
+        'success' => FALSE,
+        'error' => 'No player-agent policy for phase ' . ($snapshot['phase'] ?? 'unknown') . '.',
+        'snapshot' => $snapshot,
+        'run_state' => $run_state,
+      ];
+    }
+
+    $decision = $policy->chooseAction($profile, $snapshot, $run_state);
+    $response = NULL;
+
+    if (($decision['type'] ?? 'wait') === 'intent') {
+      $intent = is_array($decision['intent'] ?? NULL) ? $decision['intent'] : [];
+      $intent['client_state_version'] = $intent['client_state_version'] ?? ($snapshot['state_version'] ?? 1);
+      $response = $this->runtimeAdapter->submitIntent($campaign_id, $intent);
+
+      if ($this->isStateVersionMismatch($response)) {
+        $retry_snapshot = $this->runtimeAdapter->buildSnapshot($campaign_id, $actor_id, $run_state);
+        if (!empty($retry_snapshot['success'])) {
+          $snapshot = $retry_snapshot;
+          $intent['client_state_version'] = $retry_snapshot['state_version'] ?? $intent['client_state_version'];
+          $response = $this->runtimeAdapter->submitIntent($campaign_id, $intent);
+        }
+      }
+    }
+
+    $run_state = $this->progressTracker->updateRunState(
+      $profile,
+      $snapshot,
+      $decision,
+      $response,
+      $run_state
+    );
+
+    return [
+      'success' => $response['success'] ?? TRUE,
+      'profile' => $profile,
+      'snapshot' => $snapshot,
+      'decision' => $decision,
+      'response' => $response,
+      'run_state' => $run_state,
+      'error' => $response['error'] ?? NULL,
+    ];
+  }
+
+  /**
+   * Run multiple sequential player-agent steps.
+   */
+  public function runSteps(int $campaign_id, array $profile, int $steps = 1, array $run_state = [], bool $stop_on_failure = TRUE): array {
+    $steps = max(1, $steps);
+    $run_state = $this->normalizeRunState($run_state);
+    $results = [];
+    $stop_reason = NULL;
+
+    for ($index = 0; $index < $steps; $index++) {
+      $step_result = $this->runStep($campaign_id, $profile, $run_state);
+      $results[] = $step_result;
+      $run_state = $step_result['run_state'] ?? $run_state;
+
+      if ($stop_on_failure && empty($step_result['success'])) {
+        $stop_reason = 'step_failure';
+        break;
+      }
+
+      if (($run_state['guardrails']['consecutive_waits'] ?? 0) >= (int) ($run_state['guardrails']['max_consecutive_waits'] ?? 3)) {
+        $stop_reason = 'max_consecutive_waits';
+        break;
+      }
+
+      if (($run_state['guardrails']['consecutive_failures'] ?? 0) >= (int) ($run_state['guardrails']['max_consecutive_failures'] ?? 2)) {
+        $stop_reason = 'max_consecutive_failures';
+        break;
+      }
+    }
+
+    return [
+      'success' => !empty($results) ? !empty(end($results)['success']) : TRUE,
+      'results' => $results,
+      'run_state' => $run_state,
+      'stop_reason' => $stop_reason,
+    ];
+  }
+
+  /**
+   * Normalize a player-agent profile to safe defaults.
+   */
+  protected function normalizeProfile(array $profile): array {
+    $profile['goals'] = is_array($profile['goals'] ?? NULL)
+      ? $profile['goals']
+      : ['explore', 'gain_xp', 'level_up'];
+    $profile['persona'] = is_array($profile['persona'] ?? NULL) ? $profile['persona'] : [];
+    $profile['persona']['tone'] = (string) ($profile['persona']['tone'] ?? 'curious');
+    $profile['combat_loadout'] = is_array($profile['combat_loadout'] ?? NULL) ? $profile['combat_loadout'] : [];
+
+    return $profile;
+  }
+
+  /**
+   * Normalize run-state defaults and guardrails.
+   */
+  protected function normalizeRunState(array $run_state): array {
+    $run_state['memory'] = is_array($run_state['memory'] ?? NULL) ? $run_state['memory'] : [];
+    $run_state['progress'] = is_array($run_state['progress'] ?? NULL) ? $run_state['progress'] : [];
+    $run_state['trace'] = is_array($run_state['trace'] ?? NULL) ? $run_state['trace'] : [];
+    $run_state['guardrails'] = is_array($run_state['guardrails'] ?? NULL) ? $run_state['guardrails'] : [];
+    $run_state['guardrails']['max_consecutive_waits'] = (int) ($run_state['guardrails']['max_consecutive_waits'] ?? 3);
+    $run_state['guardrails']['max_consecutive_failures'] = (int) ($run_state['guardrails']['max_consecutive_failures'] ?? 2);
+    $run_state['guardrails']['consecutive_waits'] = (int) ($run_state['guardrails']['consecutive_waits'] ?? 0);
+    $run_state['guardrails']['consecutive_failures'] = (int) ($run_state['guardrails']['consecutive_failures'] ?? 0);
+
+    return $run_state;
+  }
+
+  /**
+   * Detect a canonical state-version mismatch error response.
+   */
+  protected function isStateVersionMismatch(?array $response): bool {
+    if (!is_array($response) || !empty($response['success'])) {
+      return FALSE;
+    }
+
+    $error = strtolower((string) ($response['error'] ?? ''));
+    return str_contains($error, 'state version mismatch');
+  }
+
+  /**
+   * Resolve the correct phase policy.
+   */
+  protected function resolvePolicy(string $phase): ?PlayerAgentPolicyInterface {
+    foreach ([$this->explorationPolicy, $this->encounterPolicy] as $policy) {
+      if ($policy->supportsPhase($phase)) {
+        return $policy;
+      }
+    }
+    return NULL;
+  }
+
+}

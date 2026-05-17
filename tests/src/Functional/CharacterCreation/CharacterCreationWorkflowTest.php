@@ -3,6 +3,7 @@
 namespace Drupal\Tests\dungeoncrawler_content\Functional\CharacterCreation;
 
 use Drupal\Core\Url;
+use Drupal\dungeoncrawler_content\Service\CharacterManager;
 use Drupal\Tests\BrowserTestBase;
 use PHPUnit\Framework\Attributes\RunTestsInSeparateProcesses;
 
@@ -407,6 +408,49 @@ class CharacterCreationWorkflowTest extends BrowserTestBase {
     // Verify character was created with all persisted data
     $this->assertSession()->statusCodeEquals(200);
     $this->assertSession()->pageTextContains('Persistent Data Test');
+  }
+
+  /**
+   * Tests quick-play seeds a class pool and launches into the campaign flow.
+   */
+  public function testQuickPlayButtonSeedsLibraryAndLaunchesCampaign(): void {
+    $user = $this->drupalCreateUser(['create dungeoncrawler characters', 'access dungeoncrawler characters']);
+    $this->drupalLogin($user);
+
+    $campaign_id = \Drupal::database()->insert('dc_campaigns')
+      ->fields([
+        'uuid' => \Drupal::service('uuid')->generate(),
+        'uid' => $user->id(),
+        'name' => 'Quick Play Campaign',
+        'status' => 'draft',
+        'campaign_data' => json_encode([]),
+        'created' => time(),
+        'changed' => time(),
+      ])
+      ->execute();
+
+    $this->drupalGet("/charactersetup?campaign_id={$campaign_id}");
+    $this->assertSession()->statusCodeEquals(200);
+    $this->submitForm([], 'I Just Want to Play');
+    $this->assertSession()->statusCodeEquals(200);
+    $this->assertSession()->addressMatches('/\/hexmap/');
+
+    $prefab_count = (int) \Drupal::database()->select('dc_campaign_characters', 'c')
+      ->condition('uid', (int) $user->id())
+      ->condition('campaign_id', 0)
+      ->condition('status', 1)
+      ->condition('character_data', '%"quickplay_prefab"%', 'LIKE')
+      ->countQuery()
+      ->execute()
+      ->fetchField();
+    $this->assertEquals(count(CharacterManager::CLASSES), $prefab_count, 'Quick play should seed one library character per class.');
+
+    $selected_character_id = (int) \Drupal::database()->select('dc_campaigns', 'c')
+      ->fields('c', ['active_character_id'])
+      ->condition('id', (int) $campaign_id)
+      ->execute()
+      ->fetchField();
+    $this->assertGreaterThan(0, $selected_character_id, 'Quick play should select a campaign character.');
   }
 
   /**

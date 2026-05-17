@@ -10,6 +10,8 @@ use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Psr\Log\LoggerInterface;
 use Drupal\dungeoncrawler_content\Service\QuestGeneratorService;
 use Drupal\dungeoncrawler_content\Service\ChatSessionManager;
+use Drupal\dungeoncrawler_content\Service\StorylineManagerService;
+use Drupal\dungeoncrawler_content\Service\RelationshipManagerService;
 
 /**
  * Orchestrates complete campaign initialization with default dungeon and rooms.
@@ -35,6 +37,9 @@ class CampaignInitializationService {
   protected ?ChatSessionManager $chatSessionManager;
   protected ?NpcSheetGenerationService $npcSheetGenerationService;
   protected ?RoomViewImageService $roomViewImageService;
+  protected ?StorylineManagerService $storylineManager;
+  protected ?RelationshipManagerService $relationshipManager;
+  protected CampaignClockService $campaignClockService;
 
   public function __construct(
     Connection $database,
@@ -44,9 +49,12 @@ class CampaignInitializationService {
     ModuleExtensionList $module_list,
     QuestGeneratorService $quest_generator,
     CampaignNameGeneratorService $campaign_name_generator,
+    CampaignClockService $campaign_clock_service,
     ?ChatSessionManager $chat_session_manager = NULL,
     ?NpcSheetGenerationService $npc_sheet_generation_service = NULL,
-    ?RoomViewImageService $room_view_image_service = NULL
+    ?RoomViewImageService $room_view_image_service = NULL,
+    ?StorylineManagerService $storyline_manager = NULL,
+    ?RelationshipManagerService $relationship_manager = NULL
   ) {
     $this->database = $database;
     $this->uuid = $uuid;
@@ -55,9 +63,12 @@ class CampaignInitializationService {
     $this->moduleList = $module_list;
     $this->questGenerator = $quest_generator;
     $this->campaignNameGenerator = $campaign_name_generator;
+    $this->campaignClockService = $campaign_clock_service;
     $this->chatSessionManager = $chat_session_manager;
     $this->npcSheetGenerationService = $npc_sheet_generation_service;
     $this->roomViewImageService = $room_view_image_service;
+    $this->storylineManager = $storyline_manager;
+    $this->relationshipManager = $relationship_manager;
   }
 
   /**
@@ -121,6 +132,7 @@ class CampaignInitializationService {
       }
 
       $this->seedStarterQuests($campaign_id, $difficulty, $now);
+      $this->seedBundledStorylinesAndRelationships($campaign_id);
 
       // 5. Bootstrap hierarchical chat sessions for the campaign.
       //    Include the starter dungeon and tavern room so they get
@@ -191,12 +203,22 @@ class CampaignInitializationService {
     int $now
   ): int {
     $payload = [
-      'schema_version' => '1.0.0',
-      'created_by' => $uid,
-      'started' => FALSE,
-      'progress' => [],
-      'initialized_at' => $now,
-    ];
+      'state' => [
+        'schema_version' => '1.0.0',
+        'created_by' => $uid,
+        'started' => FALSE,
+        'progress' => [],
+        'created_at' => gmdate('c', $now),
+        'updated_at' => gmdate('c', $now),
+        CampaignClockService::STATE_KEY => $this->campaignClockService->createClockFromTimestamp($now),
+      ],
+      'state_meta' => [
+        'version' => 1,
+        'updatedAt' => gmdate('c', $now),
+      ],
+      ];
+
+    $this->campaignClockService->syncLegacyGameTime($payload['state']);
 
     return (int) $this->database->insert('dc_campaigns')
       ->fields([
@@ -680,6 +702,36 @@ class CampaignInitializationService {
         ->fields($quest_data)
         ->execute();
     }
+  }
+
+  /**
+   * Seeds bundled storyline instances plus their runtime relationship graph.
+   */
+  private function seedBundledStorylinesAndRelationships(int $campaign_id): void {
+    if (!$this->storylineManager || !$this->relationshipManager || !$this->relationshipManager->isRelationshipStorageReady()) {
+      return;
+    }
+
+    try {
+      $storylines = $this->storylineManager->ensureBundledCampaignStorylines($campaign_id, [
+        'status' => 'available',
+        'priority_base' => 100,
+      ]);
+    }
+    catch (\InvalidArgumentException $e) {
+      return;
+    }
+
+    $this->relationshipManager->seedLibraryRelationships($campaign_id);
+    $npc_ids = $this->resolveNpcInstanceIds($campaign_id, ['tavern_keeper']);
+
+    foreach ($storylines as $storyline) {
+      $this->relationshipManager->seedStorylineContacts($campaign_id, $storyline, [
+        'default_broker_campaign_character_id' => (int) ($npc_ids['tavern_keeper'] ?? 0),
+      ]);
+    }
+
+    $this->relationshipManager->refreshCampaignStorylineContacts($campaign_id, 'npc_tavern_keeper');
   }
 
   /**

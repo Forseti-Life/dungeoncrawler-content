@@ -97,6 +97,7 @@ class TemplateImportServiceTest extends UnitTestCase {
     $this->assertSame('', $service->callGetExpectedTemplateTable('dc_campaign_storyline_links'));
     $this->assertSame('', $service->callGetExpectedTemplateTable('dc_campaign_quest_log'));
     $this->assertSame('dungeoncrawler_content_storylines', $service->callGetExpectedTemplateTable('dc_campaign_storylines'));
+    $this->assertSame('dungeoncrawler_content_relationships', $service->callGetExpectedTemplateTable('dc_campaign_relationships'));
   }
 
   /**

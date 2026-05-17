@@ -269,7 +269,7 @@ class Calculator {
     $static = (int) $static_modifiers;
 
     // PF2e: Double all damage on a critical hit.
-    $doubled_total = max(0, ($dice_sum * 2) + $static);
+    $doubled_total = max(0, ($dice_sum + $static) * 2);
 
     return [
       'base_dice' => $dice_sum,

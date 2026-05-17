@@ -62,6 +62,7 @@ export interface CharacterState {
     age?: number;
     appearance?: string;
     personality?: string;
+    backstory?: string;
   };
   
   // Ability Scores

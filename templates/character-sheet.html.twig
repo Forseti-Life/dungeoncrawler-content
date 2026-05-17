@@ -76,6 +76,16 @@
         {% if class_data.name %}{{ class_data.name }}{% endif %}
         {% if class_data.subclass %}({{ class_data.subclass }}){% endif %}
       </div>
+      {% if personality.personality %}
+        <div class="dc-sheet__bio-block">
+          <strong>Personality:</strong> {{ personality.personality }}
+        </div>
+      {% endif %}
+      {% if personality.backstory %}
+        <div class="dc-sheet__bio-block dc-sheet__bio-block--backstory">
+          <strong>Backstory:</strong> {{ personality.backstory }}
+        </div>
+      {% endif %}
       {% if background.name %}
         <div class="dc-sheet__background">Background: {{ background.name }}</div>
       {% endif %}

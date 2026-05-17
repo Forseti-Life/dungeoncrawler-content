@@ -3,6 +3,7 @@
 namespace Drupal\dungeoncrawler_content\Service;
 
 use Drupal\Core\Database\Connection;
+use Drupal\Core\File\FileUrlGeneratorInterface;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Psr\Log\LoggerInterface;
 
@@ -26,6 +27,14 @@ use Psr\Log\LoggerInterface;
 class GameCoordinatorService {
 
   /**
+   * Voice used for room-entry narration audio.
+   */
+  protected const ROOM_ENTRY_NARRATOR_VOICE = 'en-US-Standard-D';
+  protected const ROOM_ENTRY_NARRATOR_SPEAKING_RATE = 0.85;
+  protected const ROOM_ENTRY_NARRATOR_PITCH = -6.0;
+  protected const ROOM_ENTRY_NARRATOR_VOLUME_GAIN_DB = 2.0;
+
+  /**
    * Default game state structure for new sessions.
    */
   const DEFAULT_GAME_STATE = [
@@ -42,6 +51,7 @@ class GameCoordinatorService {
       'previous_room' => NULL,
     ],
     'downtime' => NULL,
+    'timed_activities' => [],
     'state_version' => 1,
     'event_log_cursor' => 0,
     'last_encounter' => NULL,
@@ -62,6 +72,8 @@ class GameCoordinatorService {
    * @var \Drupal\Core\Database\Connection
    */
   protected Connection $database;
+
+  protected CampaignCharacterRuntimeSyncService $campaignCharacterRuntimeSync;
 
   /**
    * @var \Psr\Log\LoggerInterface
@@ -95,23 +107,46 @@ class GameCoordinatorService {
   protected ?NarrationEngine $narrationEngine;
 
   /**
+   * Central campaign time resolver.
+   */
+  protected CampaignTimeResolverService $campaignTimeResolver;
+
+  /**
+   * Optional TTS bridge for room-entry narrator audio.
+   */
+  protected ?TextToSpeechIntegrationService $textToSpeechIntegration;
+
+  /**
+   * File URL generator for narrator audio playback URLs.
+   */
+  protected ?FileUrlGeneratorInterface $fileUrlGenerator;
+
+  /**
    * Constructs a GameCoordinatorService.
    */
   public function __construct(
     Connection $database,
+    CampaignCharacterRuntimeSyncService $campaign_character_runtime_sync,
     LoggerChannelFactoryInterface $logger_factory,
     GameEventLogger $event_logger,
     ExplorationPhaseHandler $exploration_handler,
     EncounterPhaseHandler $encounter_handler,
     DowntimePhaseHandler $downtime_handler,
     AiGmService $ai_gm_service,
-    ?NarrationEngine $narration_engine = NULL
+    CampaignTimeResolverService $campaign_time_resolver,
+    ?NarrationEngine $narration_engine = NULL,
+    ?TextToSpeechIntegrationService $text_to_speech_integration = NULL,
+    ?FileUrlGeneratorInterface $file_url_generator = NULL
   ) {
     $this->database = $database;
+    $this->campaignCharacterRuntimeSync = $campaign_character_runtime_sync;
     $this->logger = $logger_factory->get('dungeoncrawler');
     $this->eventLogger = $event_logger;
     $this->aiGmService = $ai_gm_service;
+    $this->campaignTimeResolver = $campaign_time_resolver;
     $this->narrationEngine = $narration_engine;
+    $this->textToSpeechIntegration = $text_to_speech_integration;
+    $this->fileUrlGenerator = $file_url_generator;
 
     // Register phase handlers by their phase name.
     $this->phaseHandlers['exploration'] = $exploration_handler;
@@ -152,8 +187,10 @@ class GameCoordinatorService {
    *   - error: string|null
    */
   public function processAction(int $campaign_id, array $intent): array {
+    $actor_id = (string) ($intent['actor'] ?? '');
+
     // 1. Load dungeon data and game state.
-    $dungeon_data = $this->loadDungeonData($campaign_id);
+    $dungeon_data = $this->loadDungeonData($campaign_id, $actor_id !== '' ? $actor_id : NULL);
     if (!$dungeon_data) {
       return $this->errorResponse('Campaign dungeon data not found.');
     }
@@ -186,7 +223,17 @@ class GameCoordinatorService {
     }
 
     // 5. Process the action.
+    $this->campaignTimeResolver->beginDeferredTimeEffects($game_state);
     $action_result = $handler->processIntent($intent, $game_state, $dungeon_data, $campaign_id);
+    $time_effects = array_merge(
+      $this->campaignTimeResolver->consumePendingTimeEffects($game_state),
+      array_values(array_filter($action_result['time_effects'] ?? [], 'is_array'))
+    );
+
+    // Resolve elapsed time before any phase transition mutates the live phase.
+    if ($time_effects !== []) {
+      $this->campaignTimeResolver->applyTimeEffects($game_state, $time_effects);
+    }
 
     // 6. Log events.
     $events_to_log = $action_result['events'] ?? [];
@@ -256,6 +303,7 @@ class GameCoordinatorService {
         ? $current_handler->getAvailableActions($game_state, $dungeon_data, $actor_id)
         : [],
       'state_version' => $game_state['state_version'],
+      'time_effects' => $time_effects,
       'error' => NULL,
     ];
   }
@@ -275,7 +323,22 @@ class GameCoordinatorService {
       return $this->errorResponse('Campaign dungeon data not found.');
     }
 
+    $had_game_state = isset($dungeon_data['game_state']) && is_array($dungeon_data['game_state']);
     $game_state = $this->ensureGameState($dungeon_data);
+    $bootstrap_events = $this->bootstrapInitialRoomEntry($campaign_id, $dungeon_data, $game_state);
+    if ($bootstrap_events !== []) {
+      $game_state['event_log_cursor'] = max(array_map(
+        static fn (array $event): int => (int) ($event['id'] ?? 0),
+        $bootstrap_events
+      ));
+    }
+    $initial_events = $bootstrap_events !== []
+      ? $bootstrap_events
+      : $this->collectUnseenInitialEvents($dungeon_data, $game_state);
+    if (!$had_game_state || $bootstrap_events !== [] || $initial_events !== []) {
+      $dungeon_data['game_state'] = $game_state;
+      $this->persistDungeonData($campaign_id, $dungeon_data);
+    }
     $phase = $game_state['phase'] ?? 'exploration';
     $handler = $this->getPhaseHandler($phase);
 
@@ -293,7 +356,36 @@ class GameCoordinatorService {
       'round' => $game_state['round'] ?? NULL,
       'turn' => $game_state['turn'] ?? NULL,
       'exploration' => $game_state['exploration'] ?? NULL,
+      'events' => $initial_events,
     ];
+  }
+
+  /**
+   * Returns the currently available actions for a specific actor.
+   *
+   * This mirrors the phase handler action surface used by the client, but lets
+   * headless runtimes ask for actor-scoped actions without issuing a gameplay
+   * mutation.
+   *
+   * @param int $campaign_id
+   *   The campaign ID.
+   * @param string|null $actor_id
+   *   The actor entity ID to scope available actions for.
+   *
+   * @return string[]
+   *   Legal actions for the current phase and actor.
+   */
+  public function getAvailableActionsForActor(int $campaign_id, ?string $actor_id = NULL): array {
+    $dungeon_data = $this->loadDungeonData($campaign_id, $actor_id);
+    if (!$dungeon_data) {
+      return [];
+    }
+
+    $game_state = $this->ensureGameState($dungeon_data);
+    $phase = $game_state['phase'] ?? 'exploration';
+    $handler = $this->getPhaseHandler($phase);
+
+    return $handler ? $handler->getAvailableActions($game_state, $dungeon_data, $actor_id) : [];
   }
 
   /**
@@ -486,7 +578,7 @@ class GameCoordinatorService {
   /**
    * Loads dungeon_data from the database.
    */
-  protected function loadDungeonData(int $campaign_id): ?array {
+  protected function loadDungeonData(int $campaign_id, ?string $preferred_actor_id = NULL): ?array {
     try {
       $row = $this->database->select('dc_campaign_dungeons', 'd')
         ->fields('d', ['dungeon_data'])
@@ -495,7 +587,10 @@ class GameCoordinatorService {
         ->fetchField();
 
       if ($row) {
-        return json_decode($row, TRUE) ?: NULL;
+        $decoded = json_decode($row, TRUE) ?: NULL;
+        if (is_array($decoded)) {
+          return $this->campaignCharacterRuntimeSync->syncActiveRoomPlayerEntities($decoded, $campaign_id, $preferred_actor_id);
+        }
       }
     }
     catch (\Exception $e) {
@@ -551,7 +646,162 @@ class GameCoordinatorService {
       }
     }
 
+    $this->campaignTimeResolver->ensureTimeState($dungeon_data['game_state']);
+
     return $dungeon_data['game_state'];
+  }
+
+  /**
+   * Bootstraps a one-time initial room-entered event for fresh campaigns.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Newly created events, if any.
+   */
+  protected function bootstrapInitialRoomEntry(int $campaign_id, array &$dungeon_data, array &$game_state): array {
+    if (!empty($dungeon_data['event_log'])) {
+      return [];
+    }
+
+    $room_id = $this->resolveStartupRoomId($dungeon_data);
+    if ($room_id === NULL) {
+      return [];
+    }
+
+    $room_data = $this->findRoomInDungeon($room_id, $dungeon_data);
+    if ($room_data === NULL) {
+      return [];
+    }
+
+    $narration = $this->aiGmService->narrateRoomEntry($room_data, $dungeon_data, TRUE, $campaign_id);
+    $room_entered_data = [
+      'from_room' => NULL,
+      'to_room' => $room_id,
+    ];
+    $room_entry_audio = $this->buildRoomEntryNarrationAudio($room_data, $narration);
+    if ($room_entry_audio !== NULL) {
+      $room_entered_data += $room_entry_audio;
+    }
+
+    $game_state['exploration']['previous_room'] = $game_state['exploration']['previous_room'] ?? NULL;
+
+    return $this->eventLogger->logEvents($dungeon_data, [
+      GameEventLogger::buildEvent('room_entered', 'exploration', NULL, $room_entered_data, $narration),
+    ]);
+  }
+
+  /**
+   * Resolves and persists the startup active room ID when absent.
+   */
+  protected function resolveStartupRoomId(array &$dungeon_data): ?string {
+    $active_room_id = $dungeon_data['active_room_id'] ?? NULL;
+    if (is_string($active_room_id) && $active_room_id !== '') {
+      return $active_room_id;
+    }
+
+    foreach ($dungeon_data['rooms'] ?? [] as $room) {
+      $candidate = $room['room_id'] ?? NULL;
+      if (is_string($candidate) && $candidate !== '') {
+        $dungeon_data['active_room_id'] = $candidate;
+        return $candidate;
+      }
+    }
+
+    return NULL;
+  }
+
+  /**
+   * Finds a room in dungeon data by ID.
+   */
+  protected function findRoomInDungeon(?string $room_id, array $dungeon_data): ?array {
+    if ($room_id === NULL || $room_id === '') {
+      return NULL;
+    }
+
+    foreach ($dungeon_data['rooms'] ?? [] as $room) {
+      if (($room['room_id'] ?? NULL) === $room_id) {
+        return $room;
+      }
+    }
+
+    return NULL;
+  }
+
+  /**
+   * Builds narrator audio for a room entry event.
+   */
+  protected function buildRoomEntryNarrationAudio(array $room, ?string $narration_text = NULL): ?array {
+    if (!$this->textToSpeechIntegration || !$this->fileUrlGenerator) {
+      return NULL;
+    }
+
+    $narration_text = trim((string) $narration_text);
+    $description = trim((string) ($room['description'] ?? ''));
+    $text = $narration_text !== ''
+      ? $narration_text
+      : trim(sprintf('%s. %s', (string) ($room['name'] ?? 'New area'), $description));
+
+    if ($text === '') {
+      return NULL;
+    }
+
+    $result = $this->textToSpeechIntegration->synthesizeSpeech($text, [
+      'voice_name' => self::ROOM_ENTRY_NARRATOR_VOICE,
+      'audio_encoding' => 'MP3',
+      'speaking_rate' => self::ROOM_ENTRY_NARRATOR_SPEAKING_RATE,
+      'pitch' => self::ROOM_ENTRY_NARRATOR_PITCH,
+      'volume_gain_db' => self::ROOM_ENTRY_NARRATOR_VOLUME_GAIN_DB,
+    ]);
+    if (empty($result['success'])) {
+      $this->logger->warning('Startup room narration synthesis failed for %room: %message', [
+        '%room' => (string) ($room['name'] ?? $room['room_id'] ?? 'unknown room'),
+        '%message' => (string) ($result['message'] ?? 'Unknown synthesis error'),
+      ]);
+      return NULL;
+    }
+
+    $stored = $this->textToSpeechIntegration->storeAudioResult($result, 'public://forseti-tts-room-entry');
+    if (empty($stored['success']) || empty($stored['uri'])) {
+      $this->logger->warning('Startup room narration storage failed for %room: %message', [
+        '%room' => (string) ($room['name'] ?? $room['room_id'] ?? 'unknown room'),
+        '%message' => (string) ($stored['message'] ?? 'Unknown storage error'),
+      ]);
+      return NULL;
+    }
+
+    return [
+      'narration_audio_url' => $this->fileUrlGenerator->generateString((string) $stored['uri']),
+      'narration_audio_uri' => (string) ($stored['uri']),
+      'narration_audio_text' => $text,
+      'narration_audio_voice' => self::ROOM_ENTRY_NARRATOR_VOICE,
+      'narration_audio_speaking_rate' => self::ROOM_ENTRY_NARRATOR_SPEAKING_RATE,
+      'narration_audio_pitch' => self::ROOM_ENTRY_NARRATOR_PITCH,
+      'narration_audio_volume_gain_db' => self::ROOM_ENTRY_NARRATOR_VOLUME_GAIN_DB,
+      'narration_audio_source' => $narration_text !== '' ? 'gm_narration' : 'room_description',
+    ];
+  }
+
+  /**
+   * Returns unseen initial events and advances the cursor to the latest event ID.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Events the client has not yet received from initial state.
+   */
+  protected function collectUnseenInitialEvents(array $dungeon_data, array &$game_state): array {
+    $latest_event_id = 0;
+    $event_log = $dungeon_data['event_log'] ?? [];
+    if ($event_log !== []) {
+      $last_event = end($event_log);
+      $latest_event_id = (int) ($last_event['id'] ?? 0);
+    }
+
+    $cursor = (int) ($game_state['event_log_cursor'] ?? 0);
+    if ($latest_event_id <= $cursor) {
+      return [];
+    }
+
+    $events = $this->eventLogger->getEventsSince($dungeon_data, $cursor);
+    $game_state['event_log_cursor'] = $latest_event_id;
+    return $events;
   }
 
   // =========================================================================
@@ -577,6 +827,10 @@ class GameCoordinatorService {
       'encounter_id' => $game_state['encounter_id'] ?? NULL,
       'initiative_order' => $game_state['initiative_order'] ?? NULL,
       'exploration' => $game_state['exploration'] ?? NULL,
+      'downtime' => $game_state['downtime'] ?? NULL,
+      'campaign_clock' => $game_state['campaign_clock'] ?? NULL,
+      'game_time' => $game_state['game_time'] ?? NULL,
+      'timed_activities' => $game_state['timed_activities'] ?? [],
       'state_version' => $game_state['state_version'] ?? 1,
       'event_log_cursor' => $game_state['event_log_cursor'] ?? 0,
       'last_encounter' => $game_state['last_encounter'] ?? NULL,

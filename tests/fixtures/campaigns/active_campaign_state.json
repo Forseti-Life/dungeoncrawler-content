@@ -2,6 +2,7 @@
   "name": "active_campaign_state",
   "description": "Campaign state with active quest and progress",
   "state": {
+    "schema_version": "1.0.0",
     "created_by": 1,
     "started": true,
     "progress": [
@@ -32,10 +33,26 @@
       "forest_path",
       "goblin_caves_entrance"
     ],
+    "campaign_clock": {
+      "datetime": "2024-01-03T14:30:00Z",
+      "date": "2024-01-03",
+      "time": "14:30",
+      "timezone": "UTC",
+      "year": 2024,
+      "month": 1,
+      "day": 3,
+      "hour": 14,
+      "minute": 30,
+      "weekday": "Wednesday",
+      "season": "winter"
+    },
     "game_time": {
       "day": 3,
       "hour": 14,
-      "minute": 30
+      "minute": 30,
+      "date": "2024-01-03",
+      "datetime": "2024-01-03T14:30:00Z",
+      "timezone": "UTC"
     },
     "party_inventory": [
       {"item_id": "health_potion", "quantity": 3},

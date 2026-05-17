@@ -72,6 +72,30 @@ class CharacterCreationStepControllerTest extends BrowserTestBase {
   }
 
   /**
+   * Tests quick-play shortcut appears on campaign-scoped setup pages.
+   */
+  public function testCharacterSetupShowsQuickPlayButtonForCampaignFlow(): void {
+    $user = $this->drupalCreateUser(['create dungeoncrawler characters', 'access dungeoncrawler characters']);
+    $this->drupalLogin($user);
+
+    $campaign_id = \Drupal::database()->insert('dc_campaigns')
+      ->fields([
+        'uuid' => \Drupal::service('uuid')->generate(),
+        'uid' => $user->id(),
+        'name' => 'Quick Play Campaign',
+        'status' => 'draft',
+        'campaign_data' => json_encode([]),
+        'created' => time(),
+        'changed' => time(),
+      ])
+      ->execute();
+
+    $this->drupalGet("/charactersetup?campaign_id={$campaign_id}");
+    $this->assertSession()->statusCodeEquals(200);
+    $this->assertSession()->buttonExists('I Just Want to Play');
+  }
+
+  /**
    * Tests character creation step with invalid step - negative case.
    */
   public function testCharacterCreationStepNegative(): void {
