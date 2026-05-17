@@ -1,0 +1,55 @@
+{
+  "template_id": "tavern_storyline_leads",
+  "name": "Gather Storyline Leads in the Tavern",
+  "description": "A new adventurer should begin by speaking with the tavern regulars and gathering the strongest leads before leaving the Gilded Tankard.",
+  "quest_type": "main_quest",
+  "level_min": 1,
+  "level_max": 3,
+  "tags": ["tavern", "onboarding", "story", "social", "beginner"],
+  "objectives_schema": [
+    {
+      "phase": 1,
+      "objectives": [
+        {
+          "objective_id": "speak_to_eldric",
+          "type": "interact",
+          "target": "tavern_keeper",
+          "description": "Speak to Eldric and gather his storyline lead."
+        },
+        {
+          "objective_id": "speak_to_marta",
+          "type": "interact",
+          "target": "scholar_npc",
+          "description": "Speak to Marta the Scholar and gather her storyline lead."
+        }
+      ]
+    },
+    {
+      "phase": 2,
+      "objectives": [
+        {
+          "objective_id": "follow_best_lead",
+          "type": "explore",
+          "target": "next_story_location",
+          "description": "Follow the strongest tavern lead and head to the next location."
+        }
+      ]
+    }
+  ],
+  "rewards_schema": {
+    "xp": {
+      "base": 40,
+      "per_level": 10
+    },
+    "gold": {
+      "base": 3,
+      "per_level": 1,
+      "randomize": false
+    }
+  },
+  "prerequisites": {
+    "level_min": 1
+  },
+  "estimated_duration_minutes": 10,
+  "version": "1.0.0"
+}

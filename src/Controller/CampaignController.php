@@ -1008,7 +1008,7 @@ class CampaignController extends ControllerBase {
    * Start a default starter quest when a character is selected.
    */
   private function startStarterQuest(int $campaign_id, int $character_id): void {
-    $preferred_templates = ['gather_wine', 'gather_torch_components', 'collect_spellbooks'];
+    $preferred_templates = ['tavern_storyline_leads', 'gather_wine', 'gather_torch_components', 'collect_spellbooks'];
 
     $available = $this->database->select('dc_campaign_quests', 'q')
       ->fields('q', ['quest_id', 'source_template_id'])

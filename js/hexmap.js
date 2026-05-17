@@ -8974,10 +8974,15 @@ import { SpriteService } from './SpriteService.js';
       try {
         // Always use mapId from stateManager (captured from startCombat response).
         const mapId = this.stateManager.get('mapId');
+        const normalizedPayload = { ...payload };
+        const actorRef = this.resolveEncounterParticipantReference(payload.actorId);
+        if (actorRef) {
+          normalizedPayload.actorId = actorRef;
+        }
         const serverState = await combatApi.performAction({
           encounterId,
           ...(mapId ? { mapId } : {}),
-          ...payload
+          ...normalizedPayload
         });
 
         if (!serverState) {
@@ -8989,6 +8994,7 @@ import { SpriteService } from './SpriteService.js';
         if (serverState.encounter_id) {
           this.stateManager.set('encounterId', serverState.encounter_id);
         }
+        this.cacheEncounterServerState(serverState);
 
         if (typeof this.turnManagementSystem.hydrateFromServer === 'function') {
           this.stateManager.set('serverCombatMode', true);
@@ -9536,6 +9542,14 @@ import { SpriteService } from './SpriteService.js';
         phaseManagerTurnEntityId,
         currentTurnEntityId,
         currentTurnEntityRef,
+        currentTurnEntityCharacterId,
+        currentTurnEntityTeam: String(currentTurnEntity?.getComponent?.('CombatComponent')?.team || '').trim() || null,
+        currentTurnEntityType: String(
+          currentTurnEntity?.getComponent?.('IdentityComponent')?.entityType
+          || currentTurnEntity?.getComponent?.('IdentityComponent')?.type
+          || currentTurnEntity?.dcStatePayload?.entity_type
+          || ''
+        ).trim() || null,
         currentTurnEntityName,
       };
     },
@@ -9666,6 +9680,12 @@ import { SpriteService } from './SpriteService.js';
     },
 
     requestPlayerAutomationStep: async function (campaignId, profile, runState = {}) {
+      const currentPhase = String(this.gameCoordinator?.phaseManager?.currentPhase || '').trim().toLowerCase();
+      const combatActive = Boolean(this.stateManager?.get?.('combatActive'));
+      if (currentPhase === 'encounter' || combatActive) {
+        return this.requestPlayerAutomationEncounterStep(campaignId, profile, runState);
+      }
+
       if (typeof this.gameCoordinator?.api?.runPlayerAgentStep === 'function') {
         const result = await this.gameCoordinator.api.runPlayerAgentStep(profile, runState);
         if (!result || typeof result !== 'object') {
@@ -9675,6 +9695,192 @@ import { SpriteService } from './SpriteService.js';
       }
 
       throw new Error('Automation harness is unavailable.');
+    },
+
+    requestPlayerAutomationEncounterStep: async function (campaignId, profile, runState = {}) {
+      const actor = this.resolvePlayerAutomationEntity?.(profile) || null;
+      const actions = actor?.getComponent?.('ActionsComponent') || null;
+      const hostileTargets = actor ? this.getEncounterHostileTargets(actor) : [];
+      const primaryTarget = hostileTargets[0]?.target || null;
+      const nextRunState = {
+        ...runState,
+        step_count: Number(runState?.step_count || 0) + 1,
+        guardrails: {
+          max_consecutive_waits: Number(runState?.guardrails?.max_consecutive_waits || 3),
+          max_consecutive_failures: Number(runState?.guardrails?.max_consecutive_failures || 2),
+          consecutive_waits: 0,
+          consecutive_failures: 0,
+        },
+      };
+
+      if (!actor) {
+        nextRunState.guardrails.consecutive_failures = Number(runState?.guardrails?.consecutive_failures || 0) + 1;
+        return {
+          success: false,
+          profile,
+          decision: { type: 'wait', reason: 'No controlled encounter actor is available.' },
+          response: null,
+          run_state: nextRunState,
+          error: 'Automation requires a controlled actor in the active encounter.',
+        };
+      }
+
+      if ((actions?.actionsRemaining || 0) > 0 && primaryTarget) {
+        console.info('[Automation] Using encounter combat action path', {
+          campaignId,
+          actorId: actor.id,
+          targetId: primaryTarget.id,
+          targetName: primaryTarget?.getComponent?.('IdentityComponent')?.name || null,
+          distance: hostileTargets[0]?.distance ?? null,
+        });
+        const attackAccepted = await this.performAttack(actor, primaryTarget);
+        if (!attackAccepted) {
+          nextRunState.guardrails.consecutive_failures = Number(runState?.guardrails?.consecutive_failures || 0) + 1;
+        }
+        return {
+          success: Boolean(attackAccepted),
+          profile,
+          decision: {
+            type: 'intent',
+            reason: primaryTarget
+              ? `Use the combat attack flow against ${primaryTarget?.getComponent?.('IdentityComponent')?.name || 'the nearest hostile'}.`
+              : 'Use the combat attack flow against the nearest hostile.',
+          },
+          response: {
+            success: Boolean(attackAccepted),
+            result: {
+              attacked: Boolean(attackAccepted),
+            },
+          },
+          run_state: nextRunState,
+          error: attackAccepted ? null : 'Encounter attack action was not accepted.',
+        };
+      }
+
+      console.info('[Automation] Using encounter end-turn path', {
+        campaignId,
+        actorId: actor.id,
+        actionsRemaining: actions?.actionsRemaining ?? null,
+        hostileCount: hostileTargets.length,
+      });
+      await this.endTurn();
+      return {
+        success: true,
+        profile,
+        decision: {
+          type: 'intent',
+          reason: hostileTargets.length > 0
+            ? 'No direct combat attack is available from the current position; end the turn safely.'
+            : 'No hostile targets remain in reach; end the turn safely.',
+        },
+        response: {
+          success: true,
+          result: {
+            ended_turn: true,
+          },
+        },
+        run_state: nextRunState,
+        error: null,
+      };
+    },
+
+    maybeAdvancePlayerAutomationEncounterTurn: function (readiness = null, trigger = 'waiting-for-other-turn') {
+      const automation = this.playerAutomation || {};
+      if (!automation.active || automation.inflight || automation.turnAdvancePending) {
+        return false;
+      }
+
+      const currentReadiness = readiness || this.getPlayerAutomationTurnReadiness();
+      if (currentReadiness?.ready || currentReadiness?.phase !== 'encounter' || currentReadiness?.reason !== 'waiting-for-other-turn') {
+        return false;
+      }
+
+      const currentTurnEntity = this.turnManagementSystem?.getCurrentTurnEntity?.() || null;
+      const currentCombat = currentTurnEntity?.getComponent?.('CombatComponent') || null;
+      const currentIdentity = currentTurnEntity?.getComponent?.('IdentityComponent') || null;
+      const controlledEntity = this.resolvePlayerAutomationEntity?.(automation.profile) || null;
+      const controlledCombat = controlledEntity?.getComponent?.('CombatComponent') || null;
+      const currentTurnType = String(currentIdentity?.entityType || currentIdentity?.type || '').trim().toLowerCase();
+      const currentTurnTeam = String(currentCombat?.team || '').trim().toLowerCase();
+      const currentTurnRef = String(currentTurnEntity?.dcEntityRef || currentTurnEntity?.dcEntityInstanceId || '').trim();
+      const currentTurnCharacterId = Number(
+        currentTurnEntity?.dcCharacterId
+        || currentTurnEntity?.dcStatePayload?.metadata?.character_id
+        || 0
+      ) || 0;
+      const controlledCharacterId = Number(
+        controlledEntity?.dcCharacterId
+        || controlledEntity?.dcStatePayload?.metadata?.character_id
+        || automation.profile?.character_id
+        || 0
+      ) || 0;
+      const isControlledEntityTurn = Boolean(
+        controlledEntity
+        && (
+          currentTurnEntity?.id === controlledEntity.id
+          || (currentTurnRef !== '' && currentTurnRef === String(controlledEntity?.dcEntityRef || controlledEntity?.dcEntityInstanceId || '').trim())
+          || (currentTurnCharacterId > 0 && currentTurnCharacterId === controlledCharacterId)
+        )
+      );
+      const isFriendlyTurnForAutomation = Boolean(
+        !isControlledEntityTurn
+        && currentCombat
+        && controlledCombat
+        && !currentCombat.isHostileTo(controlledCombat)
+        && !controlledCombat.isHostileTo(currentCombat)
+      );
+      const isAlliedNpcTurn = !isControlledEntityTurn && (
+        isFriendlyTurnForAutomation
+        || (currentTurnType === 'npc'
+          && (currentCombat?.isPlayerTeam?.() || currentTurnTeam === String(Team.PLAYER).toLowerCase() || currentTurnTeam === String(Team.ALLY).toLowerCase() || currentTurnTeam === 'player' || currentTurnTeam === 'ally'))
+      );
+
+      if (!currentTurnEntity || !isAlliedNpcTurn) {
+        if (currentTurnEntity) {
+          console.info('[Automation] Encounter turn not auto-advanced', {
+            trigger,
+            currentTurnEntityId: String(currentTurnEntity?.id || '').trim() || null,
+            currentTurnEntityRef: currentTurnRef || null,
+            currentTurnCharacterId: currentTurnCharacterId || null,
+            currentTurnEntityName: String(currentIdentity?.name || '').trim() || null,
+            currentTurnEntityType: currentTurnType || null,
+            currentTurnTeam: currentTurnTeam || null,
+            controlledEntityId: String(controlledEntity?.id || '').trim() || null,
+            controlledEntityRef: String(controlledEntity?.dcEntityRef || controlledEntity?.dcEntityInstanceId || '').trim() || null,
+            controlledCharacterId: controlledCharacterId || null,
+            controlledTeam: String(controlledCombat?.team || '').trim() || null,
+            isControlledEntityTurn,
+            isFriendlyTurnForAutomation,
+          });
+        }
+        return false;
+      }
+
+      automation.turnAdvancePending = true;
+      console.info('[Automation] Auto-advancing allied NPC turn', {
+        trigger,
+        currentTurnEntityId: String(currentTurnEntity?.id || '').trim() || null,
+        currentTurnEntityRef: String(currentTurnEntity?.dcEntityRef || currentTurnEntity?.dcEntityInstanceId || '').trim() || null,
+        currentTurnEntityName: String(currentIdentity?.name || '').trim() || null,
+      });
+
+      window.setTimeout(async () => {
+        try {
+          await this.endTurn();
+        } catch (error) {
+          console.warn('[Automation] Failed to auto-advance allied NPC turn', {
+            trigger,
+            error: error instanceof Error ? error.message : error,
+          });
+        } finally {
+          if (this.playerAutomation) {
+            this.playerAutomation.turnAdvancePending = false;
+          }
+          this.uiManager?.refreshActionRail();
+        }
+      }, 0);
+
+      return true;
     },
 
     clearPlayerAutomationTimer: function () {
@@ -9712,6 +9918,7 @@ import { SpriteService } from './SpriteService.js';
         lastError: null,
         lastResult: null,
         stopReason: null,
+        turnAdvancePending: false,
         lastManualInputNoticeAt: 0,
         lastDecisionSummary: '',
         stepCount: 0,
@@ -9775,6 +9982,7 @@ import { SpriteService } from './SpriteService.js';
     queuePlayerAutomationStep: function (reason = 'state-ready') {
       const readiness = this.getPlayerAutomationTurnReadiness();
       if (!readiness.ready) {
+        this.maybeAdvancePlayerAutomationEncounterTurn(readiness, reason);
         console.info('[Automation] Step queue blocked', {
           trigger: reason,
           ...Object.fromEntries(
@@ -10145,6 +10353,152 @@ import { SpriteService } from './SpriteService.js';
       }
     },
 
+    cacheEncounterServerState: function (serverState = null) {
+      if (!this.stateManager) {
+        return;
+      }
+      if (!serverState || typeof serverState !== 'object' || !serverState.encounter_id) {
+        this.stateManager.set('latestEncounterState', null);
+        return;
+      }
+      this.stateManager.set('latestEncounterState', serverState);
+    },
+
+    getEncounterServerState: function () {
+      return this.stateManager?.get?.('latestEncounterState') || null;
+    },
+
+    resolveEncounterParticipantReference: function (entityOrRef = null) {
+      const encounterState = this.getEncounterServerState?.() || null;
+      const participants = Array.isArray(encounterState?.participants) ? encounterState.participants : [];
+      const candidateValues = [];
+
+      if (entityOrRef && typeof entityOrRef === 'object') {
+        candidateValues.push(
+          entityOrRef?.dcEntityRef,
+          entityOrRef?.dcEntityInstanceId,
+          entityOrRef?.dcCharacterId,
+          entityOrRef?.dcStatePayload?.metadata?.character_id,
+          entityOrRef?.id
+        );
+      } else {
+        candidateValues.push(entityOrRef);
+        const entity = this.turnManagementSystem?.resolveEntityFromServerId?.(entityOrRef)
+          || this.entityManager?.getEntity?.(entityOrRef)
+          || this.entityManager?.getEntity?.(Number(entityOrRef));
+        if (entity) {
+          candidateValues.push(
+            entity?.dcEntityRef,
+            entity?.dcEntityInstanceId,
+            entity?.dcCharacterId,
+            entity?.dcStatePayload?.metadata?.character_id,
+            entity?.id
+          );
+        }
+      }
+
+      const normalizedCandidates = [...new Set(
+        candidateValues
+          .map((value) => String(value ?? '').trim())
+          .filter(Boolean)
+      )];
+
+      if (participants.length > 0) {
+        const participant = participants.find((entry) => normalizedCandidates.some((candidate) =>
+          candidate === String(entry?.entity_ref ?? '').trim()
+          || candidate === String(entry?.entity_id ?? '').trim()
+          || candidate === String(entry?.id ?? '').trim()
+        ));
+        if (participant) {
+          return String(participant.entity_ref ?? participant.entity_id ?? participant.id ?? '').trim() || null;
+        }
+      }
+
+      return normalizedCandidates[0] || null;
+    },
+
+    isEncounterParticipantHostileTo: function (actorTeam = '', targetTeam = '') {
+      const actor = String(actorTeam || '').trim().toLowerCase();
+      const target = String(targetTeam || '').trim().toLowerCase();
+      if (actor === '' || target === '' || actor === 'neutral' || target === 'neutral') {
+        return false;
+      }
+      if (actor === 'enemy') {
+        return target === 'player' || target === 'ally';
+      }
+      if (actor === 'player' || actor === 'ally') {
+        return target === 'enemy';
+      }
+      return false;
+    },
+
+    getEncounterHostileTargets: function (actor) {
+      const actorPos = actor?.getComponent?.('PositionComponent') || null;
+      if (!actor || !actorPos) {
+        return [];
+      }
+
+      const encounterState = this.getEncounterServerState?.() || null;
+      const participants = Array.isArray(encounterState?.participants) ? encounterState.participants : [];
+      if (participants.length === 0) {
+        return this.getHostileTargets(actor);
+      }
+
+      const actorRef = this.resolveEncounterParticipantReference(actor);
+      const actorParticipant = participants.find((participant) =>
+        actorRef !== null && actorRef !== ''
+          && (
+            actorRef === String(participant?.entity_ref ?? '').trim()
+            || actorRef === String(participant?.entity_id ?? '').trim()
+            || actorRef === String(participant?.id ?? '').trim()
+          )
+      );
+      const actorTeam = String(
+        actorParticipant?.team
+        || actor?.getComponent?.('CombatComponent')?.team
+        || ''
+      ).trim().toLowerCase();
+
+      if (!actorParticipant || actorTeam === '') {
+        return this.getHostileTargets(actor);
+      }
+
+      const hostileTargets = [];
+      participants.forEach((participant) => {
+        const participantRef = String(participant?.entity_ref ?? participant?.entity_id ?? participant?.id ?? '').trim();
+        const participantTeam = String(participant?.team || '').trim().toLowerCase();
+        if (participantRef === '' || participantRef === actorRef || participant?.is_defeated) {
+          return;
+        }
+        if (!this.isEncounterParticipantHostileTo(actorTeam, participantTeam)) {
+          return;
+        }
+
+        const targetEntity = this.turnManagementSystem?.resolveEntityFromServerId?.(participantRef)
+          || this.turnManagementSystem?.resolveEntityFromServerId?.(participant?.entity_id)
+          || this.turnManagementSystem?.resolveEntityFromServerId?.(participant?.id)
+          || null;
+        const targetStats = targetEntity?.getComponent?.('StatsComponent') || null;
+        const targetPos = targetEntity?.getComponent?.('PositionComponent') || null;
+        if (!targetEntity || !targetPos || (targetStats && !targetStats.isAlive?.())) {
+          return;
+        }
+        if (!this.hasLineOfSight(actorPos.q, actorPos.r, targetPos.q, targetPos.r)) {
+          return;
+        }
+
+        hostileTargets.push({
+          target: targetEntity,
+          distance: this.movementSystem.hexDistance(actorPos.q, actorPos.r, targetPos.q, targetPos.r),
+          participantRef,
+          participantTeam,
+        });
+      });
+
+      hostileTargets.sort((a, b) => a.distance - b.distance);
+      return hostileTargets.length > 0 ? hostileTargets : this.getHostileTargets(actor);
+    },
+
     startCombat: async function (options = {}) {
       console.log('Starting combat (server authoritative)...');
 
@@ -10183,6 +10537,7 @@ import { SpriteService } from './SpriteService.js';
         if (serverState.encounter_id) {
           this.stateManager.set('encounterId', serverState.encounter_id);
         }
+        this.cacheEncounterServerState(serverState);
 
         if (serverState.map_id) {
           this.stateManager.set('mapId', serverState.map_id);
@@ -10240,6 +10595,7 @@ import { SpriteService } from './SpriteService.js';
         if (serverState.encounter_id) {
           this.stateManager.set('encounterId', serverState.encounter_id);
         }
+        this.cacheEncounterServerState(serverState);
 
         if (typeof this.turnManagementSystem.hydrateFromServer === 'function') {
           this.stateManager.set('serverCombatMode', true);
@@ -10281,6 +10637,7 @@ import { SpriteService } from './SpriteService.js';
       this.turnManagementSystem.endCombat();
       this.stateManager.set('encounterId', null);
       this.stateManager.set('serverCombatMode', false);
+      this.cacheEncounterServerState(null);
       if (this.combatSystem && typeof this.combatSystem.setServerResultRequirement === 'function') {
         this.combatSystem.setServerResultRequirement(false);
       }
@@ -10338,8 +10695,8 @@ import { SpriteService } from './SpriteService.js';
       const payload = {
         encounterId,
         ...(this.stateManager.get('mapId') ? { mapId: this.stateManager.get('mapId') } : {}),
-        attackerId: attacker?.id,
-        targetId: target?.id,
+        attackerId: this.resolveEncounterParticipantReference(attacker),
+        targetId: this.resolveEncounterParticipantReference(target),
         action: 'attack',
         weaponId: options.weaponId || null,
         weaponName: options.weaponName || null,
@@ -10356,6 +10713,7 @@ import { SpriteService } from './SpriteService.js';
         if (serverState.encounter_id) {
           this.stateManager.set('encounterId', serverState.encounter_id);
         }
+        this.cacheEncounterServerState(serverState);
 
         if (typeof this.turnManagementSystem.hydrateFromServer === 'function') {
           this.stateManager.set('serverCombatMode', true);

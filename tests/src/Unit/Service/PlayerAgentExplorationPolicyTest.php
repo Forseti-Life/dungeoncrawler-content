@@ -123,6 +123,54 @@ class PlayerAgentExplorationPolicyTest extends UnitTestCase {
   /**
    * @covers ::chooseAction
    */
+  public function testChooseActionTargetsQuestLeadNpcBeforeOtherVisibleNpcs(): void {
+    $quest_tracker = $this->createMock(QuestTrackerService::class);
+    $quest_tracker->method('getActiveQuests')->with(65, 77)->willReturn([
+      [
+        'quest_id' => 'tavern-storyline-leads',
+        'quest_name' => 'Gather Storyline Leads in the Tavern',
+        'current_phase' => 1,
+        'last_updated' => 200,
+        'objective_states' => json_encode([
+          [
+            'phase' => 1,
+            'objectives' => [
+              ['objective_id' => 'speak_to_marta', 'type' => 'interact', 'target' => 'scholar_npc', 'description' => 'Speak to Marta the Scholar and gather her storyline lead.', 'completed' => FALSE],
+            ],
+          ],
+        ]),
+      ],
+    ]);
+    $policy = new PlayerAgentExplorationPolicy($quest_tracker);
+
+    $decision = $policy->chooseAction(
+      [
+        'actor_id' => 'pc-1',
+        'character_id' => 77,
+        'character_name' => 'Torgar',
+      ],
+      [
+        'campaign_id' => 65,
+        'available_actions' => ['talk', 'transition'],
+        'active_room_id' => 'tavern_entrance',
+        'visible_npcs' => [
+          ['entity_instance_id' => 'npc-eldric', 'content_id' => 'tavern_keeper', 'state' => ['metadata' => ['display_name' => 'Eldric']]],
+          ['entity_instance_id' => 'npc-marta', 'content_id' => 'scholar_npc', 'state' => ['metadata' => ['display_name' => 'Marta the Scholar']]],
+        ],
+      ],
+      ['memory' => ['talked_entities' => []]]
+    );
+
+    $this->assertSame('intent', $decision['type']);
+    $this->assertSame('talk', $decision['intent']['type']);
+    $this->assertSame('npc-marta', $decision['intent']['target']);
+    $this->assertSame('speak_to_marta', $decision['intent']['params']['objective_id']);
+    $this->assertStringContainsString('scholar_npc', $decision['reason']);
+  }
+
+  /**
+   * @covers ::chooseAction
+   */
   public function testChooseActionSearchesForQuestObjectiveBeforeGenericLoop(): void {
     $quest_tracker = $this->createMock(QuestTrackerService::class);
     $quest_tracker->method('getActiveQuests')->with(65, 77)->willReturn([

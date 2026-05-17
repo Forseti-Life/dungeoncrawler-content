@@ -21,6 +21,7 @@ export class StateManager {
       combatActive: false,
       serverCombatMode: false,
       attackTarget: null,
+      latestEncounterState: null,
 
       // Drag state
       draggedObject: null,
@@ -80,6 +81,7 @@ export class StateManager {
       combatActive: false,
       serverCombatMode: false,
       attackTarget: null,
+      latestEncounterState: null,
       draggedObject: null,
       assetsLoaded: false,
       showCoordinates: false,
