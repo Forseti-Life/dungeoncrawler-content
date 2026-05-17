@@ -161,7 +161,7 @@ class StateValidationService {
       }
     }
 
-    $json_type = $this->resolveJsonType($value);
+    $json_type = $this->resolveJsonTypeForSchema($value, $schema);
 
     if ($json_type === 'object') {
       if (isset($schema['required']) && is_array($schema['required'])) {
@@ -232,7 +232,7 @@ class StateValidationService {
       return $errors;
     }
 
-    $json_type = $this->resolveJsonType($value);
+    $json_type = $this->resolveJsonTypeForSchema($value, $schema);
     $allowed_types = is_array($schema['type']) ? $schema['type'] : [$schema['type']];
     if (!in_array($json_type, $allowed_types, TRUE)) {
       $errors[] = "Field '{$field_name}' has invalid type. Expected " . implode('|', $allowed_types) . ", got {$json_type}";
@@ -273,6 +273,40 @@ class StateValidationService {
     }
 
     return $errors;
+  }
+
+  /**
+   * Resolve the effective JSON type for a schema-aware validation pass.
+   *
+   * Empty JSON objects decode to [] when using json_decode(..., TRUE), so treat
+   * an empty PHP array as an object when the schema expects an object and does
+   * not also allow arrays.
+   */
+  private function resolveJsonTypeForSchema($value, array $schema): string {
+    $json_type = $this->resolveJsonType($value);
+    if (
+      $json_type === 'array'
+      && is_array($value)
+      && $value === []
+      && $this->schemaAllowsType($schema, 'object')
+      && !$this->schemaAllowsType($schema, 'array')
+    ) {
+      return 'object';
+    }
+
+    return $json_type;
+  }
+
+  /**
+   * Determine whether a schema allows a given JSON type.
+   */
+  private function schemaAllowsType(array $schema, string $type): bool {
+    if (!isset($schema['type'])) {
+      return FALSE;
+    }
+
+    $allowed_types = is_array($schema['type']) ? $schema['type'] : [$schema['type']];
+    return in_array($type, $allowed_types, TRUE);
   }
 
 }

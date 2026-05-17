@@ -1301,7 +1301,7 @@ class StorylineManagerService {
   protected function synchronizeStorylineProgress(array $row): array {
     $campaign_id = (int) ($row['campaign_id'] ?? 0);
     $storyline_id = (string) ($row['storyline_id'] ?? '');
-    $storyline_data = $this->decodeJsonColumn($row['storyline_data'] ?? NULL);
+    $storyline_data = $this->normalizeRuntimeStorylineData($this->decodeJsonColumn($row['storyline_data'] ?? NULL));
 
     $quest_rows = $this->database->select('dc_campaign_quests', 'q')
       ->fields('q', ['quest_id', 'status'])
@@ -1440,10 +1440,63 @@ class StorylineManagerService {
    * Hydrates a campaign storyline row for API use.
    */
   protected function hydrateCampaignStorylineRow(array $row): array {
-    $row['storyline_data'] = $this->decodeJsonColumn($row['storyline_data'] ?? NULL);
+    $row['storyline_data'] = $this->normalizeRuntimeStorylineData($this->decodeJsonColumn($row['storyline_data'] ?? NULL));
     $row['variables'] = $this->decodeJsonColumn($row['variables'] ?? NULL);
     $row['is_primary'] = !empty($row['is_primary']);
     return $row;
+  }
+
+  /**
+   * Backfill legacy storyline runtime rows to the current runtime envelope.
+   */
+  protected function normalizeRuntimeStorylineData(array $storyline_data): array {
+    $storyline_data = array_replace([
+      'schema_version' => self::STORYLINE_RUNTIME_SCHEMA_VERSION,
+      'storyline_type' => 'questline',
+      'metadata' => [],
+      'chapters' => [],
+      'linked_quests' => [],
+      'questline' => [
+        'primary_quest_id' => '',
+        'ordered_quest_ids' => [],
+        'quest_nodes' => [],
+      ],
+      'asset_references' => [],
+      'contacts' => [],
+      'unlocked_chapter_ids' => [],
+      'unlocked_scene_ids' => [],
+      'current_chapter_id' => '',
+      'current_scene_id' => '',
+      'status' => 'available',
+      'variables' => [],
+    ], $storyline_data);
+
+    $storyline_data['schema_version'] = (string) ($storyline_data['schema_version'] ?? self::STORYLINE_RUNTIME_SCHEMA_VERSION);
+    $storyline_data['storyline_type'] = (string) ($storyline_data['storyline_type'] ?? 'questline');
+    $storyline_data['metadata'] = is_array($storyline_data['metadata'] ?? NULL) ? $storyline_data['metadata'] : [];
+    $storyline_data['chapters'] = is_array($storyline_data['chapters'] ?? NULL) ? array_values($storyline_data['chapters']) : [];
+    $storyline_data['linked_quests'] = is_array($storyline_data['linked_quests'] ?? NULL) ? $storyline_data['linked_quests'] : [];
+    $storyline_data['questline'] = is_array($storyline_data['questline'] ?? NULL)
+      ? array_replace([
+        'primary_quest_id' => '',
+        'ordered_quest_ids' => [],
+        'quest_nodes' => [],
+      ], $storyline_data['questline'])
+      : [
+        'primary_quest_id' => '',
+        'ordered_quest_ids' => [],
+        'quest_nodes' => [],
+      ];
+    $storyline_data['asset_references'] = is_array($storyline_data['asset_references'] ?? NULL) ? array_values($storyline_data['asset_references']) : [];
+    $storyline_data['contacts'] = is_array($storyline_data['contacts'] ?? NULL) ? array_values($storyline_data['contacts']) : [];
+    $storyline_data['unlocked_chapter_ids'] = array_values(array_filter(array_map('strval', is_array($storyline_data['unlocked_chapter_ids'] ?? NULL) ? $storyline_data['unlocked_chapter_ids'] : [])));
+    $storyline_data['unlocked_scene_ids'] = array_values(array_filter(array_map('strval', is_array($storyline_data['unlocked_scene_ids'] ?? NULL) ? $storyline_data['unlocked_scene_ids'] : [])));
+    $storyline_data['current_chapter_id'] = (string) ($storyline_data['current_chapter_id'] ?? '');
+    $storyline_data['current_scene_id'] = (string) ($storyline_data['current_scene_id'] ?? '');
+    $storyline_data['status'] = (string) ($storyline_data['status'] ?? 'available');
+    $storyline_data['variables'] = is_array($storyline_data['variables'] ?? NULL) ? $storyline_data['variables'] : [];
+
+    return $storyline_data;
   }
 
   /**

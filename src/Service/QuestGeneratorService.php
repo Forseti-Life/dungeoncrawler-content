@@ -322,7 +322,14 @@ class QuestGeneratorService {
    *   Unique quest identifier.
    */
   protected function generateQuestId(int $campaign_id, string $template_id): string {
-    return $template_id . '_' . $campaign_id . '_' . uniqid();
+    $suffix = '_' . $campaign_id . '_' . uniqid();
+    $max_template_length = max(8, 100 - strlen($suffix));
+    $template_prefix = trim(substr($template_id, 0, $max_template_length), '-_');
+    if ($template_prefix === '') {
+      $template_prefix = 'quest';
+    }
+
+    return $template_prefix . $suffix;
   }
 
   /**
