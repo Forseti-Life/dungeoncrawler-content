@@ -181,6 +181,7 @@ class StorylineController extends ControllerBase {
         'generation_source' => $result['generation_source'] ?? 'fallback',
         'campaign_outline' => $result['campaign_outline'] ?? [],
         'quest_templates' => $result['quest_templates'] ?? [],
+        'initial_quest' => $result['initial_quest'] ?? NULL,
         'expansion_queued' => !empty($result['expansion_queued']),
       ], 201);
     }

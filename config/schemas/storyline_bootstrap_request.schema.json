@@ -1,0 +1,50 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dungeoncrawler.life/schemas/storyline_bootstrap_request.schema.json",
+  "title": "Storyline Bootstrap Request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "prompt",
+    "name",
+    "level_range",
+    "tone",
+    "theme",
+    "source",
+    "template_id",
+    "entry_dungeon_id",
+    "entry_room_id",
+    "first_quest_id",
+    "speaker_npc_id",
+    "speaker_name",
+    "lead_location_id",
+    "tags",
+    "activate",
+    "is_primary",
+    "status",
+    "priority"
+  ],
+  "properties": {
+    "prompt": {"type": "string", "minLength": 1},
+    "name": {"type": "string"},
+    "level_range": {"type": "string"},
+    "tone": {"type": "string"},
+    "theme": {"type": "string"},
+    "source": {"type": "string"},
+    "template_id": {"type": "string"},
+    "entry_dungeon_id": {"type": "string"},
+    "entry_room_id": {"type": "string"},
+    "first_quest_id": {"type": "string"},
+    "speaker_npc_id": {"type": "string"},
+    "speaker_name": {"type": "string"},
+    "lead_location_id": {"type": "string"},
+    "tags": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "activate": {"type": "boolean"},
+    "is_primary": {"type": "boolean"},
+    "status": {"type": "string"},
+    "priority": {"type": "integer"}
+  }
+}

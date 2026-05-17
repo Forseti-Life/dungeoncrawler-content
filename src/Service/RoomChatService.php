@@ -50,6 +50,7 @@ class RoomChatService {
   protected ?QuestGeneratorService $questGenerator;
   protected ?StateValidationService $stateValidationService;
   protected ?StorylineGenerationService $storylineGenerationService;
+  protected ?QuestTouchpointService $questTouchpointService;
   protected MerchantBotService $merchantBotService;
   protected ?InventoryManagementService $inventoryManagementService;
   protected ?array $activeDebugTrace = NULL;
@@ -81,7 +82,8 @@ class RoomChatService {
     ?InventoryManagementService $inventory_management_service = NULL,
     ?QuestGeneratorService $quest_generator = NULL,
     ?StateValidationService $state_validation_service = NULL,
-    ?StorylineGenerationService $storyline_generation_service = NULL
+    ?StorylineGenerationService $storyline_generation_service = NULL,
+    ?QuestTouchpointService $quest_touchpoint_service = NULL
   ) {
     $this->database = $database;
     $this->dungeonStateService = $dungeon_state_service;
@@ -105,6 +107,7 @@ class RoomChatService {
     $this->questGenerator = $quest_generator;
     $this->stateValidationService = $state_validation_service;
     $this->storylineGenerationService = $storyline_generation_service;
+    $this->questTouchpointService = $quest_touchpoint_service;
   }
 
   /**
@@ -222,6 +225,7 @@ class RoomChatService {
     $prompt .= "Write the single next room-chat message this character should send.\n";
     $prompt .= "Choose the next action and wording internally, then output only the exact message text to post.\n";
     $prompt .= "Your core goal on every call is to review active quests, identify the next action, and use the available talk tool to advance that action.\n";
+    $prompt .= "Identify named quest characters, locations, targets, and items from the active objectives. Follow those leads first, in order, before generic exploration.\n";
     $prompt .= "If an NPC just gave a concrete lead, clue, direction, or suggested destination, acknowledge it and ask the most useful follow-up question before changing subjects or asking someone else for unrelated work.\n";
     $prompt .= "If a current quest objective or newly discovered lead is relevant, advance that objective instead of restarting the same generic inquiry.\n";
     $prompt .= "Stay fully in character. Keep it concise (1-2 sentences, max 240 characters). ";
@@ -2303,6 +2307,7 @@ class RoomChatService {
     $this->bridgeChannelReplyToSessionSystem(
       $campaign_id, $room_id, $channel_key, $target_name, $target_entity, $response_text
     );
+    $this->applyConversationQuestTouchpoint($campaign_id, $character_id, $room_id, $npc_ref, $target_name);
 
     // Record inner monologue: NPC reacts privately to what the player said.
     if ($npc_ref) {
@@ -5928,11 +5933,76 @@ PROMPT;
    * Determine whether the player is asking for a fresh storyline arc, not just any job.
    */
   protected function looksLikeStorylineBootstrapRequest(string $normalized_message): bool {
-    if ($this->textContainsAny($normalized_message, ['storyline', 'story line', 'adventure', 'campaign arc', 'quest arc'])) {
+    if ($normalized_message === '') {
+      return FALSE;
+    }
+
+    if ($this->textContainsAny($normalized_message, [
+      'storyline',
+      'story line',
+      'campaign arc',
+      'quest arc',
+      'adventure arc',
+      'main quest',
+      'bigger quest',
+      'bigger job',
+      'long term job',
+      'longer quest',
+      'something bigger',
+      'something major',
+    ])) {
       return TRUE;
     }
 
-    return (bool) preg_match('/\b(?:looking for|want|need|seeking|after|hunt|track|stop|find|recover|investigate|break|destroy|slay)\b.{0,48}\b(?:cult|curse|relic|artifact|killer|necromancer|beast|bandit|ruin|mystery|plot|threat)\b/u', $normalized_message);
+    if ($this->looksLikeSpecificLeadLookup($normalized_message)) {
+      return FALSE;
+    }
+
+    return $this->looksLikeGoalShapedStorylineAsk($normalized_message);
+  }
+
+  /**
+   * Detect explicit requests for a new long-form goal, not a current lead lookup.
+   */
+  protected function looksLikeGoalShapedStorylineAsk(string $normalized_message): bool {
+    $asks_for_new_work = $this->textContainsAny($normalized_message, [
+      'looking for',
+      'look for',
+      'want',
+      'need',
+      'seeking',
+      'after',
+      'got any work',
+      'any work',
+      'any jobs',
+      'something to do',
+      'something dangerous',
+    ]);
+    if (!$asks_for_new_work) {
+      return FALSE;
+    }
+
+    return (bool) preg_match('/\b(?:hunt|track|stop|find|recover|investigate|break|destroy|slay|deal with|help with)\b.{0,64}\b(?:cult|curse|relic|artifact|killer|necromancer|beast|bandit|ruin|mystery|plot|threat|conspiracy|warlord|dragon|missing)\b/u', $normalized_message);
+  }
+
+  /**
+   * Detect asks that are about following an existing lead rather than starting a new arc.
+   */
+  protected function looksLikeSpecificLeadLookup(string $normalized_message): bool {
+    return $this->textContainsAny($normalized_message, [
+      'where is',
+      'where can i find',
+      'who should i talk to',
+      'who do i talk to',
+      'what room',
+      'which room',
+      'where do i go',
+      'next step',
+      'that quest',
+      'this quest',
+      'that lead',
+      'follow up',
+    ]);
   }
 
   /**
@@ -7148,6 +7218,14 @@ PROMPT;
         if ($target_count > 0) {
           $description .= sprintf(' (%d/%d)', $current, $target_count);
         }
+        $target = trim((string) ($objective['target'] ?? $objective['npc_ref'] ?? ''));
+        $item = trim((string) ($objective['item'] ?? ''));
+        if ($target !== '') {
+          $description .= ' [target: ' . $target . ']';
+        }
+        if ($item !== '') {
+          $description .= ' [item: ' . $item . ']';
+        }
         $descriptions[] = $description;
       }
 
@@ -7171,6 +7249,42 @@ PROMPT;
       $text = rtrim(substr($text, 0, 237)) . '...';
     }
     return trim($text);
+  }
+
+  /**
+   * Apply quest interact progress when the player has a substantive NPC exchange.
+   */
+  protected function applyConversationQuestTouchpoint(int $campaign_id, ?int $character_id, string $room_id, string $npc_ref, string $target_name = ''): void {
+    if ($campaign_id <= 0 || !$character_id || $character_id <= 0 || !$this->questTouchpointService) {
+      return;
+    }
+
+    $resolved_npc_ref = trim($npc_ref);
+    if ($resolved_npc_ref === '') {
+      $resolved_npc_ref = trim($target_name);
+    }
+    if ($resolved_npc_ref === '') {
+      return;
+    }
+
+    try {
+      $this->questTouchpointService->ingestEvent($campaign_id, [
+        'character_id' => $character_id,
+        'touchpoint' => [
+          'objective_type' => 'interact',
+          'npc_ref' => $resolved_npc_ref,
+          'entity_ref' => $resolved_npc_ref,
+          'room_id' => $room_id,
+          'confidence' => 'high',
+          'quantity' => 1,
+        ],
+      ]);
+    }
+    catch (\Throwable $e) {
+      $this->logger->warning('Quest touchpoint ingest failed during room chat: @error', [
+        '@error' => $e->getMessage(),
+      ]);
+    }
   }
 
   /**
