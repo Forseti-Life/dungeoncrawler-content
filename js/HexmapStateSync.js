@@ -130,6 +130,10 @@ export class HexmapStateSync {
     if (!serverState || typeof serverState !== 'object') return;
     const hm = this._hexmap;
 
+    if (typeof hm.cacheEncounterServerState === 'function') {
+      hm.cacheEncounterServerState(serverState.encounter_id ? serverState : null);
+    }
+
     if (serverState.encounter_id) {
       hm.stateManager?.set('encounterId', serverState.encounter_id);
     }

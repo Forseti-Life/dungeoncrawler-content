@@ -638,6 +638,9 @@ class CampaignInitializationService {
     $npc_ids = $this->resolveNpcInstanceIds($campaign_id, ['tavern_keeper', 'scholar_npc']);
 
     $starter_templates = [
+      'tavern_storyline_leads' => [
+        'giver_npc_id' => $npc_ids['tavern_keeper'] ?? NULL,
+      ],
       'gather_wine' => [
         'item_name' => 'wine bottle',
         'giver_npc_id' => $npc_ids['tavern_keeper'] ?? NULL,

@@ -33,18 +33,6 @@ class PlayerAgentExplorationPolicy implements PlayerAgentPolicyInterface {
     $memory = is_array($run_state['memory'] ?? NULL) ? $run_state['memory'] : [];
     $current_room_id = (string) ($snapshot['active_room_id'] ?? '');
     $visible_npcs = is_array($snapshot['visible_npcs'] ?? NULL) ? $snapshot['visible_npcs'] : [];
-    $pending_lead = is_array($memory['pending_conversation_lead'] ?? NULL) ? $memory['pending_conversation_lead'] : NULL;
-    $follow_up_decision = $this->chooseConversationFollowUpAction(
-      $profile,
-      $actor_id,
-      $available_actions,
-      $current_room_id,
-      $visible_npcs,
-      $pending_lead
-    );
-    if ($follow_up_decision !== NULL) {
-      return $follow_up_decision;
-    }
     $quest_focus = $this->resolveQuestFocus(
       (int) ($snapshot['campaign_id'] ?? 0),
       (int) ($profile['character_id'] ?? 0)
@@ -62,6 +50,19 @@ class PlayerAgentExplorationPolicy implements PlayerAgentPolicyInterface {
     );
     if ($quest_driven_decision !== NULL) {
       return $quest_driven_decision;
+    }
+
+    $pending_lead = is_array($memory['pending_conversation_lead'] ?? NULL) ? $memory['pending_conversation_lead'] : NULL;
+    $follow_up_decision = $this->chooseConversationFollowUpAction(
+      $profile,
+      $actor_id,
+      $available_actions,
+      $current_room_id,
+      $visible_npcs,
+      $pending_lead
+    );
+    if ($follow_up_decision !== NULL) {
+      return $follow_up_decision;
     }
 
     if (in_array('search', $available_actions, TRUE)
@@ -251,11 +252,36 @@ class PlayerAgentExplorationPolicy implements PlayerAgentPolicyInterface {
     }
 
     $objective_text = strtolower((string) ($quest_focus['objective'] ?? ''));
+    $objective_type = strtolower((string) ($quest_focus['objective_type'] ?? ''));
     $objective_summary = $this->buildQuestObjectiveSummary($quest_focus);
     $should_talk_for_quest = $this->objectiveSuggestsConversation($objective_text);
+    $should_search_for_quest_item = $this->objectiveSuggestsQuestItemCollection($quest_focus);
+
+    if ($should_search_for_quest_item
+      && in_array('search', $available_actions, TRUE)
+      && $current_room_id !== ''
+      && !in_array($current_room_id, $memory['searched_rooms'] ?? [], TRUE)) {
+      return [
+        'type' => 'intent',
+        'reason' => 'Search for active quest leads, locations, and target items first: ' . $objective_summary,
+        'intent' => [
+          'type' => 'search',
+          'actor' => $actor_id,
+          'params' => [
+            'quest_id' => (string) ($quest_focus['quest_id'] ?? ''),
+            'objective_id' => (string) ($quest_focus['objective_id'] ?? ''),
+            'objective_type' => $objective_type,
+            'objective_item' => (string) ($quest_focus['objective_item'] ?? ''),
+            'objective_target' => (string) ($quest_focus['objective_target'] ?? ''),
+          ],
+        ],
+      ];
+    }
 
     if ($should_talk_for_quest && in_array('talk', $available_actions, TRUE)) {
-      foreach ($visible_npcs as $npc) {
+      $targeted_npc = $this->findQuestTargetNpc($visible_npcs, $quest_focus);
+      $npc_candidates = $targeted_npc !== NULL ? [$targeted_npc] : $visible_npcs;
+      foreach ($npc_candidates as $npc) {
         $npc_id = (string) ($npc['entity_instance_id'] ?? $npc['instance_id'] ?? $npc['id'] ?? '');
         if ($npc_id === '' || in_array($npc_id, $memory['talked_entities'] ?? [], TRUE)) {
           continue;
@@ -273,6 +299,7 @@ class PlayerAgentExplorationPolicy implements PlayerAgentPolicyInterface {
               'character_id' => (int) ($profile['character_id'] ?? 0),
               'automation_goal' => 'active_quest_progress',
               'quest_id' => (string) ($quest_focus['quest_id'] ?? ''),
+              'objective_id' => (string) ($quest_focus['objective_id'] ?? ''),
             ],
           ],
         ];
@@ -291,6 +318,9 @@ class PlayerAgentExplorationPolicy implements PlayerAgentPolicyInterface {
           'actor' => $actor_id,
           'params' => [
             'quest_id' => (string) ($quest_focus['quest_id'] ?? ''),
+            'objective_id' => (string) ($quest_focus['objective_id'] ?? ''),
+            'objective_type' => $objective_type,
+            'objective_item' => (string) ($quest_focus['objective_item'] ?? ''),
           ],
         ],
       ];
@@ -313,10 +343,29 @@ class PlayerAgentExplorationPolicy implements PlayerAgentPolicyInterface {
               'params' => [
                 'target_room_id' => $target_room_id,
                 'quest_id' => (string) ($quest_focus['quest_id'] ?? ''),
+                'objective_id' => (string) ($quest_focus['objective_id'] ?? ''),
+                'objective_type' => $objective_type,
               ],
             ],
           ];
         }
+      }
+
+      if (!empty($connections[0]['room_id'])) {
+        return [
+          'type' => 'intent',
+          'reason' => 'Visit the next quest lead or location target: ' . $objective_summary,
+          'intent' => [
+            'type' => 'transition',
+            'actor' => $actor_id,
+            'params' => [
+              'target_room_id' => (string) $connections[0]['room_id'],
+              'quest_id' => (string) ($quest_focus['quest_id'] ?? ''),
+              'objective_id' => (string) ($quest_focus['objective_id'] ?? ''),
+              'objective_type' => $objective_type,
+            ],
+          ],
+        ];
       }
     }
 
@@ -373,13 +422,15 @@ class PlayerAgentExplorationPolicy implements PlayerAgentPolicyInterface {
     $traveler_name = $character_name !== '' ? $character_name : 'a traveler';
     $quest_name = trim((string) ($quest_focus['quest_name'] ?? 'this quest'));
     $objective = trim((string) ($quest_focus['objective'] ?? 'the next step'));
+    $target = trim((string) ($quest_focus['objective_target'] ?? ''));
 
     return sprintf(
-      'Hello %s. I am %s, working on %s. My next objective is %s. What should I do next, and what in this room can help me advance it?',
+      'Hello %s. I am %s, working on %s. My next objective is %s.%s What should I do next, and what in this room can help me advance it?',
       $npc_name !== '' ? $npc_name : 'there',
       $traveler_name,
       $quest_name,
-      $objective !== '' ? $objective : 'the next step'
+      $objective !== '' ? $objective : 'the next step',
+      $target !== '' ? ' I am specifically following the lead tied to ' . $target . '.' : ''
     );
   }
 
@@ -429,11 +480,17 @@ class PlayerAgentExplorationPolicy implements PlayerAgentPolicyInterface {
     foreach ($quests as $quest) {
       $current_phase = max(1, (int) ($quest['current_phase'] ?? 1));
       $objective = $this->extractFirstIncompleteObjective($quest, $current_phase);
-      if ($objective !== '') {
+      if ($objective !== NULL) {
         return [
           'quest_id' => (string) ($quest['quest_id'] ?? ''),
           'quest_name' => trim((string) ($quest['quest_name'] ?? $quest['quest_id'] ?? 'Active quest')),
-          'objective' => $objective,
+          'objective' => trim((string) ($objective['description'] ?? $objective['objective_id'] ?? '')),
+          'objective_id' => trim((string) ($objective['objective_id'] ?? '')),
+          'objective_type' => trim((string) ($objective['type'] ?? $objective['objective_type'] ?? '')),
+          'objective_item' => trim((string) ($objective['item'] ?? '')),
+          'objective_target' => trim((string) ($objective['target'] ?? $objective['npc_ref'] ?? '')),
+          'objective_current' => (int) ($objective['current'] ?? 0),
+          'objective_target_count' => (int) ($objective['target_count'] ?? 0),
         ];
       }
     }
@@ -444,7 +501,7 @@ class PlayerAgentExplorationPolicy implements PlayerAgentPolicyInterface {
   /**
    * Extract the first incomplete objective description for a phase.
    */
-  protected function extractFirstIncompleteObjective(array $quest, int $phase): string {
+  protected function extractFirstIncompleteObjective(array $quest, int $phase): ?array {
     $objective_states = json_decode((string) ($quest['objective_states'] ?? '[]'), TRUE);
     $generated_objectives = json_decode((string) ($quest['generated_objectives'] ?? '[]'), TRUE);
     $phase_rows = is_array($objective_states) && $objective_states !== []
@@ -469,12 +526,12 @@ class PlayerAgentExplorationPolicy implements PlayerAgentPolicyInterface {
 
         $description = trim((string) ($objective['description'] ?? $objective['objective_id'] ?? ''));
         if ($description !== '') {
-          return $description;
+          return $objective;
         }
       }
     }
 
-    return '';
+    return NULL;
   }
 
   /**
@@ -483,7 +540,69 @@ class PlayerAgentExplorationPolicy implements PlayerAgentPolicyInterface {
   protected function buildQuestObjectiveSummary(array $quest_focus): string {
     $quest_name = trim((string) ($quest_focus['quest_name'] ?? 'Active quest'));
     $objective = trim((string) ($quest_focus['objective'] ?? 'advance the current objective'));
-    return sprintf('%s — %s', $quest_name, $objective);
+    $item = trim((string) ($quest_focus['objective_item'] ?? ''));
+    $target = trim((string) ($quest_focus['objective_target'] ?? ''));
+    $current = (int) ($quest_focus['objective_current'] ?? 0);
+    $target_count = (int) ($quest_focus['objective_target_count'] ?? 0);
+    $progress = $target_count > 0 ? sprintf(' (%d/%d)', $current, $target_count) : '';
+    $item_suffix = $item !== '' ? sprintf(' [item: %s]', $item) : '';
+    $target_suffix = $target !== '' ? sprintf(' [target: %s]', $target) : '';
+    return sprintf('%s — %s%s%s%s', $quest_name, $objective, $progress, $item_suffix, $target_suffix);
+  }
+
+  /**
+   * Prefer the specific NPC named by the quest objective when present in the room.
+   */
+  protected function findQuestTargetNpc(array $visible_npcs, array $quest_focus): ?array {
+    $objective_target = strtolower(trim((string) ($quest_focus['objective_target'] ?? '')));
+    if ($objective_target === '') {
+      return NULL;
+    }
+
+    foreach ($visible_npcs as $npc) {
+      $candidate_tokens = [
+        strtolower(trim((string) ($npc['entity_instance_id'] ?? ''))),
+        strtolower(trim((string) ($npc['instance_id'] ?? ''))),
+        strtolower(trim((string) ($npc['id'] ?? ''))),
+        strtolower(trim((string) ($npc['name'] ?? ''))),
+        strtolower(trim((string) ($npc['display_name'] ?? ''))),
+        strtolower(trim((string) ($npc['state']['metadata']['display_name'] ?? ''))),
+        strtolower(trim((string) ($npc['content_id'] ?? ''))),
+      ];
+
+      foreach (array_filter($candidate_tokens) as $candidate) {
+        if ($candidate === $objective_target || str_contains($candidate, $objective_target) || str_contains($objective_target, $candidate)) {
+          return $npc;
+        }
+      }
+    }
+
+    return NULL;
+  }
+
+  /**
+   * Heuristic: objective metadata indicates the primary blocker is a collectible, quest item, or target.
+   */
+  protected function objectiveSuggestsQuestItemCollection(array $quest_focus): bool {
+    $objective_type = strtolower(trim((string) ($quest_focus['objective_type'] ?? '')));
+    $objective_text = strtolower(trim((string) ($quest_focus['objective'] ?? '')));
+    $objective_item = trim((string) ($quest_focus['objective_item'] ?? ''));
+
+    if (in_array($objective_type, ['collect', 'gather', 'recover', 'retrieve'], TRUE)) {
+      return TRUE;
+    }
+
+    if ($objective_item !== '') {
+      return TRUE;
+    }
+
+    foreach (['collect', 'gather', 'recover', 'retrieve', 'find', 'locate', 'missing', 'quest item'] as $keyword) {
+      if ($objective_text !== '' && str_contains($objective_text, $keyword)) {
+        return TRUE;
+      }
+    }
+
+    return FALSE;
   }
 
   /**
