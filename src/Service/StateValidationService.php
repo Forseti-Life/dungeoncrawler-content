@@ -65,6 +65,20 @@ class StateValidationService {
   }
 
   /**
+   * Validate a normalized storyline bootstrap request payload.
+   */
+  public function validateStorylineBootstrapRequest(array $request): array {
+    return $this->validateAgainstSchema($request, 'storyline_bootstrap_request.schema.json');
+  }
+
+  /**
+   * Validate a queued storyline expansion job payload.
+   */
+  public function validateStorylineExpansionJob(array $payload): array {
+    return $this->validateAgainstSchema($payload, 'storyline_expansion_job.schema.json');
+  }
+
+  /**
    * Validate stored storyline runtime state against the canonical questline contract.
    */
   public function validateStorylineRuntime(array $runtime): array {

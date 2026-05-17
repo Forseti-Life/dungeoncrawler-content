@@ -471,6 +471,69 @@ class StateValidationServiceTest extends UnitTestCase {
   }
 
   /**
+   * Verifies normalized bootstrap request payloads pass validation.
+   */
+  public function testValidateStorylineBootstrapRequestAcceptsNormalizedPayload(): void {
+    $payload = [
+      'prompt' => 'I want a storyline about relic thieves.',
+      'name' => 'Relic Thief Trail',
+      'level_range' => '1-4',
+      'tone' => 'tense mystery',
+      'theme' => 'ruined catacombs',
+      'source' => 'npc-storyline-bootstrap',
+      'template_id' => '',
+      'entry_dungeon_id' => '',
+      'entry_room_id' => '',
+      'first_quest_id' => '',
+      'speaker_npc_id' => 'npc_tavern_keeper',
+      'speaker_name' => 'Eldric',
+      'lead_location_id' => 'tavern_entrance',
+      'tags' => ['generated', 'bootstrap'],
+      'activate' => FALSE,
+      'is_primary' => FALSE,
+      'status' => 'bootstrapping',
+      'priority' => 0,
+    ];
+
+    $result = $this->service->validateStorylineBootstrapRequest($payload);
+    $this->assertTrue($result['valid'], implode('; ', $result['errors'] ?? []));
+  }
+
+  /**
+   * Verifies expansion queue payloads pass validation.
+   */
+  public function testValidateStorylineExpansionJobAcceptsCanonicalPayload(): void {
+    $payload = [
+      'schema_version' => 'storyline-expansion-job-v1',
+      'campaign_id' => 65,
+      'storyline_id' => 'bootstrap-threshold-65',
+      'request' => [
+        'prompt' => 'Stop the relic cult before it opens the gate.',
+        'name' => 'Bootstrap Threshold',
+        'level_range' => '1-4',
+        'tone' => 'occult ruin crawl',
+        'theme' => 'threshold ruin',
+        'source' => 'storyline-expansion',
+        'template_id' => 'bootstrap-threshold',
+        'entry_dungeon_id' => 'bootstrap-threshold-entry-dungeon',
+        'entry_room_id' => 'bootstrap-threshold-entry-room',
+        'first_quest_id' => 'bootstrap-threshold-entry-quest',
+        'speaker_npc_id' => 'npc_tavern_keeper',
+        'speaker_name' => 'Eldric',
+        'lead_location_id' => 'tavern_entrance',
+        'tags' => ['generated'],
+        'activate' => FALSE,
+        'is_primary' => FALSE,
+        'status' => 'available',
+        'priority' => 0,
+      ],
+    ];
+
+    $result = $this->service->validateStorylineExpansionJob($payload);
+    $this->assertTrue($result['valid'], implode('; ', $result['errors'] ?? []));
+  }
+
+  /**
    * Verifies storyline runtime questline payloads pass validation.
    */
   public function testValidateStorylineRuntimeAcceptsQuestlinePayload(): void {

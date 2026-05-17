@@ -390,6 +390,12 @@ services:
       - '@dungeoncrawler_content.campaign_state_service'
       - '@dungeoncrawler_content.state_validation_service'
 
+  dungeoncrawler_content.storyline_realization_service:
+    class: Drupal\dungeoncrawler_content\Service\StorylineRealizationService
+    arguments:
+      - '@database'
+      - '@?dungeoncrawler_content.npc_sheet_generation'
+
   dungeoncrawler_content.storyline_generation_service:
     class: Drupal\dungeoncrawler_content\Service\StorylineGenerationService
     arguments:
@@ -401,6 +407,10 @@ services:
       - '@dungeoncrawler_content.treasure_by_level'
       - '@uuid'
       - '@?dungeoncrawler_content.relationship_manager'
+      - '@?dungeoncrawler_content.quest_generator'
+      - '@dungeoncrawler_content.state_validation_service'
+      - '@?dungeoncrawler_content.npc_sheet_generation'
+      - '@dungeoncrawler_content.storyline_realization_service'
 
   dungeoncrawler_content.gameplay_action_processor:
     class: Drupal\dungeoncrawler_content\Service\GameplayActionProcessor
@@ -440,6 +450,7 @@ services:
       - '@dungeoncrawler_content.quest_generator'
       - '@dungeoncrawler_content.state_validation_service'
       - '@?dungeoncrawler_content.storyline_generation_service'
+      - '@?dungeoncrawler_content.quest_touchpoint'
 
   dungeoncrawler_content.campaign_initialization:
     class: Drupal\dungeoncrawler_content\Service\CampaignInitializationService

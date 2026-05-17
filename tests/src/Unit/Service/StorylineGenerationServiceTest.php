@@ -10,6 +10,7 @@ use Drupal\dungeoncrawler_content\Service\CampaignStateService;
 use Drupal\dungeoncrawler_content\Service\StateValidationService;
 use Drupal\dungeoncrawler_content\Service\StorylineGenerationService;
 use Drupal\dungeoncrawler_content\Service\StorylineManagerService;
+use Drupal\dungeoncrawler_content\Service\StorylineRealizationService;
 use Drupal\dungeoncrawler_content\Service\TreasureByLevelService;
 use Drupal\Tests\UnitTestCase;
 use Psr\Log\LoggerInterface;
@@ -171,6 +172,261 @@ class StorylineGenerationServiceTest extends UnitTestCase {
     $this->assertCount(1, $package['quest_templates'] ?? []);
     $this->assertCount(1, $storyline['chapters'] ?? []);
     $this->assertCount(1, $storyline['questline']['ordered_quest_ids'] ?? []);
+  }
+
+  /**
+   * Verifies deferred expansion can preserve the bootstrap handoff identifiers.
+   */
+  public function testExpandedGenerationPreservesBootstrapIdsWhenProvided(): void {
+    $campaign_state = $this->createMock(CampaignStateService::class);
+    $campaign_state->method('getState')->willReturn([
+      'current_room_id' => 'tavern_entrance',
+      'characters' => [
+        ['level' => 3],
+        ['level' => 3],
+      ],
+    ]);
+
+    $storyline_manager = new StorylineManagerService(
+      $this->createMock(Connection::class),
+      $this->buildLoggerFactory(),
+      $this->buildUuid(),
+      $campaign_state,
+      $this->buildStateValidationService()
+    );
+
+    $service = new StorylineGenerationService(
+      $this->createMock(Connection::class),
+      $this->buildLoggerFactory(),
+      NULL,
+      $storyline_manager,
+      $campaign_state,
+      new TreasureByLevelService(),
+      $this->buildUuid()
+    );
+
+    $package = $service->generateStorylinePackage(65, [
+      'prompt' => 'Stop the relic cult before it opens the gate',
+      'template_id' => 'bootstrap-threshold',
+      'entry_dungeon_id' => 'bootstrap-threshold-entry-dungeon',
+      'entry_room_id' => 'bootstrap-threshold-entry-room',
+      'first_quest_id' => 'bootstrap-threshold-entry-quest',
+      'speaker_npc_id' => 'npc_tavern_keeper',
+      'speaker_name' => 'Eldric',
+      'lead_location_id' => 'tavern_entrance',
+    ]);
+
+    $outline = $package['campaign_outline'] ?? [];
+    $chapters = $package['storyline_definition']['chapters'] ?? [];
+
+    $this->assertSame('bootstrap-threshold', $package['storyline_definition']['template_id'] ?? NULL);
+    $this->assertSame('bootstrap-threshold-entry-dungeon', $outline['dungeons'][0]['dungeon_id'] ?? NULL);
+    $this->assertSame('bootstrap-threshold-entry-room', $outline['dungeons'][0]['entrance_room_id'] ?? NULL);
+    $this->assertSame('bootstrap-threshold-entry-room', $outline['progression_connectors'][0]['target_room_id'] ?? NULL);
+    $this->assertSame('bootstrap-threshold-entry-quest', $chapters[0]['scenes'][0]['quest_ids'][0] ?? NULL);
+  }
+
+  /**
+   * Verifies storyline NPC specs are derived from contacts and boss outline data.
+   */
+  public function testBuildStorylineNpcSpecsIncludesQuestgiverAndBosses(): void {
+    $campaign_state = $this->createMock(CampaignStateService::class);
+    $campaign_state->method('getState')->willReturn([
+      'current_room_id' => 'tavern_entrance',
+      'characters' => [['level' => 2], ['level' => 4]],
+    ]);
+
+    $storyline_manager = new StorylineManagerService(
+      $this->createMock(Connection::class),
+      $this->buildLoggerFactory(),
+      $this->buildUuid(),
+      $campaign_state,
+      $this->buildStateValidationService()
+    );
+
+    $service = new class(
+      $this->createMock(Connection::class),
+      $this->buildLoggerFactory(),
+      NULL,
+      $storyline_manager,
+      $campaign_state,
+      new TreasureByLevelService(),
+      $this->buildUuid(),
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      new StorylineRealizationService($this->createMock(Connection::class))
+    ) extends StorylineGenerationService {
+      public function exposeBuildStorylineNpcSpecs(array $storyline_data): array {
+        return $this->buildStorylineNpcSpecs($storyline_data);
+      }
+    };
+
+    $specs = $service->exposeBuildStorylineNpcSpecs([
+      'metadata' => [
+        'level_range' => '2-5',
+        'generated_outline' => [
+          'sub_bosses' => [
+            ['boss_id' => 'ash-warden', 'name' => 'Ash Warden', 'style' => 'fortified ruin'],
+            ['boss_id' => 'echo-seer', 'name' => 'Echo Seer', 'style' => 'occult ruin'],
+          ],
+          'big_boss' => [
+            'boss_id' => 'gate-king',
+            'name' => 'Gate King',
+            'style' => 'void ruin',
+          ],
+        ],
+      ],
+      'contacts' => [
+        [
+          'entity_type' => 'campaign_npc',
+          'entity_id' => 'npc_tavern_keeper',
+          'display_name' => 'Eldric',
+          'attitude' => 'friendly',
+          'notes' => 'Knows where the trouble starts.',
+        ],
+      ],
+    ]);
+
+    $entity_refs = array_column($specs, 'entity_ref');
+    $this->assertContains('npc_tavern_keeper', $entity_refs);
+    $this->assertContains('ash-warden', $entity_refs);
+    $this->assertContains('echo-seer', $entity_refs);
+    $this->assertContains('gate-king', $entity_refs);
+  }
+
+  /**
+   * Verifies bootstrap outlines synthesize a concrete entry dungeon bundle.
+   */
+  public function testExtractStorylineDungeonOutlinesSupportsBootstrapShape(): void {
+    $campaign_state = $this->createMock(CampaignStateService::class);
+    $campaign_state->method('getState')->willReturn([
+      'current_room_id' => 'tavern_entrance',
+      'characters' => [['level' => 1]],
+    ]);
+
+    $storyline_manager = new StorylineManagerService(
+      $this->createMock(Connection::class),
+      $this->buildLoggerFactory(),
+      $this->buildUuid(),
+      $campaign_state,
+      $this->buildStateValidationService()
+    );
+
+    $service = new class(
+      $this->createMock(Connection::class),
+      $this->buildLoggerFactory(),
+      NULL,
+      $storyline_manager,
+      $campaign_state,
+      new TreasureByLevelService(),
+      $this->buildUuid(),
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      new StorylineRealizationService($this->createMock(Connection::class))
+    ) extends StorylineGenerationService {
+      public function exposeExtractStorylineDungeonOutlines(array $storyline_data): array {
+        return $this->extractStorylineDungeonOutlines($storyline_data);
+      }
+    };
+
+    $dungeons = $service->exposeExtractStorylineDungeonOutlines([
+      'metadata' => [
+        'goal' => 'Find the missing relic',
+        'generated_outline' => [
+          'generation_phase' => 'bootstrap',
+          'goal' => 'Find the missing relic',
+          'entry_dungeon' => [
+            'dungeon_id' => 'relic-threshold',
+            'name' => 'Threshold of Relics',
+            'style' => 'threshold archive',
+            'entrance_room_id' => 'relic-threshold-entrance',
+            'lead_location_hint' => 'Follow the tavern map to the ruined stairs.',
+          ],
+        ],
+      ],
+      'questline' => [
+        'primary_quest_id' => 'relic-threshold-entrance-quest',
+      ],
+      'chapters' => [[
+        'scenes' => [[
+          'scene_id' => 'relic-threshold-entrance',
+          'name' => 'Dungeon Entrance',
+          'summary' => 'A cracked stairway descends beneath the old tavern.',
+          'quest_ids' => ['relic-threshold-entrance-quest'],
+        ]],
+      ]],
+    ]);
+
+    $this->assertCount(1, $dungeons);
+    $this->assertSame('relic-threshold', $dungeons[0]['dungeon_id'] ?? NULL);
+    $this->assertSame('relic-threshold-entrance', $dungeons[0]['rooms'][0]['room_id'] ?? NULL);
+    $this->assertSame('relic-threshold-entrance-quest', $dungeons[0]['rooms'][0]['quest_template_id'] ?? NULL);
+  }
+
+  /**
+   * Verifies room npc references are promoted into campaign NPC specs.
+   */
+  public function testBuildStorylineNpcSpecsIncludesRoomOccupants(): void {
+    $campaign_state = $this->createMock(CampaignStateService::class);
+    $campaign_state->method('getState')->willReturn([
+      'current_room_id' => 'tavern_entrance',
+      'characters' => [['level' => 3]],
+    ]);
+
+    $storyline_manager = new StorylineManagerService(
+      $this->createMock(Connection::class),
+      $this->buildLoggerFactory(),
+      $this->buildUuid(),
+      $campaign_state,
+      $this->buildStateValidationService()
+    );
+
+    $service = new class(
+      $this->createMock(Connection::class),
+      $this->buildLoggerFactory(),
+      NULL,
+      $storyline_manager,
+      $campaign_state,
+      new TreasureByLevelService(),
+      $this->buildUuid(),
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      new StorylineRealizationService($this->createMock(Connection::class))
+    ) extends StorylineGenerationService {
+      public function exposeBuildStorylineNpcSpecs(array $storyline_data): array {
+        return $this->buildStorylineNpcSpecs($storyline_data);
+      }
+    };
+
+    $specs = $service->exposeBuildStorylineNpcSpecs([
+      'metadata' => [
+        'level_range' => '3-5',
+        'generated_outline' => [
+          'generation_phase' => 'expanded',
+          'dungeons' => [[
+            'dungeon_id' => 'vault-of-cinders',
+            'name' => 'Vault of Cinders',
+            'style' => 'ash vault',
+            'rooms' => [[
+              'room_id' => 'vault-of-cinders-room-1',
+              'name' => 'Cinder Gate',
+              'room_role' => 'entrance',
+              'npc_ids' => ['vault-of-cinders-entrance-sentinel'],
+              'item_ids' => [],
+            ]],
+          ]],
+        ],
+      ],
+    ]);
+
+    $entity_refs = array_column($specs, 'entity_ref');
+    $this->assertContains('vault-of-cinders-entrance-sentinel', $entity_refs);
   }
 
   private function buildLoggerFactory(): LoggerChannelFactoryInterface {
