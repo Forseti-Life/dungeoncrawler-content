@@ -9,6 +9,8 @@
 
 Core content module for the living dungeon crawler RPG. Provides character management, game content types, and navigation structure for the Dungeoncrawler universe.
 
+> **Checkpoint note (2026-05-17):** The current local checkpoint centers on player automation/quest-handoff improvements plus storyline and schema hardening that are now tracked in recent repository history.
+
 ## Documentation Index
 
 ### Canonical (Active)

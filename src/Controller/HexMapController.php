@@ -8,6 +8,7 @@ use Drupal\dungeoncrawler_content\Service\AnimalCompanionService;
 use Drupal\dungeoncrawler_content\Service\GeneratedImageRepository;
 use Drupal\dungeoncrawler_content\Service\QuestTrackerService;
 use Drupal\dungeoncrawler_content\Service\RelationshipManagerService;
+use Drupal\dungeoncrawler_content\Service\StateValidationService;
 use Drupal\dungeoncrawler_content\Service\StorylineManagerService;
 use Symfony\Component\HttpFoundation\RequestStack;
 use Symfony\Component\DependencyInjection\ContainerInterface;
@@ -19,6 +20,7 @@ use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 class HexMapController extends ControllerBase {
 
   protected const DEFAULT_OBJECT_ORIENTATION = 'n';
+  protected const QUEST_SUMMARY_SCHEMA_VERSION = 'quest-summary-v1';
 
   protected RequestStack $requestStack;
 
@@ -28,6 +30,7 @@ class HexMapController extends ControllerBase {
   protected GeneratedImageRepository $imageRepository;
   protected StorylineManagerService $storylineManager;
   protected RelationshipManagerService $relationshipManager;
+  protected StateValidationService $stateValidationService;
 
   /**
    * Per-request cache of room contents_data to avoid redundant DB reads.
@@ -37,7 +40,7 @@ class HexMapController extends ControllerBase {
    * @var array<string, array|null>
    */
   protected array $roomContentsCache = [];
-  public function __construct(RequestStack $request_stack, Connection $database, AnimalCompanionService $animal_companion_service, QuestTrackerService $quest_tracker, GeneratedImageRepository $image_repository, StorylineManagerService $storyline_manager, RelationshipManagerService $relationship_manager) {
+  public function __construct(RequestStack $request_stack, Connection $database, AnimalCompanionService $animal_companion_service, QuestTrackerService $quest_tracker, GeneratedImageRepository $image_repository, StorylineManagerService $storyline_manager, RelationshipManagerService $relationship_manager, StateValidationService $state_validation_service) {
     $this->requestStack = $request_stack;
     $this->database = $database;
     $this->animalCompanionService = $animal_companion_service;
@@ -45,6 +48,7 @@ class HexMapController extends ControllerBase {
     $this->imageRepository = $image_repository;
     $this->storylineManager = $storyline_manager;
     $this->relationshipManager = $relationship_manager;
+    $this->stateValidationService = $state_validation_service;
   }
 
   /**
@@ -59,6 +63,7 @@ class HexMapController extends ControllerBase {
       $container->get('dungeoncrawler_content.generated_image_repository'),
       $container->get('dungeoncrawler_content.storyline_manager'),
       $container->get('dungeoncrawler_content.relationship_manager'),
+      $container->get('dungeoncrawler_content.state_validation_service'),
     );
   }
 
@@ -492,11 +497,6 @@ class HexMapController extends ControllerBase {
   protected function loadQuestSummary(array $launch_context): array {
     $campaign_id = (int) ($launch_context['campaign_id'] ?? 0);
     $character_id = (int) ($launch_context['character_id'] ?? 0);
-
-    if ($campaign_id <= 0 || $character_id <= 0) {
-      return [];
-    }
-
     $location_id = (string) ($launch_context['room_id'] ?? '');
     if ($location_id === '') {
       $location_id = (string) ($launch_context['map_id'] ?? '');
@@ -505,31 +505,95 @@ class HexMapController extends ControllerBase {
       $location_id = 'tavern_entrance';
     }
 
+    if ($campaign_id <= 0 || $character_id <= 0) {
+      return $this->finalizeQuestSummaryPayload([
+        'schema_version' => self::QUEST_SUMMARY_SCHEMA_VERSION,
+        'location_id' => $location_id,
+        'active' => [],
+        'available' => [],
+        'counts' => [
+          'active' => 0,
+          'available' => 0,
+        ],
+      ]);
+    }
+
     $active = $this->questTracker->getActiveQuests($campaign_id, $character_id);
     $available = $this->questTracker->getAvailableQuests($campaign_id, $location_id, $character_id);
 
-    $normalize = static function (array $quest): array {
-      $quest['generated_objectives'] = json_decode((string) ($quest['generated_objectives'] ?? '[]'), TRUE) ?? [];
-      $quest['generated_rewards'] = json_decode((string) ($quest['generated_rewards'] ?? '[]'), TRUE) ?? [];
-      $quest['objective_states'] = json_decode((string) ($quest['objective_states'] ?? '[]'), TRUE) ?? [];
-      $quest['quest_data'] = json_decode((string) ($quest['quest_data'] ?? '{}'), TRUE) ?? [];
-      $quest['title'] = (string) ($quest['title'] ?? $quest['quest_name'] ?? $quest['name'] ?? $quest['quest_id'] ?? '');
-      $quest['quest_key'] = (string) ($quest['quest_key'] ?? $quest['source_template_id'] ?? $quest['quest_id'] ?? '');
-      return $quest;
-    };
-
-    $active_summary = array_map($normalize, $active);
-    $available_summary = array_map($normalize, $available);
-
-    return [
+    $payload = [
+      'schema_version' => self::QUEST_SUMMARY_SCHEMA_VERSION,
       'location_id' => $location_id,
-      'active' => $active_summary,
-      'available' => $available_summary,
+      'active' => array_map([$this, 'normalizeQuestSummaryEntry'], $active),
+      'available' => array_map([$this, 'normalizeQuestSummaryEntry'], $available),
       'counts' => [
-        'active' => count($active_summary),
-        'available' => count($available_summary),
+        'active' => count($active),
+        'available' => count($available),
       ],
     ];
+
+    return $this->finalizeQuestSummaryPayload($payload);
+  }
+
+  /**
+   * Normalize one quest row to the canonical hexmap quest summary contract.
+   */
+  protected function normalizeQuestSummaryEntry(array $quest): array {
+    return [
+      'quest_id' => (string) ($quest['quest_id'] ?? ''),
+      'quest_key' => (string) ($quest['quest_key'] ?? $quest['source_template_id'] ?? $quest['quest_id'] ?? ''),
+      'source_template_id' => isset($quest['source_template_id']) && $quest['source_template_id'] !== '' ? (string) $quest['source_template_id'] : NULL,
+      'title' => (string) ($quest['title'] ?? $quest['quest_name'] ?? $quest['name'] ?? $quest['quest_id'] ?? ''),
+      'quest_name' => (string) ($quest['quest_name'] ?? $quest['title'] ?? $quest['quest_id'] ?? ''),
+      'status' => (string) ($quest['status'] ?? 'available'),
+      'current_phase' => max(1, (int) ($quest['current_phase'] ?? 1)),
+      'generated_objectives' => $this->decodeQuestJsonArray($quest['generated_objectives'] ?? []),
+      'objective_states' => $this->decodeQuestJsonArray($quest['objective_states'] ?? []),
+      'generated_rewards' => $this->decodeQuestJsonObject($quest['generated_rewards'] ?? []),
+      'quest_data' => $this->decodeQuestJsonObject($quest['quest_data'] ?? []),
+      'location_id' => isset($quest['location_id']) && $quest['location_id'] !== '' ? (string) $quest['location_id'] : NULL,
+      'storyline' => [
+        'storyline_id' => isset($quest['storyline_id']) && $quest['storyline_id'] !== '' ? (string) $quest['storyline_id'] : NULL,
+        'chapter_id' => isset($quest['storyline_chapter_id']) && $quest['storyline_chapter_id'] !== '' ? (string) $quest['storyline_chapter_id'] : NULL,
+        'scene_id' => isset($quest['storyline_scene_id']) && $quest['storyline_scene_id'] !== '' ? (string) $quest['storyline_scene_id'] : NULL,
+      ],
+    ];
+  }
+
+  /**
+   * Decode quest JSON fields to arrays without leaking scalar/null payloads.
+   */
+  protected function decodeQuestJsonArray($value): array {
+    if (is_array($value)) {
+      return $value;
+    }
+
+    $decoded = json_decode((string) $value, TRUE);
+    return is_array($decoded) ? $decoded : [];
+  }
+
+  /**
+   * Decode quest JSON fields to associative objects.
+   */
+  protected function decodeQuestJsonObject($value): array {
+    if (is_array($value)) {
+      return $value;
+    }
+
+    $decoded = json_decode((string) $value, TRUE);
+    return is_array($decoded) ? $decoded : [];
+  }
+
+  /**
+   * Validate and return the canonical quest summary payload.
+   */
+  protected function finalizeQuestSummaryPayload(array $payload): array {
+    $validation = $this->stateValidationService->validateQuestSummary($payload);
+    if (!empty($validation['valid'])) {
+      return $payload;
+    }
+
+    throw new \RuntimeException('Quest summary contract violation: ' . implode('; ', $validation['errors'] ?? []));
   }
 
   /**

@@ -1,0 +1,60 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dungeoncrawler.life/schemas/quest_update.schema.json",
+  "title": "Room Chat Quest Update Schema",
+  "description": "Canonical contract for room-chat quest update payloads consumed by the hexmap client.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "type",
+    "quest_id",
+    "quest_name",
+    "status",
+    "objectives",
+    "source",
+    "storyline_id"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "enum": ["quest-update-v1"]
+    },
+    "type": {
+      "type": "string",
+      "enum": ["quest_started"]
+    },
+    "quest_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160
+    },
+    "quest_name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "status": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "objectives": {
+      "type": "array",
+      "maxItems": 10,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 1000
+      }
+    },
+    "source": {
+      "type": "string",
+      "enum": ["available_quest", "brokered_storyline"]
+    },
+    "storyline_id": {
+      "type": ["string", "null"],
+      "maxLength": 160
+    }
+  }
+}

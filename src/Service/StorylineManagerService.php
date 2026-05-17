@@ -12,21 +12,27 @@ use Psr\Log\LoggerInterface;
  */
 class StorylineManagerService {
 
+  public const STORYLINE_DEFINITION_SCHEMA_VERSION = 'storyline-definition-v1';
+  public const STORYLINE_RUNTIME_SCHEMA_VERSION = 'storyline-runtime-v1';
+
   protected Connection $database;
   protected LoggerInterface $logger;
   protected UuidInterface $uuid;
   protected CampaignStateService $campaignStateService;
+  protected ?StateValidationService $stateValidationService;
 
   public function __construct(
     Connection $database,
     LoggerChannelFactoryInterface $logger_factory,
     UuidInterface $uuid,
-    CampaignStateService $campaign_state_service
+    CampaignStateService $campaign_state_service,
+    ?StateValidationService $state_validation_service = NULL
   ) {
     $this->database = $database;
     $this->logger = $logger_factory->get('dungeoncrawler_content');
     $this->uuid = $uuid;
     $this->campaignStateService = $campaign_state_service;
+    $this->stateValidationService = $state_validation_service;
   }
 
   /**
@@ -65,7 +71,7 @@ class StorylineManagerService {
   public function saveTemplate(array $definition): array {
     $this->assertStorylineStorageReady();
 
-    $normalized = $this->normalizeTemplateDefinition($definition);
+    $normalized = $this->normalizeStorylineDefinition($definition);
     $existing = $this->getTemplate((string) $normalized['template_id']);
     $now = time();
 
@@ -103,7 +109,7 @@ class StorylineManagerService {
     $this->assertStorylineStorageReady();
     $this->campaignStateService->getState($campaign_id);
 
-    $normalized = $this->normalizeTemplateDefinition($definition);
+    $normalized = $this->normalizeStorylineDefinition($definition);
     $instance = $this->buildInitialStorylineState($normalized, $options);
     $storyline_id = $this->generateCampaignStorylineId($campaign_id, (string) ($options['storyline_id'] ?? $normalized['template_id']));
     $status = !empty($options['activate']) ? 'active' : ((string) ($options['status'] ?? 'available'));
@@ -157,6 +163,102 @@ class StorylineManagerService {
     }
 
     return $this->getCampaignStoryline($campaign_id, $storyline_id, TRUE) ?? [];
+  }
+
+  /**
+   * Replace the definition/runtime payload for an existing campaign storyline.
+   */
+  public function replaceCampaignStorylineDefinition(int $campaign_id, string $storyline_id, array $definition, array $options = []): ?array {
+    $this->assertStorylineStorageReady();
+
+    $row = $this->database->select('dc_campaign_storylines', 's')
+      ->fields('s')
+      ->condition('campaign_id', $campaign_id)
+      ->condition('storyline_id', $storyline_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    if (!is_array($row)) {
+      return NULL;
+    }
+
+    $normalized = $this->normalizeStorylineDefinition($definition);
+    $existing_storyline_data = $this->decodeJsonColumn($row['storyline_data'] ?? NULL);
+    $existing_variables = $this->decodeJsonColumn($row['variables'] ?? NULL);
+    $runtime_options = $options + [
+      'activate' => (string) ($row['status'] ?? '') === 'active',
+      'status' => (string) ($options['status'] ?? ($row['status'] ?? 'available')),
+      'variables' => $existing_variables,
+    ];
+    $instance = $this->buildInitialStorylineState($normalized, $runtime_options);
+    $status = (string) ($runtime_options['status'] ?? ($row['status'] ?? 'available'));
+    $now = time();
+
+    $this->database->update('dc_campaign_storylines')
+      ->fields([
+        'template_id' => isset($normalized['template_id']) ? (string) $normalized['template_id'] : NULL,
+        'name' => (string) $normalized['name'],
+        'status' => $status,
+        'current_chapter_id' => $instance['current_chapter_id'] ?: NULL,
+        'current_scene_id' => $instance['current_scene_id'] ?: NULL,
+        'storyline_data' => json_encode($instance['storyline_data'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        'variables' => json_encode($instance['variables'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        'updated_at' => $now,
+        'activated_at' => $status === 'active'
+          ? (!empty($row['activated_at']) ? (int) $row['activated_at'] : $now)
+          : NULL,
+      ])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('storyline_id', $storyline_id)
+      ->execute();
+
+    $this->attachQuestReferences(
+      $campaign_id,
+      $storyline_id,
+      $instance['storyline_data']['linked_quests'] ?? []
+    );
+    $this->syncCampaignStorylineAssetLinks(
+      $campaign_id,
+      $storyline_id,
+      $instance['storyline_data']['asset_references'] ?? []
+    );
+    $this->logStorylineEvent(
+      $campaign_id,
+      $storyline_id,
+      'storyline_definition_replaced',
+      [
+        'previous_generation_phase' => (string) (($existing_storyline_data['metadata']['generated_outline']['generation_phase'] ?? '')),
+        'current_generation_phase' => (string) (($instance['storyline_data']['metadata']['generated_outline']['generation_phase'] ?? '')),
+        'status' => $status,
+      ],
+      'Storyline definition updated: ' . (string) $normalized['name']
+    );
+
+    return $this->getCampaignStoryline($campaign_id, $storyline_id, TRUE);
+  }
+
+  /**
+   * Normalize and validate a storyline definition for storage/runtime use.
+   */
+  public function normalizeStorylineDefinition(array $definition): array {
+    $normalized = $this->normalizeTemplateDefinition($definition);
+    $validation = $this->validateNormalizedStorylineDefinition($normalized);
+    if (!($validation['valid'] ?? FALSE)) {
+      throw new \InvalidArgumentException('Storyline definition failed validation: ' . implode('; ', $validation['errors'] ?? []), 400);
+    }
+
+    return $normalized;
+  }
+
+  /**
+   * Validate a normalized storyline definition when schema validation is wired.
+   */
+  public function validateNormalizedStorylineDefinition(array $definition): array {
+    if ($this->stateValidationService === NULL) {
+      return ['valid' => TRUE, 'errors' => []];
+    }
+
+    return $this->stateValidationService->validateStorylineDefinition($definition);
   }
 
   /**
@@ -511,20 +613,24 @@ class StorylineManagerService {
 
     $chapters = $this->normalizeChapterDefinitions($definition['chapters'] ?? []);
     $linked_quests = $this->buildLinkedQuestMap($chapters);
+    $questline = $this->buildQuestlineDefinition($chapters, $linked_quests);
     $asset_references = $this->buildAssetReferenceMap($definition, $chapters, $linked_quests);
     $contacts = $this->normalizeContactDefinitions($definition['contacts'] ?? [], $asset_references);
     $tags = array_values(array_filter(array_map('strval', is_array($definition['tags'] ?? NULL) ? $definition['tags'] : [])));
 
     return [
+      'schema_version' => self::STORYLINE_DEFINITION_SCHEMA_VERSION,
       'template_id' => $template_id,
       'name' => $name,
       'synopsis' => trim((string) ($definition['synopsis'] ?? $definition['summary'] ?? $definition['description'] ?? '')),
       'level_range' => trim((string) ($definition['level_range'] ?? $definition['levelBand'] ?? '')),
       'source' => trim((string) ($definition['source'] ?? '')),
       'tags' => $tags,
+      'storyline_type' => 'questline',
       'metadata' => is_array($definition['metadata'] ?? NULL) ? $definition['metadata'] : [],
       'chapters' => $chapters,
       'linked_quests' => $linked_quests,
+      'questline' => $questline,
       'asset_references' => array_values($asset_references),
       'contacts' => $contacts,
     ];
@@ -544,6 +650,11 @@ class StorylineManagerService {
       $quest_link['status'] = (string) ($quest_state_map[$quest_id] ?? ($quest_link['status'] ?? 'available'));
     }
     unset($quest_link);
+    $storyline_data['questline'] = $this->synchronizeQuestlineRuntime(
+      is_array($storyline_data['questline'] ?? NULL) ? $storyline_data['questline'] : [],
+      $storyline_data['linked_quests'],
+      $quest_state_map
+    );
 
     $status = (string) ($storyline_data['status'] ?? 'available');
     $events = [];
@@ -603,6 +714,11 @@ class StorylineManagerService {
     $storyline_data['status'] = $status;
     $storyline_data['current_chapter_id'] = $current_chapter_id;
     $storyline_data['current_scene_id'] = $current_scene_id;
+
+    $validation = $this->validateRuntimeStorylineData($storyline_data);
+    if (!($validation['valid'] ?? FALSE)) {
+      throw new \InvalidArgumentException('Storyline runtime failed validation after quest sync: ' . implode('; ', $validation['errors'] ?? []), 400);
+    }
 
     return [
       'storyline_data' => $storyline_data,
@@ -704,6 +820,64 @@ class StorylineManagerService {
     }
 
     return $linked_quests;
+  }
+
+  /**
+   * Builds an explicit questline graph from the ordered storyline quest list.
+   */
+  protected function buildQuestlineDefinition(array $chapters, array $linked_quests): array {
+    $ordered_quest_ids = $this->extractOrderedQuestIds($chapters);
+    $quest_nodes = [];
+
+    foreach ($ordered_quest_ids as $index => $quest_id) {
+      $previous = $ordered_quest_ids[$index - 1] ?? NULL;
+      $next = $ordered_quest_ids[$index + 1] ?? NULL;
+      $quest_link = $linked_quests[$quest_id] ?? [];
+      $quest_nodes[] = [
+        'quest_id' => $quest_id,
+        'chapter_id' => (string) ($quest_link['chapter_id'] ?? ''),
+        'scene_id' => (string) ($quest_link['scene_id'] ?? ''),
+        'status' => (string) ($quest_link['status'] ?? 'available'),
+        'unlocks_after' => $previous ? [$previous] : [],
+        'unlocks_to' => $next ? [$next] : [],
+        'unlock_condition' => $previous ? 'complete_previous_quest' : 'initially_available',
+      ];
+    }
+
+    return [
+      'primary_quest_id' => $ordered_quest_ids[0] ?? '',
+      'ordered_quest_ids' => $ordered_quest_ids,
+      'quest_nodes' => $quest_nodes,
+    ];
+  }
+
+  /**
+   * Extract the canonical ordered quest list for a storyline.
+   *
+   * Chapter-level quest ids come before scene quest ids within that chapter.
+   */
+  protected function extractOrderedQuestIds(array $chapters): array {
+    $ordered = [];
+
+    foreach ($chapters as $chapter) {
+      foreach ((array) ($chapter['quest_ids'] ?? []) as $quest_id) {
+        $quest_id = (string) $quest_id;
+        if ($quest_id !== '' && !in_array($quest_id, $ordered, TRUE)) {
+          $ordered[] = $quest_id;
+        }
+      }
+
+      foreach ((array) ($chapter['scenes'] ?? []) as $scene) {
+        foreach ((array) ($scene['quest_ids'] ?? []) as $quest_id) {
+          $quest_id = (string) $quest_id;
+          if ($quest_id !== '' && !in_array($quest_id, $ordered, TRUE)) {
+            $ordered[] = $quest_id;
+          }
+        }
+      }
+    }
+
+    return $ordered;
   }
 
   /**
@@ -906,6 +1080,8 @@ class StorylineManagerService {
     $variables = is_array($options['variables'] ?? NULL) ? $options['variables'] : [];
 
     $storyline_data = [
+      'schema_version' => self::STORYLINE_RUNTIME_SCHEMA_VERSION,
+      'storyline_type' => 'questline',
       'metadata' => [
         'template_id' => (string) ($normalized['template_id'] ?? ''),
         'name' => (string) ($normalized['name'] ?? ''),
@@ -913,9 +1089,14 @@ class StorylineManagerService {
         'level_range' => (string) ($normalized['level_range'] ?? ''),
         'source' => (string) ($normalized['source'] ?? ''),
         'tags' => $normalized['tags'] ?? [],
+        'goal' => (string) ($normalized['metadata']['goal'] ?? ''),
+        'generated_outline' => is_array($normalized['metadata']['generated_outline'] ?? NULL)
+          ? $normalized['metadata']['generated_outline']
+          : [],
       ],
       'chapters' => $normalized['chapters'] ?? [],
       'linked_quests' => $normalized['linked_quests'] ?? [],
+      'questline' => $normalized['questline'] ?? ['primary_quest_id' => '', 'ordered_quest_ids' => [], 'quest_nodes' => []],
       'asset_references' => $normalized['asset_references'] ?? [],
       'contacts' => $normalized['contacts'] ?? [],
       'unlocked_chapter_ids' => $first_chapter_id !== '' ? [$first_chapter_id] : [],
@@ -926,12 +1107,48 @@ class StorylineManagerService {
       'variables' => $variables,
     ];
 
+    $validation = $this->validateRuntimeStorylineData($storyline_data);
+    if (!($validation['valid'] ?? FALSE)) {
+      throw new \InvalidArgumentException('Storyline runtime failed validation: ' . implode('; ', $validation['errors'] ?? []), 400);
+    }
+
     return [
       'current_chapter_id' => $first_chapter_id,
       'current_scene_id' => $first_scene_id,
       'variables' => $variables,
       'storyline_data' => $storyline_data,
     ];
+  }
+
+  /**
+   * Keep questline runtime nodes aligned with quest-table statuses.
+   */
+  protected function synchronizeQuestlineRuntime(array $questline, array $linked_quests, array $quest_state_map): array {
+    $nodes = is_array($questline['quest_nodes'] ?? NULL) ? $questline['quest_nodes'] : [];
+    foreach ($nodes as &$node) {
+      if (!is_array($node)) {
+        continue;
+      }
+      $quest_id = (string) ($node['quest_id'] ?? '');
+      $node['status'] = (string) ($quest_state_map[$quest_id] ?? ($linked_quests[$quest_id]['status'] ?? $node['status'] ?? 'available'));
+    }
+    unset($node);
+
+    $questline['quest_nodes'] = $nodes;
+    $questline['ordered_quest_ids'] = array_values(array_filter(array_map('strval', is_array($questline['ordered_quest_ids'] ?? NULL) ? $questline['ordered_quest_ids'] : [])));
+    $questline['primary_quest_id'] = (string) ($questline['primary_quest_id'] ?? ($questline['ordered_quest_ids'][0] ?? ''));
+    return $questline;
+  }
+
+  /**
+   * Validate storyline runtime data when schema validation is wired.
+   */
+  protected function validateRuntimeStorylineData(array $storyline_data): array {
+    if ($this->stateValidationService === NULL) {
+      return ['valid' => TRUE, 'errors' => []];
+    }
+
+    return $this->stateValidationService->validateStorylineRuntime($storyline_data);
   }
 
   /**

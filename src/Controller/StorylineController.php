@@ -4,6 +4,7 @@ namespace Drupal\dungeoncrawler_content\Controller;
 
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\dungeoncrawler_content\Service\RelationshipManagerService;
+use Drupal\dungeoncrawler_content\Service\StorylineGenerationService;
 use Drupal\dungeoncrawler_content\Service\StorylineManagerService;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -16,16 +17,19 @@ class StorylineController extends ControllerBase {
 
   protected StorylineManagerService $storylineManager;
   protected RelationshipManagerService $relationshipManager;
+  protected StorylineGenerationService $storylineGenerator;
 
-  public function __construct(StorylineManagerService $storyline_manager, RelationshipManagerService $relationship_manager) {
+  public function __construct(StorylineManagerService $storyline_manager, RelationshipManagerService $relationship_manager, StorylineGenerationService $storyline_generator) {
     $this->storylineManager = $storyline_manager;
     $this->relationshipManager = $relationship_manager;
+    $this->storylineGenerator = $storyline_generator;
   }
 
   public static function create(ContainerInterface $container): self {
     return new static(
       $container->get('dungeoncrawler_content.storyline_manager'),
-      $container->get('dungeoncrawler_content.relationship_manager')
+      $container->get('dungeoncrawler_content.relationship_manager'),
+      $container->get('dungeoncrawler_content.storyline_generation_service')
     );
   }
 
@@ -149,6 +153,73 @@ class StorylineController extends ControllerBase {
       return new JsonResponse([
         'success' => TRUE,
         'storyline' => $storyline,
+      ], 201);
+    }
+    catch (\InvalidArgumentException $e) {
+      return new JsonResponse(['success' => FALSE, 'error' => $e->getMessage()], $e->getCode() ?: 400);
+    }
+    catch (\Exception $e) {
+      return new JsonResponse(['success' => FALSE, 'error' => 'Internal server error'], 500);
+    }
+  }
+
+  /**
+   * Bootstraps a campaign storyline from a prompt without blocking on expansion.
+   */
+  public function bootstrapCampaignStoryline(int $campaign_id, Request $request): JsonResponse {
+    $payload = json_decode($request->getContent(), TRUE);
+    if (!is_array($payload)) {
+      return new JsonResponse(['success' => FALSE, 'error' => 'Invalid JSON'], 400);
+    }
+
+    try {
+      $result = $this->storylineGenerator->bootstrapCampaignStoryline($campaign_id, $payload);
+
+      return new JsonResponse([
+        'success' => TRUE,
+        'storyline' => $result['storyline'] ?? [],
+        'generation_source' => $result['generation_source'] ?? 'fallback',
+        'campaign_outline' => $result['campaign_outline'] ?? [],
+        'quest_templates' => $result['quest_templates'] ?? [],
+        'expansion_queued' => !empty($result['expansion_queued']),
+      ], 201);
+    }
+    catch (\InvalidArgumentException $e) {
+      return new JsonResponse(['success' => FALSE, 'error' => $e->getMessage()], $e->getCode() ?: 400);
+    }
+    catch (\Exception $e) {
+      return new JsonResponse(['success' => FALSE, 'error' => 'Internal server error'], 500);
+    }
+  }
+
+  /**
+   * Generates and creates a campaign storyline from a prompt.
+   */
+  public function generateCampaignStoryline(int $campaign_id, Request $request): JsonResponse {
+    $payload = json_decode($request->getContent(), TRUE);
+    if (!is_array($payload)) {
+      return new JsonResponse(['success' => FALSE, 'error' => 'Invalid JSON'], 400);
+    }
+
+    try {
+      $package = $this->storylineGenerator->generateStorylinePackage($campaign_id, $payload);
+      $saved_templates = $this->storylineGenerator->persistQuestTemplates($package['quest_templates'] ?? []);
+      $storyline = $this->storylineManager->createCampaignStoryline(
+        $campaign_id,
+        $package['storyline_definition'] ?? [],
+        $payload
+      );
+
+      $this->relationshipManager->seedLibraryRelationships($campaign_id);
+      $this->relationshipManager->seedStorylineContacts($campaign_id, $storyline);
+      $this->relationshipManager->refreshCampaignStorylineContacts($campaign_id, 'npc_tavern_keeper');
+
+      return new JsonResponse([
+        'success' => TRUE,
+        'storyline' => $storyline,
+        'generation_source' => $package['generation_source'] ?? 'fallback',
+        'campaign_outline' => $package['campaign_outline'] ?? [],
+        'quest_templates' => $saved_templates,
       ], 201);
     }
     catch (\InvalidArgumentException $e) {

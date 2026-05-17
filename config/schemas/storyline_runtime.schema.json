@@ -1,0 +1,116 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dungeoncrawler.life/schemas/storyline_runtime.schema.json",
+  "title": "Storyline Runtime State",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "storyline_type",
+    "metadata",
+    "chapters",
+    "linked_quests",
+    "questline",
+    "asset_references",
+    "contacts",
+    "unlocked_chapter_ids",
+    "unlocked_scene_ids",
+    "current_chapter_id",
+    "current_scene_id",
+    "status",
+    "variables"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "enum": ["storyline-runtime-v1"]
+    },
+    "storyline_type": {
+      "type": "string",
+      "enum": ["questline"]
+    },
+    "metadata": {
+      "type": "object",
+      "required": ["template_id", "name", "synopsis", "level_range", "source", "tags"],
+      "additionalProperties": true,
+      "properties": {
+        "template_id": {"type": "string"},
+        "name": {"type": "string"},
+        "synopsis": {"type": "string"},
+        "level_range": {"type": "string"},
+        "source": {"type": "string"},
+        "tags": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "chapters": {
+      "type": "array",
+      "items": {"type": "object", "additionalProperties": true}
+    },
+    "linked_quests": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["quest_id", "chapter_id", "scene_id", "status"],
+        "additionalProperties": false,
+        "properties": {
+          "quest_id": {"type": "string"},
+          "chapter_id": {"type": "string"},
+          "scene_id": {"type": "string"},
+          "status": {"type": "string"}
+        }
+      }
+    },
+    "questline": {
+      "type": "object",
+      "required": ["primary_quest_id", "ordered_quest_ids", "quest_nodes"],
+      "additionalProperties": false,
+      "properties": {
+        "primary_quest_id": {"type": "string"},
+        "ordered_quest_ids": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "quest_nodes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["quest_id", "chapter_id", "scene_id", "status", "unlocks_after", "unlocks_to", "unlock_condition"],
+            "additionalProperties": false,
+            "properties": {
+              "quest_id": {"type": "string"},
+              "chapter_id": {"type": "string"},
+              "scene_id": {"type": "string"},
+              "status": {"type": "string"},
+              "unlocks_after": {"type": "array", "items": {"type": "string"}},
+              "unlocks_to": {"type": "array", "items": {"type": "string"}},
+              "unlock_condition": {"type": "string"}
+            }
+          }
+        }
+      }
+    },
+    "asset_references": {
+      "type": "array",
+      "items": {"type": "object", "additionalProperties": true}
+    },
+    "contacts": {
+      "type": "array",
+      "items": {"type": "object", "additionalProperties": true}
+    },
+    "unlocked_chapter_ids": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "unlocked_scene_ids": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "current_chapter_id": {"type": "string"},
+    "current_scene_id": {"type": "string"},
+    "status": {"type": "string"},
+    "variables": {
+      "type": ["object", "array"],
+      "additionalProperties": true
+    }
+  }
+}

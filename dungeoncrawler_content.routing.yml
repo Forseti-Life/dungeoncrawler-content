@@ -1821,6 +1821,32 @@ dungeoncrawler_content.api.storylines_create:
   options:
     _format: json
 
+# Generate and create a campaign storyline from a prompt.
+dungeoncrawler_content.api.storylines_generate:
+  path: '/api/campaign/{campaign_id}/storylines/generate'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\StorylineController::generateCampaignStoryline'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _permission: 'access dungeoncrawler characters'
+    campaign_id: '\d+'
+  options:
+    _format: json
+
+# Bootstrap a storyline immediately and queue deferred expansion.
+dungeoncrawler_content.api.storylines_bootstrap:
+  path: '/api/campaign/{campaign_id}/storylines/bootstrap'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\StorylineController::bootstrapCampaignStoryline'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _permission: 'access dungeoncrawler characters'
+    campaign_id: '\d+'
+  options:
+    _format: json
+
 # Get a campaign storyline instance.
 dungeoncrawler_content.api.storylines_get:
   path: '/api/campaign/{campaign_id}/storylines/{storyline_id}'

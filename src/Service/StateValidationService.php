@@ -58,6 +58,34 @@ class StateValidationService {
   }
 
   /**
+   * Validate a normalized storyline definition against the canonical contract.
+   */
+  public function validateStorylineDefinition(array $definition): array {
+    return $this->validateAgainstSchema($definition, 'storyline_definition.schema.json');
+  }
+
+  /**
+   * Validate stored storyline runtime state against the canonical questline contract.
+   */
+  public function validateStorylineRuntime(array $runtime): array {
+    return $this->validateAgainstSchema($runtime, 'storyline_runtime.schema.json');
+  }
+
+  /**
+   * Validate a hexmap quest summary payload against the canonical contract.
+   */
+  public function validateQuestSummary(array $summary): array {
+    return $this->validateAgainstSchema($summary, 'quest_summary.schema.json');
+  }
+
+  /**
+   * Validate a room-chat quest update payload against the canonical contract.
+   */
+  public function validateQuestUpdate(array $update): array {
+    return $this->validateAgainstSchema($update, 'quest_update.schema.json');
+  }
+
+  /**
    * Validate data against a schema file.
    */
   private function validateAgainstSchema(array $data, string $schema_filename): array {

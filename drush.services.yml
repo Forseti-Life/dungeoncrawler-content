@@ -37,6 +37,13 @@ services:
     tags:
       - { name: drush.command }
 
+  dungeoncrawler_content.commands.storyline_expansion_worker:
+    class: Drupal\dungeoncrawler_content\Commands\StorylineExpansionWorkerCommands
+    arguments:
+      - '@dungeoncrawler_content.storyline_generation_service'
+    tags:
+      - { name: drush.command }
+
   dungeoncrawler_content.commands.player_agent:
     class: Drupal\dungeoncrawler_content\Commands\PlayerAgentCommands
     arguments:

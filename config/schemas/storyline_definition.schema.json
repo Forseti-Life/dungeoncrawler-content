@@ -1,0 +1,313 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dungeoncrawler.life/schemas/storyline_definition.schema.json",
+  "title": "Generated Storyline Definition",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "template_id",
+    "name",
+    "synopsis",
+    "level_range",
+    "source",
+    "tags",
+    "storyline_type",
+    "metadata",
+    "chapters",
+    "linked_quests",
+    "questline",
+    "asset_references",
+    "contacts"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "enum": ["storyline-definition-v1"]
+    },
+    "template_id": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "synopsis": {
+      "type": "string"
+    },
+    "level_range": {
+      "type": "string"
+    },
+    "source": {
+      "type": "string"
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "storyline_type": {
+      "type": "string",
+      "enum": ["questline"]
+    },
+    "metadata": {
+      "type": "object",
+      "required": ["goal", "generated_outline"],
+      "additionalProperties": true,
+      "properties": {
+        "goal": {
+          "type": "string"
+        },
+        "generated_outline": {
+          "type": "object",
+          "required": ["generation_phase", "goal"],
+          "additionalProperties": true,
+          "properties": {
+            "generation_phase": {
+              "type": "string",
+              "enum": ["bootstrap", "expanded"]
+            },
+            "goal": {
+              "type": "string"
+            },
+            "entry_dungeon": {
+              "type": "object",
+              "required": ["dungeon_id", "name", "style", "entrance_room_id", "lead_location_id", "lead_location_hint"],
+              "additionalProperties": true,
+              "properties": {
+                "dungeon_id": {"type": "string"},
+                "name": {"type": "string"},
+                "style": {"type": "string"},
+                "entrance_room_id": {"type": "string"},
+                "lead_location_id": {"type": "string"},
+                "lead_location_hint": {"type": "string"}
+              }
+            },
+            "big_boss": {
+              "type": "object",
+              "required": ["boss_id", "name", "style", "dungeon_id"],
+              "additionalProperties": true,
+              "properties": {
+                "boss_id": {"type": "string"},
+                "name": {"type": "string"},
+                "style": {"type": "string"},
+                "dungeon_id": {"type": "string"}
+              }
+            },
+            "sub_bosses": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["boss_id", "name", "style", "dungeon_id"],
+                "additionalProperties": true,
+                "properties": {
+                  "boss_id": {"type": "string"},
+                  "name": {"type": "string"},
+                  "style": {"type": "string"},
+                  "dungeon_id": {"type": "string"}
+                }
+              }
+            },
+            "dungeons": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["dungeon_id", "name", "boss_id", "style", "room_count", "rooms"],
+                "additionalProperties": true,
+                "properties": {
+                  "dungeon_id": {"type": "string"},
+                  "name": {"type": "string"},
+                  "boss_id": {"type": "string"},
+                  "style": {"type": "string"},
+                  "entrance_room_id": {"type": "string"},
+                  "boss_room_id": {"type": "string"},
+                  "room_count": {"type": "integer", "minimum": 1},
+                  "rooms": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": ["room_id", "name", "room_role", "style", "summary", "npc_ids", "item_ids", "encounter_connector", "treasure_connector"],
+                      "additionalProperties": true,
+                      "properties": {
+                        "room_id": {"type": "string"},
+                        "name": {"type": "string"},
+                        "room_role": {"type": "string"},
+                        "style": {"type": "string"},
+                        "summary": {"type": "string"},
+                        "npc_ids": {"type": "array", "items": {"type": "string"}},
+                        "item_ids": {"type": "array", "items": {"type": "string"}},
+                        "encounter_connector": {"type": "object", "additionalProperties": true},
+                        "treasure_connector": {"type": "object", "additionalProperties": true}
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "progression_connectors": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["connector_id", "source_type", "source_id", "mechanism", "target_dungeon_id", "target_room_id", "narrative"],
+                "additionalProperties": true,
+                "properties": {
+                  "connector_id": {"type": "string"},
+                  "source_type": {"type": "string"},
+                  "source_id": {"type": "string"},
+                  "mechanism": {"type": "string"},
+                  "clue_item_id": {"type": "string"},
+                  "from_location_id": {"type": "string"},
+                  "target_dungeon_id": {"type": "string"},
+                  "target_room_id": {"type": "string"},
+                  "goal": {"type": "string"},
+                  "narrative": {"type": "string"}
+                }
+              }
+            },
+            "bootstrap_handoff": {
+              "type": "object",
+              "required": ["speaker_npc_id", "speaker_name", "lead_text"],
+              "additionalProperties": true,
+              "properties": {
+                "speaker_npc_id": {"type": "string"},
+                "speaker_name": {"type": "string"},
+                "lead_text": {"type": "string"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "chapters": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["chapter_id", "name", "summary", "order", "quest_ids", "asset_references", "gates", "scenes"],
+        "additionalProperties": false,
+        "properties": {
+          "chapter_id": {"type": "string"},
+          "name": {"type": "string"},
+          "summary": {"type": "string"},
+          "order": {"type": "integer"},
+          "quest_ids": {"type": "array", "items": {"type": "string"}},
+          "asset_references": {"type": "array", "items": {"type": "object", "additionalProperties": true}},
+          "gates": {"type": "array", "items": {}},
+          "scenes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["scene_id", "name", "summary", "order", "quest_ids", "asset_references", "gates"],
+              "additionalProperties": false,
+              "properties": {
+                "scene_id": {"type": "string"},
+                "name": {"type": "string"},
+                "summary": {"type": "string"},
+                "order": {"type": "integer"},
+                "quest_ids": {"type": "array", "items": {"type": "string"}},
+                "asset_references": {"type": "array", "items": {"type": "object", "additionalProperties": true}},
+                "gates": {"type": "array", "items": {}}
+              }
+            }
+          }
+        }
+      }
+    },
+    "linked_quests": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["quest_id", "chapter_id", "scene_id", "status"],
+        "additionalProperties": false,
+        "properties": {
+          "quest_id": {"type": "string"},
+          "chapter_id": {"type": "string"},
+          "scene_id": {"type": "string"},
+          "status": {"type": "string"}
+        }
+      }
+    },
+    "questline": {
+      "type": "object",
+      "required": ["primary_quest_id", "ordered_quest_ids", "quest_nodes"],
+      "additionalProperties": false,
+      "properties": {
+        "primary_quest_id": {"type": "string"},
+        "ordered_quest_ids": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "quest_nodes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["quest_id", "chapter_id", "scene_id", "status", "unlocks_after", "unlocks_to", "unlock_condition"],
+            "additionalProperties": false,
+            "properties": {
+              "quest_id": {"type": "string"},
+              "chapter_id": {"type": "string"},
+              "scene_id": {"type": "string"},
+              "status": {"type": "string"},
+              "unlocks_after": {"type": "array", "items": {"type": "string"}},
+              "unlocks_to": {"type": "array", "items": {"type": "string"}},
+              "unlock_condition": {"type": "string"}
+            }
+          }
+        }
+      }
+    },
+    "asset_references": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["asset_type", "asset_id", "asset_role", "chapter_id", "scene_id", "source_scope", "notes", "link_data"],
+        "additionalProperties": false,
+        "properties": {
+          "asset_type": {"type": "string"},
+          "asset_id": {"type": "string"},
+          "asset_role": {"type": "string"},
+          "chapter_id": {"type": "string"},
+          "scene_id": {"type": "string"},
+          "source_scope": {"type": "string"},
+          "notes": {"type": "string"},
+          "link_data": {"type": "object", "additionalProperties": true}
+        }
+      }
+    },
+    "contacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["contact_id", "entity_type", "entity_id", "role", "display_name", "attitude", "availability", "notes", "relationship_state", "introduces_to"],
+        "additionalProperties": false,
+        "properties": {
+          "contact_id": {"type": "string"},
+          "entity_type": {"type": "string"},
+          "entity_id": {"type": "string"},
+          "role": {"type": "string"},
+          "display_name": {"type": "string"},
+          "attitude": {"type": "string"},
+          "availability": {"type": "string"},
+          "notes": {"type": "string"},
+          "relationship_state": {"type": "object", "additionalProperties": true},
+          "introduces_to": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["entity_type", "entity_id", "relationship_type", "attitude", "display_name", "notes", "relationship_state"],
+              "additionalProperties": false,
+              "properties": {
+                "entity_type": {"type": "string"},
+                "entity_id": {"type": "string"},
+                "relationship_type": {"type": "string"},
+                "attitude": {"type": "string"},
+                "display_name": {"type": "string"},
+                "notes": {"type": "string"},
+                "relationship_state": {"type": "object", "additionalProperties": true}
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
