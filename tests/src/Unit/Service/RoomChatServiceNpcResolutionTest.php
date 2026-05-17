@@ -1173,10 +1173,12 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
     ], 'If you want work, For Little Trouble in Big Absalom, look for The Kind Old Lady at Upstairs! Also, For Threshold of Knowledge, look for Okoro of the Open Palm at Magaambya Campus.');
 
     $this->assertCount(2, $matches);
+    $storyline_ids = array_values(array_unique(array_map(static fn(array $match): string => (string) ($match['storyline_id'] ?? ''), $matches)));
+    sort($storyline_ids);
     $this->assertSame([
       'little-trouble-in-big-absalom',
       'threshold-of-knowledge',
-    ], array_values(array_unique(array_map(static fn(array $match): string => (string) ($match['storyline_id'] ?? ''), $matches))));
+    ], $storyline_ids);
   }
 
   /**

@@ -385,11 +385,12 @@ class QuestGeneratorService {
     foreach ($objectives_schema as $phase_data) {
       $phase_objectives = [];
 
-      foreach ($phase_data['objectives'] as $obj) {
+        foreach ($phase_data['objectives'] as $obj) {
+        $description = $this->resolveVariables((string) ($obj['description'] ?? $obj['objective_id'] ?? 'Objective'), $variables);
         $generated_obj = [
           'objective_id' => $obj['objective_id'],
           'type' => $obj['type'],
-          'description' => $this->resolveVariables($obj['description'], $variables),
+          'description' => $description,
           'completed' => FALSE,
         ];
 
@@ -400,32 +401,38 @@ class QuestGeneratorService {
               $obj['target_count_range'][0] ?? 5,
               $obj['target_count_range'][1] ?? 10
             );
-            $generated_obj['target'] = $this->resolveVariables($obj['target'], $variables);
+            $generated_obj['target'] = $this->resolveVariables((string) ($obj['target'] ?? $obj['description'] ?? $obj['objective_id'] ?? ''), $variables);
             $generated_obj['current'] = 0;
             $generated_obj['target_count'] = $target_count;
             break;
 
           case 'collect':
             $target_count = $obj['target_count'] ?? $this->numberGeneration->rollRange(3, 8);
-            $generated_obj['item'] = $this->resolveVariables($obj['item'] ?? $obj['target'], $variables);
+            $generated_obj['item'] = $this->resolveVariables((string) ($obj['item'] ?? $obj['target'] ?? $obj['description'] ?? $obj['objective_id'] ?? ''), $variables);
             $generated_obj['current'] = 0;
             $generated_obj['target_count'] = $target_count;
             break;
 
           case 'explore':
-            $generated_obj['location'] = $this->resolveVariables($obj['target'], $variables);
+            $generated_obj['location'] = $this->resolveVariables((string) ($obj['target'] ?? $obj['location'] ?? $obj['description'] ?? $obj['objective_id'] ?? ''), $variables);
             $generated_obj['discovered'] = FALSE;
             break;
 
           case 'escort':
             $generated_obj['npc_id'] = $context['escort_npc_id'] ?? NULL;
-            $generated_obj['destination'] = $this->resolveVariables($obj['destination'], $variables);
+            $generated_obj['destination'] = $this->resolveVariables((string) ($obj['destination'] ?? $obj['target'] ?? $obj['description'] ?? $obj['objective_id'] ?? ''), $variables);
             $generated_obj['arrived'] = FALSE;
             break;
 
           case 'interact':
-            $generated_obj['target'] = $this->resolveVariables($obj['target'], $variables);
+            $generated_obj['target'] = $this->resolveVariables((string) ($obj['target'] ?? $obj['npc'] ?? $obj['item'] ?? $obj['description'] ?? $obj['objective_id'] ?? ''), $variables);
             $generated_obj['completed'] = FALSE;
+            break;
+
+          case 'investigate':
+            $generated_obj['target'] = $this->resolveVariables((string) ($obj['target'] ?? $obj['location'] ?? $obj['description'] ?? $obj['objective_id'] ?? ''), $variables);
+            $generated_obj['current'] = 0;
+            $generated_obj['target_count'] = max(1, (int) ($obj['target_count'] ?? 1));
             break;
         }
 
