@@ -638,27 +638,42 @@ import { SpriteService } from './SpriteService.js';
       return {
         carried: rawInventory,
         worn: {},
+        equipped: [],
+        stashed: [],
         currency: fallbackCurrency,
         totalBulk: null,
+        bodyShape: 'humanoid',
+        slotFramework: {},
+        slotState: {},
       };
     }
     if (!rawInventory || typeof rawInventory !== 'object') {
       return {
         carried: [],
         worn: {},
+        equipped: [],
+        stashed: [],
         currency: fallbackCurrency,
         totalBulk: null,
+        bodyShape: 'humanoid',
+        slotFramework: {},
+        slotState: {},
       };
     }
     return {
       carried: Array.isArray(rawInventory.carried) ? rawInventory.carried : [],
       worn: rawInventory.worn && typeof rawInventory.worn === 'object' ? rawInventory.worn : {},
+      equipped: Array.isArray(rawInventory.equipped) ? rawInventory.equipped : [],
+      stashed: Array.isArray(rawInventory.stashed) ? rawInventory.stashed : [],
       currency: rawInventory.currency && typeof rawInventory.currency === 'object'
         ? rawInventory.currency
         : fallbackCurrency,
       totalBulk: Number.isFinite(Number(rawInventory.totalBulk ?? rawInventory.total_bulk))
         ? Number(rawInventory.totalBulk ?? rawInventory.total_bulk)
         : null,
+      bodyShape: String(rawInventory.bodyShape || rawInventory.body_shape || 'humanoid'),
+      slotFramework: rawInventory.slotFramework && typeof rawInventory.slotFramework === 'object' ? rawInventory.slotFramework : {},
+      slotState: rawInventory.slotState && typeof rawInventory.slotState === 'object' ? rawInventory.slotState : {},
     };
   }
 
@@ -769,6 +784,302 @@ import { SpriteService } from './SpriteService.js';
         return `<li data-item-id="${itemId}" data-type="${type}" data-qty="${qty}" data-bulk="${bulk}" data-desc="${String(desc).replace(/"/g, '&quot;')}">${itemName}${qtyLabel}${equipped}</li>`;
       })
       .join('');
+  }
+
+  function collectWornInventoryItems(worn = {}) {
+    return [
+      ...(Array.isArray(worn.weapons) ? worn.weapons : []),
+      ...(Array.isArray(worn.accessories) ? worn.accessories : []),
+      ...(worn.armor ? [worn.armor] : []),
+      ...(worn.shield ? [worn.shield] : []),
+    ].filter((item) => item && typeof item === 'object');
+  }
+
+  function collectInventoryItems(inventory, equipment = []) {
+    const normalizedInventory = normalizeInventoryState(inventory);
+    const items = [
+      ...collectWornInventoryItems(normalizedInventory.worn).map((item) => ({ ...item, __inventoryLocation: 'worn' })),
+      ...normalizedInventory.carried.map((item) => ({ ...item, __inventoryLocation: 'carried' })),
+      ...normalizedInventory.equipped.map((item) => ({ ...item, __inventoryLocation: 'equipped' })),
+      ...normalizedInventory.stashed.map((item) => ({ ...item, __inventoryLocation: 'stashed' })),
+      ...(Array.isArray(equipment) ? equipment.map((item) => ({ ...item, __inventoryLocation: item?.location || 'carried' })) : []),
+    ];
+
+    const dedupe = new Map();
+    items.forEach((item) => {
+      if (!item || typeof item !== 'object') {
+        return;
+      }
+      const key = String(item.item_instance_id || `${item.item_id || item.id || item.name || 'item'}:${item.__inventoryLocation || 'carried'}`);
+      if (!dedupe.has(key)) {
+        dedupe.set(key, item);
+      }
+    });
+
+    return Array.from(dedupe.values());
+  }
+
+  function resolveInventoryFilterType(item) {
+    if (!item || typeof item !== 'object') {
+      return 'misc';
+    }
+    if (isWeaponItem(item)) {
+      return 'weapon';
+    }
+    const equipSlot = String(item?.inventory_metadata?.equip_slot || item?.equip_slot || '').toLowerCase();
+    const itemType = String(item?.item_type || item?.type || item?.category || '').toLowerCase();
+    if (equipSlot === 'armor' || equipSlot === 'shield' || ['armor', 'shield'].includes(itemType)) {
+      return 'armor';
+    }
+    if (isConsumableItem(item)) {
+      return 'consumable';
+    }
+    if (item?.inventory_metadata?.container || itemType.includes('gear') || itemType.includes('tool') || itemType.includes('utility')) {
+      return 'utility';
+    }
+    return 'misc';
+  }
+
+  function getSlotLabel(slotKey, definition, slotIndex = null) {
+    const baseLabel = String(definition?.label || slotKey || 'Slot');
+    return slotIndex == null ? baseLabel : `${baseLabel} ${slotIndex + 1}`;
+  }
+
+  function findItemSlotAssignment(slotState, item) {
+    const itemInstanceId = String(item?.item_instance_id || '');
+    const itemId = String(item?.item_id || item?.id || '');
+    if (!slotState || typeof slotState !== 'object') {
+      return null;
+    }
+
+    for (const [slotKey, slotValue] of Object.entries(slotState)) {
+      if (slotKey === 'unassigned') {
+        continue;
+      }
+      if (Array.isArray(slotValue)) {
+        for (let index = 0; index < slotValue.length; index += 1) {
+          const entry = slotValue[index];
+          if (!entry || typeof entry !== 'object') {
+            continue;
+          }
+          if ((itemInstanceId && String(entry.item_instance_id || '') === itemInstanceId) || (!itemInstanceId && itemId && String(entry.item_id || '') === itemId)) {
+            return { slotKey, slotIndex: index, entry };
+          }
+        }
+        continue;
+      }
+      if (slotValue && typeof slotValue === 'object') {
+        if ((itemInstanceId && String(slotValue.item_instance_id || '') === itemInstanceId) || (!itemInstanceId && itemId && String(slotValue.item_id || '') === itemId)) {
+          return { slotKey, slotIndex: null, entry: slotValue };
+        }
+      }
+    }
+
+    return null;
+  }
+
+  function getCompatibleSlotOptions(item, inventory) {
+    const framework = inventory?.slotFramework || {};
+    const slotState = inventory?.slotState || {};
+    const metadata = item?.inventory_metadata || {};
+    const equipSlot = String(metadata.equip_slot || item?.equip_slot || '').toLowerCase();
+    const preferredWornSlot = String(metadata.worn_slot || item?.worn_slot || '').toLowerCase();
+    const handSlotsRequired = Math.max(0, Number(metadata.hand_slots_required ?? item?.hand_slots_required ?? 0));
+    const currentAssignment = findItemSlotAssignment(slotState, item);
+    const options = [];
+
+    const canUseSlot = (slotKey, slotIndex = null) => {
+      if (!Object.prototype.hasOwnProperty.call(framework, slotKey)) {
+        return false;
+      }
+      if (currentAssignment && currentAssignment.slotKey === slotKey && currentAssignment.slotIndex === slotIndex) {
+        return true;
+      }
+      const slotValue = slotState[slotKey];
+      if (Array.isArray(slotValue)) {
+        if (slotIndex == null || !Object.prototype.hasOwnProperty.call(slotValue, slotIndex)) {
+          return false;
+        }
+        return !slotValue[slotIndex];
+      }
+      return !slotValue;
+    };
+
+    const pushSlotOptions = (slotKey) => {
+      if (!Object.prototype.hasOwnProperty.call(framework, slotKey)) {
+        return;
+      }
+      const definition = framework[slotKey] || {};
+      const count = definition.count;
+      if (count == null) {
+        options.push({ slotKey, slotIndex: null, label: getSlotLabel(slotKey, definition) });
+        return;
+      }
+      if (count === 1) {
+        if (canUseSlot(slotKey, null)) {
+          options.push({ slotKey, slotIndex: null, label: getSlotLabel(slotKey, definition) });
+        }
+        return;
+      }
+      for (let index = 0; index < count; index += 1) {
+        if (canUseSlot(slotKey, index)) {
+          options.push({ slotKey, slotIndex: index, label: getSlotLabel(slotKey, definition, index) });
+        }
+      }
+    };
+
+    if (equipSlot === 'held') {
+      if (handSlotsRequired >= 2) {
+        if (canUseSlot('main_hand', null) && canUseSlot('off_hand', null)) {
+          options.push({ slotKey: 'main_hand', slotIndex: null, label: 'Both Hands' });
+        }
+        return options;
+      }
+      if (canUseSlot('main_hand', null)) {
+        options.push({ slotKey: 'main_hand', slotIndex: null, label: 'Main Hand' });
+      }
+      if (canUseSlot('off_hand', null)) {
+        options.push({ slotKey: 'off_hand', slotIndex: null, label: 'Off Hand' });
+      }
+      return options;
+    }
+
+    if (equipSlot === 'armor') {
+      if (Object.prototype.hasOwnProperty.call(framework, 'armor')) {
+        pushSlotOptions('armor');
+      } else {
+        pushSlotOptions('body');
+      }
+      return options;
+    }
+
+    if (equipSlot === 'shield') {
+      pushSlotOptions('shield');
+      return options;
+    }
+
+    if (!metadata.equippable) {
+      return options;
+    }
+
+    const resolvedWornSlot = preferredWornSlot || 'worn';
+    if (Object.prototype.hasOwnProperty.call(framework, resolvedWornSlot)) {
+      pushSlotOptions(resolvedWornSlot);
+    } else {
+      pushSlotOptions('worn');
+    }
+
+    return options;
+  }
+
+  function renderInventorySlotGrid(inventory) {
+    const framework = inventory?.slotFramework || {};
+    const slotState = inventory?.slotState || {};
+    const entries = [];
+
+    Object.entries(framework).forEach(([slotKey, definition]) => {
+      const count = definition?.count;
+      if (count == null) {
+        const assigned = Array.isArray(slotState[slotKey]) ? slotState[slotKey].filter(Boolean) : [];
+        entries.push(`
+          <div class="inventory-slot">
+            <div class="inventory-slot__label">${escapeTooltipAttr(getSlotLabel(slotKey, definition))}</div>
+            <div class="inventory-slot__item">${assigned.length ? escapeTooltipAttr(assigned.map((entry) => entry?.name || entry?.item_id || 'Item').join(', ')) : 'Empty'}</div>
+            <div class="inventory-slot__meta">${assigned.length ? `${assigned.length} assigned` : 'Available'}</div>
+          </div>
+        `);
+        return;
+      }
+
+      if (count === 1) {
+        const occupant = slotState[slotKey];
+        entries.push(`
+          <div class="inventory-slot${occupant ? '' : ' inventory-slot--empty'}">
+            <div class="inventory-slot__label">${escapeTooltipAttr(getSlotLabel(slotKey, definition))}</div>
+            <div class="inventory-slot__item">${escapeTooltipAttr(occupant?.name || occupant?.item_id || 'Empty')}</div>
+            <div class="inventory-slot__meta">${occupant ? escapeTooltipAttr(occupant.equip_slot || 'Equipped') : 'Available'}</div>
+          </div>
+        `);
+        return;
+      }
+
+      for (let index = 0; index < count; index += 1) {
+        const occupant = Array.isArray(slotState[slotKey]) ? slotState[slotKey][index] : null;
+        entries.push(`
+          <div class="inventory-slot${occupant ? '' : ' inventory-slot--empty'}">
+            <div class="inventory-slot__label">${escapeTooltipAttr(getSlotLabel(slotKey, definition, index))}</div>
+            <div class="inventory-slot__item">${escapeTooltipAttr(occupant?.name || occupant?.item_id || 'Empty')}</div>
+            <div class="inventory-slot__meta">${occupant ? escapeTooltipAttr(occupant.equip_slot || 'Equipped') : 'Available'}</div>
+          </div>
+        `);
+      }
+    });
+
+    return entries.join('') || '<div class="inventory-slot inventory-slot--empty">No slot data loaded</div>';
+  }
+
+  function renderInventoryPanelList(items, inventory) {
+    if (!Array.isArray(items) || items.length === 0) {
+      return '<li class="inventory-panel__empty">No items in inventory</li>';
+    }
+
+    return items.map((item) => {
+      const itemName = item?.name || item?.item_id || item?.id || 'Item';
+      const itemId = item?.item_id || item?.id || '';
+      const itemInstanceId = item?.item_instance_id || '';
+      const qty = Math.max(1, Number(item?.quantity ?? 1));
+      const bulk = item?.bulk != null ? String(item.bulk) : '';
+      const desc = item?.description || item?.desc || '';
+      const type = resolveInventoryFilterType(item);
+      const icon = { weapon: 'W', armor: 'A', consumable: 'C', utility: 'U', misc: 'M' }[type] || 'I';
+      const assignment = findItemSlotAssignment(inventory?.slotState || {}, item);
+      const assignmentLabel = assignment
+        ? getSlotLabel(assignment.slotKey, inventory?.slotFramework?.[assignment.slotKey] || { label: assignment.slotKey }, assignment.slotIndex)
+        : '';
+      const slotOptions = getCompatibleSlotOptions(item, inventory);
+      const canAssign = Boolean(item?.inventory_metadata?.equippable) && itemInstanceId && slotOptions.length > 0;
+      const isWorn = String(item?.__inventoryLocation || item?.location || '') === 'worn';
+      const locationLabel = isWorn ? `Equipped${assignmentLabel ? ` · ${assignmentLabel}` : ''}` : String(item?.__inventoryLocation || item?.location || 'carried').replace(/_/g, ' ');
+      const optionMarkup = slotOptions.map((option) => {
+        const value = `${option.slotKey}::${option.slotIndex == null ? '' : option.slotIndex}`;
+        const selected = assignment && assignment.slotKey === option.slotKey && assignment.slotIndex === option.slotIndex ? ' selected' : '';
+        return `<option value="${escapeTooltipAttr(value)}"${selected}>${escapeTooltipAttr(option.label)}</option>`;
+      }).join('');
+      const actionMarkup = !itemInstanceId
+        ? '<span class="inv-item__status">Static item</span>'
+        : (canAssign
+          ? `
+            <select class="inv-item__slot-select" data-slot-select>
+              ${optionMarkup}
+            </select>
+            <button type="button" class="inv-item__button inv-item__button--primary" data-inventory-action="assign">Assign</button>
+            ${isWorn ? '<button type="button" class="inv-item__button" data-inventory-action="unequip">Unequip</button>' : ''}
+          `
+          : (isWorn
+            ? '<button type="button" class="inv-item__button" data-inventory-action="unequip">Unequip</button>'
+            : '<span class="inv-item__status">No valid slot</span>'));
+
+      return `
+        <li
+          class="inv-item"
+          data-type="${escapeTooltipAttr(type)}"
+          data-item-id="${escapeTooltipAttr(itemId)}"
+          data-item-instance-id="${escapeTooltipAttr(itemInstanceId)}"
+          data-desc="${escapeTooltipAttr(desc)}"
+          data-bulk="${escapeTooltipAttr(bulk)}"
+          data-tooltip-type="${escapeTooltipAttr(type)}"
+        >
+          <span class="inv-item__icon">${icon}</span>
+          <div class="inv-item__info">
+            <div class="inv-item__name">${escapeTooltipAttr(itemName)}${qty > 1 ? ` ×${qty}` : ''}</div>
+            <div class="inv-item__meta">${escapeTooltipAttr(locationLabel)}${bulk ? ` · Bulk ${escapeTooltipAttr(bulk)}` : ''}</div>
+          </div>
+          <div class="inv-item__actions">
+            ${actionMarkup}
+          </div>
+        </li>
+      `;
+    }).join('');
   }
 
   function isConsumableItem(item) {
@@ -1066,15 +1377,18 @@ import { SpriteService } from './SpriteService.js';
       this.activeActionRailCategory = null;
       this.actionRailFilters = {};
       this.actionRailDescriptionsCollapsed = false;
+      this.activeGameShellTab = 'chat';
       this.navigateLocationGroups = [];
       this.navigateLocationsCampaignId = null;
       this.navigateLocationsInflight = null;
       this.actionRailRealClockTimer = null;
       this.actionRailAutomationTogglePending = false;
+      this.currentCharacterInventoryContext = null;
       this.setupActionFooterToggle();
       this.setupFullscreenToggle();
       this.cacheElements();
       this.setupPartyRailHandlers();
+      this.setupInventoryPanelActions();
       this.setupChatLog();
       this.setupChannelTabs();
       this.setupSessionViewTabs();
@@ -1315,6 +1629,7 @@ import { SpriteService } from './SpriteService.js';
         inventoryCp: document.getElementById('inv-cp'),
         inventoryBulkCurrent: document.getElementById('inv-bulk-current'),
         inventoryBulkMax: document.getElementById('inv-bulk-max'),
+        inventorySlotGrid: document.getElementById('inv-slot-grid'),
         inventoryItemList: document.getElementById('inv-item-list'),
         characterFeatures: document.getElementById('char-features'),
         characterSpellsSection: document.getElementById('char-spells-section'),
@@ -1343,6 +1658,13 @@ import { SpriteService } from './SpriteService.js';
         roomViewPlaceholder: document.getElementById('room-view-placeholder'),
         roomViewPlaceholderText: document.getElementById('room-view-placeholder-text'),
         roomViewCardTemplate: document.getElementById('room-view-card-template'),
+        npcPortraitsPanel: document.getElementById('npc-portraits-panel'),
+        npcPortraitsName: document.getElementById('npc-portraits-name'),
+        npcPortraitsMeta: document.getElementById('npc-portraits-meta'),
+        npcPortraitsStatus: document.getElementById('npc-portraits-status'),
+        npcPortraitsGrid: document.getElementById('npc-portraits-grid'),
+        npcPortraitsPlaceholder: document.getElementById('npc-portraits-placeholder'),
+        npcPortraitsPlaceholderText: document.getElementById('npc-portraits-placeholder-text'),
 
         // Quest journal panel
         questJournal: document.getElementById('quest-journal'),
@@ -1353,6 +1675,120 @@ import { SpriteService } from './SpriteService.js';
       };
 
       this.setupCharacterSheetSections();
+    }
+
+    setupInventoryPanelActions() {
+      const itemList = this.elements.inventoryItemList;
+      if (!itemList || itemList.dataset.bound === 'true') {
+        return;
+      }
+
+      itemList.dataset.bound = 'true';
+      itemList.addEventListener('click', (event) => {
+        const button = event.target.closest('[data-inventory-action]');
+        if (!button) {
+          return;
+        }
+        event.preventDefault();
+        this.handleInventoryAction(button).catch((error) => {
+          console.error('Inventory action failed', error);
+          window.alert(error?.message || 'Inventory action failed.');
+        });
+      });
+    }
+
+    async handleInventoryAction(button) {
+      const context = this.currentCharacterInventoryContext;
+      if (!context?.characterId) {
+        throw new Error('No character is selected.');
+      }
+
+      const row = button.closest('.inv-item');
+      const itemInstanceId = row?.dataset.itemInstanceId || '';
+      const action = button.dataset.inventoryAction || '';
+      if (!itemInstanceId || !action) {
+        throw new Error('Missing inventory item context.');
+      }
+
+      const payload = {
+        location: action === 'unequip' ? 'carried' : 'worn',
+      };
+      if (context.campaignId) {
+        payload.campaignId = context.campaignId;
+      }
+      if (action === 'assign') {
+        const select = row.querySelector('[data-slot-select]');
+        const selectedValue = String(select?.value || '');
+        const [slotKey, slotIndex] = selectedValue.split('::');
+        if (!slotKey) {
+          throw new Error('Choose a slot first.');
+        }
+        payload.equippedSlotKey = slotKey;
+        if (slotIndex !== undefined && slotIndex !== '') {
+          payload.equippedSlotIndex = Number(slotIndex);
+        }
+      }
+
+      button.disabled = true;
+      const response = await fetch(`/api/inventory/character/${encodeURIComponent(context.characterId)}/item/${encodeURIComponent(itemInstanceId)}/location`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        credentials: 'same-origin',
+        body: JSON.stringify(payload),
+      });
+      const result = await response.json().catch(() => ({}));
+      button.disabled = false;
+
+      if (!response.ok || !result?.success) {
+        throw new Error(result?.error || result?.message || 'Inventory update failed.');
+      }
+
+      const nextInventory = normalizeInventoryState(result.inventory || {}, context.currency || {});
+      this.currentCharacterInventoryContext = {
+        ...context,
+        inventory: nextInventory,
+        currency: nextInventory.currency || context.currency || {},
+      };
+      this.renderInventoryPanel(this.currentCharacterInventoryContext);
+    }
+
+    renderInventoryPanel(context) {
+      const inventory = normalizeInventoryState(context?.inventory || {}, context?.currency || {});
+      const items = collectInventoryItems(inventory, context?.equipment || []);
+      const summaryHtml = formatInventoryItemList(items);
+      const panelHtml = renderInventoryPanelList(items, inventory);
+      const currency = inventory.currency || context?.currency || {};
+      const abilities = context?.abilities || {};
+      const totalBulk = inventory.totalBulk ?? estimateInventoryBulk(items);
+      const bulkMax = Math.max(5, Number(this.elements.inventoryBulkMax?.textContent || 0), Number(abilities.strength || abilities.str || 0));
+
+      if (this.elements.characterInventory) {
+        this.elements.characterInventory.innerHTML = summaryHtml || '<li class="inventory-empty">No items</li>';
+      }
+      if (this.elements.inventoryGp) this.elements.inventoryGp.textContent = currency.gp || 0;
+      if (this.elements.inventorySp) this.elements.inventorySp.textContent = currency.sp || 0;
+      if (this.elements.inventoryCp) this.elements.inventoryCp.textContent = currency.cp || 0;
+      if (this.elements.inventoryBulkCurrent) this.elements.inventoryBulkCurrent.textContent = formatBulkValue(totalBulk);
+      if (this.elements.inventoryBulkMax) this.elements.inventoryBulkMax.textContent = formatBulkValue(bulkMax);
+      if (this.elements.inventorySlotGrid) {
+        this.elements.inventorySlotGrid.innerHTML = renderInventorySlotGrid(inventory);
+      }
+      if (this.elements.inventoryItemList) {
+        this.elements.inventoryItemList.innerHTML = panelHtml;
+      }
+
+      if (typeof window !== 'undefined') {
+        window.dcInventoryPanelManaged = true;
+        if (typeof window.dcAttachTooltips === 'function' && this.elements.inventoryItemList) {
+          window.dcAttachTooltips(this.elements.inventoryItemList);
+        }
+        if (typeof window.dcApplyInventoryFilter === 'function') {
+          window.dcApplyInventoryFilter();
+        }
+      }
     }
 
     setupActionRail() {
@@ -2860,6 +3296,21 @@ import { SpriteService } from './SpriteService.js';
       ].filter(Boolean).join(' • ') || 'Current room scene';
     }
 
+    formatPortraitsMeta(room, entryCount = 0) {
+      const summary = entryCount > 0
+        ? `${entryCount} room portrait${entryCount === 1 ? '' : 's'}`
+        : 'Portraits for PCs and NPCs in the active room.';
+      if (!room || typeof room !== 'object') {
+        return summary;
+      }
+
+      return [
+        summary,
+        room.room_type ? String(room.room_type).replace(/_/g, ' ') : '',
+        room.size_category ? String(room.size_category).replace(/_/g, ' ') : '',
+      ].filter(Boolean).join(' • ');
+    }
+
     updateRoomViewPanel(room, state = {}) {
       const {
         statusLabel = 'Idle',
@@ -2940,6 +3391,144 @@ import { SpriteService } from './SpriteService.js';
       }
     }
 
+    buildRoomPortraitEntries(roomId = null) {
+      const hexmap = this.stateManager?.hexmap || null;
+      const resolvedRoomId = roomId || hexmap?.resolveActiveRoomId?.() || null;
+      const entities = Array.isArray(hexmap?.dungeonData?.entities) ? hexmap.dungeonData.entities : [];
+      if (!resolvedRoomId || entities.length === 0) {
+        return [];
+      }
+
+      const entries = [];
+      const seen = new Set();
+      entities.forEach((entity) => {
+        if (entity?.placement?.room_id !== resolvedRoomId) {
+          return;
+        }
+
+        const rawType = String(entity?.entity_type || '').trim().toLowerCase();
+        if (!['npc', 'player_character', 'player'].includes(rawType)) {
+          return;
+        }
+
+        const metadata = entity?.state?.metadata || {};
+        const contentId = String(entity?.entity_ref?.content_id || entity?.entity_instance_id || entity?.instance_id || entity?.id || '').trim();
+        const entityId = String(entity?.entity_instance_id || entity?.instance_id || entity?.id || contentId).trim();
+        if (entityId === '' || seen.has(entityId)) {
+          return;
+        }
+        seen.add(entityId);
+
+        const objectDefinition = contentId ? hexmap?.getObjectDefinition?.(contentId) : null;
+        const portraitSpriteId = contentId ? `portrait_${contentId}` : null;
+        const fallbackPortraitSpriteId = typeof objectDefinition?.visual?.sprite_id === 'string'
+          && objectDefinition.visual.sprite_id.startsWith('portrait_')
+          ? objectDefinition.visual.sprite_id
+          : null;
+        const portraitUrl = metadata.portrait_url
+          || metadata.portrait
+          || (portraitSpriteId ? hexmap?.spriteService?.getCachedUrl?.(portraitSpriteId) : null)
+          || (fallbackPortraitSpriteId ? hexmap?.spriteService?.getCachedUrl?.(fallbackPortraitSpriteId) : null)
+          || null;
+        const name = metadata.display_name
+          || metadata.name
+          || objectDefinition?.label
+          || contentId
+          || 'Unknown';
+        const kind = rawType === 'npc' ? 'NPC' : 'PC';
+        const summary = metadata.role || metadata.class || metadata.occupation || metadata.description || '';
+
+        entries.push({
+          entityId,
+          name,
+          kind,
+          portraitUrl,
+          summary,
+        });
+      });
+
+      entries.sort((a, b) => {
+        if (a.kind !== b.kind) {
+          return a.kind === 'PC' ? -1 : 1;
+        }
+        return a.name.localeCompare(b.name);
+      });
+      return entries;
+    }
+
+    buildRoomPortraitCard(entry = {}) {
+      const card = document.createElement('article');
+      card.className = 'npc-portrait-card';
+
+      const frame = document.createElement('div');
+      frame.className = 'npc-portrait-card__frame';
+      if (entry.portraitUrl) {
+        const image = document.createElement('img');
+        image.className = 'npc-portrait-card__image';
+        image.src = entry.portraitUrl;
+        image.alt = `${entry.name || 'Room occupant'} portrait`;
+        frame.appendChild(image);
+      } else {
+        const placeholder = document.createElement('div');
+        placeholder.className = 'npc-portrait-card__placeholder';
+        placeholder.textContent = String(entry.name || '?').trim().charAt(0).toUpperCase() || '?';
+        frame.appendChild(placeholder);
+      }
+
+      const name = document.createElement('h4');
+      name.className = 'npc-portrait-card__name';
+      name.textContent = entry.name || 'Unknown';
+
+      const meta = document.createElement('p');
+      meta.className = 'npc-portrait-card__meta';
+      meta.textContent = entry.kind || 'Room occupant';
+
+      const summary = document.createElement('p');
+      summary.className = 'npc-portrait-card__summary';
+      summary.textContent = entry.summary || 'No additional summary available.';
+
+      card.append(frame, name, meta, summary);
+      return card;
+    }
+
+    loadRoomPortraitsPanel(roomId = null) {
+      if (!this.elements.npcPortraitsPanel) {
+        return;
+      }
+
+      const hexmap = this.stateManager?.hexmap || null;
+      const resolvedRoomId = roomId || hexmap?.resolveActiveRoomId?.() || null;
+      const room = resolvedRoomId && hexmap?.dungeonData?.rooms
+        ? hexmap.dungeonData.rooms[resolvedRoomId] || null
+        : hexmap?.getActiveRoomData?.() || null;
+      const entries = this.buildRoomPortraitEntries(resolvedRoomId);
+
+      if (this.elements.npcPortraitsName) {
+        this.elements.npcPortraitsName.textContent = room?.name || 'Current room';
+      }
+      if (this.elements.npcPortraitsMeta) {
+        this.elements.npcPortraitsMeta.textContent = this.formatPortraitsMeta(room, entries.length);
+      }
+      if (this.elements.npcPortraitsStatus) {
+        this.elements.npcPortraitsStatus.textContent = entries.length > 0 ? `${entries.length} Loaded` : 'Unavailable';
+      }
+      if (this.elements.npcPortraitsPlaceholderText) {
+        this.elements.npcPortraitsPlaceholderText.textContent = entries.length > 0
+          ? ''
+          : 'No PC or NPC portraits are available for the active room yet.';
+      }
+      if (this.elements.npcPortraitsGrid) {
+        this.elements.npcPortraitsGrid.innerHTML = '';
+        this.elements.npcPortraitsGrid.hidden = entries.length === 0;
+        entries.forEach((entry) => {
+          this.elements.npcPortraitsGrid.appendChild(this.buildRoomPortraitCard(entry));
+        });
+      }
+      if (this.elements.npcPortraitsPlaceholder) {
+        this.elements.npcPortraitsPlaceholder.hidden = entries.length > 0;
+      }
+    }
+
     activateGameShellTab(tabId) {
       const requestedTab = typeof tabId === 'string' ? tabId.trim() : '';
       if (!requestedTab) {
@@ -2967,11 +3556,19 @@ import { SpriteService } from './SpriteService.js';
         return;
       }
 
+      this.activeGameShellTab = requestedTab;
+
       panels.forEach((panel) => {
         const active = panel.id === `game-panel-${requestedTab}`;
         panel.classList.toggle('game-shell__panel--active', active);
         panel.hidden = !active;
       });
+
+      if (requestedTab === 'view') {
+        this.loadActiveRoomView();
+      } else if (requestedTab === 'portraits') {
+        this.loadRoomPortraitsPanel();
+      }
 
       shell.dispatchEvent(new CustomEvent('dungeoncrawler:activate-tab', {
         detail: { tabId: requestedTab },
@@ -3728,12 +4325,6 @@ import { SpriteService } from './SpriteService.js';
       // Perception
       const perception = Number(defenses.perception?.base ?? state.perception ?? launchCharacter.perception ?? 0);
       const currency = inventory.currency || fallbackCurrency;
-      const worn = inventory.worn || {};
-      const weapons = Array.isArray(worn.weapons) ? worn.weapons : [];
-      const allItems = [...weapons, ...inventory.carried, ...equipment].filter(Boolean);
-      const inventoryHtml = formatInventoryItemList(allItems);
-      const totalBulk = inventory.totalBulk ?? estimateInventoryBulk(allItems);
-      const bulkMax = Math.max(5, Number(this.elements.inventoryBulkMax?.textContent || 0), Number(normalizedAbilities.strength || 0));
 
       // Calculate ability modifiers
       const calcMod = (score) => {
@@ -3875,18 +4466,15 @@ import { SpriteService } from './SpriteService.js';
       if (this.elements.characterSp) this.elements.characterSp.textContent = currency.sp || 0;
       if (this.elements.characterCp) this.elements.characterCp.textContent = currency.cp || 0;
 
-      // Update inventory (support both equipment array and inventory.carried)
-      if (this.elements.characterInventory) {
-        this.elements.characterInventory.innerHTML = inventoryHtml || '<li class="inventory-empty">No items</li>';
-      }
-      if (this.elements.inventoryGp) this.elements.inventoryGp.textContent = currency.gp || 0;
-      if (this.elements.inventorySp) this.elements.inventorySp.textContent = currency.sp || 0;
-      if (this.elements.inventoryCp) this.elements.inventoryCp.textContent = currency.cp || 0;
-      if (this.elements.inventoryBulkCurrent) this.elements.inventoryBulkCurrent.textContent = formatBulkValue(totalBulk);
-      if (this.elements.inventoryBulkMax) this.elements.inventoryBulkMax.textContent = formatBulkValue(bulkMax);
-      if (this.elements.inventoryItemList) {
-        this.elements.inventoryItemList.innerHTML = inventoryHtml || '<li class="inventory-panel__empty">No items in inventory</li>';
-      }
+      this.currentCharacterInventoryContext = {
+        characterId,
+        campaignId: Number(state.campaignId || launchCharacter.campaignId || 0) || null,
+        inventory,
+        equipment,
+        currency,
+        abilities: normalizedAbilities,
+      };
+      this.renderInventoryPanel(this.currentCharacterInventoryContext);
 
       // Update features & feats (with type badges)
       if (this.elements.characterFeatures) {
@@ -6690,8 +7278,37 @@ import { SpriteService } from './SpriteService.js';
         stopReason: null,
       };
 
+      const queryParams = new URLSearchParams(window.location.search);
+      const runtimeLaunchSummary = {
+        query: {
+          campaign_id: queryParams.get('campaign_id') || null,
+          character_id: queryParams.get('character_id') || null,
+          dungeon_level_id: queryParams.get('dungeon_level_id') || null,
+          map_id: queryParams.get('map_id') || null,
+          room_id: queryParams.get('room_id') || null,
+        },
+        settings: {
+          campaign_id: this.launchContext?.campaign_id || null,
+          character_id: this.launchContext?.character_id || null,
+          dungeon_level_id: this.launchContext?.dungeon_level_id || null,
+          map_id: this.launchContext?.map_id || null,
+          room_id: this.launchContext?.room_id || null,
+          start_q: this.launchContext?.start_q ?? null,
+          start_r: this.launchContext?.start_r ?? null,
+        },
+        launchCharacter: {
+          id: this.launchCharacter?.id || null,
+          sheet_character_id: this.launchCharacter?.sheet_character_id || null,
+          character_id: this.launchCharacter?.character_id || null,
+          instance_id: this.launchCharacter?.instance_id || this.launchCharacter?.instanceId || null,
+          name: this.launchCharacter?.name || null,
+          class: this.launchCharacter?.class || null,
+          ancestry: this.launchCharacter?.ancestry || null,
+        },
+      };
       console.log('HexMap Init - Launch Context:', this.launchContext);
       console.log('HexMap Init - Launch Character:', this.launchCharacter);
+      console.log('HexMap Init - Runtime Launch Summary:', runtimeLaunchSummary);
       console.log('HexMap Init - Has Dungeon Data:', Object.keys(this.dungeonData).length > 0);
       this.activeRoomId = this.dungeonData?.active_room_id || null;
       this.currentUserId = Number(settings?.user?.uid || 0);
@@ -8219,7 +8836,13 @@ import { SpriteService } from './SpriteService.js';
         return Team.ENEMY;
       }
 
-      return entityType === EntityType.PLAYER_CHARACTER ? Team.PLAYER : Team.ENEMY;
+      if (entityType === EntityType.PLAYER_CHARACTER) {
+        return Team.PLAYER;
+      }
+      if (entityType === EntityType.CREATURE) {
+        return Team.ENEMY;
+      }
+      return Team.NEUTRAL;
     },
     
     /**
@@ -9305,11 +9928,15 @@ import { SpriteService } from './SpriteService.js';
         const stats = entity.getComponent('StatsComponent');
         const position = entity.getComponent('PositionComponent');
         const entityRoomId = entity?.state?.placement?.room_id || entity?.dcStatePayload?.placement?.room_id || null;
+        const normalizedTeam = this.normalizeEncounterParticipantTeam(combat?.team || entity?.dcStatePayload?.metadata?.team || '');
 
         if (!identity?.isCreature?.() || !stats?.isAlive?.()) {
           return null;
         }
         if (activeRoomId && entityRoomId && entityRoomId !== activeRoomId) {
+          return null;
+        }
+        if (normalizedTeam === 'neutral' || normalizedTeam === '') {
           return null;
         }
 
@@ -9318,7 +9945,7 @@ import { SpriteService } from './SpriteService.js';
           entityRef: entity.dcEntityRef || entity.instanceId || null,
           characterId: entity.dcCharacterId || null,
           name: identity?.name || `Entity ${entity.id}`,
-          team: combat?.team,
+          team: normalizedTeam,
           initiative: combat?.getInitiative ? combat.getInitiative() : null,
           initiative_bonus: combat?.initiativeBonus,
           perception: stats?.perception,
@@ -9808,7 +10435,6 @@ import { SpriteService } from './SpriteService.js';
       const controlledEntity = this.resolvePlayerAutomationEntity?.(automation.profile) || null;
       const controlledCombat = controlledEntity?.getComponent?.('CombatComponent') || null;
       const currentTurnType = String(currentIdentity?.entityType || currentIdentity?.type || '').trim().toLowerCase();
-      const currentTurnTeam = String(currentCombat?.team || '').trim().toLowerCase();
       const currentTurnRef = String(currentTurnEntity?.dcEntityRef || currentTurnEntity?.dcEntityInstanceId || '').trim();
       const currentTurnCharacterId = Number(
         currentTurnEntity?.dcCharacterId
@@ -9829,20 +10455,34 @@ import { SpriteService } from './SpriteService.js';
           || (currentTurnCharacterId > 0 && currentTurnCharacterId === controlledCharacterId)
         )
       );
+      const currentTurnParticipant = this.getEncounterParticipant?.(currentTurnEntity) || null;
+      const controlledParticipant = this.getEncounterParticipant?.(controlledEntity || automation.profile?.actor_id || automation.profile?.character_id) || null;
+      const currentTurnTeam = this.normalizeEncounterParticipantTeam?.(
+        currentTurnParticipant?.team
+        || currentCombat?.team
+        || ''
+      ) || '';
+      const controlledTeam = this.normalizeEncounterParticipantTeam?.(
+        controlledParticipant?.team
+        || controlledCombat?.team
+        || ''
+      ) || '';
       const isFriendlyTurnForAutomation = Boolean(
         !isControlledEntityTurn
-        && currentCombat
-        && controlledCombat
-        && !currentCombat.isHostileTo(controlledCombat)
-        && !controlledCombat.isHostileTo(currentCombat)
+        && currentTurnTeam !== ''
+        && controlledTeam !== ''
+        && currentTurnTeam !== 'neutral'
+        && controlledTeam !== 'neutral'
+        && !this.isEncounterParticipantHostileTo(controlledTeam, currentTurnTeam)
+        && !this.isEncounterParticipantHostileTo(currentTurnTeam, controlledTeam)
       );
-      const isAlliedNpcTurn = !isControlledEntityTurn && (
+      const isAlliedTurn = !isControlledEntityTurn && (
         isFriendlyTurnForAutomation
         || (currentTurnType === 'npc'
           && (currentCombat?.isPlayerTeam?.() || currentTurnTeam === String(Team.PLAYER).toLowerCase() || currentTurnTeam === String(Team.ALLY).toLowerCase() || currentTurnTeam === 'player' || currentTurnTeam === 'ally'))
       );
 
-      if (!currentTurnEntity || !isAlliedNpcTurn) {
+      if (!currentTurnEntity || !isAlliedTurn) {
         if (currentTurnEntity) {
           console.info('[Automation] Encounter turn not auto-advanced', {
             trigger,
@@ -9855,9 +10495,23 @@ import { SpriteService } from './SpriteService.js';
             controlledEntityId: String(controlledEntity?.id || '').trim() || null,
             controlledEntityRef: String(controlledEntity?.dcEntityRef || controlledEntity?.dcEntityInstanceId || '').trim() || null,
             controlledCharacterId: controlledCharacterId || null,
-            controlledTeam: String(controlledCombat?.team || '').trim() || null,
+            controlledTeam: controlledTeam || null,
+            currentTurnParticipantTeam: String(currentTurnParticipant?.team || '').trim() || null,
+            controlledParticipantTeam: String(controlledParticipant?.team || '').trim() || null,
             isControlledEntityTurn,
             isFriendlyTurnForAutomation,
+          });
+        }
+        if (currentReadiness?.phase === 'encounter' && currentReadiness?.reason === 'waiting-for-other-turn') {
+          this.maybeSyncPlayerAutomationEncounterState?.(trigger, {
+            currentTurnEntityId: String(currentTurnEntity?.id || '').trim() || null,
+            currentTurnEntityRef: currentTurnRef || null,
+            currentTurnEntityName: String(currentIdentity?.name || '').trim() || null,
+            currentTurnTeam: currentTurnTeam || null,
+            controlledEntityId: String(controlledEntity?.id || '').trim() || null,
+            controlledEntityRef: String(controlledEntity?.dcEntityRef || controlledEntity?.dcEntityInstanceId || '').trim() || null,
+            controlledTeam: controlledTeam || null,
+            isControlledEntityTurn,
           });
         }
         return false;
@@ -9883,6 +10537,53 @@ import { SpriteService } from './SpriteService.js';
           if (this.playerAutomation) {
             this.playerAutomation.turnAdvancePending = false;
           }
+          this.uiManager?.refreshActionRail();
+        }
+      }, 0);
+
+      return true;
+    },
+
+    maybeSyncPlayerAutomationEncounterState: function (trigger = 'waiting-for-other-turn', details = {}) {
+      const automation = this.playerAutomation || {};
+      if (!automation.active || automation.inflight || automation.turnAdvancePending) {
+        return false;
+      }
+      if ((this.gameCoordinator?.phaseManager?.currentPhase || null) !== 'encounter') {
+        return false;
+      }
+      if (typeof this.stateSync?.sync !== 'function') {
+        return false;
+      }
+
+      const now = Date.now();
+      const lastSyncAt = Number(automation.lastEncounterStateSyncAt || 0);
+      if (lastSyncAt > 0 && (now - lastSyncAt) < 1000) {
+        return false;
+      }
+
+      automation.lastEncounterStateSyncAt = now;
+      console.info('[Automation] Requesting encounter state sync', {
+        trigger,
+        roomId: this.resolveActiveRoomId?.() || this.activeRoomId || null,
+        encounterId: this.stateManager?.get?.('encounterId') || null,
+        ...details,
+      });
+
+      window.setTimeout(async () => {
+        try {
+          await this.stateSync.sync({ force: true, silent: true });
+          console.info('[Automation] Encounter state sync completed', {
+            trigger,
+            roomId: this.resolveActiveRoomId?.() || this.activeRoomId || null,
+            encounterId: this.stateManager?.get?.('encounterId') || null,
+          });
+        } catch (error) {
+          console.warn('[Automation] Encounter state sync failed', {
+            trigger,
+            error: error instanceof Error ? error.message : error,
+          });
+        } finally {
           this.uiManager?.refreshActionRail();
         }
       }, 0);
@@ -9926,6 +10627,7 @@ import { SpriteService } from './SpriteService.js';
         lastResult: null,
         stopReason: null,
         turnAdvancePending: false,
+        lastEncounterStateSyncAt: 0,
         lastManualInputNoticeAt: 0,
         lastDecisionSummary: '',
         stepCount: 0,
@@ -10050,6 +10752,9 @@ import { SpriteService } from './SpriteService.js';
       if (decisionType === 'wait' && decisionReason !== '') {
         return `${actorName} is waiting: ${decisionReason}`;
       }
+      if (decisionType === 'stop' && decisionReason !== '') {
+        return `${actorName} paused automation: ${decisionReason}`;
+      }
       if (decisionReason !== '') {
         return `${actorName}: ${decisionReason}`;
       }
@@ -10067,6 +10772,9 @@ import { SpriteService } from './SpriteService.js';
       const consecutiveFailures = Number(guardrails?.consecutive_failures || 0);
       const maxConsecutiveFailures = Number(guardrails?.max_consecutive_failures || 0);
 
+      if (String(stepResult?.decision?.type || '').trim() === 'stop') {
+        return String(stepResult?.stop_reason || stepResult?.decision?.reason || 'Automation paused.');
+      }
       if (stepResult?.success === false) {
         return stepResult?.error || 'Automation stopped after an invalid autonomous action.';
       }
@@ -10077,6 +10785,14 @@ import { SpriteService } from './SpriteService.js';
         return 'Automation paused after repeated failed actions.';
       }
       return null;
+    },
+
+    shouldQueuePlayerAutomationPostStep: function (stepResult = {}) {
+      const currentPhase = String(this.gameCoordinator?.phaseManager?.currentPhase || '').trim().toLowerCase();
+      if (currentPhase === 'encounter' && stepResult?.response?.result?.ended_turn) {
+        return false;
+      }
+      return true;
     },
 
     applyPlayerAutomationRoomTransition: function (events = []) {
@@ -10306,6 +11022,11 @@ import { SpriteService } from './SpriteService.js';
           npcInterjectionCount: Array.isArray(stepResult?.response?.result?.npc_interjections) ? stepResult.response.result.npc_interjections.length : 0,
           guardrails: stepResult?.run_state?.guardrails || null,
           stepCount: Number(stepResult?.run_state?.step_count || 0),
+          intent: stepResult?.decision?.intent || null,
+          decisionMeta: stepResult?.decision?.decision_meta || null,
+          talkedEntities: stepResult?.run_state?.memory?.talked_entities || [],
+          pendingConversationLead: stepResult?.run_state?.memory?.pending_conversation_lead || null,
+          activeNpcLead: stepResult?.run_state?.memory?.active_npc_lead || null,
         });
 
         automation.lastResult = stepResult;
@@ -10333,7 +11054,7 @@ import { SpriteService } from './SpriteService.js';
           return stepResult;
         }
 
-        if (automation.active) {
+        if (automation.active && this.shouldQueuePlayerAutomationPostStep(stepResult)) {
           this.queuePlayerAutomationStep('post-step');
         }
 
@@ -10378,9 +11099,7 @@ import { SpriteService } from './SpriteService.js';
       return this.stateManager?.get?.('latestEncounterState') || null;
     },
 
-    resolveEncounterParticipantReference: function (entityOrRef = null) {
-      const encounterState = this.getEncounterServerState?.() || null;
-      const participants = Array.isArray(encounterState?.participants) ? encounterState.participants : [];
+    collectEncounterParticipantCandidates: function (entityOrRef = null) {
       const candidateValues = [];
 
       if (entityOrRef && typeof entityOrRef === 'object') {
@@ -10407,29 +11126,62 @@ import { SpriteService } from './SpriteService.js';
         }
       }
 
-      const normalizedCandidates = [...new Set(
+      return [...new Set(
         candidateValues
           .map((value) => String(value ?? '').trim())
           .filter(Boolean)
       )];
+    },
 
-      if (participants.length > 0) {
-        const participant = participants.find((entry) => normalizedCandidates.some((candidate) =>
-          candidate === String(entry?.entity_ref ?? '').trim()
-          || candidate === String(entry?.entity_id ?? '').trim()
-          || candidate === String(entry?.id ?? '').trim()
-        ));
-        if (participant) {
-          return String(participant.entity_ref ?? participant.entity_id ?? participant.id ?? '').trim() || null;
-        }
+    getEncounterParticipant: function (entityOrRef = null) {
+      const encounterState = this.getEncounterServerState?.() || null;
+      const participants = Array.isArray(encounterState?.participants) ? encounterState.participants : [];
+      if (participants.length === 0) {
+        return null;
       }
 
+      const normalizedCandidates = this.collectEncounterParticipantCandidates(entityOrRef);
+      if (normalizedCandidates.length === 0) {
+        return null;
+      }
+
+      return participants.find((entry) => normalizedCandidates.some((candidate) =>
+        candidate === String(entry?.entity_ref ?? '').trim()
+        || candidate === String(entry?.entity_id ?? '').trim()
+        || candidate === String(entry?.id ?? '').trim()
+      )) || null;
+    },
+
+    resolveEncounterParticipantReference: function (entityOrRef = null) {
+      const participant = this.getEncounterParticipant?.(entityOrRef) || null;
+      if (participant) {
+        return String(participant.entity_ref ?? participant.entity_id ?? participant.id ?? '').trim() || null;
+      }
+
+      const normalizedCandidates = this.collectEncounterParticipantCandidates(entityOrRef);
       return normalizedCandidates[0] || null;
     },
 
+    normalizeEncounterParticipantTeam: function (team = '') {
+      const normalized = String(team || '').trim().toLowerCase();
+      if (normalized === String(Team.PLAYER).toLowerCase() || normalized === 'player_character' || normalized === 'pc') {
+        return 'player';
+      }
+      if (normalized === String(Team.ALLY).toLowerCase() || normalized === 'friendly' || normalized === 'companion') {
+        return 'ally';
+      }
+      if (normalized === String(Team.ENEMY).toLowerCase() || normalized === 'hostile' || normalized === 'monster') {
+        return 'enemy';
+      }
+      if (normalized === String(Team.NEUTRAL).toLowerCase()) {
+        return 'neutral';
+      }
+      return normalized;
+    },
+
     isEncounterParticipantHostileTo: function (actorTeam = '', targetTeam = '') {
-      const actor = String(actorTeam || '').trim().toLowerCase();
-      const target = String(targetTeam || '').trim().toLowerCase();
+      const actor = this.normalizeEncounterParticipantTeam?.(actorTeam) || '';
+      const target = this.normalizeEncounterParticipantTeam?.(targetTeam) || '';
       if (actor === '' || target === '' || actor === 'neutral' || target === 'neutral') {
         return false;
       }
@@ -10440,6 +11192,118 @@ import { SpriteService } from './SpriteService.js';
         return target === 'enemy';
       }
       return false;
+    },
+
+    isHostileEncounterCandidate: function (entity = null) {
+      if (!entity || typeof entity !== 'object') {
+        return false;
+      }
+
+      const rawTeam = this.normalizeEncounterParticipantTeam(
+        entity?.state?.metadata?.team
+        || entity?.state?.team
+        || entity?.team
+        || ''
+      );
+      if (rawTeam === 'enemy') {
+        return true;
+      }
+      if (['neutral', 'ally', 'player'].includes(rawTeam)) {
+        return false;
+      }
+
+      const contentType = String(
+        entity?.content_type
+        || entity?.entity_type
+        || entity?.entity_ref?.content_type
+        || ''
+      ).trim().toLowerCase();
+
+      return contentType === 'creature';
+    },
+
+    activeRoomHasHostileEncounterCandidates: function (roomId = null) {
+      const activeRoomId = roomId || this.resolveActiveRoomId();
+      const entities = Array.isArray(this.dungeonData?.entities) ? this.dungeonData.entities : [];
+      if (!activeRoomId || entities.length === 0) {
+        return false;
+      }
+
+      return entities.some((entity) =>
+        entity?.placement?.room_id === activeRoomId
+        && this.isHostileEncounterCandidate(entity)
+      );
+    },
+
+    buildCombatStartControls: function (options = {}) {
+      const startMode = String(
+        options?.startMode
+        || (options?.force === true ? 'auto' : 'manual')
+      ).trim().toLowerCase() === 'auto'
+        ? 'auto'
+        : 'manual';
+      const campaignId = Number(options?.campaignId || this.resolveCampaignId() || 0) || null;
+      const roomId = options?.roomId || this.resolveActiveRoomId() || null;
+      const requireHostiles = options?.requireHostiles != null
+        ? Boolean(options.requireHostiles)
+        : startMode === 'auto';
+
+      return {
+        ...options,
+        startMode,
+        requireHostiles,
+        campaignId,
+        roomId,
+        entities: Array.isArray(options?.entities) ? options.entities : this.serializeCombatantsForApi(),
+      };
+    },
+
+    evaluateCombatStartControls: function (controls = {}) {
+      if (!this.canUseServerCombatApi()) {
+        return {
+          allowed: false,
+          message: 'Combat start skipped; authenticated user is required for server combat APIs.',
+        };
+      }
+
+      const encounterId = this.stateManager.get('encounterId');
+      if (encounterId) {
+        return {
+          allowed: false,
+          message: 'Combat start skipped; encounter already active.',
+          details: { encounterId },
+        };
+      }
+
+      if (!controls.campaignId) {
+        return {
+          allowed: false,
+          message: 'Combat start skipped; campaign context is required for server combat APIs.',
+        };
+      }
+
+      if (!controls.roomId) {
+        return {
+          allowed: false,
+          message: 'Combat start skipped; active room context is required.',
+        };
+      }
+
+      if (controls.requireHostiles && !this.activeRoomHasHostileEncounterCandidates(controls.roomId)) {
+        return {
+          allowed: false,
+          message: 'Combat auto-start skipped; no hostile encounter candidates are present in the active room.',
+          details: {
+            roomId: controls.roomId,
+            campaignId: controls.campaignId,
+            startMode: controls.startMode,
+          },
+        };
+      }
+
+      return {
+        allowed: true,
+      };
     },
 
     getEncounterHostileTargets: function (actor) {
@@ -10512,28 +11376,23 @@ import { SpriteService } from './SpriteService.js';
     startCombat: async function (options = {}) {
       console.log('Starting combat (server authoritative)...');
 
-      if (!this.canUseServerCombatApi()) {
-        console.info('Combat start skipped; authenticated user is required for server combat APIs.');
-        return;
+      const controls = this.buildCombatStartControls(options);
+      const evaluation = this.evaluateCombatStartControls(controls);
+      if (!evaluation.allowed) {
+        console.info(evaluation.message, evaluation.details || {
+          roomId: controls.roomId,
+          campaignId: controls.campaignId,
+          startMode: controls.startMode,
+        });
+        return null;
       }
 
-      const encounterId = this.stateManager.get('encounterId');
-      if (encounterId) {
-        console.info('Combat start skipped; encounter already active.', { encounterId });
-        return;
-      }
-
-      const campaignId = this.resolveCampaignId();
-      if (!campaignId) {
-        console.info('Combat start skipped; campaign context is required for server combat APIs.');
-        return;
-      }
-
+      const { startMode, requireHostiles, ...requestOptions } = controls;
       const payload = {
-        campaignId,
-        roomId: this.resolveActiveRoomId(),
-        entities: this.serializeCombatantsForApi(),
-        ...options
+        ...requestOptions,
+        campaignId: controls.campaignId,
+        roomId: controls.roomId,
+        entities: controls.entities,
       };
 
       try {
@@ -10985,7 +11844,7 @@ import { SpriteService } from './SpriteService.js';
       // Combat controls
       const startCombatBtn = document.getElementById('start-combat');
       addTrackedListener(startCombatBtn, 'click', function () {
-        self.startCombat();
+        self.startCombat({ startMode: 'manual', requireHostiles: true, reason: 'ui-start-combat' });
       });
       
       const actionMoveBtn = document.getElementById('action-move');
@@ -11798,15 +12657,40 @@ import { SpriteService } from './SpriteService.js';
         }
       });
 
+      const resolvedLaunchCharacterId = Number(this.launchContext?.character_id || 0);
+      const playerEntitySummary = this.entityManager.getEntitiesWith('IdentityComponent', 'PositionComponent')
+        .filter((entity) => entity?.type === EntityType.PLAYER_CHARACTER)
+        .map((entity) => {
+          const position = entity.getComponent('PositionComponent');
+          const identity = entity.getComponent('IdentityComponent');
+          return {
+            entityId: entity.id,
+            name: identity?.name || entity.name || null,
+            dcCharacterId: entity.dcCharacterId || null,
+            dcEntityRef: entity.dcEntityRef || null,
+            roomId: position?.roomId || entity?.dcStatePayload?.placement?.room_id || null,
+            q: position?.q ?? null,
+            r: position?.r ?? null,
+          };
+        });
+      console.log('HexMap Init - Player Entity Resolution:', {
+        launchCharacterId: resolvedLaunchCharacterId || null,
+        launchInstanceId: this.launchCharacter?.instance_id || this.launchCharacter?.instanceId || null,
+        playerEntities: playerEntitySummary,
+      });
+
+      this.uiManager?.loadRoomPortraitsPanel?.(this.activeRoomId);
+
       // Auto-enter initiative only once per campaign-backed encounter context.
       const shouldAutoStart = this.turnManagementSystem &&
         this.canUseServerCombatApi() &&
         this.resolveCampaignId() &&
         !this.stateManager.get('encounterId') &&
-        !this.stateManager.get('combatActive');
+        !this.stateManager.get('combatActive') &&
+        this.activeRoomHasHostileEncounterCandidates();
 
       if (shouldAutoStart) {
-        this.startCombat({ force: true });
+        this.startCombat({ startMode: 'auto', requireHostiles: true, reason: 'active-room-render' });
       }
 
       // Resolve generated sprite images for all object definitions in view.

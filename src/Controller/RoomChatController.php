@@ -37,6 +37,20 @@ class RoomChatController extends ControllerBase {
   }
 
   /**
+   * Build the standard success wrapper for room-chat JSON responses.
+   */
+  protected function buildSuccessDataResponse(array $data, ?string $client_request_id = NULL): JsonResponse {
+    if ($client_request_id !== NULL && $client_request_id !== '') {
+      $data['client_request_id'] = $client_request_id;
+    }
+
+    return new JsonResponse([
+      'success' => TRUE,
+      'data' => $data,
+    ]);
+  }
+
+  /**
    * Get chat history for a room.
    * 
    * GET /api/campaign/{campaign_id}/room/{room_id}/chat?channel=room&character_id=85
@@ -173,12 +187,7 @@ class RoomChatController extends ControllerBase {
           $channel
         );
 
-        return new JsonResponse([
-          'success' => TRUE,
-          'data' => $result + [
-            'client_request_id' => $client_request_id,
-          ],
-        ]);
+        return $this->buildSuccessDataResponse($result, $client_request_id);
       }
 
       $result = $this->chatService->postMessage(
@@ -193,12 +202,7 @@ class RoomChatController extends ControllerBase {
         $suppress_gm
       );
 
-      return new JsonResponse([
-        'success' => TRUE,
-        'data' => $result + [
-          'client_request_id' => $client_request_id,
-        ],
-      ]);
+      return $this->buildSuccessDataResponse($result, $client_request_id);
     }
     catch (\InvalidArgumentException $e) {
       $status = (int) $e->getCode() ?: 400;
@@ -493,6 +497,8 @@ class RoomChatController extends ControllerBase {
           ]);
         }
       }
+
+      $result['npc_interjections_deferred'] = FALSE;
     }
 
     $emit([

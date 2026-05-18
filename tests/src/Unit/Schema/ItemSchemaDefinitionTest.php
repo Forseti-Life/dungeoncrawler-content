@@ -48,6 +48,12 @@ class ItemSchemaDefinitionTest extends UnitTestCase {
     $this->assertSame(1, $item['container_stats']['capacity_reduction']);
     $this->assertSame(2, $item['container_stats']['bulk_reduction']);
     $this->assertSame('backpack', $item['container_stats']['container_type']);
+    $this->assertTrue($item['inventory_metadata']['equippable']);
+    $this->assertSame('worn', $item['inventory_metadata']['equip_slot']);
+    $this->assertSame('worn', $item['inventory_metadata']['worn_slot']);
+    $this->assertSame(0, $item['inventory_metadata']['hand_slots_required']);
+    $this->assertTrue($item['inventory_metadata']['container']);
+    $this->assertFalse($item['inventory_metadata']['consumable']);
   }
 
 }

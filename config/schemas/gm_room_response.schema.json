@@ -1,0 +1,74 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dungeoncrawler.life/schemas/gm_room_response.schema.json",
+  "title": "GM Room Response Schema",
+  "description": "Canonical contract for player-visible Game Master room responses.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "speaker",
+    "channel",
+    "narrative",
+    "mechanical_actions",
+    "dice_rolls",
+    "flags"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "enum": ["gm-room-response-v1"]
+    },
+    "speaker": {
+      "type": "string",
+      "enum": ["Game Master"]
+    },
+    "channel": {
+      "type": "string",
+      "enum": ["room"]
+    },
+    "narrative": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000
+    },
+    "mechanical_actions": {
+      "type": "array",
+      "maxItems": 20,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "name"],
+        "properties": {
+          "type": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          }
+        }
+      }
+    },
+    "dice_rolls": {
+      "type": "array",
+      "maxItems": 20,
+      "items": {
+        "type": "object"
+      }
+    },
+    "flags": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["suppress_npc_interjections"],
+      "properties": {
+        "suppress_npc_interjections": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

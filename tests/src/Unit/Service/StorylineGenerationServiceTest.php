@@ -175,6 +175,271 @@ class StorylineGenerationServiceTest extends UnitTestCase {
   }
 
   /**
+   * Verifies AI bootstrap normalization accepts a storyline_definition wrapper.
+   */
+  public function testBootstrapGenerationAcceptsStorylineDefinitionWrapperFromAi(): void {
+    $campaign_state = $this->createMock(CampaignStateService::class);
+    $campaign_state->method('getState')->willReturn([
+      'current_room_id' => 'tavern_entrance',
+      'characters' => [
+        ['level' => 2],
+      ],
+    ]);
+
+    $storyline_manager = new StorylineManagerService(
+      $this->createMock(Connection::class),
+      $this->buildLoggerFactory(),
+      $this->buildUuid(),
+      $campaign_state,
+      $this->buildStateValidationService()
+    );
+
+    $ai_api = $this->createMock(\Drupal\dungeoncrawler_content\Service\AiApiService::class);
+    $ai_api->expects($this->once())
+      ->method('invokeModelDirect')
+      ->willReturn([
+        'response' => json_encode([
+          'storyline_definition' => [
+            'name' => 'Relic Thief Pursuit',
+            'template_id' => 'relic-thief-pursuit',
+            'synopsis' => 'Track the thieves to the first hidden vault.',
+            'level_range' => '2-3',
+            'source' => 'storyline-bootstrap',
+            'tags' => ['generated', 'bootstrap'],
+            'metadata' => [
+              'goal' => 'Hunt the relic thieves.',
+              'generated_outline' => [
+                'generation_phase' => 'bootstrap',
+                'goal' => 'Hunt the relic thieves.',
+                'entry_dungeon' => [
+                  'dungeon_id' => 'relic-vault-threshold',
+                  'name' => 'Relic Vault Threshold',
+                  'style' => 'hidden vault',
+                  'entrance_room_id' => 'relic-vault-threshold-entry',
+                  'lead_location_id' => 'tavern_entrance',
+                  'lead_location_hint' => 'The trail starts beneath the tavern cellar.',
+                ],
+                'progression_connectors' => [
+                  [
+                    'source_id' => 'npc_tavern_keeper',
+                    'target_dungeon_id' => 'relic-vault-threshold',
+                    'target_room_id' => 'relic-vault-threshold-entry',
+                  ],
+                ],
+                'bootstrap_handoff' => [
+                  'speaker_npc_id' => 'npc_tavern_keeper',
+                  'speaker_name' => 'Eldric',
+                  'lead_text' => 'Start with the locked stairs beneath the cellar.',
+                ],
+              ],
+            ],
+            'asset_references' => [],
+            'contacts' => [
+              [
+                'contact_id' => 'relic-thief-patron',
+                'entity_type' => 'campaign_npc',
+                'entity_id' => 'npc_tavern_keeper',
+                'role' => 'quest_giver',
+                'display_name' => 'Eldric',
+                'attitude' => 'friendly',
+                'notes' => 'Knows where the first clue begins.',
+                'relationship_state' => [
+                  'points_to_dungeon_id' => 'relic-vault-threshold',
+                  'points_to_room_id' => 'relic-vault-threshold-entry',
+                  'mechanism' => 'npc_direction',
+                ],
+              ],
+            ],
+            'chapters' => [
+              [
+                'chapter_id' => 'relic-vault-threshold',
+                'name' => 'First Lead',
+                'scenes' => [
+                  [
+                    'scene_id' => 'relic-vault-threshold-entry',
+                    'name' => 'Vault Entry',
+                    'summary' => 'The first hidden door waits under the tavern.',
+                    'quest_ids' => ['relic-vault-threshold-entry-quest'],
+                  ],
+                ],
+              ],
+            ],
+          ],
+          'quest_templates' => [
+            [
+              'template_id' => 'relic-vault-threshold-entry-quest',
+              'name' => 'Find the Hidden Vault',
+              'summary' => 'Follow Eldric into the cellar and uncover the hidden stairs.',
+              'giver_npc_id' => 'npc_tavern_keeper',
+              'objective_flow' => [
+                [
+                  'objective_id' => 'reach-vault-entry',
+                  'type' => 'travel',
+                  'summary' => 'Reach the cellar stairs.',
+                ],
+              ],
+            ],
+          ],
+        ], JSON_UNESCAPED_SLASHES),
+      ]);
+
+    $service = new StorylineGenerationService(
+      $this->createMock(Connection::class),
+      $this->buildLoggerFactory(),
+      $ai_api,
+      $storyline_manager,
+      $campaign_state,
+      new TreasureByLevelService(),
+      $this->buildUuid()
+    );
+
+    $package = $service->generateStorylineBootstrapPackage(65, [
+      'prompt' => 'I want a storyline about hunting relic thieves',
+      'speaker_npc_id' => 'npc_tavern_keeper',
+      'speaker_name' => 'Eldric',
+      'lead_location_id' => 'tavern_entrance',
+    ]);
+
+    $this->assertSame('ai', $package['generation_source']);
+    $this->assertSame('Relic Thief Pursuit', $package['storyline_definition']['name'] ?? NULL);
+    $this->assertSame('bootstrap', $package['campaign_outline']['generation_phase'] ?? NULL);
+    $this->assertSame('Hunt the relic thieves.', $package['storyline_definition']['metadata']['goal'] ?? NULL);
+  }
+
+  /**
+   * Verifies bootstrap normalization unwraps nested storyline wrappers safely.
+   */
+  public function testBootstrapGenerationUnwrapsNestedStorylineWrappersFromAi(): void {
+    $campaign_state = $this->createMock(CampaignStateService::class);
+    $campaign_state->method('getState')->willReturn([
+      'current_room_id' => 'tavern_entrance',
+      'characters' => [
+        ['level' => 2],
+      ],
+    ]);
+
+    $storyline_manager = new StorylineManagerService(
+      $this->createMock(Connection::class),
+      $this->buildLoggerFactory(),
+      $this->buildUuid(),
+      $campaign_state,
+      $this->buildStateValidationService()
+    );
+
+    $ai_api = $this->createMock(\Drupal\dungeoncrawler_content\Service\AiApiService::class);
+    $ai_api->expects($this->once())
+      ->method('invokeModelDirect')
+      ->willReturn([
+        'response' => json_encode([
+          'storyline_definition' => [
+            'storyline' => [
+              'name' => 'Nested Relic Lead',
+              'template_id' => 'nested-relic-lead',
+              'synopsis' => 'Follow the nested wrapper to the first vault.',
+              'level_range' => '2-3',
+              'source' => 'storyline-bootstrap',
+              'tags' => ['generated', 'bootstrap'],
+              'metadata' => [
+                'goal' => 'Recover the relic map.',
+                'generated_outline' => [
+                  'generation_phase' => 'bootstrap',
+                  'goal' => 'Recover the relic map.',
+                  'entry_dungeon' => [
+                    'dungeon_id' => 'nested-vault-threshold',
+                    'name' => 'Nested Vault Threshold',
+                    'style' => 'buried archive',
+                    'entrance_room_id' => 'nested-vault-threshold-entry',
+                    'lead_location_id' => 'tavern_entrance',
+                    'lead_location_hint' => 'The clue is hidden behind the cellar casks.',
+                  ],
+                  'progression_connectors' => [
+                    [
+                      'source_id' => 'npc_tavern_keeper',
+                      'target_dungeon_id' => 'nested-vault-threshold',
+                      'target_room_id' => 'nested-vault-threshold-entry',
+                    ],
+                  ],
+                  'bootstrap_handoff' => [
+                    'speaker_npc_id' => 'npc_tavern_keeper',
+                    'speaker_name' => 'Eldric',
+                    'lead_text' => 'Look behind the cellar casks.',
+                  ],
+                ],
+              ],
+              'asset_references' => [],
+              'contacts' => [
+                [
+                  'contact_id' => 'nested-relic-patron',
+                  'entity_type' => 'campaign_npc',
+                  'entity_id' => 'npc_tavern_keeper',
+                  'role' => 'quest_giver',
+                  'display_name' => 'Eldric',
+                  'attitude' => 'friendly',
+                  'notes' => 'Knows where the cellar clue begins.',
+                  'relationship_state' => [
+                    'points_to_dungeon_id' => 'nested-vault-threshold',
+                    'points_to_room_id' => 'nested-vault-threshold-entry',
+                    'mechanism' => 'npc_direction',
+                  ],
+                ],
+              ],
+              'chapters' => [
+                [
+                  'chapter_id' => 'nested-vault-threshold',
+                  'name' => 'Cellar Clue',
+                  'scenes' => [
+                    [
+                      'scene_id' => 'nested-vault-threshold-entry',
+                      'name' => 'Hidden Cellar Door',
+                      'summary' => 'A false wall opens to the first descent.',
+                      'quest_ids' => ['nested-vault-threshold-entry-quest'],
+                    ],
+                  ],
+                ],
+              ],
+            ],
+          ],
+          'quest_templates' => [
+            [
+              'template_id' => 'nested-vault-threshold-entry-quest',
+              'name' => 'Open the Hidden Cellar Door',
+              'summary' => 'Find the hidden latch behind the casks.',
+              'giver_npc_id' => 'npc_tavern_keeper',
+              'objective_flow' => [
+                [
+                  'objective_id' => 'find-hidden-latch',
+                  'type' => 'search',
+                  'summary' => 'Search behind the casks for the hidden latch.',
+                ],
+              ],
+            ],
+          ],
+        ], JSON_UNESCAPED_SLASHES),
+      ]);
+
+    $service = new StorylineGenerationService(
+      $this->createMock(Connection::class),
+      $this->buildLoggerFactory(),
+      $ai_api,
+      $storyline_manager,
+      $campaign_state,
+      new TreasureByLevelService(),
+      $this->buildUuid()
+    );
+
+    $package = $service->generateStorylineBootstrapPackage(65, [
+      'prompt' => 'I want a storyline about recovering a relic map',
+      'speaker_npc_id' => 'npc_tavern_keeper',
+      'speaker_name' => 'Eldric',
+      'lead_location_id' => 'tavern_entrance',
+    ]);
+
+    $this->assertSame('ai', $package['generation_source']);
+    $this->assertSame('Nested Relic Lead', $package['storyline_definition']['name'] ?? NULL);
+    $this->assertSame('Recover the relic map.', $package['storyline_definition']['metadata']['goal'] ?? NULL);
+  }
+
+  /**
    * Verifies deferred expansion can preserve the bootstrap handoff identifiers.
    */
   public function testExpandedGenerationPreservesBootstrapIdsWhenProvided(): void {

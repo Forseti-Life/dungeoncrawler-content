@@ -838,6 +838,48 @@ class CampaignController extends ControllerBase {
   }
 
   /**
+   * Launch quick play for a campaign without submitting the character form.
+   */
+  public function quickPlayCharacter(int $campaign_id): RedirectResponse {
+    $campaign = $this->database->select('dc_campaigns', 'c')
+      ->fields('c')
+      ->condition('id', $campaign_id)
+      ->execute()
+      ->fetchObject();
+
+    if (!$campaign) {
+      throw new NotFoundHttpException();
+    }
+
+    if ((int) $campaign->uid !== (int) $this->currentUser()->id()) {
+      throw new AccessDeniedHttpException();
+    }
+
+    $this->getLogger('dungeoncrawler_content')->notice('Campaign quick play requested: campaign_id=@campaign_id user_id=@user_id', [
+      '@campaign_id' => $campaign_id,
+      '@user_id' => (int) $this->currentUser()->id(),
+    ]);
+
+    $character_id = $this->characterManager->getRandomQuickPlayCharacterId();
+    if (!$character_id) {
+      $this->messenger()->addError($this->t('Unable to prepare a quick-play character right now.'));
+      return new RedirectResponse(Url::fromRoute('dungeoncrawler_content.character_setup', [], [
+        'query' => ['campaign_id' => $campaign_id],
+      ])->toString());
+    }
+
+    $this->getLogger('dungeoncrawler_content')->notice('Campaign quick play redirecting to character selection: campaign_id=@campaign_id quick_play_character_id=@character_id', [
+      '@campaign_id' => $campaign_id,
+      '@character_id' => $character_id,
+    ]);
+
+    return new RedirectResponse(Url::fromRoute('dungeoncrawler_content.campaign_select_character', [
+      'campaign_id' => $campaign_id,
+      'character_id' => (int) $character_id,
+    ])->toString());
+  }
+
+  /**
    * Select a character for a campaign.
    */
   public function selectCharacter(int $campaign_id, int $character_id) {
@@ -998,6 +1040,16 @@ class CampaignController extends ControllerBase {
         TRUE
       );
     }
+
+    $this->getLogger('dungeoncrawler_content')->notice('Campaign character selection launching hexmap: campaign_id=@campaign_id requested_character_id=@requested_character_id canonical_character_id=@canonical_character_id selected_row_id=@selected_row_id launch_character_id=@launch_character_id existing_row_id=@existing_row_id launch_dungeon_id=@dungeon_id', [
+      '@campaign_id' => $campaign_id,
+      '@requested_character_id' => $character_id,
+      '@canonical_character_id' => $canonical_character_id,
+      '@selected_row_id' => $selected_row_id,
+      '@launch_character_id' => $launch_character_id,
+      '@existing_row_id' => (int) $existing_row_id,
+      '@dungeon_id' => (string) ($campaign_dungeon->dungeon_id ?? ''),
+    ]);
 
     return $this->redirect('dungeoncrawler_content.hexmap_demo', [], [
       'query' => $launch_query,

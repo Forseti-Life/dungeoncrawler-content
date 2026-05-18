@@ -119,7 +119,7 @@ class QuestTouchpointService {
       (string) $match['quest_id'],
       (string) $match['objective_id'],
       $amount,
-      $character_id
+      (int) ($match['progress_character_id'] ?? $character_id)
     );
 
     if (empty($result['success'])) {
@@ -203,9 +203,10 @@ class QuestTouchpointService {
         if ($objective_id_hint === '' || $objective_id_hint !== $candidate_objective_id) {
           $target_item = $this->normalizeToken((string) ($objective['item'] ?? ''));
           $target_npc = $this->normalizeToken((string) ($objective['target'] ?? ''));
+          $npc_aliases = $this->buildNpcObjectiveAliases($objective);
 
           $item_match = $item_ref === '' || $target_item === '' || str_contains($item_ref, $target_item) || str_contains($target_item, $item_ref);
-          $npc_match = $npc_ref === '' || $target_npc === '' || str_contains($npc_ref, $target_npc) || str_contains($target_npc, $npc_ref);
+          $npc_match = $npc_ref === '' || $this->matchesNpcAlias($npc_ref, $target_npc, $npc_aliases);
 
           if (!$item_match || !$npc_match) {
             continue;
@@ -217,6 +218,7 @@ class QuestTouchpointService {
           'quest_name' => $quest_name,
           'objective_id' => $candidate_objective_id,
           'objective_type' => $candidate_type,
+          'progress_character_id' => (int) ($quest['character_id'] ?? 0),
           'label' => (string) ($objective['description'] ?? $candidate_objective_id),
         ];
       }
@@ -275,6 +277,45 @@ class QuestTouchpointService {
     $value = str_replace(['_', '-'], ' ', $value);
     $value = preg_replace('/\s+/', ' ', $value);
     return (string) $value;
+  }
+
+  /**
+   * Build loose NPC aliases from the objective payload.
+   *
+   * @return array<int, string>
+   *   Normalized aliases.
+   */
+  protected function buildNpcObjectiveAliases(array $objective): array {
+    $aliases = [
+      $this->normalizeToken((string) ($objective['target'] ?? '')),
+      $this->normalizeToken((string) ($objective['npc_ref'] ?? '')),
+      $this->normalizeToken((string) ($objective['objective_id'] ?? '')),
+    ];
+
+    $description = trim((string) ($objective['description'] ?? ''));
+    if ($description !== '' && preg_match('/speak to ([^.]+?)(?: and|\.|$)/i', $description, $matches) === 1) {
+      $aliases[] = $this->normalizeToken($matches[1]);
+    }
+
+    return array_values(array_unique(array_filter($aliases)));
+  }
+
+  /**
+   * Determine whether a touchpoint NPC token matches any objective alias.
+   */
+  protected function matchesNpcAlias(string $npc_ref, string $target_npc, array $npc_aliases): bool {
+    if ($target_npc === '' && $npc_aliases === []) {
+      return TRUE;
+    }
+
+    $candidates = array_values(array_unique(array_filter(array_merge([$target_npc], $npc_aliases))));
+    foreach ($candidates as $candidate) {
+      if (str_contains($npc_ref, $candidate) || str_contains($candidate, $npc_ref)) {
+        return TRUE;
+      }
+    }
+
+    return FALSE;
   }
 
 }

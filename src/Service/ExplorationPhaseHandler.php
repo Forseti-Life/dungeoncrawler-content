@@ -2701,8 +2701,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
         $entities = $dungeon_data['entities'] ?? [];
         foreach ($entities as $entity) {
           $entity_room = $entity['placement']['room_id'] ?? NULL;
-          $content_type = $entity['content_type'] ?? '';
-          if ($entity_room === $room_id && $content_type === 'creature') {
+          if ($entity_room === $room_id && $this->isHostileEncounterEntity($entity)) {
             $hostile_entities[] = $entity;
           }
         }
@@ -2763,6 +2762,32 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
     }
 
     return ['should_trigger' => FALSE];
+  }
+
+  /**
+   * Determines whether an exploration entity should seed a hostile encounter.
+   */
+  protected function isHostileEncounterEntity(array $entity): bool {
+    $content_type = strtolower(trim((string) (
+      $entity['content_type']
+      ?? $entity['entity_type']
+      ?? $entity['entity_ref']['content_type']
+      ?? ''
+    )));
+    $team = strtolower(trim((string) (
+      $entity['state']['metadata']['team']
+      ?? $entity['state']['team']
+      ?? ''
+    )));
+
+    if (in_array($team, ['enemy', 'hostile', 'monster'], TRUE)) {
+      return TRUE;
+    }
+    if (in_array($team, ['neutral', 'friendly', 'ally', 'player', 'player_character', 'pc'], TRUE)) {
+      return FALSE;
+    }
+
+    return $content_type === 'creature';
   }
 
   /**

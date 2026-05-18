@@ -119,7 +119,8 @@ class CharacterCreationGmService {
    * Returns chat history from character data.
    */
   public function getChatHistory(array $character_data): array {
-    $messages = $character_data['gm_chat']['messages'] ?? [];
+    $draft = $this->resolveDraftState($character_data);
+    $messages = $draft['gm_chat']['messages'] ?? [];
     return is_array($messages) ? array_values($messages) : [];
   }
 
@@ -127,13 +128,22 @@ class CharacterCreationGmService {
    * Builds a small draft summary for the chat dock.
    */
   public function buildSummary(array $character_data): array {
+    $draft = $this->resolveDraftState($character_data);
     return [
-      'name' => (string) ($character_data['name'] ?? ''),
-      'ancestry' => (string) ($character_data['ancestry'] ?? ''),
-      'class' => (string) ($character_data['class'] ?? ''),
-      'background' => (string) ($character_data['background'] ?? ''),
-      'step' => (int) ($character_data['step'] ?? 1),
+      'name' => (string) ($draft['name'] ?? ''),
+      'ancestry' => (string) ($draft['ancestry'] ?? ''),
+      'class' => (string) ($draft['class'] ?? ''),
+      'background' => (string) ($draft['background'] ?? ''),
+      'step' => (int) ($draft['step'] ?? 1),
     ];
+  }
+
+  /**
+   * Resolve the wizard draft state from a stored character payload.
+   */
+  private function resolveDraftState(array $character_data): array {
+    $draft = is_array($character_data['wizard'] ?? NULL) ? $character_data['wizard'] : $character_data;
+    return is_array($draft) ? $draft : [];
   }
 
   /**
@@ -664,6 +674,7 @@ PROMPT;
       'worn' => [
         'weapons' => [],
         'armor' => NULL,
+        'shield' => NULL,
         'accessories' => [],
       ],
       'carried' => $carried,

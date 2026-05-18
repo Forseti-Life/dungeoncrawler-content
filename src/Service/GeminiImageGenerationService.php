@@ -102,6 +102,7 @@ class GeminiImageGenerationService {
       'campaign_context' => trim((string) ($payload['campaign_context'] ?? '')),
       'requested_by_uid' => (int) ($payload['requested_by_uid'] ?? 0),
       'requested_at' => $timestamp,
+      'reference_images' => $this->normalizeReferenceImages($payload['reference_images'] ?? []),
     ];
 
     if (!$status['enabled'] || !$status['has_api_key']) {
@@ -271,17 +272,80 @@ class GeminiImageGenerationService {
       $prompt .= "\nCampaign context: " . $normalized_payload['campaign_context'];
     }
 
+    $parts = [
+      ['text' => $prompt],
+    ];
+    foreach ($normalized_payload['reference_images'] ?? [] as $reference) {
+      if (!is_array($reference)) {
+        continue;
+      }
+
+      $name = trim((string) ($reference['name'] ?? 'character'));
+      $description = trim((string) ($reference['description'] ?? ''));
+      if ($description !== '') {
+        $parts[] = ['text' => sprintf('Reference portrait for %s: %s', $name, $description)];
+      }
+
+      $inline_part = $this->buildReferenceImageInlinePart($reference);
+      if ($inline_part !== NULL) {
+        $parts[] = $inline_part;
+      }
+    }
+
     return [
       'contents' => [
         [
           'role' => 'user',
-          'parts' => [
-            ['text' => $prompt],
-          ],
+          'parts' => $parts,
         ],
       ],
       'generationConfig' => [
         'responseModalities' => ['TEXT', 'IMAGE'],
+      ],
+    ];
+  }
+
+  /**
+   * Normalize incoming portrait reference payloads.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Normalized references.
+   */
+  private function normalizeReferenceImages($reference_images): array {
+    if (!is_array($reference_images)) {
+      return [];
+    }
+
+    $normalized = [];
+    foreach ($reference_images as $reference) {
+      if (!is_array($reference)) {
+        continue;
+      }
+
+      $normalized[] = [
+        'name' => trim((string) ($reference['name'] ?? '')),
+        'description' => trim((string) ($reference['description'] ?? '')),
+        'mime_type' => trim((string) ($reference['mime_type'] ?? 'image/png')),
+        'data_uri' => trim((string) ($reference['data_uri'] ?? '')),
+      ];
+    }
+
+    return $normalized;
+  }
+
+  /**
+   * Convert a portrait reference into a Gemini inline image part.
+   */
+  private function buildReferenceImageInlinePart(array $reference): ?array {
+    $data_uri = trim((string) ($reference['data_uri'] ?? ''));
+    if ($data_uri === '' || !preg_match('/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/', $data_uri, $matches)) {
+      return NULL;
+    }
+
+    return [
+      'inlineData' => [
+        'mimeType' => $matches[1],
+        'data' => $matches[2],
       ],
     ];
   }

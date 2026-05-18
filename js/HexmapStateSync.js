@@ -129,13 +129,17 @@ export class HexmapStateSync {
   apply(serverState = {}) {
     if (!serverState || typeof serverState !== 'object') return;
     const hm = this._hexmap;
+    const isActiveEncounter = Boolean(serverState.encounter_id) && String(serverState.status || '') === 'active';
 
     if (typeof hm.cacheEncounterServerState === 'function') {
-      hm.cacheEncounterServerState(serverState.encounter_id ? serverState : null);
+      hm.cacheEncounterServerState(isActiveEncounter ? serverState : null);
     }
 
-    if (serverState.encounter_id) {
+    if (isActiveEncounter) {
       hm.stateManager?.set('encounterId', serverState.encounter_id);
+    } else {
+      hm.stateManager?.set('encounterId', null);
+      hm.stateManager?.set('serverCombatMode', false);
     }
 
     if (serverState.map_id) {
@@ -147,7 +151,8 @@ export class HexmapStateSync {
     }
 
     // Hydrate turn/combat order (server is authoritative for initiative).
-    if (typeof hm.turnManagementSystem?.hydrateFromServer === 'function'
+    if (isActiveEncounter
+        && typeof hm.turnManagementSystem?.hydrateFromServer === 'function'
         && Array.isArray(serverState.initiative_order)) {
       hm.stateManager?.set('serverCombatMode', true);
       if (hm.combatSystem && typeof hm.combatSystem.setServerResultRequirement === 'function') {

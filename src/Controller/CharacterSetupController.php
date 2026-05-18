@@ -4,7 +4,6 @@ namespace Drupal\dungeoncrawler_content\Controller;
 
 use Drupal\Core\Access\CsrfTokenGenerator;
 use Drupal\Core\Controller\ControllerBase;
-use Drupal\Core\Database\Connection;
 use Drupal\Core\Url;
 use Drupal\dungeoncrawler_content\Service\CharacterCreationGmService;
 use Drupal\dungeoncrawler_content\Service\CharacterManager;
@@ -23,7 +22,6 @@ class CharacterSetupController extends ControllerBase {
     protected SchemaLoader $schemaLoader,
     protected CharacterCreationGmService $characterCreationGm,
     protected CsrfTokenGenerator $csrfToken,
-    protected Connection $database,
   ) {}
 
   /**
@@ -35,7 +33,6 @@ class CharacterSetupController extends ControllerBase {
       $container->get('dungeoncrawler_content.schema_loader'),
       $container->get('dungeoncrawler_content.character_creation_gm'),
       $container->get('csrf_token'),
-      $container->get('database'),
     );
   }
 
@@ -45,10 +42,13 @@ class CharacterSetupController extends ControllerBase {
   public function page(Request $request): array {
     $campaign_id = $request->query->get('campaign_id');
     $requested_character_id = $request->query->get('character_id');
+    $request_method = strtoupper((string) $request->getMethod());
+    $query_keys = array_keys($request->query->all());
+    $post_keys = array_keys($request->request->all());
 
     $character = $requested_character_id !== NULL && $requested_character_id !== ''
       ? $this->loadOwnedCharacter((int) $requested_character_id)
-      : $this->loadExistingDraft();
+      : NULL;
 
     if ($requested_character_id !== NULL && $requested_character_id !== '' && !$character) {
       throw new AccessDeniedHttpException('Access denied.');
@@ -67,6 +67,24 @@ class CharacterSetupController extends ControllerBase {
     $max_accessible_step = $character_id ? max(1, min(8, (int) ($character_data['step'] ?? 1))) : 1;
     $requested_step = max(1, min(8, (int) $request->query->get('step', $max_accessible_step)));
     $active_step = $character_id ? min($requested_step, $max_accessible_step) : 1;
+    $show_quick_play = $campaign_id !== NULL
+      && $campaign_id !== ''
+      && $active_step === 1
+      && $character_id === NULL;
+
+    $this->getLogger('dungeoncrawler_content')->notice('Character setup page load: method=@method requested_character_id=@requested_character_id resolved_character_id=@character_id campaign_id=@campaign_id requested_step=@requested_step active_step=@active_step max_accessible_step=@max_accessible_step character_status=@status show_quick_play=@show_quick_play query_keys=@query_keys post_keys=@post_keys', [
+      '@method' => $request_method,
+      '@requested_character_id' => (string) ($requested_character_id ?? ''),
+      '@character_id' => (string) ($character_id ?? ''),
+      '@campaign_id' => (string) ($campaign_id ?? ''),
+      '@requested_step' => $requested_step,
+      '@active_step' => $active_step,
+      '@max_accessible_step' => $max_accessible_step,
+      '@status' => $character ? (int) ($character->status ?? -1) : -1,
+      '@show_quick_play' => $show_quick_play ? '1' : '0',
+      '@query_keys' => implode(',', $query_keys),
+      '@post_keys' => implode(',', $post_keys),
+    ]);
 
     $steps = [];
     for ($step = 1; $step <= 8; $step++) {
@@ -126,6 +144,7 @@ class CharacterSetupController extends ControllerBase {
             'campaignId' => $campaign_id !== NULL && $campaign_id !== '' ? (int) $campaign_id : NULL,
             'activeStep' => $active_step,
             'maxAccessibleStep' => $max_accessible_step,
+            'showQuickPlay' => $show_quick_play,
           ],
           'dungeoncrawlerCharacterGm' => $gm_settings,
         ],
@@ -153,21 +172,6 @@ class CharacterSetupController extends ControllerBase {
     }
 
     return $character;
-  }
-
-  /**
-   * Loads the current user's active draft, if one exists.
-   */
-  private function loadExistingDraft(): ?object {
-    $draft_id = $this->database->select('dc_campaign_characters', 'c')
-      ->fields('c', ['id'])
-      ->condition('uid', (int) $this->currentUser()->id())
-      ->condition('status', 0)
-      ->range(0, 1)
-      ->execute()
-      ->fetchField();
-
-    return $draft_id ? $this->loadOwnedCharacter((int) $draft_id) : NULL;
   }
 
   /**

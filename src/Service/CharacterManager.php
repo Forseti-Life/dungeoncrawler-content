@@ -11946,6 +11946,14 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
     $character_data['features'] = $features;
     $character_data['feats'] = $features['feats'];
     $character_data['feat_selections'] = $features['featSelections'];
+    if (is_array($character_data['wizard'] ?? NULL)) {
+      $character_data['gm_chat'] = is_array($character_data['wizard']['gm_chat'] ?? NULL)
+        ? $character_data['wizard']['gm_chat']
+        : ['messages' => []];
+      $character_data['gm_equipment_ids'] = is_array($character_data['wizard']['gm_equipment_ids'] ?? NULL)
+        ? array_values($character_data['wizard']['gm_equipment_ids'])
+        : [];
+    }
 
     return $character_data;
   }
@@ -12546,8 +12554,8 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
     $is_list = !empty($inventory) && array_keys($inventory) === range(0, count($inventory) - 1);
     $currency = is_array($inventory['currency'] ?? NULL) ? $inventory['currency'] : [];
 
-    return [
-      'worn' => is_array($inventory['worn'] ?? NULL) ? $inventory['worn'] : ['weapons' => [], 'accessories' => []],
+    return CharacterEquipmentSlotHelper::normalizeInventory([
+      'worn' => is_array($inventory['worn'] ?? NULL) ? $inventory['worn'] : ['weapons' => [], 'armor' => NULL, 'shield' => NULL, 'accessories' => []],
       'carried' => $is_list ? array_values($inventory) : (is_array($inventory['carried'] ?? NULL) ? $inventory['carried'] : []),
       'currency' => [
         'cp' => (float) ($currency['cp'] ?? $data['cp'] ?? 0),
@@ -12557,7 +12565,7 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
       ],
       'totalBulk' => (float) ($inventory['totalBulk'] ?? $inventory['total_bulk'] ?? 0),
       'encumbrance' => (string) ($inventory['encumbrance'] ?? 'unencumbered'),
-    ];
+    ]);
   }
 
   /**
@@ -13567,7 +13575,21 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
         'description_source' => $this->resolveSpellCatalogDescriptionSource($schema),
         'rarity' => $spell_rarity,
         'source' => trim((string) ($schema['source_display'] ?? $schema['source_book'] ?? '')),
-        'heightenable' => !empty($schema['heightenable']),
+        'source_display' => trim((string) ($schema['source_display'] ?? '')),
+        'source_book' => trim((string) ($schema['source_book'] ?? '')),
+        'cast' => $schema['cast'] ?? '',
+        'cast_actions' => $schema['cast_actions'] ?? '',
+        'actions' => $schema['actions'] ?? '',
+        'range' => $schema['range'] ?? '',
+        'targets' => $schema['targets'] ?? '',
+        'target' => $schema['target'] ?? '',
+        'area' => $schema['area'] ?? '',
+        'duration' => $schema['duration'] ?? '',
+        'save' => $schema['save'] ?? '',
+        'saving_throw' => $schema['saving_throw'] ?? '',
+        'save_type' => $schema['save_type'] ?? '',
+        'components' => is_array($schema['components'] ?? NULL) ? $schema['components'] : [],
+        'heightenable' => !empty($schema['heightenable']) || !empty($schema['heightened']) || !empty($schema['heightened_scaling']),
       ];
 
       $candidate_score = $this->scoreSpellCatalogRow((string) $row->content_id, $schema);

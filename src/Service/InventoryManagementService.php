@@ -120,7 +120,8 @@ class InventoryManagementService {
     $inventory = [
       'worn' => [
         'weapons' => [],
-        'armor' => [],
+        'armor' => NULL,
+        'shield' => NULL,
         'accessories' => [],
       ],
       'carried' => [],
@@ -141,17 +142,22 @@ class InventoryManagementService {
         'location' => $item_row['location_type'],
         ...($state ?? []),
       ];
+      $item_data['inventory_metadata'] = $this->buildInventoryMetadata($item_data);
 
       $location = $item_row['location_type'];
 
       switch ($location) {
         case 'worn':
           $type = $state['type'] ?? $state['item_type'] ?? 'accessory';
-          if ($type === 'weapon') {
+          $equip_slot = (string) ($item_data['inventory_metadata']['equip_slot'] ?? '');
+          if ($type === 'weapon' || $equip_slot === 'held') {
             $inventory['worn']['weapons'][] = $item_data;
           }
-          elseif ($type === 'armor') {
+          elseif ($type === 'armor' || $equip_slot === 'armor') {
             $inventory['worn']['armor'] = $item_data;
+          }
+          elseif ($type === 'shield' || $equip_slot === 'shield') {
+            $inventory['worn']['shield'] = $item_data;
           }
           else {
             $inventory['worn']['accessories'][] = $item_data;
@@ -182,7 +188,7 @@ class InventoryManagementService {
     $inventory['capacity'] = $this->getInventoryCapacity($character_id, 'character');
     $inventory['encumbrance'] = $this->getEncumbranceStatus($current_bulk, $str_score);
 
-    return $inventory;
+    return CharacterEquipmentSlotHelper::normalizeInventory($inventory);
   }
 
   /**
@@ -1382,7 +1388,9 @@ class InventoryManagementService {
     string $owner_type,
     string $item_instance_id,
     string $new_location,
-    ?int $campaign_id = NULL
+    ?int $campaign_id = NULL,
+    ?string $equipped_slot_key = NULL,
+    mixed $equipped_slot_index = NULL,
   ): array {
     $this->validateOwner($owner_id, $owner_type);
 
@@ -1394,10 +1402,46 @@ class InventoryManagementService {
     try {
       $transaction = $this->database->startTransaction();
 
+      $item_query = $this->database->select('dc_campaign_item_instances', 'i')
+        ->fields('i', ['state_data'])
+        ->condition('item_instance_id', $item_instance_id)
+        ->condition('location_ref', $owner_id);
+      if ($campaign_id !== NULL) {
+        $item_query->condition('campaign_id', $campaign_id);
+      }
+      $row = $item_query->execute()->fetchAssoc();
+      if (!$row) {
+        throw new \InvalidArgumentException("Item instance not found or not in this inventory");
+      }
+
+      $state = json_decode((string) ($row['state_data'] ?? '{}'), TRUE) ?: [];
+      if ($new_location === 'worn') {
+        $current_inventory = $owner_type === 'character' ? $this->getInventory($owner_id, $owner_type, $campaign_id) : [];
+        $body_shape = is_array($current_inventory) ? ($current_inventory['bodyShape'] ?? NULL) : NULL;
+        $normalized_slot_key = CharacterEquipmentSlotHelper::normalizeEquippedSlotKey($equipped_slot_key, is_string($body_shape) ? $body_shape : NULL);
+        if ($equipped_slot_key !== NULL && trim($equipped_slot_key) !== '' && $normalized_slot_key === NULL) {
+          throw new \InvalidArgumentException('Invalid equipped slot key');
+        }
+        $normalized_slot_index = CharacterEquipmentSlotHelper::normalizeEquippedSlotIndex($equipped_slot_index);
+        if ($normalized_slot_key !== NULL) {
+          $state['equipped_slot_key'] = $normalized_slot_key;
+          if ($normalized_slot_index !== NULL) {
+            $state['equipped_slot_index'] = $normalized_slot_index;
+          }
+          else {
+            unset($state['equipped_slot_index']);
+          }
+        }
+      }
+      else {
+        unset($state['equipped_slot_key'], $state['equipped_slot_index']);
+      }
+
       // Update location in item instance
       $updated = $this->database->update('dc_campaign_item_instances')
         ->fields([
           'location_type' => $new_location,
+          'state_data' => json_encode($state),
           'updated' => time(),
         ])
         ->condition('item_instance_id', $item_instance_id)
@@ -1732,6 +1776,30 @@ class InventoryManagementService {
     if (isset($item['container_stats']['bulk_reduction']) && (!is_numeric($item['container_stats']['bulk_reduction']) || (float) $item['container_stats']['bulk_reduction'] < 0)) {
       throw new \InvalidArgumentException('Container bulk_reduction must be 0 or greater');
     }
+    if (isset($item['inventory_metadata']) && !is_array($item['inventory_metadata'])) {
+      throw new \InvalidArgumentException('Item inventory_metadata must be an array when provided');
+    }
+    if (is_array($item['inventory_metadata'] ?? NULL)) {
+      $equip_slot = $item['inventory_metadata']['equip_slot'] ?? NULL;
+      $valid_slots = [NULL, 'held', 'worn', 'armor', 'shield', 'accessory'];
+      if (!in_array($equip_slot, $valid_slots, TRUE)) {
+        throw new \InvalidArgumentException('Item inventory_metadata.equip_slot is invalid');
+      }
+      $hand_slots_required = $item['inventory_metadata']['hand_slots_required'] ?? NULL;
+      if ($equip_slot === 'held' && $hand_slots_required !== NULL && (int) $hand_slots_required < 1) {
+        throw new \InvalidArgumentException('Held items must use at least one hand slot');
+      }
+      $worn_slot = CharacterEquipmentSlotHelper::normalizeWornSlotName($item['inventory_metadata']['worn_slot'] ?? NULL);
+      if (($item['inventory_metadata']['worn_slot'] ?? NULL) !== NULL && $worn_slot === NULL) {
+        throw new \InvalidArgumentException('Item inventory_metadata.worn_slot is invalid');
+      }
+      if ($hand_slots_required !== NULL && (!is_numeric($hand_slots_required) || (int) $hand_slots_required < 0 || (int) $hand_slots_required > 2)) {
+        throw new \InvalidArgumentException('Item inventory_metadata.hand_slots_required is invalid');
+      }
+      if (!empty($item['inventory_metadata']['container']) && empty($item['container_stats']['capacity'])) {
+        throw new \InvalidArgumentException('Container inventory metadata requires container_stats.capacity');
+      }
+    }
   }
 
   /**
@@ -1787,7 +1855,57 @@ class InventoryManagementService {
       $normalized['traits'] = [];
     }
 
+    $normalized['inventory_metadata'] = $this->buildInventoryMetadata($normalized);
+
     return $normalized;
+  }
+
+  /**
+   * Build normalized runtime inventory metadata for an item definition.
+   */
+  protected function buildInventoryMetadata(array $item): array {
+    $metadata = is_array($item['inventory_metadata'] ?? NULL) ? $item['inventory_metadata'] : [];
+    $item_type = strtolower(trim((string) ($item['item_type'] ?? $item['type'] ?? '')));
+    $container = !empty($item['container_stats']['capacity']);
+    $consumable = !empty($item['consumable_stats'])
+      || in_array($item_type, ['consumable', 'potion', 'scroll', 'talisman'], TRUE);
+
+    $equip_slot = $metadata['equip_slot'] ?? NULL;
+    if ($equip_slot === NULL || $equip_slot === '') {
+      $equip_slot = match (TRUE) {
+        $item_type === 'weapon', $item_type === 'held_item', $item_type === 'wand' => 'held',
+        $item_type === 'armor' => 'armor',
+        $item_type === 'shield' => 'shield',
+        $item_type === 'worn_item' => 'worn',
+        $container && in_array((string) ($item['hands'] ?? ''), ['0', '1+'], TRUE) => 'worn',
+        default => NULL,
+      };
+    }
+
+    $equippable = array_key_exists('equippable', $metadata)
+      ? !empty($metadata['equippable'])
+      : $equip_slot !== NULL;
+    $stackable = array_key_exists('stackable', $metadata)
+      ? !empty($metadata['stackable'])
+      : ($consumable || in_array($item_type, ['material'], TRUE));
+    $worn_slot = CharacterEquipmentSlotHelper::resolveWornSlot($item);
+    if ($worn_slot === NULL && $equip_slot === 'worn') {
+      $worn_slot = 'worn';
+    }
+    $hand_slots_required = $equip_slot === 'held'
+      ? max(1, CharacterEquipmentSlotHelper::deriveHandSlotsRequired($item))
+      : 0;
+
+    return [
+      'equippable' => $equippable,
+      'equip_slot' => $equip_slot,
+      'worn_slot' => $worn_slot,
+      'hand_slots_required' => $hand_slots_required,
+      'consumable' => array_key_exists('consumable', $metadata) ? !empty($metadata['consumable']) : $consumable,
+      'consumes_on_use' => array_key_exists('consumes_on_use', $metadata) ? !empty($metadata['consumes_on_use']) : $consumable,
+      'container' => array_key_exists('container', $metadata) ? !empty($metadata['container']) : $container,
+      'stackable' => $stackable,
+    ];
   }
 
   /**

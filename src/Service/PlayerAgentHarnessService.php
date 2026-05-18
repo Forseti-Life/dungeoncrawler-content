@@ -15,16 +15,20 @@ class PlayerAgentHarnessService {
 
   protected PlayerAgentProgressTracker $progressTracker;
 
+  protected ?RoomChatService $roomChatService;
+
   public function __construct(
     PlayerAgentRuntimeAdapterInterface $runtime_adapter,
     PlayerAgentExplorationPolicy $exploration_policy,
     PlayerAgentEncounterPolicy $encounter_policy,
-    PlayerAgentProgressTracker $progress_tracker
+    PlayerAgentProgressTracker $progress_tracker,
+    ?RoomChatService $room_chat_service = NULL
   ) {
     $this->runtimeAdapter = $runtime_adapter;
     $this->explorationPolicy = $exploration_policy;
     $this->encounterPolicy = $encounter_policy;
     $this->progressTracker = $progress_tracker;
+    $this->roomChatService = $room_chat_service;
   }
 
   /**
@@ -63,12 +67,15 @@ class PlayerAgentHarnessService {
     }
 
     $decision = $policy->chooseAction($profile, $snapshot, $run_state);
+    $decision = $this->maybeOverrideRestDecision($campaign_id, $profile, $snapshot, $run_state, $decision);
     $response = NULL;
+    $this->logAutomationDecision($campaign_id, $profile, $snapshot, $run_state, $decision, 'pre_submit');
 
     if (($decision['type'] ?? 'wait') === 'intent') {
       $intent = is_array($decision['intent'] ?? NULL) ? $decision['intent'] : [];
       $intent['client_state_version'] = $intent['client_state_version'] ?? ($snapshot['state_version'] ?? 1);
       $response = $this->runtimeAdapter->submitIntent($campaign_id, $intent);
+      $this->logAutomationResponse($campaign_id, $profile, $snapshot, $decision, $response, 'initial_submit');
 
       if ($this->isStateVersionMismatch($response)) {
         $retry_snapshot = $this->runtimeAdapter->buildSnapshot($campaign_id, $actor_id, $run_state);
@@ -76,6 +83,7 @@ class PlayerAgentHarnessService {
           $snapshot = $retry_snapshot;
           $intent['client_state_version'] = $retry_snapshot['state_version'] ?? $intent['client_state_version'];
           $response = $this->runtimeAdapter->submitIntent($campaign_id, $intent);
+          $this->logAutomationResponse($campaign_id, $profile, $snapshot, $decision, $response, 'retry_submit');
         }
       }
     }
@@ -96,7 +104,64 @@ class PlayerAgentHarnessService {
       'response' => $response,
       'run_state' => $run_state,
       'error' => $response['error'] ?? NULL,
+      'stop_reason' => ($decision['type'] ?? '') === 'stop' ? (string) ($decision['reason'] ?? 'Automation paused.') : NULL,
     ];
+  }
+
+  /**
+   * Emit a structured trace for the chosen automation decision.
+   */
+  protected function logAutomationDecision(int $campaign_id, array $profile, array $snapshot, array $run_state, array $decision, string $stage): void {
+    $intent = is_array($decision['intent'] ?? NULL) ? $decision['intent'] : [];
+    $params = is_array($intent['params'] ?? NULL) ? $intent['params'] : [];
+    \Drupal::logger('dungeoncrawler_player_agent')->info(
+      'Player-agent decision @stage: campaign @campaign actor @actor room @room phase @phase type @type intent @intent target @target goal @goal reason "@reason" talked=@talked pending=@pending active=@active',
+      [
+        '@stage' => $stage,
+        '@campaign' => $campaign_id,
+        '@actor' => (string) ($profile['actor_id'] ?? ''),
+        '@room' => (string) ($snapshot['active_room_id'] ?? ''),
+        '@phase' => (string) ($snapshot['phase'] ?? ''),
+        '@type' => (string) ($decision['type'] ?? 'wait'),
+        '@intent' => (string) ($intent['type'] ?? ''),
+        '@target' => (string) ($intent['target'] ?? ''),
+        '@goal' => (string) ($params['automation_goal'] ?? ''),
+        '@reason' => substr((string) ($decision['reason'] ?? ''), 0, 240),
+        '@talked' => implode(',', array_slice(array_map('strval', (array) ($run_state['memory']['talked_entities'] ?? [])), -5)) ?: 'none',
+        '@pending' => is_array($run_state['memory']['pending_conversation_lead'] ?? NULL)
+          ? json_encode($run_state['memory']['pending_conversation_lead'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
+          : 'none',
+        '@active' => is_array($run_state['memory']['active_npc_lead'] ?? NULL)
+          ? json_encode($run_state['memory']['active_npc_lead'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
+          : 'none',
+      ]
+    );
+  }
+
+  /**
+   * Emit a structured trace for the runtime adapter response.
+   */
+  protected function logAutomationResponse(int $campaign_id, array $profile, array $snapshot, array $decision, ?array $response, string $stage): void {
+    $intent = is_array($decision['intent'] ?? NULL) ? $decision['intent'] : [];
+    $result = is_array($response['result'] ?? NULL) ? $response['result'] : [];
+    \Drupal::logger('dungeoncrawler_player_agent')->info(
+      'Player-agent response @stage: campaign @campaign actor @actor room @room intent @intent target @target success @success talked @talked searched @searched rested @rested error "@error" message "@message" gm "@gm"',
+      [
+        '@stage' => $stage,
+        '@campaign' => $campaign_id,
+        '@actor' => (string) ($profile['actor_id'] ?? ''),
+        '@room' => (string) ($snapshot['active_room_id'] ?? ''),
+        '@intent' => (string) ($intent['type'] ?? ''),
+        '@target' => (string) ($intent['target'] ?? ''),
+        '@success' => !empty($response['success']) ? 'yes' : 'no',
+        '@talked' => !empty($result['talked']) ? 'yes' : 'no',
+        '@searched' => !empty($result['searched']) ? 'yes' : 'no',
+        '@rested' => !empty($result['rested']) ? 'yes' : 'no',
+        '@error' => substr((string) ($response['error'] ?? ''), 0, 240),
+        '@message' => substr((string) ($result['message'] ?? ''), 0, 240),
+        '@gm' => substr((string) (($result['gm_response']['message'] ?? $result['narration'] ?? '')), 0, 240),
+      ]
+    );
   }
 
   /**
@@ -189,6 +254,46 @@ class PlayerAgentHarnessService {
       }
     }
     return NULL;
+  }
+
+  /**
+   * Replace deterministic rest selections with an analysis-backed decision.
+   */
+  protected function maybeOverrideRestDecision(int $campaign_id, array $profile, array $snapshot, array $run_state, array $decision): array {
+    if (($snapshot['phase'] ?? '') !== 'exploration' || !$this->roomChatService) {
+      return $decision;
+    }
+    if (($decision['type'] ?? '') !== 'intent' || (string) (($decision['intent']['type'] ?? '')) !== 'rest') {
+      return $decision;
+    }
+
+    $character_id = (int) ($profile['character_id'] ?? 0);
+    $room_id = (string) ($snapshot['active_room_id'] ?? '');
+    if ($campaign_id <= 0 || $character_id <= 0 || $room_id === '') {
+      return $decision;
+    }
+
+    try {
+      return $this->roomChatService->suggestPlayerAutomationFallbackDecision(
+        $campaign_id,
+        $room_id,
+        $character_id,
+        $snapshot,
+        $run_state
+      );
+    }
+    catch (\Throwable $exception) {
+      return [
+        'type' => 'wait',
+        'reason' => 'Fallback rest analysis failed: ' . $exception->getMessage(),
+        'decision_meta' => [
+          'stage' => 'rest_analysis_error',
+          'priority' => 14,
+          'room_id' => $room_id,
+          'analysis_fallback' => TRUE,
+        ],
+      ];
+    }
   }
 
 }

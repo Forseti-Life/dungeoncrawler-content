@@ -3,6 +3,7 @@
 namespace Drupal\dungeoncrawler_content\Service;
 
 use Drupal\Core\Database\Connection;
+use Drupal\Core\File\FileSystemInterface;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Psr\Log\LoggerInterface;
 
@@ -12,9 +13,9 @@ use Psr\Log\LoggerInterface;
 class RoomViewImageService {
 
   /**
-   * Number of room-session messages per generated scene snapshot.
+   * Gallery mode used for encounter/exploration transition snapshots.
    */
-  const GALLERY_BATCH_SIZE = 50;
+  const GALLERY_MODE_TRANSITION = 'transition';
 
   /**
    * Database connection.
@@ -30,6 +31,11 @@ class RoomViewImageService {
    * Generated image repository.
    */
   protected GeneratedImageRepository $generatedImageRepository;
+
+  /**
+   * File system service.
+   */
+  protected FileSystemInterface $fileSystem;
 
   /**
    * Chat session manager.
@@ -49,11 +55,13 @@ class RoomViewImageService {
     LoggerChannelFactoryInterface $logger_factory,
     ImageGenerationIntegrationService $image_generation_integration,
     ChatSessionManager $chat_session_manager,
-    GeneratedImageRepository $generated_image_repository
+    GeneratedImageRepository $generated_image_repository,
+    FileSystemInterface $file_system
   ) {
     $this->database = $database;
     $this->imageGenerationIntegration = $image_generation_integration;
     $this->generatedImageRepository = $generated_image_repository;
+    $this->fileSystem = $file_system;
     $this->chatSessionManager = $chat_session_manager;
     $this->logger = $logger_factory->get('dungeoncrawler_content');
   }
@@ -94,20 +102,24 @@ class RoomViewImageService {
       $room_id,
       $room_meta['name'] ?? ''
     );
+    $portrait_references = $this->loadRoomPortraitReferences($campaign_id, $room_id, $campaign_room_cache_key, $room);
+    $provider = $this->resolveRoomViewProvider($portrait_references);
 
-    $gallery_entries = $this->buildConversationGalleryEntries(
+    $gallery_entries = $this->buildTransitionGalleryEntries(
       $campaign_id,
       $dungeon_id,
       $room_id,
       $room,
-      (int) $room_session['id']
+      (int) $room_session['id'],
+      $portrait_references
     );
     $establishing_entry = $this->buildEstablishingEntry(
       $campaign_id,
       $dungeon_id,
       $room_id,
       $room,
-      $campaign_room_cache_key
+      $campaign_room_cache_key,
+      $portrait_references
     );
 
     $entries = $gallery_entries;
@@ -115,14 +127,11 @@ class RoomViewImageService {
       $entries[] = $establishing_entry;
     }
 
-    $generation_available = $this->isVertexAvailable();
+    $generation_available = $provider !== NULL;
     $message = empty($gallery_entries)
-      ? sprintf(
-        'A new scene snapshot appears every %d room messages.',
-        self::GALLERY_BATCH_SIZE
-      )
+      ? 'Scene snapshots appear only when the room transitions between exploration and encounter.'
       : sprintf(
-        '%d scene snapshot%s generated from room conversation.',
+        '%d transition snapshot%s generated from exploration/encounter phase changes.',
         count($gallery_entries),
         count($gallery_entries) === 1 ? '' : 's'
       );
@@ -135,12 +144,13 @@ class RoomViewImageService {
       'success' => !empty($entries),
       'available' => $generation_available,
       'status' => !empty($entries) ? 'ready' : ($generation_available ? 'pending' : 'unavailable'),
-      'provider' => 'vertex',
-      'mode' => !empty($gallery_entries) ? 'gallery' : 'establishing',
+      'provider' => $provider ?? 'unavailable',
+      'mode' => !empty($gallery_entries) ? 'transition_gallery' : 'establishing',
       'message' => $message,
       'room' => $room_meta,
-      'message_batch_size' => self::GALLERY_BATCH_SIZE,
+      'message_batch_size' => 0,
       'generated_entry_count' => count($gallery_entries),
+      'character_reference_count' => count($portrait_references),
       'entries' => $entries,
     ];
   }
@@ -179,7 +189,7 @@ class RoomViewImageService {
    * @return array<string, mixed>
    *   Normalized frontend-ready payload.
    */
-  protected function generateRoomViewImage(int $campaign_id, string $dungeon_id, string $room_id, array $room, ?string $campaign_room_cache_key = NULL): array {
+  protected function generateRoomViewImage(int $campaign_id, string $dungeon_id, string $room_id, array $room, ?string $campaign_room_cache_key = NULL, array $portrait_references = []): array {
     $cache_object_id = trim((string) ($campaign_room_cache_key ?? $room_id));
     $room = $this->hydrateRoomFromCampaignRecord(
       $campaign_id,
@@ -194,19 +204,20 @@ class RoomViewImageService {
       }
     }
 
-    if (!$this->isVertexAvailable()) {
+    $provider = $this->resolveRoomViewProvider($portrait_references);
+    if ($provider === NULL) {
       return [
         'success' => FALSE,
         'available' => FALSE,
         'status' => 'unavailable',
-        'provider' => 'vertex',
-        'message' => 'Room view images are unavailable until Vertex image generation is configured.',
+        'provider' => 'unavailable',
+        'message' => 'Room view images are unavailable until an image generation provider is configured.',
         'room' => $room_meta,
       ];
     }
 
-    $payload = $this->buildGenerationPayload($campaign_id, $dungeon_id, $room_id, $room);
-    $result = $this->imageGenerationIntegration->generateImage($payload, 'vertex');
+    $payload = $this->buildGenerationPayload($campaign_id, $dungeon_id, $room_id, $room, $portrait_references);
+    $result = $this->imageGenerationIntegration->generateImage($payload, $provider);
     $output = is_array($result['output'] ?? NULL) ? $result['output'] : [];
     $image_url = $output['image_url'] ?? NULL;
     $image_data_uri = $output['image_data_uri'] ?? NULL;
@@ -235,45 +246,44 @@ class RoomViewImageService {
   }
 
   /**
-   * Build conversation-gallery entries for completed 50-message windows.
+   * Build transition-gallery entries for room encounter/exploration changes.
    *
    * @return array<int, array<string, mixed>>
    *   Newest-first gallery entries.
    */
-  protected function buildConversationGalleryEntries(int $campaign_id, string $dungeon_id, string $room_id, array $room, int $room_session_id): array {
+  protected function buildTransitionGalleryEntries(int $campaign_id, string $dungeon_id, string $room_id, array $room, int $room_session_id, array $portrait_references = []): array {
     if (!$this->hasRoomViewGalleryTable()) {
       return [];
     }
 
-    $messages = $this->loadRoomSessionMessages($room_session_id);
-    if (count($messages) < self::GALLERY_BATCH_SIZE) {
+    $transitions = $this->loadRoomEncounterTransitions($campaign_id, $room_id, $room);
+    if (empty($transitions)) {
       return [];
     }
 
-    $existing_rows = $this->loadStoredGalleryEntries($campaign_id, $dungeon_id, $room_id, $room_session_id);
-    $entries_by_window = [];
-    foreach ($existing_rows as $row) {
-      $entries_by_window[(int) $row['window_index']] = $this->normalizeStoredGalleryEntry($row, $room);
+    $existing_rows = [];
+    foreach ($this->loadStoredGalleryEntries($campaign_id, $dungeon_id, $room_id, $room_session_id) as $row) {
+      $existing_rows[(int) ($row['window_index'] ?? 0)] = $row;
     }
 
     $entries = [];
-    $complete_windows = intdiv(count($messages), self::GALLERY_BATCH_SIZE);
-    for ($window_index = 1; $window_index <= $complete_windows; $window_index++) {
-      if (!empty($entries_by_window[$window_index])) {
-        $entries[] = $entries_by_window[$window_index];
+    foreach ($transitions as $transition) {
+      $window_index = (int) ($transition['window_index'] ?? 0);
+      $existing_row = $existing_rows[$window_index] ?? NULL;
+      $image_ready = !empty($existing_row['image_url']) || !empty($existing_row['image_data_uri']);
+      if (is_array($existing_row) && $image_ready) {
+        $entries[] = $this->normalizeTransitionGalleryEntry($room, $existing_row, $transition);
         continue;
       }
 
-      $offset = ($window_index - 1) * self::GALLERY_BATCH_SIZE;
-      $window_messages = array_slice($messages, $offset, self::GALLERY_BATCH_SIZE);
-      $generated_entry = $this->generateConversationGalleryEntry(
+      $generated_entry = $this->generateTransitionGalleryEntry(
         $campaign_id,
         $dungeon_id,
         $room_id,
         $room,
         $room_session_id,
-        $window_index,
-        $window_messages
+        $transition,
+        $portrait_references
       );
       if ($generated_entry !== NULL) {
         $entries[] = $generated_entry;
@@ -281,74 +291,112 @@ class RoomViewImageService {
     }
 
     usort($entries, static function (array $a, array $b): int {
-      return ($b['message_window']['index'] ?? 0) <=> ($a['message_window']['index'] ?? 0);
+      $created_compare = ((int) ($b['created'] ?? 0)) <=> ((int) ($a['created'] ?? 0));
+      return $created_compare !== 0
+        ? $created_compare
+        : (($b['message_window']['index'] ?? 0) <=> ($a['message_window']['index'] ?? 0));
     });
 
     return $entries;
   }
 
   /**
-   * Generate and store a conversation-gallery entry.
+   * Load exploration/encounter transition records for a room.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Chronological transition definitions.
    */
-  protected function generateConversationGalleryEntry(int $campaign_id, string $dungeon_id, string $room_id, array $room, int $room_session_id, int $window_index, array $messages): ?array {
-    if (!$this->hasRoomViewGalleryTable() || !$this->isVertexAvailable() || count($messages) < self::GALLERY_BATCH_SIZE) {
-      return NULL;
+  protected function loadRoomEncounterTransitions(int $campaign_id, string $room_id, array $room): array {
+    $rows = $this->database->select('combat_encounters', 'e')
+      ->fields('e', ['id', 'status', 'current_round', 'created', 'updated'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('room_id', $room_id)
+      ->orderBy('created', 'ASC')
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+
+    $transitions = [];
+    $window_index = 1;
+    foreach ($rows as $row) {
+      $status = strtolower(trim((string) ($row['status'] ?? '')));
+      if (!in_array($status, ['active', 'ended'], TRUE)) {
+        continue;
+      }
+
+      $encounter_id = (int) ($row['id'] ?? 0);
+      if ($encounter_id <= 0) {
+        continue;
+      }
+
+      $participants = $this->loadEncounterParticipants($encounter_id);
+      $transitions[] = $this->buildEncounterTransitionDefinition(
+        $room,
+        $row,
+        $participants,
+        'encounter_start',
+        $window_index++
+      );
+
+      if ($status === 'ended') {
+        $transitions[] = $this->buildEncounterTransitionDefinition(
+          $room,
+          $row,
+          $participants,
+          'exploration_return',
+          $window_index++
+        );
+      }
     }
 
-    $summary = $this->buildConversationSummary($room, $window_index, $messages);
-    $payload = $this->buildConversationGenerationPayload(
-      $campaign_id,
-      $dungeon_id,
-      $room_id,
-      $room,
-      $window_index,
-      $summary
-    );
-    $result = $this->imageGenerationIntegration->generateImage($payload, 'vertex');
-    $output = is_array($result['output'] ?? NULL) ? $result['output'] : [];
-    $image_url = $output['image_url'] ?? NULL;
-    $image_data_uri = $output['image_data_uri'] ?? NULL;
-    if (empty($result['success']) || ($image_url === NULL && $image_data_uri === NULL)) {
-      return NULL;
-    }
+    return $transitions;
+  }
 
-    $first_message = reset($messages) ?: [];
-    $last_message = end($messages) ?: [];
-    $now = time();
-    $fields = [
-      'campaign_id' => $campaign_id,
-      'dungeon_id' => $dungeon_id,
-      'room_id' => $room_id,
-      'room_session_id' => $room_session_id,
+  /**
+   * Load encounter participants used to summarize the transition.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Participant rows.
+   */
+  protected function loadEncounterParticipants(int $encounter_id): array {
+    $rows = $this->database->select('combat_participants', 'p')
+      ->fields('p', ['name', 'team', 'status', 'is_defeated', 'initiative'])
+      ->condition('encounter_id', $encounter_id)
+      ->orderBy('initiative', 'DESC')
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC);
+
+    return is_array($rows) ? $rows : [];
+  }
+
+  /**
+   * Build a normalized transition definition from an encounter row.
+   *
+   * @return array<string, mixed>
+   *   Transition definition.
+   */
+  protected function buildEncounterTransitionDefinition(array $room, array $encounter, array $participants, string $transition_type, int $window_index): array {
+    $created = $transition_type === 'exploration_return'
+      ? (int) ($encounter['updated'] ?? 0)
+      : (int) ($encounter['created'] ?? 0);
+    $encounter_id = (int) ($encounter['id'] ?? 0);
+
+    return [
       'window_index' => $window_index,
-      'message_start_id' => (int) ($first_message['id'] ?? 0),
-      'message_end_id' => (int) ($last_message['id'] ?? 0),
-      'message_count' => count($messages),
-      'summary_text' => $summary,
-      'provider' => (string) ($result['provider'] ?? 'vertex'),
-      'mode' => (string) ($result['mode'] ?? 'live'),
-      'status' => (string) ($result['status'] ?? 'ready'),
-      'image_url' => $image_url,
-      'image_data_uri' => $image_data_uri,
-      'mime_type' => $output['mime_type'] ?? NULL,
-      'created' => $now,
-      'updated' => $now,
+      'transition_type' => $transition_type,
+      'phase' => $transition_type === 'exploration_return' ? 'exploration' : 'encounter',
+      'title' => $transition_type === 'exploration_return' ? 'Return to Exploration' : 'Encounter Begins',
+      'label' => $transition_type === 'exploration_return' ? 'Encounter -> Exploration' : 'Exploration -> Encounter',
+      'created' => $created,
+      'encounter_id' => $encounter_id,
+      'summary' => $this->buildEncounterTransitionSummary($room, $encounter, $participants, $transition_type, $window_index),
     ];
-
-    $this->database->merge('dc_room_view_gallery')
-      ->key('room_session_id', $room_session_id)
-      ->key('window_index', $window_index)
-      ->fields($fields)
-      ->execute();
-
-    return $this->normalizeGalleryEntry($room, $fields);
   }
 
   /**
    * Build the synthetic establishing-shot entry.
    */
-  protected function buildEstablishingEntry(int $campaign_id, string $dungeon_id, string $room_id, array $room, ?string $campaign_room_cache_key = NULL): ?array {
-    $result = $this->generateRoomViewImage($campaign_id, $dungeon_id, $room_id, $room, $campaign_room_cache_key);
+  protected function buildEstablishingEntry(int $campaign_id, string $dungeon_id, string $room_id, array $room, ?string $campaign_room_cache_key = NULL, array $portrait_references = []): ?array {
+    $result = $this->generateRoomViewImage($campaign_id, $dungeon_id, $room_id, $room, $campaign_room_cache_key, $portrait_references);
     $image_src = $result['image']['url'] ?? $result['image']['data_uri'] ?? '';
     if ($image_src === '') {
       return NULL;
@@ -373,27 +421,6 @@ class RoomViewImageService {
   }
 
   /**
-   * Load room-session messages in chronological order.
-   *
-   * @return array<int, array<string, mixed>>
-   *   Message rows.
-   */
-  protected function loadRoomSessionMessages(int $room_session_id): array {
-    $rows = $this->database->select('dc_chat_messages', 'm')
-      ->fields('m', ['id', 'speaker', 'speaker_type', 'message', 'message_type', 'created'])
-      ->condition('session_id', $room_session_id)
-      ->orderBy('id', 'ASC')
-      ->execute()
-      ->fetchAll(\PDO::FETCH_ASSOC);
-
-    return array_map(static function (array $row): array {
-      $row['id'] = (int) $row['id'];
-      $row['created'] = (int) $row['created'];
-      return $row;
-    }, $rows);
-  }
-
-  /**
    * Load stored gallery entries for a room.
    *
    * @return array<int, array<string, mixed>>
@@ -410,55 +437,92 @@ class RoomViewImageService {
       ->condition('dungeon_id', $dungeon_id)
       ->condition('room_id', $room_id)
       ->condition('room_session_id', $room_session_id)
+      ->condition('mode', self::GALLERY_MODE_TRANSITION)
       ->orderBy('window_index', 'DESC')
       ->execute()
       ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
   }
 
   /**
-   * Normalize a stored gallery row for the frontend.
+   * Generate and store a transition-gallery entry.
    */
-  protected function normalizeStoredGalleryEntry(array $row, array $room): array {
-    return $this->normalizeGalleryEntry($room, [
-      'window_index' => (int) ($row['window_index'] ?? 0),
-      'message_start_id' => (int) ($row['message_start_id'] ?? 0),
-      'message_end_id' => (int) ($row['message_end_id'] ?? 0),
-      'message_count' => (int) ($row['message_count'] ?? 0),
-      'summary_text' => (string) ($row['summary_text'] ?? ''),
-      'provider' => (string) ($row['provider'] ?? 'vertex'),
-      'mode' => (string) ($row['mode'] ?? 'cache'),
-      'status' => (string) ($row['status'] ?? 'ready'),
-      'image_url' => $row['image_url'] ?? NULL,
-      'image_data_uri' => $row['image_data_uri'] ?? NULL,
-      'mime_type' => $row['mime_type'] ?? NULL,
-      'created' => (int) ($row['created'] ?? 0),
-    ]);
+  protected function generateTransitionGalleryEntry(int $campaign_id, string $dungeon_id, string $room_id, array $room, int $room_session_id, array $transition, array $portrait_references = []): ?array {
+    $provider = $this->resolveRoomViewProvider($portrait_references);
+    if (!$this->hasRoomViewGalleryTable() || $provider === NULL) {
+      return NULL;
+    }
+
+    $payload = $this->buildTransitionGenerationPayload(
+      $campaign_id,
+      $dungeon_id,
+      $room_id,
+      $room,
+      $transition,
+      $portrait_references
+    );
+    $result = $this->imageGenerationIntegration->generateImage($payload, $provider);
+    $output = is_array($result['output'] ?? NULL) ? $result['output'] : [];
+    $image_url = $output['image_url'] ?? NULL;
+    $image_data_uri = $output['image_data_uri'] ?? NULL;
+    if (empty($result['success']) || ($image_url === NULL && $image_data_uri === NULL)) {
+      return NULL;
+    }
+
+    $now = time();
+    $fields = [
+      'campaign_id' => $campaign_id,
+      'dungeon_id' => $dungeon_id,
+      'room_id' => $room_id,
+      'room_session_id' => $room_session_id,
+      'window_index' => (int) ($transition['window_index'] ?? 0),
+      'message_start_id' => 0,
+      'message_end_id' => 0,
+      'message_count' => 0,
+      'summary_text' => (string) ($transition['summary'] ?? ''),
+      'provider' => (string) ($result['provider'] ?? 'vertex'),
+      'mode' => self::GALLERY_MODE_TRANSITION,
+      'status' => (string) ($result['status'] ?? 'ready'),
+      'image_url' => $image_url,
+      'image_data_uri' => $image_data_uri,
+      'mime_type' => $output['mime_type'] ?? NULL,
+      'created' => (int) ($transition['created'] ?? $now),
+      'updated' => $now,
+    ];
+
+    $this->database->merge('dc_room_view_gallery')
+      ->key('room_session_id', $room_session_id)
+      ->key('window_index', (int) ($transition['window_index'] ?? 0))
+      ->fields($fields)
+      ->execute();
+
+    return $this->normalizeTransitionGalleryEntry($room, $fields, $transition);
   }
 
   /**
-   * Normalize a gallery entry for the frontend.
+   * Normalize a transition gallery entry for the frontend.
    */
-  protected function normalizeGalleryEntry(array $room, array $row): array {
-    $window_index = (int) ($row['window_index'] ?? 0);
-    $message_count = (int) ($row['message_count'] ?? 0);
-    $start_position = (($window_index - 1) * self::GALLERY_BATCH_SIZE) + 1;
-    $end_position = $start_position + $message_count - 1;
-
+  protected function normalizeTransitionGalleryEntry(array $room, array $row, array $transition): array {
+    $window_index = (int) ($transition['window_index'] ?? 0);
     return [
-      'id' => 'conversation-' . $window_index,
-      'entry_type' => 'conversation_summary',
-      'title' => 'Scene Snapshot ' . $window_index,
-      'summary' => (string) ($row['summary_text'] ?? ''),
+      'id' => 'transition-' . $window_index,
+      'entry_type' => 'phase_transition',
+      'title' => (string) ($transition['title'] ?? ('Transition ' . $window_index)),
+      'summary' => (string) ($row['summary_text'] ?? ($transition['summary'] ?? '')),
       'status' => (string) ($row['status'] ?? 'ready'),
       'provider' => (string) ($row['provider'] ?? 'vertex'),
-      'mode' => (string) ($row['mode'] ?? 'cache'),
-      'created' => (int) ($row['created'] ?? 0),
+      'mode' => self::GALLERY_MODE_TRANSITION,
+      'created' => (int) ($transition['created'] ?? ($row['created'] ?? 0)),
       'message_window' => [
         'index' => $window_index,
-        'count' => $message_count,
-        'start_id' => (int) ($row['message_start_id'] ?? 0),
-        'end_id' => (int) ($row['message_end_id'] ?? 0),
-        'label' => sprintf('Messages %d-%d', $start_position, $end_position),
+        'count' => 0,
+        'start_id' => 0,
+        'end_id' => 0,
+        'label' => (string) ($transition['label'] ?? 'Phase transition'),
+      ],
+      'transition' => [
+        'type' => (string) ($transition['transition_type'] ?? ''),
+        'phase' => (string) ($transition['phase'] ?? ''),
+        'encounter_id' => (int) ($transition['encounter_id'] ?? 0),
       ],
       'image' => [
         'url' => $row['image_url'] ?? NULL,
@@ -470,58 +534,97 @@ class RoomViewImageService {
   }
 
   /**
-   * Build a deterministic summary of a 50-message room-chat window.
+   * Build a deterministic summary of a room phase transition.
    */
-  protected function buildConversationSummary(array $room, int $window_index, array $messages): string {
+  protected function buildEncounterTransitionSummary(array $room, array $encounter, array $participants, string $transition_type, int $window_index): string {
     $room_name = trim((string) ($room['name'] ?? 'Unknown Room'));
-    $beats = [];
-    foreach ($messages as $message) {
-      $type = (string) ($message['message_type'] ?? 'narrative');
-      if (in_array($type, ['mechanical', 'system'], TRUE)) {
+    $encounter_id = (int) ($encounter['id'] ?? 0);
+    $current_round = (int) ($encounter['current_round'] ?? 0);
+    $active_names = [
+      'player' => [],
+      'enemy' => [],
+      'neutral' => [],
+      'other' => [],
+    ];
+    $defeated_names = [
+      'player' => [],
+      'enemy' => [],
+      'neutral' => [],
+      'other' => [],
+    ];
+
+    foreach ($participants as $participant) {
+      $name = trim((string) ($participant['name'] ?? 'Unknown'));
+      if ($name === '') {
         continue;
       }
 
-      $speaker = trim((string) ($message['speaker'] ?? 'Unknown'));
-      $body = $this->normalizePlainText((string) ($message['message'] ?? ''));
-      if ($body === '') {
-        continue;
+      $team = strtolower(trim((string) ($participant['team'] ?? 'other')));
+      if (!in_array($team, ['player', 'enemy', 'neutral'], TRUE)) {
+        $team = 'other';
       }
 
-      if (strlen($body) > 180) {
-        $body = substr($body, 0, 177) . '...';
+      $is_defeated = !empty($participant['is_defeated']) || strtolower(trim((string) ($participant['status'] ?? ''))) === 'defeated';
+      if ($is_defeated) {
+        $defeated_names[$team][] = $name;
       }
-
-      $beats[] = $speaker . ': ' . $body;
+      else {
+        $active_names[$team][] = $name;
+      }
     }
 
-    if (count($beats) > 8) {
-      $beats = array_merge(
-        array_slice($beats, 0, 5),
-        ['...'],
-        array_slice($beats, -3)
-      );
+    $summary_parts = [
+      sprintf(
+        'Room: %s. Transition %d follows encounter %d.',
+        $room_name !== '' ? $room_name : 'Unknown Room',
+        $window_index,
+        $encounter_id
+      ),
+    ];
+
+    if ($transition_type === 'exploration_return') {
+      $summary_parts[] = 'The encounter has ended and the room is settling back into exploration.';
+      if (!empty($defeated_names['enemy'])) {
+        $summary_parts[] = 'Defeated hostiles: ' . implode(', ', array_values(array_unique($defeated_names['enemy']))) . '.';
+      }
+      if (!empty($active_names['player'])) {
+        $summary_parts[] = 'Surviving heroes: ' . implode(', ', array_values(array_unique($active_names['player']))) . '.';
+      }
+      if (!empty($active_names['neutral'])) {
+        $summary_parts[] = 'Neutrals still present: ' . implode(', ', array_values(array_unique($active_names['neutral']))) . '.';
+      }
+      if (!empty($active_names['enemy'])) {
+        $summary_parts[] = 'Remaining hostiles: ' . implode(', ', array_values(array_unique($active_names['enemy']))) . '.';
+      }
+      $summary_parts[] = 'Capture the aftermath as tactical combat releases back into exploration.';
+    }
+    else {
+      $summary_parts[] = 'Exploration has just tightened into an encounter.';
+      if ($current_round > 0) {
+        $summary_parts[] = sprintf('The fight opens in round %d.', $current_round);
+      }
+      if (!empty($active_names['player'])) {
+        $summary_parts[] = 'Heroes entering the fight: ' . implode(', ', array_values(array_unique($active_names['player']))) . '.';
+      }
+      if (!empty($active_names['enemy'])) {
+        $summary_parts[] = 'Hostiles driving the conflict: ' . implode(', ', array_values(array_unique($active_names['enemy']))) . '.';
+      }
+      if (!empty($active_names['neutral'])) {
+        $summary_parts[] = 'Neutrals caught in the scene: ' . implode(', ', array_values(array_unique($active_names['neutral']))) . '.';
+      }
+      $summary_parts[] = 'Capture the instant the room shifts from exploration into tactical danger.';
     }
 
-    if (empty($beats)) {
-      $beats[] = 'The room conversation shifts through exploration, observation, and roleplay beats.';
-    }
-
-    return trim(sprintf(
-      'Room: %s. Snapshot %d covering %d messages. %s',
-      $room_name !== '' ? $room_name : 'Unknown Room',
-      $window_index,
-      count($messages),
-      implode(' ', $beats)
-    ));
+    return trim(implode(' ', $summary_parts));
   }
 
   /**
-   * Build image-generation payload for a conversation-gallery image.
+   * Build image-generation payload for a transition-gallery image.
    *
    * @return array<string, mixed>
    *   Provider payload.
    */
-  protected function buildConversationGenerationPayload(int $campaign_id, string $dungeon_id, string $room_id, array $room, int $window_index, string $summary): array {
+  protected function buildTransitionGenerationPayload(int $campaign_id, string $dungeon_id, string $room_id, array $room, array $transition, array $portrait_references = []): array {
     $terrain_type = '';
     if (is_array($room['terrain'] ?? NULL)) {
       $terrain_type = trim((string) ($room['terrain']['type'] ?? ''));
@@ -531,7 +634,7 @@ class RoomViewImageService {
     }
 
     return [
-      'prompt' => $this->buildConversationPrompt($room, $window_index, $summary),
+      'prompt' => $this->buildTransitionPrompt($room, $transition, $portrait_references),
       'style' => 'cinematic fantasy narrative illustration',
       'aspect_ratio' => '16:9',
       'negative_prompt' => 'text, captions, watermark, user interface, map grid, tactical overlay, split panel, collage, comic panels, character sheet, labels',
@@ -541,25 +644,39 @@ class RoomViewImageService {
       'terrain_type' => $terrain_type,
       'habitat_name' => trim((string) ($room['name'] ?? 'Unknown Room')),
       'entity_type' => 'room_view_gallery',
-      'scene_index' => $window_index,
+      'scene_index' => (int) ($transition['window_index'] ?? 0),
+      'reference_images' => $this->normalizePortraitReferencesForPayload($portrait_references),
     ];
   }
 
   /**
-   * Build the prompt for a conversation-summary snapshot image.
+   * Build the prompt for a transition snapshot image.
    */
-  protected function buildConversationPrompt(array $room, int $window_index, string $summary): string {
+  protected function buildTransitionPrompt(array $room, array $transition, array $portrait_references = []): string {
     $room_name = trim((string) ($room['name'] ?? 'Unknown Room'));
     $room_type = trim((string) ($room['room_type'] ?? 'room'));
     $size = trim((string) ($room['size_category'] ?? 'medium'));
     $description = trim((string) ($room['description'] ?? ''));
+    $title = trim((string) ($transition['title'] ?? 'Phase Transition'));
+    $label = trim((string) ($transition['label'] ?? 'Exploration <-> Encounter'));
+    $summary = $this->normalizePlainText((string) ($transition['summary'] ?? ''));
 
-    return trim("Create a player-facing fantasy RPG scene image inspired by a recent room conversation.\n"
-      . "Scene title: {$room_name} — Snapshot {$window_index}.\n"
+    return trim("Create a player-facing fantasy RPG scene image for a major room phase transition.\n"
+      . "Scene title: {$room_name} — {$title}.\n"
+      . "Transition: {$label}.\n"
       . "Room type: {$room_type}. Scale: {$size}.\n"
       . ($description !== '' ? "Baseline room description: {$description}\n" : '')
-      . "Conversation summary: {$summary}\n"
-      . "Requirements: depict the most visually important conversational or narrative beat from this summary, stay grounded in the room's environment, preserve mood and continuity, and do not render visible text or UI.");
+      . $this->buildPortraitReferencePromptFragment($portrait_references)
+      . "Transition summary: {$summary}\n"
+      . "Requirements: depict the single most important visual beat at the instant the room shifts between exploration and encounter, stay grounded in the room's environment, preserve mood and continuity, and do not render visible text or UI.");
+  }
+
+  /**
+   * Resolve the best provider for room-scene generation.
+   */
+  protected function resolveRoomViewProvider(array $portrait_references = []): ?string {
+    $preferred = !empty($portrait_references) ? 'gemini' : 'vertex';
+    return $this->imageGenerationIntegration->getReadyProvider($preferred);
   }
 
   /**
@@ -588,7 +705,7 @@ class RoomViewImageService {
    * @return array<string, mixed>
    *   Provider payload.
    */
-  protected function buildGenerationPayload(int $campaign_id, string $dungeon_id, string $room_id, array $room): array {
+  protected function buildGenerationPayload(int $campaign_id, string $dungeon_id, string $room_id, array $room, array $portrait_references = []): array {
     $terrain_type = '';
     if (is_array($room['terrain'] ?? NULL)) {
       $terrain_type = trim((string) ($room['terrain']['type'] ?? ''));
@@ -598,7 +715,7 @@ class RoomViewImageService {
     }
 
     return [
-      'prompt' => $this->buildPrompt($room),
+      'prompt' => $this->buildPrompt($room, $portrait_references),
       'style' => 'cinematic fantasy environment illustration',
       'aspect_ratio' => '16:9',
       'negative_prompt' => 'text, captions, watermark, user interface, map grid, tactical overlay, split panel, collage, comic panels, character sheet, labels',
@@ -608,13 +725,14 @@ class RoomViewImageService {
       'terrain_type' => $terrain_type,
       'habitat_name' => trim((string) ($room['name'] ?? 'Unknown Room')),
       'entity_type' => 'room_view',
+      'reference_images' => $this->normalizePortraitReferencesForPayload($portrait_references),
     ];
   }
 
   /**
    * Build the prompt for a player-facing room establishing shot.
    */
-  protected function buildPrompt(array $room): string {
+  protected function buildPrompt(array $room, array $portrait_references = []): string {
     $room_name = trim((string) ($room['name'] ?? 'Unknown Room'));
     $description = trim((string) ($room['description'] ?? ''));
     $room_type = trim((string) ($room['room_type'] ?? 'room'));
@@ -650,8 +768,296 @@ class RoomViewImageService {
     return trim("Create a player-facing establishing image for a tabletop fantasy RPG room.\n"
       . "Scene title: {$room_name}.\n"
       . implode(' ', $environment_bits) . "\n"
+      . $this->buildPortraitReferencePromptFragment($portrait_references)
       . "Narrative description: {$base_description}\n"
       . "Requirements: depict the room as a grounded in-world scene, preserve environmental mood, avoid UI/map overlays, and do not render visible text.");
+  }
+
+  /**
+   * Load portrait references for characters currently present in the room.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Portrait references.
+   */
+  protected function loadRoomPortraitReferences(int $campaign_id, string $room_id, ?string $campaign_room_cache_key = NULL, array $room = []): array {
+    $room_refs = array_values(array_unique(array_filter([
+      trim($room_id),
+      trim((string) ($campaign_room_cache_key ?? '')),
+      trim((string) ($room['room_id'] ?? '')),
+      trim((string) ($room['id'] ?? '')),
+    ])));
+
+    $query = $this->database->select('dc_campaign_characters', 'c')
+      ->fields('c', ['id', 'character_id', 'name', 'type', 'portrait', 'state_data', 'location_type', 'location_ref'])
+      ->condition('campaign_id', $campaign_id);
+
+    $conditions = $query->orConditionGroup();
+    if (!empty($room_refs)) {
+      $room_conditions = $query->andConditionGroup()
+        ->condition('location_type', 'room')
+        ->condition('location_ref', $room_refs, 'IN');
+      $conditions->condition($room_conditions);
+    }
+    $conditions->condition('type', 'pc');
+    $rows = $query->condition($conditions)
+      ->orderBy('name', 'ASC')
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC);
+
+    if (!is_array($rows) || empty($rows)) {
+      return [];
+    }
+
+    $include_binary_data = $this->imageGenerationIntegration->getReadyProvider('gemini') === 'gemini';
+    $references = [];
+    $seen_names = [];
+    foreach ($rows as $row) {
+      $portrait = $this->loadCharacterPortraitReference($row, $campaign_id, $include_binary_data);
+      if ($portrait === NULL) {
+        continue;
+      }
+
+      $state = [];
+      if (!empty($row['state_data']) && is_string($row['state_data'])) {
+        $decoded = json_decode($row['state_data'], TRUE);
+        if (is_array($decoded)) {
+          $state = $decoded;
+        }
+      }
+
+      $name = trim((string) ($row['name'] ?? 'Unknown'));
+      if ($name !== '' && isset($seen_names[strtolower($name)])) {
+        continue;
+      }
+      $role = trim((string) ($row['type'] ?? 'character'));
+      $summary = $this->buildPortraitReferenceSummary($name, $role, $state);
+      $references[] = [
+        'name' => $name !== '' ? $name : 'Unknown',
+        'role' => $role !== '' ? $role : 'character',
+        'description' => $summary,
+        'url' => $portrait['url'] ?? NULL,
+        'mime_type' => $portrait['mime_type'] ?? NULL,
+        'data_uri' => $portrait['data_uri'] ?? NULL,
+        'fingerprint' => $portrait['fingerprint'] ?? NULL,
+      ];
+      if ($name !== '') {
+        $seen_names[strtolower($name)] = TRUE;
+      }
+
+      if (count($references) >= 6) {
+        break;
+      }
+    }
+
+    return $references;
+  }
+
+  /**
+   * Load the best portrait reference for a campaign character row.
+   *
+   * @return array<string, mixed>|null
+   *   Portrait metadata or NULL.
+   */
+  protected function loadCharacterPortraitReference(array $row, int $campaign_id, bool $include_binary_data): ?array {
+    $candidate_ids = array_values(array_unique(array_filter([
+      trim((string) ($row['id'] ?? '')),
+      trim((string) ($row['character_id'] ?? '')),
+    ])));
+
+    foreach ($candidate_ids as $candidate_id) {
+      $portrait_rows = $this->generatedImageRepository->loadImagesForObject(
+        'dc_campaign_characters',
+        $candidate_id,
+        $campaign_id > 0 ? $campaign_id : NULL,
+        'portrait',
+        'original'
+      );
+      if (empty($portrait_rows) && $campaign_id > 0) {
+        $portrait_rows = $this->generatedImageRepository->loadImagesForObject(
+          'dc_campaign_characters',
+          $candidate_id,
+          NULL,
+          'portrait',
+          'original'
+        );
+      }
+
+      if (empty($portrait_rows[0]) || !is_array($portrait_rows[0])) {
+        continue;
+      }
+
+      $portrait_row = $portrait_rows[0];
+      $resolved_url = $this->generatedImageRepository->resolveClientUrl($portrait_row);
+      $data_uri = $include_binary_data ? $this->buildDataUriFromGeneratedImageRow($portrait_row) : NULL;
+      return [
+        'url' => is_string($resolved_url) && $resolved_url !== '' ? $resolved_url : NULL,
+        'mime_type' => $portrait_row['mime_type'] ?? NULL,
+        'data_uri' => $data_uri,
+        'fingerprint' => $portrait_row['sha256'] ?? ($portrait_row['image_uuid'] ?? ($portrait_row['file_uri'] ?? $resolved_url)),
+      ];
+    }
+
+    $legacy_url = trim((string) ($row['portrait'] ?? ''));
+    if ($legacy_url !== '') {
+      return [
+        'url' => $legacy_url,
+        'mime_type' => NULL,
+        'data_uri' => NULL,
+        'fingerprint' => $legacy_url,
+      ];
+    }
+
+    $name = trim((string) ($row['name'] ?? ''));
+    if ($name !== '') {
+      $fallback = $this->loadPortraitReferenceByName($name, $include_binary_data);
+      if ($fallback !== NULL) {
+        return $fallback;
+      }
+    }
+
+    return NULL;
+  }
+
+  /**
+   * Load a fallback portrait by matching the latest portrait-bearing name.
+   *
+   * @return array<string, mixed>|null
+   *   Portrait metadata or NULL.
+   */
+  protected function loadPortraitReferenceByName(string $name, bool $include_binary_data): ?array {
+    $query = $this->database->select('dc_campaign_characters', 'c');
+    $query->fields('c', ['id']);
+    $query->condition('c.name', $name);
+    $query->leftJoin('dc_generated_image_links', 'l', "l.table_name = 'dc_campaign_characters' AND l.object_id = CAST(c.id AS CHAR) AND l.slot = 'portrait' AND l.variant = 'original'");
+    $query->leftJoin('dc_generated_images', 'i', 'i.id = l.image_id AND i.deleted = 0 AND i.status = :image_status', [':image_status' => 'ready']);
+    $record = $query->isNotNull('i.id')
+      ->orderBy('c.id', 'DESC')
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+
+    if (!is_array($record) || empty($record['id'])) {
+      return NULL;
+    }
+
+    $portrait_rows = $this->generatedImageRepository->loadImagesForObject(
+      'dc_campaign_characters',
+      (string) $record['id'],
+      NULL,
+      'portrait',
+      'original'
+    );
+    if (empty($portrait_rows[0]) || !is_array($portrait_rows[0])) {
+      return NULL;
+    }
+
+    $portrait_row = $portrait_rows[0];
+    $resolved_url = $this->generatedImageRepository->resolveClientUrl($portrait_row);
+    $data_uri = $include_binary_data ? $this->buildDataUriFromGeneratedImageRow($portrait_row) : NULL;
+    return [
+      'url' => is_string($resolved_url) && $resolved_url !== '' ? $resolved_url : NULL,
+      'mime_type' => $portrait_row['mime_type'] ?? NULL,
+      'data_uri' => $data_uri,
+      'fingerprint' => $portrait_row['sha256'] ?? ($portrait_row['image_uuid'] ?? ($portrait_row['file_uri'] ?? $resolved_url)),
+    ];
+  }
+
+  /**
+   * Convert a stored generated image row into a data URI when possible.
+   */
+  protected function buildDataUriFromGeneratedImageRow(array $row): ?string {
+    $file_uri = trim((string) ($row['file_uri'] ?? ''));
+    if ($file_uri === '') {
+      return NULL;
+    }
+
+    $real_path = $this->fileSystem->realpath($file_uri);
+    if (!is_string($real_path) || $real_path === '' || !is_readable($real_path)) {
+      return NULL;
+    }
+
+    $bytes = @file_get_contents($real_path);
+    if (!is_string($bytes) || $bytes === '') {
+      return NULL;
+    }
+
+    $mime_type = trim((string) ($row['mime_type'] ?? 'image/png'));
+    if (strpos($mime_type, 'image/') !== 0) {
+      $mime_type = 'image/png';
+    }
+
+    return 'data:' . $mime_type . ';base64,' . base64_encode($bytes);
+  }
+
+  /**
+   * Build a short portrait-grounding summary for prompt use.
+   */
+  protected function buildPortraitReferenceSummary(string $name, string $role, array $state): string {
+    $basic_info = is_array($state['basicInfo'] ?? NULL) ? $state['basicInfo'] : [];
+    $appearance = trim((string) ($state['appearance'] ?? ($basic_info['appearance'] ?? '')));
+    $personality = trim((string) ($state['personality'] ?? ($basic_info['personality'] ?? '')));
+    $class = trim((string) ($basic_info['class'] ?? ''));
+    $ancestry = trim((string) ($basic_info['ancestry'] ?? ''));
+
+    $parts = array_filter([
+      $role !== '' ? $role : NULL,
+      $ancestry !== '' ? 'ancestry ' . $ancestry : NULL,
+      $class !== '' ? 'class ' . $class : NULL,
+      $appearance !== '' ? 'appearance ' . $this->normalizePlainText($appearance) : NULL,
+      $personality !== '' ? 'demeanor ' . $this->normalizePlainText($personality) : NULL,
+    ]);
+
+    $summary = trim(implode('; ', $parts));
+    if ($summary === '') {
+      $summary = $role !== '' ? $role : 'character';
+    }
+
+    return $name . ': ' . substr($summary, 0, 220);
+  }
+
+  /**
+   * Build prompt guidance that anchors visible characters to their portraits.
+   */
+  protected function buildPortraitReferencePromptFragment(array $portrait_references): string {
+    if (empty($portrait_references)) {
+      return '';
+    }
+
+    $lines = [
+      'Character portrait references: when any of these named characters appear in frame, match their established portrait likeness, clothing silhouette, species, and overall visual identity.',
+    ];
+    foreach ($portrait_references as $reference) {
+      $description = $this->normalizePlainText((string) ($reference['description'] ?? ''));
+      if ($description === '') {
+        continue;
+      }
+      $lines[] = '- ' . $description;
+    }
+
+    return implode("\n", $lines) . "\n";
+  }
+
+  /**
+   * Normalize portrait references for provider payloads.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Payload-safe references.
+   */
+  protected function normalizePortraitReferencesForPayload(array $portrait_references): array {
+    $normalized = [];
+    foreach ($portrait_references as $reference) {
+      $normalized[] = [
+        'name' => trim((string) ($reference['name'] ?? '')),
+        'role' => trim((string) ($reference['role'] ?? '')),
+        'description' => trim((string) ($reference['description'] ?? '')),
+        'url' => !empty($reference['url']) ? (string) $reference['url'] : NULL,
+        'mime_type' => !empty($reference['mime_type']) ? (string) $reference['mime_type'] : NULL,
+        'data_uri' => !empty($reference['data_uri']) ? (string) $reference['data_uri'] : NULL,
+        'fingerprint' => !empty($reference['fingerprint']) ? (string) $reference['fingerprint'] : NULL,
+      ];
+    }
+
+    return $normalized;
   }
 
   /**

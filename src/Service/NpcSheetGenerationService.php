@@ -739,7 +739,8 @@ class NpcSheetGenerationService {
         'stashed' => [],
         'worn' => [
           'weapons' => [],
-          'armor' => [],
+          'armor' => NULL,
+          'shield' => NULL,
           'accessories' => [],
         ],
         'currency' => ['cp' => 0, 'sp' => 0, 'gp' => 0, 'pp' => 0],

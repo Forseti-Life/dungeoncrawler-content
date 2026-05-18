@@ -395,12 +395,17 @@ class QuestTrackerService {
    *   Array of active quests with progress.
    */
   public function getActiveQuests(int $campaign_id, int $character_id): array {
+    $tracking_ids = $this->resolveQuestTrackingCharacterIds($campaign_id, $character_id);
+    if ($tracking_ids === []) {
+      return [];
+    }
+
     $query = $this->database->select('dc_campaign_quest_progress', 'qp');
     $query->join('dc_campaign_quests', 'q', 'qp.campaign_id = q.campaign_id AND qp.quest_id = q.quest_id');
     $query->fields('q')
-      ->fields('qp', ['objective_states', 'current_phase', 'started_at', 'last_updated'])
+      ->fields('qp', ['character_id', 'objective_states', 'current_phase', 'started_at', 'last_updated'])
       ->condition('qp.campaign_id', $campaign_id)
-      ->condition('qp.character_id', $character_id)
+      ->condition('qp.character_id', $tracking_ids, 'IN')
       ->condition('qp.completed_at', NULL, 'IS NULL');
 
     return $query->execute()->fetchAll(\PDO::FETCH_ASSOC);
@@ -438,12 +443,17 @@ class QuestTrackerService {
    *   Character-level quest tracking rows.
    */
   public function getCharacterQuestTracking(int $campaign_id, int $character_id): array {
+    $tracking_ids = $this->resolveQuestTrackingCharacterIds($campaign_id, $character_id);
+    if ($tracking_ids === []) {
+      return [];
+    }
+
     $query = $this->database->select('dc_campaign_quest_progress', 'qp');
     $query->join('dc_campaign_quests', 'q', 'qp.campaign_id = q.campaign_id AND qp.quest_id = q.quest_id');
     $query->fields('q')
       ->fields('qp', ['objective_states', 'current_phase', 'started_at', 'last_updated', 'completed_at', 'outcome'])
       ->condition('qp.campaign_id', $campaign_id)
-      ->condition('qp.character_id', $character_id)
+      ->condition('qp.character_id', $tracking_ids, 'IN')
       ->orderBy('qp.last_updated', 'DESC');
 
     return $query->execute()->fetchAll(\PDO::FETCH_ASSOC);
@@ -566,10 +576,15 @@ class QuestTrackerService {
    *   Character log entries.
    */
   public function getCharacterQuestLog(int $campaign_id, int $character_id): array {
+    $tracking_ids = $this->resolveQuestTrackingCharacterIds($campaign_id, $character_id);
+    if ($tracking_ids === []) {
+      return [];
+    }
+
     return $this->database->select('dc_campaign_quest_log', 'ql')
       ->fields('ql')
       ->condition('campaign_id', $campaign_id)
-      ->condition('character_id', $character_id)
+      ->condition('character_id', $tracking_ids, 'IN')
       ->orderBy('timestamp', 'DESC')
       ->execute()
       ->fetchAll(\PDO::FETCH_ASSOC);
@@ -745,7 +760,11 @@ class QuestTrackerService {
       ->condition('quest_id', $quest_id);
 
     if ($character_id !== NULL) {
-      $query->condition('character_id', $character_id);
+      $tracking_ids = $this->resolveQuestTrackingCharacterIds($campaign_id, $character_id);
+      if ($tracking_ids === []) {
+        return NULL;
+      }
+      $query->condition('character_id', $tracking_ids, 'IN');
       $query->condition('party_id', NULL, 'IS NULL');
     }
     elseif ($party_id !== NULL) {
@@ -759,6 +778,45 @@ class QuestTrackerService {
 
     $result = $query->execute()->fetchAssoc();
     return $result ?: NULL;
+  }
+
+  /**
+   * Resolve runtime/source character ids that may own quest state.
+   *
+   * @return array<int>
+   *   Positive ids used for quest lookups.
+   */
+  protected function resolveQuestTrackingCharacterIds(int $campaign_id, int $character_id): array {
+    if ($campaign_id <= 0 || $character_id <= 0) {
+      return [];
+    }
+
+    $ids = [$character_id];
+
+    $runtime_row = $this->database->select('dc_campaign_characters', 'c')
+      ->fields('c', ['id', 'character_id'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('id', $character_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    if (is_array($runtime_row) && !empty($runtime_row['character_id'])) {
+      $ids[] = (int) $runtime_row['character_id'];
+    }
+
+    $runtime_ids = $this->database->select('dc_campaign_characters', 'c')
+      ->fields('c', ['id'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('character_id', $character_id)
+      ->execute()
+      ->fetchCol();
+    foreach ($runtime_ids as $runtime_id) {
+      if (is_numeric($runtime_id)) {
+        $ids[] = (int) $runtime_id;
+      }
+    }
+
+    return array_values(array_unique(array_filter(array_map('intval', $ids), static fn(int $id): bool => $id > 0)));
   }
 
   /**

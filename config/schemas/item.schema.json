@@ -387,6 +387,55 @@
       },
       "required": ["capacity"]
     },
+    "inventory_metadata": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "description": "Normalized inventory behavior flags used by the runtime inventory system to classify whether an item can be equipped, consumed, or used as a container.",
+      "properties": {
+        "equippable": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether the item can be equipped, worn, or otherwise actively slotted by a character."
+        },
+        "equip_slot": {
+          "type": ["string", "null"],
+          "enum": ["held", "worn", "armor", "shield", "accessory", null],
+          "description": "Primary inventory slot used when the item is equipped."
+        },
+        "worn_slot": {
+          "type": ["string", "null"],
+          "enum": ["head", "eyes", "neck", "shoulders", "body", "chest", "legs", "belt", "wrists", "hands", "feet", "ring", "wings", "worn", null],
+          "description": "Normalized character body slot used for worn accessories and magic items."
+        },
+        "hand_slots_required": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2,
+          "default": 0,
+          "description": "How many hand slots the item occupies when equipped."
+        },
+        "consumable": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether the item is intended to be consumed on use, such as a potion, scroll, talisman, or ammunition."
+        },
+        "consumes_on_use": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether activating or using the item normally expends one quantity."
+        },
+        "container": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether the item can contain other items."
+        },
+        "stackable": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether multiple copies of the item are normally represented as quantity on a single stack."
+        }
+      }
+    },
     "magic_properties": {
       "type": ["object", "null"],
       "additionalProperties": false,

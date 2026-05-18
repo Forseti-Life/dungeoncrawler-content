@@ -17,6 +17,7 @@ use Drupal\dungeoncrawler_content\Service\MapGeneratorService;
 use Drupal\dungeoncrawler_content\Service\NarrationEngine;
 use Drupal\dungeoncrawler_content\Service\NpcPsychologyService;
 use Drupal\dungeoncrawler_content\Service\RoomChatService;
+use Drupal\dungeoncrawler_content\Service\StateValidationService;
 use Drupal\Tests\UnitTestCase;
 use Psr\Log\LoggerInterface;
 
@@ -208,9 +209,8 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
 
     $this->assertSame('tavern_keeper', $plan['directly_addressed_npc']['entity_ref']);
     $this->assertFalse($plan['gm_addressed']);
-    $this->assertCount(2, $plan['ordered_npcs']);
-    $this->assertSame('scholar_npc', $plan['ordered_npcs'][0]['entity_ref']);
-    $this->assertSame('tavern_keeper', $plan['ordered_npcs'][1]['entity_ref']);
+    $this->assertCount(1, $plan['ordered_npcs']);
+    $this->assertSame('tavern_keeper', $plan['ordered_npcs'][0]['entity_ref']);
   }
 
   /**
@@ -240,6 +240,56 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
 
     $this->assertTrue($plan['gm_addressed']);
     $this->assertSame([], $plan['ordered_npcs']);
+  }
+
+  /**
+   * @covers ::buildNpcTurnPlan
+   */
+  public function testBuildNpcTurnPlanKeepsActiveDirectConversationNpcAsOnlySpeaker(): void {
+    $roomNpcs = [
+      [
+        'entity_ref' => 'gribbles_rindsworth',
+        'profile' => [
+          'display_name' => 'Gribbles Rindsworth',
+        ],
+      ],
+      [
+        'entity_ref' => 'eldric',
+        'profile' => [
+          'display_name' => 'Eldric',
+        ],
+      ],
+      [
+        'entity_ref' => 'marta_the_scholar',
+        'profile' => [
+          'display_name' => 'Marta the Scholar',
+        ],
+      ],
+    ];
+
+    $plan = $this->roomChatService->publicBuildNpcTurnPlan(
+      $roomNpcs,
+      'I need a storyline.',
+      'The space narrows to a direct conversation.',
+      [
+        'rooms' => [
+          [
+            'room_id' => 'tavern-room',
+            'chat' => [
+              ['speaker' => 'Player', 'message' => 'Hey Gribbles, I need a storyline.', 'type' => 'player', 'channel' => 'room'],
+              ['speaker' => 'Game Master', 'message' => 'The space narrows to a direct conversation.', 'type' => 'npc', 'channel' => 'room'],
+              ['speaker' => 'Gribbles Rindsworth', 'message' => '"What kind of trouble are you after?"', 'type' => 'npc', 'channel' => 'room'],
+            ],
+          ],
+        ],
+      ],
+      'tavern-room'
+    );
+
+    $this->assertNull($plan['directly_addressed_npc']);
+    $this->assertSame('gribbles_rindsworth', $plan['active_conversation_npc']['entity_ref']);
+    $this->assertCount(1, $plan['ordered_npcs']);
+    $this->assertSame('gribbles_rindsworth', $plan['ordered_npcs'][0]['entity_ref']);
   }
 
   /**
@@ -286,6 +336,324 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
     $this->assertSame(
       ['guard_captain', 'tavern_keeper', 'scholar_npc'],
       array_map(static fn(array $npc): string => $npc['entity_ref'], $plan['ordered_npcs'])
+    );
+  }
+
+  /**
+   * @covers ::buildCharacterDialoguePayload
+   * @covers ::buildCharacterDialogueChatMessage
+   */
+  public function testBuildCharacterDialoguePayloadProducesValidatedCanonicalStructure(): void {
+    $logger = $this->createMock(LoggerInterface::class);
+    $loggerFactory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $loggerFactory->method('get')->willReturn($logger);
+    $validator = new StateValidationService($loggerFactory);
+
+    $service = new TestableRoomChatService(
+      $this->database,
+      $this->createMock(\Drupal\dungeoncrawler_content\Service\DungeonStateService::class),
+      $loggerFactory,
+      $this->createMock(AccountProxyInterface::class),
+      $this->createMock(AIApiService::class),
+      $this->createMock(PromptManager::class),
+      $this->createMock(GameplayActionProcessor::class),
+      $this->createMock(AiSessionManager::class),
+      $this->createMock(ChatChannelManager::class),
+      $this->psychologyService,
+      $this->createMock(NarrationEngine::class),
+      $this->createMock(ChatSessionManager::class),
+      $this->createMock(MapGeneratorService::class),
+      $this->createMock(CanonicalActionRegistryService::class),
+      $this->createMock(GmOrchestrationBrokerService::class),
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      $validator
+    );
+
+    $payload = $service->publicBuildCharacterDialoguePayload(
+      17,
+      'room-tavern',
+      'scholar_npc',
+      'Marta the Scholar',
+      'room',
+      'room_interjection',
+      '"The archive remembers."',
+      'deterministic',
+      NULL,
+      NULL,
+      TRUE,
+      FALSE
+    );
+    $message = $service->publicBuildCharacterDialogueChatMessage($payload);
+
+    $this->assertSame('character-dialogue-v1', $payload['schema_version']);
+    $this->assertSame('scholar_npc', $payload['speaker_ref']);
+    $this->assertSame('room_interjection', $payload['delivery_type']);
+    $this->assertSame('deterministic', $payload['context']['generation_source']);
+    $this->assertTrue($payload['flags']['interjection']);
+    $this->assertSame('"The archive remembers."', $message['message']);
+    $this->assertSame($payload, $message['dialogue_payload']);
+    $this->assertTrue($message['interjection']);
+  }
+
+  /**
+   * @covers ::buildGmRoomResponsePayload
+   * @covers ::buildRoomTurnHarnessPayload
+   * @covers ::buildRoomChatResponsePayload
+   * @covers ::buildQueuedRoomContinuationPayload
+   */
+  public function testBuildGmAndHarnessPayloadsProduceValidatedCanonicalStructures(): void {
+    $logger = $this->createMock(LoggerInterface::class);
+    $loggerFactory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $loggerFactory->method('get')->willReturn($logger);
+    $validator = new StateValidationService($loggerFactory);
+
+    $service = new TestableRoomChatService(
+      $this->database,
+      $this->createMock(\Drupal\dungeoncrawler_content\Service\DungeonStateService::class),
+      $loggerFactory,
+      $this->createMock(AccountProxyInterface::class),
+      $this->createMock(AIApiService::class),
+      $this->createMock(PromptManager::class),
+      $this->createMock(GameplayActionProcessor::class),
+      $this->createMock(AiSessionManager::class),
+      $this->createMock(ChatChannelManager::class),
+      $this->psychologyService,
+      $this->createMock(NarrationEngine::class),
+      $this->createMock(ChatSessionManager::class),
+      $this->createMock(MapGeneratorService::class),
+      $this->createMock(CanonicalActionRegistryService::class),
+      $this->createMock(GmOrchestrationBrokerService::class),
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      $validator
+    );
+
+    $gmPayload = $service->publicBuildGmRoomResponsePayload(
+      'The torchlight bends across the stone corridor.',
+      [['type' => 'search', 'name' => 'Search the room']],
+      [['type' => 'perception', 'total' => 17]],
+      TRUE
+    );
+    $harnessPayload = $service->publicBuildRoomTurnHarnessPayload([
+      'player' => ['message' => 'Marta, what do you know?'],
+      'gm' => ['narrative' => 'The tavern quiets around the question.'],
+      'gm_addressed' => FALSE,
+      'directly_addressed_npc' => 'scholar_npc',
+      'npc_turns' => [
+        ['entity_ref' => 'scholar_npc', 'display_name' => 'Marta the Scholar', 'spoke' => TRUE],
+      ],
+      'turn_log_key' => 'room_turn_123',
+      'turn_logs' => [
+        [
+          'speaker' => 'System',
+          'message' => 'Next speaker: Marta the Scholar.',
+          'type' => 'system',
+          'channel' => 'room',
+          'timestamp' => '2026-05-17T00:00:00+00:00',
+          'character_id' => NULL,
+          'user_id' => 0,
+          'internal_log' => TRUE,
+        ],
+      ],
+      'messages' => [
+        [
+          'speaker' => 'Marta the Scholar',
+          'message' => '"Knowledge has a price."',
+          'type' => 'npc',
+          'channel' => 'room',
+          'timestamp' => '2026-05-17T00:00:01+00:00',
+          'character_id' => NULL,
+          'user_id' => 0,
+          'interjection' => TRUE,
+          'dialogue_payload' => [
+            'schema_version' => 'character-dialogue-v1',
+            'speaker_ref' => 'scholar_npc',
+            'speaker_name' => 'Marta the Scholar',
+            'channel' => 'room',
+            'delivery_type' => 'room_interjection',
+            'text' => '"Knowledge has a price."',
+            'context' => [
+              'campaign_id' => 17,
+              'room_id' => 'room-tavern',
+              'generation_source' => 'deterministic',
+              'target_entity' => NULL,
+              'source_ability' => NULL,
+            ],
+            'flags' => [
+              'interjection' => TRUE,
+              'direct_addressed' => FALSE,
+            ],
+          ],
+        ],
+      ],
+    ]);
+
+    $this->assertSame('gm-room-response-v1', $gmPayload['schema_version']);
+    $this->assertSame('Game Master', $gmPayload['speaker']);
+    $this->assertTrue($gmPayload['flags']['suppress_npc_interjections']);
+    $this->assertSame('room-turn-harness-v1', $harnessPayload['schema_version']);
+    $this->assertSame('scholar_npc', $harnessPayload['directly_addressed_npc']);
+    $this->assertCount(1, $harnessPayload['npc_turns']);
+    $this->assertCount(1, $harnessPayload['messages']);
+
+    $roomChatPayload = $service->publicBuildRoomChatResponsePayload([
+      'message' => [
+        'speaker' => 'Player',
+        'message' => 'Marta, what do you know?',
+        'type' => 'player',
+        'channel' => 'room',
+        'timestamp' => '2026-05-17T00:00:00+00:00',
+        'character_id' => 263,
+        'user_id' => 1,
+      ],
+      'totalMessages' => 12,
+      'dungeon_data' => [
+        'rooms' => [
+          ['id' => 'room-tavern'],
+        ],
+      ],
+      'gm_response' => [
+        'speaker' => 'Game Master',
+        'message' => 'The tavern quiets around the question.',
+        'type' => 'gm',
+        'channel' => 'room',
+        'timestamp' => '2026-05-17T00:00:01+00:00',
+        'character_id' => NULL,
+        'user_id' => 0,
+        'gm_payload' => $gmPayload,
+      ],
+      'npc_interjections' => $harnessPayload['messages'],
+      'quest_updates' => [],
+      'turn_harness' => $harnessPayload,
+      'turn_log_key' => 'room_turn_123',
+      'turn_logs' => $harnessPayload['turn_logs'],
+      'client_request_id' => 'client-123',
+      'npc_interjections_deferred' => FALSE,
+    ]);
+
+    $this->assertSame('room-chat-response-v1', $roomChatPayload['schema_version']);
+    $this->assertSame(12, $roomChatPayload['totalMessages']);
+    $this->assertSame('Game Master', $roomChatPayload['gm_response']['speaker']);
+    $this->assertSame('client-123', $roomChatPayload['client_request_id']);
+    $this->assertSame($harnessPayload, $roomChatPayload['turn_harness']);
+
+    $queuedContinuationPayload = $service->publicBuildQueuedRoomContinuationPayload([
+      'continued' => TRUE,
+      'queued_player_count' => 2,
+      'queued_player_summary' => "Marta, what do you know?\nTell me about the ledger.",
+      'channel' => 'room',
+      'gm_response' => $roomChatPayload['gm_response'],
+      'canonical_actions' => ['available' => [['id' => 'search-room']]],
+      'navigation' => ['destination_room_id' => 'room-archive'],
+      'turn_harness' => $harnessPayload,
+      'turn_log_key' => 'room_turn_queued_123',
+      'turn_logs' => $harnessPayload['turn_logs'],
+      'npc_interjections' => $harnessPayload['messages'],
+      'npc_interjections_deferred' => FALSE,
+      'client_request_id' => 'client-queued-123',
+    ]);
+
+    $this->assertSame('queued-room-continuation-v1', $queuedContinuationPayload['schema_version']);
+    $this->assertTrue($queuedContinuationPayload['continued']);
+    $this->assertSame(2, $queuedContinuationPayload['queued_player_count']);
+    $this->assertSame('client-queued-123', $queuedContinuationPayload['client_request_id']);
+    $this->assertSame($harnessPayload, $queuedContinuationPayload['turn_harness']);
+    $this->assertCount(1, $queuedContinuationPayload['npc_interjections']);
+    $this->assertFalse($queuedContinuationPayload['npc_interjections_deferred']);
+  }
+
+  /**
+   * @covers ::selectBestMatchingQuestLeadCandidate
+   * @covers ::extractSpecificQuestLeadTokens
+   */
+  public function testSelectBestMatchingQuestLeadCandidatePrefersSpecificTopicMatch(): void {
+    $match = $this->roomChatService->publicSelectBestMatchingQuestLeadCandidate(
+      'Gribbles, I need spellbooks. Got a lead?',
+      [
+        [
+          'giver_npc_id' => 264,
+          'giver_name' => 'Eldric',
+          'quest_name' => 'Collect Wine Bottles',
+          'quest_description' => 'Gather spare bottles for the tavern service.',
+          'generated_objectives' => '[]',
+        ],
+        [
+          'giver_npc_id' => 265,
+          'giver_name' => 'Marta the Scholar',
+          'quest_name' => 'Collect Lost spellbooks',
+          'quest_description' => 'Find and collect spellbooks around the tavern.',
+          'generated_objectives' => '[{\"objectives\":[{\"description\":\"Find and collect spellbooks\"}]}]',
+        ],
+      ],
+      [266]
+    );
+
+    $this->assertNotNull($match);
+    $this->assertSame(265, (int) $match['giver_npc_id']);
+    $this->assertSame('Marta the Scholar', $match['giver_name']);
+  }
+
+  /**
+   * @covers ::selectBestMatchingQuestLeadCandidate
+   * @covers ::extractSpecificQuestLeadTokens
+   */
+  public function testSelectBestMatchingQuestLeadCandidateReturnsNullForVagueRequest(): void {
+    $match = $this->roomChatService->publicSelectBestMatchingQuestLeadCandidate(
+      'Got any work?',
+      [
+        [
+          'giver_npc_id' => 265,
+          'giver_name' => 'Marta the Scholar',
+          'quest_name' => 'Collect Lost spellbooks',
+          'quest_description' => 'Find and collect spellbooks around the tavern.',
+          'generated_objectives' => '[{\"objectives\":[{\"description\":\"Find and collect spellbooks\"}]}]',
+        ],
+      ]
+    );
+
+    $this->assertNull($match);
+  }
+
+  /**
+   * @covers ::buildQuestgiverQuestDialogueLine
+   */
+  public function testBuildQuestgiverQuestDialogueLineUsesActiveQuestGuidance(): void {
+    $line = $this->roomChatService->publicBuildQuestgiverQuestDialogueLine((object) [
+      'quest_name' => 'Collect Lost spellbooks',
+      'status' => 'active',
+      'quest_description' => 'Recover the missing spellbooks.',
+      'generated_objectives' => '[{"phase":1,"objectives":[{"description":"Find and collect spellbooks"}]}]',
+    ], 'Marta the Scholar');
+
+    $this->assertSame(
+      '"Marta the Scholar says, You are already on Collect Lost spellbooks. Start with: Find and collect spellbooks"',
+      $line
+    );
+  }
+
+  /**
+   * @covers ::buildQuestgiverQuestDialogueLine
+   */
+  public function testBuildQuestgiverQuestDialogueLineUsesOfferForAvailableQuest(): void {
+    $line = $this->roomChatService->publicBuildQuestgiverQuestDialogueLine((object) [
+      'quest_name' => 'Collect Wine Bottles',
+      'status' => 'available',
+      'quest_description' => 'Recover some bottles for the tavern.',
+      'generated_objectives' => '[{"phase":1,"objectives":[{"description":"Collect wine bottle from around the tavern"}]}]',
+    ], 'Eldric');
+
+    $this->assertSame(
+      '"Eldric says, I have work for you: Collect Wine Bottles. Collect wine bottle from around the tavern"',
+      $line
     );
   }
 
@@ -791,6 +1159,74 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
    * @covers ::resolveActiveDirectConversationNpc
    * @covers ::classifyRoomTurnIntent
    */
+  public function testClassifyRoomTurnIntentKeepsInformationFollowupOnActiveNpcThread(): void {
+    $room_npcs = [
+      [
+        'entity_ref' => 'gribbles_rindsworth',
+        'profile' => [
+          'display_name' => 'Gribbles Rindsworth',
+        ],
+      ],
+    ];
+
+    $active_npc = $this->roomChatService->publicResolveActiveDirectConversationNpc(
+      [
+        ['speaker' => 'Burasco', 'message' => 'Hey Gribbles, I need a quest.', 'type' => 'player', 'channel' => 'room'],
+        ['speaker' => 'Game Master', 'message' => 'The space narrows to a direct conversation.', 'type' => 'npc', 'channel' => 'room'],
+        ['speaker' => 'Gribbles Rindsworth', 'message' => '"If you are after work, say what kind."', 'type' => 'npc', 'channel' => 'room'],
+      ],
+      $room_npcs
+    );
+
+    $intent = $this->roomChatService->publicClassifyRoomTurnIntentWithActiveConversation(
+      'OK, give me the information',
+      $room_npcs,
+      NULL,
+      $active_npc
+    );
+
+    $this->assertNotNull($active_npc);
+    $this->assertSame('direct_npc_dialogue', $intent);
+  }
+
+  /**
+   * @covers ::resolveActiveDirectConversationNpc
+   * @covers ::classifyRoomTurnIntent
+   */
+  public function testClassifyRoomTurnIntentDoesNotTrapGenericActionUnderActiveNpcThread(): void {
+    $room_npcs = [
+      [
+        'entity_ref' => 'gribbles_rindsworth',
+        'profile' => [
+          'display_name' => 'Gribbles Rindsworth',
+        ],
+      ],
+    ];
+
+    $active_npc = $this->roomChatService->publicResolveActiveDirectConversationNpc(
+      [
+        ['speaker' => 'Burasco', 'message' => 'Hey Gribbles, I need a quest.', 'type' => 'player', 'channel' => 'room'],
+        ['speaker' => 'Game Master', 'message' => 'The space narrows to a direct conversation.', 'type' => 'npc', 'channel' => 'room'],
+        ['speaker' => 'Gribbles Rindsworth', 'message' => '"If you are after work, say what kind."', 'type' => 'npc', 'channel' => 'room'],
+      ],
+      $room_npcs
+    );
+
+    $intent = $this->roomChatService->publicClassifyRoomTurnIntentWithActiveConversation(
+      'OK, I search the room.',
+      $room_npcs,
+      NULL,
+      $active_npc
+    );
+
+    $this->assertNotNull($active_npc);
+    $this->assertSame('gm_narration', $intent);
+  }
+
+  /**
+   * @covers ::resolveActiveDirectConversationNpc
+   * @covers ::classifyRoomTurnIntent
+   */
   public function testClassifyRoomTurnIntentKeepsQuotedEmoteFollowupOnActiveNpcThread(): void {
     $room_npcs = [
       [
@@ -1110,6 +1546,79 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
   /**
    * @covers ::buildDeterministicNpcDialogue
    * @covers ::buildBrokeredStorylineLeadDialogue
+   */
+  public function testDeterministicNpcDialoguePrefersStorylineLeadOverGreeting(): void {
+    $this->psychologyService->method('loadProfile')
+      ->willReturnMap([
+        [22, 'gribbles_rindsworth', [
+          'display_name' => 'Gribbles Rindsworth',
+          'attitude' => 'friendly',
+          'role' => 'quest_giver',
+          'motivations' => 'connect locals with paying work',
+        ]],
+      ]);
+
+    $relationship_manager = $this->createMock(\Drupal\dungeoncrawler_content\Service\RelationshipManagerService::class);
+    $relationship_manager->expects($this->once())
+      ->method('getCampaignStorylineContacts')
+      ->with(22, 'gribbles_rindsworth')
+      ->willReturn([
+        [
+          'name' => 'Threshold of Knowledge',
+          'quest_giver' => [
+            'display_name' => 'Okoro of the Open Palm',
+          ],
+          'lead_location' => [
+            'label' => 'Magaambya Campus',
+          ],
+        ],
+      ]);
+
+    $this->roomChatService->setRelationshipManager($relationship_manager);
+
+    $reply = $this->roomChatService->publicBuildDeterministicNpcDialogue(
+      22,
+      'gribbles_rindsworth',
+      'Gribbles Rindsworth',
+      'OK, hey Gribbles. I need a storyline.'
+    );
+
+    $this->assertNotNull($reply);
+    $this->assertStringContainsString('Threshold of Knowledge', $reply);
+    $this->assertStringContainsString('Okoro of the Open Palm', $reply);
+    $this->assertStringNotContainsString('What do you need?', $reply);
+  }
+
+  /**
+   * @covers ::buildDeterministicNpcDialogue
+   */
+  public function testDeterministicNpcDialogueDoesNotFallbackToGreetingForQuestAskOnInformant(): void {
+    $this->psychologyService->method('loadProfile')
+      ->willReturnMap([
+        [22, 'gribbles_rindsworth', [
+          'display_name' => 'Gribbles Rindsworth',
+          'attitude' => 'indifferent',
+          'role' => 'neutral',
+          'occupation' => 'Tavern regular, petty informant',
+          'backstory' => 'He trades rumors and secrets for drinks and coin.',
+        ]],
+      ]);
+
+    $reply = $this->roomChatService->publicBuildDeterministicNpcDialogue(
+      22,
+      'gribbles_rindsworth',
+      'Gribbles Rindsworth',
+      'Hey Gribbles, I need a quest.'
+    );
+
+    $this->assertNotNull($reply);
+    $this->assertStringContainsString('what kind of work', strtolower($reply));
+    $this->assertStringNotContainsString('What do you need?', $reply);
+  }
+
+  /**
+   * @covers ::buildDeterministicNpcDialogue
+   * @covers ::buildBrokeredStorylineLeadDialogue
    * @covers ::loadBrokeredStorylineContacts
    */
   public function testDeterministicNpcDialogueAcceptsLiveTavernKeeperAliasForStorylineLeads(): void {
@@ -1218,6 +1727,27 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
     );
 
     $this->assertSame('merchant_inquiry', $intent);
+  }
+
+  /**
+   * @covers ::classifyRoomTurnIntent
+   */
+  public function testClassifyRoomTurnIntentPrioritizesQuestQueryBeforeMerchantInquiry(): void {
+    $intent = $this->roomChatService->publicClassifyRoomTurnIntent(
+      'I am looking for work.',
+      [
+        [
+          'entity_ref' => 'tavern_keeper',
+          'profile' => [
+            'display_name' => 'Eldric',
+            'role' => 'quest_giver',
+            'motivations' => 'connect travelers with work and keep the bar running',
+          ],
+        ],
+      ]
+    );
+
+    $this->assertSame('quest_query', $intent);
   }
 
   /**
@@ -1673,6 +2203,69 @@ class TestableRoomChatService extends RoomChatService {
 
   public function publicValidateGmNarrativeRoleBoundary(string $narrative, ?array $character_data): array {
     return $this->validateGmNarrativeRoleBoundary($narrative, $character_data);
+  }
+
+  public function publicBuildCharacterDialoguePayload(
+    int $campaign_id,
+    string $room_id,
+    ?string $speaker_ref,
+    string $speaker_name,
+    string $channel,
+    string $delivery_type,
+    string $text,
+    string $generation_source,
+    ?string $target_entity = NULL,
+    ?string $source_ability = NULL,
+    bool $interjection = FALSE,
+    bool $direct_addressed = FALSE
+  ): array {
+    return $this->buildCharacterDialoguePayload(
+      $campaign_id,
+      $room_id,
+      $speaker_ref,
+      $speaker_name,
+      $channel,
+      $delivery_type,
+      $text,
+      $generation_source,
+      $target_entity,
+      $source_ability,
+      $interjection,
+      $direct_addressed
+    );
+  }
+
+  public function publicBuildCharacterDialogueChatMessage(array $dialogue_payload, ?int $character_id = NULL): array {
+    return $this->buildCharacterDialogueChatMessage($dialogue_payload, $character_id);
+  }
+
+  public function publicBuildGmRoomResponsePayload(
+    string $narrative,
+    array $actions = [],
+    array $dice_rolls = [],
+    bool $suppress_npc_interjections = FALSE
+  ): array {
+    return $this->buildGmRoomResponsePayload($narrative, $actions, $dice_rolls, $suppress_npc_interjections);
+  }
+
+  public function publicBuildRoomTurnHarnessPayload(array $payload): array {
+    return $this->buildRoomTurnHarnessPayload($payload);
+  }
+
+  public function publicBuildRoomChatResponsePayload(array $payload): array {
+    return $this->buildRoomChatResponsePayload($payload);
+  }
+
+  public function publicBuildQueuedRoomContinuationPayload(array $payload): array {
+    return $this->buildQueuedRoomContinuationPayload($payload);
+  }
+
+  public function publicSelectBestMatchingQuestLeadCandidate(string $player_message, array $candidates, array $exclude_giver_npc_ids = []): ?array {
+    return $this->selectBestMatchingQuestLeadCandidate($player_message, $candidates, $exclude_giver_npc_ids);
+  }
+
+  public function publicBuildQuestgiverQuestDialogueLine(object $row, string $display_name): ?string {
+    return $this->buildQuestgiverQuestDialogueLine($row, $display_name);
   }
 
 }

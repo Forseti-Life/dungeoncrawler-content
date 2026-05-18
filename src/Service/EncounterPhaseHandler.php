@@ -3080,12 +3080,31 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
 
         $game_state['initiative_order'] = $initiative_order;
 
+        $initial_turn_events = [];
+        if (!empty($initiative_order)) {
+          $first = $initiative_order[0];
+          $first_entity = $first['entity_id'] ?? NULL;
+          $first_team = $first['team'] ?? 'enemy';
+          if ($first_entity && $first_team !== 'player') {
+            $npc_result = $this->autoPlayNpcTurn($encounter_id, (string) $first_entity, $game_state, $dungeon_data, $campaign_id);
+            $initial_turn_events = $npc_result['events'] ?? [];
+
+            if (!$this->isEncounterOver($encounter_id, $game_state)) {
+              $initial_advance = $this->processEndTurn($encounter_id, (string) $first_entity, $game_state, $dungeon_data, $campaign_id);
+              $initial_turn_events = array_merge($initial_turn_events, $initial_advance['npc_events'] ?? []);
+            }
+          }
+        }
+
         $events[] = GameEventLogger::buildEvent('encounter_started', 'encounter', NULL, [
           'encounter_id' => $encounter_id,
           'room_id' => $room_id,
           'participants' => count($participants),
           'initiative_order' => $initiative_order,
         ]);
+        if (!empty($initial_turn_events)) {
+          $events = array_merge($events, $initial_turn_events);
+        }
 
         // AI GM narration for encounter start.
         $gm_narration = $this->aiGmService->narrateEncounterStart([
@@ -4572,6 +4591,9 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
   protected function buildParticipantList(array $dungeon_data, string $room_id, array $enemies = []): array {
     $participants = [];
     $entities = $dungeon_data['entities'] ?? [];
+    $enemy_instance_ids = array_map(static function (array $enemy): string {
+      return (string) ($enemy['entity_instance_id'] ?? $enemy['instance_id'] ?? $enemy['id'] ?? '');
+    }, $enemies);
 
     foreach ($entities as $entity) {
       $entity_room = $entity['placement']['room_id'] ?? NULL;
@@ -4581,6 +4603,7 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
 
       $content_type = $entity['entity_type'] ?? ($entity['entity_ref']['content_type'] ?? '');
       $instance_id = $entity['entity_instance_id'] ?? ($entity['instance_id'] ?? ($entity['id'] ?? NULL));
+      $team = $this->resolveEncounterParticipantTeam($entity, $content_type, (string) $instance_id, $enemy_instance_ids);
 
       if ($content_type === 'player_character') {
         $stats = $entity['state']['metadata']['stats'] ?? [];
@@ -4602,7 +4625,7 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
           'position_r' => $entity['placement']['hex']['r'] ?? 0,
         ];
       }
-      elseif ($content_type === 'creature' || $content_type === 'npc' || in_array($instance_id, array_column($enemies, 'entity_instance_id'))) {
+      elseif (($content_type === 'creature' || $content_type === 'npc' || in_array((string) $instance_id, $enemy_instance_ids, TRUE)) && $team !== NULL) {
         $stats = $entity['state']['metadata']['stats'] ?? [];
         $perception = $stats['perception'] ?? ($entity['state']['perception'] ?? 0);
         $participants[] = [
@@ -4612,7 +4635,7 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
             'content_id' => $entity['entity_ref']['content_id'] ?? $instance_id,
             'perception_modifier' => (int) $perception,
           ]),
-          'team' => 'enemy',
+          'team' => $team,
           'name' => $entity['state']['metadata']['display_name'] ?? ($entity['entity_ref']['content_id'] ?? 'Unknown'),
           'hp' => $stats['currentHp'] ?? ($entity['state']['hit_points']['current'] ?? 10),
           'max_hp' => $stats['maxHp'] ?? ($entity['state']['hit_points']['max'] ?? 10),
@@ -4625,6 +4648,40 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
     }
 
     return $participants;
+  }
+
+  /**
+   * Resolves whether a room entity should participate in combat and on which team.
+   */
+  protected function resolveEncounterParticipantTeam(array $entity, string $content_type, string $instance_id, array $enemy_instance_ids): ?string {
+    if ($content_type === 'player_character') {
+      return 'player';
+    }
+
+    if (in_array($instance_id, $enemy_instance_ids, TRUE)) {
+      return 'enemy';
+    }
+
+    $raw_team = strtolower(trim((string) (
+      $entity['state']['metadata']['team']
+      ?? $entity['state']['team']
+      ?? ''
+    )));
+
+    if (in_array($raw_team, ['enemy', 'hostile', 'monster'], TRUE)) {
+      return 'enemy';
+    }
+    if (in_array($raw_team, ['ally', 'friendly', 'companion'], TRUE)) {
+      return 'ally';
+    }
+    if (in_array($raw_team, ['player', 'player_character', 'pc'], TRUE)) {
+      return 'player';
+    }
+    if (in_array($raw_team, ['neutral', 'indifferent', ''], TRUE)) {
+      return $content_type === 'creature' ? 'enemy' : NULL;
+    }
+
+    return $content_type === 'creature' ? 'enemy' : NULL;
   }
 
   /**

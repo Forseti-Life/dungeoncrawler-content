@@ -7,6 +7,18 @@ namespace Drupal\dungeoncrawler_content\Service;
  */
 class PlayerAgentExplorationPolicy implements PlayerAgentPolicyInterface {
 
+  protected const PRIORITY_QUEST_SEARCH = 10;
+  protected const PRIORITY_QUEST_TALK = 20;
+  protected const PRIORITY_QUEST_SEARCH_FALLBACK = 30;
+  protected const PRIORITY_QUEST_TRANSITION = 40;
+  protected const PRIORITY_LEAD_FOLLOW_UP = 50;
+  protected const PRIORITY_ROOM_SEARCH = 60;
+  protected const PRIORITY_UNVISITED_NPC = 70;
+  protected const PRIORITY_ROOM_TRANSITION = 80;
+  protected const PRIORITY_PAID_WORK_FALLBACK = 90;
+  protected const PRIORITY_REST = 100;
+  protected const PRIORITY_WAIT = 110;
+
   protected ?QuestTrackerService $questTracker;
 
   public function __construct(?QuestTrackerService $quest_tracker = NULL) {
@@ -59,6 +71,7 @@ class PlayerAgentExplorationPolicy implements PlayerAgentPolicyInterface {
       $available_actions,
       $current_room_id,
       $visible_npcs,
+      $memory,
       $pending_lead
     );
     if ($follow_up_decision !== NULL) {
@@ -68,7 +81,7 @@ class PlayerAgentExplorationPolicy implements PlayerAgentPolicyInterface {
     if (in_array('search', $available_actions, TRUE)
       && $current_room_id !== ''
       && !in_array($current_room_id, $memory['searched_rooms'] ?? [], TRUE)) {
-      return [
+      return $this->attachDecisionMeta([
         'type' => 'intent',
         'reason' => 'Search the current room before moving on.',
         'intent' => [
@@ -76,7 +89,7 @@ class PlayerAgentExplorationPolicy implements PlayerAgentPolicyInterface {
           'actor' => $actor_id,
           'params' => [],
         ],
-      ];
+      ], 'room_search', self::PRIORITY_ROOM_SEARCH, $current_room_id);
     }
 
     if (in_array('talk', $available_actions, TRUE)) {
@@ -87,7 +100,7 @@ class PlayerAgentExplorationPolicy implements PlayerAgentPolicyInterface {
           continue;
         }
 
-        return [
+        return $this->attachDecisionMeta([
           'type' => 'intent',
           'reason' => 'Speak to an unvisited NPC in character.',
           'intent' => [
@@ -99,7 +112,7 @@ class PlayerAgentExplorationPolicy implements PlayerAgentPolicyInterface {
               'character_id' => (int) ($profile['character_id'] ?? 0),
             ],
           ],
-        ];
+        ], 'unvisited_npc_talk', self::PRIORITY_UNVISITED_NPC, $current_room_id, $npc_id);
       }
 
     }
@@ -111,7 +124,7 @@ class PlayerAgentExplorationPolicy implements PlayerAgentPolicyInterface {
       foreach ($connections as $connection) {
         $target_room_id = (string) ($connection['room_id'] ?? '');
         if ($target_room_id !== '' && !in_array($target_room_id, $visited_rooms, TRUE)) {
-          return [
+          return $this->attachDecisionMeta([
             'type' => 'intent',
             'reason' => 'Advance exploration into an unvisited connected room.',
             'intent' => [
@@ -121,22 +134,22 @@ class PlayerAgentExplorationPolicy implements PlayerAgentPolicyInterface {
                 'target_room_id' => $target_room_id,
               ],
             ],
-          ];
+          ], 'room_transition', self::PRIORITY_ROOM_TRANSITION, $current_room_id, $target_room_id);
         }
       }
 
       if (!empty($connections[0]['room_id'])) {
-        return [
+        return $this->attachDecisionMeta([
           'type' => 'intent',
           'reason' => 'Continue exploration through the first available connection.',
           'intent' => [
             'type' => 'transition',
             'actor' => $actor_id,
             'params' => [
-              'target_room_id' => (string) $connections[0]['room_id'],
+                'target_room_id' => (string) $connections[0]['room_id'],
+              ],
             ],
-          ],
-        ];
+        ], 'room_transition', self::PRIORITY_ROOM_TRANSITION, $current_room_id, (string) $connections[0]['room_id']);
       }
     }
 
@@ -146,7 +159,7 @@ class PlayerAgentExplorationPolicy implements PlayerAgentPolicyInterface {
       $fallback_npc_id = (string) ($fallback_npc['entity_instance_id'] ?? $fallback_npc['instance_id'] ?? $fallback_npc['id'] ?? '');
       if ($fallback_npc_id !== ''
         && ($current_room_id === '' || !in_array($current_room_id, $consulted_rooms, TRUE))) {
-        return [
+        return $this->attachDecisionMeta([
           'type' => 'intent',
           'reason' => 'Ask an available NPC about paid work before moving on.',
           'intent' => [
@@ -159,17 +172,17 @@ class PlayerAgentExplorationPolicy implements PlayerAgentPolicyInterface {
               'automation_goal' => 'paid_work_fallback',
             ],
           ],
-        ];
+        ], 'paid_work_fallback', self::PRIORITY_PAID_WORK_FALLBACK, $current_room_id, $fallback_npc_id);
       }
     }
 
     if (in_array('rest', $available_actions, TRUE)) {
       $rested_rooms = is_array($memory['rested_rooms'] ?? NULL) ? $memory['rested_rooms'] : [];
       if ($current_room_id !== '' && in_array($current_room_id, $rested_rooms, TRUE)) {
-        return ['type' => 'wait', 'reason' => 'No new exploration action is available in the current room.'];
+          return $this->attachDecisionMeta(['type' => 'wait', 'reason' => 'No new exploration action is available in the current room.'], 'wait', self::PRIORITY_WAIT, $current_room_id);
       }
 
-      return [
+      return $this->attachDecisionMeta([
         'type' => 'intent',
         'reason' => 'No higher-priority exploration action is available; take a short rest.',
         'intent' => [
@@ -179,10 +192,10 @@ class PlayerAgentExplorationPolicy implements PlayerAgentPolicyInterface {
             'rest_type' => 'short',
           ],
         ],
-      ];
+      ], 'rest', self::PRIORITY_REST, $current_room_id);
     }
 
-    return ['type' => 'wait', 'reason' => 'No safe exploration action was selected.'];
+    return $this->attachDecisionMeta(['type' => 'wait', 'reason' => 'No safe exploration action was selected.'], 'wait', self::PRIORITY_WAIT, $current_room_id);
   }
 
   /**
@@ -194,6 +207,7 @@ class PlayerAgentExplorationPolicy implements PlayerAgentPolicyInterface {
     array $available_actions,
     string $current_room_id,
     array $visible_npcs,
+    array $memory,
     ?array $pending_lead
   ): ?array {
     if ($pending_lead === NULL || !in_array('talk', $available_actions, TRUE)) {
@@ -208,6 +222,13 @@ class PlayerAgentExplorationPolicy implements PlayerAgentPolicyInterface {
     if ($target_npc_id === '') {
       return NULL;
     }
+    if ((int) ($pending_lead['follow_up_attempts'] ?? 0) >= 1) {
+      return NULL;
+    }
+    $lead_signature = trim((string) ($pending_lead['signature'] ?? ''));
+    if ($lead_signature !== '' && in_array($lead_signature, $memory['exhausted_conversation_leads'] ?? [], TRUE)) {
+      return NULL;
+    }
 
     foreach ($visible_npcs as $npc) {
       $npc_id = (string) ($npc['entity_instance_id'] ?? $npc['instance_id'] ?? $npc['id'] ?? '');
@@ -215,7 +236,7 @@ class PlayerAgentExplorationPolicy implements PlayerAgentPolicyInterface {
         continue;
       }
 
-      return [
+      return $this->attachDecisionMeta([
         'type' => 'intent',
         'reason' => 'Follow up on the NPC guidance before changing direction.',
         'intent' => [
@@ -228,7 +249,9 @@ class PlayerAgentExplorationPolicy implements PlayerAgentPolicyInterface {
             'automation_goal' => 'conversation_follow_up',
           ],
         ],
-      ];
+      ], 'lead_follow_up', self::PRIORITY_LEAD_FOLLOW_UP, $current_room_id, $target_npc_id, [
+        'lead_signature' => $lead_signature,
+      ]);
     }
 
     return NULL;
@@ -261,7 +284,7 @@ class PlayerAgentExplorationPolicy implements PlayerAgentPolicyInterface {
       && in_array('search', $available_actions, TRUE)
       && $current_room_id !== ''
       && !in_array($current_room_id, $memory['searched_rooms'] ?? [], TRUE)) {
-      return [
+      return $this->attachDecisionMeta([
         'type' => 'intent',
         'reason' => 'Search for active quest leads, locations, and target items first: ' . $objective_summary,
         'intent' => [
@@ -275,7 +298,10 @@ class PlayerAgentExplorationPolicy implements PlayerAgentPolicyInterface {
             'objective_target' => (string) ($quest_focus['objective_target'] ?? ''),
           ],
         ],
-      ];
+      ], 'quest_search', self::PRIORITY_QUEST_SEARCH, $current_room_id, NULL, [
+        'quest_id' => (string) ($quest_focus['quest_id'] ?? ''),
+        'objective_id' => (string) ($quest_focus['objective_id'] ?? ''),
+      ]);
     }
 
     if ($should_talk_for_quest && in_array('talk', $available_actions, TRUE)) {
@@ -287,7 +313,7 @@ class PlayerAgentExplorationPolicy implements PlayerAgentPolicyInterface {
           continue;
         }
 
-        return [
+        return $this->attachDecisionMeta([
           'type' => 'intent',
           'reason' => 'Advance active quest via conversation: ' . $objective_summary,
           'intent' => [
@@ -302,7 +328,10 @@ class PlayerAgentExplorationPolicy implements PlayerAgentPolicyInterface {
               'objective_id' => (string) ($quest_focus['objective_id'] ?? ''),
             ],
           ],
-        ];
+        ], 'quest_talk', self::PRIORITY_QUEST_TALK, $current_room_id, $npc_id, [
+          'quest_id' => (string) ($quest_focus['quest_id'] ?? ''),
+          'objective_id' => (string) ($quest_focus['objective_id'] ?? ''),
+        ]);
       }
     }
 
@@ -310,7 +339,7 @@ class PlayerAgentExplorationPolicy implements PlayerAgentPolicyInterface {
       && $current_room_id !== ''
       && !in_array($current_room_id, $memory['searched_rooms'] ?? [], TRUE)
       && ($this->objectiveSuggestsSearch($objective_text) || $visible_npcs === [])) {
-      return [
+      return $this->attachDecisionMeta([
         'type' => 'intent',
         'reason' => 'Search the room to advance active quest: ' . $objective_summary,
         'intent' => [
@@ -323,7 +352,10 @@ class PlayerAgentExplorationPolicy implements PlayerAgentPolicyInterface {
             'objective_item' => (string) ($quest_focus['objective_item'] ?? ''),
           ],
         ],
-      ];
+      ], 'quest_search_fallback', self::PRIORITY_QUEST_SEARCH_FALLBACK, $current_room_id, NULL, [
+        'quest_id' => (string) ($quest_focus['quest_id'] ?? ''),
+        'objective_id' => (string) ($quest_focus['objective_id'] ?? ''),
+      ]);
     }
 
     if (in_array('transition', $available_actions, TRUE)
@@ -334,7 +366,7 @@ class PlayerAgentExplorationPolicy implements PlayerAgentPolicyInterface {
       foreach ($connections as $connection) {
         $target_room_id = (string) ($connection['room_id'] ?? '');
         if ($target_room_id !== '' && !in_array($target_room_id, $visited_rooms, TRUE)) {
-          return [
+          return $this->attachDecisionMeta([
             'type' => 'intent',
             'reason' => 'Move to a new room to advance active quest: ' . $objective_summary,
             'intent' => [
@@ -347,12 +379,15 @@ class PlayerAgentExplorationPolicy implements PlayerAgentPolicyInterface {
                 'objective_type' => $objective_type,
               ],
             ],
-          ];
+          ], 'quest_transition', self::PRIORITY_QUEST_TRANSITION, $current_room_id, $target_room_id, [
+            'quest_id' => (string) ($quest_focus['quest_id'] ?? ''),
+            'objective_id' => (string) ($quest_focus['objective_id'] ?? ''),
+          ]);
         }
       }
 
       if (!empty($connections[0]['room_id'])) {
-        return [
+        return $this->attachDecisionMeta([
           'type' => 'intent',
           'reason' => 'Visit the next quest lead or location target: ' . $objective_summary,
           'intent' => [
@@ -362,10 +397,13 @@ class PlayerAgentExplorationPolicy implements PlayerAgentPolicyInterface {
               'target_room_id' => (string) $connections[0]['room_id'],
               'quest_id' => (string) ($quest_focus['quest_id'] ?? ''),
               'objective_id' => (string) ($quest_focus['objective_id'] ?? ''),
-              'objective_type' => $objective_type,
+                'objective_type' => $objective_type,
+              ],
             ],
-          ],
-        ];
+        ], 'quest_transition', self::PRIORITY_QUEST_TRANSITION, $current_room_id, (string) $connections[0]['room_id'], [
+          'quest_id' => (string) ($quest_focus['quest_id'] ?? ''),
+          'objective_id' => (string) ($quest_focus['objective_id'] ?? ''),
+        ]);
       }
     }
 
@@ -588,6 +626,11 @@ class PlayerAgentExplorationPolicy implements PlayerAgentPolicyInterface {
     $objective_text = strtolower(trim((string) ($quest_focus['objective'] ?? '')));
     $objective_item = trim((string) ($quest_focus['objective_item'] ?? ''));
 
+    if (in_array($objective_type, ['interact', 'talk', 'conversation', 'report'], TRUE)
+      || $this->objectiveSuggestsConversation($objective_text)) {
+      return FALSE;
+    }
+
     if (in_array($objective_type, ['collect', 'gather', 'recover', 'retrieve'], TRUE)) {
       return TRUE;
     }
@@ -642,6 +685,19 @@ class PlayerAgentExplorationPolicy implements PlayerAgentPolicyInterface {
     }
 
     return FALSE;
+  }
+
+  /**
+   * Attach explicit decision metadata for downstream handoffs.
+   */
+  protected function attachDecisionMeta(array $decision, string $stage, int $priority, string $room_id = '', ?string $target = NULL, array $extra = []): array {
+    $decision['decision_meta'] = array_filter([
+      'stage' => $stage,
+      'priority' => $priority,
+      'room_id' => $room_id !== '' ? $room_id : NULL,
+      'target' => $target !== NULL && $target !== '' ? $target : NULL,
+    ] + $extra, static fn($value) => $value !== NULL && $value !== '');
+    return $decision;
   }
 
 }

@@ -1,0 +1,46 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dungeoncrawler.life/schemas/room_chat_response.schema.json",
+  "title": "Room Chat Response Schema",
+  "description": "Canonical outer response envelope for RoomChatService::postMessage().",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "message", "totalMessages", "dungeon_data"],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "enum": ["room-chat-response-v1"]
+    },
+    "message": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["speaker", "message", "type", "channel", "timestamp", "character_id", "user_id"],
+      "properties": {
+        "speaker": { "type": "string", "maxLength": 255 },
+        "message": { "type": "string", "maxLength": 4000 },
+        "type": { "type": "string", "maxLength": 64 },
+        "channel": { "type": "string", "maxLength": 64 },
+        "timestamp": { "type": "string", "maxLength": 64 },
+        "character_id": { "type": ["integer", "null"] },
+        "user_id": { "type": "integer" }
+      }
+    },
+    "totalMessages": { "type": "integer", "minimum": 0 },
+    "dungeon_data": { "type": "object" },
+    "gm_response": { "type": ["object", "null"] },
+    "gm_deferred": { "type": "boolean" },
+    "state_diff": { "type": ["object", "null"] },
+    "npc_interjections": { "type": "array", "items": { "type": "object" } },
+    "quest_updates": { "type": "array", "items": { "type": "object" } },
+    "turn_harness": { "type": ["object", "null"] },
+    "turn_log_key": { "type": ["string", "null"], "maxLength": 255 },
+    "turn_logs": { "type": "array", "items": { "type": "object" } },
+    "npc_interjections_deferred": { "type": "boolean" },
+    "canonical_actions": { "type": ["object", "null"] },
+    "combat_transition": { "type": ["object", "null"] },
+    "navigation": { "type": ["object", "null"] },
+    "client_request_id": { "type": ["string", "null"], "maxLength": 255 },
+    "timing": { "type": ["object", "null"] },
+    "debug_trace": { "type": ["object", "null"] }
+  }
+}

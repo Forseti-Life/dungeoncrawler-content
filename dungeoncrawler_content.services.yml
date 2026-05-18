@@ -183,7 +183,7 @@ services:
 
   dungeoncrawler_content.room_view_image:
     class: Drupal\dungeoncrawler_content\Service\RoomViewImageService
-    arguments: ['@database', '@logger.factory', '@dungeoncrawler_content.image_generation_integration', '@dungeoncrawler_content.chat_session_manager', '@dungeoncrawler_content.generated_image_repository']
+    arguments: ['@database', '@logger.factory', '@dungeoncrawler_content.image_generation_integration', '@dungeoncrawler_content.chat_session_manager', '@dungeoncrawler_content.generated_image_repository', '@file_system']
 
   dungeoncrawler_content.generated_image_repository:
     class: Drupal\dungeoncrawler_content\Service\GeneratedImageRepository
@@ -234,6 +234,7 @@ services:
       - '@dungeoncrawler_content.player_agent_exploration_policy'
       - '@dungeoncrawler_content.player_agent_encounter_policy'
       - '@dungeoncrawler_content.player_agent_progress_tracker'
+      - '@?dungeoncrawler_content.room_chat_service'
 
   dungeoncrawler_content.sprite_generator:
     class: Drupal\dungeoncrawler_content\Service\SpriteGenerationService

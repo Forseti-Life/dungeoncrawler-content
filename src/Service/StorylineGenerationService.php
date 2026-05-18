@@ -955,7 +955,7 @@ class StorylineGenerationService {
    * Normalize generated package into a runtime-safe form.
    */
   protected function normalizeGeneratedPackage(int $campaign_id, array $request, array $context, array $package, string $generation_source): array {
-    $storyline = is_array($package['storyline'] ?? NULL) ? $package['storyline'] : $package;
+    $storyline = $this->resolveGeneratedStorylineDefinition($package);
     if ($storyline === []) {
       throw new \InvalidArgumentException('Generated storyline package is empty.', 400);
     }
@@ -1087,7 +1087,7 @@ class StorylineGenerationService {
    * Normalize a bootstrap package into a runtime-safe storyline definition.
    */
   protected function normalizeGeneratedBootstrapPackage(int $campaign_id, array $request, array $context, array $package, string $generation_source): array {
-    $storyline = is_array($package['storyline'] ?? NULL) ? $package['storyline'] : $package;
+    $storyline = $this->resolveGeneratedStorylineDefinition($package);
     if ($storyline === []) {
       throw new \InvalidArgumentException('Generated storyline bootstrap package is empty.', 400);
     }
@@ -1128,6 +1128,28 @@ class StorylineGenerationService {
       'generation_source' => $generation_source,
       'campaign_outline' => $normalized_storyline['metadata']['generated_outline'] ?? [],
     ];
+  }
+
+  /**
+   * Resolve the storyline definition from a generated package wrapper.
+   */
+  protected function resolveGeneratedStorylineDefinition(array $package): array {
+    $candidate = $package;
+    for ($depth = 0; $depth < 3; $depth++) {
+      if (is_array($candidate['storyline'] ?? NULL)) {
+        $candidate = $candidate['storyline'];
+        continue;
+      }
+
+      if (is_array($candidate['storyline_definition'] ?? NULL)) {
+        $candidate = $candidate['storyline_definition'];
+        continue;
+      }
+
+      break;
+    }
+
+    return $candidate;
   }
 
   /**
