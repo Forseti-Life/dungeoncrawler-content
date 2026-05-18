@@ -145,7 +145,11 @@ class CharacterCreationStepForm extends FormBase {
       . '<div class="character-creation-step' . ($compact_layout ? ' character-creation-step--embedded' : '') . '"><div class="creation-container">' . $progress_markup . '<div class="step-content">');
     $form['#suffix'] = Markup::create('</div></div></div></div>');
 
-    if ($campaign_id !== NULL && $campaign_id !== '') {
+    $show_quick_play = $campaign_id !== NULL
+      && $campaign_id !== ''
+      && (int) $step === 1
+      && empty($character_id);
+    if ($show_quick_play) {
       $form['quick_play_banner'] = [
         '#type' => 'container',
         '#attributes' => ['class' => ['character-creation-quick-play']],
@@ -204,23 +208,31 @@ class CharacterCreationStepForm extends FormBase {
       '#value' => $step < 8
         ? ($embedded ? $this->t('Save Changes') : $this->t('Next →'))
         : $this->t('Create Legacy Character'),
-      '#attributes' => ['class' => ['btn', 'btn-primary']],
+      '#name' => 'wizard_next',
+      '#attributes' => [
+        'class' => ['btn', 'btn-primary'],
+        'data-character-setup-submit' => 'wizard_next',
+      ],
     ];
 
     return $form;
   }
 
   /**
-   * Builds the quick-play submit button.
+   * Builds the quick-play launch link.
    */
   private function buildQuickPlayButton(): array {
+    $campaign_id = $this->getRequest()->query->get('campaign_id');
     return [
-      '#type' => 'submit',
-      '#value' => $this->t('I Just Want to Play'),
-      '#name' => 'quick_play',
-      '#submit' => ['::quickPlaySubmit'],
-      '#limit_validation_errors' => [],
-      '#attributes' => ['class' => ['btn', 'btn-secondary']],
+      '#type' => 'link',
+      '#title' => $this->t('I Just Want to Play'),
+      '#url' => Url::fromRoute('dungeoncrawler_content.campaign_quick_play_character', [
+        'campaign_id' => (int) $campaign_id,
+      ]),
+      '#attributes' => [
+        'class' => ['btn', 'btn-secondary'],
+        'data-character-setup-quick-play' => '1',
+      ],
     ];
   }
 
@@ -1795,6 +1807,13 @@ class CharacterCreationStepForm extends FormBase {
         $selected_ids[] = $carried_item['id'];
       }
     }
+    foreach (($character_data['gm_equipment_ids'] ?? []) as $item_id) {
+      $item_id = trim((string) $item_id);
+      if ($item_id !== '') {
+        $selected_ids[] = $item_id;
+      }
+    }
+    $selected_ids = array_values(array_unique($selected_ids));
     $category_ids = [
       'weapons' => array_column($catalog['weapons'] ?? [], 'id'),
       'armor' => array_column($catalog['armor'] ?? [], 'id'),
@@ -2367,15 +2386,33 @@ class CharacterCreationStepForm extends FormBase {
    */
   public function submitForm(array &$form, FormStateInterface $form_state): void {
     $trigger = $form_state->getTriggeringElement();
-    if (($trigger['#name'] ?? '') === 'quick_play') {
-      return;
-    }
+    $trigger_name = (string) ($trigger['#name'] ?? '');
+    $trigger_value = (string) ($trigger['#value'] ?? '');
 
     $step = $form_state->get('step');
     $character_id = $form_state->get('character_id');
     $campaign_id = $form_state->get('campaign_id');
     $setup_shell = $this->getRequest()->getPathInfo() === '/charactersetup';
     $character_data = $this->loadCharacterData($character_id);
+    $existing_record = $character_id ? $this->characterManager->loadCharacter((int) $character_id) : NULL;
+    $existing_payload = [];
+    if ($existing_record) {
+      $existing_payload = json_decode((string) ($existing_record->character_data ?? '{}'), TRUE);
+      if (!is_array($existing_payload)) {
+        $existing_payload = [];
+      }
+    }
+    $this->getLogger('dungeoncrawler_content')->notice('Character setup submit: step=@step campaign_id=@campaign_id character_id=@character_id trigger=@trigger value=@value setup_shell=@setup_shell stored_status=@status stored_step=@stored_step request_path=@path', [
+      '@step' => (int) $step,
+      '@campaign_id' => (string) ($campaign_id ?? ''),
+      '@character_id' => (string) ($character_id ?? ''),
+      '@trigger' => $trigger_name !== '' ? $trigger_name : '(unnamed)',
+      '@value' => $trigger_value,
+      '@setup_shell' => $setup_shell ? '1' : '0',
+      '@status' => $existing_record ? (int) ($existing_record->status ?? -1) : -1,
+      '@stored_step' => (int) ($existing_payload['step'] ?? 0),
+      '@path' => (string) $this->getRequest()->getPathInfo(),
+    ]);
 
     // Concurrent-edit protection: reject if another session saved since form load.
     $submitted_version = (int) $form_state->getValue('character_version', 0);
@@ -2877,6 +2914,8 @@ class CharacterCreationStepForm extends FormBase {
         }
       }
 
+      $character_data['gm_equipment_ids'] = array_values($selected_ids);
+
       $remaining_gp = max(0, round(15 - $total_cost, 2));
       $character_data['gold'] = $remaining_gp;
 
@@ -2924,6 +2963,7 @@ class CharacterCreationStepForm extends FormBase {
         'worn' => [
           'weapons' => [],
           'armor' => NULL,
+          'shield' => NULL,
           'accessories' => [],
         ],
         'carried' => $carried,
@@ -2936,6 +2976,14 @@ class CharacterCreationStepForm extends FormBase {
         'totalBulk' => $total_bulk,
         'encumbrance' => $encumbrance,
       ];
+
+      $this->getLogger('dungeoncrawler_content')->notice('Character setup equipment sync: character_id=@character_id campaign_id=@campaign_id selected_ids=@selected_ids carried_ids=@carried_ids remaining_gp=@remaining_gp', [
+        '@character_id' => (string) ($character_id ?? ''),
+        '@campaign_id' => (string) ($campaign_id ?? ''),
+        '@selected_ids' => implode(',', $selected_ids),
+        '@carried_ids' => implode(',', array_map(static fn(array $item): string => (string) ($item['id'] ?? ''), $carried)),
+        '@remaining_gp' => number_format($remaining_gp, 2, '.', ''),
+      ]);
     }
 
     $next_step = min(8, (int) $step + 1);
@@ -2946,6 +2994,15 @@ class CharacterCreationStepForm extends FormBase {
 
     $persisted_record = $character_id ? $this->characterManager->loadCharacter((int) $character_id) : NULL;
     $persisted_campaign_id = $persisted_record ? (int) ($persisted_record->campaign_id ?? 0) : 0;
+    $this->getLogger('dungeoncrawler_content')->notice('Character setup save complete: current_step=@step next_step=@next_step campaign_id=@campaign_id character_id=@character_id persisted_status=@status persisted_campaign_id=@persisted_campaign_id setup_shell=@setup_shell', [
+      '@step' => (int) $step,
+      '@next_step' => (int) $next_step,
+      '@campaign_id' => (string) ($campaign_id ?? ''),
+      '@character_id' => (int) $character_id,
+      '@status' => $persisted_record ? (int) ($persisted_record->status ?? -1) : -1,
+      '@persisted_campaign_id' => $persisted_campaign_id,
+      '@setup_shell' => $setup_shell ? '1' : '0',
+    ]);
 
     // Create dc_campaign_item_instances rows when inside a campaign context.
     if ((int) $step === 7 && $campaign_id && !empty($selected_items)) {
@@ -2982,6 +3039,11 @@ class CharacterCreationStepForm extends FormBase {
       }
       elseif ($setup_shell) {
         $next_query['step'] = $next_step;
+        $this->getLogger('dungeoncrawler_content')->notice('Character setup redirecting inside setup shell: character_id=@character_id campaign_id=@campaign_id redirect_step=@redirect_step', [
+          '@character_id' => (int) $character_id,
+          '@campaign_id' => (string) ($campaign_id ?? ''),
+          '@redirect_step' => (int) $next_step,
+        ]);
         $form_state->setRedirect('dungeoncrawler_content.character_setup', [], ['query' => $next_query]);
         return;
       }
@@ -2993,28 +3055,6 @@ class CharacterCreationStepForm extends FormBase {
         'step' => $redirect_step,
       ], ['query' => $next_query]);
     }
-  }
-
-  /**
-   * Shortcut submit handler that assigns a random GM-generated library character.
-   */
-  public function quickPlaySubmit(array &$form, FormStateInterface $form_state): void {
-    $campaign_id = $form_state->get('campaign_id');
-    if ($campaign_id === NULL || $campaign_id === '' || (int) $campaign_id <= 0) {
-      $this->messenger()->addError($this->t('Quick play is only available when launching from a campaign.'));
-      return;
-    }
-
-    $character_id = $this->characterManager->getRandomQuickPlayCharacterId();
-    if (!$character_id) {
-      $this->messenger()->addError($this->t('Unable to prepare a quick-play character right now.'));
-      return;
-    }
-
-    $form_state->setRedirect('dungeoncrawler_content.campaign_select_character', [
-      'campaign_id' => (int) $campaign_id,
-      'character_id' => (int) $character_id,
-    ]);
   }
 
   /**

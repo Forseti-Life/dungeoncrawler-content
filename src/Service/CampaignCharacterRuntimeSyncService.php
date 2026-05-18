@@ -47,6 +47,7 @@ class CampaignCharacterRuntimeSyncService {
       $active_room_id,
       $preferred_actor_id
     );
+    $dungeon_payload = $this->syncActiveRoomNpcEntities($dungeon_payload, $campaign_id, $active_room_id);
     if ($records === []) {
       return $dungeon_payload;
     }
@@ -57,10 +58,10 @@ class CampaignCharacterRuntimeSyncService {
         return strtolower((string) ($entity['entity_type'] ?? '')) !== 'player_character';
       }
     ));
-
     $occupied = $this->buildOccupiedLookupByRoom($dungeon_payload);
 
     foreach ($records as $record) {
+      $record = $this->ensurePersistentRuntimeRecordIdentity($record, $campaign_id, 'pc');
       $room_id = $this->resolveRecordRoomId($record) ?: $active_room_id;
       $char_data = $this->decodeCharacterData($record);
       $placement = $this->resolveCharacterPlacement($dungeon_payload, $room_id, $record, $occupied[$room_id] ?? []);
@@ -96,6 +97,9 @@ class CampaignCharacterRuntimeSyncService {
             'name' => $name,
             'team' => 'player',
             'character_id' => (int) ($record['id'] ?? 0),
+            'source_character_id' => (int) ($record['character_id'] ?? 0),
+            'campaign_character_id' => (int) ($record['id'] ?? 0),
+            'runtime_entity_id' => $instance_id,
             'stats' => [
               'maxHp' => $hp_max,
               'currentHp' => $hp_current,
@@ -185,10 +189,271 @@ class CampaignCharacterRuntimeSyncService {
   }
 
   /**
+   * Ensure active-room NPC runtime records are reflected in the dungeon payload.
+   */
+  protected function syncActiveRoomNpcEntities(array $dungeon_payload, int $campaign_id, string $active_room_id): array {
+    $room_refs = $this->resolveActiveRoomReferences($dungeon_payload, $campaign_id, $active_room_id);
+    if ($room_refs === []) {
+      return $dungeon_payload;
+    }
+
+    $records = $this->database->select('dc_campaign_characters', 'cc')
+      ->fields('cc', ['id', 'instance_id', 'name', 'state_data', 'position_q', 'position_r', 'location_ref'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('type', 'npc')
+      ->condition('location_type', 'room')
+      ->condition('location_ref', $room_refs, 'IN')
+      ->orderBy('id', 'ASC')
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+    if ($records === []) {
+      return $dungeon_payload;
+    }
+
+    $occupied = $this->buildOccupiedLookupByRoom($dungeon_payload);
+    foreach ($records as $record) {
+      [$record, $state, $instance_id, $content_id] = $this->ensurePersistentNpcRuntimeIdentity($record, $campaign_id, $dungeon_payload);
+      $name = trim((string) ($record['name'] ?? ''));
+      $matched = FALSE;
+
+      if (!isset($dungeon_payload['entities']) || !is_array($dungeon_payload['entities'])) {
+        $dungeon_payload['entities'] = [];
+      }
+      foreach ($dungeon_payload['entities'] as &$entity) {
+        $entity_runtime_character_id = (int) ($entity['state']['metadata']['campaign_character_id'] ?? 0);
+        $entity_instance_id = trim((string) ($entity['instance_id'] ?? $entity['entity_instance_id'] ?? ''));
+        $entity_content_id = trim((string) ($entity['entity_ref']['content_id'] ?? ''));
+        if (
+          $entity_runtime_character_id === (int) ($record['id'] ?? 0)
+          || ($instance_id !== '' && $entity_instance_id === $instance_id)
+          || ($content_id !== '' && $entity_content_id === $content_id)
+        ) {
+          $entity['instance_id'] = $instance_id;
+          $entity['entity_instance_id'] = $instance_id;
+          $entity['state']['metadata']['display_name'] = $name !== '' ? $name : ($entity['state']['metadata']['display_name'] ?? '');
+          $entity['state']['metadata']['name'] = $name !== '' ? $name : ($entity['state']['metadata']['name'] ?? '');
+          $entity['state']['metadata']['campaign_character_id'] = (int) ($record['id'] ?? 0);
+          $entity['state']['metadata']['runtime_entity_id'] = $instance_id;
+          if (!empty($state['role'])) {
+            $entity['state']['metadata']['role'] = (string) $state['role'];
+          }
+          if (!empty($state['description'])) {
+            $entity['state']['metadata']['description'] = (string) $state['description'];
+          }
+          $matched = TRUE;
+          break;
+        }
+      }
+      unset($entity);
+
+      if ($matched) {
+        continue;
+      }
+
+      $placement = $this->resolveRoomNpcPlacement($dungeon_payload, $active_room_id, $record, $occupied[$active_room_id] ?? []);
+      $occupied[$active_room_id][$placement['q'] . ',' . $placement['r']] = TRUE;
+
+      $dungeon_payload['entities'][] = [
+        'entity_type' => 'npc',
+        'instance_id' => $instance_id,
+        'entity_instance_id' => $instance_id,
+        'entity_ref' => [
+          'content_type' => 'npc',
+          'content_id' => $content_id !== '' ? $content_id : strtolower(str_replace(' ', '_', $name)),
+        ],
+        'placement' => [
+          'room_id' => $active_room_id,
+          'hex' => $placement,
+          'spawn_type' => 'npc',
+        ],
+        'state' => [
+          'active' => TRUE,
+          'metadata' => [
+            'display_name' => $name,
+            'name' => $name,
+            'role' => (string) ($state['role'] ?? 'npc'),
+            'description' => (string) ($state['description'] ?? ''),
+            'team' => (string) ($state['team'] ?? 'neutral'),
+            'campaign_character_id' => (int) ($record['id'] ?? 0),
+            'runtime_entity_id' => $instance_id,
+            'setting_state' => TRUE,
+            'spawn_policy' => 'campaign_runtime',
+          ],
+        ],
+      ];
+    }
+
+    return $dungeon_payload;
+  }
+
+  /**
    * Resolve the persisted room ID for a campaign-character runtime row.
    */
   protected function resolveRecordRoomId(array $record): string {
     return trim((string) ($record['location_ref'] ?? $record['last_room_id'] ?? ''));
+  }
+
+  /**
+   * Ensure a runtime record has a durable persisted instance id.
+   *
+   * @return array<string, mixed>
+   *   Updated runtime record.
+   */
+  protected function ensurePersistentRuntimeRecordIdentity(array $record, int $campaign_id, string $type): array {
+    $instance_id = trim((string) ($record['instance_id'] ?? ''));
+    $record_id = (int) ($record['id'] ?? 0);
+    if ($instance_id !== '' || $record_id <= 0) {
+      return $record;
+    }
+
+    $prefix = $type === 'npc' ? 'npc' : 'pc';
+    $instance_id = sprintf('%s-%d-%d', $prefix, $campaign_id, $record_id);
+    $this->database->update('dc_campaign_characters')
+      ->fields(['instance_id' => $instance_id])
+      ->condition('id', $record_id)
+      ->condition('campaign_id', $campaign_id)
+      ->execute();
+    $record['instance_id'] = $instance_id;
+
+    return $record;
+  }
+
+  /**
+   * Ensure a room NPC has durable persisted runtime identity fields.
+   *
+   * @return array{0: array<string, mixed>, 1: array<string, mixed>, 2: string, 3: string}
+   *   Updated record, decoded state, stable instance id, stable content id.
+   */
+  protected function ensurePersistentNpcRuntimeIdentity(array $record, int $campaign_id, array $dungeon_payload): array {
+    $record = $this->ensurePersistentRuntimeRecordIdentity($record, $campaign_id, 'npc');
+    $state = json_decode((string) ($record['state_data'] ?? '{}'), TRUE);
+    $state = is_array($state) ? $state : [];
+
+    $instance_id = trim((string) ($record['instance_id'] ?? ''));
+    $content_id = $this->resolvePersistedNpcContentId($record, $state, $dungeon_payload, $campaign_id);
+    $state_changed = FALSE;
+
+    if (($state['content_id'] ?? NULL) !== $content_id) {
+      $state['content_id'] = $content_id;
+      $state_changed = TRUE;
+    }
+    if (($state['runtime_entity_id'] ?? NULL) !== $instance_id) {
+      $state['runtime_entity_id'] = $instance_id;
+      $state_changed = TRUE;
+    }
+    if (($state['campaign_character_id'] ?? NULL) !== (int) ($record['id'] ?? 0)) {
+      $state['campaign_character_id'] = (int) ($record['id'] ?? 0);
+      $state_changed = TRUE;
+    }
+
+    if ($state_changed) {
+      $encoded_state = json_encode($state, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+      $this->database->update('dc_campaign_characters')
+        ->fields(['state_data' => $encoded_state])
+        ->condition('id', (int) ($record['id'] ?? 0))
+        ->condition('campaign_id', $campaign_id)
+        ->execute();
+      $record['state_data'] = $encoded_state;
+    }
+
+    return [$record, $state, $instance_id, $content_id];
+  }
+
+  /**
+   * Resolve a stable NPC content id without relying on display-name matching.
+   */
+  protected function resolvePersistedNpcContentId(array $record, array $state, array $dungeon_payload, int $campaign_id): string {
+    $candidates = array_values(array_filter([
+      trim((string) ($state['content_id'] ?? '')),
+      trim((string) ($state['entity_ref']['content_id'] ?? '')),
+      $this->deriveNpcContentIdFromInstanceId((string) ($record['instance_id'] ?? '')),
+      $this->findNpcContentIdInPayload($record, $dungeon_payload),
+    ], static fn(string $value): bool => $value !== ''));
+
+    if ($candidates !== []) {
+      return (string) reset($candidates);
+    }
+
+    return sprintf('campaign_npc_%d_%d', $campaign_id, (int) ($record['id'] ?? 0));
+  }
+
+  /**
+   * Derive a source content id from a persisted NPC instance id when possible.
+   */
+  protected function deriveNpcContentIdFromInstanceId(string $instance_id): string {
+    $instance_id = trim($instance_id);
+    if ($instance_id === '') {
+      return '';
+    }
+    if (str_starts_with($instance_id, 'npc_')) {
+      return substr($instance_id, 4);
+    }
+    if (str_starts_with($instance_id, 'npc-') && preg_match('/^npc-\d+-\d+$/', $instance_id) !== 1) {
+      return substr($instance_id, 4);
+    }
+    return '';
+  }
+
+  /**
+   * Recover an existing payload content id using immutable runtime identifiers.
+   */
+  protected function findNpcContentIdInPayload(array $record, array $dungeon_payload): string {
+    $record_id = (int) ($record['id'] ?? 0);
+    $instance_id = trim((string) ($record['instance_id'] ?? ''));
+    foreach (($dungeon_payload['entities'] ?? []) as $entity) {
+      $entity_record_id = (int) ($entity['state']['metadata']['campaign_character_id'] ?? 0);
+      $entity_instance_id = trim((string) ($entity['instance_id'] ?? $entity['entity_instance_id'] ?? ''));
+      if (($record_id > 0 && $entity_record_id === $record_id) || ($instance_id !== '' && $entity_instance_id === $instance_id)) {
+        return trim((string) ($entity['entity_ref']['content_id'] ?? ''));
+      }
+    }
+
+    return '';
+  }
+
+  /**
+   * Resolve the active room's runtime and authored references.
+   *
+   * @return array<int, string>
+   *   Room references that may appear in runtime rows.
+   */
+  protected function resolveActiveRoomReferences(array $dungeon_payload, int $campaign_id, string $active_room_id): array {
+    $refs = [$active_room_id];
+    $room = NULL;
+    foreach (($dungeon_payload['rooms'] ?? []) as $candidate) {
+      if (($candidate['room_id'] ?? '') === $active_room_id) {
+        $room = is_array($candidate) ? $candidate : NULL;
+        break;
+      }
+    }
+
+    $room_name = trim((string) ($room['name'] ?? ''));
+    $exact_room_id = $this->database->select('dc_campaign_rooms', 'r')
+      ->fields('r', ['room_id'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('room_id', $active_room_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchField();
+    if (is_string($exact_room_id) && $exact_room_id !== '') {
+      $refs[] = $exact_room_id;
+    }
+
+    if ($room_name !== '') {
+      $room_ids_by_name = $this->database->select('dc_campaign_rooms', 'r')
+        ->fields('r', ['room_id'])
+        ->condition('campaign_id', $campaign_id)
+        ->condition('name', $room_name)
+        ->execute()
+        ->fetchCol();
+      foreach ($room_ids_by_name as $room_id) {
+        if (is_string($room_id) && $room_id !== '') {
+          $refs[] = $room_id;
+        }
+      }
+    }
+
+    return array_values(array_unique(array_filter(array_map('strval', $refs))));
   }
 
   /**
@@ -231,6 +496,38 @@ class CampaignCharacterRuntimeSyncService {
     ];
     $preferred_key = $preferred['q'] . ',' . $preferred['r'];
 
+    if (($room_hexes === [] || $this->roomContainsHex($room_hexes, $preferred['q'], $preferred['r']))
+      && !isset($occupied[$preferred_key])) {
+      return $preferred;
+    }
+
+    foreach ($room_hexes as $hex) {
+      if (!isset($hex['q'], $hex['r'])) {
+        continue;
+      }
+      $candidate = [
+        'q' => (int) $hex['q'],
+        'r' => (int) $hex['r'],
+      ];
+      $candidate_key = $candidate['q'] . ',' . $candidate['r'];
+      if (!isset($occupied[$candidate_key])) {
+        return $candidate;
+      }
+    }
+
+    return $preferred;
+  }
+
+  /**
+   * Resolve a stable placement for an injected room NPC.
+   */
+  protected function resolveRoomNpcPlacement(array $dungeon_payload, string $room_id, array $record, array $occupied): array {
+    $preferred = [
+      'q' => (int) ($record['position_q'] ?? 0),
+      'r' => (int) ($record['position_r'] ?? 0),
+    ];
+    $room_hexes = $this->getRoomHexes($dungeon_payload, $room_id);
+    $preferred_key = $preferred['q'] . ',' . $preferred['r'];
     if (($room_hexes === [] || $this->roomContainsHex($room_hexes, $preferred['q'], $preferred['r']))
       && !isset($occupied[$preferred_key])) {
       return $preferred;

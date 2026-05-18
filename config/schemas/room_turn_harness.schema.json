@@ -1,0 +1,122 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dungeoncrawler.life/schemas/room_turn_harness.schema.json",
+  "title": "Room Turn Harness Schema",
+  "description": "Canonical contract for runRoomTurnHarness results.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "player",
+    "gm",
+    "gm_addressed",
+    "directly_addressed_npc",
+    "npc_turns",
+    "turn_log_key",
+    "turn_logs",
+    "messages"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "enum": ["room-turn-harness-v1"]
+    },
+    "player": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["message"],
+      "properties": {
+        "message": {
+          "type": "string",
+          "maxLength": 4000
+        }
+      }
+    },
+    "gm": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["narrative"],
+      "properties": {
+        "narrative": {
+          "type": "string",
+          "maxLength": 4000
+        }
+      }
+    },
+    "gm_addressed": {
+      "type": "boolean"
+    },
+    "directly_addressed_npc": {
+      "type": ["string", "null"],
+      "maxLength": 160
+    },
+    "npc_turns": {
+      "type": "array",
+      "maxItems": 20,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["entity_ref", "display_name", "spoke"],
+        "properties": {
+          "entity_ref": {
+            "type": "string",
+            "maxLength": 160
+          },
+          "display_name": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "spoke": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "turn_log_key": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "turn_logs": {
+      "type": "array",
+      "maxItems": 50,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["speaker", "message", "type", "channel", "timestamp", "character_id", "user_id"],
+        "properties": {
+          "speaker": { "type": "string", "maxLength": 255 },
+          "message": { "type": "string", "maxLength": 4000 },
+          "type": { "type": "string", "maxLength": 64 },
+          "channel": { "type": "string", "maxLength": 64 },
+          "timestamp": { "type": "string", "maxLength": 64 },
+          "character_id": { "type": ["integer", "null"] },
+          "user_id": { "type": "integer" },
+          "internal_log": { "type": "boolean" }
+        }
+      }
+    },
+    "messages": {
+      "type": "array",
+      "maxItems": 20,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["speaker", "message", "type", "channel", "timestamp", "character_id", "user_id"],
+        "properties": {
+          "speaker": { "type": "string", "maxLength": 255 },
+          "message": { "type": "string", "maxLength": 4000 },
+          "type": { "type": "string", "maxLength": 64 },
+          "channel": { "type": "string", "maxLength": 64 },
+          "timestamp": { "type": "string", "maxLength": 64 },
+          "character_id": { "type": ["integer", "null"] },
+          "user_id": { "type": "integer" },
+          "interjection": { "type": "boolean" },
+          "dialogue_payload": {
+            "type": ["object", "null"]
+          }
+        }
+      }
+    }
+  }
+}

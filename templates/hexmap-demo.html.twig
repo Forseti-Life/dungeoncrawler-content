@@ -21,6 +21,9 @@
       <button id="game-tab-view" class="game-shell__tab" type="button" role="tab" aria-selected="false" aria-controls="game-panel-view" data-game-tab="view">
         {{ 'View'|t }}
       </button>
+      <button id="game-tab-portraits" class="game-shell__tab" type="button" role="tab" aria-selected="false" aria-controls="game-panel-portraits" data-game-tab="portraits">
+        {{ 'NPC Portraits'|t }}
+      </button>
       <button id="game-tab-character" class="game-shell__tab" type="button" role="tab" aria-selected="false" aria-controls="game-panel-character" data-game-tab="character">
         {{ 'Character'|t }}
       </button>
@@ -265,6 +268,25 @@
       </div>
     </div>
 
+    <div class="game-shell__panel" id="game-panel-portraits" role="tabpanel" aria-labelledby="game-tab-portraits" hidden>
+      <div class="game-shell__view-panel">
+        <div class="room-view-panel npc-portraits-panel" id="npc-portraits-panel">
+          <div class="room-view-panel__header">
+            <div>
+              <p class="eyebrow">{{ 'Room Cast Portraits'|t }}</p>
+              <h3 id="npc-portraits-name">{{ 'Current room'|t }}</h3>
+              <p class="room-view-panel__meta" id="npc-portraits-meta">{{ 'Portraits for PCs and NPCs in the active room.'|t }}</p>
+            </div>
+            <span class="chip chip-live" id="npc-portraits-status">{{ 'Idle'|t }}</span>
+          </div>
+          <div class="npc-portraits-panel__grid" id="npc-portraits-grid" hidden></div>
+          <div class="room-view-panel__placeholder" id="npc-portraits-placeholder">
+            <p id="npc-portraits-placeholder-text">{{ 'Portraits for room occupants will appear here.'|t }}</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="game-shell__panel" id="game-panel-character" role="tabpanel" aria-labelledby="game-tab-character" hidden>
       <div class="game-shell__character-panel">
         <div class="game-layout__sidebar">
@@ -495,6 +517,16 @@
         <div class="currency-coin currency-coin--cp">
           <span id="inv-cp" class="currency-coin__amount">0</span>
           <span class="currency-coin__label">{{ 'CP'|t }}</span>
+        </div>
+      </div>
+
+      <div class="inventory-panel__slots">
+        <div class="inventory-panel__slots-header">
+          <h4>{{ 'Equipment Slots'|t }}</h4>
+          <span class="muted small">{{ 'Assign worn gear directly to slots.'|t }}</span>
+        </div>
+        <div class="inventory-panel__slot-grid" id="inv-slot-grid">
+          <div class="inventory-slot inventory-slot--empty">{{ 'No slot data loaded'|t }}</div>
         </div>
       </div>
 
@@ -1134,6 +1166,17 @@
 
     /* ---- Inventory Sync (mirrors char-sheet data) ---- */
     function syncInventory() {
+      if (window.dcInventoryPanelManaged) {
+        var managedList = document.getElementById('inv-item-list');
+        if (managedList) {
+          attachTooltips(managedList);
+        }
+        if (typeof window.dcApplyInventoryFilter === 'function') {
+          window.dcApplyInventoryFilter();
+        }
+        return;
+      }
+
       // Currency — copy from character sheet
       var gp = document.getElementById('char-gp');
       var sp = document.getElementById('char-sp');
@@ -1189,19 +1232,23 @@
 
     /* ---- Inventory Filter ---- */
     var filterBtns = document.querySelectorAll('.inv-filter');
+    function applyInventoryFilter(filter) {
+      var activeFilter = filter || 'all';
+      var items = document.querySelectorAll('#inv-item-list .inv-item');
+      items.forEach(function (item) {
+        if (activeFilter === 'all' || item.dataset.type === activeFilter) {
+          item.style.display = '';
+        } else {
+          item.style.display = 'none';
+        }
+      });
+    }
+
     filterBtns.forEach(function (btn) {
       btn.addEventListener('click', function () {
         filterBtns.forEach(function (b) { b.classList.remove('inv-filter--active'); });
         this.classList.add('inv-filter--active');
-        var filter = this.dataset.filter;
-        var items = document.querySelectorAll('#inv-item-list .inv-item');
-        items.forEach(function (item) {
-          if (filter === 'all' || item.dataset.type === filter) {
-            item.style.display = '';
-          } else {
-            item.style.display = 'none';
-          }
-        });
+        applyInventoryFilter(this.dataset.filter);
       });
     });
 
@@ -1211,6 +1258,10 @@
     // Expose syncInventory globally so hexmap.js can call it after data loads
     window.dcSyncInventory = syncInventory;
     window.dcAttachTooltips = attachTooltips;
+    window.dcApplyInventoryFilter = function () {
+      var active = document.querySelector('.inv-filter--active');
+      applyInventoryFilter(active ? active.dataset.filter : 'all');
+    };
   })();
 
   /* ---- Sidebar Drawer Toggle ---- */

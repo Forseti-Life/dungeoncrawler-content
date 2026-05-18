@@ -115,6 +115,8 @@ class PlayerAgentExplorationPolicyTest extends UnitTestCase {
     $this->assertSame('talk', $decision['intent']['type']);
     $this->assertSame('active_quest_progress', $decision['intent']['params']['automation_goal']);
     $this->assertSame('missing-courier', $decision['intent']['params']['quest_id']);
+    $this->assertSame('quest_talk', $decision['decision_meta']['stage']);
+    $this->assertSame(20, $decision['decision_meta']['priority']);
     $this->assertStringContainsString('Missing Courier', $decision['intent']['params']['message']);
     $this->assertStringContainsString('next objective', strtolower($decision['intent']['params']['message']));
     $this->assertStringContainsString('active quest', strtolower($decision['reason']));
@@ -247,6 +249,46 @@ class PlayerAgentExplorationPolicyTest extends UnitTestCase {
     $this->assertStringContainsString('Gribbles', $decision['intent']['params']['message']);
     $this->assertStringContainsString('What should I check first', $decision['intent']['params']['message']);
     $this->assertStringContainsString('Follow up', $decision['reason']);
+  }
+
+  /**
+   * @covers ::chooseAction
+   */
+  public function testChooseActionSkipsRepeatedPendingLeadFollowUpAfterOneAttempt(): void {
+    $decision = $this->policy->chooseAction(
+      [
+        'actor_id' => 'pc-1',
+        'character_id' => 77,
+      ],
+      [
+        'available_actions' => ['talk', 'transition'],
+        'active_room_id' => 'room-a',
+        'visible_npcs' => [
+          ['entity_instance_id' => 'npc-gribbles', 'state' => ['metadata' => ['display_name' => 'Gribbles']]],
+        ],
+        'connected_rooms' => [
+          ['room_id' => 'room-b', 'name' => 'North Hall'],
+        ],
+      ],
+      [
+        'memory' => [
+          'pending_conversation_lead' => [
+            'target' => 'npc-gribbles',
+            'room_id' => 'room-a',
+            'excerpt' => 'Check the cemetery north of town.',
+            'follow_up_attempts' => 1,
+            'signature' => sha1('npc-gribbles|room-a|check the cemetery north of town.'),
+          ],
+          'visited_rooms' => ['room-a'],
+          'talked_entities' => ['npc-gribbles'],
+        ],
+      ]
+    );
+
+    $this->assertSame('intent', $decision['type']);
+    $this->assertSame('transition', $decision['intent']['type']);
+    $this->assertSame('room-b', $decision['intent']['params']['target_room_id']);
+    $this->assertSame('room_transition', $decision['decision_meta']['stage']);
   }
 
   /**

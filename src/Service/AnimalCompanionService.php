@@ -238,6 +238,7 @@ class AnimalCompanionService {
       'metadata' => [
         'role' => 'animal_companion',
         'type' => 'npc',
+        'body_shape' => CharacterEquipmentSlotHelper::resolveBodyShapeFromSpecies($species),
       ],
     ];
   }

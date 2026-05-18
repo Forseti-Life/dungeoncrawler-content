@@ -145,7 +145,7 @@ class CharacterStateService {
         'spells' => $merged_library['spells'] ?? [],
         'skills' => is_array($merged_library['skills'] ?? NULL) ? $merged_library['skills'] : [],
         'inventory' => is_array($merged_library['inventory'] ?? NULL) ? $merged_library['inventory'] : [
-          'worn' => ['weapons' => [], 'accessories' => []],
+          'worn' => ['weapons' => [], 'armor' => NULL, 'shield' => NULL, 'accessories' => []],
           'carried' => [],
           'currency' => ['cp' => 0, 'sp' => 0, 'gp' => 0, 'pp' => 0],
           'totalBulk' => 0,
@@ -220,6 +220,9 @@ class CharacterStateService {
 
     // Ensure feat effects are reflected in returned state shape.
     $state = $this->applyFeatEffectsToState($state);
+    $state['inventory'] = CharacterEquipmentSlotHelper::normalizeInventory(
+      is_array($state['inventory'] ?? NULL) ? $state['inventory'] : []
+    );
 
     return $state;
   }
@@ -707,6 +710,13 @@ class CharacterStateService {
             unset($state['inventory']['worn']['armor']);
           }
         }
+        if (!$consumed && !empty($state['inventory']['worn']['shield'])) {
+          $consumed_shield = $consume_collection([$state['inventory']['worn']['shield']]);
+          $state['inventory']['worn']['shield'] = !empty($consumed_shield) ? reset($consumed_shield) : NULL;
+          if ($state['inventory']['worn']['shield'] === NULL) {
+            unset($state['inventory']['worn']['shield']);
+          }
+        }
         $state['inventory']['carried'] = array_values(array_filter($state['inventory']['carried']));
         if (!$consumed) {
           throw new \InvalidArgumentException('Consumable item not found in inventory');
@@ -728,6 +738,9 @@ class CharacterStateService {
         elseif ($item['type'] === 'armor') {
           $state['inventory']['worn']['armor'] = $item;
         }
+        elseif ($item['type'] === 'shield') {
+          $state['inventory']['worn']['shield'] = $item;
+        }
         else {
           $state['inventory']['worn']['accessories'][] = $item;
         }
@@ -746,6 +759,11 @@ class CharacterStateService {
         elseif ($item['type'] === 'armor' && !empty($state['inventory']['worn']['armor'])) {
           if ($state['inventory']['worn']['armor']['id'] === $item['id']) {
             unset($state['inventory']['worn']['armor']);
+          }
+        }
+        elseif ($item['type'] === 'shield' && !empty($state['inventory']['worn']['shield'])) {
+          if ($state['inventory']['worn']['shield']['id'] === $item['id']) {
+            unset($state['inventory']['worn']['shield']);
           }
         }
         else {
@@ -1090,6 +1108,9 @@ class CharacterStateService {
     // Add bulk from worn armor
     if (!empty($state['inventory']['worn']['armor'])) {
       $total_bulk += $state['inventory']['worn']['armor']['bulk'] ?? 0;
+    }
+    if (!empty($state['inventory']['worn']['shield'])) {
+      $total_bulk += $state['inventory']['worn']['shield']['bulk'] ?? 0;
     }
     
     // Add bulk from worn weapons

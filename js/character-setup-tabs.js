@@ -50,6 +50,25 @@
     });
   }
 
+  function serializeSubmitter(submitter) {
+    if (!submitter) {
+      return null;
+    }
+
+    return {
+      tagName: submitter.tagName || null,
+      type: submitter.getAttribute ? submitter.getAttribute('type') : null,
+      name: submitter.getAttribute ? submitter.getAttribute('name') : null,
+      value: submitter.value || (submitter.textContent ? submitter.textContent.trim() : null),
+      href: submitter.href || null,
+      dataset: submitter.dataset ? { ...submitter.dataset } : {},
+    };
+  }
+
+  function logSetupInteraction(message, payload) {
+    console.log('[CharacterSetup]', message, payload);
+  }
+
   Drupal.behaviors.dungeoncrawlerCharacterSetup = {
     attach(context) {
       const settings = drupalSettings.dungeoncrawlerCharacterSetup;
@@ -64,6 +83,47 @@
           characterId: settings.characterId ? Number(settings.characterId) : null,
           campaignId: settings.campaignId ? Number(settings.campaignId) : null,
         };
+        const form = root.querySelector('form.character-creation-form');
+
+        root.addEventListener('click', (event) => {
+          const target = event.target instanceof Element ? event.target.closest('button, a') : null;
+          if (!target) {
+            return;
+          }
+
+          if (target.matches('[data-character-setup-submit]') || target.matches('[data-character-setup-quick-play]')) {
+            logSetupInteraction('click', {
+              url: window.location.href,
+              activeStep: state.activeStep,
+              campaignId: state.campaignId,
+              characterId: state.characterId,
+              target: serializeSubmitter(target),
+            });
+          }
+        });
+
+        if (form) {
+          form.addEventListener('submit', (event) => {
+            const formData = new FormData(form);
+            const payload = {
+              url: window.location.href,
+              action: form.action || window.location.href,
+              method: form.method || 'get',
+              activeStep: state.activeStep,
+              campaignId: state.campaignId,
+              characterId: state.characterId,
+              submitter: serializeSubmitter(event.submitter || document.activeElement),
+              fields: {
+                op: formData.get('op'),
+                wizard_next: formData.get('wizard_next'),
+                campaign_id: formData.get('campaign_id'),
+                character_version: formData.get('character_version'),
+                form_id: formData.get('form_id'),
+              },
+            };
+            logSetupInteraction('form-submit', payload);
+          }, true);
+        }
 
         root.querySelectorAll('[data-character-setup-tab]').forEach((tab) => {
           tab.addEventListener('click', (event) => {

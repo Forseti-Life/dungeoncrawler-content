@@ -460,6 +460,15 @@ dungeoncrawler_content.campaign_select_character:
     campaign_id: '\d+'
     character_id: '\d+'
 
+dungeoncrawler_content.campaign_quick_play_character:
+  path: '/campaigns/{campaign_id}/quick-play-character'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CampaignController::quickPlayCharacter'
+  methods: [GET]
+  requirements:
+    _campaign_access: 'TRUE'
+    campaign_id: '\d+'
+
 # Character creation wizard - must be before character_view
 dungeoncrawler_content.character_creation_wizard:
   path: '/characters/create'

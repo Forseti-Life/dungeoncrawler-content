@@ -35,6 +35,11 @@ class CharacterManagerSpellCatalogTest extends UnitTestCase {
           'school' => 'divination',
           'rarity' => 'common',
           'description_snippet' => 'Sense whether',
+          'cast' => '[two-actions] somatic, verbal',
+          'range' => '30 feet',
+          'duration' => 'sustained up to 10 minutes',
+          'save' => 'none',
+          'components' => ['somatic', 'verbal'],
           'source_display' => 'Core Rulebook (4th Printing)',
         ]),
       ],
@@ -49,6 +54,11 @@ class CharacterManagerSpellCatalogTest extends UnitTestCase {
           'rarity' => 'common',
           'description' => 'Sense whether magic is nearby and determine the strength of the aura.',
           'description_snippet' => 'Sense whether',
+          'cast' => '[two-actions] somatic, verbal',
+          'range' => '30 feet',
+          'duration' => 'sustained up to 10 minutes',
+          'save' => 'none',
+          'components' => ['somatic', 'verbal'],
           'source_display' => 'Core Rulebook (Fourth Printing)',
         ]),
       ],
@@ -92,6 +102,11 @@ class CharacterManagerSpellCatalogTest extends UnitTestCase {
       $spells[0]['description']
     );
     $this->assertSame('description', $spells[0]['description_source']);
+    $this->assertSame('[two-actions] somatic, verbal', $spells[0]['cast']);
+    $this->assertSame('30 feet', $spells[0]['range']);
+    $this->assertSame('sustained up to 10 minutes', $spells[0]['duration']);
+    $this->assertSame('none', $spells[0]['save']);
+    $this->assertSame(['somatic', 'verbal'], $spells[0]['components']);
     $this->assertSame('A shield of magical force', $spells[1]['description']);
     $this->assertSame('description_snippet', $spells[1]['description_source']);
   }

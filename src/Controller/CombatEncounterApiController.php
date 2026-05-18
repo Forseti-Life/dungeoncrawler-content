@@ -121,10 +121,14 @@ class CombatEncounterApiController extends ControllerBase {
 
     // Look up the latest active encounter for this campaign + room.
     try {
-      $encounter_id = $this->database->select('combat_encounters', 'e')
+      $query = $this->database->select('combat_encounters', 'e')
         ->fields('e', ['id'])
         ->condition('campaign_id', $campaign_id)
-        ->condition('status', 'active')
+        ->condition('status', 'active');
+      if ($room_id !== '') {
+        $query->condition('room_id', $room_id);
+      }
+      $encounter_id = $query
         ->orderBy('updated', 'DESC')
         ->range(0, 1)
         ->execute()
@@ -147,7 +151,7 @@ class CombatEncounterApiController extends ControllerBase {
       ]);
     }
 
-    $encounter = $this->loadEncounter((int) $encounter_id);
+    $encounter = $this->normalizeEncounterForResponse($this->loadEncounter((int) $encounter_id));
     if (!$encounter) {
       return new JsonResponse([
         'success' => TRUE,
@@ -172,6 +176,12 @@ class CombatEncounterApiController extends ControllerBase {
       return new JsonResponse([
         'error' => 'At least one participant is required',
       ], 400);
+    }
+
+    if (!$this->hasEncounterOpposition($participants)) {
+      return new JsonResponse([
+        'error' => 'At least one player and one hostile combatant are required to start an encounter',
+      ], 409);
     }
 
     // Sort by initiative (desc, then roll, then name).
@@ -221,7 +231,7 @@ class CombatEncounterApiController extends ControllerBase {
       return new JsonResponse(['error' => 'encounterId is required'], 400);
     }
 
-      $encounter = $this->autoPlayNonPlayerTurns($this->loadEncounter($encounter_id));
+      $encounter = $this->normalizeEncounterForResponse($this->loadEncounter($encounter_id));
     if (!$encounter) {
       return new JsonResponse(['error' => 'Encounter not found'], 404);
     }
@@ -251,7 +261,7 @@ class CombatEncounterApiController extends ControllerBase {
         'attacks_this_turn' => 0,
       ]);
     }
-    $encounter = $this->autoPlayNonPlayerTurns($this->loadEncounter($encounter_id));
+    $encounter = $this->normalizeEncounterForResponse($this->loadEncounter($encounter_id));
 
     return new JsonResponse($this->buildEncounterResponse($encounter));
   }
@@ -289,7 +299,7 @@ class CombatEncounterApiController extends ControllerBase {
       return new JsonResponse(['error' => 'encounterId is required'], 400);
     }
 
-    $encounter = $this->loadEncounter((int) $encounter_id);
+    $encounter = $this->normalizeEncounterForResponse($this->loadEncounter((int) $encounter_id));
     if (!$encounter) {
       return new JsonResponse(['error' => 'Encounter not found'], 404);
     }
@@ -931,6 +941,10 @@ class CombatEncounterApiController extends ControllerBase {
     foreach ($entities as $index => $entity) {
       $entity_id = $entity['entityId'] ?? $entity['id'] ?? $index + 1;
       $name = $entity['name'] ?? "Entity {$entity_id}";
+      $team = $this->normalizeParticipantTeam($entity['team'] ?? NULL);
+      if ($team === NULL) {
+        continue;
+      }
 
       // Initiative: use provided value, otherwise roll d20 + perception + initiative_bonus.
       $initiative = $entity['initiative'] ?? NULL;
@@ -949,7 +963,7 @@ class CombatEncounterApiController extends ControllerBase {
         'entity_id' => isset($entity['characterId']) ? (int) $entity['characterId'] : $entity_id,
         'entity_ref' => $entity['entityRef'] ?? $entity['instanceId'] ?? ($entity['entity_ref'] ?? NULL),
         'name' => $name,
-        'team' => $entity['team'] ?? NULL,
+        'team' => $team,
         'initiative' => $initiative,
         'initiative_roll' => $initiative_roll,
         'ac' => isset($entity['ac']) ? (int) $entity['ac'] : NULL,
@@ -966,11 +980,52 @@ class CombatEncounterApiController extends ControllerBase {
   }
 
   /**
+   * Normalize a participant team label for server-authoritative combat.
+   */
+  protected function normalizeParticipantTeam($team): ?string {
+    $normalized = strtolower(trim((string) $team));
+    if ($normalized === '' || in_array($normalized, ['neutral', 'indifferent'], TRUE)) {
+      return NULL;
+    }
+    if (in_array($normalized, ['player', 'player_character', 'pc'], TRUE)) {
+      return 'player';
+    }
+    if (in_array($normalized, ['ally', 'friendly', 'companion'], TRUE)) {
+      return 'ally';
+    }
+    if (in_array($normalized, ['enemy', 'hostile', 'monster'], TRUE)) {
+      return 'enemy';
+    }
+
+    return NULL;
+  }
+
+  /**
+   * Require a player side and a hostile side before creating an encounter.
+   */
+  protected function hasEncounterOpposition(array $participants): bool {
+    $has_player = FALSE;
+    $has_enemy = FALSE;
+
+    foreach ($participants as $participant) {
+      $team = $participant['team'] ?? NULL;
+      if ($team === 'player') {
+        $has_player = TRUE;
+      }
+      elseif ($team === 'enemy') {
+        $has_enemy = TRUE;
+      }
+    }
+
+    return $has_player && $has_enemy;
+  }
+
+  /**
    * Build response DTO for frontend consumption.
    */
   protected function buildEncounterResponse(array $encounter): array {
     $participants = $encounter['participants'] ?? [];
-    $turn_index = $encounter['turn_index'] ?? 0;
+    $turn_index = (int) ($encounter['turn_index'] ?? 0);
     $encounter_id = (int) ($encounter['id'] ?? $encounter['encounter_id'] ?? 0);
 
     $normalized_participants = [];
@@ -1002,7 +1057,7 @@ class CombatEncounterApiController extends ControllerBase {
       'room_id' => $encounter['room_id'],
       'map_id' => $encounter['map_id'] ?? NULL,
       'status' => $encounter['status'],
-      'current_round' => $encounter['current_round'],
+      'current_round' => (int) ($encounter['current_round'] ?? 0),
       'turn_index' => $turn_index,
       'version' => (int) ($encounter['updated'] ?? 0),
       'initiative_order' => $initiative_order,
@@ -1057,6 +1112,28 @@ class CombatEncounterApiController extends ControllerBase {
   }
 
   /**
+   * Advance non-player turns and close encounters with no active combat sides.
+   */
+  protected function normalizeEncounterForResponse(?array $encounter): ?array {
+    $encounter = $this->autoPlayNonPlayerTurns($encounter);
+    if (!$encounter) {
+      return NULL;
+    }
+
+    $resolution = $this->evaluateEncounterOutcome($encounter['participants'] ?? []);
+    if (!$resolution['ended']) {
+      return $encounter;
+    }
+
+    if (($encounter['status'] ?? '') !== 'ended') {
+      $this->encounterStore->updateEncounter((int) $encounter['id'], ['status' => 'ended']);
+      $encounter = $this->loadEncounter((int) $encounter['id']) ?? $encounter;
+    }
+
+    return $encounter;
+  }
+
+  /**
    * Run a minimal server-side NPC loop: each non-player gets one swing at the first alive player.
    * Advances turn index until we hit a player or exhaust participants.
    */
@@ -1103,6 +1180,37 @@ class CombatEncounterApiController extends ControllerBase {
       }
     }
     return NULL;
+  }
+
+  /**
+   * Determine whether an encounter still has opposing combat sides.
+   */
+  protected function evaluateEncounterOutcome(array $participants): array {
+    $active_sides = [];
+    foreach ($participants as $participant) {
+      if (!empty($participant['is_defeated'])) {
+        continue;
+      }
+
+      $side = $this->normalizeEncounterOutcomeSide((string) ($participant['team'] ?? ''));
+      if ($side !== NULL) {
+        $active_sides[$side] = TRUE;
+      }
+    }
+
+    return ['ended' => count($active_sides) <= 1];
+  }
+
+  /**
+   * Collapse encounter teams to hero/enemy sides for stale-encounter cleanup.
+   */
+  protected function normalizeEncounterOutcomeSide(string $team): ?string {
+    $normalized = strtolower(trim($team));
+    return match ($normalized) {
+      'player', 'ally', 'friendly', 'party' => 'heroes',
+      'enemy', 'hostile', 'monster', 'monsters' => 'enemies',
+      default => NULL,
+    };
   }
 
   /**

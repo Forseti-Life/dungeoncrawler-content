@@ -220,7 +220,7 @@ class GameCoordinatorController extends ControllerBase {
 
     $run_state = is_array($payload['run_state'] ?? NULL) ? $payload['run_state'] : [];
     \Drupal::logger('dungeoncrawler_player_agent')->info(
-      'Player-agent step request: campaign @campaign actor @actor character @character waits @waits/@max_waits failures @failures/@max_failures step_count @step_count',
+      'Player-agent step request: campaign @campaign actor @actor character @character waits @waits/@max_waits failures @failures/@max_failures step_count @step_count talked=@talked pending=@pending active=@active',
       [
         '@campaign' => $campaign_id,
         '@actor' => (string) ($profile['actor_id'] ?? ''),
@@ -230,6 +230,13 @@ class GameCoordinatorController extends ControllerBase {
         '@failures' => (int) ($run_state['guardrails']['consecutive_failures'] ?? 0),
         '@max_failures' => (int) ($run_state['guardrails']['max_consecutive_failures'] ?? 0),
         '@step_count' => (int) ($run_state['step_count'] ?? 0),
+        '@talked' => implode(',', array_slice(array_map('strval', (array) ($run_state['memory']['talked_entities'] ?? [])), -5)) ?: 'none',
+        '@pending' => is_array($run_state['memory']['pending_conversation_lead'] ?? NULL)
+          ? json_encode($run_state['memory']['pending_conversation_lead'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
+          : 'none',
+        '@active' => is_array($run_state['memory']['active_npc_lead'] ?? NULL)
+          ? json_encode($run_state['memory']['active_npc_lead'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
+          : 'none',
       ]
     );
     $result = $this->playerAgentHarness->runStep($campaign_id, $profile, $run_state);

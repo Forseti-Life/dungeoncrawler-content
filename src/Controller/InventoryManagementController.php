@@ -352,9 +352,12 @@ class InventoryManagementController extends ControllerBase {
   ): JsonResponse {
     try {
       $data = json_decode($request->getContent(), TRUE);
+      $data = is_array($data) ? $data : [];
 
       $location = $data['location'] ?? '';
-      $campaign_id = $data['campaignId'] ? (int) $data['campaignId'] : NULL;
+      $campaign_id = !empty($data['campaignId']) ? (int) $data['campaignId'] : NULL;
+      $equipped_slot_key = isset($data['equippedSlotKey']) ? (string) $data['equippedSlotKey'] : NULL;
+      $equipped_slot_index = $data['equippedSlotIndex'] ?? NULL;
 
       if (!$location) {
         throw new \InvalidArgumentException('Location is required');
@@ -365,7 +368,9 @@ class InventoryManagementController extends ControllerBase {
         $owner_type,
         $item_instance_id,
         $location,
-        $campaign_id
+        $campaign_id,
+        $equipped_slot_key,
+        $equipped_slot_index
       );
 
       return new JsonResponse($result);

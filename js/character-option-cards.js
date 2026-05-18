@@ -131,10 +131,17 @@
       + '</div>';
   }
 
+  function buildInputSelector(groupName, selectionType) {
+    if (selectionType === 'multiple') {
+      return 'input[type="checkbox"][name^="' + groupName + '["]';
+    }
+
+    return 'input[type="radio"][name="' + groupName + '"], '
+      + 'input[type="radio"][name$="[' + groupName + ']"]';
+  }
+
   function syncGroupState(form, groupName, selectionType) {
-    var selector = selectionType === 'multiple'
-      ? 'input[type="checkbox"][name^="' + groupName + '["]'
-      : 'input[type="radio"][name="' + groupName + '"]';
+    var selector = buildInputSelector(groupName, selectionType);
 
     form.querySelectorAll(selector).forEach(function (input) {
       var card = input.closest('.option-selector-card');
@@ -213,9 +220,7 @@
 
   function enhanceGroup(form, groupName, config, context) {
     var selectionType = config.selectionType || 'single';
-    var selector = selectionType === 'multiple'
-      ? 'input[type="checkbox"][name^="' + groupName + '["]'
-      : 'input[type="radio"][name="' + groupName + '"]';
+    var selector = buildInputSelector(groupName, selectionType);
 
     once('option-card-' + groupName, selector, context).forEach(function (input) {
       var option = (config.options || {})[input.value];

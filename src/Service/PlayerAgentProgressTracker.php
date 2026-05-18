@@ -28,6 +28,15 @@ class PlayerAgentProgressTracker {
     }
 
     $decision_type = (string) ($decision['type'] ?? 'wait');
+    $pre_memory = [
+      'talked_entities' => array_values(array_map('strval', (array) ($run_state['memory']['talked_entities'] ?? []))),
+      'pending_conversation_lead' => is_array($run_state['memory']['pending_conversation_lead'] ?? NULL)
+        ? $run_state['memory']['pending_conversation_lead']
+        : NULL,
+      'active_npc_lead' => is_array($run_state['memory']['active_npc_lead'] ?? NULL)
+        ? $run_state['memory']['active_npc_lead']
+        : NULL,
+    ];
     if ($decision_type === 'intent') {
       $intent = is_array($decision['intent'] ?? NULL) ? $decision['intent'] : [];
       $intent_type = (string) ($intent['type'] ?? '');
@@ -54,13 +63,33 @@ class PlayerAgentProgressTracker {
         }
 
         $lead_excerpt = ($response['success'] ?? FALSE) ? $this->extractActionableLeadExcerpt($response) : '';
+        $existing_pending_lead = is_array($run_state['memory']['pending_conversation_lead'] ?? NULL)
+          ? $run_state['memory']['pending_conversation_lead']
+          : NULL;
+        if ($automation_goal === 'conversation_follow_up' && $existing_pending_lead !== NULL) {
+          $existing_pending_lead['follow_up_attempts'] = (int) ($existing_pending_lead['follow_up_attempts'] ?? 0) + 1;
+          $run_state['memory']['pending_conversation_lead'] = $existing_pending_lead;
+        }
+        $existing_lead_signature = $this->buildLeadSignature($existing_pending_lead);
+        $new_lead_signature = $this->buildLeadSignature([
+          'target' => (string) $intent['target'],
+          'room_id' => $room_id,
+          'excerpt' => $lead_excerpt,
+        ]);
         if ($automation_goal === 'conversation_follow_up' && ($response['success'] ?? FALSE)) {
+          if ($existing_lead_signature !== '') {
+            $run_state['memory']['exhausted_conversation_leads'] = array_values(array_unique(array_merge(
+              $run_state['memory']['exhausted_conversation_leads'] ?? [],
+              [$existing_lead_signature]
+            )));
+          }
           if ($lead_excerpt !== '') {
             $run_state['memory']['active_npc_lead'] = [
               'target' => (string) $intent['target'],
               'room_id' => $room_id,
               'automation_goal' => $automation_goal,
               'excerpt' => $lead_excerpt,
+              'signature' => $new_lead_signature,
             ];
           }
           elseif (is_array($run_state['memory']['pending_conversation_lead'] ?? NULL)) {
@@ -68,12 +97,14 @@ class PlayerAgentProgressTracker {
           }
           unset($run_state['memory']['pending_conversation_lead']);
         }
-        elseif ($lead_excerpt !== '') {
+        elseif ($lead_excerpt !== '' && !$this->isExhaustedLeadSignature($run_state, $new_lead_signature)) {
           $run_state['memory']['pending_conversation_lead'] = [
             'target' => (string) $intent['target'],
             'room_id' => $room_id,
             'automation_goal' => $automation_goal,
             'excerpt' => $lead_excerpt,
+            'signature' => $new_lead_signature,
+            'follow_up_attempts' => 0,
           ];
         }
       }
@@ -108,6 +139,36 @@ class PlayerAgentProgressTracker {
           [$room_id]
         )));
       }
+    }
+
+    if ($decision_type === 'intent') {
+      $intent = is_array($decision['intent'] ?? NULL) ? $decision['intent'] : [];
+      $params = is_array($intent['params'] ?? NULL) ? $intent['params'] : [];
+      \Drupal::logger('dungeoncrawler_player_agent')->info(
+        'Player-agent run-state update: actor @actor room @room intent @intent target @target goal @goal success @success talked_before=@talked_before talked_after=@talked_after pending_before=@pending_before pending_after=@pending_after active_before=@active_before active_after=@active_after',
+        [
+          '@actor' => (string) ($profile['actor_id'] ?? ''),
+          '@room' => $room_id,
+          '@intent' => (string) ($intent['type'] ?? ''),
+          '@target' => (string) ($intent['target'] ?? ''),
+          '@goal' => (string) ($params['automation_goal'] ?? ''),
+          '@success' => ($response['success'] ?? FALSE) ? 'yes' : 'no',
+          '@talked_before' => implode(',', array_slice($pre_memory['talked_entities'] ?? [], -5)) ?: 'none',
+          '@talked_after' => implode(',', array_slice(array_map('strval', (array) ($run_state['memory']['talked_entities'] ?? [])), -5)) ?: 'none',
+          '@pending_before' => $pre_memory['pending_conversation_lead'] !== NULL
+            ? json_encode($pre_memory['pending_conversation_lead'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
+            : 'none',
+          '@pending_after' => is_array($run_state['memory']['pending_conversation_lead'] ?? NULL)
+            ? json_encode($run_state['memory']['pending_conversation_lead'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
+            : 'none',
+          '@active_before' => $pre_memory['active_npc_lead'] !== NULL
+            ? json_encode($pre_memory['active_npc_lead'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
+            : 'none',
+          '@active_after' => is_array($run_state['memory']['active_npc_lead'] ?? NULL)
+            ? json_encode($run_state['memory']['active_npc_lead'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
+            : 'none',
+        ]
+      );
     }
 
     $run_state['progress']['successful_actions'] = (int) ($run_state['progress']['successful_actions'] ?? 0)
@@ -162,6 +223,7 @@ class PlayerAgentProgressTracker {
       'step' => $run_state['step_count'],
       'phase' => $snapshot['phase'] ?? 'exploration',
       'decision' => $decision,
+      'decision_meta' => is_array($decision['decision_meta'] ?? NULL) ? $decision['decision_meta'] : [],
       'success' => $response['success'] ?? TRUE,
       'error' => $response['error'] ?? NULL,
       'room_id' => $room_id,
@@ -207,6 +269,32 @@ class PlayerAgentProgressTracker {
     }
 
     return '';
+  }
+
+  /**
+   * Build a stable signature for a conversational lead.
+   */
+  protected function buildLeadSignature(?array $lead): string {
+    if (!is_array($lead)) {
+      return '';
+    }
+    $target = trim((string) ($lead['target'] ?? ''));
+    $room_id = trim((string) ($lead['room_id'] ?? ''));
+    $excerpt = strtolower(trim(preg_replace('/\s+/', ' ', (string) ($lead['excerpt'] ?? '')) ?? ''));
+    if ($target === '' || $excerpt === '') {
+      return '';
+    }
+    return sha1($target . '|' . $room_id . '|' . $excerpt);
+  }
+
+  /**
+   * Determine if a lead has already been fully followed.
+   */
+  protected function isExhaustedLeadSignature(array $run_state, string $signature): bool {
+    if ($signature === '') {
+      return FALSE;
+    }
+    return in_array($signature, $run_state['memory']['exhausted_conversation_leads'] ?? [], TRUE);
   }
 
   /**

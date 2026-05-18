@@ -1,0 +1,37 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dungeoncrawler.life/schemas/queued_room_continuation.schema.json",
+  "title": "Queued Room Continuation Schema",
+  "description": "Canonical outer response envelope for RoomChatService::continueQueuedRoomConversation().",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "continued",
+    "queued_player_count",
+    "queued_player_summary",
+    "channel"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "enum": ["queued-room-continuation-v1"]
+    },
+    "continued": { "type": "boolean" },
+    "queued_player_count": { "type": "integer", "minimum": 0 },
+    "queued_player_summary": { "type": "string", "maxLength": 16000 },
+    "channel": { "type": "string", "maxLength": 64 },
+    "gm_response": { "type": ["object", "null"] },
+    "state_diff": { "type": ["object", "null"] },
+    "canonical_actions": { "type": ["object", "null"] },
+    "navigation": { "type": ["object", "null"] },
+    "turn_harness": { "type": ["object", "null"] },
+    "turn_log_key": { "type": ["string", "null"], "maxLength": 255 },
+    "turn_logs": { "type": "array", "items": { "type": "object" } },
+    "npc_interjections": { "type": "array", "items": { "type": "object" } },
+    "npc_interjections_deferred": { "type": "boolean" },
+    "client_request_id": { "type": ["string", "null"], "maxLength": 255 },
+    "timing": { "type": ["object", "null"] },
+    "debug_trace": { "type": ["object", "null"] }
+  }
+}

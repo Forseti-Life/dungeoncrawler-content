@@ -638,7 +638,7 @@ class CharacterCreationStepController extends ControllerBase {
       $total_bulk = round($total_bulk, 1);
 
       $character_data['inventory'] = [
-        'worn' => ['weapons' => [], 'armor' => NULL, 'accessories' => []],
+        'worn' => ['weapons' => [], 'armor' => NULL, 'shield' => NULL, 'accessories' => []],
         'carried' => $carried,
         'currency' => ['cp' => 0, 'sp' => 0, 'gp' => $remaining_gp, 'pp' => 0],
         'totalBulk' => $total_bulk,

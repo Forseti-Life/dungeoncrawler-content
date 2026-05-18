@@ -309,11 +309,12 @@ export class GameCoordinator {
     const isActiveEncounter = encounterId !== null && status === 'active';
 
     if (isActiveEncounter) {
+      const currentRound = Number(serverState.current_round);
       const projectedTurn = this._buildProjectedEncounterTurn(serverState);
       this.phaseManager.applyServerState({
         phase: 'encounter',
         state_version: Number(serverState.version) || this.phaseManager.stateVersion || 0,
-        round: Number.isInteger(serverState.current_round) ? serverState.current_round : 1,
+        round: Number.isFinite(currentRound) && currentRound > 0 ? currentRound : 1,
         turn: projectedTurn,
         encounter_id: encounterId,
         initiative_order: Array.isArray(serverState.initiative_order) ? serverState.initiative_order : [],
@@ -361,11 +362,12 @@ export class GameCoordinator {
    * @private
    */
   _buildProjectedEncounterTurn(serverState) {
+    const turnIndex = Number(serverState.turn_index);
     const currentParticipant = serverState.current_participant
-      || (Array.isArray(serverState.participants) ? serverState.participants[serverState.turn_index] : null)
+      || (Array.isArray(serverState.participants) && Number.isFinite(turnIndex) ? serverState.participants[turnIndex] : null)
       || null;
     const currentEntity = currentParticipant?.entity_id
-      || (Array.isArray(serverState.initiative_order) ? serverState.initiative_order[serverState.turn_index]?.entity_id : null)
+      || (Array.isArray(serverState.initiative_order) && Number.isFinite(turnIndex) ? serverState.initiative_order[turnIndex]?.entity_id : null)
       || null;
 
     if (!currentEntity) {
@@ -377,7 +379,7 @@ export class GameCoordinator {
       actions_remaining: Number(currentParticipant?.actions_remaining ?? 0),
       attacks_this_turn: Number(currentParticipant?.attacks_this_turn ?? 0),
       reaction_available: Boolean(currentParticipant?.reaction_available),
-      index: Number.isInteger(serverState.turn_index) ? serverState.turn_index : 0,
+      index: Number.isFinite(turnIndex) ? turnIndex : 0,
     };
   }
 

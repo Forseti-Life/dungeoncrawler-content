@@ -65,7 +65,7 @@
     {
       "room_id": "7f2f1051-5f88-45a2-a66a-0f7063900001",
       "name": "The Gilded Tankard",
-      "description": "The warm glow of candlelight fills the spacious tavern hall, flickering across rough-hewn wooden floors and casting long shadows between rows of sturdy oak tables. A polished bar dominates the far wall where Eldric, the broad-shouldered barkeep, methodically wipes down tankards and keeps a watchful eye on the room. Shelves behind him hold an impressive collection of wine bottles and spirits. Nearby, Marta the Scholar sits hunched over a table cluttered with ancient spellbooks, mystical tomes, and a faded journal, her quill scratching quietly as she cross-references a crystal-bound codex. Iron sconces line the walls, their torch rods casting steady light across the open movement lanes between tables. The air is thick with the smell of ale, bread, and hearth smoke, and the crackle of the stone fireplace provides a steady undercurrent to the low murmur of conversation.",
+      "description": "The Gilded Tankard is quiet and nearly empty, with no patrons beyond Eldric, Marta the Scholar, and Gribbles Rindsworth. Warm candlelight washes over rough-hewn wooden floors and a polished bar lined with bottles and tankards. Eldric, the broad-shouldered barkeep, stands behind the bar polishing a mug while keeping a steady eye on the room. Marta the Scholar works at a table buried in spellbooks, loose notes, and a crystal-bound codex. Gribbles Rindsworth lounges nearby with a tankard in hand, his sharp goblin eyes tracking every conversation from a seat close to Marta. Iron sconces and a stone fireplace cast steady amber light across the otherwise empty tavern.",
       "hexes": [
         {
           "q": -4,
@@ -931,7 +931,7 @@
         "active": true,
         "metadata": {
           "display_name": "Gribbles Rindsworth",
-          "team": "enemy",
+          "team": "neutral",
           "stats": {
             "maxHp": 16,
             "currentHp": 16,

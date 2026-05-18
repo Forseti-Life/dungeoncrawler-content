@@ -160,6 +160,141 @@ class CombatEncounterApiControllerTest extends BrowserTestBase {
   }
 
   /**
+   * Tests current-state polling auto-plays non-player turns.
+   */
+  public function testCurrentStateAutoPlaysNonPlayerTurns(): void {
+    $user = $this->drupalCreateUser(['access dungeoncrawler characters']);
+    $this->drupalLogin($user);
+
+    $start_payload = json_encode([
+      'campaignId' => 66,
+      'roomId' => 'room-sync-1',
+      'entities' => [
+        [
+          'entityId' => 'npc-goblin-1',
+          'entityRef' => 'npc-goblin-1',
+          'name' => 'Goblin Raider',
+          'team' => 'enemy',
+          'initiative' => 18,
+          'hp' => 8,
+          'max_hp' => 8,
+          'ac' => 16,
+        ],
+        [
+          'entityId' => 'pc-hero-1',
+          'entityRef' => 'pc-hero-1',
+          'name' => 'Valeros',
+          'team' => 'player',
+          'initiative' => 12,
+          'hp' => 20,
+          'max_hp' => 20,
+          'ac' => 18,
+        ],
+      ],
+    ]);
+
+    $this->getSession()->getDriver()->getClient()->request(
+      'POST',
+      $this->buildUrl('/api/combat/start'),
+      [],
+      [],
+      ['CONTENT_TYPE' => 'application/json'],
+      $start_payload
+    );
+    $this->assertSession()->statusCodeEquals(201);
+
+    $this->drupalGet('/api/combat/state', [
+      'query' => [
+        'campaignId' => 66,
+        'roomId' => 'room-sync-1',
+      ],
+    ]);
+    $this->assertSession()->statusCodeEquals(200);
+
+    $response = json_decode($this->getSession()->getPage()->getContent(), TRUE);
+    $this->assertIsArray($response);
+    $this->assertTrue($response['success'] ?? FALSE);
+    $this->assertIsArray($response['data'] ?? NULL);
+    $this->assertSame('player', $response['data']['current_participant']['team'] ?? NULL);
+    $this->assertSame('Valeros', $response['data']['current_participant']['name'] ?? NULL);
+  }
+
+  /**
+   * Tests current-state polling ends stale encounters with no active combat sides.
+   */
+  public function testCurrentStateEndsNeutralOnlyStaleEncounter(): void {
+    $user = $this->drupalCreateUser(['access dungeoncrawler characters']);
+    $this->drupalLogin($user);
+
+    $start_payload = json_encode([
+      'campaignId' => 67,
+      'roomId' => 'room-stale-encounter',
+      'entities' => [
+        [
+          'entityId' => 1001,
+          'entityRef' => 'npc-goblin-1',
+          'name' => 'Goblin Raider',
+          'team' => 'enemy',
+          'initiative' => 18,
+          'hp' => 8,
+          'max_hp' => 8,
+          'ac' => 16,
+        ],
+        [
+          'entityId' => 2001,
+          'entityRef' => 'pc-hero-1',
+          'name' => 'Valeros',
+          'team' => 'player',
+          'initiative' => 12,
+          'hp' => 20,
+          'max_hp' => 20,
+          'ac' => 18,
+        ],
+      ],
+    ]);
+
+    $this->getSession()->getDriver()->getClient()->request(
+      'POST',
+      $this->buildUrl('/api/combat/start'),
+      [],
+      [],
+      ['CONTENT_TYPE' => 'application/json'],
+      $start_payload
+    );
+    $this->assertSession()->statusCodeEquals(201);
+
+    $start_response = json_decode($this->getSession()->getPage()->getContent(), TRUE);
+    $this->assertIsArray($start_response);
+    $this->assertArrayHasKey('encounter_id', $start_response);
+    $encounter_id = (int) $start_response['encounter_id'];
+
+    $database = \Drupal::database();
+    $database->update('combat_participants')
+      ->fields(['team' => 'neutral'])
+      ->condition('encounter_id', $encounter_id)
+      ->condition('entity_ref', 'npc-goblin-1')
+      ->execute();
+    $database->update('combat_participants')
+      ->fields(['hp' => 0, 'is_defeated' => 1])
+      ->condition('encounter_id', $encounter_id)
+      ->condition('entity_ref', 'pc-hero-1')
+      ->execute();
+
+    $this->drupalGet('/api/combat/state', [
+      'query' => [
+        'campaignId' => 67,
+        'roomId' => 'room-stale-encounter',
+      ],
+    ]);
+    $this->assertSession()->statusCodeEquals(200);
+
+    $response = json_decode($this->getSession()->getPage()->getContent(), TRUE);
+    $this->assertIsArray($response);
+    $this->assertTrue($response['success'] ?? FALSE);
+    $this->assertSame('ended', $response['data']['status'] ?? NULL);
+  }
+
+  /**
    * Tests recommendation preview endpoint requires admin permission.
    */
   public function testRecommendationPreviewPermissionNegative(): void {

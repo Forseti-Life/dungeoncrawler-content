@@ -431,7 +431,7 @@ class CharacterCreationWorkflowTest extends BrowserTestBase {
 
     $this->drupalGet("/charactersetup?campaign_id={$campaign_id}");
     $this->assertSession()->statusCodeEquals(200);
-    $this->submitForm([], 'I Just Want to Play');
+    $this->clickLink('I Just Want to Play');
     $this->assertSession()->statusCodeEquals(200);
     $this->assertSession()->addressMatches('/\/hexmap/');
 

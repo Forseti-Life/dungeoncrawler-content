@@ -1,0 +1,88 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dungeoncrawler.life/schemas/character_dialogue.schema.json",
+  "title": "Character Dialogue Schema",
+  "description": "Canonical contract for generated in-character dialogue payloads used by direct NPC replies and room interjections.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "speaker_ref",
+    "speaker_name",
+    "channel",
+    "delivery_type",
+    "text",
+    "context",
+    "flags"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "enum": ["character-dialogue-v1"]
+    },
+    "speaker_ref": {
+      "type": ["string", "null"],
+      "maxLength": 160
+    },
+    "speaker_name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "channel": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "delivery_type": {
+      "type": "string",
+      "enum": ["direct_reply", "room_interjection"]
+    },
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000
+    },
+    "context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["campaign_id", "room_id", "generation_source"],
+      "properties": {
+        "campaign_id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "room_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "generation_source": {
+          "type": "string",
+          "enum": ["deterministic", "model", "fallback"]
+        },
+        "target_entity": {
+          "type": ["string", "null"],
+          "maxLength": 160
+        },
+        "source_ability": {
+          "type": ["string", "null"],
+          "maxLength": 160
+        }
+      }
+    },
+    "flags": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["interjection", "direct_addressed"],
+      "properties": {
+        "interjection": {
+          "type": "boolean"
+        },
+        "direct_addressed": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

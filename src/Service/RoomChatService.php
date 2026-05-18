@@ -28,6 +28,11 @@ class RoomChatService {
   protected const ROOM_CHAT_MAX_USER_PROMPT_CHARS = 4000;
   protected const ROOM_CHAT_GM_MAX_TOKENS = 200;
   protected const NPC_FUZZY_MATCH_MIN_TOKEN_LENGTH = 4;
+  protected const CHARACTER_DIALOGUE_SCHEMA_VERSION = 'character-dialogue-v1';
+  protected const GM_ROOM_RESPONSE_SCHEMA_VERSION = 'gm-room-response-v1';
+  protected const ROOM_TURN_HARNESS_SCHEMA_VERSION = 'room-turn-harness-v1';
+  protected const ROOM_CHAT_RESPONSE_SCHEMA_VERSION = 'room-chat-response-v1';
+  protected const QUEUED_ROOM_CONTINUATION_SCHEMA_VERSION = 'queued-room-continuation-v1';
   protected const QUEST_UPDATE_SCHEMA_VERSION = 'quest-update-v1';
 
   protected Connection $database;
@@ -270,6 +275,135 @@ class RoomChatService {
       'character_name' => $character_name,
       'channel' => $channel,
     ];
+  }
+
+  /**
+   * Suggest a non-rest fallback automation decision after repeated rest choices.
+   */
+  public function suggestPlayerAutomationFallbackDecision(
+    int $campaign_id,
+    string $room_id,
+    int $character_id,
+    array $snapshot = [],
+    array $run_state = []
+  ): array {
+    $character_data = $this->actionProcessor->loadCharacterData($character_id);
+    if (!is_array($character_data) || $character_data === []) {
+      throw new \InvalidArgumentException('Character not found.', 404);
+    }
+
+    $basic_info = is_array($character_data['basicInfo'] ?? NULL) ? $character_data['basicInfo'] : [];
+    $character_name = trim((string) ($basic_info['name'] ?? $character_data['name'] ?? 'Adventurer'));
+    if ($character_name === '') {
+      $character_name = 'Adventurer';
+    }
+
+    $available_actions = array_values(array_unique(array_filter(
+      array_map(static fn($action): string => strtolower(trim((string) $action)), $snapshot['available_actions'] ?? []),
+      static fn(string $action): bool => $action !== ''
+    )));
+    if ($available_actions === []) {
+      return [
+        'type' => 'stop',
+        'reason' => 'No exploration actions are currently available, so automation is pausing.',
+        'decision_meta' => [
+          'stage' => 'rest_analysis_stop',
+          'priority' => 14,
+          'room_id' => $room_id,
+          'analysis_fallback' => TRUE,
+        ],
+      ];
+    }
+
+    $history = $this->getChatHistory($campaign_id, $room_id, 'room', $character_id);
+    $session_key = $this->sessionManager->roomChatSessionKey($campaign_id, $room_id);
+    $session_context = $this->buildCompactSessionContext($session_key, $campaign_id, 4, 1200, 400, TRUE);
+    $character_context = $this->buildPlayerAutomationCharacterContext($character_data);
+    $quest_context = $this->buildPlayerAutomationQuestContext($campaign_id, $character_id);
+    $conversation_context = $this->buildRoomConversationTranscript($history, self::PLAYER_AUTOMATION_ROOM_CHAT_LIMIT);
+    $room_context = $this->truncateContextBlock(json_encode([
+      'room' => [
+        'room_id' => $room_id,
+        'name' => (string) ($snapshot['active_room']['name'] ?? ''),
+        'description' => (string) ($snapshot['active_room']['description'] ?? ''),
+      ],
+      'available_actions' => $available_actions,
+      'visible_npcs' => array_values(array_map(static function (array $npc): array {
+        return array_filter([
+          'entity_instance_id' => (string) ($npc['entity_instance_id'] ?? $npc['instance_id'] ?? $npc['id'] ?? ''),
+          'name' => (string) ($npc['name'] ?? $npc['display_name'] ?? $npc['state']['metadata']['display_name'] ?? ''),
+          'content_id' => (string) ($npc['content_id'] ?? ''),
+        ], static fn($value) => $value !== '');
+      }, $snapshot['visible_npcs'] ?? [])),
+      'connected_rooms' => array_values(array_map(static function (array $room): array {
+        return array_filter([
+          'room_id' => (string) ($room['room_id'] ?? ''),
+          'name' => (string) ($room['name'] ?? ''),
+          'description' => (string) ($room['description'] ?? ''),
+        ], static fn($value) => $value !== '');
+      }, $snapshot['connected_rooms'] ?? [])),
+      'memory' => [
+        'pending_conversation_lead' => is_array($run_state['memory']['pending_conversation_lead'] ?? NULL) ? $run_state['memory']['pending_conversation_lead'] : NULL,
+        'active_npc_lead' => is_array($run_state['memory']['active_npc_lead'] ?? NULL) ? $run_state['memory']['active_npc_lead'] : NULL,
+        'talked_entities' => $run_state['memory']['talked_entities'] ?? [],
+        'searched_rooms' => $run_state['memory']['searched_rooms'] ?? [],
+        'visited_rooms' => $run_state['memory']['visited_rooms'] ?? [],
+      ],
+      'recent_trace' => array_slice(array_map(static function (array $trace): array {
+        return array_filter([
+          'decision_meta' => is_array($trace['decision_meta'] ?? NULL) ? $trace['decision_meta'] : [],
+          'reason' => (string) (($trace['decision']['reason'] ?? $trace['reason'] ?? '') ?: ''),
+          'success' => $trace['success'] ?? NULL,
+        ], static fn($value) => $value !== NULL && $value !== '');
+      }, $run_state['trace'] ?? []), -4),
+    ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) ?: '{}', 3000, 0.8);
+
+    $prompt = '';
+    if ($session_context !== '') {
+      $prompt .= "=== CAMPAIGN CHAT HISTORY ===\n{$session_context}\n\n---\n";
+    }
+    $prompt .= "=== RECENT ROOM CHAT ===\n{$conversation_context}\n\n";
+    if ($quest_context !== '') {
+      $prompt .= "=== ACTIVE QUEST OBJECTIVES ===\n{$quest_context}\n\n";
+    }
+    $prompt .= "=== PLAYER CHARACTER SHEET ===\n{$character_context}\n\n";
+    $prompt .= "=== ROOM / NPC / ACTION CONTEXT ===\n{$room_context}\n\n";
+    $prompt .= "The deterministic automation selected rest. Re-evaluate the full room, NPC, quest, and campaign context and choose the single best next action for this player character.\n";
+    $prompt .= "Prioritize in order: active quest target -> actionable NPC lead -> search for quest item/clue -> transition to the next useful room -> talk to the best NPC -> rest only if there is genuinely no better progression path -> wait.\n";
+    $prompt .= "Use exact IDs from the provided room context for any target_id.\n";
+    $prompt .= "Return ONLY strict JSON with this shape:\n";
+    $prompt .= "{\"action_type\":\"talk|search|transition|rest|wait\",\"target_id\":\"\",\"message\":\"\",\"reason\":\"short justification\"}\n";
+    $prompt .= "Rules: only choose an action from available_actions; talk requires a target_id and short in-character message; transition requires a room_id target_id; search uses empty target_id; rest and wait use empty target_id and message.\n";
+
+    $result = $this->invokeTimedModelCall(
+      $prompt,
+      'dungeoncrawler_content',
+      'player_action_recommendation',
+      [
+        'campaign_id' => $campaign_id,
+        'room_id' => $room_id,
+        'character_id' => $character_id,
+      ],
+      [
+        'system_prompt' => "You are selecting the next automation action for {$character_name} after a rest candidate was detected. "
+          . "Use the supplied quest, room, NPC, and campaign context. "
+          . "Return only JSON and prefer concrete quest advancement over generic idle behavior. "
+          . "Choose rest only if there is truly no better progression action.",
+        'max_tokens' => 260,
+        'skip_cache' => TRUE,
+      ],
+      [
+        'character_name' => $character_name,
+        'available_actions' => $available_actions,
+      ]
+    );
+
+    $parsed = $this->parseJsonObjectFromText((string) ($result['response'] ?? ''));
+    if (!is_array($parsed)) {
+      return $this->buildDeterministicFallbackAutomationDecision($snapshot, $run_state, $character_id, 'Fallback analysis returned invalid JSON.');
+    }
+
+    return $this->normalizeFallbackAutomationDecision($parsed, $snapshot, $run_state, $character_id);
   }
 
   /**
@@ -580,7 +714,7 @@ class RoomChatService {
     if ($debug_trace !== NULL && $this->shouldExposeDebugTrace()) {
       $result['debug_trace'] = $debug_trace;
     }
-    return $result;
+    return $this->buildRoomChatResponsePayload($result);
   }
 
   /**
@@ -616,10 +750,12 @@ class RoomChatService {
 
     $room_index = $this->findRoomIndex($dungeon_data['rooms'] ?? [], $room_id);
     if ($room_index === NULL) {
-      return [
+      return $this->buildQueuedRoomContinuationPayload([
         'continued' => FALSE,
         'queued_player_count' => 0,
-      ];
+        'queued_player_summary' => '',
+        'channel' => $channel,
+      ]);
     }
 
     $chat = $dungeon_data['rooms'][$room_index]['chat'] ?? [];
@@ -638,10 +774,12 @@ class RoomChatService {
     }
 
     if ($queued_player_messages === []) {
-      return [
+      return $this->buildQueuedRoomContinuationPayload([
         'continued' => FALSE,
         'queued_player_count' => 0,
-      ];
+        'queued_player_summary' => '',
+        'channel' => $channel,
+      ]);
     }
 
     $queued_player_summary = implode("\n", array_map(static fn(array $entry): string => (string) ($entry['message'] ?? ''), $queued_player_messages));
@@ -710,7 +848,7 @@ class RoomChatService {
       $result['debug_trace'] = $debug_trace;
     }
 
-    return $result;
+    return $this->buildQueuedRoomContinuationPayload($result);
   }
 
   /**
@@ -1272,6 +1410,8 @@ class RoomChatService {
       ]);
     }
 
+    $suppress_npc_interjections = !empty($checked_response['suppress_npc_interjections']);
+    $gm_payload = $this->buildGmRoomResponsePayload($narrative, $actions, $dice_rolls, $suppress_npc_interjections);
     $gm_message = [
       'speaker' => 'Game Master',
       'message' => $narrative,
@@ -1280,6 +1420,7 @@ class RoomChatService {
       'timestamp' => date('c'),
       'character_id' => NULL,
       'user_id' => 0,
+      'gm_payload' => $gm_payload,
     ];
 
     // If there were mechanical actions, attach a summary to the message.
@@ -1351,6 +1492,7 @@ class RoomChatService {
       'state_diff' => $state_diff,
       'navigation' => $navigation_result,
       'canonical_actions' => $canonical_results,
+      'suppress_npc_interjections' => $suppress_npc_interjections,
     ];
   }
 
@@ -2265,17 +2407,23 @@ class RoomChatService {
       return NULL;
     }
 
-    $response_text = trim($result['response']);
+    $dialogue_payload = $this->buildCharacterDialoguePayload(
+      $campaign_id,
+      $room_id,
+      $npc_ref !== '' ? $npc_ref : $target_entity,
+      $target_name,
+      $channel_key,
+      'direct_reply',
+      trim((string) $result['response']),
+      'model',
+      $target_entity !== '' ? $target_entity : NULL,
+      $source_ability !== '' ? $source_ability : NULL,
+      FALSE,
+      TRUE
+    );
+    $response_text = $dialogue_payload['text'];
 
-    $npc_message = [
-      'speaker' => $target_name,
-      'message' => $response_text,
-      'type' => 'npc',
-      'channel' => $channel_key,
-      'timestamp' => date('c'),
-      'character_id' => NULL,
-      'user_id' => 0,
-    ];
+    $npc_message = $this->buildCharacterDialogueChatMessage($dialogue_payload);
 
     // Persist the NPC reply.
     $dungeon_data['rooms'][$room_index]['chat'][] = $npc_message;
@@ -3136,15 +3284,16 @@ class RoomChatService {
           'room_npc_count' => 0,
         ]
       );
-      return [
+      return $this->buildRoomTurnHarnessPayload([
         'player' => ['message' => $player_message],
         'gm' => ['narrative' => $gm_narrative],
         'gm_addressed' => FALSE,
+        'directly_addressed_npc' => NULL,
         'npc_turns' => [],
         'turn_log_key' => $turn_log_key,
         'turn_logs' => [],
         'messages' => [],
-      ];
+      ]);
     }
 
     $turn_plan = $this->buildNpcTurnPlan($room_npcs, $player_message, $gm_narrative, $dungeon_data, $room_id);
@@ -3201,7 +3350,7 @@ class RoomChatService {
         NULL,
         $this->buildRoomObservationFromChat($dungeon_data['rooms'][$room_index]['chat'] ?? [])
       );
-      return [
+      return $this->buildRoomTurnHarnessPayload([
         'player' => ['message' => $player_message],
         'gm' => ['narrative' => $gm_narrative],
         'gm_addressed' => $gm_addressed,
@@ -3210,7 +3359,7 @@ class RoomChatService {
         'turn_log_key' => $turn_log_key,
         'turn_logs' => $turn_logs,
         'messages' => [],
-      ];
+      ]);
     }
 
     $messages = [];
@@ -3302,7 +3451,7 @@ class RoomChatService {
         NULL,
         $this->buildRoomObservationFromChat($dungeon_data['rooms'][$room_index]['chat'] ?? [])
       );
-      return [
+      return $this->buildRoomTurnHarnessPayload([
         'player' => ['message' => $player_message],
         'gm' => ['narrative' => $gm_narrative],
         'gm_addressed' => $gm_addressed,
@@ -3315,7 +3464,7 @@ class RoomChatService {
         'turn_log_key' => $turn_log_key,
         'turn_logs' => $turn_logs,
         'messages' => [],
-      ];
+      ]);
     }
 
     $this->feedRoomChatToNpcSessions(
@@ -3326,7 +3475,7 @@ class RoomChatService {
       $spoken_refs,
       $this->buildRoomObservationFromChat($dungeon_data['rooms'][$room_index]['chat'] ?? [])
     );
-    return [
+    return $this->buildRoomTurnHarnessPayload([
       'player' => ['message' => $player_message],
       'gm' => ['narrative' => $gm_narrative],
       'gm_addressed' => $gm_addressed,
@@ -3342,7 +3491,7 @@ class RoomChatService {
       }, $ordered_npcs)),
       'turn_logs' => $turn_logs,
       'messages' => $messages,
-    ];
+    ]);
   }
 
   /**
@@ -3357,12 +3506,56 @@ class RoomChatService {
   ): array {
     $directly_addressed_npc = $this->resolveDirectlyAddressedNpc($room_npcs, $player_message);
     $gm_addressed = $this->isExplicitRoomGmAddress($player_message);
-    $ordered_npcs = $gm_addressed
-      ? []
-      : $this->buildRoomNpcInitiativeOrder($room_npcs, $dungeon_data, $room_id);
+    $active_conversation_npc = NULL;
+    if (!$gm_addressed && $directly_addressed_npc === NULL && $room_id !== '') {
+      $room_meta = $this->findRoomByRoomId($dungeon_data['rooms'] ?? [], $room_id);
+      $room_chat = is_array($room_meta['chat'] ?? NULL) ? $room_meta['chat'] : [];
+      if ($room_chat !== []) {
+        $active_conversation_npc = $this->resolveActiveDirectConversationNpc($room_chat, $room_npcs);
+      }
+    }
+
+    if ($gm_addressed) {
+      $ordered_npcs = [];
+      $plan_source = 'gm_addressed';
+    }
+    elseif ($directly_addressed_npc !== NULL) {
+      $ordered_npcs = [$directly_addressed_npc];
+      $plan_source = 'direct_address';
+    }
+    elseif ($active_conversation_npc !== NULL) {
+      $ordered_npcs = [$active_conversation_npc];
+      $plan_source = 'active_conversation';
+    }
+    else {
+      $ordered_npcs = $this->buildRoomNpcInitiativeOrder($room_npcs, $dungeon_data, $room_id);
+      $plan_source = 'initiative_order';
+    }
+
+    $turn_plan_meta = [
+      'source' => $plan_source,
+      'room_id' => $room_id,
+      'directly_addressed_npc' => $directly_addressed_npc['entity_ref'] ?? NULL,
+      'active_conversation_npc' => $active_conversation_npc['entity_ref'] ?? NULL,
+      'gm_addressed' => $gm_addressed,
+      'ordered_npc_count' => count($ordered_npcs),
+      'ordered_npcs' => array_values(array_map(static fn(array $npc): string => (string) ($npc['entity_ref'] ?? ''), $ordered_npcs)),
+      'player_message' => $this->truncateContextBlock($player_message, 140, 0.85),
+      'gm_narrative' => $this->truncateContextBlock($gm_narrative, 140, 0.85),
+    ];
+    $this->recordDebugStage('npc.turn_plan', hrtime(true), $turn_plan_meta);
+    $this->logger->info('Room turn plan resolved via @source for room @room (direct=@direct active=@active gm=@gm ordered=@ordered)', [
+      '@source' => $plan_source,
+      '@room' => $room_id !== '' ? $room_id : '[unknown]',
+      '@direct' => $turn_plan_meta['directly_addressed_npc'] ?? 'none',
+      '@active' => $turn_plan_meta['active_conversation_npc'] ?? 'none',
+      '@gm' => $gm_addressed ? 'yes' : 'no',
+      '@ordered' => implode(',', array_filter($turn_plan_meta['ordered_npcs'] ?? [])) ?: 'none',
+    ]);
 
     return [
       'directly_addressed_npc' => $directly_addressed_npc,
+      'active_conversation_npc' => $active_conversation_npc,
       'gm_addressed' => $gm_addressed,
       'ordered_npcs' => $ordered_npcs,
     ];
@@ -3703,27 +3896,20 @@ PROMPT;
     string $speaker_name,
     bool $feed_room_sessions = TRUE
   ): array {
-    $npc_dialogue = $this->generateNpcRoomDialogue(
+    $dialogue_payload = $this->generateNpcRoomDialogue(
       $campaign_id, $room_id, $room_index, $dungeon_data,
       $speaker_ref, $speaker_name, $player_message, $gm_narrative
     );
 
-    if (empty($npc_dialogue)) {
+    if (empty($dialogue_payload['text'])) {
       $this->feedRoomChatToNpcSessions($campaign_id, $room_npcs, $player_message, $gm_narrative);
       return [];
     }
 
+    $npc_dialogue = (string) $dialogue_payload['text'];
+
     // Build the NPC chat message.
-    $npc_message = [
-      'speaker' => $speaker_name,
-      'message' => $npc_dialogue,
-      'type' => 'npc',
-      'channel' => 'room',
-      'timestamp' => date('c'),
-      'character_id' => NULL,
-      'user_id' => 0,
-      'interjection' => TRUE,
-    ];
+    $npc_message = $this->buildCharacterDialogueChatMessage($dialogue_payload);
 
     // Persist the NPC interjection to dungeon_data chat.
     $dungeon_data['rooms'][$room_index]['chat'][] = $npc_message;
@@ -4051,20 +4237,27 @@ PROMPT;
     ?array $active_conversation_npc = NULL
   ): string {
     $normalized = $this->normalizeNpcNameForMatch($player_message);
+    $routing_context = [
+      'player_message' => $this->truncateContextBlock($player_message, 160, 0.85),
+      'normalized' => $this->truncateContextBlock($normalized, 160, 0.85),
+      'room_npc_count' => count($room_npcs),
+      'directly_addressed_npc' => $directly_addressed_npc['entity_ref'] ?? NULL,
+      'active_conversation_npc' => $active_conversation_npc['entity_ref'] ?? NULL,
+    ];
     if ($normalized === '') {
-      return 'gm_narration';
+      return $this->finalizeRoomIntentDecision('gm_narration', 'empty_message', $routing_context);
     }
 
     if ($this->looksLikeGmRoleBoundaryCorrection($normalized)) {
-      return 'gm_role_correction';
+      return $this->finalizeRoomIntentDecision('gm_role_correction', 'gm_role_boundary', $routing_context);
     }
 
     if ($this->textContainsAny($normalized, ['ooc', 'out of character', 'meta'])) {
-      return 'ooc_meta';
+      return $this->finalizeRoomIntentDecision('ooc_meta', 'ooc_meta', $routing_context);
     }
 
     if ($this->looksLikeGmAdjudicationQuery($player_message, $normalized)) {
-      return 'gm_adjudication_query';
+      return $this->finalizeRoomIntentDecision('gm_adjudication_query', 'gm_adjudication', $routing_context);
     }
 
     if ($this->textContainsAny($normalized, [
@@ -4097,62 +4290,85 @@ PROMPT;
       'is anyone hiding',
       'is anybody hiding',
     ])) {
-      return 'room_roster_query';
+      return $this->finalizeRoomIntentDecision('room_roster_query', 'room_roster_query', $routing_context);
     }
 
     if ($this->looksLikeRoomDescriptionQuery($normalized)) {
-      return 'room_description_query';
+      return $this->finalizeRoomIntentDecision('room_description_query', 'room_description_query', $routing_context);
     }
 
     if ($this->looksLikeNavigationQuery($normalized)) {
-      return 'navigation_query';
+      return $this->finalizeRoomIntentDecision('navigation_query', 'navigation_query', $routing_context);
     }
 
     if ($this->looksLikeNavigationTurn($normalized)) {
-      return 'navigation_travel';
+      return $this->finalizeRoomIntentDecision('navigation_travel', 'navigation_travel', $routing_context);
     }
 
     if ($this->looksLikeCombatEngagementTurn($normalized)) {
-      return 'combat_engagement';
+      return $this->finalizeRoomIntentDecision('combat_engagement', 'combat_engagement', $routing_context);
     }
 
     if ($directly_addressed_npc !== NULL) {
       if ($this->looksLikeQuestOrLeadRequest($normalized)) {
-        return 'direct_npc_dialogue';
+        return $this->finalizeRoomIntentDecision('direct_npc_dialogue', 'direct_address_quest', $routing_context);
       }
       if ($this->looksLikeMerchantTransactionText($normalized) && $this->npcSupportsMerchantDialogue($directly_addressed_npc)) {
-        return 'direct_npc_transaction';
+        return $this->finalizeRoomIntentDecision('direct_npc_transaction', 'direct_address_merchant', $routing_context);
       }
-      return 'direct_npc_dialogue';
+      return $this->finalizeRoomIntentDecision('direct_npc_dialogue', 'direct_address_default', $routing_context);
     }
 
     if ($active_conversation_npc !== NULL && $this->looksLikeDirectNpcConversationContinuation($player_message, $normalized)) {
       if ($this->looksLikeQuestOrLeadRequest($normalized)) {
-        return 'direct_npc_dialogue';
+        return $this->finalizeRoomIntentDecision('direct_npc_dialogue', 'active_conversation_quest', $routing_context);
       }
       if ($this->looksLikeMerchantTransactionText($normalized) && $this->npcSupportsMerchantDialogue($active_conversation_npc)) {
-        return 'direct_npc_transaction';
+        return $this->finalizeRoomIntentDecision('direct_npc_transaction', 'active_conversation_merchant', $routing_context);
       }
-      return 'direct_npc_dialogue';
-    }
-
-    if ($this->looksLikeMerchantTransactionText($normalized)) {
-      foreach ($room_npcs as $npc) {
-        if ($this->npcSupportsMerchantDialogue($npc)) {
-          return 'merchant_inquiry';
-        }
-      }
+      return $this->finalizeRoomIntentDecision('direct_npc_dialogue', 'active_conversation_default', $routing_context);
     }
 
     if ($this->looksLikeQuestOrLeadRequest($normalized)) {
       foreach ($room_npcs as $npc) {
         if ($this->npcSupportsQuestOrLeadDialogue($npc)) {
-          return 'quest_query';
+          return $this->finalizeRoomIntentDecision('quest_query', 'room_quest_query', $routing_context + [
+            'matched_npc' => $npc['entity_ref'] ?? NULL,
+          ]);
         }
       }
     }
 
-    return 'gm_narration';
+    if ($this->looksLikeMerchantTransactionText($normalized)) {
+      foreach ($room_npcs as $npc) {
+        if ($this->npcSupportsMerchantDialogue($npc)) {
+          return $this->finalizeRoomIntentDecision('merchant_inquiry', 'room_merchant_inquiry', $routing_context + [
+            'matched_npc' => $npc['entity_ref'] ?? NULL,
+          ]);
+        }
+      }
+    }
+
+    return $this->finalizeRoomIntentDecision('gm_narration', 'default_fallback', $routing_context);
+  }
+
+  /**
+   * Log the winning room-intent route with enough detail to debug condition order.
+   */
+  protected function finalizeRoomIntentDecision(string $intent, string $reason, array $context = []): string {
+    $meta = $context + [
+      'intent' => $intent,
+      'reason' => $reason,
+    ];
+    $this->recordDebugStage('gm.intent_route', hrtime(true), $meta);
+    $this->logger->info('Room intent routed to @intent via @reason (direct=@direct active=@active npcs=@npcs)', [
+      '@intent' => $intent,
+      '@reason' => $reason,
+      '@direct' => (string) ($meta['directly_addressed_npc'] ?? 'none'),
+      '@active' => (string) ($meta['active_conversation_npc'] ?? 'none'),
+      '@npcs' => (string) ($meta['room_npc_count'] ?? 0),
+    ]);
+    return $intent;
   }
 
   /**
@@ -4676,6 +4892,10 @@ PROMPT;
       return TRUE;
     }
 
+    if (preg_match('/\b(?:ok|okay|alright|all right|yes)\b.{0,24}\b(?:give|tell|show|point|explain|continue|go on)\b/u', $normalized_message)) {
+      return TRUE;
+    }
+
     if ($this->textContainsAny($normalized_message, [
       'deal',
       'done',
@@ -4685,10 +4905,18 @@ PROMPT;
       'take it',
       'no more',
       'point me to',
+      'give me the information',
+      'give me info',
+      'give me the details',
+      'give me details',
       'nearest tavern',
       'sent me',
       'tell me',
+      'tell me more',
       'show me',
+      'go on',
+      'continue',
+      'go ahead',
       'let me look',
       'im looking',
       'i m looking',
@@ -4696,20 +4924,12 @@ PROMPT;
       'what does',
       'what is',
       'what s',
-      'why',
-      'how',
-      'where',
-      'when',
-      'who',
       'can you',
       'could you',
       'would you',
       'do you',
       'did you',
       'are you',
-      'this',
-      'that',
-      'it',
       'text',
       'note',
       'letter',
@@ -5279,14 +5499,27 @@ PROMPT;
     string $display_name,
     string $player_message,
     string $gm_narrative
-  ): ?string {
+  ): ?array {
     $deterministic_reply = $this->buildDeterministicNpcDialogue($campaign_id, $entity_ref, $display_name, $player_message, $room_id, $dungeon_data);
     if ($deterministic_reply !== NULL) {
       $this->recordDebugStage('npc.deterministic_reply', hrtime(true), [
         'npc_entity' => $entity_ref,
         'length' => strlen($deterministic_reply),
       ]);
-      return $deterministic_reply;
+      return $this->buildCharacterDialoguePayload(
+        $campaign_id,
+        $room_id,
+        $entity_ref,
+        $display_name,
+        'room',
+        'room_interjection',
+        $deterministic_reply,
+        'deterministic',
+        NULL,
+        NULL,
+        TRUE,
+        FALSE
+      );
     }
 
     // Find the live entity instance for real-time stats.
@@ -5400,14 +5633,284 @@ PROMPT;
         '@npc' => $entity_ref,
         '@err' => $e->getMessage(),
       ]);
-      return $this->buildFallbackNpcRoomDialogue($campaign_id, $entity_ref, $display_name, $player_message);
+      $fallback_reply = $this->buildFallbackNpcRoomDialogue($campaign_id, $entity_ref, $display_name, $player_message);
+      return $fallback_reply !== NULL
+        ? $this->buildCharacterDialoguePayload($campaign_id, $room_id, $entity_ref, $display_name, 'room', 'room_interjection', $fallback_reply, 'fallback', NULL, NULL, TRUE, FALSE)
+        : NULL;
     }
 
     if (empty($result['success']) || empty($result['response'])) {
-      return $this->buildFallbackNpcRoomDialogue($campaign_id, $entity_ref, $display_name, $player_message);
+      $fallback_reply = $this->buildFallbackNpcRoomDialogue($campaign_id, $entity_ref, $display_name, $player_message);
+      return $fallback_reply !== NULL
+        ? $this->buildCharacterDialoguePayload($campaign_id, $room_id, $entity_ref, $display_name, 'room', 'room_interjection', $fallback_reply, 'fallback', NULL, NULL, TRUE, FALSE)
+        : NULL;
     }
 
-    return trim($result['response']);
+    return $this->buildCharacterDialoguePayload(
+      $campaign_id,
+      $room_id,
+      $entity_ref,
+      $display_name,
+      'room',
+      'room_interjection',
+      trim((string) $result['response']),
+      'model',
+      NULL,
+      NULL,
+      TRUE,
+      FALSE
+    );
+  }
+
+  /**
+   * Build one canonical character dialogue payload for room-chat consumers.
+   */
+  protected function buildCharacterDialoguePayload(
+    int $campaign_id,
+    string $room_id,
+    ?string $speaker_ref,
+    string $speaker_name,
+    string $channel,
+    string $delivery_type,
+    string $text,
+    string $generation_source,
+    ?string $target_entity = NULL,
+    ?string $source_ability = NULL,
+    bool $interjection = FALSE,
+    bool $direct_addressed = FALSE
+  ): array {
+    $payload = [
+      'schema_version' => self::CHARACTER_DIALOGUE_SCHEMA_VERSION,
+      'speaker_ref' => ($speaker_ref !== NULL && trim($speaker_ref) !== '') ? trim($speaker_ref) : NULL,
+      'speaker_name' => trim($speaker_name),
+      'channel' => trim($channel) !== '' ? trim($channel) : 'room',
+      'delivery_type' => $delivery_type,
+      'text' => trim($text),
+      'context' => [
+        'campaign_id' => $campaign_id,
+        'room_id' => $room_id,
+        'generation_source' => $generation_source,
+        'target_entity' => ($target_entity !== NULL && trim($target_entity) !== '') ? trim($target_entity) : NULL,
+        'source_ability' => ($source_ability !== NULL && trim($source_ability) !== '') ? trim($source_ability) : NULL,
+      ],
+      'flags' => [
+        'interjection' => $interjection,
+        'direct_addressed' => $direct_addressed,
+      ],
+    ];
+
+    if (!$this->stateValidationService) {
+      return $payload;
+    }
+
+    $validation = $this->stateValidationService->validateCharacterDialogue($payload);
+    if (!empty($validation['valid'])) {
+      return $payload;
+    }
+
+    throw new \RuntimeException('Character dialogue contract violation: ' . implode('; ', $validation['errors'] ?? []));
+  }
+
+  /**
+   * Convert a canonical character dialogue payload into a persisted chat message.
+   */
+  protected function buildCharacterDialogueChatMessage(array $dialogue_payload, ?int $character_id = NULL): array {
+    $message = [
+      'speaker' => (string) ($dialogue_payload['speaker_name'] ?? 'Unknown'),
+      'message' => (string) ($dialogue_payload['text'] ?? ''),
+      'type' => 'npc',
+      'channel' => (string) ($dialogue_payload['channel'] ?? 'room'),
+      'timestamp' => date('c'),
+      'character_id' => $character_id,
+      'user_id' => 0,
+      'dialogue_payload' => $dialogue_payload,
+    ];
+
+    if (!empty($dialogue_payload['flags']['interjection'])) {
+      $message['interjection'] = TRUE;
+    }
+
+    return $message;
+  }
+
+  /**
+   * Build one canonical GM room-response payload.
+   */
+  protected function buildGmRoomResponsePayload(
+    string $narrative,
+    array $actions = [],
+    array $dice_rolls = [],
+    bool $suppress_npc_interjections = FALSE
+  ): array {
+    $payload = [
+      'schema_version' => self::GM_ROOM_RESPONSE_SCHEMA_VERSION,
+      'speaker' => 'Game Master',
+      'channel' => 'room',
+      'narrative' => trim($narrative),
+      'mechanical_actions' => array_values(array_map(static function (array $action): array {
+        return [
+          'type' => (string) ($action['type'] ?? 'unknown'),
+          'name' => (string) ($action['name'] ?? 'Unknown'),
+        ];
+      }, $actions)),
+      'dice_rolls' => array_values($dice_rolls),
+      'flags' => [
+        'suppress_npc_interjections' => $suppress_npc_interjections,
+      ],
+    ];
+
+    if (!$this->stateValidationService) {
+      return $payload;
+    }
+
+    $validation = $this->stateValidationService->validateGmRoomResponse($payload);
+    if (!empty($validation['valid'])) {
+      return $payload;
+    }
+
+    throw new \RuntimeException('GM room response contract violation: ' . implode('; ', $validation['errors'] ?? []));
+  }
+
+  /**
+   * Build one canonical room-turn harness payload.
+   */
+  protected function buildRoomTurnHarnessPayload(array $payload): array {
+    $result = [
+      'schema_version' => self::ROOM_TURN_HARNESS_SCHEMA_VERSION,
+      'player' => is_array($payload['player'] ?? NULL) ? $payload['player'] : ['message' => ''],
+      'gm' => is_array($payload['gm'] ?? NULL) ? $payload['gm'] : ['narrative' => ''],
+      'gm_addressed' => !empty($payload['gm_addressed']),
+      'directly_addressed_npc' => $payload['directly_addressed_npc'] ?? NULL,
+      'npc_turns' => array_values(is_array($payload['npc_turns'] ?? NULL) ? $payload['npc_turns'] : []),
+      'turn_log_key' => (string) ($payload['turn_log_key'] ?? ''),
+      'turn_logs' => array_values(is_array($payload['turn_logs'] ?? NULL) ? $payload['turn_logs'] : []),
+      'messages' => array_values(is_array($payload['messages'] ?? NULL) ? $payload['messages'] : []),
+    ];
+
+    if (!$this->stateValidationService) {
+      return $result;
+    }
+
+    $validation = $this->stateValidationService->validateRoomTurnHarness($result);
+    if (!empty($validation['valid'])) {
+      return $result;
+    }
+
+    throw new \RuntimeException('Room turn harness contract violation: ' . implode('; ', $validation['errors'] ?? []));
+  }
+
+  /**
+   * Build one canonical outer room-chat response envelope for postMessage().
+   */
+  protected function buildRoomChatResponsePayload(array $payload): array {
+    $result = [
+      'schema_version' => self::ROOM_CHAT_RESPONSE_SCHEMA_VERSION,
+      'message' => is_array($payload['message'] ?? NULL) ? $payload['message'] : [],
+      'totalMessages' => (int) ($payload['totalMessages'] ?? 0),
+      'dungeon_data' => is_array($payload['dungeon_data'] ?? NULL) ? $payload['dungeon_data'] : [],
+    ];
+
+    foreach ([
+      'gm_response',
+      'state_diff',
+      'turn_harness',
+      'canonical_actions',
+      'combat_transition',
+      'navigation',
+      'timing',
+      'debug_trace',
+    ] as $optional_object_key) {
+      if (array_key_exists($optional_object_key, $payload)) {
+        $result[$optional_object_key] = $payload[$optional_object_key];
+      }
+    }
+
+    foreach (['npc_interjections', 'quest_updates', 'turn_logs'] as $optional_array_key) {
+      if (array_key_exists($optional_array_key, $payload)) {
+        $result[$optional_array_key] = array_values(is_array($payload[$optional_array_key]) ? $payload[$optional_array_key] : []);
+      }
+    }
+
+    foreach (['gm_deferred', 'npc_interjections_deferred'] as $optional_bool_key) {
+      if (array_key_exists($optional_bool_key, $payload)) {
+        $result[$optional_bool_key] = (bool) $payload[$optional_bool_key];
+      }
+    }
+
+    if (array_key_exists('turn_log_key', $payload)) {
+      $result['turn_log_key'] = $payload['turn_log_key'] !== NULL ? (string) $payload['turn_log_key'] : NULL;
+    }
+
+    if (array_key_exists('client_request_id', $payload)) {
+      $result['client_request_id'] = $payload['client_request_id'] !== NULL ? (string) $payload['client_request_id'] : NULL;
+    }
+
+    if (!$this->stateValidationService) {
+      return $result;
+    }
+
+    $validation = $this->stateValidationService->validateRoomChatResponse($result);
+    if (!empty($validation['valid'])) {
+      return $result;
+    }
+
+    throw new \RuntimeException('Room chat response contract violation: ' . implode('; ', $validation['errors'] ?? []));
+  }
+
+  /**
+   * Build one canonical queued conversation continuation envelope.
+   */
+  protected function buildQueuedRoomContinuationPayload(array $payload): array {
+    $result = [
+      'schema_version' => self::QUEUED_ROOM_CONTINUATION_SCHEMA_VERSION,
+      'continued' => !empty($payload['continued']),
+      'queued_player_count' => (int) ($payload['queued_player_count'] ?? 0),
+      'queued_player_summary' => (string) ($payload['queued_player_summary'] ?? ''),
+      'channel' => (string) ($payload['channel'] ?? 'room'),
+    ];
+
+    foreach ([
+      'gm_response',
+      'state_diff',
+      'canonical_actions',
+      'navigation',
+      'turn_harness',
+      'timing',
+      'debug_trace',
+    ] as $optional_object_key) {
+      if (array_key_exists($optional_object_key, $payload)) {
+        $result[$optional_object_key] = $payload[$optional_object_key];
+      }
+    }
+
+    foreach (['turn_logs', 'npc_interjections'] as $optional_array_key) {
+      if (array_key_exists($optional_array_key, $payload)) {
+        $result[$optional_array_key] = array_values(is_array($payload[$optional_array_key]) ? $payload[$optional_array_key] : []);
+      }
+    }
+
+    if (array_key_exists('npc_interjections_deferred', $payload)) {
+      $result['npc_interjections_deferred'] = (bool) $payload['npc_interjections_deferred'];
+    }
+
+    if (array_key_exists('turn_log_key', $payload)) {
+      $result['turn_log_key'] = $payload['turn_log_key'] !== NULL ? (string) $payload['turn_log_key'] : NULL;
+    }
+
+    if (array_key_exists('client_request_id', $payload)) {
+      $result['client_request_id'] = $payload['client_request_id'] !== NULL ? (string) $payload['client_request_id'] : NULL;
+    }
+
+    if (!$this->stateValidationService) {
+      return $result;
+    }
+
+    $validation = $this->stateValidationService->validateQueuedRoomContinuation($result);
+    if (!empty($validation['valid'])) {
+      return $result;
+    }
+
+    throw new \RuntimeException('Queued room continuation contract violation: ' . implode('; ', $validation['errors'] ?? []));
   }
 
   /**
@@ -5429,23 +5932,14 @@ PROMPT;
     $profile = $this->psychologyService->loadProfile($campaign_id, $entity_ref) ?? [];
     $attitude = strtolower((string) ($profile['attitude'] ?? 'indifferent'));
     $role = strtolower((string) ($profile['role'] ?? ''));
-    $descriptor = strtolower($display_name . ' ' . $entity_ref . ' ' . $role . ' ' . ($profile['motivations'] ?? ''));
-
-    if (preg_match('/\b(?:hello|hi|hey|greetings)\b/u', $normalized)) {
-      return match ($attitude) {
-        'friendly', 'helpful' => "\"Hello. What can I do for you?\"",
-        'unfriendly', 'hostile' => "\"Make it quick.\"",
-        default => "\"What do you need?\"",
-      };
-    }
-
-    if (preg_match('/\b(?:thanks|thank you)\b/u', $normalized)) {
-      return match ($attitude) {
-        'friendly', 'helpful' => "\"You're welcome.\"",
-        'unfriendly', 'hostile' => "\"Mm.\"",
-        default => "\"Right.\"",
-      };
-    }
+    $descriptor = strtolower(trim(implode(' ', array_filter([
+      $display_name,
+      $entity_ref,
+      $role,
+      (string) ($profile['motivations'] ?? ''),
+      (string) ($profile['occupation'] ?? ''),
+      (string) ($profile['backstory'] ?? ''),
+    ]))));
 
     $asks_for_leads = $this->textContainsAny($normalized, [
       'quest', 'job', 'task', 'mission', 'work', 'reward', 'objective',
@@ -5462,6 +5956,22 @@ PROMPT;
       if ($generated_bootstrap !== NULL) {
         return $generated_bootstrap;
       }
+
+      $available_quest_offer = $this->buildAvailableQuestgiverQuestDialogue($campaign_id, $entity_ref, $display_name, $room_id, $dungeon_data);
+      if ($available_quest_offer !== NULL) {
+        return $available_quest_offer;
+      }
+
+      $alternate_lead_redirect = $this->buildAlternateQuestLeadRedirectDialogue($campaign_id, $entity_ref, $display_name, $player_message, $room_id, $dungeon_data);
+      if ($alternate_lead_redirect !== NULL) {
+        return $alternate_lead_redirect;
+      }
+
+      if ($this->textContainsAny($descriptor, ['informant', 'gossip', 'rumor', 'rumour', 'broker', 'lead', 'quest', 'mission', 'work', 'job'])) {
+        return '"Depends what kind of work you are after. Tell me the kind of trouble you want, and I will point you if I can."';
+      }
+
+      return '"If you are after work, say what kind. I might know a lead, or I might know who does."';
     }
 
     if ($this->looksLikeQuestOrLeadRequest($normalized) && ($this->npcSupportsQuestOrLeadRole($role) || $this->isBrokeredStorylineNpcRef($entity_ref))) {
@@ -5477,6 +5987,22 @@ PROMPT;
         return "\"State the item, quantity, and what coin you're paying with, and I'll settle the amount cleanly.\"";
       }
       return "\"Name what you want and how much of it, and I'll give you the price plainly.\"";
+    }
+
+    if (preg_match('/\b(?:hello|hi|hey|greetings)\b/u', $normalized)) {
+      return match ($attitude) {
+        'friendly', 'helpful' => "\"Hello. What can I do for you?\"",
+        'unfriendly', 'hostile' => "\"Make it quick.\"",
+        default => "\"What do you need?\"",
+      };
+    }
+
+    if (preg_match('/\b(?:thanks|thank you)\b/u', $normalized)) {
+      return match ($attitude) {
+        'friendly', 'helpful' => "\"You're welcome.\"",
+        'unfriendly', 'hostile' => "\"Mm.\"",
+        default => "\"Right.\"",
+      };
     }
 
     $answers = [];
@@ -5907,6 +6433,225 @@ PROMPT;
   }
 
   /**
+   * Offer an existing campaign quest from the active questgiver when bootstrap fails.
+   */
+  protected function buildAvailableQuestgiverQuestDialogue(
+    int $campaign_id,
+    string $entity_ref,
+    string $display_name,
+    string $room_id,
+    array $dungeon_data = []
+  ): ?string {
+    $giver_npc_id = $this->resolveCampaignQuestgiverNpcId($campaign_id, $entity_ref, $display_name, $room_id, $dungeon_data);
+    if ($giver_npc_id === NULL) {
+      return NULL;
+    }
+
+    $location_candidates = array_values(array_unique(array_filter([
+      $this->resolveRoomSlugForQuery($campaign_id, $room_id, $dungeon_data),
+      $room_id,
+    ], static fn($value): bool => is_string($value) && $value !== '')));
+
+    $query = $this->database->select('dc_campaign_quests', 'q')
+      ->fields('q', ['quest_id', 'quest_name', 'quest_description', 'generated_objectives', 'status', 'location_id'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('giver_npc_id', $giver_npc_id)
+      ->condition('status', ['available', 'active'], 'IN')
+      ->range(0, 8);
+
+    if ($location_candidates !== []) {
+      $query->condition('location_id', $location_candidates, 'IN');
+    }
+
+    $rows = $query->execute()->fetchAll();
+    if (!$rows) {
+      return NULL;
+    }
+
+    usort($rows, static function (object $a, object $b): int {
+      $status_a = strtolower((string) ($a->status ?? ''));
+      $status_b = strtolower((string) ($b->status ?? ''));
+      if ($status_a !== $status_b) {
+        return $status_a === 'available' ? -1 : 1;
+      }
+      return strcmp((string) ($a->quest_name ?? ''), (string) ($b->quest_name ?? ''));
+    });
+
+    foreach ($rows as $row) {
+      $line = $this->buildQuestgiverQuestDialogueLine($row, $display_name);
+      if ($line !== NULL) {
+        return $line;
+      }
+    }
+
+    return NULL;
+  }
+
+  /**
+   * Build the NPC-facing line for an offered or already-active quest.
+   */
+  protected function buildQuestgiverQuestDialogueLine(object $row, string $display_name): ?string {
+    $quest_name = trim((string) ($row->quest_name ?? ''));
+    if ($quest_name === '') {
+      return NULL;
+    }
+
+    $objective_hint = $this->extractQuestgiverObjectiveHint((string) ($row->generated_objectives ?? ''));
+    $description_hint = trim((string) ($row->quest_description ?? ''));
+    $speaker = $display_name !== '' ? $display_name . ' says, ' : '';
+    $status = strtolower(trim((string) ($row->status ?? 'available')));
+
+    if ($status === 'active') {
+      $line = 'You are already on ' . $quest_name . '.';
+      if ($objective_hint !== '') {
+        $line .= ' Start with: ' . $this->trimNpcDialogueClause($objective_hint);
+      }
+      elseif ($description_hint !== '') {
+        $line .= ' Follow this lead: ' . $this->trimNpcDialogueClause($description_hint);
+      }
+      return '"' . $speaker . $line . '"';
+    }
+
+    $line = 'I have work for you: ' . $quest_name . '.';
+    if ($objective_hint !== '') {
+      $line .= ' ' . $this->trimNpcDialogueClause($objective_hint);
+    }
+    elseif ($description_hint !== '') {
+      $line .= ' ' . $this->trimNpcDialogueClause($description_hint);
+    }
+
+    return '"' . $speaker . $line . '"';
+  }
+
+  /**
+   * Redirect a specific lead request toward the in-room questgiver who matches it.
+   */
+  protected function buildAlternateQuestLeadRedirectDialogue(
+    int $campaign_id,
+    string $entity_ref,
+    string $display_name,
+    string $player_message,
+    string $room_id,
+    array $dungeon_data = []
+  ): ?string {
+    $current_giver_npc_id = $this->resolveCampaignQuestgiverNpcId($campaign_id, $entity_ref, $display_name, $room_id, $dungeon_data);
+    $candidates = $this->loadRoomQuestLeadCandidates($campaign_id, $room_id, $dungeon_data);
+    $best_match = $this->selectBestMatchingQuestLeadCandidate($player_message, $candidates, $current_giver_npc_id ? [$current_giver_npc_id] : []);
+    if ($best_match === NULL) {
+      return NULL;
+    }
+
+    $giver_name = trim((string) ($best_match['giver_name'] ?? ''));
+    if ($giver_name === '') {
+      return NULL;
+    }
+
+    return '"That sounds like ' . $giver_name . '\'s work. Talk to ' . $giver_name . ' directly."';
+  }
+
+  /**
+   * Load candidate room quest leads that can satisfy a specific ask.
+   */
+  protected function loadRoomQuestLeadCandidates(int $campaign_id, string $room_id, array $dungeon_data = []): array {
+    $location_candidates = array_values(array_unique(array_filter([
+      $this->resolveRoomSlugForQuery($campaign_id, $room_id, $dungeon_data),
+      $room_id,
+    ], static fn($value): bool => is_string($value) && $value !== '')));
+
+    $query = $this->database->select('dc_campaign_quests', 'q')
+      ->fields('q', ['quest_name', 'quest_description', 'generated_objectives', 'giver_npc_id', 'status'])
+      ->condition('q.campaign_id', $campaign_id)
+      ->condition('q.status', ['available', 'active'], 'IN')
+      ->range(0, 24);
+    $query->leftJoin('dc_campaign_characters', 'c', 'c.id = q.giver_npc_id');
+    $query->addField('c', 'name', 'giver_name');
+
+    if ($location_candidates !== []) {
+      $query->condition('q.location_id', $location_candidates, 'IN');
+    }
+
+    $rows = $query->execute()->fetchAll();
+    return array_map(static fn(object $row): array => (array) $row, $rows ?: []);
+  }
+
+  /**
+   * Pick the best alternate quest lead for a specific player request.
+   */
+  protected function selectBestMatchingQuestLeadCandidate(string $player_message, array $candidates, array $exclude_giver_npc_ids = []): ?array {
+    $normalized_message = $this->normalizeQuestLeadMatchText($player_message);
+    $specific_tokens = $this->extractSpecificQuestLeadTokens($normalized_message);
+    if ($normalized_message === '' || $specific_tokens === [] || $candidates === []) {
+      return NULL;
+    }
+
+    $best_match = NULL;
+    $best_score = 0;
+    foreach ($candidates as $candidate) {
+      $giver_npc_id = (int) ($candidate['giver_npc_id'] ?? 0);
+      if ($giver_npc_id > 0 && in_array($giver_npc_id, $exclude_giver_npc_ids, TRUE)) {
+        continue;
+      }
+
+      $quest_name = $this->normalizeQuestLeadMatchText((string) ($candidate['quest_name'] ?? ''));
+      $quest_description = $this->normalizeQuestLeadMatchText((string) ($candidate['quest_description'] ?? ''));
+      $objective_hint = $this->normalizeQuestLeadMatchText($this->extractQuestgiverObjectiveHint((string) ($candidate['generated_objectives'] ?? '')));
+      $haystacks = array_filter([$quest_name, $quest_description, $objective_hint]);
+      if ($haystacks === []) {
+        continue;
+      }
+
+      $score = 0;
+      foreach ($specific_tokens as $token) {
+        foreach ($haystacks as $haystack) {
+          if (str_contains($haystack, $token)) {
+            $score += ($haystack === $quest_name) ? 3 : 1;
+            break;
+          }
+        }
+      }
+
+      if ($quest_name !== '' && str_contains($normalized_message, $quest_name)) {
+        $score += 4;
+      }
+
+      if ($score <= $best_score) {
+        continue;
+      }
+
+      $best_score = $score;
+      $best_match = $candidate;
+    }
+
+    return $best_score > 0 ? $best_match : NULL;
+  }
+
+  /**
+   * Extract topic tokens that indicate the player is already being specific.
+   */
+  protected function extractSpecificQuestLeadTokens(string $normalized_message): array {
+    if ($normalized_message === '') {
+      return [];
+    }
+
+    $generic_terms = array_flip([
+      'quest', 'job', 'task', 'mission', 'reward', 'objective', 'work',
+      'lead', 'contact', 'start', 'story', 'stories', 'storyline',
+      'storylines', 'module', 'modules', 'looking', 'look', 'want',
+      'need', 'after', 'where', 'find', 'talk', 'directly', 'got',
+      'have', 'kind', 'does', 'know', 'work',
+    ]);
+
+    $tokens = array_values(array_filter(
+      explode(' ', $normalized_message),
+      static function (string $token) use ($generic_terms): bool {
+        return strlen($token) >= 5 && !isset($generic_terms[$token]);
+      }
+    ));
+
+    return array_values(array_unique($tokens));
+  }
+
+  /**
    * Loads brokered storyline contacts for an NPC that introduces module starts.
    */
   protected function loadBrokeredStorylineContacts(int $campaign_id, string $entity_ref): array {
@@ -6019,7 +6764,8 @@ PROMPT;
       ->fetchAllAssoc('storyline_id');
 
     foreach ($rows as $row) {
-      $storyline_data = json_decode((string) ($row['storyline_data'] ?? '{}'), TRUE);
+      $storyline_row = is_array($row) ? $row : (array) $row;
+      $storyline_data = json_decode((string) ($storyline_row['storyline_data'] ?? '{}'), TRUE);
       if (!is_array($storyline_data)) {
         continue;
       }
@@ -6030,13 +6776,81 @@ PROMPT;
           && (string) ($contact['role'] ?? '') === 'quest_giver'
           && strtolower(trim((string) ($contact['entity_id'] ?? ''))) === strtolower(trim($entity_ref))
         ) {
-          $row['storyline_data'] = $storyline_data;
-          return $row;
+          $storyline_row['storyline_data'] = $storyline_data;
+          return $storyline_row;
         }
       }
     }
 
     return NULL;
+  }
+
+  /**
+   * Resolve the active campaign NPC row id for a canonical questgiver ref.
+   */
+  protected function resolveCampaignQuestgiverNpcId(
+    int $campaign_id,
+    string $entity_ref,
+    string $display_name,
+    string $room_id,
+    array $dungeon_data = []
+  ): ?int {
+    $room_slug = $this->resolveRoomSlugForQuery($campaign_id, $room_id, $dungeon_data);
+    $query = $this->database->select('dc_campaign_characters', 'c')
+      ->fields('c', ['id', 'name', 'role', 'instance_id', 'last_room_id', 'location_ref'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('type', 'npc');
+
+    if ($room_id !== '' || $room_slug) {
+      $room_match = $query->orConditionGroup();
+      if ($room_id !== '') {
+        $room_match->condition('last_room_id', $room_id);
+      }
+      if ($room_slug) {
+        $room_match->condition('location_ref', $room_slug);
+      }
+      $query->condition($room_match);
+    }
+
+    $rows = $query->range(0, 16)->execute()->fetchAll();
+    foreach ($rows as $row) {
+      $resolved = $this->resolveCampaignCharacterNpcProfile($campaign_id, $row);
+      $resolved_ref = strtolower(trim((string) ($resolved['entity_ref'] ?? '')));
+      if ($resolved_ref !== '' && $resolved_ref === strtolower(trim($entity_ref))) {
+        return (int) ($row->id ?? 0) ?: NULL;
+      }
+
+      $row_name = strtolower(trim((string) ($row->name ?? '')));
+      if ($display_name !== '' && $row_name !== '' && $row_name === strtolower(trim($display_name))) {
+        return (int) ($row->id ?? 0) ?: NULL;
+      }
+    }
+
+    return NULL;
+  }
+
+  /**
+   * Extract a concise first objective hint from generated quest objectives.
+   */
+  protected function extractQuestgiverObjectiveHint(string $generated_objectives_json): string {
+    $generated_objectives = json_decode($generated_objectives_json, TRUE);
+    if (!is_array($generated_objectives)) {
+      return '';
+    }
+
+    foreach ($generated_objectives as $phase) {
+      if (!is_array($phase)) {
+        continue;
+      }
+      foreach ((array) ($phase['objectives'] ?? []) as $objective) {
+        $description = trim((string) ($objective['description'] ?? $objective['objective_id'] ?? ''));
+        if ($description !== '') {
+          return $description;
+        }
+      }
+    }
+
+    return '';
   }
 
   /**
@@ -6706,6 +7520,8 @@ PROMPT;
         continue;
       }
 
+      $this->applyQuestgiverLeadTouchpoint($campaign_id, (int) $character_id, $room_id, $quest);
+
       $objective_lines = [];
       foreach (array_slice(is_array($quest['current_objectives'] ?? NULL) ? $quest['current_objectives'] : [], 0, 3) as $objective) {
         $description = trim((string) ($objective['description'] ?? $objective['objective_id'] ?? ''));
@@ -6752,6 +7568,41 @@ PROMPT;
     }
 
     return $updates;
+  }
+
+  /**
+   * Mark "speak to X" objectives complete when a questgiver directly surfaces a quest.
+   */
+  protected function applyQuestgiverLeadTouchpoint(int $campaign_id, int $character_id, string $room_id, array $quest): void {
+    if ($campaign_id <= 0 || $character_id <= 0) {
+      return;
+    }
+
+    $giver_npc_id = (int) ($quest['giver_npc_id'] ?? 0);
+    if ($giver_npc_id <= 0) {
+      return;
+    }
+
+    $row = $this->database->select('dc_campaign_characters', 'c')
+      ->fields('c', ['id', 'name', 'role', 'instance_id'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('id', $giver_npc_id)
+      ->condition('type', 'npc')
+      ->range(0, 1)
+      ->execute()
+      ->fetchObject();
+    if (!$row) {
+      return;
+    }
+
+    $resolved = $this->resolveCampaignCharacterNpcProfile($campaign_id, $row);
+    $npc_ref = trim((string) ($resolved['entity_ref'] ?? ''));
+    $target_name = trim((string) ($row->name ?? ''));
+    if ($npc_ref === '' && $target_name === '') {
+      return;
+    }
+
+    $this->applyConversationQuestTouchpoint($campaign_id, $character_id, $room_id, $npc_ref, $target_name);
   }
 
   /**
@@ -7252,6 +8103,240 @@ PROMPT;
   }
 
   /**
+   * Parse a JSON object from a model response body.
+   */
+  protected function parseJsonObjectFromText(string $text): ?array {
+    $trimmed = trim($text);
+    if ($trimmed === '') {
+      return NULL;
+    }
+
+    $decoded = json_decode($trimmed, TRUE);
+    if (is_array($decoded)) {
+      return $decoded;
+    }
+
+    if (preg_match('/```(?:json)?\s*(\{.*\})\s*```/is', $trimmed, $matches) === 1) {
+      $decoded = json_decode($matches[1], TRUE);
+      if (is_array($decoded)) {
+        return $decoded;
+      }
+    }
+
+    $start = strpos($trimmed, '{');
+    $end = strrpos($trimmed, '}');
+    if ($start !== FALSE && $end !== FALSE && $end > $start) {
+      $decoded = json_decode(substr($trimmed, $start, $end - $start + 1), TRUE);
+      if (is_array($decoded)) {
+        return $decoded;
+      }
+    }
+
+    return NULL;
+  }
+
+  /**
+   * Normalize the fallback automation recommendation into a policy decision shape.
+   */
+  protected function normalizeFallbackAutomationDecision(array $payload, array $snapshot, array $run_state, int $character_id): array {
+    $available_actions = array_values(array_unique(array_filter(
+      array_map(static fn($action): string => strtolower(trim((string) $action)), $snapshot['available_actions'] ?? []),
+      static fn(string $action): bool => $action !== ''
+    )));
+    $action_type = strtolower(trim((string) ($payload['action_type'] ?? '')));
+    $reason = trim((string) ($payload['reason'] ?? 'Fallback analysis selected the next action.'));
+    $target_id = trim((string) ($payload['target_id'] ?? ''));
+    $actor_id = (string) ($snapshot['actor_id'] ?? '');
+
+    if ($action_type === '' || !in_array($action_type, ['talk', 'search', 'transition', 'rest', 'wait'], TRUE) || ($action_type !== 'wait' && !in_array($action_type, $available_actions, TRUE))) {
+      return $this->buildDeterministicFallbackAutomationDecision($snapshot, $run_state, $character_id, $reason !== '' ? $reason : 'Fallback analysis returned an invalid action.');
+    }
+
+    $decision_meta = [
+      'stage' => 'rest_loop_llm_recovery',
+      'priority' => 15,
+      'room_id' => (string) ($snapshot['active_room_id'] ?? ''),
+      'analysis_fallback' => TRUE,
+    ];
+
+    if ($action_type === 'rest') {
+      return [
+        'type' => 'stop',
+        'reason' => $reason !== '' ? $reason : 'Fallback analysis recommends rest; automation should pause.',
+        'decision_meta' => [
+          'stage' => 'rest_analysis_stop',
+          'priority' => 14,
+          'room_id' => (string) ($snapshot['active_room_id'] ?? ''),
+          'analysis_fallback' => TRUE,
+        ],
+      ];
+    }
+
+    if ($action_type === 'search') {
+      return [
+        'type' => 'intent',
+        'reason' => $reason,
+        'intent' => [
+          'type' => 'search',
+          'actor' => $actor_id,
+          'params' => [
+            'automation_goal' => 'rest_loop_recovery',
+          ],
+        ],
+        'decision_meta' => $decision_meta,
+      ];
+    }
+
+    if ($action_type === 'transition') {
+      $valid_room_ids = array_values(array_filter(array_map(static fn(array $room): string => (string) ($room['room_id'] ?? ''), $snapshot['connected_rooms'] ?? [])));
+      if ($target_id === '' || !in_array($target_id, $valid_room_ids, TRUE)) {
+        return $this->buildDeterministicFallbackAutomationDecision($snapshot, $run_state, $character_id, 'Fallback analysis selected an invalid room target.');
+      }
+      return [
+        'type' => 'intent',
+        'reason' => $reason,
+        'intent' => [
+          'type' => 'transition',
+          'actor' => $actor_id,
+          'params' => [
+            'target_room_id' => $target_id,
+            'automation_goal' => 'rest_loop_recovery',
+          ],
+        ],
+        'decision_meta' => $decision_meta + ['target' => $target_id],
+      ];
+    }
+
+    if ($action_type === 'talk') {
+      $valid_npcs = [];
+      foreach (($snapshot['visible_npcs'] ?? []) as $npc) {
+        $npc_id = (string) ($npc['entity_instance_id'] ?? $npc['instance_id'] ?? $npc['id'] ?? '');
+        if ($npc_id !== '') {
+          $valid_npcs[] = $npc_id;
+        }
+      }
+      $talked_entities = array_values(array_map('strval', (array) ($run_state['memory']['talked_entities'] ?? [])));
+      $has_active_lead = is_array($run_state['memory']['pending_conversation_lead'] ?? NULL)
+        || is_array($run_state['memory']['active_npc_lead'] ?? NULL);
+      $message = $this->sanitizePlayerAutomationSuggestion((string) ($payload['message'] ?? ''));
+      if ($target_id === '' || $message === '' || !in_array($target_id, $valid_npcs, TRUE)) {
+        return $this->buildDeterministicFallbackAutomationDecision($snapshot, $run_state, $character_id, 'Fallback analysis selected an invalid NPC talk action.');
+      }
+      if (in_array($target_id, $talked_entities, TRUE) && !$has_active_lead) {
+        return $this->buildDeterministicFallbackAutomationDecision($snapshot, $run_state, $character_id, 'Fallback analysis repeated an exhausted NPC target without a new actionable lead.');
+      }
+      return [
+        'type' => 'intent',
+        'reason' => $reason,
+        'intent' => [
+          'type' => 'talk',
+          'actor' => $actor_id,
+          'target' => $target_id,
+          'params' => [
+            'message' => $message,
+            'character_id' => $character_id,
+            'automation_goal' => 'rest_loop_recovery',
+          ],
+        ],
+        'decision_meta' => $decision_meta + ['target' => $target_id],
+      ];
+    }
+
+    return [
+      'type' => 'wait',
+      'reason' => $reason !== '' ? $reason : 'Fallback analysis chose to wait.',
+      'decision_meta' => $decision_meta,
+    ];
+  }
+
+  /**
+   * Deterministic non-rest fallback when the LLM recovery path cannot produce a valid action.
+   */
+  protected function buildDeterministicFallbackAutomationDecision(array $snapshot, array $run_state, int $character_id, string $reason): array {
+    $available_actions = array_values(array_unique(array_filter(
+      array_map(static fn($action): string => strtolower(trim((string) $action)), $snapshot['available_actions'] ?? []),
+      static fn(string $action): bool => $action !== '' && $action !== 'rest'
+    )));
+    $actor_id = (string) ($snapshot['actor_id'] ?? '');
+    $decision_meta = [
+      'stage' => 'rest_loop_deterministic_recovery',
+      'priority' => 16,
+      'room_id' => (string) ($snapshot['active_room_id'] ?? ''),
+      'analysis_fallback' => TRUE,
+    ];
+    $talked_entities = $run_state['memory']['talked_entities'] ?? [];
+    $searched_rooms = $run_state['memory']['searched_rooms'] ?? [];
+    $current_room_id = (string) ($snapshot['active_room_id'] ?? '');
+
+    if (in_array('search', $available_actions, TRUE) && $current_room_id !== '' && !in_array($current_room_id, $searched_rooms, TRUE)) {
+      return [
+        'type' => 'intent',
+        'reason' => $reason !== '' ? $reason : 'Avoid repeating rest; search the current room instead.',
+        'intent' => [
+          'type' => 'search',
+          'actor' => $actor_id,
+          'params' => [
+            'automation_goal' => 'rest_loop_recovery',
+          ],
+        ],
+        'decision_meta' => $decision_meta,
+      ];
+    }
+
+    if (in_array('transition', $available_actions, TRUE)) {
+      foreach (($snapshot['connected_rooms'] ?? []) as $room) {
+        $target_room_id = (string) ($room['room_id'] ?? '');
+        if ($target_room_id !== '') {
+          return [
+            'type' => 'intent',
+            'reason' => $reason !== '' ? $reason : 'Avoid repeating rest; move to the next connected room.',
+            'intent' => [
+              'type' => 'transition',
+              'actor' => $actor_id,
+              'params' => [
+                'target_room_id' => $target_room_id,
+                'automation_goal' => 'rest_loop_recovery',
+              ],
+            ],
+            'decision_meta' => $decision_meta + ['target' => $target_room_id],
+          ];
+        }
+      }
+    }
+
+    if (in_array('talk', $available_actions, TRUE)) {
+      foreach (($snapshot['visible_npcs'] ?? []) as $npc) {
+        $npc_id = (string) ($npc['entity_instance_id'] ?? $npc['instance_id'] ?? $npc['id'] ?? '');
+        $npc_name = (string) ($npc['name'] ?? $npc['display_name'] ?? $npc['state']['metadata']['display_name'] ?? 'friend');
+        if ($npc_id === '' || in_array($npc_id, $talked_entities, TRUE)) {
+          continue;
+        }
+        return [
+          'type' => 'intent',
+          'reason' => $reason !== '' ? $reason : 'Avoid repeating rest; ask the best available NPC for direction.',
+          'intent' => [
+            'type' => 'talk',
+            'actor' => $actor_id,
+            'target' => $npc_id,
+            'params' => [
+              'message' => sprintf('Hello %s. I need the clearest next step to advance my current objective. What should I do right now?', $npc_name),
+              'character_id' => $character_id,
+              'automation_goal' => 'rest_loop_recovery',
+            ],
+          ],
+          'decision_meta' => $decision_meta + ['target' => $npc_id],
+        ];
+      }
+    }
+
+    return [
+      'type' => 'wait',
+      'reason' => $reason !== '' ? $reason : 'No valid non-rest fallback action is available.',
+      'decision_meta' => $decision_meta,
+    ];
+  }
+
+  /**
    * Apply quest interact progress when the player has a substantive NPC exchange.
    */
   protected function applyConversationQuestTouchpoint(int $campaign_id, ?int $character_id, string $room_id, string $npc_ref, string $target_name = ''): void {
@@ -7259,9 +8344,9 @@ PROMPT;
       return;
     }
 
-    $resolved_npc_ref = trim($npc_ref);
+    $resolved_npc_ref = trim($target_name);
     if ($resolved_npc_ref === '') {
-      $resolved_npc_ref = trim($target_name);
+      $resolved_npc_ref = trim($npc_ref);
     }
     if ($resolved_npc_ref === '') {
       return;
@@ -7273,7 +8358,7 @@ PROMPT;
         'touchpoint' => [
           'objective_type' => 'interact',
           'npc_ref' => $resolved_npc_ref,
-          'entity_ref' => $resolved_npc_ref,
+          'entity_ref' => trim($npc_ref) !== '' ? trim($npc_ref) : $resolved_npc_ref,
           'room_id' => $room_id,
           'confidence' => 'high',
           'quantity' => 1,

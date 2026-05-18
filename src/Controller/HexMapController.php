@@ -98,6 +98,17 @@ class HexMapController extends ControllerBase {
       $query->has('start_r')
     );
 
+    $this->getLogger('dungeoncrawler_hexmap')->notice('Hexmap demo launch request: campaign_id=@campaign_id character_id=@character_id map_id=@map_id dungeon_level_id=@dungeon_level_id room_id=@room_id start_q=@start_q start_r=@start_r next_room_id=@next_room_id', [
+      '@campaign_id' => (int) ($launch_context['campaign_id'] ?? 0),
+      '@character_id' => (int) ($launch_context['character_id'] ?? 0),
+      '@map_id' => (string) ($launch_context['map_id'] ?? ''),
+      '@dungeon_level_id' => (string) ($launch_context['dungeon_level_id'] ?? ''),
+      '@room_id' => (string) ($launch_context['room_id'] ?? ''),
+      '@start_q' => (int) ($launch_context['start_q'] ?? 0),
+      '@start_r' => (int) ($launch_context['start_r'] ?? 0),
+      '@next_room_id' => (string) ($launch_context['next_room_id'] ?? ''),
+    ]);
+
     // Determine admin status for shell gating (debug panels, dev controls).
     $is_admin = in_array('administrator', $account->getRoles(), TRUE)
       || (int) $account->id() === 1;
@@ -227,6 +238,7 @@ class HexMapController extends ControllerBase {
 
     $base_fields = [
       'id',
+      'campaign_id',
       'character_id',
       'instance_id',
       'name',
@@ -258,18 +270,34 @@ class HexMapController extends ControllerBase {
       ->fetchAssoc();
 
     if ($record) {
+      $match_mode = 'campaign_instance';
+      if ((int) ($record['id'] ?? 0) === $character_id) {
+        $match_mode = 'campaign_row_id';
+      }
+      elseif ((int) ($record['character_id'] ?? 0) === $character_id) {
+        $match_mode = 'canonical_character_id';
+      }
+      elseif ((string) ($record['instance_id'] ?? '') === sprintf('pc-%d-%d', $campaign_id, $character_id)) {
+        $match_mode = 'campaign_instance_id';
+      }
+      $this->getLogger('dungeoncrawler_hexmap')->notice('Hexmap launch character resolved in campaign scope: campaign_id=@campaign_id requested_character_id=@requested_character_id matched_row_id=@matched_row_id canonical_character_id=@canonical_character_id instance_id=@instance_id match_mode=@match_mode', [
+        '@campaign_id' => $campaign_id,
+        '@requested_character_id' => $character_id,
+        '@matched_row_id' => (int) ($record['id'] ?? 0),
+        '@canonical_character_id' => (int) ($record['character_id'] ?? 0),
+        '@instance_id' => (string) ($record['instance_id'] ?? ''),
+        '@match_mode' => $match_mode,
+      ]);
       return $record;
     }
 
-    $fallback = $this->database->select('dc_campaign_characters', 'cc')
-      ->fields('cc', $fields)
-      ->condition('id', $character_id)
-      ->orderBy('updated', 'DESC')
-      ->range(0, 1)
-      ->execute()
-      ->fetchAssoc();
+    $this->getLogger('dungeoncrawler_hexmap')->warning('Hexmap launch character could not be resolved in campaign scope; refusing cross-campaign fallback: campaign_id=@campaign_id requested_character_id=@requested_character_id expected_instance_id=@instance_id', [
+      '@campaign_id' => $campaign_id,
+      '@requested_character_id' => $character_id,
+      '@instance_id' => sprintf('pc-%d-%d', $campaign_id, $character_id),
+    ]);
 
-    return $fallback ?: NULL;
+    return NULL;
   }
 
   /**
@@ -709,6 +737,11 @@ class HexMapController extends ControllerBase {
     ]) ?? []);
 
     if (empty((array) $record)) {
+      $this->getLogger('dungeoncrawler_hexmap')->warning('Hexmap could not inject launch character entity because no campaign character record was available: campaign_id=@campaign_id requested_character_id=@character_id room_id=@room_id', [
+        '@campaign_id' => $campaign_id,
+        '@character_id' => $launch_character_id,
+        '@room_id' => $room_id,
+      ]);
       return $dungeon_payload;
     }
 
@@ -797,6 +830,16 @@ class HexMapController extends ControllerBase {
         ],
       ],
     ];
+
+    $this->getLogger('dungeoncrawler_hexmap')->notice('Hexmap injected launch character entity: campaign_id=@campaign_id requested_character_id=@requested_character_id injected_row_id=@row_id injected_instance_id=@instance_id room_id=@room_id hex_q=@hex_q hex_r=@hex_r', [
+      '@campaign_id' => $campaign_id,
+      '@requested_character_id' => $launch_character_id,
+      '@row_id' => (int) ($record->id ?? 0),
+      '@instance_id' => (string) ($record->instance_id ?? ''),
+      '@room_id' => $room_id,
+      '@hex_q' => $hex_q,
+      '@hex_r' => $hex_r,
+    ]);
 
     $this->injectOwnedAnimalCompanionEntity($dungeon_payload, (array) $record, $char_data, $room_id, $hex_q, $hex_r, $occupied);
 
@@ -939,9 +982,11 @@ class HexMapController extends ControllerBase {
    * Resolve best portrait URL for a single player or NPC entity.
    */
   protected function resolveEntityPortraitUrl(array $entity, int $campaign_id): ?string {
+    $entity_type = strtolower((string) ($entity['entity_type'] ?? ''));
     $metadata = is_array($entity['state']['metadata'] ?? NULL) ? $entity['state']['metadata'] : [];
     $content_id = (string) ($entity['entity_ref']['content_id'] ?? '');
     $character_id = (int) ($metadata['character_id'] ?? 0);
+    $name = trim((string) ($metadata['display_name'] ?? $metadata['name'] ?? ''));
 
     // Path 1: Look up by character_id in dc_campaign_characters.
     if ($character_id > 0) {
@@ -979,8 +1024,41 @@ class HexMapController extends ControllerBase {
       }
     }
 
-    // Path 3: Look up by display_name matched to dc_campaign_characters.
-    $name = trim((string) ($metadata['display_name'] ?? $metadata['name'] ?? ''));
+    // Path 3: Look up by exact asset-library aliases derived from the NPC name.
+    if ($name !== '') {
+      foreach ($this->buildPortraitAssetAliasCandidates($name) as $asset_id) {
+        $rows = $this->imageRepository->loadImagesForObject('dc_dungeon_sprites', $asset_id, NULL, 'portrait', 'original');
+        if (!empty($rows)) {
+          return $this->normalizePortraitUrl($this->imageRepository->resolveClientUrl($rows[0]));
+        }
+      }
+    }
+
+    // Path 4: Look up by exact campaign NPC/library bindings before name scans.
+    if ($name !== '' && $campaign_id > 0) {
+      $campaign_npc_id = $this->findCampaignNpcPortraitSourceId($campaign_id, $content_id, $name);
+      if ($campaign_npc_id !== NULL) {
+        $rows = $this->imageRepository->loadImagesForObject('dc_npc', (string) $campaign_npc_id, $campaign_id, 'portrait', 'original');
+        if (empty($rows)) {
+          $rows = $this->imageRepository->loadImagesForObject('dc_npc', (string) $campaign_npc_id, NULL, 'portrait', 'original');
+        }
+        if (!empty($rows)) {
+          return $this->normalizePortraitUrl($this->imageRepository->resolveClientUrl($rows[0]));
+        }
+      }
+    }
+
+    if ($name !== '') {
+      $library_npc_id = $this->findLibraryNpcPortraitSourceId($name);
+      if ($library_npc_id !== NULL) {
+        $rows = $this->imageRepository->loadImagesForObject('dungeoncrawler_content_characters', (string) $library_npc_id, NULL, 'portrait', 'original');
+        if (!empty($rows)) {
+          return $this->normalizePortraitUrl($this->imageRepository->resolveClientUrl($rows[0]));
+        }
+      }
+    }
+
+    // Path 5: Look up by display_name matched to same-campaign characters.
     if ($name !== '' && $campaign_id > 0) {
       $campaign_character_id = $this->database->select('dc_campaign_characters', 'cc')
         ->fields('cc', ['id'])
@@ -1003,6 +1081,10 @@ class HexMapController extends ControllerBase {
         }
       }
 
+      if ($entity_type === 'npc') {
+        return NULL;
+      }
+
       // Cross-campaign name scan: search all campaigns for a character with the same name that has a portrait.
       $other_character_ids = $this->database->select('dc_campaign_characters', 'cc')
         ->fields('cc', ['id'])
@@ -1022,6 +1104,114 @@ class HexMapController extends ControllerBase {
     }
 
     return NULL;
+  }
+
+  /**
+   * Resolve a campaign-local dc_npc row for a portrait lookup.
+   */
+  protected function findCampaignNpcPortraitSourceId(int $campaign_id, string $content_id, string $name): ?int {
+    if ($campaign_id <= 0 || ($content_id === '' && $name === '')) {
+      return NULL;
+    }
+
+    $query = $this->database->select('dc_npc', 'n')
+      ->fields('n', ['id'])
+      ->condition('campaign_id', $campaign_id)
+      ->orderBy('updated', 'DESC')
+      ->orderBy('id', 'DESC')
+      ->range(0, 1);
+
+    $match_group = $query->orConditionGroup();
+    if ($content_id !== '') {
+      $entity_refs = [$content_id];
+      if (!str_starts_with($content_id, 'npc_')) {
+        $entity_refs[] = 'npc_' . $content_id;
+      }
+      $match_group->condition('entity_ref', array_values(array_unique($entity_refs)), 'IN');
+    }
+    if ($name !== '') {
+      $match_group->condition('name', $name);
+    }
+
+    $query->condition($match_group);
+    $npc_id = $query->execute()->fetchField();
+
+    return $npc_id !== FALSE ? (int) $npc_id : NULL;
+  }
+
+  /**
+   * Resolve a global library NPC row for a portrait lookup by exact name.
+   */
+  protected function findLibraryNpcPortraitSourceId(string $name): ?int {
+    $name = trim($name);
+    if ($name === '') {
+      return NULL;
+    }
+
+    $candidates = $this->database->select('dungeoncrawler_content_characters', 'c')
+      ->fields('c', ['id', 'state_data'])
+      ->condition('type', 'npc')
+      ->condition('state_data', '%' . $this->database->escapeLike($name) . '%', 'LIKE')
+      ->orderBy('id', 'DESC')
+      ->execute()
+      ->fetchAllAssoc('id');
+
+    if (!is_array($candidates) || empty($candidates)) {
+      return NULL;
+    }
+
+    foreach ($candidates as $candidate) {
+      $state_data = json_decode((string) ($candidate->state_data ?? '{}'), TRUE);
+      if (!is_array($state_data)) {
+        continue;
+      }
+      if (trim((string) ($state_data['name'] ?? '')) !== $name) {
+        continue;
+      }
+
+      return (int) ($candidate->id ?? 0) ?: NULL;
+    }
+
+    return NULL;
+  }
+
+  /**
+   * Build asset-library alias candidates for portrait lookup.
+   *
+   * For authored tavern NPCs we have stable portrait assets under the NPC's
+   * canonical name (for example "eldric" or "marta"), while the room instance
+   * content_id may be a generic role ID such as "tavern_keeper".
+   *
+   * @return array<int, string>
+   *   Ordered alias candidates, most specific first.
+   */
+  protected function buildPortraitAssetAliasCandidates(string $name): array {
+    $normalized = strtolower(trim($name));
+    if ($normalized === '') {
+      return [];
+    }
+
+    $full_slug = preg_replace('/[^a-z0-9]+/', '_', $normalized) ?? '';
+    $full_slug = trim($full_slug, '_');
+    if ($full_slug === '') {
+      return [];
+    }
+
+    $candidates = [$full_slug];
+
+    if (str_contains($full_slug, '_the_')) {
+      $prefix = strstr($full_slug, '_the_', TRUE);
+      if (is_string($prefix) && $prefix !== '') {
+        $candidates[] = $prefix;
+      }
+    }
+
+    $first_token = strtok($full_slug, '_');
+    if (is_string($first_token) && $first_token !== '') {
+      $candidates[] = $first_token;
+    }
+
+    return array_values(array_unique($candidates));
   }
 
   /**

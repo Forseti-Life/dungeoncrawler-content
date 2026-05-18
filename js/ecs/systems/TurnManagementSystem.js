@@ -644,9 +644,12 @@ export class TurnManagementSystem extends System {
       }
     });
 
+    const currentTurnIndex = Number(serverState.turn_index);
+    const currentRound = Number(serverState.current_round);
+
     this.initiativeOrder = order;
-    this.currentTurnIndex = Number.isInteger(serverState.turn_index) ? serverState.turn_index : 0;
-    this.currentRound = Number.isInteger(serverState.current_round) ? serverState.current_round : 1;
+    this.currentTurnIndex = Number.isFinite(currentTurnIndex) ? currentTurnIndex : 0;
+    this.currentRound = Number.isFinite(currentRound) && currentRound > 0 ? currentRound : 1;
     this.combatState = serverState?.status === 'active'
       ? CombatState.IN_PROGRESS
       : previousCombatState;

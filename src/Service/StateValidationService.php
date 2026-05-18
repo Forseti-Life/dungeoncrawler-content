@@ -100,6 +100,41 @@ class StateValidationService {
   }
 
   /**
+   * Validate a standardized character dialogue payload.
+   */
+  public function validateCharacterDialogue(array $dialogue): array {
+    return $this->validateAgainstSchema($dialogue, 'character_dialogue.schema.json');
+  }
+
+  /**
+   * Validate a standardized GM room response payload.
+   */
+  public function validateGmRoomResponse(array $response): array {
+    return $this->validateAgainstSchema($response, 'gm_room_response.schema.json');
+  }
+
+  /**
+   * Validate a standardized room turn harness result payload.
+   */
+  public function validateRoomTurnHarness(array $payload): array {
+    return $this->validateAgainstSchema($payload, 'room_turn_harness.schema.json');
+  }
+
+  /**
+   * Validate a standardized room-chat response envelope.
+   */
+  public function validateRoomChatResponse(array $payload): array {
+    return $this->validateAgainstSchema($payload, 'room_chat_response.schema.json');
+  }
+
+  /**
+   * Validate a standardized queued room continuation envelope.
+   */
+  public function validateQueuedRoomContinuation(array $payload): array {
+    return $this->validateAgainstSchema($payload, 'queued_room_continuation.schema.json');
+  }
+
+  /**
    * Validate data against a schema file.
    */
   private function validateAgainstSchema(array $data, string $schema_filename): array {
