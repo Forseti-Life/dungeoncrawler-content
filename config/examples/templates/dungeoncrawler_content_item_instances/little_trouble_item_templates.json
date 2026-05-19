@@ -3,8 +3,8 @@
     {
       "item_instance_id": "ltba-magical-hedge-trimmer-default",
       "item_id": "ltba-magical-hedge-trimmer",
-      "location_type": "library",
-      "location_ref": "little-trouble-in-big-absalom",
+      "location_type": "room",
+      "location_ref": "ltba-grandmas-house-garden",
       "quantity": 1,
       "state_data": {
         "condition": "new",

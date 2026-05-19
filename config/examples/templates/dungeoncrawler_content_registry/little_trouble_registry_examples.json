@@ -1,6 +1,37 @@
 {
   "rows": [
     {
+      "content_type": "location",
+      "content_id": "ltba-grandmas-house",
+      "name": "Grandma's House",
+      "level": 1,
+      "rarity": "common",
+      "tags": [
+        "location",
+        "home",
+        "urban",
+        "social_hub",
+        "little_trouble_in_big_absalom"
+      ],
+      "schema_data": {
+        "location_id": "ltba-grandmas-house",
+        "location_type": "residence",
+        "source_book": "paizo_free_rpg_day",
+        "source_module": "little-trouble-in-big-absalom",
+        "description": "A warm, slightly overgrown Absalom home where the Kind Old Lady welcomes the kobolds and explains the missing hedge trimmer problem.",
+        "arrival_narration": "The lane opens onto a tidy little house with bright shutters, herb boxes under the windows, and a gate that has clearly seen recent trimming work fall into disrepair.",
+        "gm_notes": "Use this as the social anchor for the second Little Trouble chapter. The grandmother is here, the stakes are low and personal, and the tone should feel neighborly rather than ominous.",
+        "key_npcs": [
+          "ltba-grandmother"
+        ],
+        "linked_rooms": [
+          "ltba-grandmas-house-parlor",
+          "ltba-grandmas-house-garden"
+        ]
+      },
+      "version": "1.0.0"
+    },
+    {
       "content_type": "item",
       "content_id": "ltba-magical-hedge-trimmer",
       "name": "Magical Hedge Trimmer",
@@ -18,7 +49,7 @@
         "source_book": "paizo_free_rpg_day",
         "source_module": "little-trouble-in-big-absalom",
         "price_gp": 0,
-        "description": "A magical hedge trimmer sought during the Upstairs! chapter."
+        "description": "A magical hedge trimmer sought during the Grandma's House chapter."
       },
       "version": "1.0.0"
     }

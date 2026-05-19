@@ -12,6 +12,7 @@ class StorylineRealizationService {
   public function __construct(
     protected readonly Connection $database,
     protected readonly ?NpcSheetGenerationService $npcSheetGenerationService = NULL,
+    protected readonly ?StateValidationService $stateValidationService = NULL,
   ) {}
 
   /**
@@ -283,14 +284,7 @@ class StorylineRealizationService {
             continue;
           }
 
-          $schema_data = [
-            'content_id' => $content_id,
-            'name' => (string) ($item['name'] ?? $content_id),
-            'description' => (string) ($item['description'] ?? ''),
-            'quest_association' => (string) ($item['quest_association'] ?? ''),
-            'storyline_id' => $storyline_id,
-            'room_id' => $room_id,
-          ];
+          $schema_data = $this->buildGeneratedItemContract($content_id, $item);
           $tags = json_encode($item['tags'] ?? ['storyline', 'generated'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
           $this->database->merge('dungeoncrawler_content_registry')
             ->keys([
@@ -596,6 +590,31 @@ class StorylineRealizationService {
       return 'Generated Asset';
     }
     return ucwords($text);
+  }
+
+  /**
+   * Build a canonical generated item contract.
+   */
+  protected function buildGeneratedItemContract(string $content_id, array $item): array {
+    $contract = [
+      'schema_version' => '1.0.0',
+      'item_id' => $content_id,
+      'name' => (string) ($item['name'] ?? $content_id),
+      'item_type' => 'artifact',
+      'level' => 1,
+      'rarity' => 'common',
+      'description' => (string) ($item['description'] ?? ''),
+      'traits' => array_values(array_filter(array_map('strval', $item['tags'] ?? []))),
+    ];
+
+    if ($this->stateValidationService !== NULL) {
+      $validation = $this->stateValidationService->validateItemDefinition($contract);
+      if (!($validation['valid'] ?? FALSE)) {
+        throw new \RuntimeException('Generated item contract violation: ' . implode('; ', $validation['errors'] ?? []));
+      }
+    }
+
+    return $contract;
   }
 
   /**

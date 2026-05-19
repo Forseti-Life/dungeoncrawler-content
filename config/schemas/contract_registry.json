@@ -1,0 +1,77 @@
+{
+  "schema_version": "contract-registry-v1",
+  "contracts": {
+    "campaign_state": {
+      "schema": "campaign.schema.json",
+      "description": "Canonical campaign state payload."
+    },
+    "dungeon_state": {
+      "schema": "dungeon_level.schema.json",
+      "description": "Canonical dungeon level payload."
+    },
+    "room_state": {
+      "schema": "room.schema.json",
+      "description": "Canonical room payload."
+    },
+    "npc_sheet": {
+      "schema": "npc_sheet.schema.json",
+      "description": "Canonical generated NPC sheet payload."
+    },
+    "item_definition": {
+      "schema": "item.schema.json",
+      "description": "Canonical item definition payload."
+    },
+    "storyline_definition": {
+      "schema": "storyline_definition.schema.json",
+      "description": "Canonical storyline definition payload."
+    },
+    "storyline_bootstrap_request": {
+      "schema": "storyline_bootstrap_request.schema.json",
+      "description": "Canonical live bootstrap request payload."
+    },
+    "storyline_expansion_job": {
+      "schema": "storyline_expansion_job.schema.json",
+      "description": "Canonical queued storyline expansion job payload."
+    },
+    "storyline_runtime": {
+      "schema": "storyline_runtime.schema.json",
+      "description": "Canonical stored storyline runtime payload."
+    },
+    "quest_summary": {
+      "schema": "quest_summary.schema.json",
+      "description": "Canonical hexmap quest summary payload."
+    },
+    "quest_update": {
+      "schema": "quest_update.schema.json",
+      "description": "Canonical room-chat quest update payload."
+    },
+    "objective_type_options": {
+      "schema": "objective_type_options.schema.json",
+      "description": "Canonical objective type options registry."
+    },
+    "npc_quest_giver_policies": {
+      "schema": "npc_quest_giver_policies.schema.json",
+      "description": "Canonical NPC quest-giver allowlist policy registry."
+    },
+    "character_dialogue": {
+      "schema": "character_dialogue.schema.json",
+      "description": "Canonical room character dialogue payload."
+    },
+    "gm_room_response": {
+      "schema": "gm_room_response.schema.json",
+      "description": "Canonical GM room response payload."
+    },
+    "room_turn_harness": {
+      "schema": "room_turn_harness.schema.json",
+      "description": "Canonical room turn harness payload."
+    },
+    "room_chat_response": {
+      "schema": "room_chat_response.schema.json",
+      "description": "Canonical room chat response envelope."
+    },
+    "queued_room_continuation": {
+      "schema": "queued_room_continuation.schema.json",
+      "description": "Canonical queued room continuation envelope."
+    }
+  }
+}

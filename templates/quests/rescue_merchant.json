@@ -5,7 +5,11 @@
   "quest_type": "rescue",
   "level_min": 2,
   "level_max": 5,
-  "tags": ["combat", "rescue", "time_limited"],
+  "tags": [
+    "combat",
+    "rescue",
+    "time_limited"
+  ],
   "objectives_schema": [
     {
       "phase": 1,
@@ -13,21 +17,42 @@
         {
           "objective_id": "find_location",
           "type": "explore",
-          "target": "{location}",
-          "description": "Find the {location}"
+          "description": "Find the {location}",
+          "location": "{location}",
+          "completion_criteria": {
+            "kind": "flag",
+            "metric": "discovered",
+            "required_value": true,
+            "description": "Discover the required location."
+          }
         },
         {
           "objective_id": "defeat_captors",
           "type": "kill",
           "target": "{target}",
-          "target_count_range": [4, 8],
-          "description": "Defeat the {target}s holding {npc}"
+          "target_count_range": [
+            4,
+            8
+          ],
+          "description": "Defeat the {target}s holding {npc}",
+          "completion_criteria": {
+            "kind": "count",
+            "metric": "current",
+            "target_count": 1,
+            "description": "Reach the required progress count."
+          }
         },
         {
           "objective_id": "rescue_npc",
           "type": "interact",
           "target": "{npc}",
-          "description": "Free {npc} from captivity"
+          "description": "Free {npc} from captivity",
+          "completion_criteria": {
+            "kind": "flag",
+            "metric": "completed",
+            "required_value": true,
+            "description": "Mark this objective complete."
+          }
         }
       ]
     },
@@ -37,9 +62,14 @@
         {
           "objective_id": "escort_to_safety",
           "type": "escort",
-          "target": "{npc}",
           "destination": "{safe_location}",
-          "description": "Escort {npc} back to safety"
+          "description": "Escort {npc} back to safety",
+          "completion_criteria": {
+            "kind": "flag",
+            "metric": "arrived",
+            "required_value": true,
+            "description": "Reach the required destination."
+          }
         }
       ]
     }

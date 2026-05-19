@@ -191,6 +191,142 @@
       },
       "location_type": "room_template",
       "location_ref": "tpl_room_ruined_hall"
+    },
+    {
+      "character_id": 3003,
+      "instance_id": "tavern_keeper",
+      "type": "npc",
+      "uid": 1,
+      "role": "npc",
+      "state_data": {
+        "name": "Eldric",
+        "class": "tavern_keeper",
+        "level": 2,
+        "hp_current": 24,
+        "conditions": [],
+        "description": "Default tavern keeper reference used by generic tavern quests."
+      },
+      "location_type": "room_template",
+      "location_ref": "tpl_room_tavern_entrance"
+    },
+    {
+      "character_id": 3004,
+      "instance_id": "scholar_npc",
+      "type": "npc",
+      "uid": 1,
+      "role": "npc",
+      "state_data": {
+        "name": "Marta the Scholar",
+        "class": "scholar",
+        "level": 2,
+        "hp_current": 18,
+        "conditions": [],
+        "description": "Default scholar contact used by lore and storyline-lead quests."
+      },
+      "location_type": "room_template",
+      "location_ref": "tpl_room_tavern_entrance"
+    },
+    {
+      "character_id": 3005,
+      "instance_id": "scholar",
+      "type": "npc",
+      "uid": 1,
+      "role": "npc",
+      "state_data": {
+        "name": "Marta the Scholar",
+        "class": "scholar",
+        "level": 2,
+        "hp_current": 18,
+        "conditions": [],
+        "description": "Compatibility scholar contact for generic recovery quests."
+      },
+      "location_type": "room_template",
+      "location_ref": "tpl_room_tavern_entrance"
+    },
+    {
+      "character_id": 3006,
+      "instance_id": "alchemist",
+      "type": "npc",
+      "uid": 1,
+      "role": "npc",
+      "state_data": {
+        "name": "Ilya the Alchemist",
+        "class": "alchemist",
+        "level": 2,
+        "hp_current": 18,
+        "conditions": [],
+        "description": "Default alchemist used by gathering and herb quests."
+      },
+      "location_type": "global",
+      "location_ref": ""
+    },
+    {
+      "character_id": 3007,
+      "instance_id": "recipient",
+      "type": "npc",
+      "uid": 1,
+      "role": "npc",
+      "state_data": {
+        "name": "Package Recipient",
+        "class": "townsfolk",
+        "level": 1,
+        "hp_current": 12,
+        "conditions": [],
+        "description": "Default handoff target used by delivery quests."
+      },
+      "location_type": "global",
+      "location_ref": ""
+    },
+    {
+      "character_id": 3008,
+      "instance_id": "quest_giver",
+      "type": "npc",
+      "uid": 1,
+      "role": "npc",
+      "state_data": {
+        "name": "Quest Patron",
+        "class": "patron",
+        "level": 2,
+        "hp_current": 16,
+        "conditions": [],
+        "description": "Default patron used by generic quest turn-in objectives."
+      },
+      "location_type": "global",
+      "location_ref": ""
+    },
+    {
+      "character_id": 3009,
+      "instance_id": "goblin_warrior",
+      "type": "npc",
+      "uid": 1,
+      "role": "enemy",
+      "state_data": {
+        "name": "Goblin Warrior",
+        "class": "creature",
+        "level": 1,
+        "hp_current": 18,
+        "conditions": [],
+        "description": "Default goblin skirmisher target used by den-clearing quests."
+      },
+      "location_type": "global",
+      "location_ref": ""
+    },
+    {
+      "character_id": 3010,
+      "instance_id": "goblin_chieftain",
+      "type": "npc",
+      "uid": 1,
+      "role": "enemy",
+      "state_data": {
+        "name": "Goblin Chieftain",
+        "class": "creature",
+        "level": 3,
+        "hp_current": 36,
+        "conditions": [],
+        "description": "Default goblin boss target used by den-clearing quests."
+      },
+      "location_type": "global",
+      "location_ref": ""
     }
   ]
 }

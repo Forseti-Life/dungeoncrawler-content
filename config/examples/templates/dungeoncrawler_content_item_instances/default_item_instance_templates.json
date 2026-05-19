@@ -1,6 +1,30 @@
 {
   "rows": [
     {
+      "item_instance_id": "room_supply_default",
+      "item_id": "room_supply",
+      "location_type": "library",
+      "location_ref": "comprehensive_pf2e_library",
+      "quantity": 1,
+      "state_data": {
+        "condition": "new",
+        "availability": "template",
+        "category": "quest_item"
+      }
+    },
+    {
+      "item_instance_id": "ancient_artifact_default",
+      "item_id": "ancient_artifact",
+      "location_type": "library",
+      "location_ref": "comprehensive_pf2e_library",
+      "quantity": 1,
+      "state_data": {
+        "condition": "old",
+        "availability": "template",
+        "category": "quest_item"
+      }
+    },
+    {
       "item_instance_id": "cast_4_hours_cost_default",
       "item_id": "cast_4_hours_cost",
       "location_type": "library",

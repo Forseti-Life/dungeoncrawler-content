@@ -12,6 +12,161 @@
     "available",
     "counts"
   ],
+  "definitions": {
+    "questObjectiveCompletionCriteria": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "metric", "description"],
+      "properties": {
+        "kind": { "type": "string", "enum": ["count", "flag", "all_children"] },
+        "metric": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "description": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "target_count": { "type": "integer", "minimum": 1, "maximum": 9999 },
+        "required_value": { "type": "boolean" }
+      }
+    },
+    "questObjective": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["objective_id", "type", "description", "completed", "completion_criteria"],
+      "properties": {
+        "objective_id": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "type": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "description": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "completed": { "type": "boolean" },
+        "current": { "type": "integer", "minimum": 0, "maximum": 9999 },
+        "target_count": { "type": "integer", "minimum": 0, "maximum": 9999 },
+        "target": { "type": "string", "maxLength": 255 },
+        "item": { "type": "string", "maxLength": 255 },
+        "location": { "type": "string", "maxLength": 255 },
+        "destination": { "type": "string", "maxLength": 255 },
+        "npc_id": { "type": ["integer", "null"], "minimum": 0, "maximum": 999999999 },
+        "discovered": { "type": "boolean" },
+        "arrived": { "type": "boolean" },
+        "revealed": { "type": "boolean" },
+        "completion_criteria": { "$ref": "#/definitions/questObjectiveCompletionCriteria" },
+        "children": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/questObjective" }
+        }
+      }
+    },
+    "questPhase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["phase", "objectives"],
+      "properties": {
+        "phase": { "type": "integer", "minimum": 1, "maximum": 50 },
+        "objectives": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/questObjective" }
+        }
+      }
+    },
+    "questEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "quest_id",
+        "quest_key",
+        "source_template_id",
+        "title",
+        "quest_name",
+        "status",
+        "current_phase",
+        "generated_objectives",
+        "objective_states",
+        "generated_rewards",
+        "quest_data",
+        "location_id",
+        "storyline"
+      ],
+      "properties": {
+        "quest_id": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "quest_key": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "source_template_id": { "type": ["string", "null"], "maxLength": 160 },
+        "title": { "type": "string", "minLength": 1, "maxLength": 255 },
+        "quest_name": { "type": "string", "minLength": 1, "maxLength": 255 },
+        "status": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "current_phase": { "type": "integer", "minimum": 1, "maximum": 50 },
+        "generated_objectives": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/questPhase" }
+        },
+        "objective_states": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/questPhase" }
+        },
+        "generated_rewards": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "quest_data": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "location_id": {
+          "type": ["string", "null"],
+          "maxLength": 200
+        },
+        "storyline": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["storyline_id", "chapter_id", "scene_id"],
+          "properties": {
+            "storyline_id": { "type": ["string", "null"], "maxLength": 160 },
+            "chapter_id": { "type": ["string", "null"], "maxLength": 160 },
+            "scene_id": { "type": ["string", "null"], "maxLength": 160 }
+          }
+        }
+      }
+    },
+    "managementLocation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label"],
+      "properties": {
+        "id": { "type": ["string", "null"], "maxLength": 200 },
+        "label": { "type": ["string", "null"], "maxLength": 255 }
+      }
+    },
+    "managementAccess": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["is_clear", "is_accessible", "sort_bucket", "sort_rank"],
+      "properties": {
+        "is_clear": { "type": "boolean" },
+        "is_accessible": { "type": "boolean" },
+        "sort_bucket": { "type": "string", "maxLength": 64 },
+        "sort_rank": { "type": "integer", "minimum": 0, "maximum": 99 }
+      }
+    },
+    "managementObjective": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["objective_id", "type", "description", "completed", "location", "next_step", "access", "completion_criteria"],
+      "properties": {
+        "objective_id": { "type": "string", "minLength": 1, "maxLength": 255 },
+        "phase": { "type": "integer", "minimum": 1, "maximum": 50 },
+        "type": { "type": "string", "maxLength": 100 },
+        "description": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "completed": { "type": "boolean" },
+        "revealed": { "type": "boolean" },
+        "current": { "type": ["integer", "null"], "minimum": 0, "maximum": 9999 },
+        "target_count": { "type": ["integer", "null"], "minimum": 0, "maximum": 9999 },
+        "item": { "type": ["string", "null"], "maxLength": 255 },
+        "target": { "type": ["string", "null"], "maxLength": 255 },
+        "location": { "$ref": "#/definitions/managementLocation" },
+        "next_step": { "type": "string", "maxLength": 1000 },
+        "access": { "$ref": "#/definitions/managementAccess" },
+        "completion_criteria": { "$ref": "#/definitions/questObjectiveCompletionCriteria" },
+        "children": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/managementObjective" }
+        }
+      }
+    }
+  },
   "properties": {
     "schema_version": {
       "type": "string",
@@ -24,241 +179,61 @@
     },
     "active": {
       "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "quest_id",
-          "quest_key",
-          "source_template_id",
-          "title",
-          "quest_name",
-          "status",
-          "current_phase",
-          "generated_objectives",
-          "objective_states",
-          "generated_rewards",
-          "quest_data",
-          "location_id",
-          "storyline"
-        ],
-        "properties": {
-          "quest_id": { "type": "string", "minLength": 1, "maxLength": 160 },
-          "quest_key": { "type": "string", "minLength": 1, "maxLength": 160 },
-          "source_template_id": { "type": ["string", "null"], "maxLength": 160 },
-          "title": { "type": "string", "minLength": 1, "maxLength": 255 },
-          "quest_name": { "type": "string", "minLength": 1, "maxLength": 255 },
-          "status": { "type": "string", "minLength": 1, "maxLength": 64 },
-          "current_phase": { "type": "integer", "minimum": 1, "maximum": 50 },
-          "generated_objectives": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": ["phase", "objectives"],
-              "properties": {
-                "phase": { "type": "integer", "minimum": 1, "maximum": 50 },
-                "objectives": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": ["objective_id", "type", "description", "completed"],
-                    "properties": {
-                      "objective_id": { "type": "string", "minLength": 1, "maxLength": 160 },
-                      "type": { "type": "string", "minLength": 1, "maxLength": 64 },
-                      "description": { "type": "string", "minLength": 1, "maxLength": 1000 },
-                      "completed": { "type": "boolean" },
-                      "current": { "type": "integer", "minimum": 0, "maximum": 9999 },
-                      "target_count": { "type": "integer", "minimum": 0, "maximum": 9999 },
-                      "target": { "type": "string", "maxLength": 255 },
-                      "item": { "type": "string", "maxLength": 255 },
-                      "location": { "type": "string", "maxLength": 255 },
-                      "destination": { "type": "string", "maxLength": 255 },
-                      "npc_id": { "type": ["integer", "null"], "minimum": 0, "maximum": 999999999 },
-                      "discovered": { "type": "boolean" },
-                      "arrived": { "type": "boolean" }
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "objective_states": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": ["phase", "objectives"],
-              "properties": {
-                "phase": { "type": "integer", "minimum": 1, "maximum": 50 },
-                "objectives": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": ["objective_id", "type", "description", "completed"],
-                    "properties": {
-                      "objective_id": { "type": "string", "minLength": 1, "maxLength": 160 },
-                      "type": { "type": "string", "minLength": 1, "maxLength": 64 },
-                      "description": { "type": "string", "minLength": 1, "maxLength": 1000 },
-                      "completed": { "type": "boolean" },
-                      "current": { "type": "integer", "minimum": 0, "maximum": 9999 },
-                      "target_count": { "type": "integer", "minimum": 0, "maximum": 9999 },
-                      "target": { "type": "string", "maxLength": 255 },
-                      "item": { "type": "string", "maxLength": 255 },
-                      "location": { "type": "string", "maxLength": 255 },
-                      "destination": { "type": "string", "maxLength": 255 },
-                      "npc_id": { "type": ["integer", "null"], "minimum": 0, "maximum": 999999999 },
-                      "discovered": { "type": "boolean" },
-                      "arrived": { "type": "boolean" }
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "generated_rewards": {
-            "type": "object",
-            "additionalProperties": true
-          },
-          "quest_data": {
-            "type": "object",
-            "additionalProperties": true
-          },
-          "location_id": {
-            "type": ["string", "null"],
-            "maxLength": 200
-          },
-          "storyline": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": ["storyline_id", "chapter_id", "scene_id"],
-            "properties": {
-              "storyline_id": { "type": ["string", "null"], "maxLength": 160 },
-              "chapter_id": { "type": ["string", "null"], "maxLength": 160 },
-              "scene_id": { "type": ["string", "null"], "maxLength": 160 }
-            }
-          }
-        }
-      }
+      "items": { "$ref": "#/definitions/questEntry" }
     },
     "available": {
       "type": "array",
+      "items": { "$ref": "#/definitions/questEntry" }
+    },
+    "management_tree": {
+      "type": "array",
       "items": {
         "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "quest_id",
-          "quest_key",
-          "source_template_id",
-          "title",
-          "quest_name",
-          "status",
-          "current_phase",
-          "generated_objectives",
-          "objective_states",
-          "generated_rewards",
-          "quest_data",
-          "location_id",
-          "storyline"
-        ],
+        "additionalProperties": true,
+        "required": ["npc_id", "npc_name", "location", "next_step", "access", "storylines"],
         "properties": {
-          "quest_id": { "type": "string", "minLength": 1, "maxLength": 160 },
-          "quest_key": { "type": "string", "minLength": 1, "maxLength": 160 },
-          "source_template_id": { "type": ["string", "null"], "maxLength": 160 },
-          "title": { "type": "string", "minLength": 1, "maxLength": 255 },
-          "quest_name": { "type": "string", "minLength": 1, "maxLength": 255 },
-          "status": { "type": "string", "minLength": 1, "maxLength": 64 },
-          "current_phase": { "type": "integer", "minimum": 1, "maximum": 50 },
-          "generated_objectives": {
-            "type": "array",
-            "items": {
+          "npc_id": { "type": "string", "minLength": 1, "maxLength": 255 },
+          "npc_name": { "type": "string", "minLength": 1, "maxLength": 255 },
+          "role": { "type": "string", "maxLength": 100 },
+           "location": {
+              "$ref": "#/definitions/managementLocation"
+            },
+            "next_step": { "type": "string", "maxLength": 1000 },
+            "access": { "$ref": "#/definitions/managementAccess" },
+            "storylines": {
+              "type": "array",
+              "items": {
               "type": "object",
-              "additionalProperties": false,
-              "required": ["phase", "objectives"],
+              "additionalProperties": true,
+              "required": ["storyline_id", "name", "status", "location", "next_step", "access", "quests"],
               "properties": {
-                "phase": { "type": "integer", "minimum": 1, "maximum": 50 },
-                "objectives": {
+                "storyline_id": { "type": "string", "minLength": 1, "maxLength": 255 },
+                "name": { "type": "string", "minLength": 1, "maxLength": 255 },
+                "status": { "type": "string", "maxLength": 64 },
+                "location": { "$ref": "#/definitions/managementLocation" },
+                "next_step": { "type": "string", "maxLength": 1000 },
+                "access": { "$ref": "#/definitions/managementAccess" },
+                "quests": {
                   "type": "array",
                   "items": {
                     "type": "object",
-                    "additionalProperties": false,
-                    "required": ["objective_id", "type", "description", "completed"],
+                    "additionalProperties": true,
+                    "required": ["quest_id", "quest_name", "status", "location", "next_step", "access", "objectives"],
                     "properties": {
-                      "objective_id": { "type": "string", "minLength": 1, "maxLength": 160 },
-                      "type": { "type": "string", "minLength": 1, "maxLength": 64 },
-                      "description": { "type": "string", "minLength": 1, "maxLength": 1000 },
-                      "completed": { "type": "boolean" },
-                      "current": { "type": "integer", "minimum": 0, "maximum": 9999 },
-                      "target_count": { "type": "integer", "minimum": 0, "maximum": 9999 },
-                      "target": { "type": "string", "maxLength": 255 },
-                      "item": { "type": "string", "maxLength": 255 },
-                      "location": { "type": "string", "maxLength": 255 },
-                      "destination": { "type": "string", "maxLength": 255 },
-                      "npc_id": { "type": ["integer", "null"], "minimum": 0, "maximum": 999999999 },
-                      "discovered": { "type": "boolean" },
-                      "arrived": { "type": "boolean" }
+                      "quest_id": { "type": "string", "minLength": 1, "maxLength": 255 },
+                      "quest_name": { "type": "string", "minLength": 1, "maxLength": 255 },
+                      "status": { "type": "string", "maxLength": 64 },
+                      "location": { "$ref": "#/definitions/managementLocation" },
+                      "next_step": { "type": "string", "maxLength": 1000 },
+                      "access": { "$ref": "#/definitions/managementAccess" },
+                      "objectives": {
+                        "type": "array",
+                        "items": { "$ref": "#/definitions/managementObjective" }
+                      }
                     }
                   }
                 }
               }
-            }
-          },
-          "objective_states": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": ["phase", "objectives"],
-              "properties": {
-                "phase": { "type": "integer", "minimum": 1, "maximum": 50 },
-                "objectives": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": ["objective_id", "type", "description", "completed"],
-                    "properties": {
-                      "objective_id": { "type": "string", "minLength": 1, "maxLength": 160 },
-                      "type": { "type": "string", "minLength": 1, "maxLength": 64 },
-                      "description": { "type": "string", "minLength": 1, "maxLength": 1000 },
-                      "completed": { "type": "boolean" },
-                      "current": { "type": "integer", "minimum": 0, "maximum": 9999 },
-                      "target_count": { "type": "integer", "minimum": 0, "maximum": 9999 },
-                      "target": { "type": "string", "maxLength": 255 },
-                      "item": { "type": "string", "maxLength": 255 },
-                      "location": { "type": "string", "maxLength": 255 },
-                      "destination": { "type": "string", "maxLength": 255 },
-                      "npc_id": { "type": ["integer", "null"], "minimum": 0, "maximum": 999999999 },
-                      "discovered": { "type": "boolean" },
-                      "arrived": { "type": "boolean" }
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "generated_rewards": {
-            "type": "object",
-            "additionalProperties": true
-          },
-          "quest_data": {
-            "type": "object",
-            "additionalProperties": true
-          },
-          "location_id": {
-            "type": ["string", "null"],
-            "maxLength": 200
-          },
-          "storyline": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": ["storyline_id", "chapter_id", "scene_id"],
-            "properties": {
-              "storyline_id": { "type": ["string", "null"], "maxLength": 160 },
-              "chapter_id": { "type": ["string", "null"], "maxLength": 160 },
-              "scene_id": { "type": ["string", "null"], "maxLength": 160 }
             }
           }
         }

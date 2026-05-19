@@ -16,6 +16,7 @@ use Drupal\dungeoncrawler_content\Service\EncounterPhaseHandler;
 use Drupal\dungeoncrawler_content\Service\HPManager;
 use Drupal\dungeoncrawler_content\Service\NpcPsychologyService;
 use Drupal\dungeoncrawler_content\Service\NumberGenerationService;
+use Drupal\dungeoncrawler_content\Service\RoomChatService;
 use Drupal\dungeoncrawler_content\Service\RulesEngine;
 use Drupal\Tests\UnitTestCase;
 use Psr\Log\LoggerInterface;
@@ -230,7 +231,13 @@ class EncounterPhaseHandlerChameleonStealthTest extends UnitTestCase {
       $this->createMock(EventDispatcherInterface::class),
       $this->createMock(AiGmService::class),
       $this->createMock(ConfigFactoryInterface::class),
-      $this->createMock(NpcPsychologyService::class)
+      $this->createMock(NpcPsychologyService::class),
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      $this->createMock(RoomChatService::class)
     );
   }
 

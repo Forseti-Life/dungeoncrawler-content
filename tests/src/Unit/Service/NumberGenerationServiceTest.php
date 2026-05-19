@@ -26,7 +26,18 @@ class NumberGenerationServiceTest extends UnitTestCase {
    */
   protected function setUp(): void {
     parent::setUp();
-    $this->service = new NumberGenerationService();
+    $this->service = new class extends NumberGenerationService {
+      public array $loggedRolls = [];
+
+      public function logRoll(string $expression, int $total, ?int $characterId = NULL, string $rollType = 'general'): void {
+        $this->loggedRolls[] = [
+          'expression' => $expression,
+          'total' => $total,
+          'character_id' => $characterId,
+          'roll_type' => $rollType,
+        ];
+      }
+    };
   }
 
   /**
@@ -92,6 +103,23 @@ class NumberGenerationServiceTest extends UnitTestCase {
     $this->assertSame(3, $result['modifier']);
     $this->assertCount(2, $result['rolls']);
     $this->assertSame($result['subtotal'] + 3, $result['total']);
+    $this->assertSame('2d6+3', $this->service->loggedRolls[0]['expression']);
+    $this->assertSame($result['total'], $this->service->loggedRolls[0]['total']);
+    $this->assertSame('general', $this->service->loggedRolls[0]['roll_type']);
+  }
+
+  /**
+   * Tests Pathfinder die rolls write an audit entry.
+   *
+   * @covers ::rollPathfinderDie
+   */
+  public function testRollPathfinderDieLogsAuditEntry(): void {
+    $roll = $this->service->rollPathfinderDie(20, 77, 'skill');
+
+    $this->assertSame('1d20', $this->service->loggedRolls[0]['expression']);
+    $this->assertSame($roll, $this->service->loggedRolls[0]['total']);
+    $this->assertSame(77, $this->service->loggedRolls[0]['character_id']);
+    $this->assertSame('skill', $this->service->loggedRolls[0]['roll_type']);
   }
 
   /**

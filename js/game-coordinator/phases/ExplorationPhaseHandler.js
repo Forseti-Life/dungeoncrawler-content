@@ -279,7 +279,7 @@ export class ExplorationPhaseHandler {
    */
   _applyResult(result) {
     if (result.game_state) {
-      this.phaseManager.applyServerState(result.game_state, result.available_actions);
+      this.phaseManager.applyServerState(result.game_state, result.available_actions, result.action_contract || null);
     }
   }
 

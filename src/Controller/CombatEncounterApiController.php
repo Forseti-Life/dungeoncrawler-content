@@ -178,9 +178,9 @@ class CombatEncounterApiController extends ControllerBase {
       ], 400);
     }
 
-    if (!$this->hasEncounterOpposition($participants)) {
+    if (!$this->hasPlayerParticipant($participants)) {
       return new JsonResponse([
-        'error' => 'At least one player and one hostile combatant are required to start an encounter',
+        'error' => 'At least one player participant is required to start an encounter',
       ], 409);
     }
 
@@ -984,8 +984,11 @@ class CombatEncounterApiController extends ControllerBase {
    */
   protected function normalizeParticipantTeam($team): ?string {
     $normalized = strtolower(trim((string) $team));
-    if ($normalized === '' || in_array($normalized, ['neutral', 'indifferent'], TRUE)) {
+    if ($normalized === '') {
       return NULL;
+    }
+    if (in_array($normalized, ['neutral', 'indifferent'], TRUE)) {
+      return 'neutral';
     }
     if (in_array($normalized, ['player', 'player_character', 'pc'], TRUE)) {
       return 'player';
@@ -1001,23 +1004,19 @@ class CombatEncounterApiController extends ControllerBase {
   }
 
   /**
-   * Require a player side and a hostile side before creating an encounter.
+   * Require at least one player-side participant before creating an encounter.
    */
-  protected function hasEncounterOpposition(array $participants): bool {
+  protected function hasPlayerParticipant(array $participants): bool {
     $has_player = FALSE;
-    $has_enemy = FALSE;
 
     foreach ($participants as $participant) {
       $team = $participant['team'] ?? NULL;
       if ($team === 'player') {
         $has_player = TRUE;
       }
-      elseif ($team === 'enemy') {
-        $has_enemy = TRUE;
-      }
     }
 
-    return $has_player && $has_enemy;
+    return $has_player;
   }
 
   /**
@@ -1120,16 +1119,6 @@ class CombatEncounterApiController extends ControllerBase {
       return NULL;
     }
 
-    $resolution = $this->evaluateEncounterOutcome($encounter['participants'] ?? []);
-    if (!$resolution['ended']) {
-      return $encounter;
-    }
-
-    if (($encounter['status'] ?? '') !== 'ended') {
-      $this->encounterStore->updateEncounter((int) $encounter['id'], ['status' => 'ended']);
-      $encounter = $this->loadEncounter((int) $encounter['id']) ?? $encounter;
-    }
-
     return $encounter;
   }
 
@@ -1209,6 +1198,7 @@ class CombatEncounterApiController extends ControllerBase {
     return match ($normalized) {
       'player', 'ally', 'friendly', 'party' => 'heroes',
       'enemy', 'hostile', 'monster', 'monsters' => 'enemies',
+      'neutral', 'indifferent' => 'social',
       default => NULL,
     };
   }

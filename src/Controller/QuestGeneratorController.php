@@ -123,6 +123,13 @@ class QuestGeneratorController extends ControllerBase {
         ->fields($quest_data)
         ->execute();
 
+      $quest_contract = $this->questGenerator->buildQuestSummaryEntry($quest_data);
+      $quest_summary = $this->questGenerator->buildQuestSummaryPayload(
+        (string) ($quest_contract['location_id'] ?? ('campaign-' . $campaign_id)),
+        [],
+        [$quest_data]
+      );
+
       return new JsonResponse([
         'success' => TRUE,
         'quest' => [
@@ -134,6 +141,9 @@ class QuestGeneratorController extends ControllerBase {
           'rewards' => json_decode($quest_data['generated_rewards'], TRUE),
           'status' => $quest_data['status'],
         ],
+        'quest_contract' => $quest_contract,
+        'quest_summary' => $quest_summary,
+        'objective_options' => $this->questGenerator->getObjectiveTypeOptions(),
       ]);
     }
     catch (\Exception $e) {
@@ -185,6 +195,13 @@ class QuestGeneratorController extends ControllerBase {
           ->execute();
       }
 
+      $quest_contracts = array_values(array_map([$this->questGenerator, 'buildQuestSummaryEntry'], $quests));
+      $quest_summary = $this->questGenerator->buildQuestSummaryPayload(
+        (string) ($context['location'] ?? ('campaign-' . $campaign_id)),
+        [],
+        $quests
+      );
+
       $response_quests = array_map(function ($q) {
         return [
           'quest_id' => $q['quest_id'],
@@ -197,6 +214,9 @@ class QuestGeneratorController extends ControllerBase {
       return new JsonResponse([
         'success' => TRUE,
         'quests' => $response_quests,
+        'quest_contracts' => $quest_contracts,
+        'quest_summary' => $quest_summary,
+        'objective_options' => $this->questGenerator->getObjectiveTypeOptions(),
         'count' => count($quests),
       ]);
     }

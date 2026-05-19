@@ -597,25 +597,7 @@ class NpcSheetGenerationService {
    * Ensure the NPC exists in the library before the worker expands it.
    */
   protected function ensureNpcLibraryEntries(int $campaign_id, string $content_id, array $seed_data): void {
-    $base_schema = [
-      'content_id' => $content_id,
-      'schema_version' => self::NPC_SHEET_SCHEMA_VERSION,
-      'name' => $seed_data['name'] ?? $content_id,
-      'ancestry' => $seed_data['ancestry'] ?? 'Humanoid',
-      'class' => $seed_data['class'] ?? 'Commoner',
-      'role' => $seed_data['role'] ?? 'neutral',
-      'occupation' => $seed_data['occupation'] ?? '',
-      'description' => $seed_data['description'] ?? '',
-      'backstory' => $seed_data['backstory'] ?? '',
-      'psychology' => is_array($seed_data['psychology'] ?? NULL) ? $seed_data['psychology'] : [],
-      'motivations' => $seed_data['motivations'] ?? '',
-      'fears' => $seed_data['fears'] ?? '',
-      'bonds' => $seed_data['bonds'] ?? '',
-      'stats' => $seed_data['stats'] ?? [],
-      'equipment' => $seed_data['equipment'] ?? [],
-      'generation_status' => 'queued',
-      'source' => 'ai_generated',
-    ];
+    $base_schema = $this->buildQueuedNpcSheetContract($content_id, $seed_data);
     $schema_data = json_encode($base_schema);
     $tags = json_encode(array_values(array_filter(['npc', $seed_data['role'] ?? NULL, 'ai_generated'])));
     $now = time();
@@ -704,6 +686,16 @@ class NpcSheetGenerationService {
     }
 
     return $sheet;
+  }
+
+  /**
+   * Build a contract-valid queued NPC sheet placeholder.
+   */
+  protected function buildQueuedNpcSheetContract(string $content_id, array $seed_data): array {
+    $sheet = $this->generateFallbackNpcSheet(0, $content_id, $seed_data);
+    $sheet['generation_status'] = 'queued';
+    $sheet['source'] = 'ai_generated';
+    return $this->finalizeNpcSheetContract($sheet);
   }
 
   /**

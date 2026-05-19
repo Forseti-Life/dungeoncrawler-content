@@ -73,6 +73,17 @@ import { SpriteService } from './SpriteService.js';
     if (objective.arrived != null) {
       normalized.arrived = Boolean(objective.arrived);
     }
+    if (objective.revealed != null) {
+      normalized.revealed = Boolean(objective.revealed);
+    }
+    if (objective.completion_criteria && typeof objective.completion_criteria === 'object') {
+      normalized.completion_criteria = normalizeQuestCompletionCriteriaPayload(objective.completion_criteria);
+    }
+    if (Array.isArray(objective.children)) {
+      normalized.children = objective.children
+        .map(normalizeQuestObjectivePayload)
+        .filter(Boolean);
+    }
 
     return normalized;
   }
@@ -180,17 +191,309 @@ import { SpriteService } from './SpriteService.js';
     const available = (Array.isArray(source.available) ? source.available : [])
       .map(normalizeQuestEntryPayload)
       .filter(Boolean);
+    const managementTree = (Array.isArray(source.management_tree) ? source.management_tree : [])
+      .map(normalizeQuestManagementNpcPayload)
+      .filter(Boolean);
 
     return {
       schema_version: QUEST_SUMMARY_SCHEMA_VERSION,
       location_id: String(source.location_id || '').trim(),
       active,
       available,
+      management_tree: managementTree,
       counts: {
         active: active.length,
         available: available.length,
       },
     };
+  }
+
+  function normalizeQuestManagementLocation(location) {
+    const source = location && typeof location === 'object'
+      ? location
+      : { id: location, label: location };
+    const id = source.id == null || String(source.id).trim() === '' ? null : String(source.id).trim();
+    const label = source.label == null || String(source.label).trim() === ''
+      ? (id ? String(id).replace(/[_-]+/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase()) : null)
+      : String(source.label).trim();
+    return { id, label };
+  }
+
+  function normalizeQuestManagementAccess(access) {
+    const source = access && typeof access === 'object' ? access : {};
+    const sortBucket = String(source.sort_bucket || 'unclear').trim() || 'unclear';
+    const sortRank = Number.isFinite(Number(source.sort_rank))
+      ? Number(source.sort_rank)
+      : ({ current: 0, ready: 1, completed: 2, blocked: 3, unclear: 4 }[sortBucket] ?? 4);
+    return {
+      is_clear: Boolean(source.is_clear),
+      is_accessible: Boolean(source.is_accessible),
+      sort_bucket: sortBucket,
+      sort_rank: sortRank,
+    };
+  }
+
+  function normalizeQuestCompletionCriteriaPayload(criteria) {
+    const source = criteria && typeof criteria === 'object' ? criteria : {};
+    const kind = String(source.kind || 'flag').trim() || 'flag';
+    const normalized = {
+      kind,
+      metric: String(source.metric || 'completed').trim() || 'completed',
+      description: String(source.description || 'Complete this objective.').trim() || 'Complete this objective.',
+    };
+
+    if (kind === 'count') {
+      normalized.target_count = Math.max(1, Number(source.target_count || 1));
+    } else {
+      normalized.required_value = source.required_value == null ? true : Boolean(source.required_value);
+    }
+
+    return normalized;
+  }
+
+  function normalizeQuestManagementObjectivePayload(objective) {
+    if (!objective || typeof objective !== 'object') {
+      return null;
+    }
+
+    const objectiveId = String(objective.objective_id || '').trim();
+    const description = String(objective.description || objectiveId || '').trim();
+    const type = String(objective.type || '').trim();
+    if (!objectiveId || !description || !type) {
+      return null;
+    }
+
+    const normalized = {
+      objective_id: objectiveId,
+      phase: Math.max(1, Number(objective.phase || 1)),
+      type,
+      description,
+      completed: Boolean(objective.completed),
+      revealed: objective.revealed == null ? undefined : Boolean(objective.revealed),
+      location: normalizeQuestManagementLocation(objective.location),
+      next_step: String(objective.next_step || description).trim(),
+      access: normalizeQuestManagementAccess(objective.access),
+    };
+
+    ['current', 'target_count'].forEach((field) => {
+      if (objective[field] != null && Number.isFinite(Number(objective[field]))) {
+        normalized[field] = Math.max(0, Number(objective[field]));
+      }
+    });
+    ['item', 'target'].forEach((field) => {
+      if (objective[field] != null && String(objective[field]).trim()) {
+        normalized[field] = String(objective[field]).trim();
+      }
+    });
+    if (objective.completion_criteria && typeof objective.completion_criteria === 'object') {
+      normalized.completion_criteria = normalizeQuestCompletionCriteriaPayload(objective.completion_criteria);
+    }
+    normalized.children = (Array.isArray(objective.children) ? objective.children : [])
+      .map(normalizeQuestManagementObjectivePayload)
+      .filter(Boolean);
+
+    return normalized;
+  }
+
+  function normalizeQuestManagementQuestPayload(quest) {
+    if (!quest || typeof quest !== 'object') {
+      return null;
+    }
+
+    const questId = String(quest.quest_id || '').trim();
+    const questName = String(quest.quest_name || quest.title || questId).trim();
+    if (!questId || !questName) {
+      return null;
+    }
+
+    return {
+      ...quest,
+      quest_id: questId,
+      quest_name: questName,
+      title: String(quest.title || questName).trim(),
+      status: String(quest.status || 'available').trim() || 'available',
+      location: normalizeQuestManagementLocation(quest.location),
+      next_step: String(quest.next_step || questName).trim(),
+      access: normalizeQuestManagementAccess(quest.access),
+      objectives: (Array.isArray(quest.objectives) ? quest.objectives : [])
+        .map(normalizeQuestManagementObjectivePayload)
+        .filter(Boolean),
+    };
+  }
+
+  function normalizeQuestManagementStorylinePayload(storyline) {
+    if (!storyline || typeof storyline !== 'object') {
+      return null;
+    }
+
+    const storylineId = String(storyline.storyline_id || '').trim();
+    const name = String(storyline.name || storylineId).trim();
+    if (!storylineId || !name) {
+      return null;
+    }
+
+    return {
+      ...storyline,
+      storyline_id: storylineId,
+      name,
+      status: String(storyline.status || 'available').trim() || 'available',
+      synopsis: String(storyline.synopsis || '').trim(),
+      location: normalizeQuestManagementLocation(storyline.location || storyline.lead_location),
+      next_step: String(storyline.next_step || name).trim(),
+      access: normalizeQuestManagementAccess(storyline.access),
+      quests: (Array.isArray(storyline.quests) ? storyline.quests : [])
+        .map(normalizeQuestManagementQuestPayload)
+        .filter(Boolean),
+    };
+  }
+
+  function normalizeQuestManagementNpcPayload(npc) {
+    if (!npc || typeof npc !== 'object') {
+      return null;
+    }
+
+    const npcId = String(npc.npc_id || '').trim();
+    const npcName = String(npc.npc_name || npcId).trim();
+    if (!npcId || !npcName) {
+      return null;
+    }
+
+    return {
+      ...npc,
+      npc_id: npcId,
+      npc_name: npcName,
+      role: String(npc.role || 'quest_giver').trim() || 'quest_giver',
+      location: normalizeQuestManagementLocation(npc.location),
+      next_step: String(npc.next_step || npcName).trim(),
+      access: normalizeQuestManagementAccess(npc.access),
+      storylines: (Array.isArray(npc.storylines) ? npc.storylines : [])
+        .map(normalizeQuestManagementStorylinePayload)
+        .filter(Boolean),
+    };
+  }
+
+  function formatQuestManagementLocation(location) {
+    if (!location || typeof location !== 'object') {
+      return 'Unknown location';
+    }
+    return String(location.label || location.id || 'Unknown location').trim() || 'Unknown location';
+  }
+
+  function formatQuestManagementAccess(access) {
+    const normalized = normalizeQuestManagementAccess(access);
+    switch (normalized.sort_bucket) {
+      case 'current':
+        return 'Current location';
+      case 'ready':
+        return 'Ready';
+      case 'completed':
+        return 'Completed';
+      case 'blocked':
+        return 'Blocked';
+      default:
+        return 'Unclear';
+    }
+  }
+
+  function formatQuestCompletionCriteria(criteria) {
+    const normalized = normalizeQuestCompletionCriteriaPayload(criteria);
+    return normalized.description;
+  }
+
+  function renderQuestTreeNodeHtml(options) {
+    const {
+      itemClass,
+      title,
+      metaLines = [],
+      bodyHtml = '',
+      titlePrefix = '',
+    } = options;
+    const titleHtml = titlePrefix
+      ? `${escapeQuestHtml(titlePrefix)} ${escapeQuestHtml(title)}`
+      : escapeQuestHtml(title);
+    const summaryHtml = metaLines
+      .filter((line) => line && String(line).trim() !== '')
+      .map((line) => `<div class="quest-status">${escapeQuestHtml(line)}</div>`)
+      .join('');
+
+    return `<li class="${itemClass}">
+      <details class="quest-tree-node" data-quest-collapsible>
+        <summary class="quest-tree-node__summary">
+          <strong class="quest-title">${titleHtml}</strong>
+          ${summaryHtml}
+        </summary>
+        <div class="quest-tree-node__content">${bodyHtml}</div>
+      </details>
+    </li>`;
+  }
+
+  function renderQuestManagementObjectiveHtml(objective) {
+    const progress = objective.current != null && objective.target_count != null
+      ? ` (${escapeQuestHtml(objective.current)}/${escapeQuestHtml(objective.target_count)})`
+      : '';
+    const details = [objective.item, objective.target].filter(Boolean).join(' · ');
+    const detailLines = [
+      `Location: ${formatQuestManagementLocation(objective.location)} · ${formatQuestManagementAccess(objective.access)}`,
+      `Next: ${objective.next_step || 'Review this objective.'}`,
+    ];
+    if (details) {
+      detailLines.push(`Detail: ${details}`);
+    }
+    if (objective.completion_criteria) {
+      detailLines.push(`Complete when: ${formatQuestCompletionCriteria(objective.completion_criteria)}`);
+    }
+    const childrenHtml = Array.isArray(objective.children) && objective.children.length > 0
+      ? `<ul class="quest-objectives">${objective.children.map(renderQuestManagementObjectiveHtml).join('')}</ul>`
+      : '';
+    return renderQuestTreeNodeHtml({
+      itemClass: `quest-objective quest-objective--tree quest-objective--${escapeQuestHtml(objective.access.sort_bucket)}`,
+      title: `${objective.completed ? '✅' : '⬜'} ${objective.description}${progress}`,
+      metaLines: detailLines,
+      bodyHtml: childrenHtml || '<div class="quest-status">No nested objectives.</div>',
+    });
+  }
+
+  function renderQuestManagementQuestHtml(quest) {
+    const objectiveHtml = (Array.isArray(quest.objectives) ? quest.objectives : []).map(renderQuestManagementObjectiveHtml).join('');
+    return renderQuestTreeNodeHtml({
+      itemClass: `quest-entry quest-entry--quest quest-entry--${escapeQuestHtml(quest.access.sort_bucket)}`,
+      title: quest.quest_name,
+      titlePrefix: '📜',
+      metaLines: [
+        `Status: ${quest.status} · Location: ${formatQuestManagementLocation(quest.location)} · ${formatQuestManagementAccess(quest.access)}`,
+        `Next: ${quest.next_step || 'Review this quest.'}`,
+      ],
+      bodyHtml: `<ul class="quest-objectives">${objectiveHtml || '<li class="quest-objective">No objectives recorded.</li>'}</ul>`,
+    });
+  }
+
+  function renderQuestManagementStorylineHtml(storyline) {
+    const questHtml = (Array.isArray(storyline.quests) ? storyline.quests : []).map(renderQuestManagementQuestHtml).join('');
+    return renderQuestTreeNodeHtml({
+      itemClass: `quest-entry quest-entry--storyline quest-entry--${escapeQuestHtml(storyline.access.sort_bucket)}`,
+      title: storyline.name,
+      titlePrefix: '🧭',
+      metaLines: [
+        `Status: ${storyline.status} · Location: ${formatQuestManagementLocation(storyline.location)} · ${formatQuestManagementAccess(storyline.access)}`,
+        `Next: ${storyline.next_step || 'Review this storyline.'}`,
+        ...(storyline.synopsis ? [storyline.synopsis] : []),
+      ],
+      bodyHtml: `<ul class="quest-objectives">${questHtml || '<li class="quest-objective">No storyline quests recorded.</li>'}</ul>`,
+    });
+  }
+
+  function renderQuestManagementNpcHtml(npc) {
+    const storylineHtml = (Array.isArray(npc.storylines) ? npc.storylines : []).map(renderQuestManagementStorylineHtml).join('');
+    return renderQuestTreeNodeHtml({
+      itemClass: `quest-entry quest-entry--npc quest-entry--${escapeQuestHtml(npc.access.sort_bucket)}`,
+      title: npc.npc_name,
+      titlePrefix: '👤',
+      metaLines: [
+        `Location: ${formatQuestManagementLocation(npc.location)} · ${formatQuestManagementAccess(npc.access)}`,
+        `Next: ${npc.next_step || 'Review available leads.'}`,
+      ],
+      bodyHtml: `<ul class="quest-objectives">${storylineHtml || '<li class="quest-objective">No storyline leads available.</li>'}</ul>`,
+    });
   }
 
   function normalizeQuestUpdatePayload(update) {
@@ -362,18 +665,7 @@ import { SpriteService } from './SpriteService.js';
       }
 
       if (Array.isArray(entry.objectives)) {
-        for (const objective of entry.objectives) {
-          const objectiveId = objective?.objective_id;
-          if (!objectiveId) {
-            continue;
-          }
-          index[objectiveId] = {
-            current: Number(objective.current || 0),
-            target: Number(objective.target_count || 1),
-            description: objective.description || objectiveId,
-            completed: Boolean(objective.completed),
-          };
-        }
+        addObjectiveStatesToIndex(index, entry.objectives);
         continue;
       }
 
@@ -390,6 +682,23 @@ import { SpriteService } from './SpriteService.js';
     }
 
     return index;
+  }
+
+  function addObjectiveStatesToIndex(index, objectives) {
+    for (const objective of (Array.isArray(objectives) ? objectives : [])) {
+      const objectiveId = objective?.objective_id;
+      if (objectiveId) {
+        index[objectiveId] = {
+          current: Number(objective.current || 0),
+          target: Number(objective.target_count || 1),
+          description: objective.description || objectiveId,
+          completed: Boolean(objective.completed),
+        };
+      }
+      if (Array.isArray(objective?.children) && objective.children.length > 0) {
+        addObjectiveStatesToIndex(index, objective.children);
+      }
+    }
   }
 
   function mergeObjectiveProgress(baseObjective, objectiveIndex) {
@@ -416,6 +725,45 @@ import { SpriteService } from './SpriteService.js';
     }
 
     return merged;
+  }
+
+  function flattenQuestObjectives(objectives, options = {}) {
+    const includeCompleted = Boolean(options.includeCompleted);
+    const flattened = [];
+    for (const objective of (Array.isArray(objectives) ? objectives : [])) {
+      if (!objective || typeof objective !== 'object') {
+        continue;
+      }
+
+      if (Array.isArray(objective.children) && objective.children.length > 0) {
+        flattened.push(...flattenQuestObjectives(objective.children, options));
+        continue;
+      }
+
+      if (!includeCompleted && objective.completed) {
+        continue;
+      }
+
+      flattened.push(objective);
+    }
+
+    return flattened;
+  }
+
+  function incrementObjectiveProgressInTree(objectives, objectiveId, increment) {
+    for (const objective of (Array.isArray(objectives) ? objectives : [])) {
+      if (!objective || typeof objective !== 'object') {
+        continue;
+      }
+      if (objective.objective_id === objectiveId) {
+        objective.current = (objective.current || 0) + increment;
+        return true;
+      }
+      if (incrementObjectiveProgressInTree(objective.children, objectiveId, increment)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   function getSpellRankNumber(rankKey) {
@@ -885,6 +1233,8 @@ import { SpriteService } from './SpriteService.js';
     const equipSlot = String(metadata.equip_slot || item?.equip_slot || '').toLowerCase();
     const preferredWornSlot = String(metadata.worn_slot || item?.worn_slot || '').toLowerCase();
     const handSlotsRequired = Math.max(0, Number(metadata.hand_slots_required ?? item?.hand_slots_required ?? 0));
+    const explicitlyEquippable = Boolean(metadata.equippable ?? item?.equippable);
+    const hasEquipHint = explicitlyEquippable || equipSlot !== '' || preferredWornSlot !== '' || handSlotsRequired > 0;
     const currentAssignment = findItemSlotAssignment(slotState, item);
     const options = [];
 
@@ -958,7 +1308,7 @@ import { SpriteService } from './SpriteService.js';
       return options;
     }
 
-    if (!metadata.equippable) {
+    if (!hasEquipHint) {
       return options;
     }
 
@@ -972,17 +1322,41 @@ import { SpriteService } from './SpriteService.js';
     return options;
   }
 
-  function renderInventorySlotGrid(inventory) {
+  function renderInventorySlotGrid(inventory, feedback = null) {
     const framework = inventory?.slotFramework || {};
     const slotState = inventory?.slotState || {};
     const entries = [];
+    const highlightedSlotKey = String(feedback?.slotKey || '').trim();
+    const highlightedSlotIndex = Number.isInteger(feedback?.slotIndex) ? feedback.slotIndex : null;
+    const slotTone = String(feedback?.tone || '').trim();
+    const buildUnequipButton = (occupant, slotKey, slotIndex = null) => {
+      const itemInstanceId = String(occupant?.item_instance_id || '').trim();
+      if (!itemInstanceId) {
+        return '';
+      }
+      const slotIndexAttr = Number.isInteger(slotIndex) ? ` data-slot-index="${slotIndex}"` : '';
+      return `
+        <div class="inventory-slot__actions">
+          <button
+            type="button"
+            class="inventory-slot__button"
+            data-inventory-action="unequip"
+            data-item-instance-id="${escapeTooltipAttr(itemInstanceId)}"
+            data-item-id="${escapeTooltipAttr(occupant?.item_id || '')}"
+            data-item-name="${escapeTooltipAttr(occupant?.name || occupant?.item_id || 'Item')}"
+            data-slot-key="${escapeTooltipAttr(slotKey)}"${slotIndexAttr}
+          >Unequip</button>
+        </div>
+      `;
+    };
 
     Object.entries(framework).forEach(([slotKey, definition]) => {
       const count = definition?.count;
+      const isSlotHighlighted = highlightedSlotKey !== '' && highlightedSlotKey === slotKey;
       if (count == null) {
         const assigned = Array.isArray(slotState[slotKey]) ? slotState[slotKey].filter(Boolean) : [];
         entries.push(`
-          <div class="inventory-slot">
+          <div class="inventory-slot${isSlotHighlighted ? ` inventory-slot--highlight inventory-slot--highlight-${escapeTooltipAttr(slotTone || 'info')}` : ''}">
             <div class="inventory-slot__label">${escapeTooltipAttr(getSlotLabel(slotKey, definition))}</div>
             <div class="inventory-slot__item">${assigned.length ? escapeTooltipAttr(assigned.map((entry) => entry?.name || entry?.item_id || 'Item').join(', ')) : 'Empty'}</div>
             <div class="inventory-slot__meta">${assigned.length ? `${assigned.length} assigned` : 'Available'}</div>
@@ -994,10 +1368,11 @@ import { SpriteService } from './SpriteService.js';
       if (count === 1) {
         const occupant = slotState[slotKey];
         entries.push(`
-          <div class="inventory-slot${occupant ? '' : ' inventory-slot--empty'}">
+          <div class="inventory-slot${occupant ? '' : ' inventory-slot--empty'}${isSlotHighlighted ? ` inventory-slot--highlight inventory-slot--highlight-${escapeTooltipAttr(slotTone || 'info')}` : ''}">
             <div class="inventory-slot__label">${escapeTooltipAttr(getSlotLabel(slotKey, definition))}</div>
             <div class="inventory-slot__item">${escapeTooltipAttr(occupant?.name || occupant?.item_id || 'Empty')}</div>
             <div class="inventory-slot__meta">${occupant ? escapeTooltipAttr(occupant.equip_slot || 'Equipped') : 'Available'}</div>
+            ${occupant ? buildUnequipButton(occupant, slotKey) : ''}
           </div>
         `);
         return;
@@ -1005,11 +1380,13 @@ import { SpriteService } from './SpriteService.js';
 
       for (let index = 0; index < count; index += 1) {
         const occupant = Array.isArray(slotState[slotKey]) ? slotState[slotKey][index] : null;
+        const isIndexedSlotHighlighted = isSlotHighlighted && highlightedSlotIndex === index;
         entries.push(`
-          <div class="inventory-slot${occupant ? '' : ' inventory-slot--empty'}">
+          <div class="inventory-slot${occupant ? '' : ' inventory-slot--empty'}${isIndexedSlotHighlighted ? ` inventory-slot--highlight inventory-slot--highlight-${escapeTooltipAttr(slotTone || 'info')}` : ''}">
             <div class="inventory-slot__label">${escapeTooltipAttr(getSlotLabel(slotKey, definition, index))}</div>
             <div class="inventory-slot__item">${escapeTooltipAttr(occupant?.name || occupant?.item_id || 'Empty')}</div>
             <div class="inventory-slot__meta">${occupant ? escapeTooltipAttr(occupant.equip_slot || 'Equipped') : 'Available'}</div>
+            ${occupant ? buildUnequipButton(occupant, slotKey, index) : ''}
           </div>
         `);
       }
@@ -1018,7 +1395,7 @@ import { SpriteService } from './SpriteService.js';
     return entries.join('') || '<div class="inventory-slot inventory-slot--empty">No slot data loaded</div>';
   }
 
-  function renderInventoryPanelList(items, inventory) {
+  function renderInventoryPanelList(items, inventory, feedback = null) {
     if (!Array.isArray(items) || items.length === 0) {
       return '<li class="inventory-panel__empty">No items in inventory</li>';
     }
@@ -1037,31 +1414,55 @@ import { SpriteService } from './SpriteService.js';
         ? getSlotLabel(assignment.slotKey, inventory?.slotFramework?.[assignment.slotKey] || { label: assignment.slotKey }, assignment.slotIndex)
         : '';
       const slotOptions = getCompatibleSlotOptions(item, inventory);
-      const canAssign = Boolean(item?.inventory_metadata?.equippable) && itemInstanceId && slotOptions.length > 0;
+      const canAssign = Boolean(itemInstanceId) && slotOptions.length > 0;
       const isWorn = String(item?.__inventoryLocation || item?.location || '') === 'worn';
+      const isFeedbackItem = String(feedback?.itemInstanceId || '') !== '' && String(feedback?.itemInstanceId || '') === String(itemInstanceId);
+      const feedbackTone = String(feedback?.tone || '').trim();
+      const isPending = isFeedbackItem && feedbackTone === 'pending';
       const locationLabel = isWorn ? `Equipped${assignmentLabel ? ` · ${assignmentLabel}` : ''}` : String(item?.__inventoryLocation || item?.location || 'carried').replace(/_/g, ' ');
       const optionMarkup = slotOptions.map((option) => {
         const value = `${option.slotKey}::${option.slotIndex == null ? '' : option.slotIndex}`;
-        const selected = assignment && assignment.slotKey === option.slotKey && assignment.slotIndex === option.slotIndex ? ' selected' : '';
+        const selected = (assignment && assignment.slotKey === option.slotKey && assignment.slotIndex === option.slotIndex)
+          || (!assignment && slotOptions[0] === option)
+          ? ' selected'
+          : '';
         return `<option value="${escapeTooltipAttr(value)}"${selected}>${escapeTooltipAttr(option.label)}</option>`;
+      }).join('');
+      const assignButtonLabel = isPending && feedback?.action === 'assign' ? 'Assigning...' : 'Assign';
+      const unequipButtonLabel = isPending && feedback?.action === 'unequip' ? 'Unequipping...' : 'Unequip';
+      const assignButtonsMarkup = slotOptions.map((option, index) => {
+        const slotButtonLabel = slotOptions.length === 1 ? `Assign to ${option.label}` : option.label;
+        return `
+          <button
+            type="button"
+            class="inv-item__button${index === 0 ? ' inv-item__button--primary' : ''}"
+            data-inventory-action="assign"
+            data-item-instance-id="${escapeTooltipAttr(itemInstanceId)}"
+            data-item-id="${escapeTooltipAttr(itemId)}"
+            data-item-name="${escapeTooltipAttr(itemName)}"
+            data-slot-key="${escapeTooltipAttr(option.slotKey)}"
+            data-slot-label="${escapeTooltipAttr(option.label)}"${option.slotIndex == null ? '' : ` data-slot-index="${escapeTooltipAttr(option.slotIndex)}"`}
+            ${isPending ? ' disabled' : ''}
+          >${escapeTooltipAttr(isPending && feedback?.action === 'assign' && index === 0 ? assignButtonLabel : slotButtonLabel)}</button>
+        `;
       }).join('');
       const actionMarkup = !itemInstanceId
         ? '<span class="inv-item__status">Static item</span>'
         : (canAssign
           ? `
-            <select class="inv-item__slot-select" data-slot-select>
+            ${assignButtonsMarkup}
+            <select class="inv-item__slot-select" data-slot-select hidden aria-hidden="true"${isPending ? ' disabled' : ''}>
               ${optionMarkup}
             </select>
-            <button type="button" class="inv-item__button inv-item__button--primary" data-inventory-action="assign">Assign</button>
-            ${isWorn ? '<button type="button" class="inv-item__button" data-inventory-action="unequip">Unequip</button>' : ''}
+            ${isWorn ? `<button type="button" class="inv-item__button" data-inventory-action="unequip" data-item-instance-id="${escapeTooltipAttr(itemInstanceId)}" data-item-id="${escapeTooltipAttr(itemId)}" data-item-name="${escapeTooltipAttr(itemName)}"${isPending ? ' disabled' : ''}>${unequipButtonLabel}</button>` : ''}
           `
           : (isWorn
-            ? '<button type="button" class="inv-item__button" data-inventory-action="unequip">Unequip</button>'
+            ? `<button type="button" class="inv-item__button" data-inventory-action="unequip" data-item-instance-id="${escapeTooltipAttr(itemInstanceId)}" data-item-id="${escapeTooltipAttr(itemId)}" data-item-name="${escapeTooltipAttr(itemName)}"${isPending ? ' disabled' : ''}>${unequipButtonLabel}</button>`
             : '<span class="inv-item__status">No valid slot</span>'));
 
       return `
         <li
-          class="inv-item"
+          class="inv-item${isWorn ? ' inv-item--equipped' : ''}${isPending ? ' inv-item--pending' : ''}${isFeedbackItem && feedbackTone === 'success' ? ' inv-item--highlight-success' : ''}${isFeedbackItem && feedbackTone === 'error' ? ' inv-item--highlight-error' : ''}"
           data-type="${escapeTooltipAttr(type)}"
           data-item-id="${escapeTooltipAttr(itemId)}"
           data-item-instance-id="${escapeTooltipAttr(itemInstanceId)}"
@@ -1358,6 +1759,8 @@ import { SpriteService } from './SpriteService.js';
       this.roomViewCacheTtlMs = 60000;
       this.roomViewRefreshCooldownMs = 2500;
       this.pendingChatRequests = new Map();
+      this.lastChatTurnStatusKey = '';
+      this.roomTurnSequenceCache = new Map();
       this.roomChatBusy = false;
       this.roomChatQueueDraining = false;
       this.roomChatDeferredMessages = [];
@@ -1384,6 +1787,7 @@ import { SpriteService } from './SpriteService.js';
       this.actionRailRealClockTimer = null;
       this.actionRailAutomationTogglePending = false;
       this.currentCharacterInventoryContext = null;
+      this.inventoryActionStatusTimer = null;
       this.setupActionFooterToggle();
       this.setupFullscreenToggle();
       this.cacheElements();
@@ -1393,6 +1797,7 @@ import { SpriteService } from './SpriteService.js';
       this.setupChannelTabs();
       this.setupSessionViewTabs();
       this.setupActionRail();
+      this.syncChatTurnStatus();
     }
 
     /**
@@ -1631,6 +2036,7 @@ import { SpriteService } from './SpriteService.js';
         inventoryBulkMax: document.getElementById('inv-bulk-max'),
         inventorySlotGrid: document.getElementById('inv-slot-grid'),
         inventoryItemList: document.getElementById('inv-item-list'),
+        inventoryActionStatus: document.getElementById('inv-action-status'),
         characterFeatures: document.getElementById('char-features'),
         characterSpellsSection: document.getElementById('char-spells-section'),
         characterSpellMeta: document.getElementById('char-spell-meta'),
@@ -1647,6 +2053,14 @@ import { SpriteService } from './SpriteService.js';
         chatChannelLabel: document.getElementById('chat-channel-label'),
         chatSessionTabs: document.getElementById('chat-session-tabs'),
         chatPanelTitle: document.getElementById('chat-panel-title'),
+        chatTurnStatus: document.getElementById('chat-turn-status'),
+        chatTurnRole: document.getElementById('chat-turn-role'),
+        chatTurnName: document.getElementById('chat-turn-name'),
+        chatTurnMeta: document.getElementById('chat-turn-meta'),
+        chatTurnCurrentRoundLabel: document.getElementById('chat-turn-current-round-label'),
+        chatTurnCurrentRoundOrder: document.getElementById('chat-turn-current-round-order'),
+        chatTurnNextRoundLabel: document.getElementById('chat-turn-next-round-label'),
+        chatTurnNextRoundOrder: document.getElementById('chat-turn-next-round-order'),
         chatShell: document.getElementById('hexmap-chat'),
 
         // Generated room view panel
@@ -1670,31 +2084,302 @@ import { SpriteService } from './SpriteService.js';
         questJournal: document.getElementById('quest-journal'),
         questList: document.getElementById('quest-list'),
         questCount: document.getElementById('quest-count'),
+        questExpandAll: document.getElementById('quest-expand-all'),
+        questCollapseAll: document.getElementById('quest-collapse-all'),
         questConfirmationCount: document.getElementById('quest-confirmation-count'),
         questConfirmationList: document.getElementById('quest-confirmation-list')
       };
 
       this.setupCharacterSheetSections();
+      this.setupQuestJournalControls();
     }
 
-    setupInventoryPanelActions() {
-      const itemList = this.elements.inventoryItemList;
-      if (!itemList || itemList.dataset.bound === 'true') {
+    setupQuestJournalControls() {
+      const expandButton = this.elements.questExpandAll;
+      const collapseButton = this.elements.questCollapseAll;
+      const questJournal = this.elements.questJournal;
+      if (!expandButton || !collapseButton || !questJournal) {
         return;
       }
 
-      itemList.dataset.bound = 'true';
-      itemList.addEventListener('click', (event) => {
-        const button = event.target.closest('[data-inventory-action]');
-        if (!button) {
+      if (questJournal.dataset.toggleBound !== 'true') {
+        questJournal.dataset.toggleBound = 'true';
+        questJournal.addEventListener('toggle', (event) => {
+          if (event.target && event.target.matches && event.target.matches('details[data-quest-collapsible]')) {
+            this.updateQuestJournalControlState();
+          }
+        }, true);
+      }
+
+      if (expandButton.dataset.bound !== 'true') {
+        expandButton.dataset.bound = 'true';
+        expandButton.addEventListener('click', () => {
+          this.setQuestJournalExpansion(true);
+        });
+      }
+
+      if (collapseButton.dataset.bound !== 'true') {
+        collapseButton.dataset.bound = 'true';
+        collapseButton.addEventListener('click', () => {
+          this.setQuestJournalExpansion(false);
+        });
+      }
+
+      this.updateQuestJournalControlState();
+    }
+
+    setQuestJournalExpansion(expanded) {
+      const list = this.elements.questList;
+      if (!list) {
+        return;
+      }
+
+      list.querySelectorAll('details[data-quest-collapsible]').forEach((node) => {
+        node.open = expanded;
+      });
+      this.updateQuestJournalControlState();
+    }
+
+    updateQuestJournalControlState() {
+      const list = this.elements.questList;
+      const expandButton = this.elements.questExpandAll;
+      const collapseButton = this.elements.questCollapseAll;
+      if (!list || !expandButton || !collapseButton) {
+        return;
+      }
+
+      const nodes = Array.from(list.querySelectorAll('details[data-quest-collapsible]'));
+      const hasNodes = nodes.length > 0;
+      const openCount = nodes.filter((node) => node.open).length;
+
+      expandButton.disabled = !hasNodes || openCount === nodes.length;
+      collapseButton.disabled = !hasNodes || openCount === 0;
+    }
+
+    setupInventoryPanelActions() {
+      if (typeof document === 'undefined' || document.body?.dataset.inventoryActionBound === 'true') {
+        return;
+      }
+
+      document.body.dataset.inventoryActionBound = 'true';
+      this.logInventoryActionTrace('handler-bound', {
+        scope: 'document',
+        panelSelector: '#sidebar-panel-inventory',
+      });
+      document.addEventListener('click', (event) => {
+        const panel = event.target.closest('#sidebar-panel-inventory');
+        if (!panel) {
           return;
         }
-        event.preventDefault();
-        this.handleInventoryAction(button).catch((error) => {
-          console.error('Inventory action failed', error);
-          window.alert(error?.message || 'Inventory action failed.');
+
+        const button = event.target.closest('[data-inventory-action]');
+        const row = event.target.closest('.inv-item');
+        this.logInventoryActionTrace('raw-click', {
+          targetTag: event.target?.tagName || null,
+          targetText: String(event.target?.textContent || '').trim().slice(0, 80) || null,
+          hasActionButton: Boolean(button),
+          action: button?.dataset?.inventoryAction || null,
+          itemInstanceId: button?.dataset?.itemInstanceId || row?.dataset?.itemInstanceId || null,
+          itemId: button?.dataset?.itemId || row?.dataset?.itemId || null,
+          slotKey: button?.dataset?.slotKey || null,
+          panelVisible: panel.offsetParent !== null,
         });
+        if (button) {
+          event.preventDefault();
+          this.logInventoryActionTrace('capture-dispatch', {
+            action: button.dataset?.inventoryAction || null,
+            itemInstanceId: button.dataset?.itemInstanceId || row?.dataset?.itemInstanceId || null,
+            itemId: button.dataset?.itemId || row?.dataset?.itemId || null,
+            slotKey: button.dataset?.slotKey || null,
+          });
+          this.dispatchInventoryAction(button);
+        }
+      }, true);
+    }
+
+    dispatchInventoryAction(button) {
+      this.handleInventoryAction(button).catch((error) => {
+        console.error('Inventory action failed', error);
+        this.setInventoryActionStatus(error?.message || 'Inventory action failed.', 'error', { persist: true });
       });
+    }
+
+    resolveInventoryActionContext(button) {
+      const context = this.currentCharacterInventoryContext;
+      const action = String(button?.dataset?.inventoryAction || '').trim();
+      const row = button?.closest?.('.inv-item') || null;
+      const slotSelect = row?.querySelector?.('[data-slot-select]') || null;
+      const slotKey = String(button?.dataset?.slotKey || '').trim();
+      const slotLabel = String(button?.dataset?.slotLabel || '').trim();
+      const slotIndexRaw = button?.dataset?.slotIndex;
+      const slotIndex = slotIndexRaw !== undefined && slotIndexRaw !== '' && Number.isFinite(Number(slotIndexRaw))
+        ? Number(slotIndexRaw)
+        : null;
+      const itemName = String(
+        button?.dataset?.itemName
+        || row?.querySelector('.inv-item__name')?.textContent
+        || row?.dataset?.itemName
+        || 'Item'
+      ).trim();
+      const itemId = String(button?.dataset?.itemId || row?.dataset?.itemId || '').trim();
+      let itemInstanceId = String(button?.dataset?.itemInstanceId || row?.dataset?.itemInstanceId || '').trim();
+
+      if (!itemInstanceId && context?.inventory) {
+        const inventory = normalizeInventoryState(context.inventory || {}, context.currency || {});
+        const candidates = [];
+        const pushCandidate = (item, location, candidateSlotKey = null, candidateSlotIndex = null) => {
+          if (!item || typeof item !== 'object') {
+            return;
+          }
+          candidates.push({
+            itemInstanceId: String(item.item_instance_id || '').trim(),
+            itemId: String(item.item_id || item.id || '').trim(),
+            itemName: String(item.name || '').trim(),
+            location,
+            slotKey: candidateSlotKey,
+            slotIndex: Number.isInteger(candidateSlotIndex) ? candidateSlotIndex : null,
+          });
+        };
+
+        const worn = inventory.worn && typeof inventory.worn === 'object' ? inventory.worn : {};
+        const slotState = inventory.slotState && typeof inventory.slotState === 'object' ? inventory.slotState : {};
+        (Array.isArray(worn.weapons) ? worn.weapons : []).forEach((item) => pushCandidate(item, 'worn'));
+        (Array.isArray(worn.accessories) ? worn.accessories : []).forEach((item) => pushCandidate(item, 'worn'));
+        if (worn.armor) {
+          pushCandidate(worn.armor, 'worn', 'armor', null);
+        }
+        if (worn.shield) {
+          pushCandidate(worn.shield, 'worn', 'shield', null);
+        }
+        (Array.isArray(inventory.carried) ? inventory.carried : []).forEach((item) => pushCandidate(item, 'carried'));
+        (Array.isArray(inventory.equipped) ? inventory.equipped : []).forEach((item) => pushCandidate(item, 'equipped'));
+        (Array.isArray(inventory.stashed) ? inventory.stashed : []).forEach((item) => pushCandidate(item, 'stashed'));
+
+        Object.entries(slotState).forEach(([candidateSlotKey, slotValue]) => {
+          if (Array.isArray(slotValue)) {
+            slotValue.forEach((entry, index) => {
+              pushCandidate(entry, 'worn', candidateSlotKey, index);
+            });
+            return;
+          }
+          pushCandidate(slotValue, 'worn', candidateSlotKey, null);
+        });
+
+        const desiredLocation = action === 'unequip' ? 'worn' : '';
+        const exactMatch = candidates.find((candidate) => (
+          candidate.itemInstanceId !== ''
+          && (!desiredLocation || candidate.location === desiredLocation)
+          && (!itemId || candidate.itemId === itemId)
+          && (!itemName || candidate.itemName === itemName)
+          && (!slotKey || candidate.slotKey === slotKey)
+          && (slotIndex === null || candidate.slotIndex === slotIndex)
+        ));
+        const fallbackMatch = candidates.find((candidate) => (
+          candidate.itemInstanceId !== ''
+          && (!desiredLocation || candidate.location === desiredLocation)
+          && (!itemId || candidate.itemId === itemId)
+        ));
+        itemInstanceId = exactMatch?.itemInstanceId || fallbackMatch?.itemInstanceId || '';
+      }
+
+      return {
+        action,
+        row,
+        slotSelect,
+        itemName,
+        itemId,
+        itemInstanceId,
+        slotKey: slotKey || null,
+        slotLabel: slotLabel || null,
+        slotIndex,
+      };
+    }
+
+    resolveInventoryAssignSelection(actionContext) {
+      const { slotKey, slotIndex, slotLabel, slotSelect } = actionContext;
+      let selectedSlotKey = slotKey;
+      let selectedSlotIndex = slotIndex;
+
+      if (!selectedSlotKey) {
+        const selectedValue = String(
+          slotSelect?.value
+          || slotSelect?.selectedOptions?.[0]?.value
+          || slotSelect?.options?.[0]?.value
+          || ''
+        );
+        const [resolvedSlotKey, resolvedSlotIndex] = selectedValue.split('::');
+        selectedSlotKey = resolvedSlotKey;
+        selectedSlotIndex = resolvedSlotIndex !== undefined && resolvedSlotIndex !== '' ? Number(resolvedSlotIndex) : null;
+      }
+
+      if (!selectedSlotKey) {
+        throw new Error('Choose a slot first.');
+      }
+
+      const selectedSlotLabel = String(
+        slotLabel
+        || slotSelect?.selectedOptions?.[0]?.textContent
+        || slotSelect?.options?.[slotSelect?.selectedIndex ?? 0]?.textContent
+        || selectedSlotKey
+      ).trim();
+
+      return {
+        selectedSlotKey,
+        selectedSlotIndex,
+        selectedSlotLabel,
+      };
+    }
+
+    setInventoryActionStatus(message = '', tone = 'info', options = {}) {
+      const status = this.elements.inventoryActionStatus;
+      if (!status) {
+        return;
+      }
+
+      if (this.inventoryActionStatusTimer) {
+        window.clearTimeout(this.inventoryActionStatusTimer);
+        this.inventoryActionStatusTimer = null;
+      }
+
+      const nextMessage = String(message || '').trim();
+      status.hidden = nextMessage === '';
+      status.textContent = nextMessage;
+      status.classList.toggle('inventory-panel__status--pending', tone === 'pending' && nextMessage !== '');
+      status.classList.toggle('inventory-panel__status--success', tone === 'success' && nextMessage !== '');
+      status.classList.toggle('inventory-panel__status--error', tone === 'error' && nextMessage !== '');
+
+      if (nextMessage !== '' && !options.persist && tone !== 'pending') {
+        this.inventoryActionStatusTimer = window.setTimeout(() => {
+          this.setInventoryActionStatus('', 'info', { persist: true });
+        }, 2400);
+      }
+    }
+
+    logInventoryActionTrace(stage, details = {}, level = 'info') {
+      const payload = {
+        stage: String(stage || '').trim() || 'unknown',
+        timestamp: new Date().toISOString(),
+        ...(details && typeof details === 'object' ? details : {}),
+      };
+
+      const globalScope = typeof globalThis !== 'undefined'
+        ? globalThis
+        : (typeof window !== 'undefined' ? window : null);
+      if (globalScope) {
+        if (!Array.isArray(globalScope.dcInventoryActionLog)) {
+          globalScope.dcInventoryActionLog = [];
+        }
+        globalScope.dcInventoryActionLog.push(payload);
+      }
+
+      const consoleMethod = level === 'error'
+        ? 'error'
+        : (level === 'warn' ? 'warn' : 'info');
+      if (typeof console !== 'undefined' && typeof console[consoleMethod] === 'function') {
+        console[consoleMethod]('[InventoryAction]', payload);
+      }
+
+      return payload;
     }
 
     async handleInventoryAction(button) {
@@ -1703,9 +2388,17 @@ import { SpriteService } from './SpriteService.js';
         throw new Error('No character is selected.');
       }
 
-      const row = button.closest('.inv-item');
-      const itemInstanceId = row?.dataset.itemInstanceId || '';
-      const action = button.dataset.inventoryAction || '';
+      const actionContext = this.resolveInventoryActionContext(button);
+      const {
+        row,
+        itemInstanceId,
+        action,
+        itemName,
+        slotSelect,
+        slotKey,
+        slotLabel,
+        slotIndex,
+      } = actionContext;
       if (!itemInstanceId || !action) {
         throw new Error('Missing inventory item context.');
       }
@@ -1713,53 +2406,185 @@ import { SpriteService } from './SpriteService.js';
       const payload = {
         location: action === 'unequip' ? 'carried' : 'worn',
       };
+      let selectedSlotLabel = '';
       if (context.campaignId) {
         payload.campaignId = context.campaignId;
       }
       if (action === 'assign') {
-        const select = row.querySelector('[data-slot-select]');
-        const selectedValue = String(select?.value || '');
-        const [slotKey, slotIndex] = selectedValue.split('::');
-        if (!slotKey) {
-          throw new Error('Choose a slot first.');
-        }
-        payload.equippedSlotKey = slotKey;
-        if (slotIndex !== undefined && slotIndex !== '') {
-          payload.equippedSlotIndex = Number(slotIndex);
+        const resolvedAssignTarget = this.resolveInventoryAssignSelection(actionContext);
+        selectedSlotLabel = resolvedAssignTarget.selectedSlotLabel;
+        payload.equippedSlotKey = resolvedAssignTarget.selectedSlotKey;
+        if (resolvedAssignTarget.selectedSlotIndex !== undefined && resolvedAssignTarget.selectedSlotIndex !== null && resolvedAssignTarget.selectedSlotIndex !== '') {
+          payload.equippedSlotIndex = Number(resolvedAssignTarget.selectedSlotIndex);
         }
       }
 
-      button.disabled = true;
-      const response = await fetch(`/api/inventory/character/${encodeURIComponent(context.characterId)}/item/${encodeURIComponent(itemInstanceId)}/location`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        credentials: 'same-origin',
-        body: JSON.stringify(payload),
+      this.logInventoryActionTrace('click', {
+        action,
+        characterId: context.characterId,
+        campaignId: context.campaignId || null,
+        itemInstanceId,
+        itemId: actionContext.itemId || null,
+        itemName,
+        slotKey: action === 'assign' ? (payload.equippedSlotKey || null) : slotKey,
+        slotIndex: action === 'assign'
+          ? (Number.isInteger(payload.equippedSlotIndex) ? payload.equippedSlotIndex : null)
+          : slotIndex,
+        source: row ? 'inventory-list' : 'inventory-slot',
       });
-      const result = await response.json().catch(() => ({}));
-      button.disabled = false;
 
-      if (!response.ok || !result?.success) {
-        throw new Error(result?.error || result?.message || 'Inventory update failed.');
-      }
-
-      const nextInventory = normalizeInventoryState(result.inventory || {}, context.currency || {});
       this.currentCharacterInventoryContext = {
         ...context,
-        inventory: nextInventory,
-        currency: nextInventory.currency || context.currency || {},
+        inventoryActionFeedback: {
+          tone: 'pending',
+          action,
+          itemInstanceId,
+          slotKey: action === 'assign' ? (payload.equippedSlotKey || null) : slotKey,
+          slotIndex: action === 'assign'
+            ? (Number.isInteger(payload.equippedSlotIndex) ? payload.equippedSlotIndex : null)
+            : slotIndex,
+          message: action === 'assign'
+            ? `${itemName} -> ${selectedSlotLabel || 'selected slot'}`
+            : `${itemName} -> carried inventory`,
+        },
       };
       this.renderInventoryPanel(this.currentCharacterInventoryContext);
+
+      try {
+        this.logInventoryActionTrace('request', {
+          action,
+          characterId: context.characterId,
+          campaignId: context.campaignId || null,
+          itemInstanceId,
+          itemId: actionContext.itemId || null,
+          itemName,
+          payload: { ...payload },
+        });
+        const response = await fetch(`/api/inventory/character/${encodeURIComponent(context.characterId)}/item/${encodeURIComponent(itemInstanceId)}/location`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest',
+          },
+          credentials: 'same-origin',
+          body: JSON.stringify(payload),
+        });
+        const result = await response.json().catch(() => ({}));
+
+        if (!response.ok || !result?.success) {
+          throw new Error(result?.error || result?.message || 'Inventory update failed.');
+        }
+
+        const nextInventory = normalizeInventoryState(result.inventory || {}, context.currency || {});
+        this.logInventoryActionTrace('success', {
+          action,
+          characterId: context.characterId,
+          campaignId: context.campaignId || null,
+          itemInstanceId,
+          itemId: actionContext.itemId || null,
+          itemName,
+          responseMessage: result?.message || null,
+          location: payload.location,
+          slotKey: action === 'assign' ? (payload.equippedSlotKey || null) : slotKey,
+          slotIndex: action === 'assign' && Number.isInteger(payload.equippedSlotIndex) ? payload.equippedSlotIndex : slotIndex,
+        });
+        this.currentCharacterInventoryContext = {
+          ...this.currentCharacterInventoryContext,
+          inventory: nextInventory,
+          currency: nextInventory.currency || context.currency || {},
+          inventoryActionFeedback: {
+            tone: 'success',
+            action,
+            itemInstanceId,
+            slotKey: action === 'assign' ? (payload.equippedSlotKey || null) : slotKey,
+            slotIndex: action === 'assign' && Number.isInteger(payload.equippedSlotIndex) ? payload.equippedSlotIndex : slotIndex,
+            message: action === 'assign'
+              ? `${itemName} assigned to ${selectedSlotLabel || 'selected slot'}.`
+              : `${itemName} moved back to carried inventory.`,
+          },
+        };
+        this.renderInventoryPanel(this.currentCharacterInventoryContext);
+      } catch (error) {
+        this.logInventoryActionTrace('failure', {
+          action,
+          characterId: context.characterId,
+          campaignId: context.campaignId || null,
+          itemInstanceId,
+          itemId: actionContext.itemId || null,
+          itemName,
+          location: payload.location,
+          slotKey: action === 'assign' ? (payload.equippedSlotKey || null) : slotKey,
+          slotIndex: action === 'assign'
+            ? (Number.isInteger(payload.equippedSlotIndex) ? payload.equippedSlotIndex : null)
+            : slotIndex,
+          error: error?.message || 'Inventory update failed.',
+        }, 'error');
+        this.currentCharacterInventoryContext = {
+          ...context,
+          inventoryActionFeedback: {
+            tone: 'error',
+            action,
+            itemInstanceId,
+            slotKey: action === 'assign' ? (payload.equippedSlotKey || null) : slotKey,
+            slotIndex: action === 'assign'
+              ? (Number.isInteger(payload.equippedSlotIndex) ? payload.equippedSlotIndex : null)
+              : slotIndex,
+            message: error?.message || 'Inventory update failed.',
+          },
+        };
+        this.renderInventoryPanel(this.currentCharacterInventoryContext);
+        throw error;
+      }
+    }
+
+    async refreshCharacterInventoryFromApi(context) {
+      if (!context?.characterId || typeof fetch !== 'function') {
+        return;
+      }
+
+      const params = new URLSearchParams();
+      if (context.campaignId) {
+        params.set('campaign_id', String(context.campaignId));
+      }
+      const requestUrl = `/api/inventory/character/${encodeURIComponent(context.characterId)}${params.toString() ? `?${params.toString()}` : ''}`;
+
+      try {
+        const response = await fetch(requestUrl, {
+          headers: {
+            'Accept': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest',
+          },
+          credentials: 'same-origin',
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok || !result?.success || !result?.inventory) {
+          throw new Error(result?.error || result?.message || 'Inventory refresh failed.');
+        }
+
+        const currentContext = this.currentCharacterInventoryContext;
+        if (!currentContext || String(currentContext.characterId || '') !== String(context.characterId || '') || Number(currentContext.campaignId || 0) !== Number(context.campaignId || 0)) {
+          return;
+        }
+
+        const nextInventory = normalizeInventoryState(result.inventory || {}, currentContext.currency || context.currency || {});
+        this.currentCharacterInventoryContext = {
+          ...currentContext,
+          inventory: nextInventory,
+          currency: nextInventory.currency || currentContext.currency || context.currency || {},
+        };
+        this.renderInventoryPanel(this.currentCharacterInventoryContext);
+      } catch (error) {
+        console.error('Character inventory refresh failed', error);
+      }
     }
 
     renderInventoryPanel(context) {
       const inventory = normalizeInventoryState(context?.inventory || {}, context?.currency || {});
       const items = collectInventoryItems(inventory, context?.equipment || []);
       const summaryHtml = formatInventoryItemList(items);
-      const panelHtml = renderInventoryPanelList(items, inventory);
+      const feedback = context?.inventoryActionFeedback || null;
+      const panelHtml = renderInventoryPanelList(items, inventory, feedback);
       const currency = inventory.currency || context?.currency || {};
       const abilities = context?.abilities || {};
       const totalBulk = inventory.totalBulk ?? estimateInventoryBulk(items);
@@ -1774,14 +2599,32 @@ import { SpriteService } from './SpriteService.js';
       if (this.elements.inventoryBulkCurrent) this.elements.inventoryBulkCurrent.textContent = formatBulkValue(totalBulk);
       if (this.elements.inventoryBulkMax) this.elements.inventoryBulkMax.textContent = formatBulkValue(bulkMax);
       if (this.elements.inventorySlotGrid) {
-        this.elements.inventorySlotGrid.innerHTML = renderInventorySlotGrid(inventory);
+        this.elements.inventorySlotGrid.innerHTML = renderInventorySlotGrid(inventory, feedback);
       }
       if (this.elements.inventoryItemList) {
         this.elements.inventoryItemList.innerHTML = panelHtml;
       }
+      this.setInventoryActionStatus(feedback?.message || '', feedback?.tone || 'info', { persist: true });
+      this.logInventoryActionTrace('panel-render', {
+        characterId: context?.characterId || null,
+        campaignId: context?.campaignId || null,
+        itemCount: items.length,
+        carriedCount: Array.isArray(inventory.carried) ? inventory.carried.length : 0,
+        wornCount: collectWornInventoryItems(inventory.worn).length,
+        assignButtonCount: this.elements.inventoryItemList?.querySelectorAll?.('[data-inventory-action="assign"]')?.length || 0,
+        unequipButtonCount: (this.elements.inventoryItemList?.querySelectorAll?.('[data-inventory-action="unequip"]')?.length || 0)
+          + (this.elements.inventorySlotGrid?.querySelectorAll?.('[data-inventory-action="unequip"]')?.length || 0),
+      });
 
       if (typeof window !== 'undefined') {
         window.dcInventoryPanelManaged = true;
+        window.dcRefreshInventoryPanel = () => {
+          if (!this.currentCharacterInventoryContext) {
+            return false;
+          }
+          this.renderInventoryPanel(this.currentCharacterInventoryContext);
+          return true;
+        };
         if (typeof window.dcAttachTooltips === 'function' && this.elements.inventoryItemList) {
           window.dcAttachTooltips(this.elements.inventoryItemList);
         }
@@ -1902,12 +2745,12 @@ import { SpriteService } from './SpriteService.js';
         automationToggle.disabled = toggleDisabled;
         automationToggle.setAttribute('aria-disabled', toggleDisabled ? 'true' : 'false');
         automationToggle.setAttribute('aria-pressed', automationActive ? 'true' : 'false');
-        automationToggle.textContent = automationActive ? 'Stop automation' : (automationBusy ? 'Thinking…' : 'Automate');
+        automationToggle.textContent = automationActive ? 'Stop automation' : (automationBusy ? 'Thinking…' : 'Suggest next move');
         automationToggle.classList.toggle('action-rail__automation-toggle--active', automationActive);
       }
       if (automationMeta) {
         automationMeta.textContent = context.automationState?.statusLabel
-          || 'Let your character act autonomously using the player-agent harness.';
+          || 'Draft and send the next in-character room chat line.';
       }
       this.updateActionRailClocks(context);
 
@@ -3356,7 +4199,8 @@ import { SpriteService } from './SpriteService.js';
       if (!Array.isArray(entries)) {
         return '';
       }
-      const firstImageEntry = entries.find((entry) => Boolean(entry?.image?.url || entry?.image?.data_uri));
+      const firstImageEntry = entries.find((entry) => entry?.entry_type === 'establishing' && Boolean(entry?.image?.url || entry?.image?.data_uri))
+        || entries.find((entry) => Boolean(entry?.image?.url || entry?.image?.data_uri));
       return firstImageEntry?.image?.url || firstImageEntry?.image?.data_uri || '';
     }
 
@@ -4475,6 +5319,7 @@ import { SpriteService } from './SpriteService.js';
         abilities: normalizedAbilities,
       };
       this.renderInventoryPanel(this.currentCharacterInventoryContext);
+      this.refreshCharacterInventoryFromApi(this.currentCharacterInventoryContext);
 
       // Update features & feats (with type badges)
       if (this.elements.characterFeatures) {
@@ -4898,9 +5743,9 @@ import { SpriteService } from './SpriteService.js';
         }
 
         // Get context from state manager
-        const campaignId = this.stateManager.hexmap?.resolveCampaignId?.() || null;
-        const roomId = this.stateManager.hexmap?.resolveActiveRoomId?.() || null;
-        const characterData = this.stateManager.hexmap?.characterData || {};
+        const campaignId = this.stateManager?.hexmap?.resolveCampaignId?.() || null;
+        const roomId = this.stateManager?.hexmap?.resolveActiveRoomId?.() || null;
+        const characterData = this.stateManager?.hexmap?.characterData || {};
         const characterName = characterData.name || 'You';
         const characterId = characterData.id || null;
 
@@ -4948,6 +5793,9 @@ import { SpriteService } from './SpriteService.js';
         } catch (error) {
           if (error.message.includes('403')) {
             console.warn('Chat message send denied (permission)');
+          } else if (/not your turn/i.test(error.message)) {
+            this.appendChatLine('System', error.message, 'system');
+            input.value = message;
           } else {
             console.error('Failed to send chat message:', error);
             this.appendChatLine('System', `Failed to send message: ${error.message}`, 'system');
@@ -4969,9 +5817,9 @@ import { SpriteService } from './SpriteService.js';
         throw new Error('Message too long (max 2000 characters)');
       }
 
-      const campaignId = options.campaignId || this.stateManager.hexmap?.resolveCampaignId?.() || null;
-      const roomId = options.roomId || this.stateManager.hexmap?.resolveActiveRoomId?.() || null;
-      const characterData = this.stateManager.hexmap?.characterData || {};
+      const campaignId = options.campaignId || this.stateManager?.hexmap?.resolveCampaignId?.() || null;
+      const roomId = options.roomId || this.stateManager?.hexmap?.resolveActiveRoomId?.() || null;
+      const characterData = this.stateManager?.hexmap?.characterData || {};
       const characterName = options.speaker || characterData.name || 'You';
       const characterId = options.characterId ?? characterData.id ?? null;
       const activeChannelKey = options.channelKey || 'room';
@@ -4994,12 +5842,17 @@ import { SpriteService } from './SpriteService.js';
         },
       });
       const queueOnly = this.roomChatBusy || this.roomChatQueueDraining;
+      const pendingResponder = this.resolvePendingResponder(trimmedMessage, {
+        channelKey: activeChannelKey,
+        roomId,
+        target: chatTarget,
+      });
       const pendingRequest = this.buildPendingChatRequest(clientRequestId, characterName, trimmedMessage, roomId, {
         includePlayer: true,
         includePlaceholder: !queueOnly,
-        placeholderText: activeChannelKey === 'room'
-          ? 'Turn 1: reviewing the room and what you just said...'
-          : 'Turn 1: reviewing what you just said...',
+        placeholderText: '...',
+        placeholderSpeaker: activeChannelKey === 'room' ? 'Narrator' : pendingResponder.speaker,
+        placeholderType: pendingResponder.type,
         target: chatTarget,
       });
 
@@ -5012,24 +5865,33 @@ import { SpriteService } from './SpriteService.js';
         if (!queueOnly) {
           this.roomChatBusy = true;
         }
-        const result = await this.postChatMessage(campaignId, roomId, characterName, trimmedMessage, characterId, {
+        if (queueOnly) {
+          this.roomChatDeferredMessages.push({
+            requestId: clientRequestId,
+            speaker: characterName,
+            message: trimmedMessage,
+            roomId,
+            campaignId,
+            characterId,
+            channel: activeChannelKey,
+            pendingRequest,
+            target: chatTarget,
+          });
+          this.updateQueuedChatStatus(this.roomChatDeferredMessages.length);
+          return {
+            success: true,
+            data: {
+              queued: true,
+            },
+          };
+        }
+        return await this.postChatMessage(campaignId, roomId, characterName, trimmedMessage, characterId, {
           clientRequestId,
           pendingRequest,
-          suppressGm: queueOnly,
           channelKey: activeChannelKey,
           context: chatTarget.context,
           target: chatTarget,
         });
-        if (queueOnly) {
-          this.roomChatDeferredMessages.push({
-            requestId: clientRequestId,
-            roomId,
-            characterId,
-            channel: activeChannelKey,
-          });
-          this.updateQueuedChatStatus(this.roomChatDeferredMessages.length);
-        }
-        return result;
       } catch (error) {
         this.settlePendingChatRequest(pendingRequest, {
           removePlayer: true,
@@ -5137,15 +5999,16 @@ import { SpriteService } from './SpriteService.js';
 
       // Reload chat history for this channel.
       this.loadChatHistory();
+      this.syncChatTurnStatus();
     }
 
     /**
      * Load channels for the current room and render tabs.
      */
     async loadChannels() {
-      const campaignId = this.stateManager.hexmap?.resolveCampaignId?.() || null;
-      const roomId = this.stateManager.hexmap?.resolveActiveRoomId?.() || null;
-      const characterData = this.stateManager.hexmap?.characterData || {};
+      const campaignId = this.stateManager?.hexmap?.resolveCampaignId?.() || null;
+      const roomId = this.stateManager?.hexmap?.resolveActiveRoomId?.() || null;
+      const characterData = this.stateManager?.hexmap?.characterData || {};
       const characterId = characterData.id || null;
 
       if (!campaignId || !roomId) return;
@@ -5207,9 +6070,9 @@ import { SpriteService } from './SpriteService.js';
      * Open a new channel (e.g. from clicking "Talk" on an NPC entity).
      */
     async openChannel(targetEntity, targetName, sourceAbility = 'whisper') {
-      const campaignId = this.stateManager.hexmap?.resolveCampaignId?.() || null;
-      const roomId = this.stateManager.hexmap?.resolveActiveRoomId?.() || null;
-      const characterData = this.stateManager.hexmap?.characterData || {};
+      const campaignId = this.stateManager?.hexmap?.resolveCampaignId?.() || null;
+      const roomId = this.stateManager?.hexmap?.resolveActiveRoomId?.() || null;
+      const characterData = this.stateManager?.hexmap?.characterData || {};
       const characterId = characterData.id || null;
 
       if (!campaignId || !roomId) return;
@@ -5253,8 +6116,8 @@ import { SpriteService } from './SpriteService.js';
     async closeChannel(channelKey) {
       if (channelKey === 'room') return;
 
-      const campaignId = this.stateManager.hexmap?.resolveCampaignId?.() || null;
-      const roomId = this.stateManager.hexmap?.resolveActiveRoomId?.() || null;
+      const campaignId = this.stateManager?.hexmap?.resolveCampaignId?.() || null;
+      const roomId = this.stateManager?.hexmap?.resolveActiveRoomId?.() || null;
       if (!campaignId || !roomId) return;
 
       try {
@@ -5282,12 +6145,12 @@ import { SpriteService } from './SpriteService.js';
         }
       }
 
-      const launchRoomId = String(this.stateManager.hexmap?.launchContext?.room_id || '').trim();
+      const launchRoomId = String(this.stateManager?.hexmap?.launchContext?.room_id || '').trim();
       if (launchRoomId) {
         return launchRoomId;
       }
 
-      return this.stateManager.hexmap?.resolveActiveRoomId?.() || null;
+      return this.stateManager?.hexmap?.resolveActiveRoomId?.() || null;
     }
 
     resolvePinnedChatRoomTarget(preferredRoomId = null, fallbackRoomId = null) {
@@ -5306,9 +6169,9 @@ import { SpriteService } from './SpriteService.js';
     }
 
     getChatContext() {
-      const campaignId = this.stateManager.hexmap?.resolveCampaignId?.() || null;
+      const campaignId = this.stateManager?.hexmap?.resolveCampaignId?.() || null;
       const roomId = this.resolvePinnedChatRoomId();
-      const characterData = this.stateManager.hexmap?.characterData || {};
+      const characterData = this.stateManager?.hexmap?.characterData || {};
       const characterId = characterData.id || null;
 
       return {
@@ -5631,6 +6494,7 @@ import { SpriteService } from './SpriteService.js';
       }
 
       const context = this.getChatContext();
+      this.rememberRoomTurnSequence(result.data?.turn_sequence || [], context, this.activeChannel);
       const incoming = result.data.messages.map((msg, index) => {
         const timestamp = String(msg.timestamp || '').trim();
         const created = timestamp !== '' ? Date.parse(timestamp) || 0 : 0;
@@ -5656,7 +6520,7 @@ import { SpriteService } from './SpriteService.js';
       });
 
       if (merged.length === 0 && result.data.messages.length === 0) {
-        const roomData = this.stateManager.hexmap?.getActiveRoomData?.() || null;
+        const roomData = this.stateManager?.hexmap?.getActiveRoomData?.() || null;
         if (roomData?.name) {
           const terrain = roomData.terrain?.type ? roomData.terrain.type.replace(/_/g, ' ') : '';
           const lighting = roomData.lighting && roomData.lighting !== 'normal' ? ` | Lighting: ${roomData.lighting}` : '';
@@ -5670,13 +6534,14 @@ import { SpriteService } from './SpriteService.js';
         } else {
           this.appendChatLine('System', 'Welcome to the room. Start a conversation!', 'system');
         }
-        const occupantSummary = this.stateManager.hexmap?.buildActiveRoomOccupantSummary?.() || '';
+        const occupantSummary = this.stateManager?.hexmap?.buildActiveRoomOccupantSummary?.() || '';
         if (occupantSummary) {
           this.appendChatLine('System', occupantSummary, 'system');
         }
       }
 
       this.scrollChatToBottom({ defer: true });
+      this.syncChatTurnStatus();
       if (this.loadActiveRoomView) {
         const pinnedRoomId = this.resolvePinnedChatRoomTarget(context.roomId);
         if (pinnedRoomId) {
@@ -5750,6 +6615,9 @@ import { SpriteService } from './SpriteService.js';
       if (!result.success) {
         throw new Error(result.error || 'Unknown error');
       }
+      if (Array.isArray(result.data?.turn_sequence)) {
+        this.rememberRoomTurnSequence(result.data.turn_sequence, chatTarget.context, chatTarget.channelKey);
+      }
 
       const pending = options.pendingRequest || null;
       if (pending) {
@@ -5761,18 +6629,18 @@ import { SpriteService } from './SpriteService.js';
         this.appendChatLineToTarget(chatTarget, speaker, message, 'player');
       }
 
-      // If the server returned a GM response, append it directly
+      if (result.data?.turn_logs?.length) {
+        for (const logMsg of result.data.turn_logs) {
+          this.appendChatLineToTarget(chatTarget, logMsg.speaker || 'System', logMsg.message || '', logMsg.type || 'system');
+        }
+      }
+
+      // If the server returned a GM response, append it directly.
       if (result.data?.gm_response) {
         this.renderPendingGmResponse(pending, result.data.gm_response);
       } else if (!options.suppressGm && !options.continueGm) {
         // Fallback: reload full chat history
         await this.loadChatHistory();
-      }
-
-      if (result.data?.turn_logs?.length) {
-        for (const logMsg of result.data.turn_logs) {
-          this.appendChatLineToTarget(chatTarget, logMsg.speaker || 'System', logMsg.message || '', logMsg.type || 'system');
-        }
       }
 
       // If any NPCs interjected, render their messages after the GM response.
@@ -5858,13 +6726,25 @@ import { SpriteService } from './SpriteService.js';
                 this.updatePendingChatProgress(
                   pending,
                   event.data.message || 'Game Master is thinking...',
-                  event.data.phase || ''
+                  event.data.phase || '',
+                  {
+                    speaker: event.data.speaker || '',
+                    role: event.data.speaker === 'Narrator' ? 'Narrator' : '',
+                  }
                 );
               } else if (event.type === 'gm_response' && event.data) {
                 this.renderPendingGmResponse(pending, event.data);
                 releasePrimary(event.data);
               } else if (event.type === 'system_message' && event.data) {
                 this.appendChatLineToTarget(chatTarget, event.data.speaker || 'System', event.data.message || '', event.data.type || 'system');
+                if (pending && event.data.turn_role && event.data.turn_name) {
+                  pending.progressPhase = 'speaking';
+                  pending.progressSpeaker = event.data.turn_name;
+                  pending.progressRole = event.data.turn_role === 'gm'
+                    ? 'GM'
+                    : (event.data.turn_role === 'narrator' ? 'Narrator' : 'NPC');
+                  this.syncChatTurnStatus();
+                }
               } else if (event.type === 'npc_interjection' && event.data) {
                 this.appendChatLineToTarget(chatTarget, event.data.speaker, event.data.message, event.data.type || 'npc');
               } else if (event.type === 'complete') {
@@ -5872,6 +6752,9 @@ import { SpriteService } from './SpriteService.js';
                   success: true,
                   data: event.data || {},
                 };
+                if (Array.isArray(completeResult.data?.turn_sequence)) {
+                  this.rememberRoomTurnSequence(completeResult.data.turn_sequence, chatTarget.context, chatTarget.channelKey);
+                }
                 if (completeResult.data?.navigation?.target_room_id) {
                   this.handleNavigationResult(completeResult.data.navigation);
                 }
@@ -6267,7 +7150,9 @@ import { SpriteService } from './SpriteService.js';
     buildPendingChatRequest(requestId, speaker, message, roomId, options = {}) {
       const includePlayer = options.includePlayer !== false;
       const includePlaceholder = options.includePlaceholder !== false;
-      const placeholderText = options.placeholderText || 'Thinking...';
+      const placeholderText = options.placeholderText || '...';
+      const placeholderSpeaker = options.placeholderSpeaker || 'Game Master';
+      const placeholderType = options.placeholderType || 'npc';
       const target = this.buildChatRenderTarget(options.target || {
         context: options.context,
         channelKey: options.channelKey,
@@ -6286,7 +7171,7 @@ import { SpriteService } from './SpriteService.js';
         });
       }
       if (includePlaceholder) {
-        this.appendChatLineToTarget(target, 'System', placeholderText, 'system', {
+        this.appendChatLineToTarget(target, placeholderSpeaker, placeholderText, placeholderType, {
           lineId: gmProgressLineId,
           pending: true,
           transient: true,
@@ -6300,8 +7185,15 @@ import { SpriteService } from './SpriteService.js';
         gmProgressLineId: includePlaceholder ? gmProgressLineId : '',
         gmResponseLineId,
         target,
+        placeholderSpeaker,
+        placeholderType,
+        progressPhase: '',
+        progressText: '',
+        progressSpeaker: '',
+        progressRole: '',
       };
       this.pendingChatRequests.set(requestId, pending);
+      this.syncChatTurnStatus();
       return pending;
     }
 
@@ -6340,17 +7232,30 @@ import { SpriteService } from './SpriteService.js';
 
       this.removeChatLineById(pending.gmProgressLineId);
       this.pendingChatRequests.delete(pending.requestId);
+      this.syncChatTurnStatus();
     }
 
-    updatePendingChatProgress(pending, text, phase = '') {
+    updatePendingChatProgress(pending, text, phase = '', actor = {}) {
       if (!pending) {
         return;
       }
-      this.appendChatLineToTarget(pending.target, 'System', text, 'system', {
-        lineId: pending.gmProgressLineId,
-        pending: true,
-        transient: true,
-      });
+      let nextText = text || '...';
+      const progressSpeaker = String(actor.speaker || pending.progressSpeaker || pending.placeholderSpeaker || 'Game Master').trim();
+      const progressRole = String(actor.role || pending.progressRole || '').trim();
+      if (progressSpeaker && progressSpeaker !== 'Game Master') {
+        nextText = String(nextText).replace(/\bGame Master\b/g, progressSpeaker);
+      }
+      this.appendChatLineToTarget(
+        pending.target,
+        progressSpeaker || 'Game Master',
+        nextText,
+        pending.placeholderType || 'npc',
+        {
+          lineId: pending.gmProgressLineId,
+          pending: true,
+          transient: true,
+        }
+      );
       const line = this.isChatTargetVisible(pending.target) ? this.findChatLineById(pending.gmProgressLineId) : null;
       if (line) {
         if (phase) {
@@ -6359,84 +7264,485 @@ import { SpriteService } from './SpriteService.js';
           delete line.dataset.phase;
         }
       }
+      pending.progressPhase = phase || '';
+      pending.progressText = nextText;
+      pending.progressSpeaker = progressSpeaker;
+      pending.progressRole = progressRole;
+      this.syncChatTurnStatus();
     }
 
     renderPendingGmResponse(pending, response) {
       if (!response) {
         return;
       }
+      const visibleMessage = this.resolveVisibleGmResponseMessage(response);
       if (this.isChatTargetVisible(pending?.target || {})) {
         this.removeChatLineById(pending?.gmProgressLineId || '');
       }
-      this.appendChatLineToTarget(pending?.target || null, response.speaker || 'Game Master', response.message || '', response.type || 'npc', {
+      this.appendChatLineToTarget(pending?.target || null, response.speaker || 'Game Master', visibleMessage, response.type || 'npc', {
         lineId: pending?.gmResponseLineId || '',
         pending: false,
         transient: false,
       });
+      if (pending) {
+        pending.progressPhase = 'responding';
+        pending.progressText = visibleMessage;
+        pending.progressSpeaker = response.speaker || 'Game Master';
+        pending.progressRole = 'GM';
+        this.syncChatTurnStatus();
+      }
+    }
+
+    resolveVisibleGmResponseMessage(response = {}) {
+      const directMessage = String(response.message || response.text || response.narrative || response.gm_payload?.narrative || '').trim();
+      if (directMessage) {
+        return directMessage;
+      }
+
+      const actionNames = Array.isArray(response.mechanical_actions)
+        ? response.mechanical_actions
+          .map((action) => String(action?.name || action?.type || '').trim())
+          .filter(Boolean)
+        : [];
+      if (actionNames.length) {
+        return `Game Master update: resolved ${actionNames.join(', ')}.`;
+      }
+
+      return 'Game Master update: the situation shifts.';
+    }
+
+    getVisiblePendingChatRequest() {
+      const pendingEntries = Array.from(this.pendingChatRequests.values());
+      for (let index = pendingEntries.length - 1; index >= 0; index -= 1) {
+        const pending = pendingEntries[index];
+        if (pending && this.isChatTargetVisible(pending.target)) {
+          return pending;
+        }
+      }
+      return pendingEntries.length ? pendingEntries[pendingEntries.length - 1] : null;
+    }
+
+    getPendingTurnDescriptor(pending) {
+      const target = pending?.target || {};
+      const rawSpeaker = String(pending?.progressSpeaker || pending?.placeholderSpeaker || '').trim();
+      const rawRole = String(pending?.progressRole || '').trim().toLowerCase();
+      const normalizedSpeaker = rawSpeaker.toLowerCase();
+      const placeholderType = String(pending?.placeholderType || '').trim().toLowerCase();
+
+      if (rawRole === 'narrator') {
+        return { role: 'Narrator', name: rawSpeaker || 'Narrator' };
+      }
+      if (rawRole === 'gm') {
+        return { role: 'GM', name: rawSpeaker || 'Game Master' };
+      }
+      if (rawRole === 'npc') {
+        return { role: 'NPC', name: rawSpeaker || 'NPC' };
+      }
+      if (target.view === 'narrative' || placeholderType === 'narrative') {
+        return { role: 'Narrator', name: rawSpeaker || 'Narrator' };
+      }
+      if (placeholderType === 'player') {
+        return { role: 'Character', name: rawSpeaker || 'Character' };
+      }
+      if (normalizedSpeaker === 'game master' || normalizedSpeaker === 'gm') {
+        return { role: 'GM', name: rawSpeaker || 'Game Master' };
+      }
+      if (normalizedSpeaker === 'narrator') {
+        return { role: 'Narrator', name: rawSpeaker || 'Narrator' };
+      }
+      if (rawSpeaker !== '') {
+        return { role: 'NPC', name: rawSpeaker };
+      }
+      return { role: 'Narrator', name: 'Narrator' };
+    }
+
+    buildPendingTurnMeta(pending, descriptor) {
+      const phase = String(pending?.progressPhase || '').trim().toLowerCase();
+      if (phase === 'reviewing-room') {
+        return `${descriptor.role} turn: reviewing the room and your latest input...`;
+      }
+      if (phase === 'updating-conversation') {
+        return `${descriptor.role} turn: updating the conversation state...`;
+      }
+      if (phase === 'syncing-context') {
+        return `${descriptor.role} turn: syncing the scene context...`;
+      }
+      if (phase === 'checking-reactions') {
+        return `${descriptor.role} turn: checking who is active in the scene...`;
+      }
+      if (phase === 'drafting-response' || phase === 'thinking') {
+        return `${descriptor.role} turn: preparing the scene...`;
+      }
+      if (phase === 'npc-reactions') {
+        return `${descriptor.role} turn: acting in initiative order...`;
+      }
+      if (phase === 'responding' || phase === 'speaking') {
+        return `${descriptor.role} turn: responding now...`;
+      }
+      if (phase === 'queued') {
+        return `${descriptor.role} turn: queued for the next response cycle...`;
+      }
+      return `${descriptor.role} turn in progress.`;
+    }
+
+    rememberRoomTurnSequence(turnSequence = [], context = null, channelKey = null) {
+      const targetContext = context || this.getChatContext();
+      if (!targetContext?.campaignId || !targetContext?.roomId || !this.roomTurnSequenceCache) {
+        return;
+      }
+      const cacheKey = this.buildRoomChatCacheKey(targetContext, channelKey || this.activeChannel || 'room');
+      if (!Array.isArray(turnSequence) || turnSequence.length === 0) {
+        this.roomTurnSequenceCache.delete(cacheKey);
+        return;
+      }
+      this.roomTurnSequenceCache.set(cacheKey, turnSequence.map((turn) => ({ ...turn })));
+    }
+
+    getRememberedRoomTurnSequence(context = null, channelKey = null) {
+      const targetContext = context || this.getChatContext();
+      if (!targetContext?.campaignId || !targetContext?.roomId || !this.roomTurnSequenceCache) {
+        return [];
+      }
+      const cacheKey = this.buildRoomChatCacheKey(targetContext, channelKey || this.activeChannel || 'room');
+      const sequence = this.roomTurnSequenceCache.get(cacheKey);
+      return Array.isArray(sequence) ? sequence.map((turn) => ({ ...turn })) : [];
+    }
+
+    buildChatRoundOrderLines(pending = null) {
+      const target = pending?.target || null;
+      const targetContext = target?.context || this.getChatContext();
+      const targetChannel = target?.channelKey || this.activeChannel || 'room';
+      const rememberedSequence = this.getRememberedRoomTurnSequence(targetContext, targetChannel);
+      const npcTurns = rememberedSequence
+        .filter((turn) => String(turn?.role || '').toLowerCase() === 'npc')
+        .map((turn) => ({
+          role: 'npc',
+          name: String(turn?.display_name || turn?.turn_name || turn?.actor_ref || 'NPC').trim() || 'NPC',
+          initiative: Number.isFinite(Number(turn?.initiative_total)) ? Number(turn.initiative_total) : null,
+        }));
+      const fallbackNpcTurns = npcTurns.length > 0
+        ? npcTurns
+        : this.buildActiveRoomNpcTurnOrder(targetContext?.roomId || null);
+      const orderedTurns = [
+        { role: 'narrator', name: 'Narrator', initiative: null },
+        { role: 'gm', name: 'Game Master', initiative: null },
+        ...(fallbackNpcTurns.length > 0 ? fallbackNpcTurns : [{ role: 'npc', name: 'NPC initiative order', initiative: null }]),
+      ];
+      const descriptor = pending ? this.getPendingTurnDescriptor(pending) : null;
+      const activeRole = String(descriptor?.role || '').trim().toLowerCase();
+      const activeName = String(descriptor?.name || '').trim().toLowerCase();
+
+      const formatLines = (activeMatcher = null) => orderedTurns.map((turn, index) => {
+        const initiativeSuffix = turn.role === 'npc' && Number.isFinite(turn.initiative)
+          ? ` (initiative ${turn.initiative})`
+          : '';
+        const isActive = typeof activeMatcher === 'function' && activeMatcher(turn, index);
+        return `Turn ${index + 1}: ${turn.name}${initiativeSuffix}${isActive ? ' - current' : ''}`;
+      }).join('\n');
+
+      return {
+        currentRoundLabel: 'Current round order',
+        currentRoundOrder: formatLines((turn) => {
+          if (activeRole === 'gm') {
+            return turn.role === 'gm';
+          }
+          if (activeRole === 'narrator') {
+            return turn.role === 'narrator';
+          }
+          if (activeRole === 'npc') {
+            return turn.role === 'npc' && String(turn.name || '').trim().toLowerCase() === activeName;
+          }
+          return false;
+        }),
+        nextRoundLabel: 'Next round order',
+        nextRoundOrder: formatLines(),
+      };
+    }
+
+    buildIdleChatTurnStatus() {
+      if (this.activeSessionView !== 'room') {
+        return null;
+      }
+      const roundOrder = this.buildChatRoundOrderLines();
+      return {
+        role: 'Player',
+        name: 'You',
+        meta: 'Player turn: write the next line or choose your next action.',
+        currentRoundLabel: roundOrder.currentRoundLabel,
+        currentRoundOrder: roundOrder.currentRoundOrder,
+        nextRoundLabel: roundOrder.nextRoundLabel,
+        nextRoundOrder: roundOrder.nextRoundOrder,
+      };
+    }
+
+    setChatTurnStatus(status = null) {
+      const container = this.elements.chatTurnStatus;
+      const roleEl = this.elements.chatTurnRole;
+      const nameEl = this.elements.chatTurnName;
+      const metaEl = this.elements.chatTurnMeta;
+      const currentRoundLabelEl = this.elements.chatTurnCurrentRoundLabel;
+      const currentRoundOrderEl = this.elements.chatTurnCurrentRoundOrder;
+      const nextRoundLabelEl = this.elements.chatTurnNextRoundLabel;
+      const nextRoundOrderEl = this.elements.chatTurnNextRoundOrder;
+      if (!container || !roleEl || !nameEl || !metaEl) {
+        return;
+      }
+
+      if (!status) {
+        container.hidden = true;
+        if (this.lastChatTurnStatusKey !== 'hidden') {
+          this.lastChatTurnStatusKey = 'hidden';
+          console.info('[RoomChat] current turn', {
+            hidden: true,
+            view: this.activeSessionView,
+            channel: this.activeChannel,
+          });
+        }
+        return;
+      }
+
+      roleEl.textContent = status.role || 'System';
+      nameEl.textContent = status.name || 'Unknown';
+      metaEl.textContent = status.meta || 'Turn in progress.';
+      if (currentRoundLabelEl) {
+        currentRoundLabelEl.textContent = status.currentRoundLabel || 'Current round order';
+      }
+      if (currentRoundOrderEl) {
+        currentRoundOrderEl.textContent = status.currentRoundOrder || '';
+      }
+      if (nextRoundLabelEl) {
+        nextRoundLabelEl.textContent = status.nextRoundLabel || 'Next round order';
+      }
+      if (nextRoundOrderEl) {
+        nextRoundOrderEl.textContent = status.nextRoundOrder || '';
+      }
+      container.hidden = false;
+
+      const statusKey = [
+        status.role || '',
+        status.name || '',
+        status.meta || '',
+        status.currentRoundLabel || '',
+        status.currentRoundOrder || '',
+        status.nextRoundLabel || '',
+        status.nextRoundOrder || '',
+        this.activeSessionView || '',
+        this.activeChannel || '',
+      ].join('|');
+      if (statusKey !== this.lastChatTurnStatusKey) {
+        this.lastChatTurnStatusKey = statusKey;
+        console.info('[RoomChat] current turn', {
+          role: status.role || 'System',
+          name: status.name || 'Unknown',
+          meta: status.meta || 'Turn in progress.',
+          view: this.activeSessionView,
+          channel: this.activeChannel,
+          pendingRequestId: status.pendingRequestId || null,
+        });
+      }
+    }
+
+    syncChatTurnStatus() {
+      const pending = this.getVisiblePendingChatRequest();
+      if (!pending) {
+        this.setChatTurnStatus(this.buildIdleChatTurnStatus());
+        return;
+      }
+
+      const descriptor = this.getPendingTurnDescriptor(pending);
+      const roundOrder = this.buildChatRoundOrderLines(pending);
+      this.setChatTurnStatus({
+        role: descriptor.role,
+        name: descriptor.name,
+        meta: this.buildPendingTurnMeta(pending, descriptor),
+        currentRoundLabel: roundOrder.currentRoundLabel,
+        currentRoundOrder: roundOrder.currentRoundOrder,
+        nextRoundLabel: roundOrder.nextRoundLabel,
+        nextRoundOrder: roundOrder.nextRoundOrder,
+        pendingRequestId: pending.requestId || '',
+      });
+    }
+
+    normalizeResponderLookupText(value) {
+      return String(value || '')
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
+
+    buildActiveRoomNpcTurnOrder(roomId = null) {
+      const hexmap = this.stateManager?.hexmap;
+      const activeRoomId = roomId || hexmap?.resolveActiveRoomId?.() || null;
+      const entities = Array.isArray(hexmap?.dungeonData?.entities) ? hexmap.dungeonData.entities : [];
+      const initiativeOrder = Array.isArray(hexmap?.dungeonData?.game_state?.initiative_order)
+        ? hexmap.dungeonData.game_state.initiative_order
+        : [];
+      const roomNpcs = entities.filter((entity) => (
+        (entity?.placement?.room_id || null) === activeRoomId
+        && String(entity?.entity_type || '').toLowerCase() === 'npc'
+      ));
+      const candidateMaps = new Map();
+      const normalizeName = (value) => String(value || '').trim().toLowerCase();
+      roomNpcs.forEach((entity) => {
+        const metadata = entity?.state?.metadata || {};
+        const displayName = String(metadata.display_name || metadata.name || entity?.display_name || entity?.name || '').trim();
+        const keys = [
+          entity?.instance_id,
+          entity?.entity_instance_id,
+          entity?.id,
+          entity?.entity_id,
+          entity?.entity_ref?.content_id,
+          entity?.entity_ref?.id,
+          metadata.entity_ref,
+          metadata.entity_id,
+          displayName,
+        ];
+        keys.forEach((key) => {
+          const normalizedKey = normalizeName(key);
+          if (normalizedKey && !candidateMaps.has(normalizedKey)) {
+            candidateMaps.set(normalizedKey, entity);
+          }
+        });
+      });
+
+      const orderedTurns = [];
+      const seenNames = new Set();
+      initiativeOrder.forEach((participant) => {
+        if (!participant || typeof participant !== 'object') {
+          return;
+        }
+        const participantRoomId = String(participant.room_id || participant?.placement?.room_id || '').trim();
+        if (activeRoomId && participantRoomId && participantRoomId !== activeRoomId) {
+          return;
+        }
+        const matchedEntity = [
+          participant.entity_ref,
+          participant.entity_id,
+          participant.participant_ref,
+          participant.name,
+        ].map(normalizeName).filter(Boolean).map((key) => candidateMaps.get(key)).find(Boolean) || null;
+        if (!matchedEntity) {
+          return;
+        }
+        const metadata = matchedEntity?.state?.metadata || {};
+        const displayName = String(metadata.display_name || metadata.name || matchedEntity?.display_name || matchedEntity?.name || '').trim();
+        const normalizedDisplayName = normalizeName(displayName);
+        if (!displayName || seenNames.has(normalizedDisplayName)) {
+          return;
+        }
+        seenNames.add(normalizedDisplayName);
+        orderedTurns.push({
+          role: 'npc',
+          name: displayName,
+          initiative: Number.isFinite(Number(participant?.initiative_total))
+            ? Number(participant.initiative_total)
+            : null,
+        });
+      });
+
+      roomNpcs.forEach((entity) => {
+        const metadata = entity?.state?.metadata || {};
+        const displayName = String(metadata.display_name || metadata.name || entity?.display_name || entity?.name || '').trim();
+        const normalizedDisplayName = normalizeName(displayName);
+        if (!displayName || seenNames.has(normalizedDisplayName)) {
+          return;
+        }
+        seenNames.add(normalizedDisplayName);
+        orderedTurns.push({
+          role: 'npc',
+          name: displayName,
+          initiative: null,
+        });
+      });
+
+      return orderedTurns;
+    }
+
+    getActiveRoomNpcResponderNames(roomId = null) {
+      return this.buildActiveRoomNpcTurnOrder(roomId)
+        .map((turn) => String(turn?.name || '').trim())
+        .filter(Boolean)
+        .sort((left, right) => right.length - left.length);
+    }
+
+    resolvePendingResponder(message, options = {}) {
+      const channelKey = options.channelKey || this.activeChannel || 'room';
+      if (channelKey !== 'room') {
+        return { speaker: 'Game Master', type: 'npc' };
+      }
+
+      const normalizedMessage = this.normalizeResponderLookupText(message);
+      if (normalizedMessage) {
+        for (const npcName of this.getActiveRoomNpcResponderNames(options.roomId)) {
+          const normalizedNpcName = this.normalizeResponderLookupText(npcName);
+          if (!normalizedNpcName) {
+            continue;
+          }
+          const matcher = new RegExp(`(^|\\s)${normalizedNpcName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\s|$)`, 'i');
+          if (matcher.test(normalizedMessage)) {
+            return { speaker: npcName, type: 'npc' };
+          }
+        }
+      }
+
+      return { speaker: 'Game Master', type: 'npc' };
     }
 
     async flushDeferredRoomMessages(campaignId, roomId, characterId = null) {
       if (this.roomChatBusy || !this.roomChatDeferredMessages.length) {
         return;
       }
-      this.roomChatBusy = true;
-      const firstQueued = this.roomChatDeferredMessages[0];
-      const targetChannel = firstQueued?.channel || 'room';
-      const targetRoomId = firstQueued?.roomId || roomId;
-      const targetCharacterId = firstQueued?.characterId ?? characterId;
-      const deferredBatch = [];
-      this.roomChatDeferredMessages = this.roomChatDeferredMessages.filter((entry) => {
-        const sameChannel = (entry.channel || 'room') === targetChannel;
-        const sameRoom = entry.roomId === targetRoomId;
-        const sameCharacter = (entry.characterId ?? null) === (targetCharacterId ?? null);
-        if (sameChannel && sameRoom && sameCharacter) {
-          deferredBatch.push(entry);
-          return false;
-        }
-        return true;
-      });
+      const nextDeferred = this.roomChatDeferredMessages.shift() || null;
       this.updateQueuedChatStatus(this.roomChatDeferredMessages.length);
-      const requestId = `chat-followup-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      if (!nextDeferred) {
+        return;
+      }
+      this.roomChatBusy = true;
+      const targetChannel = nextDeferred.channel || 'room';
+      const targetRoomId = nextDeferred.roomId || roomId;
+      const targetCampaignId = nextDeferred.campaignId || campaignId;
+      const targetCharacterId = nextDeferred.characterId ?? characterId;
       const targetContext = {
-        campaignId,
+        campaignId: targetCampaignId,
         roomId: targetRoomId,
         characterId: targetCharacterId,
       };
-      const target = this.buildChatRenderTarget({
+      const target = nextDeferred.target || this.buildChatRenderTarget({
         view: 'room',
         channelKey: targetChannel,
         context: targetContext,
       });
-      const pendingRequest = this.buildPendingChatRequest(requestId, '', '', targetRoomId, {
-        includePlayer: false,
+      const requestId = nextDeferred.requestId || `chat-followup-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const pendingRequest = nextDeferred.pendingRequest || this.buildPendingChatRequest(requestId, nextDeferred.speaker || '', nextDeferred.message || '', targetRoomId, {
+        includePlayer: true,
         includePlaceholder: true,
-        placeholderText: deferredBatch.length > 1
-          ? `Thinking about the ${deferredBatch.length} things you just said...`
-          : 'Thinking about what you just said...',
+        placeholderText: '...',
+        placeholderSpeaker: 'Narrator',
+        placeholderType: 'npc',
         target,
       });
 
       try {
-        await this.postChatMessage(campaignId, targetRoomId, '', '', targetCharacterId, {
+        await this.postChatMessage(targetCampaignId, targetRoomId, nextDeferred.speaker || 'You', nextDeferred.message || '', targetCharacterId, {
           clientRequestId: requestId,
           pendingRequest,
-          continueGm: true,
           channelKey: targetChannel,
           context: targetContext,
           target,
         });
       } catch (error) {
-        console.error('Failed to continue queued GM response:', error);
+        console.error('Failed to send queued room turn:', error);
         this.settlePendingChatRequest(pendingRequest, {
-          removePlayer: false,
+          removePlayer: true,
           removePlaceholder: true,
         });
-        this.appendChatLine('System', `Failed to continue GM response: ${error.message}`, 'system');
+        this.appendChatLine('System', `Failed to send queued turn: ${error.message}`, 'system');
       } finally {
         this.roomChatBusy = false;
         if (this.roomChatDeferredMessages.length > 0) {
           this.updateQueuedChatStatus(this.roomChatDeferredMessages.length);
-          void this.flushDeferredRoomMessages(campaignId, roomId, characterId);
+          void this.flushDeferredRoomMessages(targetCampaignId, targetRoomId, targetCharacterId);
         }
       }
     }
@@ -6566,7 +7872,7 @@ import { SpriteService } from './SpriteService.js';
      * @returns {ChatSessionApi|null}
      */
     ensureChatSessionApi() {
-      const campaignId = this.stateManager.hexmap?.resolveCampaignId?.() || null;
+      const campaignId = this.stateManager?.hexmap?.resolveCampaignId?.() || null;
       if (!campaignId) return null;
 
       if (!this.chatSessionApi || this.chatSessionApi.campaignId !== campaignId) {
@@ -6579,11 +7885,12 @@ import { SpriteService } from './SpriteService.js';
       const { force = false } = options;
       const context = this.getChatContext();
       const cacheKey = this.buildSessionViewCacheKey(view, context);
+      const shouldCache = view !== 'system-log';
       if (!cacheKey) {
         return null;
       }
 
-      if (!force) {
+      if (!force && shouldCache) {
         const cached = this.getCachedChatPayload(this.sessionViewCache, cacheKey);
         if (cached) {
           return cached;
@@ -6603,7 +7910,7 @@ import { SpriteService } from './SpriteService.js';
 
         switch (view) {
           case 'narrative': {
-            const dungeonId = this.stateManager.hexmap?.dungeonData?.id || null;
+            const dungeonId = this.stateManager?.hexmap?.dungeonData?.id || null;
             data = await api.getCharacterNarrative(context.characterId, {
               dungeonId: dungeonId || undefined,
               roomId: context.roomId || undefined,
@@ -6625,16 +7932,20 @@ import { SpriteService } from './SpriteService.js';
             break;
         }
 
-        this.setCachedChatPayload(this.sessionViewCache, cacheKey, data || { messages: [] });
+        if (shouldCache) {
+          this.setCachedChatPayload(this.sessionViewCache, cacheKey, data || { messages: [] });
+        }
         return data;
       })();
 
-      this.sessionViewInflight.set(cacheKey, request);
+      if (shouldCache) {
+        this.sessionViewInflight.set(cacheKey, request);
+      }
 
       try {
         return await request;
       } finally {
-        if (this.sessionViewInflight.get(cacheKey) === request) {
+        if (shouldCache && this.sessionViewInflight.get(cacheKey) === request) {
           this.sessionViewInflight.delete(cacheKey);
         }
       }
@@ -6661,7 +7972,7 @@ import { SpriteService } from './SpriteService.js';
         const emptyMessages = {
           'narrative': 'Your story in this room has not yet begun...',
           'party': 'No party chatter yet. Say something!',
-          'gm-private': 'No secret actions. GMs can use /location, /room, /quests, or /dungeon.',
+          'gm-private': 'No secret notes yet. Messages here go straight to the GM, and slash commands reply here too.',
           'system-log': 'No dice rolls yet.',
         };
         const remembered = this.getRememberedChatLines(view, { context });
@@ -6807,7 +8118,7 @@ import { SpriteService } from './SpriteService.js';
           'room': 'Say something to the room...',
           'narrative': 'Your story unfolds here (read-only)...',
           'party': 'Whisper to your party...',
-          'gm-private': 'GM commands: /location, /room, /quests, /dungeon',
+          'gm-private': 'Send a private note to the GM or use /location, /room, /quests, /dungeon',
           'system-log': 'Dice rolls appear here automatically...',
         };
         input.placeholder = placeholders[view] || '';
@@ -6816,6 +8127,7 @@ import { SpriteService } from './SpriteService.js';
 
       // Load messages for the selected view.
       this.loadSessionViewMessages(view);
+      this.syncChatTurnStatus();
     }
 
     /**
@@ -6894,8 +8206,8 @@ import { SpriteService } from './SpriteService.js';
             }
             const requestedRoom = parseGmRoomRequest(message);
             if (requestedRoom) {
-              const originRoomId = this.stateManager.hexmap?.resolveActiveRoomId?.() || null;
-              const dungeonData = this.stateManager.hexmap?.dungeonData || {};
+              const originRoomId = this.stateManager?.hexmap?.resolveActiveRoomId?.() || null;
+              const dungeonData = this.stateManager?.hexmap?.dungeonData || {};
               if (!originRoomId || !dungeonData?.level_id || !dungeonData?.map_id) {
                 this.appendChatLine('System', 'Missing dungeon context for procedural room generation.', 'system');
                 return;
@@ -6922,7 +8234,7 @@ import { SpriteService } from './SpriteService.js';
             }
             const requestedQuests = parseGmQuestRequest(message);
             if (requestedQuests) {
-              const roomId = this.stateManager.hexmap?.resolveActiveRoomId?.() || null;
+              const roomId = this.stateManager?.hexmap?.resolveActiveRoomId?.() || null;
               if (!roomId) {
                 this.appendChatLine('System', 'No active room available for quest generation.', 'system');
                 return;
@@ -6938,7 +8250,7 @@ import { SpriteService } from './SpriteService.js';
               if (questResult?.message) {
                 this.appendChatLine('Game Master', questResult.message, 'gm');
               }
-              await this.stateManager.hexmap?.refreshQuestJournalFromApi?.();
+              await this.stateManager?.hexmap?.refreshQuestJournalFromApi?.();
               this.invalidateChatCaches({ sessionViews: ['gm-private', 'narrative', 'system-log'] });
               break;
             }
@@ -6961,7 +8273,7 @@ import { SpriteService } from './SpriteService.js';
             }
             const requestedDestination = parseGmLocationRequest(message);
             if (requestedDestination) {
-              const originRoomId = this.stateManager.hexmap?.resolveActiveRoomId?.() || null;
+              const originRoomId = this.stateManager?.hexmap?.resolveActiveRoomId?.() || null;
               if (!originRoomId) {
                 this.appendChatLine('System', 'No active room available for location generation.', 'system');
                 return;
@@ -7014,14 +8326,28 @@ import { SpriteService } from './SpriteService.js';
      * Render the quest journal panel with active quest objectives.
      * @param {Array} activeQuests - Array of active quest objects.
      */
-    renderQuestJournal(activeQuests) {
+    renderQuestJournal(questSummary) {
       const list = this.elements.questList;
       const count = this.elements.questCount;
       if (!list) return;
 
+      const summary = Array.isArray(questSummary)
+        ? { active: questSummary, management_tree: [] }
+        : (questSummary && typeof questSummary === 'object' ? questSummary : { active: [], management_tree: [] });
+      const activeQuests = Array.isArray(summary.active) ? summary.active : [];
+      const managementTree = Array.isArray(summary.management_tree) ? summary.management_tree : [];
+
+      if (managementTree.length > 0) {
+        if (count) count.textContent = String(managementTree.length);
+        list.innerHTML = managementTree.map(renderQuestManagementNpcHtml).join('');
+        this.updateQuestJournalControlState();
+        return;
+      }
+
       if (!Array.isArray(activeQuests) || activeQuests.length === 0) {
         list.innerHTML = '<li class="quest-empty">No active quests</li>';
         if (count) count.textContent = '0';
+        this.updateQuestJournalControlState();
         return;
       }
 
@@ -7037,7 +8363,7 @@ import { SpriteService } from './SpriteService.js';
         // Build objective list HTML for the first incomplete phase.
         let objectiveHtml = '';
         for (const phase of phases) {
-          const objectives = phase.objectives || [];
+          const objectives = flattenQuestObjectives(phase.objectives || []);
           objectiveHtml = objectives.map(obj => {
             const merged = mergeObjectiveProgress(obj, objectiveIndex);
             const current = merged.current;
@@ -7058,12 +8384,15 @@ import { SpriteService } from './SpriteService.js';
           objectiveHtml = '<li class="quest-objective">✅ All objectives complete</li>';
         }
 
-        return `<li class="quest-entry">
-          <strong class="quest-title">📜 ${title}</strong>
-          <div class="quest-status">Status: ${status}</div>
-          <ul class="quest-objectives">${objectiveHtml}</ul>
-        </li>`;
+        return renderQuestTreeNodeHtml({
+          itemClass: 'quest-entry quest-entry--quest',
+          title,
+          titlePrefix: '📜',
+          metaLines: [`Status: ${status}`],
+          bodyHtml: `<ul class="quest-objectives">${objectiveHtml}</ul>`,
+        });
       }).join('');
+      this.updateQuestJournalControlState();
     }
 
     /**
@@ -7249,10 +8578,9 @@ import { SpriteService } from './SpriteService.js';
       }
 
       // Initialize managers
-      this.uiManager = new UIManager();
       this.stateManager = new StateManager();
+      this.uiManager = new UIManager(this.stateManager);
       this.spriteService = new SpriteService();
-      this.uiManager.stateManager = this.stateManager; // Give UIManager access to state manager
       this.stateManager.hexmap = this; // Allow state manager to reference hexmap methods
       this.setupStateSubscriptions();
       
@@ -9779,7 +11107,7 @@ import { SpriteService } from './SpriteService.js';
         const entityType = identity?.entityType;
 
         // Collect quest items.
-        if (metadata.collectible && metadata.quest_id && metadata.objective_id) {
+        if (metadata.collectible) {
           this.collectQuestItem(actor, targetEntity, metadata);
           return true;
         }
@@ -9936,7 +11264,7 @@ import { SpriteService } from './SpriteService.js';
         if (activeRoomId && entityRoomId && entityRoomId !== activeRoomId) {
           return null;
         }
-        if (normalizedTeam === 'neutral' || normalizedTeam === '') {
+        if (normalizedTeam === '') {
           return null;
         }
 
@@ -10196,18 +11524,19 @@ import { SpriteService } from './SpriteService.js';
       const automation = this.playerAutomation || {};
       const stepCount = Number(automation?.stepCount || 0);
       const lastDecisionReason = String(automation?.lastResult?.decision?.reason || '').trim();
-      let statusLabel = 'Let your character act autonomously using the player-agent harness.';
+      let statusLabel = 'Draft and send the next in-character room chat line.';
 
       if (automation?.active) {
+        const currentPhase = String(this.gameCoordinator?.phaseManager?.currentPhase || '').trim().toLowerCase();
         statusLabel = buildActionRailEntrySummary([
-          automation?.inflight ? 'Running next autonomous step…' : 'Automation active',
-          'Turn-based',
+          automation?.inflight ? 'Drafting next move…' : 'Suggestion active',
+          currentPhase === 'encounter' ? 'Turn-based' : 'One-shot',
           stepCount > 0 ? `${stepCount} step${stepCount === 1 ? '' : 's'}` : '',
           !automation?.inflight && lastDecisionReason ? lastDecisionReason : '',
         ]) || 'Automation active';
       } else if (automation?.lastError) {
         statusLabel = String(automation.lastError);
-      } else if (automation?.lastResult?.message) {
+      } else if (automation?.stopReason === 'complete') {
         statusLabel = 'Automation stopped. Last autonomous step completed.';
       }
 
@@ -10314,21 +11643,115 @@ import { SpriteService } from './SpriteService.js';
     },
 
     requestPlayerAutomationStep: async function (campaignId, profile, runState = {}) {
+      const roomId = this.resolveActiveRoomId?.() || '';
       const currentPhase = String(this.gameCoordinator?.phaseManager?.currentPhase || '').trim().toLowerCase();
       const combatActive = Boolean(this.stateManager?.get?.('combatActive'));
       if (currentPhase === 'encounter' || combatActive) {
         return this.requestPlayerAutomationEncounterStep(campaignId, profile, runState);
       }
 
-      if (typeof this.gameCoordinator?.api?.runPlayerAgentStep === 'function') {
-        const result = await this.gameCoordinator.api.runPlayerAgentStep(profile, runState);
-        if (!result || typeof result !== 'object') {
-          throw new Error('Automation step returned an invalid response.');
-        }
-        return result;
+      return this.requestPlayerAutomationRoomSuggestion(campaignId, roomId, profile, runState);
+    },
+
+    requestPlayerAutomationRoomSuggestion: async function (campaignId, roomId, profile, runState = {}) {
+      if (!campaignId || !roomId) {
+        throw new Error('Automation requires an active campaign room.');
+      }
+      if (!profile?.character_id) {
+        throw new Error('Automation requires a loaded player character.');
       }
 
-      throw new Error('Automation harness is unavailable.');
+      const suggestionResponse = await fetch(`/api/campaign/${campaignId}/room/${roomId}/chat/player-suggestion`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+        body: JSON.stringify({
+          character_id: profile.character_id,
+          channel: 'room',
+        }),
+      });
+
+      if (!suggestionResponse.ok) {
+        const failure = await suggestionResponse.json().catch(() => ({}));
+        throw new Error(failure.error || `HTTP ${suggestionResponse.status}`);
+      }
+
+      const suggestionPayload = await suggestionResponse.json();
+      if (!suggestionPayload?.success || !suggestionPayload?.data?.message) {
+        throw new Error(suggestionPayload?.error || 'Automation suggestion returned an invalid response.');
+      }
+
+      const suggestionMessage = String(suggestionPayload.data.message || '').trim();
+      if (!suggestionMessage) {
+        throw new Error('Automation suggestion returned an empty message.');
+      }
+
+      const chatTarget = this.uiManager?.buildChatRenderTarget?.({
+        view: 'room',
+        channelKey: 'room',
+        context: {
+          campaignId,
+          roomId,
+          characterId: profile.character_id,
+        },
+      }) || {
+        view: 'room',
+        channelKey: 'room',
+        context: {
+          campaignId,
+          roomId,
+          characterId: profile.character_id,
+        },
+      };
+
+      if (!this.uiManager || typeof this.uiManager.postChatMessage !== 'function') {
+        throw new Error('Automation chat UI is unavailable.');
+      }
+
+      const chatResponse = await this.uiManager.postChatMessage(
+        campaignId,
+        roomId,
+        profile.character_name || 'You',
+        suggestionMessage,
+        profile.character_id,
+        {
+          channelKey: 'room',
+          context: chatTarget.context,
+          target: chatTarget,
+        }
+      );
+
+      const nextRunState = {
+        ...runState,
+        step_count: Number(runState?.step_count || 0) + 1,
+      };
+      const responseData = chatResponse?.data && typeof chatResponse.data === 'object'
+        ? chatResponse.data
+        : {};
+
+      return {
+        success: true,
+        profile,
+        decision: {
+          type: 'talk',
+          reason: 'Suggested and sent the next room-chat line.',
+        },
+        response: {
+          result: {
+            talked: true,
+            message: suggestionMessage,
+            gm_response: responseData.gm_response || null,
+            npc_interjections: Array.isArray(responseData.npc_interjections) ? responseData.npc_interjections : [],
+            quest_updates: Array.isArray(responseData.quest_updates) ? responseData.quest_updates : [],
+          },
+          events: Array.isArray(responseData.events) ? responseData.events : [],
+          game_state: responseData.game_state || null,
+        },
+        run_state: nextRunState,
+        ui_already_rendered: true,
+      };
     },
 
     requestPlayerAutomationEncounterStep: async function (campaignId, profile, runState = {}) {
@@ -10647,7 +12070,14 @@ import { SpriteService } from './SpriteService.js';
           Object.entries(this.getPlayerAutomationTurnReadiness()).map(([key, value]) => [`readiness_${key}`, value])
         ),
       });
-      this.uiManager?.appendChatLine('System', `${profile.character_name || 'Your character'} is now automated.`, 'system');
+      const currentPhase = String(this.gameCoordinator?.phaseManager?.currentPhase || '').trim().toLowerCase();
+      this.uiManager?.appendChatLine(
+        'System',
+        currentPhase === 'encounter'
+          ? `${profile.character_name || 'Your character'} is now automated.`
+          : `Drafting the next move for ${profile.character_name || 'your character'}...`,
+        'system'
+      );
       this.uiManager?.refreshActionRail();
       this.queuePlayerAutomationStep('automation-start');
       return true;
@@ -11044,9 +12474,18 @@ import { SpriteService } from './SpriteService.js';
           return stepResult;
         }
 
-        await this.applyPlayerAutomationResult(stepResult);
+        if (!stepResult?.ui_already_rendered) {
+          await this.applyPlayerAutomationResult(stepResult);
+        }
 
         automation.stepCount = Number(automation.stepCount || 0) + 1;
+
+        const currentPhase = String(this.gameCoordinator?.phaseManager?.currentPhase || '').trim().toLowerCase();
+        if (currentPhase !== 'encounter') {
+          this.stopPlayerAutomation('complete', { silent: true });
+          this.uiManager?.refreshActionRail();
+          return stepResult;
+        }
 
         const stopReason = this.shouldStopPlayerAutomation(stepResult);
         if (stopReason) {
@@ -12686,11 +14125,10 @@ import { SpriteService } from './SpriteService.js';
         this.canUseServerCombatApi() &&
         this.resolveCampaignId() &&
         !this.stateManager.get('encounterId') &&
-        !this.stateManager.get('combatActive') &&
-        this.activeRoomHasHostileEncounterCandidates();
+        !this.stateManager.get('combatActive');
 
       if (shouldAutoStart) {
-        this.startCombat({ startMode: 'auto', requireHostiles: true, reason: 'active-room-render' });
+        this.startCombat({ startMode: 'auto', requireHostiles: false, reason: 'active-room-render' });
       }
 
       // Resolve generated sprite images for all object definitions in view.
@@ -13109,12 +14547,11 @@ import { SpriteService } from './SpriteService.js';
     initQuestData: function () {
       const settings = drupalSettings || {};
       this.questData = normalizeQuestSummaryPayload(settings?.dungeoncrawlerContent?.hexmapQuestSummary || {});
-      const activeQuests = this.questData.active || [];
       if (this.uiManager) {
-        this.uiManager.renderQuestJournal(activeQuests);
+        this.uiManager.renderQuestJournal(this.questData);
       }
       this.refreshQuestConfirmations();
-      console.log('Quest data initialized:', { active: activeQuests.length, available: (this.questData.available || []).length });
+      console.log('Quest data initialized:', { active: (this.questData.active || []).length, available: (this.questData.available || []).length, management_tree: (this.questData.management_tree || []).length });
     },
 
     /**
@@ -13146,18 +14583,23 @@ import { SpriteService } from './SpriteService.js';
           return;
         }
 
-        const tracking = Array.isArray(payload.tracking)
-          ? payload.tracking.map(normalizeQuestEntryPayload).filter(Boolean)
-          : [];
-        const inactiveStatuses = new Set(['completed', 'failed', 'abandoned', 'archived']);
-        const activeQuests = tracking.filter((quest) => {
-          const status = String(quest?.status || '').trim().toLowerCase();
-          return status === '' || !inactiveStatuses.has(status);
-        });
+        if (payload.quest_summary && typeof payload.quest_summary === 'object') {
+          this.questData = normalizeQuestSummaryPayload(payload.quest_summary);
+        } else {
+          const tracking = Array.isArray(payload.tracking)
+            ? payload.tracking.map(normalizeQuestEntryPayload).filter(Boolean)
+            : [];
+          const inactiveStatuses = new Set(['completed', 'failed', 'abandoned', 'archived']);
+          const activeQuests = tracking.filter((quest) => {
+            const status = String(quest?.status || '').trim().toLowerCase();
+            return status === '' || !inactiveStatuses.has(status);
+          });
+          this.questData = this.questData || {};
+          this.questData.active = activeQuests;
+          this.questData.management_tree = [];
+        }
 
-        this.questData = this.questData || {};
-        this.questData.active = activeQuests;
-        this.uiManager.renderQuestJournal(activeQuests);
+        this.uiManager.renderQuestJournal(this.questData);
       } catch (error) {
         console.warn('Failed to refresh quest journal from API:', error);
       }
@@ -13345,10 +14787,90 @@ import { SpriteService } from './SpriteService.js';
     },
 
     /**
-     * Collect a quest item entity — update progress via API, remove from grid, refresh journal.
+     * Resolve quest metadata for a collectible entity.
+     * @param {Object} metadata
+     * @param {Entity} itemEntity
+     * @returns {{quest_id?: string, objective_id?: string, item_name?: string}}
+     */
+    resolveCollectibleQuestMetadata: function (metadata = {}, itemEntity = null) {
+      const resolved = {
+        item_name: metadata.item_name
+          || metadata.display_name
+          || itemEntity?.getComponent?.('IdentityComponent')?.name
+          || 'item',
+      };
+
+      const questId = String(metadata.quest_id || '').trim();
+      const objectiveId = String(metadata.objective_id || '').trim();
+      if (questId && objectiveId) {
+        return {
+          ...resolved,
+          quest_id: questId,
+          objective_id: objectiveId,
+        };
+      }
+
+      const questAssociation = String(metadata.quest_association || '').trim().toLowerCase();
+      if (!questAssociation) {
+        return resolved;
+      }
+
+      const activeQuests = this.questData?.active || [];
+      for (const quest of activeQuests) {
+        const questKey = String(quest.quest_key || quest.source_template_id || quest.quest_id || quest.id || '').trim().toLowerCase();
+        const sourceTemplateId = String(quest.source_template_id || '').trim().toLowerCase();
+        if (questKey !== questAssociation && sourceTemplateId !== questAssociation) {
+          continue;
+        }
+
+        const objectiveIndex = buildObjectiveStateIndex(quest);
+        const phases = extractQuestPhases(quest);
+        for (const phase of phases) {
+          for (const objective of flattenQuestObjectives(phase.objectives || [], { includeCompleted: true })) {
+            if (String(objective.type || '').toLowerCase() !== 'collect') {
+              continue;
+            }
+            const merged = mergeObjectiveProgress(objective, objectiveIndex);
+            if ((merged.current || 0) >= (merged.target_count || 1)) {
+              continue;
+            }
+            return {
+              ...resolved,
+              item_name: resolved.item_name || merged.item || 'quest item',
+              quest_id: quest.quest_id || quest.id,
+              objective_id: objective.objective_id,
+            };
+          }
+        }
+      }
+
+      return resolved;
+    },
+
+    /**
+     * Remove a collected entity from the active world state.
+     * @param {Entity} itemEntity
+     * @param {Object} metadata
+     */
+    removeCollectedEntityFromWorld: function (itemEntity, metadata = {}) {
+      if (itemEntity?.id != null && this.entityManager) {
+        this.entityManager.removeEntity(itemEntity.id);
+      }
+
+      const instanceId = itemEntity?.dcEntityRef || metadata.instance_id;
+      if (instanceId && Array.isArray(this.dungeonData?.entities)) {
+        this.dungeonData.entities = this.dungeonData.entities.filter(
+          (entity) => (entity.instance_id || entity.entity_instance_id) !== instanceId
+        );
+        this.renderDungeonStateInspector();
+      }
+    },
+
+    /**
+     * Collect a room or quest item entity — move to inventory, update quest progress, refresh UI.
      * @param {Entity} actor - The player entity performing the collection.
-     * @param {Entity} itemEntity - The quest item ECS entity.
-     * @param {Object} metadata - Item entity metadata (quest_id, objective_id, item_name).
+     * @param {Entity} itemEntity - The collectible ECS entity.
+     * @param {Object} metadata - Item entity metadata.
      */
     collectQuestItem: async function (actor, itemEntity, metadata) {
       const campaignId = this.resolveCampaignId();
@@ -13356,71 +14878,93 @@ import { SpriteService } from './SpriteService.js';
         return;
       }
 
-      const questId = metadata.quest_id;
-      const objectiveId = metadata.objective_id;
-      const itemName = metadata.item_name || 'quest item';
+      const resolvedMetadata = this.resolveCollectibleQuestMetadata(metadata, itemEntity);
+      const questId = String(resolvedMetadata.quest_id || '').trim();
+      const objectiveId = String(resolvedMetadata.objective_id || '').trim();
+      const itemName = resolvedMetadata.item_name || metadata.item_name || 'item';
+      const roomItemInstanceId = String(metadata.item_instance_id || '').trim();
+      const roomId = String(this.resolveActiveRoomId?.() || this.activeRoomId || '').trim();
+      const characterId = Number(this.launchContext?.character_id || actor?.dcCharacterId || 0) || null;
+      const entityInstanceId = itemEntity?.dcEntityRef || metadata.instance_id || objectiveId || roomItemInstanceId;
 
-      // Show pickup feedback immediately.
-      this.uiManager.appendChatLine('System', `You picked up: ${itemName}`, 'system');
-
-      // Remove item entity from ECS and dungeon data.
-      if (itemEntity.id != null && this.entityManager) {
-        this.entityManager.removeEntity(itemEntity.id);
-      }
-      // Also remove from dungeonData.entities so it doesn't reappear on re-render.
-      const instanceId = itemEntity.dcEntityRef || metadata.instance_id;
-      if (instanceId && Array.isArray(this.dungeonData?.entities)) {
-        this.dungeonData.entities = this.dungeonData.entities.filter(
-          e => (e.instance_id || e.entity_instance_id) !== instanceId
-        );
-        this.renderDungeonStateInspector();
-      }
-
-      // Call quest progress API.
       try {
-        const response = await fetch(`/api/campaign/${campaignId}/quests/${questId}/progress`, {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Requested-With': 'XMLHttpRequest',
-          },
-          body: JSON.stringify({
-            objective_id: objectiveId,
-            action: 'collect',
-            entity_id: instanceId || objectiveId,
-            character_id: this.launchContext?.character_id || null,
-          }),
-        });
+        if (roomItemInstanceId && roomId && characterId) {
+          const pickupResponse = await fetch('/api/inventory/transfer', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json',
+              'X-Requested-With': 'XMLHttpRequest',
+            },
+            credentials: 'same-origin',
+            body: JSON.stringify({
+              sourceOwnerId: roomId,
+              sourceOwnerType: 'room',
+              destOwnerId: String(characterId),
+              destOwnerType: 'character',
+              itemInstanceId: roomItemInstanceId,
+              quantity: 1,
+              campaignId,
+            }),
+          });
+          const pickupResult = await pickupResponse.json().catch(() => ({}));
+          if (!pickupResponse.ok || !pickupResult?.success) {
+            throw new Error(pickupResult?.error || pickupResult?.message || `Unable to pick up ${itemName}.`);
+          }
+        }
 
-        if (response.ok) {
-          const result = await response.json();
-          if (result.success) {
-            console.info('Quest progress updated:', result);
+        this.uiManager.appendChatLine('System', `You picked up: ${itemName}`, 'system');
+        this.removeCollectedEntityFromWorld(itemEntity, metadata);
 
-            // Update local quest data to reflect progress.
-            this.updateLocalQuestProgress(questId, objectiveId, 1);
+        if (questId && objectiveId) {
+          const response = await fetch(`/api/campaign/${campaignId}/quests/${questId}/progress`, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Requested-With': 'XMLHttpRequest',
+            },
+            body: JSON.stringify({
+              objective_id: objectiveId,
+              action: 'collect',
+              entity_id: entityInstanceId,
+              character_id: characterId,
+            }),
+          });
 
-            // Check if this objective is now complete.
-            const objState = this.getObjectiveState(questId, objectiveId);
-            if (objState && objState.current >= objState.target) {
-              this.uiManager.showQuestToast(`Objective complete: ${objState.description || objectiveId}`, 'success');
+          if (response.ok) {
+            const result = await response.json();
+            if (result.success) {
+              console.info('Quest progress updated:', result);
+              this.updateLocalQuestProgress(questId, objectiveId, 1);
 
-              // Check if all objectives in the quest are complete.
-              if (this.isQuestComplete(questId)) {
-                this.uiManager.showQuestToast(`Quest ready for turn-in: ${this.getQuestTitle(questId)}`, 'success');
+              const objState = this.getObjectiveState(questId, objectiveId);
+              if (objState && objState.current >= objState.target) {
+                this.uiManager.showQuestToast(`Objective complete: ${objState.description || objectiveId}`, 'success');
+
+                if (this.isQuestComplete(questId)) {
+                  this.uiManager.showQuestToast(`Quest ready for turn-in: ${this.getQuestTitle(questId)}`, 'success');
+                }
               }
             }
+          } else {
+            console.warn('Quest progress API error:', response.status);
           }
-        } else {
-          console.warn('Quest progress API error:', response.status);
+        }
+
+        const inventoryContext = this.uiManager?.currentCharacterInventoryContext;
+        if (inventoryContext && String(inventoryContext.characterId || '') === String(characterId || '')) {
+          await this.uiManager.refreshCharacterInventoryFromApi({
+            ...inventoryContext,
+            campaignId,
+          });
+        }
+
+        if (questId) {
+          await this.refreshQuestJournalFromApi();
         }
       } catch (error) {
-        console.error('Quest progress update failed:', error);
-      }
-
-      // Refresh quest journal UI.
-      if (this.uiManager && this.questData?.active) {
-        this.uiManager.renderQuestJournal(this.questData.active);
+        console.error('Collectible pickup failed:', error);
+        this.uiManager.appendChatLine('System', error?.message || `Unable to pick up ${itemName}.`, 'system');
       }
     },
 
@@ -13520,7 +15064,7 @@ import { SpriteService } from './SpriteService.js';
 
                 // Remove completed quest from local active list.
                 this.questData.active = (this.questData.active || []).filter(q => (q.quest_id || q.id) !== questId);
-                this.uiManager.renderQuestJournal(this.questData.active);
+                await this.refreshQuestJournalFromApi();
               }
             } catch (error) {
               console.error('Quest completion failed:', error);
@@ -13547,11 +15091,7 @@ import { SpriteService } from './SpriteService.js';
 
         const generatedPhases = Array.isArray(quest.generated_objectives) ? quest.generated_objectives : [];
         for (const phase of generatedPhases) {
-          for (const obj of (phase.objectives || [])) {
-            if (obj.objective_id === objectiveId) {
-              obj.current = (obj.current || 0) + increment;
-            }
-          }
+          incrementObjectiveProgressInTree(phase.objectives || [], objectiveId, increment);
         }
 
         // Update objective_states (supports flat and nested shapes).
@@ -13560,13 +15100,7 @@ import { SpriteService } from './SpriteService.js';
 
         for (const os of quest.objective_states) {
           if (os && Array.isArray(os.objectives)) {
-            for (const objective of os.objectives) {
-              if (objective.objective_id === objectiveId) {
-                objective.current = (objective.current || 0) + increment;
-                found = true;
-                break;
-              }
-            }
+            found = incrementObjectiveProgressInTree(os.objectives, objectiveId, increment);
             if (found) {
               break;
             }
@@ -13603,7 +15137,7 @@ import { SpriteService } from './SpriteService.js';
         const phases = extractQuestPhases(quest);
         const objectiveIndex = buildObjectiveStateIndex(quest);
         for (const phase of phases) {
-          for (const obj of (phase.objectives || [])) {
+          for (const obj of flattenQuestObjectives(phase.objectives || [], { includeCompleted: true })) {
             if (obj.objective_id === objectiveId) {
               const merged = mergeObjectiveProgress(obj, objectiveIndex);
               return { current: merged.current, target: merged.target_count || 1, description: merged.description || '' };
@@ -13631,7 +15165,7 @@ import { SpriteService } from './SpriteService.js';
         if ((quest.quest_id || quest.id) != questId) continue;
         const phases = extractQuestPhases(quest);
         for (const phase of phases) {
-          for (const obj of (phase.objectives || [])) {
+          for (const obj of flattenQuestObjectives(phase.objectives || [], { includeCompleted: true })) {
             if (obj.type === 'interact') continue; // Turn-in objectives checked separately.
             const state = this.getObjectiveState(questId, obj.objective_id);
             if (!state || state.current < state.target) return false;

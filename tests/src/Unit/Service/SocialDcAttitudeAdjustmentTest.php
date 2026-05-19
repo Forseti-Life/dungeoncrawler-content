@@ -71,7 +71,13 @@ class SocialDcAttitudeAdjustmentTest extends UnitTestCase {
       $this->createMock(EventDispatcherInterface::class),
       $this->createMock(AiGmService::class),
       $this->createMock(ConfigFactoryInterface::class),
-      $psychology
+      $psychology,
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      $this->createMock(RoomChatService::class)
     );
 
     $intent = [

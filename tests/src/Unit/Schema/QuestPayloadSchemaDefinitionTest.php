@@ -24,6 +24,10 @@ class QuestPayloadSchemaDefinitionTest extends UnitTestCase {
     $this->assertContains('active', $schema['required'] ?? []);
     $this->assertContains('available', $schema['required'] ?? []);
     $this->assertContains('counts', $schema['required'] ?? []);
+    $this->assertContains('management_tree', array_keys($schema['properties'] ?? []));
+    $this->assertArrayHasKey('questObjective', $schema['definitions'] ?? []);
+    $this->assertArrayHasKey('questObjectiveCompletionCriteria', $schema['definitions'] ?? []);
+    $this->assertContains('completion_criteria', $schema['definitions']['questObjective']['required'] ?? []);
     $this->assertFalse($schema['additionalProperties'] ?? TRUE);
   }
 
@@ -86,6 +90,7 @@ class QuestPayloadSchemaDefinitionTest extends UnitTestCase {
     $this->assertIsArray($schema);
     $this->assertSame(['room-turn-harness-v1'], $schema['properties']['schema_version']['enum'] ?? NULL);
     $this->assertContains('npc_turns', $schema['required'] ?? []);
+    $this->assertContains('turn_sequence', $schema['required'] ?? []);
     $this->assertContains('turn_logs', $schema['required'] ?? []);
     $this->assertContains('messages', $schema['required'] ?? []);
     $this->assertFalse($schema['additionalProperties'] ?? TRUE);
@@ -105,6 +110,7 @@ class QuestPayloadSchemaDefinitionTest extends UnitTestCase {
     $this->assertContains('dungeon_data', $schema['required'] ?? []);
     $this->assertContains('gm_response', array_keys($schema['properties'] ?? []));
     $this->assertContains('client_request_id', array_keys($schema['properties'] ?? []));
+    $this->assertContains('turn_sequence', array_keys($schema['properties'] ?? []));
     $this->assertContains('npc_interjections_deferred', array_keys($schema['properties'] ?? []));
     $this->assertFalse($schema['additionalProperties'] ?? TRUE);
   }

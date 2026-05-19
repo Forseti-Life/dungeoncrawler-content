@@ -5,7 +5,11 @@
   "quest_type": "side_quest",
   "level_min": 1,
   "level_max": 3,
-  "tags": ["gathering", "tavern", "beginner"],
+  "tags": [
+    "gathering",
+    "tavern",
+    "beginner"
+  ],
   "objectives_schema": [
     {
       "phase": 1,
@@ -14,8 +18,17 @@
           "objective_id": "collect_wine",
           "type": "collect",
           "item": "{item_name}",
-          "target_count_range": [3, 5],
-          "description": "Collect {item_name} from around the tavern"
+          "target_count_range": [
+            3,
+            5
+          ],
+          "description": "Collect {item_name} from around the tavern",
+          "completion_criteria": {
+            "kind": "count",
+            "metric": "current",
+            "target_count": 1,
+            "description": "Reach the required progress count."
+          }
         }
       ]
     },
@@ -26,7 +39,13 @@
           "objective_id": "return_wine",
           "type": "interact",
           "target": "tavern_keeper",
-          "description": "Return the wine to the tavern keeper"
+          "description": "Return the wine to the tavern keeper",
+          "completion_criteria": {
+            "kind": "flag",
+            "metric": "completed",
+            "required_value": true,
+            "description": "Mark this objective complete."
+          }
         }
       ]
     }

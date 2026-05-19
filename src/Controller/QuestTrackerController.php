@@ -5,6 +5,8 @@ namespace Drupal\dungeoncrawler_content\Controller;
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Database\Connection;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
+use Drupal\dungeoncrawler_content\Service\QuestGeneratorService;
+use Drupal\dungeoncrawler_content\Service\QuestTrackerService;
 use Drupal\dungeoncrawler_content\Service\RoomChatService;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -37,6 +39,20 @@ class QuestTrackerController extends ControllerBase {
   protected RoomChatService $chatService;
 
   /**
+   * Quest contract builder service.
+   *
+   * @var \Drupal\dungeoncrawler_content\Service\QuestGeneratorService
+   */
+  protected QuestGeneratorService $questGenerator;
+
+  /**
+   * Quest tracker service.
+   *
+   * @var \Drupal\dungeoncrawler_content\Service\QuestTrackerService
+   */
+  protected QuestTrackerService $questTracker;
+
+  /**
    * Constructs a QuestTrackerController object.
    *
    * @param \Drupal\Core\Database\Connection $database
@@ -44,10 +60,12 @@ class QuestTrackerController extends ControllerBase {
    * @param \Drupal\Core\Logger\LoggerChannelFactoryInterface $logger_factory
    *   The logger factory.
    */
-  public function __construct(Connection $database, LoggerChannelFactoryInterface $logger_factory, RoomChatService $chat_service) {
+  public function __construct(Connection $database, LoggerChannelFactoryInterface $logger_factory, RoomChatService $chat_service, QuestGeneratorService $quest_generator, QuestTrackerService $quest_tracker) {
     $this->database = $database;
     $this->logger = $logger_factory->get('dungeoncrawler_content');
     $this->chatService = $chat_service;
+    $this->questGenerator = $quest_generator;
+    $this->questTracker = $quest_tracker;
   }
 
   /**
@@ -57,7 +75,9 @@ class QuestTrackerController extends ControllerBase {
     return new static(
       $container->get('database'),
       $container->get('logger.factory'),
-      $container->get('dungeoncrawler_content.room_chat_service')
+      $container->get('dungeoncrawler_content.room_chat_service'),
+      $container->get('dungeoncrawler_content.quest_generator'),
+      $container->get('dungeoncrawler_content.quest_tracker')
     );
   }
 
@@ -72,34 +92,27 @@ class QuestTrackerController extends ControllerBase {
    * @return \Symfony\Component\HttpFoundation\JsonResponse
    *   The JSON response.
    */
-  public function getAvailableQuests(int $campaign_id): JsonResponse {
+  public function getAvailableQuests(int $campaign_id, Request $request): JsonResponse {
     try {
-      $available = $this->database->select('dc_campaign_quests', 'q')
-        ->fields('q', [
-          'quest_id',
-          'quest_name',
-          'quest_description',
-          'quest_type',
-          'generated_objectives',
-          'generated_rewards',
-          'giver_npc_id',
-          'location_id',
-          'status',
-        ])
-        ->condition('q.campaign_id', $campaign_id)
-        ->condition('q.status', 'available')
-        ->execute()
-        ->fetchAllAssoc('quest_id');
+      $character_id = (int) $request->query->get('character_id', 0);
+      $location_id = trim((string) $request->query->get('location_id', ''));
+      $available = [];
+      if ($location_id !== '') {
+        $available = $this->questTracker->getAvailableQuests($campaign_id, $location_id, $character_id);
+      }
 
-      $quests = array_map(function ($quest) {
-        $quest->generated_objectives = json_decode($quest->generated_objectives, TRUE) ?? [];
-        $quest->generated_rewards = json_decode($quest->generated_rewards, TRUE) ?? [];
-        return $quest;
-      }, $available);
+      $quest_summary = $this->questGenerator->buildQuestSummaryPayload(
+        $location_id !== '' ? $location_id : $this->resolveQuestSummaryLocationId($campaign_id, $available),
+        [],
+        $available,
+        $campaign_id
+      );
+      $quests = $quest_summary['available'] ?? [];
 
       return new JsonResponse([
         'success' => TRUE,
-        'quests' => array_values($quests),
+        'quests' => $quests,
+        'quest_summary' => $quest_summary,
         'count' => count($quests),
       ]);
     }
@@ -321,30 +334,15 @@ class QuestTrackerController extends ControllerBase {
 
       $tracking = $quest_tracker->getCharacterQuestTracking($campaign_id, (int) $character_id);
       $log = $quest_tracker->getCharacterQuestLog($campaign_id, (int) $character_id);
-
-      $normalize_tracking = static function (array $entry): array {
-        $entry['objective_states'] = json_decode((string) ($entry['objective_states'] ?? '[]'), TRUE) ?? [];
-        $entry['generated_objectives'] = json_decode((string) ($entry['generated_objectives'] ?? '[]'), TRUE) ?? [];
-        $entry['generated_rewards'] = json_decode((string) ($entry['generated_rewards'] ?? '[]'), TRUE) ?? [];
-        $entry['quest_data'] = json_decode((string) ($entry['quest_data'] ?? '{}'), TRUE) ?? [];
-        $entry['title'] = (string) ($entry['title'] ?? $entry['quest_name'] ?? $entry['name'] ?? $entry['quest_id'] ?? '');
-        $entry['quest_key'] = (string) ($entry['quest_key'] ?? $entry['source_template_id'] ?? $entry['quest_id'] ?? '');
-        return $entry;
-      };
-
-      $normalize_log = static function (array $entry): array {
-        $entry['event_data'] = json_decode((string) ($entry['event_data'] ?? '{}'), TRUE) ?? [];
-        return $entry;
-      };
-
-      $journal_tracking = array_map($normalize_tracking, $tracking);
-      $journal_log = array_map($normalize_log, $log);
+      $journal_tracking = array_map([$this, 'normalizeQuestJournalTrackingEntry'], $tracking);
+      $journal_log = array_map([$this, 'normalizeQuestJournalLogEntry'], $log);
 
       return new JsonResponse([
         'success' => TRUE,
         'character_id' => (int) $character_id,
         'tracking' => array_values($journal_tracking),
         'log' => array_values($journal_log),
+        'quest_summary' => $this->questGenerator->buildQuestSummaryPayload('campaign', $tracking, [], $campaign_id),
         'counts' => [
           'tracking' => count($journal_tracking),
           'log' => count($journal_log),
@@ -377,30 +375,15 @@ class QuestTrackerController extends ControllerBase {
 
       $tracking = $quest_tracker->getCampaignQuestTracking($campaign_id);
       $log = $quest_tracker->getCampaignQuestLog($campaign_id);
-
-      $normalize_tracking = static function (array $entry): array {
-        $entry['objective_states'] = json_decode((string) ($entry['objective_states'] ?? '[]'), TRUE) ?? [];
-        $entry['generated_objectives'] = json_decode((string) ($entry['generated_objectives'] ?? '[]'), TRUE) ?? [];
-        $entry['generated_rewards'] = json_decode((string) ($entry['generated_rewards'] ?? '[]'), TRUE) ?? [];
-        $entry['quest_data'] = json_decode((string) ($entry['quest_data'] ?? '{}'), TRUE) ?? [];
-        $entry['title'] = (string) ($entry['title'] ?? $entry['quest_name'] ?? $entry['name'] ?? $entry['quest_id'] ?? '');
-        $entry['quest_key'] = (string) ($entry['quest_key'] ?? $entry['source_template_id'] ?? $entry['quest_id'] ?? '');
-        return $entry;
-      };
-
-      $normalize_log = static function (array $entry): array {
-        $entry['event_data'] = json_decode((string) ($entry['event_data'] ?? '{}'), TRUE) ?? [];
-        return $entry;
-      };
-
-      $campaign_tracking = array_map($normalize_tracking, $tracking);
-      $campaign_log = array_map($normalize_log, $log);
+      $campaign_tracking = array_map([$this, 'normalizeQuestJournalTrackingEntry'], $tracking);
+      $campaign_log = array_map([$this, 'normalizeQuestJournalLogEntry'], $log);
 
       return new JsonResponse([
         'success' => TRUE,
         'campaign_id' => $campaign_id,
         'tracking' => array_values($campaign_tracking),
         'log' => array_values($campaign_log),
+        'quest_summary' => $this->questGenerator->buildQuestSummaryPayload('campaign', $tracking, [], $campaign_id),
         'counts' => [
           'tracking' => count($campaign_tracking),
           'log' => count($campaign_log),
@@ -445,6 +428,50 @@ class QuestTrackerController extends ControllerBase {
         'error' => 'Internal server error',
       ], 500);
     }
+  }
+
+  /**
+   * Normalize one quest-tracking row into the canonical client handoff shape.
+   */
+  protected function normalizeQuestJournalTrackingEntry(array $entry): array {
+    $normalized = $this->questGenerator->buildQuestSummaryEntry($entry);
+    $normalized['started_at'] = isset($entry['started_at']) ? (int) $entry['started_at'] : 0;
+    $normalized['last_updated'] = isset($entry['last_updated']) ? (int) $entry['last_updated'] : 0;
+    $normalized['completed_at'] = isset($entry['completed_at']) && $entry['completed_at'] !== NULL
+      ? (int) $entry['completed_at']
+      : NULL;
+    $normalized['outcome'] = isset($entry['outcome']) && $entry['outcome'] !== ''
+      ? (string) $entry['outcome']
+      : NULL;
+    return $normalized;
+  }
+
+  /**
+   * Normalize one quest-log row into a stable client handoff shape.
+   */
+  protected function normalizeQuestJournalLogEntry(array $entry): array {
+    $entry['event_data'] = json_decode((string) ($entry['event_data'] ?? '{}'), TRUE) ?? [];
+    $entry['character_id'] = isset($entry['character_id']) && $entry['character_id'] !== NULL
+      ? (int) $entry['character_id']
+      : NULL;
+    $entry['party_id'] = isset($entry['party_id']) && $entry['party_id'] !== NULL
+      ? (int) $entry['party_id']
+      : NULL;
+    $entry['timestamp'] = (int) ($entry['timestamp'] ?? 0);
+    return $entry;
+  }
+
+  /**
+   * Resolve a canonical location id for quest summary payloads.
+   */
+  protected function resolveQuestSummaryLocationId(int $campaign_id, array $quests): string {
+    foreach ($quests as $quest) {
+      if (is_array($quest) && !empty($quest['location_id'])) {
+        return (string) $quest['location_id'];
+      }
+    }
+
+    return 'campaign-' . $campaign_id;
   }
 
   /**

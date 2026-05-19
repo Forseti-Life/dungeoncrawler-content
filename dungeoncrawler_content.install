@@ -3061,6 +3061,40 @@ function dungeoncrawler_content_schema() {
     ],
   ];
 
+  $schema['dc_active_effects'] = [
+    'description' => 'Canonical active effect rows for persistent character state resolution.',
+    'fields' => [
+      'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE],
+      'scope_key' => ['type' => 'varchar', 'length' => 255, 'not null' => TRUE, 'default' => ''],
+      'character_id' => ['type' => 'varchar', 'length' => 128, 'not null' => TRUE, 'default' => ''],
+      'campaign_id' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => FALSE],
+      'instance_id' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE],
+      'effect_type' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => 'impact_contract'],
+      'source_type' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE, 'default' => ''],
+      'source_id' => ['type' => 'varchar', 'length' => 191, 'not null' => TRUE, 'default' => ''],
+      'target' => ['type' => 'varchar', 'length' => 191, 'not null' => TRUE, 'default' => ''],
+      'operation' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => ''],
+      'stacking' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => ''],
+      'phase' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE, 'default' => ''],
+      'breakdown_key' => ['type' => 'varchar', 'length' => 191, 'not null' => FALSE],
+      'impact_json' => ['type' => 'text', 'size' => 'big', 'not null' => TRUE],
+      'is_active' => ['type' => 'int', 'size' => 'tiny', 'not null' => TRUE, 'default' => 1],
+      'created' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0],
+      'updated' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0],
+    ],
+    'primary key' => ['id'],
+    'unique keys' => [
+      'scope_key' => ['scope_key'],
+    ],
+    'indexes' => [
+      'character_scope' => ['character_id', 'campaign_id'],
+      'character_instance' => ['character_id', 'instance_id'],
+      'source_lookup' => ['source_type', 'source_id'],
+      'target_phase' => ['target', 'phase'],
+      'active_updated' => ['is_active', 'updated'],
+    ],
+  ];
+
   $schema['dc_room_turn_logs'] = [
     'description' => 'Structured troubleshooting log for room conversation turn order and speaker sequencing.',
     'fields' => [
@@ -6897,6 +6931,22 @@ function dungeoncrawler_content_update_10062() {
 
   $schema_handler->createTable('dc_room_turn_logs', $schema['dc_room_turn_logs']);
   return t('Created dc_room_turn_logs.');
+}
+
+/**
+ * Create canonical active effect storage for persistent character state.
+ */
+function dungeoncrawler_content_update_10064() {
+  $database = \Drupal::database();
+  $schema = dungeoncrawler_content_schema();
+  $schema_handler = $database->schema();
+
+  if ($schema_handler->tableExists('dc_active_effects')) {
+    return t('dc_active_effects already exists.');
+  }
+
+  $schema_handler->createTable('dc_active_effects', $schema['dc_active_effects']);
+  return t('Created dc_active_effects.');
 }
 
 /**

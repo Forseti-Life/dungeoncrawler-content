@@ -42,19 +42,21 @@ class NumberGenerationService {
    * @return int
    *   Roll result.
    */
-  public function rollPathfinderDie(int $sides): int {
+  public function rollPathfinderDie(int $sides, ?int $characterId = NULL, string $rollType = 'general'): int {
     if (!in_array($sides, self::PATHFINDER_DICE, TRUE)) {
       throw new InvalidArgumentException(sprintf('Unsupported Pathfinder die: d%d', $sides));
     }
 
-    return random_int(1, $sides);
+    $roll = random_int(1, $sides);
+    $this->logRoll('1d' . $sides, $roll, $characterId, $rollType);
+    return $roll;
   }
 
   /**
    * Roll percentile (1-100).
    */
-  public function rollPercentile(): int {
-    return $this->rollPathfinderDie(100);
+  public function rollPercentile(?int $characterId = NULL, string $rollType = 'general'): int {
+    return $this->rollPathfinderDie(100, $characterId, $rollType);
   }
 
   /**
@@ -102,7 +104,7 @@ class NumberGenerationService {
    * @return array
    *   Array with keys: notation, count, sides, modifier, rolls, subtotal, total.
    */
-  public function rollNotation(string $notation): array {
+  public function rollNotation(string $notation, ?int $characterId = NULL, string $rollType = 'general'): array {
     $notation = strtolower(trim($notation));
     $pattern = '/^(\d+)d(\d+)([+-]\d+)?$/';
     if (!preg_match($pattern, $notation, $matches)) {
@@ -123,7 +125,7 @@ class NumberGenerationService {
     $rolls = $this->rollMultiple($sides, $count);
     $subtotal = array_sum($rolls);
 
-    return [
+    $result = [
       'notation' => $notation,
       'count' => $count,
       'sides' => $sides,
@@ -132,6 +134,10 @@ class NumberGenerationService {
       'subtotal' => $subtotal,
       'total' => $subtotal + $modifier,
     ];
+
+    $this->logRoll($notation, $result['total'], $characterId, $rollType);
+
+    return $result;
   }
 
   /**

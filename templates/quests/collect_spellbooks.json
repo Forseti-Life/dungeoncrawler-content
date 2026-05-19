@@ -5,7 +5,12 @@
   "quest_type": "side_quest",
   "level_min": 1,
   "level_max": 3,
-  "tags": ["gathering", "knowledge", "tavern", "beginner"],
+  "tags": [
+    "gathering",
+    "knowledge",
+    "tavern",
+    "beginner"
+  ],
   "objectives_schema": [
     {
       "phase": 1,
@@ -14,8 +19,17 @@
           "objective_id": "collect_books",
           "type": "collect",
           "item": "{item_name}",
-          "target_count_range": [2, 4],
-          "description": "Find and collect {item_name}"
+          "target_count_range": [
+            2,
+            4
+          ],
+          "description": "Find and collect {item_name}",
+          "completion_criteria": {
+            "kind": "count",
+            "metric": "current",
+            "target_count": 1,
+            "description": "Reach the required progress count."
+          }
         }
       ]
     },
@@ -25,8 +39,15 @@
         {
           "objective_id": "return_books",
           "type": "interact",
-          "target": "scholar",
-          "description": "Return the books to the scholar"
+          "target": "scholar_npc",
+          "location_id": "{location}",
+          "description": "Return the books to the scholar",
+          "completion_criteria": {
+            "kind": "flag",
+            "metric": "completed",
+            "required_value": true,
+            "description": "Mark this objective complete."
+          }
         }
       ]
     }

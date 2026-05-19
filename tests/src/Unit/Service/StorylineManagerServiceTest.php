@@ -40,7 +40,7 @@ class StorylineManagerServiceTest extends UnitTestCase {
           ],
         ],
         [
-          'name' => 'Upstairs!',
+          'name' => "Grandma's House",
           'quest_ids' => ['find-trimmer'],
         ],
       ],
@@ -51,7 +51,7 @@ class StorylineManagerServiceTest extends UnitTestCase {
     $this->assertSame('vault-entry', $normalized['chapters'][0]['scenes'][0]['scene_id']);
     $this->assertSame('the-tomb', $normalized['linked_quests']['kobold-scout']['chapter_id']);
     $this->assertSame('vault-entry', $normalized['linked_quests']['kobold-scout']['scene_id']);
-    $this->assertSame('upstairs', $normalized['linked_quests']['find-trimmer']['chapter_id']);
+    $this->assertSame('grandma-s-house', $normalized['linked_quests']['find-trimmer']['chapter_id']);
     $this->assertSame('questline', $normalized['storyline_type']);
     $this->assertSame('kobold-scout', $normalized['questline']['primary_quest_id']);
     $this->assertSame(['kobold-scout', 'find-trimmer'], $normalized['questline']['ordered_quest_ids']);
@@ -157,6 +157,49 @@ class StorylineManagerServiceTest extends UnitTestCase {
     $this->assertSame('campaign_npc', $normalized['contacts'][1]['entity_type']);
     $this->assertSame('npc_tavern_keeper', $normalized['contacts'][1]['entity_id']);
     $this->assertSame('knows', $normalized['contacts'][1]['introduces_to'][0]['relationship_type']);
+  }
+
+  /**
+   * @covers ::normalizeTemplateDefinition
+   */
+  public function testNormalizeTemplateDefinitionBackfillsCanonicalMetadataContract(): void {
+    $service = $this->buildService();
+    $method = new \ReflectionMethod(StorylineManagerService::class, 'normalizeTemplateDefinition');
+    $method->setAccessible(TRUE);
+
+    $normalized = $method->invoke($service, [
+      'name' => 'Bootstrap Lead Story',
+      'source' => 'npc-storyline-bootstrap',
+      'contacts' => [
+        [
+          'contact_id' => 'eldric-contact',
+          'entity_type' => 'campaign_npc',
+          'entity_id' => 'npc_tavern_keeper',
+          'role' => 'quest_giver',
+          'display_name' => 'Eldric',
+          'attitude' => 'friendly',
+        ],
+      ],
+      'chapters' => [
+        [
+          'name' => 'Threshold of Lore',
+          'scenes' => [
+            [
+              'name' => 'Old Library Stairs',
+              'quest_ids' => ['threshold-lore-quest'],
+            ],
+          ],
+        ],
+      ],
+    ]);
+
+    $this->assertSame('Bootstrap Lead Story', $normalized['metadata']['goal']);
+    $this->assertSame('bootstrap', $normalized['metadata']['generated_outline']['generation_phase']);
+    $this->assertSame('Bootstrap Lead Story', $normalized['metadata']['generated_outline']['goal']);
+    $this->assertSame('threshold-of-lore', $normalized['metadata']['generated_outline']['entry_dungeon']['dungeon_id']);
+    $this->assertSame('old-library-stairs', $normalized['metadata']['generated_outline']['entry_dungeon']['entrance_room_id']);
+    $this->assertSame('npc_tavern_keeper', $normalized['metadata']['generated_outline']['bootstrap_handoff']['speaker_npc_id']);
+    $this->assertSame('Eldric', $normalized['metadata']['generated_outline']['bootstrap_handoff']['speaker_name']);
   }
 
   /**

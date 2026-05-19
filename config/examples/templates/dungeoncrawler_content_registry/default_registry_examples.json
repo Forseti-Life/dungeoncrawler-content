@@ -1,6 +1,96 @@
 {
   "rows": [
     {
+      "content_type": "location",
+      "content_id": "next_story_location",
+      "name": "Next Story Location",
+      "level": 1,
+      "rarity": "common",
+      "tags": [
+        "location",
+        "storyline",
+        "transition"
+      ],
+      "schema_data": {
+        "location_id": "next_story_location",
+        "location_type": "story_hook",
+        "description": "A generic library location used when a tavern lead points the party toward the next storyline destination."
+      },
+      "version": "1.0.0"
+    },
+    {
+      "content_type": "item",
+      "content_id": "room_supply",
+      "name": "Room Supply Bundle",
+      "level": 1,
+      "rarity": "common",
+      "tags": [
+        "item",
+        "supply",
+        "quest_item"
+      ],
+      "schema_data": {
+        "item_id": "room_supply",
+        "item_type": "quest_item",
+        "description": "A generic supply bundle used by room-scavenging quests."
+      },
+      "version": "1.0.0"
+    },
+    {
+      "content_type": "item",
+      "content_id": "ancient_artifact",
+      "name": "Ancient Artifact",
+      "level": 1,
+      "rarity": "uncommon",
+      "tags": [
+        "item",
+        "artifact",
+        "quest_item"
+      ],
+      "schema_data": {
+        "item_id": "ancient_artifact",
+        "item_type": "quest_item",
+        "description": "A generic artifact used by ruins-investigation quest templates."
+      },
+      "version": "1.0.0"
+    },
+    {
+      "content_type": "hazard",
+      "content_id": "tok-underlying-threat",
+      "name": "Underlying Threat",
+      "level": 1,
+      "rarity": "uncommon",
+      "tags": [
+        "hazard",
+        "mystery",
+        "threshold_of_knowledge"
+      ],
+      "schema_data": {
+        "hazard_id": "tok-underlying-threat",
+        "hazard_type": "story_threat",
+        "description": "The narrative danger behind Threshold of Knowledge's final resolution objective."
+      },
+      "version": "1.0.0"
+    },
+    {
+      "content_type": "encounter",
+      "content_id": "tal-opening-encounter",
+      "name": "Opening Encounter",
+      "level": 1,
+      "rarity": "common",
+      "tags": [
+        "encounter",
+        "tutorial",
+        "torment_and_legacy"
+      ],
+      "schema_data": {
+        "encounter_id": "tal-opening-encounter",
+        "encounter_type": "tutorial",
+        "description": "The introductory battle used as the opening encounter target for Torment and Legacy."
+      },
+      "version": "1.0.0"
+    },
+    {
       "content_type": "item",
       "content_id": "cast_4_hours_cost",
       "name": "Cast 4 hours; Cost",

@@ -137,20 +137,32 @@ class InitialGameContentCommands extends DrushCommands {
 
     $this->io()->writeln("Loading content for campaign: {$campaign['name']} (ID: {$campaign_id})");
 
-    // Load room definition.
-    $module_path = \Drupal::service('extension.list.module')->getPath('dungeoncrawler_content');
-    $room_file = DRUPAL_ROOT . '/' . $module_path . '/tavern_entrance_room.json';
-
-    if (!file_exists($room_file)) {
-      $this->io()->error("Room definition file not found: {$room_file}");
-      return FALSE;
-    }
-
     try {
-      $room_data = json_decode(file_get_contents($room_file), TRUE);
-      if ($room_data === NULL || json_last_error() !== JSON_ERROR_NONE) {
-        throw new \Exception('Invalid JSON: ' . json_last_error_msg());
+      $or = $this->database->orConditionGroup()
+        ->condition('room_id', 'tavern_entrance')
+        ->condition('source_room_id', 'tavern_entrance');
+
+      $room_record = $this->database->select('dungeoncrawler_content_rooms', 'r')
+        ->fields('r', ['room_id', 'name', 'description', 'environment_tags', 'layout_data', 'contents_data', 'source_room_id'])
+        ->condition($or)
+        ->orderBy('updated', 'DESC')
+        ->range(0, 1)
+        ->execute()
+        ->fetchAssoc();
+
+      if (!is_array($room_record)) {
+        $this->io()->error('Starter tavern asset not found in dungeoncrawler_content_rooms. Packaged JSON fallback is disabled.');
+        return FALSE;
       }
+
+      $room_data = [
+        'room_id' => (string) ($room_record['source_room_id'] ?: $room_record['room_id']),
+        'name' => (string) ($room_record['name'] ?? 'Unknown Room'),
+        'description' => (string) ($room_record['description'] ?? ''),
+        'environment_tags' => $this->decodeJsonArray($room_record['environment_tags'] ?? NULL),
+        'layout_data' => $this->decodeJsonArray($room_record['layout_data'] ?? NULL),
+        'contents_data' => $this->decodeJsonArray($room_record['contents_data'] ?? NULL),
+      ];
 
       if ($dry_run) {
         $this->io()->writeln("DRY RUN: Would create room '{$room_data['name']}' (ID: {$room_data['room_id']})");
@@ -177,6 +189,20 @@ class InitialGameContentCommands extends DrushCommands {
       $this->dcLogger->error('Failed to load initial content: ' . $e->getMessage());
       return FALSE;
     }
+  }
+
+  /**
+   * Decode a JSON column into an array.
+   */
+  protected function decodeJsonArray(mixed $value): array {
+    if (is_array($value)) {
+      return $value;
+    }
+    if (!is_string($value) || trim($value) === '') {
+      return [];
+    }
+    $decoded = json_decode($value, TRUE);
+    return is_array($decoded) ? $decoded : [];
   }
 
   /**

@@ -617,6 +617,7 @@ class StorylineManagerService {
     $asset_references = $this->buildAssetReferenceMap($definition, $chapters, $linked_quests);
     $contacts = $this->normalizeContactDefinitions($definition['contacts'] ?? [], $asset_references);
     $tags = array_values(array_filter(array_map('strval', is_array($definition['tags'] ?? NULL) ? $definition['tags'] : [])));
+    $metadata = $this->normalizeStorylineMetadata($definition, $chapters, $contacts, $asset_references, $tags);
 
     return [
       'schema_version' => self::STORYLINE_DEFINITION_SCHEMA_VERSION,
@@ -627,13 +628,158 @@ class StorylineManagerService {
       'source' => trim((string) ($definition['source'] ?? '')),
       'tags' => $tags,
       'storyline_type' => 'questline',
-      'metadata' => is_array($definition['metadata'] ?? NULL) ? $definition['metadata'] : [],
+      'metadata' => $metadata,
       'chapters' => $chapters,
       'linked_quests' => $linked_quests,
       'questline' => $questline,
       'asset_references' => array_values($asset_references),
       'contacts' => $contacts,
     ];
+  }
+
+  /**
+   * Normalize storyline metadata into the canonical library-backed contract.
+   */
+  protected function normalizeStorylineMetadata(
+    array $definition,
+    array $chapters,
+    array $contacts,
+    array $asset_references,
+    array $tags
+  ): array {
+    $metadata = is_array($definition['metadata'] ?? NULL) ? $definition['metadata'] : [];
+    $goal = trim((string) (
+      $metadata['goal']
+      ?? $definition['goal']
+      ?? $definition['synopsis']
+      ?? $definition['summary']
+      ?? $definition['description']
+      ?? $definition['name']
+      ?? $definition['title']
+      ?? ''
+    ));
+    if ($goal === '') {
+      $goal = 'Advance the active storyline.';
+    }
+
+    $metadata['goal'] = $goal;
+    $outline = is_array($metadata['generated_outline'] ?? NULL) ? $metadata['generated_outline'] : [];
+    $generation_phase = $this->inferStorylineGenerationPhase($definition, $outline, $tags, $chapters);
+    $outline['generation_phase'] = $generation_phase;
+    $outline['goal'] = trim((string) ($outline['goal'] ?? $goal));
+
+    if ($generation_phase === 'bootstrap') {
+      $first_chapter = is_array($chapters[0] ?? NULL) ? $chapters[0] : [];
+      $first_scene = is_array($first_chapter['scenes'][0] ?? NULL) ? $first_chapter['scenes'][0] : [];
+      $lead_location_id = $this->resolveStorylineLeadLocationId($definition, $asset_references);
+      $speaker_contact = $this->resolvePrimaryQuestGiverContact($contacts);
+
+      if (!is_array($outline['entry_dungeon'] ?? NULL) && $first_chapter !== []) {
+        $chapter_name = trim((string) ($first_chapter['name'] ?? $first_chapter['chapter_id'] ?? 'First Lead'));
+        $chapter_id = trim((string) ($first_chapter['chapter_id'] ?? 'first-lead'));
+        $scene_id = trim((string) ($first_scene['scene_id'] ?? 'first-scene'));
+        $style = trim((string) ($tags[0] ?? 'generated lead'));
+        $outline['entry_dungeon'] = [
+          'dungeon_id' => $chapter_id !== '' ? $chapter_id : 'generated-entry-dungeon',
+          'name' => $chapter_name !== '' ? $chapter_name : 'First Lead',
+          'style' => $style !== '' ? $style : 'generated lead',
+          'entrance_room_id' => $scene_id !== '' ? $scene_id : 'generated-entry-room',
+          'lead_location_id' => $lead_location_id,
+          'lead_location_hint' => 'Start at ' . str_replace('_', ' ', $lead_location_id) . ' and follow the first lead.',
+        ];
+      }
+
+      if (!is_array($outline['bootstrap_handoff'] ?? NULL)) {
+        $speaker_name = trim((string) ($speaker_contact['display_name'] ?? $definition['speaker_name'] ?? 'Questgiver'));
+        $speaker_id = trim((string) ($speaker_contact['entity_id'] ?? $definition['speaker_npc_id'] ?? 'npc_tavern_keeper'));
+        $lead_name = trim((string) (($outline['entry_dungeon']['name'] ?? $definition['name'] ?? 'the first lead')));
+        $outline['bootstrap_handoff'] = [
+          'speaker_npc_id' => $speaker_id !== '' ? $speaker_id : 'npc_tavern_keeper',
+          'speaker_name' => $speaker_name !== '' ? $speaker_name : 'Questgiver',
+          'lead_text' => ($speaker_name !== '' ? $speaker_name : 'The questgiver') . ' points the party toward ' . $lead_name . '.',
+        ];
+      }
+
+      if (
+        !is_array($outline['progression_connectors'] ?? NULL)
+        && is_array($outline['entry_dungeon'] ?? NULL)
+        && is_array($outline['bootstrap_handoff'] ?? NULL)
+      ) {
+        $outline['progression_connectors'] = [[
+          'connector_id' => trim((string) (($outline['entry_dungeon']['dungeon_id'] ?? 'generated-entry-dungeon') . '-bootstrap-handoff')),
+          'source_type' => 'npc',
+          'source_id' => (string) ($outline['bootstrap_handoff']['speaker_npc_id'] ?? 'npc_tavern_keeper'),
+          'mechanism' => 'npc_direction',
+          'from_location_id' => $lead_location_id,
+          'target_dungeon_id' => (string) ($outline['entry_dungeon']['dungeon_id'] ?? 'generated-entry-dungeon'),
+          'target_room_id' => (string) ($outline['entry_dungeon']['entrance_room_id'] ?? 'generated-entry-room'),
+          'narrative' => (string) ($outline['bootstrap_handoff']['lead_text'] ?? 'The questgiver points the party toward the first lead.'),
+        ]];
+      }
+    }
+
+    $metadata['generated_outline'] = $outline;
+    return $metadata;
+  }
+
+  /**
+   * Infer the most likely generation phase for a storyline object.
+   */
+  protected function inferStorylineGenerationPhase(array $definition, array $outline, array $tags, array $chapters): string {
+    if (!empty($outline['entry_dungeon']) || !empty($outline['bootstrap_handoff'])) {
+      return 'bootstrap';
+    }
+
+    if (!empty($outline['dungeons']) || !empty($outline['big_boss']) || !empty($outline['sub_bosses'])) {
+      return 'expanded';
+    }
+
+    $source = strtolower(trim((string) ($definition['source'] ?? '')));
+    $normalized_tags = array_map(static fn(string $tag): string => strtolower(trim($tag)), $tags);
+    if (str_contains($source, 'bootstrap') || in_array('bootstrap', $normalized_tags, TRUE)) {
+      return 'bootstrap';
+    }
+
+    if (str_contains($source, 'generator') || in_array('generated', $normalized_tags, TRUE)) {
+      return 'expanded';
+    }
+
+    return count($chapters) <= 1 ? 'bootstrap' : 'expanded';
+  }
+
+  /**
+   * Resolve the lead location id used for bootstrap-style handoffs.
+   */
+  protected function resolveStorylineLeadLocationId(array $definition, array $asset_references): string {
+    $candidate = trim((string) ($definition['lead_location_id'] ?? ''));
+    if ($candidate !== '') {
+      return $candidate;
+    }
+
+    foreach ($asset_references as $reference) {
+      if (!is_array($reference) || (string) ($reference['asset_type'] ?? '') !== 'location') {
+        continue;
+      }
+      $candidate = trim((string) ($reference['asset_id'] ?? ''));
+      if ($candidate !== '') {
+        return $candidate;
+      }
+    }
+
+    return 'tavern_entrance';
+  }
+
+  /**
+   * Resolve the primary quest-giver contact for bootstrap handoffs.
+   */
+  protected function resolvePrimaryQuestGiverContact(array $contacts): array {
+    foreach ($contacts as $contact) {
+      if (is_array($contact) && (string) ($contact['role'] ?? '') === 'quest_giver') {
+        return $contact;
+      }
+    }
+
+    return is_array($contacts[0] ?? NULL) ? $contacts[0] : [];
   }
 
   /**

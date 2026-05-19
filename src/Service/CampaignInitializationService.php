@@ -103,20 +103,20 @@ class CampaignInitializationService {
         return 0;
       }
 
-      // 2. Create default starter dungeon
-      $dungeon_id = $this->createStarterDungeon($campaign_id, $theme, $now);
-      if (!$dungeon_id) {
+      $starter_room = $this->loadStarterRoomSeed();
+      if ($starter_room === NULL) {
         $transaction->rollBack();
-        $this->logger->error('Failed to create starter dungeon for campaign {campaign_id}', [
+        $this->logger->error('Failed to load explicit starter tavern asset for campaign {campaign_id}', [
           'campaign_id' => $campaign_id,
         ]);
         return 0;
       }
 
-      $starter_room = $this->loadStarterRoomSeed();
-      if ($starter_room === NULL) {
+      // 2. Create default starter dungeon
+      $dungeon_id = $this->createStarterDungeon($campaign_id, $theme, $now, $starter_room);
+      if (!$dungeon_id) {
         $transaction->rollBack();
-        $this->logger->error('Failed to load starter tavern seed for campaign {campaign_id}', [
+        $this->logger->error('Failed to create starter dungeon for campaign {campaign_id}', [
           'campaign_id' => $campaign_id,
         ]);
         return 0;
@@ -264,85 +264,68 @@ class CampaignInitializationService {
   private function createStarterDungeon(
     int $campaign_id,
     string $theme,
-    int $now
+    int $now,
+    array $starter_room
   ): string|FALSE {
-    // Try to load the full tavern-entrance-dungeon.json seed payload first.
-    $seed_payload = $this->loadTavernDungeonSeed();
+    $runtime_room_id = trim((string) ($starter_room['runtime_room_id'] ?? ''));
+    $layout_data = is_array($starter_room['layout_data'] ?? NULL) ? $starter_room['layout_data'] : [];
 
-    if ($seed_payload !== NULL) {
-      $dungeon_id = (string) ($seed_payload['hex_map']['map_id'] ?? 'tavern-' . $campaign_id);
-      $dungeon_name = (string) ($seed_payload['name'] ?? 'Tavern Entrance');
-      $dungeon_description = (string) ($seed_payload['flavor_text'] ?? 'The adventure begins at the tavern entrance.');
-      $dungeon_theme = (string) ($seed_payload['custom_theme'] ?? $seed_payload['theme'] ?? $theme);
-
-      // Merge obstacle objects into the payload so hexmap JS has them.
-      $obstacle_path = $this->getModulePath() . '/config/examples/tavern-obstacle-objects.json';
-      $obstacle_catalog = $this->readJsonFile($obstacle_path);
-      if (is_array($obstacle_catalog) && !empty($obstacle_catalog['objects'])) {
-        // Merge catalog definitions into the seed payload's existing definitions.
-        // Index by object_id so the catalog augments (not overwrites) the seed.
-        $existing_defs = [];
-        foreach (($seed_payload['object_definitions'] ?? []) as $def) {
-          if (is_array($def) && !empty($def['object_id'])) {
-            $existing_defs[$def['object_id']] = $def;
-          }
-        }
-        foreach ($obstacle_catalog['objects'] as $catalog_def) {
-          if (is_array($catalog_def) && !empty($catalog_def['object_id'])) {
-            $oid = $catalog_def['object_id'];
-            if (!isset($existing_defs[$oid])) {
-              $existing_defs[$oid] = $catalog_def;
-            }
-          }
-        }
-        $seed_payload['object_definitions'] = array_values($existing_defs);
-      }
-
-      $this->database->insert('dc_campaign_dungeons')
-        ->fields([
-          'campaign_id' => $campaign_id,
-          'dungeon_id' => $dungeon_id,
-          'name' => $dungeon_name,
-          'description' => $dungeon_description,
-          'theme' => $dungeon_theme,
-          'dungeon_data' => json_encode($seed_payload, JSON_UNESCAPED_UNICODE),
-          'source_dungeon_id' => 'tavern-entrance-default',
-          'created' => $now,
-          'updated' => $now,
-        ])
-        ->execute();
-
-      return $dungeon_id;
+    if ($runtime_room_id === '' || empty($layout_data['hexes']) || empty($starter_room['contents_data']['npcs'])) {
+      $this->logger->error('Starter tavern asset is incomplete; refusing to synthesize a dungeon from partial data.');
+      return FALSE;
     }
 
-    // Fallback: themed stub when seed file is missing.
-    $dungeon_id = 'starter_dungeon_' . $campaign_id;
-    $dungeon_names = [
-      'classic_dungeon' => 'The Forsaken Crypt',
-      'goblin_warrens' => 'Goblin Warren',
-      'undead_crypt' => 'Undead Tomb',
+    $dungeon_id = $this->uuid->generate();
+    $level_id = $this->uuid->generate();
+    $dungeon_name = (string) ($starter_room['name'] ?? 'Starter Tavern');
+    $dungeon_description = (string) ($starter_room['description'] ?? 'Starter tavern asset.');
+    $dungeon_theme = $theme !== '' ? $theme : 'starter_asset';
+    $room_payload = [
+      'room_id' => $runtime_room_id,
+      'name' => $dungeon_name,
+      'description' => $dungeon_description,
+      'hexes' => is_array($layout_data['hexes'] ?? NULL) ? $layout_data['hexes'] : [],
+      'entry_points' => is_array($layout_data['entry_points'] ?? NULL) ? $layout_data['entry_points'] : [],
+      'exit_points' => is_array($layout_data['exit_points'] ?? NULL) ? $layout_data['exit_points'] : [],
+      'terrain' => is_array($layout_data['terrain'] ?? NULL) ? $layout_data['terrain'] : [],
+      'lighting' => is_array($layout_data['lighting'] ?? NULL) ? $layout_data['lighting'] : [],
     ];
-    $dungeon_name = $dungeon_names[$theme] ?? 'The Forsaken Crypt';
-
-    $dungeon_descriptions = [
-      'classic_dungeon' => 'An ancient crypt shrouded in mystery, with secrets waiting to be uncovered.',
-      'goblin_warrens' => 'A chaotic warren of goblin tunnels and chambers, full of mischief and danger.',
-      'undead_crypt' => 'A cursed tomb where the dead refuse to rest, filled with undead horrors.',
-    ];
-    $dungeon_description = $dungeon_descriptions[$theme] ?? 'An ancient mystery waiting to be explored.';
-
     $dungeon_data = [
       'schema_version' => '1.0.0',
+      'level_id' => $level_id,
       'depth' => 1,
-      'rooms' => [
-        'tavern_entrance' => [
-          'position' => [0, 0],
-          'connections' => [],
-          'priority' => 'entry',
+      'theme' => 'starter_asset',
+      'custom_theme' => $dungeon_theme,
+      'name' => $dungeon_name,
+      'flavor_text' => $dungeon_description,
+      'created_at' => gmdate('c', $now),
+      'updated_at' => gmdate('c', $now),
+      'is_persistent' => TRUE,
+      'hex_map' => [
+        'map_id' => $dungeon_id,
+        'name' => $dungeon_name,
+        'hex_size_ft' => 5,
+        'orientation' => 'flat-top',
+        'connections' => [],
+        'regions' => [
+          [
+            'region_id' => 'starter-tavern-region',
+            'name' => $dungeon_name,
+            'description' => $dungeon_description,
+            'room_ids' => [$runtime_room_id],
+            'ambient_hazard_level' => 0,
+          ],
+        ],
+        'metadata' => [
+          'created_at' => gmdate('c', $now),
+          'generated_by' => 'asset-library',
+          'is_finalized' => TRUE,
+          'total_rooms' => 1,
+          'explored_rooms' => 0,
+          'exploration_percentage' => 0,
         ],
       ],
-      'theme' => $theme,
-      'generated_at' => $now,
+      'rooms' => [$room_payload],
     ];
 
     $this->database->insert('dc_campaign_dungeons')
@@ -351,8 +334,9 @@ class CampaignInitializationService {
         'dungeon_id' => $dungeon_id,
         'name' => $dungeon_name,
         'description' => $dungeon_description,
-        'theme' => $theme,
-        'dungeon_data' => json_encode($dungeon_data, JSON_PRETTY_PRINT),
+        'theme' => $dungeon_theme,
+        'dungeon_data' => json_encode($dungeon_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        'source_dungeon_id' => 'asset-library-starter-room',
         'created' => $now,
         'updated' => $now,
       ])
@@ -362,18 +346,7 @@ class CampaignInitializationService {
   }
 
   /**
-   * Load the tavern-entrance-dungeon.json seed file.
-   *
-   * @return array|null
-   *   Decoded dungeon payload, or NULL if unavailable.
-   */
-  private function loadTavernDungeonSeed(): ?array {
-    $path = $this->getModulePath() . '/config/examples/tavern-entrance-dungeon.json';
-    return $this->readJsonFile($path);
-  }
-
-  /**
-   * Load the canonical starter-room seed used for new campaigns.
+   * Load the canonical starter-room asset used for new campaigns.
    *
    * The tavern room slug remains `tavern_entrance` for compatibility with
    * dc_campaign_rooms, while runtime surfaces (chat, hexmap, room view) use the
@@ -383,54 +356,56 @@ class CampaignInitializationService {
    *   Starter room data, or NULL if unavailable.
    */
   private function loadStarterRoomSeed(): ?array {
-    $room_data = $this->readJsonFile($this->getModulePath() . '/tavern_entrance_room.json');
-    if ($room_data === NULL) {
+    $or = $this->database->orConditionGroup()
+      ->condition('room_id', 'tavern_entrance')
+      ->condition('source_room_id', 'tavern_entrance');
+
+    $record = $this->database->select('dungeoncrawler_content_rooms', 'r')
+      ->fields('r', ['room_id', 'name', 'description', 'environment_tags', 'layout_data', 'contents_data', 'source_room_id'])
+      ->condition($or)
+      ->orderBy('updated', 'DESC')
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+
+    if (!is_array($record)) {
+      $this->logger->error('Starter tavern asset not found in dungeoncrawler_content_rooms; packaged JSON fallbacks are disabled.');
       return NULL;
     }
 
-    $seed_payload = $this->loadTavernDungeonSeed();
-    $seed_room = is_array($seed_payload['rooms'][0] ?? NULL) ? $seed_payload['rooms'][0] : [];
-
-    if ($seed_room !== []) {
-      $room_data['name'] = (string) ($seed_room['name'] ?? ($room_data['name'] ?? 'The Gilded Tankard'));
-      $room_data['description'] = (string) ($seed_room['description'] ?? ($room_data['description'] ?? ''));
-      $seed_room_id = trim((string) ($seed_room['room_id'] ?? $seed_room['id'] ?? ''));
-      if ($seed_room_id !== '') {
-        $room_data['runtime_room_id'] = $seed_room_id;
-      }
+    $room_id = trim((string) ($record['source_room_id'] ?? ''));
+    $runtime_room_id = trim((string) ($record['room_id'] ?? ''));
+    if ($room_id === '') {
+      $room_id = $runtime_room_id;
+    }
+    if ($room_id === '' || $runtime_room_id === '') {
+      $this->logger->error('Starter tavern asset record is missing canonical room identifiers.');
+      return NULL;
     }
 
-    $room_data['room_id'] = trim((string) ($room_data['room_id'] ?? 'tavern_entrance'));
-    if ($room_data['room_id'] === '') {
-      $room_data['room_id'] = 'tavern_entrance';
-    }
-
-    if (empty($room_data['runtime_room_id'])) {
-      $room_data['runtime_room_id'] = $room_data['room_id'];
-    }
-
-    return $room_data;
+    return [
+      'room_id' => $room_id,
+      'runtime_room_id' => $runtime_room_id,
+      'name' => (string) ($record['name'] ?? 'The Gilded Tankard'),
+      'description' => (string) ($record['description'] ?? ''),
+      'environment_tags' => $this->decodeJsonArray($record['environment_tags'] ?? NULL),
+      'layout_data' => $this->decodeJsonArray($record['layout_data'] ?? NULL),
+      'contents_data' => $this->decodeJsonArray($record['contents_data'] ?? NULL),
+    ];
   }
 
   /**
-   * Read and decode a JSON file.
-   *
-   * @param string $path
-   *   Absolute file path.
-   *
-   * @return array|null
-   *   Decoded array, or NULL on failure.
+   * Decode a JSON column into an array.
    */
-  private function readJsonFile(string $path): ?array {
-    if (!is_file($path)) {
-      return NULL;
+  private function decodeJsonArray(mixed $value): array {
+    if (is_array($value)) {
+      return $value;
     }
-    $contents = file_get_contents($path);
-    if ($contents === FALSE) {
-      return NULL;
+    if (!is_string($value) || trim($value) === '') {
+      return [];
     }
-    $decoded = json_decode($contents, TRUE);
-    return is_array($decoded) ? $decoded : NULL;
+    $decoded = json_decode($value, TRUE);
+    return is_array($decoded) ? $decoded : [];
   }
 
   /**

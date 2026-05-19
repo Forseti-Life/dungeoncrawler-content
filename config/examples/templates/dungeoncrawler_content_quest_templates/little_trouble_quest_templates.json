@@ -7,7 +7,12 @@
       "quest_type": "module_story",
       "level_min": 1,
       "level_max": 1,
-      "tags": ["module", "little-trouble", "kobold", "intro"],
+      "tags": [
+        "module",
+        "little-trouble",
+        "kobold",
+        "intro"
+      ],
       "objectives_schema": [
         {
           "phase": 1,
@@ -15,7 +20,14 @@
             {
               "objective_id": "enter_vault",
               "type": "explore",
-              "description": "Reach the vault entry and begin the delve."
+              "description": "Reach the vault entry and begin the delve.",
+              "completion_criteria": {
+                "kind": "flag",
+                "metric": "discovered",
+                "required_value": true,
+                "description": "Discover the required location."
+              },
+              "location": "ltba-vault-entry"
             }
           ]
         }
@@ -41,7 +53,12 @@
       "quest_type": "module_story",
       "level_min": 1,
       "level_max": 1,
-      "tags": ["module", "little-trouble", "hazard", "vault"],
+      "tags": [
+        "module",
+        "little-trouble",
+        "hazard",
+        "vault"
+      ],
       "objectives_schema": [
         {
           "phase": 1,
@@ -49,7 +66,14 @@
             {
               "objective_id": "clear_tomb_hazards",
               "type": "interact",
-              "description": "Disarm or bypass the chamber hazards."
+              "description": "Disarm or bypass the chamber hazards.",
+              "target": "ltba-tomb-hazard-room",
+              "completion_criteria": {
+                "kind": "flag",
+                "metric": "completed",
+                "required_value": true,
+                "description": "Mark this objective complete."
+              }
             }
           ]
         }
@@ -71,11 +95,16 @@
     {
       "template_id": "ltba-accept-the-task",
       "name": "Accept Grandmother's Request",
-      "description": "Take on the upstairs mission to recover the magical hedge trimmer.",
+      "description": "Take on the Grandma's House mission to recover the magical hedge trimmer.",
       "quest_type": "module_story",
       "level_min": 1,
       "level_max": 1,
-      "tags": ["module", "little-trouble", "social", "quest-giver"],
+      "tags": [
+        "module",
+        "little-trouble",
+        "social",
+        "quest-giver"
+      ],
       "objectives_schema": [
         {
           "phase": 1,
@@ -83,7 +112,14 @@
             {
               "objective_id": "accept_request",
               "type": "interact",
-              "description": "Speak with the old lady and accept the job."
+              "description": "Speak with the old lady and accept the job.",
+              "target": "ltba-grandmother",
+              "completion_criteria": {
+                "kind": "flag",
+                "metric": "completed",
+                "required_value": true,
+                "description": "Mark this objective complete."
+              }
             }
           ]
         }
@@ -109,7 +145,12 @@
       "quest_type": "module_story",
       "level_min": 1,
       "level_max": 1,
-      "tags": ["module", "little-trouble", "item", "objective"],
+      "tags": [
+        "module",
+        "little-trouble",
+        "item",
+        "objective"
+      ],
       "objectives_schema": [
         {
           "phase": 1,
@@ -118,8 +159,17 @@
               "objective_id": "retrieve_trimmer",
               "type": "collect",
               "item": "ltba-magical-hedge-trimmer",
-              "target_count_range": [1, 1],
-              "description": "Recover the magical hedge trimmer."
+              "target_count_range": [
+                1,
+                1
+              ],
+              "description": "Recover the magical hedge trimmer.",
+              "completion_criteria": {
+                "kind": "count",
+                "metric": "current",
+                "target_count": 1,
+                "description": "Reach the required progress count."
+              }
             }
           ]
         }
@@ -127,7 +177,9 @@
       "rewards_schema": {
         "xp": 80,
         "gold": 0,
-        "items": ["ltba-magical-hedge-trimmer"]
+        "items": [
+          "ltba-magical-hedge-trimmer"
+        ]
       },
       "prerequisites": [],
       "story_impact": {

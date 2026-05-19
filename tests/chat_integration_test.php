@@ -288,14 +288,31 @@ $mock_dungeon_data = [
       ],
     ],
   ],
+  'entities' => [
+    [
+      'entity_instance_id' => 'pc-69-267',
+      'name' => 'Aria',
+      'placement' => ['room_id' => 'test_room'],
+      'state' => [
+        'metadata' => [
+          'display_name' => 'Aria',
+          'stats' => ['perception' => 7],
+        ],
+      ],
+      'languages' => ['Common', 'Elven'],
+      'conditions' => [],
+    ],
+  ],
 ];
 
 $chars = $build_method->invoke($room_chat, $mock_dungeon_data, 0, $campaign_id);
-assert_true(count($chars) === 2, "Built 2 present characters (got " . count($chars) . ")");
+assert_true(count($chars) === 3, "Built 3 present characters (got " . count($chars) . ")");
 assert_true($chars[0]['name'] === 'Torgar', 'First char is PC (Torgar)');
-assert_true($chars[1]['name'] === 'Goblin Warrior', 'Second char is NPC (Goblin Warrior)');
+assert_true($chars[1]['name'] === 'Aria', 'Second char is top-level runtime PC (Aria)');
+assert_true($chars[2]['name'] === 'Goblin Warrior', 'Third char is NPC (Goblin Warrior)');
 assert_true($chars[0]['perception'] === 4, 'PC perception correct');
 assert_true(in_array('Dwarven', $chars[0]['languages']), 'PC knows Dwarven');
+assert_true(in_array('Elven', $chars[1]['languages']), 'Top-level runtime PC languages preserved');
 
 // ---------------------------------------------------------------------------
 // Test 9: ChatSessionController — listSessions builds tree.

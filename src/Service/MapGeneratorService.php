@@ -186,6 +186,48 @@ class MapGeneratorService {
       throw new \RuntimeException('Invalid dungeon data for campaign ' . $campaign_id);
     }
 
+    $existing_room_match = $this->findExistingCampaignRoomMatch($dungeon_data, $destination, $origin_room_id);
+    if ($existing_room_match !== NULL) {
+      $room = $existing_room_match['room'];
+      $room_index = (int) $existing_room_match['room_index'];
+
+      $this->createRoomConnection($dungeon_data, $origin_room_id, (string) ($room['room_id'] ?? ''));
+      $this->database->update('dc_campaign_dungeons')
+        ->fields([
+          'dungeon_data' => json_encode($dungeon_data),
+          'updated' => time(),
+        ])
+        ->condition('dungeon_id', $dungeon_id)
+        ->condition('campaign_id', $campaign_id)
+        ->execute();
+
+      if (!empty($room['room_id'])) {
+        $this->roomStateService->setState($campaign_id, $room['room_id'], $dungeon_id, [
+          'roomId' => $room['room_id'],
+          'dungeonId' => $dungeon_id,
+          'explored' => TRUE,
+          'visibility' => 'visible',
+          'isCleared' => FALSE,
+        ], NULL);
+      }
+
+      $this->logger->info('Existing setting reused: @name (room_id=@room_id, room_index=@idx, destination=@dest)', [
+        '@name' => $room['name'] ?? 'Unknown',
+        '@room_id' => $room['room_id'] ?? 'unknown',
+        '@idx' => $room_index,
+        '@dest' => $destination,
+      ]);
+
+      return [
+        'room' => $dungeon_data['rooms'][$room_index] ?? $room,
+        'room_index' => $room_index,
+        'entities' => [],
+        'dungeon_data' => $dungeon_data,
+        'source' => 'existing_campaign_room',
+        'template_id' => NULL,
+      ];
+    }
+
     $party_level = $narrative_context['party_level']
       ?? $dungeon_data['generation_rules']['party_level_target']
       ?? 1;
@@ -495,6 +537,72 @@ class MapGeneratorService {
     }
 
     return $best;
+  }
+
+  /**
+   * Reuse an existing campaign room when the destination already exists.
+   */
+  protected function findExistingCampaignRoomMatch(array $dungeon_data, string $destination, string $origin_room_id): ?array {
+    $normalized_destination = $this->normalizeLocationLabel($destination);
+    if ($normalized_destination === '') {
+      return NULL;
+    }
+
+    $origin_room = NULL;
+    foreach (($dungeon_data['rooms'] ?? []) as $room) {
+      if ((string) ($room['room_id'] ?? '') === $origin_room_id) {
+        $origin_room = $room;
+        break;
+      }
+    }
+
+    $matches = [];
+    foreach (($dungeon_data['rooms'] ?? []) as $index => $room) {
+      $room_id = (string) ($room['room_id'] ?? '');
+      if ($room_id === '' || $room_id === $origin_room_id) {
+        continue;
+      }
+
+      $normalized_name = $this->normalizeLocationLabel((string) ($room['name'] ?? ''));
+      if ($normalized_name === '') {
+        continue;
+      }
+
+      $exact_match = $normalized_name === $normalized_destination;
+      $partial_match = !$exact_match
+        && (
+          str_contains($normalized_name, $normalized_destination)
+          || str_contains($normalized_destination, $normalized_name)
+        );
+      if (!$exact_match && !$partial_match) {
+        continue;
+      }
+
+      $connected = ($origin_room !== NULL && $this->roomHasConnection($origin_room, $room_id))
+        || $this->roomHasConnection($room, $origin_room_id);
+
+      $matches[] = [
+        'room' => $room,
+        'room_index' => $index,
+        'exact_match' => $exact_match,
+        'connected' => $connected,
+      ];
+    }
+
+    if ($matches === []) {
+      return NULL;
+    }
+
+    usort($matches, static function (array $a, array $b): int {
+      $scoreA = ($a['exact_match'] ? 100 : 0) + ($a['connected'] ? 10 : 0);
+      $scoreB = ($b['exact_match'] ? 100 : 0) + ($b['connected'] ? 10 : 0);
+      if ($scoreA !== $scoreB) {
+        return $scoreB <=> $scoreA;
+      }
+      return ((int) $a['room_index']) <=> ((int) $b['room_index']);
+    });
+
+    return $matches[0];
   }
 
   /**
@@ -1511,17 +1619,35 @@ PROMPT;
    * Create a bidirectional connection between two rooms.
    */
   protected function createRoomConnection(array &$dungeon_data, string $from_room_id, string $to_room_id): void {
+    if ($from_room_id === '' || $to_room_id === '' || $from_room_id === $to_room_id) {
+      return;
+    }
+
     // Add to hex_map connections.
     if (!isset($dungeon_data['hex_map']['connections'])) {
       $dungeon_data['hex_map']['connections'] = [];
     }
 
-    $dungeon_data['hex_map']['connections'][] = [
-      'from_room' => $from_room_id,
-      'to_room' => $to_room_id,
-      'type' => 'passage',
-      'bidirectional' => TRUE,
-    ];
+    $connection_exists = FALSE;
+    foreach ($dungeon_data['hex_map']['connections'] as $connection) {
+      $from = (string) ($connection['from_room'] ?? '');
+      $to = (string) ($connection['to_room'] ?? '');
+      if (
+        ($from === $from_room_id && $to === $to_room_id)
+        || ($from === $to_room_id && $to === $from_room_id)
+      ) {
+        $connection_exists = TRUE;
+        break;
+      }
+    }
+    if (!$connection_exists) {
+      $dungeon_data['hex_map']['connections'][] = [
+        'from_room' => $from_room_id,
+        'to_room' => $to_room_id,
+        'type' => 'passage',
+        'bidirectional' => TRUE,
+      ];
+    }
 
     // Also set room.connections on both rooms.
     foreach ($dungeon_data['rooms'] as &$room) {
@@ -1529,22 +1655,48 @@ PROMPT;
         if (!isset($room['connections'])) {
           $room['connections'] = [];
         }
-        $room['connections'][] = [
-          'target_room_id' => $to_room_id,
-          'type' => 'passage',
-        ];
+        if (!$this->roomHasConnection($room, $to_room_id)) {
+          $room['connections'][] = [
+            'target_room_id' => $to_room_id,
+            'type' => 'passage',
+          ];
+        }
       }
       if (($room['room_id'] ?? '') === $to_room_id) {
         if (!isset($room['connections'])) {
           $room['connections'] = [];
         }
-        $room['connections'][] = [
-          'target_room_id' => $from_room_id,
-          'type' => 'passage',
-        ];
+        if (!$this->roomHasConnection($room, $from_room_id)) {
+          $room['connections'][] = [
+            'target_room_id' => $from_room_id,
+            'type' => 'passage',
+          ];
+        }
       }
     }
     unset($room);
+  }
+
+  /**
+   * Normalize destination and room labels for stable matching.
+   */
+  protected function normalizeLocationLabel(string $label): string {
+    $label = strtolower(trim($label));
+    $label = preg_replace('/\b(the|a|an)\b/u', ' ', $label);
+    $label = preg_replace('/[^a-z0-9]+/u', ' ', $label);
+    return trim(preg_replace('/\s+/u', ' ', $label) ?? '');
+  }
+
+  /**
+   * Check whether a room already has a connection to a target room.
+   */
+  protected function roomHasConnection(array $room, string $target_room_id): bool {
+    foreach (($room['connections'] ?? []) as $connection) {
+      if ((string) ($connection['target_room_id'] ?? '') === $target_room_id) {
+        return TRUE;
+      }
+    }
+    return FALSE;
   }
 
   /**

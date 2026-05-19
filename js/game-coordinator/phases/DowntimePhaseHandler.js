@@ -44,7 +44,7 @@ export class DowntimePhaseHandler {
     try {
       const result = await this.api.rest(actorId, 'long', this.phaseManager.stateVersion);
       if (result?.success && result.game_state) {
-        this.phaseManager.applyServerState(result.game_state, result.available_actions);
+        this.phaseManager.applyServerState(result.game_state, result.available_actions, result.action_contract || null);
       }
       return result;
     } catch (err) {

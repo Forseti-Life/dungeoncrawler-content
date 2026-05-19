@@ -35,11 +35,11 @@ class RoomChatControllerProgressTest extends UnitTestCase {
     $unknown = $method->invoke($controller, 'unknown_stage', 'req-3');
 
     $this->assertSame('reviewing-room', $started['phase']);
-    $this->assertSame('Turn 1: reviewing the room and what you just said...', $started['message']);
+    $this->assertSame('Turn 1: Narrator is reviewing the room and what you just said...', $started['message']);
     $this->assertSame('req-0', $started['client_request_id']);
 
     $this->assertSame('updating-conversation', $persisted['phase']);
-    $this->assertSame('Turn 1: updating conversation state...', $persisted['message']);
+    $this->assertSame('Turn 1: Narrator is updating conversation state...', $persisted['message']);
     $this->assertSame('req-1', $persisted['client_request_id']);
 
     $this->assertSame('reviewing-queue', $queued['phase']);
@@ -47,7 +47,7 @@ class RoomChatControllerProgressTest extends UnitTestCase {
     $this->assertSame('req-2', $queued['client_request_id']);
 
     $this->assertSame('reviewing-room', $private_started['phase']);
-    $this->assertSame('Turn 1: reviewing what you just said...', $private_started['message']);
+    $this->assertSame('Turn 1: Narrator is reviewing what you just said...', $private_started['message']);
     $this->assertSame('req-private', $private_started['client_request_id']);
 
     $this->assertNull($unknown);
@@ -69,7 +69,7 @@ class RoomChatControllerProgressTest extends UnitTestCase {
         'message' => ['speaker' => 'Burasco', 'message' => 'Who answers?'],
         'turn_log_key' => 'room_turn_abc',
         'turn_logs' => [
-          ['speaker' => 'System', 'message' => 'Turn order: Player -> Narrator -> Eldric.', 'type' => 'system'],
+          ['speaker' => 'System', 'message' => 'Turn order: Narrator -> Game Master -> Eldric 17.', 'type' => 'system'],
         ],
       ]);
 
@@ -96,7 +96,7 @@ class RoomChatControllerProgressTest extends UnitTestCase {
     $this->assertSame(200, $response->getStatusCode());
     $this->assertTrue($payload['success']);
     $this->assertSame('room_turn_abc', $payload['data']['turn_log_key']);
-    $this->assertSame('Turn order: Player -> Narrator -> Eldric.', $payload['data']['turn_logs'][0]['message']);
+    $this->assertSame('Turn order: Narrator -> Game Master -> Eldric 17.', $payload['data']['turn_logs'][0]['message']);
   }
 
   /**
@@ -110,7 +110,7 @@ class RoomChatControllerProgressTest extends UnitTestCase {
       ->willReturn([
         'turn_log_key' => 'room_turn_stream',
         'turn_logs' => [
-          ['speaker' => 'System', 'message' => 'Next speaker: Eldric.', 'type' => 'system'],
+          ['speaker' => 'System', 'message' => 'Current turn: Eldric.', 'type' => 'system', 'turn_role' => 'npc', 'turn_name' => 'Eldric', 'turn_index' => 3],
         ],
         'messages' => [
           ['speaker' => 'Eldric', 'message' => 'I do.', 'type' => 'npc'],
@@ -132,7 +132,7 @@ class RoomChatControllerProgressTest extends UnitTestCase {
       [
         'gm_response' => ['speaker' => 'Game Master', 'message' => 'The room quiets.', 'type' => 'npc'],
         'turn_logs' => [
-          ['speaker' => 'System', 'message' => 'Turn order: Player -> Narrator -> Eldric.', 'type' => 'system'],
+          ['speaker' => 'System', 'message' => 'Turn order: Narrator -> Game Master -> Eldric 17.', 'type' => 'system'],
         ],
         'npc_interjections_deferred' => TRUE,
       ],
@@ -146,13 +146,13 @@ class RoomChatControllerProgressTest extends UnitTestCase {
 
     $event_types = array_column($events, 'type');
     $this->assertSame(
-      ['gm_response', 'system_message', 'thinking', 'system_message', 'npc_interjection', 'complete'],
+      ['system_message', 'gm_response', 'thinking', 'system_message', 'npc_interjection', 'complete'],
       $event_types
     );
-    $this->assertSame('Turn order: Player -> Narrator -> Eldric.', $events[1]['data']['message']);
-    $this->assertSame('Next speaker: Eldric.', $events[3]['data']['message']);
+    $this->assertSame('Turn order: Narrator -> Game Master -> Eldric 17.', $events[0]['data']['message']);
+    $this->assertSame('Current turn: Eldric.', $events[3]['data']['message']);
     $this->assertSame('I do.', $events[4]['data']['message']);
-    $this->assertSame('Next speaker: Eldric.', $events[5]['data']['turn_logs'][1]['message']);
+    $this->assertSame('Current turn: Eldric.', $events[5]['data']['turn_logs'][1]['message']);
     $this->assertSame('room_turn_stream', $events[5]['data']['turn_log_key']);
   }
 

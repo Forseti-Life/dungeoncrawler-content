@@ -12,6 +12,7 @@
     "gm_addressed",
     "directly_addressed_npc",
     "npc_turns",
+    "turn_sequence",
     "turn_log_key",
     "turn_logs",
     "messages"
@@ -66,9 +67,30 @@
             "type": "string",
             "maxLength": 255
           },
-          "spoke": {
-            "type": "boolean"
-          }
+          "spoke": { "type": "boolean" },
+          "initiative_total": { "type": ["integer", "null"] },
+          "initiative_roll": { "type": ["integer", "null"] },
+          "initiative_modifier": { "type": ["integer", "null"] }
+        }
+      }
+    },
+    "turn_sequence": {
+      "type": "array",
+      "maxItems": 30,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["actor_key", "actor_ref", "display_name", "role", "turn_index", "spoke"],
+        "properties": {
+          "actor_key": { "type": "string", "maxLength": 160 },
+          "actor_ref": { "type": ["string", "null"], "maxLength": 160 },
+          "display_name": { "type": "string", "maxLength": 255 },
+          "role": { "type": "string", "maxLength": 64 },
+          "turn_index": { "type": "integer", "minimum": 1 },
+          "initiative_total": { "type": ["integer", "null"] },
+          "initiative_roll": { "type": ["integer", "null"] },
+          "initiative_modifier": { "type": ["integer", "null"] },
+          "spoke": { "type": "boolean" }
         }
       }
     },
@@ -92,7 +114,13 @@
           "timestamp": { "type": "string", "maxLength": 64 },
           "character_id": { "type": ["integer", "null"] },
           "user_id": { "type": "integer" },
-          "internal_log": { "type": "boolean" }
+          "internal_log": { "type": "boolean" },
+          "turn_role": { "type": "string", "maxLength": 64 },
+          "turn_name": { "type": "string", "maxLength": 255 },
+          "turn_index": { "type": "integer", "minimum": 0 },
+          "initiative_total": { "type": ["integer", "null"] },
+          "initiative_roll": { "type": ["integer", "null"] },
+          "initiative_modifier": { "type": ["integer", "null"] }
         }
       }
     },
