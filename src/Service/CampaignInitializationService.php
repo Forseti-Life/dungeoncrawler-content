@@ -132,7 +132,6 @@ class CampaignInitializationService {
       }
 
       $this->seedStarterQuests($campaign_id, $difficulty, $now);
-      $this->seedBundledStorylinesAndRelationships($campaign_id);
 
       // 5. Bootstrap hierarchical chat sessions for the campaign.
       //    Include the starter dungeon and tavern room so they get
@@ -356,12 +355,13 @@ class CampaignInitializationService {
    *   Starter room data, or NULL if unavailable.
    */
   private function loadStarterRoomSeed(): ?array {
-    $or = $this->database->orConditionGroup()
+    $query = $this->database->select('dungeoncrawler_content_rooms', 'r')
+      ->fields('r', ['room_id', 'name', 'description', 'environment_tags', 'layout_data', 'contents_data', 'source_room_id']);
+    $or = $query->orConditionGroup()
       ->condition('room_id', 'tavern_entrance')
       ->condition('source_room_id', 'tavern_entrance');
 
-    $record = $this->database->select('dungeoncrawler_content_rooms', 'r')
-      ->fields('r', ['room_id', 'name', 'description', 'environment_tags', 'layout_data', 'contents_data', 'source_room_id'])
+    $record = $query
       ->condition($or)
       ->orderBy('updated', 'DESC')
       ->range(0, 1)
@@ -616,25 +616,9 @@ class CampaignInitializationService {
       'tavern_storyline_leads' => [
         'giver_npc_id' => $npc_ids['tavern_keeper'] ?? NULL,
       ],
-      'gather_wine' => [
-        'item_name' => 'wine bottle',
-        'giver_npc_id' => $npc_ids['tavern_keeper'] ?? NULL,
-      ],
-      'gather_torch_components' => [
-        'item_name' => 'torch components',
-        'giver_npc_id' => $npc_ids['tavern_keeper'] ?? NULL,
-      ],
-      'gather_two_room_items' => [
-        'item_name' => 'room supplies',
-        'giver_npc_id' => $npc_ids['tavern_keeper'] ?? NULL,
-      ],
-      'collect_spellbooks' => [
-        'item_name' => 'spellbooks',
-        'giver_npc_id' => $npc_ids['scholar_npc'] ?? NULL,
-      ],
     ];
 
-    $this->ensureQuestTemplatesLoaded(array_keys($starter_templates), $now);
+    $this->ensureQuestTemplatesLoaded(array_keys($starter_templates));
 
     $difficulty_map = [
       'normal' => 'moderate',
@@ -749,12 +733,9 @@ class CampaignInitializationService {
   }
 
   /**
-   * Ensure quest templates are loaded from module JSON files.
+   * Ensure required quest templates exist in the canonical asset library.
    */
-  private function ensureQuestTemplatesLoaded(array $template_ids, int $now): void {
-    $module_path = $this->moduleList->getPath('dungeoncrawler_content');
-    $template_dir = DRUPAL_ROOT . '/' . $module_path . '/templates/quests';
-
+  private function ensureQuestTemplatesLoaded(array $template_ids): void {
     foreach ($template_ids as $template_id) {
       $existing = $this->database->select('dungeoncrawler_content_quest_templates', 't')
         ->fields('t', ['id'])
@@ -763,43 +744,11 @@ class CampaignInitializationService {
         ->execute()
         ->fetchField();
 
-      if ($existing) {
-        continue;
+      if (!$existing) {
+        $this->logger->error('Required starter quest template missing from canonical asset library: {template_id}', [
+          'template_id' => $template_id,
+        ]);
       }
-
-      $path = $template_dir . '/' . $template_id . '.json';
-      $template = $this->readJsonFile($path);
-      if (!is_array($template)) {
-        $this->logger->warning('Quest template file not found or invalid: {path}', ['path' => $path]);
-        continue;
-      }
-
-      if (empty($template['template_id']) || empty($template['name']) || empty($template['quest_type'])) {
-        $this->logger->warning('Quest template missing required fields: {path}', ['path' => $path]);
-        continue;
-      }
-
-      $record = [
-        'template_id' => $template['template_id'],
-        'name' => $template['name'],
-        'description' => $template['description'] ?? '',
-        'quest_type' => $template['quest_type'],
-        'level_min' => $template['level_min'] ?? 1,
-        'level_max' => $template['level_max'] ?? 20,
-        'objectives_schema' => json_encode($template['objectives_schema'] ?? []),
-        'rewards_schema' => json_encode($template['rewards_schema'] ?? []),
-        'prerequisites' => isset($template['prerequisites']) ? json_encode($template['prerequisites']) : NULL,
-        'tags' => isset($template['tags']) ? json_encode($template['tags']) : NULL,
-        'story_impact' => isset($template['story_impact']) ? json_encode($template['story_impact']) : NULL,
-        'estimated_duration_minutes' => $template['estimated_duration_minutes'] ?? NULL,
-        'version' => $template['version'] ?? '1.0.0',
-        'created' => $now,
-        'updated' => $now,
-      ];
-
-      $this->database->insert('dungeoncrawler_content_quest_templates')
-        ->fields($record)
-        ->execute();
     }
   }
 

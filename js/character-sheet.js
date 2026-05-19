@@ -195,4 +195,57 @@
     }
   };
 
+  /**
+   * Filter character-card grids by character name.
+   */
+  Drupal.behaviors.dcCharacterNameFilter = {
+    attach: function (context) {
+      once('dc-character-name-filter', '.dc-character-list', context).forEach(function (list) {
+        var input = list.querySelector('[data-dc-character-filter-input]');
+        if (!input) {
+          return;
+        }
+
+        var cards = Array.prototype.slice.call(list.querySelectorAll('[data-dc-character-card]'));
+        if (!cards.length) {
+          return;
+        }
+
+        var groups = Array.prototype.slice.call(list.querySelectorAll('[data-dc-character-group]'));
+        var emptyState = list.querySelector('[data-dc-character-filter-empty]');
+
+        function applyFilter() {
+          var query = input.value.trim().toLowerCase();
+          var visibleCount = 0;
+
+          cards.forEach(function (card) {
+            var name = (card.getAttribute('data-dc-character-name') || '').toLowerCase();
+            var matches = query === '' || name.indexOf(query) !== -1;
+            card.hidden = !matches;
+            if (matches) {
+              visibleCount += 1;
+            }
+          });
+
+          groups.forEach(function (group) {
+            var hasVisibleCards = Array.prototype.some.call(
+              group.querySelectorAll('[data-dc-character-card]'),
+              function (card) {
+                return !card.hidden;
+              }
+            );
+            group.hidden = !hasVisibleCards;
+          });
+
+          if (emptyState) {
+            emptyState.hidden = visibleCount > 0;
+          }
+        }
+
+        input.addEventListener('input', applyFilter);
+        applyFilter();
+      });
+    }
+  };
+
 })(typeof Drupal !== 'undefined' ? Drupal : undefined, typeof once !== 'undefined' ? once : undefined);

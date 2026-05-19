@@ -106,15 +106,13 @@ class InventoryManagementService {
     string $character_id,
     ?int $campaign_id = NULL
   ): array {
-    $query = $this->database->select('dc_campaign_item_instances', 'i')
-      ->fields('i')
-      ->condition('location_ref', $character_id);
-
-    if ($campaign_id !== NULL) {
-      $query->condition('campaign_id', $campaign_id);
+    $items = $this->loadCharacterInventoryInstanceRows($character_id, $campaign_id);
+    if ($items === [] && $campaign_id !== NULL) {
+      $materialized_count = $this->materializeCharacterInventoryInstancesFromState($character_id, $campaign_id);
+      if ($materialized_count > 0) {
+        $items = $this->loadCharacterInventoryInstanceRows($character_id, $campaign_id);
+      }
     }
-
-    $items = $query->execute()->fetchAll(\PDO::FETCH_ASSOC);
 
     // Organize by location type
     $inventory = [
@@ -179,6 +177,117 @@ class InventoryManagementService {
     $inventory['encumbrance'] = $this->getEncumbranceStatus($current_bulk, $str_score);
 
     return CharacterEquipmentSlotHelper::normalizeInventory($inventory);
+  }
+
+  /**
+   * Load raw item-instance rows for a character inventory.
+   */
+  protected function loadCharacterInventoryInstanceRows(
+    string $character_id,
+    ?int $campaign_id = NULL
+  ): array {
+    $query = $this->database->select('dc_campaign_item_instances', 'i')
+      ->fields('i')
+      ->condition('location_ref', $character_id);
+
+    if ($campaign_id !== NULL) {
+      $query->condition('campaign_id', $campaign_id);
+    }
+
+    return $query->execute()->fetchAll(\PDO::FETCH_ASSOC);
+  }
+
+  /**
+   * Materialize missing character-owned item instances from persisted state.
+   */
+  protected function materializeCharacterInventoryInstancesFromState(
+    string $character_id,
+    int $campaign_id
+  ): int {
+    $state = $this->characterStateService->getState($character_id, $campaign_id);
+    $inventory = CharacterEquipmentSlotHelper::normalizeInventory(
+      is_array($state['inventory'] ?? NULL) ? $state['inventory'] : []
+    );
+
+    $entries = [];
+    $push_entry = function (?array $item, string $location) use (&$entries): void {
+      if (!is_array($item) || $item === []) {
+        return;
+      }
+      $item_id = trim((string) ($item['id'] ?? $item['item_id'] ?? ''));
+      if ($item_id === '') {
+        return;
+      }
+      $entries[] = [
+        'location' => $location,
+        'item' => $item,
+      ];
+    };
+
+    foreach (($inventory['carried'] ?? []) as $item) {
+      $push_entry(is_array($item) ? $item : NULL, 'carried');
+    }
+    foreach (($inventory['equipped'] ?? []) as $item) {
+      $push_entry(is_array($item) ? $item : NULL, 'equipped');
+    }
+    foreach (($inventory['stashed'] ?? []) as $item) {
+      $push_entry(is_array($item) ? $item : NULL, 'stashed');
+    }
+
+    $worn = is_array($inventory['worn'] ?? NULL) ? $inventory['worn'] : [];
+    foreach (($worn['weapons'] ?? []) as $item) {
+      $push_entry(is_array($item) ? $item : NULL, 'worn');
+    }
+    foreach (($worn['accessories'] ?? []) as $item) {
+      $push_entry(is_array($item) ? $item : NULL, 'worn');
+    }
+    $push_entry(is_array($worn['armor'] ?? NULL) ? $worn['armor'] : NULL, 'worn');
+    $push_entry(is_array($worn['shield'] ?? NULL) ? $worn['shield'] : NULL, 'worn');
+
+    if ($entries === []) {
+      return 0;
+    }
+
+    $now = time();
+    foreach ($entries as $index => $entry) {
+      $item = $this->normalizeIncomingItemData($entry['item']);
+      $this->validateItemData($item);
+
+      $item_instance_id = trim((string) ($item['item_instance_id'] ?? ''));
+      if ($item_instance_id === '') {
+        $item_instance_id = sprintf(
+          'bootstrap_%d_%s_%d',
+          $campaign_id,
+          preg_replace('/[^a-z0-9_]+/i', '_', (string) ($item['id'] ?? 'item')),
+          $index + 1
+        );
+      }
+
+      $this->database->insert('dc_campaign_item_instances')
+        ->fields([
+          'campaign_id' => $campaign_id,
+          'item_instance_id' => $item_instance_id,
+          'item_id' => $item['id'] ?? '',
+          'location_type' => $entry['location'],
+          'location_ref' => $character_id,
+          'quantity' => max(1, (int) ($item['quantity'] ?? 1)),
+          'state_data' => json_encode($item),
+          'created' => $now,
+          'updated' => $now,
+        ])
+        ->execute();
+    }
+
+    \Drupal::logger('dungeoncrawler_content')->notice(
+      'Materialized @count missing inventory item instances from state for character @character_id in campaign @campaign_id.',
+      [
+        '@count' => count($entries),
+        '@character_id' => $character_id,
+        '@campaign_id' => $campaign_id,
+      ]
+    );
+
+    return count($entries);
   }
 
   /**

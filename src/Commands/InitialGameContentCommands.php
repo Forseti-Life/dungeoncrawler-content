@@ -138,12 +138,13 @@ class InitialGameContentCommands extends DrushCommands {
     $this->io()->writeln("Loading content for campaign: {$campaign['name']} (ID: {$campaign_id})");
 
     try {
-      $or = $this->database->orConditionGroup()
+      $query = $this->database->select('dungeoncrawler_content_rooms', 'r')
+        ->fields('r', ['room_id', 'name', 'description', 'environment_tags', 'layout_data', 'contents_data', 'source_room_id']);
+      $or = $query->orConditionGroup()
         ->condition('room_id', 'tavern_entrance')
         ->condition('source_room_id', 'tavern_entrance');
 
-      $room_record = $this->database->select('dungeoncrawler_content_rooms', 'r')
-        ->fields('r', ['room_id', 'name', 'description', 'environment_tags', 'layout_data', 'contents_data', 'source_room_id'])
+      $room_record = $query
         ->condition($or)
         ->orderBy('updated', 'DESC')
         ->range(0, 1)

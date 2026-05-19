@@ -375,7 +375,11 @@ class VertexImageGenerationService {
       'model' => $model,
     ];
 
-    if (in_array(($normalized_payload['entity_type'] ?? ''), ['room_view', 'room_view_gallery'], TRUE)) {
+    $entity_type = (string) ($normalized_payload['entity_type'] ?? '');
+    if ($entity_type === 'room_view') {
+      $hash_payload['room_id'] = $normalized_payload['room_id'] ?? '';
+    }
+    elseif ($entity_type === 'room_view_gallery') {
       $hash_payload['campaign_id'] = $normalized_payload['campaign_id'] ?? NULL;
       $hash_payload['dungeon_id'] = $normalized_payload['dungeon_id'] ?? '';
       $hash_payload['room_id'] = $normalized_payload['room_id'] ?? '';

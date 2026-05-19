@@ -5310,9 +5310,17 @@ import { SpriteService } from './SpriteService.js';
       if (this.elements.characterSp) this.elements.characterSp.textContent = currency.sp || 0;
       if (this.elements.characterCp) this.elements.characterCp.textContent = currency.cp || 0;
 
+      const activeCampaignId = Number(
+        this.stateManager?.hexmap?.resolveCampaignId?.()
+        || this.stateManager?.hexmap?.launchContext?.campaign_id
+        || state.campaignId
+        || launchCharacter.campaignId
+        || 0
+      ) || null;
+
       this.currentCharacterInventoryContext = {
         characterId,
-        campaignId: Number(state.campaignId || launchCharacter.campaignId || 0) || null,
+        campaignId: activeCampaignId,
         inventory,
         equipment,
         currency,
@@ -6650,8 +6658,27 @@ import { SpriteService } from './SpriteService.js';
         }
       }
 
+      const questHexmap = this.stateManager?.hexmap || null;
+      const questCampaignId = questHexmap?.resolveCampaignId?.() || Number(questHexmap?.launchContext?.campaign_id || 0) || null;
+      const questCharacterId = Number(questHexmap?.launchContext?.character_id || 0);
+      let questJournalRefreshed = false;
       if (result.data?.quest_updates?.length) {
-        await this.applyQuestUpdates(result.data.quest_updates);
+        console.warn('Quest journal debug: room chat received quest updates', {
+          campaignId: questCampaignId,
+          characterId: questCharacterId,
+          questUpdateCount: result.data.quest_updates.length,
+          questIds: result.data.quest_updates.map((update) => update?.quest_id || update?.quest_key || update?.quest_name || 'unknown'),
+        });
+        await questHexmap?.applyQuestUpdates?.(result.data.quest_updates);
+        questJournalRefreshed = true;
+      }
+
+      if (!questJournalRefreshed && typeof questHexmap?.refreshQuestJournalFromApi === 'function') {
+        console.warn('Quest journal debug: room chat response had no quest updates, refreshing journal from API', {
+          campaignId: questCampaignId,
+          characterId: questCharacterId,
+        });
+        await questHexmap.refreshQuestJournalFromApi();
       }
 
       // Handle navigation: if the GM triggered a location change, inject the
@@ -6748,15 +6775,59 @@ import { SpriteService } from './SpriteService.js';
               } else if (event.type === 'npc_interjection' && event.data) {
                 this.appendChatLineToTarget(chatTarget, event.data.speaker, event.data.message, event.data.type || 'npc');
               } else if (event.type === 'complete') {
+                const questHexmap = this.stateManager?.hexmap || null;
+                const questCampaignId = questHexmap?.resolveCampaignId?.() || Number(questHexmap?.launchContext?.campaign_id || 0) || null;
+                const questCharacterId = Number(questHexmap?.launchContext?.character_id || 0);
+                console.error('Quest journal debug: streamed complete event received', {
+                  campaignId: questCampaignId,
+                  characterId: questCharacterId,
+                  eventKeys: event.data && typeof event.data === 'object' ? Object.keys(event.data) : [],
+                });
                 completeResult = {
                   success: true,
                   data: event.data || {},
                 };
+                console.error('Quest journal debug: streamed complete payload summary', {
+                  campaignId: questCampaignId,
+                  characterId: questCharacterId,
+                  hasQuestUpdatesArray: Array.isArray(completeResult.data?.quest_updates),
+                  questUpdateCount: Array.isArray(completeResult.data?.quest_updates) ? completeResult.data.quest_updates.length : null,
+                  hasRefreshQuestJournal: typeof questHexmap?.refreshQuestJournalFromApi === 'function',
+                  hasGmResponse: Boolean(completeResult.data?.gm_response),
+                  hasNpcInterjections: Array.isArray(completeResult.data?.npc_interjections) ? completeResult.data.npc_interjections.length : 0,
+                });
                 if (Array.isArray(completeResult.data?.turn_sequence)) {
                   this.rememberRoomTurnSequence(completeResult.data.turn_sequence, chatTarget.context, chatTarget.channelKey);
                 }
                 if (completeResult.data?.navigation?.target_room_id) {
                   this.handleNavigationResult(completeResult.data.navigation);
+                }
+                let questJournalRefreshed = false;
+                if (Array.isArray(completeResult.data?.quest_updates) && completeResult.data.quest_updates.length > 0) {
+                  console.warn('Quest journal debug: streamed room chat received quest updates', {
+                    campaignId: questCampaignId,
+                    characterId: questCharacterId,
+                    questUpdateCount: completeResult.data.quest_updates.length,
+                    questIds: completeResult.data.quest_updates.map((update) => update?.quest_id || update?.quest_key || update?.quest_name || 'unknown'),
+                  });
+                  await questHexmap?.applyQuestUpdates?.(completeResult.data.quest_updates);
+                  console.error('Quest journal debug: streamed quest update application finished', {
+                    campaignId: questCampaignId,
+                    characterId: questCharacterId,
+                    questUpdateCount: completeResult.data.quest_updates.length,
+                  });
+                  questJournalRefreshed = true;
+                }
+                if (!questJournalRefreshed && typeof questHexmap?.refreshQuestJournalFromApi === 'function') {
+                  console.warn('Quest journal debug: streamed room chat had no quest updates, refreshing journal from API', {
+                    campaignId: questCampaignId,
+                    characterId: questCharacterId,
+                  });
+                  await questHexmap.refreshQuestJournalFromApi();
+                  console.error('Quest journal debug: streamed fallback journal refresh finished', {
+                    campaignId: questCampaignId,
+                    characterId: questCharacterId,
+                  });
                 }
                 this.settlePendingChatRequest(pending, {
                   removePlayer: false,
@@ -8336,6 +8407,11 @@ import { SpriteService } from './SpriteService.js';
         : (questSummary && typeof questSummary === 'object' ? questSummary : { active: [], management_tree: [] });
       const activeQuests = Array.isArray(summary.active) ? summary.active : [];
       const managementTree = Array.isArray(summary.management_tree) ? summary.management_tree : [];
+      console.warn('Quest journal debug: rendering quest journal', {
+        activeCount: activeQuests.length,
+        managementTreeCount: managementTree.length,
+        activeQuestIds: activeQuests.map((quest) => quest?.quest_id || quest?.quest_key || quest?.id || resolveQuestTitle(quest)),
+      });
 
       if (managementTree.length > 0) {
         if (count) count.textContent = String(managementTree.length);
@@ -12327,8 +12403,27 @@ import { SpriteService } from './SpriteService.js';
         });
       }
 
+      const questHexmap = this.stateManager?.hexmap || null;
+      const questCampaignId = questHexmap?.resolveCampaignId?.() || Number(questHexmap?.launchContext?.campaign_id || 0) || null;
+      const questCharacterId = Number(questHexmap?.launchContext?.character_id || 0);
+      let questJournalRefreshed = false;
       if (Array.isArray(talkResult?.quest_updates) && talkResult.quest_updates.length > 0) {
-        await this.applyQuestUpdates(talkResult.quest_updates);
+        console.warn('Quest journal debug: talk action received quest updates', {
+          campaignId: questCampaignId,
+          characterId: questCharacterId,
+          questUpdateCount: talkResult.quest_updates.length,
+          questIds: talkResult.quest_updates.map((update) => update?.quest_id || update?.quest_key || update?.quest_name || 'unknown'),
+        });
+        await questHexmap?.applyQuestUpdates?.(talkResult.quest_updates);
+        questJournalRefreshed = true;
+      }
+
+      if (!questJournalRefreshed && typeof questHexmap?.refreshQuestJournalFromApi === 'function') {
+        console.warn('Quest journal debug: talk action had no quest updates, refreshing journal from API', {
+          campaignId: questCampaignId,
+          characterId: questCharacterId,
+        });
+        await questHexmap.refreshQuestJournalFromApi();
       }
 
       if (this.uiManager?.activeSessionView !== 'room') {
@@ -14560,6 +14655,11 @@ import { SpriteService } from './SpriteService.js';
     refreshQuestJournalFromApi: async function () {
       const campaignId = this.resolveCampaignId();
       if (!campaignId || !this.uiManager) {
+        console.warn('Quest journal debug: skipped API refresh', {
+          reason: !campaignId ? 'missing_campaign_id' : 'missing_ui_manager',
+          campaignId,
+          characterId: Number(this.launchContext?.character_id || 0),
+        });
         return;
       }
 
@@ -14569,17 +14669,34 @@ import { SpriteService } from './SpriteService.js';
         : `/api/campaign/${campaignId}/quest-journal`;
 
       try {
+        console.warn('Quest journal debug: fetching quest journal from API', {
+          campaignId,
+          characterId,
+          endpoint,
+        });
         const response = await fetch(endpoint, {
           method: 'GET',
           headers: { 'X-Requested-With': 'XMLHttpRequest' },
         });
 
         if (!response.ok) {
+          console.warn('Quest journal debug: quest journal API request failed', {
+            campaignId,
+            characterId,
+            endpoint,
+            status: response.status,
+          });
           return;
         }
 
         const payload = await response.json();
         if (!payload?.success) {
+          console.warn('Quest journal debug: quest journal API returned unsuccessful payload', {
+            campaignId,
+            characterId,
+            endpoint,
+            payload,
+          });
           return;
         }
 
@@ -14599,6 +14716,17 @@ import { SpriteService } from './SpriteService.js';
           this.questData.management_tree = [];
         }
 
+        console.warn('Quest journal debug: quest journal API payload applied', {
+          campaignId,
+          characterId,
+          endpoint,
+          trackingCount: Array.isArray(payload.tracking) ? payload.tracking.length : 0,
+          activeCount: Array.isArray(this.questData?.active) ? this.questData.active.length : 0,
+          managementTreeCount: Array.isArray(this.questData?.management_tree) ? this.questData.management_tree.length : 0,
+          activeQuestIds: Array.isArray(this.questData?.active)
+            ? this.questData.active.map((quest) => quest?.quest_id || quest?.quest_key || quest?.id || resolveQuestTitle(quest))
+            : [],
+        });
         this.uiManager.renderQuestJournal(this.questData);
       } catch (error) {
         console.warn('Failed to refresh quest journal from API:', error);
@@ -14611,9 +14739,16 @@ import { SpriteService } from './SpriteService.js';
      */
     applyQuestUpdates: async function (questUpdates = []) {
       if (!Array.isArray(questUpdates) || questUpdates.length === 0) {
+        console.warn('Quest journal debug: applyQuestUpdates skipped empty update list');
         return;
       }
 
+      console.warn('Quest journal debug: applying quest updates', {
+        campaignId: this.resolveCampaignId?.(),
+        characterId: Number(this.launchContext?.character_id || 0),
+        questUpdateCount: questUpdates.length,
+        questIds: questUpdates.map((update) => update?.quest_id || update?.quest_key || update?.quest_name || 'unknown'),
+      });
       await this.refreshQuestJournalFromApi();
 
       questUpdates.forEach((update) => {

@@ -1978,13 +1978,24 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
         $game_state = $dungeon_data['game_state'] ?? $game_state;
       }
 
+      $quest_updates = $chat_result['quest_updates'] ?? [];
+      $this->logger->info('Exploration talk response quest handoff: campaign={campaign_id} character={character_id} room={room_id} quest_update_count={quest_update_count} quest_ids={quest_ids}', [
+        'campaign_id' => $campaign_id,
+        'character_id' => $character_id,
+        'room_id' => $room_id,
+        'quest_update_count' => count($quest_updates),
+        'quest_ids' => implode(', ', array_map(static function (array $update): string {
+          return (string) ($update['quest_id'] ?? $update['quest_key'] ?? $update['quest_name'] ?? 'unknown');
+        }, $quest_updates)),
+      ]);
+
       return [
         'talked' => TRUE,
         'message' => $message,
         'gm_response' => $chat_result['gm_response'] ?? NULL,
         'narration' => $chat_result['gm_response']['message'] ?? ($chat_result['gm_response']['text'] ?? NULL),
         'npc_interjections' => $chat_result['npc_interjections'] ?? [],
-        'quest_updates' => $chat_result['quest_updates'] ?? [],
+        'quest_updates' => $quest_updates,
         'state_diff' => $chat_result['state_diff'] ?? [],
         'combat_transition' => $chat_result['combat_transition'] ?? NULL,
         'canonical_actions' => $chat_result['canonical_actions'] ?? [],
