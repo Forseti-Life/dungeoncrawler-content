@@ -1554,8 +1554,12 @@ class CharacterStateService {
   private function loadCampaignCharacter(?int $campaign_id, ?string $instance_id, int $character_id): ?array {
     $query = $this->database->select('dc_campaign_characters', 'cc')
       ->fields('cc', ['id', 'campaign_id', 'character_id', 'instance_id', 'type', 'state_data', 'location_type', 'location_ref', 'updated'])
-      ->condition('character_id', $character_id)
       ->condition('campaign_id', 0, '>');
+
+    $identity_group = $query->orConditionGroup()
+      ->condition('id', $character_id)
+      ->condition('character_id', $character_id);
+    $query->condition($identity_group);
 
     if ($campaign_id !== NULL) {
       $query->condition('campaign_id', $campaign_id);

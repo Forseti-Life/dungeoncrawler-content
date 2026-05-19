@@ -7,7 +7,7 @@
   "additionalProperties": false,
   "required": [
     "schema_version",
-    "speaker_ref",
+    "entity_ref",
     "speaker_name",
     "channel",
     "delivery_type",
@@ -20,7 +20,7 @@
       "type": "string",
       "enum": ["character-dialogue-v1"]
     },
-    "speaker_ref": {
+    "entity_ref": {
       "type": ["string", "null"],
       "maxLength": 160
     },

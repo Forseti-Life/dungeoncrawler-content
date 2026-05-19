@@ -3495,6 +3495,15 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
         'combat_transition' => $chat_result['combat_transition'] ?? NULL,
         'canonical_actions' => $chat_result['canonical_actions'] ?? [],
       ];
+      $this->logger->info('Encounter talk response quest handoff: campaign={campaign_id} character={character_id} room={room_id} quest_update_count={quest_update_count} quest_ids={quest_ids}', [
+        'campaign_id' => $campaign_id,
+        'character_id' => $character_id,
+        'room_id' => $room_id,
+        'quest_update_count' => count($chat_response['quest_updates']),
+        'quest_ids' => implode(', ', array_map(static function (array $update): string {
+          return (string) ($update['quest_id'] ?? $update['quest_key'] ?? $update['quest_name'] ?? 'unknown');
+        }, $chat_response['quest_updates'])),
+      ]);
 
       return [
         'talked' => TRUE,

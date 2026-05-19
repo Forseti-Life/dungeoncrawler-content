@@ -714,16 +714,6 @@ class CampaignController extends ControllerBase {
     string $map_id,
     bool $resume_character_position = FALSE
   ): array {
-    if (empty($decoded)) {
-      $seed_payload = $this->loadTavernDungeonSeedPayload();
-      if (is_array($seed_payload)) {
-        $decoded = $seed_payload;
-        if ($map_id === '') {
-          $map_id = (string) ($seed_payload['hex_map']['map_id'] ?? '');
-        }
-      }
-    }
-
     if ($map_id === '' && !empty($decoded['hex_map']['map_id'])) {
       $map_id = (string) $decoded['hex_map']['map_id'];
     }
@@ -912,6 +902,21 @@ class CampaignController extends ControllerBase {
     }
 
     $location_fields = $this->resolveCharacterLocationFields($existing_location_state);
+    if ($location_fields['last_room_id'] === '' || $location_fields['location_ref'] === '') {
+      $starter_dungeon = $this->loadLatestCampaignDungeon($campaign_id);
+      if ($starter_dungeon) {
+        $starter_decoded = json_decode((string) ($starter_dungeon->dungeon_data ?? '{}'), TRUE);
+        if (is_array($starter_decoded)) {
+          $starter_room_context = $this->extractRoomContext($starter_decoded);
+          $starter_room_id = (string) ($starter_room_context['room_id'] ?? '');
+          if ($starter_room_id !== '') {
+            $location_fields['last_room_id'] = $starter_room_id;
+            $location_fields['location_type'] = 'room';
+            $location_fields['location_ref'] = $starter_room_id;
+          }
+        }
+      }
+    }
 
     $fields = [
       'character_id' => $canonical_character_id,
@@ -1020,7 +1025,7 @@ class CampaignController extends ControllerBase {
    * Start a default starter quest when a character is selected.
    */
   private function startStarterQuest(int $campaign_id, int $character_id): void {
-    $preferred_templates = ['tavern_storyline_leads', 'gather_wine', 'gather_torch_components', 'collect_spellbooks'];
+    $preferred_templates = ['tavern_storyline_leads'];
 
     $available = $this->database->select('dc_campaign_quests', 'q')
       ->fields('q', ['quest_id', 'source_template_id'])

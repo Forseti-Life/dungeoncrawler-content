@@ -330,19 +330,42 @@ class QuestTrackerController extends ControllerBase {
    */
   public function getQuestJournal(int $campaign_id, string $character_id): JsonResponse {
     try {
+      $this->logger->info('Quest journal requested: campaign={campaign_id} character={character_id}', [
+        'campaign_id' => $campaign_id,
+        'character_id' => (int) $character_id,
+      ]);
+
       $quest_tracker = \Drupal::service('dungeoncrawler_content.quest_tracker');
 
       $tracking = $quest_tracker->getCharacterQuestTracking($campaign_id, (int) $character_id);
       $log = $quest_tracker->getCharacterQuestLog($campaign_id, (int) $character_id);
       $journal_tracking = array_map([$this, 'normalizeQuestJournalTrackingEntry'], $tracking);
       $journal_log = array_map([$this, 'normalizeQuestJournalLogEntry'], $log);
+      $quest_summary = $this->questGenerator->buildQuestSummaryPayload('campaign', $tracking, [], $campaign_id);
+
+      $this->logger->info('Quest journal payload built: campaign={campaign_id} character={character_id} tracking={tracking} active_summary={active_summary}', [
+        'campaign_id' => $campaign_id,
+        'character_id' => (int) $character_id,
+        'tracking' => implode(', ', array_map(static function (array $entry): string {
+          return sprintf(
+            '%s(status=%s progress_char=%s phase=%s)',
+            (string) ($entry['quest_id'] ?? ''),
+            (string) ($entry['status'] ?? ''),
+            array_key_exists('character_id', $entry) && $entry['character_id'] !== NULL ? (string) $entry['character_id'] : 'NULL',
+            array_key_exists('current_phase', $entry) && $entry['current_phase'] !== NULL ? (string) $entry['current_phase'] : 'NULL'
+          );
+        }, $tracking)),
+        'active_summary' => implode(', ', array_map(static function (array $entry): string {
+          return (string) ($entry['quest_id'] ?? $entry['quest_key'] ?? '');
+        }, is_array($quest_summary['active'] ?? NULL) ? $quest_summary['active'] : [])),
+      ]);
 
       return new JsonResponse([
         'success' => TRUE,
         'character_id' => (int) $character_id,
         'tracking' => array_values($journal_tracking),
         'log' => array_values($journal_log),
-        'quest_summary' => $this->questGenerator->buildQuestSummaryPayload('campaign', $tracking, [], $campaign_id),
+        'quest_summary' => $quest_summary,
         'counts' => [
           'tracking' => count($journal_tracking),
           'log' => count($journal_log),

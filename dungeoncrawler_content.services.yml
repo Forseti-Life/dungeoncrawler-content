@@ -458,6 +458,7 @@ services:
       - '@dungeoncrawler_content.inventory_management'
       - '@dungeoncrawler_content.quest_generator'
       - '@dungeoncrawler_content.state_validation_service'
+      - '@?dungeoncrawler_content.storyline_manager'
       - '@?dungeoncrawler_content.storyline_generation_service'
       - '@?dungeoncrawler_content.quest_touchpoint'
 

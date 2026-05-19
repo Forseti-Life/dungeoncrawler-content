@@ -229,17 +229,51 @@ class RelationshipManagerService {
       return;
     }
 
-    $storylines = $this->storylineManager->ensureBundledCampaignStorylines($campaign_id, [
-      'status' => 'available',
-      'priority_base' => 100,
-    ]);
+    $storylines = $this->database->select('dc_campaign_storylines', 's')
+      ->fields('s', ['storyline_id'])
+      ->condition('campaign_id', $campaign_id)
+      ->range(0, 50)
+      ->execute()
+      ->fetchAllAssoc('storyline_id');
     if ($storylines === []) {
-      return;
+      try {
+        $instantiated = $this->storylineManager->ensureBundledCampaignStorylines($campaign_id, [
+          'status' => 'available',
+          'priority_base' => 100,
+        ]);
+        $this->logger->info('Campaign storyline graph bootstrap: campaign={campaign_id} instantiated_count={instantiated_count} instantiated_storylines={instantiated_storylines}', [
+          'campaign_id' => $campaign_id,
+          'instantiated_count' => count($instantiated),
+          'instantiated_storylines' => implode(', ', array_values(array_filter(array_map(static function (array $storyline): string {
+            return (string) ($storyline['storyline_id'] ?? $storyline['template_id'] ?? '');
+          }, $instantiated)))),
+        ]);
+      }
+      catch (\Throwable $e) {
+        $this->logger->warning('Campaign storyline graph bootstrap failed: campaign={campaign_id} message={message}', [
+          'campaign_id' => $campaign_id,
+          'message' => $e->getMessage(),
+        ]);
+      }
+
+      $storylines = $this->database->select('dc_campaign_storylines', 's')
+        ->fields('s', ['storyline_id'])
+        ->condition('campaign_id', $campaign_id)
+        ->range(0, 50)
+        ->execute()
+        ->fetchAllAssoc('storyline_id');
+      if ($storylines === []) {
+        $this->logger->info('Campaign storyline graph bootstrap left campaign without storylines: campaign={campaign_id}', [
+          'campaign_id' => $campaign_id,
+        ]);
+        return;
+      }
     }
 
     $this->seedLibraryRelationships($campaign_id);
-    foreach ($storylines as $storyline) {
-      if (is_array($storyline)) {
+    foreach (array_keys($storylines) as $storyline_id) {
+      $storyline = $this->storylineManager->getCampaignStoryline($campaign_id, (string) $storyline_id, TRUE);
+      if (is_array($storyline) && $storyline !== []) {
         $this->seedStorylineContacts($campaign_id, $storyline);
       }
     }
@@ -348,10 +382,6 @@ class RelationshipManagerService {
       ->execute()
       ->fetchAll(\PDO::FETCH_ASSOC);
 
-    if ($broker_rows === []) {
-      return [];
-    }
-
     $knowledge_rows = $this->listEntityRelationships($campaign_id, 'campaign_npc', $broker_entity_id);
     $knowledge_map = [];
     foreach ($knowledge_rows as $row) {
@@ -418,6 +448,74 @@ class RelationshipManagerService {
           'attitude' => (string) ($quest_giver_relationship['attitude'] ?? $quest_giver['attitude'] ?? 'indifferent'),
           'notes' => (string) ($quest_giver['notes'] ?? ''),
           'relationship_state' => is_array($quest_giver_relationship['relationship_state'] ?? NULL) ? $quest_giver_relationship['relationship_state'] : [],
+        ] : NULL,
+        'contacts' => $contacts,
+      ];
+    }
+
+    usort($items, static function (array $a, array $b): int {
+      return ((int) ($b['priority'] ?? 0)) <=> ((int) ($a['priority'] ?? 0));
+    });
+
+    if ($items === []) {
+      $items = $this->buildCanonicalStorylineContacts($broker_entity_id);
+    }
+
+    return $items;
+  }
+
+  /**
+   * Builds tavern-brokered storyline contacts from the canonical library.
+   */
+  protected function buildCanonicalStorylineContacts(string $broker_entity_id): array {
+    if (!$this->storylineManager) {
+      return [];
+    }
+
+    $templates = $this->storylineManager->listTemplates();
+    if ($templates === []) {
+      return [];
+    }
+
+    $items = [];
+    $priority_base = 100;
+    foreach (array_values($templates) as $index => $template) {
+      $template_id = (string) ($template['template_id'] ?? '');
+      $storyline_data = is_array($template['template_data'] ?? NULL) ? $template['template_data'] : [];
+      if ($template_id === '' || $storyline_data === []) {
+        continue;
+      }
+
+      $contacts = array_values(is_array($storyline_data['contacts'] ?? NULL) ? $storyline_data['contacts'] : []);
+      $broker_contact = $this->findContactByRole($contacts, 'broker');
+      if (!$broker_contact || (string) ($broker_contact['entity_id'] ?? '') !== $broker_entity_id) {
+        continue;
+      }
+
+      $quest_giver = $this->findContactByRole($contacts, 'quest_giver');
+      $items[] = [
+        'storyline_id' => $template_id,
+        'template_id' => $template_id,
+        'name' => (string) ($template['name'] ?? $storyline_data['name'] ?? $template_id),
+        'synopsis' => (string) ($template['synopsis'] ?? $storyline_data['metadata']['synopsis'] ?? $storyline_data['synopsis'] ?? ''),
+        'status' => 'available',
+        'priority' => $priority_base - $index,
+        'lead_location' => $this->buildStorylineLeadLocation($storyline_data, $quest_giver),
+        'broker' => [
+          'entity_type' => (string) ($broker_contact['entity_type'] ?? 'campaign_npc'),
+          'entity_id' => (string) ($broker_contact['entity_id'] ?? $broker_entity_id),
+          'display_name' => (string) ($broker_contact['display_name'] ?? 'Eldric'),
+          'attitude' => (string) ($broker_contact['attitude'] ?? 'friendly'),
+          'notes' => (string) ($broker_contact['notes'] ?? ''),
+          'relationship_state' => is_array($broker_contact['relationship_state'] ?? NULL) ? $broker_contact['relationship_state'] : [],
+        ],
+        'quest_giver' => $quest_giver ? [
+          'entity_type' => (string) ($quest_giver['entity_type'] ?? ''),
+          'entity_id' => (string) ($quest_giver['entity_id'] ?? ''),
+          'display_name' => (string) ($quest_giver['display_name'] ?? ''),
+          'attitude' => (string) ($quest_giver['attitude'] ?? 'friendly'),
+          'notes' => (string) ($quest_giver['notes'] ?? ''),
+          'relationship_state' => is_array($quest_giver['relationship_state'] ?? NULL) ? $quest_giver['relationship_state'] : [],
         ] : NULL,
         'contacts' => $contacts,
       ];

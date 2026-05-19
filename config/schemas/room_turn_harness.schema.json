@@ -139,6 +139,7 @@
           "timestamp": { "type": "string", "maxLength": 64 },
           "character_id": { "type": ["integer", "null"] },
           "user_id": { "type": "integer" },
+          "entity_ref": { "type": "string", "maxLength": 160 },
           "interjection": { "type": "boolean" },
           "dialogue_payload": {
             "type": ["object", "null"]

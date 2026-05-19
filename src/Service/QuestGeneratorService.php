@@ -366,19 +366,42 @@ class QuestGeneratorService {
       return TRUE;
     }
 
+    $storyline_template_id = $this->normalizeNullableString($context['storyline_template_id'] ?? NULL);
+    $candidate_ids = $this->resolveQuestGiverPolicyIds($campaign_id, $giver_reference);
     $policy = $this->findQuestGiverPolicy($campaign_id, $giver_reference);
     if ($policy === []) {
+      $this->logger->warning('Quest giver policy missing: campaign={campaign_id} giver_reference={giver_reference} candidate_ids={candidate_ids} template_id={template_id} storyline_template_id={storyline_template_id}', [
+        'campaign_id' => $campaign_id,
+        'giver_reference' => $giver_reference,
+        'candidate_ids' => implode(',', $candidate_ids),
+        'template_id' => $template_id,
+        'storyline_template_id' => $storyline_template_id ?? '',
+      ]);
       return FALSE;
     }
 
     $allowed_templates = array_values(array_filter(array_map('strval', is_array($policy['allowed_quest_template_ids'] ?? NULL) ? $policy['allowed_quest_template_ids'] : [])));
     if ($allowed_templates !== [] && !in_array($template_id, $allowed_templates, TRUE)) {
+      $this->logger->warning('Quest giver policy rejected template: campaign={campaign_id} giver_reference={giver_reference} template_id={template_id} allowed_templates={allowed_templates} candidate_ids={candidate_ids}', [
+        'campaign_id' => $campaign_id,
+        'giver_reference' => $giver_reference,
+        'template_id' => $template_id,
+        'allowed_templates' => implode(',', $allowed_templates),
+        'candidate_ids' => implode(',', $candidate_ids),
+      ]);
       return FALSE;
     }
 
-    $storyline_template_id = $this->normalizeNullableString($context['storyline_template_id'] ?? NULL);
     $allowed_storylines = array_values(array_filter(array_map('strval', is_array($policy['allowed_storyline_template_ids'] ?? NULL) ? $policy['allowed_storyline_template_ids'] : [])));
     if ($storyline_template_id !== NULL && $allowed_storylines !== [] && !in_array($storyline_template_id, $allowed_storylines, TRUE)) {
+      $this->logger->warning('Quest giver policy rejected storyline: campaign={campaign_id} giver_reference={giver_reference} template_id={template_id} storyline_template_id={storyline_template_id} allowed_storylines={allowed_storylines} candidate_ids={candidate_ids}', [
+        'campaign_id' => $campaign_id,
+        'giver_reference' => $giver_reference,
+        'template_id' => $template_id,
+        'storyline_template_id' => $storyline_template_id,
+        'allowed_storylines' => implode(',', $allowed_storylines),
+        'candidate_ids' => implode(',', $candidate_ids),
+      ]);
       return FALSE;
     }
 

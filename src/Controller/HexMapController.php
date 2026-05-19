@@ -616,15 +616,6 @@ class HexMapController extends ControllerBase {
     }
 
     try {
-      $storylines = $this->storylineManager->ensureBundledCampaignStorylines($campaign_id, [
-        'status' => 'available',
-        'priority_base' => 100,
-      ]);
-      $this->relationshipManager->seedLibraryRelationships($campaign_id);
-      foreach ($storylines as $storyline) {
-        $this->relationshipManager->seedStorylineContacts($campaign_id, $storyline);
-      }
-
       return $this->relationshipManager->getCampaignStorylineContacts($campaign_id, 'npc_tavern_keeper');
     }
     catch (\InvalidArgumentException $e) {

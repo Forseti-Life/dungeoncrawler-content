@@ -498,6 +498,13 @@ class RoomChatController extends ControllerBase {
         }
       }
 
+      if (!empty($npc_turn_result['quest_updates'])) {
+        $result['quest_updates'] = array_values(array_merge(
+          is_array($result['quest_updates'] ?? NULL) ? $result['quest_updates'] : [],
+          $npc_turn_result['quest_updates']
+        ));
+      }
+
       $result['npc_interjections_deferred'] = FALSE;
     }
 

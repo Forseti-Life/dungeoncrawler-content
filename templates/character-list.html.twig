@@ -7,7 +7,7 @@
     <h1 class="dc-character-list__title">My Characters</h1>
     <div class="dc-sheet__nav-actions">
       {% if not campaign_id %}
-        <a href="{{ campaigns_url }}" class="dc-btn dc-btn-success">Create Campaign Home</a>
+        <a href="{{ campaigns_url }}" class="dc-btn dc-btn-success">Campaigns</a>
         <a href="{{ archived_url }}" class="dc-btn dc-btn-secondary">Archived Characters</a>
       {% endif %}
       <a href="{{ create_url }}" class="dc-btn dc-btn-primary">
@@ -28,6 +28,21 @@
   {% endif %}
 
   {% if characters|length > 0 %}
+    <div class="dc-character-list__filter-bar">
+      <label class="dc-character-list__filter-label" for="dc-character-filter">Filter characters by name</label>
+      <input
+        id="dc-character-filter"
+        type="search"
+        class="dc-character-list__filter-input"
+        placeholder="Type a character name"
+        autocomplete="off"
+        spellcheck="false"
+        data-dc-character-filter-input
+      />
+    </div>
+    <div class="dc-character-list__filter-empty" hidden data-dc-character-filter-empty>
+      No characters match that name filter.
+    </div>
     <div class="dc-character-grid">
       {% for char in characters %}
         {% if campaign_id %}
@@ -37,7 +52,11 @@
         {% endif %}
         {% set is_clickable = target_url ? true : false %}
 
-        <div class="dc-character-card dc-character-card--{{ char.status }} {{ not is_clickable ? 'dc-character-card--disabled' : '' }}">
+        <div
+          class="dc-character-card dc-character-card--{{ char.status }} {{ not is_clickable ? 'dc-character-card--disabled' : '' }}"
+          data-dc-character-card
+          data-dc-character-name="{{ char.name|lower }}"
+        >
           {% if char.archive_url %}
             <a href="{{ char.archive_url }}" class="dc-character-card__archive-btn" title="Archive {{ char.name }}">
               🗄️

@@ -54,6 +54,7 @@ class RoomChatService {
   protected ?RelationshipManagerService $relationshipManager;
   protected ?QuestGeneratorService $questGenerator;
   protected ?StateValidationService $stateValidationService;
+  protected ?StorylineManagerService $storylineManager;
   protected ?StorylineGenerationService $storylineGenerationService;
   protected ?QuestTouchpointService $questTouchpointService;
   protected MerchantBotService $merchantBotService;
@@ -87,6 +88,7 @@ class RoomChatService {
     ?InventoryManagementService $inventory_management_service = NULL,
     ?QuestGeneratorService $quest_generator = NULL,
     ?StateValidationService $state_validation_service = NULL,
+    ?StorylineManagerService $storyline_manager = NULL,
     ?StorylineGenerationService $storyline_generation_service = NULL,
     ?QuestTouchpointService $quest_touchpoint_service = NULL
   ) {
@@ -111,6 +113,7 @@ class RoomChatService {
     $this->inventoryManagementService = $inventory_management_service;
     $this->questGenerator = $quest_generator;
     $this->stateValidationService = $state_validation_service;
+    $this->storylineManager = $storyline_manager;
     $this->storylineGenerationService = $storyline_generation_service;
     $this->questTouchpointService = $quest_touchpoint_service;
   }
@@ -672,6 +675,45 @@ class RoomChatService {
       $gm_response,
       $npc_interjections
     );
+    if (
+      $defer_npc_interjections
+      && $turn_harness_result !== NULL
+      && !empty($turn_harness_result['messages'])
+      && is_array($turn_harness_result['messages'])
+    ) {
+      $deferred_quest_updates = $this->activateMentionedAvailableQuests(
+        $campaign_id,
+        $room_id,
+        $character_id,
+        $dungeon_data,
+        $gm_response,
+        $turn_harness_result['messages']
+      );
+      if ($deferred_quest_updates !== []) {
+        $quest_updates = array_values(array_merge($quest_updates, $deferred_quest_updates));
+      }
+      $this->logger->info('Deferred NPC turn quest handoff: campaign={campaign_id} room={room_id} character={character_id} deferred_message_count={deferred_message_count} deferred_quest_update_count={deferred_quest_update_count} deferred_quest_ids={deferred_quest_ids}', [
+        'campaign_id' => $campaign_id,
+        'room_id' => $room_id,
+        'character_id' => $character_id,
+        'deferred_message_count' => count($turn_harness_result['messages']),
+        'deferred_quest_update_count' => count($deferred_quest_updates),
+        'deferred_quest_ids' => implode(', ', array_map(static function (array $update): string {
+          return (string) ($update['quest_id'] ?? $update['quest_key'] ?? $update['quest_name'] ?? 'unknown');
+        }, $deferred_quest_updates)),
+      ]);
+    }
+    $this->logger->info('Room chat quest update handoff: campaign={campaign_id} room={room_id} character={character_id} quest_update_count={quest_update_count} quest_ids={quest_ids} gm_present={gm_present} npc_interjection_count={npc_interjection_count}', [
+      'campaign_id' => $campaign_id,
+      'room_id' => $room_id,
+      'character_id' => $character_id,
+      'quest_update_count' => count($quest_updates),
+      'quest_ids' => implode(', ', array_map(static function (array $update): string {
+        return (string) ($update['quest_id'] ?? $update['quest_key'] ?? $update['quest_name'] ?? 'unknown');
+      }, $quest_updates)),
+      'gm_present' => $gm_response !== NULL ? 'yes' : 'no',
+      'npc_interjection_count' => count($npc_interjections),
+    ]);
     if ($quest_updates !== []) {
       $result['quest_updates'] = $quest_updates;
     }
@@ -834,6 +876,28 @@ class RoomChatService {
       }
     }
 
+    $quest_updates = $this->activateMentionedAvailableQuests(
+      $campaign_id,
+      $room_id,
+      $character_id,
+      $dungeon_data,
+      is_array($gm_response) ? $gm_response : NULL,
+      []
+    );
+    $this->logger->info('Queued room continuation quest handoff: campaign={campaign_id} room={room_id} character={character_id} quest_update_count={quest_update_count} quest_ids={quest_ids} gm_present={gm_present}', [
+      'campaign_id' => $campaign_id,
+      'room_id' => $room_id,
+      'character_id' => $character_id ?? 0,
+      'quest_update_count' => count($quest_updates),
+      'quest_ids' => implode(', ', array_map(static function (array $update): string {
+        return (string) ($update['quest_id'] ?? $update['quest_key'] ?? $update['quest_name'] ?? 'unknown');
+      }, $quest_updates)),
+      'gm_present' => $gm_response !== NULL ? 'yes' : 'no',
+    ]);
+    if ($quest_updates !== []) {
+      $result['quest_updates'] = $quest_updates;
+    }
+
     $debug_trace = $this->finalizeDebugTrace($request_started_at, [
       'gm_reply_generated' => $gm_response !== NULL,
       'queued_player_count' => count($queued_player_messages),
@@ -876,8 +940,7 @@ class RoomChatService {
 
     $this->ensureCurrentRoomNpcProfiles($campaign_id, $room_id, $dungeon_data, $room_index);
     $char_data = $character_id ? $this->actionProcessor->loadCharacterData($character_id) : NULL;
-
-    return $this->runRoomTurnHarness(
+    $turn_result = $this->runRoomTurnHarness(
       $campaign_id,
       $room_id,
       $room_index,
@@ -887,6 +950,31 @@ class RoomChatService {
       $gm_narrative,
       $char_data
     );
+
+    $deferred_messages = is_array($turn_result['messages'] ?? NULL) ? $turn_result['messages'] : [];
+    $quest_updates = $this->activateMentionedAvailableQuests(
+      $campaign_id,
+      $room_id,
+      $character_id ?? 0,
+      $dungeon_data,
+      ['message' => $gm_narrative],
+      $deferred_messages
+    );
+    $this->logger->info('Deferred NPC completion quest handoff: campaign={campaign_id} room={room_id} character={character_id} deferred_message_count={deferred_message_count} deferred_quest_update_count={deferred_quest_update_count} deferred_quest_ids={deferred_quest_ids}', [
+      'campaign_id' => $campaign_id,
+      'room_id' => $room_id,
+      'character_id' => $character_id ?? 0,
+      'deferred_message_count' => count($deferred_messages),
+      'deferred_quest_update_count' => count($quest_updates),
+      'deferred_quest_ids' => implode(', ', array_map(static function (array $update): string {
+        return (string) ($update['quest_id'] ?? $update['quest_key'] ?? $update['quest_name'] ?? 'unknown');
+      }, $quest_updates)),
+    ]);
+    if ($quest_updates !== []) {
+      $turn_result['quest_updates'] = $quest_updates;
+    }
+
+    return $turn_result;
   }
 
   /**
@@ -4712,14 +4800,18 @@ PROMPT;
         ? $this->buildDeterministicNpcDialogue($campaign_id, $entity_ref, $display_name, $player_message, $room_id, $dungeon_data, $character_id)
         : NULL;
       if ($npc_dialogue !== NULL) {
+        $handoff_name = $display_name !== '' ? $display_name : 'The NPC';
+        $this->logger->info('Direct NPC dialogue handed off from GM layer to NPC turn: campaign={campaign_id} room={room_id} npc={npc}', [
+          'campaign_id' => $campaign_id,
+          'room_id' => $room_id,
+          'npc' => $handoff_name,
+        ]);
         return [
-          'narrative' => $npc_dialogue,
+          'narrative' => $handoff_name . ' gives you their full attention and prepares to answer directly.',
           'actions' => [],
           'dice_rolls' => [],
           'validation_errors' => [],
-          'suppress_npc_interjections' => TRUE,
-          'speaker_name' => $display_name !== '' ? $display_name : NULL,
-          'entity_ref' => $entity_ref !== '' ? $entity_ref : NULL,
+          'suppress_npc_interjections' => FALSE,
         ];
       }
       return [
@@ -5863,9 +5955,10 @@ PROMPT;
     bool $interjection = FALSE,
     bool $direct_addressed = FALSE
   ): array {
+    $resolved_entity_ref = ($speaker_ref !== NULL && trim($speaker_ref) !== '') ? trim($speaker_ref) : NULL;
     $payload = [
       'schema_version' => self::CHARACTER_DIALOGUE_SCHEMA_VERSION,
-      'speaker_ref' => ($speaker_ref !== NULL && trim($speaker_ref) !== '') ? trim($speaker_ref) : NULL,
+      'entity_ref' => $resolved_entity_ref,
       'speaker_name' => trim($speaker_name),
       'channel' => trim($channel) !== '' ? trim($channel) : 'room',
       'delivery_type' => $delivery_type,
@@ -5909,6 +6002,11 @@ PROMPT;
       'user_id' => 0,
       'dialogue_payload' => $dialogue_payload,
     ];
+
+    $resolved_entity_ref = trim((string) ($dialogue_payload['entity_ref'] ?? ''));
+    if ($resolved_entity_ref !== '') {
+      $message['entity_ref'] = $resolved_entity_ref;
+    }
 
     if (!empty($dialogue_payload['flags']['interjection'])) {
       $message['interjection'] = TRUE;
@@ -6118,7 +6216,7 @@ PROMPT;
       }
     }
 
-    foreach (['turn_logs', 'npc_interjections', 'turn_sequence'] as $optional_array_key) {
+    foreach (['turn_logs', 'npc_interjections', 'turn_sequence', 'quest_updates'] as $optional_array_key) {
       if (array_key_exists($optional_array_key, $payload)) {
         $result[$optional_array_key] = array_values(is_array($payload[$optional_array_key]) ? $payload[$optional_array_key] : []);
       }
@@ -6912,10 +7010,26 @@ PROMPT;
   protected function loadBrokeredStorylineContacts(int $campaign_id, string $entity_ref): array {
     $canonical_entity_ref = $this->canonicalBrokeredStorylineEntityRef($entity_ref);
     if (!$this->relationshipManager || $canonical_entity_ref === NULL) {
+      $this->logger->info('Brokered storyline contact load skipped: campaign={campaign_id} entity_ref={entity_ref} canonical_entity_ref={canonical_entity_ref} relationship_manager={relationship_manager}', [
+        'campaign_id' => $campaign_id,
+        'entity_ref' => $entity_ref,
+        'canonical_entity_ref' => $canonical_entity_ref ?? '',
+        'relationship_manager' => $this->relationshipManager ? 'yes' : 'no',
+      ]);
       return [];
     }
 
-    return $this->relationshipManager->getCampaignStorylineContacts($campaign_id, $canonical_entity_ref);
+    $contacts = $this->relationshipManager->getCampaignStorylineContacts($campaign_id, $canonical_entity_ref);
+    $this->logger->info('Brokered storyline contacts loaded: campaign={campaign_id} entity_ref={entity_ref} canonical_entity_ref={canonical_entity_ref} contact_count={contact_count} contact_templates={contact_templates}', [
+      'campaign_id' => $campaign_id,
+      'entity_ref' => $entity_ref,
+      'canonical_entity_ref' => $canonical_entity_ref,
+      'contact_count' => count($contacts),
+      'contact_templates' => implode(', ', array_values(array_filter(array_map(static function (array $contact): string {
+        return (string) ($contact['template_id'] ?? $contact['storyline_id'] ?? '');
+      }, $contacts)))),
+    ]);
+    return $contacts;
   }
 
   /**
@@ -7799,10 +7913,6 @@ PROMPT;
       2,
       5
     );
-    if ($matches === []) {
-      return [];
-    }
-
     $updates = [];
     foreach ($matches as $quest) {
       $quest_id = (string) ($quest['quest_id'] ?? '');
@@ -7837,6 +7947,7 @@ PROMPT;
 
     $storyline_updates = $this->activateMentionedBrokeredStorylineQuests(
       $campaign_id,
+      $room_id,
       $location_id,
       (int) $character_id,
       $combined_text,
@@ -7896,10 +8007,49 @@ PROMPT;
   }
 
   /**
+   * Start preferred available quest templates for the acting character.
+   *
+   * @param array<int, string> $template_ids
+   */
+  protected function ensurePreferredQuestTemplatesActive(int $campaign_id, int $character_id, array $template_ids): void {
+    if ($campaign_id <= 0 || $character_id <= 0 || !$this->questTracker) {
+      return;
+    }
+
+    $template_ids = array_values(array_filter(array_map('strval', $template_ids)));
+    if ($template_ids === []) {
+      return;
+    }
+
+    $available = $this->database->select('dc_campaign_quests', 'q')
+      ->fields('q', ['quest_id', 'source_template_id'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('status', 'available')
+      ->condition('source_template_id', $template_ids, 'IN')
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC);
+
+    foreach ($template_ids as $template_id) {
+      foreach ($available as $quest) {
+        if (($quest['source_template_id'] ?? '') !== $template_id) {
+          continue;
+        }
+
+        $quest_id = (string) ($quest['quest_id'] ?? '');
+        if ($quest_id !== '') {
+          $this->questTracker->startQuest($campaign_id, $quest_id, $character_id);
+        }
+        break;
+      }
+    }
+  }
+
+  /**
    * Materialize brokered storyline leads into real quest rows and activate them.
    */
   protected function activateMentionedBrokeredStorylineQuests(
     int $campaign_id,
+    string $room_id,
     string $location_id,
     int $character_id,
     string $combined_text,
@@ -7943,19 +8093,66 @@ PROMPT;
 
     foreach ($entries as $entry) {
       $entity_ref = (string) ($entry['entity_ref'] ?? '');
+      $speaker = (string) ($entry['speaker'] ?? $entity_ref);
+      $message = (string) ($entry['message'] ?? '');
+      $this->logger->info('Brokered storyline entry inspection: campaign={campaign_id} character={character_id} room={room_id} speaker={speaker} entity_ref={entity_ref} brokered_npc={brokered_npc} message={message}', [
+        'campaign_id' => $campaign_id,
+        'character_id' => $character_id,
+        'room_id' => $room_id,
+        'speaker' => $speaker,
+        'entity_ref' => $entity_ref,
+        'brokered_npc' => $this->isBrokeredStorylineNpcRef($entity_ref) ? 'yes' : 'no',
+        'message' => $this->truncateContextBlock($message, 240, 0.85),
+      ]);
       if (!$this->isBrokeredStorylineNpcRef($entity_ref)) {
         continue;
       }
 
       $contacts = $this->loadBrokeredStorylineContacts($campaign_id, $entity_ref);
       if ($contacts === []) {
+        $this->logger->info('Brokered storyline entry had no contacts: campaign={campaign_id} character={character_id} room={room_id} speaker={speaker} entity_ref={entity_ref}', [
+          'campaign_id' => $campaign_id,
+          'character_id' => $character_id,
+          'room_id' => $room_id,
+          'speaker' => $speaker,
+          'entity_ref' => $entity_ref,
+        ]);
         continue;
       }
 
-      $matched_contacts = $this->selectMentionedBrokeredStorylineContacts($contacts, (string) ($entry['message'] ?? ''));
+      $matched_contacts = $this->selectMentionedBrokeredStorylineContacts($contacts, $message);
+      $this->logger->info('Brokered storyline contact match result: campaign={campaign_id} character={character_id} room={room_id} speaker={speaker} entity_ref={entity_ref} contact_count={contact_count} matched_count={matched_count} matched_templates={matched_templates}', [
+        'campaign_id' => $campaign_id,
+        'character_id' => $character_id,
+        'room_id' => $room_id,
+        'speaker' => $speaker,
+        'entity_ref' => $entity_ref,
+        'contact_count' => count($contacts),
+        'matched_count' => count($matched_contacts),
+        'matched_templates' => implode(', ', array_values(array_filter(array_map(static function (array $contact): string {
+          return (string) ($contact['template_id'] ?? $contact['storyline_id'] ?? '');
+        }, $matched_contacts)))),
+      ]);
       if ($matched_contacts === []) {
         continue;
       }
+
+      $this->logger->info('Brokered storyline dialogue matched contacts: campaign={campaign_id} character={character_id} room={room_id} speaker={speaker} contact_templates={templates}', [
+        'campaign_id' => $campaign_id,
+        'character_id' => $character_id,
+        'room_id' => $room_id,
+        'speaker' => $speaker,
+        'templates' => implode(', ', array_values(array_filter(array_map(static fn(array $contact): string => (string) ($contact['template_id'] ?? $contact['storyline_id'] ?? ''), $matched_contacts)))),
+      ]);
+
+      $this->ensurePreferredQuestTemplatesActive($campaign_id, $character_id, ['tavern_storyline_leads']);
+      $this->applyConversationQuestTouchpoint(
+        $campaign_id,
+        $character_id,
+        $room_id,
+        $entity_ref,
+        (string) ($entry['speaker'] ?? '')
+      );
 
       foreach ($matched_contacts as $contact) {
         $quest_rows = $this->ensureBrokeredStorylineQuestRows($campaign_id, $location_id, $character_id, $contact);
@@ -8056,20 +8253,52 @@ PROMPT;
    */
   protected function ensureBrokeredStorylineQuestRows(int $campaign_id, string $location_id, int $character_id, array $contact): array {
     $storyline_id = trim((string) ($contact['storyline_id'] ?? ''));
-    if ($storyline_id === '') {
+    $template_id = trim((string) ($contact['template_id'] ?? ''));
+    if ($storyline_id === '' && $template_id === '') {
       return [];
     }
 
-    $storyline_row = $this->database->select('dc_campaign_storylines', 's')
+    $query = $this->database->select('dc_campaign_storylines', 's')
       ->fields('s', ['storyline_id', 'storyline_data'])
       ->condition('campaign_id', $campaign_id)
-      ->condition('storyline_id', $storyline_id)
-      ->range(0, 1)
+      ->range(0, 1);
+    $storyline_condition = $query->orConditionGroup();
+    if ($storyline_id !== '') {
+      $storyline_condition->condition('storyline_id', $storyline_id);
+    }
+    if ($template_id !== '') {
+      $storyline_condition->condition('template_id', $template_id);
+    }
+    $storyline_row = $query
+      ->condition($storyline_condition)
       ->execute()
       ->fetchAssoc();
+
+    if (!is_array($storyline_row) && $template_id !== '' && $this->storylineManager) {
+      try {
+        $instantiated = $this->storylineManager->instantiateStorylineTemplate($campaign_id, $template_id, [
+          'status' => 'available',
+          'priority' => (int) ($contact['priority'] ?? 0),
+        ]);
+        if ($instantiated !== []) {
+          $storyline_row = [
+            'storyline_id' => (string) ($instantiated['storyline_id'] ?? $template_id),
+            'storyline_data' => json_encode($instantiated['storyline_data'] ?? [], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+          ];
+        }
+      }
+      catch (\Throwable $e) {
+        $this->logger->warning('Failed to instantiate brokered storyline template {template_id} in campaign {campaign_id}: {message}', [
+          'template_id' => $template_id,
+          'campaign_id' => $campaign_id,
+          'message' => $e->getMessage(),
+        ]);
+      }
+    }
+
     if (!is_array($storyline_row)) {
       $this->logger->warning('Brokered storyline contact {storyline_id} has no campaign storyline row in campaign {campaign_id}.', [
-        'storyline_id' => $storyline_id,
+        'storyline_id' => $storyline_id !== '' ? $storyline_id : $template_id,
         'campaign_id' => $campaign_id,
       ]);
       return [];
@@ -8100,6 +8329,14 @@ PROMPT;
         ->fetchAssoc();
 
       if (!is_array($existing)) {
+        $this->logger->info('Attempting brokered storyline quest generation: campaign={campaign_id} storyline_id={storyline_id} template_id={template_id} character_id={character_id} location={location} giver_npc_id={giver_npc_id}', [
+          'campaign_id' => $campaign_id,
+          'storyline_id' => $storyline_id,
+          'template_id' => $template_id,
+          'character_id' => $character_id,
+          'location' => $location_id,
+          'giver_npc_id' => $this->resolveCampaignNpcIdForBrokeredContact($campaign_id, $contact),
+        ]);
         $quest_data = $this->questGenerator->generateQuestFromTemplate($template_id, $campaign_id, [
           'party_level' => $this->loadCharacterQuestLevel($campaign_id, $character_id),
           'difficulty' => 'moderate',
@@ -8110,9 +8347,19 @@ PROMPT;
           'giver_npc_id' => $this->resolveCampaignNpcIdForBrokeredContact($campaign_id, $contact),
         ]);
         if ($quest_data === []) {
-          $this->logger->warning('Failed to generate brokered storyline quest from template {template_id} in campaign {campaign_id}.', [
+          $template_row = $this->database->select('dungeoncrawler_content_quest_templates', 't')
+            ->fields('t')
+            ->condition('template_id', $template_id)
+            ->range(0, 1)
+            ->execute()
+            ->fetchAssoc();
+          $this->logger->warning('Failed to generate brokered storyline quest from template {template_id} in campaign {campaign_id}. storyline_id={storyline_id} contact_template_id={contact_template_id} template_found={template_found} template_columns={template_columns}', [
             'template_id' => $template_id,
             'campaign_id' => $campaign_id,
+            'storyline_id' => $storyline_id,
+            'contact_template_id' => (string) ($contact['template_id'] ?? ''),
+            'template_found' => is_array($template_row) ? 'yes' : 'no',
+            'template_columns' => is_array($template_row) ? implode(',', array_keys($template_row)) : '',
           ]);
           continue;
         }
@@ -8670,7 +8917,7 @@ PROMPT;
     }
 
     try {
-      $this->questTouchpointService->ingestEvent($campaign_id, [
+      $result = $this->questTouchpointService->ingestEvent($campaign_id, [
         'character_id' => $character_id,
         'touchpoint' => [
           'objective_type' => 'interact',
@@ -8680,6 +8927,18 @@ PROMPT;
           'confidence' => 'high',
           'quantity' => 1,
         ],
+      ]);
+
+      $this->logger->info('Conversation quest touchpoint result: campaign={campaign_id} character={character_id} room={room_id} npc_ref={npc_ref} target_name={target_name} decision={decision} quest_id={quest_id} objective_id={objective_id} reason={reason}', [
+        'campaign_id' => $campaign_id,
+        'character_id' => (int) $character_id,
+        'room_id' => $room_id,
+        'npc_ref' => trim($npc_ref),
+        'target_name' => trim($target_name),
+        'decision' => (string) ($result['decision'] ?? 'unknown'),
+        'quest_id' => (string) ($result['quest_id'] ?? ''),
+        'objective_id' => (string) ($result['objective_id'] ?? ''),
+        'reason' => (string) ($result['reason'] ?? $result['error'] ?? ''),
       ]);
     }
     catch (\Throwable $e) {
