@@ -22,16 +22,20 @@ class CharacterStateService {
   protected FeatEffectManager $featEffectManager;
   protected GeneratedImageRepository $imageRepository;
   protected NumberGenerationService $numberGeneration;
+  protected ImpactContractService $impactContractService;
+  protected ActiveEffectStoreService $activeEffectStore;
 
   /**
    * Constructor.
    */
-  public function __construct(Connection $database, AccountProxyInterface $current_user, FeatEffectManager $feat_effect_manager, GeneratedImageRepository $image_repository, NumberGenerationService $number_generation) {
+  public function __construct(Connection $database, AccountProxyInterface $current_user, FeatEffectManager $feat_effect_manager, GeneratedImageRepository $image_repository, NumberGenerationService $number_generation, ImpactContractService $impact_contract_service, ActiveEffectStoreService $active_effect_store) {
     $this->database = $database;
     $this->currentUser = $current_user;
     $this->featEffectManager = $feat_effect_manager;
     $this->imageRepository = $image_repository;
     $this->numberGeneration = $number_generation;
+    $this->impactContractService = $impact_contract_service;
+    $this->activeEffectStore = $active_effect_store;
   }
 
   /**
@@ -210,19 +214,7 @@ class CharacterStateService {
       $state['metadata']['updatedAt'] = $campaign_row['updated'] ? date('c', (int) $campaign_row['updated']) : date('c');
     }
 
-    $normalized_spellcasting = CharacterManager::normalizeSpellcastingResources(
-      is_array($state['spells'] ?? NULL) ? $state['spells'] : [],
-      is_array($state['resources'] ?? NULL) ? $state['resources'] : [],
-      (string) ($state['basicInfo']['class'] ?? '')
-    );
-    $state['spells'] = $normalized_spellcasting['spells'];
-    $state['resources'] = $normalized_spellcasting['resources'];
-
-    // Ensure feat effects are reflected in returned state shape.
-    $state = $this->applyFeatEffectsToState($state);
-    $state['inventory'] = CharacterEquipmentSlotHelper::normalizeInventory(
-      is_array($state['inventory'] ?? NULL) ? $state['inventory'] : []
-    );
+    $state = $this->resolveEffectiveState($state);
 
     return $state;
   }
@@ -1406,33 +1398,26 @@ class CharacterStateService {
   protected function saveState(string $character_id, array $state, ?array $campaign_row = NULL): void {
     $campaign_row = $campaign_row ?? $this->loadCampaignCharacter(NULL, NULL, (int) $character_id);
     $now = time();
+    $transaction = $this->database->startTransaction();
 
-    $normalized_spellcasting = CharacterManager::normalizeSpellcastingResources(
-      is_array($state['spells'] ?? NULL) ? $state['spells'] : [],
-      is_array($state['resources'] ?? NULL) ? $state['resources'] : [],
-      (string) ($state['basicInfo']['class'] ?? '')
-    );
-    $state['spells'] = $normalized_spellcasting['spells'];
-    $state['resources'] = $normalized_spellcasting['resources'];
+    $state = $this->resolveEffectiveState($state);
+    $persisted_state = $this->stripEffectiveStateFromPersistence($state);
 
-    // Keep feat-derived effects authoritative in persisted JSON.
-    $state = $this->applyFeatEffectsToState($state);
-
-    $type = $state['type'] ?? ($campaign_row['type'] ?? 'pc');
+    $type = $persisted_state['type'] ?? ($campaign_row['type'] ?? 'pc');
 
     // Extract fields for columns with fallbacks for non-PC entities.
     if ($type === 'pc') {
-      $name = $state['basicInfo']['name'] ?? '';
-      $level = $state['basicInfo']['level'] ?? 0;
-      $ancestry = $state['basicInfo']['ancestry'] ?? '';
-      $class = $state['basicInfo']['class'] ?? '';
+      $name = $persisted_state['basicInfo']['name'] ?? '';
+      $level = $persisted_state['basicInfo']['level'] ?? 0;
+      $ancestry = $persisted_state['basicInfo']['ancestry'] ?? '';
+      $class = $persisted_state['basicInfo']['class'] ?? '';
     }
     else {
-      $npc_def = $state['npcDefinition'] ?? [];
-      $name = $npc_def['id'] ?? ($state['basicInfo']['name'] ?? '');
-      $level = $npc_def['level'] ?? ($state['basicInfo']['level'] ?? 0);
-      $ancestry = $state['basicInfo']['ancestry'] ?? '';
-      $class = $state['basicInfo']['class'] ?? '';
+      $npc_def = $persisted_state['npcDefinition'] ?? [];
+      $name = $npc_def['id'] ?? ($persisted_state['basicInfo']['name'] ?? '');
+      $level = $npc_def['level'] ?? ($persisted_state['basicInfo']['level'] ?? 0);
+      $ancestry = $persisted_state['basicInfo']['ancestry'] ?? '';
+      $class = $persisted_state['basicInfo']['class'] ?? '';
     }
 
     $resources = is_array($state['resources'] ?? NULL) ? $state['resources'] : [];
@@ -1445,22 +1430,22 @@ class CharacterStateService {
     $hpCurrent = (int) ($hitPoints['current'] ?? 0);
     $hpMax = (int) ($hitPoints['max'] ?? 0);
     $armorClass = (int) ($armorClassState['total'] ?? ($armorClassState['value'] ?? 10));
-    $experiencePoints = (int) ($state['basicInfo']['experiencePoints'] ?? 0);
+    $experiencePoints = (int) ($persisted_state['basicInfo']['experiencePoints'] ?? 0);
     $positionQ = (int) ($position['q'] ?? 0);
     $positionR = (int) ($position['r'] ?? 0);
-    $lastRoomId = (string) ($location['roomId'] ?? ($state['roomId'] ?? ''));
+    $lastRoomId = (string) ($location['roomId'] ?? ($persisted_state['roomId'] ?? ''));
 
     if ($campaign_row) {
       // Campaign-scoped runtime record
-      $state['metadata']['version'] = $now;
-      $state['metadata']['updatedAt'] = date('c', $now);
-      $state['characterId'] = (string) $character_id;
-      $state['campaignId'] = (string) $campaign_row['campaign_id'];
-      $state['instanceId'] = $campaign_row['instance_id'];
+      $persisted_state['metadata']['version'] = $now;
+      $persisted_state['metadata']['updatedAt'] = date('c', $now);
+      $persisted_state['characterId'] = (string) $character_id;
+      $persisted_state['campaignId'] = (string) $campaign_row['campaign_id'];
+      $persisted_state['instanceId'] = $campaign_row['instance_id'];
 
       $this->database->update('dc_campaign_characters')
         ->fields([
-          'state_data' => json_encode($state, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE),
+          'state_data' => json_encode($persisted_state, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE),
           'updated' => $now,
           'type' => $type,
           'hp_current' => $hpCurrent,
@@ -1476,7 +1461,7 @@ class CharacterStateService {
         ->execute();
 
       // Keep library basics in sync for PCs/NPCs.
-      $character_data = $state;
+      $character_data = $persisted_state;
       unset($character_data['characterId']);
       unset($character_data['userId']);
       $this->database->update('dc_campaign_characters')
@@ -1499,14 +1484,22 @@ class CharacterStateService {
         ->condition('id', $character_id)
         ->execute();
 
+      $this->activeEffectStore->syncCharacterImpacts(
+        $character_id,
+        is_array($state['effectiveState']['impacts'] ?? NULL) ? $state['effectiveState']['impacts'] : [],
+        isset($campaign_row['campaign_id']) ? (int) $campaign_row['campaign_id'] : NULL,
+        isset($campaign_row['instance_id']) ? (string) $campaign_row['instance_id'] : NULL,
+      );
+
+      unset($transaction);
       return;
     }
 
     // Library-only record
-    $state['metadata']['version'] = ($state['metadata']['version'] ?? 0) + 1;
-    $state['metadata']['updatedAt'] = date('c');
+    $persisted_state['metadata']['version'] = ($persisted_state['metadata']['version'] ?? 0) + 1;
+    $persisted_state['metadata']['updatedAt'] = date('c');
 
-    $character_data = $state;
+    $character_data = $persisted_state;
     unset($character_data['characterId']);
     unset($character_data['userId']);
 
@@ -1536,7 +1529,7 @@ class CharacterStateService {
     ];
 
     if ($is_campaign_instance_row) {
-      $update_fields['state_data'] = json_encode($state, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+      $update_fields['state_data'] = json_encode($persisted_state, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
       $update_fields['updated'] = $now;
     }
 
@@ -1544,6 +1537,15 @@ class CharacterStateService {
       ->fields($update_fields)
       ->condition('id', $character_id)
       ->execute();
+
+    $this->activeEffectStore->syncCharacterImpacts(
+      $character_id,
+      is_array($state['effectiveState']['impacts'] ?? NULL) ? $state['effectiveState']['impacts'] : [],
+      NULL,
+      NULL,
+    );
+
+    unset($transaction);
   }
 
   /**
@@ -1571,17 +1573,136 @@ class CharacterStateService {
   }
 
   /**
-   * Applies feat-derived effects into character state payload.
+   * Resolves the full persistent character sheet into effective state.
    */
-  private function applyFeatEffectsToState(array $state): array {
+  private function resolveEffectiveState(array $state): array {
+    $state = $this->normalizePersistentStateInputs($state);
+    $effect_context = $this->buildPersistentEffectContext($state);
+    $state = $this->applyPersistentDerivedStats($state, $effect_context);
+
+    return $this->attachEffectiveStateMetadata($state, $effect_context);
+  }
+
+  /**
+   * Normalizes persisted state into canonical sheet inputs.
+   */
+  private function normalizePersistentStateInputs(array $state): array {
+    if (!isset($state['basicInfo']) || !is_array($state['basicInfo'])) {
+      $state['basicInfo'] = [];
+    }
+    if (!isset($state['resources']) || !is_array($state['resources'])) {
+      $state['resources'] = [];
+    }
+    if (!isset($state['defenses']) || !is_array($state['defenses'])) {
+      $state['defenses'] = [];
+    }
+    if (!isset($state['conditions']) || !is_array($state['conditions'])) {
+      $state['conditions'] = [];
+    }
+    if (!isset($state['movement']) || !is_array($state['movement'])) {
+      $state['movement'] = [];
+    }
+    if (!isset($state['movement']['speed']) || !is_array($state['movement']['speed'])) {
+      $state['movement']['speed'] = [];
+    }
+    if (!array_key_exists('base', $state['movement']['speed'])) {
+      $state['movement']['speed']['base'] = (int) ($state['speed'] ?? 25);
+    }
+
+    $normalized_spellcasting = CharacterManager::normalizeSpellcastingResources(
+      is_array($state['spells'] ?? NULL) ? $state['spells'] : [],
+      is_array($state['resources'] ?? NULL) ? $state['resources'] : [],
+      (string) ($state['basicInfo']['class'] ?? '')
+    );
+    $state['spells'] = $normalized_spellcasting['spells'];
+    $state['resources'] = $normalized_spellcasting['resources'];
+    $state['inventory'] = CharacterEquipmentSlotHelper::normalizeInventory(
+      is_array($state['inventory'] ?? NULL) ? $state['inventory'] : []
+    );
+
+    return $state;
+  }
+
+  /**
+   * Builds persistent effect source context for effective-state resolution.
+   */
+  private function buildPersistentEffectContext(array $state): array {
+    $feat_effects = $this->buildFeatEffectState($state);
+    $equipment_effects = $this->extractEquipmentEffects(is_array($state['inventory'] ?? NULL) ? $state['inventory'] : []);
+    $condition_effects = $this->extractPersistentConditionEffects(is_array($state['conditions'] ?? NULL) ? $state['conditions'] : []);
+    $active_effect_store_enabled = $this->activeEffectStore->hasStorage();
+    $persisted_active_effects = $this->activeEffectStore->listActiveEffects(
+      (string) ($state['characterId'] ?? ''),
+      isset($state['campaignId']) && $state['campaignId'] !== '' ? (int) $state['campaignId'] : NULL,
+      isset($state['instanceId']) && $state['instanceId'] !== '' ? (string) $state['instanceId'] : NULL,
+    );
+    $impacts = $this->impactContractService->normalizeImpactContracts(
+      $this->impactContractService->buildPersistentImpacts($feat_effects, $equipment_effects, $condition_effects)
+    );
+    $persisted_impact_status = $this->buildPersistedActiveEffectStatus(
+      $persisted_active_effects,
+      $impacts,
+      $active_effect_store_enabled,
+    );
+    $flags = is_array($feat_effects['derived_adjustments']['flags'] ?? NULL) ? $feat_effects['derived_adjustments']['flags'] : [];
+    if (!empty($persisted_impact_status['desynced'])) {
+      $flags['active_effect_store_desynced'] = TRUE;
+    }
+
+    return [
+      'sources' => [
+        'feats' => $feat_effects,
+        'equipment' => $equipment_effects,
+        'conditions' => $condition_effects,
+        'active_effects' => $persisted_active_effects,
+        'active_effect_store' => $persisted_impact_status,
+      ],
+      'flags' => $flags,
+      'impacts' => $impacts,
+    ];
+  }
+
+  /**
+   * Builds drift metadata comparing persisted active effects to resolved impacts.
+   */
+  private function buildPersistedActiveEffectStatus(array $persisted_rows, array $resolved_impacts, bool $store_enabled): array {
+    $persisted_impacts = $this->impactContractService->normalizeImpactContracts(
+      $this->activeEffectStore->extractStoredImpacts($persisted_rows)
+    );
+    $persisted_keys = array_map(
+      fn (array $impact): string => $this->activeEffectStore->buildImpactIdentity($impact),
+      $persisted_impacts
+    );
+    $resolved_keys = array_map(
+      fn (array $impact): string => $this->activeEffectStore->buildImpactIdentity($impact),
+      $resolved_impacts
+    );
+
+    $missing_keys = array_values(array_diff($resolved_keys, $persisted_keys));
+    $unexpected_keys = array_values(array_diff($persisted_keys, $resolved_keys));
+
+    return [
+      'enabled' => $store_enabled,
+      'row_count' => count($persisted_rows),
+      'impact_count' => count($persisted_impacts),
+      'matches_resolved_state' => $store_enabled ? $missing_keys === [] && $unexpected_keys === [] : FALSE,
+      'desynced' => $store_enabled ? $missing_keys !== [] || $unexpected_keys !== [] : FALSE,
+      'missing_impacts' => $missing_keys,
+      'unexpected_impacts' => $unexpected_keys,
+    ];
+  }
+
+  /**
+   * Builds feat effect state for the current character sheet.
+   */
+  private function buildFeatEffectState(array $state): array {
     $features = is_array($state['features'] ?? NULL) ? $state['features'] : [];
     $feats = is_array($features['feats'] ?? NULL) ? $features['feats'] : [];
     $feat_selections = is_array($features['featSelections'] ?? NULL) ? $features['featSelections'] : [];
-
-    $base_speed = (int) ($state['movement']['speed']['base'] ?? 25);
+    $base_speed = (int) ($state['movement']['speed']['base'] ?? $state['speed'] ?? 25);
     $level = max(1, (int) ($state['basicInfo']['level'] ?? 1));
 
-    $effects = $this->featEffectManager->buildEffectState([
+    return $this->featEffectManager->buildEffectState([
       'level' => $level,
       'feats' => $feats,
       'feat_selections' => $feat_selections,
@@ -1596,6 +1717,174 @@ class CharacterStateService {
       'base_speed' => $base_speed,
       'existing_hp_max' => (int) ($state['resources']['hitPoints']['max'] ?? 0),
     ]);
+  }
+
+  /**
+   * Extracts equipment-derived effect inputs from normalized inventory.
+   */
+  private function extractEquipmentEffects(array $inventory): array {
+    $worn = is_array($inventory['worn'] ?? NULL) ? $inventory['worn'] : [];
+    $armor = is_array($worn['armor'] ?? NULL) ? $worn['armor'] : [];
+    $armor_stats = is_array($armor['armor_stats'] ?? NULL) ? $armor['armor_stats'] : [];
+    $shield = is_array($worn['shield'] ?? NULL) ? $worn['shield'] : [];
+
+    return [
+      'armor' => [
+        'item_id' => (string) ($armor['item_id'] ?? $armor['id'] ?? ''),
+        'name' => (string) ($armor['name'] ?? ''),
+        'armor_bonus' => (int) ($armor_stats['ac_bonus'] ?? 0),
+        'dex_cap' => array_key_exists('dex_cap', $armor_stats) ? (int) $armor_stats['dex_cap'] : NULL,
+        'speed_penalty' => (int) ($armor_stats['speed_penalty'] ?? 0),
+        'check_penalty' => (int) ($armor_stats['check_penalty'] ?? 0),
+      ],
+      'shield' => [
+        'item_id' => (string) ($shield['item_id'] ?? $shield['id'] ?? ''),
+        'name' => (string) ($shield['name'] ?? ''),
+        'shield_bonus' => (int) ($shield['ac_bonus'] ?? 0),
+      ],
+      'accessories' => is_array($worn['accessories'] ?? NULL) ? $worn['accessories'] : [],
+    ];
+  }
+
+  /**
+   * Extracts persistent condition effect inputs from stored sheet conditions.
+   */
+  private function extractPersistentConditionEffects(array $conditions): array {
+    $normalized_conditions = [];
+    $supported_adjustments = [
+      'armor_class' => 0,
+      'speed' => 0,
+    ];
+    $unsupported = [];
+
+    foreach ($conditions as $condition) {
+      if (!is_array($condition)) {
+        continue;
+      }
+
+      $raw_code = (string) ($condition['condition_type'] ?? $condition['id'] ?? $condition['name'] ?? '');
+      $code = strtolower(str_replace([' ', '-'], '_', trim($raw_code)));
+      $value = (int) ($condition['value'] ?? $condition['amount'] ?? $condition['penalty'] ?? 0);
+      if ($value === 0 && preg_match('/_(\d+)$/', $code, $matches) === 1) {
+        $value = (int) $matches[1];
+      }
+
+      $normalized = [
+        'id' => (string) ($condition['id'] ?? ''),
+        'code' => $code,
+        'label' => (string) ($condition['name'] ?? $condition['condition_type'] ?? $condition['id'] ?? ''),
+        'value' => $value,
+      ];
+      $normalized_conditions[] = $normalized;
+
+      switch ($code) {
+        case 'flat_footed':
+          $supported_adjustments['armor_class'] -= 2;
+          break;
+
+        case 'frightened':
+          $supported_adjustments['armor_class'] -= max(1, $value);
+          break;
+
+        default:
+          if (str_starts_with($code, 'speed_penalty_')) {
+            $supported_adjustments['speed'] -= max(0, $value);
+          }
+          else {
+            $unsupported[] = $normalized;
+          }
+          break;
+      }
+    }
+
+    return [
+      'active' => $normalized_conditions,
+      'supported_adjustments' => $supported_adjustments,
+      'unsupported' => $unsupported,
+    ];
+  }
+
+
+  /**
+   * Applies persistent derived stat calculations from effect context.
+   */
+  private function applyPersistentDerivedStats(array $state, array $effect_context): array {
+    $state = $this->applyFeatEffectsToState($state, $effect_context['sources']['feats'] ?? NULL);
+    $state = $this->applyDerivedDefensesToState($state, $effect_context);
+
+    return $state;
+  }
+
+  /**
+   * Attaches effective-state metadata for debugging and consumers.
+   */
+  private function attachEffectiveStateMetadata(array $state, array $effect_context): array {
+    $armor_class = is_array($state['defenses']['armorClass'] ?? NULL) ? $state['defenses']['armorClass'] : [];
+    $speed = is_array($state['movement']['speed'] ?? NULL) ? $state['movement']['speed'] : [];
+    $hit_points = is_array($state['resources']['hitPoints'] ?? NULL) ? $state['resources']['hitPoints'] : [];
+
+    $state['effectiveState'] = [
+      'sources' => $effect_context['sources'] ?? [],
+      'flags' => $effect_context['flags'] ?? [],
+      'impacts' => is_array($effect_context['impacts'] ?? NULL) ? $effect_context['impacts'] : [],
+      'applied' => [
+        'armorClass' => [
+          'total' => (int) ($armor_class['total'] ?? $armor_class['value'] ?? 10),
+          'armorBonus' => (int) ($armor_class['armorBonus'] ?? 0),
+          'armorDexCap' => $armor_class['armorDexCap'] ?? NULL,
+        ],
+        'speed' => [
+          'base' => (int) ($speed['base'] ?? 25),
+          'total' => (int) ($speed['total'] ?? $speed['base'] ?? 25),
+        ],
+        'hitPoints' => [
+          'baseMax' => (int) ($hit_points['baseMax'] ?? $hit_points['max'] ?? 0),
+          'max' => (int) ($hit_points['max'] ?? 0),
+          'current' => (int) ($hit_points['current'] ?? 0),
+          'temporary' => (int) ($hit_points['temporary'] ?? 0),
+        ],
+      ],
+      'breakdowns' => [
+        'armorClass' => is_array($armor_class['breakdown'] ?? NULL) ? $armor_class['breakdown'] : [],
+        'speed' => [
+          'base' => (int) ($speed['base'] ?? 25),
+          'featComputed' => (int) (($effect_context['sources']['feats']['derived_adjustments']['computed_speed'] ?? $speed['base'] ?? 25)),
+          'armorPenalty' => (int) (($effect_context['sources']['equipment']['armor']['speed_penalty'] ?? 0)),
+          'ignoreArmorPenalty' => (bool) (($effect_context['flags']['ignore_armor_speed_penalty'] ?? FALSE)),
+          'total' => (int) ($speed['total'] ?? $speed['base'] ?? 25),
+        ],
+        'hitPoints' => [
+          'baseMax' => (int) ($hit_points['baseMax'] ?? $hit_points['max'] ?? 0),
+          'featBonus' => (int) (($effect_context['sources']['feats']['derived_adjustments']['hp_max_bonus'] ?? 0)),
+          'totalMax' => (int) ($hit_points['max'] ?? 0),
+        ],
+      ],
+    ];
+
+    return $state;
+  }
+
+  /**
+   * Removes computed effective-state metadata before persistence.
+   */
+  private function stripEffectiveStateFromPersistence(array $state): array {
+    unset($state['effectiveState']);
+
+    return $state;
+  }
+
+  /**
+   * Applies feat-derived effects into character state payload.
+   */
+  private function applyFeatEffectsToState(array $state, ?array $effects = NULL): array {
+    $features = is_array($state['features'] ?? NULL) ? $state['features'] : [];
+    $feat_selections = is_array($features['featSelections'] ?? NULL) ? $features['featSelections'] : [];
+
+    if ($effects === NULL) {
+      $effects = $this->buildFeatEffectState($state);
+    }
+
+    $base_speed = (int) ($state['movement']['speed']['base'] ?? $state['speed'] ?? 25);
 
     $state['features']['featEffects'] = $effects;
 
@@ -1668,6 +1957,78 @@ class CharacterStateService {
       $state['defenses']['perception'] = [];
     }
     $state['defenses']['perception']['featBonus'] = (int) ($effects['derived_adjustments']['perception_bonus'] ?? 0);
+
+    return $state;
+  }
+
+  /**
+   * Applies inventory-driven defense calculations into character state.
+   */
+  private function applyDerivedDefensesToState(array $state, ?array $effect_context = NULL): array {
+    if (!isset($state['defenses']) || !is_array($state['defenses'])) {
+      $state['defenses'] = [];
+    }
+
+    $calculator = new CharacterCalculator();
+    $effect_context = $effect_context ?? $this->buildPersistentEffectContext($state);
+    $equipment = is_array($effect_context['sources']['equipment'] ?? NULL) ? $effect_context['sources']['equipment'] : [];
+    $armor = is_array($equipment['armor'] ?? NULL) ? $equipment['armor'] : [];
+    $existing_armor_class = is_array($state['defenses']['armorClass'] ?? NULL) ? $state['defenses']['armorClass'] : [];
+    $feat_flags = is_array($effect_context['flags'] ?? NULL) ? $effect_context['flags'] : [];
+
+    $armor_bonus = (int) ($armor['armor_bonus'] ?? 0);
+    $armor_dex_cap = array_key_exists('dex_cap', $armor) ? $armor['dex_cap'] : NULL;
+    $condition_adjustments = is_array($effect_context['sources']['conditions']['supported_adjustments'] ?? NULL)
+      ? $effect_context['sources']['conditions']['supported_adjustments']
+      : [];
+    $other_ac_bonus = (int) (
+      $existing_armor_class['otherBonuses']
+      ?? $state['other_ac_bonus']
+      ?? 0
+    ) + (int) ($condition_adjustments['armor_class'] ?? 0);
+    $proficiency_rank = (string) (
+      $existing_armor_class['proficiencyRank']
+      ?? 'untrained'
+    );
+
+    $armor_class = $calculator->calculateArmorClass([
+      'abilities' => is_array($state['abilities'] ?? NULL) ? $state['abilities'] : [],
+      'level' => (int) ($state['basicInfo']['level'] ?? 1),
+      'armor_bonus' => $armor_bonus,
+      'armor_dex_cap' => $armor_dex_cap,
+      'shield_bonus' => 0,
+      'other_ac_bonus' => $other_ac_bonus,
+      'proficiency_rank' => $proficiency_rank,
+    ]);
+
+    $state['defenses']['armorClass'] = [
+      ...$existing_armor_class,
+      'base' => (int) ($armor_class['total'] ?? 10),
+      'value' => (int) ($armor_class['total'] ?? 10),
+      'total' => (int) ($armor_class['total'] ?? 10),
+      'armorBonus' => $armor_bonus,
+      'armorDexCap' => $armor_dex_cap,
+      'shieldBonus' => 0,
+      'otherBonuses' => $other_ac_bonus,
+      'proficiencyRank' => $proficiency_rank,
+      'breakdown' => $armor_class['breakdown'] ?? [],
+    ];
+
+    if (!isset($state['movement']) || !is_array($state['movement'])) {
+      $state['movement'] = [];
+    }
+    if (!isset($state['movement']['speed']) || !is_array($state['movement']['speed'])) {
+      $state['movement']['speed'] = [];
+    }
+    $base_speed = (int) ($state['movement']['speed']['base'] ?? $state['speed'] ?? 25);
+    $feat_speed = (int) ($state['movement']['speed']['total'] ?? $base_speed);
+    $armor_speed_penalty = (int) ($armor['speed_penalty'] ?? 0);
+    if (!($feat_flags['ignore_armor_speed_penalty'] ?? FALSE)) {
+      $feat_speed += $armor_speed_penalty;
+    }
+    $feat_speed += (int) ($condition_adjustments['speed'] ?? 0);
+    $state['movement']['speed']['base'] = $base_speed;
+    $state['movement']['speed']['total'] = max(0, $feat_speed);
 
     return $state;
   }

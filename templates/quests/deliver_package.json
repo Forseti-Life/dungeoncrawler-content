@@ -5,7 +5,10 @@
   "quest_type": "delivery",
   "level_min": 1,
   "level_max": 8,
-  "tags": ["delivery", "travel"],
+  "tags": [
+    "delivery",
+    "travel"
+  ],
   "objectives_schema": [
     {
       "phase": 1,
@@ -13,14 +16,26 @@
         {
           "objective_id": "travel_to_destination",
           "type": "explore",
-          "target": "{destination}",
-          "description": "Travel to {destination}"
+          "description": "Travel to {destination}",
+          "location": "{destination}",
+          "completion_criteria": {
+            "kind": "flag",
+            "metric": "discovered",
+            "required_value": true,
+            "description": "Discover the required location."
+          }
         },
         {
           "objective_id": "deliver_package",
           "type": "interact",
           "target": "recipient",
-          "description": "Deliver the package to the recipient"
+          "description": "Deliver the package to the recipient",
+          "completion_criteria": {
+            "kind": "flag",
+            "metric": "completed",
+            "required_value": true,
+            "description": "Mark this objective complete."
+          }
         }
       ]
     }

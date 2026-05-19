@@ -119,6 +119,80 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
    */
   protected SpellCatalogService $spellCatalog;
 
+  /**
+   * @var \Drupal\dungeoncrawler_content\Service\RoomChatService
+   */
+  protected RoomChatService $roomChatService;
+
+  /**
+   * Canonical client-facing encounter action definitions.
+   */
+  protected const CLIENT_ACTION_DEFINITIONS = [
+    'strike' => [
+      'label' => 'Strike',
+      'cost' => 1,
+      'category' => 'offense',
+      'requires_turn' => TRUE,
+      'targeting' => 'hostile_entity',
+    ],
+    'stride' => [
+      'label' => 'Stride',
+      'cost' => 1,
+      'category' => 'movement',
+      'requires_turn' => TRUE,
+      'targeting' => 'hex',
+    ],
+    'interact' => [
+      'label' => 'Interact',
+      'cost' => 1,
+      'category' => 'utility',
+      'requires_turn' => TRUE,
+      'targeting' => 'entity_or_object',
+    ],
+    'cast_spell' => [
+      'label' => 'Cast Spell',
+      'cost' => 2,
+      'category' => 'magic',
+      'requires_turn' => TRUE,
+      'targeting' => 'contextual',
+    ],
+    'talk' => [
+      'label' => 'Talk',
+      'cost' => 0,
+      'category' => 'conversation',
+      'requires_turn' => TRUE,
+      'targeting' => 'entity_or_room',
+    ],
+    'end_turn' => [
+      'label' => 'End Turn',
+      'cost' => 0,
+      'category' => 'turn',
+      'requires_turn' => TRUE,
+      'targeting' => 'none',
+    ],
+    'delay' => [
+      'label' => 'Delay',
+      'cost' => 0,
+      'category' => 'turn',
+      'requires_turn' => TRUE,
+      'targeting' => 'none',
+    ],
+    'reaction' => [
+      'label' => 'Reaction',
+      'cost' => 'reaction',
+      'category' => 'reaction',
+      'requires_turn' => FALSE,
+      'targeting' => 'contextual',
+    ],
+    'minor_color_shift' => [
+      'label' => 'Minor Color Shift',
+      'cost' => 1,
+      'category' => 'heritage',
+      'requires_turn' => TRUE,
+      'targeting' => 'self',
+    ],
+  ];
+
   public function __construct(
     Connection $database,
     LoggerChannelFactoryInterface $logger_factory,
@@ -139,7 +213,8 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
     ?MovementResolverService $movement_resolver = NULL,
     ?HazardService $hazard_service = NULL,
     ?MagicItemService $magic_item_service = NULL,
-    ?SpellCatalogService $spell_catalog = NULL
+    ?SpellCatalogService $spell_catalog = NULL,
+    ?RoomChatService $room_chat_service = NULL
   ) {
     $this->database = $database;
     $this->logger = $logger_factory->get('dungeoncrawler');
@@ -161,6 +236,7 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
     $this->hazardService = $hazard_service ?? new HazardService($number_generation_service);
     $this->magicItemService = $magic_item_service ?? new MagicItemService($number_generation_service);
     $this->spellCatalog = $spell_catalog ?? new SpellCatalogService();
+    $this->roomChatService = $room_chat_service ?? \Drupal::service('dungeoncrawler_content.room_chat_service');
   }
 
   /**
@@ -315,8 +391,8 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
       ];
     }
 
-    // Validate it's the actor's turn (except for reactions and talk).
-    if (!in_array($type, ['reaction', 'talk'])) {
+    // Validate it's the actor's turn (except for reactions).
+    if (!in_array($type, ['reaction'], TRUE)) {
       $actor_id = $intent['actor'] ?? NULL;
       $current_turn = $game_state['turn'] ?? [];
       $current_entity = $current_turn['entity'] ?? NULL;
@@ -324,7 +400,9 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
       if ($actor_id && $current_entity && $actor_id !== $current_entity) {
         return [
           'valid' => FALSE,
-          'reason' => "It is not $actor_id's turn. Current turn: $current_entity.",
+          'reason' => $type === 'talk'
+            ? "It's not your turn, please wait."
+            : "It is not $actor_id's turn. Current turn: $current_entity.",
         ];
       }
     }
@@ -434,6 +512,23 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
             'weapon' => $params['weapon'] ?? NULL,
           ],
         ]);
+        $this->queueNarrationEvent($campaign_id, $dungeon_data, [
+          'type' => 'dice_roll',
+          'speaker' => 'System',
+          'speaker_type' => 'system',
+          'speaker_ref' => '',
+          'content' => sprintf('%s attack roll %d vs AC %d: %s.', $attacker_name, (int) ($result['total'] ?? 0), (int) ($result['ac'] ?? 0), $degree_text),
+          'mechanical_data' => [
+            'action' => 'strike',
+            'roll' => $result['roll'] ?? NULL,
+            'total' => $result['total'] ?? NULL,
+            'dc' => $result['ac'] ?? NULL,
+            'degree' => $degree_text,
+            'weapon' => $params['weapon'] ?? NULL,
+            'target' => $target_id,
+          ],
+          'visibility' => 'public',
+        ]);
         // Also queue mechanical damage event if hit.
         if ($damage_val > 0) {
           $this->queueNarrationEvent($campaign_id, $dungeon_data, [
@@ -451,8 +546,6 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
           ]);
         }
 
-        // Check for encounter end (all enemies defeated).
-        $phase_transition = $this->checkEncounterEnd($encounter_id, $game_state);
         break;
 
       case 'stride':
@@ -529,7 +622,6 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
           ],
         ]);
 
-        $phase_transition = $this->checkEncounterEnd($encounter_id, $game_state);
         break;
 
       // -----------------------------------------------------------------------
@@ -561,29 +653,25 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
         break;
 
       case 'talk':
-        // Talk is a free action in encounter mode.
-        $message = $params['message'] ?? '';
-        $result = [
-          'talked' => TRUE,
-          'message' => $message,
-        ];
+        $result = $this->processTalk($actor_id, $target_id, $params, $game_state, $dungeon_data, $campaign_id);
+        if (!empty($result['error'])) {
+          return [
+            'success' => FALSE,
+            'result' => $result,
+            'mutations' => $result['mutations'] ?? [],
+            'events' => [],
+            'phase_transition' => NULL,
+            'narration' => NULL,
+          ];
+        }
+        $mutations = $result['mutations'] ?? [];
+        $narration = $result['narration'] ?? NULL;
         $events[] = GameEventLogger::buildEvent('talk', 'encounter', $actor_id, [
-          'message' => $message,
+          'message' => $result['message'] ?? '',
           'round' => $game_state['round'] ?? NULL,
-        ], NULL, $target_id);
-
-        // Queue talk as speech event for immediate narration.
-        $talker_name = $this->resolveEntityName($actor_id, $game_state, $dungeon_data);
-        $this->queueNarrationEvent($campaign_id, $dungeon_data, [
-          'type' => 'speech',
-          'speaker' => $talker_name,
-          'speaker_type' => 'player',
-          'speaker_ref' => $actor_id,
-          'content' => $message,
-          'language' => $params['language'] ?? 'Common',
-          'volume' => $params['volume'] ?? 'normal',
-          'visibility' => 'public',
-        ]);
+          'gm_response_generated' => !empty($result['gm_response']),
+          'state_diff_present' => !empty($result['state_diff']),
+        ], $narration, $target_id);
         break;
 
       case 'end_turn':
@@ -627,7 +715,6 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
           ]);
         }
 
-        $phase_transition = $this->checkEncounterEnd($encounter_id, $game_state);
         break;
 
       case 'delay':
@@ -3010,6 +3097,17 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
 
     }
 
+    $this->maybeQueueMechanicalSystemLogEntry([
+      'campaign_id' => $campaign_id,
+      'dungeon_data' => $dungeon_data,
+      'type' => $type,
+      'actor_id' => $actor_id,
+      'target_id' => $target_id,
+      'params' => $params,
+      'result' => $result,
+      'game_state' => $game_state,
+    ]);
+
     // Check for auto-end-turn (actions depleted + no movement remaining).
     // Delay is intentional initiative exit — do NOT auto-end-turn for it.
     $no_auto_end_types = ['end_turn', 'delay', 'delay_reenter', 'release', 'aid'];
@@ -3020,9 +3118,6 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
       ]);
       if (!empty($auto_end['npc_events'])) {
         $events = array_merge($events, $auto_end['npc_events']);
-      }
-      if (!$phase_transition) {
-        $phase_transition = $this->checkEncounterEnd($encounter_id, $game_state);
       }
     }
 
@@ -3089,10 +3184,8 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
             $npc_result = $this->autoPlayNpcTurn($encounter_id, (string) $first_entity, $game_state, $dungeon_data, $campaign_id);
             $initial_turn_events = $npc_result['events'] ?? [];
 
-            if (!$this->isEncounterOver($encounter_id, $game_state)) {
-              $initial_advance = $this->processEndTurn($encounter_id, (string) $first_entity, $game_state, $dungeon_data, $campaign_id);
-              $initial_turn_events = array_merge($initial_turn_events, $initial_advance['npc_events'] ?? []);
-            }
+            $initial_advance = $this->processEndTurn($encounter_id, (string) $first_entity, $game_state, $dungeon_data, $campaign_id);
+            $initial_turn_events = array_merge($initial_turn_events, $initial_advance['npc_events'] ?? []);
           }
         }
 
@@ -3132,6 +3225,36 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
             'round' => 1,
           ],
         ], $room_id);
+        $initiative_summary = [];
+        foreach ($participants as $participant) {
+          $initiative_value = $participant['initiative'] ?? $participant['initiative_total'] ?? NULL;
+          if (!is_numeric($initiative_value)) {
+            continue;
+          }
+          $initiative_summary[] = [
+            'name' => $participant['name'] ?? $participant['display_name'] ?? ($participant['entity_id'] ?? 'Unknown'),
+            'initiative' => (int) $initiative_value,
+            'roll' => isset($participant['initiative_roll']) && is_numeric($participant['initiative_roll']) ? (int) $participant['initiative_roll'] : NULL,
+          ];
+        }
+        if ($initiative_summary !== []) {
+          $initiative_text = implode(', ', array_map(
+            static fn(array $entry): string => sprintf('%s %d', $entry['name'], $entry['initiative']),
+            $initiative_summary
+          ));
+          $this->queueNarrationEvent($campaign_id, $dungeon_data, [
+            'type' => 'initiative_set',
+            'speaker' => 'System',
+            'speaker_type' => 'system',
+            'speaker_ref' => '',
+            'content' => sprintf('Initiative order: %s.', $initiative_text),
+            'mechanical_data' => [
+              'encounter_id' => $encounter_id,
+              'order' => $initiative_summary,
+            ],
+            'visibility' => 'public',
+          ], $room_id);
+        }
 
         // Mark the room's encounter as triggered.
         $this->markRoomEncounterTriggered($dungeon_data, $room_id);
@@ -3223,10 +3346,11 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
     $current_entity = $turn['entity'] ?? NULL;
     $actions_remaining = $turn['actions_remaining'] ?? 0;
     $reaction_available = $turn['reaction_available'] ?? FALSE;
-    $actor_heritage = $this->resolveActorHeritage($actor_id, $dungeon_data);
+    $effective_actor_id = $actor_id ?? $current_entity;
+    $actor_heritage = $this->resolveActorHeritage($effective_actor_id, $dungeon_data);
 
     // If it's the actor's turn.
-    if ($actor_id && $actor_id === $current_entity) {
+    if ($effective_actor_id && $effective_actor_id === $current_entity) {
       if ($actions_remaining >= 1) {
         $actions[] = 'strike';
         $actions[] = 'stride';
@@ -3251,6 +3375,34 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
   }
 
   /**
+   * Build the canonical encounter action contract for client consumers.
+   */
+  public function getClientActionContract(array $game_state, array $dungeon_data, ?string $actor_id = NULL): array {
+    $available_actions = $this->getAvailableActions($game_state, $dungeon_data, $actor_id);
+    $actions = [];
+
+    foreach (self::CLIENT_ACTION_DEFINITIONS as $action_id => $definition) {
+      $actions[] = [
+        'id' => $action_id,
+        'label' => $definition['label'],
+        'cost' => $definition['cost'],
+        'category' => $definition['category'],
+        'requires_turn' => $definition['requires_turn'],
+        'targeting' => $definition['targeting'],
+        'available' => in_array($action_id, $available_actions, TRUE),
+      ];
+    }
+
+    return [
+      'phase' => 'encounter',
+      'actor_id' => $actor_id,
+      'current_turn_entity' => $game_state['turn']['entity'] ?? NULL,
+      'available_actions' => $available_actions,
+      'actions' => $actions,
+    ];
+  }
+
+  /**
    * Resolves actor heritage from dungeon entity data when available.
    */
   protected function resolveActorHeritage(?string $actor_id, array $dungeon_data): ?string {
@@ -3267,6 +3419,128 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
         $heritage = $entity['heritage'] ?? ($entity['state']['heritage'] ?? NULL);
         return is_string($heritage) ? $heritage : NULL;
       }
+    }
+
+    return NULL;
+  }
+
+  /**
+   * Process encounter talk through the room-chat pipeline.
+   */
+  protected function processTalk(?string $actor_id, ?string $target_id, array $params, array &$game_state, array &$dungeon_data, int $campaign_id): array {
+    $message = trim((string) ($params['message'] ?? ''));
+    $room_id = $dungeon_data['active_room_id'] ?? NULL;
+    $character_id = $this->resolveActorCharacterId($actor_id, $dungeon_data, $params);
+    $speaker = $this->resolveEntityName($actor_id, $game_state, $dungeon_data);
+    $target_name = trim((string) ($target_id ? $this->resolveEntityName($target_id, $game_state, $dungeon_data) : ''));
+
+    if (!$room_id) {
+      return [
+        'talked' => FALSE,
+        'error' => 'No active room set.',
+        'mutations' => [],
+      ];
+    }
+
+    if ($message === '' && $target_name === '') {
+      return [
+        'talked' => FALSE,
+        'error' => 'Talk requires a message or target.',
+        'mutations' => [],
+      ];
+    }
+
+    if ($message === '' && $character_id !== NULL) {
+      $suggestion = $this->roomChatService->suggestPlayerAutomationMessage(
+        $campaign_id,
+        $room_id,
+        $character_id,
+        'room'
+      );
+      $message = trim((string) ($suggestion['message'] ?? ''));
+    }
+
+    if ($target_name !== '' && $message !== '' && stripos($message, $target_name) === FALSE) {
+      $message = sprintf('%s, %s', $target_name, $message);
+    }
+
+    if ($message === '') {
+      return [
+        'talked' => FALSE,
+        'error' => 'Automation could not produce a room chat message.',
+        'mutations' => [],
+      ];
+    }
+
+    try {
+      $chat_result = $this->roomChatService->postMessage(
+        $campaign_id,
+        $room_id,
+        $speaker,
+        $message,
+        'player',
+        $character_id
+      );
+
+      if (!empty($chat_result['dungeon_data']) && is_array($chat_result['dungeon_data'])) {
+        $dungeon_data = $chat_result['dungeon_data'];
+        $game_state = $dungeon_data['game_state'] ?? $game_state;
+      }
+
+      $chat_response = [
+        'gm_response' => $chat_result['gm_response'] ?? NULL,
+        'npc_interjections' => $chat_result['npc_interjections'] ?? [],
+        'quest_updates' => $chat_result['quest_updates'] ?? [],
+        'state_diff' => $chat_result['state_diff'] ?? [],
+        'combat_transition' => $chat_result['combat_transition'] ?? NULL,
+        'canonical_actions' => $chat_result['canonical_actions'] ?? [],
+      ];
+
+      return [
+        'talked' => TRUE,
+        'message' => $message,
+        'gm_response' => $chat_response['gm_response'],
+        'npc_interjections' => $chat_response['npc_interjections'],
+        'quest_updates' => $chat_response['quest_updates'],
+        'state_diff' => $chat_response['state_diff'],
+        'combat_transition' => $chat_response['combat_transition'],
+        'canonical_actions' => $chat_response['canonical_actions'],
+        'chat_response' => $chat_response,
+        'narration' => $chat_result['gm_response']['message'] ?? ($chat_result['gm_response']['text'] ?? NULL),
+        'mutations' => $chat_result['mutations'] ?? [],
+      ];
+    }
+    catch (\Throwable $e) {
+      $this->logger->error('Encounter talk failed: @error', ['@error' => $e->getMessage()]);
+      return [
+        'talked' => FALSE,
+        'error' => 'Chat service error.',
+        'mutations' => [],
+      ];
+    }
+  }
+
+  /**
+   * Resolve a character ID for the acting entity when available.
+   */
+  protected function resolveActorCharacterId(?string $actor_id, array $dungeon_data, array $params = []): ?int {
+    if (isset($params['character_id']) && is_numeric($params['character_id'])) {
+      return (int) $params['character_id'];
+    }
+    if (!$actor_id || empty($dungeon_data['entities']) || !is_array($dungeon_data['entities'])) {
+      return NULL;
+    }
+
+    foreach ($dungeon_data['entities'] as $entity) {
+      if (!is_array($entity)) {
+        continue;
+      }
+      $instance_id = $entity['entity_instance_id'] ?? ($entity['instance_id'] ?? ($entity['id'] ?? NULL));
+      if ((string) $instance_id !== (string) $actor_id) {
+        continue;
+      }
+      $content_id = $entity['entity_ref']['content_id'] ?? NULL;
+      return is_numeric($content_id) ? (int) $content_id : NULL;
     }
 
     return NULL;
@@ -3945,12 +4219,10 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
       $npc_events = $npc_result['events'] ?? [];
 
       // After NPC turn, recursively advance (NPC might be followed by another NPC).
-      if (!$this->isEncounterOver($encounter_id, $game_state)) {
-        $further = $this->processEndTurn($encounter_id, $next_entity, $game_state, $dungeon_data, $campaign_id);
-        $npc_events = array_merge($npc_events, $further['npc_events'] ?? []);
-        if (!$new_round && !empty($further['new_round'])) {
-          $new_round = $further['new_round'];
-        }
+      $further = $this->processEndTurn($encounter_id, $next_entity, $game_state, $dungeon_data, $campaign_id);
+      $npc_events = array_merge($npc_events, $further['npc_events'] ?? []);
+      if (!$new_round && !empty($further['new_round'])) {
+        $new_round = $further['new_round'];
       }
     }
 
@@ -4551,19 +4823,6 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
    * Checks if the encounter should end (all enemies defeated or all players defeated).
    */
   protected function checkEncounterEnd(int $encounter_id, array &$game_state): ?array {
-    if ($this->isEncounterOver($encounter_id, $game_state)) {
-      return [
-        'from' => 'encounter',
-        'to' => 'exploration',
-        'reason' => 'All enemies have been defeated!',
-        'encounter_result' => [
-          'encounter_id' => $encounter_id,
-          'final_round' => $game_state['round'] ?? NULL,
-          'victory' => TRUE,
-        ],
-      ];
-    }
-
     return NULL;
   }
 
@@ -4939,6 +5198,93 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
       $this->logger->warning('NarrationEngine queue failed: @err', ['@err' => $e->getMessage()]);
       return [];
     }
+  }
+
+  /**
+   * Mirror rolled encounter checks into the Dice Log.
+   */
+  protected function maybeQueueMechanicalSystemLogEntry(array $context): void {
+    $campaign_id = (int) ($context['campaign_id'] ?? 0);
+    $dungeon_data = is_array($context['dungeon_data'] ?? NULL) ? $context['dungeon_data'] : [];
+    $type = (string) ($context['type'] ?? '');
+    $actor_id = isset($context['actor_id']) ? (string) $context['actor_id'] : NULL;
+    $target_id = isset($context['target_id']) ? (string) $context['target_id'] : NULL;
+    $params = is_array($context['params'] ?? NULL) ? $context['params'] : [];
+    $result = is_array($context['result'] ?? NULL) ? $context['result'] : [];
+    $game_state = is_array($context['game_state'] ?? NULL) ? $context['game_state'] : [];
+
+    if (
+      !$this->narrationEngine
+      || !$actor_id
+      // Strike and seek already emit dedicated narration/system-log events.
+      || in_array($type, ['strike', 'seek'], TRUE)
+    ) {
+      return;
+    }
+
+    $dc = isset($result['dc']) && is_numeric($result['dc']) ? (int) $result['dc'] : NULL;
+    $total = NULL;
+    if (isset($result['total']) && is_numeric($result['total'])) {
+      $total = (int) $result['total'];
+    }
+    elseif (isset($result['roll']) && is_numeric($result['roll'])) {
+      $total = (int) $result['roll'];
+    }
+
+    if ($dc === NULL || $total === NULL) {
+      return;
+    }
+
+    $actor_name = $this->resolveEntityName($actor_id, $game_state, $dungeon_data);
+    $degree = isset($result['degree']) && is_string($result['degree']) ? $result['degree'] : 'resolved';
+    $action_label = ucwords(str_replace('_', ' ', $type));
+    $skill_name = $this->resolveMechanicalSkillName($type, $params, $result);
+    $detail_label = $skill_name
+      ? sprintf('%s via %s', $action_label, ucwords(str_replace('_', ' ', $skill_name)))
+      : $action_label;
+
+    $metadata = [
+      'action' => $type,
+      'skill' => $skill_name,
+      'roll' => isset($result['d20']) && is_numeric($result['d20']) ? (int) $result['d20'] : NULL,
+      'total' => $total,
+      'dc' => $dc,
+      'degree' => $degree,
+      'target' => $target_id,
+    ];
+    $metadata = array_filter($metadata, static fn($value) => $value !== NULL && $value !== '');
+
+    $this->queueNarrationEvent($campaign_id, $dungeon_data, [
+      'type' => 'skill_check_result',
+      'speaker' => 'System',
+      'speaker_type' => 'system',
+      'speaker_ref' => '',
+      'content' => sprintf('%s resolves %s (%d vs DC %d: %s).', $actor_name, $detail_label, $total, $dc, $degree),
+      'mechanical_data' => $metadata,
+      'visibility' => 'public',
+    ]);
+  }
+
+  /**
+   * Determine the most specific skill label available for a rolled encounter action.
+   */
+  protected function resolveMechanicalSkillName(string $type, array $params, array $result): ?string {
+    foreach (['skill_used', 'skill', 'skill_name'] as $key) {
+      $value = $result[$key] ?? $params[$key] ?? NULL;
+      if (is_string($value) && $value !== '') {
+        return strtolower($value);
+      }
+    }
+
+    return match ($type) {
+      'hide', 'create_a_diversion', 'lie', 'feint' => 'deception',
+      'recall_knowledge' => 'recall_knowledge',
+      'trip', 'grapple', 'shove', 'reposition', 'disarm' => 'athletics',
+      'treat_poison', 'battle_medicine', 'administer_first_aid' => 'medicine',
+      'disable_hazard', 'pick_a_lock' => 'thievery',
+      'perform' => 'performance',
+      default => NULL,
+    };
   }
 
   /**

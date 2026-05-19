@@ -334,7 +334,9 @@ class ConditionManager {
     }
 
     $dying_before = (int) $dying_row['value'];
-    $roll = mt_rand(1, 20);
+    $roll = $this->numberGeneration
+      ? $this->numberGeneration->rollPathfinderDie(20, NULL, 'recovery')
+      : mt_rand(1, 20);
 
     // REQ 2158: Recovery flat check DC = 10 + dying value (not hardcoded 10).
     $dc = 10 + $dying_before;
@@ -594,7 +596,7 @@ class ConditionManager {
 
       // Roll flat check DC 15 to end the persistent damage.
       $flat_check_roll = $this->numberGeneration
-        ? $this->numberGeneration->rollPathfinderDie(20)
+        ? $this->numberGeneration->rollPathfinderDie(20, NULL, 'flat_check')
         : mt_rand(1, 20);
       $ended = $flat_check_roll >= 15;
 

@@ -399,18 +399,6 @@ class CombatEngine {
     $encounter_after = $this->store->loadEncounter((int) $encounter_id);
     $participants_after = $encounter_after['participants'] ?? [];
 
-    $outcome = $this->evaluateEncounterOutcome($participants_after);
-    if ($outcome['ended']) {
-      $summary = $this->endEncounter((int) $encounter_id, $outcome['outcome'], $outcome['victory_condition']);
-      return [
-        'status' => 'ok',
-        'turn_ended' => TRUE,
-        'end_of_turn_effects' => $end_effects,
-        'encounter_ended' => TRUE,
-        'summary' => $summary,
-      ];
-    }
-
     $next_index = $turn_index + 1;
     $current_round = (int) ($encounter['current_round'] ?? 1);
     if ($next_index >= count($participants_after)) {

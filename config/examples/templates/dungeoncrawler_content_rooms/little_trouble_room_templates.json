@@ -33,6 +33,59 @@
         "creatures": [],
         "hazards": ["ltba-tomb-hazard"]
       }
+    },
+    {
+      "room_id": "ltba-grandmas-house-parlor",
+      "name": "Grandma's House Parlor",
+      "description": "A cozy front room filled with knitted blankets, tea service, and the immediate sense that the kobolds have entered a home that is loved and lived in. This is the ideal boxed-text location for the grandmother's request scene.",
+      "environment_tags": ["kobold", "urban", "home", "social", "quest-giver"],
+      "layout_data": {
+        "shape": "rectangle",
+        "width": 8,
+        "height": 6
+      },
+      "contents_data": {
+        "obstacles": ["rocking-chair", "tea-table", "book-shelf", "window-box"],
+        "npcs": [
+          {
+            "content_id": "ltba-grandmother",
+            "name": "The Kind Old Lady",
+            "role": "quest_giver",
+            "orientation": "se"
+          }
+        ],
+        "creatures": [],
+        "items": [],
+        "interactables": [
+          "tea-service",
+          "mending-basket",
+          "overgrown-garden-map"
+        ]
+      }
+    },
+    {
+      "room_id": "ltba-grandmas-house-garden",
+      "name": "Grandma's House Garden Shed",
+      "description": "Behind the house sits a cramped shed and a badly overgrown patch of garden where the missing magical hedge trimmer should have been left. This room gives the recovery scene a ready-made narrative anchor.",
+      "environment_tags": ["kobold", "urban", "garden", "quest-item", "investigation"],
+      "layout_data": {
+        "shape": "courtyard",
+        "width": 9,
+        "height": 7
+      },
+      "contents_data": {
+        "obstacles": ["tool-rack", "overgrown-hedge", "watering-barrel", "shed-door"],
+        "npcs": [],
+        "creatures": [],
+        "items": [
+          "ltba-magical-hedge-trimmer"
+        ],
+        "interactables": [
+          "tool-rack",
+          "shed-door",
+          "garden-path"
+        ]
+      }
     }
   ]
 }

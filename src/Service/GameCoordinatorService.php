@@ -267,6 +267,7 @@ class GameCoordinatorService {
     $current_phase = $game_state['phase'] ?? 'exploration';
     $current_handler = $this->getPhaseHandler($current_phase);
     $actor_id = $intent['actor'] ?? NULL;
+    $action_contract = $this->buildActionContract($current_handler, $game_state, $dungeon_data, $actor_id);
 
     // Collect any pending scene beats from NarrationEngine.
     $session_narration = NULL;
@@ -302,6 +303,7 @@ class GameCoordinatorService {
       'available_actions' => $current_handler
         ? $current_handler->getAvailableActions($game_state, $dungeon_data, $actor_id)
         : [],
+      'action_contract' => $action_contract,
       'state_version' => $game_state['state_version'],
       'time_effects' => $time_effects,
       'error' => NULL,
@@ -341,6 +343,7 @@ class GameCoordinatorService {
     }
     $phase = $game_state['phase'] ?? 'exploration';
     $handler = $this->getPhaseHandler($phase);
+    $action_contract = $this->buildActionContract($handler, $game_state, $dungeon_data);
 
     return [
       'success' => TRUE,
@@ -349,6 +352,7 @@ class GameCoordinatorService {
       'available_actions' => $handler
         ? $handler->getAvailableActions($game_state, $dungeon_data)
         : [],
+      'action_contract' => $action_contract,
       'legal_intents' => $handler ? $handler->getLegalIntents() : [],
       'state_version' => $game_state['state_version'] ?? 1,
       'active_room_id' => $dungeon_data['active_room_id'] ?? NULL,
@@ -441,6 +445,7 @@ class GameCoordinatorService {
     $this->persistDungeonData($campaign_id, $dungeon_data);
 
     $handler = $this->getPhaseHandler($target_phase);
+    $action_contract = $this->buildActionContract($handler, $game_state, $dungeon_data);
 
     return [
       'success' => TRUE,
@@ -450,6 +455,7 @@ class GameCoordinatorService {
       'available_actions' => $handler
         ? $handler->getAvailableActions($game_state, $dungeon_data)
         : [],
+      'action_contract' => $action_contract,
       'state_version' => $game_state['state_version'],
     ];
   }
@@ -851,8 +857,20 @@ class GameCoordinatorService {
       'phase_transition' => NULL,
       'narration' => NULL,
       'available_actions' => [],
+      'action_contract' => NULL,
       'state_version' => $game_state['state_version'] ?? NULL,
     ];
+  }
+
+  /**
+   * Build an explicit client action contract when the phase handler supports it.
+   */
+  protected function buildActionContract(?PhaseHandlerInterface $handler, array $game_state, array $dungeon_data, ?string $actor_id = NULL): ?array {
+    if ($handler !== NULL && method_exists($handler, 'getClientActionContract')) {
+      return $handler->getClientActionContract($game_state, $dungeon_data, $actor_id);
+    }
+
+    return NULL;
   }
 
 }

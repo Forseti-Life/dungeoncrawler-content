@@ -1,0 +1,86 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dungeoncrawler.life/schemas/objective_type_options.schema.json",
+  "title": "Objective Type Options Schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "objective_options"],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "enum": ["objective-type-options-v1"]
+    },
+    "objective_options": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "label",
+          "description",
+          "supports_children",
+          "object_contract",
+          "status_check",
+          "default_completion_criteria"
+        ],
+        "properties": {
+          "type": { "type": "string", "minLength": 1, "maxLength": 64 },
+          "label": { "type": "string", "minLength": 1, "maxLength": 120 },
+          "description": { "type": "string", "minLength": 1, "maxLength": 500 },
+          "aliases": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1, "maxLength": 64 }
+          },
+          "supports_children": { "type": "boolean" },
+          "object_contract": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["required_fields", "optional_fields", "progress_fields", "target_fields"],
+            "properties": {
+              "required_fields": {
+                "type": "array",
+                "items": { "type": "string", "minLength": 1, "maxLength": 64 }
+              },
+              "optional_fields": {
+                "type": "array",
+                "items": { "type": "string", "minLength": 1, "maxLength": 64 }
+              },
+              "progress_fields": {
+                "type": "array",
+                "items": { "type": "string", "minLength": 1, "maxLength": 64 }
+              },
+              "target_fields": {
+                "type": "array",
+                "items": { "type": "string", "minLength": 1, "maxLength": 64 }
+              }
+            }
+          },
+          "status_check": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["mode", "metric"],
+            "properties": {
+              "mode": { "type": "string", "enum": ["count", "flag", "all_children"] },
+              "metric": { "type": "string", "minLength": 1, "maxLength": 64 },
+              "target_field": { "type": "string", "minLength": 1, "maxLength": 64 }
+            }
+          },
+          "default_completion_criteria": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "metric", "description"],
+            "properties": {
+              "kind": { "type": "string", "enum": ["count", "flag", "all_children"] },
+              "metric": { "type": "string", "minLength": 1, "maxLength": 64 },
+              "description": { "type": "string", "minLength": 1, "maxLength": 1000 },
+              "target_count": { "type": "integer", "minimum": 1, "maximum": 9999 },
+              "required_value": { "type": "boolean" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

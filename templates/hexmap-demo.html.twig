@@ -230,6 +230,23 @@
               <input id="chat-input" type="text" placeholder="{{ 'Say something to the room...'|t }}" autocomplete="off" />
               <button id="chat-send" class="btn btn-primary" type="submit">{{ 'Send'|t }}</button>
             </form>
+            <div class="hexmap-chat__turn-status" id="chat-turn-status" hidden aria-live="polite" aria-atomic="true">
+              <span class="chat-turn-status__badge" id="chat-turn-role">{{ 'Player'|t }}</span>
+              <div class="chat-turn-status__content">
+                <div class="chat-turn-status__name" id="chat-turn-name">{{ 'You'|t }}</div>
+                <div class="chat-turn-status__meta" id="chat-turn-meta">{{ 'Player turn: write the next line or choose your next action.'|t }}</div>
+                <div class="chat-turn-status__rounds">
+                  <div class="chat-turn-status__round">
+                    <div class="chat-turn-status__round-label" id="chat-turn-current-round-label">{{ 'Current round order'|t }}</div>
+                    <div class="chat-turn-status__round-order" id="chat-turn-current-round-order">{{ 'Turn 1: Narrator'|t ~ "\n" ~ 'Turn 2: Game Master'|t ~ "\n" ~ 'Turn 3: NPC initiative order'|t }}</div>
+                  </div>
+                  <div class="chat-turn-status__round">
+                    <div class="chat-turn-status__round-label" id="chat-turn-next-round-label">{{ 'Next round order'|t }}</div>
+                    <div class="chat-turn-status__round-order" id="chat-turn-next-round-order">{{ 'Turn 1: Narrator'|t ~ "\n" ~ 'Turn 2: Game Master'|t ~ "\n" ~ 'Turn 3: NPC initiative order'|t }}</div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -539,6 +556,8 @@
         <button class="inv-filter" data-filter="misc">{{ 'Misc'|t }}</button>
       </div>
 
+      <div class="inventory-panel__status" id="inv-action-status" aria-live="polite" hidden></div>
+
       <ul class="inventory-panel__list" id="inv-item-list">
         <li class="inventory-panel__empty">{{ 'No items in inventory'|t }}</li>
       </ul>
@@ -550,7 +569,13 @@
     <div class="hexmap-quest-journal hexmap-quest-journal--sidebar" id="quest-journal">
       <div class="hexmap-quest-journal__header">
         <h3>{{ 'Quest Journal'|t }}</h3>
-        <span class="chip chip-strong" id="quest-count">0</span>
+        <div class="hexmap-quest-journal__header-meta">
+          <div class="hexmap-quest-journal__controls" aria-label="{{ 'Quest journal controls'|t }}">
+            <button type="button" class="hexmap-quest-journal__control-btn" id="quest-expand-all">{{ 'Expand all'|t }}</button>
+            <button type="button" class="hexmap-quest-journal__control-btn" id="quest-collapse-all">{{ 'Collapse all'|t }}</button>
+          </div>
+          <span class="chip chip-strong" id="quest-count">0</span>
+        </div>
       </div>
       <ul class="hexmap-quest-journal__list" id="quest-list">
         <li class="quest-empty">{{ 'No active quests'|t }}</li>
@@ -1166,68 +1191,17 @@
 
     /* ---- Inventory Sync (mirrors char-sheet data) ---- */
     function syncInventory() {
-      if (window.dcInventoryPanelManaged) {
-        var managedList = document.getElementById('inv-item-list');
-        if (managedList) {
-          attachTooltips(managedList);
-        }
-        if (typeof window.dcApplyInventoryFilter === 'function') {
-          window.dcApplyInventoryFilter();
-        }
+      if (typeof window.dcRefreshInventoryPanel === 'function' && window.dcRefreshInventoryPanel()) {
         return;
       }
 
-      // Currency — copy from character sheet
-      var gp = document.getElementById('char-gp');
-      var sp = document.getElementById('char-sp');
-      var cp = document.getElementById('char-cp');
-      if (gp) document.getElementById('inv-gp').textContent = gp.textContent;
-      if (sp) document.getElementById('inv-sp').textContent = sp.textContent;
-      if (cp) document.getElementById('inv-cp').textContent = cp.textContent;
-
-      // Items — clone from character sheet inventory list
-      var srcList = document.getElementById('char-inventory');
-      var dstList = document.getElementById('inv-item-list');
-      if (!srcList || !dstList) return;
-
-      var items = srcList.querySelectorAll('li:not(.inventory-empty)');
-      if (items.length === 0) {
-        dstList.innerHTML = '<li class="inventory-panel__empty">No items in inventory</li>';
-        return;
+      var managedList = document.getElementById('inv-item-list');
+      if (managedList) {
+        attachTooltips(managedList);
       }
-
-      dstList.innerHTML = '';
-      items.forEach(function (li) {
-        var text = li.textContent.trim();
-        var itemId = li.dataset.itemId || '';
-        var info = getItemInfo(itemId, text);
-        var rawType = li.dataset.type || (info && info.type) || 'utility';
-        // Normalize legacy type names → current categories
-        var typeMap = { adventuring_gear:'utility', gear:'utility', potion:'consumable', alchemical:'consumable' };
-        var type = typeMap[rawType] || rawType;
-        var qty  = li.dataset.qty || '';
-        var bulk = li.dataset.bulk || (info && info.bulk != null ? String(info.bulk) : '');
-        var desc = li.dataset.desc || (info && info.desc) || '';
-        var icon = { weapon: 'W', armor: 'A', consumable: 'C', utility: 'U', misc: 'M' }[type] || 'I';
-        var el = document.createElement('li');
-        el.className = 'inv-item';
-        el.dataset.type = type;
-        el.dataset.itemId = itemId;
-        el.dataset.desc = desc;
-        el.dataset.bulk = bulk;
-        if (info && info.damage) el.dataset.damage = info.damage;
-        if (info && info.traits) el.dataset.traits = info.traits;
-        el.innerHTML =
-          '<span class="inv-item__icon">' + icon + '</span>' +
-          '<div class="inv-item__info">' +
-            '<div class="inv-item__name">' + text + '</div>' +
-            '<div class="inv-item__meta">' + type + (bulk ? ' · Bulk ' + bulk : '') + '</div>' +
-          '</div>' +
-          (qty && parseInt(qty) > 1 ? '<span class="inv-item__qty">×' + qty + '</span>' : '');
-        dstList.appendChild(el);
-      });
-
-      attachTooltips(dstList);
+      if (typeof window.dcApplyInventoryFilter === 'function') {
+        window.dcApplyInventoryFilter();
+      }
     }
 
     /* ---- Inventory Filter ---- */

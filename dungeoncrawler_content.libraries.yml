@@ -157,6 +157,7 @@ character-step-8:
 
 # Hex Map with PixiJS + ECS
 hexmap:
+  version: 20260518-inventory-feedback-10
   js:
     # PixiJS CDN (version locked for stability)
     https://cdn.jsdelivr.net/npm/pixi.js@7.3.2/dist/pixi.min.js: { type: external, minified: true }

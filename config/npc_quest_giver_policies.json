@@ -1,0 +1,78 @@
+{
+  "schema_version": "npc-quest-giver-policies-v1",
+  "policies": [
+    {
+      "policy_id": "npc-tavern-keeper",
+      "giver_ids": ["npc_tavern_keeper"],
+      "allowed_quest_template_ids": [
+        "tavern_storyline_leads",
+        "gather_wine",
+        "gather_torch_components",
+        "gather_two_room_items",
+        "ltba-enter-the-vault",
+        "ltba-clear-the-tomb",
+        "ltba-accept-the-task",
+        "ltba-retrieve-hedge-trimmer",
+        "tok-find-the-missing-teacher",
+        "tok-gather-campus-clues",
+        "tok-follow-city-leads",
+        "tok-resolve-the-threat",
+        "tal-accept-the-mission",
+        "tal-win-the-opening-fight"
+      ],
+      "allowed_storyline_template_ids": [
+        "little-trouble-in-big-absalom",
+        "threshold-of-knowledge",
+        "torment-and-legacy"
+      ],
+      "notes": "The tavern keeper brokers starter errands and storyline leads."
+    },
+    {
+      "policy_id": "scholar-npc",
+      "giver_ids": ["scholar_npc"],
+      "allowed_quest_template_ids": [
+        "collect_spellbooks"
+      ],
+      "allowed_storyline_template_ids": [],
+      "notes": "The scholar NPC only offers the spellbook recovery errand."
+    },
+    {
+      "policy_id": "ltba-grandmother",
+      "giver_ids": ["ltba-grandmother"],
+      "allowed_quest_template_ids": [
+        "ltba-accept-the-task",
+        "ltba-retrieve-hedge-trimmer"
+      ],
+      "allowed_storyline_template_ids": [
+        "little-trouble-in-big-absalom"
+      ],
+      "notes": "Grandmother only issues her own Little Trouble follow-up quests."
+    },
+    {
+      "policy_id": "tok-campus-mentor",
+      "giver_ids": ["tok-campus-mentor"],
+      "allowed_quest_template_ids": [
+        "tok-find-the-missing-teacher",
+        "tok-gather-campus-clues",
+        "tok-follow-city-leads",
+        "tok-resolve-the-threat"
+      ],
+      "allowed_storyline_template_ids": [
+        "threshold-of-knowledge"
+      ],
+      "notes": "The campus mentor owns Threshold of Knowledge quest handoff."
+    },
+    {
+      "policy_id": "tal-mission-handler",
+      "giver_ids": ["tal-mission-handler"],
+      "allowed_quest_template_ids": [
+        "tal-accept-the-mission",
+        "tal-win-the-opening-fight"
+      ],
+      "allowed_storyline_template_ids": [
+        "torment-and-legacy"
+      ],
+      "notes": "The mission handler owns Torment and Legacy quest handoff."
+    }
+  ]
+}

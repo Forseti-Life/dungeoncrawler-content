@@ -5,7 +5,13 @@
   "quest_type": "main_quest",
   "level_min": 1,
   "level_max": 3,
-  "tags": ["tavern", "onboarding", "story", "social", "beginner"],
+  "tags": [
+    "tavern",
+    "onboarding",
+    "story",
+    "social",
+    "beginner"
+  ],
   "objectives_schema": [
     {
       "phase": 1,
@@ -14,13 +20,25 @@
           "objective_id": "speak_to_eldric",
           "type": "interact",
           "target": "tavern_keeper",
-          "description": "Speak to Eldric and gather his storyline lead."
+          "description": "Speak to Eldric and gather his storyline lead.",
+          "completion_criteria": {
+            "kind": "flag",
+            "metric": "completed",
+            "required_value": true,
+            "description": "Mark this objective complete."
+          }
         },
         {
           "objective_id": "speak_to_marta",
           "type": "interact",
           "target": "scholar_npc",
-          "description": "Speak to Marta the Scholar and gather her storyline lead."
+          "description": "Speak to Marta the Scholar and gather her storyline lead.",
+          "completion_criteria": {
+            "kind": "flag",
+            "metric": "completed",
+            "required_value": true,
+            "description": "Mark this objective complete."
+          }
         }
       ]
     },
@@ -30,8 +48,14 @@
         {
           "objective_id": "follow_best_lead",
           "type": "explore",
-          "target": "next_story_location",
-          "description": "Follow the strongest tavern lead and head to the next location."
+          "description": "Follow the strongest tavern lead and head to the next location.",
+          "location": "next_story_location",
+          "completion_criteria": {
+            "kind": "flag",
+            "metric": "discovered",
+            "required_value": true,
+            "description": "Discover the required location."
+          }
         }
       ]
     }

@@ -57,7 +57,7 @@ class Calculator {
    * @see /docs/dungeoncrawler/issues/combat-engine-service.md#calculateinitiative
    */
   public function calculateInitiative($perception_modifier, array $bonuses = []) {
-    $roll = $this->numberGeneration->rollPathfinderDie(20);
+    $roll = $this->numberGeneration->rollPathfinderDie(20, NULL, 'initiative');
     $modifier = (int) $perception_modifier;
     $bonus_sum = BonusResolver::resolve($bonuses);
     $total = $roll + $modifier + $bonus_sum;
@@ -230,7 +230,7 @@ class Calculator {
    * @see /docs/dungeoncrawler/issues/combat-engine-service.md#rolldamage
    */
   public function rollDamage($damage_dice, $ability_modifier = 0, array $bonuses = []) {
-    $result = $this->numberGeneration->rollNotation((string) $damage_dice);
+    $result = $this->numberGeneration->rollNotation((string) $damage_dice, NULL, 'damage');
     $dice_total = (int) ($result['subtotal'] ?? array_sum($result['rolls'] ?? [0]));
     $notation_modifier = (int) ($result['modifier'] ?? 0);
     $ability_mod = (int) $ability_modifier;
@@ -406,7 +406,7 @@ class Calculator {
    *    'is_natural_20' => bool]
    */
   public function rollSavingThrow($ability_mod, $proficiency = 0, $item_bonus = 0, array $other_bonuses = []) {
-    $roll = $this->numberGeneration->rollPathfinderDie(20);
+    $roll = $this->numberGeneration->rollPathfinderDie(20, NULL, 'save');
     $modifier = (int) $ability_mod + (int) $proficiency + (int) $item_bonus
               + BonusResolver::resolve($other_bonuses);
     $total = $roll + $modifier;
@@ -472,22 +472,22 @@ class Calculator {
 
     if ($fortune && $misfortune) {
       // Reqs 2107: cancel each other — single roll.
-      $roll = $this->numberGeneration->rollPathfinderDie(20);
+      $roll = $this->numberGeneration->rollPathfinderDie(20, NULL, 'flat_check');
     }
     elseif ($fortune) {
       // Req 2105: take higher.
-      $r1 = $this->numberGeneration->rollPathfinderDie(20);
-      $r2 = $this->numberGeneration->rollPathfinderDie(20);
+      $r1 = $this->numberGeneration->rollPathfinderDie(20, NULL, 'flat_check');
+      $r2 = $this->numberGeneration->rollPathfinderDie(20, NULL, 'flat_check');
       $roll = max($r1, $r2);
     }
     elseif ($misfortune) {
       // Req 2106: take lower.
-      $r1 = $this->numberGeneration->rollPathfinderDie(20);
-      $r2 = $this->numberGeneration->rollPathfinderDie(20);
+      $r1 = $this->numberGeneration->rollPathfinderDie(20, NULL, 'flat_check');
+      $r2 = $this->numberGeneration->rollPathfinderDie(20, NULL, 'flat_check');
       $roll = min($r1, $r2);
     }
     else {
-      $roll = $this->numberGeneration->rollPathfinderDie(20);
+      $roll = $this->numberGeneration->rollPathfinderDie(20, NULL, 'flat_check');
     }
 
     return [
@@ -509,7 +509,7 @@ class Calculator {
    * @return array Keys: original_roll, new_roll, used_result (= new_roll), is_fortune (true).
    */
   public function heroPointReroll(int $original_roll): array {
-    $new_roll = $this->numberGeneration->rollPathfinderDie(20);
+    $new_roll = $this->numberGeneration->rollPathfinderDie(20, NULL, 'hero_point_reroll');
     return [
       'original_roll' => $original_roll,
       'new_roll'      => $new_roll,
@@ -519,7 +519,7 @@ class Calculator {
   }
 
   public function rollSkillCheck($ability_mod, $proficiency = 0, array $bonuses = [], array $penalties = []) {
-    $roll = $this->numberGeneration->rollPathfinderDie(20);
+    $roll = $this->numberGeneration->rollPathfinderDie(20, NULL, 'skill');
     $modifier = (int) $ability_mod + (int) $proficiency
               + BonusResolver::resolve($bonuses)
               + BonusResolver::resolvePenalties($penalties);

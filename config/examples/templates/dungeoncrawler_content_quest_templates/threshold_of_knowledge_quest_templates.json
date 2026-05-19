@@ -7,7 +7,12 @@
       "quest_type": "module_story",
       "level_min": 1,
       "level_max": 1,
-      "tags": ["module", "threshold-of-knowledge", "mystery", "academy"],
+      "tags": [
+        "module",
+        "threshold-of-knowledge",
+        "mystery",
+        "academy"
+      ],
       "objectives_schema": [
         {
           "phase": 1,
@@ -15,7 +20,15 @@
             {
               "objective_id": "identify_last_known_location",
               "type": "investigate",
-              "description": "Determine where the teacher disappeared from the Magaambya."
+              "description": "Determine where the teacher disappeared from the Magaambya.",
+              "target": "tok-missing-teacher",
+              "target_count": 1,
+              "completion_criteria": {
+                "kind": "count",
+                "metric": "current",
+                "target_count": 1,
+                "description": "Reach the required progress count."
+              }
             }
           ]
         }
@@ -41,7 +54,12 @@
       "quest_type": "module_story",
       "level_min": 1,
       "level_max": 1,
-      "tags": ["module", "threshold-of-knowledge", "investigation", "academy"],
+      "tags": [
+        "module",
+        "threshold-of-knowledge",
+        "investigation",
+        "academy"
+      ],
       "objectives_schema": [
         {
           "phase": 1,
@@ -49,7 +67,15 @@
             {
               "objective_id": "collect_magaambya_clues",
               "type": "investigate",
-              "description": "Collect enough evidence on campus to follow the mystery into Nantambu."
+              "description": "Collect enough evidence on campus to follow the mystery into Nantambu.",
+              "target": "magaambya",
+              "target_count": 1,
+              "completion_criteria": {
+                "kind": "count",
+                "metric": "current",
+                "target_count": 1,
+                "description": "Reach the required progress count."
+              }
             }
           ]
         }
@@ -75,7 +101,12 @@
       "quest_type": "module_story",
       "level_min": 1,
       "level_max": 1,
-      "tags": ["module", "threshold-of-knowledge", "city", "mystery"],
+      "tags": [
+        "module",
+        "threshold-of-knowledge",
+        "city",
+        "mystery"
+      ],
       "objectives_schema": [
         {
           "phase": 1,
@@ -83,7 +114,14 @@
             {
               "objective_id": "trace_nantambu_leads",
               "type": "explore",
-              "description": "Follow the strongest leads through the city."
+              "description": "Follow the strongest leads through the city.",
+              "completion_criteria": {
+                "kind": "flag",
+                "metric": "discovered",
+                "required_value": true,
+                "description": "Discover the required location."
+              },
+              "location": "nantambu"
             }
           ]
         }
@@ -109,15 +147,27 @@
       "quest_type": "module_story",
       "level_min": 1,
       "level_max": 1,
-      "tags": ["module", "threshold-of-knowledge", "resolution", "academy"],
+      "tags": [
+        "module",
+        "threshold-of-knowledge",
+        "resolution",
+        "academy"
+      ],
       "objectives_schema": [
         {
           "phase": 1,
           "objectives": [
             {
               "objective_id": "stop_the_underlying_threat",
-              "type": "resolve",
-              "description": "Defuse the danger tied to the missing teacher and secure the academy."
+              "type": "interact",
+              "description": "Defuse the danger tied to the missing teacher and secure the academy.",
+              "target": "tok-underlying-threat",
+              "completion_criteria": {
+                "kind": "flag",
+                "metric": "completed",
+                "required_value": true,
+                "description": "Mark this objective complete."
+              }
             }
           ]
         }

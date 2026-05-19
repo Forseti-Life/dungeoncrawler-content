@@ -5,7 +5,10 @@
   "quest_type": "side_quest",
   "level_min": 1,
   "level_max": 4,
-  "tags": ["gathering", "exploration"],
+  "tags": [
+    "gathering",
+    "exploration"
+  ],
   "objectives_schema": [
     {
       "phase": 1,
@@ -14,8 +17,17 @@
           "objective_id": "collect_herbs",
           "type": "collect",
           "item": "{herb_name}",
-          "target_count_range": [5, 8],
-          "description": "Collect {herb_name} from {location}"
+          "target_count_range": [
+            5,
+            8
+          ],
+          "description": "Collect {herb_name} from {location}",
+          "completion_criteria": {
+            "kind": "count",
+            "metric": "current",
+            "target_count": 1,
+            "description": "Reach the required progress count."
+          }
         }
       ]
     },
@@ -26,7 +38,13 @@
           "objective_id": "return_herbs",
           "type": "interact",
           "target": "alchemist",
-          "description": "Return the herbs to the alchemist"
+          "description": "Return the herbs to the alchemist",
+          "completion_criteria": {
+            "kind": "flag",
+            "metric": "completed",
+            "required_value": true,
+            "description": "Mark this objective complete."
+          }
         }
       ]
     }

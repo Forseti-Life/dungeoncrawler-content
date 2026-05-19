@@ -35,8 +35,8 @@
         "source_module": "little-trouble-in-big-absalom",
         "description": "The old woman who asks the kobolds to recover her magical hedge trimmer."
       },
-      "location_type": "global",
-      "location_ref": ""
+      "location_type": "room",
+      "location_ref": "ltba-grandmas-house-parlor"
     }
   ]
 }

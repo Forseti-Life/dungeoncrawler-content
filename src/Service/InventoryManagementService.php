@@ -133,22 +133,12 @@ class InventoryManagementService {
     ];
 
     foreach ($items as $item_row) {
-      $state = json_decode($item_row['state_data'], TRUE) ?? [];
-      
-      $item_data = [
-        'item_instance_id' => $item_row['item_instance_id'],
-        'item_id' => $item_row['item_id'],
-        'quantity' => (int) $item_row['quantity'],
-        'location' => $item_row['location_type'],
-        ...($state ?? []),
-      ];
-      $item_data['inventory_metadata'] = $this->buildInventoryMetadata($item_data);
-
-      $location = $item_row['location_type'];
+      $item_data = $this->hydrateCharacterInventoryItemRow($item_row);
+      $location = (string) ($item_data['location'] ?? 'carried');
 
       switch ($location) {
         case 'worn':
-          $type = $state['type'] ?? $state['item_type'] ?? 'accessory';
+          $type = $item_data['type'] ?? $item_data['item_type'] ?? 'accessory';
           $equip_slot = (string) ($item_data['inventory_metadata']['equip_slot'] ?? '');
           if ($type === 'weapon' || $equip_slot === 'held') {
             $inventory['worn']['weapons'][] = $item_data;
@@ -189,6 +179,39 @@ class InventoryManagementService {
     $inventory['encumbrance'] = $this->getEncumbranceStatus($current_bulk, $str_score);
 
     return CharacterEquipmentSlotHelper::normalizeInventory($inventory);
+  }
+
+  /**
+   * Hydrate one character inventory row with canonical template metadata.
+   */
+  protected function hydrateCharacterInventoryItemRow(array $item_row): array {
+    $state = json_decode((string) ($item_row['state_data'] ?? '{}'), TRUE) ?: [];
+    $location = $this->normalizeCharacterInventoryLocationType($item_row['location_type'] ?? NULL);
+    $raw_item_data = [
+      'id' => (string) ($item_row['item_id'] ?? ''),
+      'item_id' => (string) ($item_row['item_id'] ?? ''),
+      'item_instance_id' => (string) ($item_row['item_instance_id'] ?? ''),
+      'quantity' => (int) ($item_row['quantity'] ?? 1),
+      'location' => $location,
+      ...$state,
+    ];
+    $item_data = $this->normalizeIncomingItemData($raw_item_data);
+    $item_data['item_instance_id'] = (string) ($item_row['item_instance_id'] ?? '');
+    $item_data['item_id'] = (string) ($item_row['item_id'] ?? ($item_data['id'] ?? ''));
+    $item_data['quantity'] = (int) ($item_row['quantity'] ?? 1);
+    $item_data['location'] = $location;
+
+    return $item_data;
+  }
+
+  /**
+   * Normalize legacy character inventory locations to canonical carry buckets.
+   */
+  protected function normalizeCharacterInventoryLocationType(?string $location_type): string {
+    return match (strtolower(trim((string) $location_type))) {
+      '', 'character_inventory' => 'carried',
+      default => strtolower(trim((string) $location_type)),
+    };
   }
 
   /**
@@ -1392,14 +1415,14 @@ class InventoryManagementService {
     ?string $equipped_slot_key = NULL,
     mixed $equipped_slot_index = NULL,
   ): array {
-    $this->validateOwner($owner_id, $owner_type);
-
-    $valid_locations = ['carried', 'equipped', 'worn', 'stashed', 'dropped'];
-    if (!in_array($new_location, $valid_locations)) {
-      throw new \InvalidArgumentException("Invalid location: {$new_location}");
-    }
-
     try {
+      $this->validateOwner($owner_id, $owner_type);
+
+      $valid_locations = ['carried', 'equipped', 'worn', 'stashed', 'dropped'];
+      if (!in_array($new_location, $valid_locations)) {
+        throw new \InvalidArgumentException("Invalid location: {$new_location}");
+      }
+
       $transaction = $this->database->startTransaction();
 
       $item_query = $this->database->select('dc_campaign_item_instances', 'i')
@@ -1476,6 +1499,8 @@ class InventoryManagementService {
         [
           'item_instance_id' => $item_instance_id,
           'new_location' => $new_location,
+          'equipped_slot_key' => $equipped_slot_key,
+          'equipped_slot_index' => CharacterEquipmentSlotHelper::normalizeEquippedSlotIndex($equipped_slot_index),
         ]
       );
 
@@ -1488,6 +1513,19 @@ class InventoryManagementService {
     }
     catch (\Exception $e) {
       $transaction->rollBack();
+      $this->logInventoryOperation(
+        'change_location_failed',
+        $owner_id,
+        $owner_type,
+        $campaign_id,
+        [
+          'item_instance_id' => $item_instance_id,
+          'new_location' => $new_location,
+          'equipped_slot_key' => $equipped_slot_key,
+          'equipped_slot_index' => CharacterEquipmentSlotHelper::normalizeEquippedSlotIndex($equipped_slot_index),
+          'error' => $e->getMessage(),
+        ]
+      );
       throw $e;
     }
   }
@@ -1595,7 +1633,7 @@ class InventoryManagementService {
    */
   protected function getBulkLocationTypesForOwnerType(string $owner_type): array {
     return match ($owner_type) {
-      'character' => ['carried', 'worn', 'equipped', 'stashed'],
+      'character' => ['carried', 'worn', 'equipped', 'stashed', 'character_inventory'],
       'container' => ['container'],
       'room' => ['room'],
       default => [$this->ownerTypeToLocationType($owner_type)],

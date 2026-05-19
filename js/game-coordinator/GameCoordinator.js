@@ -115,7 +115,7 @@ export class GameCoordinator {
     try {
       const state = await this.api.getState();
       if (state?.success) {
-        this.phaseManager.applyServerState(state.game_state, state.available_actions);
+        this.phaseManager.applyServerState(state.game_state, state.available_actions, state.action_contract || null);
         this.eventCursor = state.game_state?.event_log_cursor || 0;
         if (state.events?.length) {
           const latestBootstrapEventId = Math.max(...state.events.map((event) => Number(event?.id || 0)));
@@ -252,7 +252,7 @@ export class GameCoordinator {
     try {
       const result = await this.api.transitionPhase(targetPhase, context);
       if (result?.success) {
-        this.phaseManager.applyServerState(result.game_state, result.available_actions);
+        this.phaseManager.applyServerState(result.game_state, result.available_actions, result.action_contract || null);
         this._processNewEvents(result.events);
       }
       return result;
@@ -276,7 +276,7 @@ export class GameCoordinator {
     }
 
     if (result.game_state) {
-      this.phaseManager.applyServerState(result.game_state, result.available_actions || []);
+      this.phaseManager.applyServerState(result.game_state, result.available_actions || [], result.action_contract || null);
       const cursor = Number(
         result.game_state?.event_log_cursor
         ?? result.event_log_cursor
@@ -311,6 +311,7 @@ export class GameCoordinator {
     if (isActiveEncounter) {
       const currentRound = Number(serverState.current_round);
       const projectedTurn = this._buildProjectedEncounterTurn(serverState);
+      const actionContract = this._buildEncounterActionContract(serverState, projectedTurn);
       this.phaseManager.applyServerState({
         phase: 'encounter',
         state_version: Number(serverState.version) || this.phaseManager.stateVersion || 0,
@@ -319,7 +320,7 @@ export class GameCoordinator {
         encounter_id: encounterId,
         initiative_order: Array.isArray(serverState.initiative_order) ? serverState.initiative_order : [],
         event_log_cursor: this.eventCursor || 0,
-      }, this._deriveEncounterActions(serverState, projectedTurn));
+      }, actionContract.available_actions || [], actionContract);
       return;
     }
 
@@ -332,7 +333,7 @@ export class GameCoordinator {
         encounter_id: null,
         initiative_order: null,
         event_log_cursor: this.eventCursor || 0,
-      }, this._defaultExplorationActions());
+      }, this._defaultExplorationActions(), null);
     }
   }
 
@@ -414,6 +415,40 @@ export class GameCoordinator {
     }
 
     return Array.from(new Set(actions));
+  }
+
+  /**
+   * Build a canonical encounter action contract for client consumers.
+   *
+   * @param {object} serverState
+   * @param {object|null} projectedTurn
+   * @returns {object}
+   * @private
+   */
+  _buildEncounterActionContract(serverState, projectedTurn) {
+    const availableActions = this._deriveEncounterActions(serverState, projectedTurn);
+    const definitions = {
+      strike: { label: 'Strike', cost: 1, category: 'offense', requires_turn: true, targeting: 'hostile_entity' },
+      stride: { label: 'Stride', cost: 1, category: 'movement', requires_turn: true, targeting: 'hex' },
+      interact: { label: 'Interact', cost: 1, category: 'utility', requires_turn: true, targeting: 'entity_or_object' },
+      cast_spell: { label: 'Cast Spell', cost: 2, category: 'magic', requires_turn: true, targeting: 'contextual' },
+      talk: { label: 'Talk', cost: 0, category: 'conversation', requires_turn: true, targeting: 'entity_or_room' },
+      end_turn: { label: 'End Turn', cost: 0, category: 'turn', requires_turn: true, targeting: 'none' },
+      delay: { label: 'Delay', cost: 0, category: 'turn', requires_turn: true, targeting: 'none' },
+      reaction: { label: 'Reaction', cost: 'reaction', category: 'reaction', requires_turn: false, targeting: 'contextual' },
+    };
+
+    return {
+      phase: 'encounter',
+      actor_id: projectedTurn?.entity || null,
+      current_turn_entity: projectedTurn?.entity || null,
+      available_actions: availableActions,
+      actions: Object.entries(definitions).map(([id, definition]) => ({
+        id,
+        ...definition,
+        available: availableActions.includes(id),
+      })),
+    };
   }
 
   /**

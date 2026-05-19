@@ -1,0 +1,169 @@
+{
+  "schema_version": "objective-type-options-v1",
+  "objective_options": [
+    {
+      "type": "collect",
+      "label": "Collect",
+      "description": "Gather one or more items.",
+      "aliases": ["gather"],
+      "supports_children": false,
+      "object_contract": {
+        "required_fields": ["objective_id", "description", "item"],
+        "optional_fields": ["current", "target_count", "completion_criteria", "children"],
+        "progress_fields": ["current", "target_count"],
+        "target_fields": ["item"]
+      },
+      "status_check": {
+        "mode": "count",
+        "metric": "current",
+        "target_field": "target_count"
+      },
+      "default_completion_criteria": {
+        "kind": "count",
+        "metric": "current",
+        "target_count": 1,
+        "description": "Reach the required progress count."
+      }
+    },
+    {
+      "type": "kill",
+      "label": "Kill",
+      "description": "Defeat one or more hostile targets.",
+      "aliases": ["defeat", "slay"],
+      "supports_children": false,
+      "object_contract": {
+        "required_fields": ["objective_id", "description", "target"],
+        "optional_fields": ["current", "target_count", "completion_criteria", "children"],
+        "progress_fields": ["current", "target_count"],
+        "target_fields": ["target"]
+      },
+      "status_check": {
+        "mode": "count",
+        "metric": "current",
+        "target_field": "target_count"
+      },
+      "default_completion_criteria": {
+        "kind": "count",
+        "metric": "current",
+        "target_count": 1,
+        "description": "Reach the required progress count."
+      }
+    },
+    {
+      "type": "investigate",
+      "label": "Investigate",
+      "description": "Resolve an investigation target, clue, or lead.",
+      "aliases": ["clue", "search"],
+      "supports_children": false,
+      "object_contract": {
+        "required_fields": ["objective_id", "description", "target"],
+        "optional_fields": ["current", "target_count", "completion_criteria", "children"],
+        "progress_fields": ["current", "target_count"],
+        "target_fields": ["target"]
+      },
+      "status_check": {
+        "mode": "count",
+        "metric": "current",
+        "target_field": "target_count"
+      },
+      "default_completion_criteria": {
+        "kind": "count",
+        "metric": "current",
+        "target_count": 1,
+        "description": "Reach the required progress count."
+      }
+    },
+    {
+      "type": "explore",
+      "label": "Explore",
+      "description": "Reach or discover a location.",
+      "aliases": ["travel"],
+      "supports_children": false,
+      "object_contract": {
+        "required_fields": ["objective_id", "description", "location"],
+        "optional_fields": ["discovered", "completion_criteria", "children"],
+        "progress_fields": ["discovered"],
+        "target_fields": ["location"]
+      },
+      "status_check": {
+        "mode": "flag",
+        "metric": "discovered"
+      },
+      "default_completion_criteria": {
+        "kind": "flag",
+        "metric": "discovered",
+        "required_value": true,
+        "description": "Discover the required location."
+      }
+    },
+    {
+      "type": "escort",
+      "label": "Escort",
+      "description": "Move a target safely to a destination.",
+      "aliases": ["deliver"],
+      "supports_children": false,
+      "object_contract": {
+        "required_fields": ["objective_id", "description", "destination"],
+        "optional_fields": ["npc_id", "arrived", "completion_criteria", "children"],
+        "progress_fields": ["arrived"],
+        "target_fields": ["destination", "npc_id"]
+      },
+      "status_check": {
+        "mode": "flag",
+        "metric": "arrived"
+      },
+      "default_completion_criteria": {
+        "kind": "flag",
+        "metric": "arrived",
+        "required_value": true,
+        "description": "Reach the required destination."
+      }
+    },
+    {
+      "type": "interact",
+      "label": "Interact",
+      "description": "Speak with, use, or trigger a target.",
+      "aliases": ["talk", "use"],
+      "supports_children": false,
+      "object_contract": {
+        "required_fields": ["objective_id", "description", "target"],
+        "optional_fields": ["completed", "completion_criteria", "children"],
+        "progress_fields": ["completed"],
+        "target_fields": ["target"]
+      },
+      "status_check": {
+        "mode": "flag",
+        "metric": "completed"
+      },
+      "default_completion_criteria": {
+        "kind": "flag",
+        "metric": "completed",
+        "required_value": true,
+        "description": "Mark this objective complete."
+      }
+    },
+    {
+      "type": "composite",
+      "label": "Composite",
+      "description": "A parent objective completed by finishing all nested child objectives.",
+      "aliases": ["objective", "group"],
+      "supports_children": true,
+      "object_contract": {
+        "required_fields": ["objective_id", "description", "children"],
+        "optional_fields": ["completion_criteria", "completed"],
+        "progress_fields": [],
+        "target_fields": []
+      },
+      "status_check": {
+        "mode": "all_children",
+        "metric": "children_completed"
+      },
+      "default_completion_criteria": {
+        "kind": "all_children",
+        "metric": "children_completed",
+        "required_value": true,
+        "description": "Complete all nested objectives."
+      }
+    }
+  ]
+}

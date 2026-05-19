@@ -7,7 +7,12 @@
       "quest_type": "module_story",
       "level_min": 1,
       "level_max": 1,
-      "tags": ["module", "torment-and-legacy", "tutorial", "briefing"],
+      "tags": [
+        "module",
+        "torment-and-legacy",
+        "tutorial",
+        "briefing"
+      ],
       "objectives_schema": [
         {
           "phase": 1,
@@ -15,7 +20,14 @@
             {
               "objective_id": "accept_demo_briefing",
               "type": "interact",
-              "description": "Hear the mission briefing and commit the party to the adventure."
+              "description": "Hear the mission briefing and commit the party to the adventure.",
+              "target": "tal-mission-handler",
+              "completion_criteria": {
+                "kind": "flag",
+                "metric": "completed",
+                "required_value": true,
+                "description": "Mark this objective complete."
+              }
             }
           ]
         }
@@ -41,15 +53,28 @@
       "quest_type": "module_story",
       "level_min": 1,
       "level_max": 1,
-      "tags": ["module", "torment-and-legacy", "tutorial", "combat"],
+      "tags": [
+        "module",
+        "torment-and-legacy",
+        "tutorial",
+        "combat"
+      ],
       "objectives_schema": [
         {
           "phase": 1,
           "objectives": [
             {
               "objective_id": "complete_opening_encounter",
-              "type": "combat",
-              "description": "Defeat or resolve the opening encounter."
+              "type": "kill",
+              "description": "Defeat or resolve the opening encounter.",
+              "target": "tal-opening-encounter",
+              "target_count": 1,
+              "completion_criteria": {
+                "kind": "count",
+                "metric": "current",
+                "target_count": 1,
+                "description": "Reach the required progress count."
+              }
             }
           ]
         }

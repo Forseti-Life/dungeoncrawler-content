@@ -220,9 +220,9 @@ class CombatEncounterApiControllerTest extends BrowserTestBase {
   }
 
   /**
-   * Tests current-state polling ends stale encounters with no active combat sides.
+   * Tests current-state polling keeps room encounters active until navigation.
    */
-  public function testCurrentStateEndsNeutralOnlyStaleEncounter(): void {
+  public function testCurrentStateKeepsNeutralOnlyEncounterActive(): void {
     $user = $this->drupalCreateUser(['access dungeoncrawler characters']);
     $this->drupalLogin($user);
 
@@ -274,12 +274,6 @@ class CombatEncounterApiControllerTest extends BrowserTestBase {
       ->condition('encounter_id', $encounter_id)
       ->condition('entity_ref', 'npc-goblin-1')
       ->execute();
-    $database->update('combat_participants')
-      ->fields(['hp' => 0, 'is_defeated' => 1])
-      ->condition('encounter_id', $encounter_id)
-      ->condition('entity_ref', 'pc-hero-1')
-      ->execute();
-
     $this->drupalGet('/api/combat/state', [
       'query' => [
         'campaignId' => 67,
@@ -291,7 +285,7 @@ class CombatEncounterApiControllerTest extends BrowserTestBase {
     $response = json_decode($this->getSession()->getPage()->getContent(), TRUE);
     $this->assertIsArray($response);
     $this->assertTrue($response['success'] ?? FALSE);
-    $this->assertSame('ended', $response['data']['status'] ?? NULL);
+    $this->assertSame('active', $response['data']['status'] ?? NULL);
   }
 
   /**

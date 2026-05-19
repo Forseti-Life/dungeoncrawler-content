@@ -4,9 +4,11 @@ namespace Drupal\Tests\dungeoncrawler_content\Unit\Service;
 
 use Drupal\Core\Database\Connection;
 use Drupal\Core\Session\AccountProxyInterface;
+use Drupal\dungeoncrawler_content\Service\ActiveEffectStoreService;
 use Drupal\dungeoncrawler_content\Service\CharacterStateService;
 use Drupal\dungeoncrawler_content\Service\FeatEffectManager;
 use Drupal\dungeoncrawler_content\Service\GeneratedImageRepository;
+use Drupal\dungeoncrawler_content\Service\ImpactContractService;
 use Drupal\dungeoncrawler_content\Service\NumberGenerationService;
 use Drupal\Tests\UnitTestCase;
 
@@ -27,6 +29,8 @@ class CharacterStateServiceFeatSelectionTest extends UnitTestCase {
       new FeatEffectManager(),
       $this->createMock(GeneratedImageRepository::class),
       $this->createMock(NumberGenerationService::class),
+      new ImpactContractService(),
+      $this->createMock(ActiveEffectStoreService::class),
     );
 
     $method = new \ReflectionMethod($service, 'applyFeatEffectsToState');

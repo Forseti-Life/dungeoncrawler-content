@@ -107,7 +107,7 @@ class InventoryManagementServiceTest extends UnitTestCase {
     $service = new InspectableInventoryManagementService([]);
 
     $this->assertSame(
-      ['carried', 'worn', 'equipped', 'stashed'],
+      ['carried', 'worn', 'equipped', 'stashed', 'character_inventory'],
       $service->exposeBulkLocationTypesForOwnerType('character')
     );
   }
@@ -301,6 +301,47 @@ class InventoryManagementServiceTest extends UnitTestCase {
     $this->assertSame('wooden-shield', $inventory['worn']['shield']['id']);
   }
 
+  /**
+   * @covers ::getCharacterInventoryFromInstances
+   * @covers ::hydrateCharacterInventoryItemRow
+   * @covers ::normalizeCharacterInventoryLocationType
+   */
+  public function testGetInventoryHydratesLegacyCharacterInventoryRowsFromRegistry(): void {
+    $service = new InspectableInventoryManagementService(
+      [
+        'character:char-1' => [
+          (object) [
+            'item_instance_id' => 'armor-1',
+            'item_id' => 'leather',
+            'quantity' => 1,
+            'location_type' => 'character_inventory',
+            'state_data' => json_encode([
+              'condition' => 'new',
+              'source' => 'character_creation',
+            ]),
+          ],
+        ],
+      ],
+      [
+        'leather' => [
+          'name' => 'Leather Armor',
+          'schema' => [
+            'item_type' => 'armor',
+            'bulk' => '1',
+          ],
+        ],
+      ]
+    );
+
+    $inventory = $service->getInventory('char-1', 'character', 42);
+
+    $this->assertCount(1, $inventory['carried']);
+    $this->assertSame('Leather Armor', $inventory['carried'][0]['name']);
+    $this->assertSame('carried', $inventory['carried'][0]['location']);
+    $this->assertSame('armor', $inventory['carried'][0]['inventory_metadata']['equip_slot']);
+    $this->assertTrue($inventory['carried'][0]['inventory_metadata']['equippable']);
+  }
+
 }
 
 /**
@@ -396,22 +437,20 @@ class InspectableInventoryManagementService extends InventoryManagementService {
     ];
 
     foreach ($this->rows['character:' . $character_id] ?? [] as $item_row) {
-      $state = json_decode($item_row->state_data ?? '', TRUE) ?? [];
-      $item_data = [
-        'item_instance_id' => $item_row->item_instance_id,
+      $item_data = $this->hydrateCharacterInventoryItemRow([
+        'item_instance_id' => $item_row->item_instance_id ?? '',
         'item_id' => $item_row->item_id ?? '',
         'quantity' => (int) ($item_row->quantity ?? 1),
-        'location' => $item_row->location_type ?? 'carried',
-        ...$state,
-      ];
-      $item_data['inventory_metadata'] = $this->buildInventoryMetadata($item_data);
+        'location_type' => $item_row->location_type ?? 'carried',
+        'state_data' => $item_row->state_data ?? '{}',
+      ]);
 
-      if (($item_row->location_type ?? '') !== 'worn') {
+      if (($item_data['location'] ?? '') !== 'worn') {
         $inventory['carried'][] = $item_data;
         continue;
       }
 
-      $type = $state['type'] ?? $state['item_type'] ?? 'accessory';
+      $type = $item_data['type'] ?? $item_data['item_type'] ?? 'accessory';
       $equip_slot = (string) ($item_data['inventory_metadata']['equip_slot'] ?? '');
       if ($type === 'weapon' || $equip_slot === 'held') {
         $inventory['worn']['weapons'][] = $item_data;

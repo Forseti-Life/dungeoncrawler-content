@@ -35,6 +35,10 @@ class NpcSheetGenerationServiceTest extends UnitTestCase {
       public function exposedNormalizeGeneratedSheet(string $content_id, array $seed_data, array $sheet): array {
         return $this->normalizeGeneratedSheet($content_id, $seed_data, $sheet);
       }
+
+      public function exposedBuildQueuedNpcSheetContract(string $content_id, array $seed_data): array {
+        return $this->buildQueuedNpcSheetContract($content_id, $seed_data);
+      }
     };
   }
 
@@ -103,6 +107,23 @@ class NpcSheetGenerationServiceTest extends UnitTestCase {
         ['name' => 'Arcana', 'modifier' => 'high'],
       ],
     ]);
+  }
+
+  /**
+   * @covers ::buildQueuedNpcSheetContract
+   */
+  public function testQueuedNpcSheetPlaceholderStillMatchesContract(): void {
+    $sheet = $this->service->exposedBuildQueuedNpcSheetContract('queued_npc', [
+      'name' => 'Queued NPC',
+      'role' => 'contact',
+      'class' => 'Expert',
+    ]);
+
+    $this->assertSame('queued', $sheet['generation_status']);
+    $this->assertSame('ai_generated', $sheet['source']);
+    $this->assertSame('queued_npc', $sheet['content_id']);
+    $this->assertNotEmpty($sheet['abilities']);
+    $this->assertNotEmpty($sheet['stats']);
   }
 
 }

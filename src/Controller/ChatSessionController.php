@@ -510,9 +510,23 @@ class ChatSessionController extends ControllerBase {
         $payload['metadata'] ?? []
       );
 
+      $gm_response_id = $this->narrationEngine->respondToSecretAction(
+        $campaign_id,
+        $character_id,
+        'Received. This private channel goes directly to the GM. I will keep this out of the public room unless a later result becomes visible.',
+        [
+          'source_action_message_id' => $msg_id,
+          'response_type' => 'acknowledgement',
+        ]
+      );
+
       return new JsonResponse([
         'success' => TRUE,
-        'data' => ['message_id' => $msg_id, 'character_id' => $character_id],
+        'data' => [
+          'message_id' => $msg_id,
+          'gm_response_message_id' => $gm_response_id,
+          'character_id' => $character_id,
+        ],
       ]);
     }
     catch (\Exception $e) {

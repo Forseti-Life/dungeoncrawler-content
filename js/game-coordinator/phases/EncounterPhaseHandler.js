@@ -263,12 +263,8 @@ export class EncounterPhaseHandler {
       },
     }));
 
-    // Talk is a free action in encounter.
-    const actorId = this._getEntityInstanceId(selectedEntity);
-    if (actorId) {
-      this.api.talk(actorId, this._getEntityInstanceId(targetEntity), '', this.phaseManager.stateVersion)
-        .catch(err => console.warn('[EncounterPhaseHandler] Talk notify failed:', err.message));
-    }
+    // Actual encounter chat is sent when the player submits a room message.
+    // Clicking a target here only primes the chat UI with encounter context.
   }
 
   // =========================================================================
@@ -354,7 +350,7 @@ export class EncounterPhaseHandler {
    */
   _applyResult(result) {
     if (result.game_state) {
-      this.phaseManager.applyServerState(result.game_state, result.available_actions);
+      this.phaseManager.applyServerState(result.game_state, result.available_actions, result.action_contract || null);
     }
 
     // Check if encounter ended (phase transitioned back to exploration).

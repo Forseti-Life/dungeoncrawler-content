@@ -10,7 +10,7 @@
       "template_data": {
         "template_id": "little-trouble-in-big-absalom",
         "name": "Little Trouble in Big Absalom",
-        "synopsis": "A two-part kobold caper with a tomb delve followed by an upstairs neighborhood objective.",
+        "synopsis": "A two-part kobold caper with a tomb delve followed by a visit to Grandma's House.",
         "level_range": "1",
         "source": "Paizo Free RPG Day",
         "metadata": {
@@ -46,11 +46,32 @@
             "scene_id": "tomb-hazards"
           },
           {
+            "asset_type": "location",
+            "asset_id": "ltba-grandmas-house",
+            "asset_role": "chapter-hub",
+            "chapter_id": "upstairs",
+            "notes": "Grandma's House is the social hub for the second chapter and the place where the kobolds receive the hedge trimmer job."
+          },
+          {
             "asset_type": "npc",
             "asset_id": "ltba-grandmother",
             "asset_role": "quest-giver",
             "chapter_id": "upstairs",
             "scene_id": "grandmothers-request"
+          },
+          {
+            "asset_type": "room",
+            "asset_id": "ltba-grandmas-house-parlor",
+            "asset_role": "scene-room",
+            "chapter_id": "upstairs",
+            "scene_id": "grandmothers-request"
+          },
+          {
+            "asset_type": "room",
+            "asset_id": "ltba-grandmas-house-garden",
+            "asset_role": "scene-room",
+            "chapter_id": "upstairs",
+            "scene_id": "recover-the-trimmer"
           },
           {
             "asset_type": "item",
@@ -68,7 +89,7 @@
             "role": "broker",
             "display_name": "Eldric",
             "attitude": "friendly",
-            "notes": "Eldric knows the upstairs grandmother who needs help recovering a magical hedge trimmer.",
+            "notes": "Eldric knows the grandmother at Grandma's House who needs help recovering a magical hedge trimmer.",
             "introduces_to": [
               {
                 "entity_type": "npc_template",
@@ -111,7 +132,7 @@
           },
           {
             "chapter_id": "upstairs",
-            "name": "Upstairs!",
+            "name": "Grandma's House",
             "summary": "Move the action into the neighborhood and recover the magical hedge trimmer.",
             "scenes": [
               {

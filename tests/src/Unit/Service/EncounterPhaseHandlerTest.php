@@ -16,6 +16,7 @@ use Drupal\dungeoncrawler_content\Service\EncounterPhaseHandler;
 use Drupal\dungeoncrawler_content\Service\HPManager;
 use Drupal\dungeoncrawler_content\Service\NpcPsychologyService;
 use Drupal\dungeoncrawler_content\Service\NumberGenerationService;
+use Drupal\dungeoncrawler_content\Service\RoomChatService;
 use Drupal\dungeoncrawler_content\Service\RulesEngine;
 use Drupal\Tests\UnitTestCase;
 use Psr\Log\LoggerInterface;
@@ -84,6 +85,117 @@ class EncounterPhaseHandlerTest extends UnitTestCase {
     $actions = $handler->getAvailableActions($game_state, $dungeon_data, 'char-001');
 
     $this->assertNotContains('minor_color_shift', $actions);
+  }
+
+  /**
+   * Initial encounter state still exposes the active turn actions without an explicit actor id.
+   *
+   * @covers ::getAvailableActions
+   */
+  public function testGetAvailableActionsDefaultsToCurrentTurnWhenActorIdMissing(): void {
+    $handler = $this->buildHandler();
+    $actions = $handler->getAvailableActions([
+      'turn' => [
+        'entity' => 'char-001',
+        'actions_remaining' => 3,
+        'reaction_available' => TRUE,
+      ],
+    ], []);
+
+    $this->assertContains('talk', $actions);
+    $this->assertContains('end_turn', $actions);
+    $this->assertContains('reaction', $actions);
+  }
+
+  /**
+   * Talk is blocked when the acting player does not own the active turn.
+   *
+   * @covers ::validateIntent
+   */
+  public function testValidateIntentRejectsTalkOutOfTurnWithFriendlyMessage(): void {
+    $handler = $this->buildHandler();
+    $validation = $handler->validateIntent([
+      'type' => 'talk',
+      'actor' => 'char-002',
+    ], [
+      'encounter_id' => 42,
+      'turn' => [
+        'entity' => 'char-001',
+        'actions_remaining' => 3,
+      ],
+    ], []);
+
+    $this->assertFalse($validation['valid']);
+    $this->assertSame("It's not your turn, please wait.", $validation['reason']);
+  }
+
+  /**
+   * Encounter talk delegates to RoomChatService and returns an explicit contract.
+   *
+   * @covers ::processIntent
+   * @covers ::getClientActionContract
+   */
+  public function testProcessIntentTalkDelegatesToRoomChatServiceAndBuildsContract(): void {
+    $room_chat = $this->createMock(RoomChatService::class);
+    $room_chat->expects($this->once())
+      ->method('postMessage')
+      ->with(42, 'room-a', 'Hero', 'Guide, Hold the doorway.', 'player', 99)
+      ->willReturn([
+        'gm_response' => ['message' => 'The guide nods and braces the door.'],
+        'npc_interjections' => [['speaker' => 'Guide', 'message' => 'On it.']],
+        'state_diff' => ['situational' => ['attack_bonus' => 1]],
+        'canonical_actions' => ['other' => ['success' => TRUE]],
+        'mutations' => [['type' => 'state', 'key' => 'cover', 'value' => TRUE]],
+      ]);
+
+    $handler = $this->buildHandler($room_chat);
+    $game_state = [
+      'encounter_id' => 42,
+      'round' => 2,
+      'turn' => [
+        'entity' => 'char-001',
+        'actions_remaining' => 3,
+        'reaction_available' => TRUE,
+      ],
+      'initiative_order' => [
+        ['entity_id' => 'char-001', 'team' => 'player', 'name' => 'Hero'],
+      ],
+    ];
+    $dungeon_data = [
+      'active_room_id' => 'room-a',
+      'entities' => [
+        [
+          'entity_instance_id' => 'char-001',
+          'entity_ref' => ['content_id' => 99],
+          'state' => ['metadata' => ['display_name' => 'Hero']],
+        ],
+        [
+          'entity_instance_id' => 'npc-guide',
+          'entity_ref' => ['content_id' => 'guide-1'],
+          'state' => ['metadata' => ['display_name' => 'Guide']],
+        ],
+      ],
+    ];
+
+    $response = $handler->processIntent([
+      'type' => 'talk',
+      'actor' => 'char-001',
+      'target' => 'npc-guide',
+      'params' => ['message' => 'Hold the doorway.'],
+    ], $game_state, $dungeon_data, 42);
+
+    $this->assertTrue($response['success']);
+    $this->assertSame('Guide, Hold the doorway.', $response['result']['message']);
+    $this->assertSame('The guide nods and braces the door.', $response['result']['gm_response']['message']);
+    $this->assertSame(1, $response['result']['state_diff']['situational']['attack_bonus']);
+    $this->assertSame('The guide nods and braces the door.', $response['result']['chat_response']['gm_response']['message']);
+    $this->assertSame(['other' => ['success' => TRUE]], $response['result']['chat_response']['canonical_actions']);
+    $this->assertNotEmpty($response['events']);
+
+    $contract = $handler->getClientActionContract($game_state, $dungeon_data, 'char-001');
+    $this->assertSame('encounter', $contract['phase']);
+    $this->assertContains('talk', $contract['available_actions']);
+    $this->assertTrue((bool) array_values(array_filter($contract['actions'], static fn(array $action): bool => $action['id'] === 'talk'))[0]['available']);
   }
 
   /**
@@ -233,7 +345,7 @@ class EncounterPhaseHandlerTest extends UnitTestCase {
   /**
    * Builds an EncounterPhaseHandler with lightweight mocks.
    */
-  private function buildHandler(): EncounterPhaseHandler {
+  private function buildHandler(?RoomChatService $room_chat = NULL): EncounterPhaseHandler {
     $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
     $logger_factory->method('get')->willReturn($this->createMock(LoggerInterface::class));
 
@@ -252,7 +364,13 @@ class EncounterPhaseHandlerTest extends UnitTestCase {
       $this->createMock(EventDispatcherInterface::class),
       $this->createMock(AiGmService::class),
       $this->createMock(ConfigFactoryInterface::class),
-      $this->createMock(NpcPsychologyService::class)
+      $this->createMock(NpcPsychologyService::class),
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      $room_chat ?? $this->createMock(RoomChatService::class)
     );
   }
 
@@ -278,7 +396,13 @@ class EncounterPhaseHandlerTest extends UnitTestCase {
       $this->createMock(EventDispatcherInterface::class),
       $ai_gm,
       $this->createMock(ConfigFactoryInterface::class),
-      $this->createMock(NpcPsychologyService::class)
+      $this->createMock(NpcPsychologyService::class),
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      $this->createMock(RoomChatService::class)
     ) extends EncounterPhaseHandler {
       public array $autoPlayArgs = [];
       public array $processEndTurnArgs = [];
@@ -349,7 +473,13 @@ class EncounterPhaseHandlerTest extends UnitTestCase {
       $this->createMock(EventDispatcherInterface::class),
       $this->createMock(AiGmService::class),
       $this->createMock(ConfigFactoryInterface::class),
-      $this->createMock(NpcPsychologyService::class)
+      $this->createMock(NpcPsychologyService::class),
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      $this->createMock(RoomChatService::class)
     ) extends EncounterPhaseHandler {
       public function exposedBuildParticipantList(array $dungeon_data, string $room_id, array $enemies = []): array {
         return $this->buildParticipantList($dungeon_data, $room_id, $enemies);

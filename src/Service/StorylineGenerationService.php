@@ -34,6 +34,7 @@ class StorylineGenerationService {
     protected readonly ?StateValidationService $stateValidationService = NULL,
     protected readonly ?NpcSheetGenerationService $npcSheetGenerationService = NULL,
     protected readonly ?StorylineRealizationService $storylineRealizationService = NULL,
+    protected readonly ?QuestTrackerService $questTracker = NULL,
   ) {
     $this->logger = $logger_factory->get('dungeoncrawler_content');
   }
@@ -103,6 +104,12 @@ class StorylineGenerationService {
     $this->realizeStorylineAssets($campaign_id, $storyline);
     $this->realizeStorylineNpcs($campaign_id, $storyline);
     $initial_quest = $this->materializeBootstrapQuest($campaign_id, $storyline, $request);
+    ['storyline' => $storyline, 'initial_quest' => $initial_quest] = $this->activateBootstrapHandoff(
+      $campaign_id,
+      $storyline,
+      $initial_quest,
+      $request
+    );
 
     if ($this->relationshipManager !== NULL) {
       $this->relationshipManager->seedLibraryRelationships($campaign_id);
@@ -400,6 +407,8 @@ class StorylineGenerationService {
       'speaker_npc_id' => trim((string) ($request['speaker_npc_id'] ?? '')),
       'speaker_name' => trim((string) ($request['speaker_name'] ?? '')),
       'lead_location_id' => trim((string) ($request['lead_location_id'] ?? '')),
+      'character_id' => isset($request['character_id']) ? (int) $request['character_id'] : 0,
+      'party_id' => isset($request['party_id']) ? (int) $request['party_id'] : 0,
       'tags' => array_values(array_filter(array_map('strval', is_array($request['tags'] ?? NULL) ? $request['tags'] : []))),
       'activate' => !empty($request['activate']),
       'is_primary' => !empty($request['is_primary']),
@@ -412,7 +421,10 @@ class StorylineGenerationService {
    * Normalize the small blocking request used during live NPC dialogue.
    */
   protected function normalizeBootstrapRequest(array $request): array {
-    $normalized = $this->normalizeRequest($request + ['status' => 'bootstrapping']);
+    $normalized = $this->normalizeRequest($request + [
+      'status' => 'bootstrapping',
+      'activate' => array_key_exists('activate', $request) ? $request['activate'] : TRUE,
+    ]);
     $normalized['speaker_npc_id'] = trim((string) ($request['speaker_npc_id'] ?? $request['quest_giver_id'] ?? ''));
     $normalized['speaker_name'] = trim((string) ($request['speaker_name'] ?? $request['quest_giver_name'] ?? ''));
     $normalized['lead_location_id'] = trim((string) ($request['lead_location_id'] ?? $request['location_id'] ?? ''));
@@ -1385,6 +1397,68 @@ class StorylineGenerationService {
   }
 
   /**
+   * Promote bootstrap outputs into the active storyline and quest log.
+   */
+  protected function activateBootstrapHandoff(int $campaign_id, array $storyline, ?array $initial_quest, array $request): array {
+    if (empty($request['activate'])) {
+      return [
+        'storyline' => $storyline,
+        'initial_quest' => $initial_quest,
+      ];
+    }
+
+    $storyline_id = trim((string) ($storyline['storyline_id'] ?? ''));
+    if ($storyline_id !== '') {
+      $storyline = $this->storylineManager->activateCampaignStoryline(
+        $campaign_id,
+        $storyline_id,
+        !empty($request['is_primary'])
+      ) ?? $storyline;
+    }
+
+    if ($this->questTracker === NULL || !is_array($initial_quest)) {
+      return [
+        'storyline' => $storyline,
+        'initial_quest' => $initial_quest,
+      ];
+    }
+
+    $quest_id = trim((string) ($initial_quest['quest_id'] ?? ''));
+    if ($quest_id === '') {
+      return [
+        'storyline' => $storyline,
+        'initial_quest' => $initial_quest,
+      ];
+    }
+
+    $character_id = isset($request['character_id']) && (int) $request['character_id'] > 0
+      ? (int) $request['character_id']
+      : NULL;
+    $party_id = isset($request['party_id']) && (int) $request['party_id'] > 0
+      ? (int) $request['party_id']
+      : NULL;
+    $status = strtolower(trim((string) ($initial_quest['status'] ?? '')));
+
+    if ($status !== 'active') {
+      $started = $this->questTracker->startQuest($campaign_id, $quest_id, $character_id, $party_id);
+      if (!$started) {
+        $this->logger->warning('Bootstrap quest handoff failed to activate quest {quest_id} for campaign {campaign_id}', [
+          'quest_id' => $quest_id,
+          'campaign_id' => $campaign_id,
+        ]);
+      }
+      else {
+        $initial_quest['status'] = 'active';
+      }
+    }
+
+    return [
+      'storyline' => $storyline,
+      'initial_quest' => $initial_quest,
+    ];
+  }
+
+  /**
    * Materialize questgiver/boss storyline NPC references into real campaign NPCs.
    *
    * @return array<int, string>
@@ -1622,6 +1696,12 @@ class StorylineGenerationService {
               'type' => 'explore',
               'location' => $room_id,
               'description' => 'Reach ' . $room_id . ' and establish a foothold.',
+              'completion_criteria' => [
+                'kind' => 'flag',
+                'metric' => 'discovered',
+                'required_value' => TRUE,
+                'description' => 'Discover the required location.',
+              ],
             ],
           ],
         ],
@@ -1636,6 +1716,12 @@ class StorylineGenerationService {
               'target' => $room_id,
               'target_count' => 1,
               'description' => 'Investigate the sanctum and recover the clue hidden there.',
+              'completion_criteria' => [
+                'kind' => 'count',
+                'metric' => 'current',
+                'target_count' => 1,
+                'description' => 'Reach the required progress count.',
+              ],
             ],
           ],
         ],
@@ -1647,9 +1733,15 @@ class StorylineGenerationService {
             [
               'objective_id' => 'defeat_' . $this->sanitizeIdentifier($boss['boss_id'] ?? $room_id),
               'type' => 'kill',
-              'target' => $boss['name'],
+              'target' => (string) ($boss['boss_id'] ?? $room_id),
               'target_count' => 1,
               'description' => 'Defeat ' . $boss['name'] . ' and break this layer of the campaign threat.',
+              'completion_criteria' => [
+                'kind' => 'count',
+                'metric' => 'current',
+                'target_count' => 1,
+                'description' => 'Reach the required progress count.',
+              ],
             ],
           ],
         ],
@@ -1663,6 +1755,12 @@ class StorylineGenerationService {
               'type' => 'interact',
               'target' => $room_id,
               'description' => 'Clear the room and secure its strategic objective.',
+              'completion_criteria' => [
+                'kind' => 'flag',
+                'metric' => 'completed',
+                'required_value' => TRUE,
+                'description' => 'Mark this objective complete.',
+              ],
             ],
           ],
         ],

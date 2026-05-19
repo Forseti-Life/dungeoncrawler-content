@@ -440,15 +440,6 @@ class RoomChatController extends ControllerBase {
     string $channel,
     string $client_request_id
   ): void {
-    if (!empty($result['gm_response'])) {
-      $emit([
-        'type' => 'gm_response',
-        'data' => $result['gm_response'] + [
-          'client_request_id' => $client_request_id,
-        ],
-      ]);
-    }
-
     if (!empty($result['turn_logs'])) {
       foreach ($result['turn_logs'] as $system_message) {
         $emit([
@@ -456,6 +447,15 @@ class RoomChatController extends ControllerBase {
           'data' => $system_message,
         ]);
       }
+    }
+
+    if (!empty($result['gm_response'])) {
+      $emit([
+        'type' => 'gm_response',
+        'data' => $result['gm_response'] + [
+          'client_request_id' => $client_request_id,
+        ],
+      ]);
     }
 
     if (!empty($result['npc_interjections_deferred']) && !empty($result['gm_response']['message'])) {
@@ -543,54 +543,54 @@ class RoomChatController extends ControllerBase {
       case 'room_request_started':
         return [
           'message' => !empty($context['channel']) && $context['channel'] !== 'room'
-            ? 'Turn 1: reviewing what you just said...'
-            : 'Turn 1: reviewing the room and what you just said...',
+            ? 'Turn 1: Narrator is reviewing what you just said...'
+            : 'Turn 1: Narrator is reviewing the room and what you just said...',
           'phase' => 'reviewing-room',
-          'speaker' => 'System',
+          'speaker' => 'Narrator',
           'client_request_id' => $client_request_id,
         ];
 
       case 'conversation_persisted':
         return [
-          'message' => 'Turn 1: updating conversation state...',
+          'message' => 'Turn 1: Narrator is updating conversation state...',
           'phase' => 'updating-conversation',
-          'speaker' => 'System',
+          'speaker' => 'Narrator',
           'client_request_id' => $client_request_id,
         ];
 
       case 'conversation_bridged':
         return [
-          'message' => 'Turn 1: syncing the scene context...',
+          'message' => 'Turn 1: Narrator is syncing the scene context...',
           'phase' => 'syncing-context',
-          'speaker' => 'System',
+          'speaker' => 'Narrator',
           'client_request_id' => $client_request_id,
         ];
 
       case 'npc_context_prepared':
         return [
           'message' => !empty($context['channel']) && $context['channel'] !== 'room'
-            ? 'Turn 1: checking the active participants...'
-            : 'Turn 1: checking who is active in the scene...',
+            ? 'Turn 1: Narrator is checking the active participants...'
+            : 'Turn 1: Narrator is checking who is active in the scene...',
           'phase' => 'checking-reactions',
-          'speaker' => 'System',
+          'speaker' => 'Narrator',
           'client_request_id' => $client_request_id,
         ];
 
       case 'gm_reply_generating':
         return [
           'message' => !empty($context['channel']) && $context['channel'] !== 'room'
-            ? 'Turn 2: drafting the reply...'
-            : 'Turn 2: drafting the Game Master reply...',
+            ? 'Turn 1: Narrator is preparing the reply...'
+            : 'Turn 1: Narrator is preparing the scene...',
           'phase' => 'drafting-response',
-          'speaker' => 'System',
+          'speaker' => 'Narrator',
           'client_request_id' => $client_request_id,
         ];
 
       case 'npc_reactions_generating':
         return [
-          'message' => 'Turn 3: nearby NPCs are reacting...',
+          'message' => 'Turn 3+: initiative order is resolving nearby NPC turns...',
           'phase' => 'npc-reactions',
-          'speaker' => 'System',
+          'speaker' => 'Initiative Order',
           'client_request_id' => $client_request_id,
         ];
 

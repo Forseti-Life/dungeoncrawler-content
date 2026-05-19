@@ -28,6 +28,7 @@
     "turn_harness": { "type": ["object", "null"] },
     "turn_log_key": { "type": ["string", "null"], "maxLength": 255 },
     "turn_logs": { "type": "array", "items": { "type": "object" } },
+    "turn_sequence": { "type": "array", "items": { "type": "object" } },
     "npc_interjections": { "type": "array", "items": { "type": "object" } },
     "npc_interjections_deferred": { "type": "boolean" },
     "client_request_id": { "type": ["string", "null"], "maxLength": 255 },

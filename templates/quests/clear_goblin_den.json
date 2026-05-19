@@ -5,7 +5,10 @@
   "quest_type": "bounty",
   "level_min": 1,
   "level_max": 3,
-  "tags": ["combat", "dungeon"],
+  "tags": [
+    "combat",
+    "dungeon"
+  ],
   "objectives_schema": [
     {
       "phase": 1,
@@ -13,16 +16,31 @@
         {
           "objective_id": "slay_goblins",
           "type": "kill",
-          "target": "goblin",
-          "target_count_range": [8, 12],
-          "description": "Slay the goblins in the den"
+          "target": "goblin_warrior",
+          "target_count_range": [
+            8,
+            12
+          ],
+          "description": "Slay the goblins in the den",
+          "completion_criteria": {
+            "kind": "count",
+            "metric": "current",
+            "target_count": 1,
+            "description": "Reach the required progress count."
+          }
         },
         {
           "objective_id": "defeat_chieftain",
           "type": "kill",
           "target": "goblin_chieftain",
           "target_count": 1,
-          "description": "Defeat the Goblin Chieftain"
+          "description": "Defeat the Goblin Chieftain",
+          "completion_criteria": {
+            "kind": "count",
+            "metric": "current",
+            "target_count": 1,
+            "description": "Reach the required progress count."
+          }
         }
       ]
     }

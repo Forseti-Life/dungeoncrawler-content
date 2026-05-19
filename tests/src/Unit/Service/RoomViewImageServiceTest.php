@@ -110,7 +110,8 @@ class RoomViewImageServiceTest extends UnitTestCase {
     $this->assertSame(0, $result['message_batch_size']);
     $this->assertStringContainsString('transition snapshot', $result['message']);
     $this->assertStringNotContainsString('50 room messages', $result['message']);
-    $this->assertSame('phase_transition', $result['entries'][0]['entry_type']);
+    $this->assertSame('establishing', $result['entries'][0]['entry_type']);
+    $this->assertSame('phase_transition', $result['entries'][1]['entry_type']);
   }
 
   /**
@@ -150,6 +151,79 @@ class RoomViewImageServiceTest extends UnitTestCase {
     $this->assertSame('establishing', $result['mode']);
     $this->assertSame('Scene snapshots appear only when the room transitions between exploration and encounter.', $result['message']);
     $this->assertSame(0, $result['generated_entry_count']);
+  }
+
+  /**
+   * @covers ::persistGalleryGenerationResult
+   */
+  public function testPersistGalleryGenerationResultPromotesDataUriToStoredUrl(): void {
+    $chat_session_manager = $this->createMock(ChatSessionManager::class);
+    $chat_session_manager->method('ensureRoomSession')
+      ->willReturn(['id' => 455]);
+
+    $generated_image_repository = $this->createMock(GeneratedImageRepository::class);
+    $generated_image_repository->expects($this->once())
+      ->method('persistGeneratedImage')
+      ->willReturn([
+        'stored' => TRUE,
+        'url' => '/sites/default/files/generated-images/2026/05/transition-1.png',
+      ]);
+
+    $service = new TestRoomViewImageService(
+      $this->createMock(Connection::class),
+      $this->buildLoggerFactory(),
+      $this->createMock(ImageGenerationIntegrationService::class),
+      $chat_session_manager,
+      $generated_image_repository,
+      $this->createMock(FileSystemInterface::class),
+    );
+
+    $result = $service->callPersistGalleryGenerationResult([
+      'success' => TRUE,
+      'provider' => 'vertex',
+      'status' => 'ready',
+      'output' => [
+        'image_data_uri' => 'data:image/png;base64,ZmFrZQ==',
+        'mime_type' => 'image/png',
+      ],
+      'payload' => [],
+    ]);
+
+    $this->assertSame('/sites/default/files/generated-images/2026/05/transition-1.png', $result['image_url']);
+    $this->assertNull($result['image_data_uri']);
+  }
+
+  /**
+   * @covers ::persistGalleryGenerationResult
+   */
+  public function testPersistGalleryGenerationResultLeavesExistingUrlUntouched(): void {
+    $chat_session_manager = $this->createMock(ChatSessionManager::class);
+    $chat_session_manager->method('ensureRoomSession')
+      ->willReturn(['id' => 455]);
+
+    $generated_image_repository = $this->createMock(GeneratedImageRepository::class);
+    $generated_image_repository->expects($this->never())
+      ->method('persistGeneratedImage');
+
+    $service = new TestRoomViewImageService(
+      $this->createMock(Connection::class),
+      $this->buildLoggerFactory(),
+      $this->createMock(ImageGenerationIntegrationService::class),
+      $chat_session_manager,
+      $generated_image_repository,
+      $this->createMock(FileSystemInterface::class),
+    );
+
+    $result = $service->callPersistGalleryGenerationResult([
+      'success' => TRUE,
+      'output' => [
+        'image_url' => '/sites/default/files/generated-images/existing.png',
+      ],
+      'payload' => [],
+    ]);
+
+    $this->assertSame('/sites/default/files/generated-images/existing.png', $result['image_url']);
+    $this->assertNull($result['image_data_uri']);
   }
 
   /**
@@ -242,6 +316,19 @@ class TestRoomViewImageService extends RoomViewImageService {
    */
   protected function resolveRoomViewProvider(array $portrait_references = []): ?string {
     return $this->vertexAvailable ? 'vertex' : NULL;
+  }
+
+  /**
+   * Test proxy for protected gallery persistence helper.
+   *
+   * @param array<string, mixed> $generation_result
+   *   Raw generation result payload.
+   *
+   * @return array{image_url:?string,image_data_uri:?string}
+   *   Normalized stored image fields.
+   */
+  public function callPersistGalleryGenerationResult(array $generation_result): array {
+    return $this->persistGalleryGenerationResult($generation_result);
   }
 
 }

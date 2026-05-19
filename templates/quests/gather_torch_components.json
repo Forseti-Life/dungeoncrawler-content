@@ -5,7 +5,12 @@
   "quest_type": "side_quest",
   "level_min": 1,
   "level_max": 2,
-  "tags": ["gathering", "maintenance", "tavern", "beginner"],
+  "tags": [
+    "gathering",
+    "maintenance",
+    "tavern",
+    "beginner"
+  ],
   "objectives_schema": [
     {
       "phase": 1,
@@ -14,8 +19,17 @@
           "objective_id": "collect_torches",
           "type": "collect",
           "item": "{item_name}",
-          "target_count_range": [4, 6],
-          "description": "Gather {item_name} scattered around the tavern"
+          "target_count_range": [
+            4,
+            6
+          ],
+          "description": "Gather {item_name} scattered around the tavern",
+          "completion_criteria": {
+            "kind": "count",
+            "metric": "current",
+            "target_count": 1,
+            "description": "Reach the required progress count."
+          }
         }
       ]
     },
@@ -26,7 +40,13 @@
           "objective_id": "return_torches",
           "type": "interact",
           "target": "tavern_keeper",
-          "description": "Bring the torch components to the tavern keeper"
+          "description": "Bring the torch components to the tavern keeper",
+          "completion_criteria": {
+            "kind": "flag",
+            "metric": "completed",
+            "required_value": true,
+            "description": "Mark this objective complete."
+          }
         }
       ]
     }

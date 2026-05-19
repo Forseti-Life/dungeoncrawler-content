@@ -1589,6 +1589,8 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
         $events[] = GameEventLogger::buildEvent('track', 'exploration', $actor_id, ['degree' => $degree_tr, 'trail_id' => $trail_id_tr, 'progress' => $progress_tr]);
         break;
       }
+
+      default:
         return [
           'success' => FALSE,
           'result' => ['error' => "Unknown exploration action: $type"],
@@ -1598,6 +1600,15 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
           'narration' => NULL,
         ];
     }
+
+    $this->maybeQueueMechanicalSystemLogEntry([
+      'campaign_id' => $campaign_id,
+      'dungeon_data' => $dungeon_data,
+      'type' => $type,
+      'actor_id' => $actor_id,
+      'params' => $params,
+      'result' => $result,
+    ]);
 
     return [
       'success' => TRUE,
@@ -3734,6 +3745,86 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
       $this->logger->warning('NarrationEngine queue failed: @err', ['@err' => $e->getMessage()]);
       return [];
     }
+  }
+
+  /**
+   * Mirror rolled exploration checks into the Dice Log.
+   */
+  protected function maybeQueueMechanicalSystemLogEntry(array $context): void {
+    $campaign_id = (int) ($context['campaign_id'] ?? 0);
+    $dungeon_data = is_array($context['dungeon_data'] ?? NULL) ? $context['dungeon_data'] : [];
+    $type = (string) ($context['type'] ?? '');
+    $actor_id = (string) ($context['actor_id'] ?? '');
+    $params = is_array($context['params'] ?? NULL) ? $context['params'] : [];
+    $result = is_array($context['result'] ?? NULL) ? $context['result'] : [];
+
+    if (!$this->narrationEngine || in_array($type, ['search', 'attack_hazard'], TRUE)) {
+      return;
+    }
+
+    $dc = isset($result['dc']) && is_numeric($result['dc']) ? (int) $result['dc'] : NULL;
+    $total = NULL;
+    if (isset($result['total']) && is_numeric($result['total'])) {
+      $total = (int) $result['total'];
+    }
+    elseif (isset($result['roll']) && is_numeric($result['roll'])) {
+      $total = (int) $result['roll'];
+    }
+
+    if ($dc === NULL || $total === NULL) {
+      return;
+    }
+
+    $actor_entity = $this->findEntityInDungeon($actor_id, $dungeon_data);
+    $actor_name = $actor_entity['name'] ?? $actor_id;
+    $degree = isset($result['degree']) && is_string($result['degree']) ? $result['degree'] : 'resolved';
+    $action_label = ucwords(str_replace('_', ' ', $type));
+    $skill_name = $this->resolveMechanicalSkillName($type, $params, $result);
+    $detail_label = $skill_name
+      ? sprintf('%s via %s', $action_label, ucwords(str_replace('_', ' ', $skill_name)))
+      : $action_label;
+
+    $metadata = [
+      'action' => $type,
+      'skill' => $skill_name,
+      'roll' => isset($result['d20']) && is_numeric($result['d20']) ? (int) $result['d20'] : NULL,
+      'total' => $total,
+      'dc' => $dc,
+      'degree' => $degree,
+    ];
+    $metadata = array_filter($metadata, static fn($value) => $value !== NULL && $value !== '');
+
+    $this->queueNarrationEvent($campaign_id, $dungeon_data, [
+      'type' => 'skill_check_result',
+      'speaker' => 'System',
+      'speaker_type' => 'system',
+      'speaker_ref' => '',
+      'content' => sprintf('%s resolves %s (%d vs DC %d: %s).', $actor_name, $detail_label, $total, $dc, $degree),
+      'mechanical_data' => $metadata,
+      'visibility' => 'public',
+    ]);
+  }
+
+  /**
+   * Determine the most specific skill label available for a rolled action.
+   */
+  protected function resolveMechanicalSkillName(string $type, array $params, array $result): ?string {
+    foreach (['skill_used', 'skill', 'skill_name'] as $key) {
+      $value = $result[$key] ?? $params[$key] ?? NULL;
+      if (is_string($value) && $value !== '') {
+        return strtolower($value);
+      }
+    }
+
+    return match ($type) {
+      'squeeze' => 'acrobatics',
+      'borrow_arcane_spell' => 'arcana',
+      'impersonate', 'lie' => 'deception',
+      'command_animal' => 'nature',
+      'disable_hazard' => 'thievery',
+      'sense_direction', 'track' => 'survival',
+      default => NULL,
+    };
   }
 
   /**

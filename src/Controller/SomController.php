@@ -4,6 +4,7 @@ namespace Drupal\dungeoncrawler_content\Controller;
 
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\dungeoncrawler_content\Service\CharacterManager;
+use Drupal\dungeoncrawler_content\Service\NumberGenerationService;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -29,14 +30,21 @@ class SomController extends ControllerBase {
    * @var \Drupal\dungeoncrawler_content\Service\CharacterManager
    */
   protected CharacterManager $characterManager;
+  protected NumberGenerationService $numberGeneration;
+
+  public function __construct(CharacterManager $character_manager, NumberGenerationService $number_generation) {
+    $this->characterManager = $character_manager;
+    $this->numberGeneration = $number_generation;
+  }
 
   /**
    * {@inheritdoc}
    */
   public static function create(ContainerInterface $container): static {
-    $instance = new static();
-    $instance->characterManager = $container->get('dungeoncrawler_content.character_manager');
-    return $instance;
+    return new static(
+      $container->get('dungeoncrawler_content.character_manager'),
+      $container->get('dungeoncrawler_content.number_generation')
+    );
   }
 
   // ── Helpers ──────────────────────────────────────────────────────────────
@@ -179,7 +187,7 @@ class SomController extends ControllerBase {
     $resolution = NULL;
     if (isset($body['target_ac'])) {
       $attackBonus = (int) ($data['attack_bonus'] ?? 0);
-      $roll        = rand(1, 20);
+      $roll        = $this->numberGeneration->rollPathfinderDie(20, $character_id, 'attack');
       $total       = $roll + $attackBonus;
       $targetAc    = (int) $body['target_ac'];
       $hit         = ($total >= $targetAc);

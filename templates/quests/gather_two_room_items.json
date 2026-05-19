@@ -5,7 +5,12 @@
   "quest_type": "side_quest",
   "level_min": 1,
   "level_max": 3,
-  "tags": ["gathering", "room", "starter", "tavern"],
+  "tags": [
+    "gathering",
+    "room",
+    "starter",
+    "tavern"
+  ],
   "objectives_schema": [
     {
       "phase": 1,
@@ -15,7 +20,13 @@
           "type": "collect",
           "item": "room_supply",
           "target_count": 2,
-          "description": "Collect 2 supplies from the room"
+          "description": "Collect 2 supplies from the room",
+          "completion_criteria": {
+            "kind": "count",
+            "metric": "current",
+            "target_count": 2,
+            "description": "Reach the required progress count."
+          }
         }
       ]
     },
@@ -26,7 +37,13 @@
           "objective_id": "return_room_supplies",
           "type": "interact",
           "target": "tavern_keeper",
-          "description": "Return the supplies to the tavern keeper"
+          "description": "Return the supplies to the tavern keeper",
+          "completion_criteria": {
+            "kind": "flag",
+            "metric": "completed",
+            "required_value": true,
+            "description": "Mark this objective complete."
+          }
         }
       ]
     }

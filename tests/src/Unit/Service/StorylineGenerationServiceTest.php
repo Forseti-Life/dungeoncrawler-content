@@ -7,6 +7,7 @@ use Drupal\Core\Database\Connection;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Drupal\Core\Logger\LoggerChannelInterface;
 use Drupal\dungeoncrawler_content\Service\CampaignStateService;
+use Drupal\dungeoncrawler_content\Service\QuestTrackerService;
 use Drupal\dungeoncrawler_content\Service\StateValidationService;
 use Drupal\dungeoncrawler_content\Service\StorylineGenerationService;
 use Drupal\dungeoncrawler_content\Service\StorylineManagerService;
@@ -127,6 +128,67 @@ class StorylineGenerationServiceTest extends UnitTestCase {
   }
 
   /**
+   * Verifies generated boss-room quest templates target canonical boss ids.
+   */
+  public function testBuildQuestTemplateUsesBossIdForKillObjectiveTarget(): void {
+    $campaign_state = $this->createMock(CampaignStateService::class);
+    $campaign_state->method('getState')->willReturn([
+      'current_room_id' => 'tavern_entrance',
+      'characters' => [['level' => 2]],
+    ]);
+
+    $storyline_manager = new StorylineManagerService(
+      $this->createMock(Connection::class),
+      $this->buildLoggerFactory(),
+      $this->buildUuid(),
+      $campaign_state,
+      $this->buildStateValidationService()
+    );
+
+    $service = new class(
+      $this->createMock(Connection::class),
+      $this->buildLoggerFactory(),
+      NULL,
+      $storyline_manager,
+      $campaign_state,
+      new TreasureByLevelService(),
+      $this->buildUuid()
+    ) extends StorylineGenerationService {
+      public function exposeBuildQuestTemplate(
+        string $template_id,
+        array $boss,
+        string $room_role,
+        string $room_style,
+        int $level,
+        string $room_id,
+        string $loot_table_id,
+        array $encounter_plan,
+        array $treasure_plan
+      ): array {
+        return $this->buildQuestTemplate($template_id, $boss, $room_role, $room_style, $level, $room_id, $loot_table_id, $encounter_plan, $treasure_plan);
+      }
+    };
+
+    $template = $service->exposeBuildQuestTemplate(
+      'boss-room-template',
+      [
+        'boss_id' => 'gate-king',
+        'name' => 'Gate King',
+        'dungeon_name' => 'Throne of Gates',
+      ],
+      'boss',
+      'void ruin',
+      4,
+      'throne-of-gates-boss-room',
+      'boss-loot',
+      [],
+      []
+    );
+
+    $this->assertSame('gate-king', $template['objectives_schema'][0]['objectives'][0]['target'] ?? NULL);
+  }
+
+  /**
    * Verifies bootstrap generation only creates the first lead and first quest node.
    */
   public function testBootstrapGenerationCreatesMinimalEntryDungeon(): void {
@@ -172,6 +234,170 @@ class StorylineGenerationServiceTest extends UnitTestCase {
     $this->assertCount(1, $package['quest_templates'] ?? []);
     $this->assertCount(1, $storyline['chapters'] ?? []);
     $this->assertCount(1, $storyline['questline']['ordered_quest_ids'] ?? []);
+  }
+
+  /**
+   * Verifies bootstrap handoff activates the storyline and starts the first quest.
+   */
+  public function testBootstrapCampaignStorylineActivatesInitialQuestHandoff(): void {
+    $campaign_state = $this->createMock(CampaignStateService::class);
+    $campaign_state->method('getState')->willReturn([
+      'current_room_id' => 'tavern_entrance',
+      'characters' => [
+        ['level' => 2],
+      ],
+    ]);
+
+    $storyline_manager = $this->createMock(StorylineManagerService::class);
+    $relationship_manager = $this->createMock(\Drupal\dungeoncrawler_content\Service\RelationshipManagerService::class);
+    $quest_tracker = $this->createMock(QuestTrackerService::class);
+
+    $package = [
+      'storyline_definition' => [
+        'name' => 'Relic Thief Pursuit',
+        'template_id' => 'relic-thief-pursuit',
+        'level_range' => '2-3',
+        'metadata' => [
+          'goal' => 'Hunt the relic thieves.',
+        ],
+        'questline' => [
+          'primary_quest_id' => 'relic-vault-threshold-entry-quest',
+        ],
+      ],
+      'quest_templates' => [
+        ['template_id' => 'relic-vault-threshold-entry-quest'],
+      ],
+      'campaign_outline' => [
+        'entry_dungeon' => [
+          'dungeon_id' => 'relic-vault-threshold',
+          'entrance_room_id' => 'relic-vault-threshold-entry',
+        ],
+      ],
+      'generation_source' => 'fallback',
+    ];
+    $created_storyline = [
+      'storyline_id' => 'relic-thief-pursuit-65',
+      'name' => 'Relic Thief Pursuit',
+      'status' => 'bootstrapping',
+      'storyline_data' => [
+        'questline' => [
+          'primary_quest_id' => 'relic-vault-threshold-entry-quest',
+        ],
+      ],
+    ];
+    $activated_storyline = $created_storyline;
+    $activated_storyline['status'] = 'active';
+    $initial_quest = [
+      'quest_id' => 'relic-vault-threshold-entry-quest-65',
+      'quest_name' => 'Find the Hidden Vault',
+      'status' => 'available',
+    ];
+
+    $storyline_manager->expects($this->once())
+      ->method('createCampaignStoryline')
+      ->with(65, $package['storyline_definition'], $this->callback(static fn(array $payload): bool => ($payload['character_id'] ?? 0) === 267))
+      ->willReturn($created_storyline);
+    $storyline_manager->expects($this->once())
+      ->method('activateCampaignStoryline')
+      ->with(65, 'relic-thief-pursuit-65', FALSE)
+      ->willReturn($activated_storyline);
+
+    $relationship_manager->expects($this->once())->method('seedLibraryRelationships')->with(65);
+    $relationship_manager->expects($this->once())->method('seedStorylineContacts')->with(65, $activated_storyline);
+    $relationship_manager->expects($this->once())->method('refreshCampaignStorylineContacts')->with(65, 'npc_tavern_keeper');
+
+    $quest_tracker->expects($this->once())
+      ->method('startQuest')
+      ->with(65, 'relic-vault-threshold-entry-quest-65', 267, NULL)
+      ->willReturn(TRUE);
+
+    $service = new class(
+      $this->createMock(Connection::class),
+      $this->buildLoggerFactory(),
+      NULL,
+      $storyline_manager,
+      $campaign_state,
+      new TreasureByLevelService(),
+      $this->buildUuid(),
+      $relationship_manager,
+      NULL,
+      $this->buildStateValidationService(),
+      NULL,
+      NULL,
+      $quest_tracker,
+      $package,
+      $initial_quest
+    ) extends StorylineGenerationService {
+      public function __construct(
+        Connection $database,
+        LoggerChannelFactoryInterface $logger_factory,
+        ?\Drupal\dungeoncrawler_content\Service\AIApiService $ai_api_service,
+        StorylineManagerService $storyline_manager,
+        CampaignStateService $campaign_state_service,
+        TreasureByLevelService $treasure_by_level_service,
+        UuidInterface $uuid,
+        ?\Drupal\dungeoncrawler_content\Service\RelationshipManagerService $relationship_manager,
+        ?\Drupal\dungeoncrawler_content\Service\QuestGeneratorService $quest_generator,
+        ?StateValidationService $state_validation_service,
+        ?\Drupal\dungeoncrawler_content\Service\NpcSheetGenerationService $npc_sheet_generation_service,
+        ?StorylineRealizationService $storyline_realization_service,
+        ?QuestTrackerService $quest_tracker,
+        private array $package,
+        private array $initialQuest
+      ) {
+        parent::__construct(
+          $database,
+          $logger_factory,
+          $ai_api_service,
+          $storyline_manager,
+          $campaign_state_service,
+          $treasure_by_level_service,
+          $uuid,
+          $relationship_manager,
+          $quest_generator,
+          $state_validation_service,
+          $npc_sheet_generation_service,
+          $storyline_realization_service,
+          $quest_tracker
+        );
+      }
+
+      public function generateStorylineBootstrapPackage(int $campaign_id, array $request): array {
+        return $this->package;
+      }
+
+      public function persistQuestTemplates(array $templates): array {
+        return $templates;
+      }
+
+      protected function realizeStorylineAssets(int $campaign_id, array $storyline): array {
+        return [];
+      }
+
+      protected function realizeStorylineNpcs(int $campaign_id, array $storyline): array {
+        return [];
+      }
+
+      protected function materializeBootstrapQuest(int $campaign_id, array $storyline, array $request): ?array {
+        return $this->initialQuest;
+      }
+
+      public function enqueueStorylineExpansion(int $campaign_id, string $storyline_id, array $request, bool $auto_start = TRUE): bool {
+        return TRUE;
+      }
+    };
+
+    $result = $service->bootstrapCampaignStoryline(65, [
+      'prompt' => 'I want a storyline about hunting relic thieves',
+      'speaker_npc_id' => 'npc_tavern_keeper',
+      'speaker_name' => 'Eldric',
+      'lead_location_id' => 'tavern_entrance',
+      'character_id' => 267,
+    ]);
+
+    $this->assertSame('active', $result['storyline']['status'] ?? NULL);
+    $this->assertSame('active', $result['initial_quest']['status'] ?? NULL);
+    $this->assertTrue($result['expansion_queued']);
   }
 
   /**

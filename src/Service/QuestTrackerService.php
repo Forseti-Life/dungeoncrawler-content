@@ -48,6 +48,11 @@ class QuestTrackerService {
   protected ?StorylineManagerService $storylineManager;
 
   /**
+   * Objective type service.
+   */
+  protected ObjectiveTypeService $objectiveTypeService;
+
+  /**
    * Constructs a QuestTrackerService object.
    *
    * @param \Drupal\Core\Database\Connection $database
@@ -61,12 +66,14 @@ class QuestTrackerService {
     Connection $database,
     LoggerChannelFactoryInterface $logger_factory,
     TimeInterface $time,
-    ?StorylineManagerService $storyline_manager = NULL
+    ?StorylineManagerService $storyline_manager = NULL,
+    ?ObjectiveTypeService $objective_type_service = NULL
   ) {
     $this->database = $database;
     $this->logger = $logger_factory->get('dungeoncrawler_content');
     $this->time = $time;
     $this->storylineManager = $storyline_manager;
+    $this->objectiveTypeService = $objective_type_service ?? new ObjectiveTypeService();
   }
 
   /**
@@ -395,20 +402,13 @@ class QuestTrackerService {
    *   Array of active quests with progress.
    */
   public function getActiveQuests(int $campaign_id, int $character_id): array {
-    $tracking_ids = $this->resolveQuestTrackingCharacterIds($campaign_id, $character_id);
-    if ($tracking_ids === []) {
-      return [];
-    }
-
-    $query = $this->database->select('dc_campaign_quest_progress', 'qp');
-    $query->join('dc_campaign_quests', 'q', 'qp.campaign_id = q.campaign_id AND qp.quest_id = q.quest_id');
-    $query->fields('q')
-      ->fields('qp', ['character_id', 'objective_states', 'current_phase', 'started_at', 'last_updated'])
-      ->condition('qp.campaign_id', $campaign_id)
-      ->condition('qp.character_id', $tracking_ids, 'IN')
-      ->condition('qp.completed_at', NULL, 'IS NULL');
-
-    return $query->execute()->fetchAll(\PDO::FETCH_ASSOC);
+    return array_values(array_filter(
+      $this->loadCharacterQuestRows($campaign_id, $character_id),
+      static function (array $quest): bool {
+        return strtolower((string) ($quest['status'] ?? '')) === 'active'
+          && empty($quest['completed_at']);
+      }
+    ));
   }
 
   /**
@@ -443,20 +443,106 @@ class QuestTrackerService {
    *   Character-level quest tracking rows.
    */
   public function getCharacterQuestTracking(int $campaign_id, int $character_id): array {
+    return $this->loadCharacterQuestRows($campaign_id, $character_id);
+  }
+
+  /**
+   * Load quest rows visible to a character, overlaying the best progress scope.
+   *
+   * Character journals need more than rows that already have direct
+   * character-owned progress: they must also surface campaign-scoped active
+   * quests and newly available leads that were introduced through dialogue.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Quest rows with progress fields merged in when available.
+   */
+  protected function loadCharacterQuestRows(int $campaign_id, int $character_id): array {
     $tracking_ids = $this->resolveQuestTrackingCharacterIds($campaign_id, $character_id);
-    if ($tracking_ids === []) {
+    if ($campaign_id <= 0 || $tracking_ids === []) {
       return [];
     }
 
-    $query = $this->database->select('dc_campaign_quest_progress', 'qp');
-    $query->join('dc_campaign_quests', 'q', 'qp.campaign_id = q.campaign_id AND qp.quest_id = q.quest_id');
-    $query->fields('q')
-      ->fields('qp', ['objective_states', 'current_phase', 'started_at', 'last_updated', 'completed_at', 'outcome'])
-      ->condition('qp.campaign_id', $campaign_id)
-      ->condition('qp.character_id', $tracking_ids, 'IN')
-      ->orderBy('qp.last_updated', 'DESC');
+    $quests = $this->database->select('dc_campaign_quests', 'q')
+      ->fields('q')
+      ->condition('q.campaign_id', $campaign_id)
+      ->orderBy('q.created_at', 'DESC')
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+    if ($quests === []) {
+      return [];
+    }
 
-    return $query->execute()->fetchAll(\PDO::FETCH_ASSOC);
+    $progress_rows = $this->database->select('dc_campaign_quest_progress', 'qp')
+      ->fields('qp')
+      ->condition('qp.campaign_id', $campaign_id)
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+
+    $progress_by_quest = [];
+    foreach ($progress_rows as $row) {
+      $quest_id = trim((string) ($row['quest_id'] ?? ''));
+      if ($quest_id === '') {
+        continue;
+      }
+
+      $scope_rank = $this->rankQuestProgressScope($row, $tracking_ids);
+      if ($scope_rank === NULL) {
+        continue;
+      }
+
+      if (!isset($progress_by_quest[$quest_id])) {
+        $progress_by_quest[$quest_id] = ['rank' => $scope_rank, 'row' => $row];
+        continue;
+      }
+
+      $existing = $progress_by_quest[$quest_id];
+      $existing_rank = (int) ($existing['rank'] ?? PHP_INT_MAX);
+      $existing_updated = (int) (($existing['row']['last_updated'] ?? 0));
+      $candidate_updated = (int) ($row['last_updated'] ?? 0);
+      if ($scope_rank < $existing_rank || ($scope_rank === $existing_rank && $candidate_updated > $existing_updated)) {
+        $progress_by_quest[$quest_id] = ['rank' => $scope_rank, 'row' => $row];
+      }
+    }
+
+    $merged_rows = [];
+    foreach ($quests as $quest) {
+      $quest_id = trim((string) ($quest['quest_id'] ?? ''));
+      if ($quest_id === '') {
+        continue;
+      }
+
+      $merged = $quest;
+      $progress = $progress_by_quest[$quest_id]['row'] ?? NULL;
+      if (is_array($progress)) {
+        foreach (['character_id', 'party_id', 'objective_states', 'current_phase', 'started_at', 'last_updated', 'completed_at', 'outcome'] as $field) {
+          $merged[$field] = $progress[$field] ?? NULL;
+        }
+      }
+      $merged_rows[] = $merged;
+    }
+
+    return $merged_rows;
+  }
+
+  /**
+   * Rank whether a progress row applies to the current character journal.
+   *
+   * Lower numbers are better. NULL means the row should not be considered.
+   */
+  protected function rankQuestProgressScope(array $row, array $tracking_ids): ?int {
+    $character_id = isset($row['character_id']) ? (int) $row['character_id'] : 0;
+    $party_id = isset($row['party_id']) ? (int) $row['party_id'] : 0;
+
+    if ($character_id > 0) {
+      $position = array_search($character_id, $tracking_ids, TRUE);
+      return $position === FALSE ? NULL : (int) $position;
+    }
+
+    if ($party_id > 0) {
+      return NULL;
+    }
+
+    return 1000;
   }
 
   /**
@@ -915,56 +1001,15 @@ class QuestTrackerService {
         continue;
       }
 
-      foreach ($phase['objectives'] as &$obj) {
-        $type = (string) ($obj['type'] ?? '');
-        $candidate_id = (string) ($obj['objective_id'] ?? '');
-        $matches = $candidate_id === $objective_id
-          || ($objective_id === 'explore' && $type === 'explore')
-          || ($objective_id === 'kill_enemies' && $type === 'kill');
-
-        if (!$matches) {
-          continue;
-        }
-
-        switch ($type) {
-          case 'kill':
-          case 'collect':
-            $target_count = (int) ($obj['target_count'] ?? 0);
-            $current_count = (int) ($obj['current'] ?? 0);
-            $next_count = $target_count > 0 ? min($current_count + $progress, $target_count) : ($current_count + $progress);
-            $obj['current'] = $next_count;
-            if ($target_count > 0 && $next_count >= $target_count && empty($obj['completed'])) {
-              $obj['completed'] = TRUE;
-              $objective_completed = TRUE;
-            }
-            break;
-
-          case 'explore':
-            $obj['discovered'] = TRUE;
-            if (empty($obj['completed'])) {
-              $obj['completed'] = TRUE;
-              $objective_completed = TRUE;
-            }
-            break;
-
-          case 'escort':
-            $obj['arrived'] = TRUE;
-            if (empty($obj['completed'])) {
-              $obj['completed'] = TRUE;
-              $objective_completed = TRUE;
-            }
-            break;
-
-          case 'interact':
-            if (empty($obj['completed'])) {
-              $obj['completed'] = TRUE;
-              $objective_completed = TRUE;
-            }
-            break;
-        }
-
-        $updated = TRUE;
-        break 2;
+      $phase_objectives = is_array($phase['objectives'] ?? NULL) ? $phase['objectives'] : [];
+      $completed_before = $this->collectCompletedObjectiveIds($phase_objectives);
+      $updated = $this->applyObjectiveUpdateToCollection($phase_objectives, $objective_id, $progress);
+      if ($updated) {
+        $this->refreshObjectiveCollection($phase_objectives);
+        $phase['objectives'] = $phase_objectives;
+        $completed_after = $this->collectCompletedObjectiveIds($phase_objectives);
+        $objective_completed = array_diff($completed_after, $completed_before) !== [];
+        break;
       }
     }
 
@@ -972,6 +1017,169 @@ class QuestTrackerService {
       'updated' => $updated,
       'objective_completed' => $objective_completed,
     ];
+  }
+
+  /**
+   * Apply a quest objective update across a nested objective collection.
+   */
+  protected function applyObjectiveUpdateToCollection(array &$objectives, string $objective_id, int $progress): bool {
+    foreach ($objectives as &$objective) {
+      if (!is_array($objective)) {
+        continue;
+      }
+      if ($this->applyObjectiveUpdateToNode($objective, $objective_id, $progress)) {
+        return TRUE;
+      }
+    }
+
+    return FALSE;
+  }
+
+  /**
+   * Apply a quest objective update to one node or a nested child node.
+   */
+  protected function applyObjectiveUpdateToNode(array &$objective, string $objective_id, int $progress): bool {
+    $type = (string) ($objective['type'] ?? '');
+    $candidate_id = (string) ($objective['objective_id'] ?? '');
+    $matches = $candidate_id === $objective_id
+      || ($objective_id === 'explore' && $type === 'explore')
+      || ($objective_id === 'kill_enemies' && $type === 'kill');
+
+    if ($matches) {
+      $this->applyObjectiveNodeProgress($objective, $progress);
+      return TRUE;
+    }
+
+    foreach ($this->getObjectiveChildren($objective) as &$child_objective) {
+      if (!is_array($child_objective)) {
+        continue;
+      }
+      if ($this->applyObjectiveUpdateToNode($child_objective, $objective_id, $progress)) {
+        return TRUE;
+      }
+    }
+
+    return FALSE;
+  }
+
+  /**
+   * Apply progress to a single objective node.
+   */
+  protected function applyObjectiveNodeProgress(array &$objective, int $progress): void {
+    $this->objectiveTypeService->applyProgress($objective, $progress);
+  }
+
+  /**
+   * Refresh completion state for an objective collection.
+   */
+  protected function refreshObjectiveCollection(array &$objectives): void {
+    foreach ($objectives as &$objective) {
+      if (!is_array($objective)) {
+        continue;
+      }
+      $this->refreshObjectiveCompletionState($objective);
+    }
+  }
+
+  /**
+   * Mark an objective collection as revealed or hidden for the quest journal.
+   */
+  protected function setObjectiveCollectionRevealed(array &$objectives, bool $revealed): void {
+    foreach ($objectives as &$objective) {
+      if (!is_array($objective)) {
+        continue;
+      }
+      $objective['revealed'] = $revealed;
+      $children = &$this->getObjectiveChildren($objective);
+      if ($children !== []) {
+        $this->setObjectiveCollectionRevealed($children, $revealed);
+      }
+    }
+  }
+
+  /**
+   * Refresh the computed completion state for one objective node.
+   */
+  protected function refreshObjectiveCompletionState(array &$objective): bool {
+    return $this->objectiveTypeService->refreshCompletion($objective);
+  }
+
+  /**
+   * Determine whether every objective in a collection is complete.
+   */
+  protected function areObjectiveCollectionCompleted(array $objectives): bool {
+    return $this->objectiveTypeService->areObjectiveCollectionCompleted($objectives);
+  }
+
+  /**
+   * Collect completed objective ids from a nested objective tree.
+   *
+   * @return array<int, string>
+   *   Completed objective ids.
+   */
+  protected function collectCompletedObjectiveIds(array $objectives): array {
+    $ids = [];
+    foreach ($objectives as $objective) {
+      if (!is_array($objective)) {
+        continue;
+      }
+      if (!empty($objective['completed']) && !empty($objective['objective_id'])) {
+        $ids[] = (string) $objective['objective_id'];
+      }
+      $ids = array_merge($ids, $this->collectCompletedObjectiveIds($this->getObjectiveChildren($objective)));
+    }
+
+    return $ids;
+  }
+
+  /**
+   * Flatten a nested objective tree into actionable display rows.
+   */
+  protected function collectObjectivesForDisplay(array $objectives, bool $exclude_completed): array {
+    $flattened = [];
+    foreach ($objectives as $objective) {
+      if (!is_array($objective)) {
+        continue;
+      }
+
+      $children = $this->getObjectiveChildren($objective);
+      if ($children !== []) {
+        $flattened = array_merge($flattened, $this->collectObjectivesForDisplay($children, $exclude_completed));
+        continue;
+      }
+
+      if ($exclude_completed && !empty($objective['completed'])) {
+        continue;
+      }
+
+      $target_count = (int) ($objective['target_count'] ?? 0);
+      $current = (int) ($objective['current'] ?? 0);
+      if ($exclude_completed && $target_count > 0 && $current >= $target_count) {
+        continue;
+      }
+
+      $flattened[] = $objective;
+    }
+
+    return array_values($flattened);
+  }
+
+  /**
+   * Return nested objective children by reference.
+   */
+  protected function &getObjectiveChildren(array &$objective): array {
+    if (!isset($objective['children']) || !is_array($objective['children'])) {
+      $objective['children'] = [];
+    }
+
+    return $objective['children'];
+  }
+
+  /**
+   * Resolve completion criteria for an objective, defaulting when omitted.
+   */
+  protected function resolveObjectiveCompletionCriteria(array $objective): array {
+    return $this->objectiveTypeService->normalizeCompletionCriteria($objective['completion_criteria'] ?? [], $objective);
   }
 
   /**
@@ -1051,7 +1259,15 @@ class QuestTrackerService {
    *   Initial objective states.
    */
   protected function initializeObjectiveStates(array $objectives): array {
-    // Objectives are already in the correct format from generator
+    foreach ($objectives as &$phase) {
+      if (!is_array($phase)) {
+        continue;
+      }
+      $phase_number = max(1, (int) ($phase['phase'] ?? 1));
+      $phase['objectives'] = is_array($phase['objectives'] ?? NULL) ? $phase['objectives'] : [];
+      $this->setObjectiveCollectionRevealed($phase['objectives'], $phase_number === 1);
+      $this->refreshObjectiveCollection($phase['objectives']);
+    }
     return $objectives;
   }
 
@@ -1069,12 +1285,7 @@ class QuestTrackerService {
   protected function isPhaseComplete(array $objective_states, int $phase): bool {
     foreach ($objective_states as $phase_data) {
       if ($phase_data['phase'] == $phase) {
-        foreach ($phase_data['objectives'] as $obj) {
-          if (empty($obj['completed'])) {
-            return FALSE;
-          }
-        }
-        return TRUE;
+        return $this->areObjectiveCollectionCompleted(is_array($phase_data['objectives'] ?? NULL) ? $phase_data['objectives'] : []);
       }
     }
     return FALSE;
@@ -1091,10 +1302,8 @@ class QuestTrackerService {
    */
   protected function isQuestCompleted(array $objective_states): bool {
     foreach ($objective_states as $phase) {
-      foreach ($phase['objectives'] as $obj) {
-        if (empty($obj['completed'])) {
-          return FALSE;
-        }
+      if (!$this->areObjectiveCollectionCompleted(is_array($phase['objectives'] ?? NULL) ? $phase['objectives'] : [])) {
+        return FALSE;
       }
     }
     return TRUE;
@@ -1114,9 +1323,25 @@ class QuestTrackerService {
     $progress = $this->loadProgress($campaign_id, $quest_id, $character_id);
     if ($progress) {
       $new_phase = $progress['current_phase'] + 1;
+      $objective_states = json_decode((string) ($progress['objective_states'] ?? '[]'), TRUE) ?? [];
+      foreach ($objective_states as &$phase_row) {
+        if (!is_array($phase_row)) {
+          continue;
+        }
+        if ((int) ($phase_row['phase'] ?? 0) !== $new_phase) {
+          continue;
+        }
+        $phase_row['objectives'] = is_array($phase_row['objectives'] ?? NULL) ? $phase_row['objectives'] : [];
+        $this->setObjectiveCollectionRevealed($phase_row['objectives'], TRUE);
+        $this->refreshObjectiveCollection($phase_row['objectives']);
+      }
+      unset($phase_row);
 
       $this->database->update('dc_campaign_quest_progress')
-        ->fields(['current_phase' => $new_phase])
+        ->fields([
+          'current_phase' => $new_phase,
+          'objective_states' => json_encode($objective_states),
+        ])
         ->condition('campaign_id', $campaign_id)
         ->condition('quest_id', $quest_id)
         ->condition('character_id', $character_id, is_null($character_id) ? 'IS NULL' : '=')
@@ -1218,19 +1443,7 @@ class QuestTrackerService {
       }
 
       $objectives = is_array($phase_row['objectives'] ?? NULL) ? $phase_row['objectives'] : [];
-      if (!$exclude_completed) {
-        return array_values($objectives);
-      }
-
-      return array_values(array_filter($objectives, static function (array $objective): bool {
-        if (!empty($objective['completed'])) {
-          return FALSE;
-        }
-
-        $target_count = (int) ($objective['target_count'] ?? 0);
-        $current = (int) ($objective['current'] ?? 0);
-        return $target_count <= 0 || $current < $target_count;
-      }));
+      return $this->collectObjectivesForDisplay($objectives, $exclude_completed);
     }
 
     return [];

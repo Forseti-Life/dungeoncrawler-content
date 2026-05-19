@@ -34,14 +34,16 @@
     "template_id": {"type": "string"},
     "entry_dungeon_id": {"type": "string"},
     "entry_room_id": {"type": "string"},
-    "first_quest_id": {"type": "string"},
-    "speaker_npc_id": {"type": "string"},
-    "speaker_name": {"type": "string"},
-    "lead_location_id": {"type": "string"},
-    "tags": {
-      "type": "array",
-      "items": {"type": "string"}
-    },
+      "first_quest_id": {"type": "string"},
+      "speaker_npc_id": {"type": "string"},
+      "speaker_name": {"type": "string"},
+      "lead_location_id": {"type": "string"},
+      "character_id": {"type": "integer"},
+      "party_id": {"type": "integer"},
+      "tags": {
+        "type": "array",
+        "items": {"type": "string"}
+      },
     "activate": {"type": "boolean"},
     "is_primary": {"type": "boolean"},
     "status": {"type": "string"},

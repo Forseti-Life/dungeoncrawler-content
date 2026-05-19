@@ -124,7 +124,7 @@ class RoomViewImageService {
 
     $entries = $gallery_entries;
     if ($establishing_entry !== NULL) {
-      $entries[] = $establishing_entry;
+      array_unshift($entries, $establishing_entry);
     }
 
     $generation_available = $provider !== NULL;
@@ -431,7 +431,7 @@ class RoomViewImageService {
       return [];
     }
 
-    return $this->database->select('dc_room_view_gallery', 'g')
+    $rows = $this->database->select('dc_room_view_gallery', 'g')
       ->fields('g')
       ->condition('campaign_id', $campaign_id)
       ->condition('dungeon_id', $dungeon_id)
@@ -441,6 +441,19 @@ class RoomViewImageService {
       ->orderBy('window_index', 'DESC')
       ->execute()
       ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+
+    if (!is_array($rows) || $rows === []) {
+      return [];
+    }
+
+    foreach ($rows as $index => $row) {
+      if (!is_array($row)) {
+        continue;
+      }
+      $rows[$index] = $this->persistStoredGalleryImage($row);
+    }
+
+    return $rows;
   }
 
   /**
@@ -462,8 +475,9 @@ class RoomViewImageService {
     );
     $result = $this->imageGenerationIntegration->generateImage($payload, $provider);
     $output = is_array($result['output'] ?? NULL) ? $result['output'] : [];
-    $image_url = $output['image_url'] ?? NULL;
-    $image_data_uri = $output['image_data_uri'] ?? NULL;
+    $storage = $this->persistGalleryGenerationResult($result);
+    $image_url = $storage['image_url'] ?? ($output['image_url'] ?? NULL);
+    $image_data_uri = $storage['image_data_uri'] ?? ($output['image_data_uri'] ?? NULL);
     if (empty($result['success']) || ($image_url === NULL && $image_data_uri === NULL)) {
       return NULL;
     }
@@ -496,6 +510,93 @@ class RoomViewImageService {
       ->execute();
 
     return $this->normalizeTransitionGalleryEntry($room, $fields, $transition);
+  }
+
+  /**
+   * Persist a generated transition image into file-backed storage when possible.
+   *
+   * @param array<string, mixed> $generation_result
+   *   Raw generation result payload.
+   *
+   * @return array{image_url:?string,image_data_uri:?string}
+   *   The preferred stored image fields for the gallery row.
+   */
+  protected function persistGalleryGenerationResult(array $generation_result): array {
+    $output = is_array($generation_result['output'] ?? NULL) ? $generation_result['output'] : [];
+    $image_url = isset($output['image_url']) && is_string($output['image_url']) ? $output['image_url'] : NULL;
+    $image_data_uri = isset($output['image_data_uri']) && is_string($output['image_data_uri']) ? $output['image_data_uri'] : NULL;
+
+    if ($image_data_uri === NULL || $image_data_uri === '') {
+      return [
+        'image_url' => $image_url,
+        'image_data_uri' => $image_data_uri,
+      ];
+    }
+
+    $stored = $this->generatedImageRepository->persistGeneratedImage($generation_result);
+    $stored_url = isset($stored['url']) && is_string($stored['url']) ? $stored['url'] : NULL;
+    if ($stored_url !== NULL && $stored_url !== '') {
+      return [
+        'image_url' => $stored_url,
+        'image_data_uri' => NULL,
+      ];
+    }
+
+    return [
+      'image_url' => $image_url,
+      'image_data_uri' => $image_data_uri,
+    ];
+  }
+
+  /**
+   * Convert legacy inline gallery rows into file-backed URLs when possible.
+   *
+   * @param array<string, mixed> $row
+   *   Stored gallery row.
+   *
+   * @return array<string, mixed>
+   *   Updated gallery row.
+   */
+  protected function persistStoredGalleryImage(array $row): array {
+    $existing_url = isset($row['image_url']) && is_string($row['image_url']) ? trim($row['image_url']) : '';
+    $existing_data_uri = isset($row['image_data_uri']) && is_string($row['image_data_uri']) ? trim($row['image_data_uri']) : '';
+    if ($existing_url !== '' || $existing_data_uri === '') {
+      return $row;
+    }
+
+    $storage = $this->persistGalleryGenerationResult([
+      'success' => TRUE,
+      'provider' => (string) ($row['provider'] ?? 'vertex'),
+      'status' => (string) ($row['status'] ?? 'ready'),
+      'output' => [
+        'image_url' => NULL,
+        'image_data_uri' => $existing_data_uri,
+        'mime_type' => $row['mime_type'] ?? NULL,
+      ],
+      'payload' => [],
+    ]);
+
+    $stored_url = isset($storage['image_url']) && is_string($storage['image_url']) ? trim($storage['image_url']) : '';
+    if ($stored_url === '') {
+      return $row;
+    }
+
+    $row['image_url'] = $stored_url;
+    $row['image_data_uri'] = NULL;
+
+    $gallery_row_id = isset($row['id']) ? (int) $row['id'] : 0;
+    if ($gallery_row_id > 0) {
+      $this->database->update('dc_room_view_gallery')
+        ->fields([
+          'image_url' => $stored_url,
+          'image_data_uri' => NULL,
+          'updated' => time(),
+        ])
+        ->condition('id', $gallery_row_id)
+        ->execute();
+    }
+
+    return $row;
   }
 
   /**

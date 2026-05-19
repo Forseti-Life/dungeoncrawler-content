@@ -42,6 +42,9 @@ export class PhaseManager {
     /** @type {string[]} */
     this.availableActions = [];
 
+    /** @type {object|null} */
+    this.actionContract = null;
+
     /** @type {number} */
     this.eventLogCursor = 0;
 
@@ -71,8 +74,9 @@ export class PhaseManager {
    *
    * @param {object} serverState - The game_state object from server
    * @param {string[]} [availableActions] - Legal action types
+   * @param {object|null} [actionContract] - Canonical client action contract
    */
-  applyServerState(serverState, availableActions) {
+  applyServerState(serverState, availableActions, actionContract = null) {
     if (!serverState) return;
 
     const previousPhase = this.currentPhase;
@@ -97,6 +101,7 @@ export class PhaseManager {
       this.availableActions = availableActions;
       this._emit('actionsUpdate', this.availableActions);
     }
+    this.actionContract = actionContract;
 
     // Emit phase change if phase actually changed.
     if (previousPhase !== this.currentPhase) {
@@ -202,6 +207,7 @@ export class PhaseManager {
       encounterId: this.encounterId,
       initiativeOrder: this.initiativeOrder ? [...this.initiativeOrder] : null,
       availableActions: [...this.availableActions],
+      actionContract: this.actionContract,
       eventLogCursor: this.eventLogCursor,
       campaignClock: this.serverState?.campaign_clock || null,
       gameTime: this.serverState?.game_time || null,

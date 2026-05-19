@@ -9,7 +9,7 @@
       "relationship_type": "knows",
       "attitude": "friendly",
       "status": "known",
-      "notes": "Eldric knows the grandmother upstairs and can recommend adventurers to help her.",
+      "notes": "Eldric knows the grandmother at Grandma's House and can recommend adventurers to help her.",
       "relationship_data": {
         "source_display_name": "Eldric",
         "target_display_name": "The Kind Old Lady",

@@ -55,6 +55,29 @@ class StateValidationServiceTest extends UnitTestCase {
                   'current' => 0,
                   'target_count' => 1,
                   'target' => 'Magaambya Campus',
+                  'completion_criteria' => [
+                    'kind' => 'all_children',
+                    'metric' => 'children_completed',
+                    'description' => 'Complete all nested objectives.',
+                    'required_value' => TRUE,
+                  ],
+                  'children' => [
+                    [
+                      'objective_id' => 'question_the_gate_wardens',
+                      'type' => 'investigate',
+                      'description' => 'Question the gate wardens about the teacher.',
+                      'completed' => FALSE,
+                      'current' => 0,
+                      'target_count' => 1,
+                      'target' => 'Gate Wardens',
+                      'completion_criteria' => [
+                        'kind' => 'count',
+                        'metric' => 'current',
+                        'description' => 'Reach the required progress count.',
+                        'target_count' => 1,
+                      ],
+                    ],
+                  ],
                 ],
               ],
             ],
@@ -71,6 +94,29 @@ class StateValidationServiceTest extends UnitTestCase {
                   'current' => 0,
                   'target_count' => 1,
                   'target' => 'Magaambya Campus',
+                  'completion_criteria' => [
+                    'kind' => 'all_children',
+                    'metric' => 'children_completed',
+                    'description' => 'Complete all nested objectives.',
+                    'required_value' => TRUE,
+                  ],
+                  'children' => [
+                    [
+                      'objective_id' => 'question_the_gate_wardens',
+                      'type' => 'investigate',
+                      'description' => 'Question the gate wardens about the teacher.',
+                      'completed' => FALSE,
+                      'current' => 0,
+                      'target_count' => 1,
+                      'target' => 'Gate Wardens',
+                      'completion_criteria' => [
+                        'kind' => 'count',
+                        'metric' => 'current',
+                        'description' => 'Reach the required progress count.',
+                        'target_count' => 1,
+                      ],
+                    ],
+                  ],
                 ],
               ],
             ],
@@ -86,6 +132,7 @@ class StateValidationServiceTest extends UnitTestCase {
         ],
       ],
       'available' => [],
+      'management_tree' => [],
       'counts' => [
         'active' => 1,
         'available' => 0,
@@ -115,6 +162,67 @@ class StateValidationServiceTest extends UnitTestCase {
     $result = $this->service->validateQuestUpdate($payload);
     $this->assertFalse($result['valid']);
     $this->assertStringContainsString('Missing required field: source', implode('; ', $result['errors'] ?? []));
+  }
+
+  /**
+   * Verifies the service exposes a canonical contract registry.
+   */
+  public function testGetContractRegistryIncludesCanonicalRuntimeContracts(): void {
+    $registry = $this->service->getContractRegistry();
+
+    $this->assertArrayHasKey('storyline_definition', $registry);
+    $this->assertSame('storyline_definition.schema.json', $registry['storyline_definition']['schema'] ?? NULL);
+    $this->assertArrayHasKey('item_definition', $registry);
+    $this->assertSame('item.schema.json', $registry['item_definition']['schema'] ?? NULL);
+    $this->assertArrayHasKey('quest_update', $registry);
+    $this->assertSame('quest_update.schema.json', $registry['quest_update']['schema'] ?? NULL);
+    $this->assertArrayHasKey('objective_type_options', $registry);
+    $this->assertSame('objective_type_options.schema.json', $registry['objective_type_options']['schema'] ?? NULL);
+    $this->assertArrayHasKey('npc_quest_giver_policies', $registry);
+    $this->assertSame('npc_quest_giver_policies.schema.json', $registry['npc_quest_giver_policies']['schema'] ?? NULL);
+    $this->assertArrayHasKey('room_chat_response', $registry);
+    $this->assertSame('room_chat_response.schema.json', $registry['room_chat_response']['schema'] ?? NULL);
+  }
+
+  /**
+   * Verifies the canonical objective type options registry passes validation.
+   */
+  public function testValidateObjectiveTypeOptionsAcceptsCanonicalPayload(): void {
+    $path = dirname(__DIR__, 4) . '/config/objective_type_options.json';
+    $payload = json_decode((string) file_get_contents($path), TRUE);
+
+    $result = $this->service->validateObjectiveTypeOptions($payload ?? []);
+    $this->assertTrue($result['valid'], implode('; ', $result['errors'] ?? []));
+  }
+
+  /**
+   * Verifies the canonical NPC quest-giver policy registry passes validation.
+   */
+  public function testValidateNpcQuestGiverPoliciesAcceptsCanonicalPayload(): void {
+    $path = dirname(__DIR__, 4) . '/config/npc_quest_giver_policies.json';
+    $payload = json_decode((string) file_get_contents($path), TRUE);
+
+    $result = $this->service->validateNpcQuestGiverPolicies($payload ?? []);
+    $this->assertTrue($result['valid'], implode('; ', $result['errors'] ?? []));
+  }
+
+  /**
+   * Verifies canonical generated item payloads pass validation.
+   */
+  public function testValidateItemDefinitionAcceptsCanonicalPayload(): void {
+    $payload = [
+      'schema_version' => '1.0.0',
+      'item_id' => 'storyline-relic',
+      'name' => 'Storyline Relic',
+      'item_type' => 'artifact',
+      'level' => 1,
+      'rarity' => 'common',
+      'description' => 'A generated relic used as a storyline quest item.',
+      'traits' => ['storyline', 'generated'],
+    ];
+
+    $result = $this->service->validateItemDefinition($payload);
+    $this->assertTrue($result['valid'], implode('; ', $result['errors'] ?? []));
   }
 
   /**

@@ -6,6 +6,7 @@ use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Database\Connection;
 use Drupal\dungeoncrawler_content\Service\AnimalCompanionService;
 use Drupal\dungeoncrawler_content\Service\GeneratedImageRepository;
+use Drupal\dungeoncrawler_content\Service\QuestGeneratorService;
 use Drupal\dungeoncrawler_content\Service\QuestTrackerService;
 use Drupal\dungeoncrawler_content\Service\RelationshipManagerService;
 use Drupal\dungeoncrawler_content\Service\StateValidationService;
@@ -27,6 +28,7 @@ class HexMapController extends ControllerBase {
   protected Connection $database;
   protected AnimalCompanionService $animalCompanionService;
   protected QuestTrackerService $questTracker;
+  protected QuestGeneratorService $questGenerator;
   protected GeneratedImageRepository $imageRepository;
   protected StorylineManagerService $storylineManager;
   protected RelationshipManagerService $relationshipManager;
@@ -40,11 +42,12 @@ class HexMapController extends ControllerBase {
    * @var array<string, array|null>
    */
   protected array $roomContentsCache = [];
-  public function __construct(RequestStack $request_stack, Connection $database, AnimalCompanionService $animal_companion_service, QuestTrackerService $quest_tracker, GeneratedImageRepository $image_repository, StorylineManagerService $storyline_manager, RelationshipManagerService $relationship_manager, StateValidationService $state_validation_service) {
+  public function __construct(RequestStack $request_stack, Connection $database, AnimalCompanionService $animal_companion_service, QuestTrackerService $quest_tracker, QuestGeneratorService $quest_generator, GeneratedImageRepository $image_repository, StorylineManagerService $storyline_manager, RelationshipManagerService $relationship_manager, StateValidationService $state_validation_service) {
     $this->requestStack = $request_stack;
     $this->database = $database;
     $this->animalCompanionService = $animal_companion_service;
     $this->questTracker = $quest_tracker;
+    $this->questGenerator = $quest_generator;
     $this->imageRepository = $image_repository;
     $this->storylineManager = $storyline_manager;
     $this->relationshipManager = $relationship_manager;
@@ -60,6 +63,7 @@ class HexMapController extends ControllerBase {
       $container->get('database'),
       $container->get('dungeoncrawler_content.animal_companion'),
       $container->get('dungeoncrawler_content.quest_tracker'),
+      $container->get('dungeoncrawler_content.quest_generator'),
       $container->get('dungeoncrawler_content.generated_image_repository'),
       $container->get('dungeoncrawler_content.storyline_manager'),
       $container->get('dungeoncrawler_content.relationship_manager'),
@@ -423,8 +427,7 @@ class HexMapController extends ControllerBase {
     }
 
     // Extract inventory
-    $inventory = $character_data['inventory'] ?? [];
-    $carried = $inventory['carried'] ?? [];
+    $inventory = is_array($character_data['inventory'] ?? NULL) ? $character_data['inventory'] : [];
     $inv_currency = $inventory['currency'] ?? [];
     $gold = (float) ($inv_currency['gp'] ?? ($character_data['gold'] ?? 0));
 
@@ -511,7 +514,7 @@ class HexMapController extends ControllerBase {
       'skills' => $skills,
       'feats' => $feats,
       'spells' => $spells,
-      'inventory' => $carried,
+      'inventory' => $inventory,
       'currency' => $inv_currency ?: ['gp' => $gold, 'sp' => 0, 'cp' => 0],
       'hero_points' => $hero_points,
       'conditions' => $conditions,
@@ -534,33 +537,12 @@ class HexMapController extends ControllerBase {
     }
 
     if ($campaign_id <= 0 || $character_id <= 0) {
-      return $this->finalizeQuestSummaryPayload([
-        'schema_version' => self::QUEST_SUMMARY_SCHEMA_VERSION,
-        'location_id' => $location_id,
-        'active' => [],
-        'available' => [],
-        'counts' => [
-          'active' => 0,
-          'available' => 0,
-        ],
-      ]);
+      return $this->questGenerator->buildQuestSummaryPayload($location_id, [], [], $campaign_id);
     }
 
     $active = $this->questTracker->getActiveQuests($campaign_id, $character_id);
     $available = $this->questTracker->getAvailableQuests($campaign_id, $location_id, $character_id);
-
-    $payload = [
-      'schema_version' => self::QUEST_SUMMARY_SCHEMA_VERSION,
-      'location_id' => $location_id,
-      'active' => array_map([$this, 'normalizeQuestSummaryEntry'], $active),
-      'available' => array_map([$this, 'normalizeQuestSummaryEntry'], $available),
-      'counts' => [
-        'active' => count($active),
-        'available' => count($available),
-      ],
-    ];
-
-    return $this->finalizeQuestSummaryPayload($payload);
+    return $this->questGenerator->buildQuestSummaryPayload($location_id, $active, $available, $campaign_id);
   }
 
   /**
@@ -683,18 +665,11 @@ class HexMapController extends ControllerBase {
       }
     }
 
-    // Fallback to example payload when no campaign data is available.
-    $example_path = dirname(__DIR__, 2) . '/config/examples/tavern-entrance-dungeon.json';
-    $decoded = $this->readJsonFile($example_path);
-    if (!is_array($decoded)) {
-      return [];
-    }
-
-    $obstacle_catalog_path = dirname(__DIR__, 2) . '/config/examples/tavern-obstacle-objects.json';
-    $obstacle_catalog = $this->readJsonFile($obstacle_catalog_path);
-    $decoded['object_definitions'] = $obstacle_catalog['objects'] ?? [];
-
-    return $this->normalizeDungeonPayload($decoded, $launch_context);
+    $this->getLogger('dungeoncrawler_hexmap')->warning('Hexmap refused packaged tavern JSON fallback for campaign_id=@campaign_id map_id=@map_id; explicit campaign dungeon data is required.', [
+      '@campaign_id' => $campaign_id,
+      '@map_id' => (string) ($launch_context['map_id'] ?? ''),
+    ]);
+    return [];
   }
 
   /**
@@ -1271,6 +1246,20 @@ class HexMapController extends ControllerBase {
       $dungeon_payload['object_definitions'] = [];
     }
 
+    $room_item_instance_index = [];
+    $room_item_query = $this->database->select('dc_campaign_item_instances', 'i')
+      ->fields('i', ['item_instance_id', 'item_id', 'state_data'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('location_type', 'room')
+      ->condition('location_ref', $room_id);
+    foreach ($room_item_query->execute()->fetchAllAssoc('item_instance_id') as $row) {
+      $state_data = json_decode((string) ($row->state_data ?? ''), TRUE);
+      $content_key = (string) (($state_data['content_id'] ?? $state_data['id'] ?? $row->item_id ?? ''));
+      if ($content_key !== '' && !isset($room_item_instance_index[$content_key])) {
+        $room_item_instance_index[$content_key] = (string) ($row->item_instance_id ?? '');
+      }
+    }
+
     $existing_index = [];
     foreach ($dungeon_payload['entities'] as $entity) {
       if (!is_array($entity)) {
@@ -1290,6 +1279,10 @@ class HexMapController extends ControllerBase {
 
       $content_id = (string) ($item['content_id'] ?? '');
       if ($content_id === '') {
+        continue;
+      }
+
+      if ($room_item_instance_index !== [] && empty($room_item_instance_index[$content_id])) {
         continue;
       }
 
@@ -1348,12 +1341,15 @@ class HexMapController extends ControllerBase {
             'display_name' => (string) ($item['name'] ?? $content_id),
             'collectible' => TRUE,
             'passable' => TRUE,
-            'movable' => FALSE,
-            'stackable' => FALSE,
-            'setting_state' => TRUE,
-            'spawn_policy' => 'fixed_template',
-            'quest_association' => (string) ($item['quest_association'] ?? ''),
-          ],
+              'movable' => FALSE,
+              'stackable' => FALSE,
+              'setting_state' => TRUE,
+              'item_name' => (string) ($item['name'] ?? $content_id),
+              'item_instance_id' => $room_item_instance_index[$content_id] ?? sprintf('room_item_%d_%s', $campaign_id, $content_id),
+              'content_id' => $content_id,
+              'spawn_policy' => 'fixed_template',
+              'quest_association' => (string) ($item['quest_association'] ?? ''),
+            ],
         ],
       ];
 

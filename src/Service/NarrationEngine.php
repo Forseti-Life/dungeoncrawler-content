@@ -77,6 +77,7 @@ class NarrationEngine {
   protected AIApiService $aiApiService;
   protected PromptManager $promptManager;
   protected GameplayActionProcessor $actionProcessor;
+  protected NumberGenerationService $numberGeneration;
 
   public function __construct(
     Connection $database,
@@ -84,7 +85,8 @@ class NarrationEngine {
     ChatSessionManager $session_manager,
     AIApiService $ai_api_service,
     PromptManager $prompt_manager,
-    GameplayActionProcessor $action_processor
+    GameplayActionProcessor $action_processor,
+    NumberGenerationService $number_generation
   ) {
     $this->database = $database;
     $this->logger = $logger_factory->get('dungeoncrawler_narration');
@@ -92,6 +94,7 @@ class NarrationEngine {
     $this->aiApiService = $ai_api_service;
     $this->promptManager = $prompt_manager;
     $this->actionProcessor = $action_processor;
+    $this->numberGeneration = $number_generation;
   }
 
   // =========================================================================
@@ -767,7 +770,7 @@ class NarrationEngine {
     if (in_array($event_type, self::PERCEPTION_GATED_TYPES, TRUE) && $perception_dc !== NULL) {
       $perception_mod = $character['perception'] ?? 0;
       // Simulate a Perception check (d20 + modifier vs DC).
-      $roll = mt_rand(1, 20);
+      $roll = $this->numberGeneration->rollPathfinderDie(20, NULL, 'perception');
       $total = $roll + $perception_mod;
       $success = $total >= $perception_dc;
 

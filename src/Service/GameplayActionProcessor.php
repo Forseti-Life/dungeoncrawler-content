@@ -1790,6 +1790,26 @@ ENTRY_NARRATION_RULES;
    *   A summary suitable for JSON response to the client.
    */
   public function buildStateDiffSummary(array $char_diff, array $room_diff, array $dice_rolls, array $actions, array $validation_errors = []): array {
+    $char_diff += [
+      'hp_before' => NULL,
+      'hp_after' => NULL,
+      'spell_slots_before' => [],
+      'spell_slots_after' => [],
+      'conditions_added' => [],
+      'conditions_removed' => [],
+      'inventory_added' => [],
+      'inventory_removed' => [],
+      'hero_points_before' => NULL,
+      'hero_points_after' => NULL,
+    ];
+    $room_diff += [
+      'effects_added' => [],
+      'effects_removed' => [],
+      'entities_added' => [],
+      'entities_removed' => [],
+      'state_changes' => [],
+    ];
+
     $summary = [
       'has_mechanical_effects' => !empty($actions),
       'actions_taken' => [],

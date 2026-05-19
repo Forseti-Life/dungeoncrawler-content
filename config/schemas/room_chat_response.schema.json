@@ -35,6 +35,7 @@
     "turn_harness": { "type": ["object", "null"] },
     "turn_log_key": { "type": ["string", "null"], "maxLength": 255 },
     "turn_logs": { "type": "array", "items": { "type": "object" } },
+    "turn_sequence": { "type": "array", "items": { "type": "object" } },
     "npc_interjections_deferred": { "type": "boolean" },
     "canonical_actions": { "type": ["object", "null"] },
     "combat_transition": { "type": ["object", "null"] },

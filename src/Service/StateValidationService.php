@@ -12,6 +12,7 @@ class StateValidationService {
 
   private LoggerInterface $logger;
   private string $schemaBasePath;
+  private ?array $contractRegistry = NULL;
 
   /**
    * Constructor.
@@ -25,21 +26,21 @@ class StateValidationService {
    * Validate campaign state against schema.
    */
   public function validateCampaignState(array $state): array {
-    return $this->validateAgainstSchema($state, 'campaign.schema.json');
+    return $this->validateAgainstContract($state, 'campaign_state');
   }
 
   /**
    * Validate dungeon state against schema.
    */
   public function validateDungeonState(array $state): array {
-    return $this->validateAgainstSchema($state, 'dungeon_level.schema.json');
+    return $this->validateAgainstContract($state, 'dungeon_state');
   }
 
   /**
    * Validate room state against schema.
    */
   public function validateRoomState(array $state): array {
-    return $this->validateAgainstSchema($state, 'room.schema.json');
+    return $this->validateAgainstContract($state, 'room_state');
   }
 
   /**
@@ -54,91 +55,158 @@ class StateValidationService {
    * Validate a generated NPC sheet against the canonical contract schema.
    */
   public function validateNpcSheet(array $sheet): array {
-    return $this->validateAgainstSchema($sheet, 'npc_sheet.schema.json');
+    return $this->validateAgainstContract($sheet, 'npc_sheet');
+  }
+
+  /**
+   * Validate a canonical item definition against the contract schema.
+   */
+  public function validateItemDefinition(array $item): array {
+    return $this->validateAgainstContract($item, 'item_definition');
   }
 
   /**
    * Validate a normalized storyline definition against the canonical contract.
    */
   public function validateStorylineDefinition(array $definition): array {
-    return $this->validateAgainstSchema($definition, 'storyline_definition.schema.json');
+    return $this->validateAgainstContract($definition, 'storyline_definition');
   }
 
   /**
    * Validate a normalized storyline bootstrap request payload.
    */
   public function validateStorylineBootstrapRequest(array $request): array {
-    return $this->validateAgainstSchema($request, 'storyline_bootstrap_request.schema.json');
+    return $this->validateAgainstContract($request, 'storyline_bootstrap_request');
   }
 
   /**
    * Validate a queued storyline expansion job payload.
    */
   public function validateStorylineExpansionJob(array $payload): array {
-    return $this->validateAgainstSchema($payload, 'storyline_expansion_job.schema.json');
+    return $this->validateAgainstContract($payload, 'storyline_expansion_job');
   }
 
   /**
    * Validate stored storyline runtime state against the canonical questline contract.
    */
   public function validateStorylineRuntime(array $runtime): array {
-    return $this->validateAgainstSchema($runtime, 'storyline_runtime.schema.json');
+    return $this->validateAgainstContract($runtime, 'storyline_runtime');
   }
 
   /**
    * Validate a hexmap quest summary payload against the canonical contract.
    */
   public function validateQuestSummary(array $summary): array {
-    return $this->validateAgainstSchema($summary, 'quest_summary.schema.json');
+    return $this->validateAgainstContract($summary, 'quest_summary');
   }
 
   /**
    * Validate a room-chat quest update payload against the canonical contract.
    */
   public function validateQuestUpdate(array $update): array {
-    return $this->validateAgainstSchema($update, 'quest_update.schema.json');
+    return $this->validateAgainstContract($update, 'quest_update');
+  }
+
+  /**
+   * Validate the canonical objective type options registry.
+   */
+  public function validateObjectiveTypeOptions(array $payload): array {
+    return $this->validateAgainstContract($payload, 'objective_type_options');
+  }
+
+  /**
+   * Validate the canonical NPC quest-giver policy registry.
+   */
+  public function validateNpcQuestGiverPolicies(array $payload): array {
+    return $this->validateAgainstContract($payload, 'npc_quest_giver_policies');
   }
 
   /**
    * Validate a standardized character dialogue payload.
    */
   public function validateCharacterDialogue(array $dialogue): array {
-    return $this->validateAgainstSchema($dialogue, 'character_dialogue.schema.json');
+    return $this->validateAgainstContract($dialogue, 'character_dialogue');
   }
 
   /**
    * Validate a standardized GM room response payload.
    */
   public function validateGmRoomResponse(array $response): array {
-    return $this->validateAgainstSchema($response, 'gm_room_response.schema.json');
+    return $this->validateAgainstContract($response, 'gm_room_response');
   }
 
   /**
    * Validate a standardized room turn harness result payload.
    */
   public function validateRoomTurnHarness(array $payload): array {
-    return $this->validateAgainstSchema($payload, 'room_turn_harness.schema.json');
+    return $this->validateAgainstContract($payload, 'room_turn_harness');
   }
 
   /**
    * Validate a standardized room-chat response envelope.
    */
   public function validateRoomChatResponse(array $payload): array {
-    return $this->validateAgainstSchema($payload, 'room_chat_response.schema.json');
+    return $this->validateAgainstContract($payload, 'room_chat_response');
   }
 
   /**
    * Validate a standardized queued room continuation envelope.
    */
   public function validateQueuedRoomContinuation(array $payload): array {
-    return $this->validateAgainstSchema($payload, 'queued_room_continuation.schema.json');
+    return $this->validateAgainstContract($payload, 'queued_room_continuation');
   }
 
   /**
-   * Validate data against a schema file.
+   * Return the canonical data-contract registry.
    */
-  private function validateAgainstSchema(array $data, string $schema_filename): array {
-    $schema_path = $this->schemaBasePath . '/' . $schema_filename;
+  public function getContractRegistry(): array {
+    if ($this->contractRegistry !== NULL) {
+      return $this->contractRegistry;
+    }
+
+    $registry_path = $this->schemaBasePath . '/contract_registry.json';
+    if (!file_exists($registry_path)) {
+      $this->logger->error('Contract registry file not found: {path}', ['path' => $registry_path]);
+      $this->contractRegistry = [];
+      return $this->contractRegistry;
+    }
+
+    $registry_content = file_get_contents($registry_path);
+    $registry = json_decode((string) $registry_content, TRUE);
+    if (!is_array($registry) || !is_array($registry['contracts'] ?? NULL)) {
+      $this->logger->error('Invalid contract registry file: {path}', ['path' => $registry_path]);
+      $this->contractRegistry = [];
+      return $this->contractRegistry;
+    }
+
+    $this->contractRegistry = $registry['contracts'];
+    return $this->contractRegistry;
+  }
+
+  /**
+   * Resolve the schema path for a registered contract id.
+   */
+  public function getContractSchemaPath(string $contract_id): ?string {
+    $registry = $this->getContractRegistry();
+    $entry = is_array($registry[$contract_id] ?? NULL) ? $registry[$contract_id] : NULL;
+    $schema_filename = trim((string) ($entry['schema'] ?? ''));
+    if ($schema_filename === '') {
+      return NULL;
+    }
+
+    return $this->schemaBasePath . '/' . $schema_filename;
+  }
+
+  /**
+   * Validate data against a registered contract id.
+   */
+  private function validateAgainstContract(array $data, string $contract_id): array {
+    $schema_path = $this->getContractSchemaPath($contract_id);
+    if ($schema_path === NULL) {
+      $this->logger->error('Unknown contract id: {contract_id}', ['contract_id' => $contract_id]);
+      return ['valid' => FALSE, 'errors' => ["Unknown contract id: {$contract_id}"]];
+    }
+
     return $this->validateAgainstSchemaFile($data, $schema_path);
   }
 
@@ -159,7 +227,7 @@ class StateValidationService {
       return ['valid' => FALSE, 'errors' => ["Invalid schema file: {$schema_path}"]];
     }
 
-    $errors = $this->validateValueAgainstSchema($data, $schema, '');
+    $errors = $this->validateValueAgainstSchema($data, $schema, '', $schema);
     return ['valid' => empty($errors), 'errors' => $errors];
   }
 
@@ -176,9 +244,10 @@ class StateValidationService {
    * @return array<int, string>
    *   Validation errors.
    */
-  private function validateValueAgainstSchema($value, array $schema, string $field_path): array {
+  private function validateValueAgainstSchema($value, array $schema, string $field_path, array $root_schema): array {
     $errors = [];
     $field_name = $field_path === '' ? 'root' : $field_path;
+    $schema = $this->resolveSchemaReference($schema, $root_schema);
 
     $type_errors = $this->validateType($value, $schema, $field_name);
     if ($type_errors !== []) {
@@ -217,17 +286,45 @@ class StateValidationService {
           }
           continue;
         }
-        $errors = array_merge($errors, $this->validateValueAgainstSchema($property_value, $properties[$key], $property_path));
+        $errors = array_merge($errors, $this->validateValueAgainstSchema($property_value, $properties[$key], $property_path, $root_schema));
       }
     }
     elseif ($json_type === 'array' && isset($schema['items']) && is_array($schema['items'])) {
       foreach ($value as $index => $item) {
         $item_path = $field_name . '[' . $index . ']';
-        $errors = array_merge($errors, $this->validateValueAgainstSchema($item, $schema['items'], $item_path));
+        $errors = array_merge($errors, $this->validateValueAgainstSchema($item, $schema['items'], $item_path, $root_schema));
       }
     }
 
     return $errors;
+  }
+
+  /**
+   * Resolve an internal JSON-schema $ref against the root schema.
+   */
+  private function resolveSchemaReference(array $schema, array $root_schema): array {
+    $reference = trim((string) ($schema['$ref'] ?? ''));
+    if ($reference === '' || !str_starts_with($reference, '#/')) {
+      return $schema;
+    }
+
+    $segments = array_values(array_filter(explode('/', substr($reference, 2)), static fn(string $segment): bool => $segment !== ''));
+    $resolved = $root_schema;
+    foreach ($segments as $segment) {
+      $segment = str_replace(['~1', '~0'], ['/', '~'], $segment);
+      if (!is_array($resolved) || !array_key_exists($segment, $resolved)) {
+        return $schema;
+      }
+      $resolved = $resolved[$segment];
+    }
+
+    if (!is_array($resolved)) {
+      return $schema;
+    }
+
+    $overlay = $schema;
+    unset($overlay['$ref']);
+    return array_replace_recursive($resolved, $overlay);
   }
 
   /**

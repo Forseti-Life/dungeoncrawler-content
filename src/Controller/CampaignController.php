@@ -778,7 +778,7 @@ class CampaignController extends ControllerBase {
   }
 
   /**
-   * Ensure a campaign has at least one dungeon row by seeding tavern default.
+   * Ensure a campaign has at least one dungeon row.
    */
   private function ensureDefaultTavernDungeonExists(int $campaign_id, string $campaign_theme): void {
     $has_dungeon = (bool) $this->database->select('dc_campaign_dungeons', 'd')
@@ -792,49 +792,9 @@ class CampaignController extends ControllerBase {
       return;
     }
 
-    $seed_payload = $this->loadTavernDungeonSeedPayload();
-    if ($seed_payload === NULL) {
-      return;
-    }
-
-    $dungeon_id = (string) ($seed_payload['hex_map']['map_id'] ?? 'tavern-' . $campaign_id);
-    $dungeon_name = (string) ($seed_payload['name'] ?? 'Tavern Entrance');
-    $dungeon_description = (string) ($seed_payload['flavor_text'] ?? 'Default tavern staging dungeon.');
-    $dungeon_theme = (string) ($seed_payload['custom_theme'] ?? $seed_payload['theme'] ?? $campaign_theme);
-    $now = \Drupal::time()->getRequestTime();
-
-    $this->database->insert('dc_campaign_dungeons')
-      ->fields([
-        'campaign_id' => $campaign_id,
-        'dungeon_id' => $dungeon_id,
-        'name' => $dungeon_name,
-        'description' => $dungeon_description,
-        'theme' => $dungeon_theme,
-        'dungeon_data' => json_encode($seed_payload, JSON_UNESCAPED_UNICODE),
-        'source_dungeon_id' => 'tavern-entrance-default',
-        'created' => $now,
-        'updated' => $now,
-      ])
-      ->execute();
-  }
-
-  /**
-   * Load default tavern dungeon seed payload from module examples.
-   */
-  private function loadTavernDungeonSeedPayload(): ?array {
-    $example_path = dirname(__DIR__, 2) . '/config/examples/tavern-entrance-dungeon.json';
-
-    if (!is_file($example_path)) {
-      return NULL;
-    }
-
-    $contents = file_get_contents($example_path);
-    if ($contents === FALSE) {
-      return NULL;
-    }
-
-    $decoded = json_decode($contents, TRUE);
-    return is_array($decoded) ? $decoded : NULL;
+    $this->getLogger('dungeoncrawler_content')->warning('Campaign @campaign_id has no dungeon row. Packaged tavern JSON fallback is disabled; explicit assets or generation are required.', [
+      '@campaign_id' => $campaign_id,
+    ]);
   }
 
   /**

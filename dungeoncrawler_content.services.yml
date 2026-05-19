@@ -36,10 +36,17 @@ services:
 
   dungeoncrawler_content.character_state:
     class: Drupal\dungeoncrawler_content\Service\CharacterStateService
-    arguments: ['@database', '@current_user', '@dungeoncrawler_content.feat_effect_manager', '@dungeoncrawler_content.generated_image_repository', '@dungeoncrawler_content.number_generation']
+    arguments: ['@database', '@current_user', '@dungeoncrawler_content.feat_effect_manager', '@dungeoncrawler_content.generated_image_repository', '@dungeoncrawler_content.number_generation', '@dungeoncrawler_content.impact_contract', '@dungeoncrawler_content.active_effect_store']
 
   dungeoncrawler_content.character_state_service:
     alias: dungeoncrawler_content.character_state
+
+  dungeoncrawler_content.impact_contract:
+    class: Drupal\dungeoncrawler_content\Service\ImpactContractService
+
+  dungeoncrawler_content.active_effect_store:
+    class: Drupal\dungeoncrawler_content\Service\ActiveEffectStoreService
+    arguments: ['@database']
 
   dungeoncrawler_content.multiclass_archetype_service:
     class: Drupal\dungeoncrawler_content\Service\MulticlassArchetypeService
@@ -412,6 +419,7 @@ services:
       - '@dungeoncrawler_content.state_validation_service'
       - '@?dungeoncrawler_content.npc_sheet_generation'
       - '@dungeoncrawler_content.storyline_realization_service'
+      - '@?dungeoncrawler_content.quest_tracker'
 
   dungeoncrawler_content.gameplay_action_processor:
     class: Drupal\dungeoncrawler_content\Service\GameplayActionProcessor
@@ -572,12 +580,17 @@ services:
     class: Drupal\dungeoncrawler_content\Service\TerrainGeneratorService
 
   # Quest System Services
+  dungeoncrawler_content.objective_type:
+    class: Drupal\dungeoncrawler_content\Service\ObjectiveTypeService
+
   dungeoncrawler_content.quest_generator:
     class: Drupal\dungeoncrawler_content\Service\QuestGeneratorService
     arguments:
       - '@database'
       - '@logger.factory'
       - '@dungeoncrawler_content.number_generation'
+      - '@?dungeoncrawler_content.state_validation_service'
+      - '@dungeoncrawler_content.objective_type'
 
   dungeoncrawler_content.quest_tracker:
     class: Drupal\dungeoncrawler_content\Service\QuestTrackerService
@@ -586,6 +599,7 @@ services:
       - '@logger.factory'
       - '@datetime.time'
       - '@dungeoncrawler_content.storyline_manager'
+      - '@dungeoncrawler_content.objective_type'
 
   dungeoncrawler_content.quest_reward:
     class: Drupal\dungeoncrawler_content\Service\QuestRewardService
@@ -692,6 +706,7 @@ services:
       - '@dungeoncrawler_content.hazard_service'
       - '@dungeoncrawler_content.magic_item_service'
       - '@dungeoncrawler_content.spell_catalog'
+      - '@dungeoncrawler_content.room_chat_service'
 
   dungeoncrawler_content.crafting:
     class: Drupal\dungeoncrawler_content\Service\CraftingService
@@ -750,6 +765,7 @@ services:
       - '@ai_conversation.ai_api_service'
       - '@ai_conversation.prompt_manager'
       - '@dungeoncrawler_content.gameplay_action_processor'
+      - '@dungeoncrawler_content.number_generation'
 
   dungeoncrawler_content.content_seeder:
     class: Drupal\dungeoncrawler_content\Service\ContentSeederService
@@ -884,3 +900,4 @@ services:
     class: Drupal\dungeoncrawler_content\Controller\SomController
     arguments:
       - '@dungeoncrawler_content.character_manager'
+      - '@dungeoncrawler_content.number_generation'
