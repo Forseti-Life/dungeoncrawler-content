@@ -831,6 +831,60 @@ dungeoncrawler_content.api.room_chat_player_suggestion:
   options:
     _format: json
 
+dungeoncrawler_content.api.merchant_context:
+  path: '/api/campaign/{campaign_id}/room/{room_id}/merchant/{merchant_ref}'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\MerchantApiController::getContext'
+  methods: [GET]
+  requirements:
+    _campaign_access: 'TRUE'
+    campaign_id: '\d+'
+    room_id: '[A-Za-z0-9_-]+'
+    merchant_ref: '[A-Za-z0-9_.-]+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.merchant_search:
+  path: '/api/campaign/{campaign_id}/room/{room_id}/merchant/{merchant_ref}/search'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\MerchantApiController::searchCatalog'
+  methods: [GET]
+  requirements:
+    _campaign_access: 'TRUE'
+    campaign_id: '\d+'
+    room_id: '[A-Za-z0-9_-]+'
+    merchant_ref: '[A-Za-z0-9_.-]+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.merchant_panel_transaction:
+  path: '/api/campaign/{campaign_id}/room/{room_id}/merchant/{merchant_ref}/transaction'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\MerchantApiController::transactPanel'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _campaign_access: 'TRUE'
+    campaign_id: '\d+'
+    room_id: '[A-Za-z0-9_-]+'
+    merchant_ref: '[A-Za-z0-9_.-]+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.merchant_chat_transaction:
+  path: '/api/campaign/{campaign_id}/room/{room_id}/merchant/{merchant_ref}/chat-transaction'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\MerchantApiController::transactChat'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _campaign_access: 'TRUE'
+    campaign_id: '\d+'
+    room_id: '[A-Za-z0-9_-]+'
+    merchant_ref: '[A-Za-z0-9_.-]+'
+  options:
+    _format: json
+
 # Chat Channel API - List, open, and close channels per room
 dungeoncrawler_content.api.room_channels_get:
   path: '/api/campaign/{campaign_id}/room/{room_id}/channels'
@@ -1397,6 +1451,17 @@ dungeoncrawler_content.api.combat_action:
   path: '/api/combat/action'
   defaults:
     _controller: '\Drupal\dungeoncrawler_content\Controller\CombatEncounterApiController::action'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _permission: 'access dungeoncrawler characters'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.combat_navigate:
+  path: '/api/combat/navigate'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CombatEncounterApiController::navigate'
   methods: [POST]
   requirements:
     _csrf_request_header_mode: TRUE

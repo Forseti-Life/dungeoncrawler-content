@@ -66,6 +66,7 @@ class CharacterStateService {
     if (!is_array($default_data)) {
       $default_data = [];
     }
+    $default_data = $this->resolveRuntimeDefaultCharacterData($record, $default_data);
     $merged_library = array_replace_recursive($default_data, $character_data);
     
     $type = $record->type ?? ($merged_library['type'] ?? 'pc');
@@ -1574,6 +1575,32 @@ class CharacterStateService {
 
     $row = $query->execute()->fetchAssoc();
     return $row ?: NULL;
+  }
+
+  /**
+   * Backfill runtime default data from the canonical library row when missing.
+   */
+  private function resolveRuntimeDefaultCharacterData(object $record, array $default_data): array {
+    if ($default_data !== []) {
+      return $default_data;
+    }
+
+    $campaign_id = (int) ($record->campaign_id ?? 0);
+    $source_character_id = (int) ($record->character_id ?? 0);
+    $runtime_character_id = (int) ($record->id ?? 0);
+    if ($campaign_id <= 0 || $source_character_id <= 0 || $source_character_id === $runtime_character_id) {
+      return $default_data;
+    }
+
+    $source_default = $this->database->select('dc_campaign_characters', 'c')
+      ->fields('c', ['default_character_data'])
+      ->condition('id', $source_character_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchField();
+
+    $decoded = json_decode((string) $source_default, TRUE);
+    return is_array($decoded) ? $decoded : $default_data;
   }
 
   /**

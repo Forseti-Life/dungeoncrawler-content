@@ -56,22 +56,184 @@ class HexMapControllerTest extends BrowserTestBase {
   public function testSchemaVersionPreservedInPayload(): void {
     $this->drupalGet('/hexmap');
     $this->assertSession()->statusCodeEquals(200);
-    
-    // Check that drupalSettings contains the dungeon data with schema_version
+
+    $settings = $this->getDrupalSettings();
+    $this->assertArrayHasKey('dungeoncrawlerContent', $settings);
+    $this->assertArrayHasKey('hexmapDungeonData', $settings['dungeoncrawlerContent']);
+
+    // Verify schema_version is present (should be "1.0.0" from tavern-entrance-dungeon.json)
+    $dungeon_data = $settings['dungeoncrawlerContent']['hexmapDungeonData'];
+    $this->assertArrayHasKey('schema_version', $dungeon_data, 'schema_version field must be preserved in normalized dungeon payload');
+    $this->assertNotEmpty($dungeon_data['schema_version'], 'schema_version must not be empty');
+  }
+
+  /**
+   * Tests direct campaign launch from a library character link.
+   */
+  public function testDirectCampaignLaunchMaterializesRuntimeCharacter(): void {
+    $account = $this->drupalCreateUser();
+    $this->drupalLogin($account);
+
+    $database = $this->container->get('database');
+    $now = \Drupal::time()->getRequestTime();
+    $campaign_id = (int) $database->insert('dc_campaigns')
+      ->fields([
+        'uuid' => '11111111-2222-3333-4444-555555555555',
+        'uid' => (int) $account->id(),
+        'name' => 'Direct Launch Campaign',
+        'status' => 'draft',
+        'theme' => 'classic_dungeon',
+        'difficulty' => 'normal',
+        'campaign_data' => '{}',
+        'created' => $now,
+        'changed' => $now,
+      ])
+      ->execute();
+
+    $library_character_id = (int) $database->insert('dc_campaign_characters')
+      ->fields([
+        'uuid' => 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+        'campaign_id' => 0,
+        'character_id' => 0,
+        'instance_id' => 'library-test-hero',
+        'uid' => (int) $account->id(),
+        'name' => 'Test Hero',
+        'level' => 1,
+        'ancestry' => 'Human',
+        'class' => 'Wizard',
+        'hp_current' => 24,
+        'hp_max' => 24,
+        'armor_class' => 17,
+        'experience_points' => 0,
+        'position_q' => 0,
+        'position_r' => 0,
+        'last_room_id' => '',
+        'type' => 'pc',
+        'character_data' => json_encode([
+          'name' => 'Test Hero',
+          'level' => 1,
+          'hp' => ['current' => 24, 'max' => 24],
+          'ac' => 17,
+          'spells' => [
+            'cantrips' => [
+              ['id' => 'detect-magic', 'name' => 'Detect Magic', 'rank' => 0],
+            ],
+          ],
+          'inventory' => ['items' => [], 'currency' => ['gp' => 0, 'sp' => 0, 'cp' => 0]],
+        ], JSON_UNESCAPED_UNICODE),
+        'default_character_data' => json_encode([
+          'spells' => [
+            'cantrips' => [
+              ['id' => 'detect-magic', 'name' => 'Detect Magic', 'rank' => 0],
+            ],
+            'preparedSpells' => [
+              ['id' => 'magic-missile', 'name' => 'Magic Missile', 'rank' => 1],
+            ],
+            'slots' => ['1' => 2],
+          ],
+          'feats' => [
+            ['id' => 'reach-spell', 'name' => 'Reach Spell', 'type' => 'class', 'level' => 1],
+          ],
+        ], JSON_UNESCAPED_UNICODE),
+        'status' => 1,
+        'role' => 'player',
+        'state_data' => '{}',
+        'location_type' => 'global',
+        'location_ref' => '',
+        'is_active' => 1,
+        'joined' => $now,
+        'created' => $now,
+        'changed' => $now,
+        'updated' => $now,
+      ])
+      ->execute();
+
+    $database->insert('dc_campaign_dungeons')
+      ->fields([
+        'campaign_id' => $campaign_id,
+        'dungeon_id' => 'starter-tavern',
+        'name' => 'Starter Tavern',
+        'description' => 'Test launch dungeon',
+        'theme' => 'classic_dungeon',
+        'dungeon_data' => json_encode([
+          'schema_version' => 'test-v1',
+          'level_id' => 'starter-level',
+          'hex_map' => [
+            'map_id' => 'starter-map',
+            'connections' => [],
+          ],
+          'rooms' => [
+            [
+              'room_id' => 'tavern_entrance',
+              'name' => 'Tavern Entrance',
+              'description' => 'A quiet test room.',
+              'hexes' => [
+                ['q' => 0, 'r' => 0, 'objects' => []],
+                ['q' => 1, 'r' => 0, 'objects' => []],
+              ],
+            ],
+          ],
+          'entities' => [],
+          'object_definitions' => [],
+        ], JSON_UNESCAPED_UNICODE),
+        'created' => $now,
+        'updated' => $now,
+      ])
+      ->execute();
+
+    $this->drupalGet('/hexmap', [
+      'query' => [
+        'campaign_id' => $campaign_id,
+        'character_id' => $library_character_id,
+        'room_id' => 'tavern_entrance',
+        'start_q' => 0,
+        'start_r' => 0,
+      ],
+    ]);
+    $this->assertSession()->statusCodeEquals(200);
+
+    $runtime_row = $database->select('dc_campaign_characters', 'cc')
+      ->fields('cc', ['id', 'instance_id', 'default_character_data'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('character_id', $library_character_id)
+      ->condition('type', 'pc')
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+
+    $this->assertNotFalse($runtime_row, 'A campaign runtime row should be created for direct launches.');
+
+    $settings = $this->getDrupalSettings();
+    $hexmap_settings = $settings['dungeoncrawlerContent'];
+    $launch_context = $hexmap_settings['hexmapLaunchContext'];
+    $launch_character = $hexmap_settings['hexmapLaunchCharacter'];
+    $entities = $hexmap_settings['hexmapDungeonData']['entities'];
+
+    $this->assertSame((int) $runtime_row['id'], (int) $launch_context['character_id']);
+    $this->assertSame('Test Hero', $launch_character['name']);
+    $this->assertSame((string) $runtime_row['instance_id'], (string) $launch_character['instanceId']);
+    $this->assertStringContainsString('magic-missile', (string) $runtime_row['default_character_data']);
+    $this->assertSame('Magic Missile', $launch_character['spells']['preparedSpells'][0]['name']);
+    $this->assertSame('Reach Spell', $launch_character['feats'][0]['name']);
+
+    $player_entities = array_values(array_filter($entities, static function (array $entity): bool {
+      return ($entity['entity_type'] ?? '') === 'player_character';
+    }));
+    $this->assertCount(1, $player_entities, 'The hexmap payload should include the launch player entity.');
+    $this->assertSame((int) $runtime_row['id'], (int) ($player_entities[0]['state']['metadata']['character_id'] ?? 0));
+  }
+
+  /**
+   * Decode drupalSettings from the current page.
+   */
+  protected function getDrupalSettings(): array {
     $settings_script = $this->getSession()->getPage()->find('css', 'script[data-drupal-selector="drupal-settings-json"]');
-    if ($settings_script) {
-      $settings_json = $settings_script->getText();
-      $settings = json_decode($settings_json, TRUE);
-      
-      // Verify hexmapDungeonData exists
-      $this->assertArrayHasKey('dungeoncrawlerContent', $settings);
-      $this->assertArrayHasKey('hexmapDungeonData', $settings['dungeoncrawlerContent']);
-      
-      // Verify schema_version is present (should be "1.0.0" from tavern-entrance-dungeon.json)
-      $dungeon_data = $settings['dungeoncrawlerContent']['hexmapDungeonData'];
-      $this->assertArrayHasKey('schema_version', $dungeon_data, 'schema_version field must be preserved in normalized dungeon payload');
-      $this->assertNotEmpty($dungeon_data['schema_version'], 'schema_version must not be empty');
-    }
+    $this->assertNotNull($settings_script, 'drupalSettings script tag should be present.');
+
+    $settings = json_decode($settings_script->getText(), TRUE);
+    $this->assertIsArray($settings, 'drupalSettings JSON should decode to an array.');
+
+    return $settings;
   }
 
 }

@@ -872,6 +872,10 @@ class CampaignController extends ControllerBase {
     if (!is_array($character_data)) {
       $character_data = [];
     }
+    $default_character_data = json_decode((string) ($character->default_character_data ?? '{}'), TRUE);
+    if (!is_array($default_character_data)) {
+      $default_character_data = [];
+    }
     $hot = $this->characterManager->resolveHotColumnsForRecord($character, $character_data);
 
     $existing_query = $this->database->select('dc_campaign_characters', 'cc')
@@ -937,6 +941,7 @@ class CampaignController extends ControllerBase {
       'type' => 'pc',
       'state_data' => json_encode($character_data, JSON_UNESCAPED_UNICODE),
       'character_data' => json_encode($character_data, JSON_UNESCAPED_UNICODE),
+      'default_character_data' => json_encode($default_character_data, JSON_UNESCAPED_UNICODE),
       'location_type' => $location_fields['location_type'],
       'location_ref' => $location_fields['location_ref'],
       'is_active' => 1,

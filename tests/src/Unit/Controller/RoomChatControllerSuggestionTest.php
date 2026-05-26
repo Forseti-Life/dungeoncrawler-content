@@ -5,6 +5,7 @@ namespace Drupal\Tests\dungeoncrawler_content\Unit\Controller;
 use Drupal\dungeoncrawler_content\Controller\RoomChatController;
 use Drupal\dungeoncrawler_content\Service\RoomChatService;
 use Drupal\Tests\UnitTestCase;
+use Psr\Log\LoggerInterface;
 use Symfony\Component\HttpFoundation\Request;
 
 /**
@@ -15,6 +16,10 @@ use Symfony\Component\HttpFoundation\Request;
  * @coversDefaultClass \Drupal\dungeoncrawler_content\Controller\RoomChatController
  */
 class RoomChatControllerSuggestionTest extends UnitTestCase {
+
+  protected function createController(RoomChatService $chat_service): RoomChatController {
+    return new RoomChatController($chat_service, $this->createMock(LoggerInterface::class));
+  }
 
   /**
    * @covers ::suggestPlayerAutomationMessage
@@ -34,7 +39,7 @@ class RoomChatControllerSuggestionTest extends UnitTestCase {
         'channel' => 'room',
       ]);
 
-    $controller = new RoomChatController($chat_service);
+    $controller = $this->createController($chat_service);
     $request = Request::create(
       '/api/campaign/63/room/room-1/chat/player-suggestion',
       'POST',
@@ -69,7 +74,7 @@ class RoomChatControllerSuggestionTest extends UnitTestCase {
     $chat_service->expects($this->never())
       ->method('suggestPlayerAutomationMessage');
 
-    $controller = new RoomChatController($chat_service);
+    $controller = $this->createController($chat_service);
     $request = Request::create(
       '/api/campaign/63/room/room-1/chat/player-suggestion',
       'POST',

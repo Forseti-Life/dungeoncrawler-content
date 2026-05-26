@@ -23,7 +23,7 @@
             "kind": "flag",
             "metric": "discovered",
             "required_value": true,
-            "description": "Discover the required location."
+            "description": "Discover {location}."
           }
         },
         {
@@ -39,7 +39,7 @@
             "kind": "count",
             "metric": "current",
             "target_count": 1,
-            "description": "Reach the required progress count."
+            "description": "Defeat the captors holding {npc}."
           }
         },
         {
@@ -51,7 +51,7 @@
             "kind": "flag",
             "metric": "completed",
             "required_value": true,
-            "description": "Mark this objective complete."
+            "description": "Speak to {npc} to free them from captivity."
           }
         }
       ]
@@ -62,13 +62,29 @@
         {
           "objective_id": "escort_to_safety",
           "type": "escort",
+          "target": "{npc}",
+          "npc_ref": "{npc}",
           "destination": "{safe_location}",
+          "encounter_count_range": [
+            1,
+            3
+          ],
+          "encounter_types": [
+            "social",
+            "problem_solving",
+            "combat"
+          ],
+          "encounter_profiles": [
+            "negotiation_collapse",
+            "chase_transition",
+            "ambush"
+          ],
           "description": "Escort {npc} back to safety",
           "completion_criteria": {
             "kind": "flag",
             "metric": "arrived",
             "required_value": true,
-            "description": "Reach the required destination."
+            "description": "Escort {npc} safely to {safe_location} and keep them alive."
           }
         }
       ]

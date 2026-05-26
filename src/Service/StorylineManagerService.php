@@ -20,19 +20,22 @@ class StorylineManagerService {
   protected UuidInterface $uuid;
   protected CampaignStateService $campaignStateService;
   protected ?StateValidationService $stateValidationService;
+  protected ?StorylineRealizationService $storylineRealizationService;
 
   public function __construct(
     Connection $database,
     LoggerChannelFactoryInterface $logger_factory,
     UuidInterface $uuid,
     CampaignStateService $campaign_state_service,
-    ?StateValidationService $state_validation_service = NULL
+    ?StateValidationService $state_validation_service = NULL,
+    ?StorylineRealizationService $storyline_realization_service = NULL
   ) {
     $this->database = $database;
     $this->logger = $logger_factory->get('dungeoncrawler_content');
     $this->uuid = $uuid;
     $this->campaignStateService = $campaign_state_service;
     $this->stateValidationService = $state_validation_service;
+    $this->storylineRealizationService = $storyline_realization_service;
   }
 
   /**
@@ -162,7 +165,7 @@ class StorylineManagerService {
       $this->persistCampaignStorylinePointers($campaign_id, $storyline_id, $is_primary);
     }
 
-    return $this->getCampaignStoryline($campaign_id, $storyline_id, TRUE) ?? [];
+    return $this->finalizePersistedCampaignStoryline($campaign_id, $storyline_id) ?? [];
   }
 
   /**
@@ -234,7 +237,24 @@ class StorylineManagerService {
       'Storyline definition updated: ' . (string) $normalized['name']
     );
 
-    return $this->getCampaignStoryline($campaign_id, $storyline_id, TRUE);
+    return $this->finalizePersistedCampaignStoryline($campaign_id, $storyline_id);
+  }
+
+  /**
+   * Finalize a persisted storyline so all creation paths share realization.
+   */
+  protected function finalizePersistedCampaignStoryline(int $campaign_id, string $storyline_id): ?array {
+    $storyline = $this->getCampaignStoryline($campaign_id, $storyline_id, TRUE);
+    if (!is_array($storyline) || $storyline === []) {
+      return $storyline;
+    }
+
+    if ($this->storylineRealizationService !== NULL) {
+      $this->storylineRealizationService->realizeStorylineAssets($campaign_id, $storyline);
+      $this->storylineRealizationService->realizeStorylineNpcs($campaign_id, $storyline);
+    }
+
+    return $storyline;
   }
 
   /**
@@ -254,11 +274,31 @@ class StorylineManagerService {
    * Validate a normalized storyline definition when schema validation is wired.
    */
   public function validateNormalizedStorylineDefinition(array $definition): array {
-    if ($this->stateValidationService === NULL) {
-      return ['valid' => TRUE, 'errors' => []];
+    $errors = [];
+    if ($this->stateValidationService !== NULL) {
+      $validation = $this->stateValidationService->validateStorylineDefinition($definition);
+      if (!($validation['valid'] ?? FALSE)) {
+        $errors = array_merge($errors, $validation['errors'] ?? []);
+      }
     }
 
-    return $this->stateValidationService->validateStorylineDefinition($definition);
+    $errors = array_merge($errors, $this->validateStorylineCrossReferences($definition));
+    return ['valid' => $errors === [], 'errors' => $errors];
+  }
+
+  /**
+   * Validate storyline runtime payloads before they enter management flows.
+   */
+  public function validateRuntimeStorylineContract(array $storyline_data): array {
+    $errors = [];
+    $validation = $this->validateRuntimeStorylineData($storyline_data);
+    if (!($validation['valid'] ?? FALSE)) {
+      $errors = array_merge($errors, $validation['errors'] ?? []);
+    }
+
+    $errors = array_merge($errors, $this->validateStorylineCrossReferences($storyline_data));
+    $errors = array_values(array_unique($errors));
+    return ['valid' => $errors === [], 'errors' => $errors];
   }
 
   /**
@@ -616,6 +656,7 @@ class StorylineManagerService {
     $questline = $this->buildQuestlineDefinition($chapters, $linked_quests);
     $asset_references = $this->buildAssetReferenceMap($definition, $chapters, $linked_quests);
     $contacts = $this->normalizeContactDefinitions($definition['contacts'] ?? [], $asset_references);
+    $this->backfillQuestGiverLocationAnchors($contacts, $asset_references, $chapters);
     $tags = array_values(array_filter(array_map('strval', is_array($definition['tags'] ?? NULL) ? $definition['tags'] : [])));
     $metadata = $this->normalizeStorylineMetadata($definition, $chapters, $contacts, $asset_references, $tags);
 
@@ -861,7 +902,7 @@ class StorylineManagerService {
     $storyline_data['current_chapter_id'] = $current_chapter_id;
     $storyline_data['current_scene_id'] = $current_scene_id;
 
-    $validation = $this->validateRuntimeStorylineData($storyline_data);
+    $validation = $this->validateRuntimeStorylineContract($storyline_data);
     if (!($validation['valid'] ?? FALSE)) {
       throw new \InvalidArgumentException('Storyline runtime failed validation after quest sync: ' . implode('; ', $validation['errors'] ?? []), 400);
     }
@@ -1217,6 +1258,66 @@ class StorylineManagerService {
   }
 
   /**
+   * Ensures quest-giver contacts carry an explicit opening scene anchor.
+   */
+  protected function backfillQuestGiverLocationAnchors(array &$contacts, array &$asset_references, array $chapters): void {
+    $first_chapter = is_array($chapters[0] ?? NULL) ? $chapters[0] : [];
+    $first_scene = is_array($first_chapter['scenes'][0] ?? NULL) ? $first_chapter['scenes'][0] : [];
+    $chapter_id = trim((string) ($first_chapter['chapter_id'] ?? ''));
+    $scene_id = trim((string) ($first_scene['scene_id'] ?? ''));
+    if ($chapter_id === '' && $scene_id === '') {
+      return;
+    }
+
+    foreach ($contacts as &$contact) {
+      if (!is_array($contact) || (string) ($contact['role'] ?? '') !== 'quest_giver') {
+        continue;
+      }
+
+      $contact['relationship_state'] = is_array($contact['relationship_state'] ?? NULL) ? $contact['relationship_state'] : [];
+      if ($chapter_id !== '' && empty($contact['relationship_state']['chapter_id'])) {
+        $contact['relationship_state']['chapter_id'] = $chapter_id;
+      }
+      if ($scene_id !== '' && empty($contact['relationship_state']['scene_id'])) {
+        $contact['relationship_state']['scene_id'] = $scene_id;
+      }
+
+      $entity_id = trim((string) ($contact['entity_id'] ?? ''));
+      if ($entity_id === '' || $chapter_id === '') {
+        continue;
+      }
+
+      $has_anchor = FALSE;
+      foreach ($asset_references as $reference) {
+        if (!is_array($reference)) {
+          continue;
+        }
+        if (
+          (string) ($reference['asset_role'] ?? '') === 'quest-giver'
+          && (string) ($reference['asset_id'] ?? '') === $entity_id
+        ) {
+          $has_anchor = TRUE;
+          break;
+        }
+      }
+
+      if (!$has_anchor) {
+        $asset_references[] = [
+          'asset_type' => 'npc',
+          'asset_id' => $entity_id,
+          'asset_role' => 'quest-giver',
+          'chapter_id' => $chapter_id,
+          'scene_id' => $scene_id,
+          'source_scope' => 'derived',
+          'notes' => 'Quest giver anchored to the opening storyline scene.',
+          'link_data' => ['derived' => TRUE],
+        ];
+      }
+    }
+    unset($contact);
+  }
+
+  /**
    * Builds initial runtime state for a newly instantiated storyline.
    */
   protected function buildInitialStorylineState(array $normalized, array $options): array {
@@ -1253,7 +1354,7 @@ class StorylineManagerService {
       'variables' => $variables,
     ];
 
-    $validation = $this->validateRuntimeStorylineData($storyline_data);
+    $validation = $this->validateRuntimeStorylineContract($storyline_data);
     if (!($validation['valid'] ?? FALSE)) {
       throw new \InvalidArgumentException('Storyline runtime failed validation: ' . implode('; ', $validation['errors'] ?? []), 400);
     }
@@ -1295,6 +1396,193 @@ class StorylineManagerService {
     }
 
     return $this->stateValidationService->validateStorylineRuntime($storyline_data);
+  }
+
+  /**
+   * Validate cross-object storyline references that schema validation misses.
+   *
+   * @return array<int, string>
+   *   Validation error messages.
+   */
+  protected function validateStorylineCrossReferences(array $definition): array {
+    $errors = [];
+    $chapters = array_values(array_filter(is_array($definition['chapters'] ?? NULL) ? $definition['chapters'] : [], 'is_array'));
+    $chapter_ids = [];
+    $scene_ids = [];
+    foreach ($chapters as $chapter) {
+      $chapter_id = trim((string) ($chapter['chapter_id'] ?? ''));
+      if ($chapter_id !== '') {
+        $chapter_ids[$chapter_id] = TRUE;
+      }
+      foreach (array_values(array_filter(is_array($chapter['scenes'] ?? NULL) ? $chapter['scenes'] : [], 'is_array')) as $scene) {
+        $scene_id = trim((string) ($scene['scene_id'] ?? ''));
+        if ($scene_id !== '') {
+          $scene_ids[$scene_id] = TRUE;
+        }
+      }
+    }
+
+    $contact_entity_ids = [];
+    $contact_anchors = [];
+    foreach (array_values(array_filter(is_array($definition['contacts'] ?? NULL) ? $definition['contacts'] : [], 'is_array')) as $contact) {
+      $entity_id = trim((string) ($contact['entity_id'] ?? ''));
+      if ($entity_id !== '') {
+        $contact_entity_ids[$entity_id] = TRUE;
+      }
+
+      $relationship_state = is_array($contact['relationship_state'] ?? NULL) ? $contact['relationship_state'] : [];
+      $relationship_chapter_id = trim((string) ($relationship_state['chapter_id'] ?? ''));
+      $relationship_scene_id = trim((string) ($relationship_state['scene_id'] ?? ''));
+      if ($relationship_chapter_id !== '' && !isset($chapter_ids[$relationship_chapter_id])) {
+        $errors[] = "Contact '{$entity_id}' references unknown chapter '{$relationship_chapter_id}'.";
+      }
+      if ($relationship_scene_id !== '' && !isset($scene_ids[$relationship_scene_id])) {
+        $errors[] = "Contact '{$entity_id}' references unknown scene '{$relationship_scene_id}'.";
+      }
+      if ($relationship_chapter_id !== '' || $relationship_scene_id !== '') {
+        $contact_anchors[$entity_id] = TRUE;
+      }
+    }
+
+    $declared_asset_npc_ids = [];
+    $asset_references = array_values(array_filter(is_array($definition['asset_references'] ?? NULL) ? $definition['asset_references'] : [], 'is_array'));
+    foreach ($asset_references as $reference) {
+      $asset_type = trim((string) ($reference['asset_type'] ?? ''));
+      $asset_id = trim((string) ($reference['asset_id'] ?? ''));
+      if ($asset_type === 'npc' && $asset_id !== '') {
+        $declared_asset_npc_ids[$asset_id] = TRUE;
+      }
+
+      $chapter_id = trim((string) ($reference['chapter_id'] ?? ''));
+      $scene_id = trim((string) ($reference['scene_id'] ?? ''));
+      if ($chapter_id !== '' && !isset($chapter_ids[$chapter_id])) {
+        $errors[] = "Asset reference '{$reference['asset_id']}' points to unknown chapter '{$chapter_id}'.";
+      }
+      if ($scene_id !== '' && !isset($scene_ids[$scene_id])) {
+        $errors[] = "Asset reference '{$reference['asset_id']}' points to unknown scene '{$scene_id}'.";
+      }
+      if ((string) ($reference['asset_role'] ?? '') === 'quest-giver') {
+        if ($asset_id !== '') {
+          $contact_anchors[$asset_id] = TRUE;
+        }
+      }
+    }
+
+    foreach (array_values(array_filter(is_array($definition['contacts'] ?? NULL) ? $definition['contacts'] : [], 'is_array')) as $contact) {
+      $entity_id = trim((string) ($contact['entity_id'] ?? ''));
+      if (
+        (string) ($contact['role'] ?? '') === 'quest_giver'
+        && $entity_id !== ''
+        && !isset($contact_anchors[$entity_id])
+      ) {
+        $errors[] = "Quest giver '{$entity_id}' is missing a canonical chapter/scene anchor.";
+      }
+    }
+
+    foreach ((array) ($definition['linked_quests'] ?? []) as $quest_id => $quest_link) {
+      if (!is_array($quest_link)) {
+        continue;
+      }
+      $chapter_id = trim((string) ($quest_link['chapter_id'] ?? ''));
+      $scene_id = trim((string) ($quest_link['scene_id'] ?? ''));
+      if ($chapter_id !== '' && !isset($chapter_ids[$chapter_id])) {
+        $errors[] = "Linked quest '{$quest_id}' points to unknown chapter '{$chapter_id}'.";
+      }
+      if ($scene_id !== '' && !isset($scene_ids[$scene_id])) {
+        $errors[] = "Linked quest '{$quest_id}' points to unknown scene '{$scene_id}'.";
+      }
+    }
+
+    $questline = is_array($definition['questline'] ?? NULL) ? $definition['questline'] : [];
+    foreach (array_values(array_filter(is_array($questline['quest_nodes'] ?? NULL) ? $questline['quest_nodes'] : [], 'is_array')) as $quest_node) {
+      $quest_id = trim((string) ($quest_node['quest_id'] ?? ''));
+      $chapter_id = trim((string) ($quest_node['chapter_id'] ?? ''));
+      $scene_id = trim((string) ($quest_node['scene_id'] ?? ''));
+      if ($chapter_id !== '' && !isset($chapter_ids[$chapter_id])) {
+        $errors[] = "Quest node '{$quest_id}' points to unknown chapter '{$chapter_id}'.";
+      }
+      if ($scene_id !== '' && !isset($scene_ids[$scene_id])) {
+        $errors[] = "Quest node '{$quest_id}' points to unknown scene '{$scene_id}'.";
+      }
+    }
+
+    $outline = is_array($definition['metadata']['generated_outline'] ?? NULL) ? $definition['metadata']['generated_outline'] : [];
+    $outline_dungeons = [];
+    $outline_rooms = [];
+    $outline_npcs = $contact_entity_ids + $declared_asset_npc_ids;
+    foreach (array_values(array_filter(is_array($outline['sub_bosses'] ?? NULL) ? $outline['sub_bosses'] : [], 'is_array')) as $boss) {
+      $boss_id = trim((string) ($boss['boss_id'] ?? ''));
+      if ($boss_id !== '') {
+        $outline_npcs[$boss_id] = TRUE;
+      }
+    }
+    $big_boss_id = trim((string) ($outline['big_boss']['boss_id'] ?? ''));
+    if ($big_boss_id !== '') {
+      $outline_npcs[$big_boss_id] = TRUE;
+    }
+
+    foreach (array_values(array_filter(is_array($outline['dungeons'] ?? NULL) ? $outline['dungeons'] : [], 'is_array')) as $dungeon) {
+      $dungeon_id = trim((string) ($dungeon['dungeon_id'] ?? ''));
+      if ($dungeon_id === '') {
+        continue;
+      }
+      $outline_dungeons[$dungeon_id] = TRUE;
+      $rooms = array_values(array_filter(is_array($dungeon['rooms'] ?? NULL) ? $dungeon['rooms'] : [], 'is_array'));
+      $room_ids = [];
+      foreach ($rooms as $room) {
+        $room_id = trim((string) ($room['room_id'] ?? ''));
+        if ($room_id === '') {
+          continue;
+        }
+        $outline_rooms[$room_id] = TRUE;
+        $room_ids[$room_id] = TRUE;
+        foreach (array_values(array_filter(array_map('strval', is_array($room['npc_ids'] ?? NULL) ? $room['npc_ids'] : []))) as $npc_id) {
+          if (!isset($outline_npcs[$npc_id])) {
+            $errors[] = "Room '{$room_id}' references unknown NPC '{$npc_id}'.";
+          }
+        }
+      }
+
+      if ((int) ($dungeon['room_count'] ?? 0) !== count($rooms)) {
+        $errors[] = "Dungeon '{$dungeon_id}' room_count does not match realized room definitions.";
+      }
+      foreach (['entrance_room_id', 'boss_room_id'] as $room_field) {
+        $room_id = trim((string) ($dungeon[$room_field] ?? ''));
+        if ($room_id !== '' && !isset($room_ids[$room_id])) {
+          $errors[] = "Dungeon '{$dungeon_id}' references unknown room '{$room_id}' in {$room_field}.";
+        }
+      }
+    }
+
+    $entry_dungeon = is_array($outline['entry_dungeon'] ?? NULL) ? $outline['entry_dungeon'] : [];
+    $entry_dungeon_id = trim((string) ($entry_dungeon['dungeon_id'] ?? ''));
+    if ($entry_dungeon_id !== '' && !isset($outline_dungeons[$entry_dungeon_id]) && !isset($chapter_ids[$entry_dungeon_id])) {
+      $errors[] = "Entry dungeon '{$entry_dungeon_id}' is not defined by the storyline.";
+    }
+    $entry_room_id = trim((string) ($entry_dungeon['entrance_room_id'] ?? ''));
+    if ($entry_room_id !== '' && !isset($outline_rooms[$entry_room_id]) && !isset($scene_ids[$entry_room_id])) {
+      $errors[] = "Entry room '{$entry_room_id}' is not defined by the storyline.";
+    }
+
+    foreach (array_values(array_filter(is_array($outline['progression_connectors'] ?? NULL) ? $outline['progression_connectors'] : [], 'is_array')) as $connector) {
+      $connector_id = trim((string) ($connector['connector_id'] ?? 'unknown-connector'));
+      $source_type = trim((string) ($connector['source_type'] ?? ''));
+      $source_id = trim((string) ($connector['source_id'] ?? ''));
+      if ($source_type === 'npc' && $source_id !== '' && !isset($outline_npcs[$source_id])) {
+        $errors[] = "Progression connector '{$connector_id}' references unknown NPC source '{$source_id}'.";
+      }
+
+      $target_dungeon_id = trim((string) ($connector['target_dungeon_id'] ?? ''));
+      if ($target_dungeon_id !== '' && !isset($outline_dungeons[$target_dungeon_id]) && !isset($chapter_ids[$target_dungeon_id])) {
+        $errors[] = "Progression connector '{$connector_id}' points to unknown dungeon '{$target_dungeon_id}'.";
+      }
+      $target_room_id = trim((string) ($connector['target_room_id'] ?? ''));
+      if ($target_room_id !== '' && !isset($outline_rooms[$target_room_id]) && !isset($scene_ids[$target_room_id])) {
+        $errors[] = "Progression connector '{$connector_id}' points to unknown room '{$target_room_id}'.";
+      }
+    }
+
+    return array_values(array_unique($errors));
   }
 
   /**
@@ -1596,6 +1884,8 @@ class StorylineManagerService {
    * Backfill legacy storyline runtime rows to the current runtime envelope.
    */
   protected function normalizeRuntimeStorylineData(array $storyline_data): array {
+    $legacy_template_id = trim((string) ($storyline_data['template_id'] ?? ''));
+    $legacy_name = trim((string) ($storyline_data['name'] ?? ''));
     $storyline_data = array_replace([
       'schema_version' => self::STORYLINE_RUNTIME_SCHEMA_VERSION,
       'storyline_type' => 'questline',
@@ -1641,7 +1931,119 @@ class StorylineManagerService {
     $storyline_data['current_scene_id'] = (string) ($storyline_data['current_scene_id'] ?? '');
     $storyline_data['status'] = (string) ($storyline_data['status'] ?? 'available');
     $storyline_data['variables'] = is_array($storyline_data['variables'] ?? NULL) ? $storyline_data['variables'] : [];
+    if ($legacy_template_id !== '' && empty($storyline_data['metadata']['template_id'])) {
+      $storyline_data['metadata']['template_id'] = $legacy_template_id;
+    }
+    if ($legacy_name !== '' && empty($storyline_data['metadata']['name'])) {
+      $storyline_data['metadata']['name'] = $legacy_name;
+    }
 
+    unset($storyline_data['storyline_id'], $storyline_data['template_id'], $storyline_data['name']);
+
+    $storyline_data = $this->normalizeBootstrapRuntimeOutline($storyline_data);
+
+    return $storyline_data;
+  }
+
+  /**
+   * Repair legacy bootstrap outline references so runtime rows stay canonical.
+   */
+  protected function normalizeBootstrapRuntimeOutline(array $storyline_data): array {
+    $outline = is_array($storyline_data['metadata']['generated_outline'] ?? NULL) ? $storyline_data['metadata']['generated_outline'] : [];
+    $entry_dungeon = is_array($outline['entry_dungeon'] ?? NULL) ? $outline['entry_dungeon'] : [];
+    $generation_phase = strtolower(trim((string) ($outline['generation_phase'] ?? '')));
+    if ($generation_phase !== 'bootstrap' && $entry_dungeon === []) {
+      return $storyline_data;
+    }
+
+    $first_chapter = is_array($storyline_data['chapters'][0] ?? NULL) ? $storyline_data['chapters'][0] : [];
+    $first_scene = is_array($first_chapter['scenes'][0] ?? NULL) ? $first_chapter['scenes'][0] : [];
+    $canonical_chapter_id = trim((string) ($first_chapter['chapter_id'] ?? ''));
+    $canonical_scene_id = trim((string) ($first_scene['scene_id'] ?? ''));
+    if ($canonical_chapter_id === '' && $canonical_scene_id === '') {
+      return $storyline_data;
+    }
+
+    $chapter_ids = [];
+    $scene_ids = [];
+    foreach (array_values(array_filter(is_array($storyline_data['chapters'] ?? NULL) ? $storyline_data['chapters'] : [], 'is_array')) as $chapter) {
+      $chapter_id = trim((string) ($chapter['chapter_id'] ?? ''));
+      if ($chapter_id !== '') {
+        $chapter_ids[$chapter_id] = TRUE;
+      }
+      foreach (array_values(array_filter(is_array($chapter['scenes'] ?? NULL) ? $chapter['scenes'] : [], 'is_array')) as $scene) {
+        $scene_id = trim((string) ($scene['scene_id'] ?? ''));
+        if ($scene_id !== '') {
+          $scene_ids[$scene_id] = TRUE;
+        }
+      }
+    }
+
+    $outline_dungeon_ids = [];
+    $outline_room_ids = [];
+    foreach (array_values(array_filter(is_array($outline['dungeons'] ?? NULL) ? $outline['dungeons'] : [], 'is_array')) as $dungeon) {
+      $dungeon_id = trim((string) ($dungeon['dungeon_id'] ?? ''));
+      if ($dungeon_id !== '') {
+        $outline_dungeon_ids[$dungeon_id] = TRUE;
+      }
+      foreach (array_values(array_filter(is_array($dungeon['rooms'] ?? NULL) ? $dungeon['rooms'] : [], 'is_array')) as $room) {
+        $room_id = trim((string) ($room['room_id'] ?? ''));
+        if ($room_id !== '') {
+          $outline_room_ids[$room_id] = TRUE;
+        }
+      }
+    }
+
+    if ($entry_dungeon === []) {
+      $entry_dungeon = [];
+    }
+    $entry_dungeon_id = trim((string) ($entry_dungeon['dungeon_id'] ?? ''));
+    if (
+      $canonical_chapter_id !== ''
+      && ($entry_dungeon_id === '' || (!isset($outline_dungeon_ids[$entry_dungeon_id]) && !isset($chapter_ids[$entry_dungeon_id])))
+    ) {
+      $entry_dungeon['dungeon_id'] = $canonical_chapter_id;
+    }
+    if (empty($entry_dungeon['name']) && !empty($first_chapter['name'])) {
+      $entry_dungeon['name'] = (string) $first_chapter['name'];
+    }
+
+    $entry_room_id = trim((string) ($entry_dungeon['entrance_room_id'] ?? ''));
+    if (
+      $canonical_scene_id !== ''
+      && ($entry_room_id === '' || (!isset($outline_room_ids[$entry_room_id]) && !isset($scene_ids[$entry_room_id])))
+    ) {
+      $entry_dungeon['entrance_room_id'] = $canonical_scene_id;
+    }
+    $outline['entry_dungeon'] = $entry_dungeon;
+
+    $target_dungeon_id = trim((string) ($entry_dungeon['dungeon_id'] ?? $canonical_chapter_id));
+    $target_room_id = trim((string) ($entry_dungeon['entrance_room_id'] ?? $canonical_scene_id));
+    $connectors = [];
+    foreach (array_values(array_filter(is_array($outline['progression_connectors'] ?? NULL) ? $outline['progression_connectors'] : [], 'is_array')) as $connector) {
+      $connector_target_dungeon_id = trim((string) ($connector['target_dungeon_id'] ?? ''));
+      if (
+        $target_dungeon_id !== ''
+        && ($connector_target_dungeon_id === '' || (!isset($outline_dungeon_ids[$connector_target_dungeon_id]) && !isset($chapter_ids[$connector_target_dungeon_id])))
+      ) {
+        $connector['target_dungeon_id'] = $target_dungeon_id;
+      }
+
+      $connector_target_room_id = trim((string) ($connector['target_room_id'] ?? ''));
+      if (
+        $target_room_id !== ''
+        && ($connector_target_room_id === '' || (!isset($outline_room_ids[$connector_target_room_id]) && !isset($scene_ids[$connector_target_room_id])))
+      ) {
+        $connector['target_room_id'] = $target_room_id;
+      }
+
+      $connectors[] = $connector;
+    }
+    if ($connectors !== []) {
+      $outline['progression_connectors'] = $connectors;
+    }
+
+    $storyline_data['metadata']['generated_outline'] = $outline;
     return $storyline_data;
   }
 

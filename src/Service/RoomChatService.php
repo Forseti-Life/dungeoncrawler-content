@@ -34,6 +34,7 @@ class RoomChatService {
   protected const ROOM_CHAT_RESPONSE_SCHEMA_VERSION = 'room-chat-response-v1';
   protected const QUEUED_ROOM_CONTINUATION_SCHEMA_VERSION = 'queued-room-continuation-v1';
   protected const QUEST_UPDATE_SCHEMA_VERSION = 'quest-update-v1';
+  protected const NAVIGATION_ACTION_SCHEMA_VERSION = 'navigation-action-v1';
 
   protected Connection $database;
   protected DungeonStateService $dungeonStateService;
@@ -59,6 +60,7 @@ class RoomChatService {
   protected ?QuestTouchpointService $questTouchpointService;
   protected MerchantBotService $merchantBotService;
   protected ?InventoryManagementService $inventoryManagementService;
+  protected ?MerchantTransactionService $merchantTransactionService;
   protected ?array $activeDebugTrace = NULL;
   protected ?bool $roomTurnLogStoreAvailable = NULL;
 
@@ -86,6 +88,7 @@ class RoomChatService {
     ?MerchantBotService $merchant_bot_service = NULL,
     ?ClientInterface $http_client = NULL,
     ?InventoryManagementService $inventory_management_service = NULL,
+    ?MerchantTransactionService $merchant_transaction_service = NULL,
     ?QuestGeneratorService $quest_generator = NULL,
     ?StateValidationService $state_validation_service = NULL,
     ?StorylineManagerService $storyline_manager = NULL,
@@ -111,6 +114,7 @@ class RoomChatService {
     $this->relationshipManager = $relationship_manager;
     $this->merchantBotService = $merchant_bot_service ?? new MerchantBotService($database, $logger_factory, $http_client);
     $this->inventoryManagementService = $inventory_management_service;
+    $this->merchantTransactionService = $merchant_transaction_service;
     $this->questGenerator = $quest_generator;
     $this->stateValidationService = $state_validation_service;
     $this->storylineManager = $storyline_manager;
@@ -431,7 +435,8 @@ class RoomChatService {
     string $channel = 'room',
     bool $defer_npc_interjections = FALSE,
     bool $suppress_gm = FALSE,
-    ?callable $progress_callback = NULL
+    ?callable $progress_callback = NULL,
+    array $quest_touchpoint_hint = []
   ): array {
     $request_started_at = hrtime(true);
     $this->startDebugTrace([
@@ -2040,10 +2045,21 @@ class RoomChatService {
     array $dungeon_data,
     string $gm_narrative
   ): ?array {
+    $this->logger->notice('Navigation handoff enter: campaign=@campaign_id origin_room_id=@origin_room_id action_count=@action_count gm_narrative_chars=@gm_narrative_chars', [
+      '@campaign_id' => $campaign_id,
+      '@origin_room_id' => $origin_room_id,
+      '@action_count' => count($actions),
+      '@gm_narrative_chars' => strlen($gm_narrative),
+    ]);
+
     // Find navigate_to_location action(s).
     $nav_actions = array_filter($actions, fn($a) => ($a['type'] ?? '') === 'navigate_to_location');
 
     if (empty($nav_actions)) {
+      $this->logger->notice('Navigation handoff exit: campaign=@campaign_id origin_room_id=@origin_room_id result=no_navigation_action', [
+        '@campaign_id' => $campaign_id,
+        '@origin_room_id' => $origin_room_id,
+      ]);
       return NULL;
     }
 
@@ -2054,9 +2070,18 @@ class RoomChatService {
 
     // Use the first navigation action (shouldn't be multiple).
     $nav = reset($nav_actions);
-    $details = $nav['details'] ?? [];
-    $destination = $details['destination'] ?? $details['destination_description'] ?? $nav['name'] ?? 'Unknown destination';
-    $destination_desc = $details['destination_description'] ?? $destination;
+    $nav_payload = $this->buildCanonicalNavigationActionPayload(is_array($nav) ? $nav : []);
+    $this->validateNavigationActionPayload($nav_payload);
+    $details = $nav_payload['details'];
+    $destination = $details['destination'];
+    $destination_desc = $details['destination_description'];
+    $this->logger->notice('Navigation action parsed: campaign=@campaign_id origin_room_id=@origin_room_id destination=@destination destination_description=@destination_description nav_name=@nav_name', [
+      '@campaign_id' => $campaign_id,
+      '@origin_room_id' => $origin_room_id,
+      '@destination' => $destination,
+      '@destination_description' => $destination_desc,
+      '@nav_name' => (string) ($nav['name'] ?? ''),
+    ]);
 
     // Gather narrative context.
     $narrative_context = [
@@ -2064,14 +2089,15 @@ class RoomChatService {
       'campaign_theme' => $dungeon_data['theme'] ?? 'high fantasy',
       'party_level' => $dungeon_data['generation_rules']['party_level_target'] ?? 1,
       'time_of_day' => $this->inferTimeOfDay($dungeon_data),
-      'travel_type' => $details['travel_type'] ?? 'walk',
-      'estimated_distance' => $details['estimated_distance'] ?? 'short',
+      'travel_type' => $details['travel_type'],
+      'estimated_distance' => $details['estimated_distance'],
+      'destination_description' => $destination_desc,
     ];
 
     try {
       $result = $this->mapGenerator->generateSetting(
         $campaign_id,
-        $destination_desc,
+        $destination,
         $origin_room_id,
         $narrative_context
       );
@@ -2082,15 +2108,30 @@ class RoomChatService {
         '@idx' => $result['room_index'] ?? '?',
         '@hexes' => count($result['room']['hexes'] ?? []),
       ]);
+      $this->logger->notice('Navigation handoff exit: campaign=@campaign_id origin_room_id=@origin_room_id destination=@destination result_room_id=@result_room_id result_room_name=@result_room_name result_source=@result_source entities_added=@entities_added', [
+        '@campaign_id' => $campaign_id,
+        '@origin_room_id' => $origin_room_id,
+        '@destination' => $destination,
+        '@result_room_id' => (string) ($result['room']['room_id'] ?? ''),
+        '@result_room_name' => (string) ($result['room']['name'] ?? ''),
+        '@result_source' => (string) ($result['source'] ?? 'unknown'),
+        '@entities_added' => count($result['entities'] ?? []),
+      ]);
 
       return [
         'type' => 'navigate_to_location',
+        'origin_room_id' => $origin_room_id,
         'destination' => $destination,
+        'destination_description' => $destination_desc,
+        'travel_type' => $details['travel_type'],
+        'estimated_distance' => $details['estimated_distance'],
         'new_room' => $result['room'],
         'new_room_index' => $result['room_index'],
         'entities' => $result['entities'] ?? [],
         'entities_added' => count($result['entities'] ?? []),
         'dungeon_data' => $result['dungeon_data'] ?? [],
+        'source' => $result['source'] ?? NULL,
+        'template_id' => $result['template_id'] ?? NULL,
       ];
     }
     catch (\Exception $e) {
@@ -2098,12 +2139,73 @@ class RoomChatService {
         '@dest' => $destination,
         '@err' => $e->getMessage(),
       ]);
+      $this->logger->notice('Navigation handoff exit: campaign=@campaign_id origin_room_id=@origin_room_id destination=@destination result=error error=@error', [
+        '@campaign_id' => $campaign_id,
+        '@origin_room_id' => $origin_room_id,
+        '@destination' => $destination,
+        '@error' => $e->getMessage(),
+      ]);
       return [
         'type' => 'navigate_to_location',
         'destination' => $destination,
         'error' => 'Failed to generate the new location. Try again.',
       ];
     }
+  }
+
+  /**
+   * Normalize a navigation action into the canonical navigation contract.
+   */
+  protected function buildCanonicalNavigationActionPayload(array $action): array {
+    $details = is_array($action['details'] ?? NULL) ? $action['details'] : [];
+    $state_changes = is_array($action['state_changes'] ?? NULL) ? $action['state_changes'] : [];
+
+    $payload = [
+      'schema_version' => self::NAVIGATION_ACTION_SCHEMA_VERSION,
+      'type' => 'navigate_to_location',
+      'name' => trim((string) ($action['name'] ?? 'Travel')),
+      'details' => [
+        'destination' => trim((string) ($details['destination'] ?? '')),
+        'destination_description' => trim((string) ($details['destination_description'] ?? '')),
+        'travel_type' => trim((string) ($details['travel_type'] ?? 'walk')),
+        'estimated_distance' => trim((string) ($details['estimated_distance'] ?? 'short')),
+      ],
+      'state_changes' => [
+        'character' => is_array($state_changes['character'] ?? NULL) ? $state_changes['character'] : [],
+        'room' => is_array($state_changes['room'] ?? NULL) ? $state_changes['room'] : [],
+      ],
+    ];
+
+    $destination_room_id = trim((string) ($details['destination_room_id'] ?? ''));
+    if ($destination_room_id !== '') {
+      $payload['details']['destination_room_id'] = $destination_room_id;
+    }
+
+    if ($payload['details']['destination_description'] === '') {
+      $payload['details']['destination_description'] = $payload['details']['destination'];
+    }
+
+    if ($payload['name'] === '') {
+      $payload['name'] = 'Travel to ' . $payload['details']['destination'];
+    }
+
+    return $payload;
+  }
+
+  /**
+   * Enforce the canonical navigation action contract.
+   */
+  protected function validateNavigationActionPayload(array $payload): void {
+    if (!$this->stateValidationService) {
+      return;
+    }
+
+    $validation = $this->stateValidationService->validateNavigationAction($payload);
+    if (!empty($validation['valid'])) {
+      return;
+    }
+
+    throw new \RuntimeException('Navigation action contract violation: ' . implode('; ', $validation['errors'] ?? []));
   }
 
   /**
@@ -2852,7 +2954,7 @@ class RoomChatService {
         // bridge it directly into the normalized room session instead of
         // triggering narration generation a second time.
         if ($type === 'player' && $this->chatSessionManager !== NULL) {
-          $room_session = $this->chatSessionManager->ensureRoomSession($campaign_id, $dungeon_id, $room_id);
+          $room_session = $this->ensureCanonicalRoomSession($campaign_id, $dungeon_id, $room_id, $dungeon_data);
           $this->chatSessionManager->postMessage(
             (int) $room_session['id'],
             $campaign_id,
@@ -2920,7 +3022,8 @@ class RoomChatService {
     }
 
     try {
-      $room_session = $this->chatSessionManager->ensureRoomSession($campaign_id, $dungeon_id, $room_id);
+      $dungeon_snapshot = $this->loadLatestDungeonSnapshot($campaign_id, $room_id);
+      $room_session = $this->ensureCanonicalRoomSession($campaign_id, $dungeon_id, $room_id, $dungeon_snapshot['dungeon_data'] ?? []);
 
       // Post the GM narrative to the room session.
       $this->chatSessionManager->postMessage(
@@ -4757,6 +4860,7 @@ PROMPT;
       $merchant = $this->findMerchantNpc($room_npcs);
       $merchant_response = $this->buildDeterministicMerchantResponse(
         $campaign_id,
+        $room_id,
         $merchant,
         $player_message,
         $character_id
@@ -4778,6 +4882,7 @@ PROMPT;
       if ($intent === 'direct_npc_transaction') {
         $merchant_response = $this->buildDeterministicMerchantResponse(
           $campaign_id,
+          $room_id,
           $directly_addressed_npc,
           $player_message,
           $character_id
@@ -5263,8 +5368,17 @@ PROMPT;
    * Build a deterministic navigation action from a travel-style player turn.
    */
   protected function buildDeterministicNavigationAction(string $player_message, array $room_meta = [], string $room_id = '', array $dungeon_data = []): ?array {
+    $this->logger->notice('Deterministic navigation entry: room_id=@room_id room_name=@room_name player_message=@player_message room_count=@room_count', [
+      '@room_id' => $room_id,
+      '@room_name' => (string) ($room_meta['name'] ?? ''),
+      '@player_message' => $player_message,
+      '@room_count' => count($dungeon_data['rooms'] ?? []),
+    ]);
     $destination = $this->extractNavigationDestination($player_message, $room_meta, $room_id, $dungeon_data);
     if ($destination === NULL) {
+      $this->logger->notice('Deterministic navigation exit: room_id=@room_id result=no_destination_match', [
+        '@room_id' => $room_id,
+      ]);
       return NULL;
     }
 
@@ -5292,12 +5406,21 @@ PROMPT;
         : 'From ' . $origin_name . ', the way onward leads toward ' . $destination . '.';
     }
 
-    return [
-      'narrative' => $narrative,
-      'action' => [
-        'type' => 'navigate_to_location',
-        'name' => 'Travel to ' . $destination,
-        'details' => [
+    $this->logger->notice('Deterministic navigation exit: room_id=@room_id destination=@destination destination_description=@destination_description return_trip=@return_trip door_move=@door_move', [
+      '@room_id' => $room_id,
+      '@destination' => $destination,
+      '@destination_description' => $destination_description,
+      '@return_trip' => $return_trip ? 'yes' : 'no',
+      '@door_move' => $door_move ? 'yes' : 'no',
+    ]);
+
+      return [
+        'narrative' => $narrative,
+        'action' => [
+          'schema_version' => self::NAVIGATION_ACTION_SCHEMA_VERSION,
+          'type' => 'navigate_to_location',
+          'name' => 'Travel to ' . $destination,
+          'details' => [
           'destination' => $destination,
           'destination_description' => $destination_description,
           'travel_type' => 'walk',
@@ -6458,11 +6581,84 @@ PROMPT;
    */
   protected function buildDeterministicMerchantResponse(
     int $campaign_id,
+    string $room_id,
     ?array $merchant_npc,
     string $player_message,
     ?int $character_id = NULL
   ): ?array {
     $merchant_name = trim((string) ($merchant_npc['profile']['display_name'] ?? 'The merchant'));
+    $merchant_ref = (string) (
+      $merchant_npc['instance_id']
+      ?? $merchant_npc['entity_instance_id']
+      ?? $merchant_npc['profile']['instance_id']
+      ?? $merchant_npc['entity_ref']
+      ?? ''
+    );
+
+    if ($this->merchantTransactionService !== NULL && $merchant_ref !== '') {
+      $result = $this->merchantTransactionService->executeChatTransaction(
+        $campaign_id,
+        $room_id,
+        $merchant_ref,
+        $player_message,
+        $character_id
+      );
+      if ($result !== NULL) {
+        $status = (string) ($result['status'] ?? '');
+        $message = rtrim((string) ($result['message'] ?? ''), '. ');
+
+        if ($status === 'needs_item') {
+          return [
+            'narrative' => $merchant_name . ' waits for you to name the item and quantity clearly.',
+            'actions' => [],
+            'dice_rolls' => [],
+            'validation_errors' => [],
+            'suppress_npc_interjections' => TRUE,
+          ];
+        }
+
+        if ($status === 'quoted') {
+          return [
+            'narrative' => $merchant_name . ' quotes the trade plainly: ' . $message . '.',
+            'actions' => [],
+            'dice_rolls' => [],
+            'validation_errors' => [],
+            'suppress_npc_interjections' => TRUE,
+          ];
+        }
+
+        if ($status === 'completed_purchase') {
+          return [
+            'narrative' => $merchant_name . ' completes the sale: ' . $message,
+            'actions' => [],
+            'dice_rolls' => [],
+            'validation_errors' => [],
+            'suppress_npc_interjections' => TRUE,
+          ];
+        }
+
+        if ($status === 'completed_sale') {
+          return [
+            'narrative' => $merchant_name . ' closes the purchase: ' . $message,
+            'actions' => [],
+            'dice_rolls' => [],
+            'validation_errors' => [],
+            'suppress_npc_interjections' => TRUE,
+          ];
+        }
+
+        if ($status === 'blocked') {
+          return [
+            'narrative' => $merchant_name . ' cannot close the deal: ' . $message . '.',
+            'actions' => [],
+            'dice_rolls' => [],
+            'validation_errors' => [],
+            'suppress_npc_interjections' => TRUE,
+          ];
+        }
+      }
+    }
+
     $plan = $this->merchantBotService->planMerchantTransaction($character_id, $player_message, $campaign_id);
     if ($plan === NULL) {
       return NULL;
@@ -7957,6 +8153,32 @@ PROMPT;
       $updates = array_merge($updates, $storyline_updates);
     }
 
+    $touchpoint_entries = [];
+    foreach ($message_entries as $entry) {
+      if (!is_array($entry)) {
+        continue;
+      }
+      $entry_ref = trim((string) ($entry['entity_ref'] ?? ''));
+      $entry_speaker = trim((string) ($entry['speaker'] ?? $entry['name'] ?? ''));
+      if ($entry_ref === '' && $entry_speaker === '') {
+        continue;
+      }
+      $touchpoint_entries[strtolower($entry_ref . '|' . $entry_speaker)] = [
+        'entity_ref' => $entry_ref,
+        'speaker' => $entry_speaker,
+      ];
+    }
+    foreach ($touchpoint_entries as $touchpoint_entry) {
+      $this->applyConversationQuestTouchpoint(
+        $campaign_id,
+        (int) $character_id,
+        $room_id,
+        (string) ($touchpoint_entry['entity_ref'] ?? ''),
+        (string) ($touchpoint_entry['speaker'] ?? ''),
+        $quest_touchpoint_hint
+      );
+    }
+
     if ($updates === [] && $this->looksLikeQuestOrLeadRequest($this->normalizeQuestLeadMatchText($combined_text))) {
       $this->logger->info('Quest-like NPC dialogue had no backed quest match in campaign {campaign_id} for character {character_id}. Speakers: {speakers}. Text: {text}', [
         'campaign_id' => $campaign_id,
@@ -8903,16 +9125,26 @@ PROMPT;
   /**
    * Apply quest interact progress when the player has a substantive NPC exchange.
    */
-  protected function applyConversationQuestTouchpoint(int $campaign_id, ?int $character_id, string $room_id, string $npc_ref, string $target_name = ''): void {
+  protected function applyConversationQuestTouchpoint(int $campaign_id, ?int $character_id, string $room_id, string $npc_ref, string $target_name = '', array $quest_touchpoint_hint = []): void {
     if ($campaign_id <= 0 || !$character_id || $character_id <= 0 || !$this->questTouchpointService) {
       return;
     }
 
+    $objective_type = strtolower(trim((string) ($quest_touchpoint_hint['objective_type'] ?? 'interact')));
+    if ($objective_type === '') {
+      $objective_type = 'interact';
+    }
+    $objective_id = trim((string) ($quest_touchpoint_hint['objective_id'] ?? ''));
+    $hint_entity_ref = trim((string) ($quest_touchpoint_hint['entity_ref'] ?? ''));
     $resolved_npc_ref = trim($target_name);
     if ($resolved_npc_ref === '') {
       $resolved_npc_ref = trim($npc_ref);
     }
-    if ($resolved_npc_ref === '') {
+    $resolved_entity_ref = $hint_entity_ref !== '' ? $hint_entity_ref : trim($npc_ref);
+    if ($resolved_entity_ref === '') {
+      $resolved_entity_ref = $resolved_npc_ref;
+    }
+    if ($resolved_npc_ref === '' && $resolved_entity_ref === '' && $objective_id === '') {
       return;
     }
 
@@ -8920,24 +9152,27 @@ PROMPT;
       $result = $this->questTouchpointService->ingestEvent($campaign_id, [
         'character_id' => $character_id,
         'touchpoint' => [
-          'objective_type' => 'interact',
+          'objective_type' => $objective_type,
+          'objective_id' => $objective_id,
           'npc_ref' => $resolved_npc_ref,
-          'entity_ref' => trim($npc_ref) !== '' ? trim($npc_ref) : $resolved_npc_ref,
+          'entity_ref' => $resolved_entity_ref,
           'room_id' => $room_id,
           'confidence' => 'high',
           'quantity' => 1,
         ],
       ]);
 
-      $this->logger->info('Conversation quest touchpoint result: campaign={campaign_id} character={character_id} room={room_id} npc_ref={npc_ref} target_name={target_name} decision={decision} quest_id={quest_id} objective_id={objective_id} reason={reason}', [
+      $this->logger->info('Conversation quest touchpoint result: campaign={campaign_id} character={character_id} room={room_id} npc_ref={npc_ref} target_name={target_name} objective_type={objective_type} objective_id={objective_id} decision={decision} quest_id={quest_id} matched_objective_id={matched_objective_id} reason={reason}', [
         'campaign_id' => $campaign_id,
         'character_id' => (int) $character_id,
         'room_id' => $room_id,
         'npc_ref' => trim($npc_ref),
         'target_name' => trim($target_name),
+        'objective_type' => $objective_type,
+        'objective_id' => $objective_id,
         'decision' => (string) ($result['decision'] ?? 'unknown'),
         'quest_id' => (string) ($result['quest_id'] ?? ''),
-        'objective_id' => (string) ($result['objective_id'] ?? ''),
+        'matched_objective_id' => (string) ($result['objective_id'] ?? ''),
         'reason' => (string) ($result['reason'] ?? $result['error'] ?? ''),
       ]);
     }
@@ -9592,23 +9827,14 @@ PROMPT;
     }
 
     try {
-      // Find the room session to post into.
-      $room_session = $this->database->select('dc_chat_sessions', 's')
-        ->fields('s', ['id'])
-        ->condition('campaign_id', $campaign_id)
-        ->condition('session_type', 'room')
-        ->condition('status', 'active')
-        ->orderBy('id', 'DESC')
-        ->range(0, 1)
-        ->execute()
-        ->fetchField();
-
-      if (!$room_session) {
+      $dungeon_snapshot = $this->loadLatestDungeonSnapshot($campaign_id, $room_id);
+      $room_session = $this->ensureCanonicalRoomSession($campaign_id, $dungeon_id, $room_id, $dungeon_snapshot['dungeon_data'] ?? []);
+      if ($room_session === []) {
         return;
       }
 
       $this->chatSessionManager->postMessage(
-        (int) $room_session,
+        (int) $room_session['id'],
         $campaign_id,
         $speaker,
         'npc',
@@ -9623,6 +9849,22 @@ PROMPT;
         '@err' => $e->getMessage(),
       ]);
     }
+  }
+
+  /**
+   * Resolve and create the canonical room session for a room identifier.
+   */
+  protected function ensureCanonicalRoomSession(int $campaign_id, int|string $dungeon_id, string $room_id, array $dungeon_data): array {
+    if ($this->chatSessionManager === NULL) {
+      return [];
+    }
+
+    $canonical_room_id = $room_id;
+    if ($dungeon_data !== []) {
+      $canonical_room_id = $this->resolveRoomSlugForQuery($campaign_id, $room_id, $dungeon_data) ?? $room_id;
+    }
+
+    return $this->chatSessionManager->ensureRoomSession($campaign_id, $dungeon_id, $canonical_room_id);
   }
 
   /**

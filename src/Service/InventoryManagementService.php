@@ -724,37 +724,11 @@ class InventoryManagementService {
     }
 
     // Load character currency and check balance.
-    $char_record = $this->database->select('dc_campaign_characters', 'c')
-      ->fields('c', ['character_data'])
-      ->condition('id', $character_id)
-      ->execute()
-      ->fetchAssoc();
-
-    if (!$char_record) {
-      throw new \InvalidArgumentException("Character not found: {$character_id}");
-    }
-
+    $char_record = $this->loadCharacterDataRecord($character_id);
     $char_data = json_decode($char_record['character_data'] ?? '{}', TRUE) ?: [];
-    // Currency may be nested under equipment or at top level.
-    $currency = $char_data['character']['equipment']['currency']
-      ?? $char_data['equipment']['currency']
-      ?? $char_data['currency']
-      ?? ['cp' => 0, 'sp' => 0, 'gp' => 0, 'pp' => 0];
-    // Normalise gold/silver/copper key aliases from buildCharacterJson.
-    if (!isset($currency['gp']) && isset($currency['gold'])) {
-      $currency = [
-        'pp' => (int) ($currency['pp'] ?? 0),
-        'gp' => (int) $currency['gold'],
-        'sp' => (int) ($currency['silver'] ?? 0),
-        'cp' => (int) ($currency['copper'] ?? 0),
-      ];
-    }
-
-    $rates = ['cp' => 1, 'sp' => 10, 'gp' => 100, 'pp' => 1000];
-    $total_owned_cp = 0;
-    foreach ($rates as $denom => $rate) {
-      $total_owned_cp += ((int) ($currency[$denom] ?? 0)) * $rate;
-    }
+    $runtime_state = json_decode($char_record['state_data'] ?? '{}', TRUE) ?: [];
+    $currency = $this->loadCharacterCurrency($character_id, $char_data, $runtime_state);
+    $total_owned_cp = $this->currencyArrayToCopper($currency);
 
     if ($total_owned_cp < $total_price_cp) {
       return [
@@ -767,28 +741,17 @@ class InventoryManagementService {
     }
 
     // Deduct currency and persist updated character data.
-    $new_total_cp = $total_owned_cp - $total_price_cp;
-    $new_currency = ['cp' => 0, 'sp' => 0, 'gp' => 0, 'pp' => 0];
-    foreach (['pp', 'gp', 'sp', 'cp'] as $denom) {
-      $new_currency[$denom] = intdiv($new_total_cp, $rates[$denom]);
-      $new_total_cp %= $rates[$denom];
-    }
-
-    // Write new currency back into character_data preserving nested structure.
-    if (isset($char_data['character']['equipment']['currency'])) {
-      $char_data['character']['equipment']['currency'] = $new_currency;
-    }
-    elseif (isset($char_data['equipment']['currency'])) {
-      $char_data['equipment']['currency'] = $new_currency;
-    }
-    else {
-      $char_data['currency'] = $new_currency;
-    }
+    $new_currency = $this->copperToCurrencyArray($total_owned_cp - $total_price_cp);
+    $this->writeCharacterCurrency($char_data, $new_currency);
+    $this->writeRuntimeCurrency($runtime_state, $new_currency);
 
     $transaction = $this->database->startTransaction();
     try {
       $this->database->update('dc_campaign_characters')
-        ->fields(['character_data' => json_encode($char_data)])
+        ->fields([
+          'character_data' => json_encode($char_data),
+          'state_data' => json_encode($runtime_state),
+        ])
         ->condition('id', $character_id)
         ->execute();
 

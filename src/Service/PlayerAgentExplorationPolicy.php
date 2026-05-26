@@ -277,7 +277,8 @@ class PlayerAgentExplorationPolicy implements PlayerAgentPolicyInterface {
     $objective_text = strtolower((string) ($quest_focus['objective'] ?? ''));
     $objective_type = strtolower((string) ($quest_focus['objective_type'] ?? ''));
     $objective_summary = $this->buildQuestObjectiveSummary($quest_focus);
-    $should_talk_for_quest = $this->objectiveSuggestsConversation($objective_text);
+    $should_talk_for_quest = in_array($objective_type, ['interact', 'talk', 'conversation', 'report'], TRUE)
+      || $this->objectiveSuggestsConversation($objective_text);
     $should_search_for_quest_item = $this->objectiveSuggestsQuestItemCollection($quest_focus);
 
     if ($should_search_for_quest_item
@@ -326,6 +327,7 @@ class PlayerAgentExplorationPolicy implements PlayerAgentPolicyInterface {
               'automation_goal' => 'active_quest_progress',
               'quest_id' => (string) ($quest_focus['quest_id'] ?? ''),
               'objective_id' => (string) ($quest_focus['objective_id'] ?? ''),
+              'objective_type' => $objective_type,
             ],
           ],
         ], 'quest_talk', self::PRIORITY_QUEST_TALK, $current_room_id, $npc_id, [
@@ -551,25 +553,53 @@ class PlayerAgentExplorationPolicy implements PlayerAgentPolicyInterface {
         continue;
       }
 
-      foreach (($phase_row['objectives'] ?? []) as $objective) {
-        if (!is_array($objective) || !empty($objective['completed'])) {
-          continue;
-        }
+      return $this->extractFirstIncompleteObjectiveFromCollection((array) ($phase_row['objectives'] ?? []));
+    }
 
-        $target_count = (int) ($objective['target_count'] ?? 0);
-        $current = (int) ($objective['current'] ?? 0);
-        if ($target_count > 0 && $current >= $target_count) {
-          continue;
-        }
+    return NULL;
+  }
 
-        $description = trim((string) ($objective['description'] ?? $objective['objective_id'] ?? ''));
-        if ($description !== '') {
-          return $objective;
+  /**
+   * Extract the first incomplete revealed leaf objective from a collection.
+   */
+  protected function extractFirstIncompleteObjectiveFromCollection(array $objectives): ?array {
+    foreach ($objectives as $objective) {
+      if (!is_array($objective) || !$this->isObjectiveCurrentlyRevealed($objective)) {
+        continue;
+      }
+
+      $children = is_array($objective['children'] ?? NULL) ? $objective['children'] : [];
+      if ($children !== []) {
+        $child_match = $this->extractFirstIncompleteObjectiveFromCollection($children);
+        if ($child_match !== NULL) {
+          return $child_match;
         }
+      }
+
+      if (!empty($objective['completed'])) {
+        continue;
+      }
+
+      $target_count = (int) ($objective['target_count'] ?? 0);
+      $current = (int) ($objective['current'] ?? 0);
+      if ($target_count > 0 && $current >= $target_count) {
+        continue;
+      }
+
+      $description = trim((string) ($objective['description'] ?? $objective['objective_id'] ?? ''));
+      if ($description !== '') {
+        return $objective;
       }
     }
 
     return NULL;
+  }
+
+  /**
+   * Determine whether an objective is currently available to runtime matching.
+   */
+  protected function isObjectiveCurrentlyRevealed(array $objective): bool {
+    return !array_key_exists('revealed', $objective) || !empty($objective['revealed']) || !empty($objective['completed']);
   }
 
   /**

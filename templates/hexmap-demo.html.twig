@@ -24,6 +24,9 @@
       <button id="game-tab-portraits" class="game-shell__tab" type="button" role="tab" aria-selected="false" aria-controls="game-panel-portraits" data-game-tab="portraits">
         {{ 'NPC Portraits'|t }}
       </button>
+      <button id="game-tab-merchant" class="game-shell__tab" type="button" role="tab" aria-selected="false" aria-controls="game-panel-merchant" data-game-tab="merchant">
+        {{ 'Merchant'|t }}
+      </button>
       <button id="game-tab-character" class="game-shell__tab" type="button" role="tab" aria-selected="false" aria-controls="game-panel-character" data-game-tab="character">
         {{ 'Character'|t }}
       </button>
@@ -304,6 +307,56 @@
       </div>
     </div>
 
+    <div class="game-shell__panel" id="game-panel-merchant" role="tabpanel" aria-labelledby="game-tab-merchant" hidden>
+      <div class="game-shell__view-panel">
+        <div class="merchant-trade-panel" id="merchant-trade-panel">
+          <div class="merchant-trade-panel__header">
+            <div class="merchant-trade-panel__identity">
+              <div class="merchant-trade-panel__portrait" id="merchant-panel-portrait-wrap" hidden>
+                <img id="merchant-panel-portrait" src="" alt="" class="merchant-trade-panel__portrait-img" loading="lazy" />
+              </div>
+              <div>
+                <p class="eyebrow">{{ 'Room Merchant'|t }}</p>
+                <h3 id="merchant-panel-name">{{ 'No merchant selected'|t }}</h3>
+                <p class="merchant-trade-panel__meta" id="merchant-panel-summary">{{ 'Choose a merchant in the active room to browse stock and sell inventory.'|t }}</p>
+              </div>
+            </div>
+            <div class="merchant-trade-panel__controls">
+              <label class="merchant-trade-panel__label" for="merchant-entity-select">{{ 'Merchant'|t }}</label>
+              <select id="merchant-entity-select" class="merchant-trade-panel__select">
+                <option value="">{{ 'No merchant available'|t }}</option>
+              </select>
+              <label class="merchant-trade-panel__label" for="merchant-item-filter">{{ 'Search Items'|t }}</label>
+              <input id="merchant-item-filter" class="merchant-trade-panel__select" type="search" placeholder="{{ 'Search stock or sellable items'|t }}" autocomplete="off" />
+              <p class="merchant-trade-panel__hint">{{ "If you don't see what you want, just ask."|t }}</p>
+              <button type="button" class="btn btn-secondary btn-sm merchant-trade-panel__backroom-search" id="merchant-backroom-search" data-merchant-backroom-search="true" hidden>{{ 'Search the backroom'|t }}</button>
+            </div>
+          </div>
+          <div class="merchant-trade-panel__status" id="merchant-panel-status">{{ 'Waiting for a merchant in the active room.'|t }}</div>
+          <div class="merchant-trade-panel__currency" id="merchant-player-currency">{{ 'Party coin: 0 cp'|t }}</div>
+          <div class="merchant-trade-panel__grid" id="merchant-panel-grid" hidden>
+            <section class="merchant-trade-card">
+              <div class="merchant-trade-card__header">
+                <h4>{{ 'Stock'|t }}</h4>
+                <p>{{ 'Buy from the merchant using explicit item selection.'|t }}</p>
+              </div>
+              <div class="merchant-trade-card__list" id="merchant-stock-list"></div>
+            </section>
+            <section class="merchant-trade-card">
+              <div class="merchant-trade-card__header">
+                <h4>{{ 'Sell Inventory'|t }}</h4>
+                <p>{{ 'Sell carried goods using the same transaction backend as chat.'|t }}</p>
+              </div>
+              <div class="merchant-trade-card__list" id="merchant-sell-list"></div>
+            </section>
+          </div>
+          <div class="merchant-trade-panel__empty" id="merchant-panel-empty">
+            {{ 'No merchant context is active for this room yet.'|t }}
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="game-shell__panel" id="game-panel-character" role="tabpanel" aria-labelledby="game-tab-character" hidden>
       <div class="game-shell__character-panel">
         <div class="game-layout__sidebar">
@@ -523,9 +576,17 @@
       </div>
 
       <div class="inventory-panel__currency">
+        <div class="currency-coin currency-coin--pp">
+          <span id="inv-pp" class="currency-coin__amount">0</span>
+          <span class="currency-coin__label">{{ 'PP'|t }}</span>
+        </div>
         <div class="currency-coin currency-coin--gp">
           <span id="inv-gp" class="currency-coin__amount">0</span>
           <span class="currency-coin__label">{{ 'GP'|t }}</span>
+        </div>
+        <div class="currency-coin currency-coin--ep">
+          <span id="inv-ep" class="currency-coin__amount">0</span>
+          <span class="currency-coin__label">{{ 'EP'|t }}</span>
         </div>
         <div class="currency-coin currency-coin--sp">
           <span id="inv-sp" class="currency-coin__amount">0</span>

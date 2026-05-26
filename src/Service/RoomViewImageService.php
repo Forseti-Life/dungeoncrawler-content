@@ -104,6 +104,33 @@ class RoomViewImageService {
     );
     $portrait_references = $this->loadRoomPortraitReferences($campaign_id, $room_id, $campaign_room_cache_key, $room);
     $provider = $this->resolveRoomViewProvider($portrait_references);
+    $establishing_entry = $this->buildEstablishingEntry(
+      $campaign_id,
+      $dungeon_id,
+      $room_id,
+      $room,
+      $campaign_room_cache_key,
+      $portrait_references
+    );
+
+    if (
+      $establishing_entry !== NULL &&
+      (string) ($establishing_entry['mode'] ?? '') === 'cache'
+    ) {
+      return [
+        'success' => TRUE,
+        'available' => TRUE,
+        'status' => (string) ($establishing_entry['status'] ?? 'ready'),
+        'provider' => (string) ($establishing_entry['provider'] ?? ($provider ?? 'vertex')),
+        'mode' => 'establishing',
+        'message' => 'Loaded cached room view image.',
+        'room' => $room_meta,
+        'message_batch_size' => 0,
+        'generated_entry_count' => 0,
+        'character_reference_count' => count($portrait_references),
+        'entries' => [$establishing_entry],
+      ];
+    }
 
     $gallery_entries = $this->buildTransitionGalleryEntries(
       $campaign_id,
@@ -111,14 +138,6 @@ class RoomViewImageService {
       $room_id,
       $room,
       (int) $room_session['id'],
-      $portrait_references
-    );
-    $establishing_entry = $this->buildEstablishingEntry(
-      $campaign_id,
-      $dungeon_id,
-      $room_id,
-      $room,
-      $campaign_room_cache_key,
       $portrait_references
     );
 
@@ -567,7 +586,20 @@ class RoomViewImageService {
   protected function persistStoredGalleryImage(array $row): array {
     $existing_url = isset($row['image_url']) && is_string($row['image_url']) ? trim($row['image_url']) : '';
     $existing_data_uri = isset($row['image_data_uri']) && is_string($row['image_data_uri']) ? trim($row['image_data_uri']) : '';
-    if ($existing_url !== '' || $existing_data_uri === '') {
+    if ($existing_url !== '') {
+      if ($existing_data_uri !== '' && !empty($row['id'])) {
+        $this->database->update('dc_room_view_gallery')
+          ->fields([
+            'image_data_uri' => NULL,
+            'updated' => time(),
+          ])
+          ->condition('id', (int) $row['id'])
+          ->execute();
+        $row['image_data_uri'] = NULL;
+      }
+      return $row;
+    }
+    if ($existing_data_uri === '') {
       return $row;
     }
 
@@ -634,7 +666,7 @@ class RoomViewImageService {
       ],
       'image' => [
         'url' => $row['image_url'] ?? NULL,
-        'data_uri' => $row['image_data_uri'] ?? NULL,
+        'data_uri' => !empty($row['image_url']) ? NULL : ($row['image_data_uri'] ?? NULL),
         'mime_type' => $row['mime_type'] ?? NULL,
       ],
       'room' => $this->buildRoomMeta($room, (string) ($room['room_id'] ?? $room['id'] ?? '')),
@@ -1369,10 +1401,16 @@ class RoomViewImageService {
    * Resolve the best stored room-view row across legacy link conventions.
    */
   protected function resolveStoredRoomViewRow(int $campaign_id, string $cache_object_id, array $room_meta, string $canonical_room_object_id = ''): ?array {
-    if ($canonical_room_object_id !== '') {
+    $canonical_object_ids = array_values(array_unique(array_filter([
+      trim($canonical_room_object_id),
+      trim((string) ($room_meta['room_id'] ?? '')),
+      trim($cache_object_id),
+    ])));
+
+    foreach ($canonical_object_ids as $canonical_object_id) {
       $rows = $this->generatedImageRepository->loadImagesForObject(
         'dungeoncrawler_content_rooms',
-        $canonical_room_object_id,
+        $canonical_object_id,
         NULL,
         'room_view',
         'establishing'
@@ -1383,7 +1421,7 @@ class RoomViewImageService {
 
       $rows = $this->generatedImageRepository->loadImagesForObject(
         'dungeoncrawler_content_rooms',
-        $canonical_room_object_id,
+        $canonical_object_id,
         NULL,
         'room_view',
         NULL
@@ -1407,8 +1445,8 @@ class RoomViewImageService {
         'establishing'
       );
       if (!empty($rows[0]) && is_array($rows[0])) {
-        if ($canonical_room_object_id !== '') {
-          $this->ensureCanonicalRoomViewLink((int) ($rows[0]['image_id'] ?? 0), $canonical_room_object_id);
+        if (!empty($canonical_object_ids[0])) {
+          $this->ensureCanonicalRoomViewLink((int) ($rows[0]['image_id'] ?? 0), $canonical_object_ids[0]);
         }
         return $rows[0];
       }
@@ -1421,8 +1459,8 @@ class RoomViewImageService {
         NULL
       );
       if (!empty($rows[0]) && is_array($rows[0])) {
-        if ($canonical_room_object_id !== '') {
-          $this->ensureCanonicalRoomViewLink((int) ($rows[0]['image_id'] ?? 0), $canonical_room_object_id);
+        if (!empty($canonical_object_ids[0])) {
+          $this->ensureCanonicalRoomViewLink((int) ($rows[0]['image_id'] ?? 0), $canonical_object_ids[0]);
         }
         return $rows[0];
       }
@@ -1435,8 +1473,8 @@ class RoomViewImageService {
         NULL
       );
       if (!empty($rows[0]) && is_array($rows[0])) {
-        if ($canonical_room_object_id !== '') {
-          $this->ensureCanonicalRoomViewLink((int) ($rows[0]['image_id'] ?? 0), $canonical_room_object_id);
+        if (!empty($canonical_object_ids[0])) {
+          $this->ensureCanonicalRoomViewLink((int) ($rows[0]['image_id'] ?? 0), $canonical_object_ids[0]);
         }
         return $rows[0];
       }

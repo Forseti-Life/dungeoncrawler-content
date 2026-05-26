@@ -9,7 +9,10 @@ use Drupal\dungeoncrawler_content\Event\EntityDefeatedEvent;
 use Drupal\dungeoncrawler_content\Service\CombatEncounterStore;
 use Drupal\dungeoncrawler_content\Service\CharacterStateService;
 use Drupal\dungeoncrawler_content\Service\EncounterAiIntegrationService;
+use Drupal\dungeoncrawler_content\Service\MapGeneratorService;
+use Drupal\dungeoncrawler_content\Service\NavigationService;
 use Drupal\dungeoncrawler_content\Service\NumberGenerationService;
+use Drupal\dungeoncrawler_content\Service\RoomStateService;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\EventDispatcher\EventDispatcherInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -74,9 +77,30 @@ class CombatEncounterApiController extends ControllerBase {
   protected $eventDispatcher;
 
   /**
+   * Navigation payload builder.
+   *
+   * @var \Drupal\dungeoncrawler_content\Service\MapGeneratorService|null
+   */
+  protected $mapGenerator;
+
+  /**
+   * Room state service.
+   *
+   * @var \Drupal\dungeoncrawler_content\Service\RoomStateService|null
+   */
+  protected $roomStateService;
+
+  /**
+   * Navigation capability resolver.
+   *
+   * @var \Drupal\dungeoncrawler_content\Service\NavigationService|null
+   */
+  protected $navigationService;
+
+  /**
    * Constructor.
    */
-  public function __construct(CombatEncounterStore $encounter_store, ConfigFactoryInterface $config_factory, EncounterAiIntegrationService $encounter_ai_integration, Connection $database, CharacterStateService $character_state_service, NumberGenerationService $number_generation, EventDispatcherInterface $event_dispatcher) {
+  public function __construct(CombatEncounterStore $encounter_store, ConfigFactoryInterface $config_factory, EncounterAiIntegrationService $encounter_ai_integration, Connection $database, CharacterStateService $character_state_service, NumberGenerationService $number_generation, EventDispatcherInterface $event_dispatcher, ?MapGeneratorService $map_generator = NULL, ?RoomStateService $room_state_service = NULL, ?NavigationService $navigation_service = NULL) {
     $this->encounterStore = $encounter_store;
     $this->configFactory = $config_factory;
     $this->encounterAiIntegration = $encounter_ai_integration;
@@ -84,6 +108,9 @@ class CombatEncounterApiController extends ControllerBase {
     $this->characterStateService = $character_state_service;
     $this->numberGeneration = $number_generation;
     $this->eventDispatcher = $event_dispatcher;
+    $this->mapGenerator = $map_generator;
+    $this->roomStateService = $room_state_service;
+    $this->navigationService = $navigation_service;
   }
 
   /**
@@ -97,8 +124,85 @@ class CombatEncounterApiController extends ControllerBase {
       $container->get('database'),
       $container->get('dungeoncrawler_content.character_state'),
       $container->get('dungeoncrawler_content.number_generation'),
-      $container->get('event_dispatcher')
+      $container->get('event_dispatcher'),
+      $container->get('dungeoncrawler_content.map_generator'),
+      $container->get('dungeoncrawler_content.room_state_service'),
+      $container->get('dungeoncrawler_content.navigation_service')
     );
+  }
+
+  /**
+   * Navigate to a connected room using the formalized navigation contract.
+   */
+  public function navigate(Request $request): JsonResponse {
+    $data = json_decode($request->getContent(), TRUE) ?: [];
+    $campaign_id = (int) ($data['campaignId'] ?? 0);
+    $current_room_id = trim((string) ($data['currentRoomId'] ?? ''));
+    $map_id = trim((string) ($data['mapId'] ?? ''));
+    $connection_id = trim((string) ($data['connectionId'] ?? ''));
+    $target_hex = is_array($data['targetHex'] ?? NULL) ? $data['targetHex'] : NULL;
+
+    if ($campaign_id <= 0 || $current_room_id === '') {
+      return new JsonResponse(['error' => 'campaignId and currentRoomId are required'], 400);
+    }
+    if ($this->mapGenerator === NULL || $this->roomStateService === NULL || $this->navigationService === NULL) {
+      return new JsonResponse(['error' => 'Navigation services are unavailable'], 500);
+    }
+
+    $record = $this->loadDungeonPayloadRecord($campaign_id, $map_id);
+    if ($record === NULL) {
+      return new JsonResponse(['error' => 'Dungeon payload not found'], 404);
+    }
+
+    $dungeon_data = $record['payload'];
+    $capability = $this->navigationService->resolveRequestedCapability($dungeon_data, $current_room_id, $connection_id, $target_hex);
+    if ($capability === NULL) {
+      return new JsonResponse(['error' => 'No navigation capability matched that request'], 409);
+    }
+    if (empty($capability['available'])) {
+      return new JsonResponse([
+        'error' => 'That route is not available right now.',
+        'navigation_capability' => $capability,
+      ], 409);
+    }
+
+    $target_room_id = (string) ($capability['target_room_id'] ?? '');
+    $room = $this->navigationService->findRoomById($dungeon_data, $target_room_id);
+    if ($target_room_id === '' || $room === NULL) {
+      return new JsonResponse(['error' => 'Destination room could not be resolved'], 404);
+    }
+
+    $room_state = [
+      'roomId' => $target_room_id,
+      'dungeonId' => (string) $record['dungeon_id'],
+      'explored' => TRUE,
+      'visibility' => 'visible',
+      'isCleared' => FALSE,
+    ];
+
+    try {
+      $this->roomStateService->setState($campaign_id, $target_room_id, (string) $record['dungeon_id'], $room_state, NULL);
+    }
+    catch (\Throwable $e) {
+      return new JsonResponse(['error' => 'Failed to persist destination room state: ' . $e->getMessage()], 500);
+    }
+
+    $receipt = $this->mapGenerator->buildClientNavigationPayload([
+      'destination' => (string) ($room['name'] ?? $target_room_id),
+      'destination_description' => (string) ($room['description'] ?? $room['name'] ?? $target_room_id),
+      'travel_type' => 'walk',
+      'estimated_distance' => 'adjacent',
+      'source' => 'room-connection',
+      'origin_room_id' => $current_room_id,
+      'new_room' => $room,
+      'entities' => [],
+      'dungeon_data' => $dungeon_data,
+    ]);
+
+    return new JsonResponse([
+      'success' => TRUE,
+      'data' => $receipt,
+    ]);
   }
 
   /**
@@ -119,27 +223,8 @@ class CombatEncounterApiController extends ControllerBase {
       ]);
     }
 
-    // Look up the latest active encounter for this campaign + room.
-    try {
-      $query = $this->database->select('combat_encounters', 'e')
-        ->fields('e', ['id'])
-        ->condition('campaign_id', $campaign_id)
-        ->condition('status', 'active');
-      if ($room_id !== '') {
-        $query->condition('room_id', $room_id);
-      }
-      $encounter_id = $query
-        ->orderBy('updated', 'DESC')
-        ->range(0, 1)
-        ->execute()
-        ->fetchField();
-    }
-    catch (\Exception $e) {
-      // Table may not exist yet if no encounters have been created.
-      $encounter_id = FALSE;
-    }
-
-    if (!$encounter_id) {
+    $active_encounter_ids = $this->loadActiveEncounterIdsForContext($campaign_id, $room_id);
+    if ($active_encounter_ids === []) {
       return new JsonResponse([
         'success' => TRUE,
         'data' => [
@@ -149,6 +234,11 @@ class CombatEncounterApiController extends ControllerBase {
           'room_id' => $room_id,
         ],
       ]);
+    }
+
+    $encounter_id = (int) $active_encounter_ids[0];
+    if (count($active_encounter_ids) > 1) {
+      $this->retireActiveEncounters($active_encounter_ids, $encounter_id);
     }
 
     $encounter = $this->normalizeEncounterForResponse($this->loadEncounter((int) $encounter_id));
@@ -200,6 +290,21 @@ class CombatEncounterApiController extends ControllerBase {
     // Reset turn index to the first non-defeated participant.
     $turn_index = $this->findNextTurnIndex($participants, -1);
 
+    $campaign_id = isset($data['campaignId']) ? (int) $data['campaignId'] : 0;
+    $room_id = isset($data['roomId']) ? (string) $data['roomId'] : '';
+    $active_encounter_ids = $this->loadActiveEncounterIdsForContext($campaign_id, $room_id);
+    if ($active_encounter_ids !== []) {
+      $active_encounter_id = (int) $active_encounter_ids[0];
+      if (count($active_encounter_ids) > 1) {
+        $this->retireActiveEncounters($active_encounter_ids, $active_encounter_id);
+      }
+
+      $active_encounter = $this->normalizeEncounterForResponse($this->loadEncounter($active_encounter_id));
+      if ($active_encounter) {
+        return new JsonResponse($this->buildEncounterResponse($active_encounter));
+      }
+    }
+
     $encounter_id = $this->encounterStore->createEncounter(
       $data['campaignId'] ?? NULL,
       $data['roomId'] ?? NULL,
@@ -214,8 +319,10 @@ class CombatEncounterApiController extends ControllerBase {
       'status' => 'active',
     ]);
 
-    $encounter = $this->encounterStore->loadEncounter($encounter_id);
-    $encounter['turn_index'] = $turn_index;
+    $encounter = $this->normalizeEncounterForResponse($this->encounterStore->loadEncounter($encounter_id));
+    if (!$encounter) {
+      return new JsonResponse(['error' => 'Encounter failed to initialize'], 500);
+    }
 
     return new JsonResponse($this->buildEncounterResponse($encounter), 201);
   }
@@ -517,16 +624,7 @@ class CombatEncounterApiController extends ControllerBase {
       return new JsonResponse(['error' => 'Actor is not the active turn participant'], 409);
     }
 
-    // Server-authoritative action costs.
-    $cost_by_type = [
-      'interact' => 1,
-      'talk' => 0,
-      'skill' => 1,
-      'feat' => 1,
-      'cast_spell' => 2,
-      'consume_item' => 1,
-    ];
-    $cost = max(0, min(3, (int) ($cost_by_type[$action_type] ?? 1)));
+    $cost = $this->resolveCombatActionCost($action_type, $data);
 
     if ($action_type === 'interact') {
       $target_hex = $data['targetHex'] ?? NULL;
@@ -688,6 +786,32 @@ class CombatEncounterApiController extends ControllerBase {
   }
 
   /**
+   * Resolves encounter action cost from the action payload.
+   */
+  protected function resolveCombatActionCost(string $action_type, array $payload): int {
+    $default_costs = [
+      'interact' => 1,
+      'talk' => 0,
+      'skill' => 1,
+      'feat' => 1,
+      'cast_spell' => 2,
+      'consume_item' => 1,
+    ];
+
+    if ($action_type === 'talk') {
+      return 0;
+    }
+
+    $fallback = (int) ($default_costs[$action_type] ?? 1);
+    $raw_cost = $payload['actionCost'] ?? $payload['action_cost'] ?? NULL;
+    if (!is_numeric($raw_cost)) {
+      return $fallback;
+    }
+
+    return max(0, min(3, (int) $raw_cost));
+  }
+
+  /**
    * Build an action summary for a consumable use.
    */
   protected function summarizeConsumableAction(string $actor_name, string $item_name, array $effects): string {
@@ -815,6 +939,38 @@ class CombatEncounterApiController extends ControllerBase {
       ->execute();
 
     return $delta;
+  }
+
+  /**
+   * Load one dungeon payload row for navigation/mutation work.
+   *
+   * @return array<string, mixed>|null
+   *   Canonical dungeon payload row or NULL.
+   */
+  protected function loadDungeonPayloadRecord(int $campaign_id, string $map_id = ''): ?array {
+    $query = $this->database->select('dc_campaign_dungeons', 'd')
+      ->fields('d', ['id', 'dungeon_id', 'dungeon_data'])
+      ->condition('campaign_id', $campaign_id);
+
+    if ($map_id !== '') {
+      $query->condition('dungeon_id', $map_id);
+    }
+    else {
+      $query->orderBy('updated', 'DESC')->orderBy('id', 'DESC')->range(0, 1);
+    }
+
+    $row = $query->execute()->fetchAssoc();
+    if (!$row || empty($row['dungeon_data'])) {
+      return NULL;
+    }
+
+    $payload = json_decode((string) $row['dungeon_data'], TRUE);
+    if (!is_array($payload)) {
+      return NULL;
+    }
+
+    $row['payload'] = $payload;
+    return $row;
   }
 
   /**
@@ -1108,6 +1264,58 @@ class CombatEncounterApiController extends ControllerBase {
    */
   protected function loadEncounter(int $encounter_id): ?array {
     return $this->encounterStore->loadEncounter($encounter_id);
+  }
+
+  /**
+   * Load active encounter ids for one campaign/room context, newest first.
+   *
+   * @return array<int>
+   *   Encounter ids.
+   */
+  protected function loadActiveEncounterIdsForContext(int $campaign_id, string $room_id = ''): array {
+    if ($campaign_id <= 0) {
+      return [];
+    }
+
+    try {
+      $query = $this->database->select('combat_encounters', 'e')
+        ->fields('e', ['id'])
+        ->condition('campaign_id', $campaign_id)
+        ->condition('status', 'active');
+      if ($room_id !== '') {
+        $query->condition('room_id', $room_id);
+      }
+
+      $ids = $query
+        ->orderBy('updated', 'DESC')
+        ->orderBy('id', 'DESC')
+        ->execute()
+        ->fetchCol();
+    }
+    catch (\Exception $e) {
+      return [];
+    }
+
+    return array_values(array_map('intval', is_array($ids) ? $ids : []));
+  }
+
+  /**
+   * Mark stale or invalid encounters ended.
+   *
+   * @param array<int> $encounter_ids
+   *   Encounter ids to retire.
+   * @param int|null $preserve_id
+   *   Optional encounter id to keep active.
+   */
+  protected function retireActiveEncounters(array $encounter_ids, ?int $preserve_id = NULL): void {
+    foreach ($encounter_ids as $encounter_id) {
+      $encounter_id = (int) $encounter_id;
+      if ($encounter_id <= 0 || ($preserve_id !== NULL && $encounter_id === $preserve_id)) {
+        continue;
+      }
+
+      $this->encounterStore->updateEncounter($encounter_id, ['status' => 'ended']);
+    }
   }
 
   /**

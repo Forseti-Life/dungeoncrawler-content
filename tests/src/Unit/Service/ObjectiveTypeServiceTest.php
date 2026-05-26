@@ -73,4 +73,27 @@ class ObjectiveTypeServiceTest extends UnitTestCase {
     $this->assertTrue($objective['completed']);
   }
 
+  /**
+   * Verifies placeholder handoff locations are rejected by objective validation.
+   */
+  public function testValidateObjectiveDefinitionRejectsPlaceholderNextStoryLocation(): void {
+    $service = new ObjectiveTypeService();
+
+    $errors = $service->validateObjectiveDefinition([
+      'objective_id' => 'follow-best-lead',
+      'type' => 'explore',
+      'description' => 'Follow the strongest tavern lead.',
+      'location' => 'next_story_location',
+      'completion_criteria' => [
+        'kind' => 'flag',
+        'metric' => 'discovered',
+        'required_value' => TRUE,
+        'description' => 'Discover the required location.',
+      ],
+    ]);
+
+    $this->assertNotSame([], $errors);
+    $this->assertStringContainsString('next_story_location', implode('; ', $errors));
+  }
+
 }

@@ -52,14 +52,14 @@
     {
       "type": "investigate",
       "label": "Investigate",
-      "description": "Resolve an investigation target, clue, or lead.",
+      "description": "Resolve an investigation lead, typically by discovering the target location.",
       "aliases": ["clue", "search"],
       "supports_children": false,
       "object_contract": {
         "required_fields": ["objective_id", "description", "target"],
-        "optional_fields": ["current", "target_count", "completion_criteria", "children"],
-        "progress_fields": ["current", "target_count"],
-        "target_fields": ["target"]
+        "optional_fields": ["current", "target_count", "location", "location_id", "discovered", "completion_criteria", "children"],
+        "progress_fields": ["current", "target_count", "discovered"],
+        "target_fields": ["target", "location", "location_id"]
       },
       "status_check": {
         "mode": "count",
@@ -70,7 +70,7 @@
         "kind": "count",
         "metric": "current",
         "target_count": 1,
-        "description": "Reach the required progress count."
+        "description": "Advance the investigation to the required progress."
       }
     },
     {
@@ -101,12 +101,12 @@
       "label": "Escort",
       "description": "Move a target safely to a destination.",
       "aliases": ["deliver"],
-      "supports_children": false,
+      "supports_children": true,
       "object_contract": {
         "required_fields": ["objective_id", "description", "destination"],
-        "optional_fields": ["npc_id", "arrived", "completion_criteria", "children"],
+        "optional_fields": ["npc_id", "npc_ref", "target", "arrived", "path_encounters", "completion_criteria", "children"],
         "progress_fields": ["arrived"],
-        "target_fields": ["destination", "npc_id"]
+        "target_fields": ["destination", "npc_id", "npc_ref", "target"]
       },
       "status_check": {
         "mode": "flag",
@@ -116,7 +116,7 @@
         "kind": "flag",
         "metric": "arrived",
         "required_value": true,
-        "description": "Reach the required destination."
+        "description": "Escort the target safely to the destination."
       }
     },
     {

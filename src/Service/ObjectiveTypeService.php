@@ -71,6 +71,8 @@ class ObjectiveTypeService {
       }
     }
 
+    $errors = array_merge($errors, $this->validateObjectiveResolutionTargets($objective, $path));
+
     if (!array_key_exists('completion_criteria', $objective) || !is_array($objective['completion_criteria'])) {
       $errors[] = "{$path}: missing required field completion_criteria";
     }
@@ -180,6 +182,24 @@ class ObjectiveTypeService {
     }
 
     return $children;
+  }
+
+  /**
+   * Reject objective targets that only act as indefinite placeholder handoffs.
+   *
+   * @return array<int, string>
+   *   Validation errors.
+   */
+  protected function validateObjectiveResolutionTargets(array $objective, string $path): array {
+    $errors = [];
+    foreach (['location', 'location_id', 'destination', 'destination_id'] as $field) {
+      $value = strtolower(trim((string) ($objective[$field] ?? '')));
+      if ($value === 'next_story_location') {
+        $errors[] = "{$path}: placeholder handoff target next_story_location is not allowed; move downstream travel into a separate quest or storyline";
+      }
+    }
+
+    return $errors;
   }
 
   /**

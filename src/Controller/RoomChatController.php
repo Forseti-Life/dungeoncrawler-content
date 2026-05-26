@@ -4,6 +4,7 @@ namespace Drupal\dungeoncrawler_content\Controller;
 
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\dungeoncrawler_content\Service\RoomChatService;
+use Psr\Log\LoggerInterface;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -20,11 +21,14 @@ class RoomChatController extends ControllerBase {
 
   protected RoomChatService $chatService;
 
+  protected LoggerInterface $logger;
+
   /**
    * Constructor.
    */
-  public function __construct(RoomChatService $chat_service) {
+  public function __construct(RoomChatService $chat_service, LoggerInterface $logger) {
     $this->chatService = $chat_service;
+    $this->logger = $logger;
   }
 
   /**
@@ -32,7 +36,8 @@ class RoomChatController extends ControllerBase {
    */
   public static function create(ContainerInterface $container) {
     return new static(
-      $container->get('dungeoncrawler_content.room_chat_service')
+      $container->get('dungeoncrawler_content.room_chat_service'),
+      $container->get('logger.factory')->get('dungeoncrawler_chat')
     );
   }
 
@@ -328,7 +333,18 @@ class RoomChatController extends ControllerBase {
           $channel,
           $client_request_id
         );
-      }
+      },
+      [
+        'campaign_id' => $campaign_id,
+        'room_id' => $room_id,
+        'speaker' => $speaker,
+        'message_length' => strlen($message),
+        'type' => $type,
+        'character_id' => $character_id,
+        'channel' => $channel,
+        'client_request_id' => $client_request_id,
+        'stream_mode' => 'post_message',
+      ]
     );
   }
 
@@ -370,22 +386,30 @@ class RoomChatController extends ControllerBase {
           $channel,
           $client_request_id
         );
-      }
+      },
+      [
+        'campaign_id' => $campaign_id,
+        'room_id' => $room_id,
+        'character_id' => $character_id,
+        'channel' => $channel,
+        'client_request_id' => $client_request_id,
+        'stream_mode' => 'queued_continuation',
+      ]
     );
   }
 
   /**
    * Create an NDJSON streaming response with shared error handling.
    */
-  protected function createStreamedTurnResponse(callable $stream_callback): StreamedResponse {
-    $response = new StreamedResponse(function () use ($stream_callback): void {
+  protected function createStreamedTurnResponse(callable $stream_callback, array $context = []): StreamedResponse {
+    $response = new StreamedResponse(function () use ($stream_callback, $context): void {
       $emit = $this->createNdjsonEmitter();
 
       try {
         $stream_callback($emit);
       }
       catch (\Throwable $e) {
-        $this->emitStreamError($emit, $e);
+        $this->emitStreamError($emit, $e, $context);
       }
     });
 
@@ -519,12 +543,59 @@ class RoomChatController extends ControllerBase {
   /**
    * Emit a normalized streamed error payload.
    */
-  protected function emitStreamError(callable $emit, \Throwable $e): void {
+  protected function emitStreamError(callable $emit, \Throwable $e, array $context = []): void {
+    $status = $e instanceof \InvalidArgumentException ? ((int) $e->getCode() ?: 400) : 500;
+    $debug_id = 'roomchat-' . substr(hash('sha256', microtime(TRUE) . '|' . random_int(0, PHP_INT_MAX)), 0, 12);
+    $debug = $this->buildStreamErrorDebugPayload($debug_id, $status, $context);
+    $this->logStreamError($debug_id, $e, $context, $status);
+
     $emit([
       'type' => 'error',
       'error' => $e instanceof \InvalidArgumentException ? $e->getMessage() : 'An error occurred',
-      'status' => $e instanceof \InvalidArgumentException ? ((int) $e->getCode() ?: 400) : 500,
+      'status' => $status,
+      'debug' => $debug,
     ]);
+  }
+
+  /**
+   * Build the client-visible stream debug payload.
+   */
+  protected function buildStreamErrorDebugPayload(string $debug_id, int $status, array $context = []): array {
+    return [
+      'debug_id' => $debug_id,
+      'client_request_id' => $context['client_request_id'] ?? '',
+      'campaign_id' => $context['campaign_id'] ?? NULL,
+      'room_id' => $context['room_id'] ?? NULL,
+      'character_id' => $context['character_id'] ?? NULL,
+      'channel' => $context['channel'] ?? NULL,
+      'stream_mode' => $context['stream_mode'] ?? 'unknown',
+      'status' => $status,
+    ];
+  }
+
+  /**
+   * Write the server-side log entry for a streamed room-chat failure.
+   */
+  protected function logStreamError(string $debug_id, \Throwable $e, array $context = [], int $status = 500): void {
+    $this->logger->error(
+      'Room chat stream failed [{debug_id}] campaign={campaign_id} room={room_id} channel={channel} character={character_id} request={client_request_id} mode={stream_mode}: {message}',
+      [
+        'debug_id' => $debug_id,
+        'campaign_id' => $context['campaign_id'] ?? NULL,
+        'room_id' => $context['room_id'] ?? NULL,
+        'channel' => $context['channel'] ?? NULL,
+        'character_id' => $context['character_id'] ?? NULL,
+        'client_request_id' => $context['client_request_id'] ?? '',
+        'stream_mode' => $context['stream_mode'] ?? 'unknown',
+        'message' => $e->getMessage(),
+        'status' => $status,
+        'exception_class' => get_class($e),
+        'speaker' => $context['speaker'] ?? '',
+        'type' => $context['type'] ?? '',
+        'message_length' => $context['message_length'] ?? 0,
+        'exception' => $e,
+      ]
+    );
   }
 
   /**

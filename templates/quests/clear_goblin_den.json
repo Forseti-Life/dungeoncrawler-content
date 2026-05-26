@@ -26,7 +26,7 @@
             "kind": "count",
             "metric": "current",
             "target_count": 1,
-            "description": "Reach the required progress count."
+            "description": "Defeat the required number of goblins in the den."
           }
         },
         {
@@ -39,7 +39,7 @@
             "kind": "count",
             "metric": "current",
             "target_count": 1,
-            "description": "Reach the required progress count."
+            "description": "Defeat the Goblin Chieftain."
           }
         }
       ]

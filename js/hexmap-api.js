@@ -85,4 +85,9 @@ export default {
     // Expected payload: { encounterId, actorId, actionType, actionCost?, targetId?, interactionType?, targetHex?, message? }
     return postJson('/api/combat/action', payload);
   },
+
+  async navigate(payload) {
+    // Expected payload: { campaignId, characterId, mapId?, currentRoomId, connectionId?, targetHex? }
+    return postJson('/api/combat/navigate', payload);
+  },
 };

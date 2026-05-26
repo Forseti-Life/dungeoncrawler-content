@@ -52,6 +52,12 @@ class QuestGeneratorService {
   protected ?array $questGiverPolicyRegistry = NULL;
 
   /**
+   * Storyline validator used by management/verification views.
+   */
+  protected ?StorylineManagerService $storylineManager;
+  protected array $storylineContactCache = [];
+
+  /**
    * Objective type service.
    */
   protected ObjectiveTypeService $objectiveTypeService;
@@ -71,13 +77,15 @@ class QuestGeneratorService {
     LoggerChannelFactoryInterface $logger_factory,
     NumberGenerationService $number_generation,
     ?StateValidationService $state_validation_service = NULL,
-    ?ObjectiveTypeService $objective_type_service = NULL
+    ?ObjectiveTypeService $objective_type_service = NULL,
+    ?StorylineManagerService $storyline_manager = NULL
   ) {
     $this->database = $database;
     $this->logger = $logger_factory->get('dungeoncrawler_content');
     $this->numberGeneration = $number_generation;
     $this->stateValidationService = $state_validation_service;
     $this->objectiveTypeService = $objective_type_service ?? new ObjectiveTypeService();
+    $this->storylineManager = $storyline_manager;
   }
 
   /**
@@ -124,7 +132,7 @@ class QuestGeneratorService {
       $quest_id = $this->generateQuestId($campaign_id, $template_id);
 
       // Resolve variables
-      $variables = $this->buildVariables($template, $context);
+      $variables = $this->buildVariables($template, $context, $campaign_id);
       $quest_name = $this->resolveVariables($template['name'], $variables);
       $quest_description = $this->resolveVariables($template['description'], $variables);
 
@@ -234,6 +242,8 @@ class QuestGeneratorService {
     if ($objective_states === []) {
       $objective_states = $generated_objectives;
     }
+    $generated_objectives = $this->hydrateObjectiveLabels($generated_objectives, $quest_row);
+    $objective_states = $this->hydrateObjectiveLabels($objective_states, $quest_row);
 
     $generated_rewards = $this->decodeQuestObjectField($quest_row['generated_rewards'] ?? []);
     $quest_data = $this->decodeQuestObjectField($quest_row['quest_data'] ?? []);
@@ -259,6 +269,147 @@ class QuestGeneratorService {
         'scene_id' => $this->normalizeNullableString($quest_row['storyline_scene_id'] ?? NULL),
       ],
     ];
+  }
+
+  /**
+   * Attach player-facing labels to objective references.
+   */
+  protected function hydrateObjectiveLabels(array $phases, array $quest_row): array {
+    foreach ($phases as $phase_index => $phase) {
+      if (!is_array($phase)) {
+        continue;
+      }
+      $phases[$phase_index]['objectives'] = array_map(
+        fn(array $objective): array => $this->hydrateObjectiveNodeLabels($objective, $quest_row),
+        array_values(array_filter((array) ($phase['objectives'] ?? []), 'is_array'))
+      );
+    }
+
+    return $phases;
+  }
+
+  /**
+   * Attach labels to a single objective node recursively.
+   */
+  protected function hydrateObjectiveNodeLabels(array $objective, array $quest_row): array {
+    foreach (['target', 'item', 'location', 'destination'] as $field) {
+      $value = trim((string) ($objective[$field] ?? ''));
+      if ($value !== '') {
+        $label = $this->resolveObjectiveReferenceLabel($quest_row, $value);
+        if ($label !== '' && $label !== $value) {
+          foreach (['description', 'next_step'] as $text_field) {
+            if (!empty($objective[$text_field]) && is_string($objective[$text_field])) {
+              $objective[$text_field] = str_replace($value, $label, $objective[$text_field]);
+            }
+          }
+        }
+      }
+    }
+
+    if (is_array($objective['children'] ?? NULL)) {
+      $objective['children'] = array_map(
+        fn(array $child): array => $this->hydrateObjectiveNodeLabels($child, $quest_row),
+        array_values(array_filter($objective['children'], 'is_array'))
+      );
+    }
+
+    return $objective;
+  }
+
+  /**
+   * Resolve a quest/objective reference into a player-facing label.
+   */
+  protected function resolveObjectiveReferenceLabel(array $quest_row, string $value): string {
+    $value = trim($value);
+    if ($value === '') {
+      return '';
+    }
+
+    $campaign_id = isset($quest_row['campaign_id']) ? (int) $quest_row['campaign_id'] : 0;
+    $storyline_id = $this->normalizeNullableString($quest_row['storyline_id'] ?? NULL);
+
+    if ($campaign_id > 0 && $this->database->schema()->tableExists('dc_campaign_rooms')) {
+      $room_name = $this->database->select('dc_campaign_rooms', 'r')
+        ->fields('r', ['name'])
+        ->condition('campaign_id', $campaign_id)
+        ->condition('room_id', [$value], 'IN')
+        ->range(0, 1)
+        ->execute()
+        ->fetchField();
+      if (is_string($room_name) && $room_name !== '') {
+        return $room_name;
+      }
+    }
+
+    $storyline_contacts = $this->loadStorylineContacts($campaign_id, $storyline_id);
+    if (isset($storyline_contacts[$value])) {
+      return $storyline_contacts[$value];
+    }
+
+    return ucwords(str_replace(['_', '-'], ' ', $value));
+  }
+
+  /**
+   * Load storyline contacts keyed by entity id.
+   *
+   * @return array<string, string>
+   *   Entity id => display name.
+   */
+  protected function loadStorylineContacts(int $campaign_id, ?string $storyline_id): array {
+    if ($campaign_id <= 0 || $storyline_id === NULL || $storyline_id === '') {
+      return [];
+    }
+
+    $cache_key = $campaign_id . ':' . $storyline_id;
+    if (isset($this->storylineContactCache[$cache_key])) {
+      return $this->storylineContactCache[$cache_key];
+    }
+
+    $contacts = [];
+    if ($this->database->schema()->tableExists('dc_campaign_storylines')) {
+      $row = $this->database->select('dc_campaign_storylines', 's')
+        ->fields('s', ['storyline_data'])
+        ->condition('campaign_id', $campaign_id)
+        ->condition('storyline_id', $storyline_id)
+        ->range(0, 1)
+        ->execute()
+        ->fetchAssoc();
+      $storyline_data = json_decode((string) ($row['storyline_data'] ?? '{}'), TRUE) ?? [];
+      foreach ((array) ($storyline_data['chapters'] ?? []) as $chapter) {
+        if (!is_array($chapter)) {
+          continue;
+        }
+        $chapter_id = trim((string) ($chapter['chapter_id'] ?? ''));
+        $chapter_name = trim((string) ($chapter['name'] ?? ''));
+        if ($chapter_id !== '' && $chapter_name !== '') {
+          $contacts[$chapter_id] = $chapter_name;
+        }
+        foreach ((array) ($chapter['scenes'] ?? []) as $scene) {
+          if (!is_array($scene)) {
+            continue;
+          }
+          $scene_id = trim((string) ($scene['scene_id'] ?? ''));
+          $scene_name = trim((string) ($scene['name'] ?? ''));
+          if ($scene_id !== '' && $scene_name !== '') {
+            $contacts[$scene_id] = $scene_name;
+          }
+        }
+      }
+
+      foreach ((array) ($storyline_data['contacts'] ?? []) as $contact) {
+        if (!is_array($contact)) {
+          continue;
+        }
+        $entity_id = trim((string) ($contact['entity_id'] ?? ''));
+        $display_name = trim((string) ($contact['display_name'] ?? ''));
+        if ($entity_id !== '' && $display_name !== '') {
+          $contacts[$entity_id] = $display_name;
+        }
+      }
+    }
+
+    $this->storylineContactCache[$cache_key] = $contacts;
+    return $contacts;
   }
 
   /**
@@ -436,16 +587,40 @@ class QuestGeneratorService {
    */
   protected function resolveQuestGiverPolicyIds(int $campaign_id, string $giver_reference): array {
     $candidate_ids = [$giver_reference];
+    if (str_starts_with($giver_reference, 'npc_')) {
+      $candidate_ids[] = substr($giver_reference, 4);
+    }
     if ($campaign_id > 0 && ctype_digit($giver_reference) && $this->database->schema()->tableExists('dc_campaign_characters')) {
       $row = $this->database->select('dc_campaign_characters', 'cc')
-        ->fields('cc', ['instance_id'])
+        ->fields('cc', ['instance_id', 'state_data'])
         ->condition('campaign_id', $campaign_id)
         ->condition('id', (int) $giver_reference)
         ->range(0, 1)
         ->execute()
         ->fetchAssoc();
       if (is_array($row) && !empty($row['instance_id'])) {
-        $candidate_ids[] = (string) $row['instance_id'];
+        $instance_id = (string) $row['instance_id'];
+        $candidate_ids[] = $instance_id;
+        if (str_starts_with($instance_id, 'npc_')) {
+          $candidate_ids[] = substr($instance_id, 4);
+        }
+      }
+      $state = is_array($row) ? (json_decode((string) ($row['state_data'] ?? '{}'), TRUE) ?: []) : [];
+      $metadata = is_array($state['metadata'] ?? NULL) ? $state['metadata'] : [];
+      foreach ([
+        (string) ($state['content_id'] ?? ''),
+        (string) ($metadata['content_id'] ?? ''),
+        (string) ($state['runtime_entity_id'] ?? ''),
+        (string) ($metadata['runtime_entity_id'] ?? ''),
+      ] as $candidate_id) {
+        $candidate_id = trim($candidate_id);
+        if ($candidate_id === '') {
+          continue;
+        }
+        $candidate_ids[] = $candidate_id;
+        if (str_starts_with($candidate_id, 'npc_')) {
+          $candidate_ids[] = substr($candidate_id, 4);
+        }
       }
     }
 
@@ -589,10 +764,19 @@ class QuestGeneratorService {
    * @return array
    *   Variable values.
    */
-  protected function buildVariables(array $template, array $context): array {
-    // TODO: Implement intelligent variable extraction from context
-    // For now, return context as-is
-    return $context;
+  protected function buildVariables(array $template, array $context, int $campaign_id = 0): array {
+    $variables = $context;
+    $template_id = trim((string) ($template['template_id'] ?? ''));
+    $location_id = trim((string) ($context['location'] ?? ''));
+    if ($campaign_id > 0 && $template_id !== '' && $location_id !== '') {
+      foreach ($this->loadQuestAssociationContextHints($campaign_id, $location_id, $template_id, $template) as $key => $value) {
+        if (!array_key_exists($key, $variables) || $variables[$key] === '' || $variables[$key] === NULL) {
+          $variables[$key] = $value;
+        }
+      }
+    }
+
+    return $variables;
   }
 
   /**
@@ -613,6 +797,93 @@ class QuestGeneratorService {
       }
     }
     return $text;
+  }
+
+  /**
+   * Load variable hints from room quest associations and questgiver metadata.
+   *
+   * @return array<string, string>
+   *   Template variable hints keyed by variable name.
+   */
+  protected function loadQuestAssociationContextHints(int $campaign_id, string $location_id, string $template_id, array $template = []): array {
+    if (
+      $campaign_id <= 0
+      || $location_id === ''
+      || $template_id === ''
+      || !$this->database->schema()->tableExists('dc_campaign_rooms')
+    ) {
+      return [];
+    }
+
+    $row = $this->database->select('dc_campaign_rooms', 'r')
+      ->fields('r', ['contents_data'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('room_id', $location_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    $contents = is_array($row) ? (json_decode((string) ($row['contents_data'] ?? '{}'), TRUE) ?: []) : [];
+    if (!is_array($contents)) {
+      return [];
+    }
+
+    $hints = [];
+
+    foreach ((array) ($contents['npcs'] ?? []) as $npc) {
+      if (!is_array($npc)) {
+        continue;
+      }
+      foreach ((array) ($npc['quests'] ?? []) as $quest) {
+        if (!is_array($quest) || trim((string) ($quest['quest_id'] ?? '')) !== $template_id) {
+          continue;
+        }
+        $item_name = $this->deriveItemNameFromQuestLabel((string) ($quest['title'] ?? ''), $template);
+        if ($item_name !== '') {
+          $hints['item_name'] = $item_name;
+          return $hints;
+        }
+      }
+    }
+
+    $associated_item_names = [];
+    foreach ((array) ($contents['items'] ?? []) as $item) {
+      if (!is_array($item) || trim((string) ($item['quest_association'] ?? '')) !== $template_id) {
+        continue;
+      }
+      $name = trim((string) ($item['name'] ?? ''));
+      if ($name !== '') {
+        $associated_item_names[$name] = ($associated_item_names[$name] ?? 0) + 1;
+      }
+    }
+
+    if ($associated_item_names !== []) {
+      arsort($associated_item_names);
+      $hints['item_name'] = (string) array_key_first($associated_item_names);
+    }
+
+    return $hints;
+  }
+
+  /**
+   * Derive an item placeholder from a questgiver-facing title.
+   */
+  protected function deriveItemNameFromQuestLabel(string $label, array $template = []): string {
+    $label = trim($label);
+    if ($label === '') {
+      return '';
+    }
+
+    if (preg_match('/^(?:collect|gather|recover|find|bring)\s+(.+)$/i', $label, $matches) !== 1) {
+      return $label;
+    }
+
+    $item_name = trim((string) ($matches[1] ?? ''));
+    $template_name = strtolower(trim((string) ($template['name'] ?? '')));
+    if ($item_name !== '' && str_starts_with(strtolower($item_name), 'lost ') && str_contains($template_name, 'lost {item_name}')) {
+      $item_name = trim(substr($item_name, 5));
+    }
+
+    return $item_name;
   }
 
   /**
@@ -691,8 +962,28 @@ class QuestGeneratorService {
 
       case 'escort':
         $generated_obj['npc_id'] = $context['escort_npc_id'] ?? NULL;
+        $generated_obj['npc_ref'] = $this->resolveVariables((string) ($objective_schema['npc_ref'] ?? ''), $variables);
+        $generated_obj['target'] = $this->resolveVariables((string) ($objective_schema['target'] ?? ''), $variables);
         $generated_obj['destination'] = $this->resolveVariables((string) ($objective_schema['destination'] ?? ''), $variables);
         $generated_obj['arrived'] = FALSE;
+        $path_encounters = $this->buildEscortPathEncounters($objective_schema, $variables, $generated_obj['target'], $generated_obj['destination']);
+        if ($path_encounters !== []) {
+          $generated_obj['path_encounters'] = $path_encounters;
+          $generated_obj['children'] = $this->buildEscortRuntimeObjectives(
+            $generated_obj['objective_id'],
+            $path_encounters,
+            $generated_obj['target'],
+            $generated_obj['destination']
+          );
+          $generated_obj['completion_criteria'] = [
+            'kind' => 'all_children',
+            'metric' => 'children_completed',
+            'required_value' => TRUE,
+            'description' => $generated_obj['target'] !== '' && $generated_obj['destination'] !== ''
+              ? 'Resolve the escort journey beats and get ' . $generated_obj['target'] . ' safely to ' . $generated_obj['destination'] . '.'
+              : 'Resolve the escort journey beats and reach the destination safely.',
+          ];
+        }
         break;
 
       case 'interact':
@@ -701,6 +992,10 @@ class QuestGeneratorService {
 
       case 'investigate':
         $generated_obj['target'] = $this->resolveVariables((string) ($objective_schema['target'] ?? ''), $variables);
+        if (!array_key_exists('location', $objective_schema) && !array_key_exists('location_id', $objective_schema) && $generated_obj['target'] !== '') {
+          $generated_obj['location'] = $generated_obj['target'];
+        }
+        $generated_obj['discovered'] = FALSE;
         $generated_obj['current'] = 0;
         $generated_obj['target_count'] = max(1, (int) ($objective_schema['target_count'] ?? 1));
         break;
@@ -722,6 +1017,149 @@ class QuestGeneratorService {
 
     $generated_obj['completion_criteria'] = $this->normalizeObjectiveCompletionCriteria($objective_schema['completion_criteria'] ?? [], $generated_obj);
     return $generated_obj;
+  }
+
+  /**
+   * Build generated path encounters for one escort objective.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Generated encounter descriptors.
+   */
+  protected function buildEscortPathEncounters(array $objective_schema, array $variables, string $escort_target, string $destination): array {
+    $range = is_array($objective_schema['encounter_count_range'] ?? NULL) ? array_values($objective_schema['encounter_count_range']) : [];
+    if (count($range) !== 2) {
+      return [];
+    }
+
+    $minimum = max(1, (int) ($range[0] ?? 1));
+    $maximum = max($minimum, (int) ($range[1] ?? $minimum));
+    $encounter_count = $this->numberGeneration->rollRange($minimum, $maximum);
+
+    $encounter_types = $this->normalizeEscortEncounterList(
+      is_array($objective_schema['encounter_types'] ?? NULL) ? $objective_schema['encounter_types'] : [],
+      ['social', 'problem_solving', 'combat']
+    );
+    $encounter_profiles = $this->normalizeEscortEncounterList(
+      is_array($objective_schema['encounter_profiles'] ?? NULL) ? $objective_schema['encounter_profiles'] : [],
+      ['negotiation_collapse', 'chase_transition', 'ambush']
+    );
+
+    $encounters = [];
+    $target_label = $escort_target !== '' ? $escort_target : 'the escort target';
+    $destination_label = $destination !== '' ? $destination : 'safety';
+    $objective_id = strtolower(trim((string) ($objective_schema['objective_id'] ?? 'escort')));
+    $objective_id = preg_replace('/[^a-z0-9]+/', '_', $objective_id) ?? 'escort';
+    $objective_id = trim($objective_id, '_') ?: 'escort';
+
+    for ($index = 1; $index <= $encounter_count; $index++) {
+      $encounter_type = $encounter_types[($index - 1) % count($encounter_types)];
+      $setup_profile = $encounter_profiles[($index - 1) % count($encounter_profiles)];
+      $encounters[] = [
+        'encounter_id' => $objective_id . '_path_encounter_' . $index,
+        'sequence' => $index,
+        'encounter_type' => $encounter_type,
+        'setup_profile' => $setup_profile,
+        'description' => $this->buildEscortEncounterDescription($encounter_type, $setup_profile, $target_label, $destination_label),
+        'target' => $target_label,
+        'destination' => $destination_label,
+        'resolved' => FALSE,
+      ];
+    }
+
+    return $encounters;
+  }
+
+  /**
+   * Materialize escort path encounters into runtime child objectives.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Runtime child objectives.
+   */
+  protected function buildEscortRuntimeObjectives(string $parent_objective_id, array $path_encounters, string $escort_target, string $destination): array {
+    $children = [];
+
+    foreach ($path_encounters as $index => $encounter) {
+      if (!is_array($encounter)) {
+        continue;
+      }
+
+      $sequence = max(1, (int) ($encounter['sequence'] ?? ($index + 1)));
+      $encounter_id = trim((string) ($encounter['encounter_id'] ?? $parent_objective_id . '_path_encounter_' . $sequence));
+      if ($encounter_id === '') {
+        continue;
+      }
+
+      $children[] = [
+        'objective_id' => $parent_objective_id . '_runtime_' . $sequence,
+        'type' => 'interact',
+        'target' => $encounter_id,
+        'description' => trim((string) ($encounter['description'] ?? ('Handle escort encounter ' . $sequence))),
+        'completed' => !empty($encounter['resolved']),
+        'hidden' => $sequence > 1,
+        'encounter_id' => $encounter_id,
+        'encounter_type' => trim((string) ($encounter['encounter_type'] ?? 'encounter')),
+        'setup_profile' => trim((string) ($encounter['setup_profile'] ?? 'escort')),
+        'completion_criteria' => [
+          'kind' => 'flag',
+          'metric' => 'completed',
+          'required_value' => TRUE,
+          'description' => trim((string) ($encounter['description'] ?? 'Resolve this escort encounter.')),
+        ],
+      ];
+    }
+
+    $arrival_description = $escort_target !== '' && $destination !== ''
+      ? 'Get ' . $escort_target . ' safely to ' . $destination . '.'
+      : ($destination !== '' ? 'Reach ' . $destination . ' safely.' : 'Reach the escort destination safely.');
+    $children[] = [
+      'objective_id' => $parent_objective_id . '_arrive',
+      'type' => 'explore',
+      'location' => $destination,
+      'description' => $arrival_description,
+      'completed' => FALSE,
+      'hidden' => $path_encounters !== [],
+      'escort_arrival' => TRUE,
+      'completion_criteria' => [
+        'kind' => 'flag',
+        'metric' => 'discovered',
+        'required_value' => TRUE,
+        'description' => $arrival_description,
+      ],
+    ];
+
+    return $children;
+  }
+
+  /**
+   * Normalize one escort encounter metadata list.
+   *
+   * @param array<int|string, mixed> $values
+   *   Candidate values.
+   * @param array<int, string> $fallback
+   *   Fallback values.
+   *
+   * @return array<int, string>
+   *   Normalized list.
+   */
+  protected function normalizeEscortEncounterList(array $values, array $fallback): array {
+    $normalized = array_values(array_filter(array_map(function (mixed $value): string {
+      return trim((string) $value);
+    }, $values)));
+
+    return $normalized !== [] ? $normalized : $fallback;
+  }
+
+  /**
+   * Build a human-readable escort encounter description.
+   */
+  protected function buildEscortEncounterDescription(string $encounter_type, string $setup_profile, string $escort_target, string $destination): string {
+    return match (strtolower($encounter_type)) {
+      'combat' => 'Overcome a ' . str_replace('_', ' ', strtolower($setup_profile)) . ' while protecting ' . $escort_target . ' on the road to ' . $destination . '.',
+      'hazard' => 'Navigate a ' . str_replace('_', ' ', strtolower($setup_profile)) . ' hazard without losing ' . $escort_target . ' before reaching ' . $destination . '.',
+      'stealth' => 'Slip ' . $escort_target . ' past a ' . str_replace('_', ' ', strtolower($setup_profile)) . ' obstacle on the way to ' . $destination . '.',
+      'problem_solving' => 'Resolve a ' . str_replace('_', ' ', strtolower($setup_profile)) . ' complication so ' . $escort_target . ' can keep moving toward ' . $destination . '.',
+      default => 'Handle a ' . str_replace('_', ' ', strtolower($setup_profile)) . ' encounter while escorting ' . $escort_target . ' toward ' . $destination . '.',
+    };
   }
 
   /**
@@ -872,7 +1310,7 @@ class QuestGeneratorService {
       $normalized['npc_id'] = $objective['npc_id'] === NULL ? NULL : (int) $objective['npc_id'];
     }
 
-    $optional_boolean_fields = ['discovered', 'arrived', 'revealed'];
+    $optional_boolean_fields = ['discovered', 'arrived', 'revealed', 'hidden'];
     foreach ($optional_boolean_fields as $field) {
       if (array_key_exists($field, $objective)) {
         $normalized[$field] = !empty($objective[$field]);
@@ -1095,6 +1533,18 @@ class QuestGeneratorService {
       return [];
     }
 
+    if ($this->storylineManager !== NULL) {
+      try {
+        return $this->storylineManager->listCampaignStorylines($campaign_id, FALSE);
+      }
+      catch (\Throwable $exception) {
+        $this->logger->warning('Failed to hydrate storyline rows for campaign @campaign_id before quest-summary management build: @message', [
+          '@campaign_id' => $campaign_id,
+          '@message' => $exception->getMessage(),
+        ]);
+      }
+    }
+
     return $this->database->select('dc_campaign_storylines', 's')
       ->fields('s')
       ->condition('campaign_id', $campaign_id)
@@ -1145,6 +1595,7 @@ class QuestGeneratorService {
     }
 
     $storyline_data = $this->decodeQuestObjectField($storyline_row['storyline_data'] ?? []);
+    $this->assertValidManagementStorylineData($storyline_row, $storyline_data);
     $scene_index = $this->buildStorylineSceneIndex($storyline_data);
     $lead_location = $this->resolveStorylineLeadLocation($storyline_row, $storyline_data, $contact_summary, $scene_index);
     $quests = $this->buildStorylineQuestManagementEntries(
@@ -1196,6 +1647,22 @@ class QuestGeneratorService {
   }
 
   /**
+   * Fail closed when verification views encounter an invalid stored storyline.
+   */
+  protected function assertValidManagementStorylineData(array $storyline_row, array $storyline_data): void {
+    if ($this->storylineManager === NULL) {
+      return;
+    }
+
+    $validation = $this->storylineManager->validateRuntimeStorylineContract($storyline_data);
+    if (!($validation['valid'] ?? FALSE)) {
+      $storyline_id = trim((string) ($storyline_row['storyline_id'] ?? ''));
+      $label = $storyline_id !== '' ? "storyline {$storyline_id}" : 'storyline runtime payload';
+      throw new \InvalidArgumentException('Storyline management contract failed validation for ' . $label . ': ' . implode('; ', $validation['errors'] ?? []), 400);
+    }
+  }
+
+  /**
    * Build nested quest entries for one storyline.
    */
   protected function buildStorylineQuestManagementEntries(
@@ -1243,8 +1710,8 @@ class QuestGeneratorService {
         continue;
       }
       $quest_contract = $materialized_entry
-        ? $this->buildMaterializedQuestManagementEntry($materialized_entry, $quest_node, $linked_quest, $scene_index, $lead_location, $blocked, $current_location_id)
-        : $this->buildStorylineQuestPlaceholderEntry($ordered_quest_id, $quest_node, $linked_quest, $scene_index, $lead_location, $blocked, $current_location_id);
+        ? $this->buildMaterializedQuestManagementEntry($materialized_entry, $quest_node, $linked_quest, $scene_index, $lead_location, $blocked, $current_location_id, is_array($storyline_data['contacts'] ?? NULL) ? $storyline_data['contacts'] : [])
+        : $this->buildStorylineQuestPlaceholderEntry($ordered_quest_id, $quest_node, $linked_quest, $scene_index, $lead_location, $blocked, $current_location_id, is_array($storyline_data['contacts'] ?? NULL) ? $storyline_data['contacts'] : []);
       if ($quest_contract === []) {
         continue;
       }
@@ -1269,7 +1736,8 @@ class QuestGeneratorService {
         $scene_index,
         $lead_location,
         FALSE,
-        $current_location_id
+        $current_location_id,
+        is_array($storyline_data['contacts'] ?? NULL) ? $storyline_data['contacts'] : []
       );
       if ($quest_contract === []) {
         continue;
@@ -1293,7 +1761,8 @@ class QuestGeneratorService {
     array $scene_index,
     array $lead_location,
     bool $blocked,
-    ?string $current_location_id
+    ?string $current_location_id,
+    array $storyline_contacts = []
   ): array {
     $quest = $this->buildQuestSummaryEntry($quest_entry);
     $scene_id = $this->normalizeNullableString($quest['storyline']['scene_id'] ?? ($linked_quest['scene_id'] ?? NULL));
@@ -1301,7 +1770,7 @@ class QuestGeneratorService {
     $location = $this->resolveQuestManagementLocation($quest, $scene_index, $lead_location, $scene_id, $chapter_id);
     $status = strtolower(trim((string) ($quest['status'] ?? 'available')));
     $access = $this->buildManagementAccessDescriptor($location, !$blocked, $current_location_id, $status);
-    $objectives = $this->buildQuestManagementObjectives($quest, $location, $blocked, $current_location_id);
+    $objectives = $this->buildQuestManagementObjectives($quest, $location, $blocked, $current_location_id, $storyline_contacts);
     if ($objectives === [] && !$this->shouldRetainQuestWithoutVisibleObjectives($quest, $quest_node, $linked_quest)) {
       return [];
     }
@@ -1326,7 +1795,8 @@ class QuestGeneratorService {
     array $scene_index,
     array $lead_location,
     bool $blocked,
-    ?string $current_location_id
+    ?string $current_location_id,
+    array $storyline_contacts = []
   ): array {
     $scene_id = $this->normalizeNullableString($quest_node['scene_id'] ?? ($linked_quest['scene_id'] ?? NULL));
     $chapter_id = $this->normalizeNullableString($quest_node['chapter_id'] ?? ($linked_quest['chapter_id'] ?? NULL));
@@ -1388,7 +1858,7 @@ class QuestGeneratorService {
       'label' => $this->humanizeIdentifier($quest['location_id'] ?? 'campaign'),
     ]);
     $access = $this->buildManagementAccessDescriptor($location, TRUE, $current_location_id, (string) ($quest['status'] ?? 'available'));
-    $objectives = $this->buildQuestManagementObjectives($quest, $location, FALSE, $current_location_id);
+    $objectives = $this->buildQuestManagementObjectives($quest, $location, FALSE, $current_location_id, []);
 
     $quest['location'] = $location;
     $quest['next_step'] = $this->deriveQuestNextStep($quest, $objectives, [], NULL, NULL, $location, FALSE);
@@ -1404,7 +1874,8 @@ class QuestGeneratorService {
     array $quest,
     array $fallback_location,
     bool $blocked,
-    ?string $current_location_id
+    ?string $current_location_id,
+    array $storyline_contacts = []
   ): array {
     $phases = $quest['objective_states'] !== [] ? $quest['objective_states'] : $quest['generated_objectives'];
     $objectives = [];
@@ -1420,7 +1891,8 @@ class QuestGeneratorService {
           $fallback_location,
           $blocked,
           $current_location_id,
-          $quest
+          $quest,
+          $storyline_contacts
         );
         if ($node !== []) {
           $objectives[] = $node;
@@ -1439,11 +1911,12 @@ class QuestGeneratorService {
     array $fallback_location,
     bool $blocked,
     ?string $current_location_id,
-    array $quest
+    array $quest,
+    array $storyline_contacts = []
   ): array {
     $completed = !empty($objective['completed']);
     $revealed = $this->isObjectiveVisibleInJournal($objective, $phase_number, $quest);
-    $location = $this->resolveQuestManagementObjectiveLocation($objective, $fallback_location);
+    $location = $this->resolveQuestManagementObjectiveLocation($objective, $fallback_location, $storyline_contacts);
     $description = trim((string) ($objective['description'] ?? $objective['objective_id'] ?? 'Objective'));
     $access = $this->buildManagementAccessDescriptor(
       $location,
@@ -1460,7 +1933,8 @@ class QuestGeneratorService {
         $location,
         $blocked,
         $current_location_id,
-        $quest
+        $quest,
+        $storyline_contacts
       );
       if ($child_node !== []) {
         $children[] = $child_node;
@@ -1474,6 +1948,12 @@ class QuestGeneratorService {
       $access = $this->normalizeManagementAccess($children[0]['access'] ?? $access);
     }
 
+    $resolved_target = $this->resolveQuestManagementObjectiveTarget($objective, $quest, $storyline_contacts);
+    $objective_for_next_step = $objective;
+    if ($resolved_target !== NULL) {
+      $objective_for_next_step['target'] = $resolved_target;
+    }
+
     $entry = [
       'objective_id' => trim((string) ($objective['objective_id'] ?? 'objective')),
       'phase' => $phase_number,
@@ -1484,10 +1964,10 @@ class QuestGeneratorService {
       'current' => isset($objective['current']) ? (int) $objective['current'] : NULL,
       'target_count' => isset($objective['target_count']) ? (int) $objective['target_count'] : NULL,
       'item' => $this->normalizeNullableString($objective['item'] ?? NULL),
-      'target' => $this->normalizeNullableString($objective['target'] ?? NULL),
+      'target' => $resolved_target ?? $this->normalizeNullableString($objective['target'] ?? NULL),
       'location' => $location,
       'completion_criteria' => $this->normalizeObjectiveCompletionCriteria($objective['completion_criteria'] ?? [], $objective),
-      'next_step' => $this->deriveObjectiveNextStep($objective, $location, $completed, $children),
+      'next_step' => $this->deriveObjectiveNextStep($objective_for_next_step, $location, $completed, $children),
       'access' => $access,
     ];
 
@@ -1501,7 +1981,7 @@ class QuestGeneratorService {
   /**
    * Resolve one objective location without assuming every step happens at the giver.
    */
-  protected function resolveQuestManagementObjectiveLocation(array $objective, array $fallback_location): array {
+  protected function resolveQuestManagementObjectiveLocation(array $objective, array $fallback_location, array $storyline_contacts = []): array {
     $type = strtolower(trim((string) ($objective['type'] ?? '')));
     $explicit_location_id = $this->normalizeNullableString($objective['location_id'] ?? $objective['destination_id'] ?? NULL);
     $explicit_location_label = $this->normalizeNullableString($objective['location'] ?? $objective['destination'] ?? NULL);
@@ -1514,6 +1994,18 @@ class QuestGeneratorService {
     }
 
     if (in_array($type, ['interact', 'escort'], TRUE)) {
+      $contact_location = $this->resolveQuestManagementContactLocation($objective, $storyline_contacts, $fallback_location);
+      if ($contact_location !== []) {
+        return $contact_location;
+      }
+
+      if ($this->resolveStorylineContactForObjective($objective, $storyline_contacts) !== NULL) {
+        return $this->normalizeManagementLocation([
+          'id' => NULL,
+          'label' => NULL,
+        ]);
+      }
+
       return $this->normalizeManagementLocation($fallback_location);
     }
 
@@ -1521,6 +2013,64 @@ class QuestGeneratorService {
       'id' => NULL,
       'label' => NULL,
     ]);
+  }
+
+  /**
+   * Resolve an anchored contact location for one interact-style objective.
+   */
+  protected function resolveQuestManagementContactLocation(array $objective, array $storyline_contacts, array $fallback_location): array {
+    $contact = $this->resolveStorylineContactForObjective($objective, $storyline_contacts);
+    if ($contact === NULL) {
+      return [];
+    }
+
+    $relationship_state = is_array($contact['relationship_state'] ?? NULL) ? $contact['relationship_state'] : [];
+    $location_id = $this->normalizeNullableString(
+      $relationship_state['scene_id'] ?? $relationship_state['points_to_room_id'] ?? $relationship_state['chapter_id'] ?? $relationship_state['points_to_dungeon_id'] ?? NULL
+    );
+    $location_label = $this->normalizeNullableString(
+      $relationship_state['scene_name'] ?? $relationship_state['room_name'] ?? $relationship_state['chapter_name'] ?? $relationship_state['dungeon_name'] ?? NULL
+    );
+
+    if ($location_id === NULL && $location_label === NULL) {
+      return [];
+    }
+
+    if ($location_label === NULL && $location_id !== NULL) {
+      $fallback_id = $this->normalizeNullableString($fallback_location['id'] ?? NULL);
+      $fallback_label = $this->normalizeNullableString($fallback_location['label'] ?? NULL);
+      $location_label = $fallback_id !== NULL && $fallback_id === $location_id
+        ? $fallback_label
+        : $this->humanizeIdentifier($location_id);
+    }
+
+    return $this->normalizeManagementLocation([
+      'id' => $location_id,
+      'label' => $location_label,
+    ]);
+  }
+
+  /**
+   * Resolve one storyline contact targeted by an objective.
+   */
+  protected function resolveStorylineContactForObjective(array $objective, array $storyline_contacts): ?array {
+    $target = $this->normalizeNullableString($objective['target'] ?? NULL);
+    if ($target === NULL) {
+      return NULL;
+    }
+
+    foreach (array_values(array_filter($storyline_contacts, 'is_array')) as $contact) {
+      $entity_id = $this->normalizeNullableString($contact['entity_id'] ?? NULL);
+      $display_name = $this->normalizeNullableString($contact['display_name'] ?? NULL);
+      if ($entity_id !== NULL && $entity_id === $target) {
+        return $contact;
+      }
+      if ($display_name !== NULL && strcasecmp($display_name, $target) === 0) {
+        return $contact;
+      }
+    }
+
+    return NULL;
   }
 
   /**
@@ -1748,7 +2298,11 @@ class QuestGeneratorService {
    */
   protected function resolveStorylineLeadLocation(array $storyline_row, array $storyline_data, array $contact_summary, array $scene_index): array {
     if (is_array($contact_summary['lead_location'] ?? NULL)) {
-      return $this->normalizeManagementLocation($contact_summary['lead_location']);
+      $contact_location = $contact_summary['lead_location'];
+      return $this->normalizeManagementLocation([
+        'id' => $contact_location['scene_id'] ?? $contact_location['chapter_id'] ?? ($contact_location['id'] ?? NULL),
+        'label' => $contact_location['scene_name'] ?? $contact_location['label'] ?? $contact_location['chapter_name'] ?? NULL,
+      ]);
     }
 
     $outline = is_array($storyline_data['metadata']['generated_outline'] ?? NULL) ? $storyline_data['metadata']['generated_outline'] : [];
@@ -1794,6 +2348,13 @@ class QuestGeneratorService {
     ?string $scene_id,
     ?string $chapter_id
   ): array {
+    if ($scene_id !== NULL || $chapter_id !== NULL) {
+      $scene_location = $this->resolveSceneOrLeadLocation($scene_index, $scene_id, $chapter_id, []);
+      if (!empty($scene_location['id']) || !empty($scene_location['label'])) {
+        return $scene_location;
+      }
+    }
+
     $location_id = $this->normalizeNullableString($quest['location_id'] ?? NULL);
     if ($location_id !== NULL) {
       return $this->normalizeManagementLocation([
@@ -1932,10 +2493,34 @@ class QuestGeneratorService {
       'collect' => $target !== '' ? 'Collect ' . $target . '.' : 'Collect the required items.',
       'explore', 'travel' => $target !== '' ? 'Travel to ' . $target . '.' : 'Travel to the next location.',
       'escort' => $target !== '' ? 'Escort the target to ' . $target . '.' : 'Escort the target to safety.',
-      'interact' => $target !== '' ? 'Speak with or interact with ' . $target . '.' : 'Complete the required interaction.',
+      'interact' => $target !== ''
+        ? 'Speak with or interact with ' . $target . (!empty($location['label']) ? ' at ' . $location['label'] : '') . '.'
+        : (!empty($location['label']) ? 'Complete the required interaction at ' . $location['label'] . '.' : 'Complete the required interaction.'),
       'investigate' => $target !== '' ? 'Investigate ' . $target . '.' : 'Investigate the next clue.',
       default => trim((string) ($objective['description'] ?? 'Advance this objective.')),
     };
+  }
+
+  /**
+   * Resolve a human-readable objective target using storyline contacts when possible.
+   */
+  protected function resolveQuestManagementObjectiveTarget(array $objective, array $quest, array $storyline_contacts = []): ?string {
+    $target = $this->normalizeNullableString($objective['target'] ?? NULL);
+    if ($target === NULL) {
+      return NULL;
+    }
+
+    foreach (array_values(array_filter($storyline_contacts, 'is_array')) as $contact) {
+      if ((string) ($contact['entity_id'] ?? '') !== $target) {
+        continue;
+      }
+      $display_name = $this->normalizeNullableString($contact['display_name'] ?? NULL);
+      if ($display_name !== NULL) {
+        return $display_name;
+      }
+    }
+
+    return $target;
   }
 
   /**

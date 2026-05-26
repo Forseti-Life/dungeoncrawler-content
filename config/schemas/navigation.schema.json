@@ -1,0 +1,67 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dungeoncrawler.life/schemas/navigation.schema.json",
+  "title": "Navigation Action Schema",
+  "description": "Canonical navigate_to_location action payload after server normalization.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "type", "name", "details", "state_changes"],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "enum": ["navigation-action-v1"]
+    },
+    "type": {
+      "type": "string",
+      "enum": ["navigate_to_location"]
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "details": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["destination", "destination_description", "travel_type", "estimated_distance"],
+      "properties": {
+        "destination": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "destination_room_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "destination_description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "travel_type": {
+          "type": "string",
+          "enum": ["walk", "ride", "teleport", "climb", "swim", "fly"]
+        },
+        "estimated_distance": {
+          "type": "string",
+          "enum": ["adjacent", "short", "medium", "long"]
+        }
+      }
+    },
+    "state_changes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["character", "room"],
+      "properties": {
+        "character": {
+          "type": "object"
+        },
+        "room": {
+          "type": "object"
+        }
+      }
+    }
+  }
+}

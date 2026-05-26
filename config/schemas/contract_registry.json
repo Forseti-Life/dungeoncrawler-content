@@ -72,6 +72,14 @@
     "queued_room_continuation": {
       "schema": "queued_room_continuation.schema.json",
       "description": "Canonical queued room continuation envelope."
+    },
+    "navigation": {
+      "schema": "navigation.schema.json",
+      "description": "Canonical navigate_to_location action payload."
+    },
+    "navigation_receipt": {
+      "schema": "navigation_receipt.schema.json",
+      "description": "Canonical navigation result payload returned to clients."
     }
   }
 }

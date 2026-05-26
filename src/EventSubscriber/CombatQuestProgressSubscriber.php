@@ -147,10 +147,8 @@ class CombatQuestProgressSubscriber implements EventSubscriberInterface {
       if (!isset($phase['objectives'])) {
         continue;
       }
-      foreach ($phase['objectives'] as $objective) {
-        if (($objective['type'] ?? NULL) === 'kill' && empty($objective['completed'])) {
-          return TRUE;
-        }
+      if ($this->objectiveCollectionHasType((array) $phase['objectives'], 'kill')) {
+        return TRUE;
       }
     }
     return FALSE;
@@ -184,24 +182,37 @@ class CombatQuestProgressSubscriber implements EventSubscriberInterface {
     EntityDefeatedEvent $event
   ): void {
     try {
-      // Try to find a matching kill objective.
-      // First approach: look for objectives that reference this specific enemy.
-      $result = $this->questTracker->updateObjectiveProgress(
-        $campaign_id,
-        $quest_id,
-        'kill_enemies',  // Generic kill objective
-        1,               // Increment by 1
-        $character_id
-      );
+      $progress = $this->database->select('dc_campaign_quest_progress', 'p')
+        ->fields('p', ['objective_states', 'current_phase'])
+        ->condition('p.campaign_id', $campaign_id)
+        ->condition('p.quest_id', $quest_id)
+        ->condition('p.character_id', $character_id)
+        ->range(0, 1)
+        ->execute()
+        ->fetchAssoc();
+      $objective_states = json_decode((string) ($progress['objective_states'] ?? '[]'), TRUE) ?? [];
+      $current_phase = max(1, (int) ($progress['current_phase'] ?? 1));
+      $matches = $this->findMatchingKillObjectiveIds($objective_states, $current_phase, $enemy_name, $entity_ref);
 
-      if ($result['success'] ?? FALSE) {
-        $this->logger->info(
-          'Updated kill objective for quest @quest: defeated @enemy',
-          [
-            '@quest' => $quest_id,
-            '@enemy' => $enemy_name,
-          ]
+      foreach ($matches as $objective_id) {
+        $result = $this->questTracker->updateObjectiveProgress(
+          $campaign_id,
+          $quest_id,
+          $objective_id,
+          1,
+          $character_id
         );
+
+        if ($result['success'] ?? FALSE) {
+          $this->logger->info(
+            'Updated kill objective @objective for quest @quest: defeated @enemy',
+            [
+              '@objective' => $objective_id,
+              '@quest' => $quest_id,
+              '@enemy' => $enemy_name,
+            ]
+          );
+        }
       }
     }
     catch (\Exception $e) {
@@ -210,5 +221,89 @@ class CombatQuestProgressSubscriber implements EventSubscriberInterface {
         ['@error' => $e->getMessage()]
       );
     }
+  }
+
+  /**
+   * Recursively determine whether a nested objective collection has a type.
+   */
+  protected function objectiveCollectionHasType(array $objectives, string $type): bool {
+    foreach ($objectives as $objective) {
+      if (!is_array($objective)) {
+        continue;
+      }
+      if (($objective['type'] ?? NULL) === $type && empty($objective['completed']) && $this->isObjectiveCurrentlyRevealed($objective)) {
+        return TRUE;
+      }
+      if ($this->objectiveCollectionHasType((array) ($objective['children'] ?? []), $type)) {
+        return TRUE;
+      }
+    }
+
+    return FALSE;
+  }
+
+  /**
+   * Find matching kill objective ids for the defeated enemy in the current phase.
+   *
+   * @return array<int, string>
+   *   Objective ids.
+   */
+  protected function findMatchingKillObjectiveIds(array $objective_states, int $current_phase, string $enemy_name, ?string $entity_ref): array {
+    foreach ($objective_states as $phase) {
+      if ((int) ($phase['phase'] ?? 0) !== $current_phase) {
+        continue;
+      }
+
+      return $this->collectMatchingKillObjectiveIds((array) ($phase['objectives'] ?? []), $enemy_name, $entity_ref);
+    }
+
+    return [];
+  }
+
+  /**
+   * Recursively collect matching kill objective ids.
+   *
+   * @return array<int, string>
+   *   Objective ids.
+   */
+  protected function collectMatchingKillObjectiveIds(array $objectives, string $enemy_name, ?string $entity_ref): array {
+    $matches = [];
+    foreach ($objectives as $objective) {
+      if (!is_array($objective)) {
+        continue;
+      }
+      if (($objective['type'] ?? NULL) === 'kill' && empty($objective['completed']) && $this->isObjectiveCurrentlyRevealed($objective) && $this->killObjectiveMatchesEntity($objective, $enemy_name, $entity_ref)) {
+        $objective_id = trim((string) ($objective['objective_id'] ?? ''));
+        if ($objective_id !== '') {
+          $matches[] = $objective_id;
+        }
+      }
+      $matches = array_merge($matches, $this->collectMatchingKillObjectiveIds((array) ($objective['children'] ?? []), $enemy_name, $entity_ref));
+    }
+
+    return array_values(array_unique($matches));
+  }
+
+  /**
+   * Determine whether one kill objective matches the defeated entity.
+   */
+  protected function killObjectiveMatchesEntity(array $objective, string $enemy_name, ?string $entity_ref): bool {
+    $target = strtolower(trim((string) ($objective['target'] ?? '')));
+    if ($target === '') {
+      return FALSE;
+    }
+
+    $enemy_name = strtolower(trim($enemy_name));
+    $entity_ref = strtolower(trim((string) $entity_ref));
+    return str_contains($enemy_name, $target)
+      || str_contains($target, $enemy_name)
+      || ($entity_ref !== '' && (str_contains($entity_ref, $target) || str_contains($target, $entity_ref)));
+  }
+
+  /**
+   * Determine whether an objective is currently available to runtime matching.
+   */
+  protected function isObjectiveCurrentlyRevealed(array $objective): bool {
+    return !array_key_exists('revealed', $objective) || !empty($objective['revealed']) || !empty($objective['completed']);
   }
 }

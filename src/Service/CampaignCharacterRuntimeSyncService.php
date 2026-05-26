@@ -13,9 +13,20 @@ class CampaignCharacterRuntimeSyncService {
 
   protected AnimalCompanionService $animalCompanionService;
 
-  public function __construct(Connection $database, AnimalCompanionService $animal_companion_service) {
+  protected ?NpcSheetGenerationService $npcSheetGenerationService;
+
+  protected ?CharacterPortraitGenerationService $characterPortraitGenerator;
+
+  public function __construct(
+    Connection $database,
+    AnimalCompanionService $animal_companion_service,
+    ?NpcSheetGenerationService $npc_sheet_generation_service = NULL,
+    ?CharacterPortraitGenerationService $character_portrait_generator = NULL,
+  ) {
     $this->database = $database;
     $this->animalCompanionService = $animal_companion_service;
+    $this->npcSheetGenerationService = $npc_sheet_generation_service;
+    $this->characterPortraitGenerator = $character_portrait_generator;
   }
 
   /**
@@ -198,7 +209,7 @@ class CampaignCharacterRuntimeSyncService {
     }
 
     $records = $this->database->select('dc_campaign_characters', 'cc')
-      ->fields('cc', ['id', 'instance_id', 'name', 'state_data', 'position_q', 'position_r', 'location_ref'])
+      ->fields('cc', ['id', 'instance_id', 'name', 'state_data', 'character_data', 'uid', 'position_q', 'position_r', 'location_ref'])
       ->condition('campaign_id', $campaign_id)
       ->condition('type', 'npc')
       ->condition('location_type', 'room')
@@ -213,6 +224,7 @@ class CampaignCharacterRuntimeSyncService {
     $occupied = $this->buildOccupiedLookupByRoom($dungeon_payload);
     foreach ($records as $record) {
       [$record, $state, $instance_id, $content_id] = $this->ensurePersistentNpcRuntimeIdentity($record, $campaign_id, $dungeon_payload);
+      $this->ensureRuntimeNpcGenerationPipeline($campaign_id, $record, $state, $content_id);
       $name = trim((string) ($record['name'] ?? ''));
       $matched = FALSE;
 
@@ -232,6 +244,7 @@ class CampaignCharacterRuntimeSyncService {
           $entity['entity_instance_id'] = $instance_id;
           $entity['state']['metadata']['display_name'] = $name !== '' ? $name : ($entity['state']['metadata']['display_name'] ?? '');
           $entity['state']['metadata']['name'] = $name !== '' ? $name : ($entity['state']['metadata']['name'] ?? '');
+          $entity['state']['metadata']['character_id'] = (int) ($record['id'] ?? 0);
           $entity['state']['metadata']['campaign_character_id'] = (int) ($record['id'] ?? 0);
           $entity['state']['metadata']['runtime_entity_id'] = $instance_id;
           if (!empty($state['role'])) {
@@ -274,6 +287,7 @@ class CampaignCharacterRuntimeSyncService {
             'role' => (string) ($state['role'] ?? 'npc'),
             'description' => (string) ($state['description'] ?? ''),
             'team' => (string) ($state['team'] ?? 'neutral'),
+            'character_id' => (int) ($record['id'] ?? 0),
             'campaign_character_id' => (int) ($record['id'] ?? 0),
             'runtime_entity_id' => $instance_id,
             'setting_state' => TRUE,
@@ -284,6 +298,183 @@ class CampaignCharacterRuntimeSyncService {
     }
 
     return $dungeon_payload;
+  }
+
+  /**
+   * Seed NPC library generation and portrait generation for runtime-only NPCs.
+   */
+  protected function ensureRuntimeNpcGenerationPipeline(int $campaign_id, array $record, array $state, string $content_id): void {
+    if (!$this->npcSheetGenerationService && !$this->characterPortraitGenerator) {
+      return;
+    }
+
+    $character_data = $this->decodeCharacterData($record);
+    $seed_data = $this->buildRuntimeNpcSeedData($campaign_id, $record, $state, $content_id, $character_data);
+    $library_npc_id = $this->ensureCampaignNpcLibraryRecord($campaign_id, $content_id, $seed_data);
+
+    if ($this->npcSheetGenerationService && $content_id !== '') {
+      $this->npcSheetGenerationService->enqueueNpcSheetGeneration($campaign_id, $content_id, $seed_data);
+    }
+
+    if ($this->characterPortraitGenerator && (int) ($record['id'] ?? 0) > 0) {
+      $portrait_payload = $character_data !== [] ? $character_data : $seed_data;
+      $portrait_payload['portrait_generate'] = TRUE;
+      $this->characterPortraitGenerator->generatePortrait(
+        $portrait_payload,
+        (int) ($record['id'] ?? 0),
+        (int) ($record['uid'] ?? 0),
+        $campaign_id,
+        [
+          'generate' => TRUE,
+        ]
+      );
+    }
+
+    if ($library_npc_id !== NULL) {
+      $this->syncCampaignPortraitToLibraryNpc($campaign_id, (int) ($record['id'] ?? 0), $library_npc_id);
+    }
+  }
+
+  /**
+   * Build seed data for runtime NPCs that bypassed the NPC library service.
+   */
+  protected function buildRuntimeNpcSeedData(int $campaign_id, array $record, array $state, string $content_id, array $character_data): array {
+    $metadata = is_array($state['metadata'] ?? NULL) ? $state['metadata'] : [];
+    $profile = is_array($character_data['profile'] ?? NULL) ? $character_data['profile'] : [];
+    $basic_info = is_array($character_data['basicInfo'] ?? NULL) ? $character_data['basicInfo'] : [];
+    $merchant = is_array($character_data['merchant'] ?? NULL) ? $character_data['merchant'] : [];
+    $stats = is_array($character_data['stats'] ?? NULL) ? $character_data['stats'] : [];
+
+    return [
+      'campaign_id' => $campaign_id,
+      'content_id' => $content_id,
+      'entity_ref' => $content_id,
+      'name' => (string) ($record['name'] ?? $metadata['display_name'] ?? $metadata['name'] ?? $content_id),
+      'role' => (string) ($state['role'] ?? $metadata['role'] ?? 'neutral'),
+      'team' => (string) ($state['team'] ?? $metadata['team'] ?? ''),
+      'level' => (int) ($character_data['level'] ?? $basic_info['level'] ?? $stats['level'] ?? 1),
+      'ancestry' => (string) ($character_data['ancestry'] ?? $basic_info['ancestry'] ?? 'Humanoid'),
+      'class' => (string) ($character_data['class'] ?? $basic_info['class'] ?? 'Commoner'),
+      'occupation' => (string) ($metadata['occupation'] ?? $profile['role'] ?? ''),
+      'description' => (string) ($state['description'] ?? $metadata['description'] ?? $profile['appearance'] ?? ''),
+      'backstory' => (string) ($character_data['backstory'] ?? ''),
+      'alignment' => (string) ($character_data['alignment'] ?? 'N'),
+      'attitude' => (string) ($character_data['attitude'] ?? 'indifferent'),
+      'motivations' => (string) ($character_data['motivations'] ?? ''),
+      'fears' => (string) ($character_data['fears'] ?? ''),
+      'bonds' => (string) ($character_data['bonds'] ?? ''),
+      'languages' => array_values(is_array($character_data['languages'] ?? NULL) ? $character_data['languages'] : ['Common']),
+      'senses' => array_values(is_array($character_data['senses'] ?? NULL) ? $character_data['senses'] : []),
+      'equipment' => array_values(is_array($character_data['equipment'] ?? NULL) ? $character_data['equipment'] : []),
+      'stats' => $stats,
+      'merchant' => $merchant,
+      'appearance' => (string) ($profile['appearance'] ?? $character_data['appearance'] ?? ''),
+      'personality' => (string) ($character_data['personality'] ?? ''),
+    ];
+  }
+
+  /**
+   * Ensure a runtime NPC also has a campaign NPC library row.
+   */
+  protected function ensureCampaignNpcLibraryRecord(int $campaign_id, string $content_id, array $seed_data): ?int {
+    $content_id = trim($content_id);
+    if ($campaign_id <= 0 || $content_id === '') {
+      return NULL;
+    }
+
+    $existing_id = $this->database->select('dc_npc', 'n')
+      ->fields('n', ['id'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('entity_ref', $content_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchField();
+    if ($existing_id !== FALSE) {
+      return (int) $existing_id;
+    }
+
+    return (int) $this->database->insert('dc_npc')
+      ->fields([
+        'campaign_id' => $campaign_id,
+        'name' => (string) ($seed_data['name'] ?? $content_id),
+        'role' => (string) ($seed_data['role'] ?? 'neutral'),
+        'attitude' => (string) ($seed_data['attitude'] ?? 'indifferent'),
+        'level' => (int) ($seed_data['level'] ?? 1),
+        'perception' => (int) ($seed_data['stats']['perception'] ?? 0),
+        'armor_class' => (int) ($seed_data['stats']['ac'] ?? 10),
+        'hit_points' => (int) ($seed_data['stats']['maxHp'] ?? 0),
+        'fort_save' => (int) ($seed_data['stats']['fortitude'] ?? 0),
+        'ref_save' => (int) ($seed_data['stats']['reflex'] ?? 0),
+        'will_save' => (int) ($seed_data['stats']['will'] ?? 0),
+        'lore_notes' => (string) ($seed_data['backstory'] ?? ''),
+        'dialogue_notes' => (string) ($seed_data['description'] ?? ''),
+        'entity_ref' => $content_id,
+        'created' => time(),
+        'updated' => time(),
+        'npc_archetype' => '',
+        'alignment' => (string) ($seed_data['alignment'] ?? 'N'),
+        'is_gallery_entry' => 0,
+        'scene_ref' => '',
+        'gallery_source_id' => 0,
+      ])
+      ->execute();
+  }
+
+  /**
+   * Mirror the runtime portrait link onto the campaign NPC library row.
+   */
+  protected function syncCampaignPortraitToLibraryNpc(int $campaign_id, int $campaign_character_id, int $library_npc_id): void {
+    if ($campaign_id <= 0 || $campaign_character_id <= 0 || $library_npc_id <= 0) {
+      return;
+    }
+
+    $image_id = $this->database->select('dc_generated_image_links', 'l')
+      ->fields('l', ['image_id'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('table_name', 'dc_campaign_characters')
+      ->condition('object_id', (string) $campaign_character_id)
+      ->condition('slot', 'portrait')
+      ->condition('variant', 'original')
+      ->orderBy('is_primary', 'DESC')
+      ->orderBy('created', 'DESC')
+      ->range(0, 1)
+      ->execute()
+      ->fetchField();
+    if ($image_id === FALSE) {
+      return;
+    }
+
+    $existing_link = $this->database->select('dc_generated_image_links', 'l')
+      ->fields('l', ['image_id'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('table_name', 'dc_npc')
+      ->condition('object_id', (string) $library_npc_id)
+      ->condition('slot', 'portrait')
+      ->condition('variant', 'original')
+      ->range(0, 1)
+      ->execute()
+      ->fetchField();
+    if ($existing_link !== FALSE) {
+      return;
+    }
+
+    $now = time();
+    $this->database->insert('dc_generated_image_links')
+      ->fields([
+        'image_id' => (int) $image_id,
+        'scope_type' => 'campaign',
+        'campaign_id' => $campaign_id,
+        'table_name' => 'dc_npc',
+        'object_id' => (string) $library_npc_id,
+        'slot' => 'portrait',
+        'variant' => 'original',
+        'is_primary' => 1,
+        'sort_weight' => 0,
+        'visibility' => 'owner',
+        'created' => $now,
+        'updated' => $now,
+      ])
+      ->execute();
   }
 
   /**

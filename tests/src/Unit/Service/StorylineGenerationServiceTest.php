@@ -6,6 +6,7 @@ use Drupal\Component\Uuid\UuidInterface;
 use Drupal\Core\Database\Connection;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Drupal\Core\Logger\LoggerChannelInterface;
+use Drupal\ai_conversation\Service\AIApiService;
 use Drupal\dungeoncrawler_content\Service\CampaignStateService;
 use Drupal\dungeoncrawler_content\Service\QuestTrackerService;
 use Drupal\dungeoncrawler_content\Service\StateValidationService;
@@ -39,13 +40,7 @@ class StorylineGenerationServiceTest extends UnitTestCase {
       ],
     ]);
 
-    $storyline_manager = new StorylineManagerService(
-      $this->createMock(Connection::class),
-      $this->buildLoggerFactory(),
-      $this->buildUuid(),
-      $campaign_state,
-      $this->buildStateValidationService()
-    );
+    $storyline_manager = $this->buildStorylineManager($campaign_state);
 
     $service = new StorylineGenerationService(
       $this->createMock(Connection::class),
@@ -96,13 +91,7 @@ class StorylineGenerationServiceTest extends UnitTestCase {
       ],
     ]);
 
-    $storyline_manager = new StorylineManagerService(
-      $this->createMock(Connection::class),
-      $this->buildLoggerFactory(),
-      $this->buildUuid(),
-      $campaign_state,
-      $this->buildStateValidationService()
-    );
+    $storyline_manager = $this->buildStorylineManager($campaign_state);
 
     $service = new StorylineGenerationService(
       $this->createMock(Connection::class),
@@ -137,13 +126,7 @@ class StorylineGenerationServiceTest extends UnitTestCase {
       'characters' => [['level' => 2]],
     ]);
 
-    $storyline_manager = new StorylineManagerService(
-      $this->createMock(Connection::class),
-      $this->buildLoggerFactory(),
-      $this->buildUuid(),
-      $campaign_state,
-      $this->buildStateValidationService()
-    );
+    $storyline_manager = $this->buildStorylineManager($campaign_state);
 
     $service = new class(
       $this->createMock(Connection::class),
@@ -189,6 +172,152 @@ class StorylineGenerationServiceTest extends UnitTestCase {
   }
 
   /**
+   * Verifies generated packages fail closed when quest templates violate the
+   * strict objective contract.
+   */
+  public function testNormalizeGeneratedPackageRejectsInvalidQuestObjectiveContract(): void {
+    $campaign_state = $this->createMock(CampaignStateService::class);
+    $campaign_state->method('getState')->willReturn([
+      'current_room_id' => 'tavern_entrance',
+      'characters' => [['level' => 2]],
+    ]);
+
+    $storyline_manager = $this->buildStorylineManager($campaign_state);
+
+    $service = new class(
+      $this->createMock(Connection::class),
+      $this->buildLoggerFactory(),
+      NULL,
+      $storyline_manager,
+      $campaign_state,
+      new TreasureByLevelService(),
+      $this->buildUuid()
+    ) extends StorylineGenerationService {
+      public function exposeNormalizeGeneratedPackage(int $campaign_id, array $request, array $context, array $package, string $generation_source): array {
+        return $this->normalizeGeneratedPackage($campaign_id, $request, $context, $package, $generation_source);
+      }
+    };
+
+    $this->expectException(\InvalidArgumentException::class);
+    $this->expectExceptionMessage('missing required field completion_criteria');
+
+    $service->exposeNormalizeGeneratedPackage(65, [
+      'prompt' => 'Break the relic thieves.',
+      'name' => 'Relic Hunt',
+      'level_range' => '1-2',
+      'tone' => 'occult',
+      'theme' => '',
+      'source' => 'storyline-generator',
+      'template_id' => '',
+      'entry_dungeon_id' => '',
+      'entry_room_id' => '',
+      'first_quest_id' => '',
+      'speaker_npc_id' => '',
+      'speaker_name' => '',
+      'lead_location_id' => '',
+      'character_id' => 0,
+      'party_id' => 0,
+      'tags' => [],
+      'activate' => FALSE,
+      'is_primary' => FALSE,
+      'status' => 'available',
+      'priority' => 0,
+    ], [
+      'party_level' => 2,
+      'party_size' => 4,
+      'location_id' => 'tavern_entrance',
+    ], [
+      'storyline' => [
+        'name' => 'Relic Hunt',
+        'template_id' => 'relic-hunt',
+        'synopsis' => 'Track the thieves.',
+        'level_range' => '1-2',
+        'source' => 'storyline-generator',
+        'tags' => ['generated'],
+        'metadata' => [
+          'goal' => 'Track the thieves.',
+          'generated_outline' => [
+            'generation_phase' => 'bootstrap',
+            'goal' => 'Track the thieves.',
+            'entry_dungeon' => [
+              'dungeon_id' => 'relic-hunt-entry',
+              'name' => 'Relic Hunt Entry',
+              'style' => 'occult',
+              'entrance_room_id' => 'relic-hunt-entry-room',
+              'lead_location_id' => 'tavern_entrance',
+              'lead_location_hint' => 'Start at the tavern.',
+            ],
+            'progression_connectors' => [[
+              'connector_id' => 'relic-hunt-bootstrap',
+              'source_type' => 'npc',
+              'source_id' => 'npc_tavern_keeper',
+              'mechanism' => 'npc_direction',
+              'from_location_id' => 'tavern_entrance',
+              'target_dungeon_id' => 'relic-hunt-entry',
+              'target_room_id' => 'relic-hunt-entry-room',
+              'narrative' => 'Eldric points the party toward the first lead.',
+            ]],
+            'bootstrap_handoff' => [
+              'speaker_npc_id' => 'npc_tavern_keeper',
+              'speaker_name' => 'Eldric',
+              'lead_text' => 'Follow the first lead.',
+            ],
+          ],
+        ],
+        'asset_references' => [[
+          'asset_type' => 'room',
+          'asset_id' => 'tavern_entrance',
+          'asset_role' => 'lead-location',
+          'notes' => 'Start here.',
+        ]],
+        'contacts' => [[
+          'contact_id' => 'eldric-broker',
+          'entity_type' => 'campaign_npc',
+          'entity_id' => 'npc_tavern_keeper',
+          'role' => 'broker',
+          'display_name' => 'Eldric',
+          'attitude' => 'friendly',
+          'notes' => 'Starts the hunt.',
+        ]],
+        'chapters' => [[
+          'chapter_id' => 'relic-hunt-entry',
+          'name' => 'Relic Hunt Entry',
+          'summary' => 'Begin the hunt.',
+          'scenes' => [[
+            'scene_id' => 'relic-hunt-entry-room',
+            'name' => 'Entry Room',
+            'summary' => 'The first clue.',
+            'quest_ids' => ['relic-hunt-entry-quest'],
+          ]],
+        ]],
+      ],
+      'quest_templates' => [[
+        'template_id' => 'relic-hunt-entry-quest',
+        'name' => 'Broken Quest',
+        'description' => 'Missing completion criteria.',
+        'quest_type' => 'main',
+        'level_min' => 1,
+        'level_max' => 1,
+        'tags' => ['generated'],
+        'objectives_schema' => [[
+          'phase' => 1,
+          'objectives' => [[
+            'objective_id' => 'broken-objective',
+            'type' => 'explore',
+            'location' => 'relic-hunt-entry-room',
+            'description' => 'This objective is invalid.',
+          ]],
+        ]],
+        'rewards_schema' => ['xp' => 10, 'gold' => 0, 'items' => []],
+        'prerequisites' => [],
+        'story_impact' => ['generated' => TRUE],
+        'estimated_duration_minutes' => 10,
+        'version' => '1.0.0',
+      ]],
+    ], 'ai');
+  }
+
+  /**
    * Verifies bootstrap generation only creates the first lead and first quest node.
    */
   public function testBootstrapGenerationCreatesMinimalEntryDungeon(): void {
@@ -201,13 +330,7 @@ class StorylineGenerationServiceTest extends UnitTestCase {
       ],
     ]);
 
-    $storyline_manager = new StorylineManagerService(
-      $this->createMock(Connection::class),
-      $this->buildLoggerFactory(),
-      $this->buildUuid(),
-      $campaign_state,
-      $this->buildStateValidationService()
-    );
+    $storyline_manager = $this->buildStorylineManager($campaign_state);
 
     $service = new StorylineGenerationService(
       $this->createMock(Connection::class),
@@ -234,6 +357,39 @@ class StorylineGenerationServiceTest extends UnitTestCase {
     $this->assertCount(1, $package['quest_templates'] ?? []);
     $this->assertCount(1, $storyline['chapters'] ?? []);
     $this->assertCount(1, $storyline['questline']['ordered_quest_ids'] ?? []);
+  }
+
+  /**
+   * Verifies conversational prompts do not become canonical storyline identity.
+   */
+  public function testSuggestCanonicalStorylineIdentityAvoidsPromptEcho(): void {
+    $campaign_state = $this->createMock(CampaignStateService::class);
+    $campaign_state->method('getState')->willReturn([
+      'current_room_id' => 'tavern_entrance',
+      'characters' => [['level' => 2]],
+    ]);
+
+    $storyline_manager = $this->buildStorylineManager($campaign_state);
+
+    $service = new StorylineGenerationService(
+      $this->createMock(Connection::class),
+      $this->buildLoggerFactory(),
+      NULL,
+      $storyline_manager,
+      $campaign_state,
+      new TreasureByLevelService(),
+      $this->buildUuid()
+    );
+
+    $identity = $service->suggestCanonicalStorylineIdentity(
+      'Hey Marta, you have any storylines for me?',
+      [],
+      TRUE
+    );
+
+    $this->assertSame('New Storyline Lead', $identity['name']);
+    $this->assertMatchesRegularExpression('/^storyline-bootstrap-[a-z0-9]{8}$/', $identity['template_id']);
+    $this->assertStringNotContainsString('marta', $identity['template_id']);
   }
 
   /**
@@ -331,7 +487,7 @@ class StorylineGenerationServiceTest extends UnitTestCase {
       public function __construct(
         Connection $database,
         LoggerChannelFactoryInterface $logger_factory,
-        ?\Drupal\dungeoncrawler_content\Service\AIApiService $ai_api_service,
+        ?AIApiService $ai_api_service,
         StorylineManagerService $storyline_manager,
         CampaignStateService $campaign_state_service,
         TreasureByLevelService $treasure_by_level_service,
@@ -370,14 +526,6 @@ class StorylineGenerationServiceTest extends UnitTestCase {
         return $templates;
       }
 
-      protected function realizeStorylineAssets(int $campaign_id, array $storyline): array {
-        return [];
-      }
-
-      protected function realizeStorylineNpcs(int $campaign_id, array $storyline): array {
-        return [];
-      }
-
       protected function materializeBootstrapQuest(int $campaign_id, array $storyline, array $request): ?array {
         return $this->initialQuest;
       }
@@ -412,15 +560,9 @@ class StorylineGenerationServiceTest extends UnitTestCase {
       ],
     ]);
 
-    $storyline_manager = new StorylineManagerService(
-      $this->createMock(Connection::class),
-      $this->buildLoggerFactory(),
-      $this->buildUuid(),
-      $campaign_state,
-      $this->buildStateValidationService()
-    );
+    $storyline_manager = $this->buildStorylineManager($campaign_state);
 
-    $ai_api = $this->createMock(\Drupal\dungeoncrawler_content\Service\AiApiService::class);
+    $ai_api = $this->createMock(AIApiService::class);
     $ai_api->expects($this->once())
       ->method('invokeModelDirect')
       ->willReturn([
@@ -445,37 +587,67 @@ class StorylineGenerationServiceTest extends UnitTestCase {
                   'lead_location_id' => 'tavern_entrance',
                   'lead_location_hint' => 'The trail starts beneath the tavern cellar.',
                 ],
-                'progression_connectors' => [
-                  [
-                    'source_id' => 'npc_tavern_keeper',
-                    'target_dungeon_id' => 'relic-vault-threshold',
-                    'target_room_id' => 'relic-vault-threshold-entry',
+                  'progression_connectors' => [
+                    [
+                      'connector_id' => 'relic-thief-pursuit-bootstrap-handoff',
+                      'source_type' => 'npc',
+                      'source_id' => 'npc_tavern_keeper',
+                      'mechanism' => 'npc_direction',
+                      'from_location_id' => 'tavern_entrance',
+                      'target_dungeon_id' => 'relic-vault-threshold',
+                      'target_room_id' => 'relic-vault-threshold-entry',
+                      'narrative' => 'Eldric points the party toward the first vault threshold.',
+                    ],
                   ],
-                ],
-                'bootstrap_handoff' => [
-                  'speaker_npc_id' => 'npc_tavern_keeper',
-                  'speaker_name' => 'Eldric',
-                  'lead_text' => 'Start with the locked stairs beneath the cellar.',
-                ],
-              ],
-            ],
-            'asset_references' => [],
-            'contacts' => [
-              [
-                'contact_id' => 'relic-thief-patron',
-                'entity_type' => 'campaign_npc',
-                'entity_id' => 'npc_tavern_keeper',
-                'role' => 'quest_giver',
-                'display_name' => 'Eldric',
-                'attitude' => 'friendly',
-                'notes' => 'Knows where the first clue begins.',
-                'relationship_state' => [
-                  'points_to_dungeon_id' => 'relic-vault-threshold',
-                  'points_to_room_id' => 'relic-vault-threshold-entry',
-                  'mechanism' => 'npc_direction',
+                  'bootstrap_handoff' => [
+                    'speaker_npc_id' => 'npc_tavern_keeper',
+                    'speaker_name' => 'Eldric',
+                    'lead_text' => 'Start with the locked stairs beneath the cellar.',
+                  ],
+                  'expansion_status' => 'pending',
                 ],
               ],
-            ],
+              'asset_references' => [
+                [
+                  'asset_type' => 'location',
+                  'asset_id' => 'tavern_entrance',
+                  'asset_role' => 'lead-location',
+                  'notes' => 'The current location where the questgiver gives the first lead.',
+                ],
+                [
+                  'asset_type' => 'dungeon',
+                  'asset_id' => 'relic-vault-threshold',
+                  'asset_role' => 'entry-dungeon',
+                  'chapter_id' => 'relic-vault-threshold',
+                  'notes' => 'First storyline dungeon stub generated during bootstrap.',
+                ],
+                [
+                  'asset_type' => 'room',
+                  'asset_id' => 'relic-vault-threshold-entry',
+                  'asset_role' => 'entrance-room',
+                  'chapter_id' => 'relic-vault-threshold',
+                  'scene_id' => 'relic-vault-threshold-entry',
+                  'notes' => 'Initial storyline entrance room.',
+                ],
+              ],
+              'contacts' => [
+                [
+                  'contact_id' => 'relic-thief-patron',
+                  'entity_type' => 'campaign_npc',
+                  'entity_id' => 'npc_tavern_keeper',
+                  'role' => 'quest_giver',
+                  'display_name' => 'Eldric',
+                  'attitude' => 'friendly',
+                  'availability' => 'available',
+                  'notes' => 'Knows where the first clue begins.',
+                  'relationship_state' => [
+                    'points_to_dungeon_id' => 'relic-vault-threshold',
+                    'points_to_room_id' => 'relic-vault-threshold-entry',
+                    'mechanism' => 'npc_direction',
+                  ],
+                  'introduces_to' => [],
+                ],
+              ],
             'chapters' => [
               [
                 'chapter_id' => 'relic-vault-threshold',
@@ -497,11 +669,23 @@ class StorylineGenerationServiceTest extends UnitTestCase {
               'name' => 'Find the Hidden Vault',
               'summary' => 'Follow Eldric into the cellar and uncover the hidden stairs.',
               'giver_npc_id' => 'npc_tavern_keeper',
-              'objective_flow' => [
+              'objectives_schema' => [
                 [
-                  'objective_id' => 'reach-vault-entry',
-                  'type' => 'travel',
-                  'summary' => 'Reach the cellar stairs.',
+                  'phase' => 1,
+                  'objectives' => [
+                    [
+                      'objective_id' => 'reach-vault-entry',
+                      'type' => 'travel',
+                      'location' => 'relic-vault-threshold-entry',
+                      'description' => 'Reach the cellar stairs.',
+                      'completion_criteria' => [
+                        'kind' => 'flag',
+                        'metric' => 'discovered',
+                        'required_value' => TRUE,
+                        'description' => 'Discover the required location.',
+                      ],
+                    ],
+                  ],
                 ],
               ],
             ],
@@ -544,15 +728,9 @@ class StorylineGenerationServiceTest extends UnitTestCase {
       ],
     ]);
 
-    $storyline_manager = new StorylineManagerService(
-      $this->createMock(Connection::class),
-      $this->buildLoggerFactory(),
-      $this->buildUuid(),
-      $campaign_state,
-      $this->buildStateValidationService()
-    );
+    $storyline_manager = $this->buildStorylineManager($campaign_state);
 
-    $ai_api = $this->createMock(\Drupal\dungeoncrawler_content\Service\AiApiService::class);
+    $ai_api = $this->createMock(AIApiService::class);
     $ai_api->expects($this->once())
       ->method('invokeModelDirect')
       ->willReturn([
@@ -580,9 +758,14 @@ class StorylineGenerationServiceTest extends UnitTestCase {
                   ],
                   'progression_connectors' => [
                     [
+                      'connector_id' => 'nested-relic-lead-bootstrap-handoff',
+                      'source_type' => 'npc',
                       'source_id' => 'npc_tavern_keeper',
+                      'mechanism' => 'npc_direction',
+                      'from_location_id' => 'tavern_entrance',
                       'target_dungeon_id' => 'nested-vault-threshold',
                       'target_room_id' => 'nested-vault-threshold-entry',
+                      'narrative' => 'Eldric points the party toward the nested vault threshold.',
                     ],
                   ],
                   'bootstrap_handoff' => [
@@ -590,9 +773,32 @@ class StorylineGenerationServiceTest extends UnitTestCase {
                     'speaker_name' => 'Eldric',
                     'lead_text' => 'Look behind the cellar casks.',
                   ],
+                  'expansion_status' => 'pending',
                 ],
               ],
-              'asset_references' => [],
+              'asset_references' => [
+                [
+                  'asset_type' => 'location',
+                  'asset_id' => 'tavern_entrance',
+                  'asset_role' => 'lead-location',
+                  'notes' => 'The current location where the questgiver gives the first lead.',
+                ],
+                [
+                  'asset_type' => 'dungeon',
+                  'asset_id' => 'nested-vault-threshold',
+                  'asset_role' => 'entry-dungeon',
+                  'chapter_id' => 'nested-vault-threshold',
+                  'notes' => 'First storyline dungeon stub generated during bootstrap.',
+                ],
+                [
+                  'asset_type' => 'room',
+                  'asset_id' => 'nested-vault-threshold-entry',
+                  'asset_role' => 'entrance-room',
+                  'chapter_id' => 'nested-vault-threshold',
+                  'scene_id' => 'nested-vault-threshold-entry',
+                  'notes' => 'Initial storyline entrance room.',
+                ],
+              ],
               'contacts' => [
                 [
                   'contact_id' => 'nested-relic-patron',
@@ -601,12 +807,14 @@ class StorylineGenerationServiceTest extends UnitTestCase {
                   'role' => 'quest_giver',
                   'display_name' => 'Eldric',
                   'attitude' => 'friendly',
+                  'availability' => 'available',
                   'notes' => 'Knows where the cellar clue begins.',
                   'relationship_state' => [
                     'points_to_dungeon_id' => 'nested-vault-threshold',
                     'points_to_room_id' => 'nested-vault-threshold-entry',
                     'mechanism' => 'npc_direction',
                   ],
+                  'introduces_to' => [],
                 ],
               ],
               'chapters' => [
@@ -631,11 +839,24 @@ class StorylineGenerationServiceTest extends UnitTestCase {
               'name' => 'Open the Hidden Cellar Door',
               'summary' => 'Find the hidden latch behind the casks.',
               'giver_npc_id' => 'npc_tavern_keeper',
-              'objective_flow' => [
+              'objectives_schema' => [
                 [
-                  'objective_id' => 'find-hidden-latch',
-                  'type' => 'search',
-                  'summary' => 'Search behind the casks for the hidden latch.',
+                  'phase' => 1,
+                  'objectives' => [
+                    [
+                      'objective_id' => 'find-hidden-latch',
+                      'type' => 'search',
+                      'target' => 'nested-vault-threshold-entry',
+                      'target_count' => 1,
+                      'description' => 'Search behind the casks for the hidden latch.',
+                      'completion_criteria' => [
+                        'kind' => 'count',
+                        'metric' => 'current',
+                        'target_count' => 1,
+                        'description' => 'Reach the required progress count.',
+                      ],
+                    ],
+                  ],
                 ],
               ],
             ],
@@ -678,13 +899,7 @@ class StorylineGenerationServiceTest extends UnitTestCase {
       ],
     ]);
 
-    $storyline_manager = new StorylineManagerService(
-      $this->createMock(Connection::class),
-      $this->buildLoggerFactory(),
-      $this->buildUuid(),
-      $campaign_state,
-      $this->buildStateValidationService()
-    );
+    $storyline_manager = $this->buildStorylineManager($campaign_state);
 
     $service = new StorylineGenerationService(
       $this->createMock(Connection::class),
@@ -727,13 +942,7 @@ class StorylineGenerationServiceTest extends UnitTestCase {
       'characters' => [['level' => 2], ['level' => 4]],
     ]);
 
-    $storyline_manager = new StorylineManagerService(
-      $this->createMock(Connection::class),
-      $this->buildLoggerFactory(),
-      $this->buildUuid(),
-      $campaign_state,
-      $this->buildStateValidationService()
-    );
+    $storyline_manager = $this->buildStorylineManager($campaign_state);
 
     $service = new class(
       $this->createMock(Connection::class),
@@ -797,13 +1006,7 @@ class StorylineGenerationServiceTest extends UnitTestCase {
       'characters' => [['level' => 1]],
     ]);
 
-    $storyline_manager = new StorylineManagerService(
-      $this->createMock(Connection::class),
-      $this->buildLoggerFactory(),
-      $this->buildUuid(),
-      $campaign_state,
-      $this->buildStateValidationService()
-    );
+    $storyline_manager = $this->buildStorylineManager($campaign_state);
 
     $service = new class(
       $this->createMock(Connection::class),
@@ -868,13 +1071,7 @@ class StorylineGenerationServiceTest extends UnitTestCase {
       'characters' => [['level' => 3]],
     ]);
 
-    $storyline_manager = new StorylineManagerService(
-      $this->createMock(Connection::class),
-      $this->buildLoggerFactory(),
-      $this->buildUuid(),
-      $campaign_state,
-      $this->buildStateValidationService()
-    );
+    $storyline_manager = $this->buildStorylineManager($campaign_state);
 
     $service = new class(
       $this->createMock(Connection::class),
@@ -931,6 +1128,38 @@ class StorylineGenerationServiceTest extends UnitTestCase {
     $uuid = $this->createMock(UuidInterface::class);
     $uuid->method('generate')->willReturn('12345678-1234-1234-1234-1234567890ab');
     return $uuid;
+  }
+
+  private function buildStorylineManager(CampaignStateService $campaign_state, array $existing_storylines = []): StorylineManagerService {
+    return new class(
+      $this->createMock(Connection::class),
+      $this->buildLoggerFactory(),
+      $this->buildUuid(),
+      $campaign_state,
+      $this->buildStateValidationService(),
+      $existing_storylines
+    ) extends StorylineManagerService {
+      public function __construct(
+        Connection $database,
+        LoggerChannelFactoryInterface $logger_factory,
+        UuidInterface $uuid,
+        CampaignStateService $campaign_state_service,
+        StateValidationService $state_validation_service,
+        private readonly array $existingStorylines,
+      ) {
+        parent::__construct(
+          $database,
+          $logger_factory,
+          $uuid,
+          $campaign_state_service,
+          $state_validation_service
+        );
+      }
+
+      public function listCampaignStorylines(int $campaign_id, bool $refresh = FALSE): array {
+        return $this->existingStorylines;
+      }
+    };
   }
 
   private function buildStateValidationService(): StateValidationService {

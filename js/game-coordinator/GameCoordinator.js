@@ -194,13 +194,13 @@ export class GameCoordinator {
   // =========================================================================
 
   /**
-   * Perform a search action (exploration only).
+   * Perform a search action in the live room encounter flow.
    * @returns {Promise<object|null>}
    */
   async performSearch() {
     const handler = this.phaseHandlers.exploration;
-    if (!handler || this.phaseManager.currentPhase !== 'exploration') {
-      console.info('[GameCoordinator] Search only available in exploration phase.');
+    if (!handler || this.phaseManager.currentPhase !== 'encounter') {
+      console.info('[GameCoordinator] Search only available in active room encounter mode.');
       return null;
     }
     const entity = this.hexmap.stateManager?.get('selectedEntity');
@@ -217,7 +217,7 @@ export class GameCoordinator {
     if (this.phaseManager.currentPhase === 'downtime' && restType === 'long') {
       return this.phaseHandlers.downtime?.performLongRest(entity);
     }
-    if (this.phaseManager.currentPhase === 'exploration') {
+    if (this.phaseManager.currentPhase === 'encounter') {
       return this.phaseHandlers.exploration?.performRest(entity, restType);
     }
     return null;
@@ -326,14 +326,14 @@ export class GameCoordinator {
 
     if (this.phaseManager.currentPhase === 'encounter') {
       this.phaseManager.applyServerState({
-        phase: 'exploration',
+        phase: 'encounter',
         state_version: Number(serverState.version) || this.phaseManager.stateVersion || 0,
         round: null,
         turn: null,
         encounter_id: null,
         initiative_order: null,
         event_log_cursor: this.eventCursor || 0,
-      }, this._defaultExplorationActions(), null);
+      }, this._defaultRoomEncounterActions(), this._buildRoomEncounterActionContract());
     }
   }
 
@@ -455,8 +455,28 @@ export class GameCoordinator {
    * @returns {string[]}
    * @private
    */
-  _defaultExplorationActions() {
+  _defaultRoomEncounterActions() {
     return ['move', 'interact', 'talk', 'search', 'set_activity', 'rest', 'sense_direction', 'cover_tracks', 'track'];
+  }
+
+  /**
+   * Build the non-combat encounter action contract used for normal room entry.
+   *
+   * @returns {object}
+   * @private
+   */
+  _buildRoomEncounterActionContract() {
+    const availableActions = this._defaultRoomEncounterActions();
+    return {
+      phase: 'encounter',
+      actor_id: null,
+      current_turn_entity: null,
+      available_actions: availableActions,
+      actions: availableActions.map((id) => ({
+        id,
+        available: true,
+      })),
+    };
   }
 
   // =========================================================================
@@ -741,10 +761,10 @@ export class GameCoordinator {
       turnHud.style.display = phase === 'encounter' ? '' : 'none';
     }
 
-    // Show exploration-specific UI.
+    // Show room-action UI in the live encounter framework.
     const explorationPanel = document.getElementById('exploration-actions');
     if (explorationPanel) {
-      explorationPanel.style.display = phase === 'exploration' ? '' : 'none';
+      explorationPanel.style.display = phase === 'encounter' ? '' : 'none';
     }
 
     // Show encounter-specific action bar.
@@ -786,7 +806,7 @@ export class GameCoordinator {
    */
   _formatPhaseName(phase) {
     const names = {
-      exploration: 'Exploration',
+      exploration: 'Encounter',
       encounter: 'Encounter',
       downtime: 'Downtime',
     };

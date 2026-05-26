@@ -77,7 +77,7 @@
             "description": "Per-hex terrain override (e.g., a pit in one hex of a larger room)."
           },
           "elevation_ft": {
-            "type": "number",
+            "type": "integer",
             "default": 0,
             "description": "Relative elevation in feet. Used for PF2e elevation rules.",
             "minimum": -50,

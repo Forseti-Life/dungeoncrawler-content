@@ -22,7 +22,7 @@
             "kind": "flag",
             "metric": "discovered",
             "required_value": true,
-            "description": "Discover the required location."
+            "description": "Reach {destination}."
           }
         },
         {
@@ -34,7 +34,7 @@
             "kind": "flag",
             "metric": "completed",
             "required_value": true,
-            "description": "Mark this objective complete."
+            "description": "Hand the package to the intended recipient."
           }
         }
       ]

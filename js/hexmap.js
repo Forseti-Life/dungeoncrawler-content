@@ -890,43 +890,16 @@ import { SpriteService } from './SpriteService.js';
         rank: 0,
       }))
       : [];
-    const directGroups = Object.entries(spells)
-      .map(([groupKey, groupSpells]) => {
-        if (!Array.isArray(groupSpells) || groupSpells.length === 0) {
-          return null;
-        }
-        const rank = getSpellRankNumber(groupKey);
-        if (rank == null) {
-          return null;
-        }
-        return {
-          groupKey,
-          rank,
-          label: formatSpellRankLabel(rank, { longForm: rank !== 0 }),
-          spells: groupSpells,
-        };
-      })
-      .filter(Boolean)
-      .sort((a, b) => a.rank - b.rank);
-    if (directGroups.length > 0) {
-      if (innateFeatSpells.length > 0) {
-        const cantripGroup = directGroups.find((group) => group.rank === 0);
-        if (cantripGroup) {
-          cantripGroup.spells = [...cantripGroup.spells, ...innateFeatSpells];
-        } else {
-          directGroups.push({
-            groupKey: 'cantrips',
-            rank: 0,
-            label: formatSpellRankLabel(0, { longForm: false }),
-            spells: innateFeatSpells,
-          });
-          directGroups.sort((a, b) => a.rank - b.rank);
-        }
-      }
-      return directGroups;
-    }
-
     const grouped = new Map();
+    const getSpellIdentity = (spell) => {
+      if (typeof spell === 'string') {
+        return spell;
+      }
+      if (!spell || typeof spell !== 'object') {
+        return String(spell ?? '');
+      }
+      return String(spell.spell_id || spell.id || spell.name || spell.spell_name || JSON.stringify(spell));
+    };
     const appendSpells = (entries, fallbackRank = null) => {
       if (!Array.isArray(entries) || entries.length === 0) {
         return;
@@ -950,14 +923,45 @@ import { SpriteService } from './SpriteService.js';
         if (!grouped.has(rank)) {
           grouped.set(rank, []);
         }
-        grouped.get(rank).push(spell);
+        const bucket = grouped.get(rank);
+        const spellIdentity = getSpellIdentity(spell);
+        if (!bucket.some((existing) => getSpellIdentity(existing) === spellIdentity)) {
+          bucket.push(spell);
+        }
+      });
+    };
+    const appendRankedCollection = (collection, fallbackRank = null) => {
+      if (!collection) {
+        return;
+      }
+      if (Array.isArray(collection)) {
+        appendSpells(collection, fallbackRank);
+        return;
+      }
+      if (typeof collection !== 'object') {
+        return;
+      }
+      Object.entries(collection).forEach(([rankKey, entries]) => {
+        appendSpells(entries, getSpellRankNumber(rankKey) ?? fallbackRank);
       });
     };
 
+    Object.entries(spells).forEach(([groupKey, groupSpells]) => {
+      if (!Array.isArray(groupSpells) || groupSpells.length === 0) {
+        return;
+      }
+      const rank = getSpellRankNumber(groupKey);
+      if (rank == null) {
+        return;
+      }
+      appendSpells(groupSpells, rank);
+    });
     appendSpells(spells.cantrips, 0);
     appendSpells(spells.focusSpells);
     appendSpells(spells.preparedSpells);
     appendSpells(spells.knownSpells);
+    appendRankedCollection(spells.spellbook, 1);
+    appendRankedCollection(spells.spellsKnown ?? spells.spells_known);
     appendSpells(innateFeatSpells, 0);
 
     return Array.from(grouped.entries())
@@ -969,15 +973,48 @@ import { SpriteService } from './SpriteService.js';
       .sort((a, b) => a.rank - b.rank);
   }
 
-  function normalizeSpellcastingData(spells) {
+  function normalizeSpellcastingData(spells, ...sources) {
     if (!spells || typeof spells !== 'object') {
       return {};
     }
+    const sourcePool = [spells, ...sources].filter((entry) => entry && typeof entry === 'object');
+    const pickArray = (...values) => {
+      for (const value of values) {
+        if (Array.isArray(value) && value.length > 0) {
+          return value;
+        }
+      }
+      return [];
+    };
+    const pickObject = (...values) => {
+      for (const value of values) {
+        if (value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length > 0) {
+          return value;
+        }
+      }
+      return {};
+    };
+    const topLevelSpellbook = pickObject(...sourcePool.map((entry) => entry.spellbook));
+    const topLevelKnownSpells = pickObject(
+      ...sourcePool.map((entry) => entry.spellsKnown),
+      ...sourcePool.map((entry) => entry.spells_known)
+    );
     return {
       ...spells,
       tradition: spells.tradition || spells.spellcastingTradition || spells.spellcasting_tradition || '',
       casting_ability: spells.casting_ability || spells.castingAbility || spells.key_ability || '',
       slots: spells.slots || spells.spellSlots || spells.spell_slots || {},
+      first_level: pickArray(
+        spells.first_level,
+        spells.firstLevel,
+        Array.isArray(spells.spellbook) ? spells.spellbook : null,
+        ...sourcePool.map((entry) => entry.first_level),
+        ...sourcePool.map((entry) => entry.firstLevel),
+        ...sourcePool.map((entry) => entry.spells_first),
+        ...sourcePool.map((entry) => Array.isArray(entry.spellbook) ? entry.spellbook : null)
+      ),
+      spellbook: pickObject(spells.spellbook, topLevelSpellbook),
+      spellsKnown: pickObject(spells.spellsKnown, spells.spells_known, topLevelKnownSpells),
     };
   }
 
@@ -1636,6 +1673,11 @@ import { SpriteService } from './SpriteService.js';
     return `${numericCost} action${numericCost === 1 ? '' : 's'}`;
   }
 
+  function getActionRailRemainingActions(context) {
+    const remaining = Number(context?.actions?.actionsRemaining);
+    return Number.isFinite(remaining) ? Math.max(0, remaining) : null;
+  }
+
   function buildActionRailEntrySummary(parts) {
     return (Array.isArray(parts) ? parts : [])
       .map((part) => String(part ?? '').trim())
@@ -1787,12 +1829,25 @@ import { SpriteService } from './SpriteService.js';
       this.actionRailRealClockTimer = null;
       this.actionRailAutomationTogglePending = false;
       this.currentCharacterInventoryContext = null;
+      this.currentMerchantRoomId = null;
+      this.currentMerchantRef = null;
+      this.currentMerchantCandidates = [];
+      this.currentMerchantContext = null;
+      this.currentMerchantStatus = { tone: 'info', message: 'Waiting for a merchant in the active room.' };
+      this.currentMerchantFilterText = '';
+      this.currentMerchantCatalogSearch = { query: '', roomId: null, merchantRef: null, status: 'idle', results: [], error: '' };
+      this.merchantPanelRequestToken = 0;
+      this.merchantCatalogSearchRequestToken = 0;
+      this.merchantPanelRetryTimer = null;
+      this.merchantPanelRetryAttempts = 0;
       this.inventoryActionStatusTimer = null;
       this.setupActionFooterToggle();
       this.setupFullscreenToggle();
       this.cacheElements();
       this.setupPartyRailHandlers();
       this.setupInventoryPanelActions();
+      this.setupMerchantPanelActions();
+      this.setupGameShellTabEffects();
       this.setupChatLog();
       this.setupChannelTabs();
       this.setupSessionViewTabs();
@@ -1861,6 +1916,51 @@ import { SpriteService } from './SpriteService.js';
       footer.dataset.initialStateApplied = 'true';
     }
 
+    updateFullscreenViewportMetrics(container = null) {
+      const target = container || document.getElementById('hexmap-container');
+      if (!target) {
+        return null;
+      }
+
+      const viewportHeight = Math.max(
+        0,
+        Math.round(
+          window.visualViewport?.height
+          || window.innerHeight
+          || document.documentElement?.clientHeight
+          || 0,
+        ),
+      );
+      const tabs = target.querySelector('.game-shell__tabs');
+      const headerHeight = tabs
+        ? Math.max(0, Math.round(tabs.getBoundingClientRect().height))
+        : 0;
+      const bodyHeight = Math.max(0, viewportHeight - headerHeight - 16);
+
+      target.style.setProperty('--dc-fullscreen-height', `${viewportHeight}px`);
+      target.style.setProperty('--dc-fullscreen-header-height', `${headerHeight}px`);
+      target.style.setProperty('--dc-fullscreen-body-height', `${bodyHeight}px`);
+      target.dataset.fullscreenCompact = viewportHeight <= 820 ? 'true' : 'false';
+
+      return {
+        viewportHeight,
+        headerHeight,
+        bodyHeight,
+      };
+    }
+
+    clearFullscreenViewportMetrics(container = null) {
+      const target = container || document.getElementById('hexmap-container');
+      if (!target) {
+        return;
+      }
+
+      target.style.removeProperty('--dc-fullscreen-height');
+      target.style.removeProperty('--dc-fullscreen-header-height');
+      target.style.removeProperty('--dc-fullscreen-body-height');
+      delete target.dataset.fullscreenCompact;
+    }
+
     setupFullscreenToggle() {
       const btn = document.getElementById('fullscreen-toggle');
       if (!btn || btn.dataset.bound === 'true') {
@@ -1880,6 +1980,23 @@ import { SpriteService } from './SpriteService.js';
         button.setAttribute('aria-pressed', isFullscreen ? 'true' : 'false');
       };
 
+      const syncFullscreenMetrics = () => {
+        const container = document.getElementById('hexmap-container');
+        if (!container || !container.classList.contains('fullscreen')) {
+          return;
+        }
+        this.updateFullscreenViewportMetrics(container);
+      };
+
+      if (!window.__dcFullscreenMetricsBound) {
+        window.addEventListener('resize', syncFullscreenMetrics);
+        if (window.visualViewport) {
+          window.visualViewport.addEventListener('resize', syncFullscreenMetrics);
+          window.visualViewport.addEventListener('scroll', syncFullscreenMetrics);
+        }
+        window.__dcFullscreenMetricsBound = true;
+      }
+
       btn.dataset.bound = 'true';
       btn.addEventListener('click', () => {
         const container = document.getElementById('hexmap-container');
@@ -1894,8 +2011,10 @@ import { SpriteService } from './SpriteService.js';
           document.exitFullscreen().catch(() => {});
           updateFullscreenButton(btn, false);
           container.classList.remove('fullscreen');
+          this.clearFullscreenViewportMetrics(container);
         } else {
           // Enter fullscreen
+          this.updateFullscreenViewportMetrics(container);
           container.requestFullscreen().catch(() => {});
           updateFullscreenButton(btn, true);
           container.classList.add('fullscreen');
@@ -1911,6 +2030,11 @@ import { SpriteService } from './SpriteService.js';
           const container = document.getElementById('hexmap-container');
           if (container) {
             container.classList.toggle('fullscreen', isFullscreen);
+            if (isFullscreen) {
+              this.updateFullscreenViewportMetrics(container);
+            } else {
+              this.clearFullscreenViewportMetrics(container);
+            }
           }
         }
       });
@@ -2029,7 +2153,9 @@ import { SpriteService } from './SpriteService.js';
         characterSp: document.getElementById('char-sp'),
         characterCp: document.getElementById('char-cp'),
         characterInventory: document.getElementById('char-inventory'),
+        inventoryPp: document.getElementById('inv-pp'),
         inventoryGp: document.getElementById('inv-gp'),
+        inventoryEp: document.getElementById('inv-ep'),
         inventorySp: document.getElementById('inv-sp'),
         inventoryCp: document.getElementById('inv-cp'),
         inventoryBulkCurrent: document.getElementById('inv-bulk-current'),
@@ -2079,6 +2205,20 @@ import { SpriteService } from './SpriteService.js';
         npcPortraitsGrid: document.getElementById('npc-portraits-grid'),
         npcPortraitsPlaceholder: document.getElementById('npc-portraits-placeholder'),
         npcPortraitsPlaceholderText: document.getElementById('npc-portraits-placeholder-text'),
+        merchantPanel: document.getElementById('merchant-trade-panel'),
+        merchantPanelName: document.getElementById('merchant-panel-name'),
+        merchantPanelSummary: document.getElementById('merchant-panel-summary'),
+        merchantPanelPortraitWrap: document.getElementById('merchant-panel-portrait-wrap'),
+        merchantPanelPortrait: document.getElementById('merchant-panel-portrait'),
+        merchantPanelStatus: document.getElementById('merchant-panel-status'),
+        merchantPanelCurrency: document.getElementById('merchant-player-currency'),
+        merchantPanelGrid: document.getElementById('merchant-panel-grid'),
+        merchantPanelEmpty: document.getElementById('merchant-panel-empty'),
+        merchantEntitySelect: document.getElementById('merchant-entity-select'),
+        merchantItemFilter: document.getElementById('merchant-item-filter'),
+        merchantBackroomSearch: document.getElementById('merchant-backroom-search'),
+        merchantStockList: document.getElementById('merchant-stock-list'),
+        merchantSellList: document.getElementById('merchant-sell-list'),
 
         // Quest journal panel
         questJournal: document.getElementById('quest-journal'),
@@ -2195,6 +2335,792 @@ import { SpriteService } from './SpriteService.js';
           this.dispatchInventoryAction(button);
         }
       }, true);
+    }
+
+    setupMerchantPanelActions() {
+      if (typeof document === 'undefined' || document.body?.dataset.merchantPanelBound === 'true') {
+        return;
+      }
+
+      document.body.dataset.merchantPanelBound = 'true';
+      this.logMerchantPanelTrace('handler-bound', {
+        scope: 'document',
+        panelSelector: '#game-panel-merchant',
+      });
+      document.addEventListener('change', (event) => {
+        if (event.target?.id !== 'merchant-entity-select') {
+          return;
+        }
+        this.currentMerchantRef = event.target.value || null;
+        this.currentMerchantContext = null;
+        this.resetMerchantCatalogSearch();
+        this.logMerchantPanelTrace('merchant-selected', {
+          merchantRef: this.currentMerchantRef,
+        });
+        this.loadMerchantPanel(true);
+      });
+
+      document.addEventListener('input', (event) => {
+        if (event.target?.id !== 'merchant-item-filter') {
+          return;
+        }
+        this.currentMerchantFilterText = String(event.target.value || '').trim();
+        this.logMerchantPanelTrace('filter-changed', {
+          query: this.currentMerchantFilterText || null,
+        });
+        this.resetMerchantCatalogSearch();
+        this.renderMerchantPanel(this.currentMerchantContext);
+      });
+
+      document.addEventListener('click', (event) => {
+        const panel = event.target.closest('#game-panel-merchant');
+        if (!panel) {
+          return;
+        }
+        const backroomButton = event.target.closest('[data-merchant-backroom-search]');
+        if (backroomButton) {
+          event.preventDefault();
+          this.triggerMerchantCatalogSearch();
+          return;
+        }
+        const button = event.target.closest('[data-merchant-action]');
+        if (!button) {
+          return;
+        }
+        event.preventDefault();
+        this.logMerchantPanelTrace('trade-click', {
+          action: button.dataset.merchantAction || null,
+          itemId: button.dataset.itemId || null,
+          itemInstanceId: button.dataset.itemInstanceId || null,
+          merchantRef: this.currentMerchantRef,
+        });
+        this.dispatchMerchantAction(button);
+      });
+    }
+
+    logMerchantPanelTrace(stage, details = {}) {
+      console.log('[MerchantPanel]', {
+        stage,
+        timestamp: new Date().toISOString(),
+        ...details,
+      });
+    }
+
+    clearMerchantPanelRetry() {
+      if (this.merchantPanelRetryTimer) {
+        window.clearTimeout(this.merchantPanelRetryTimer);
+        this.merchantPanelRetryTimer = null;
+      }
+      this.merchantPanelRetryAttempts = 0;
+    }
+
+    resetMerchantCatalogSearch() {
+      this.currentMerchantCatalogSearch = {
+        query: '',
+        roomId: null,
+        merchantRef: null,
+        status: 'idle',
+        results: [],
+        error: '',
+      };
+    }
+
+    async triggerMerchantCatalogSearch() {
+      const context = this.currentMerchantContext;
+      const merchant = context?.merchant || null;
+      const roomId = this.currentMerchantRoomId || null;
+      const merchantRef = this.currentMerchantRef || null;
+      const filterText = String(this.currentMerchantFilterText || '').trim().toLowerCase();
+      const stock = Array.isArray(context?.stock) ? context.stock : [];
+      const filteredStock = filterText
+        ? stock.filter((item) => this.buildMerchantItemSearchText(item).includes(filterText))
+        : stock;
+      const sellableInventory = Array.isArray(context?.player?.sellable_inventory) ? context.player.sellable_inventory : [];
+      const filteredSellableInventory = filterText
+        ? sellableInventory.filter((item) => this.buildMerchantItemSearchText(item).includes(filterText))
+        : sellableInventory;
+
+      if (!merchant || !roomId || !merchantRef || !filterText || filteredStock.length > 0 || filteredSellableInventory.length > 0 || typeof fetch !== 'function') {
+        return;
+      }
+
+      this.currentMerchantCatalogSearch = {
+        query: filterText,
+        roomId,
+        merchantRef,
+        status: 'loading',
+        results: [],
+        error: '',
+      };
+      this.renderMerchantPanel(this.currentMerchantContext);
+      await this.loadMerchantCatalogSearch(filterText, roomId, merchantRef);
+    }
+
+    async loadMerchantCatalogSearch(query, roomId, merchantRef) {
+      const hexmap = this.stateManager?.hexmap || null;
+      const campaignId = Number(hexmap?.resolveCampaignId?.() || 0);
+      if (!campaignId || !roomId || !merchantRef || !query) {
+        this.resetMerchantCatalogSearch();
+        this.renderMerchantPanel(this.currentMerchantContext);
+        return;
+      }
+
+      const requestToken = ++this.merchantCatalogSearchRequestToken;
+      try {
+        const params = new URLSearchParams({ query });
+        const response = await fetch(`/api/campaign/${encodeURIComponent(campaignId)}/room/${encodeURIComponent(roomId)}/merchant/${encodeURIComponent(merchantRef)}/search?${params.toString()}`, {
+          headers: {
+            'Accept': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest',
+          },
+          credentials: 'same-origin',
+        });
+        const result = await response.json().catch(() => ({}));
+        if (requestToken !== this.merchantCatalogSearchRequestToken) {
+          return;
+        }
+        if (!response.ok || !result?.success) {
+          throw new Error(result?.error || 'Merchant catalog search failed.');
+        }
+
+        this.currentMerchantCatalogSearch = {
+          query,
+          roomId,
+          merchantRef,
+          status: Array.isArray(result?.items) && result.items.length > 0 ? 'loaded' : 'not_found',
+          results: Array.isArray(result?.items) ? result.items : [],
+          error: '',
+        };
+      } catch (error) {
+        if (requestToken !== this.merchantCatalogSearchRequestToken) {
+          return;
+        }
+        this.currentMerchantCatalogSearch = {
+          query,
+          roomId,
+          merchantRef,
+          status: 'error',
+          results: [],
+          error: error?.message || 'Merchant catalog search failed.',
+        };
+      }
+
+      this.renderMerchantPanel(this.currentMerchantContext);
+    }
+
+    scheduleMerchantPanelRetry(reason = 'room-pending') {
+      if (typeof window === 'undefined') {
+        return;
+      }
+      if (this.merchantPanelRetryTimer || this.activeGameShellTab !== 'merchant') {
+        return;
+      }
+      if (this.merchantPanelRetryAttempts >= 8) {
+        this.logMerchantPanelTrace('load-retry-aborted', {
+          reason,
+          attempts: this.merchantPanelRetryAttempts,
+        });
+        return;
+      }
+
+      this.merchantPanelRetryAttempts += 1;
+      const attempt = this.merchantPanelRetryAttempts;
+      this.logMerchantPanelTrace('load-retry-scheduled', {
+        reason,
+        attempt,
+      });
+      this.merchantPanelRetryTimer = window.setTimeout(() => {
+        this.merchantPanelRetryTimer = null;
+        this.loadMerchantPanel(true);
+      }, 500);
+    }
+
+    setupGameShellTabEffects() {
+      if (typeof window === 'undefined') {
+        return;
+      }
+
+      window.addEventListener('dungeoncrawler:game-shell-tab-changed', (event) => {
+        const requestedTab = typeof event?.detail?.tabId === 'string' ? event.detail.tabId : '';
+        if (!requestedTab || this.activeGameShellTab === requestedTab) {
+          return;
+        }
+
+        this.activeGameShellTab = requestedTab;
+        this.logMerchantPanelTrace('tab-changed-event', {
+          tabId: requestedTab,
+        });
+
+        if (requestedTab === 'view') {
+          this.clearMerchantPanelRetry();
+          this.loadActiveRoomView();
+        } else if (requestedTab === 'portraits') {
+          this.clearMerchantPanelRetry();
+          this.loadRoomPortraitsPanel();
+        } else if (requestedTab === 'merchant') {
+          this.loadMerchantPanel();
+        } else {
+          this.clearMerchantPanelRetry();
+        }
+      });
+    }
+
+    resolveActiveMerchantCharacterId() {
+      const hexmap = this.stateManager?.hexmap || null;
+      const candidates = [
+        this.currentCharacterInventoryContext?.characterId,
+        hexmap?.launchContext?.character_id,
+        hexmap?.launchCharacter?.id,
+        hexmap?.launchCharacter?.character_id,
+      ];
+
+      for (const candidate of candidates) {
+        const numeric = Number(candidate || 0);
+        if (Number.isFinite(numeric) && numeric > 0) {
+          return numeric;
+        }
+      }
+
+      return null;
+    }
+
+    entityLooksMerchant(entity) {
+      if (!entity || String(entity?.entity_type || '').trim().toLowerCase() !== 'npc') {
+        return false;
+      }
+
+      const metadata = entity?.state?.metadata || {};
+      const descriptor = [
+        metadata.display_name,
+        metadata.name,
+        metadata.role,
+        metadata.occupation,
+        metadata.description,
+        metadata.content_id,
+        metadata.runtime_entity_id,
+        entity?.state?.content_id,
+        entity?.state?.runtime_entity_id,
+        entity?.entity_ref?.content_id,
+        entity?.entity_instance_id,
+        entity?.instance_id,
+        entity?.id,
+      ].map((value) => String(value || '').toLowerCase()).join(' ');
+
+      return [
+        'merchant',
+        'vendor',
+        'shop',
+        'shopkeeper',
+        'barkeep',
+        'bartender',
+        'keeper',
+        'innkeeper',
+        'tavern',
+        'bar',
+        'blacksmith',
+        'smith',
+        'armorer',
+        'apothecary',
+        'alchemist',
+        'herbalist',
+        'trader',
+      ].some((keyword) => descriptor.includes(keyword))
+        || Boolean(entity?.state?.merchant_enabled || entity?.state?.merchant?.enabled || entity?.state?.merchant_stock);
+    }
+
+    buildRoomMerchantEntries(roomId = null) {
+      const hexmap = this.stateManager?.hexmap || null;
+      const resolvedRoomId = roomId || hexmap?.resolveActiveRoomId?.() || null;
+      const entities = Array.isArray(hexmap?.dungeonData?.entities) ? hexmap.dungeonData.entities : [];
+      if (!resolvedRoomId || entities.length === 0) {
+        return [];
+      }
+
+      const entries = [];
+      const seen = new Set();
+      entities.forEach((entity) => {
+        if (entity?.placement?.room_id !== resolvedRoomId || !this.entityLooksMerchant(entity)) {
+          return;
+        }
+
+        const metadata = entity?.state?.metadata || {};
+        const entityId = String(entity?.entity_instance_id || entity?.instance_id || entity?.id || '').trim();
+        if (!entityId || seen.has(entityId)) {
+          return;
+        }
+        seen.add(entityId);
+
+        entries.push({
+          entityId,
+          name: metadata.display_name || metadata.name || entityId,
+          summary: metadata.role || metadata.occupation || metadata.description || 'Merchant',
+          portraitUrl: metadata.portrait_url || metadata.portrait || '',
+        });
+      });
+
+      entries.sort((left, right) => left.name.localeCompare(right.name));
+      return entries;
+    }
+
+    buildMerchantItemSearchText(item = {}) {
+      const catalogItem = item?.catalog_item && typeof item.catalog_item === 'object' ? item.catalog_item : {};
+      return [
+        item?.name,
+        item?.item_id,
+        item?.type,
+        item?.subtype,
+        item?.bulk,
+        item?.level,
+        item?.description,
+        item?.source,
+        item?.blocked_message,
+        catalogItem?.description,
+        catalogItem?.type,
+        catalogItem?.subtype,
+      ]
+        .map((value) => String(value || '').trim().toLowerCase())
+        .filter(Boolean)
+        .join(' ');
+    }
+
+    buildMerchantItemMetaHtml(item = {}, options = {}) {
+      const {
+        quantityLabel = '',
+        availabilityLabel = '',
+        descriptionOverride = '',
+      } = options;
+      const catalogItem = item?.catalog_item && typeof item.catalog_item === 'object' ? item.catalog_item : {};
+      const summaryParts = [
+        item?.type,
+        item?.subtype,
+        item?.bulk ? `Bulk ${item.bulk}` : '',
+        item?.level ? `Lvl ${item.level}` : '',
+        quantityLabel,
+        availabilityLabel,
+        item?.source ? `Source ${item.source}` : '',
+      ].filter(Boolean);
+      const description = String(descriptionOverride || item?.description || catalogItem?.description || '').trim();
+      return [
+        summaryParts.length > 0 ? `<div class="merchant-item__meta">${escapeQuestHtml(summaryParts.join(' · '))}</div>` : '',
+        description ? `<div class="merchant-item__meta">${escapeQuestHtml(description)}</div>` : '',
+      ].filter(Boolean).join('');
+    }
+
+    resolveMerchantCategoryLabel(item = {}) {
+      const type = String(item?.type || item?.item_type || '').trim();
+      const subtype = String(item?.subtype || '').trim();
+      const rawLabel = subtype || type || 'miscellaneous';
+      return rawLabel
+        .replace(/[_-]+/g, ' ')
+        .replace(/\b\w/g, (char) => char.toUpperCase());
+    }
+
+    groupMerchantItemsByCategory(items = []) {
+      const groups = new Map();
+      items.forEach((item) => {
+        const categoryLabel = this.resolveMerchantCategoryLabel(item);
+        if (!groups.has(categoryLabel)) {
+          groups.set(categoryLabel, []);
+        }
+        groups.get(categoryLabel).push(item);
+      });
+
+      return Array.from(groups.entries())
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([label, entries]) => ({ label, entries }));
+    }
+
+    renderMerchantStockItemHtml(item = {}) {
+      return `<article class="merchant-item">
+        <div class="merchant-item__copy">
+          <div class="merchant-item__name">${escapeQuestHtml(item.name || item.item_id || 'Item')}</div>
+          ${this.buildMerchantItemMetaHtml(item, {
+            availabilityLabel: Number.isInteger(item.quantity_available) ? `Qty ${item.quantity_available}` : '',
+          })}
+        </div>
+        <div class="merchant-item__actions">
+          <span class="merchant-item__price">${escapeQuestHtml(item.price_label || '0 cp')}</span>
+          <button type="button" class="btn btn-primary btn-sm" data-merchant-action="buy" data-item-id="${escapeTooltipAttr(item.item_id || '')}">Buy</button>
+        </div>
+      </article>`;
+    }
+
+    renderMerchantSellItemHtml(item = {}) {
+      const disabled = item.blocked ? ' disabled aria-disabled="true"' : '';
+      const buttonLabel = item.blocked ? 'Blocked' : 'Sell';
+      return `<article class="merchant-item">
+        <div class="merchant-item__copy">
+          <div class="merchant-item__name">${escapeQuestHtml(item.name || item.item_id || 'Item')}</div>
+          ${this.buildMerchantItemMetaHtml(item, {
+            quantityLabel: item.quantity > 1 ? `Qty ${item.quantity}` : '',
+            descriptionOverride: item.blocked ? (item.blocked_message || 'Cannot sell') : '',
+          })}
+        </div>
+        <div class="merchant-item__actions">
+          <span class="merchant-item__price">${escapeQuestHtml(item.offer_label || '0 cp')}</span>
+          <button type="button" class="btn btn-secondary btn-sm" data-merchant-action="sell" data-item-instance-id="${escapeTooltipAttr(item.item_instance_id || '')}"${disabled}>${escapeQuestHtml(buttonLabel)}</button>
+        </div>
+      </article>`;
+    }
+
+    renderMerchantGroupedListHtml(items = [], emptyText, renderItem) {
+      if (!Array.isArray(items) || items.length === 0) {
+        return `<div class="merchant-trade-card__empty">${escapeQuestHtml(emptyText)}</div>`;
+      }
+
+      return this.groupMerchantItemsByCategory(items).map((group) => {
+        return `<details class="merchant-category-group">
+          <summary class="merchant-category-group__summary">
+            <span class="merchant-category-group__label">${escapeQuestHtml(group.label)}</span>
+            <span class="merchant-category-group__count">${escapeQuestHtml(String(group.entries.length))}</span>
+          </summary>
+          <div class="merchant-category-group__items">
+            ${group.entries.map((item) => renderItem.call(this, item)).join('')}
+          </div>
+        </details>`;
+      }).join('');
+    }
+
+    setMerchantStatus(message, tone = 'info') {
+      this.currentMerchantStatus = {
+        tone,
+        message: message || '',
+      };
+      if (this.elements.merchantPanelStatus) {
+        this.elements.merchantPanelStatus.textContent = message || '';
+        this.elements.merchantPanelStatus.dataset.tone = tone;
+      }
+    }
+
+    syncMerchantContextIntoInventoryPanel(context) {
+      const player = context?.player || {};
+      const characterId = Number(player.character_id || 0);
+      if (!characterId || !player.inventory || !this.currentCharacterInventoryContext) {
+        return;
+      }
+
+      if (Number(this.currentCharacterInventoryContext.characterId || 0) !== characterId) {
+        return;
+      }
+
+      const inventory = normalizeInventoryState(player.inventory || {}, player.currency || this.currentCharacterInventoryContext.currency || {});
+      this.currentCharacterInventoryContext = {
+        ...this.currentCharacterInventoryContext,
+        inventory,
+        currency: inventory.currency || player.currency || this.currentCharacterInventoryContext.currency || {},
+      };
+      this.renderInventoryPanel(this.currentCharacterInventoryContext);
+    }
+
+    async dispatchMerchantAction(button) {
+      const hexmap = this.stateManager?.hexmap || null;
+      const campaignId = Number(hexmap?.resolveCampaignId?.() || 0);
+      const roomId = hexmap?.resolveActiveRoomId?.() || null;
+      const merchantRef = this.currentMerchantRef;
+      if (!campaignId || !roomId || !merchantRef) {
+        this.setMerchantStatus('Merchant context is not ready yet.', 'error');
+        return;
+      }
+
+      const action = button.dataset.merchantAction || '';
+      const payload = {
+        action,
+        character_id: this.resolveActiveMerchantCharacterId(),
+        quantity: Number(button.dataset.quantity || 1) || 1,
+      };
+      if (button.dataset.itemId) {
+        payload.item_id = button.dataset.itemId;
+      }
+      if (button.dataset.itemInstanceId) {
+        payload.item_instance_id = button.dataset.itemInstanceId;
+      }
+
+      this.logMerchantPanelTrace('trade-submit', {
+        action,
+        campaignId,
+        roomId,
+        merchantRef,
+        payload,
+      });
+      this.setMerchantStatus('Submitting trade...', 'pending');
+
+      try {
+        const response = await fetch(`/api/campaign/${encodeURIComponent(campaignId)}/room/${encodeURIComponent(roomId)}/merchant/${encodeURIComponent(merchantRef)}/transaction`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest',
+          },
+          credentials: 'same-origin',
+          body: JSON.stringify(payload),
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!result || typeof result !== 'object') {
+          throw new Error('Merchant trade failed.');
+        }
+
+        this.logMerchantPanelTrace('trade-response', {
+          action,
+          merchantRef,
+          ok: response.ok,
+          success: Boolean(result.success),
+          status: result.status || null,
+          message: result.message || result.error || null,
+        });
+        this.currentMerchantContext = result.context || this.currentMerchantContext;
+        this.renderMerchantPanel(this.currentMerchantContext);
+        this.syncMerchantContextIntoInventoryPanel(this.currentMerchantContext);
+        if (!response.ok || !result.success) {
+          this.setMerchantStatus(result.error || result.message || 'Merchant trade failed.', 'error');
+          return;
+        }
+        this.setMerchantStatus(result.message || 'Trade complete.', 'success');
+      } catch (error) {
+        this.logMerchantPanelTrace('trade-error', {
+          action,
+          merchantRef,
+          error: error?.message || String(error),
+        });
+        this.setMerchantStatus(error?.message || 'Merchant trade failed.', 'error');
+      }
+    }
+
+    async loadMerchantPanel(force = false) {
+      const hexmap = this.stateManager?.hexmap || null;
+      const campaignId = Number(hexmap?.resolveCampaignId?.() || 0);
+      const roomId = hexmap?.resolveActiveRoomId?.() || null;
+      const merchantEntries = this.buildRoomMerchantEntries(roomId);
+      const previousRoomId = this.currentMerchantRoomId;
+
+      if (previousRoomId && roomId && previousRoomId !== roomId) {
+        this.currentMerchantContext = null;
+        this.resetMerchantCatalogSearch();
+      }
+
+      this.currentMerchantRoomId = roomId;
+      this.currentMerchantCandidates = merchantEntries;
+      if (roomId) {
+        this.clearMerchantPanelRetry();
+      }
+      this.logMerchantPanelTrace('load-start', {
+        force,
+        campaignId,
+        roomId,
+        previousRoomId,
+        currentMerchantRef: this.currentMerchantRef,
+        candidateRefs: merchantEntries.map((entry) => entry.entityId),
+        candidateNames: merchantEntries.map((entry) => entry.name),
+      });
+      this.renderMerchantPanel(this.currentMerchantContext);
+
+      if (!campaignId || !roomId || merchantEntries.length === 0 || typeof fetch !== 'function') {
+        this.currentMerchantContext = null;
+        this.resetMerchantCatalogSearch();
+        this.renderMerchantPanel(null);
+        this.logMerchantPanelTrace('load-skipped', {
+          force,
+          campaignId,
+          roomId,
+          merchantCount: merchantEntries.length,
+          hasFetch: typeof fetch === 'function',
+        });
+        if (campaignId && !roomId) {
+          this.setMerchantStatus('Loading room merchant context...', 'pending');
+          this.scheduleMerchantPanelRetry('room-pending');
+          return;
+        }
+        this.setMerchantStatus(merchantEntries.length === 0 ? 'No merchant is present in this room.' : 'Merchant context is unavailable.', 'info');
+        return;
+      }
+
+      const currentChoiceValid = merchantEntries.some((entry) => entry.entityId === this.currentMerchantRef);
+      if (!currentChoiceValid) {
+        this.currentMerchantRef = merchantEntries[0]?.entityId || null;
+      }
+      if (!this.currentMerchantRef) {
+        this.currentMerchantContext = null;
+        this.resetMerchantCatalogSearch();
+        this.renderMerchantPanel(null);
+        return;
+      }
+
+      if (!force && this.currentMerchantContext?.merchant?.merchant_ref === this.currentMerchantRef && previousRoomId === roomId) {
+        this.renderMerchantPanel(this.currentMerchantContext);
+        return;
+      }
+
+      const params = new URLSearchParams();
+      const characterId = this.resolveActiveMerchantCharacterId();
+      if (characterId) {
+        params.set('character_id', String(characterId));
+      }
+
+      const requestToken = ++this.merchantPanelRequestToken;
+      this.logMerchantPanelTrace('load-request', {
+        requestToken,
+        force,
+        campaignId,
+        roomId,
+        merchantRef: this.currentMerchantRef,
+        characterId,
+        url: `/api/campaign/${encodeURIComponent(campaignId)}/room/${encodeURIComponent(roomId)}/merchant/${encodeURIComponent(this.currentMerchantRef)}${params.toString() ? `?${params.toString()}` : ''}`,
+      });
+      this.setMerchantStatus('Loading merchant stock...', 'pending');
+      try {
+        const response = await fetch(`/api/campaign/${encodeURIComponent(campaignId)}/room/${encodeURIComponent(roomId)}/merchant/${encodeURIComponent(this.currentMerchantRef)}${params.toString() ? `?${params.toString()}` : ''}`, {
+          headers: {
+            'Accept': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest',
+          },
+          credentials: 'same-origin',
+        });
+        const result = await response.json().catch(() => ({}));
+        if (requestToken !== this.merchantPanelRequestToken) {
+          return;
+        }
+        if (!response.ok || !result?.success || !result?.context) {
+          throw new Error(result?.error || result?.message || 'Merchant context failed to load.');
+        }
+
+        this.logMerchantPanelTrace('load-success', {
+          requestToken,
+          merchantRef: this.currentMerchantRef,
+          merchantName: result?.context?.merchant?.name || null,
+          stockCount: Array.isArray(result?.context?.stock) ? result.context.stock.length : 0,
+          sellableCount: Array.isArray(result?.context?.player?.sellable_inventory) ? result.context.player.sellable_inventory.length : 0,
+        });
+        this.currentMerchantContext = result.context;
+        this.renderMerchantPanel(this.currentMerchantContext);
+        this.setMerchantStatus('Ready to trade.', 'info');
+      } catch (error) {
+        if (requestToken !== this.merchantPanelRequestToken) {
+          return;
+        }
+        this.logMerchantPanelTrace('load-error', {
+          requestToken,
+          merchantRef: this.currentMerchantRef,
+          error: error?.message || String(error),
+        });
+        this.currentMerchantContext = null;
+        this.resetMerchantCatalogSearch();
+        this.renderMerchantPanel(null);
+        this.setMerchantStatus(error?.message || 'Merchant context failed to load.', 'error');
+      }
+    }
+
+    renderMerchantPanel(context = null) {
+      const merchantEntries = Array.isArray(this.currentMerchantCandidates) ? this.currentMerchantCandidates : [];
+      const merchant = context?.merchant || null;
+      const selectedMerchantEntry = merchantEntries.find((entry) => entry.entityId === this.currentMerchantRef) || merchantEntries[0] || null;
+      const player = context?.player || {};
+      const stock = Array.isArray(context?.stock) ? context.stock : [];
+      const sellableInventory = Array.isArray(player?.sellable_inventory) ? player.sellable_inventory : [];
+      const filterText = String(this.currentMerchantFilterText || '').trim().toLowerCase();
+      const filteredStock = filterText
+        ? stock.filter((item) => this.buildMerchantItemSearchText(item).includes(filterText))
+        : stock;
+      const filteredSellableInventory = filterText
+        ? sellableInventory.filter((item) => this.buildMerchantItemSearchText(item).includes(filterText))
+        : sellableInventory;
+      const searchState = this.currentMerchantCatalogSearch || {};
+      const hasContext = Boolean(context && merchant);
+      const fallbackSearchApplies = filterText
+        && filteredStock.length === 0
+        && filteredSellableInventory.length === 0
+        && searchState.query === filterText
+        && searchState.roomId === this.currentMerchantRoomId
+        && searchState.merchantRef === this.currentMerchantRef;
+      const showBackroomButton = hasContext && filterText && filteredStock.length === 0 && filteredSellableInventory.length === 0 && searchState.status !== 'loaded';
+      const fallbackStock = fallbackSearchApplies && searchState.status === 'loaded' && Array.isArray(searchState.results)
+        ? searchState.results
+        : filteredStock;
+      let stockEmptyText = filterText ? 'No stock items match the current search.' : 'No stock is listed for this merchant.';
+      if (fallbackSearchApplies && searchState.status === 'loading') {
+        stockEmptyText = 'No stock items match the current search. Searching the backroom...';
+      } else if (fallbackSearchApplies && searchState.status === 'not_found') {
+        stockEmptyText = 'No stock items match the current search, and the backroom search came up empty.';
+      } else if (fallbackSearchApplies && searchState.status === 'error') {
+        stockEmptyText = `No stock items match the current search. ${searchState.error || 'Backroom search failed.'}`;
+      }
+      this.logMerchantPanelTrace('render', {
+        merchantRef: this.currentMerchantRef,
+        merchantName: merchant?.name || null,
+        merchantCount: merchantEntries.length,
+        stockCount: fallbackStock.length,
+        sellableCount: filteredSellableInventory.length,
+        filterText: filterText || null,
+        hasContext: Boolean(context && merchant),
+      });
+
+      if (this.elements.merchantEntitySelect) {
+        const options = merchantEntries.length > 0
+          ? merchantEntries.map((entry) => `<option value="${escapeTooltipAttr(entry.entityId)}"${entry.entityId === this.currentMerchantRef ? ' selected' : ''}>${escapeQuestHtml(entry.name)}</option>`)
+          : ['<option value="">No merchant available</option>'];
+        this.elements.merchantEntitySelect.innerHTML = options.join('');
+        this.elements.merchantEntitySelect.disabled = merchantEntries.length === 0;
+      }
+
+      if (this.elements.merchantPanelName) {
+        this.elements.merchantPanelName.textContent = merchant?.name || selectedMerchantEntry?.name || 'No merchant selected';
+      }
+      if (this.elements.merchantPanelSummary) {
+        this.elements.merchantPanelSummary.textContent = merchant?.summary || merchant?.role || selectedMerchantEntry?.summary || 'Choose a merchant in the active room to browse stock and sell inventory.';
+      }
+      if (this.elements.merchantPanelPortraitWrap && this.elements.merchantPanelPortrait) {
+        const merchantPortraitUrl = String(merchant?.portrait_url || merchant?.portrait || selectedMerchantEntry?.portraitUrl || '').trim();
+        if (merchantPortraitUrl) {
+          const merchantName = merchant?.name || selectedMerchantEntry?.name || 'Merchant';
+          this.elements.merchantPanelPortrait.src = merchantPortraitUrl;
+          this.elements.merchantPanelPortrait.alt = `${merchantName} portrait`;
+          this.elements.merchantPanelPortraitWrap.hidden = false;
+        } else {
+          this.elements.merchantPanelPortrait.removeAttribute('src');
+          this.elements.merchantPanelPortrait.alt = '';
+          this.elements.merchantPanelPortraitWrap.hidden = true;
+        }
+      }
+      if (this.elements.merchantPanelCurrency) {
+        this.elements.merchantPanelCurrency.textContent = `Party coin: ${player?.currency_label || '0 cp'}`;
+      }
+      if (this.elements.merchantItemFilter) {
+        this.elements.merchantItemFilter.value = this.currentMerchantFilterText || '';
+        this.elements.merchantItemFilter.disabled = !hasContext;
+      }
+      if (this.elements.merchantBackroomSearch) {
+        this.elements.merchantBackroomSearch.hidden = !showBackroomButton;
+        this.elements.merchantBackroomSearch.disabled = searchState.status === 'loading';
+        this.elements.merchantBackroomSearch.textContent = searchState.status === 'loading'
+          ? 'Searching the backroom...'
+          : 'Search the backroom';
+      }
+      if (this.elements.merchantPanelGrid) {
+        this.elements.merchantPanelGrid.hidden = !hasContext;
+      }
+      if (this.elements.merchantPanelEmpty) {
+        this.elements.merchantPanelEmpty.hidden = hasContext;
+        if (!hasContext) {
+          this.elements.merchantPanelEmpty.textContent = merchantEntries.length > 0
+            ? 'Select a merchant to load trade details.'
+            : 'No merchant context is active for this room yet.';
+        }
+      }
+
+      if (this.elements.merchantStockList) {
+        this.elements.merchantStockList.innerHTML = this.renderMerchantGroupedListHtml(
+          fallbackStock,
+          stockEmptyText,
+          this.renderMerchantStockItemHtml
+        );
+      }
+
+      if (this.elements.merchantSellList) {
+        this.elements.merchantSellList.innerHTML = this.renderMerchantGroupedListHtml(
+          filteredSellableInventory,
+          filterText ? 'No sellable items match the current search.' : 'No sellable inventory is available for the active character.',
+          this.renderMerchantSellItemHtml
+        );
+      }
     }
 
     dispatchInventoryAction(button) {
@@ -2574,6 +3500,9 @@ import { SpriteService } from './SpriteService.js';
           currency: nextInventory.currency || currentContext.currency || context.currency || {},
         };
         this.renderInventoryPanel(this.currentCharacterInventoryContext);
+        if (this.activeGameShellTab === 'merchant') {
+          this.loadMerchantPanel(true);
+        }
       } catch (error) {
         console.error('Character inventory refresh failed', error);
       }
@@ -2593,7 +3522,9 @@ import { SpriteService } from './SpriteService.js';
       if (this.elements.characterInventory) {
         this.elements.characterInventory.innerHTML = summaryHtml || '<li class="inventory-empty">No items</li>';
       }
+      if (this.elements.inventoryPp) this.elements.inventoryPp.textContent = currency.pp || 0;
       if (this.elements.inventoryGp) this.elements.inventoryGp.textContent = currency.gp || 0;
+      if (this.elements.inventoryEp) this.elements.inventoryEp.textContent = currency.ep || 0;
       if (this.elements.inventorySp) this.elements.inventorySp.textContent = currency.sp || 0;
       if (this.elements.inventoryCp) this.elements.inventoryCp.textContent = currency.cp || 0;
       if (this.elements.inventoryBulkCurrent) this.elements.inventoryBulkCurrent.textContent = formatBulkValue(totalBulk);
@@ -2818,10 +3749,13 @@ import { SpriteService } from './SpriteService.js';
       const movementText = movement && Number.isFinite(movement.movementRemaining)
         ? `${movement.movementRemaining} ft move`
         : null;
+      const currentTurnLabel = current?.getComponent?.('IdentityComponent')?.name || actorName;
+      const isActorTurn = !encounterActive || !current || !actor || current.id === actor.id;
       const actorRef = actor?.dcEntityRef || actor?.dcEntityInstanceId || runtimeContext?.instanceId || null;
       const characterId = Number(state?.characterId || state?.id || 0) || 0;
       const baseStatus = buildActionRailEntrySummary([
         encounterActive ? 'Encounter active' : 'Exploration ready',
+        encounterActive ? (isActorTurn ? 'Active turn' : `${currentTurnLabel}'s turn`) : '',
         actionText,
         movementText,
       ]) || 'Select your character to unlock direct actions.';
@@ -2838,6 +3772,7 @@ import { SpriteService } from './SpriteService.js';
         campaignClock: phaseSnapshot?.campaignClock || null,
         timedActivities: Array.isArray(phaseSnapshot?.timedActivities) ? phaseSnapshot.timedActivities : [],
         encounterActive,
+        isActorTurn,
         automationState,
         canAutomate: Boolean(
           runtimeContext?.campaignId
@@ -2950,6 +3885,27 @@ import { SpriteService } from './SpriteService.js';
       }
 
       return false;
+    }
+
+    isActionRailExecutionDisabled(actionCost, context, disabled = false) {
+      if (disabled) {
+        return true;
+      }
+
+      if (!context?.encounterActive) {
+        return false;
+      }
+
+      if (context.isActorTurn === false) {
+        return true;
+      }
+
+      const remainingActions = getActionRailRemainingActions(context);
+      if (remainingActions === null) {
+        return false;
+      }
+
+      return getActionRailCost(actionCost, 1) > remainingActions;
     }
 
     async handleActionRailAutomationToggle() {
@@ -3153,6 +4109,7 @@ import { SpriteService } from './SpriteService.js';
               weapon.traits || '',
               weapon.description || '',
             ]),
+            disabled: this.isActionRailExecutionDisabled(1, context),
             dataset: {
               targetId: String(target?.id || ''),
               targetName,
@@ -3235,18 +4192,13 @@ import { SpriteService } from './SpriteService.js';
     }
 
     buildNavigateActionRailPanel(context) {
-      const campaignId = Number(context.runtimeContext?.campaignId || context.hexmap?.resolveCampaignId?.() || 0);
-      this.ensureNavigateLocationGroups(campaignId);
-
-      const groups = (campaignId > 0 && this.navigateLocationsCampaignId === campaignId && Array.isArray(this.navigateLocationGroups) && this.navigateLocationGroups.length)
-        ? this.navigateLocationGroups
-        : this.collectNavigateLocationGroups(context);
+      const groups = this.collectNavigateLocationGroups(context);
 
       if (!groups.length) {
         return {
           title: 'Navigate',
-          chip: this.navigateLocationsInflight ? 'Loading' : 'No history',
-          html: `<div class="action-rail__empty"><p>${this.navigateLocationsInflight ? 'Loading previously visited dungeons and rooms...' : 'No previously visited dungeons or rooms are available yet.'}</p></div>`,
+          chip: 'No routes',
+          html: `<div class="action-rail__empty"><p>No known routes are available from the current dungeon state yet.</p></div>`,
         };
       }
 
@@ -3256,24 +4208,26 @@ import { SpriteService } from './SpriteService.js';
           execute: 'navigate',
           title: location.roomName,
           summary: buildActionRailEntrySummary([
-            group.dungeonName,
+            location.statusLabel,
             location.lastVisitedLabel,
           ]),
           meta: location.meta,
+          disabled: !location.navigable,
           dataset: {
             roomId: location.roomId,
             roomName: location.roomName,
-            mapId: group.mapId,
-            dungeonLevelId: group.dungeonLevelId,
+            connectionId: location.connectionId,
+            originQ: location.originQ,
+            originR: location.originR,
           },
-          actionLabel: 'Travel here',
+          actionLabel: location.navigable ? 'Travel here' : 'Unavailable',
         })).join('');
-        return `<section class="action-rail__group"><p class="action-rail__group-label">${escapeQuestHtml(group.dungeonName)}</p>${entries}</section>`;
+        return `<section class="action-rail__group"><p class="action-rail__group-label">${escapeQuestHtml(group.title)}</p>${entries}</section>`;
       }).join('');
 
       return {
         title: 'Navigate',
-        chip: `${entryCount} visited`,
+        chip: `${entryCount} rooms`,
         html,
       };
     }
@@ -3283,15 +4237,24 @@ import { SpriteService } from './SpriteService.js';
       const dungeonData = hexmap?.dungeonData || {};
       const rooms = dungeonData?.rooms && typeof dungeonData.rooms === 'object' ? dungeonData.rooms : {};
       const activeRoomId = hexmap?.resolveActiveRoomId?.() || null;
-      const currentDungeonName = String(
-        dungeonData?.name
-        || dungeonData?.title
-        || dungeonData?.dungeon_name
-        || dungeonData?.level_name
-        || 'Current dungeon'
-      );
       const visitOrder = new Map();
       const history = Array.isArray(dungeonData?.location_history) ? dungeonData.location_history : [];
+      const capabilities = typeof hexmap?.resolveNavigationCapabilities === 'function'
+        ? hexmap.resolveNavigationCapabilities(activeRoomId)
+        : [];
+      const capabilityByRoomId = new Map();
+
+      capabilities.forEach((capability) => {
+        const targetRoomId = String(capability?.target_room_id || '').trim();
+        if (!targetRoomId) {
+          return;
+        }
+
+        const existing = capabilityByRoomId.get(targetRoomId);
+        if (!existing || (!existing.available && capability?.available)) {
+          capabilityByRoomId.set(targetRoomId, capability);
+        }
+      });
 
       history.forEach((entry, index) => {
         const roomId = String(entry?.room_id || '').trim();
@@ -3306,20 +4269,55 @@ import { SpriteService } from './SpriteService.js';
         }
       });
 
-      const destinations = Array.from(visitOrder.entries())
-        .map(([roomId, order]) => {
-          const room = rooms[roomId] || {};
-          const roomName = String(room?.name || history.find((entry) => String(entry?.room_id || '') === roomId)?.room_name || roomId);
-          const lastHistoryEntry = [...history].reverse().find((entry) => String(entry?.room_id || '') === roomId) || null;
+      const sections = [
+        { key: 'explored-navigable', title: 'Explored navigable', locations: [] },
+        { key: 'explored-blocked', title: 'Explored not navigable', locations: [] },
+        { key: 'unexplored-navigable', title: 'Unexplored navigable', locations: [] },
+        { key: 'unexplored-blocked', title: 'Unexplored not navigable', locations: [] },
+      ];
+
+      const destinations = Object.entries(rooms)
+        .map(([roomId, room]) => {
+          const normalizedRoomId = String(roomId || '').trim();
+          if (!normalizedRoomId || normalizedRoomId === activeRoomId) {
+            return null;
+          }
+
+          const capability = capabilityByRoomId.get(normalizedRoomId) || null;
+          const lastHistoryEntry = [...history].reverse().find((entry) => String(entry?.room_id || '') === normalizedRoomId) || null;
+          const explored = visitOrder.has(normalizedRoomId);
+          const navigable = Boolean(capability?.available);
+          const blockedReason = String(capability?.blocked_reason || '').trim();
+          const roomName = String(room?.name || lastHistoryEntry?.room_name || normalizedRoomId);
+          const statusLabel = [
+            explored ? 'Explored' : 'Unexplored',
+            navigable ? 'Navigable' : 'Not navigable',
+          ].join(' · ');
+          const lastVisitedLabel = explored
+            ? (lastHistoryEntry?.timestamp ? `Seen ${lastHistoryEntry.timestamp}` : 'Visited by party')
+            : 'Not yet explored';
+          const metaParts = [
+            room?.description || room?.short_description || '',
+            !navigable && blockedReason === 'blocked' ? 'Route is currently blocked.' : '',
+            !navigable && blockedReason === 'undiscovered' ? 'Route has not been discovered yet.' : '',
+            !navigable && !blockedReason && !capability ? 'No direct route from the current room.' : '',
+          ].filter(Boolean);
+
           return {
-            roomId,
+            roomId: normalizedRoomId,
             roomName,
-            lastVisitedLabel: lastHistoryEntry?.timestamp ? `Seen ${lastHistoryEntry.timestamp}` : 'Visited by party',
-            meta: room?.description || room?.short_description || '',
-            order,
+            statusLabel,
+            lastVisitedLabel,
+            meta: metaParts.join(' '),
+            order: Number(visitOrder.get(normalizedRoomId) ?? -1),
+            explored,
+            navigable,
+            connectionId: String(capability?.connection_id || ''),
+            originQ: capability?.origin_hex?.q ?? '',
+            originR: capability?.origin_hex?.r ?? '',
           };
         })
-        .filter((destination) => destination.roomId && destination.roomId !== activeRoomId)
+        .filter(Boolean)
         .sort((a, b) => {
           if (b.order !== a.order) {
             return b.order - a.order;
@@ -3327,17 +4325,19 @@ import { SpriteService } from './SpriteService.js';
           return a.roomName.localeCompare(b.roomName);
         });
 
+      destinations.forEach((destination) => {
+        const key = `${destination.explored ? 'explored' : 'unexplored'}-${destination.navigable ? 'navigable' : 'blocked'}`;
+        const section = sections.find((candidate) => candidate.key === key);
+        if (section) {
+          section.locations.push(destination);
+        }
+      });
+
       if (!destinations.length) {
         return [];
       }
 
-      return [{
-        dungeonId: String(dungeonData?.map_id || hexmap?.launchContext?.map_id || 'current-dungeon'),
-        dungeonName: currentDungeonName,
-        mapId: String(dungeonData?.map_id || hexmap?.launchContext?.map_id || ''),
-        dungeonLevelId: String(dungeonData?.level_id || hexmap?.launchContext?.dungeon_level_id || ''),
-        locations: destinations,
-      }];
+      return sections.filter((section) => section.locations.length > 0);
     }
 
     buildInteractActionRailPanel(context) {
@@ -3352,7 +4352,7 @@ import { SpriteService } from './SpriteService.js';
           context.encounterActive && entry.canUse ? formatActionRailCost(1) : '',
         ]),
         meta: entry.meta || '',
-        disabled: false,
+        disabled: entry.canUse ? this.isActionRailExecutionDisabled(1, context) : false,
         dataset: {
           targetEntityId: entry.entityId || '',
           targetQ: Number.isFinite(entry.q) ? String(entry.q) : '',
@@ -3427,7 +4427,7 @@ import { SpriteService } from './SpriteService.js';
     }
 
     buildSpellActionRailPanel(context) {
-      const spells = normalizeSpellcastingData(context.state?.spells || {});
+      const spells = normalizeSpellcastingData(context.state?.spells || {}, context.state || {});
       const rankGroups = collectSpellRankGroups(spells);
       const runtimeSlots = normalizeDisplayedSpellSlots(context.state?.resources?.spellSlots, spells.slots);
       const entries = [];
@@ -3455,7 +4455,7 @@ import { SpriteService } from './SpriteService.js';
               formatActionRailCost(actionCost),
             ]),
             meta: typeof spell === 'object' ? (spell.description || spell.desc || '') : '',
-            disabled,
+            disabled: this.isActionRailExecutionDisabled(actionCost, context, disabled),
             dataset: {
               spellId,
               spellName,
@@ -3491,6 +4491,7 @@ import { SpriteService } from './SpriteService.js';
             formatActionRailCost(actionCost),
           ]),
           meta: item.consumable_stats?.effect || item.effect || item.description || item.desc || '',
+          disabled: this.isActionRailExecutionDisabled(actionCost, context),
           dataset: {
             itemId: String(itemId),
             actionCost: String(actionCost),
@@ -3523,6 +4524,7 @@ import { SpriteService } from './SpriteService.js';
           meta: context.encounterActive
             ? 'Resolve this skill directly without using chat.'
             : 'Logs the declared skill action directly in the shell.',
+          disabled: this.isActionRailExecutionDisabled(1, context),
           dataset: {
             skillName: String(skill.name || ''),
             skillModifier: String(modifier),
@@ -3583,6 +4585,7 @@ import { SpriteService } from './SpriteService.js';
         title: entry.title,
         summary: entry.summary,
         meta: entry.meta,
+        disabled: this.isActionRailExecutionDisabled(entry.dataset.actionCost, context),
         dataset: entry.dataset,
       }));
 
@@ -3909,35 +4912,27 @@ import { SpriteService } from './SpriteService.js';
         const hexmap = context.hexmap;
         const roomId = String(button.dataset.roomId || '').trim();
         const roomName = button.dataset.roomName || roomId || 'that room';
-        const mapId = String(button.dataset.mapId || '').trim();
-        const dungeonLevelId = String(button.dataset.dungeonLevelId || '').trim();
+        const rawOriginQ = String(button.dataset.originQ || '').trim();
+        const rawOriginR = String(button.dataset.originR || '').trim();
+        const originQ = rawOriginQ !== '' ? Number(rawOriginQ) : null;
+        const originR = rawOriginR !== '' ? Number(rawOriginR) : null;
 
         if (!hexmap || !roomId) {
           return;
         }
 
-        const currentMapId = String(hexmap?.dungeonData?.map_id || hexmap?.launchContext?.map_id || this.stateManager?.get?.('mapId') || '').trim();
         let changed = false;
-        if (hexmap?.dungeonData?.rooms?.[roomId] && (!mapId || !currentMapId || mapId === currentMapId)) {
+        if (Number.isFinite(originQ) && Number.isFinite(originR)) {
+          changed = Boolean(hexmap.tryTransitionAtHex?.(originQ, originR));
+        } else if (hexmap?.dungeonData?.rooms?.[roomId]) {
           changed = Boolean(hexmap.navigateToVisitedRoom?.(roomId));
-        } else if (mapId) {
-          this.appendChatLine('System', `Navigating to ${roomName} in ${button.closest('.action-rail__group')?.querySelector('.action-rail__group-label')?.textContent || 'another dungeon'}.`, 'system');
-          this.navigateToDungeonContext({
-            map_id: mapId,
-            dungeon_level_id: dungeonLevelId,
-            room_id: roomId,
-            next_room_id: '',
-          });
-          changed = true;
         }
         if (!changed) {
-          this.appendChatLine('System', 'That visited destination is not available right now.', 'system');
+          this.appendChatLine('System', 'That destination is not navigable right now.', 'system');
           return;
         }
 
-        if (!mapId || !currentMapId || mapId === currentMapId) {
-          this.appendChatLine('System', `Navigating to ${roomName}.`, 'system');
-        }
+        this.appendChatLine('System', `Navigating to ${roomName}.`, 'system');
         this.refreshActionRail();
       } finally {
         this.endActionRailRequest(button);
@@ -4412,6 +5407,8 @@ import { SpriteService } from './SpriteService.js';
         this.loadActiveRoomView();
       } else if (requestedTab === 'portraits') {
         this.loadRoomPortraitsPanel();
+      } else if (requestedTab === 'merchant') {
+        this.loadMerchantPanel();
       }
 
       shell.dispatchEvent(new CustomEvent('dungeoncrawler:activate-tab', {
@@ -5092,7 +6089,7 @@ import { SpriteService } from './SpriteService.js';
         state.inventory || resources.inventory || launchCharacter.inventory || {},
         fallbackCurrency
       );
-      const spells = normalizeSpellcastingData(state.spells || launchCharacter.spells || {});
+      const spells = normalizeSpellcastingData(state.spells || launchCharacter.spells || {}, state, launchCharacter);
       const saves = state.saves || defenses.savingThrows || {};
       const featEffects = features.featEffects || {};
       const featActions = flattenTooltipBuckets(state.actions?.availableActions?.feat || featEffects.available_actions || {});
@@ -5328,6 +6325,9 @@ import { SpriteService } from './SpriteService.js';
       };
       this.renderInventoryPanel(this.currentCharacterInventoryContext);
       this.refreshCharacterInventoryFromApi(this.currentCharacterInventoryContext);
+      if (this.activeGameShellTab === 'merchant') {
+        this.loadMerchantPanel(true);
+      }
 
       // Update features & feats (with type badges)
       if (this.elements.characterFeatures) {
@@ -6750,13 +7750,16 @@ import { SpriteService } from './SpriteService.js';
                   this.appendChatLineToTarget(chatTarget, event.data.speaker || 'You', event.data.message || '', event.data.type || 'player');
                 }
               } else if (event.type === 'thinking' && event.data) {
+                const thinkingSpeaker = event.data.phase === 'npc-reactions'
+                  ? 'Narrator'
+                  : (event.data.speaker || '');
                 this.updatePendingChatProgress(
                   pending,
                   event.data.message || 'Game Master is thinking...',
                   event.data.phase || '',
                   {
-                    speaker: event.data.speaker || '',
-                    role: event.data.speaker === 'Narrator' ? 'Narrator' : '',
+                    speaker: thinkingSpeaker,
+                    role: thinkingSpeaker === 'Narrator' ? 'Narrator' : '',
                   }
                 );
               } else if (event.type === 'gm_response' && event.data) {
@@ -6764,12 +7767,14 @@ import { SpriteService } from './SpriteService.js';
                 releasePrimary(event.data);
               } else if (event.type === 'system_message' && event.data) {
                 this.appendChatLineToTarget(chatTarget, event.data.speaker || 'System', event.data.message || '', event.data.type || 'system');
-                if (pending && event.data.turn_role && event.data.turn_name) {
+                const turnRole = String(event.data.turn_role || '').trim().toLowerCase();
+                const turnName = String(event.data.turn_name || '').trim();
+                if (pending && turnName && ['narrator', 'gm', 'npc'].includes(turnRole)) {
                   pending.progressPhase = 'speaking';
-                  pending.progressSpeaker = event.data.turn_name;
-                  pending.progressRole = event.data.turn_role === 'gm'
+                  pending.progressSpeaker = turnName;
+                  pending.progressRole = turnRole === 'gm'
                     ? 'GM'
-                    : (event.data.turn_role === 'narrator' ? 'Narrator' : 'NPC');
+                    : (turnRole === 'narrator' ? 'Narrator' : 'NPC');
                   this.syncChatTurnStatus();
                 }
               } else if (event.type === 'npc_interjection' && event.data) {
@@ -6835,12 +7840,26 @@ import { SpriteService } from './SpriteService.js';
                 });
                 releasePrimary(completeResult);
               } else if (event.type === 'error') {
+                console.error('[RoomChat] streamed error event', {
+                  requestId: pending?.requestId || null,
+                  roomId: pending?.roomId || chatTarget?.context?.roomId || null,
+                  campaignId: chatTarget?.context?.campaignId || null,
+                  status: Number(event.status || event?.debug?.status || 0) || null,
+                  error: event.error || event?.data?.error || null,
+                  debug: event.debug || null,
+                  event,
+                });
                 this.settlePendingChatRequest(pending, {
                   removePlayer: false,
                   removePlaceholder: true,
                 });
                 releasePrimary();
-                throw new Error(event.error || 'An error occurred');
+                const errorMessage = event.error || event?.data?.error || 'An error occurred';
+                const debugId = String(event?.debug?.debug_id || '').trim();
+                const error = new Error(debugId ? `${errorMessage} [debug ${debugId}]` : errorMessage);
+                error.status = Number(event.status || event?.debug?.status || 0) || null;
+                error.streamEvent = event;
+                throw error;
               }
             }
           }
@@ -10256,7 +11275,6 @@ import { SpriteService } from './SpriteService.js';
     selectEntity: function (entity) {
       const previousEntity = this.stateManager.get('selectedEntity');
       if (previousEntity?.id === entity?.id) {
-        this.stateManager.set('selectedEntity', entity);
         this.syncLaunchCharacterRuntimeFromEntity(entity);
         this.syncTokenBadgeState();
         return;
@@ -11390,7 +12408,8 @@ import { SpriteService } from './SpriteService.js';
      * @returns {string|null}
      */
     resolveActiveRoomId: function () {
-      return this.activeRoomId || this.stateManager.get('activeRoomId') || this.launchContext?.room_id || null;
+      const payloadRoomId = this.dungeonData?.active_room_id || Object.keys(this.dungeonData?.rooms || {})[0] || null;
+      return this.activeRoomId || this.stateManager.get('activeRoomId') || this.launchContext?.room_id || payloadRoomId || null;
     },
 
     updateLaunchLocationContext: function (roomId, q = null, r = null) {
@@ -14223,7 +15242,7 @@ import { SpriteService } from './SpriteService.js';
         !this.stateManager.get('combatActive');
 
       if (shouldAutoStart) {
-        this.startCombat({ startMode: 'auto', requireHostiles: false, reason: 'active-room-render' });
+        this.startCombat({ startMode: 'auto', requireHostiles: true, reason: 'active-room-render' });
       }
 
       // Resolve generated sprite images for all object definitions in view.
@@ -14569,6 +15588,12 @@ import { SpriteService } from './SpriteService.js';
       this.renderActiveRoomEntities();
       this.renderOrientationReferenceHex();
       this.refreshFogOfWar();
+      if (this.uiManager?.activeGameShellTab === 'merchant') {
+        this.uiManager.logMerchantPanelTrace('active-room-refresh', {
+          roomId,
+        });
+        this.uiManager.loadMerchantPanel(true);
+      }
       // Load channels and chat history for the newly active room
       if (this.uiManager) {
         // Reset to room channel on room transition.
@@ -15676,46 +16701,86 @@ import { SpriteService } from './SpriteService.js';
     },
 
     /**
+     * Resolve explicit navigation capabilities for a room from connection data.
+     * @param {string} [roomId]
+     * @returns {Array<object>}
+     */
+    resolveNavigationCapabilities: function (roomId) {
+      const activeRoomId = String(roomId || this.activeRoomId || '').trim();
+      const rawConnections = Array.isArray(this.dungeonData?.connections)
+        ? this.dungeonData.connections
+        : (Array.isArray(this.dungeonData?.hex_map?.connections) ? this.dungeonData.hex_map.connections : []);
+
+      if (!activeRoomId || !rawConnections.length) {
+        return [];
+      }
+
+      return rawConnections
+        .filter((connection) => connection && typeof connection === 'object' && (connection.from_room === activeRoomId || connection.to_room === activeRoomId))
+        .map((connection) => {
+          const travelsForward = connection.from_room === activeRoomId;
+          const targetRoomId = String(travelsForward ? (connection.to_room || '') : (connection.from_room || ''));
+          const isDiscovered = Object.prototype.hasOwnProperty.call(connection, 'is_discovered')
+            ? Boolean(connection.is_discovered)
+            : true;
+          const isPassable = Object.prototype.hasOwnProperty.call(connection, 'is_passable')
+            ? Boolean(connection.is_passable)
+            : true;
+          const type = String(connection.type || 'passage');
+          const blockedReason = !targetRoomId
+            ? 'unresolved_destination'
+            : (!isDiscovered ? 'undiscovered' : (!isPassable ? 'blocked' : null));
+
+          return {
+            connection_id: String(connection.connection_id || `${connection.from_room || 'unknown'}__${connection.to_room || 'unknown'}`),
+            origin_room_id: activeRoomId,
+            target_room_id: targetRoomId,
+            type,
+            available: blockedReason === null,
+            blocked_reason: blockedReason,
+            is_discovered: isDiscovered,
+            is_passable: isPassable,
+            bidirectional: Object.prototype.hasOwnProperty.call(connection, 'bidirectional')
+              ? Boolean(connection.bidirectional)
+              : type !== 'one_way',
+            requires_interaction: !isPassable || ['door', 'locked_door', 'secret_door', 'trapped_door', 'barricade', 'collapsed', 'magical_barrier'].includes(type),
+            origin_hex: travelsForward ? (connection.from_hex || null) : (connection.to_hex || null),
+            target_hex: travelsForward ? (connection.to_hex || null) : (connection.from_hex || null),
+            connection,
+          };
+        });
+    },
+
+    /**
+     * Resolve one room-transition capability from the clicked hex.
+     * @param {number} q
+     * @param {number} r
+     * @returns {object|null}
+     */
+    resolveNavigationCapabilityAtHex: function (q, r) {
+      return this.resolveNavigationCapabilities(this.activeRoomId).find((capability) => {
+        const originHex = capability?.origin_hex;
+        return capability?.available
+          && originHex
+          && Number(originHex.q) === q
+          && Number(originHex.r) === r;
+      }) || null;
+    },
+
+    /**
      * Try to transition to a connected room at a given hex.
      * @param {number} q - Axial q coordinate
      * @param {number} r - Axial r coordinate
      * @returns {boolean}
      */
     tryTransitionAtHex: function (q, r) {
-      const connections = Array.isArray(this.dungeonData?.connections) ? this.dungeonData.connections : [];
-      if (!connections.length || !this.activeRoomId) {
+      const capability = this.resolveNavigationCapabilityAtHex(q, r);
+      if (!capability) {
         return false;
       }
 
-      const match = connections.find((connection) => {
-        if (connection?.is_passable === false) {
-          return false;
-        }
-
-        const fromMatch = connection.from_room === this.activeRoomId &&
-          Number(connection?.from_hex?.q) === q &&
-          Number(connection?.from_hex?.r) === r;
-        const toMatch = connection.to_room === this.activeRoomId &&
-          Number(connection?.to_hex?.q) === q &&
-          Number(connection?.to_hex?.r) === r;
-
-        return fromMatch || toMatch;
-      });
-
-      if (!match) {
-        return false;
-      }
-
-      let nextRoomId = null;
-      let nextHex = null;
-
-      if (match.from_room === this.activeRoomId) {
-        nextRoomId = match.to_room;
-        nextHex = match.to_hex;
-      } else {
-        nextRoomId = match.from_room;
-        nextHex = match.from_hex;
-      }
+      const nextRoomId = capability.target_room_id || null;
+      const nextHex = capability.target_hex || null;
 
       // Move the selected player entity's dungeon placement to the destination room/hex
       // so it persists across the room transition and re-renders in the new room.
@@ -15788,7 +16853,7 @@ import { SpriteService } from './SpriteService.js';
         }
       }
 
-      console.log('Transitioned room:', this.activeRoomId, 'via connection', match.connection_id);
+      console.log('Transitioned room:', this.activeRoomId, 'via connection', capability.connection_id);
       return true;
     },
 

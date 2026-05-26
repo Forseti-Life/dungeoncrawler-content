@@ -200,6 +200,228 @@ class StorylineManagerServiceTest extends UnitTestCase {
     $this->assertSame('old-library-stairs', $normalized['metadata']['generated_outline']['entry_dungeon']['entrance_room_id']);
     $this->assertSame('npc_tavern_keeper', $normalized['metadata']['generated_outline']['bootstrap_handoff']['speaker_npc_id']);
     $this->assertSame('Eldric', $normalized['metadata']['generated_outline']['bootstrap_handoff']['speaker_name']);
+    $this->assertSame('threshold-of-lore', $normalized['contacts'][0]['relationship_state']['chapter_id']);
+    $this->assertSame('old-library-stairs', $normalized['contacts'][0]['relationship_state']['scene_id']);
+    $this->assertTrue(
+      in_array('npc_tavern_keeper', array_map(static fn(array $reference): string => (string) ($reference['asset_id'] ?? ''), array_filter($normalized['asset_references'], static fn(array $reference): bool => (string) ($reference['asset_role'] ?? '') === 'quest-giver')), TRUE)
+    );
+  }
+
+  /**
+   * @covers ::validateNormalizedStorylineDefinition
+   */
+  public function testValidateNormalizedStorylineDefinitionRejectsUnknownRoomNpcReferences(): void {
+    $service = $this->buildService();
+    $normalize = new \ReflectionMethod(StorylineManagerService::class, 'normalizeTemplateDefinition');
+    $normalize->setAccessible(TRUE);
+
+    $normalized = $normalize->invoke($service, [
+      'name' => 'Broken NPC Story',
+      'source' => 'storyline-generator',
+      'tags' => ['generated'],
+      'metadata' => [
+        'goal' => 'Stop the sentinel.',
+        'generated_outline' => [
+          'generation_phase' => 'expanded',
+          'goal' => 'Stop the sentinel.',
+          'big_boss' => [
+            'boss_id' => 'known-boss',
+            'name' => 'Known Boss',
+            'style' => 'ruin',
+            'dungeon_id' => 'broken-vault',
+          ],
+          'dungeons' => [[
+            'dungeon_id' => 'broken-vault',
+            'name' => 'Broken Vault',
+            'boss_id' => 'known-boss',
+            'style' => 'ruin',
+            'entrance_room_id' => 'broken-vault-room-1',
+            'boss_room_id' => 'broken-vault-room-1',
+            'room_count' => 1,
+            'rooms' => [[
+              'room_id' => 'broken-vault-room-1',
+              'name' => 'Broken Entrance',
+              'room_role' => 'entrance',
+              'style' => 'ruin',
+              'summary' => 'A broken room.',
+              'npc_ids' => ['missing-npc'],
+              'item_ids' => [],
+              'encounter_connector' => ['threat_level' => 'low'],
+              'treasure_connector' => ['loot_table_id' => 'core_starter_adventure'],
+            ]],
+          ]],
+        ],
+      ],
+      'contacts' => [[
+        'contact_id' => 'quest-giver-contact',
+        'entity_type' => 'npc_template',
+        'entity_id' => 'known-contact',
+        'role' => 'quest_giver',
+        'display_name' => 'Known Contact',
+        'attitude' => 'friendly',
+      ]],
+      'chapters' => [[
+        'name' => 'Broken Vault',
+        'scenes' => [[
+          'name' => 'Broken Entrance',
+          'quest_ids' => ['broken-quest'],
+        ]],
+      ]],
+    ]);
+
+    $validation = $service->validateNormalizedStorylineDefinition($normalized);
+    $this->assertFalse($validation['valid']);
+    $this->assertStringContainsString("unknown NPC 'missing-npc'", implode('; ', $validation['errors'] ?? []));
+  }
+
+  /**
+   * @covers ::validateRuntimeStorylineContract
+   */
+  public function testValidateRuntimeStorylineContractRejectsUnknownRoomNpcReferences(): void {
+    $service = $this->buildService();
+    $normalize = new \ReflectionMethod(StorylineManagerService::class, 'normalizeTemplateDefinition');
+    $normalize->setAccessible(TRUE);
+
+    $normalized = $normalize->invoke($service, [
+      'name' => 'Broken Runtime Story',
+      'source' => 'storyline-generator',
+      'metadata' => [
+        'goal' => 'Stop the sentinel.',
+        'generated_outline' => [
+          'generation_phase' => 'expanded',
+          'goal' => 'Stop the sentinel.',
+          'big_boss' => [
+            'boss_id' => 'known-boss',
+            'name' => 'Known Boss',
+            'style' => 'ruin',
+            'dungeon_id' => 'broken-vault',
+          ],
+          'dungeons' => [[
+            'dungeon_id' => 'broken-vault',
+            'name' => 'Broken Vault',
+            'boss_id' => 'known-boss',
+            'style' => 'ruin',
+            'entrance_room_id' => 'broken-vault-room-1',
+            'boss_room_id' => 'broken-vault-room-1',
+            'room_count' => 1,
+            'rooms' => [[
+              'room_id' => 'broken-vault-room-1',
+              'name' => 'Broken Entrance',
+              'room_role' => 'entrance',
+              'style' => 'ruin',
+              'summary' => 'A broken room.',
+              'npc_ids' => ['missing-npc'],
+              'item_ids' => [],
+              'encounter_connector' => ['threat_level' => 'low'],
+              'treasure_connector' => ['loot_table_id' => 'core_starter_adventure'],
+            ]],
+          ]],
+        ],
+      ],
+      'contacts' => [[
+        'contact_id' => 'quest-giver-contact',
+        'entity_type' => 'npc_template',
+        'entity_id' => 'known-contact',
+        'role' => 'quest_giver',
+        'display_name' => 'Known Contact',
+        'attitude' => 'friendly',
+      ]],
+      'chapters' => [[
+        'name' => 'Broken Vault',
+        'scenes' => [[
+          'name' => 'Broken Entrance',
+          'quest_ids' => ['broken-quest'],
+        ]],
+      ]],
+    ]);
+
+    $runtime = [
+      'schema_version' => StorylineManagerService::STORYLINE_RUNTIME_SCHEMA_VERSION,
+      'storyline_type' => 'questline',
+      'metadata' => $normalized['metadata'],
+      'chapters' => $normalized['chapters'],
+      'linked_quests' => $normalized['linked_quests'],
+      'questline' => $normalized['questline'],
+      'asset_references' => $normalized['asset_references'],
+      'contacts' => $normalized['contacts'],
+      'unlocked_chapter_ids' => ['broken-vault'],
+      'unlocked_scene_ids' => ['broken-entrance'],
+      'current_chapter_id' => 'broken-vault',
+      'current_scene_id' => 'broken-entrance',
+      'status' => 'active',
+      'variables' => [],
+    ];
+
+    $validation = $service->validateRuntimeStorylineContract($runtime);
+    $this->assertFalse($validation['valid']);
+    $this->assertStringContainsString("unknown NPC 'missing-npc'", implode('; ', $validation['errors'] ?? []));
+  }
+
+  /**
+   * @covers ::normalizeRuntimeStorylineData
+   */
+  public function testNormalizeRuntimeStorylineDataRepairsLegacyBootstrapOutlineReferences(): void {
+    $service = $this->buildService();
+    $method = new \ReflectionMethod(StorylineManagerService::class, 'normalizeRuntimeStorylineData');
+    $method->setAccessible(TRUE);
+
+    $normalized = $method->invoke($service, [
+      'schema_version' => StorylineManagerService::STORYLINE_RUNTIME_SCHEMA_VERSION,
+      'storyline_type' => 'questline',
+      'storyline_id' => 'torment-and-legacy',
+      'template_id' => 'torment-and-legacy',
+      'name' => 'Torment and Legacy',
+      'metadata' => [
+        'generated_outline' => [
+          'generation_phase' => 'bootstrap',
+          'entry_dungeon' => [
+            'name' => 'Onboarding',
+            'dungeon_id' => 'onboarding',
+            'entrance_room_id' => 'briefing',
+          ],
+          'progression_connectors' => [[
+            'connector_id' => 'onboarding-bootstrap-handoff',
+            'source_type' => 'npc',
+            'source_id' => 'tal-mission-handler',
+            'target_dungeon_id' => 'onboarding',
+            'target_room_id' => 'briefing',
+          ]],
+        ],
+      ],
+      'chapters' => [[
+        'chapter_id' => 'torment-and-legacy-entry-dungeon',
+        'name' => 'Onboarding',
+        'scenes' => [[
+          'scene_id' => 'torment-and-legacy-entry-dungeon-entrance',
+          'name' => 'Adventure Briefing',
+          'quest_ids' => ['torment-and-legacy-entry-dungeon-entrance-quest'],
+        ]],
+      ]],
+      'linked_quests' => [],
+      'questline' => [
+        'primary_quest_id' => 'torment-and-legacy-entry-dungeon-entrance-quest',
+        'ordered_quest_ids' => ['torment-and-legacy-entry-dungeon-entrance-quest'],
+        'quest_nodes' => [],
+      ],
+      'asset_references' => [],
+      'contacts' => [],
+      'unlocked_chapter_ids' => ['torment-and-legacy-entry-dungeon'],
+      'unlocked_scene_ids' => ['torment-and-legacy-entry-dungeon-entrance'],
+      'current_chapter_id' => 'torment-and-legacy-entry-dungeon',
+      'current_scene_id' => 'torment-and-legacy-entry-dungeon-entrance',
+      'status' => 'available',
+      'variables' => [],
+    ]);
+
+    $this->assertArrayNotHasKey('storyline_id', $normalized);
+    $this->assertArrayNotHasKey('template_id', $normalized);
+    $this->assertArrayNotHasKey('name', $normalized);
+    $this->assertSame('torment-and-legacy', $normalized['metadata']['template_id']);
+    $this->assertSame('Torment and Legacy', $normalized['metadata']['name']);
+    $this->assertSame('torment-and-legacy-entry-dungeon', $normalized['metadata']['generated_outline']['entry_dungeon']['dungeon_id']);
+    $this->assertSame('torment-and-legacy-entry-dungeon-entrance', $normalized['metadata']['generated_outline']['entry_dungeon']['entrance_room_id']);
+    $this->assertSame('torment-and-legacy-entry-dungeon', $normalized['metadata']['generated_outline']['progression_connectors'][0]['target_dungeon_id']);
+    $this->assertSame('torment-and-legacy-entry-dungeon-entrance', $normalized['metadata']['generated_outline']['progression_connectors'][0]['target_room_id']);
   }
 
   /**
@@ -291,6 +513,215 @@ class StorylineManagerServiceTest extends UnitTestCase {
     $this->assertSame('completed', $result['status']);
     $this->assertCount(1, $result['events']);
     $this->assertSame('storyline_completed', $result['events'][0]['event_type']);
+  }
+
+  /**
+   * @covers ::createCampaignStoryline
+   */
+  public function testCreateCampaignStorylineFinalizesPersistedStorylineLifecycle(): void {
+    $insert = $this->createMock(\Drupal\Core\Database\Query\Insert::class);
+    $insert->expects($this->once())
+      ->method('fields')
+      ->with($this->callback(static function (array $fields): bool {
+        return $fields['storyline_id'] === 'test-storyline-65'
+          && $fields['template_id'] === 'test-template'
+          && $fields['name'] === 'Test Storyline';
+      }))
+      ->willReturnSelf();
+    $insert->expects($this->once())
+      ->method('execute')
+      ->willReturn('1');
+
+    $database = $this->createMock(Connection::class);
+    $database->expects($this->once())
+      ->method('insert')
+      ->with('dc_campaign_storylines')
+      ->willReturn($insert);
+
+    $campaign_state = $this->createMock(CampaignStateService::class);
+    $campaign_state->expects($this->once())
+      ->method('getState')
+      ->with(65)
+      ->willReturn(['state' => []]);
+
+    $uuid = $this->createMock(UuidInterface::class);
+    $service = new class($database, $this->buildLoggerFactory(), $uuid, $campaign_state) extends StorylineManagerService {
+      public array $finalizedStorylines = [];
+
+      protected function assertStorylineStorageReady(): void {}
+
+      public function normalizeStorylineDefinition(array $definition): array {
+        return [
+          'template_id' => 'test-template',
+          'name' => 'Test Storyline',
+          'asset_references' => [],
+          'linked_quests' => [],
+        ];
+      }
+
+      protected function buildInitialStorylineState(array $normalized, array $options): array {
+        return [
+          'current_chapter_id' => '',
+          'current_scene_id' => '',
+          'variables' => [],
+          'storyline_data' => [
+            'linked_quests' => [],
+            'asset_references' => [],
+          ],
+        ];
+      }
+
+      protected function generateCampaignStorylineId(int $campaign_id, string $base): string {
+        return 'test-storyline-65';
+      }
+
+      protected function attachQuestReferences(int $campaign_id, string $storyline_id, array $linked_quests): void {}
+
+      protected function syncCampaignStorylineAssetLinks(int $campaign_id, string $storyline_id, array $asset_references): void {}
+
+      protected function logStorylineEvent(int $campaign_id, string $storyline_id, string $event_type, array $event_data, ?string $narrative_text = NULL): void {}
+
+      protected function persistCampaignStorylinePointers(int $campaign_id, string $storyline_id, bool $primary): void {}
+
+      protected function finalizePersistedCampaignStoryline(int $campaign_id, string $storyline_id): ?array {
+        $this->finalizedStorylines[] = [$campaign_id, $storyline_id];
+        return [
+          'storyline_id' => $storyline_id,
+          'storyline_data' => [],
+        ];
+      }
+    };
+
+    $result = $service->createCampaignStoryline(65, ['name' => 'Ignored']);
+
+    $this->assertSame([['65', 'test-storyline-65']], array_map(
+      static fn(array $call): array => [(string) $call[0], (string) $call[1]],
+      $service->finalizedStorylines
+    ));
+    $this->assertSame('test-storyline-65', $result['storyline_id']);
+  }
+
+  /**
+   * @covers ::replaceCampaignStorylineDefinition
+   */
+  public function testReplaceCampaignStorylineDefinitionFinalizesPersistedStorylineLifecycle(): void {
+    $statement = $this->createMock(\Drupal\Core\Database\StatementInterface::class);
+    $statement->expects($this->once())
+      ->method('fetchAssoc')
+      ->willReturn([
+        'status' => 'available',
+        'storyline_data' => json_encode([
+          'metadata' => [
+            'generated_outline' => [
+              'generation_phase' => 'bootstrap',
+            ],
+          ],
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        'variables' => json_encode([], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        'activated_at' => 0,
+      ]);
+
+    $select = $this->createMock(\Drupal\Core\Database\Query\SelectInterface::class);
+    $select->expects($this->once())
+      ->method('fields')
+      ->with('s')
+      ->willReturnSelf();
+    $select->expects($this->exactly(2))
+      ->method('condition')
+      ->willReturnSelf();
+    $select->expects($this->once())
+      ->method('range')
+      ->with(0, 1)
+      ->willReturnSelf();
+    $select->expects($this->once())
+      ->method('execute')
+      ->willReturn($statement);
+
+    $update = $this->createMock(\Drupal\Core\Database\Query\Update::class);
+    $update->expects($this->once())
+      ->method('fields')
+      ->with($this->callback(static function (array $fields): bool {
+        return $fields['template_id'] === 'replacement-template'
+          && $fields['name'] === 'Replacement Storyline'
+          && $fields['status'] === 'available';
+      }))
+      ->willReturnSelf();
+    $update->expects($this->exactly(2))
+      ->method('condition')
+      ->willReturnSelf();
+    $update->expects($this->once())
+      ->method('execute')
+      ->willReturn(1);
+
+    $database = $this->createMock(Connection::class);
+    $database->expects($this->once())
+      ->method('select')
+      ->with('dc_campaign_storylines', 's')
+      ->willReturn($select);
+    $database->expects($this->once())
+      ->method('update')
+      ->with('dc_campaign_storylines')
+      ->willReturn($update);
+
+    $uuid = $this->createMock(UuidInterface::class);
+    $service = new class($database, $this->buildLoggerFactory(), $uuid, $this->createMock(CampaignStateService::class)) extends StorylineManagerService {
+      public array $finalizedStorylines = [];
+
+      protected function assertStorylineStorageReady(): void {}
+
+      public function normalizeStorylineDefinition(array $definition): array {
+        return [
+          'template_id' => 'replacement-template',
+          'name' => 'Replacement Storyline',
+          'asset_references' => [],
+          'linked_quests' => [],
+          'metadata' => [
+            'generated_outline' => [
+              'generation_phase' => 'expanded',
+            ],
+          ],
+        ];
+      }
+
+      protected function buildInitialStorylineState(array $normalized, array $options): array {
+        return [
+          'current_chapter_id' => '',
+          'current_scene_id' => '',
+          'variables' => [],
+          'storyline_data' => [
+            'linked_quests' => [],
+            'asset_references' => [],
+            'metadata' => [
+              'generated_outline' => [
+                'generation_phase' => 'expanded',
+              ],
+            ],
+          ],
+        ];
+      }
+
+      protected function attachQuestReferences(int $campaign_id, string $storyline_id, array $linked_quests): void {}
+
+      protected function syncCampaignStorylineAssetLinks(int $campaign_id, string $storyline_id, array $asset_references): void {}
+
+      protected function logStorylineEvent(int $campaign_id, string $storyline_id, string $event_type, array $event_data, ?string $narrative_text = NULL): void {}
+
+      protected function finalizePersistedCampaignStoryline(int $campaign_id, string $storyline_id): ?array {
+        $this->finalizedStorylines[] = [$campaign_id, $storyline_id];
+        return [
+          'storyline_id' => $storyline_id,
+          'storyline_data' => [],
+        ];
+      }
+    };
+
+    $result = $service->replaceCampaignStorylineDefinition(65, 'existing-storyline', ['name' => 'Ignored']);
+
+    $this->assertSame([['65', 'existing-storyline']], array_map(
+      static fn(array $call): array => [(string) $call[0], (string) $call[1]],
+      $service->finalizedStorylines
+    ));
+    $this->assertSame('existing-storyline', $result['storyline_id']);
   }
 
   /**

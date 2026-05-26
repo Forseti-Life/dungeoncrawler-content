@@ -251,22 +251,58 @@ class QuestTouchpointService {
       }
 
       $objectives = is_array($phase['objectives'] ?? NULL) ? $phase['objectives'] : [];
-      return array_values(array_filter($objectives, static function (array $objective): bool {
-        if (!empty($objective['completed'])) {
-          return FALSE;
-        }
-
-        $target_count = (int) ($objective['target_count'] ?? 0);
-        $current = (int) ($objective['current'] ?? 0);
-        if ($target_count > 0 && $current >= $target_count) {
-          return FALSE;
-        }
-
-        return TRUE;
-      }));
+      return $this->collectActiveObjectives($objectives);
     }
 
     return [];
+  }
+
+  /**
+   * Flatten active leaf objectives from a nested current-phase objective tree.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Active objectives.
+   */
+  protected function collectActiveObjectives(array $objectives): array {
+    $active = [];
+    foreach ($objectives as $objective) {
+      if (!is_array($objective)) {
+        continue;
+      }
+
+      if (!$this->isObjectiveCurrentlyRevealed($objective)) {
+        continue;
+      }
+
+      $children = is_array($objective['children'] ?? NULL) ? $objective['children'] : [];
+      if ($children !== []) {
+        $active = array_merge($active, $this->collectActiveObjectives($children));
+      }
+
+      if ($children !== []) {
+        continue;
+      }
+      if (!empty($objective['completed'])) {
+        continue;
+      }
+
+      $target_count = (int) ($objective['target_count'] ?? 0);
+      $current = (int) ($objective['current'] ?? 0);
+      if ($target_count > 0 && $current >= $target_count) {
+        continue;
+      }
+
+      $active[] = $objective;
+    }
+
+    return array_values($active);
+  }
+
+  /**
+   * Determine whether an objective is currently available to runtime matching.
+   */
+  protected function isObjectiveCurrentlyRevealed(array $objective): bool {
+    return !array_key_exists('revealed', $objective) || !empty($objective['revealed']) || !empty($objective['completed']);
   }
 
   /**

@@ -3011,6 +3011,9 @@ class CharacterCreationStepForm extends FormBase {
 
     // Redirect to next step or character view
     if ($step >= 8) {
+      if ($character_id) {
+        $this->characterManager->updateCharacter((int) $character_id, ['status' => 1]);
+      }
       $portrait_result = $this->portraitGenerator->generatePortrait(
         $character_data,
         (int) $character_id,
@@ -4272,7 +4275,6 @@ class CharacterCreationStepForm extends FormBase {
 
     $cantrip_options = [];
     $cantrip_cards = [];
-    $cantrip_reference_cards = [];
     foreach ($this->characterManager->getSpellsByTradition('primal', 0) as $cantrip) {
       $cantrip_options[$cantrip['id']] = $cantrip['name'];
       $tags = ['Cantrip', 'Primal'];
@@ -4285,12 +4287,6 @@ class CharacterCreationStepForm extends FormBase {
         $tags,
         $facts,
       );
-      $cantrip_reference_cards[] = [
-        'title' => $cantrip['name'],
-        'description' => $cantrip['description'] ?? '',
-        'tags' => $tags,
-        'facts' => $facts,
-      ];
     }
 
     if (!array_key_exists($selected_cantrip, $cantrip_options)) {
@@ -4311,16 +4307,6 @@ class CharacterCreationStepForm extends FormBase {
       $cantrip_cards,
       'single'
     );
-    $container['feat_selections']['first-world-magic']['reference'] = [
-      '#type' => 'container',
-      '#attributes' => ['class' => ['spell-reference-section']],
-      'heading' => [
-        '#markup' => '<h4>' . $this->t('Primal cantrip reference') . '</h4>',
-      ],
-      'cards' => [
-        '#markup' => $this->buildOptionDetailStackMarkup($cantrip_reference_cards),
-      ],
-    ];
   }
 
   /**
@@ -4354,7 +4340,6 @@ class CharacterCreationStepForm extends FormBase {
 
     $cantrip_options = [];
     $cantrip_cards = [];
-    $cantrip_reference_cards = [];
     foreach ($this->characterManager->getSpellsByTradition('primal', 0) as $cantrip) {
       $cantrip_options[$cantrip['id']] = $cantrip['name'];
       $tags = ['Cantrip', 'Primal'];
@@ -4367,12 +4352,6 @@ class CharacterCreationStepForm extends FormBase {
         $tags,
         $facts,
       );
-      $cantrip_reference_cards[] = [
-        'title' => $cantrip['name'],
-        'description' => $cantrip['description'] ?? '',
-        'tags' => $tags,
-        'facts' => $facts,
-      ];
     }
 
     if (!array_key_exists($selected_cantrip, $cantrip_options)) {
@@ -4393,16 +4372,6 @@ class CharacterCreationStepForm extends FormBase {
       $cantrip_cards,
       'single'
     );
-    $container['feat_selections']['otherworldly-magic']['reference'] = [
-      '#type' => 'container',
-      '#attributes' => ['class' => ['spell-reference-section']],
-      'heading' => [
-        '#markup' => '<h4>' . $this->t('Primal cantrip reference') . '</h4>',
-      ],
-      'cards' => [
-        '#markup' => $this->buildOptionDetailStackMarkup($cantrip_reference_cards),
-      ],
-    ];
   }
 
   /**
@@ -6288,7 +6257,6 @@ class CharacterCreationStepForm extends FormBase {
 
     $cantrip_options = [];
     $cantrip_cards = [];
-    $cantrip_reference_cards = [];
     foreach ($this->characterManager->getSpellsByTradition($selected_tradition, 0) as $cantrip) {
       $cantrip_options[$cantrip['id']] = $cantrip['name'];
       $tags = ['Cantrip', ucfirst($selected_tradition)];
@@ -6301,12 +6269,6 @@ class CharacterCreationStepForm extends FormBase {
         $tags,
         $facts,
       );
-      $cantrip_reference_cards[] = [
-        'title' => $cantrip['name'],
-        'description' => $cantrip['description'] ?? '',
-        'tags' => $tags,
-        'facts' => $facts,
-      ];
     }
 
     $form['class_dynamic']['feat_selections']['adapted-cantrip']['selected_cantrip'] = [
@@ -6328,16 +6290,6 @@ class CharacterCreationStepForm extends FormBase {
       $cantrip_cards,
       'single'
     );
-    $form['class_dynamic']['feat_selections']['adapted-cantrip']['reference'] = [
-      '#type' => 'container',
-      '#attributes' => ['class' => ['spell-reference-section']],
-      'heading' => [
-        '#markup' => '<h4>' . $this->t('@tradition cantrip reference', ['@tradition' => ucfirst($selected_tradition)]) . '</h4>',
-      ],
-      'cards' => [
-        '#markup' => $this->buildOptionDetailStackMarkup($cantrip_reference_cards),
-      ],
-    ];
   }
 
   /**

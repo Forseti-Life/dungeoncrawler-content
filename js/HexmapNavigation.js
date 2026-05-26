@@ -169,6 +169,7 @@ export class HexmapNavigation {
     if (nav.room && typeof nav.room === 'object') {
       hm.dungeonData.rooms[targetRoomId] = nav.room;
     }
+    hm.dungeonData.navigation_capabilities = Array.isArray(nav.navigation_capabilities) ? nav.navigation_capabilities : [];
 
     this.mergeNavigationEntities(nav.entities || []);
     this.mergeNavigationConnections(nav.connections || []);
