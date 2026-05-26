@@ -29,6 +29,9 @@ class MapGeneratorService {
   protected NpcPsychologyService $psychologyService;
   protected RoomStateService $roomStateService;
   protected NpcSheetGenerationService $npcSheetGenerationService;
+  protected ?StateValidationService $stateValidationService;
+  protected ?NavigationService $navigationService;
+  protected const NAVIGATION_RECEIPT_SCHEMA_VERSION = 'navigation-receipt-v1';
 
   /**
    * Size presets: setting type => [cols, rows, hex_count_approx, size_category].
@@ -95,7 +98,9 @@ class MapGeneratorService {
     AIApiService $ai_api_service,
     NpcPsychologyService $psychology_service,
     RoomStateService $room_state_service,
-    NpcSheetGenerationService $npc_sheet_generation_service
+    NpcSheetGenerationService $npc_sheet_generation_service,
+    ?StateValidationService $state_validation_service = NULL,
+    ?NavigationService $navigation_service = NULL
   ) {
     $this->database = $database;
     $this->logger = $logger_factory->get('dungeoncrawler_map_gen');
@@ -103,6 +108,8 @@ class MapGeneratorService {
     $this->psychologyService = $psychology_service;
     $this->roomStateService = $room_state_service;
     $this->npcSheetGenerationService = $npc_sheet_generation_service;
+    $this->stateValidationService = $state_validation_service;
+    $this->navigationService = $navigation_service;
   }
 
   /**
@@ -122,8 +129,8 @@ class MapGeneratorService {
   /**
    * Generate a new map/setting from a player's navigation intent.
    *
-   * This is the main entry point. Given a destination description (e.g., "the
-   * blacksmith shop", "the town square", "the forest path outside town"), it:
+     * This is the main entry point. Given a canonical destination label (e.g.,
+     * "Blacksmith", "Town Square", "Tavern Entrance"), it:
    * 1. Checks the setting template library for an adequate existing match
    * 2. If no match, calls AI to generate the setting and caches it in library
    * 3. Builds a complete room structure matching dungeon_data schema
@@ -133,8 +140,8 @@ class MapGeneratorService {
    *
    * @param int $campaign_id
    *   The campaign ID.
-   * @param string $destination
-   *   The player's stated destination (e.g., "the blacksmith", "outside").
+     * @param string $destination
+     *   Canonical destination label used for room reuse and library matching.
    * @param string $origin_room_id
    *   The room_id the player is leaving from.
    * @param array $narrative_context
@@ -162,6 +169,12 @@ class MapGeneratorService {
     string $origin_room_id,
     array $narrative_context = []
   ): array {
+    $this->logger->notice('Map generation entry: campaign=@campaign_id origin_room_id=@origin_room_id destination=@destination narrative_context_keys=@narrative_context_keys', [
+      '@campaign_id' => $campaign_id,
+      '@origin_room_id' => $origin_room_id,
+      '@destination' => $destination,
+      '@narrative_context_keys' => implode(',', array_keys($narrative_context)),
+    ]);
     $this->logger->info('Generating new setting for campaign @cid: @dest', [
       '@cid' => $campaign_id,
       '@dest' => $destination,
@@ -217,6 +230,13 @@ class MapGeneratorService {
         '@idx' => $room_index,
         '@dest' => $destination,
       ]);
+      $this->logger->notice('Map generation exit: campaign=@campaign_id destination=@destination result=reused_existing_room room_id=@room_id room_name=@room_name room_index=@room_index', [
+        '@campaign_id' => $campaign_id,
+        '@destination' => $destination,
+        '@room_id' => (string) ($room['room_id'] ?? ''),
+        '@room_name' => (string) ($room['name'] ?? ''),
+        '@room_index' => $room_index,
+      ]);
 
       return [
         'room' => $dungeon_data['rooms'][$room_index] ?? $room,
@@ -248,14 +268,30 @@ class MapGeneratorService {
         '@score' => $library_match['quality_score'],
         '@usage' => $library_match['usage_count'] + 1,
       ]);
+      $this->logger->notice('Map generation branch: campaign=@campaign_id destination=@destination branch=library template_id=@template_id setting_type=@setting_type', [
+        '@campaign_id' => $campaign_id,
+        '@destination' => $destination,
+        '@template_id' => $template_id,
+        '@setting_type' => (string) ($setting['setting_type'] ?? ''),
+      ]);
     }
     else {
       // No library match — generate via AI.
-      $setting = $this->generateSettingDescription($destination, $narrative_context, $dungeon_data);
+      $generation_seed = trim((string) ($narrative_context['destination_description'] ?? ''));
+      if ($generation_seed === '') {
+        $generation_seed = $destination;
+      }
+      $setting = $this->generateSettingDescription($generation_seed, $narrative_context, $dungeon_data);
 
       // Cache the AI-generated setting as a new library template.
       $template_id = $this->cacheSettingAsTemplate($setting, $destination, $party_level);
       $this->logger->info('New template cached: @tid', ['@tid' => $template_id]);
+      $this->logger->notice('Map generation branch: campaign=@campaign_id destination=@destination branch=ai_generated template_id=@template_id setting_type=@setting_type', [
+        '@campaign_id' => $campaign_id,
+        '@destination' => $destination,
+        '@template_id' => (string) $template_id,
+        '@setting_type' => (string) ($setting['setting_type'] ?? ''),
+      ]);
     }
 
     // Step 2: Build the room structure.
@@ -331,6 +367,16 @@ class MapGeneratorService {
       '@idx' => $room_index,
       '@hex' => count($room['hexes']),
       '@ent' => count($entities),
+    ]);
+    $this->logger->notice('Map generation exit: campaign=@campaign_id destination=@destination room_id=@room_id room_name=@room_name source=@source template_id=@template_id room_index=@room_index entity_count=@entity_count', [
+      '@campaign_id' => $campaign_id,
+      '@destination' => $destination,
+      '@room_id' => (string) ($room['room_id'] ?? ''),
+      '@room_name' => (string) ($room['name'] ?? ''),
+      '@source' => $source,
+      '@template_id' => (string) ($template_id ?? ''),
+      '@room_index' => $room_index,
+      '@entity_count' => count($entities),
     ]);
 
     return [
@@ -423,17 +469,50 @@ class MapGeneratorService {
       ];
     }
 
-    return [
+    $payload = [
+      'schema_version' => self::NAVIGATION_RECEIPT_SCHEMA_VERSION,
       'target_room_id' => $room_id,
       'destination' => (string) ($navigation['destination'] ?? ''),
+      'destination_description' => (string) ($navigation['destination_description'] ?? $navigation['destination'] ?? ''),
+      'travel_type' => (string) ($navigation['travel_type'] ?? 'walk'),
+      'estimated_distance' => (string) ($navigation['estimated_distance'] ?? 'short'),
+      'source' => (string) ($navigation['source'] ?? 'unknown'),
+      'template_id' => array_key_exists('template_id', $navigation) && $navigation['template_id'] !== NULL
+        ? (string) $navigation['template_id']
+        : NULL,
       'room' => $normalized_room,
       'entities' => array_values(array_filter(
         is_array($navigation['entities'] ?? NULL) ? $navigation['entities'] : [],
         static fn($entity) => is_array($entity)
       )),
       'connections' => $connections,
+      'navigation_capabilities' => $this->navigationService?->buildNavigationCapabilities($dungeon_data, $room_id) ?? [],
       'entry_hex' => $entry_hex,
     ];
+
+    $origin_room_id = trim((string) ($navigation['origin_room_id'] ?? ''));
+    if ($origin_room_id !== '') {
+      $payload['origin_room_id'] = $origin_room_id;
+    }
+
+    $this->validateNavigationReceiptPayload($payload);
+    return $payload;
+  }
+
+  /**
+   * Enforce the canonical navigation receipt contract.
+   */
+  protected function validateNavigationReceiptPayload(array $payload): void {
+    if (!$this->stateValidationService) {
+      return;
+    }
+
+    $validation = $this->stateValidationService->validateNavigationReceipt($payload);
+    if (!empty($validation['valid'])) {
+      return;
+    }
+
+    throw new \RuntimeException('Navigation receipt contract violation: ' . implode('; ', $validation['errors'] ?? []));
   }
 
   // =========================================================================
@@ -463,8 +542,18 @@ class MapGeneratorService {
   protected function findLibraryMatch(string $destination, int $party_level, int $campaign_id): ?array {
     $keywords = $this->extractSearchKeywords($destination);
     $inferred_type = $this->inferSettingType($destination);
+    $this->logger->notice('Library match entry: campaign=@campaign_id destination=@destination inferred_type=@inferred_type keyword_count=@keyword_count', [
+      '@campaign_id' => $campaign_id,
+      '@destination' => $destination,
+      '@inferred_type' => (string) $inferred_type,
+      '@keyword_count' => count($keywords),
+    ]);
 
     if (empty($keywords) && !$inferred_type) {
+      $this->logger->notice('Library match exit: campaign=@campaign_id destination=@destination result=no_keywords_or_type', [
+        '@campaign_id' => $campaign_id,
+        '@destination' => $destination,
+      ]);
       return NULL;
     }
 
@@ -485,6 +574,10 @@ class MapGeneratorService {
     $candidates = $query->execute()->fetchAll(\PDO::FETCH_ASSOC);
 
     if (empty($candidates)) {
+      $this->logger->notice('Library match exit: campaign=@campaign_id destination=@destination result=no_candidates', [
+        '@campaign_id' => $campaign_id,
+        '@destination' => $destination,
+      ]);
       return NULL;
     }
 
@@ -533,9 +626,23 @@ class MapGeneratorService {
       $this->logger->debug('Library search: best score @score < 0.4 threshold, will generate fresh', [
         '@score' => round($best_score, 2),
       ]);
+      $this->logger->notice('Library match exit: campaign=@campaign_id destination=@destination result=below_threshold best_score=@best_score best_template_id=@best_template_id candidate_count=@candidate_count', [
+        '@campaign_id' => $campaign_id,
+        '@destination' => $destination,
+        '@best_score' => round($best_score, 4),
+        '@best_template_id' => (string) ($best['template_id'] ?? ''),
+        '@candidate_count' => count($candidates),
+      ]);
       return NULL;
     }
 
+    $this->logger->notice('Library match exit: campaign=@campaign_id destination=@destination result=matched template_id=@template_id best_score=@best_score candidate_count=@candidate_count', [
+      '@campaign_id' => $campaign_id,
+      '@destination' => $destination,
+      '@template_id' => (string) ($best['template_id'] ?? ''),
+      '@best_score' => round($best_score, 4),
+      '@candidate_count' => count($candidates),
+    ]);
     return $best;
   }
 
@@ -544,7 +651,16 @@ class MapGeneratorService {
    */
   protected function findExistingCampaignRoomMatch(array $dungeon_data, string $destination, string $origin_room_id): ?array {
     $normalized_destination = $this->normalizeLocationLabel($destination);
+    $this->logger->notice('Existing room match entry: origin_room_id=@origin_room_id destination=@destination normalized_destination=@normalized_destination room_count=@room_count', [
+      '@origin_room_id' => $origin_room_id,
+      '@destination' => $destination,
+      '@normalized_destination' => $normalized_destination,
+      '@room_count' => count($dungeon_data['rooms'] ?? []),
+    ]);
     if ($normalized_destination === '') {
+      $this->logger->notice('Existing room match exit: origin_room_id=@origin_room_id result=empty_destination', [
+        '@origin_room_id' => $origin_room_id,
+      ]);
       return NULL;
     }
 
@@ -590,6 +706,10 @@ class MapGeneratorService {
     }
 
     if ($matches === []) {
+      $this->logger->notice('Existing room match exit: origin_room_id=@origin_room_id destination=@destination result=no_match', [
+        '@origin_room_id' => $origin_room_id,
+        '@destination' => $destination,
+      ]);
       return NULL;
     }
 
@@ -602,7 +722,17 @@ class MapGeneratorService {
       return ((int) $a['room_index']) <=> ((int) $b['room_index']);
     });
 
-    return $matches[0];
+    $selected = $matches[0];
+    $this->logger->notice('Existing room match exit: origin_room_id=@origin_room_id destination=@destination result=matched room_id=@room_id room_name=@room_name exact_match=@exact_match connected=@connected candidate_count=@candidate_count', [
+      '@origin_room_id' => $origin_room_id,
+      '@destination' => $destination,
+      '@room_id' => (string) (($selected['room']['room_id'] ?? '')),
+      '@room_name' => (string) (($selected['room']['name'] ?? '')),
+      '@exact_match' => !empty($selected['exact_match']) ? 'yes' : 'no',
+      '@connected' => !empty($selected['connected']) ? 'yes' : 'no',
+      '@candidate_count' => count($matches),
+    ]);
+    return $selected;
   }
 
   /**
@@ -610,6 +740,13 @@ class MapGeneratorService {
    */
   protected function hydrateSettingFromTemplate(array $template): array {
     $setting_data = json_decode($template['setting_data'] ?? '{}', TRUE) ?: [];
+    $this->logger->notice('Hydrate template exit: template_id=@template_id name=@name setting_type=@setting_type npc_count=@npc_count object_count=@object_count', [
+      '@template_id' => (string) ($template['template_id'] ?? ''),
+      '@name' => (string) ($template['name'] ?? ''),
+      '@setting_type' => (string) ($template['setting_type'] ?? ''),
+      '@npc_count' => count($setting_data['npcs'] ?? []),
+      '@object_count' => count($setting_data['objects'] ?? []),
+    ]);
 
     return array_merge($setting_data, [
       'name' => $template['name'],
@@ -828,6 +965,14 @@ class MapGeneratorService {
       $this->logger->info('Room @id persisted to dc_campaign_rooms (name: @name)', [
         '@id'   => $room_id,
         '@name' => $room['name'] ?? 'Unknown',
+      ]);
+      $this->logger->notice('Room persistence exit: campaign=@campaign_id room_id=@room_id room_name=@room_name source_room_id=@source_room_id setting_type=@setting_type theme_tag_count=@theme_tag_count', [
+        '@campaign_id' => $campaign_id,
+        '@room_id' => $room_id,
+        '@room_name' => (string) ($room['name'] ?? ''),
+        '@source_room_id' => '',
+        '@setting_type' => (string) ($setting['setting_type'] ?? ''),
+        '@theme_tag_count' => count($setting['theme_tags'] ?? []),
       ]);
     }
     catch (\Exception $e) {
@@ -1623,6 +1768,12 @@ PROMPT;
       return;
     }
 
+    $this->logger->notice('Room connection entry: from_room_id=@from_room_id to_room_id=@to_room_id existing_connection_count=@existing_connection_count', [
+      '@from_room_id' => $from_room_id,
+      '@to_room_id' => $to_room_id,
+      '@existing_connection_count' => count($dungeon_data['hex_map']['connections'] ?? []),
+    ]);
+
     // Add to hex_map connections.
     if (!isset($dungeon_data['hex_map']['connections'])) {
       $dungeon_data['hex_map']['connections'] = [];
@@ -1675,6 +1826,12 @@ PROMPT;
       }
     }
     unset($room);
+    $this->logger->notice('Room connection exit: from_room_id=@from_room_id to_room_id=@to_room_id connection_exists=@connection_exists final_connection_count=@final_connection_count', [
+      '@from_room_id' => $from_room_id,
+      '@to_room_id' => $to_room_id,
+      '@connection_exists' => $connection_exists ? 'yes' : 'no',
+      '@final_connection_count' => count($dungeon_data['hex_map']['connections'] ?? []),
+    ]);
   }
 
   /**

@@ -3,6 +3,7 @@
 namespace Drupal\dungeoncrawler_content\Service;
 
 use Drupal\Core\Database\Connection;
+use Drupal\Core\Database\IntegrityConstraintViolationException;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Psr\Log\LoggerInterface;
 
@@ -235,28 +236,37 @@ class ChatSessionManager {
     }
 
     $now = time();
-    $this->database->insert('dc_chat_sessions')
-      ->fields([
-        'campaign_id' => $campaign_id,
-        'parent_session_id' => $parent_session_id,
-        'session_type' => $session_type,
-        'session_key' => $session_key,
-        'scope_ref' => $scope_ref,
-        'label' => $label,
-        'metadata' => json_encode($metadata),
-        'status' => 'active',
-        'message_count' => 0,
-        'summary' => '',
-        'last_message_at' => 0,
-        'created' => $now,
-        'updated' => $now,
-      ])
-      ->execute();
+    try {
+      $this->database->insert('dc_chat_sessions')
+        ->fields([
+          'campaign_id' => $campaign_id,
+          'parent_session_id' => $parent_session_id,
+          'session_type' => $session_type,
+          'session_key' => $session_key,
+          'scope_ref' => $scope_ref,
+          'label' => $label,
+          'metadata' => json_encode($metadata),
+          'status' => 'active',
+          'message_count' => 0,
+          'summary' => '',
+          'last_message_at' => 0,
+          'created' => $now,
+          'updated' => $now,
+        ])
+        ->execute();
 
-    $this->logger->info('Created chat session @type: @key', [
-      '@type' => $session_type,
-      '@key' => $session_key,
-    ]);
+      $this->logger->info('Created chat session @type: @key', [
+        '@type' => $session_type,
+        '@key' => $session_key,
+      ]);
+    }
+    catch (IntegrityConstraintViolationException $exception) {
+      $existing = $this->loadSession($session_key);
+      if ($existing !== NULL) {
+        return $existing;
+      }
+      throw $exception;
+    }
 
     return $this->loadSession($session_key) ?? [
       'session_key' => $session_key,

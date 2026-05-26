@@ -123,6 +123,19 @@ class CharacterCreationWorkflowTest extends BrowserTestBase {
     $this->assertSession()->statusCodeEquals(200);
     $this->assertSession()->addressMatches('/\/characters\/\d+/');
     $this->assertSession()->pageTextContains('Thorin Ironforge');
+
+    $character_row = \Drupal::database()->select('dc_campaign_characters', 'cc')
+      ->fields('cc', ['status', 'character_data'])
+      ->condition('uid', $user->id())
+      ->condition('name', 'Thorin Ironforge')
+      ->orderBy('id', 'DESC')
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    $this->assertNotFalse($character_row, 'Completed character should be persisted.');
+    $this->assertSame(1, (int) ($character_row['status'] ?? 0), 'Completed character should be marked active.');
+    $character_data = json_decode((string) ($character_row['character_data'] ?? '{}'), TRUE);
+    $this->assertSame(8, (int) ($character_data['step'] ?? 0), 'Completed character should remain on final step.');
   }
 
   /**
@@ -408,6 +421,19 @@ class CharacterCreationWorkflowTest extends BrowserTestBase {
     // Verify character was created with all persisted data
     $this->assertSession()->statusCodeEquals(200);
     $this->assertSession()->pageTextContains('Persistent Data Test');
+
+    $character_row = \Drupal::database()->select('dc_campaign_characters', 'cc')
+      ->fields('cc', ['status', 'character_data'])
+      ->condition('uid', $user->id())
+      ->condition('name', 'Persistent Data Test')
+      ->orderBy('id', 'DESC')
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    $this->assertNotFalse($character_row, 'Completed character should be persisted after navigation.');
+    $this->assertSame(1, (int) ($character_row['status'] ?? 0), 'Completed character should be marked active after navigation.');
+    $character_data = json_decode((string) ($character_row['character_data'] ?? '{}'), TRUE);
+    $this->assertSame(8, (int) ($character_data['step'] ?? 0), 'Completed character should remain on final step after navigation.');
   }
 
   /**

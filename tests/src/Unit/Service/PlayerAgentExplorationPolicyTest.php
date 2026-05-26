@@ -86,7 +86,7 @@ class PlayerAgentExplorationPolicyTest extends UnitTestCase {
           [
             'phase' => 1,
             'objectives' => [
-              ['objective_id' => 'ask-innkeeper', 'description' => 'Ask the innkeeper where the courier was last seen.', 'completed' => FALSE],
+              ['objective_id' => 'ask-innkeeper', 'type' => 'interact', 'description' => 'Ask the innkeeper where the courier was last seen.', 'completed' => FALSE],
             ],
           ],
         ]),
@@ -115,6 +115,7 @@ class PlayerAgentExplorationPolicyTest extends UnitTestCase {
     $this->assertSame('talk', $decision['intent']['type']);
     $this->assertSame('active_quest_progress', $decision['intent']['params']['automation_goal']);
     $this->assertSame('missing-courier', $decision['intent']['params']['quest_id']);
+    $this->assertSame('interact', $decision['intent']['params']['objective_type']);
     $this->assertSame('quest_talk', $decision['decision_meta']['stage']);
     $this->assertSame(20, $decision['decision_meta']['priority']);
     $this->assertStringContainsString('Missing Courier', $decision['intent']['params']['message']);
@@ -168,6 +169,77 @@ class PlayerAgentExplorationPolicyTest extends UnitTestCase {
     $this->assertSame('npc-marta', $decision['intent']['target']);
     $this->assertSame('speak_to_marta', $decision['intent']['params']['objective_id']);
     $this->assertStringContainsString('scholar_npc', $decision['reason']);
+  }
+
+  /**
+   * @covers ::chooseAction
+   */
+  public function testChooseActionUsesRevealedNestedEscortObjectiveForQuestFocus(): void {
+    $quest_tracker = $this->createMock(QuestTrackerService::class);
+    $quest_tracker->method('getActiveQuests')->with(65, 77)->willReturn([
+      [
+        'quest_id' => 'rescue-merchant',
+        'quest_name' => 'Rescue the Merchant',
+        'current_phase' => 1,
+        'last_updated' => 250,
+        'objective_states' => json_encode([
+          [
+            'phase' => 1,
+            'objectives' => [
+              [
+                'objective_id' => 'escort_to_safety',
+                'type' => 'escort',
+                'description' => 'Escort Marta to the safehouse.',
+                'completed' => FALSE,
+                'revealed' => TRUE,
+                'children' => [
+                  [
+                    'objective_id' => 'escort_to_safety_runtime_1',
+                    'type' => 'interact',
+                    'target' => 'escort_to_safety_path_encounter_1',
+                    'description' => 'Negotiate past the roadblock.',
+                    'completed' => FALSE,
+                    'revealed' => TRUE,
+                  ],
+                  [
+                    'objective_id' => 'escort_to_safety_arrive',
+                    'type' => 'explore',
+                    'location' => 'safehouse',
+                    'description' => 'Reach the safehouse.',
+                    'completed' => FALSE,
+                    'revealed' => FALSE,
+                    'escort_arrival' => TRUE,
+                  ],
+                ],
+              ],
+            ],
+          ],
+        ]),
+      ],
+    ]);
+    $policy = new PlayerAgentExplorationPolicy($quest_tracker);
+
+    $decision = $policy->chooseAction(
+      [
+        'actor_id' => 'pc-1',
+        'character_id' => 77,
+        'character_name' => 'Torgar',
+      ],
+      [
+        'campaign_id' => 65,
+        'available_actions' => ['talk', 'search', 'transition'],
+        'active_room_id' => 'road-crossing',
+        'visible_npcs' => [
+          ['entity_instance_id' => 'npc-scout', 'state' => ['metadata' => ['display_name' => 'Scout']]],
+        ],
+      ],
+      ['memory' => ['talked_entities' => [], 'searched_rooms' => []]]
+    );
+
+    $this->assertSame('intent', $decision['type']);
+    $this->assertSame('talk', $decision['intent']['type']);
+    $this->assertSame('escort_to_safety_runtime_1', $decision['intent']['params']['objective_id']);
+    $this->assertStringContainsString('Negotiate past the roadblock', $decision['reason']);
   }
 
   /**

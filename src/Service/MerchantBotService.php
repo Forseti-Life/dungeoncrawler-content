@@ -311,6 +311,21 @@ class MerchantBotService {
   }
 
   /**
+   * Search wider trade catalogs and return ranked matches.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Ranked matches from the wider catalog search.
+   */
+  public function searchCatalogMatches(string $item_query, int $limit = 8): array {
+    $item_query = trim($item_query);
+    if ($item_query === '') {
+      return [];
+    }
+
+    return $this->lookupAonItems($item_query, $limit);
+  }
+
+  /**
    * Determine whether a line looks merchant-oriented.
    */
   public function containsMerchantLanguage(string $normalized_message): bool {
@@ -415,12 +430,23 @@ class MerchantBotService {
    * Query AoN's public search endpoint for missing equipment.
    */
   protected function lookupAonItem(string $item_query): ?array {
+    $matches = $this->lookupAonItems($item_query, 8);
+    return $matches[0] ?? NULL;
+  }
+
+  /**
+   * Query AoN's public search endpoint for ranked equipment matches.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Ranked AoN candidates, best match first.
+   */
+  protected function lookupAonItems(string $item_query, int $limit = 8): array {
     if ($this->httpClient === NULL) {
-      return NULL;
+      return [];
     }
 
     $payload = [
-      'size' => 8,
+      'size' => max(1, min(25, $limit)),
       '_source' => [
         'name', 'url', 'level', 'price', 'price_raw', 'bulk', 'bulk_raw',
         'rarity', 'category', 'item_category', 'summary', 'markdown',
@@ -436,7 +462,7 @@ class MerchantBotService {
           ]],
           'filter' => [[
             'terms' => [
-              'category' => ['equipment', 'weapon', 'armor', 'shield'],
+              'category' => ['equipment', 'weapon', 'armor', 'shield', 'vehicle'],
             ],
           ]],
         ],
@@ -457,11 +483,10 @@ class MerchantBotService {
 
     $hits = $decoded['hits']['hits'] ?? [];
     if (!is_array($hits) || $hits === []) {
-      return NULL;
+      return [];
     }
 
-    $best = NULL;
-    $best_score = PHP_INT_MIN;
+    $candidates = [];
     $query_key = $this->normalizeLookupKey($item_query);
     foreach ($hits as $hit) {
       $source = is_array($hit['_source'] ?? NULL) ? $hit['_source'] : [];
@@ -470,25 +495,42 @@ class MerchantBotService {
       if (!empty($source['price_raw'])) {
         $score += 5;
       }
-      if ($score <= $best_score) {
+      $price_gp = $this->extractAonPriceGp($source);
+      if ($price_gp === NULL) {
         continue;
       }
 
-      $best = [
+      $candidates[] = [
         'id' => $this->slugify($name !== '' ? $name : $item_query),
         'name' => $name !== '' ? $name : $item_query,
         'item_type' => $this->mapAonItemType($source),
         'type' => $this->mapAonItemType($source),
-        'price_gp' => $this->extractAonPriceGp($source),
+        'category' => (string) ($source['category'] ?? ''),
+        'item_category' => (string) ($source['item_category'] ?? ''),
+        'price_gp' => $price_gp,
         'bulk' => (string) ($source['bulk_raw'] ?? $source['bulk'] ?? ''),
         'level' => is_numeric($source['level'] ?? NULL) ? (int) $source['level'] : NULL,
+        'rarity' => (string) ($source['rarity'] ?? 'common'),
+        'description' => trim((string) ($source['summary'] ?? $source['markdown'] ?? '')),
         'source' => 'aon',
         'url' => isset($source['url']) ? (string) $source['url'] : '',
+        '_match_score' => $score,
       ];
-      $best_score = $score;
     }
 
-    return $best;
+    usort($candidates, static function (array $left, array $right): int {
+      return [$right['_match_score'] ?? 0, $left['name'] ?? '']
+        <=> [$left['_match_score'] ?? 0, $right['name'] ?? ''];
+    });
+
+    $matches = array_map(static function (array $candidate): array {
+      unset($candidate['_match_score']);
+      return $candidate;
+    }, array_slice($candidates, 0, max(1, $limit)));
+
+    $this->persistCatalogItemMatches($matches);
+
+    return $matches;
   }
 
   protected function scoreLocalItemCandidate(string $query_key, string $name, string $content_id): int {
@@ -500,14 +542,131 @@ class MerchantBotService {
     if ($query_key === $name_key || $query_key === $id_key) {
       return 100;
     }
-    if ($name_key !== '' && str_contains($name_key, $query_key)) {
+    if ($this->containsLookupToken($name_key, $query_key) || $this->containsLookupToken($id_key, $query_key)) {
+      return 90;
+    }
+    if ($this->startsLookupToken($name_key, $query_key) || $this->startsLookupToken($id_key, $query_key)) {
       return 70;
     }
-    if ($query_key !== '' && str_contains($query_key, $name_key) && $name_key !== '') {
+    if ($query_key !== '' && $name_key !== '' && str_contains($query_key, $name_key) && str_contains($query_key, ' ')) {
       return 60;
     }
     similar_text($query_key, $name_key, $percent);
     return $percent >= 60 ? (int) round($percent) - 10 : 0;
+  }
+
+  protected function containsLookupToken(string $haystack, string $needle): bool {
+    if ($haystack === '' || $needle === '') {
+      return FALSE;
+    }
+
+    return (bool) preg_match('/(?:^|\s)' . preg_quote($needle, '/') . '(?:$|\s)/u', $haystack);
+  }
+
+  protected function startsLookupToken(string $haystack, string $needle): bool {
+    if ($haystack === '' || $needle === '') {
+      return FALSE;
+    }
+
+    foreach (preg_split('/\s+/u', $haystack, -1, \PREG_SPLIT_NO_EMPTY) ?: [] as $token) {
+      if (str_starts_with($token, $needle)) {
+        return TRUE;
+      }
+    }
+
+    return FALSE;
+  }
+
+  /**
+   * Persist wider-catalog matches into the local item registry for reuse.
+   *
+   * @param array<int, array<string, mixed>> $matches
+   *   Catalog matches to upsert.
+   */
+  protected function persistCatalogItemMatches(array $matches): void {
+    if ($matches === []) {
+      return;
+    }
+
+    try {
+      $schema = $this->database->schema();
+      if ($schema === NULL || !$schema->tableExists('dungeoncrawler_content_registry')) {
+        return;
+      }
+    }
+    catch (\Throwable) {
+      return;
+    }
+
+    foreach ($matches as $match) {
+      $content_id = trim((string) ($match['id'] ?? ''));
+      $name = trim((string) ($match['name'] ?? ''));
+      if ($content_id === '' || $name === '') {
+        continue;
+      }
+
+      try {
+        $this->database->merge('dungeoncrawler_content_registry')
+          ->keys([
+            'content_type' => 'item',
+            'content_id' => $content_id,
+          ])
+          ->fields([
+            'name' => $name,
+            'level' => isset($match['level']) && is_numeric($match['level']) ? (int) $match['level'] : NULL,
+            'rarity' => (string) ($match['rarity'] ?? 'common'),
+            'tags' => json_encode(array_values(array_unique(array_filter([
+              'merchant_search',
+              (string) ($match['source'] ?? ''),
+              (string) ($match['type'] ?? $match['item_type'] ?? ''),
+            ]))), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            'schema_data' => json_encode($this->buildRegistrySchemaDataForCatalogMatch($match), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            'source_file' => 'aon_search',
+            'version' => 'live-aon',
+            'updated' => time(),
+          ])
+          ->expression('created', 'COALESCE(created, :created)', [':created' => time()])
+          ->execute();
+      }
+      catch (\Throwable $e) {
+        $this->logger?->warning('Unable to persist merchant catalog match @item: @error', [
+          '@item' => $content_id,
+          '@error' => $e->getMessage(),
+        ]);
+      }
+    }
+  }
+
+  /**
+   * Build registry schema data for a persisted catalog match.
+   *
+   * @param array<string, mixed> $match
+   *   Catalog match payload.
+   *
+   * @return array<string, mixed>
+   *   Registry-ready schema data.
+   */
+  protected function buildRegistrySchemaDataForCatalogMatch(array $match): array {
+    $price_gp = isset($match['price_gp']) && is_numeric($match['price_gp']) ? (float) $match['price_gp'] : NULL;
+
+    return [
+      'content_id' => (string) ($match['id'] ?? ''),
+      'id' => (string) ($match['id'] ?? ''),
+      'item_id' => (string) ($match['id'] ?? ''),
+      'name' => (string) ($match['name'] ?? ''),
+      'item_type' => (string) ($match['item_type'] ?? $match['type'] ?? ''),
+      'type' => (string) ($match['type'] ?? $match['item_type'] ?? ''),
+      'category' => (string) ($match['category'] ?? ''),
+      'item_category' => (string) ($match['item_category'] ?? ''),
+      'price_gp' => $price_gp,
+      'price' => $price_gp !== NULL ? ['gp' => $price_gp] : [],
+      'bulk' => (string) ($match['bulk'] ?? ''),
+      'level' => isset($match['level']) && is_numeric($match['level']) ? (int) $match['level'] : 0,
+      'rarity' => (string) ($match['rarity'] ?? 'common'),
+      'description' => (string) ($match['description'] ?? ''),
+      'url' => (string) ($match['url'] ?? ''),
+      'source' => (string) ($match['source'] ?? 'aon'),
+    ];
   }
 
   protected function extractLocalPriceGp(array $schema_data): ?float {

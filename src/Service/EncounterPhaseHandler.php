@@ -3479,7 +3479,16 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
         $speaker,
         $message,
         'player',
-        $character_id
+        $character_id,
+        'room',
+        FALSE,
+        FALSE,
+        NULL,
+        [
+          'objective_type' => (string) ($params['objective_type'] ?? ''),
+          'objective_id' => (string) ($params['objective_id'] ?? ''),
+          'entity_ref' => (string) ($target_id ?? ''),
+        ]
       );
 
       if (!empty($chat_result['dungeon_data']) && is_array($chat_result['dungeon_data'])) {

@@ -16,15 +16,18 @@ class RoomStateService {
   private Connection $database;
   private LoggerInterface $logger;
   private EventDispatcherInterface $eventDispatcher;
+  private ?StateValidationService $stateValidationService;
 
   public function __construct(
     Connection $database,
     LoggerChannelFactoryInterface $logger_factory,
-    EventDispatcherInterface $event_dispatcher
+    EventDispatcherInterface $event_dispatcher,
+    ?StateValidationService $state_validation_service = NULL
   ) {
     $this->database = $database;
     $this->logger = $logger_factory->get('dungeoncrawler');
     $this->eventDispatcher = $event_dispatcher;
+    $this->stateValidationService = $state_validation_service;
   }
 
   /**
@@ -64,7 +67,11 @@ class RoomStateService {
       $state = [];
     }
 
-    $state['isCleared'] = (bool) ($record['is_cleared'] ?? 0);
+    $state['cleared'] = (bool) ($state['cleared'] ?? $record['is_cleared'] ?? 0);
+    $state['isCleared'] = (bool) $state['cleared'];
+    if (isset($state['visible_hex_ids']) && is_array($state['visible_hex_ids']) && !isset($state['visibleHexIds'])) {
+      $state['visibleHexIds'] = $state['visible_hex_ids'];
+    }
 
     $environment_tags = json_decode($room['environment_tags'] ?? '', TRUE);
     if (!is_array($environment_tags)) {
@@ -204,12 +211,10 @@ class RoomStateService {
       throw new \InvalidArgumentException('Version conflict', 409);
     }
 
+    $state_payload = $this->normalizeRoomStatePayload($state);
+    $this->assertValidRoomStatePayload($state_payload);
     $now = time();
-    $is_cleared = !empty($state['isCleared']) ? 1 : 0;
-
-    // Persist full state JSON; include dungeonId for enforcement/audit.
-    $state_payload = $state;
-    $state_payload['dungeonId'] = $dungeon_id;
+    $is_cleared = !empty($state_payload['cleared']) ? 1 : 0;
     $fog_state = json_encode($state_payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
 
     if ($record) {
@@ -275,6 +280,105 @@ class RoomStateService {
 
     // Return fresh combined view with static room data.
     return $this->getState($campaign_id, $room_id);
+  }
+
+  /**
+   * Normalize room runtime state into canonical storage shape.
+   */
+  private function normalizeRoomStatePayload(array $state): array {
+    $allowed_keys = [
+      'explored',
+      'explored_at',
+      'exploredAt',
+      'explored_by_party',
+      'exploredByParty',
+      'cleared',
+      'isCleared',
+      'is_cleared',
+      'looted',
+      'traps_disarmed',
+      'trapsDisarmed',
+      'visibility',
+      'notes',
+      'visible_hex_ids',
+      'visibleHexIds',
+      'roomId',
+      'dungeonId',
+    ];
+    $unknown_keys = array_values(array_diff(array_keys($state), $allowed_keys));
+    if ($unknown_keys !== []) {
+      throw new \InvalidArgumentException('Room state contains unknown properties: ' . implode(', ', $unknown_keys), 400);
+    }
+
+    $normalized = $this->stateValidationService !== NULL
+      ? $this->stateValidationService->normalizeRoomState($state)
+      : $this->normalizeRoomStateFallback($state);
+
+    if (isset($state['visible_hex_ids']) || isset($state['visibleHexIds'])) {
+      $visible_hex_ids = $state['visible_hex_ids'] ?? $state['visibleHexIds'];
+      if (!is_array($visible_hex_ids)) {
+        throw new \InvalidArgumentException('Room state visible_hex_ids must be an array when provided.', 400);
+      }
+      $normalized['visible_hex_ids'] = array_values(array_map('strval', $visible_hex_ids));
+    }
+
+    return $normalized;
+  }
+
+  /**
+   * Validate room runtime payload against the canonical room state contract.
+   */
+  private function assertValidRoomStatePayload(array $state): void {
+    if ($this->stateValidationService === NULL) {
+      return;
+    }
+
+    $validation = $this->stateValidationService->validateRoomState($state);
+    if (!($validation['valid'] ?? FALSE)) {
+      throw new \InvalidArgumentException('Room state failed validation: ' . implode('; ', $validation['errors'] ?? []), 400);
+    }
+  }
+
+  /**
+   * Local fallback normalization when schema services are unavailable.
+   */
+  private function normalizeRoomStateFallback(array $state): array {
+    $normalized = [];
+    if (array_key_exists('explored', $state)) {
+      $normalized['explored'] = (bool) $state['explored'];
+    }
+    foreach ([
+      'explored_at' => ['explored_at', 'exploredAt'],
+      'explored_by_party' => ['explored_by_party', 'exploredByParty'],
+    ] as $target => $sources) {
+      foreach ($sources as $source) {
+        if (array_key_exists($source, $state)) {
+          $value = $state[$source];
+          $normalized[$target] = $value === NULL ? NULL : trim((string) $value);
+          break;
+        }
+      }
+    }
+    foreach ([
+      'cleared' => ['cleared', 'isCleared', 'is_cleared'],
+      'looted' => ['looted'],
+      'traps_disarmed' => ['traps_disarmed', 'trapsDisarmed'],
+    ] as $target => $sources) {
+      foreach ($sources as $source) {
+        if (array_key_exists($source, $state)) {
+          $normalized[$target] = (bool) $state[$source];
+          break;
+        }
+      }
+    }
+    if (array_key_exists('visibility', $state)) {
+      $normalized['visibility'] = trim((string) $state['visibility']);
+    }
+    if (array_key_exists('notes', $state) && is_array($state['notes'])) {
+      $normalized['notes'] = $state['notes'];
+    }
+
+    return $normalized;
   }
 
   /**

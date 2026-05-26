@@ -25,7 +25,7 @@
             "kind": "count",
             "metric": "current",
             "target_count": 2,
-            "description": "Reach the required progress count."
+            "description": "Collect 2 room supplies."
           }
         }
       ]
@@ -42,7 +42,7 @@
             "kind": "flag",
             "metric": "completed",
             "required_value": true,
-            "description": "Mark this objective complete."
+            "description": "Speak to the tavern keeper and hand over the supplies."
           }
         }
       ]

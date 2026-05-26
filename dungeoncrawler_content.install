@@ -7051,3 +7051,648 @@ function dungeoncrawler_content_prepare_spell_registry_metadata(array $spell): a
 function dungeoncrawler_content_normalize_spell_id(string $spell_id): string {
   return strtolower(str_replace('_', '-', trim($spell_id)));
 }
+
+/**
+ * Repair duplicated quest/chat state and conversational storyline identity.
+ */
+function dungeoncrawler_content_update_10065() {
+  $database = \Drupal::database();
+  $schema = $database->schema();
+  $summary = [
+    'storylines_repaired' => 0,
+    'quest_ids_rewritten' => 0,
+    'quest_progress_deleted' => 0,
+    'quest_log_deleted' => 0,
+    'room_sessions_merged' => 0,
+    'room_locations_rewritten' => 0,
+    'storylines_skipped' => 0,
+  ];
+
+  if ($schema->tableExists('dc_campaign_storylines') && $schema->tableExists('dc_campaign_quests') && \Drupal::hasService('dungeoncrawler_content.storyline_generation_service')) {
+    /** @var \Drupal\dungeoncrawler_content\Service\StorylineGenerationService $storyline_generation */
+    $storyline_generation = \Drupal::service('dungeoncrawler_content.storyline_generation_service');
+    $storylines = $database->select('dc_campaign_storylines', 's')
+      ->fields('s', ['id', 'campaign_id', 'storyline_id', 'template_id', 'name', 'storyline_data'])
+      ->execute()
+      ->fetchAllAssoc('id');
+
+    foreach ($storylines as $storyline_row) {
+      $storyline_data = json_decode((string) ($storyline_row->storyline_data ?? '{}'), TRUE) ?? [];
+      if (!is_array($storyline_data)) {
+        continue;
+      }
+
+      $metadata = is_array($storyline_data['metadata'] ?? NULL) ? $storyline_data['metadata'] : [];
+      $goal = trim((string) (($metadata['goal'] ?? '') ?: ($storyline_row->name ?? '')));
+      $bootstrap = (($metadata['generated_outline']['generation_phase'] ?? '') === 'bootstrap');
+      $identity = $storyline_generation->suggestCanonicalStorylineIdentity($goal, [
+        'name' => (string) ($storyline_data['name'] ?? $storyline_row->name ?? ''),
+        'template_id' => (string) ($storyline_data['template_id'] ?? $storyline_row->template_id ?? ''),
+        'metadata' => $metadata,
+      ], $bootstrap);
+
+      $new_storyline_id = (string) ($identity['template_id'] ?? '');
+      $new_name = (string) ($identity['name'] ?? '');
+      $old_storyline_id = (string) ($storyline_row->storyline_id ?? '');
+      $old_name = (string) ($storyline_row->name ?? '');
+      $bootstrap_ids = [];
+      $bootstrap_replacements = [];
+      $needs_bootstrap_realignment = FALSE;
+      if ($bootstrap && $new_storyline_id !== '') {
+        $bootstrap_ids = dungeoncrawler_content_build_bootstrap_canonical_ids($new_storyline_id);
+        $current_chapter_id = trim((string) ($storyline_data['chapters'][0]['chapter_id'] ?? ''));
+        $current_scene_id = trim((string) ($storyline_data['chapters'][0]['scenes'][0]['scene_id'] ?? ''));
+        $current_primary_quest_id = trim((string) ($storyline_data['questline']['primary_quest_id'] ?? ''));
+        $current_connector_id = trim((string) ($metadata['generated_outline']['progression_connectors'][0]['connector_id'] ?? ''));
+        $current_contact_id = trim((string) ($storyline_data['contacts'][0]['contact_id'] ?? ''));
+        $current_dungeon_id = trim((string) ($metadata['generated_outline']['entry_dungeon']['dungeon_id'] ?? ''));
+        $current_room_id = trim((string) ($metadata['generated_outline']['entry_dungeon']['entrance_room_id'] ?? ''));
+        $bootstrap_replacements = [];
+        foreach ([
+          $current_chapter_id => $bootstrap_ids['chapter_id'] ?? '',
+          $current_scene_id => $bootstrap_ids['scene_id'] ?? '',
+          $current_primary_quest_id => $bootstrap_ids['quest_template_id'] ?? '',
+          $current_connector_id => $bootstrap_ids['connector_id'] ?? '',
+          $current_contact_id => $bootstrap_ids['contact_id'] ?? '',
+          $current_dungeon_id => $bootstrap_ids['dungeon_id'] ?? '',
+          $current_room_id => $bootstrap_ids['room_id'] ?? '',
+        ] as $current_id => $canonical_id) {
+          if ($current_id !== '' && $canonical_id !== '') {
+            $bootstrap_replacements[$current_id] = $canonical_id;
+          }
+        }
+        $needs_bootstrap_realignment =
+          (($current_chapter_id !== '' && $current_chapter_id !== ($bootstrap_ids['chapter_id'] ?? '')) ||
+          ($current_scene_id !== '' && $current_scene_id !== ($bootstrap_ids['scene_id'] ?? '')) ||
+          ($current_primary_quest_id !== '' && $current_primary_quest_id !== ($bootstrap_ids['quest_template_id'] ?? '')) ||
+          ($current_connector_id !== '' && $current_connector_id !== ($bootstrap_ids['connector_id'] ?? '')) ||
+          ($current_contact_id !== '' && $current_contact_id !== ($bootstrap_ids['contact_id'] ?? '')) ||
+          ($current_dungeon_id !== '' && $current_dungeon_id !== ($bootstrap_ids['dungeon_id'] ?? '')) ||
+          ($current_room_id !== '' && $current_room_id !== ($bootstrap_ids['room_id'] ?? '')));
+      }
+      if ($new_storyline_id === '' || (($new_storyline_id === $old_storyline_id) && ($new_name === $old_name) && !$needs_bootstrap_realignment)) {
+        continue;
+      }
+
+      $conflict = $database->select('dc_campaign_storylines', 's')
+        ->fields('s', ['id'])
+        ->condition('campaign_id', (int) $storyline_row->campaign_id)
+        ->condition('storyline_id', $new_storyline_id)
+        ->condition('id', (int) $storyline_row->id, '<>')
+        ->range(0, 1)
+        ->execute()
+        ->fetchField();
+      if ($conflict) {
+        $summary['storylines_skipped']++;
+        continue;
+      }
+
+      $storyline_replacements = [];
+      if ($old_storyline_id !== '' && $old_storyline_id !== $new_storyline_id) {
+        $storyline_replacements[$old_storyline_id] = $new_storyline_id;
+      }
+      if ($old_name !== '' && $old_name !== $new_name) {
+        $storyline_replacements[$old_name] = $new_name;
+      }
+      $storyline_replacements += $bootstrap_replacements;
+      if ($storyline_replacements !== []) {
+        $storyline_data = dungeoncrawler_content_recursive_replace($storyline_data, $storyline_replacements);
+      }
+
+      $storyline_data['storyline_id'] = $new_storyline_id;
+      $storyline_data['template_id'] = $new_storyline_id;
+      $storyline_data['name'] = $new_name;
+      $storyline_data['metadata'] = $metadata + [
+        'template_id' => $new_storyline_id,
+        'name' => $new_name,
+      ];
+      $storyline_data['metadata']['template_id'] = $new_storyline_id;
+      $storyline_data['metadata']['name'] = $new_name;
+
+      $database->update('dc_campaign_storylines')
+        ->fields([
+          'storyline_id' => $new_storyline_id,
+          'template_id' => $new_storyline_id,
+          'name' => $new_name,
+          'storyline_data' => json_encode($storyline_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        ])
+        ->condition('id', (int) $storyline_row->id)
+        ->execute();
+
+      $database->update('dc_campaign_quests')
+        ->fields(['storyline_id' => $new_storyline_id])
+        ->condition('campaign_id', (int) $storyline_row->campaign_id)
+        ->condition('storyline_id', $old_storyline_id)
+        ->execute();
+
+      $quest_rows = $database->select('dc_campaign_quests', 'q')
+        ->fields('q', ['id', 'quest_id', 'quest_name', 'quest_description', 'source_template_id', 'storyline_chapter_id', 'storyline_scene_id', 'generated_objectives'])
+        ->condition('campaign_id', (int) $storyline_row->campaign_id)
+        ->condition('storyline_id', $new_storyline_id)
+        ->execute()
+        ->fetchAllAssoc('id');
+      foreach ($quest_rows as $quest_row) {
+        $quest_id = (string) ($quest_row->quest_id ?? '');
+        $quest_name = (string) ($quest_row->quest_name ?? '');
+        $quest_description = (string) ($quest_row->quest_description ?? '');
+        $current_source_template_id = (string) ($quest_row->source_template_id ?? '');
+        $current_chapter_id = (string) ($quest_row->storyline_chapter_id ?? '');
+        $current_scene_id = (string) ($quest_row->storyline_scene_id ?? '');
+        $updated_fields = [];
+        if (!empty($bootstrap_ids['quest_template_id']) && $current_source_template_id !== '' && $current_source_template_id !== ($bootstrap_ids['quest_template_id'] ?? '')) {
+          $updated_fields['source_template_id'] = $bootstrap_ids['quest_template_id'];
+        }
+        if (!empty($bootstrap_ids['chapter_id']) && $current_chapter_id !== '' && $current_chapter_id !== ($bootstrap_ids['chapter_id'] ?? '')) {
+          $updated_fields['storyline_chapter_id'] = $bootstrap_ids['chapter_id'];
+        }
+        if (!empty($bootstrap_ids['scene_id']) && $current_scene_id !== '' && $current_scene_id !== ($bootstrap_ids['scene_id'] ?? '')) {
+          $updated_fields['storyline_scene_id'] = $bootstrap_ids['scene_id'];
+        }
+        if (!empty($bootstrap_ids['quest_template_id']) && $current_source_template_id !== '' && str_starts_with($quest_id, $current_source_template_id . '_')) {
+          $new_quest_id = $bootstrap_ids['quest_template_id'] . substr($quest_id, strlen($current_source_template_id));
+          $conflicting_quest = $database->select('dc_campaign_quests', 'q')
+            ->fields('q', ['id'])
+            ->condition('campaign_id', (int) $storyline_row->campaign_id)
+            ->condition('quest_id', $new_quest_id)
+            ->condition('id', (int) $quest_row->id, '<>')
+            ->range(0, 1)
+            ->execute()
+            ->fetchField();
+          if (!$conflicting_quest) {
+            $updated_fields['quest_id'] = $new_quest_id;
+          }
+        }
+        elseif ($old_storyline_id !== '' && $new_storyline_id !== '' && str_starts_with($quest_id, $old_storyline_id . '-')) {
+          $new_quest_id = $new_storyline_id . substr($quest_id, strlen($old_storyline_id));
+          $conflicting_quest = $database->select('dc_campaign_quests', 'q')
+            ->fields('q', ['id'])
+            ->condition('campaign_id', (int) $storyline_row->campaign_id)
+            ->condition('quest_id', $new_quest_id)
+            ->condition('id', (int) $quest_row->id, '<>')
+            ->range(0, 1)
+            ->execute()
+            ->fetchField();
+          if (!$conflicting_quest) {
+            $updated_fields['quest_id'] = $new_quest_id;
+          }
+        }
+        if ($old_name !== '' && str_contains($quest_name, $old_name)) {
+          $updated_fields['quest_name'] = str_replace($old_name, $new_name, $quest_name);
+        }
+        if ($old_name !== '' && str_contains($quest_description, $old_name)) {
+          $updated_fields['quest_description'] = str_replace($old_name, $new_name, $quest_description);
+        }
+        if (!empty($quest_row->generated_objectives)) {
+          $generated_objectives = json_decode((string) $quest_row->generated_objectives, TRUE);
+          if (is_array($generated_objectives)) {
+            $canonical_scene_id = (string) ($updated_fields['storyline_scene_id'] ?? $current_scene_id);
+            $rewritten_objectives = $storyline_replacements !== []
+              ? dungeoncrawler_content_recursive_replace($generated_objectives, $storyline_replacements)
+              : $generated_objectives;
+            $rewritten_objectives = dungeoncrawler_content_realign_explore_objectives($rewritten_objectives, $canonical_scene_id);
+            if ($rewritten_objectives !== $generated_objectives) {
+              $updated_fields['generated_objectives'] = json_encode(
+                $rewritten_objectives,
+                JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+              );
+            }
+          }
+        }
+        if ($updated_fields !== []) {
+          $database->update('dc_campaign_quests')
+            ->fields($updated_fields)
+            ->condition('id', (int) $quest_row->id)
+            ->execute();
+
+          $effective_quest_id = (string) ($updated_fields['quest_id'] ?? $quest_id);
+          if ($schema->tableExists('dc_campaign_quest_progress')) {
+            $progress_rows = $database->select('dc_campaign_quest_progress', 'qp')
+              ->fields('qp', ['id', 'objective_states'])
+              ->condition('campaign_id', (int) $storyline_row->campaign_id)
+              ->condition('quest_id', $effective_quest_id)
+              ->execute()
+              ->fetchAllAssoc('id');
+            foreach ($progress_rows as $progress_row) {
+              if (empty($progress_row->objective_states)) {
+                continue;
+              }
+              $objective_states = json_decode((string) $progress_row->objective_states, TRUE);
+              if (!is_array($objective_states)) {
+                continue;
+              }
+              $canonical_scene_id = (string) ($updated_fields['storyline_scene_id'] ?? $current_scene_id);
+              $rewritten_states = $storyline_replacements !== []
+                ? dungeoncrawler_content_recursive_replace($objective_states, $storyline_replacements)
+                : $objective_states;
+              $rewritten_states = dungeoncrawler_content_realign_explore_objectives($rewritten_states, $canonical_scene_id);
+              if ($rewritten_states !== $objective_states) {
+                $database->update('dc_campaign_quest_progress')
+                  ->fields([
+                    'objective_states' => json_encode($rewritten_states, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                  ])
+                  ->condition('id', (int) $progress_row->id)
+                  ->execute();
+              }
+            }
+          }
+
+          if (!empty($updated_fields['quest_id']) && $updated_fields['quest_id'] !== $quest_id) {
+            if ($schema->tableExists('dc_campaign_quest_progress')) {
+              $database->update('dc_campaign_quest_progress')
+                ->fields(['quest_id' => $updated_fields['quest_id']])
+                ->condition('campaign_id', (int) $storyline_row->campaign_id)
+                ->condition('quest_id', $quest_id)
+                ->execute();
+            }
+            if ($schema->tableExists('dc_campaign_quest_log')) {
+              $database->update('dc_campaign_quest_log')
+                ->fields(['quest_id' => $updated_fields['quest_id']])
+                ->condition('campaign_id', (int) $storyline_row->campaign_id)
+                ->condition('quest_id', $quest_id)
+                ->execute();
+            }
+            if ($schema->tableExists('dc_campaign_quest_rewards_claimed')) {
+              $database->update('dc_campaign_quest_rewards_claimed')
+                ->fields(['quest_id' => $updated_fields['quest_id']])
+                ->condition('campaign_id', (int) $storyline_row->campaign_id)
+                ->condition('quest_id', $quest_id)
+                ->execute();
+            }
+            $summary['quest_ids_rewritten']++;
+          }
+        }
+      }
+
+      $summary['storylines_repaired']++;
+    }
+  }
+
+  if ($schema->tableExists('dc_campaign_quest_progress')) {
+    $duplicate_progress_ids = $database->query("
+      SELECT qp.id
+      FROM {dc_campaign_quest_progress} qp
+      WHERE qp.character_id IS NULL
+        AND qp.party_id IS NULL
+        AND EXISTS (
+          SELECT 1
+          FROM {dc_campaign_quest_progress} scoped
+          WHERE scoped.campaign_id = qp.campaign_id
+            AND scoped.quest_id = qp.quest_id
+            AND (scoped.character_id IS NOT NULL OR scoped.party_id IS NOT NULL)
+        )
+    ")->fetchCol();
+
+    foreach ($duplicate_progress_ids as $id) {
+      $database->delete('dc_campaign_quest_progress')
+        ->condition('id', (int) $id)
+        ->execute();
+      $summary['quest_progress_deleted']++;
+    }
+  }
+
+  if ($schema->tableExists('dc_campaign_quest_log')) {
+    $duplicate_log_ids = $database->query("
+      SELECT ql.id
+      FROM {dc_campaign_quest_log} ql
+      WHERE ql.character_id IS NULL
+        AND EXISTS (
+          SELECT 1
+          FROM {dc_campaign_quest_log} scoped
+          WHERE scoped.campaign_id = ql.campaign_id
+            AND scoped.quest_id = ql.quest_id
+            AND scoped.event_type = ql.event_type
+            AND scoped.timestamp = ql.timestamp
+            AND scoped.character_id IS NOT NULL
+            AND COALESCE(scoped.narrative_text, '') = COALESCE(ql.narrative_text, '')
+            AND COALESCE(scoped.event_data, '') = COALESCE(ql.event_data, '')
+        )
+    ")->fetchCol();
+
+    foreach ($duplicate_log_ids as $id) {
+      $database->delete('dc_campaign_quest_log')
+        ->condition('id', (int) $id)
+        ->execute();
+      $summary['quest_log_deleted']++;
+    }
+
+    if ($schema->tableExists('dc_campaign_quests')) {
+      $database->query("
+        UPDATE {dc_campaign_quest_log} ql
+        INNER JOIN {dc_campaign_quests} q
+          ON q.campaign_id = ql.campaign_id
+         AND q.quest_id = ql.quest_id
+        SET ql.narrative_text = CONCAT('Quest started: ', q.quest_name)
+        WHERE ql.event_type = 'started'
+          AND ql.narrative_text <> CONCAT('Quest started: ', q.quest_name)
+      ");
+    }
+  }
+
+  if ($schema->tableExists('dc_campaign_rooms') && $schema->tableExists('dc_chat_sessions') && $schema->tableExists('dc_chat_messages')) {
+    $room_rows = $database->select('dc_campaign_rooms', 'r')
+      ->fields('r', ['id', 'campaign_id', 'room_id', 'source_room_id', 'name'])
+      ->orderBy('campaign_id', 'ASC')
+      ->orderBy('name', 'ASC')
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC);
+
+    $room_groups = [];
+    foreach ($room_rows as $room_row) {
+      $group_key = (int) ($room_row['campaign_id'] ?? 0) . ':' . strtolower(trim((string) ($room_row['name'] ?? '')));
+      $room_groups[$group_key][] = $room_row;
+    }
+
+    foreach ($room_groups as $rows) {
+      if (count($rows) < 2) {
+        continue;
+      }
+
+      $canonical = dungeoncrawler_content_choose_canonical_room_row($rows);
+      if ($canonical === NULL) {
+        continue;
+      }
+
+      foreach ($rows as $row) {
+        if ((int) $row['id'] === (int) $canonical['id']) {
+          continue;
+        }
+
+        $duplicate_room_id = (string) ($row['room_id'] ?? '');
+        $canonical_room_id = (string) ($canonical['room_id'] ?? '');
+        $campaign_id = (int) ($row['campaign_id'] ?? 0);
+        if ($duplicate_room_id === '' || $canonical_room_id === '' || $duplicate_room_id === $canonical_room_id) {
+          continue;
+        }
+
+        $summary['room_locations_rewritten'] += (int) $database->update('dc_campaign_quests')
+          ->fields(['location_id' => $canonical_room_id])
+          ->condition('campaign_id', $campaign_id)
+          ->condition('location_id', $duplicate_room_id)
+          ->execute();
+
+        $canonical_session = $database->select('dc_chat_sessions', 's')
+          ->fields('s')
+          ->condition('campaign_id', $campaign_id)
+          ->condition('session_type', 'room')
+          ->condition('scope_ref', $canonical_room_id)
+          ->range(0, 1)
+          ->execute()
+          ->fetchAssoc();
+
+        $duplicate_sessions = $database->select('dc_chat_sessions', 's')
+          ->fields('s')
+          ->condition('campaign_id', $campaign_id)
+          ->condition('session_type', 'room')
+          ->condition('scope_ref', $duplicate_room_id)
+          ->execute()
+          ->fetchAll(\PDO::FETCH_ASSOC);
+
+        foreach ($duplicate_sessions as $duplicate_session) {
+          if ($canonical_session === FALSE || $canonical_session === NULL) {
+            $metadata = json_decode((string) ($duplicate_session['metadata'] ?? '{}'), TRUE) ?? [];
+            $metadata['room_id'] = $canonical_room_id;
+            $dungeon_id = (string) ($metadata['dungeon_id'] ?? '');
+            if ($dungeon_id === '') {
+              continue;
+            }
+            $new_session_key = dungeoncrawler_content_room_session_key($campaign_id, $dungeon_id, $canonical_room_id);
+            $database->update('dc_chat_sessions')
+              ->fields([
+                'scope_ref' => $canonical_room_id,
+                'session_key' => $new_session_key,
+                'metadata' => json_encode($metadata, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+              ])
+              ->condition('id', (int) $duplicate_session['id'])
+              ->execute();
+            $canonical_session = $database->select('dc_chat_sessions', 's')
+              ->fields('s')
+              ->condition('id', (int) $duplicate_session['id'])
+              ->range(0, 1)
+              ->execute()
+              ->fetchAssoc();
+            continue;
+          }
+
+          if ((int) ($canonical_session['id'] ?? 0) === (int) ($duplicate_session['id'] ?? 0)) {
+            continue;
+          }
+
+          $old_safe_room = dungeoncrawler_content_safe_room_key($duplicate_room_id);
+          $new_safe_room = dungeoncrawler_content_safe_room_key($canonical_room_id);
+
+          $child_sessions = $database->select('dc_chat_sessions', 's')
+            ->fields('s', ['id', 'session_key'])
+            ->condition('parent_session_id', (int) $duplicate_session['id'])
+            ->execute()
+            ->fetchAll(\PDO::FETCH_ASSOC);
+          foreach ($child_sessions as $child_session) {
+            $child_key = (string) ($child_session['session_key'] ?? '');
+            if ($child_key !== '' && $old_safe_room !== '' && $new_safe_room !== '') {
+              $child_key = str_replace('.room.' . $old_safe_room, '.room.' . $new_safe_room, $child_key);
+            }
+            $database->update('dc_chat_sessions')
+              ->fields([
+                'parent_session_id' => (int) $canonical_session['id'],
+                'session_key' => $child_key,
+              ])
+              ->condition('id', (int) $child_session['id'])
+              ->execute();
+          }
+
+          $database->update('dc_chat_messages')
+            ->fields(['session_id' => (int) $canonical_session['id']])
+            ->condition('session_id', (int) $duplicate_session['id'])
+            ->execute();
+
+          $database->delete('dc_chat_sessions')
+            ->condition('id', (int) $duplicate_session['id'])
+            ->execute();
+
+          $summary['room_sessions_merged']++;
+        }
+      }
+    }
+
+    $room_sessions = $database->select('dc_chat_sessions', 's')
+      ->fields('s', ['id'])
+      ->condition('session_type', 'room')
+      ->execute()
+      ->fetchCol();
+    foreach ($room_sessions as $session_id) {
+      $message_count = (int) $database->select('dc_chat_messages', 'm')
+        ->condition('session_id', (int) $session_id)
+        ->countQuery()
+        ->execute()
+        ->fetchField();
+      $last_message_at = (int) ($database->select('dc_chat_messages', 'm')
+        ->fields('m', ['created'])
+        ->condition('session_id', (int) $session_id)
+        ->orderBy('created', 'DESC')
+        ->range(0, 1)
+        ->execute()
+        ->fetchField() ?: 0);
+      $database->update('dc_chat_sessions')
+        ->fields([
+          'message_count' => $message_count,
+          'last_message_at' => $last_message_at,
+          'updated' => max($last_message_at, time()),
+        ])
+        ->condition('id', (int) $session_id)
+        ->execute();
+    }
+  }
+
+  return t('Repaired @storylines storylines, rewrote @quest_ids quest IDs, deleted @progress duplicated quest-progress rows, deleted @logs duplicated quest-log rows, merged @sessions room sessions, rewrote @locations quest locations, skipped @skipped conflicting storyline repairs.', [
+    '@storylines' => $summary['storylines_repaired'],
+    '@quest_ids' => $summary['quest_ids_rewritten'],
+    '@progress' => $summary['quest_progress_deleted'],
+    '@logs' => $summary['quest_log_deleted'],
+    '@sessions' => $summary['room_sessions_merged'],
+    '@locations' => $summary['room_locations_rewritten'],
+    '@skipped' => $summary['storylines_skipped'],
+  ]);
+}
+
+/**
+ * Build canonical bootstrap identifiers for a storyline.
+ */
+function dungeoncrawler_content_build_bootstrap_canonical_ids(string $storyline_id): array {
+  $chapter_id = $storyline_id . '-entry-dungeon';
+  $scene_id = $chapter_id . '-entrance';
+
+  return [
+    'chapter_id' => $chapter_id,
+    'dungeon_id' => $chapter_id,
+    'scene_id' => $scene_id,
+    'room_id' => $scene_id,
+    'quest_template_id' => $scene_id . '-quest',
+    'contact_id' => $storyline_id . '-questgiver',
+    'connector_id' => $storyline_id . '-bootstrap-handoff',
+  ];
+}
+
+/**
+ * Recursively replace string values within nested arrays.
+ *
+ * @param mixed $value
+ *   Value to normalize.
+ * @param array<string, string> $replacements
+ *   String replacements keyed by the current value fragment.
+ *
+ * @return mixed
+ *   Rewritten value.
+ */
+function dungeoncrawler_content_recursive_replace($value, array $replacements) {
+  if (is_array($value)) {
+    $rewritten = [];
+    foreach ($value as $key => $item) {
+      $new_key = is_string($key) && $replacements !== []
+        ? strtr($key, $replacements)
+        : $key;
+      $rewritten[$new_key] = dungeoncrawler_content_recursive_replace($item, $replacements);
+    }
+    return $rewritten;
+  }
+
+  if (is_string($value) && $replacements !== []) {
+    return strtr($value, $replacements);
+  }
+
+  return $value;
+}
+
+/**
+ * Realign stored explore-objective scene references to the canonical scene id.
+ *
+ * @param mixed $value
+ *   Objective payload or nested sub-structure.
+ * @param string $canonical_scene_id
+ *   Canonical storyline scene id.
+ *
+ * @return mixed
+ *   Rewritten payload.
+ */
+function dungeoncrawler_content_realign_explore_objectives($value, string $canonical_scene_id) {
+  if ($canonical_scene_id === '') {
+    return $value;
+  }
+
+  if (is_array($value)) {
+    $rewritten = [];
+    foreach ($value as $key => $item) {
+      $rewritten[$key] = dungeoncrawler_content_realign_explore_objectives($item, $canonical_scene_id);
+    }
+
+    if (isset($rewritten['type']) && ($rewritten['type'] ?? '') === 'explore') {
+      foreach (['location', 'destination'] as $field) {
+        $current_value = trim((string) ($rewritten[$field] ?? ''));
+        if ($current_value !== '' && $current_value !== $canonical_scene_id) {
+          $rewritten[$field] = $canonical_scene_id;
+          foreach (['description', 'next_step'] as $text_field) {
+            if (!empty($rewritten[$text_field]) && is_string($rewritten[$text_field])) {
+              $rewritten[$text_field] = str_replace($current_value, $canonical_scene_id, $rewritten[$text_field]);
+            }
+          }
+        }
+      }
+
+      $objective_id = trim((string) ($rewritten['objective_id'] ?? ''));
+      if ($objective_id !== '' && str_starts_with($objective_id, 'reach_')) {
+        $rewritten['objective_id'] = 'reach_' . $canonical_scene_id;
+      }
+    }
+
+    return $rewritten;
+  }
+
+  return $value;
+}
+
+/**
+ * Choose the canonical campaign room row from a duplicate-name group.
+ *
+ * @param array<int, array<string, mixed>> $rows
+ *   Duplicate room rows.
+ *
+ * @return array<string, mixed>|null
+ *   Canonical row or NULL.
+ */
+function dungeoncrawler_content_choose_canonical_room_row(array $rows): ?array {
+  if ($rows === []) {
+    return NULL;
+  }
+
+  usort($rows, static function (array $a, array $b): int {
+    $a_room_id = (string) ($a['room_id'] ?? '');
+    $b_room_id = (string) ($b['room_id'] ?? '');
+    $a_rank = dungeoncrawler_content_is_uuidish($a_room_id) ? 1 : 0;
+    $b_rank = dungeoncrawler_content_is_uuidish($b_room_id) ? 1 : 0;
+    if ($a_rank !== $b_rank) {
+      return $a_rank <=> $b_rank;
+    }
+    return ((int) ($a['id'] ?? PHP_INT_MAX)) <=> ((int) ($b['id'] ?? PHP_INT_MAX));
+  });
+
+  return $rows[0] ?? NULL;
+}
+
+/**
+ * Build the canonical hierarchical room-session key.
+ */
+function dungeoncrawler_content_room_session_key(int $campaign_id, string $dungeon_id, string $room_id): string {
+  return 'campaign.' . $campaign_id . '.dungeon.' . $dungeon_id . '.room.' . dungeoncrawler_content_safe_room_key($room_id);
+}
+
+/**
+ * Normalize one room id for use inside hierarchical session keys.
+ */
+function dungeoncrawler_content_safe_room_key(string $room_id): string {
+  return preg_replace('/[^a-zA-Z0-9_\-]/', '_', $room_id) ?? $room_id;
+}
+
+/**
+ * Detect whether a room/reference id looks like a UUID.
+ */
+function dungeoncrawler_content_is_uuidish(string $value): bool {
+  return (bool) preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', trim($value));
+}

@@ -33,14 +33,122 @@ class StateValidationService {
    * Validate dungeon state against schema.
    */
   public function validateDungeonState(array $state): array {
-    return $this->validateAgainstContract($state, 'dungeon_state');
+    return $this->validateAgainstContractFragment(
+      $this->normalizeDungeonState($state),
+      'dungeon_state',
+      ['properties', 'level_state']
+    );
   }
 
   /**
    * Validate room state against schema.
    */
   public function validateRoomState(array $state): array {
-    return $this->validateAgainstContract($state, 'room_state');
+    return $this->validateAgainstContractFragment(
+      $this->normalizeRoomState($state),
+      'room_state',
+      ['properties', 'state']
+    );
+  }
+
+  /**
+   * Normalize compact dungeon runtime state into the canonical fragment shape.
+   */
+  public function normalizeDungeonState(array $state): array {
+    $normalized = [];
+
+    $bool_mappings = [
+      'is_fully_generated' => ['is_fully_generated', 'isFullyGenerated'],
+      'boss_defeated' => ['boss_defeated', 'bossDefeated'],
+    ];
+    foreach ($bool_mappings as $target => $sources) {
+      foreach ($sources as $source) {
+        if (array_key_exists($source, $state)) {
+          $normalized[$target] = (bool) $state[$source];
+          break;
+        }
+      }
+    }
+
+    $int_mappings = [
+      'rooms_generated' => ['rooms_generated', 'roomsGenerated'],
+      'rooms_explored' => ['rooms_explored', 'roomsExplored'],
+      'times_visited' => ['times_visited', 'timesVisited'],
+    ];
+    foreach ($int_mappings as $target => $sources) {
+      foreach ($sources as $source) {
+        if (array_key_exists($source, $state)) {
+          $normalized[$target] = (int) $state[$source];
+          break;
+        }
+      }
+    }
+
+    if (array_key_exists('completion_percent', $state) || array_key_exists('completionPercent', $state)) {
+      $normalized['completion_percent'] = (float) ($state['completion_percent'] ?? $state['completionPercent']);
+    }
+
+    foreach ([
+      'first_entered_at' => ['first_entered_at', 'firstEnteredAt'],
+      'last_visited_at' => ['last_visited_at', 'lastVisitedAt'],
+    ] as $target => $sources) {
+      foreach ($sources as $source) {
+        if (array_key_exists($source, $state)) {
+          $value = $state[$source];
+          $normalized[$target] = $value === NULL ? NULL : trim((string) $value);
+          break;
+        }
+      }
+    }
+
+    return $normalized;
+  }
+
+  /**
+   * Normalize compact room runtime state into the canonical fragment shape.
+   */
+  public function normalizeRoomState(array $state): array {
+    $normalized = [];
+
+    if (array_key_exists('explored', $state)) {
+      $normalized['explored'] = (bool) $state['explored'];
+    }
+
+    foreach ([
+      'explored_at' => ['explored_at', 'exploredAt'],
+      'explored_by_party' => ['explored_by_party', 'exploredByParty'],
+    ] as $target => $sources) {
+      foreach ($sources as $source) {
+        if (array_key_exists($source, $state)) {
+          $value = $state[$source];
+          $normalized[$target] = $value === NULL ? NULL : trim((string) $value);
+          break;
+        }
+      }
+    }
+
+    foreach ([
+      'cleared' => ['cleared', 'isCleared', 'is_cleared'],
+      'looted' => ['looted'],
+      'traps_disarmed' => ['traps_disarmed', 'trapsDisarmed'],
+    ] as $target => $sources) {
+      foreach ($sources as $source) {
+        if (array_key_exists($source, $state)) {
+          $normalized[$target] = (bool) $state[$source];
+          break;
+        }
+      }
+    }
+
+    if (array_key_exists('visibility', $state)) {
+      $normalized['visibility'] = trim((string) $state['visibility']);
+    }
+
+    if (array_key_exists('notes', $state) && is_array($state['notes'])) {
+      $normalized['notes'] = $state['notes'];
+    }
+
+    return $normalized;
   }
 
   /**
@@ -157,6 +265,20 @@ class StateValidationService {
   }
 
   /**
+   * Validate a canonical navigation action payload.
+   */
+  public function validateNavigationAction(array $payload): array {
+    return $this->validateAgainstContract($payload, 'navigation');
+  }
+
+  /**
+   * Validate a canonical navigation receipt payload.
+   */
+  public function validateNavigationReceipt(array $payload): array {
+    return $this->validateAgainstContract($payload, 'navigation_receipt');
+  }
+
+  /**
    * Return the canonical data-contract registry.
    */
   public function getContractRegistry(): array {
@@ -211,6 +333,45 @@ class StateValidationService {
   }
 
   /**
+   * Validate data against a fragment inside a registered contract schema.
+   *
+   * @param array<int, string> $fragment_path
+   *   Nested key path to the schema fragment.
+   */
+  private function validateAgainstContractFragment(array $data, string $contract_id, array $fragment_path): array {
+    $schema_path = $this->getContractSchemaPath($contract_id);
+    if ($schema_path === NULL) {
+      $this->logger->error('Unknown contract id: {contract_id}', ['contract_id' => $contract_id]);
+      return ['valid' => FALSE, 'errors' => ["Unknown contract id: {$contract_id}"]];
+    }
+
+    if (!file_exists($schema_path)) {
+      $this->logger->error('Schema file not found: {path}', ['path' => $schema_path]);
+      return ['valid' => FALSE, 'errors' => ["Schema file not found: {$schema_path}"]];
+    }
+
+    $schema_content = file_get_contents($schema_path);
+    $schema = json_decode((string) $schema_content, TRUE);
+    if (!is_array($schema)) {
+      $this->logger->error('Invalid schema file: {path}', ['path' => $schema_path]);
+      return ['valid' => FALSE, 'errors' => ["Invalid schema file: {$schema_path}"]];
+    }
+
+    $fragment = $this->resolveSchemaFragment($schema, $fragment_path);
+    if (!is_array($fragment)) {
+      $joined_path = implode('.', $fragment_path);
+      $this->logger->error('Schema fragment not found: {contract_id}.{path}', [
+        'contract_id' => $contract_id,
+        'path' => $joined_path,
+      ]);
+      return ['valid' => FALSE, 'errors' => ["Schema fragment not found: {$contract_id}.{$joined_path}"]];
+    }
+
+    $errors = $this->validateValueAgainstSchema($data, $fragment, '', $schema);
+    return ['valid' => empty($errors), 'errors' => $errors];
+  }
+
+  /**
    * Validate data against a schema file path.
    */
   private function validateAgainstSchemaFile(array $data, string $schema_path): array {
@@ -229,6 +390,24 @@ class StateValidationService {
 
     $errors = $this->validateValueAgainstSchema($data, $schema, '', $schema);
     return ['valid' => empty($errors), 'errors' => $errors];
+  }
+
+  /**
+   * Resolve a nested schema fragment by path.
+   *
+   * @param array<int, string> $fragment_path
+   *   Nested key path to the schema fragment.
+   */
+  private function resolveSchemaFragment(array $schema, array $fragment_path): ?array {
+    $fragment = $schema;
+    foreach ($fragment_path as $segment) {
+      if (!is_array($fragment) || !array_key_exists($segment, $fragment)) {
+        return NULL;
+      }
+      $fragment = $fragment[$segment];
+    }
+
+    return is_array($fragment) ? $fragment : NULL;
   }
 
   /**

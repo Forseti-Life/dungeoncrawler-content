@@ -43,6 +43,47 @@ class ObjectiveContractAuditTest extends UnitTestCase {
   }
 
   /**
+   * Verifies authored quest templates avoid placeholder and generic criteria text.
+   */
+  public function testAuthoredQuestTemplatesUseExplicitCompletionCriteria(): void {
+    $files = [
+      dirname(__DIR__, 4) . '/content/quest_templates.json',
+      ...glob(dirname(__DIR__, 4) . '/templates/quests/*.json'),
+    ];
+    $generic_descriptions = [
+      'Mark this objective complete.',
+      'Complete this objective.',
+      'Reach the required progress count.',
+      'Discover the required location.',
+      'Reach the required destination.',
+    ];
+
+    foreach ($files as $file) {
+      $decoded = json_decode((string) file_get_contents($file), TRUE);
+      $rows = is_array($decoded) ? $decoded : (is_array($decoded['rows'] ?? NULL) ? $decoded['rows'] : [$decoded]);
+      foreach ($rows as $index => $row) {
+        foreach ((array) ($row['objectives_schema'] ?? []) as $phase_index => $phase) {
+          foreach ((array) ($phase['objectives'] ?? []) as $objective_index => $objective) {
+            $criteria = is_array($objective['completion_criteria'] ?? NULL) ? $objective['completion_criteria'] : [];
+            $description = trim((string) ($criteria['description'] ?? ''));
+            $targets = [
+              strtolower(trim((string) ($objective['location'] ?? ''))),
+              strtolower(trim((string) ($objective['location_id'] ?? ''))),
+              strtolower(trim((string) ($objective['destination'] ?? ''))),
+              strtolower(trim((string) ($objective['destination_id'] ?? ''))),
+            ];
+            $path = basename($file) . "[{$index}].objectives_schema[{$phase_index}].objectives[{$objective_index}]";
+
+            $this->assertNotSame('', $description, $path . ' must define completion criteria text.');
+            $this->assertNotContains($description, $generic_descriptions, $path . ' uses generic completion criteria text.');
+            $this->assertNotContains('next_story_location', $targets, $path . ' uses placeholder handoff location.');
+          }
+        }
+      }
+    }
+  }
+
+  /**
    * Verifies generated storyline quest templates conform to the strict contract.
    */
   public function testGeneratedStorylineQuestTemplatesConformToStrictObjectiveContract(): void {

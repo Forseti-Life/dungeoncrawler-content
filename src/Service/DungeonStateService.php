@@ -13,10 +13,16 @@ class DungeonStateService {
 
   private Connection $database;
   private LoggerInterface $logger;
+  private ?StateValidationService $stateValidationService;
 
-  public function __construct(Connection $database, LoggerChannelFactoryInterface $logger_factory) {
+  public function __construct(
+    Connection $database,
+    LoggerChannelFactoryInterface $logger_factory,
+    ?StateValidationService $state_validation_service = NULL
+  ) {
     $this->database = $database;
     $this->logger = $logger_factory->get('dungeoncrawler');
+    $this->stateValidationService = $state_validation_service;
   }
 
   /**
@@ -47,6 +53,9 @@ class DungeonStateService {
     }
 
     $state = $decoded['state'] ?? ($decoded['dungeon_state'] ?? []);
+    if (is_array($state)) {
+      $this->backfillDungeonStateAliases($state, $dungeon_id);
+    }
     $meta = $decoded['state_meta'] ?? [];
     $version = (int) ($meta['version'] ?? $record['updated'] ?? $record['created'] ?? 0);
     $updated_at = $meta['updatedAt'] ?? ($record['updated'] ? date('c', (int) $record['updated']) : date('c'));
@@ -86,6 +95,8 @@ class DungeonStateService {
       throw new \InvalidArgumentException('Version conflict', 409);
     }
 
+    $state = $this->normalizeDungeonStatePayload($state);
+    $this->assertValidDungeonStatePayload($state);
     $query = $this->database->select('dc_campaign_dungeons', 'd')
       ->fields('d', ['dungeon_data', 'campaign_id', 'name', 'description', 'theme'])
       ->condition('dungeon_id', $dungeon_id)
@@ -153,6 +164,121 @@ class DungeonStateService {
       'version' => $next_version,
       'updatedAt' => date('c', $now),
     ];
+  }
+
+  /**
+   * Normalize dungeon runtime state into canonical storage shape.
+   */
+  private function normalizeDungeonStatePayload(array $state): array {
+    $allowed_keys = [
+      'is_fully_generated',
+      'isFullyGenerated',
+      'rooms_generated',
+      'roomsGenerated',
+      'rooms_explored',
+      'roomsExplored',
+      'boss_defeated',
+      'bossDefeated',
+      'completion_percent',
+      'completionPercent',
+      'first_entered_at',
+      'firstEnteredAt',
+      'last_visited_at',
+      'lastVisitedAt',
+      'times_visited',
+      'timesVisited',
+      'dungeonId',
+    ];
+    $unknown_keys = array_values(array_diff(array_keys($state), $allowed_keys));
+    if ($unknown_keys !== []) {
+      throw new \InvalidArgumentException('Dungeon state contains unknown properties: ' . implode(', ', $unknown_keys), 400);
+    }
+
+    return $this->stateValidationService !== NULL
+      ? $this->stateValidationService->normalizeDungeonState($state)
+      : $this->normalizeDungeonStateFallback($state);
+  }
+
+  /**
+   * Validate dungeon runtime payload against the canonical level-state contract.
+   */
+  private function assertValidDungeonStatePayload(array $state): void {
+    if ($this->stateValidationService === NULL) {
+      return;
+    }
+
+    $validation = $this->stateValidationService->validateDungeonState($state);
+    if (!($validation['valid'] ?? FALSE)) {
+      throw new \InvalidArgumentException('Dungeon state failed validation: ' . implode('; ', $validation['errors'] ?? []), 400);
+    }
+  }
+
+  /**
+   * Add compatibility aliases for downstream callers.
+   */
+  private function backfillDungeonStateAliases(array &$state, string $dungeon_id): void {
+    $state['dungeonId'] = $dungeon_id;
+    foreach ([
+      'isFullyGenerated' => 'is_fully_generated',
+      'roomsGenerated' => 'rooms_generated',
+      'roomsExplored' => 'rooms_explored',
+      'bossDefeated' => 'boss_defeated',
+      'completionPercent' => 'completion_percent',
+      'firstEnteredAt' => 'first_entered_at',
+      'lastVisitedAt' => 'last_visited_at',
+      'timesVisited' => 'times_visited',
+    ] as $alias => $canonical) {
+      if (array_key_exists($canonical, $state) && !array_key_exists($alias, $state)) {
+        $state[$alias] = $state[$canonical];
+      }
+    }
+  }
+
+  /**
+   * Local fallback normalization when schema services are unavailable.
+   */
+  private function normalizeDungeonStateFallback(array $state): array {
+    $normalized = [];
+    foreach ([
+      'is_fully_generated' => ['is_fully_generated', 'isFullyGenerated'],
+      'boss_defeated' => ['boss_defeated', 'bossDefeated'],
+    ] as $target => $sources) {
+      foreach ($sources as $source) {
+        if (array_key_exists($source, $state)) {
+          $normalized[$target] = (bool) $state[$source];
+          break;
+        }
+      }
+    }
+    foreach ([
+      'rooms_generated' => ['rooms_generated', 'roomsGenerated'],
+      'rooms_explored' => ['rooms_explored', 'roomsExplored'],
+      'times_visited' => ['times_visited', 'timesVisited'],
+    ] as $target => $sources) {
+      foreach ($sources as $source) {
+        if (array_key_exists($source, $state)) {
+          $normalized[$target] = (int) $state[$source];
+          break;
+        }
+      }
+    }
+    if (array_key_exists('completion_percent', $state) || array_key_exists('completionPercent', $state)) {
+      $normalized['completion_percent'] = (float) ($state['completion_percent'] ?? $state['completionPercent']);
+    }
+    foreach ([
+      'first_entered_at' => ['first_entered_at', 'firstEnteredAt'],
+      'last_visited_at' => ['last_visited_at', 'lastVisitedAt'],
+    ] as $target => $sources) {
+      foreach ($sources as $source) {
+        if (array_key_exists($source, $state)) {
+          $value = $state[$source];
+          $normalized[$target] = $value === NULL ? NULL : trim((string) $value);
+          break;
+        }
+      }
+    }
+
+    return $normalized;
   }
 
 }

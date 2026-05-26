@@ -195,10 +195,10 @@ class TerrainGeneratorService {
    * @param int $seed
    *   Random seed
    *
-   * @return float
+   * @return int
    *   Elevation in feet (-50 to 200)
    */
-  protected function generateElevation(int $q, int $r, string $theme, int $seed): float {
+  protected function generateElevation(int $q, int $r, string $theme, int $seed): int {
     // Use Perlin-like noise based on coordinates and seed
     // For Phase 2, use simple pseudo-random based on hash
     $hash = abs(crc32(json_encode([$q, $r, $theme, $seed])));
@@ -212,7 +212,7 @@ class TerrainGeneratorService {
       $elevation += (($hash % 500) / 500) * 80 - 40;
     }
 
-    return round($elevation, 1);
+    return (int) round($elevation);
   }
 
   /**

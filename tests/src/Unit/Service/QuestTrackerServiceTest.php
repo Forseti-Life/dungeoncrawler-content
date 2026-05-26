@@ -132,4 +132,188 @@ class QuestTrackerServiceTest extends UnitTestCase {
     $this->assertFalse($states[1]['objectives'][0]['revealed']);
   }
 
+  /**
+   * Verifies prompt formatting avoids leaking raw opaque identifiers.
+   */
+  public function testFormatObjectiveForPromptHumanizesOpaqueTargets(): void {
+    $logger = $this->createMock(LoggerInterface::class);
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($logger);
+
+    $service = new class(
+      $this->createMock(Connection::class),
+      $logger_factory,
+      $this->createMock(TimeInterface::class)
+    ) extends QuestTrackerService {
+      public function formatObjective(array $objective): string {
+        return $this->formatObjectiveForPrompt($objective);
+      }
+    };
+
+    $formatted = $service->formatObjective([
+      'objective_id' => 'accept_demo_briefing',
+      'type' => 'interact',
+      'description' => 'Hear the mission briefing and commit the party to the adventure.',
+      'target' => 'tal-mission-handler',
+    ]);
+
+    $this->assertStringContainsString('Tal Mission Handler', $formatted);
+    $this->assertStringNotContainsString('target: tal-mission-handler', $formatted);
+  }
+
+  /**
+   * Verifies final-phase completion is recognized as terminal quest completion.
+   */
+  public function testFinalPhaseCompletionMarksQuestComplete(): void {
+    $logger = $this->createMock(LoggerInterface::class);
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($logger);
+
+    $service = new class(
+      $this->createMock(Connection::class),
+      $logger_factory,
+      $this->createMock(TimeInterface::class)
+    ) extends QuestTrackerService {
+      public function initializeStates(array $objectives): array {
+        return $this->initializeObjectiveStates($objectives);
+      }
+
+      public function applyUpdate(array &$states, int $phase, string $objective_id, int $progress): array {
+        return $this->applyObjectiveUpdate($states, $phase, $objective_id, $progress);
+      }
+
+      public function questComplete(array $states): bool {
+        return $this->isQuestCompleted($states);
+      }
+    };
+
+    $states = $service->initializeStates([
+      [
+        'phase' => 1,
+        'objectives' => [
+          [
+            'objective_id' => 'speak_to_eldric',
+            'type' => 'interact',
+            'description' => 'Speak to Eldric.',
+            'completed' => FALSE,
+            'target' => 'tavern_keeper',
+          ],
+          [
+            'objective_id' => 'speak_to_marta',
+            'type' => 'interact',
+            'description' => 'Speak to Marta.',
+            'completed' => FALSE,
+            'target' => 'scholar_npc',
+          ],
+        ],
+      ],
+    ]);
+
+    $service->applyUpdate($states, 1, 'speak_to_eldric', 1);
+    $this->assertFalse($service->questComplete($states));
+
+    $result = $service->applyUpdate($states, 1, 'speak_to_marta', 1);
+    $this->assertTrue($result['updated']);
+    $this->assertTrue($result['objective_completed']);
+    $this->assertTrue($service->questComplete($states));
+  }
+
+  /**
+   * Verifies hidden escort runtime steps reveal sequentially and sync metadata.
+   */
+  public function testEscortRuntimeStepsRevealSequentially(): void {
+    $logger = $this->createMock(LoggerInterface::class);
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($logger);
+
+    $service = new class(
+      $this->createMock(Connection::class),
+      $logger_factory,
+      $this->createMock(TimeInterface::class)
+    ) extends QuestTrackerService {
+      public function initializeStates(array $objectives): array {
+        return $this->initializeObjectiveStates($objectives);
+      }
+
+      public function applyUpdate(array &$states, int $phase, string $objective_id, int $progress): array {
+        return $this->applyObjectiveUpdate($states, $phase, $objective_id, $progress);
+      }
+    };
+
+    $states = $service->initializeStates([
+      [
+        'phase' => 1,
+        'objectives' => [
+          [
+            'objective_id' => 'escort_to_safety',
+            'type' => 'escort',
+            'description' => 'Escort Marta to the safehouse.',
+            'destination' => 'safehouse',
+            'arrived' => FALSE,
+            'path_encounters' => [
+              [
+                'encounter_id' => 'escort_to_safety_path_encounter_1',
+                'resolved' => FALSE,
+              ],
+              [
+                'encounter_id' => 'escort_to_safety_path_encounter_2',
+                'resolved' => FALSE,
+              ],
+            ],
+            'children' => [
+              [
+                'objective_id' => 'escort_to_safety_runtime_1',
+                'type' => 'interact',
+                'target' => 'escort_to_safety_path_encounter_1',
+                'description' => 'Handle the first complication.',
+                'encounter_id' => 'escort_to_safety_path_encounter_1',
+                'completed' => FALSE,
+                'hidden' => FALSE,
+              ],
+              [
+                'objective_id' => 'escort_to_safety_runtime_2',
+                'type' => 'interact',
+                'target' => 'escort_to_safety_path_encounter_2',
+                'description' => 'Handle the second complication.',
+                'encounter_id' => 'escort_to_safety_path_encounter_2',
+                'completed' => FALSE,
+                'hidden' => TRUE,
+              ],
+              [
+                'objective_id' => 'escort_to_safety_arrive',
+                'type' => 'explore',
+                'location' => 'safehouse',
+                'description' => 'Reach the safehouse.',
+                'escort_arrival' => TRUE,
+                'completed' => FALSE,
+                'hidden' => TRUE,
+              ],
+            ],
+          ],
+        ],
+      ],
+    ]);
+
+    $escort = $states[0]['objectives'][0];
+    $this->assertTrue($escort['children'][0]['revealed']);
+    $this->assertFalse($escort['children'][1]['revealed']);
+    $this->assertFalse($escort['children'][2]['revealed']);
+
+    $service->applyUpdate($states, 1, 'escort_to_safety_runtime_1', 1);
+    $escort = $states[0]['objectives'][0];
+    $this->assertTrue($escort['path_encounters'][0]['resolved']);
+    $this->assertTrue($escort['children'][1]['revealed']);
+    $this->assertFalse($escort['children'][2]['revealed']);
+
+    $service->applyUpdate($states, 1, 'escort_to_safety_runtime_2', 1);
+    $escort = $states[0]['objectives'][0];
+    $this->assertTrue($escort['path_encounters'][1]['resolved']);
+    $this->assertTrue($escort['children'][2]['revealed']);
+
+    $service->applyUpdate($states, 1, 'escort_to_safety_arrive', 1);
+    $escort = $states[0]['objectives'][0];
+    $this->assertTrue($escort['arrived']);
+    $this->assertTrue($escort['completed']);
+  }
+
 }

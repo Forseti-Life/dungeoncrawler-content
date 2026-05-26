@@ -6,7 +6,12 @@
  * for the client to react to phase changes without polling. The server
  * remains authoritative — this is a local projection.
  *
- * Phases: 'exploration' | 'encounter' | 'downtime'
+ * Phases: 'encounter' | 'downtime'
+ *
+ * Exploration is intentionally kept out of the live runtime path for now.
+ * Server payloads that still report `exploration` are normalized to
+ * `encounter` on the client so room entry always stays inside the encounter
+ * framework.
  */
 
 /**
@@ -15,14 +20,14 @@
  */
 const VALID_TRANSITIONS = {
   exploration: ['encounter', 'downtime'],
-  encounter: ['exploration'],
-  downtime: ['exploration'],
+  encounter: ['downtime'],
+  downtime: ['encounter'],
 };
 
 export class PhaseManager {
   constructor() {
-    /** @type {'exploration'|'encounter'|'downtime'} */
-    this.currentPhase = 'exploration';
+    /** @type {'encounter'|'downtime'} */
+    this.currentPhase = 'encounter';
 
     /** @type {number} */
     this.stateVersion = 0;
@@ -86,10 +91,11 @@ export class PhaseManager {
       ...(this.serverState || {}),
       ...serverState,
     };
+    const normalizedPhase = this._normalizePhaseName(mergedState.phase);
 
     // Core state.
     this.serverState = mergedState;
-    this.currentPhase = mergedState.phase || 'exploration';
+    this.currentPhase = normalizedPhase;
     this.stateVersion = mergedState.state_version || 0;
     this.round = mergedState.round;
     this.turn = mergedState.turn;
@@ -166,7 +172,7 @@ export class PhaseManager {
    * @returns {boolean}
    */
   canTransitionTo(targetPhase) {
-    return (VALID_TRANSITIONS[this.currentPhase] || []).includes(targetPhase);
+    return (VALID_TRANSITIONS[this.currentPhase] || []).includes(this._normalizePhaseName(targetPhase));
   }
 
   /**
@@ -257,6 +263,21 @@ export class PhaseManager {
         console.error(`[PhaseManager] Listener error on '${event}':`, err);
       }
     }
+  }
+
+  /**
+   * Normalize dormant exploration states to the live encounter runtime.
+   *
+   * @param {string|null|undefined} phase
+   * @returns {'encounter'|'downtime'}
+   * @private
+   */
+  _normalizePhaseName(phase) {
+    const normalized = String(phase || '').trim().toLowerCase();
+    if (normalized === 'downtime') {
+      return 'downtime';
+    }
+    return 'encounter';
   }
 }
 

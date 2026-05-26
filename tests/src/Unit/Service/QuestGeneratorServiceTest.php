@@ -7,6 +7,7 @@ use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Drupal\dungeoncrawler_content\Service\NumberGenerationService;
 use Drupal\dungeoncrawler_content\Service\QuestGeneratorService;
 use Drupal\dungeoncrawler_content\Service\StateValidationService;
+use Drupal\dungeoncrawler_content\Service\StorylineManagerService;
 use Drupal\Tests\UnitTestCase;
 use Psr\Log\LoggerInterface;
 
@@ -181,6 +182,255 @@ class QuestGeneratorServiceTest extends UnitTestCase {
 
     $this->assertSame('scholar_npc', $objective['target']);
     $this->assertSame('tavern_entrance', $objective['location_id']);
+  }
+
+  /**
+   * Verifies investigate objectives inherit a discoverable location target.
+   */
+  public function testGenerateObjectiveNodeMapsInvestigateTargetToLocation(): void {
+    $logger = $this->createMock(LoggerInterface::class);
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($logger);
+
+    $state_validation = $this->createMock(StateValidationService::class);
+    $state_validation->method('validateQuestSummary')->willReturn([
+      'valid' => TRUE,
+      'errors' => [],
+    ]);
+
+    $service = new class(
+      $this->createMock(Connection::class),
+      $logger_factory,
+      $this->createMock(NumberGenerationService::class),
+      $state_validation
+    ) extends QuestGeneratorService {
+      public function exposedGenerateObjectiveNode(array $objective_schema, array $variables = [], array $context = []): array {
+        return $this->generateObjectiveNode($objective_schema, $variables, $context);
+      }
+    };
+
+    $objective = $service->exposedGenerateObjectiveNode([
+      'objective_id' => 'investigate_sanctum',
+      'type' => 'investigate',
+      'target' => 'sanctum',
+      'target_count' => 1,
+      'description' => 'Investigate the sanctum.',
+    ]);
+
+    $this->assertSame('sanctum', $objective['target']);
+    $this->assertSame('sanctum', $objective['location']);
+    $this->assertFalse($objective['discovered']);
+  }
+
+  /**
+   * Verifies escort objectives materialize path encounters into runtime steps.
+   */
+  public function testGenerateObjectiveNodeBuildsEscortPathEncounters(): void {
+    $logger = $this->createMock(LoggerInterface::class);
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($logger);
+
+    $state_validation = $this->createMock(StateValidationService::class);
+    $state_validation->method('validateQuestSummary')->willReturn([
+      'valid' => TRUE,
+      'errors' => [],
+    ]);
+
+    $number_generation = $this->createMock(NumberGenerationService::class);
+    $number_generation->expects($this->once())
+      ->method('rollRange')
+      ->with(1, 3)
+      ->willReturn(3);
+
+    $service = new class(
+      $this->createMock(Connection::class),
+      $logger_factory,
+      $number_generation,
+      $state_validation
+    ) extends QuestGeneratorService {
+      public function exposedGenerateObjectiveNode(array $objective_schema, array $variables = [], array $context = []): array {
+        return $this->generateObjectiveNode($objective_schema, $variables, $context);
+      }
+    };
+
+    $objective = $service->exposedGenerateObjectiveNode([
+      'objective_id' => 'escort_to_safety',
+      'type' => 'escort',
+      'target' => 'Eldric',
+      'npc_ref' => 'merchant_npc',
+      'destination' => 'Safehouse',
+      'encounter_count_range' => [1, 3],
+      'encounter_types' => ['social', 'problem_solving', 'combat'],
+      'encounter_profiles' => ['negotiation_collapse', 'chase_transition', 'ambush'],
+      'description' => 'Escort Eldric back to safety.',
+    ]);
+
+    $this->assertCount(3, $objective['path_encounters']);
+    $this->assertSame('social', $objective['path_encounters'][0]['encounter_type']);
+    $this->assertSame('problem_solving', $objective['path_encounters'][1]['encounter_type']);
+    $this->assertSame('combat', $objective['path_encounters'][2]['encounter_type']);
+    $this->assertSame('negotiation_collapse', $objective['path_encounters'][0]['setup_profile']);
+    $this->assertSame('ambush', $objective['path_encounters'][2]['setup_profile']);
+    $this->assertFalse($objective['path_encounters'][0]['resolved']);
+    $this->assertSame('all_children', $objective['completion_criteria']['kind']);
+    $this->assertCount(4, $objective['children']);
+    $this->assertSame('escort_to_safety_runtime_1', $objective['children'][0]['objective_id']);
+    $this->assertFalse($objective['children'][0]['hidden']);
+    $this->assertTrue($objective['children'][1]['hidden']);
+    $this->assertTrue($objective['children'][3]['hidden']);
+    $this->assertTrue($objective['children'][3]['escort_arrival']);
+    $this->assertSame('Safehouse', $objective['children'][3]['location']);
+  }
+
+  /**
+   * Verifies quest summary objectives do not leak label-only helper fields.
+   */
+  public function testBuildQuestSummaryEntryOmitsObjectiveLabelHelperFields(): void {
+    $logger = $this->createMock(LoggerInterface::class);
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($logger);
+
+    $service = new class(
+      $this->createMock(Connection::class),
+      $logger_factory,
+      $this->createMock(NumberGenerationService::class)
+    ) extends QuestGeneratorService {
+      protected function resolveObjectiveReferenceLabel(array $quest_row, string $value): string {
+        return match ($value) {
+          'tavern_entrance' => 'Tavern Entrance',
+          'scholar_npc' => 'Scholar',
+          default => parent::resolveObjectiveReferenceLabel($quest_row, $value),
+        };
+      }
+    };
+
+    $entry = $service->buildQuestSummaryEntry([
+      'quest_id' => 'quest-123',
+      'quest_name' => 'Speak to the Scholar',
+      'generated_objectives' => [[
+        'phase' => 1,
+        'objectives' => [[
+          'objective_id' => 'talk-to-scholar',
+          'type' => 'interact',
+          'description' => 'Talk to scholar_npc in tavern_entrance.',
+          'target' => 'scholar_npc',
+          'location' => 'tavern_entrance',
+          'completed' => FALSE,
+        ]],
+      ]],
+    ]);
+
+    $objective = $entry['generated_objectives'][0]['objectives'][0];
+    $this->assertArrayNotHasKey('target_label', $objective);
+    $this->assertArrayNotHasKey('location_label', $objective);
+    $this->assertSame('Talk to Scholar in Tavern Entrance.', $objective['description']);
+  }
+
+  /**
+   * Verifies management-tree verification fails closed on invalid storyline data.
+   */
+  public function testBuildQuestManagementTreeRejectsInvalidStorylineRuntimeContract(): void {
+    $logger = $this->createMock(LoggerInterface::class);
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($logger);
+
+    $state_validation = $this->createMock(StateValidationService::class);
+    $state_validation->method('validateQuestSummary')->willReturn([
+      'valid' => TRUE,
+      'errors' => [],
+    ]);
+
+    $storyline_manager = $this->createMock(StorylineManagerService::class);
+    $storyline_manager->expects($this->once())
+      ->method('validateRuntimeStorylineContract')
+      ->willReturn([
+        'valid' => FALSE,
+        'errors' => ["Progression connector 'broken-handoff' points to unknown room 'missing-room'."],
+      ]);
+
+    $service = new class(
+      $this->createMock(Connection::class),
+      $logger_factory,
+      $this->createMock(NumberGenerationService::class),
+      $state_validation,
+      NULL,
+      $storyline_manager
+    ) extends QuestGeneratorService {
+      protected function loadCampaignStorylineRows(int $campaign_id): array {
+        return [[
+          'storyline_id' => 'broken-storyline',
+          'template_id' => 'broken-storyline',
+          'name' => 'Broken Storyline',
+          'status' => 'active',
+          'priority' => 100,
+          'current_chapter_id' => 'chapter-one',
+          'current_scene_id' => 'scene-one',
+          'storyline_data' => [
+            'storyline_type' => 'questline',
+            'metadata' => [
+              'goal' => 'Follow the broken lead.',
+            ],
+            'chapters' => [[
+              'chapter_id' => 'chapter-one',
+              'name' => 'Chapter One',
+              'scenes' => [[
+                'scene_id' => 'scene-one',
+                'name' => 'Scene One',
+                'quest_ids' => ['broken-quest'],
+              ]],
+            ]],
+            'linked_quests' => [
+              'broken-quest' => [
+                'quest_id' => 'broken-quest',
+                'chapter_id' => 'chapter-one',
+                'scene_id' => 'scene-one',
+                'status' => 'active',
+              ],
+            ],
+            'questline' => [
+              'primary_quest_id' => 'broken-quest',
+              'ordered_quest_ids' => ['broken-quest'],
+              'quest_nodes' => [[
+                'quest_id' => 'broken-quest',
+                'chapter_id' => 'chapter-one',
+                'scene_id' => 'scene-one',
+                'status' => 'active',
+                'unlocks_after' => [],
+              ]],
+            ],
+            'asset_references' => [],
+            'contacts' => [],
+          ],
+        ]];
+      }
+
+      protected function loadCampaignStorylineContactItems(int $campaign_id): array {
+        return [];
+      }
+    };
+
+    $this->expectException(\InvalidArgumentException::class);
+    $this->expectExceptionMessage('Storyline management contract failed validation for storyline broken-storyline');
+
+    $service->buildQuestManagementTree(70, [[
+      'quest_id' => 'broken-quest_70_abc',
+      'quest_key' => 'broken-quest',
+      'source_template_id' => 'broken-quest',
+      'quest_name' => 'Broken Quest',
+      'title' => 'Broken Quest',
+      'status' => 'active',
+      'current_phase' => 1,
+      'generated_objectives' => [],
+      'objective_states' => [],
+      'generated_rewards' => [],
+      'quest_data' => [],
+      'location_id' => 'tavern_entrance',
+      'storyline' => [
+        'storyline_id' => 'broken-storyline',
+        'chapter_id' => 'chapter-one',
+        'scene_id' => 'scene-one',
+      ],
+    ]], [], 'tavern_entrance');
   }
 
   /**
@@ -400,6 +650,237 @@ class QuestGeneratorServiceTest extends UnitTestCase {
       'Complete all nested objectives.',
       $quest_giver_branch[0]['storylines'][0]['quests'][0]['objectives'][0]['completion_criteria']['description']
     );
+  }
+
+  /**
+   * Verifies storyline quest journal guidance prefers the authored scene over a
+   * generic quest-row location id.
+   */
+  public function testBuildQuestManagementTreePrefersStorylineSceneOverGenericLocationId(): void {
+    $logger = $this->createMock(LoggerInterface::class);
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($logger);
+
+    $state_validation = $this->createMock(StateValidationService::class);
+    $state_validation->method('validateQuestSummary')->willReturn([
+      'valid' => TRUE,
+      'errors' => [],
+    ]);
+
+    $service = new class(
+      $this->createMock(Connection::class),
+      $logger_factory,
+      $this->createMock(NumberGenerationService::class),
+      $state_validation
+    ) extends QuestGeneratorService {
+      protected function loadCampaignStorylineRows(int $campaign_id): array {
+        return [[
+          'storyline_id' => 'torment-and-legacy',
+          'template_id' => 'torment-and-legacy',
+          'name' => 'Torment and Legacy',
+          'status' => 'active',
+          'priority' => 100,
+          'current_chapter_id' => 'onboarding',
+          'current_scene_id' => 'briefing',
+          'storyline_data' => [
+            'storyline_type' => 'questline',
+            'metadata' => [
+              'goal' => 'Accept the mission.',
+            ],
+            'chapters' => [[
+              'chapter_id' => 'onboarding',
+              'name' => 'Onboarding',
+              'summary' => 'Introduce the opening mission.',
+              'quest_ids' => [],
+              'asset_references' => [],
+              'gates' => [],
+              'scenes' => [[
+                'scene_id' => 'briefing',
+                'name' => 'Adventure Briefing',
+                'summary' => 'Meet Venture-Captain Celia Arvanxi for the mission briefing.',
+                'quest_ids' => ['tal-accept-the-mission'],
+                'asset_references' => [],
+                'gates' => [],
+              ]],
+            ]],
+            'linked_quests' => [
+              'tal-accept-the-mission' => [
+                'quest_id' => 'tal-accept-the-mission',
+                'chapter_id' => 'onboarding',
+                'scene_id' => 'briefing',
+                'status' => 'active',
+              ],
+            ],
+            'questline' => [
+              'primary_quest_id' => 'tal-accept-the-mission',
+              'ordered_quest_ids' => ['tal-accept-the-mission'],
+              'quest_nodes' => [[
+                'quest_id' => 'tal-accept-the-mission',
+                'chapter_id' => 'onboarding',
+                'scene_id' => 'briefing',
+                'status' => 'active',
+                'unlocks_after' => [],
+                'unlocks_to' => [],
+                'unlock_condition' => 'initially_available',
+              ]],
+            ],
+            'asset_references' => [],
+            'contacts' => [[
+              'contact_id' => 'tal-mission-handler-contact',
+              'entity_type' => 'npc_template',
+              'entity_id' => 'tal-mission-handler',
+              'role' => 'quest_giver',
+              'display_name' => 'Venture-Captain Celia Arvanxi',
+              'relationship_state' => [
+                'chapter_id' => 'onboarding',
+                'scene_id' => 'briefing',
+              ],
+            ]],
+          ],
+        ]];
+      }
+
+      protected function loadCampaignStorylineContactItems(int $campaign_id): array {
+        return [[
+          'storyline_id' => 'torment-and-legacy',
+          'name' => 'Torment and Legacy',
+          'lead_location' => [
+            'id' => 'tavern_entrance',
+            'label' => 'Tavern Entrance',
+          ],
+          'quest_giver' => [
+            'entity_id' => 'tal-mission-handler',
+            'display_name' => 'Venture-Captain Celia Arvanxi',
+            'notes' => 'Celia briefs the party on the opening mission.',
+          ],
+        ]];
+      }
+    };
+
+    $tree = $service->buildQuestManagementTree(82, [[
+      'quest_id' => 'tal-accept-the-mission_82_314',
+      'quest_key' => 'tal-accept-the-mission',
+      'source_template_id' => 'tal-accept-the-mission',
+      'quest_name' => 'Accept the Mission',
+      'title' => 'Accept the Mission',
+      'status' => 'active',
+      'current_phase' => 1,
+      'generated_objectives' => [[
+        'phase' => 1,
+        'objectives' => [[
+          'objective_id' => 'accept_demo_briefing',
+          'type' => 'interact',
+          'description' => 'Hear the mission briefing and commit the party to the adventure.',
+          'completed' => FALSE,
+          'target' => 'tal-mission-handler',
+          'completion_criteria' => [
+            'kind' => 'flag',
+            'metric' => 'completed',
+            'description' => 'Mark this objective complete.',
+            'required_value' => TRUE,
+          ],
+        ]],
+      ]],
+      'objective_states' => [[
+        'phase' => 1,
+        'objectives' => [[
+          'objective_id' => 'accept_demo_briefing',
+          'type' => 'interact',
+          'description' => 'Hear the mission briefing and commit the party to the adventure.',
+          'completed' => FALSE,
+          'target' => 'tal-mission-handler',
+          'completion_criteria' => [
+            'kind' => 'flag',
+            'metric' => 'completed',
+            'description' => 'Mark this objective complete.',
+            'required_value' => TRUE,
+          ],
+        ]],
+      ]],
+      'generated_rewards' => [],
+      'quest_data' => [],
+      'location_id' => 'tavern_entrance',
+      'storyline' => [
+        'storyline_id' => 'torment-and-legacy',
+        'chapter_id' => 'onboarding',
+        'scene_id' => 'briefing',
+      ],
+    ]], [], 'tavern_entrance');
+
+    $quest_giver_branch = array_values(array_filter($tree, static fn(array $npc): bool => ($npc['npc_id'] ?? '') === 'tal-mission-handler'));
+    $this->assertCount(1, $quest_giver_branch);
+    $quest = $quest_giver_branch[0]['storylines'][0]['quests'][0] ?? [];
+    $objective = $quest['objectives'][0] ?? [];
+
+    $this->assertSame('Adventure Briefing', $quest['location']['label'] ?? NULL);
+    $this->assertSame('Adventure Briefing', $objective['location']['label'] ?? NULL);
+    $this->assertSame(
+      'Speak with or interact with Venture-Captain Celia Arvanxi at Adventure Briefing.',
+      $objective['next_step'] ?? NULL
+    );
+  }
+
+  /**
+   * Verifies interact objectives fail closed when a storyline contact has no
+   * canonical location anchor instead of inheriting a generic fallback location.
+   */
+  public function testBuildQuestManagementObjectivesDoNotInventContactLocationFromFallback(): void {
+    $logger = $this->createMock(LoggerInterface::class);
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($logger);
+
+    $state_validation = $this->createMock(StateValidationService::class);
+    $state_validation->method('validateQuestSummary')->willReturn([
+      'valid' => TRUE,
+      'errors' => [],
+    ]);
+
+    $service = new class(
+      $this->createMock(Connection::class),
+      $logger_factory,
+      $this->createMock(NumberGenerationService::class),
+      $state_validation
+    ) extends QuestGeneratorService {
+      public function exposedBuildQuestManagementObjectives(
+        array $quest,
+        array $fallback_location,
+        bool $blocked,
+        ?string $current_location_id,
+        array $storyline_contacts
+      ): array {
+        return $this->buildQuestManagementObjectives($quest, $fallback_location, $blocked, $current_location_id, $storyline_contacts);
+      }
+    };
+
+    $objectives = $service->exposedBuildQuestManagementObjectives([
+      'quest_id' => 'mystery_briefing_82_314',
+      'quest_name' => 'Mystery Briefing',
+      'status' => 'active',
+      'current_phase' => 1,
+      'generated_objectives' => [],
+      'objective_states' => [[
+        'phase' => 1,
+        'objectives' => [[
+          'objective_id' => 'meet_mystery_contact',
+          'type' => 'interact',
+          'description' => 'Meet the hidden contact.',
+          'target' => 'hidden-contact',
+          'completed' => FALSE,
+        ]],
+      ]],
+    ], [
+      'id' => 'tavern_entrance',
+      'label' => 'Tavern Entrance',
+    ], FALSE, 'tavern_entrance', [[
+      'entity_id' => 'hidden-contact',
+      'display_name' => 'Hidden Contact',
+      'relationship_state' => [],
+    ]]);
+
+    $this->assertCount(1, $objectives);
+    $this->assertNull($objectives[0]['location']['id']);
+    $this->assertNull($objectives[0]['location']['label']);
+    $this->assertSame('Speak with or interact with Hidden Contact.', $objectives[0]['next_step']);
   }
 
   /**
@@ -785,6 +1266,55 @@ class QuestGeneratorServiceTest extends UnitTestCase {
     $this->assertTrue($service->isAllowed(70, 'collect_spellbooks', [
       'giver_npc_id' => 'scholar_npc',
     ]));
+    $this->assertTrue($service->isAllowed(70, 'collect_spellbooks', [
+      'giver_npc_id' => 'npc_scholar_npc',
+    ]));
+  }
+
+  /**
+   * Verifies room quest-association hints can hydrate missing item variables.
+   */
+  public function testBuildVariablesHydratesItemNameFromQuestAssociationHints(): void {
+    $logger = $this->createMock(LoggerInterface::class);
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($logger);
+
+    $state_validation = $this->createMock(StateValidationService::class);
+    $state_validation->method('validateQuestSummary')->willReturn([
+      'valid' => TRUE,
+      'errors' => [],
+    ]);
+
+    $service = new class(
+      $this->createMock(Connection::class),
+      $logger_factory,
+      $this->createMock(NumberGenerationService::class),
+      $state_validation
+    ) extends QuestGeneratorService {
+      public function exposedBuildVariables(array $template, array $context, int $campaign_id = 0): array {
+        return $this->buildVariables($template, $context, $campaign_id);
+      }
+
+      public function exposedResolveVariables(string $text, array $variables): string {
+        return $this->resolveVariables($text, $variables);
+      }
+
+      protected function loadQuestAssociationContextHints(int $campaign_id, string $location_id, string $template_id, array $template = []): array {
+        return $campaign_id === 85 && $location_id === 'tavern_entrance' && $template_id === 'collect_spellbooks'
+          ? ['item_name' => 'Spellbooks']
+          : [];
+      }
+    };
+
+    $variables = $service->exposedBuildVariables([
+      'template_id' => 'collect_spellbooks',
+      'name' => 'Collect Lost {item_name}',
+    ], [
+      'location' => 'tavern_entrance',
+    ], 85);
+
+    $this->assertSame('Spellbooks', $variables['item_name']);
+    $this->assertSame('Collect Lost Spellbooks', $service->exposedResolveVariables('Collect Lost {item_name}', $variables));
   }
 
   /**
@@ -821,7 +1351,7 @@ class QuestGeneratorServiceTest extends UnitTestCase {
       'quest_id' => 'collect_spellbooks_70_abc',
       'quest_name' => 'Recover Lost Spellbooks',
       'status' => 'active',
-      'current_phase' => 1,
+      'current_phase' => 2,
       'generated_objectives' => [],
       'objective_states' => [[
         'phase' => 1,
@@ -842,6 +1372,7 @@ class QuestGeneratorServiceTest extends UnitTestCase {
           'description' => 'Return the books to Marta',
           'target' => 'scholar_npc',
           'completed' => FALSE,
+          'revealed' => TRUE,
         ]],
       ]],
     ], [

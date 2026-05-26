@@ -4,6 +4,7 @@ namespace Drupal\Tests\dungeoncrawler_content\Unit\Service;
 
 use Drupal\dungeoncrawler_content\Service\MapGeneratorService;
 use Drupal\Tests\UnitTestCase;
+use Psr\Log\NullLogger;
 
 /**
  * Tests campaign room reuse during navigation.
@@ -20,7 +21,9 @@ class MapGeneratorServiceRoomReuseTest extends UnitTestCase {
    */
   public function testFindExistingCampaignRoomMatchPrefersExactConnectedRoom(): void {
     $service = new class extends MapGeneratorService {
-      public function __construct() {}
+      public function __construct() {
+        $this->logger = new NullLogger();
+      }
 
       public function callFindExistingCampaignRoomMatch(array $dungeon_data, string $destination, string $origin_room_id): ?array {
         return $this->findExistingCampaignRoomMatch($dungeon_data, $destination, $origin_room_id);
@@ -65,7 +68,9 @@ class MapGeneratorServiceRoomReuseTest extends UnitTestCase {
    */
   public function testCreateRoomConnectionAvoidsDuplicates(): void {
     $service = new class extends MapGeneratorService {
-      public function __construct() {}
+      public function __construct() {
+        $this->logger = new NullLogger();
+      }
 
       public function callCreateRoomConnection(array &$dungeon_data, string $from_room_id, string $to_room_id): void {
         $this->createRoomConnection($dungeon_data, $from_room_id, $to_room_id);

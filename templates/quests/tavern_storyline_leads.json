@@ -25,7 +25,7 @@
             "kind": "flag",
             "metric": "completed",
             "required_value": true,
-            "description": "Mark this objective complete."
+            "description": "Speak to Eldric and hear his lead."
           }
         },
         {
@@ -37,24 +37,7 @@
             "kind": "flag",
             "metric": "completed",
             "required_value": true,
-            "description": "Mark this objective complete."
-          }
-        }
-      ]
-    },
-    {
-      "phase": 2,
-      "objectives": [
-        {
-          "objective_id": "follow_best_lead",
-          "type": "explore",
-          "description": "Follow the strongest tavern lead and head to the next location.",
-          "location": "next_story_location",
-          "completion_criteria": {
-            "kind": "flag",
-            "metric": "discovered",
-            "required_value": true,
-            "description": "Discover the required location."
+            "description": "Speak to Marta and hear her lead."
           }
         }
       ]

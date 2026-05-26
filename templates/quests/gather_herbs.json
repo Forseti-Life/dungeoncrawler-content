@@ -26,7 +26,7 @@
             "kind": "count",
             "metric": "current",
             "target_count": 1,
-            "description": "Reach the required progress count."
+            "description": "Collect the required amount of {herb_name}."
           }
         }
       ]
@@ -43,7 +43,7 @@
             "kind": "flag",
             "metric": "completed",
             "required_value": true,
-            "description": "Mark this objective complete."
+            "description": "Speak to the alchemist and hand over the herbs."
           }
         }
       ]

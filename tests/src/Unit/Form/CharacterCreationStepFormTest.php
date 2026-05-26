@@ -65,6 +65,7 @@ class CharacterCreationStepFormTest extends UnitTestCase {
     $this->assertArrayHasKey('arcane', $options);
     $this->assertSame('Arcane', $options['arcane']);
     $this->assertArrayHasKey('selected_cantrip', $form_array['class_dynamic']['feat_selections']['adapted-cantrip']);
+    $this->assertArrayNotHasKey('reference', $form_array['class_dynamic']['feat_selections']['adapted-cantrip']);
   }
 
   /**

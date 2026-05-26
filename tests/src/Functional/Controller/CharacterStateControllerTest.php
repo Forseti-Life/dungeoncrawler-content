@@ -140,4 +140,145 @@ class CharacterStateControllerTest extends BrowserTestBase {
     }
   }
 
+  /**
+   * Tests runtime state inherits default spell/feat data from the source row.
+   */
+  public function testGetCharacterStateBackfillsRuntimeDefaultData(): void {
+    $user = $this->drupalCreateUser(['access dungeoncrawler characters']);
+    $this->drupalLogin($user);
+
+    $database = $this->container->get('database');
+    $now = \Drupal::time()->getRequestTime();
+
+    $campaign_id = (int) $database->insert('dc_campaigns')
+      ->fields([
+        'uuid' => '99999999-2222-3333-4444-555555555555',
+        'uid' => (int) $user->id(),
+        'name' => 'State Backfill Campaign',
+        'status' => 'draft',
+        'theme' => 'classic_dungeon',
+        'difficulty' => 'normal',
+        'campaign_data' => '{}',
+        'created' => $now,
+        'changed' => $now,
+      ])
+      ->execute();
+
+    $library_character_id = (int) $database->insert('dc_campaign_characters')
+      ->fields([
+        'uuid' => 'bbbbbbbb-cccc-dddd-eeee-ffffffffffff',
+        'campaign_id' => 0,
+        'character_id' => 0,
+        'instance_id' => 'library-runtime-backfill',
+        'uid' => (int) $user->id(),
+        'name' => 'Runtime Backfill Hero',
+        'level' => 1,
+        'ancestry' => 'Human',
+        'class' => 'Wizard',
+        'hp_current' => 18,
+        'hp_max' => 18,
+        'armor_class' => 15,
+        'experience_points' => 0,
+        'position_q' => 0,
+        'position_r' => 0,
+        'last_room_id' => '',
+        'type' => 'pc',
+        'character_data' => json_encode([
+          'name' => 'Runtime Backfill Hero',
+          'level' => 1,
+          'spells' => [
+            'cantrips' => [
+              ['id' => 'shield', 'name' => 'Shield', 'rank' => 0],
+            ],
+          ],
+        ], JSON_UNESCAPED_UNICODE),
+        'default_character_data' => json_encode([
+          'spells' => [
+            'cantrips' => [
+              ['id' => 'shield', 'name' => 'Shield', 'rank' => 0],
+            ],
+            'preparedSpells' => [
+              ['id' => 'magic-weapon', 'name' => 'Magic Weapon', 'rank' => 1],
+            ],
+            'slots' => ['1' => 2],
+          ],
+          'feats' => [
+            ['id' => 'reach-spell', 'name' => 'Reach Spell', 'type' => 'class', 'level' => 1],
+          ],
+        ], JSON_UNESCAPED_UNICODE),
+        'status' => 1,
+        'role' => 'player',
+        'state_data' => '{}',
+        'location_type' => 'global',
+        'location_ref' => '',
+        'is_active' => 1,
+        'joined' => $now,
+        'created' => $now,
+        'changed' => $now,
+        'updated' => $now,
+      ])
+      ->execute();
+
+    $runtime_character_id = (int) $database->insert('dc_campaign_characters')
+      ->fields([
+        'uuid' => 'cccccccc-dddd-eeee-ffff-000000000000',
+        'campaign_id' => $campaign_id,
+        'character_id' => $library_character_id,
+        'instance_id' => sprintf('pc-%d-%d', $campaign_id, $library_character_id),
+        'uid' => (int) $user->id(),
+        'name' => 'Runtime Backfill Hero',
+        'level' => 1,
+        'ancestry' => 'Human',
+        'class' => 'Wizard',
+        'hp_current' => 18,
+        'hp_max' => 18,
+        'armor_class' => 15,
+        'experience_points' => 0,
+        'position_q' => 0,
+        'position_r' => 0,
+        'last_room_id' => '',
+        'type' => 'pc',
+        'character_data' => json_encode([
+          'name' => 'Runtime Backfill Hero',
+          'level' => 1,
+          'spells' => [
+            'cantrips' => [
+              ['id' => 'shield', 'name' => 'Shield', 'rank' => 0],
+            ],
+          ],
+        ], JSON_UNESCAPED_UNICODE),
+        'state_data' => json_encode([
+          'spells' => [
+            'cantrips' => [
+              ['id' => 'shield', 'name' => 'Shield', 'rank' => 0],
+            ],
+          ],
+        ], JSON_UNESCAPED_UNICODE),
+        'location_type' => 'global',
+        'location_ref' => '',
+        'is_active' => 1,
+        'status' => 1,
+        'role' => 'player',
+        'joined' => $now,
+        'created' => $now,
+        'changed' => $now,
+        'updated' => $now,
+      ])
+      ->execute();
+
+    $this->drupalGet("/api/character/{$runtime_character_id}/state", [
+      'query' => [
+        '_format' => 'json',
+        'campaignId' => $campaign_id,
+      ],
+    ]);
+    $this->assertSession()->statusCodeEquals(200);
+
+    $response = json_decode($this->getSession()->getPage()->getContent(), TRUE);
+    $this->assertIsArray($response);
+    $this->assertTrue($response['success']);
+    $this->assertSame('Magic Weapon', $response['data']['spells']['preparedSpells'][0]['name']);
+    $this->assertSame('Reach Spell', $response['data']['features']['feats'][0]['name']);
+  }
+
 }

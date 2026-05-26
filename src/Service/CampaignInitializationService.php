@@ -432,6 +432,7 @@ class CampaignInitializationService {
    */
   private function loadTavernEntranceRoom(int $campaign_id, int $now, array $starter_room): bool {
     $room_id = (string) ($starter_room['room_id'] ?? 'tavern_entrance');
+    $source_room_id = $room_id !== '' ? $room_id : 'tavern_entrance';
     $room_name = (string) ($starter_room['name'] ?? 'The Gilded Tankard');
     $room_description = (string) ($starter_room['description'] ?? '');
     if ($room_description === '') {
@@ -458,6 +459,7 @@ class CampaignInitializationService {
         'environment_tags' => json_encode($starter_room['environment_tags'] ?? ['indoor', 'tavern', 'safe', 'starting_area']),
         'layout_data' => json_encode($layout_data, JSON_PRETTY_PRINT),
         'contents_data' => json_encode($contents_data, JSON_PRETTY_PRINT),
+        'source_room_id' => $source_room_id,
         'created' => $now,
         'updated' => $now,
       ])
@@ -615,6 +617,9 @@ class CampaignInitializationService {
     $starter_templates = [
       'tavern_storyline_leads' => [
         'giver_npc_id' => $npc_ids['tavern_keeper'] ?? NULL,
+      ],
+      'collect_spellbooks' => [
+        'giver_npc_id' => $npc_ids['scholar_npc'] ?? NULL,
       ],
     ];
 

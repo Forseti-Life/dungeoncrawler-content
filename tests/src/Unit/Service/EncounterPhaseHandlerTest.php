@@ -139,7 +139,23 @@ class EncounterPhaseHandlerTest extends UnitTestCase {
     $room_chat = $this->createMock(RoomChatService::class);
     $room_chat->expects($this->once())
       ->method('postMessage')
-      ->with(42, 'room-a', 'Hero', 'Guide, Hold the doorway.', 'player', 99)
+      ->with(
+        42,
+        'room-a',
+        'Hero',
+        'Guide, Hold the doorway.',
+        'player',
+        99,
+        'room',
+        FALSE,
+        FALSE,
+        NULL,
+        [
+          'objective_type' => '',
+          'objective_id' => '',
+          'entity_ref' => 'npc-guide',
+        ]
+      )
       ->willReturn([
         'gm_response' => ['message' => 'The guide nods and braces the door.'],
         'npc_interjections' => [['speaker' => 'Guide', 'message' => 'On it.']],

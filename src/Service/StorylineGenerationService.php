@@ -20,6 +20,7 @@ class StorylineGenerationService {
   private const GENERATED_TEMPLATE_ID_MAX_LENGTH = 64;
 
   protected LoggerInterface $logger;
+  protected ObjectiveTypeService $objectiveTypeService;
 
   public function __construct(
     protected readonly Connection $database,
@@ -35,8 +36,10 @@ class StorylineGenerationService {
     protected readonly ?NpcSheetGenerationService $npcSheetGenerationService = NULL,
     protected readonly ?StorylineRealizationService $storylineRealizationService = NULL,
     protected readonly ?QuestTrackerService $questTracker = NULL,
+    ?ObjectiveTypeService $objective_type_service = NULL,
   ) {
     $this->logger = $logger_factory->get('dungeoncrawler_content');
+    $this->objectiveTypeService = $objective_type_service ?? new ObjectiveTypeService();
   }
 
   /**
@@ -101,8 +104,6 @@ class StorylineGenerationService {
       $package['storyline_definition'] ?? [],
       $request + ['status' => 'bootstrapping']
     );
-    $this->realizeStorylineAssets($campaign_id, $storyline);
-    $this->realizeStorylineNpcs($campaign_id, $storyline);
     $initial_quest = $this->materializeBootstrapQuest($campaign_id, $storyline, $request);
     ['storyline' => $storyline, 'initial_quest' => $initial_quest] = $this->activateBootstrapHandoff(
       $campaign_id,
@@ -242,8 +243,6 @@ class StorylineGenerationService {
           $this->relationshipManager->seedStorylineContacts($campaign_id, $storyline);
           $this->relationshipManager->refreshCampaignStorylineContacts($campaign_id, 'npc_tavern_keeper');
         }
-        $this->realizeStorylineAssets($campaign_id, $storyline);
-        $this->realizeStorylineNpcs($campaign_id, $storyline);
 
         $this->database->update('dc_storyline_expansion_jobs')
           ->fields([
@@ -348,6 +347,8 @@ class StorylineGenerationService {
       if (!is_array($template) || empty($template['template_id'])) {
         continue;
       }
+
+      $this->assertQuestTemplateConformsToObjectiveContract($template);
 
       $template_id = (string) $template['template_id'];
       $fields = [
@@ -649,14 +650,13 @@ class StorylineGenerationService {
    */
   protected function generateFallbackPackage(int $campaign_id, array $request, array $context): array {
     $goal = $this->normalizeSentence($request['prompt']);
-    $base_name = $request['name'] !== '' ? $request['name'] : $this->deriveStorylineName($request['prompt']);
-    $base_slug = $this->sanitizeIdentifier(
-      $request['template_id'] !== '' ? $request['template_id'] : $base_name,
-      self::GENERATED_STORYLINE_SLUG_MAX_LENGTH
-    );
-    if ($base_slug === '') {
-      $base_slug = 'generated-storyline-' . substr(str_replace('-', '', $this->uuid->generate()), 0, 8);
-    }
+    $identity = $this->suggestCanonicalStorylineIdentity($request['prompt'], [
+      'name' => (string) ($request['name'] ?? ''),
+      'template_id' => (string) ($request['template_id'] ?? ''),
+      'metadata' => ['goal' => $goal],
+    ]);
+    $base_name = $identity['name'];
+    $base_slug = $identity['template_id'];
 
     $style_seed = $request['theme'] !== '' ? $request['theme'] : $this->deriveStyleSeed($request['prompt'], $request['tone']);
     $location_id = $request['lead_location_id'] !== '' ? (string) $request['lead_location_id'] : (string) ($context['location_id'] ?? 'tavern_entrance');
@@ -803,11 +803,13 @@ class StorylineGenerationService {
    */
   protected function generateFallbackBootstrapPackage(int $campaign_id, array $request, array $context): array {
     $goal = $this->normalizeSentence($request['prompt']);
-    $base_name = $request['name'] !== '' ? $request['name'] : $this->deriveStorylineName($request['prompt']);
-    $base_slug = $this->sanitizeIdentifier($base_name, self::GENERATED_STORYLINE_SLUG_MAX_LENGTH);
-    if ($base_slug === '') {
-      $base_slug = 'storyline-bootstrap-' . substr(str_replace('-', '', $this->uuid->generate()), 0, 8);
-    }
+    $identity = $this->suggestCanonicalStorylineIdentity($request['prompt'], [
+      'name' => (string) ($request['name'] ?? ''),
+      'template_id' => (string) ($request['template_id'] ?? ''),
+      'metadata' => ['goal' => $goal],
+    ], TRUE);
+    $base_name = $identity['name'];
+    $base_slug = $identity['template_id'];
 
     $style_seed = $request['theme'] !== '' ? $request['theme'] : $this->deriveStyleSeed($request['prompt'], $request['tone']);
     $lead_location_id = $request['lead_location_id'] !== '' ? $request['lead_location_id'] : (string) ($context['location_id'] ?? 'tavern_entrance');
@@ -972,11 +974,9 @@ class StorylineGenerationService {
       throw new \InvalidArgumentException('Generated storyline package is empty.', 400);
     }
 
-    $storyline['name'] = trim((string) ($storyline['name'] ?? $request['name'] ?? $this->deriveStorylineName($request['prompt'])));
-    $storyline['template_id'] = $this->sanitizeIdentifier(
-      (string) ($storyline['template_id'] ?? $storyline['name'] ?? 'generated-storyline'),
-      self::GENERATED_TEMPLATE_ID_MAX_LENGTH
-    );
+    $identity = $this->suggestCanonicalStorylineIdentity($request['prompt'], $storyline);
+    $storyline['name'] = $identity['name'];
+    $storyline['template_id'] = $identity['template_id'];
     $storyline['synopsis'] = trim((string) ($storyline['synopsis'] ?? 'Generated storyline based on the supplied campaign goal.'));
     $storyline['level_range'] = trim((string) ($storyline['level_range'] ?? $request['level_range']));
     $storyline['source'] = trim((string) ($storyline['source'] ?? $request['source'])) ?: 'storyline-generator';
@@ -1104,11 +1104,9 @@ class StorylineGenerationService {
       throw new \InvalidArgumentException('Generated storyline bootstrap package is empty.', 400);
     }
 
-    $storyline['name'] = trim((string) ($storyline['name'] ?? $request['name'] ?? $this->deriveStorylineName($request['prompt'])));
-    $storyline['template_id'] = $this->sanitizeIdentifier(
-      (string) ($storyline['template_id'] ?? $storyline['name'] ?? 'generated-storyline-bootstrap'),
-      self::GENERATED_TEMPLATE_ID_MAX_LENGTH
-    );
+    $identity = $this->suggestCanonicalStorylineIdentity($request['prompt'], $storyline, TRUE);
+    $storyline['name'] = $identity['name'];
+    $storyline['template_id'] = $identity['template_id'];
     $storyline['synopsis'] = trim((string) ($storyline['synopsis'] ?? 'Generated storyline bootstrap based on the supplied campaign goal.'));
     $storyline['level_range'] = trim((string) ($storyline['level_range'] ?? $request['level_range']));
     $storyline['source'] = trim((string) ($storyline['source'] ?? $request['source'])) ?: 'storyline-bootstrap';
@@ -1459,30 +1457,6 @@ class StorylineGenerationService {
   }
 
   /**
-   * Materialize questgiver/boss storyline NPC references into real campaign NPCs.
-   *
-   * @return array<int, string>
-   *   Entity refs realized during this pass.
-   */
-  protected function realizeStorylineNpcs(int $campaign_id, array $storyline): array {
-    return $this->storylineRealizationService?->realizeStorylineNpcs($campaign_id, $storyline) ?? [];
-  }
-
-  /**
-   * Materialize storyline dungeon, room, and item references into campaign rows.
-   *
-   * @return array<string, int>
-   *   Counts of realized asset rows.
-   */
-  protected function realizeStorylineAssets(int $campaign_id, array $storyline): array {
-    return $this->storylineRealizationService?->realizeStorylineAssets($campaign_id, $storyline) ?? [
-      'dungeons' => 0,
-      'rooms' => 0,
-      'items' => 0,
-    ];
-  }
-
-  /**
    * Build campaign NPC specs from storyline contacts and generated boss outline.
    *
    * @return array<int, array<string, mixed>>
@@ -1580,7 +1554,7 @@ class StorylineGenerationService {
       $level_min = max(1, (int) ($template['level_min'] ?? 1));
       $level_max = max($level_min, (int) ($template['level_max'] ?? $level_min));
 
-      return [
+      $normalized = [
         'template_id' => (string) $template['template_id'],
         'name' => trim((string) ($template['name'] ?? $template['template_id'])),
         'description' => trim((string) ($template['description'] ?? '')),
@@ -1595,7 +1569,21 @@ class StorylineGenerationService {
         'estimated_duration_minutes' => max(5, (int) ($template['estimated_duration_minutes'] ?? 20)),
         'version' => (string) ($template['version'] ?? self::QUEST_TEMPLATE_VERSION),
       ];
+
+      $this->assertQuestTemplateConformsToObjectiveContract($normalized);
+      return $normalized;
     }, $template_map));
+  }
+
+  /**
+   * Enforce the strict quest objective contract on generated templates.
+   */
+  protected function assertQuestTemplateConformsToObjectiveContract(array $template): void {
+    $template_id = trim((string) ($template['template_id'] ?? 'generated-template'));
+    $this->objectiveTypeService->assertObjectivePhases(
+      is_array($template['objectives_schema'] ?? NULL) ? $template['objectives_schema'] : [],
+      'storyline_generation.quest_templates[' . $template_id . '].objectives_schema'
+    );
   }
 
   /**
@@ -2070,6 +2058,123 @@ class StorylineGenerationService {
     $trimmed = preg_replace('/\s+/', ' ', $trimmed) ?? $trimmed;
     $trimmed = ucfirst(rtrim($trimmed, '.!?'));
     return mb_strlen($trimmed) > 60 ? mb_substr($trimmed, 0, 60) : $trimmed;
+  }
+
+  /**
+   * Build a stable storyline display name + template id without echoing chat.
+   *
+   * @return array{name:string, template_id:string}
+   *   Canonical storyline identity.
+   */
+  public function suggestCanonicalStorylineIdentity(string $prompt, array $storyline = [], bool $bootstrap = FALSE): array {
+    $explicit_name = trim((string) ($storyline['name'] ?? ''));
+    $explicit_template_id = trim((string) ($storyline['template_id'] ?? ''));
+    $goal = trim((string) (($storyline['metadata']['goal'] ?? '') ?: $prompt));
+
+    $name = $explicit_name;
+    if ($name === '' || $this->looksLikeConversationalPromptEcho($name, $prompt)) {
+      $name = $this->deriveSemanticStorylineName($goal, $bootstrap);
+    }
+
+    $template_id = $explicit_template_id;
+    if ($template_id === '' || $this->looksLikeConversationalPromptEcho($template_id, $prompt)) {
+      $template_id = $this->deriveSemanticStorylineSlug($goal, $bootstrap);
+    }
+
+    $template_id = $this->sanitizeIdentifier($template_id, self::GENERATED_TEMPLATE_ID_MAX_LENGTH);
+    if ($template_id === '') {
+      $template_id = ($bootstrap ? 'storyline-bootstrap-' : 'generated-storyline-') . substr(str_replace('-', '', $this->uuid->generate()), 0, 8);
+    }
+
+    return [
+      'name' => $name,
+      'template_id' => $template_id,
+    ];
+  }
+
+  /**
+   * Detect when a candidate identifier/name is effectively the raw chat prompt.
+   */
+  protected function looksLikeConversationalPromptEcho(string $candidate, string $prompt): bool {
+    $candidate = strtolower(trim($candidate));
+    $prompt = strtolower(trim($prompt));
+    if ($candidate === '' || $prompt === '') {
+      return FALSE;
+    }
+
+    $normalize = static function (string $value): string {
+      $value = preg_replace('/[^a-z0-9]+/', ' ', strtolower(trim($value))) ?? '';
+      return trim(preg_replace('/\s+/', ' ', $value) ?? $value);
+    };
+
+    $normalized_candidate = $normalize($candidate);
+    $normalized_prompt = $normalize($prompt);
+    if ($normalized_candidate === $normalized_prompt) {
+      return TRUE;
+    }
+
+    $chat_markers = ['hey', 'hello', 'hi', 'storyline', 'storylines', 'quest', 'quests', 'for me', 'you have any'];
+    $marker_hits = 0;
+    foreach ($chat_markers as $marker) {
+      if (str_contains($normalized_candidate, $marker)) {
+        $marker_hits++;
+      }
+    }
+
+    return $marker_hits >= 2;
+  }
+
+  /**
+   * Derive a safe storyline name from semantic prompt keywords.
+   */
+  protected function deriveSemanticStorylineName(string $prompt, bool $bootstrap = FALSE): string {
+    $keywords = $this->extractStorylineTopicKeywords($prompt);
+    if ($keywords === [] || ($this->looksLikeConversationalPromptEcho($prompt, $prompt) && count($keywords) <= 2)) {
+      return $bootstrap ? 'New Storyline Lead' : 'Generated Storyline';
+    }
+
+    $title = implode(' ', array_map(static fn(string $keyword): string => ucfirst($keyword), array_slice($keywords, 0, 3)));
+    return $bootstrap ? 'Threshold of ' . $title : $title;
+  }
+
+  /**
+   * Derive a safe storyline slug from semantic prompt keywords.
+   */
+  protected function deriveSemanticStorylineSlug(string $prompt, bool $bootstrap = FALSE): string {
+    $keywords = $this->extractStorylineTopicKeywords($prompt);
+    if ($keywords === [] || ($this->looksLikeConversationalPromptEcho($prompt, $prompt) && count($keywords) <= 2)) {
+      return ($bootstrap ? 'storyline-bootstrap-' : 'generated-storyline-') . substr(str_replace('-', '', $this->uuid->generate()), 0, 8);
+    }
+
+    $base = implode('-', array_slice($keywords, 0, 5));
+    return $this->sanitizeIdentifier($base, self::GENERATED_STORYLINE_SLUG_MAX_LENGTH);
+  }
+
+  /**
+   * Extract non-conversational keywords from a prompt/goal.
+   *
+   * @return array<int, string>
+   *   Lowercase keyword tokens.
+   */
+  protected function extractStorylineTopicKeywords(string $prompt): array {
+    $normalized = preg_replace('/[^a-z0-9]+/', ' ', strtolower(trim($prompt))) ?? '';
+    $tokens = array_values(array_filter(explode(' ', $normalized)));
+    $stopwords = [
+      'a', 'an', 'and', 'any', 'are', 'about', 'can', 'do', 'for', 'from', 'get',
+      'give', 'have', 'hello', 'help', 'hey', 'hi', 'i', 'into', 'is', 'it', 'lets',
+      'me', 'my', 'of', 'on', 'please', 'quest', 'quests', 'something', 'story',
+      'storyline', 'storylines', 'tell', 'that', 'the', 'there', 'this', 'to', 'want',
+      'with', 'work', 'you', 'your',
+    ];
+    $keywords = [];
+    foreach ($tokens as $token) {
+      if (strlen($token) < 3 || in_array($token, $stopwords, TRUE)) {
+        continue;
+      }
+      $keywords[$token] = TRUE;
+    }
+
+    return array_keys($keywords);
   }
 
   /**

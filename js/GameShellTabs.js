@@ -25,6 +25,9 @@
       panel.hidden = !active;
     });
 
+    window.dispatchEvent(new CustomEvent('dungeoncrawler:game-shell-tab-changed', {
+      detail: { tabId },
+    }));
     window.dispatchEvent(new Event('resize'));
   }
 

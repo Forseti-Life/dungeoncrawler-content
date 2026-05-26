@@ -23,7 +23,7 @@
             "kind": "flag",
             "metric": "discovered",
             "required_value": true,
-            "description": "Discover the required location."
+            "description": "Discover {location}."
           }
         },
         {
@@ -35,7 +35,7 @@
             "kind": "flag",
             "metric": "discovered",
             "required_value": true,
-            "description": "Discover the required location."
+            "description": "Discover the inner chambers."
           }
         }
       ]
@@ -53,7 +53,7 @@
             "kind": "count",
             "metric": "current",
             "target_count": 1,
-            "description": "Reach the required progress count."
+            "description": "Recover the mysterious artifact."
           }
         }
       ]
@@ -70,7 +70,7 @@
             "kind": "flag",
             "metric": "completed",
             "required_value": true,
-            "description": "Mark this objective complete."
+            "description": "Report your findings to the quest giver."
           }
         }
       ]

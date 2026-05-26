@@ -144,6 +144,144 @@ class StateValidationServiceTest extends UnitTestCase {
   }
 
   /**
+   * Verifies compact room runtime payloads normalize into the canonical state fragment.
+   */
+  public function testValidateRoomStateAcceptsCompactRuntimePayload(): void {
+    $payload = [
+      'roomId' => 'room_1_1_0',
+      'dungeonId' => 'dungeon_1_1_1',
+      'explored' => TRUE,
+      'exploredAt' => '2026-05-20T17:00:00+00:00',
+      'exploredByParty' => 'party-alpha',
+      'isCleared' => FALSE,
+      'looted' => FALSE,
+      'trapsDisarmed' => TRUE,
+      'visibility' => 'visible',
+      'visibleHexIds' => ['hex-a', 'hex-b'],
+    ];
+
+    $result = $this->service->validateRoomState($payload);
+    $this->assertTrue($result['valid'], implode('; ', $result['errors'] ?? []));
+  }
+
+  /**
+   * Verifies invalid room runtime fragments still fail closed.
+   */
+  public function testValidateRoomStateRejectsInvalidVisibility(): void {
+    $payload = [
+      'explored' => TRUE,
+      'visibility' => 'blinding',
+    ];
+
+    $result = $this->service->validateRoomState($payload);
+    $this->assertFalse($result['valid']);
+    $this->assertStringContainsString('visibility', implode('; ', $result['errors'] ?? []));
+  }
+
+  /**
+   * Verifies navigation receipts accept canonical room hex metadata.
+   */
+  public function testValidateNavigationReceiptAcceptsHexElevationAndObjects(): void {
+    $payload = [
+      'schema_version' => 'navigation-receipt-v1',
+      'target_room_id' => 'tavern_entrance',
+      'origin_room_id' => 'street_entry',
+      'destination' => 'Tavern Entrance',
+      'destination_description' => 'A warm tavern with stocked shelves and scattered tables.',
+      'travel_type' => 'walk',
+      'estimated_distance' => 'adjacent',
+      'source' => 'room-chat',
+      'template_id' => NULL,
+      'room' => [
+        'room_id' => 'tavern_entrance',
+        'name' => 'The Gilded Tankard',
+        'description' => 'A comfortable tavern room.',
+        'hexes' => [
+          [
+            'q' => 0,
+            'r' => 0,
+            'elevation_ft' => 0,
+            'objects' => [
+              ['object_id' => 'table_round_a'],
+            ],
+          ],
+          [
+            'q' => 1,
+            'r' => 0,
+            'terrain_override' => 'raised_platform',
+            'elevation_ft' => 5,
+            'objects' => [],
+          ],
+        ],
+        'terrain' => [
+          'type' => 'stone_floor',
+        ],
+        'lighting' => 'bright',
+        'room_type' => 'tavern',
+        'size_category' => 'large',
+        'gameplay_state' => [],
+        'connections' => [
+          [
+            'target_room_id' => 'street_entry',
+            'type' => 'door',
+          ],
+        ],
+      ],
+      'entities' => [],
+      'connections' => [],
+      'navigation_capabilities' => [
+        [
+          'connection_id' => 'street_entry__tavern_entrance',
+          'origin_room_id' => 'tavern_entrance',
+          'target_room_id' => 'street_entry',
+          'type' => 'door',
+          'available' => TRUE,
+          'blocked_reason' => NULL,
+          'is_discovered' => TRUE,
+          'is_passable' => TRUE,
+          'bidirectional' => TRUE,
+          'requires_interaction' => FALSE,
+          'origin_hex' => [
+            'q' => 0,
+            'r' => 0,
+          ],
+          'target_hex' => [
+            'q' => 1,
+            'r' => 0,
+          ],
+        ],
+      ],
+      'entry_hex' => [
+        'q' => 0,
+        'r' => 0,
+      ],
+    ];
+
+    $result = $this->service->validateNavigationReceipt($payload);
+    $this->assertTrue($result['valid'], implode('; ', $result['errors'] ?? []));
+  }
+
+  /**
+   * Verifies compact dungeon runtime payloads normalize into the canonical level-state fragment.
+   */
+  public function testValidateDungeonStateAcceptsCompactRuntimePayload(): void {
+    $payload = [
+      'dungeonId' => 'dungeon_1_1_1',
+      'isFullyGenerated' => TRUE,
+      'roomsGenerated' => 8,
+      'roomsExplored' => 3,
+      'bossDefeated' => FALSE,
+      'completionPercent' => 37.5,
+      'firstEnteredAt' => '2026-05-20T17:00:00+00:00',
+      'lastVisitedAt' => '2026-05-20T17:15:00+00:00',
+      'timesVisited' => 2,
+    ];
+
+    $result = $this->service->validateDungeonState($payload);
+    $this->assertTrue($result['valid'], implode('; ', $result['errors'] ?? []));
+  }
+
+  /**
    * Verifies quest updates must carry the explicit runtime contract fields.
    */
   public function testValidateQuestUpdateRejectsMissingSource(): void {
@@ -182,6 +320,8 @@ class StateValidationServiceTest extends UnitTestCase {
     $this->assertSame('npc_quest_giver_policies.schema.json', $registry['npc_quest_giver_policies']['schema'] ?? NULL);
     $this->assertArrayHasKey('room_chat_response', $registry);
     $this->assertSame('room_chat_response.schema.json', $registry['room_chat_response']['schema'] ?? NULL);
+    $this->assertArrayHasKey('navigation_receipt', $registry);
+    $this->assertSame('navigation_receipt.schema.json', $registry['navigation_receipt']['schema'] ?? NULL);
   }
 
   /**
