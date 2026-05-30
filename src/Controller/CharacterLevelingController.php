@@ -13,15 +13,15 @@ use Symfony\Component\HttpFoundation\Request;
  * API endpoints for character leveling and advancement (PF2e).
  *
  * Routes:
- *   GET  /api/character/{id}/level-up/status          — check milestone / pending choices
- *   POST /api/character/{id}/level-up                 — trigger level-up (existing route re-impl)
+ *   GET  /api/character/{id}/level-up/status          — inspect XP readiness and draft/apply state
+ *   POST /api/character/{id}/level-up                 — create or reopen the next-level draft plan
  *   POST /api/character/{id}/level-up/ability-boosts  — submit 4 ability boost choices
  *   POST /api/character/{id}/level-up/skill-increase  — raise one skill proficiency rank
  *   POST /api/character/{id}/level-up/feat            — select a feat for an open slot
  *   GET  /api/character/{id}/level-up/feats           — list eligible feats for a slot type
- *   POST /api/character/{id}/level-up/admin-force     — admin: bypass milestone
- *   POST /api/character/{id}/level-up/admin-reset     — admin: undo last level-up
- *   POST /api/character/{id}/milestone                — GM: set/clear milestone flag
+ *   POST /api/character/{id}/level-up/admin-force     — admin: bypass XP readiness
+ *   POST /api/character/{id}/level-up/admin-reset     — admin: cancel draft or undo last level-up
+ *   POST /api/character/{id}/milestone                — legacy GM flag, retained for compatibility
  */
 class CharacterLevelingController extends ControllerBase {
 
@@ -63,7 +63,7 @@ class CharacterLevelingController extends ControllerBase {
   // ── POST /api/character/{id}/level-up ────────────────────────────────────
 
   /**
-   * Trigger a level-up. Replaces the stub in CharacterStateController.
+   * Create or reopen a level-up draft for the next XP-earned level.
    *
    * Request body (JSON): none required; all validation is server-side.
    */

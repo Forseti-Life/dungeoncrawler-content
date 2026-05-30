@@ -32,7 +32,7 @@ class StateValidationServiceTest extends UnitTestCase {
    */
   public function testValidateQuestSummaryAcceptsCanonicalPayload(): void {
     $payload = [
-      'schema_version' => 'quest-summary-v1',
+      'schema_version' => 'quest-summary-v2',
       'location_id' => 'tavern_entrance',
       'active' => [
         [
@@ -131,11 +131,13 @@ class StateValidationServiceTest extends UnitTestCase {
           ],
         ],
       ],
-      'available' => [],
+      'offers' => [],
+      'leads' => [],
       'management_tree' => [],
       'counts' => [
         'active' => 1,
-        'available' => 0,
+        'offers' => 0,
+        'leads' => 0,
       ],
     ];
 

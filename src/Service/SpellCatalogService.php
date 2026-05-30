@@ -137,6 +137,54 @@ class SpellCatalogService {
   }
 
   /**
+   * List canonical spell records by tradition, rank, and rarity.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Consumer-ready spell rows.
+   */
+  public function getSpellsByTradition(string $tradition, int $level = 0, string $rarity = 'common'): array {
+    $tradition = strtolower(trim($tradition));
+    $rarity = strtolower(trim($rarity));
+    $spells = [];
+
+    foreach ($this->getRegistryCatalog() as $spell) {
+      if (!is_array($spell)) {
+        continue;
+      }
+
+      $spell_id = trim((string) ($spell['id'] ?? ''));
+      if ($spell_id === '' || isset($spells[$spell_id])) {
+        continue;
+      }
+
+      $rank = isset($spell['rank']) ? (int) $spell['rank'] : (int) ($spell['level'] ?? 0);
+      if ($rank !== $level) {
+        continue;
+      }
+
+      $traditions = array_values(array_filter(array_map(static function ($value): string {
+        return strtolower(trim((string) $value));
+      }, is_array($spell['traditions'] ?? NULL) ? $spell['traditions'] : [])));
+      if ($tradition !== '' && !in_array($tradition, $traditions, TRUE)) {
+        continue;
+      }
+
+      $spell_rarity = strtolower(trim((string) ($spell['rarity'] ?? 'common'))) ?: 'common';
+      if ($rarity !== 'all' && $spell_rarity !== $rarity) {
+        continue;
+      }
+
+      $spells[$spell_id] = $spell;
+    }
+
+    uasort($spells, static function (array $left, array $right): int {
+      return strcasecmp((string) ($left['name'] ?? ''), (string) ($right['name'] ?? ''));
+    });
+
+    return array_values($spells);
+  }
+
+  /**
    * Build an Archives of Nethys lookup payload for a spell missing locally.
    *
    * @param string $spell_id
@@ -699,6 +747,7 @@ class SpellCatalogService {
     }
 
     $catalog = [];
+    $scores = [];
     foreach ($this->fetchRegistrySpellRows() as $row) {
       $spell = $this->buildRegistrySpellRecord($row);
       if ($spell === NULL) {
@@ -706,8 +755,13 @@ class SpellCatalogService {
       }
 
       $normalized = $this->normalizeSpellRecord($spell);
-      $catalog[$normalized['id']] = $normalized;
-      $catalog[str_replace('-', '_', $normalized['id'])] = $normalized;
+      $score = $this->scoreRegistrySpellRecord((string) ($row->content_id ?? ''), $normalized);
+      foreach ([$normalized['id'], str_replace('-', '_', $normalized['id'])] as $key) {
+        if (!isset($catalog[$key]) || $score > ($scores[$key] ?? PHP_INT_MIN)) {
+          $catalog[$key] = $normalized;
+          $scores[$key] = $score;
+        }
+      }
     }
 
     if ($catalog === []) {
@@ -716,6 +770,26 @@ class SpellCatalogService {
 
     $this->registryCatalog = $catalog;
     return $this->registryCatalog;
+  }
+
+  /**
+   * Score registry rows so canonical, richer spell rows win dedupe.
+   */
+  protected function scoreRegistrySpellRecord(string $content_id, array $spell): int {
+    $score = 0;
+
+    if (str_contains($content_id, '-')) {
+      $score += 100;
+    }
+
+    if (($spell['description_source'] ?? '') === 'description') {
+      $score += 50;
+    }
+    elseif (($spell['description_source'] ?? '') === 'description_snippet') {
+      $score += 10;
+    }
+
+    return $score;
   }
 
   // -----------------------------------------------------------------------

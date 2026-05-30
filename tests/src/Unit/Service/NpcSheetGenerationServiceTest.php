@@ -39,6 +39,10 @@ class NpcSheetGenerationServiceTest extends UnitTestCase {
       public function exposedBuildQueuedNpcSheetContract(string $content_id, array $seed_data): array {
         return $this->buildQueuedNpcSheetContract($content_id, $seed_data);
       }
+
+      public function exposedNormalizeSeedData(int $campaign_id, string $content_id, array $seed_data): array {
+        return $this->normalizeSeedData($campaign_id, $content_id, $seed_data);
+      }
     };
   }
 
@@ -124,6 +128,19 @@ class NpcSheetGenerationServiceTest extends UnitTestCase {
     $this->assertSame('queued_npc', $sheet['content_id']);
     $this->assertNotEmpty($sheet['abilities']);
     $this->assertNotEmpty($sheet['stats']);
+  }
+
+  /**
+   * @covers ::normalizeSeedData
+   */
+  public function testNormalizeSeedDataPreservesInstanceId(): void {
+    $seed = $this->service->exposedNormalizeSeedData(63, 'room_1_shopkeeper', [
+      'instance_id' => 'npc_instance_room_1_shopkeeper',
+      'name' => 'Shopkeeper',
+    ]);
+
+    $this->assertSame('room_1_shopkeeper', $seed['content_id']);
+    $this->assertSame('npc_instance_room_1_shopkeeper', $seed['instance_id']);
   }
 
 }

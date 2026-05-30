@@ -507,6 +507,7 @@ class NpcSheetGenerationService {
       'ai_generated',
     ])));
     $now = time();
+    $instance_id = trim((string) ($seed_data['instance_id'] ?? $content_id));
 
     $this->database->merge('dungeoncrawler_content_registry')
       ->keys([
@@ -568,7 +569,7 @@ class NpcSheetGenerationService {
         'changed' => $now,
       ])
       ->condition('campaign_id', $campaign_id)
-      ->condition('instance_id', $content_id)
+      ->condition('instance_id', $instance_id)
       ->execute();
 
     if ($this->npcPsychologyService) {
@@ -651,6 +652,7 @@ class NpcSheetGenerationService {
     return [
       'campaign_id' => $campaign_id,
       'content_id' => $content_id,
+      'instance_id' => (string) ($seed_data['instance_id'] ?? $content_id),
       'entity_ref' => $seed_data['entity_ref'] ?? $content_id,
       'name' => trim((string) ($seed_data['name'] ?? $content_id)),
       'role' => (string) ($seed_data['role'] ?? 'neutral'),

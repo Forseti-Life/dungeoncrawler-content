@@ -54,17 +54,154 @@ class HexMapControllerTest extends BrowserTestBase {
    * Related to DCC-0255: Schema conformance review.
    */
   public function testSchemaVersionPreservedInPayload(): void {
-    $this->drupalGet('/hexmap');
+    $account = $this->drupalCreateUser();
+    $this->drupalLogin($account);
+
+    $database = $this->container->get('database');
+    $now = \Drupal::time()->getRequestTime();
+    $campaign_id = (int) $database->insert('dc_campaigns')
+      ->fields([
+        'uuid' => '99999999-2222-3333-4444-555555555555',
+        'uid' => (int) $account->id(),
+        'name' => 'Schema Version Campaign',
+        'status' => 'draft',
+        'theme' => 'classic_dungeon',
+        'difficulty' => 'normal',
+        'campaign_data' => '{}',
+        'created' => $now,
+        'changed' => $now,
+      ])
+      ->execute();
+
+    $database->insert('dc_campaign_dungeons')
+      ->fields([
+        'campaign_id' => $campaign_id,
+        'dungeon_id' => 'schema-check-dungeon',
+        'name' => 'Schema Check Dungeon',
+        'description' => 'Dungeon used to verify schema_version propagation.',
+        'theme' => 'classic_dungeon',
+        'dungeon_data' => json_encode([
+          'schema_version' => 'test-schema-v1',
+          'level_id' => 'schema-level',
+          'hex_map' => [
+            'map_id' => 'schema-map',
+            'connections' => [],
+          ],
+          'rooms' => [
+            [
+              'room_id' => 'schema-room',
+              'name' => 'Schema Room',
+              'description' => 'A room for schema validation.',
+              'hexes' => [
+                ['q' => 0, 'r' => 0, 'tile_type' => 'floor', 'objects' => []],
+              ],
+            ],
+          ],
+          'entities' => [],
+          'object_definitions' => [],
+        ], JSON_UNESCAPED_UNICODE),
+        'created' => $now,
+        'updated' => $now,
+      ])
+      ->execute();
+
+    $this->drupalGet('/hexmap', [
+      'query' => [
+        'campaign_id' => $campaign_id,
+        'map_id' => 'schema-check-dungeon',
+        'room_id' => 'schema-room',
+      ],
+    ]);
     $this->assertSession()->statusCodeEquals(200);
 
     $settings = $this->getDrupalSettings();
     $this->assertArrayHasKey('dungeoncrawlerContent', $settings);
     $this->assertArrayHasKey('hexmapDungeonData', $settings['dungeoncrawlerContent']);
+    $this->assertArrayHasKey('map_visual_state', $settings['dungeoncrawlerContent']);
+    $this->assertArrayNotHasKey('hexmapVisualState', $settings['dungeoncrawlerContent']);
 
-    // Verify schema_version is present (should be "1.0.0" from tavern-entrance-dungeon.json)
+    // Verify schema_version is preserved from explicit campaign dungeon data.
     $dungeon_data = $settings['dungeoncrawlerContent']['hexmapDungeonData'];
     $this->assertArrayHasKey('schema_version', $dungeon_data, 'schema_version field must be preserved in normalized dungeon payload');
-    $this->assertNotEmpty($dungeon_data['schema_version'], 'schema_version must not be empty');
+    $this->assertSame('test-schema-v1', $dungeon_data['schema_version']);
+    $this->assertArrayHasKey('fog_mode', $settings['dungeoncrawlerContent']['map_visual_state']['visibility']);
+    $this->assertArrayHasKey('legend', $settings['dungeoncrawlerContent']['map_visual_state']['presentation']);
+  }
+
+  /**
+   * Tests the canonical visual-state API payload.
+   */
+  public function testVisualStateApiReturnsCanonicalPayload(): void {
+    $account = $this->drupalCreateUser();
+    $this->drupalLogin($account);
+
+    $database = $this->container->get('database');
+    $now = \Drupal::time()->getRequestTime();
+    $campaign_id = (int) $database->insert('dc_campaigns')
+      ->fields([
+        'uuid' => '22222222-3333-4444-5555-666666666666',
+        'uid' => (int) $account->id(),
+        'name' => 'Visual State API Campaign',
+        'status' => 'draft',
+        'theme' => 'classic_dungeon',
+        'difficulty' => 'normal',
+        'campaign_data' => '{}',
+        'created' => $now,
+        'changed' => $now,
+      ])
+      ->execute();
+
+    $database->insert('dc_campaign_dungeons')
+      ->fields([
+        'campaign_id' => $campaign_id,
+        'dungeon_id' => 'visual-state-dungeon',
+        'name' => 'Visual State Dungeon',
+        'description' => 'Dungeon used to verify the map visual state endpoint.',
+        'theme' => 'classic_dungeon',
+        'dungeon_data' => json_encode([
+          'schema_version' => 'test-schema-v2',
+          'level_id' => 'visual-level',
+          'hex_map' => [
+            'map_id' => 'visual-map',
+            'connections' => [],
+          ],
+          'rooms' => [
+            [
+              'room_id' => 'visual-room',
+              'name' => 'Visual Room',
+              'description' => 'A room for visual state validation.',
+              'hexes' => [
+                ['q' => 0, 'r' => 0, 'tile_type' => 'floor', 'objects' => []],
+              ],
+            ],
+          ],
+          'entities' => [],
+          'object_definitions' => [],
+        ], JSON_UNESCAPED_UNICODE),
+        'created' => $now,
+        'updated' => $now,
+      ])
+      ->execute();
+
+    $this->drupalGet('/api/map/visual-state', [
+      'query' => [
+        'campaign_id' => $campaign_id,
+        'map_id' => 'visual-state-dungeon',
+        'room_id' => 'visual-room',
+      ],
+    ]);
+    $this->assertSession()->statusCodeEquals(200);
+
+    $payload = json_decode($this->getSession()->getPage()->getContent(), TRUE);
+    $this->assertIsArray($payload, 'The visual-state endpoint should return JSON.');
+    $this->assertTrue($payload['success']);
+    $this->assertArrayHasKey('launch_context', $payload);
+    $this->assertArrayHasKey('map_visual_state', $payload);
+    $this->assertArrayNotHasKey('hexmapDungeonData', $payload);
+    $this->assertSame($campaign_id, (int) $payload['launch_context']['campaign_id']);
+    $this->assertSame('visual-room', $payload['map_visual_state']['map_meta']['active_room_id']);
+    $this->assertArrayHasKey('fog_mode', $payload['map_visual_state']['visibility']);
+    $this->assertArrayHasKey('legend', $payload['map_visual_state']['presentation']);
   }
 
   /**
@@ -208,6 +345,7 @@ class HexMapControllerTest extends BrowserTestBase {
     $launch_context = $hexmap_settings['hexmapLaunchContext'];
     $launch_character = $hexmap_settings['hexmapLaunchCharacter'];
     $entities = $hexmap_settings['hexmapDungeonData']['entities'];
+    $visual_state = $hexmap_settings['map_visual_state'];
 
     $this->assertSame((int) $runtime_row['id'], (int) $launch_context['character_id']);
     $this->assertSame('Test Hero', $launch_character['name']);
@@ -215,6 +353,8 @@ class HexMapControllerTest extends BrowserTestBase {
     $this->assertStringContainsString('magic-missile', (string) $runtime_row['default_character_data']);
     $this->assertSame('Magic Missile', $launch_character['spells']['preparedSpells'][0]['name']);
     $this->assertSame('Reach Spell', $launch_character['feats'][0]['name']);
+    $this->assertSame('tavern_entrance', $visual_state['map_meta']['active_room_id']);
+    $this->assertArrayNotHasKey('destroyed', $visual_state['occupants']['party'][0]['state']);
 
     $player_entities = array_values(array_filter($entities, static function (array $entity): bool {
       return ($entity['entity_type'] ?? '') === 'player_character';

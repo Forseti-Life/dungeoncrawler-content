@@ -10,24 +10,24 @@
 #}
 
   <div class="hexmap-container" id="hexmap-container"{% if is_admin %} data-admin="1"{% endif %}>
-  <div class="game-shell" data-game-shell data-game-shell-default="chat">
+  <div class="game-shell" data-game-shell data-game-shell-default="map">
     <div class="game-shell__tabs" role="tablist" aria-label="{{ 'Campaign play views'|t }}">
-      <button id="game-tab-map" class="game-shell__tab" type="button" role="tab" aria-selected="false" aria-controls="game-panel-map" data-game-tab="map">
+      <button id="game-tab-map" class="game-shell__tab game-shell__tab--active" type="button" role="tab" aria-selected="true" aria-controls="game-panel-map" data-game-tab="map" tabindex="0">
         {{ 'Map'|t }}
       </button>
-      <button id="game-tab-chat" class="game-shell__tab game-shell__tab--active" type="button" role="tab" aria-selected="true" aria-controls="game-panel-chat" data-game-tab="chat">
+      <button id="game-tab-chat" class="game-shell__tab" type="button" role="tab" aria-selected="false" aria-controls="game-panel-chat" data-game-tab="chat" tabindex="0">
         {{ 'Chat'|t }}
       </button>
-      <button id="game-tab-view" class="game-shell__tab" type="button" role="tab" aria-selected="false" aria-controls="game-panel-view" data-game-tab="view">
+      <button id="game-tab-view" class="game-shell__tab" type="button" role="tab" aria-selected="false" aria-controls="game-panel-view" data-game-tab="view" tabindex="0">
         {{ 'View'|t }}
       </button>
-      <button id="game-tab-portraits" class="game-shell__tab" type="button" role="tab" aria-selected="false" aria-controls="game-panel-portraits" data-game-tab="portraits">
+      <button id="game-tab-portraits" class="game-shell__tab" type="button" role="tab" aria-selected="false" aria-controls="game-panel-portraits" data-game-tab="portraits" tabindex="0">
         {{ 'NPC Portraits'|t }}
       </button>
-      <button id="game-tab-merchant" class="game-shell__tab" type="button" role="tab" aria-selected="false" aria-controls="game-panel-merchant" data-game-tab="merchant">
+      <button id="game-tab-merchant" class="game-shell__tab" type="button" role="tab" aria-selected="false" aria-controls="game-panel-merchant" data-game-tab="merchant" tabindex="0">
         {{ 'Merchant'|t }}
       </button>
-      <button id="game-tab-character" class="game-shell__tab" type="button" role="tab" aria-selected="false" aria-controls="game-panel-character" data-game-tab="character">
+      <button id="game-tab-character" class="game-shell__tab" type="button" role="tab" aria-selected="false" aria-controls="game-panel-character" data-game-tab="character" tabindex="0">
         {{ 'Character'|t }}
       </button>
       <div class="game-shell__tab-actions" role="presentation">
@@ -92,16 +92,9 @@
       </aside>
 
       <div class="game-shell__content">
-    <div class="game-shell__panel" id="game-panel-map" role="tabpanel" aria-labelledby="game-tab-map" hidden>
-      <div class="game-shell__placeholder-panel">
-        <div class="game-shell__placeholder-card">
-          <h3>{{ 'Under Construction'|t }}</h3>
-          <p>{{ 'The tactical map tab is being rebuilt. Use Chat for play and View for generated room scenes.'|t }}</p>
-        </div>
-      </div>
-      <div class="game-shell__legacy-map-shell" hidden aria-hidden="true">
-        <div class="game-shell__map-panel">
-          <div class="hexmap-controls hexmap-debug-panel">
+    <div class="game-shell__panel game-shell__panel--active" id="game-panel-map" role="tabpanel" aria-labelledby="game-tab-map">
+      <div class="game-shell__map-panel">
+        <div class="hexmap-controls hexmap-debug-panel">
       <div class="control-group control-group--config">
         <label class="control-group__title">{{ 'Map Size:'|t }}</label>
         <select id="grid-size">
@@ -199,12 +192,9 @@
       </div>
     </div>
 
-        </div>
-      </div>
-      </div>
     </div>
 
-    <div class="game-shell__panel game-shell__panel--active" id="game-panel-chat" role="tabpanel" aria-labelledby="game-tab-chat">
+    <div class="game-shell__panel" id="game-panel-chat" role="tabpanel" aria-labelledby="game-tab-chat" hidden>
       <div class="game-shell__chat-panel">
         <div class="hexmap-chat" id="hexmap-chat">
           <div class="hexmap-chat__header">

@@ -4,6 +4,8 @@ namespace Drupal\dungeoncrawler_content\Controller;
 
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\dungeoncrawler_content\Service\CharacterManager;
+use Drupal\dungeoncrawler_content\Service\FeatLibraryService;
+use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
 
 /**
@@ -18,6 +20,12 @@ use Symfony\Component\HttpFoundation\JsonResponse;
  *   GET /ancestries/{id}     -> single ancestry + heritages
  */
 class AncestryController extends ControllerBase {
+
+  public function __construct(protected FeatLibraryService $featLibrary) {}
+
+  public static function create(ContainerInterface $container): static {
+    return new static($container->get('dungeoncrawler_content.feat_library'));
+  }
 
   /**
    * List all ancestries.
@@ -50,7 +58,7 @@ class AncestryController extends ControllerBase {
         // Attach heritages keyed by canonical name.
         $item['heritages'] = CharacterManager::HERITAGES[$name] ?? [];
         // TC-DWF-09–14: ancestry feats available for this ancestry (level 1+).
-        $item['ancestry_feats'] = CharacterManager::getAncestryFeats($name);
+        $item['ancestry_feats'] = $this->featLibrary->getAncestryFeats($name);
         return new JsonResponse(['ancestry' => $item], 200);
       }
     }

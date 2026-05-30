@@ -2,6 +2,9 @@
 
 namespace Drupal\Tests\dungeoncrawler_content\Unit\Service;
 
+use Drupal\Core\Database\Connection;
+use Drupal\Core\Database\Query\SelectInterface;
+use Drupal\Core\Database\StatementInterface;
 use Drupal\dungeoncrawler_content\Service\SpellCatalogService;
 use Drupal\Tests\UnitTestCase;
 
@@ -40,6 +43,87 @@ class SpellCatalogServiceTest extends UnitTestCase {
     $this->expectException(\RuntimeException::class);
     $this->expectExceptionMessage('Spell registry database connection is unavailable.');
     $this->service->getSpell('message');
+  }
+
+  /**
+   * @covers ::getSpellsByTradition
+   * @covers ::getRegistryCatalog
+   * @covers ::scoreRegistrySpellRecord
+   */
+  public function testGetSpellsByTraditionDeduplicatesAndSortsCanonicalRows(): void {
+    $statement = $this->createMock(StatementInterface::class);
+    $statement->method('fetchAll')->willReturn([
+      (object) [
+        'content_id' => 'shield',
+        'name' => 'Shield',
+        'level' => 0,
+        'tags' => '["arcane","divine","occult"]',
+        'schema_data' => json_encode([
+          'id' => 'shield',
+          'name' => 'Shield',
+          'rank' => 0,
+          'school' => 'abjuration',
+          'rarity' => 'common',
+          'traditions' => ['arcane', 'divine', 'occult'],
+          'description_snippet' => 'A shield of magical force',
+        ]),
+      ],
+      (object) [
+        'content_id' => 'detect_magic',
+        'name' => 'Detect Magic',
+        'level' => 0,
+        'tags' => '["arcane","divine","occult","primal"]',
+        'schema_data' => json_encode([
+          'id' => 'detect_magic',
+          'name' => 'Detect Magic',
+          'rank' => 0,
+          'school' => 'divination',
+          'rarity' => 'common',
+          'traditions' => ['arcane', 'divine', 'occult', 'primal'],
+          'description_snippet' => 'Sense whether',
+        ]),
+      ],
+      (object) [
+        'content_id' => 'detect-magic',
+        'name' => 'Detect Magic',
+        'level' => 0,
+        'tags' => '["arcane","divine","occult","primal"]',
+        'schema_data' => json_encode([
+          'id' => 'detect-magic',
+          'name' => 'Detect Magic',
+          'rank' => 0,
+          'school' => 'divination',
+          'rarity' => 'common',
+          'traditions' => ['arcane', 'divine', 'occult', 'primal'],
+          'description' => 'Sense whether magic is nearby and determine the strength of the aura.',
+          'description_snippet' => 'Sense whether',
+        ]),
+      ],
+    ]);
+
+    $query = $this->createMock(SelectInterface::class);
+    $query->method('fields')->willReturnSelf();
+    $query->method('condition')->willReturnSelf();
+    $query->method('execute')->willReturn($statement);
+
+    $schema = $this->getMockBuilder(\stdClass::class)
+      ->addMethods(['tableExists'])
+      ->getMock();
+    $schema->method('tableExists')->with('dungeoncrawler_content_registry')->willReturn(TRUE);
+
+    $database = $this->createMock(Connection::class);
+    $database->method('schema')->willReturn($schema);
+    $database->method('select')->with('dungeoncrawler_content_registry', 'r')->willReturn($query);
+
+    $service = new SpellCatalogService($database);
+    $spells = $service->getSpellsByTradition('arcane', 0);
+
+    $this->assertSame(['detect-magic', 'shield'], array_column($spells, 'id'));
+    $this->assertSame('description', $spells[0]['description_source']);
+    $this->assertSame(
+      'Sense whether magic is nearby and determine the strength of the aura.',
+      $spells[0]['description']
+    );
   }
 
   /**

@@ -342,6 +342,27 @@ class InventoryManagementServiceTest extends UnitTestCase {
     $this->assertTrue($inventory['carried'][0]['inventory_metadata']['equippable']);
   }
 
+  /**
+   * @covers ::loadCharacterCurrency
+   */
+  public function testLoadCharacterCurrencyConvertsFractionalGoldIntoCopper(): void {
+    $service = new InspectableInventoryManagementService([]);
+
+    $currency = $service->exposeLoadCharacterCurrency([
+      'inventory' => [
+        'currency' => ['cp' => 0, 'sp' => 0, 'gp' => 0.04, 'pp' => 0],
+      ],
+      'gold' => 0.04,
+    ]);
+
+    $this->assertSame([
+      'cp' => 4,
+      'sp' => 0,
+      'gp' => 0,
+      'pp' => 0,
+    ], $currency);
+  }
+
 }
 
 /**
@@ -401,6 +422,13 @@ class InspectableInventoryManagementService extends InventoryManagementService {
     ?int $campaign_id = NULL,
   ): void {
     $this->validateAddCapacity($owner_id, $owner_type, $item, $quantity, $campaign_id);
+  }
+
+  /**
+   * Exposes currency loading for tests.
+   */
+  public function exposeLoadCharacterCurrency(array $character_data, ?array $runtime_state = NULL): array {
+    return $this->loadCharacterCurrency('test-character', $character_data, $runtime_state);
   }
 
   /**

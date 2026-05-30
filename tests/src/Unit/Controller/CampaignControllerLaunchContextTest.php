@@ -8,6 +8,7 @@ use Drupal\Core\Form\FormBuilderInterface;
 use Drupal\dungeoncrawler_content\Controller\CampaignController;
 use Drupal\dungeoncrawler_content\Service\CharacterManager;
 use Drupal\dungeoncrawler_content\Service\GeneratedImageRepository;
+use Drupal\dungeoncrawler_content\Service\InstitutionMembershipService;
 use Drupal\dungeoncrawler_content\Service\QuestTrackerService;
 use Drupal\Tests\UnitTestCase;
 
@@ -136,6 +137,7 @@ class CampaignControllerLaunchContextTest extends UnitTestCase {
       $this->createMock(FormBuilderInterface::class),
       $this->createMock(QuestTrackerService::class),
       $this->createMock(GeneratedImageRepository::class),
+      $this->createMock(InstitutionMembershipService::class),
       $this->createMock(TimeInterface::class),
     );
   }

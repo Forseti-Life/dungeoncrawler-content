@@ -157,6 +157,7 @@ const Team = {
 };`;
 const resolvePinnedRoomSource = extractMethodSource(source, 'resolvePinnedChatRoomId() {');
 const resolvePinnedRoomTargetSource = extractMethodSource(source, 'resolvePinnedChatRoomTarget(preferredRoomId = null, fallbackRoomId = null) {');
+const resolveActiveChatCharacterIdSource = extractMethodSource(source, 'resolveActiveChatCharacterId() {');
 const getChatContextSource = extractMethodSource(source, 'getChatContext() {');
 const requestPlayerAutomationStepSource = extractFunctionExpressionSource(source, 'requestPlayerAutomationStep: async function (campaignId, profile, runState = {}) {', 'requestPlayerAutomationStep');
 const requestPlayerAutomationRoomSuggestionSource = extractFunctionExpressionSource(source, 'requestPlayerAutomationRoomSuggestion: async function (campaignId, roomId, profile, runState = {}) {', 'requestPlayerAutomationRoomSuggestion');
@@ -181,7 +182,7 @@ const buildPendingTurnMetaSource = extractMethodSource(source, 'buildPendingTurn
 const buildIdleChatTurnStatusSource = extractMethodSource(source, 'buildIdleChatTurnStatus() {');
 const setChatTurnStatusSource = extractMethodSource(source, 'setChatTurnStatus(status = null) {');
 const syncChatTurnStatusSource = extractMethodSource(source, 'syncChatTurnStatus() {');
-const factory = new Function(`${normalizeInventoryStateSource}\n${teamEnumSource}\n${resolvePinnedRoomSource}\n${resolvePinnedRoomTargetSource}\n${getChatContextSource}\n${requestPlayerAutomationStepSource}\n${requestPlayerAutomationRoomSuggestionSource}\n${resolveInventoryActionContextSource}\n${resolveInventoryAssignSelectionSource}\n${logInventoryActionTraceSource}\n${handleInventoryActionSource}\n${refreshCharacterInventoryFromApiSource}\n${normalizeEncounterParticipantTeamSource}\n${resolveActiveRoomIdSource}\n${serializeCombatantsForApiSource}\n${buildRoomChatCacheKeySource}\n${submitRoomChatMessageSource}\n${flushDeferredRoomMessagesSource}\n${rememberRoomTurnSequenceSource}\n${getRememberedRoomTurnSequenceSource}\n${buildActiveRoomNpcTurnOrderSource}\n${getActiveRoomNpcResponderNamesSource}\n${buildChatRoundOrderLinesSource}\n${getPendingTurnDescriptorSource}\n${buildPendingTurnMetaSource}\n${buildIdleChatTurnStatusSource}\n${setChatTurnStatusSource}\n${syncChatTurnStatusSource}\nreturn { normalizeInventoryState, resolvePinnedChatRoomId, resolvePinnedChatRoomTarget, getChatContext, requestPlayerAutomationStep, requestPlayerAutomationRoomSuggestion, resolveInventoryActionContext, resolveInventoryAssignSelection, logInventoryActionTrace, handleInventoryAction, refreshCharacterInventoryFromApi, normalizeEncounterParticipantTeam, resolveActiveRoomId, serializeCombatantsForApi, buildRoomChatCacheKey, submitRoomChatMessage, flushDeferredRoomMessages, rememberRoomTurnSequence, getRememberedRoomTurnSequence, buildActiveRoomNpcTurnOrder, getActiveRoomNpcResponderNames, buildChatRoundOrderLines, getPendingTurnDescriptor, buildPendingTurnMeta, buildIdleChatTurnStatus, setChatTurnStatus, syncChatTurnStatus };`);
+const factory = new Function(`${normalizeInventoryStateSource}\n${teamEnumSource}\n${resolvePinnedRoomSource}\n${resolvePinnedRoomTargetSource}\n${resolveActiveChatCharacterIdSource}\n${getChatContextSource}\n${requestPlayerAutomationStepSource}\n${requestPlayerAutomationRoomSuggestionSource}\n${resolveInventoryActionContextSource}\n${resolveInventoryAssignSelectionSource}\n${logInventoryActionTraceSource}\n${handleInventoryActionSource}\n${refreshCharacterInventoryFromApiSource}\n${normalizeEncounterParticipantTeamSource}\n${resolveActiveRoomIdSource}\n${serializeCombatantsForApiSource}\n${buildRoomChatCacheKeySource}\n${submitRoomChatMessageSource}\n${flushDeferredRoomMessagesSource}\n${rememberRoomTurnSequenceSource}\n${getRememberedRoomTurnSequenceSource}\n${buildActiveRoomNpcTurnOrderSource}\n${getActiveRoomNpcResponderNamesSource}\n${buildChatRoundOrderLinesSource}\n${getPendingTurnDescriptorSource}\n${buildPendingTurnMetaSource}\n${buildIdleChatTurnStatusSource}\n${setChatTurnStatusSource}\n${syncChatTurnStatusSource}\nreturn { normalizeInventoryState, resolvePinnedChatRoomId, resolvePinnedChatRoomTarget, resolveActiveChatCharacterId, getChatContext, requestPlayerAutomationStep, requestPlayerAutomationRoomSuggestion, resolveInventoryActionContext, resolveInventoryAssignSelection, logInventoryActionTrace, handleInventoryAction, refreshCharacterInventoryFromApi, normalizeEncounterParticipantTeam, resolveActiveRoomId, serializeCombatantsForApi, buildRoomChatCacheKey, submitRoomChatMessage, flushDeferredRoomMessages, rememberRoomTurnSequence, getRememberedRoomTurnSequence, buildActiveRoomNpcTurnOrder, getActiveRoomNpcResponderNames, buildChatRoundOrderLines, getPendingTurnDescriptor, buildPendingTurnMeta, buildIdleChatTurnStatus, setChatTurnStatus, syncChatTurnStatus };`);
 const methods = factory();
 
 console.log('\n=== Hexmap room chat context ===');
@@ -211,6 +212,7 @@ console.log('\n=== Hexmap room chat context ===');
   const chatContext = methods.getChatContext.call({
     ...context,
     resolvePinnedChatRoomId: methods.resolvePinnedChatRoomId.bind(context),
+    resolveActiveChatCharacterId: methods.resolveActiveChatCharacterId.bind(context),
   });
 
   assert(roomId === 'room-pinned', 'Pinned URL room wins over active room');
@@ -218,6 +220,33 @@ console.log('\n=== Hexmap room chat context ===');
   assert(chatContext.roomId === 'room-pinned', 'Chat context uses pinned URL room');
   assert(chatContext.campaignId === 28, 'Chat context keeps campaign id');
   assert(chatContext.characterId === 122, 'Chat context keeps character id');
+}
+
+{
+  global.window = {
+    location: {
+      search: '?campaign_id=28&room_id=room-pinned',
+    },
+  };
+  const context = {
+    stateManager: {
+      hexmap: {
+        launchContext: { room_id: 'room-launch', character_id: 349 },
+        resolveActiveRoomId: () => 'room-active',
+        resolveCampaignId: () => 28,
+        resolveLaunchCharacterRuntimeContext: () => ({ characterId: 324 }),
+        characterData: { id: 349 },
+      },
+    },
+  };
+
+  const chatContext = methods.getChatContext.call({
+    ...context,
+    resolvePinnedChatRoomId: methods.resolvePinnedChatRoomId.bind(context),
+    resolveActiveChatCharacterId: methods.resolveActiveChatCharacterId.bind(context),
+  });
+
+  assert(chatContext.characterId === 324, 'Chat context prefers the runtime-selected character id over stale launch sheet data');
 }
 
 {
@@ -435,9 +464,11 @@ console.log('\n=== Hexmap room chat context ===');
         hexmap: {
           resolveCampaignId: () => 77,
           resolveActiveRoomId: () => 'room-queue',
+          resolveLaunchCharacterRuntimeContext: () => ({ characterId: 502 }),
           characterData: { id: 501, name: 'Scout' },
         },
       },
+      resolveActiveChatCharacterId: methods.resolveActiveChatCharacterId,
       resolvePendingResponder() {
         return { speaker: 'Narrator', type: 'npc' };
       },
@@ -469,6 +500,7 @@ console.log('\n=== Hexmap room chat context ===');
     assert(context.roomChatDeferredMessages.length === 1, 'Queued room submit stores exactly one deferred player turn');
     assert(context.roomChatDeferredMessages[0].speaker === 'Scout', 'Queued room submit preserves the original speaker');
     assert(context.roomChatDeferredMessages[0].message === 'Check the northern archway.', 'Queued room submit preserves the original player message');
+    assert(context.roomChatDeferredMessages[0].characterId === 502, 'Queued room submit uses the runtime-selected character id when it differs from launch sheet data');
     assert(context.lastQueuedCount === 1, 'Queued room submit updates the queued-turn status count');
   }
 

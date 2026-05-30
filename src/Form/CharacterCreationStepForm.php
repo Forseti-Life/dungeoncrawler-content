@@ -14,8 +14,13 @@ use Drupal\Core\Url;
 use Drupal\Component\Uuid\UuidInterface;
 use Drupal\Component\Utility\Html;
 use Drupal\dungeoncrawler_content\Service\AbilityScoreTracker;
+use Drupal\dungeoncrawler_content\Service\CampaignSubjectRegistryService;
 use Drupal\dungeoncrawler_content\Service\CharacterCreationGmService;
 use Drupal\dungeoncrawler_content\Service\CharacterManager;
+use Drupal\dungeoncrawler_content\Service\FactionGenerationService;
+use Drupal\dungeoncrawler_content\Service\InstitutionMembershipService;
+use Drupal\dungeoncrawler_content\Service\InstitutionNormalizationService;
+use Drupal\dungeoncrawler_content\Service\FeatLibraryService;
 use Drupal\dungeoncrawler_content\Service\ImageGenerationIntegrationService;
 use Drupal\dungeoncrawler_content\Service\CharacterPortraitGenerationService;
 use Drupal\dungeoncrawler_content\Service\SchemaLoader;
@@ -26,6 +31,80 @@ use Symfony\Component\DependencyInjection\ContainerInterface;
  * Simple form for character creation steps.
  */
 class CharacterCreationStepForm extends FormBase {
+
+  private const STRUCTURED_AFFILIATION_CREATE_SENTINEL = '__create__';
+
+  /**
+   * Structured campaign-only affiliation fields exposed on the live wizard.
+   */
+  private const STRUCTURED_AFFILIATION_FIELDS = [
+    'home_settlement_ref' => [
+      'domain' => 'settlement',
+      'title' => 'Home Settlement',
+      'description' => 'Select the canonical campaign settlement this character calls home.',
+      'multiple' => FALSE,
+    ],
+    'government_ref' => [
+      'domain' => 'government',
+      'title' => 'Government',
+      'description' => 'Select the governing body or polity this character is tied to.',
+      'multiple' => FALSE,
+    ],
+    'security_affiliation_refs' => [
+      'domain' => 'security',
+      'title' => 'Security Affiliations',
+      'description' => 'Select law, military, or watch institutions this character serves or belongs to.',
+      'multiple' => TRUE,
+    ],
+    'family_refs' => [
+      'domain' => 'family',
+      'title' => 'Family Affiliations',
+      'description' => 'Select the canonical family, house, or clan institutions represented for this character.',
+      'multiple' => TRUE,
+    ],
+    'religion_refs' => [
+      'domain' => 'religion',
+      'title' => 'Religious Affiliations',
+      'description' => 'Select the canonical faith institutions represented for this character.',
+      'multiple' => TRUE,
+    ],
+    'employer_refs' => [
+      'domain' => 'employer',
+      'title' => 'Employer Affiliations',
+      'description' => 'Select the guild, employer, or trade institutions represented for this character.',
+      'multiple' => TRUE,
+    ],
+    'order_refs' => [
+      'domain' => 'education',
+      'title' => 'Order Affiliations',
+      'description' => 'Select canonical orders, schools, or training institutions represented for this character.',
+      'multiple' => TRUE,
+    ],
+    'noble_refs' => [
+      'domain' => 'noble',
+      'title' => 'Noble Affiliations',
+      'description' => 'Select canonical noble or patron institutions represented for this character.',
+      'multiple' => TRUE,
+    ],
+    'criminal_refs' => [
+      'domain' => 'criminal',
+      'title' => 'Criminal Affiliations',
+      'description' => 'Select canonical covert or criminal institutions represented for this character.',
+      'multiple' => TRUE,
+    ],
+    'faction_refs' => [
+      'domain' => 'allegiance',
+      'title' => 'Faction Affiliations',
+      'description' => 'Select canonical factions represented for this character. New faction creation goes through the canonical library generation flow.',
+      'multiple' => TRUE,
+    ],
+    'culture_refs' => [
+      'domain' => 'culture',
+      'title' => 'Cultural Affiliations',
+      'description' => 'Select canonical cultural or tribal institutions represented for this character.',
+      'multiple' => TRUE,
+    ],
+  ];
 
   /**
    * Constructs a CharacterCreationStepForm object.
@@ -42,7 +121,12 @@ class CharacterCreationStepForm extends FormBase {
     protected AbilityScoreTracker $abilityScoreTracker,
     protected ImageGenerationIntegrationService $imageGenerationIntegration,
     protected CharacterCreationGmService $characterCreationGm,
+    protected FeatLibraryService $featLibrary,
     protected CsrfTokenGenerator $csrfToken,
+    protected CampaignSubjectRegistryService $campaignSubjectRegistry,
+    protected InstitutionMembershipService $institutionMembership,
+    protected InstitutionNormalizationService $institutionNormalization,
+    protected FactionGenerationService $factionGeneration,
   ) {}
 
   /**
@@ -61,7 +145,12 @@ class CharacterCreationStepForm extends FormBase {
       $container->get('dungeoncrawler_content.ability_score_tracker'),
       $container->get('dungeoncrawler_content.image_generation_integration'),
       $container->get('dungeoncrawler_content.character_creation_gm'),
+      $container->get('dungeoncrawler_content.feat_library'),
       $container->get('csrf_token'),
+      $container->get('dungeoncrawler_content.campaign_subject_registry'),
+      $container->get('dungeoncrawler_content.institution_membership'),
+      $container->get('dungeoncrawler_content.institution_normalization'),
+      $container->get('dungeoncrawler_content.faction_generation'),
     );
   }
 
@@ -79,10 +168,11 @@ class CharacterCreationStepForm extends FormBase {
     $embedded = (bool) $this->getRequest()->query->get('embedded');
     $setup_shell = $this->getRequest()->getPathInfo() === '/charactersetup';
     $compact_layout = $embedded || $setup_shell;
+    $character_record = $character_id ? $this->characterManager->loadCharacter((int) $character_id) : NULL;
+    $effective_campaign_id = $this->resolveEffectiveCampaignId($character_record, $campaign_id);
     $character_data = $this->loadCharacterData($character_id);
 
     // Load character record for concurrent-edit version tracking.
-    $character_record = $character_id ? $this->characterManager->loadCharacter((int) $character_id) : NULL;
     $form['character_version'] = [
       '#type' => 'hidden',
       '#value' => $character_record ? (int) ($character_record->version ?? 0) : 0,
@@ -91,12 +181,12 @@ class CharacterCreationStepForm extends FormBase {
     // Store metadata
     $form_state->set('step', $step);
     $form_state->set('character_id', $character_id);
-    $form_state->set('campaign_id', $campaign_id);
+    $form_state->set('campaign_id', $effective_campaign_id);
 
-    if ($campaign_id) {
+    if ($effective_campaign_id > 0) {
       $form['campaign_id'] = [
         '#type' => 'hidden',
-        '#value' => $campaign_id,
+        '#value' => $effective_campaign_id,
       ];
     }
 
@@ -131,7 +221,7 @@ class CharacterCreationStepForm extends FormBase {
       $form['#attached']['drupalSettings']['dungeoncrawlerCharacterGm'] = [
         'endpoint' => Url::fromRoute('dungeoncrawler_content.api.character_gm_chat')->toString(),
         'characterId' => $character_id ? (int) $character_id : NULL,
-        'campaignId' => $campaign_id ? (int) $campaign_id : NULL,
+        'campaignId' => $effective_campaign_id > 0 ? $effective_campaign_id : NULL,
         'step' => $step,
         'csrfToken' => $this->csrfToken->get('rest'),
         'history' => $this->characterCreationGm->getChatHistory($character_data),
@@ -139,14 +229,13 @@ class CharacterCreationStepForm extends FormBase {
       ];
     }
 
-    $prefix = $compact_layout ? '' : $this->buildGmChatShell($step, $character_id, $campaign_id, $character_data);
+    $prefix = $compact_layout ? '' : $this->buildGmChatShell($step, $character_id, $effective_campaign_id, $character_data);
     $progress_markup = $compact_layout ? '' : '<div class="progress-bar"><div class="progress-indicator progress-step-' . $step . '"></div></div><div class="progress-text">' . $this->t('Step @step of @total', ['@step' => $step, '@total' => 8]) . '</div>';
     $form['#prefix'] = Markup::create($prefix
       . '<div class="character-creation-step' . ($compact_layout ? ' character-creation-step--embedded' : '') . '"><div class="creation-container">' . $progress_markup . '<div class="step-content">');
     $form['#suffix'] = Markup::create('</div></div></div></div>');
 
-    $show_quick_play = $campaign_id !== NULL
-      && $campaign_id !== ''
+    $show_quick_play = $effective_campaign_id > 0
       && (int) $step === 1
       && empty($character_id);
     if ($show_quick_play) {
@@ -695,7 +784,7 @@ class CharacterCreationStepForm extends FormBase {
     ];
     if (!empty($selected_ancestry)) {
       $ancestry_name = $this->resolveAncestryName($selected_ancestry);
-      $ancestry_feats = CharacterManager::getAncestryFeats($ancestry_name);
+      $ancestry_feats = $this->getCanonicalAncestryFeats($ancestry_name);
 
       if (!empty($ancestry_feats)) {
         $form['heritage_dynamic']['ancestry_feat_dynamic']['ancestry_feat_section'] = [
@@ -711,7 +800,7 @@ class CharacterCreationStepForm extends FormBase {
         foreach ($ancestry_feats as $feat) {
           $feat_options[$feat['id']] = $feat['name'];
           $feat_cards[$feat['id']] = $this->buildOptionCardData(
-            $feat['benefit'] ?? '',
+            $this->resolveFeatDisplayDescription($feat),
             [],
             [
               (string) $this->t('Prerequisites') => $feat['prerequisites'] ?? '',
@@ -1058,7 +1147,7 @@ class CharacterCreationStepForm extends FormBase {
     }
 
     // Class Feat Selection
-    $class_feats = CharacterManager::getClassFeats($selected_class);
+    $class_feats = $this->getCanonicalClassFeats($selected_class);
 
     if (!empty($class_feats)) {
       $form['class_dynamic']['class_feat_section'] = [
@@ -1074,7 +1163,7 @@ class CharacterCreationStepForm extends FormBase {
       foreach ($class_feats as $feat) {
         $feat_options[$feat['id']] = $feat['name'];
         $feat_cards[$feat['id']] = $this->buildOptionCardData(
-          $feat['benefit'] ?? '',
+          $this->resolveFeatDisplayDescription($feat),
           $feat['traits'] ?? [],
           [
             (string) $this->t('Prerequisites') => $feat['prerequisites'] ?? '',
@@ -1328,7 +1417,7 @@ class CharacterCreationStepForm extends FormBase {
         '#type' => 'checkboxes',
         '#title' => $this->t('Choose @count Cantrips', ['@count' => $num_cantrips]),
         '#options' => $cantrip_options,
-        '#default_value' => $character_data['cantrips'] ?? [],
+        '#default_value' => CharacterManager::getSelectedCantripIds($character_data),
         '#required' => FALSE,
         '#description' => $this->t('Select exactly @count cantrips from the @tradition spell list.', ['@count' => $num_cantrips, '@tradition' => $tradition_label]),
       ];
@@ -1362,7 +1451,7 @@ class CharacterCreationStepForm extends FormBase {
         '#type' => 'checkboxes',
         '#title' => $first_label,
         '#options' => $spell_options,
-        '#default_value' => $character_data['spells_first'] ?? [],
+        '#default_value' => CharacterManager::getSelectedFirstLevelSpellIds($character_data),
         '#required' => FALSE,
         '#description' => $this->t('Select your starting 1st-level @tradition spells.', ['@tradition' => $tradition_label]),
       ];
@@ -1712,6 +1801,11 @@ class CharacterCreationStepForm extends FormBase {
     ];
     $this->applySchemaValidationAttributes($form['deity'], $schema_fields, 'deity');
 
+    $campaign_id = (int) ($form_state->get('campaign_id') ?? 0);
+    if ($campaign_id > 0) {
+      $this->buildStructuredAffiliationFields($form, $character_data, $campaign_id);
+    }
+
     $form['deity_dependent'] = [
       '#type' => 'container',
       '#tree' => TRUE,
@@ -1740,10 +1834,10 @@ class CharacterCreationStepForm extends FormBase {
 
     $general_feat_options = [];
     $general_feat_cards = [];
-    foreach (CharacterManager::getGeneralFeats() as $feat) {
+    foreach ($this->getCanonicalGeneralFeats() as $feat) {
       $general_feat_options[$feat['id']] = $feat['name'];
       $general_feat_cards[$feat['id']] = $this->buildOptionCardData(
-        $feat['benefit'] ?? '',
+        $this->resolveFeatDisplayDescription($feat),
         $feat['traits'] ?? [],
         [
           (string) $this->t('Prerequisites') => $feat['prerequisites'] ?? '',
@@ -2068,7 +2162,7 @@ class CharacterCreationStepForm extends FormBase {
           // Validate ancestry feat (enforced here instead of #required on the
           // radios element to avoid browser :invalid pre-styling on page load).
           $ancestry_name_val = $this->resolveAncestryName($ancestry_val);
-          $feats_for_ancestry = CharacterManager::getAncestryFeats($ancestry_name_val);
+          $feats_for_ancestry = $this->getCanonicalAncestryFeats($ancestry_name_val);
           if (!empty($feats_for_ancestry) && trim((string) $form_state->getValue('ancestry_feat', '')) === '') {
             $form_state->setErrorByName('ancestry_feat', $this->t('Ancestry feat selection is required.'));
           }
@@ -2348,6 +2442,11 @@ class CharacterCreationStepForm extends FormBase {
             ]));
           }
         }
+
+        $campaign_id = (int) ($form_state->get('campaign_id') ?? 0);
+        if ($campaign_id > 0) {
+          $this->validateStructuredAffiliationSelections($form_state, $campaign_id);
+        }
         break;
 
       case 7:
@@ -2445,6 +2544,7 @@ class CharacterCreationStepForm extends FormBase {
       'form_build_id', 'form_token', 'form_id', 'op', 'character_version',
       'weapons', 'armor', 'gear',
     ];
+    $exclude_keys = array_merge($exclude_keys, $this->getStructuredAffiliationAuxiliaryKeys());
     foreach ($form_state->getValues() as $key => $value) {
       if (!in_array($key, $exclude_keys, TRUE)) {
         // Handle JSON-encoded hidden fields
@@ -2676,28 +2776,8 @@ class CharacterCreationStepForm extends FormBase {
           ? array_values(array_filter($raw_spells, static fn($v) => $v !== 0 && $v !== '' && $v !== NULL))
           : [];
 
-        $spell_slots = CharacterManager::CASTER_SPELL_SLOTS[$selected_class] ?? [];
-
-        // Build the structured spells block for character_data.
-        $character_data['spells'] = [
-          'tradition' => $tradition,
-          'casting_ability' => $this->resolveSpellcastingAbility($selected_class),
-          'cantrips' => $cantrip_ids,
-          'first_level' => $spell_ids,
-          'slots' => [
-            'cantrips' => $spell_slots['cantrips'] ?? 5,
-            'first' => $spell_slots['first'] ?? 2,
-          ],
-        ];
-
-        // Wizard spellbook: track separately if applicable.
-        if ($selected_class === 'wizard') {
-          $character_data['spells']['spellbook_size'] = $spell_slots['spellbook'] ?? 10;
-        }
-
-        // Clean the raw checkbox data from the generic dump.
-        $character_data['cantrips'] = $cantrip_ids;
-        $character_data['spells_first'] = $spell_ids;
+        $spell_payload = CharacterManager::buildSpellSelectionPayload($selected_class, $tradition, $cantrip_ids, $spell_ids);
+        $character_data['spells'] = $spell_payload['spells'];
       }
 
       if (($character_data['ancestry_feat'] ?? '') !== 'adapted-cantrip') {
@@ -2917,7 +2997,8 @@ class CharacterCreationStepForm extends FormBase {
       $character_data['gm_equipment_ids'] = array_values($selected_ids);
 
       $remaining_gp = max(0, round(15 - $total_cost, 2));
-      $character_data['gold'] = $remaining_gp;
+      $starting_currency = CharacterManager::normalizeCurrencyDenominations(['gp' => $remaining_gp]);
+      $character_data['gold'] = CharacterManager::currencyDenominationsToGoldValue($starting_currency);
 
       // Build proper inventory structure matching CharacterStateService format.
       $carried = [];
@@ -2967,12 +3048,7 @@ class CharacterCreationStepForm extends FormBase {
           'accessories' => [],
         ],
         'carried' => $carried,
-        'currency' => [
-          'cp' => 0,
-          'sp' => 0,
-          'gp' => $remaining_gp,
-          'pp' => 0,
-        ],
+        'currency' => $starting_currency,
         'totalBulk' => $total_bulk,
         'encumbrance' => $encumbrance,
       ];
@@ -2990,7 +3066,7 @@ class CharacterCreationStepForm extends FormBase {
     $character_data['step'] = $next_step;
 
     // Save to database
-    $character_id = $this->saveCharacter($character_id, $character_data, $next_version, $campaign_id);
+    $character_id = $this->saveCharacter($character_id, $character_data, $next_version, $campaign_id, $form_state, (int) $step);
 
     $persisted_record = $character_id ? $this->characterManager->loadCharacter((int) $character_id) : NULL;
     $persisted_campaign_id = $persisted_record ? (int) ($persisted_record->campaign_id ?? 0) : 0;
@@ -3287,6 +3363,7 @@ class CharacterCreationStepForm extends FormBase {
       if ($character && $character->uid == $this->currentUser->id()) {
         $data = json_decode($character->character_data, TRUE);
         $form_data = is_array($data['wizard'] ?? NULL) ? $data['wizard'] : $data;
+        $form_data = $this->characterManager->canonicalizeCharacterData(is_array($form_data) ? $form_data : []);
         if (!empty($form_data['abilities'])) {
           $form_data['strength'] = $form_data['abilities']['strength'] ?? $form_data['abilities']['str'] ?? 10;
           $form_data['dexterity'] = $form_data['abilities']['dexterity'] ?? $form_data['abilities']['dex'] ?? 10;
@@ -3421,74 +3498,116 @@ class CharacterCreationStepForm extends FormBase {
    * @return int|string
    *   The character ID.
    */
-  private function saveCharacter(int|string|null $character_id, array $character_data, int $next_version = 0, int|string|null $campaign_id = NULL): int|string {
+  private function saveCharacter(int|string|null $character_id, array $character_data, int $next_version = 0, int|string|null $campaign_id = NULL, ?FormStateInterface $form_state = NULL, int $step = 0): int|string {
     $now = $this->time->getRequestTime();
-    $schema_data = $this->characterManager->canonicalizeCharacterData($character_data);
-    if (empty($schema_data['created_at'])) {
-      $schema_data['created_at'] = date('c', $now);
-    }
-    $schema_data['updated_at'] = date('c', $now);
-    $hot = $this->characterManager->extractHotColumnsFromData($schema_data);
 
     // Character setup edits the record that already exists; new records always
     // start in the canonical library and are attached to campaigns separately.
     $resolved_campaign_id = 0;
+    $instance_id = '';
     if ($character_id) {
       $existing_record = $this->characterManager->loadCharacter((int) $character_id);
-      $resolved_campaign_id = $existing_record ? (int) ($existing_record->campaign_id ?? 0) : 0;
-    }
-
-    if ($character_id) {
-      $this->database->update('dc_campaign_characters')
-        ->fields([
-          'campaign_id' => $resolved_campaign_id,
-          'name' => $schema_data['name'] ?: 'Unnamed Character',
-          'level' => $schema_data['level'],
-          'ancestry' => $schema_data['ancestry'] ?? '',
-          'class' => $schema_data['class'] ?? '',
-          'hp_current' => $hot['hp_current'],
-          'hp_max' => $hot['hp_max'],
-          'armor_class' => $hot['armor_class'],
-          'experience_points' => (int) ($schema_data['experience_points'] ?? 0),
-          'position_q' => (int) ($schema_data['position']['q'] ?? 0),
-          'position_r' => (int) ($schema_data['position']['r'] ?? 0),
-          'last_room_id' => (string) ($schema_data['position']['room_id'] ?? ''),
-          'character_data' => json_encode($schema_data, JSON_PRETTY_PRINT),
-          'status' => $schema_data['step'] >= 8 ? 1 : 0,
-          'version' => $next_version,
-          'changed' => $now,
-        ])
-        ->condition('id', $character_id)
-        ->execute();
-      return $character_id;
+      $resolved_campaign_id = ($existing_record && !empty($existing_record->campaign_id))
+        ? (int) $existing_record->campaign_id
+        : (int) ($campaign_id ?? 0);
+      $instance_id = $existing_record ? trim((string) ($existing_record->instance_id ?? '')) : '';
     }
     else {
-      $instance_id = $this->uuid->generate();
-      return $this->database->insert('dc_campaign_characters')
-        ->fields([
-          'uuid' => $instance_id,
-          'campaign_id' => $resolved_campaign_id,
-          'character_id' => 0,
-          'instance_id' => $instance_id,
-          'uid' => (int) $this->currentUser->id(),
-          'name' => $schema_data['name'] ?: 'Unnamed Character',
-          'level' => $schema_data['level'],
-          'ancestry' => $schema_data['ancestry'] ?? '',
-          'class' => $schema_data['class'] ?? '',
-          'hp_current' => $hot['hp_current'],
-          'hp_max' => $hot['hp_max'],
-          'armor_class' => $hot['armor_class'],
-          'experience_points' => (int) ($schema_data['experience_points'] ?? 0),
-          'position_q' => (int) ($schema_data['position']['q'] ?? 0),
-          'position_r' => (int) ($schema_data['position']['r'] ?? 0),
-          'last_room_id' => (string) ($schema_data['position']['room_id'] ?? ''),
-          'character_data' => json_encode($schema_data, JSON_PRETTY_PRINT),
-          'status' => 0,
-          'created' => $now,
-          'changed' => $now,
-        ])
-        ->execute();
+      $resolved_campaign_id = (int) ($campaign_id ?? 0);
     }
+
+    $transaction = $this->database->startTransaction();
+
+    try {
+      if ($step === 6 && $form_state) {
+        $this->resolveStructuredAffiliationCreations($form_state, $character_data, $resolved_campaign_id, (int) $character_id);
+        $this->normalizeStructuredAffiliationCharacterData($character_data);
+      }
+
+      $schema_data = $this->characterManager->canonicalizeCharacterData($character_data);
+      if (empty($schema_data['created_at'])) {
+        $schema_data['created_at'] = date('c', $now);
+      }
+      $schema_data['updated_at'] = date('c', $now);
+      $hot = $this->characterManager->extractHotColumnsFromData($schema_data);
+
+      if ($character_id) {
+        $this->database->update('dc_campaign_characters')
+          ->fields([
+            'campaign_id' => $resolved_campaign_id,
+            'name' => $schema_data['name'] ?: 'Unnamed Character',
+            'level' => $schema_data['level'],
+            'ancestry' => $schema_data['ancestry'] ?? '',
+            'class' => $schema_data['class'] ?? '',
+            'hp_current' => $hot['hp_current'],
+            'hp_max' => $hot['hp_max'],
+            'armor_class' => $hot['armor_class'],
+            'experience_points' => (int) ($schema_data['experience_points'] ?? 0),
+            'position_q' => (int) ($schema_data['position']['q'] ?? 0),
+            'position_r' => (int) ($schema_data['position']['r'] ?? 0),
+            'last_room_id' => (string) ($schema_data['position']['room_id'] ?? ''),
+            'character_data' => json_encode($schema_data, JSON_PRETTY_PRINT),
+            'status' => $schema_data['step'] >= 8 ? 1 : 0,
+            'version' => $next_version,
+            'changed' => $now,
+          ])
+          ->condition('id', $character_id)
+          ->execute();
+      }
+      else {
+        $instance_id = $this->uuid->generate();
+        $character_id = $this->database->insert('dc_campaign_characters')
+          ->fields([
+            'uuid' => $instance_id,
+            'campaign_id' => $resolved_campaign_id,
+            'character_id' => 0,
+            'instance_id' => $instance_id,
+            'uid' => (int) $this->currentUser->id(),
+            'name' => $schema_data['name'] ?: 'Unnamed Character',
+            'level' => $schema_data['level'],
+            'ancestry' => $schema_data['ancestry'] ?? '',
+            'class' => $schema_data['class'] ?? '',
+            'hp_current' => $hot['hp_current'],
+            'hp_max' => $hot['hp_max'],
+            'armor_class' => $hot['armor_class'],
+            'experience_points' => (int) ($schema_data['experience_points'] ?? 0),
+            'position_q' => (int) ($schema_data['position']['q'] ?? 0),
+            'position_r' => (int) ($schema_data['position']['r'] ?? 0),
+            'last_room_id' => (string) ($schema_data['position']['room_id'] ?? ''),
+            'character_data' => json_encode($schema_data, JSON_PRETTY_PRINT),
+            'status' => 0,
+            'created' => $now,
+            'changed' => $now,
+          ])
+          ->execute();
+      }
+
+      if ($resolved_campaign_id > 0 && $instance_id !== '') {
+        $this->institutionMembership->syncCampaignCharacterMemberships(
+          $resolved_campaign_id,
+          $instance_id,
+          $schema_data
+        );
+      }
+    }
+    catch (\Throwable $exception) {
+      if (is_object($transaction) && method_exists($transaction, 'rollBack')) {
+        $transaction->rollBack();
+      }
+      throw $exception;
+    }
+
+    return $character_id;
+  }
+
+  /**
+   * Resolves the authoritative campaign context for the form.
+   */
+  private function resolveEffectiveCampaignId(?object $character_record, int|string|null $campaign_id): int {
+    if ($character_record && !empty($character_record->campaign_id)) {
+      return (int) $character_record->campaign_id;
+    }
+    return (int) ($campaign_id ?? 0);
   }
 
   /**
@@ -3684,10 +3803,10 @@ class CharacterCreationStepForm extends FormBase {
    */
   private function getStaffNexusSpellOptions(FormStateInterface $form_state, array $character_data, string $tradition): array {
     $selected_cantrip_ids = self::normalizeList(
-      $form_state->getValue('cantrips', $character_data['cantrips'] ?? [])
+      $form_state->getValue('cantrips', CharacterManager::getSelectedCantripIds($character_data))
     );
     $selected_spell_ids = self::normalizeList(
-      $form_state->getValue('spells_first', $character_data['spells_first'] ?? [])
+      $form_state->getValue('spells_first', CharacterManager::getSelectedFirstLevelSpellIds($character_data))
     );
 
     $cantrip_labels = [];
@@ -3761,6 +3880,608 @@ class CharacterCreationStepForm extends FormBase {
       'NE' => $this->t('Neutral Evil'),
       'CE' => $this->t('Chaotic Evil'),
     ];
+  }
+
+  /**
+   * Builds structured campaign affiliation selectors on the live step-6 surface.
+   */
+  private function buildStructuredAffiliationFields(array &$form, array $character_data, int $campaign_id): void {
+    $options_by_domain = $this->getCampaignInstitutionOptionsByDomain($campaign_id);
+    $parent_options = $this->getCampaignInstitutionParentOptions($campaign_id);
+    $has_any_options = FALSE;
+    foreach ($options_by_domain as $options) {
+      if ($options !== []) {
+        $has_any_options = TRUE;
+        break;
+      }
+    }
+
+    $form['structured_affiliations'] = [
+      '#type' => 'details',
+      '#title' => $this->t('Campaign Affiliations'),
+      '#open' => TRUE,
+      '#tree' => FALSE,
+      '#attributes' => ['class' => ['campaign-affiliations-section']],
+    ];
+    $form['structured_affiliations']['intro'] = [
+      '#markup' => '<p>' . $this->t('Choose canonical campaign institutions for represented affiliations. If the correct institution does not exist yet, create it here with a canonical label, optional parent institution, and provenance note. This wizard stores subject ids directly; freeform affiliation prose is not supported as the system of record.') . '</p>',
+    ];
+
+    if (!$has_any_options) {
+      $form['structured_affiliations']['empty_state'] = [
+        '#markup' => '<div class="messages messages--warning">'
+          . $this->t('No campaign institution subjects are currently available for these affiliation pickers yet.')
+          . '</div>',
+      ];
+    }
+
+    foreach (self::STRUCTURED_AFFILIATION_FIELDS as $field => $definition) {
+      $domain_options = $options_by_domain[$definition['domain']] ?? [];
+      $single_default = self::normalizeList($character_data[$field] ?? '');
+      $default_value = !empty($definition['multiple'])
+        ? self::normalizeList($character_data[$field] ?? [])
+        : ($single_default[0] ?? '');
+
+      $element = [
+        '#type' => 'select',
+        '#title' => $this->t($definition['title']),
+        '#description' => $this->t($definition['description']),
+        '#options' => !empty($definition['multiple'])
+          ? ($domain_options + [self::STRUCTURED_AFFILIATION_CREATE_SENTINEL => (string) $this->t('Create new below')])
+          : ['' => $this->t('- None -')] + $domain_options + [self::STRUCTURED_AFFILIATION_CREATE_SENTINEL => (string) $this->t('Create new below')],
+        '#default_value' => $default_value,
+        '#required' => FALSE,
+      ];
+
+      if (!empty($definition['multiple'])) {
+        $element['#multiple'] = TRUE;
+        $element['#size'] = max(4, min(8, count($domain_options) ?: 4));
+      }
+
+      $form['structured_affiliations'][$field] = $element;
+      $this->buildStructuredAffiliationCreationElements($form['structured_affiliations'], $field, $definition, $parent_options);
+    }
+  }
+
+  /**
+   * Validates structured campaign affiliation selections against the registry.
+   */
+  private function validateStructuredAffiliationSelections(FormStateInterface $form_state, int $campaign_id): void {
+    $options_by_domain = $this->getCampaignInstitutionOptionsByDomain($campaign_id);
+    $rows_by_domain = $this->getCampaignInstitutionRowsByDomain($campaign_id);
+    $parent_options = $this->getCampaignInstitutionParentOptions($campaign_id);
+
+    foreach (self::STRUCTURED_AFFILIATION_FIELDS as $field => $definition) {
+      $allowed_subject_ids = array_keys($options_by_domain[$definition['domain']] ?? []);
+      $selected_subject_ids = !empty($definition['multiple'])
+        ? self::normalizeList($form_state->getValue($field, []))
+        : self::normalizeList($form_state->getValue($field, ''));
+      $create_labels = $this->parseStructuredAffiliationCreateLabels($form_state->getValue($this->getStructuredAffiliationCreateLabelsKey($field), ''));
+      $creating_new = in_array(self::STRUCTURED_AFFILIATION_CREATE_SENTINEL, $selected_subject_ids, TRUE) || $create_labels !== [];
+      $selected_subject_ids = array_values(array_filter(
+        $selected_subject_ids,
+        static fn(string $subject_id): bool => $subject_id !== self::STRUCTURED_AFFILIATION_CREATE_SENTINEL
+      ));
+
+      if (!empty($definition['multiple']) === FALSE && (count($selected_subject_ids) + count($create_labels)) > 1) {
+        $form_state->setErrorByName($field, $this->t('Select one existing institution or create one new institution for @label, not both.', [
+          '@label' => $definition['title'],
+        ]));
+      }
+
+      foreach ($selected_subject_ids as $subject_id) {
+        if (!in_array($subject_id, $allowed_subject_ids, TRUE)) {
+          $form_state->setErrorByName($field, $this->t('Select valid campaign subject ids for @label.', [
+            '@label' => $definition['title'],
+          ]));
+          break;
+        }
+      }
+
+      if (!$creating_new) {
+        continue;
+      }
+
+      if (!$this->campaignSubjectRegistry->isSubjectRegistryReady()) {
+        $form_state->setErrorByName($field, $this->t('Campaign institution creation requires the campaign subject registry to be installed.'));
+        continue;
+      }
+
+      if ($this->isFactionGenerationField($field) && !$this->factionGeneration->isGenerationStorageReady()) {
+        $form_state->setErrorByName($field, $this->t('Faction generation requires the library manifest and campaign subject registry storage to be installed.'));
+        continue;
+      }
+
+      if ($create_labels === []) {
+        $form_state->setErrorByName($this->getStructuredAffiliationCreateLabelsKey($field), $this->t('Enter the canonical institution label to create for @label.', [
+          '@label' => $definition['title'],
+        ]));
+        continue;
+      }
+
+      $parent_subject_id = trim((string) $form_state->getValue($this->getStructuredAffiliationCreateParentKey($field), ''));
+      if ($parent_subject_id !== '' && !array_key_exists($parent_subject_id, $parent_options)) {
+        $form_state->setErrorByName($this->getStructuredAffiliationCreateParentKey($field), $this->t('Select a valid parent institution.'));
+      }
+
+      $confirmed = (bool) $form_state->getValue($this->getStructuredAffiliationCreateConfirmKey($field), FALSE);
+      foreach ($create_labels as $label) {
+        if ($this->isFactionGenerationField($field)) {
+          try {
+            $this->factionGeneration->normalizeNarrativeNeedRequest($campaign_id, $this->buildFactionGenerationRequestFromForm($form_state, $field, $label));
+          }
+          catch (\InvalidArgumentException $exception) {
+            $form_state->setErrorByName($this->getStructuredAffiliationCreateLabelsKey($field), $this->t($exception->getMessage()));
+            continue 2;
+          }
+        }
+
+        try {
+          $normalized = $this->institutionNormalization->normalizeInstitutionInput([
+            'domain' => $definition['domain'],
+            'display_name' => $label,
+          ]);
+        }
+        catch (\InvalidArgumentException) {
+          $form_state->setErrorByName($this->getStructuredAffiliationCreateLabelsKey($field), $this->t('Enter a valid canonical label for @label.', [
+            '@label' => $definition['title'],
+          ]));
+          continue 2;
+        }
+
+        $exact_match = $this->findExactInstitutionMatch($normalized['normalized_label'], $rows_by_domain[$definition['domain']] ?? []);
+        if ($exact_match !== NULL) {
+          $form_state->setErrorByName($this->getStructuredAffiliationCreateLabelsKey($field), $this->t('The institution %label already exists. Select the existing canonical institution instead of creating a duplicate.', [
+            '%label' => $exact_match['display_name'],
+          ]));
+          continue 2;
+        }
+
+        $near_matches = $this->findLikelyInstitutionNearMatches($normalized['normalized_label'], $rows_by_domain[$definition['domain']] ?? []);
+        if ($near_matches !== [] && !$confirmed) {
+          $form_state->setErrorByName($this->getStructuredAffiliationCreateConfirmKey($field), $this->t('Possible duplicate institutions found for %label: %matches. Confirm that you want to create a new canonical institution anyway.', [
+            '%label' => $label,
+            '%matches' => implode(', ', $near_matches),
+          ]));
+          continue 2;
+        }
+      }
+    }
+  }
+
+  /**
+   * Adds explicit create-institution controls for an affiliation field.
+   */
+  private function buildStructuredAffiliationCreationElements(array &$form, string $field, array $definition, array $parent_options): void {
+    $details_key = $field . '__create_details';
+    $labels_key = $this->getStructuredAffiliationCreateLabelsKey($field);
+    $parent_key = $this->getStructuredAffiliationCreateParentKey($field);
+    $note_key = $this->getStructuredAffiliationCreateNoteKey($field);
+    $confirm_key = $this->getStructuredAffiliationCreateConfirmKey($field);
+
+    $form[$details_key] = [
+      '#type' => 'details',
+      '#title' => $this->t('Create new @label', ['@label' => strtolower($definition['title'])]),
+      '#open' => FALSE,
+      '#attributes' => ['class' => ['campaign-affiliations-create']],
+    ];
+    $form[$details_key]['intro'] = [
+      '#markup' => '<p>' . $this->t('Search/select existing institutions first. Use this only when the canonical institution does not already exist in the campaign registry.') . '</p>',
+    ];
+    $form[$details_key][$labels_key] = [
+      '#type' => !empty($definition['multiple']) ? 'textarea' : 'textfield',
+      '#title' => $this->t('Canonical label'),
+      '#description' => !empty($definition['multiple'])
+        ? $this->t('Enter one canonical label per line to create additional institutions in the @domain domain.', ['@domain' => $definition['domain']])
+        : $this->t('Enter the canonical label to create in the @domain domain.', ['@domain' => $definition['domain']]),
+      '#rows' => !empty($definition['multiple']) ? 3 : NULL,
+      '#required' => FALSE,
+    ];
+    $form[$details_key][$parent_key] = [
+      '#type' => 'select',
+      '#title' => $this->t('Parent institution (optional)'),
+      '#options' => ['' => $this->t('- None -')] + $parent_options,
+      '#required' => FALSE,
+      '#description' => $this->t('If this institution belongs under an existing canonical institution, select the parent here.'),
+    ];
+    $form[$details_key][$note_key] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('Provenance note'),
+      '#maxlength' => 255,
+      '#required' => FALSE,
+      '#description' => $this->t('Describe where this institution label came from so the creation decision remains auditable.'),
+    ];
+    if ($this->isFactionGenerationField($field)) {
+      $role_key = $this->getStructuredAffiliationCreateRoleKey($field);
+      $why_key = $this->getStructuredAffiliationCreateWhyKey($field);
+      $public_face_key = $this->getStructuredAffiliationCreatePublicFaceKey($field);
+      $hidden_face_key = $this->getStructuredAffiliationCreateHiddenFaceKey($field);
+      $ideology_key = $this->getStructuredAffiliationCreateIdeologyTagsKey($field);
+      $method_key = $this->getStructuredAffiliationCreateMethodTagsKey($field);
+      $membership_style_key = $this->getStructuredAffiliationCreateMembershipStyleKey($field);
+
+      $form[$details_key]['faction_generation_intro'] = [
+        '#markup' => '<p>' . $this->t('New factions are generated into the canonical library first, then instantiated into this campaign. Capture the narrative need and core characteristics so the created faction stays reusable and auditable.') . '</p>',
+      ];
+      $form[$details_key][$role_key] = [
+        '#type' => 'textfield',
+        '#title' => $this->t('Narrative role'),
+        '#maxlength' => 255,
+        '#required' => FALSE,
+        '#description' => $this->t('Describe what role this faction needs to play in the story or scene.'),
+      ];
+      $form[$details_key][$why_key] = [
+        '#type' => 'textarea',
+        '#title' => $this->t('Why existing factions are insufficient'),
+        '#rows' => 3,
+        '#required' => FALSE,
+        '#description' => $this->t('Required. Explain why no existing canonical faction satisfies this narrative need.'),
+      ];
+      $form[$details_key][$public_face_key] = [
+        '#type' => 'textfield',
+        '#title' => $this->t('Public face'),
+        '#maxlength' => 255,
+        '#required' => FALSE,
+        '#description' => $this->t('How the faction presents itself to outsiders.'),
+      ];
+      $form[$details_key][$hidden_face_key] = [
+        '#type' => 'textfield',
+        '#title' => $this->t('Hidden face'),
+        '#maxlength' => 255,
+        '#required' => FALSE,
+        '#description' => $this->t('Optional covert purpose, secret agenda, or internal truth.'),
+      ];
+      $form[$details_key][$ideology_key] = [
+        '#type' => 'textfield',
+        '#title' => $this->t('Ideology tags'),
+        '#maxlength' => 255,
+        '#required' => FALSE,
+        '#description' => $this->t('Comma-separated values describing the faction worldview or values.'),
+      ];
+      $form[$details_key][$method_key] = [
+        '#type' => 'textfield',
+        '#title' => $this->t('Method tags'),
+        '#maxlength' => 255,
+        '#required' => FALSE,
+        '#description' => $this->t('Comma-separated values describing how the faction tends to operate.'),
+      ];
+      $form[$details_key][$membership_style_key] = [
+        '#type' => 'select',
+        '#title' => $this->t('Membership style'),
+        '#options' => [
+          'invite_only' => $this->t('Invite only'),
+          'open' => $this->t('Open'),
+          'cell_based' => $this->t('Cell based'),
+          'secret' => $this->t('Secret'),
+        ],
+        '#default_value' => 'invite_only',
+        '#required' => FALSE,
+      ];
+    }
+    $form[$details_key][$confirm_key] = [
+      '#type' => 'checkbox',
+      '#title' => $this->t('I have reviewed possible near matches and still want to create a new canonical institution.'),
+      '#required' => FALSE,
+    ];
+  }
+
+  /**
+   * Resolves and creates structured affiliation institutions before persistence.
+   */
+  private function resolveStructuredAffiliationCreations(FormStateInterface $form_state, array &$character_data, int $campaign_id, int $character_id): void {
+    if ($campaign_id <= 0) {
+      return;
+    }
+
+    foreach (self::STRUCTURED_AFFILIATION_FIELDS as $field => $definition) {
+      $selected_subject_ids = !empty($definition['multiple'])
+        ? self::normalizeList($form_state->getValue($field, []))
+        : self::normalizeList($form_state->getValue($field, ''));
+      $selected_subject_ids = array_values(array_filter(
+        $selected_subject_ids,
+        static fn(string $subject_id): bool => $subject_id !== self::STRUCTURED_AFFILIATION_CREATE_SENTINEL
+      ));
+      $create_labels = $this->parseStructuredAffiliationCreateLabels($form_state->getValue($this->getStructuredAffiliationCreateLabelsKey($field), ''));
+      $parent_subject_id = trim((string) $form_state->getValue($this->getStructuredAffiliationCreateParentKey($field), ''));
+      $provenance_note = trim((string) $form_state->getValue($this->getStructuredAffiliationCreateNoteKey($field), ''));
+
+      foreach ($create_labels as $label) {
+        if ($this->isFactionGenerationField($field)) {
+          $resolved = $this->factionGeneration->createOrReuseFactionForNeed($campaign_id, $this->buildFactionGenerationRequestFromForm($form_state, $field, $label, $character_id));
+          $resolved_subject_id = trim((string) ($resolved['campaignSubjectId'] ?? ''));
+        }
+        else {
+          $resolved = $this->campaignSubjectRegistry->resolveOrCreateInstitutionSubject($campaign_id, [
+            'domain' => $definition['domain'],
+            'display_name' => $label,
+            'parent_subject_id' => $parent_subject_id,
+            'source_asset_type' => 'campaign_character_wizard',
+            'source_asset_id' => $character_id > 0 ? (string) $character_id : NULL,
+            'metadata' => [
+              'created_via' => 'character_creation_step6',
+              'affiliation_field' => $field,
+              'provenance_note' => $provenance_note,
+            ],
+          ]);
+          $resolved_subject_id = trim((string) ($resolved['subject_id'] ?? ''));
+        }
+        if ($resolved_subject_id !== '') {
+          $selected_subject_ids[] = $resolved_subject_id;
+        }
+      }
+
+      $selected_subject_ids = array_values(array_unique($selected_subject_ids));
+      if (!empty($definition['multiple'])) {
+        $character_data[$field] = $selected_subject_ids;
+      }
+      else {
+        $character_data[$field] = $selected_subject_ids[0] ?? '';
+      }
+    }
+  }
+
+  /**
+   * Returns domain-keyed institution registry rows.
+   *
+   * @return array<string, array<int, array<string, string>>>
+   *   Institution rows keyed by canonical domain.
+   */
+  private function getCampaignInstitutionRowsByDomain(int $campaign_id): array {
+    $rows_by_domain = [];
+    foreach (self::STRUCTURED_AFFILIATION_FIELDS as $definition) {
+      $rows_by_domain[$definition['domain']] ??= [];
+    }
+
+    if ($campaign_id <= 0 || !$this->database->schema()->tableExists('dc_campaign_subject_registry')) {
+      return $rows_by_domain;
+    }
+
+    $domains = array_keys($rows_by_domain);
+    $rows = $this->database->select('dc_campaign_subject_registry', 'r')
+      ->fields('r', ['subject_id', 'subject_domain', 'display_name', 'normalized_label'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('subject_kind', 'institution')
+      ->condition('subject_domain', $domains, 'IN')
+      ->orderBy('subject_domain')
+      ->orderBy('display_name')
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC);
+
+    if (!is_array($rows)) {
+      return $rows_by_domain;
+    }
+
+    foreach ($rows as $row) {
+      $domain = trim((string) ($row['subject_domain'] ?? ''));
+      $subject_id = trim((string) ($row['subject_id'] ?? ''));
+      $display_name = trim((string) ($row['display_name'] ?? ''));
+      $normalized_label = trim((string) ($row['normalized_label'] ?? ''));
+      if ($domain === '' || $subject_id === '' || $display_name === '' || !isset($rows_by_domain[$domain])) {
+        continue;
+      }
+      if ($normalized_label === '') {
+        $normalized_label = $this->institutionNormalization->normalizeToken($display_name);
+      }
+      $rows_by_domain[$domain][] = [
+        'subject_id' => $subject_id,
+        'display_name' => $display_name,
+        'normalized_label' => $normalized_label,
+      ];
+    }
+
+    return $rows_by_domain;
+  }
+
+  /**
+   * Loads campaign institution picker options grouped by canonical domain.
+   *
+   * @return array<string, array<string, string>>
+   *   Domain-keyed [subject_id => display_name] option maps.
+   */
+  private function getCampaignInstitutionOptionsByDomain(int $campaign_id): array {
+    $options_by_domain = [];
+    foreach (self::STRUCTURED_AFFILIATION_FIELDS as $definition) {
+      $options_by_domain[$definition['domain']] ??= [];
+    }
+
+    foreach ($this->getCampaignInstitutionRowsByDomain($campaign_id) as $domain => $rows) {
+      foreach ($rows as $row) {
+        if (isset($options_by_domain[$domain])) {
+          $options_by_domain[$domain][$row['subject_id']] = $row['display_name'];
+        }
+      }
+    }
+
+    return $options_by_domain;
+  }
+
+  /**
+   * Loads parent-institution picker options across all campaign institutions.
+   *
+   * @return array<string, string>
+   *   Subject-id keyed labels.
+   */
+  private function getCampaignInstitutionParentOptions(int $campaign_id): array {
+    $options = [];
+    foreach ($this->getCampaignInstitutionRowsByDomain($campaign_id) as $domain => $rows) {
+      foreach ($rows as $row) {
+        $options[$row['subject_id']] = sprintf('%s (%s)', $row['display_name'], $domain);
+      }
+    }
+
+    asort($options);
+    return $options;
+  }
+
+  /**
+   * Parses canonical labels entered for new institution creation.
+   *
+   * @return array<int, string>
+   *   Unique canonical labels.
+   */
+  private function parseStructuredAffiliationCreateLabels(mixed $value): array {
+    $raw = is_string($value) ? $value : '';
+    $parts = preg_split('/[\r\n,]+/', $raw) ?: [];
+    $labels = [];
+    foreach ($parts as $part) {
+      $label = trim($part);
+      if ($label !== '') {
+        $labels[$label] = $label;
+      }
+    }
+    return array_values($labels);
+  }
+
+  /**
+   * Returns an exact normalized-label match when one already exists.
+   *
+   * @param array<int, array<string, string>> $rows
+   *   Existing registry rows for the field domain.
+   */
+  private function findExactInstitutionMatch(string $normalized_label, array $rows): ?array {
+    foreach ($rows as $row) {
+      if (($row['normalized_label'] ?? '') === $normalized_label) {
+        return $row;
+      }
+    }
+    return NULL;
+  }
+
+  /**
+   * Finds likely duplicate institution labels within the same domain.
+   *
+   * @param array<int, array<string, string>> $rows
+   *   Existing registry rows for the field domain.
+   *
+   * @return array<int, string>
+   *   Display names of likely near matches.
+   */
+  private function findLikelyInstitutionNearMatches(string $normalized_label, array $rows): array {
+    $matches = [];
+    foreach ($rows as $row) {
+      $candidate = (string) ($row['normalized_label'] ?? '');
+      if ($candidate === '') {
+        continue;
+      }
+      if (str_contains($candidate, $normalized_label) || str_contains($normalized_label, $candidate) || levenshtein($candidate, $normalized_label) <= 2) {
+        $matches[] = (string) ($row['display_name'] ?? $candidate);
+      }
+    }
+    return array_values(array_unique($matches));
+  }
+
+  /**
+   * Returns all non-persistent helper field keys for structured affiliations.
+   *
+   * @return array<int, string>
+   *   Auxiliary form field keys.
+   */
+  private function getStructuredAffiliationAuxiliaryKeys(): array {
+    $keys = [];
+    foreach (array_keys(self::STRUCTURED_AFFILIATION_FIELDS) as $field) {
+      $keys[] = $field . '__create_details';
+      $keys[] = $this->getStructuredAffiliationCreateLabelsKey($field);
+      $keys[] = $this->getStructuredAffiliationCreateParentKey($field);
+      $keys[] = $this->getStructuredAffiliationCreateNoteKey($field);
+      $keys[] = $this->getStructuredAffiliationCreateConfirmKey($field);
+      if ($this->isFactionGenerationField($field)) {
+        $keys[] = $this->getStructuredAffiliationCreateRoleKey($field);
+        $keys[] = $this->getStructuredAffiliationCreateWhyKey($field);
+        $keys[] = $this->getStructuredAffiliationCreatePublicFaceKey($field);
+        $keys[] = $this->getStructuredAffiliationCreateHiddenFaceKey($field);
+        $keys[] = $this->getStructuredAffiliationCreateIdeologyTagsKey($field);
+        $keys[] = $this->getStructuredAffiliationCreateMethodTagsKey($field);
+        $keys[] = $this->getStructuredAffiliationCreateMembershipStyleKey($field);
+      }
+    }
+    return $keys;
+  }
+
+  private function getStructuredAffiliationCreateLabelsKey(string $field): string {
+    return $field . '__create_labels';
+  }
+
+  private function getStructuredAffiliationCreateParentKey(string $field): string {
+    return $field . '__create_parent_subject_id';
+  }
+
+  private function getStructuredAffiliationCreateNoteKey(string $field): string {
+    return $field . '__create_note';
+  }
+
+  private function getStructuredAffiliationCreateConfirmKey(string $field): string {
+    return $field . '__create_confirm';
+  }
+
+  private function getStructuredAffiliationCreateRoleKey(string $field): string {
+    return $field . '__create_role';
+  }
+
+  private function getStructuredAffiliationCreateWhyKey(string $field): string {
+    return $field . '__create_why';
+  }
+
+  private function getStructuredAffiliationCreatePublicFaceKey(string $field): string {
+    return $field . '__create_public_face';
+  }
+
+  private function getStructuredAffiliationCreateHiddenFaceKey(string $field): string {
+    return $field . '__create_hidden_face';
+  }
+
+  private function getStructuredAffiliationCreateIdeologyTagsKey(string $field): string {
+    return $field . '__create_ideology_tags';
+  }
+
+  private function getStructuredAffiliationCreateMethodTagsKey(string $field): string {
+    return $field . '__create_method_tags';
+  }
+
+  private function getStructuredAffiliationCreateMembershipStyleKey(string $field): string {
+    return $field . '__create_membership_style';
+  }
+
+  private function isFactionGenerationField(string $field): bool {
+    return $field === 'faction_refs';
+  }
+
+  /**
+   * Builds a faction-generation request from structured affiliation helper input.
+   *
+   * @return array<string, mixed>
+   *   Request payload for canonical faction generation.
+   */
+  private function buildFactionGenerationRequestFromForm(FormStateInterface $form_state, string $field, string $label, int $character_id = 0): array {
+    return [
+      'label' => $label,
+      'domain' => self::STRUCTURED_AFFILIATION_FIELDS[$field]['domain'] ?? 'faction',
+      'parentSubjectId' => trim((string) $form_state->getValue($this->getStructuredAffiliationCreateParentKey($field), '')),
+      'provenanceNote' => trim((string) $form_state->getValue($this->getStructuredAffiliationCreateNoteKey($field), '')),
+      'roleInStory' => trim((string) $form_state->getValue($this->getStructuredAffiliationCreateRoleKey($field), '')),
+      'whyExistingFactionIsInsufficient' => trim((string) $form_state->getValue($this->getStructuredAffiliationCreateWhyKey($field), '')),
+      'publicFace' => trim((string) $form_state->getValue($this->getStructuredAffiliationCreatePublicFaceKey($field), '')),
+      'hiddenFace' => trim((string) $form_state->getValue($this->getStructuredAffiliationCreateHiddenFaceKey($field), '')),
+      'ideologyTags' => trim((string) $form_state->getValue($this->getStructuredAffiliationCreateIdeologyTagsKey($field), '')),
+      'methodTags' => trim((string) $form_state->getValue($this->getStructuredAffiliationCreateMethodTagsKey($field), '')),
+      'membershipStyle' => trim((string) $form_state->getValue($this->getStructuredAffiliationCreateMembershipStyleKey($field), '')),
+      'requestSource' => 'character_creation_step6',
+      'requesterCharacterId' => $character_id,
+    ];
+  }
+
+  /**
+   * Normalizes structured affiliation character data into strict wizard storage.
+   */
+  private function normalizeStructuredAffiliationCharacterData(array &$character_data): void {
+    foreach (self::STRUCTURED_AFFILIATION_FIELDS as $field => $definition) {
+      if (!empty($definition['multiple'])) {
+        $character_data[$field] = array_values(array_unique(self::normalizeList($character_data[$field] ?? [])));
+      }
+      else {
+        $selected_values = self::normalizeList($character_data[$field] ?? '');
+        $character_data[$field] = $selected_values[0] ?? '';
+      }
+    }
   }
 
   /**
@@ -4005,28 +4726,6 @@ class CharacterCreationStepForm extends FormBase {
 
     $candidate = (string) $input;
     return array_key_exists($candidate, $options) ? $candidate : '';
-  }
-
-  /**
-   * Resolves the spellcasting ability for a class.
-   *
-   * @param string $class
-   *   The class ID.
-   *
-   * @return string
-   *   The ability name (e.g. 'intelligence', 'wisdom', 'charisma').
-   */
-  private function resolveSpellcastingAbility(string $class): string {
-    $map = [
-      'wizard'   => 'intelligence',
-      'witch'    => 'intelligence',
-      'cleric'   => 'wisdom',
-      'druid'    => 'wisdom',
-      'bard'     => 'charisma',
-      'sorcerer' => 'charisma',
-      'oracle'   => 'charisma',
-    ];
-    return $map[strtolower($class)] ?? 'charisma';
   }
 
   /**
@@ -4473,10 +5172,10 @@ class CharacterCreationStepForm extends FormBase {
 
     $feat_options = [];
     $feat_cards = [];
-    foreach (CharacterManager::getGeneralFeats() as $feat) {
+    foreach ($this->getCanonicalGeneralFeats() as $feat) {
       $feat_options[$feat['id']] = $feat['name'];
       $feat_cards[$feat['id']] = $this->buildOptionCardData(
-        $feat['benefit'] ?? '',
+        $this->resolveFeatDisplayDescription($feat),
         $feat['traits'] ?? [],
         [
           (string) $this->t('Prerequisites') => $feat['prerequisites'] ?? '',
@@ -5553,7 +6252,7 @@ class CharacterCreationStepForm extends FormBase {
     }
     $valid_feat_ids = array_map(
       static fn(array $feat): string => (string) ($feat['id'] ?? ''),
-      CharacterManager::getClassFeats($selected_class)
+      $this->getCanonicalClassFeats($selected_class)
     );
     if (!in_array($selected_bonus_feat, $valid_feat_ids, TRUE)) {
       $form_state->setErrorByName(
@@ -5577,7 +6276,7 @@ class CharacterCreationStepForm extends FormBase {
     }
     $valid_feat_ids = array_map(
       static fn(array $feat): string => (string) ($feat['id'] ?? ''),
-      CharacterManager::getGeneralFeats()
+      $this->getCanonicalGeneralFeats()
     );
     if (!in_array($selected_bonus_feat, $valid_feat_ids, TRUE)) {
       $form_state->setErrorByName(
@@ -6169,7 +6868,7 @@ class CharacterCreationStepForm extends FormBase {
    */
   private function getElfAtavismFeatOptions(): array {
     return array_values(array_filter(
-      CharacterManager::getAncestryFeats('Elf'),
+      $this->getCanonicalAncestryFeats('Elf'),
       static function (array $feat): bool {
         return (int) ($feat['level'] ?? 0) <= 1;
       }
@@ -6184,7 +6883,7 @@ class CharacterCreationStepForm extends FormBase {
    */
   private function getOrcAtavismFeatOptions(): array {
     return array_values(array_filter(
-      CharacterManager::getAncestryFeats('Orc'),
+      $this->getCanonicalAncestryFeats('Orc'),
       static function (array $feat): bool {
         return (int) ($feat['level'] ?? 0) <= 1;
       }
@@ -6350,12 +7049,12 @@ class CharacterCreationStepForm extends FormBase {
   private function buildFeatsArray(array $character_data): array {
     $feats = [];
     $class_name = strtolower(trim((string) ($character_data['class'] ?? '')));
-    $class_feats = $class_name !== '' ? CharacterManager::getClassFeats($class_name) : [];
+    $class_feats = $this->getCanonicalClassFeats($class_name);
 
     // Ancestry feat.
     if (!empty($character_data['ancestry_feat'])) {
       $ancestry_name = $this->resolveAncestryName($character_data['ancestry'] ?? '');
-      $ancestry_feats = CharacterManager::getAncestryFeats($ancestry_name);
+      $ancestry_feats = $this->getCanonicalAncestryFeats($ancestry_name);
       foreach ($ancestry_feats as $f) {
         if ($f['id'] === $character_data['ancestry_feat']) {
           $feats[] = ['type' => 'ancestry', 'id' => $f['id'], 'name' => $f['name'], 'level' => 1];
@@ -6418,7 +7117,7 @@ class CharacterCreationStepForm extends FormBase {
 
     // General feat.
     if (!empty($character_data['general_feat'])) {
-      foreach (CharacterManager::getGeneralFeats() as $f) {
+      foreach ($this->getCanonicalGeneralFeats() as $f) {
         if ($f['id'] === $character_data['general_feat']) {
           $feats[] = ['type' => 'general', 'id' => $f['id'], 'name' => $f['name'], 'level' => 1];
           break;
@@ -6428,7 +7127,7 @@ class CharacterCreationStepForm extends FormBase {
 
     if (($character_data['ancestry_feat'] ?? '') === 'general-training') {
       $bonus_general_feat = trim((string) ($character_data['feat_selections']['general-training']['bonus_general_feat'] ?? ''));
-      foreach (CharacterManager::getGeneralFeats() as $f) {
+      foreach ($this->getCanonicalGeneralFeats() as $f) {
         if ($f['id'] === $bonus_general_feat) {
           $already_listed = in_array($bonus_general_feat, array_column($feats, 'id'), TRUE);
           if (!$already_listed) {
@@ -6495,6 +7194,44 @@ class CharacterCreationStepForm extends FormBase {
     }
 
     return $feats;
+  }
+
+  /**
+   * Get canonical ancestry feat definitions for the selected ancestry.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Matching ancestry feats.
+   */
+  private function getCanonicalAncestryFeats(string $ancestry_name): array {
+    return $this->featLibrary->getAncestryFeats($ancestry_name);
+  }
+
+  /**
+   * Get canonical class feat definitions for the selected class.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Matching class feats.
+   */
+  private function getCanonicalClassFeats(string $class_name): array {
+    $class_name = trim($class_name);
+    return $class_name === '' ? [] : $this->featLibrary->getClassFeats($class_name);
+  }
+
+  /**
+   * Get canonical general feat definitions.
+   *
+   * @return array<int, array<string, mixed>>
+   *   General feats.
+   */
+  private function getCanonicalGeneralFeats(): array {
+    return $this->featLibrary->getGeneralFeats();
+  }
+
+  /**
+   * Resolve the preferred rules text field for feat option cards.
+   */
+  private function resolveFeatDisplayDescription(array $feat): string {
+    return (string) ($feat['description'] ?? $feat['benefit'] ?? $feat['description_snippet'] ?? '');
   }
 
   /**

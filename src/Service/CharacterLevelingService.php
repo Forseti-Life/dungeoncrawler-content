@@ -5,19 +5,7 @@ namespace Drupal\dungeoncrawler_content\Service;
 use Drupal\Core\Database\Connection;
 
 /**
- * Handles PF2e character leveling and advancement.
- *
- * Milestone-based: leveling gates on session milestone flag, not XP threshold.
- * PM decision (2026-03-08): dc-cr-xp-rewards dependency removed.
- *
- * Level-up state is stored in character_data JSON under 'levelUpState':
- *   - milestoneReady (bool): GM has granted advancement eligibility.
- *   - inProgress (bool): a transition is active with unresolved player choices.
- *   - transitionTo (int): target level during in-progress transitions.
- *   - pendingChoices (array): unresolved player-choice slots.
- *   - completedChoices (array): resolved slots per level (audit trail).
- *   - autoApplied (array): names of features auto-applied at last trigger.
- *   - hpGranted (int): HP bonus applied at last trigger.
+ * Handles XP-gated PF2e character leveling with auditable draft/apply records.
  */
 class CharacterLevelingService {
 
@@ -29,496 +17,318 @@ class CharacterLevelingService {
   /** Valid ability score names. */
   const ABILITIES = ['strength', 'dexterity', 'constitution', 'intelligence', 'wisdom', 'charisma'];
 
+  protected readonly CharacterProgressionRegistry $progressionRegistry;
+  protected readonly FeatLibraryService $featLibrary;
+
   public function __construct(
     protected readonly Connection $database,
     protected readonly MulticlassArchetypeService $multiclassArchetypeService = new MulticlassArchetypeService(),
-    protected readonly ?DeityService $deityService = NULL
-  ) {}
+    protected readonly ?DeityService $deityService = NULL,
+    ?CharacterProgressionRegistry $progression_registry = NULL,
+    ?FeatLibraryService $feat_library = NULL,
+  ) {
+    $this->progressionRegistry = $progression_registry ?? new CharacterProgressionRegistry();
+    $this->featLibrary = $feat_library ?? new FeatLibraryService($database);
+  }
 
   // ── Public API ─────────────────────────────────────────────────────────────
 
   /**
    * Get the level-up status for a character.
-   *
-   * @param string $character_id  Character ID.
-   * @return array  Status payload.
-   * @throws \InvalidArgumentException  If character not found.
    */
   public function getStatus(string $character_id): array {
     $record = $this->loadRecord($character_id);
-    $char_data = json_decode($record->character_data, TRUE) ?? [];
-    $level = (int) ($char_data['basicInfo']['level'] ?? $record->level ?? 1);
-    $lus = $char_data['levelUpState'] ?? [];
+    $char_data = $this->decodeCharacterData($record);
+    $advancement = $this->loadLatestAdvancement((int) $record->id);
+    $this->syncProgressionSummary($char_data, $advancement);
 
-    return [
-      'success' => TRUE,
-      'characterId' => $character_id,
-      'currentLevel' => $level,
-      'maxLevel' => self::MAX_LEVEL,
-      'milestoneReady' => (bool) ($lus['milestoneReady'] ?? FALSE),
-      'inProgress' => (bool) ($lus['inProgress'] ?? FALSE),
-      'transitionTo' => (int) ($lus['transitionTo'] ?? 0),
-      'pendingChoices' => $lus['pendingChoices'] ?? [],
-      'autoApplied' => $lus['autoApplied'] ?? [],
-      'hpGranted' => $lus['hpGranted'] ?? 0,
-      'canTrigger' => ($level < self::MAX_LEVEL)
-        && !empty($lus['milestoneReady'])
-        && empty($lus['inProgress']),
-    ];
+    return $this->buildStatusResponse($char_data, $character_id, $advancement);
   }
 
   /**
-   * Set or clear the session milestone for a character (GM/admin action).
-   *
-   * @param string $character_id  Character ID.
-   * @param bool $ready  TRUE to grant milestone; FALSE to clear it.
-   * @return array  Updated status.
-   * @throws \InvalidArgumentException  If character not found.
+   * Preserve the legacy milestone flag for GM tooling, but do not gate on it.
    */
   public function setMilestone(string $character_id, bool $ready): array {
     $record = $this->loadRecord($character_id);
-    $char_data = json_decode($record->character_data, TRUE) ?? [];
+    $char_data = $this->decodeCharacterData($record);
     $char_data['levelUpState']['milestoneReady'] = $ready;
     $this->persistCharacterData($character_id, $char_data);
     return $this->getStatus($character_id);
   }
 
   /**
-   * Trigger a level-up for a character.
-   *
-   * Checks milestone (unless admin_force). Auto-applies no-choice class features.
-   * Computes pending player choices (ability boosts, skill increases, feat slots).
-   * If no choices are required (auto-only level), finalizes immediately.
-   *
-   * Idempotent for the same level transition: calling trigger while a transition
-   * is already in progress returns the current pending state without re-applying.
-   *
-   * @param string $character_id  Character ID.
-   * @param bool $admin_force  Skip milestone check (admin/GM override).
-   * @return array  Status payload with pending choices.
-   * @throws \InvalidArgumentException  On max-level, no milestone, or bad char.
+   * Create or reopen a draft advancement plan for the next XP-earned level.
    */
   public function triggerLevelUp(string $character_id, bool $admin_force = FALSE): array {
     $record = $this->loadRecord($character_id);
-    $char_data = json_decode($record->character_data, TRUE) ?? [];
-    $level = (int) ($char_data['basicInfo']['level'] ?? $record->level ?? 1);
-    $lus = $char_data['levelUpState'] ?? [];
+    $char_data = $this->decodeCharacterData($record);
+    $current_level = (int) ($char_data['basicInfo']['level'] ?? $record->level ?? 1);
 
-    // Already at max level.
-    if ($level >= self::MAX_LEVEL) {
+    if ($current_level >= self::MAX_LEVEL) {
       throw new \InvalidArgumentException('Already at maximum level', 400);
     }
 
-    // Idempotent: in-progress for the same target level returns current state.
-    // After triggerLevelUp runs, level is already incremented to transitionTo, so compare directly.
-    if (!empty($lus['inProgress']) && (int) ($lus['transitionTo'] ?? 0) === $level) {
-      return $this->buildStatusResponse($char_data, $character_id);
+    $xp_status = $this->buildXpStatus($current_level, (int) ($char_data['basicInfo']['experiencePoints'] ?? 0));
+    if (!$admin_force && !$xp_status['levelUpAvailable']) {
+      throw new \InvalidArgumentException('Character has not reached the XP threshold for the next level', 403);
     }
 
-    // Milestone check (admin_force bypasses).
-    if (!$admin_force && empty($lus['milestoneReady'])) {
-      throw new \InvalidArgumentException('Session milestone has not been reached', 403);
+    $target_level = $current_level + 1;
+    $active_advancement = $this->loadActiveAdvancement((int) $record->id, $target_level);
+    if ($active_advancement !== NULL) {
+      $this->syncProgressionSummary($char_data, $active_advancement);
+      return $this->buildStatusResponse($char_data, $character_id, $active_advancement);
     }
 
-    $new_level = $level + 1;
-    $class_name = strtolower($char_data['basicInfo']['class'] ?? $record->class ?? 'fighter');
-    $advancement = CharacterManager::getClassAdvancement($class_name, $new_level);
+    $class_name = strtolower((string) ($char_data['basicInfo']['class'] ?? $record->class ?? 'fighter'));
+    $plan = $this->progressionRegistry->buildLevelPlan($class_name, $target_level, $char_data);
+    $pending_choices = $plan['choice_slots'] ?? [];
+    $auto_applied = array_values(array_filter(array_map(
+      static fn(array $feature): string => (string) ($feature['name'] ?? ''),
+      $plan['auto_grants'] ?? []
+    )));
 
-    // Auto-apply class features (no player choice).
-    $auto_applied = [];
-    $char_data['features'] = $char_data['features'] ?? ['classFeatures' => [], 'feats' => []];
-    $char_data['features']['classFeatures'] = $char_data['features']['classFeatures'] ?? [];
-    foreach ($advancement['auto_features'] as $feature) {
-      // Skip if already applied (idempotent).
-      $existing_ids = array_column($char_data['features']['classFeatures'], 'id');
-      if (!in_array($feature['id'], $existing_ids, TRUE)) {
-        $char_data['features']['classFeatures'][] = $feature;
-      }
-      $auto_applied[] = $feature['name'];
-    }
-
-    // Auto-apply HP bonus (class HP per level, full per PF2e standard).
-    $hp_bonus = $advancement['hp_bonus'];
-    $char_data['resources'] = $char_data['resources'] ?? ['hitPoints' => ['current' => 0, 'max' => 0]];
-    $char_data['resources']['hitPoints'] = $char_data['resources']['hitPoints'] ?? ['current' => 0, 'max' => 0];
-    $new_max_hp = (int) ($char_data['resources']['hitPoints']['max'] ?? 0) + $hp_bonus;
-    $char_data['resources']['hitPoints']['max'] = $new_max_hp;
-    $char_data['resources']['hitPoints']['current'] = min(
-      (int) ($char_data['resources']['hitPoints']['current'] ?? 0) + $hp_bonus,
-      $new_max_hp
-    );
-
-    // Increment level.
-    $char_data['basicInfo']['level'] = $new_level;
-    $char_data['level'] = $new_level;
-
-    // Build pending player choices.
-    $pending = [];
-    if ($advancement['ability_boosts'] > 0) {
-      $pending[] = [
-        'type'     => 'ability_boosts',
-        'count'    => $advancement['ability_boosts'],
-        'label'    => "Choose {$advancement['ability_boosts']} ability boosts (each ability at most once per milestone)",
-        'resolved' => FALSE,
-      ];
-    }
-    for ($i = 0; $i < $advancement['skill_increases']; $i++) {
-      $pending[] = [
-        'type'     => 'skill_increase',
-        'label'    => 'Raise one skill proficiency rank by one step',
-        'resolved' => FALSE,
-      ];
-    }
-    foreach ($advancement['feat_slots'] as $slot) {
-      $pending[] = [
-        'type'      => 'feat_choice',
-        'slot_type' => $slot['slot_type'],
-        'label'     => $slot['label'],
-        'resolved'  => FALSE,
-      ];
-    }
-
-    // Set level-up state.
     $char_data['levelUpState'] = [
-      'milestoneReady'   => FALSE,
-      'inProgress'       => !empty($pending),
-      'transitionTo'     => $new_level,
-      'pendingChoices'   => $pending,
-      'completedChoices' => $lus['completedChoices'] ?? [],
-      'autoApplied'      => $auto_applied,
-      'hpGranted'        => $hp_bonus,
+      'milestoneReady' => (bool) ($char_data['levelUpState']['milestoneReady'] ?? FALSE),
+      'inProgress' => !empty($pending_choices),
+      'transitionTo' => $target_level,
+      'pendingChoices' => $pending_choices,
+      'completedChoices' => is_array($char_data['levelUpState']['completedChoices'] ?? NULL)
+        ? $char_data['levelUpState']['completedChoices']
+        : [],
+      'autoApplied' => $auto_applied,
+      'hpGranted' => (int) ($plan['hp_bonus'] ?? 0),
+      'draftPlan' => $plan,
     ];
 
-    // If no pending choices, finalize immediately.
-    if (empty($pending)) {
-      $char_data['levelUpState']['inProgress'] = FALSE;
-      $char_data['levelUpState']['completedChoices'][] = [
-        'level'   => $new_level,
-        'choices' => [],
-        'note'    => 'Auto-completed (no player choices required)',
-      ];
+    $advancement = $this->createAdvancementDraft($record, $char_data, $plan, empty($pending_choices) ? 'ready' : 'draft');
+    $this->syncProgressionSummary($char_data, $advancement);
+
+    if (empty($pending_choices)) {
+      $this->finalizeLevelUp($record, $char_data, $advancement);
+      $advancement = $this->loadLatestAdvancement((int) $record->id);
+    }
+    else {
+      // Keep the hot level column at the last applied level while a draft is in
+      // progress; transitionTo carries the pending target level for the shell.
+      $this->persistCharacterData($character_id, $char_data);
     }
 
-    // Sync the dc_campaign_characters.level column.
-    $this->database->update('dc_campaign_characters')
-      ->fields(['level' => $new_level])
-      ->condition('id', $character_id)
-      ->condition('campaign_id', 0)
-      ->execute();
-
-    $this->persistCharacterData($character_id, $char_data);
-
-    return $this->buildStatusResponse($char_data, $character_id);
+    return $this->buildStatusResponse($char_data, $character_id, $advancement);
   }
 
   /**
-   * Submit ability boost choices.
-   *
-   * @param string $character_id  Character ID.
-   * @param array $abilities  Array of ability names (e.g. ['strength', 'wisdom']).
-   * @return array  Updated status.
-   * @throws \InvalidArgumentException  On validation failure.
+   * Submit ability boost selections into the active draft plan.
    */
   public function submitAbilityBoosts(string $character_id, array $abilities): array {
     $record = $this->loadRecord($character_id);
-    $char_data = json_decode($record->character_data, TRUE) ?? [];
-    $lus = $char_data['levelUpState'] ?? [];
+    $char_data = $this->decodeCharacterData($record);
+    $advancement = $this->requireActiveAdvancement($record, $char_data);
 
-    if (empty($lus['inProgress'])) {
-      throw new \InvalidArgumentException('No level-up in progress', 400);
-    }
-
-    $slot_idx = $this->findPendingSlot($lus['pendingChoices'] ?? [], 'ability_boosts');
+    $slot_idx = $this->findPendingSlot($char_data['levelUpState']['pendingChoices'] ?? [], 'ability_boosts');
     if ($slot_idx === -1) {
       throw new \InvalidArgumentException('No ability boost choice pending at this level', 400);
     }
 
-    $required = (int) ($lus['pendingChoices'][$slot_idx]['count'] ?? 4);
-
-    // Validate count.
+    $required = (int) ($char_data['levelUpState']['pendingChoices'][$slot_idx]['count'] ?? 4);
     if (count($abilities) !== $required) {
-      throw new \InvalidArgumentException(
-        "Exactly {$required} ability boost(s) required; received " . count($abilities), 400
-      );
+      throw new \InvalidArgumentException("Exactly {$required} ability boost(s) required; received " . count($abilities), 400);
     }
 
-    // Normalize and validate unique, valid ability names.
-    $normalized = array_map('strtolower', $abilities);
+    $normalized = array_map(static fn($ability): string => strtolower(trim((string) $ability)), $abilities);
     if (count(array_unique($normalized)) !== $required) {
-      throw new \InvalidArgumentException('Each ability may only be boosted once per milestone', 400);
+      throw new \InvalidArgumentException('Each ability may only be boosted once per level-up', 400);
     }
     foreach ($normalized as $ability) {
       if (!in_array($ability, self::ABILITIES, TRUE)) {
-        $valid = implode(', ', self::ABILITIES);
-        throw new \InvalidArgumentException("Unknown ability '{$ability}'. Valid: {$valid}", 400);
+        throw new \InvalidArgumentException("Unknown ability '{$ability}'", 400);
       }
     }
 
-    // Apply boosts (+2 each; post-creation boosts may exceed 18 per PF2e rules).
-    $char_data['abilities'] = $char_data['abilities'] ?? [];
-    foreach ($normalized as $ability) {
-      $current = (int) ($char_data['abilities'][$ability] ?? 10);
-      $char_data['abilities'][$ability] = $current + 2;
-    }
-
-    // Mark slot resolved.
     $char_data['levelUpState']['pendingChoices'][$slot_idx]['resolved'] = TRUE;
-    $char_data['levelUpState']['pendingChoices'][$slot_idx]['choices']  = $normalized;
+    $char_data['levelUpState']['pendingChoices'][$slot_idx]['choices'] = $normalized;
+    $advancement['plan']['choice_slots'] = $char_data['levelUpState']['pendingChoices'];
+    $this->updateAdvancementPlan((int) $advancement['id'], $advancement['plan'], $this->resolvePlanStatus($char_data));
 
-    $this->checkAndFinalizeLevelUp($char_data);
-    $this->persistCharacterData($character_id, $char_data);
-
-    return $this->buildStatusResponse($char_data, $character_id);
+    return $this->persistOrFinalize($record, $char_data, (int) $advancement['id']);
   }
 
   /**
-   * Submit a skill increase choice.
-   *
-   * @param string $character_id  Character ID.
-   * @param string $skill  Skill name (e.g. 'arcana').
-   * @return array  Updated status.
-   * @throws \InvalidArgumentException  On validation failure.
+   * Submit a skill increase choice into the active draft plan.
    */
   public function submitSkillIncrease(string $character_id, string $skill): array {
     $record = $this->loadRecord($character_id);
-    $char_data = json_decode($record->character_data, TRUE) ?? [];
-    $lus = $char_data['levelUpState'] ?? [];
+    $char_data = $this->decodeCharacterData($record);
+    $advancement = $this->requireActiveAdvancement($record, $char_data);
 
-    if (empty($lus['inProgress'])) {
-      throw new \InvalidArgumentException('No level-up in progress', 400);
-    }
-
-    $slot_idx = $this->findPendingSlot($lus['pendingChoices'] ?? [], 'skill_increase');
+    $slot_idx = $this->findPendingSlot($char_data['levelUpState']['pendingChoices'] ?? [], 'skill_increase');
     if ($slot_idx === -1) {
       throw new \InvalidArgumentException('No skill increase pending at this level', 400);
     }
 
     $skill = strtolower(trim($skill));
-    $valid_skills = array_keys(CharacterCalculator::SKILLS);
-    if (!in_array($skill, $valid_skills, TRUE)) {
-      $valid = implode(', ', $valid_skills);
-      throw new \InvalidArgumentException("Unknown skill '{$skill}'. Valid: {$valid}", 400);
+    if (!array_key_exists($skill, CharacterCalculator::SKILLS)) {
+      throw new \InvalidArgumentException("Unknown skill '{$skill}'", 400);
     }
 
-    // Advance rank by one step.
-    $current_rank = strtolower($char_data['skills'][$skill] ?? 'untrained');
+    $current_rank = $this->getSkillRank($char_data, $skill);
     $rank_idx = array_search($current_rank, self::RANK_ORDER, TRUE);
-    if ($rank_idx === FALSE) {
-      $rank_idx = 0;
-    }
+    $rank_idx = $rank_idx === FALSE ? 0 : $rank_idx;
     if ($rank_idx >= count(self::RANK_ORDER) - 1) {
-      throw new \InvalidArgumentException("Skill '{$skill}' is already at maximum rank (Legendary)", 400);
+      throw new \InvalidArgumentException("Skill '{$skill}' is already at maximum rank", 400);
     }
 
-    $new_rank = ucfirst(self::RANK_ORDER[$rank_idx + 1]);
-
-    // Level ceiling enforcement (REQ 1555-1556).
-    // Expert → Master requires level ≥ 7; Master → Legendary requires level ≥ 15.
-    $char_level = (int) ($char_data['basicInfo']['level'] ?? $char_data['level'] ?? 1);
-    if ($new_rank === 'Master' && $char_level < 7) {
-      throw new \InvalidArgumentException(
-        "Cannot increase '{$skill}' to Master: requires level 7 (current level {$char_level})", 400
-      );
+    $new_rank = self::RANK_ORDER[$rank_idx + 1];
+    $target_level = (int) ($char_data['levelUpState']['transitionTo'] ?? 0);
+    if ($new_rank === 'master' && $target_level < 7) {
+      throw new \InvalidArgumentException("Cannot increase '{$skill}' to master before level 7", 400);
     }
-    if ($new_rank === 'Legendary' && $char_level < 15) {
-      throw new \InvalidArgumentException(
-        "Cannot increase '{$skill}' to Legendary: requires level 15 (current level {$char_level})", 400
-      );
+    if ($new_rank === 'legendary' && $target_level < 15) {
+      throw new \InvalidArgumentException("Cannot increase '{$skill}' to legendary before level 15", 400);
     }
 
-    $char_data['skills'] = $char_data['skills'] ?? [];
-    $char_data['skills'][$skill] = $new_rank;
-
-    // Mark slot resolved.
     $char_data['levelUpState']['pendingChoices'][$slot_idx]['resolved'] = TRUE;
-    $char_data['levelUpState']['pendingChoices'][$slot_idx]['choice']   = [
-      'skill'   => $skill,
+    $char_data['levelUpState']['pendingChoices'][$slot_idx]['choice'] = [
+      'skill' => $skill,
+      'previousRank' => $current_rank,
       'newRank' => $new_rank,
     ];
+    $advancement['plan']['choice_slots'] = $char_data['levelUpState']['pendingChoices'];
+    $this->updateAdvancementPlan((int) $advancement['id'], $advancement['plan'], $this->resolvePlanStatus($char_data));
 
-    $this->checkAndFinalizeLevelUp($char_data);
-    $this->persistCharacterData($character_id, $char_data);
-
-    return $this->buildStatusResponse($char_data, $character_id);
+    return $this->persistOrFinalize($record, $char_data, (int) $advancement['id']);
   }
 
   /**
-   * Submit a feat selection for an open feat slot.
-   *
-   * @param string $character_id  Character ID.
-   * @param string $slot_type  'class_feat', 'skill_feat', 'general_feat', 'ancestry_feat'.
-   * @param string $feat_id  Feat ID from CharacterManager catalogs.
-   * @return array  Updated status.
-   * @throws \InvalidArgumentException  On invalid feat or prerequisites.
+   * Submit a feat selection into the active draft plan.
    */
   public function submitFeat(string $character_id, string $slot_type, string $feat_id, array $feat_params = []): array {
     $record = $this->loadRecord($character_id);
-    $char_data = json_decode($record->character_data, TRUE) ?? [];
-    $lus = $char_data['levelUpState'] ?? [];
+    $char_data = $this->decodeCharacterData($record);
+    $advancement = $this->requireActiveAdvancement($record, $char_data);
 
-    if (empty($lus['inProgress'])) {
-      throw new \InvalidArgumentException('No level-up in progress', 400);
-    }
-
-    $slot_idx = $this->findPendingFeatSlot($lus['pendingChoices'] ?? [], $slot_type);
+    $slot_idx = $this->findPendingFeatSlot($char_data['levelUpState']['pendingChoices'] ?? [], $slot_type);
     if ($slot_idx === -1) {
       throw new \InvalidArgumentException("No open {$slot_type} feat slot pending at this level", 400);
     }
 
-    $level = (int) ($char_data['basicInfo']['level'] ?? 1);
-    $class_name = strtolower($char_data['basicInfo']['class'] ?? 'fighter');
-
-    // Validate feat and prerequisites.
+    $level = (int) ($char_data['levelUpState']['transitionTo'] ?? $char_data['basicInfo']['level'] ?? 1);
+    $class_name = strtolower((string) ($char_data['basicInfo']['class'] ?? 'fighter'));
     $feat = $this->validateFeat($feat_id, $slot_type, $class_name, $level, $char_data, $feat_params);
 
-    // AC-002 / AC-004: if this is a dedication feat, run multiclass dedication
-    // validation (breadth rule, no duplicate dedication, level minimum).
-    if ($slot_type === 'class_feat' && !empty($feat['traits']) && in_array('Dedication', $feat['traits'], TRUE)) {
+    if ($slot_type === 'class_feat' && !empty($feat['traits']) && in_array('dedication', array_map('strtolower', $feat['traits']), TRUE)) {
       $this->multiclassArchetypeService->validateDedicationSelection($feat_id, $char_data);
     }
 
-    // Add feat to character.
-    $char_data['features'] = $char_data['features'] ?? ['classFeatures' => [], 'feats' => []];
-    $char_data['features']['feats'] = $char_data['features']['feats'] ?? [];
-    $feat_entry = [
-      'id'              => $feat_id,
-      'name'            => $feat['name'] ?? $feat_id,
-      'slot_type'       => $slot_type,
-      'gained_at_level' => $level,
-    ];
-    if (!empty($feat_params)) {
-      $feat_entry['feat_params'] = $feat_params;
-    }
-    $char_data['features']['feats'][] = $feat_entry;
-
-    // Mark slot resolved.
     $char_data['levelUpState']['pendingChoices'][$slot_idx]['resolved'] = TRUE;
-    $char_data['levelUpState']['pendingChoices'][$slot_idx]['choice']   = [
-      'feat_id'   => $feat_id,
+    $char_data['levelUpState']['pendingChoices'][$slot_idx]['choice'] = [
+      'feat_id' => $feat_id,
       'feat_name' => $feat['name'] ?? $feat_id,
+      'slot_type' => $slot_type,
+      'feat_params' => $feat_params,
     ];
+    $advancement['plan']['choice_slots'] = $char_data['levelUpState']['pendingChoices'];
+    $this->updateAdvancementPlan((int) $advancement['id'], $advancement['plan'], $this->resolvePlanStatus($char_data));
 
-    $this->checkAndFinalizeLevelUp($char_data);
-    $this->persistCharacterData($character_id, $char_data);
-
-    return $this->buildStatusResponse($char_data, $character_id);
+    return $this->persistOrFinalize($record, $char_data, (int) $advancement['id']);
   }
 
   /**
-   * Admin: force-apply a level-up, bypassing the milestone requirement.
-   *
-   * @param string $character_id  Character ID.
-   * @return array  Status payload with pending choices.
+   * Admin: bypass the XP gate for one draft/apply.
    */
   public function adminForceLevelUp(string $character_id): array {
     return $this->triggerLevelUp($character_id, TRUE);
   }
 
   /**
-   * Admin: reset a level-up, reverting the character to the previous level.
-   *
-   * Reverts: level, HP bonus, auto-applied class features.
-   * Does NOT revert feat selections or ability boosts if already resolved
-   * (use with caution; intended for GM tooling / test scenarios).
-   *
-   * @param string $character_id  Character ID.
-   * @return array  Result with previous level.
-   * @throws \InvalidArgumentException  If no transition to revert.
+   * Admin: cancel a draft or revert the last applied advancement.
    */
   public function adminResetLevelUp(string $character_id): array {
     $record = $this->loadRecord($character_id);
-    $char_data = json_decode($record->character_data, TRUE) ?? [];
-    $lus = $char_data['levelUpState'] ?? [];
+    $char_data = $this->decodeCharacterData($record);
+    $active_advancement = $this->loadActiveAdvancement((int) $record->id);
 
-    $transition_to = (int) ($lus['transitionTo'] ?? 0);
-    if ($transition_to < 2) {
-      throw new \InvalidArgumentException(
-        'No level-up to reset (character is at base level or no transition recorded)', 400
-      );
+    if ($active_advancement !== NULL) {
+      $this->cancelAdvancement((int) $active_advancement['id']);
+      $char_data['levelUpState'] = [
+        'milestoneReady' => FALSE,
+        'inProgress' => FALSE,
+        'transitionTo' => 0,
+        'pendingChoices' => [],
+        'completedChoices' => is_array($char_data['levelUpState']['completedChoices'] ?? NULL)
+          ? $char_data['levelUpState']['completedChoices']
+          : [],
+      ];
+      $char_data['progression']['pendingAdvancementId'] = NULL;
+      $this->persistCharacterData($character_id, $char_data);
+      return [
+        'success' => TRUE,
+        'message' => 'Active level-up draft cancelled',
+        'currentLevel' => (int) ($char_data['basicInfo']['level'] ?? 1),
+      ];
     }
 
-    $prev_level = $transition_to - 1;
-    $class_name = strtolower($char_data['basicInfo']['class'] ?? 'fighter');
-    $advancement = CharacterManager::getClassAdvancement($class_name, $transition_to);
+    $applied_advancement = $this->loadLatestAppliedAdvancement((int) $record->id);
+    if ($applied_advancement === NULL || empty($applied_advancement['applied'])) {
+      throw new \InvalidArgumentException('No level-up to reset', 400);
+    }
 
-    // Revert level.
-    $char_data['basicInfo']['level'] = $prev_level;
-    $char_data['level'] = $prev_level;
+    $summary = $applied_advancement['applied'];
+    $previous_level = (int) ($summary['previous_level'] ?? 1);
+    $target_level = (int) ($summary['target_level'] ?? ($previous_level + 1));
 
-    // Revert HP.
-    $hp_granted = (int) ($lus['hpGranted'] ?? $advancement['hp_bonus']);
-    $char_data['resources']['hitPoints']['max'] = max(
-      0, (int) ($char_data['resources']['hitPoints']['max'] ?? 0) - $hp_granted
-    );
-    $char_data['resources']['hitPoints']['current'] = min(
-      (int) ($char_data['resources']['hitPoints']['current'] ?? 0),
-      $char_data['resources']['hitPoints']['max']
-    );
-
-    // Revert auto-applied class features.
-    $auto_ids = array_column($advancement['auto_features'], 'id');
-    $char_data['features']['classFeatures'] = array_values(array_filter(
-      $char_data['features']['classFeatures'] ?? [],
-      static fn($f) => !in_array($f['id'] ?? '', $auto_ids, TRUE)
-    ));
-
-    // Clear level-up state.
+    $char_data['basicInfo']['level'] = $previous_level;
+    $char_data['level'] = $previous_level;
+    $this->applyAbilityAdjustments($char_data, (array) ($summary['ability_adjustments'] ?? []), TRUE);
+    $this->revertSkillChanges($char_data, (array) ($summary['skill_changes'] ?? []));
+    $this->revertGrantedFeatures($char_data, (array) ($summary['auto_grant_ids'] ?? []), (array) ($summary['feat_ids'] ?? []));
+    $this->revertHitPointGrant($char_data, (int) ($summary['hp_granted'] ?? 0));
+    $this->revertSpellcastingChanges($char_data, (array) ($summary['spellcasting_before'] ?? []), (string) ($char_data['basicInfo']['class'] ?? ''));
+    $this->trimProgressionHistory($char_data, (int) $applied_advancement['id']);
     $char_data['levelUpState'] = [
-      'milestoneReady'   => FALSE,
-      'inProgress'       => FALSE,
-      'transitionTo'     => 0,
-      'pendingChoices'   => [],
-      'completedChoices' => $lus['completedChoices'] ?? [],
+      'milestoneReady' => FALSE,
+      'inProgress' => FALSE,
+      'transitionTo' => 0,
+      'pendingChoices' => [],
+      'completedChoices' => is_array($char_data['levelUpState']['completedChoices'] ?? NULL)
+        ? $char_data['levelUpState']['completedChoices']
+        : [],
     ];
+    $char_data['progression']['pendingAdvancementId'] = NULL;
 
     $this->database->update('dc_campaign_characters')
-      ->fields(['level' => $prev_level])
+      ->fields(['level' => $previous_level])
       ->condition('id', $character_id)
       ->condition('campaign_id', 0)
       ->execute();
 
+    $this->markAdvancementCancelled((int) $applied_advancement['id']);
     $this->persistCharacterData($character_id, $char_data);
 
     return [
-      'success'      => TRUE,
-      'message'      => "Level reset from {$transition_to} to {$prev_level}",
-      'currentLevel' => $prev_level,
+      'success' => TRUE,
+      'message' => "Level reset from {$target_level} to {$previous_level}",
+      'currentLevel' => $previous_level,
     ];
   }
 
   /**
    * Get feats eligible for a given character and slot type.
-   *
-   * Filters by level prerequisite and deduplicates against already-owned feats.
-   *
-   * @param string $character_id  Character ID.
-   * @param string $slot_type  'class_feat', 'skill_feat', 'general_feat', 'ancestry_feat'.
-   * @return array  Eligible feat entries.
    */
   public function getEligibleFeats(string $character_id, string $slot_type): array {
     $record = $this->loadRecord($character_id);
-    $char_data = json_decode($record->character_data, TRUE) ?? [];
-    $level = (int) ($char_data['basicInfo']['level'] ?? 1);
-    $class_name = strtolower($char_data['basicInfo']['class'] ?? 'fighter');
-    $owned_ids = array_column($char_data['features']['feats'] ?? [], 'id');
-    $gm_unlocked = $char_data['gm_unlocked_feats'] ?? [];
+    $char_data = $this->decodeCharacterData($record);
+    $level = (int) ($char_data['levelUpState']['transitionTo'] ?? $char_data['basicInfo']['level'] ?? 1);
+    $class_name = strtolower((string) ($char_data['basicInfo']['class'] ?? 'fighter'));
+    $owned_ids = $this->getTakenFeatIds($char_data);
+    $gm_unlocked = is_array($char_data['gm_unlocked_feats'] ?? NULL) ? $char_data['gm_unlocked_feats'] : [];
 
-    $catalog = match ($slot_type) {
-      'class_feat'    => CharacterManager::getClassFeats($class_name),
-      'skill_feat'    => CharacterManager::SKILL_FEATS,
-      'general_feat'  => CharacterManager::getGeneralFeats(),
-      'ancestry_feat' => $this->getAvailableAncestryFeatCatalog($char_data),
-      default         => [],
-    };
+    $catalog = $this->getSlotFeatCatalog($slot_type, $class_name, $char_data);
 
-    // AC-003: merge multiclass archetype feats into class feat slots so
-    // players with active dedications can choose archetype feats at even levels.
     if ($slot_type === 'class_feat') {
-      $archetype_feats = $this->multiclassArchetypeService->getEligibleArchetypeFeats($char_data);
-      $catalog = array_merge($catalog, $archetype_feats);
+      $catalog = array_merge($catalog, $this->multiclassArchetypeService->getEligibleArchetypeFeats($char_data));
     }
 
-    // Resolve character's deity for domain feat eligibility filtering.
     $deity_id = $char_data['personality']['deity'] ?? $char_data['basicInfo']['deity'] ?? '';
     $deity_domains = [];
     if ($deity_id !== '' && $this->deityService !== NULL) {
@@ -533,16 +343,12 @@ class CharacterLevelingService {
       if (in_array($feat['id'] ?? '', $owned_ids, TRUE)) {
         return FALSE;
       }
-      // Uncommon feats require GM unlock in character data.
-      if (!empty($feat['uncommon']) && !in_array($feat['id'] ?? '', $gm_unlocked, TRUE)) {
+      $is_uncommon = !empty($feat['uncommon']) || (($feat['rarity'] ?? 'common') === 'uncommon');
+      if ($is_uncommon && !in_array($feat['id'] ?? '', $gm_unlocked, TRUE)) {
         return FALSE;
       }
-      // Domain feats (Domain Initiate, Advanced Domain) require matching deity domains.
-      if (!empty($feat['requires_domain']) && $deityService !== NULL) {
-        $required_domain = $feat['requires_domain'];
-        if (!in_array($required_domain, $deity_domains, TRUE)) {
-          return FALSE;
-        }
+      if (!empty($feat['requires_domain']) && $deityService !== NULL && !in_array($feat['requires_domain'], $deity_domains, TRUE)) {
+        return FALSE;
       }
       return TRUE;
     }));
@@ -551,9 +357,7 @@ class CharacterLevelingService {
   // ── Private helpers ─────────────────────────────────────────────────────────
 
   /**
-   * Load the library record (campaign_id = 0) for a character.
-   *
-   * @throws \InvalidArgumentException  If character not found.
+   * Load the canonical/library character record.
    */
   private function loadRecord(string $character_id): object {
     $record = $this->database->select('dc_campaign_characters', 'c')
@@ -571,27 +375,854 @@ class CharacterLevelingService {
   }
 
   /**
-   * Persist character_data back to the library record.
+   * Decode character_data and normalize the legacy mirrors we mutate directly.
+   */
+  private function decodeCharacterData(object $record): array {
+    $char_data = json_decode((string) ($record->character_data ?? '{}'), TRUE) ?? [];
+    $char_data['basicInfo'] = is_array($char_data['basicInfo'] ?? NULL) ? $char_data['basicInfo'] : [];
+    $char_data['basicInfo']['level'] = (int) ($char_data['basicInfo']['level'] ?? $record->level ?? 1);
+    $char_data['basicInfo']['experiencePoints'] = (int) ($char_data['basicInfo']['experiencePoints'] ?? $record->experience_points ?? 0);
+    $char_data['basicInfo']['class'] = (string) ($char_data['basicInfo']['class'] ?? $record->class ?? '');
+    $char_data['features'] = is_array($char_data['features'] ?? NULL) ? $char_data['features'] : [];
+    $char_data['features']['classFeatures'] = is_array($char_data['features']['classFeatures'] ?? NULL) ? $char_data['features']['classFeatures'] : [];
+    $char_data['features']['feats'] = is_array($char_data['features']['feats'] ?? NULL) ? $char_data['features']['feats'] : [];
+    $char_data['levelUpState'] = is_array($char_data['levelUpState'] ?? NULL) ? $char_data['levelUpState'] : [];
+    $char_data['progression'] = is_array($char_data['progression'] ?? NULL) ? $char_data['progression'] : [];
+    $char_data['resources'] = is_array($char_data['resources'] ?? NULL) ? $char_data['resources'] : [];
+    $char_data['abilities'] = is_array($char_data['abilities'] ?? NULL) ? $char_data['abilities'] : [];
+    return $char_data;
+  }
+
+  /**
+   * Persist character_data back to the canonical record.
    */
   private function persistCharacterData(string $character_id, array $char_data): void {
+    $this->syncLegacyMirrors($char_data);
+    $now = time();
     $this->database->update('dc_campaign_characters')
       ->fields([
         'character_data' => json_encode($char_data),
-        'changed'        => time(),
+        'experience_points' => (int) ($char_data['basicInfo']['experiencePoints'] ?? 0),
+        'changed' => $now,
       ])
       ->condition('id', $character_id)
       ->condition('campaign_id', 0)
       ->execute();
+
+    $this->syncRuntimeRowsFromCanonical((int) $character_id, $char_data, $now);
+  }
+
+  /**
+   * Ensure legacy mirrors remain consistent for existing sheet readers.
+   */
+  private function syncLegacyMirrors(array &$char_data): void {
+    $char_data['level'] = (int) ($char_data['basicInfo']['level'] ?? $char_data['level'] ?? 1);
+    $char_data['experiencePoints'] = (int) ($char_data['basicInfo']['experiencePoints'] ?? $char_data['experiencePoints'] ?? 0);
+    $char_data = CharacterManager::normalizePersistentCharacterPayload($char_data);
+  }
+
+  /**
+   * Propagate canonical progression changes onto campaign runtime rows.
+   */
+  private function syncRuntimeRowsFromCanonical(int $character_id, array $char_data, int $now): void {
+    if ($character_id <= 0) {
+      return;
+    }
+
+    foreach ($this->loadRuntimeRows($character_id) as $runtime_row) {
+      $runtime_state = json_decode((string) ($runtime_row['state_data'] ?? ''), TRUE);
+      $runtime_state = is_array($runtime_state) ? $runtime_state : [];
+
+      $runtime_state['basicInfo'] = array_replace(
+        is_array($runtime_state['basicInfo'] ?? NULL) ? $runtime_state['basicInfo'] : [],
+        array_filter([
+          'name' => (string) ($char_data['basicInfo']['name'] ?? ''),
+          'level' => (int) ($char_data['basicInfo']['level'] ?? 1),
+          'experiencePoints' => (int) ($char_data['basicInfo']['experiencePoints'] ?? 0),
+          'ancestry' => (string) ($char_data['basicInfo']['ancestry'] ?? ''),
+          'heritage' => (string) ($char_data['basicInfo']['heritage'] ?? ''),
+          'background' => (string) ($char_data['basicInfo']['background'] ?? ''),
+          'class' => (string) ($char_data['basicInfo']['class'] ?? ''),
+          'alignment' => (string) ($char_data['basicInfo']['alignment'] ?? ''),
+          'deity' => $char_data['basicInfo']['deity'] ?? NULL,
+          'age' => $char_data['basicInfo']['age'] ?? NULL,
+          'appearance' => $char_data['basicInfo']['appearance'] ?? NULL,
+          'personality' => $char_data['basicInfo']['personality'] ?? NULL,
+          'backstory' => $char_data['basicInfo']['backstory'] ?? NULL,
+        ], static fn($value) => $value !== NULL)
+      );
+
+      if (isset($char_data['abilities']) && is_array($char_data['abilities'])) {
+        $runtime_state['abilities'] = $char_data['abilities'];
+      }
+      if (isset($char_data['skills']) && is_array($char_data['skills'])) {
+        $runtime_state['skills'] = $char_data['skills'];
+      }
+      if (isset($char_data['features']) && is_array($char_data['features'])) {
+        $runtime_state['features'] = $char_data['features'];
+      }
+      if (isset($char_data['spells']) && is_array($char_data['spells'])) {
+        $runtime_state['spells'] = $char_data['spells'];
+      }
+
+      $runtime_state['progression'] = is_array($char_data['progression'] ?? NULL) ? $char_data['progression'] : [];
+      $runtime_state['levelUpState'] = is_array($char_data['levelUpState'] ?? NULL) ? $char_data['levelUpState'] : [];
+      $runtime_state['resources'] = $this->mergeRuntimeResources($char_data, $runtime_state, $runtime_row);
+      $runtime_state['level'] = (int) ($char_data['level'] ?? $char_data['basicInfo']['level'] ?? 1);
+      $runtime_state['experiencePoints'] = (int) ($char_data['experiencePoints'] ?? $char_data['basicInfo']['experiencePoints'] ?? 0);
+
+      $this->syncLegacyMirrors($runtime_state);
+
+      $runtime_hp = is_array($runtime_state['resources']['hitPoints'] ?? NULL) ? $runtime_state['resources']['hitPoints'] : [];
+      $this->database->update('dc_campaign_characters')
+        ->fields([
+          'state_data' => json_encode($runtime_state, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+          'level' => (int) ($runtime_state['basicInfo']['level'] ?? $runtime_state['level'] ?? 1),
+          'hp_current' => (int) ($runtime_hp['current'] ?? ($runtime_row['hp_current'] ?? 0)),
+          'hp_max' => (int) ($runtime_hp['max'] ?? ($runtime_row['hp_max'] ?? 0)),
+          'experience_points' => (int) ($runtime_state['basicInfo']['experiencePoints'] ?? $runtime_state['experiencePoints'] ?? 0),
+          'updated' => $now,
+          'changed' => $now,
+        ])
+        ->condition('id', (int) ($runtime_row['id'] ?? 0))
+        ->condition('campaign_id', (int) ($runtime_row['campaign_id'] ?? 0))
+        ->execute();
+    }
+  }
+
+  /**
+   * Load active campaign runtime rows for a canonical character.
+   *
+   * @return array<int, array<string, mixed>>
+   */
+  private function loadRuntimeRows(int $character_id): array {
+    return $this->database->select('dc_campaign_characters', 'cc')
+      ->fields('cc', ['id', 'campaign_id', 'instance_id', 'state_data', 'hp_current', 'hp_max', 'experience_points'])
+      ->condition('character_id', $character_id)
+      ->condition('campaign_id', 0, '>')
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+  }
+
+  /**
+   * Merge canonical resources into runtime state while preserving runtime deficits.
+   */
+  private function mergeRuntimeResources(array $canonical_data, array $runtime_state, array $runtime_row): array {
+    $canonical_resources = is_array($canonical_data['resources'] ?? NULL) ? $canonical_data['resources'] : [];
+    $runtime_resources = is_array($runtime_state['resources'] ?? NULL) ? $runtime_state['resources'] : [];
+    $merged = array_replace_recursive($runtime_resources, $canonical_resources);
+
+    $canonical_hit_points = is_array($canonical_resources['hitPoints'] ?? NULL) ? $canonical_resources['hitPoints'] : [];
+    if ($canonical_hit_points !== []) {
+      $old_max = (int) (($runtime_resources['hitPoints']['max'] ?? NULL) ?? ($runtime_row['hp_max'] ?? 0));
+      $old_current = (int) (($runtime_resources['hitPoints']['current'] ?? NULL) ?? ($runtime_row['hp_current'] ?? 0));
+      $new_max = (int) ($canonical_hit_points['max'] ?? $old_max);
+      $merged['hitPoints'] = array_replace($canonical_hit_points, [
+        'max' => $new_max,
+        'current' => $this->preserveRuntimeDeficit($old_current, $old_max, $new_max),
+        'temporary' => (int) ($runtime_resources['hitPoints']['temporary'] ?? $canonical_hit_points['temporary'] ?? 0),
+      ]);
+    }
+
+    $merged['spellSlots'] = $this->preserveResourceDeficits(
+      is_array($canonical_resources['spellSlots'] ?? NULL) ? $canonical_resources['spellSlots'] : [],
+      is_array($runtime_resources['spellSlots'] ?? NULL) ? $runtime_resources['spellSlots'] : []
+    );
+
+    if (!empty($canonical_resources['focusPoints']) && is_array($canonical_resources['focusPoints'])) {
+      $focus_max = (int) ($canonical_resources['focusPoints']['max'] ?? 0);
+      $old_focus_max = (int) ($runtime_resources['focusPoints']['max'] ?? $focus_max);
+      $old_focus_current = (int) ($runtime_resources['focusPoints']['current'] ?? $focus_max);
+      $merged['focusPoints'] = array_replace($canonical_resources['focusPoints'], [
+        'max' => $focus_max,
+        'current' => $this->preserveRuntimeDeficit($old_focus_current, $old_focus_max, $focus_max),
+      ]);
+    }
+
+    return $merged;
+  }
+
+  /**
+   * Preserve spent-resource deficit when the canonical max changes.
+   */
+  private function preserveRuntimeDeficit(int $old_current, int $old_max, int $new_max): int {
+    $deficit = max(0, $old_max - $old_current);
+    return max(0, min($new_max, $new_max - $deficit));
+  }
+
+  /**
+   * Preserve slot deficits across spell-slot max changes.
+   *
+   * @param array<string, array<string, int>> $canonical_slots
+   * @param array<string, array<string, int>> $runtime_slots
+   *
+   * @return array<string, array<string, int>>
+   */
+  private function preserveResourceDeficits(array $canonical_slots, array $runtime_slots): array {
+    if ($canonical_slots === []) {
+      return $runtime_slots;
+    }
+
+    $merged = [];
+    foreach ($canonical_slots as $slot_key => $slot_state) {
+      if (!is_array($slot_state)) {
+        continue;
+      }
+      $new_max = (int) ($slot_state['max'] ?? $slot_state['current'] ?? 0);
+      $old_state = is_array($runtime_slots[$slot_key] ?? NULL) ? $runtime_slots[$slot_key] : [];
+      $old_max = (int) ($old_state['max'] ?? $new_max);
+      $old_current = (int) ($old_state['current'] ?? $old_max);
+      $merged[$slot_key] = array_replace($slot_state, [
+        'max' => $new_max,
+        'current' => $this->preserveRuntimeDeficit($old_current, $old_max, $new_max),
+      ]);
+    }
+
+    return $merged;
+  }
+
+  /**
+   * Resolve XP-driven level-up availability using the same math as CharacterStateService.
+   */
+  private function buildXpStatus(int $level, int $xp): array {
+    $xp_to_next_level = max(0, (1000 * $level) - $xp);
+    return [
+      'experiencePoints' => $xp,
+      'levelUpAvailable' => $xp >= (1000 * $level),
+      'xpToNextLevel' => $xp_to_next_level,
+    ];
+  }
+
+  /**
+   * Require an active draft advancement for the character.
+   */
+  private function requireActiveAdvancement(object $record, array &$char_data): array {
+    $advancement = $this->loadActiveAdvancement((int) $record->id);
+    if ($advancement === NULL || empty($char_data['levelUpState']['transitionTo'])) {
+      throw new \InvalidArgumentException('No level-up in progress', 400);
+    }
+    $this->syncProgressionSummary($char_data, $advancement);
+    return $advancement;
+  }
+
+  /**
+   * Return the current plan status from pending choices.
+   */
+  private function resolvePlanStatus(array $char_data): string {
+    $pending = $char_data['levelUpState']['pendingChoices'] ?? [];
+    if ($pending === []) {
+      return 'ready';
+    }
+
+    foreach ($pending as $slot) {
+      if (empty($slot['resolved'])) {
+        return 'draft';
+      }
+    }
+
+    return 'ready';
+  }
+
+  /**
+   * Persist the draft or finalize if every required choice is resolved.
+   */
+  private function persistOrFinalize(object $record, array &$char_data, int $advancement_id): array {
+    $latest = $this->loadAdvancementById($advancement_id);
+    if ($this->resolvePlanStatus($char_data) === 'ready') {
+      $this->finalizeLevelUp($record, $char_data, $latest);
+      $latest = $this->loadAdvancementById($advancement_id);
+    }
+    else {
+      $this->persistCharacterData((string) $record->id, $char_data);
+    }
+
+    return $this->buildStatusResponse($char_data, (string) $record->id, $latest);
+  }
+
+  /**
+   * Finalize a ready draft and mutate the character sheet exactly once.
+   */
+  private function finalizeLevelUp(object $record, array &$char_data, array $advancement): void {
+    $plan = is_array($advancement['plan'] ?? NULL) ? $advancement['plan'] : (is_array($char_data['levelUpState']['draftPlan'] ?? NULL) ? $char_data['levelUpState']['draftPlan'] : []);
+    $target_level = (int) ($plan['target_level'] ?? $char_data['levelUpState']['transitionTo'] ?? 0);
+    if ($target_level < 2) {
+      throw new \InvalidArgumentException('Cannot finalize an invalid advancement plan', 400);
+    }
+
+    $previous_level = (int) ($char_data['basicInfo']['level'] ?? 1);
+    $ability_adjustments = $this->applyResolvedAbilityBoosts($char_data, $char_data['levelUpState']['pendingChoices'] ?? []);
+    $skill_changes = $this->applyResolvedSkillIncreases($char_data, $char_data['levelUpState']['pendingChoices'] ?? [], $target_level);
+    $feat_ids = $this->applyResolvedFeatChoices($char_data, $char_data['levelUpState']['pendingChoices'] ?? [], $target_level);
+    $auto_grant_ids = $this->applyAutoGrants($char_data, (array) ($plan['auto_grants'] ?? []));
+    $hp_granted = $this->applyHitPointGrant($char_data, (int) ($plan['hp_bonus'] ?? 0));
+    $spellcasting_before = $this->applySpellcastingDeltas($char_data, (array) ($plan['spellcasting_deltas'] ?? []), (string) ($char_data['basicInfo']['class'] ?? ''));
+
+    $char_data['basicInfo']['level'] = $target_level;
+    $char_data['level'] = $target_level;
+    $char_data['levelUpState']['inProgress'] = FALSE;
+    $char_data['levelUpState']['completedChoices'][] = [
+      'level' => $target_level,
+      'choices' => $char_data['levelUpState']['pendingChoices'] ?? [],
+      'advancementId' => (int) $advancement['id'],
+    ];
+    $char_data['levelUpState']['pendingChoices'] = [];
+    unset($char_data['levelUpState']['draftPlan']);
+    $char_data['progression']['pendingAdvancementId'] = NULL;
+    $char_data['progression']['history'] = is_array($char_data['progression']['history'] ?? NULL) ? $char_data['progression']['history'] : [];
+    $char_data['progression']['history'][] = [
+      'advancementId' => (int) $advancement['id'],
+      'level' => $target_level,
+      'appliedAt' => time(),
+      'autoApplied' => $char_data['levelUpState']['autoApplied'] ?? [],
+    ];
+
+    $applied_summary = [
+      'previous_level' => $previous_level,
+      'target_level' => $target_level,
+      'hp_granted' => $hp_granted,
+      'ability_adjustments' => $ability_adjustments,
+      'skill_changes' => $skill_changes,
+      'feat_ids' => $feat_ids,
+      'auto_grant_ids' => $auto_grant_ids,
+      'spellcasting_before' => $spellcasting_before,
+    ];
+
+    $this->database->update('dc_campaign_characters')
+      ->fields(['level' => $target_level])
+      ->condition('id', $record->id)
+      ->condition('campaign_id', 0)
+      ->execute();
+
+    $this->completeAdvancement((int) $advancement['id'], $plan, $applied_summary);
+    $this->persistCharacterData((string) $record->id, $char_data);
+  }
+
+  /**
+   * Apply auto-granted class features and return the ids actually added.
+   */
+  private function applyAutoGrants(array &$char_data, array $auto_grants): array {
+    $char_data['features']['classFeatures'] = is_array($char_data['features']['classFeatures'] ?? NULL) ? $char_data['features']['classFeatures'] : [];
+    $existing_ids = array_column($char_data['features']['classFeatures'], 'id');
+    $added = [];
+    foreach ($auto_grants as $feature) {
+      $feature_id = (string) ($feature['id'] ?? '');
+      if ($feature_id === '' || in_array($feature_id, $existing_ids, TRUE)) {
+        continue;
+      }
+      $char_data['features']['classFeatures'][] = $feature;
+      $existing_ids[] = $feature_id;
+      $added[] = $feature_id;
+    }
+    return $added;
+  }
+
+  /**
+   * Apply the HP gain for the level and return the actual bonus granted.
+   */
+  private function applyHitPointGrant(array &$char_data, int $hp_bonus): int {
+    if ($hp_bonus <= 0) {
+      return 0;
+    }
+    $char_data['resources']['hitPoints'] = is_array($char_data['resources']['hitPoints'] ?? NULL)
+      ? $char_data['resources']['hitPoints']
+      : ['current' => 0, 'max' => 0];
+    $new_max = (int) ($char_data['resources']['hitPoints']['max'] ?? 0) + $hp_bonus;
+    $char_data['resources']['hitPoints']['max'] = $new_max;
+    $char_data['resources']['hitPoints']['current'] = min(
+      (int) ($char_data['resources']['hitPoints']['current'] ?? 0) + $hp_bonus,
+      $new_max
+    );
+    return $hp_bonus;
+  }
+
+  /**
+   * Revert a previously granted HP increase.
+   */
+  private function revertHitPointGrant(array &$char_data, int $hp_bonus): void {
+    if ($hp_bonus <= 0) {
+      return;
+    }
+    $char_data['resources']['hitPoints'] = is_array($char_data['resources']['hitPoints'] ?? NULL)
+      ? $char_data['resources']['hitPoints']
+      : ['current' => 0, 'max' => 0];
+    $char_data['resources']['hitPoints']['max'] = max(0, (int) ($char_data['resources']['hitPoints']['max'] ?? 0) - $hp_bonus);
+    $char_data['resources']['hitPoints']['current'] = min(
+      (int) ($char_data['resources']['hitPoints']['current'] ?? 0),
+      (int) ($char_data['resources']['hitPoints']['max'] ?? 0)
+    );
+  }
+
+  /**
+   * Apply resolved ability boosts and return the actual deltas applied.
+   */
+  private function applyResolvedAbilityBoosts(array &$char_data, array $pending_choices): array {
+    $adjustments = [];
+    foreach ($pending_choices as $slot) {
+      if (($slot['type'] ?? '') !== 'ability_boosts' || empty($slot['resolved'])) {
+        continue;
+      }
+      foreach ((array) ($slot['choices'] ?? []) as $ability) {
+        $ability = strtolower((string) $ability);
+        if (!in_array($ability, self::ABILITIES, TRUE)) {
+          continue;
+        }
+        $current = (int) ($char_data['abilities'][$ability] ?? 10);
+        $delta = $current >= 18 ? 1 : 2;
+        $char_data['abilities'][$ability] = $current + $delta;
+        $adjustments[$ability] = ($adjustments[$ability] ?? 0) + $delta;
+      }
+    }
+    return $adjustments;
+  }
+
+  /**
+   * Apply or revert recorded ability score deltas.
+   */
+  private function applyAbilityAdjustments(array &$char_data, array $adjustments, bool $reverse = FALSE): void {
+    foreach ($adjustments as $ability => $delta) {
+      $ability = strtolower((string) $ability);
+      if (!in_array($ability, self::ABILITIES, TRUE)) {
+        continue;
+      }
+      $current = (int) ($char_data['abilities'][$ability] ?? 10);
+      $char_data['abilities'][$ability] = $current + ($reverse ? -((int) $delta) : (int) $delta);
+    }
+  }
+
+  /**
+   * Apply resolved skill increases and return the before/after transitions.
+   */
+  private function applyResolvedSkillIncreases(array &$char_data, array $pending_choices, int $target_level): array {
+    $changes = [];
+    foreach ($pending_choices as $slot) {
+      if (($slot['type'] ?? '') !== 'skill_increase' || empty($slot['resolved'])) {
+        continue;
+      }
+      $choice = is_array($slot['choice'] ?? NULL) ? $slot['choice'] : [];
+      $skill = strtolower((string) ($choice['skill'] ?? ''));
+      if ($skill === '') {
+        continue;
+      }
+      $previous_rank = $this->getSkillRank($char_data, $skill);
+      $new_rank = strtolower((string) ($choice['newRank'] ?? ''));
+      if ($new_rank === '') {
+        continue;
+      }
+      $this->setSkillRank($char_data, $skill, $new_rank, $target_level);
+      $changes[] = [
+        'skill' => $skill,
+        'previous_rank' => $previous_rank,
+        'new_rank' => $new_rank,
+      ];
+    }
+    return $changes;
+  }
+
+  /**
+   * Revert skill rank transitions recorded during the last apply.
+   */
+  private function revertSkillChanges(array &$char_data, array $skill_changes): void {
+    $level = (int) ($char_data['basicInfo']['level'] ?? 1);
+    foreach ($skill_changes as $change) {
+      $skill = strtolower((string) ($change['skill'] ?? ''));
+      $previous_rank = strtolower((string) ($change['previous_rank'] ?? 'untrained'));
+      if ($skill === '') {
+        continue;
+      }
+      $this->setSkillRank($char_data, $skill, $previous_rank, $level);
+    }
+  }
+
+  /**
+   * Read the stored skill rank regardless of array/list payload shape.
+   */
+  private function getSkillRank(array $char_data, string $skill): string {
+    $skills = $char_data['skills'] ?? [];
+    if (is_array($skills) && !array_is_list($skills)) {
+      $value = strtolower((string) ($skills[$skill] ?? 'untrained'));
+      return in_array($value, self::RANK_ORDER, TRUE) ? $value : 'untrained';
+    }
+
+    foreach ((array) $skills as $entry) {
+      if (!is_array($entry)) {
+        continue;
+      }
+      $name = strtolower(trim((string) ($entry['name'] ?? '')));
+      if ($name === $skill) {
+        $value = strtolower((string) ($entry['proficiency'] ?? $entry['rank'] ?? 'untrained'));
+        return in_array($value, self::RANK_ORDER, TRUE) ? $value : 'untrained';
+      }
+    }
+
+    return 'untrained';
+  }
+
+  /**
+   * Persist a skill rank and keep the rendered list modifiers consistent.
+   */
+  private function setSkillRank(array &$char_data, string $skill, string $rank, int $level): void {
+    $rank = in_array($rank, self::RANK_ORDER, TRUE) ? $rank : 'untrained';
+    $skills = $char_data['skills'] ?? [];
+    if (is_array($skills) && !array_is_list($skills)) {
+      $char_data['skills'][$skill] = $rank;
+      return;
+    }
+
+    $skills = is_array($skills) ? array_values($skills) : [];
+    $ability_key = CharacterCalculator::SKILLS[$skill] ?? 'intelligence';
+    $ability_score = (int) ($char_data['abilities'][$ability_key] ?? 10);
+    $calculator = new CharacterCalculator();
+    $modifier = $calculator->calculateAbilityModifier($ability_score) + $calculator->calculateProficiencyBonus($rank, $level);
+    $updated = FALSE;
+
+    foreach ($skills as &$entry) {
+      if (!is_array($entry)) {
+        continue;
+      }
+      $name = strtolower(trim((string) ($entry['name'] ?? '')));
+      if ($name !== $skill) {
+        continue;
+      }
+      $entry['proficiency'] = $rank;
+      $entry['modifier'] = $modifier;
+      $updated = TRUE;
+      break;
+    }
+    unset($entry);
+
+    if (!$updated) {
+      $skills[] = [
+        'name' => ucwords($skill),
+        'modifier' => $modifier,
+        'proficiency' => $rank,
+      ];
+    }
+
+    $char_data['skills'] = $skills;
+  }
+
+  /**
+   * Apply resolved feat picks and return the feat ids actually added.
+   */
+  private function applyResolvedFeatChoices(array &$char_data, array $pending_choices, int $target_level): array {
+    $char_data['features']['feats'] = is_array($char_data['features']['feats'] ?? NULL) ? $char_data['features']['feats'] : [];
+    $existing_ids = array_column($char_data['features']['feats'], 'id');
+    $added = [];
+
+    foreach ($pending_choices as $slot) {
+      if (($slot['type'] ?? '') !== 'feat_choice' || empty($slot['resolved'])) {
+        continue;
+      }
+      $choice = is_array($slot['choice'] ?? NULL) ? $slot['choice'] : [];
+      $feat_id = (string) ($choice['feat_id'] ?? '');
+      if ($feat_id === '' || in_array($feat_id, $existing_ids, TRUE)) {
+        continue;
+      }
+
+      $entry = [
+        'id' => $feat_id,
+        'name' => (string) ($choice['feat_name'] ?? $feat_id),
+        'slot_type' => (string) ($choice['slot_type'] ?? ($slot['slot_type'] ?? 'class_feat')),
+        'gained_at_level' => $target_level,
+      ];
+      if (!empty($choice['feat_params']) && is_array($choice['feat_params'])) {
+        $entry['feat_params'] = $choice['feat_params'];
+      }
+
+      $char_data['features']['feats'][] = $entry;
+      $existing_ids[] = $feat_id;
+      $added[] = $feat_id;
+    }
+
+    return $added;
+  }
+
+  /**
+   * Remove auto grants and feats added by a reverted advancement.
+   */
+  private function revertGrantedFeatures(array &$char_data, array $auto_grant_ids, array $feat_ids): void {
+    $char_data['features']['classFeatures'] = array_values(array_filter(
+      is_array($char_data['features']['classFeatures'] ?? NULL) ? $char_data['features']['classFeatures'] : [],
+      static fn(array $feature): bool => !in_array((string) ($feature['id'] ?? ''), $auto_grant_ids, TRUE)
+    ));
+    $char_data['features']['feats'] = array_values(array_filter(
+      is_array($char_data['features']['feats'] ?? NULL) ? $char_data['features']['feats'] : [],
+      static fn(array $feat): bool => !in_array((string) ($feat['id'] ?? ''), $feat_ids, TRUE)
+    ));
+  }
+
+  /**
+   * Apply spellcasting slot/resource changes and return the previous snapshot.
+   */
+  private function applySpellcastingDeltas(array &$char_data, array $spellcasting_deltas, string $class_name): array {
+    if ($spellcasting_deltas === []) {
+      return [];
+    }
+
+    $spells = is_array($char_data['spells'] ?? NULL) ? $char_data['spells'] : [];
+    $resources = is_array($char_data['resources'] ?? NULL) ? $char_data['resources'] : [];
+    $before = [
+      'slots' => is_array($spells['slots'] ?? NULL) ? $spells['slots'] : [],
+      'spellbook_size' => (int) ($spells['spellbook_size'] ?? 0),
+      'focusPoints' => is_array($resources['focusPoints'] ?? NULL) ? $resources['focusPoints'] : [],
+    ];
+
+    if (!empty($spellcasting_deltas['tradition'])) {
+      $spells['tradition'] = $spellcasting_deltas['tradition'];
+    }
+    if (!empty($spellcasting_deltas['casting_ability'])) {
+      $spells['casting_ability'] = $spellcasting_deltas['casting_ability'];
+    }
+    if (!empty($spellcasting_deltas['slots']) && is_array($spellcasting_deltas['slots'])) {
+      $spells['slots'] = array_replace(is_array($spells['slots'] ?? NULL) ? $spells['slots'] : [], $spellcasting_deltas['slots']);
+    }
+    if (!empty($spellcasting_deltas['cantrips'])) {
+      $spells['slots'] = is_array($spells['slots'] ?? NULL) ? $spells['slots'] : [];
+      $spells['slots']['cantrips'] = (int) $spellcasting_deltas['cantrips'];
+    }
+    if (!empty($spellcasting_deltas['spellbook_size_delta'])) {
+      $spells['spellbook_size'] = max(0, (int) ($spells['spellbook_size'] ?? 0) + (int) $spellcasting_deltas['spellbook_size_delta']);
+    }
+    if (!empty($spellcasting_deltas['focus_pool_start'])) {
+      $resources['focusPoints'] = [
+        'current' => max((int) ($resources['focusPoints']['current'] ?? 0), (int) $spellcasting_deltas['focus_pool_start']),
+        'max' => max((int) ($resources['focusPoints']['max'] ?? 0), (int) $spellcasting_deltas['focus_pool_start']),
+      ];
+    }
+
+    $normalized = CharacterManager::normalizeSpellcastingResources($spells, $resources, $class_name);
+    $char_data['spells'] = $normalized['spells'];
+    $char_data['resources'] = array_replace(is_array($char_data['resources'] ?? NULL) ? $char_data['resources'] : [], $normalized['resources']);
+
+    return $before;
+  }
+
+  /**
+   * Revert spellcasting state from a saved snapshot.
+   */
+  private function revertSpellcastingChanges(array &$char_data, array $before, string $class_name): void {
+    if ($before === []) {
+      return;
+    }
+    $char_data['spells'] = is_array($char_data['spells'] ?? NULL) ? $char_data['spells'] : [];
+    $char_data['resources'] = is_array($char_data['resources'] ?? NULL) ? $char_data['resources'] : [];
+    $char_data['spells']['slots'] = is_array($before['slots'] ?? NULL) ? $before['slots'] : [];
+    if (array_key_exists('spellbook_size', $before)) {
+      $char_data['spells']['spellbook_size'] = (int) $before['spellbook_size'];
+    }
+    if (array_key_exists('focusPoints', $before)) {
+      $char_data['resources']['focusPoints'] = is_array($before['focusPoints'] ?? NULL) ? $before['focusPoints'] : [];
+    }
+    $normalized = CharacterManager::normalizeSpellcastingResources($char_data['spells'], $char_data['resources'], $class_name);
+    $char_data['spells'] = $normalized['spells'];
+    $char_data['resources'] = array_replace($char_data['resources'], $normalized['resources']);
+  }
+
+  /**
+   * Build the set of feat ids already taken or reserved in a pending draft.
+   */
+  private function getTakenFeatIds(array $char_data): array {
+    $ids = array_column(is_array($char_data['features']['feats'] ?? NULL) ? $char_data['features']['feats'] : [], 'id');
+    foreach ((array) ($char_data['levelUpState']['pendingChoices'] ?? []) as $slot) {
+      $choice = is_array($slot['choice'] ?? NULL) ? $slot['choice'] : [];
+      $feat_id = (string) ($choice['feat_id'] ?? '');
+      if ($feat_id !== '') {
+        $ids[] = $feat_id;
+      }
+    }
+    return array_values(array_unique(array_filter($ids)));
+  }
+
+  /**
+   * Create a draft advancement row and cancel stale active rows for the same level.
+   */
+  private function createAdvancementDraft(object $record, array $char_data, array $plan, string $status): array {
+    $now = time();
+    $target_level = (int) ($plan['target_level'] ?? 0);
+    $this->database->update('dc_character_advancement')
+      ->fields([
+        'is_active' => 0,
+        'status' => 'cancelled',
+        'updated' => $now,
+      ])
+      ->condition('character_id', (int) $record->id)
+      ->condition('campaign_id', 0)
+      ->condition('target_level', $target_level)
+      ->condition('is_active', 1)
+      ->execute();
+
+    $id = $this->database->insert('dc_character_advancement')
+      ->fields([
+        'character_id' => (int) $record->id,
+        'uid' => (int) ($record->uid ?? 0),
+        'campaign_id' => 0,
+        'target_level' => $target_level,
+        'status' => $status,
+        'is_active' => 1,
+        'class_name' => (string) ($plan['class_id'] ?? $record->class ?? ''),
+        'plan_data' => json_encode($plan),
+        'created' => $now,
+        'updated' => $now,
+      ])
+      ->execute();
+
+    return $this->loadAdvancementById((int) $id);
+  }
+
+  /**
+   * Update a draft advancement row.
+   */
+  private function updateAdvancementPlan(int $advancement_id, array $plan, string $status): void {
+    $this->database->update('dc_character_advancement')
+      ->fields([
+        'plan_data' => json_encode($plan),
+        'status' => $status,
+        'updated' => time(),
+      ])
+      ->condition('id', $advancement_id)
+      ->execute();
+  }
+
+  /**
+   * Mark an advancement as applied and persist the final summary.
+   */
+  private function completeAdvancement(int $advancement_id, array $plan, array $applied_summary): void {
+    $now = time();
+    $this->database->update('dc_character_advancement')
+      ->fields([
+        'plan_data' => json_encode($plan),
+        'applied_data' => json_encode($applied_summary),
+        'status' => 'applied',
+        'is_active' => 0,
+        'updated' => $now,
+        'applied' => $now,
+      ])
+      ->condition('id', $advancement_id)
+      ->execute();
+  }
+
+  /**
+   * Mark an advancement as cancelled.
+   */
+  private function markAdvancementCancelled(int $advancement_id): void {
+    $this->database->update('dc_character_advancement')
+      ->fields([
+        'status' => 'cancelled',
+        'is_active' => 0,
+        'updated' => time(),
+      ])
+      ->condition('id', $advancement_id)
+      ->execute();
+  }
+
+  /**
+   * Cancel a draft advancement without reverting already-applied mutations.
+   */
+  private function cancelAdvancement(int $advancement_id): void {
+    $this->markAdvancementCancelled($advancement_id);
+  }
+
+  /**
+   * Load a single advancement row by id.
+   */
+  private function loadAdvancementById(int $advancement_id): ?array {
+    $row = $this->database->select('dc_character_advancement', 'a')
+      ->fields('a')
+      ->condition('id', $advancement_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    return $row ? $this->normalizeAdvancementRow($row) : NULL;
+  }
+
+  /**
+   * Load the active draft/ready advancement for a character.
+   */
+  private function loadActiveAdvancement(int $record_id, ?int $target_level = NULL): ?array {
+    $query = $this->database->select('dc_character_advancement', 'a')
+      ->fields('a')
+      ->condition('character_id', $record_id)
+      ->condition('campaign_id', 0)
+      ->condition('is_active', 1)
+      ->orderBy('id', 'DESC')
+      ->range(0, 1);
+    if ($target_level !== NULL) {
+      $query->condition('target_level', $target_level);
+    }
+    $row = $query->execute()->fetchAssoc();
+    return $row ? $this->normalizeAdvancementRow($row) : NULL;
+  }
+
+  /**
+   * Load the most recent advancement row regardless of status.
+   */
+  private function loadLatestAdvancement(int $record_id): ?array {
+    $row = $this->database->select('dc_character_advancement', 'a')
+      ->fields('a')
+      ->condition('character_id', $record_id)
+      ->condition('campaign_id', 0)
+      ->orderBy('id', 'DESC')
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    return $row ? $this->normalizeAdvancementRow($row) : NULL;
+  }
+
+  /**
+   * Load the most recent applied advancement row.
+   */
+  private function loadLatestAppliedAdvancement(int $record_id): ?array {
+    $row = $this->database->select('dc_character_advancement', 'a')
+      ->fields('a')
+      ->condition('character_id', $record_id)
+      ->condition('campaign_id', 0)
+      ->condition('status', 'applied')
+      ->orderBy('id', 'DESC')
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    return $row ? $this->normalizeAdvancementRow($row) : NULL;
+  }
+
+  /**
+   * Decode plan/applied json columns from an advancement row.
+   */
+  private function normalizeAdvancementRow(array $row): array {
+    $row['plan'] = json_decode((string) ($row['plan_data'] ?? '{}'), TRUE) ?? [];
+    $row['applied'] = json_decode((string) ($row['applied_data'] ?? '{}'), TRUE) ?? [];
+    $row['id'] = (int) ($row['id'] ?? 0);
+    $row['target_level'] = (int) ($row['target_level'] ?? 0);
+    return $row;
+  }
+
+  /**
+   * Surface advancement summary data on the canonical character payload.
+   */
+  private function syncProgressionSummary(array &$char_data, ?array $advancement): void {
+    $char_data['progression'] = is_array($char_data['progression'] ?? NULL) ? $char_data['progression'] : [];
+    $char_data['progression']['history'] = is_array($char_data['progression']['history'] ?? NULL) ? $char_data['progression']['history'] : [];
+    $char_data['progression']['pendingAdvancementId'] = ($advancement !== NULL && !empty($advancement['is_active']))
+      ? (int) ($advancement['id'] ?? 0)
+      : NULL;
+  }
+
+  /**
+   * Remove the reverted advancement from history if present.
+   */
+  private function trimProgressionHistory(array &$char_data, int $advancement_id): void {
+    $history = is_array($char_data['progression']['history'] ?? NULL) ? $char_data['progression']['history'] : [];
+    $char_data['progression']['history'] = array_values(array_filter(
+      $history,
+      static fn(array $entry): bool => (int) ($entry['advancementId'] ?? 0) !== $advancement_id
+    ));
   }
 
   /**
    * Find the first unresolved slot of a given type.
-   *
-   * @return int  Index in $pending, or -1 if not found.
    */
   private function findPendingSlot(array $pending, string $type): int {
     foreach ($pending as $idx => $slot) {
-      if ($slot['type'] === $type && empty($slot['resolved'])) {
+      if (($slot['type'] ?? '') === $type && empty($slot['resolved'])) {
         return $idx;
       }
     }
@@ -599,25 +1230,19 @@ class CharacterLevelingService {
   }
 
   /**
-   * Find the first unresolved feat_choice slot matching slot_type.
-   *
-   * Falls back to any unresolved feat_choice if the requested slot_type
-   * has no dedicated match (enables flexible slot assignment).
-   *
-   * @return int  Index in $pending, or -1 if not found.
+   * Find the first unresolved feat slot matching slot_type.
    */
   private function findPendingFeatSlot(array $pending, string $slot_type): int {
     foreach ($pending as $idx => $slot) {
-      if ($slot['type'] === 'feat_choice'
-        && ($slot['slot_type'] ?? '') === $slot_type
+      if (($slot['type'] ?? '') === 'feat_choice'
+        && (($slot['slot_type'] ?? '') === $slot_type)
         && empty($slot['resolved'])
       ) {
         return $idx;
       }
     }
-    // Fallback: any open feat_choice slot.
     foreach ($pending as $idx => $slot) {
-      if ($slot['type'] === 'feat_choice' && empty($slot['resolved'])) {
+      if (($slot['type'] ?? '') === 'feat_choice' && empty($slot['resolved'])) {
         return $idx;
       }
     }
@@ -625,47 +1250,32 @@ class CharacterLevelingService {
   }
 
   /**
-   * Check whether all pending choices are resolved; if so, finalize the level-up.
-   *
-   * Moves pendingChoices to completedChoices audit trail and marks inProgress = FALSE.
+   * Build the standard status payload.
    */
-  private function checkAndFinalizeLevelUp(array &$char_data): void {
-    $pending = $char_data['levelUpState']['pendingChoices'] ?? [];
-    if (empty($pending)) {
-      return;
-    }
+  private function buildStatusResponse(array $char_data, string $character_id, ?array $advancement = NULL): array {
+    $lus = is_array($char_data['levelUpState'] ?? NULL) ? $char_data['levelUpState'] : [];
+    $current_level = (int) ($char_data['basicInfo']['level'] ?? 1);
+    $xp_status = $this->buildXpStatus($current_level, (int) ($char_data['basicInfo']['experiencePoints'] ?? 0));
 
-    $all_resolved = array_reduce(
-      $pending,
-      static fn(bool $carry, array $slot): bool => $carry && !empty($slot['resolved']),
-      TRUE
-    );
-
-    if ($all_resolved) {
-      $char_data['levelUpState']['inProgress'] = FALSE;
-      $char_data['levelUpState']['completedChoices'][] = [
-        'level'   => $char_data['levelUpState']['transitionTo'],
-        'choices' => $pending,
-      ];
-      $char_data['levelUpState']['pendingChoices'] = [];
-    }
-  }
-
-  /**
-   * Build the standard status response payload from char_data.
-   */
-  private function buildStatusResponse(array $char_data, string $character_id): array {
-    $lus = $char_data['levelUpState'] ?? [];
     return [
-      'success'       => TRUE,
-      'characterId'   => $character_id,
-      'currentLevel'  => (int) ($char_data['basicInfo']['level'] ?? 1),
-      'inProgress'    => (bool) ($lus['inProgress'] ?? FALSE),
-      'transitionTo'  => (int) ($lus['transitionTo'] ?? 0),
-      'pendingChoices' => $lus['pendingChoices'] ?? [],
-      'autoApplied'   => $lus['autoApplied'] ?? [],
-      'hpGranted'     => $lus['hpGranted'] ?? 0,
+      'success' => TRUE,
+      'characterId' => $character_id,
+      'currentLevel' => $current_level,
+      'maxLevel' => self::MAX_LEVEL,
+      'experiencePoints' => $xp_status['experiencePoints'],
+      'levelUpAvailable' => $xp_status['levelUpAvailable'],
+      'xpToNextLevel' => $xp_status['xpToNextLevel'],
       'milestoneReady' => (bool) ($lus['milestoneReady'] ?? FALSE),
+      'inProgress' => (bool) ($lus['inProgress'] ?? FALSE),
+      'transitionTo' => (int) ($lus['transitionTo'] ?? 0),
+      'pendingChoices' => $lus['pendingChoices'] ?? [],
+      'autoApplied' => $lus['autoApplied'] ?? [],
+      'hpGranted' => (int) ($lus['hpGranted'] ?? 0),
+      'canTrigger' => $current_level < self::MAX_LEVEL && $xp_status['levelUpAvailable'] && empty($lus['inProgress']),
+      'pendingAdvancementId' => $char_data['progression']['pendingAdvancementId'] ?? NULL,
+      'progression' => $char_data['progression'] ?? [],
+      'activePlanStatus' => $advancement['status'] ?? NULL,
+      'activePlan' => $advancement['plan'] ?? ($lus['draftPlan'] ?? NULL),
     ];
   }
 
@@ -683,18 +1293,14 @@ class CharacterLevelingService {
     array $char_data,
     array $feat_params = []
   ): array {
-    // Build the eligible catalog for the slot type.
-    $catalog = match ($slot_type) {
-      'class_feat'    => CharacterManager::getClassFeats($class_name),
-      'skill_feat'    => CharacterManager::SKILL_FEATS,
-      'general_feat'  => CharacterManager::getGeneralFeats(),
-      'ancestry_feat' => $this->getAvailableAncestryFeatCatalog($char_data),
-      default         => array_merge(
-        CharacterManager::getClassFeats($class_name),
-        CharacterManager::SKILL_FEATS,
-        CharacterManager::getGeneralFeats(),
-      ),
-    };
+    $catalog = $this->getSlotFeatCatalog($slot_type, $class_name, $char_data);
+    if ($slot_type !== 'class_feat' && $slot_type !== 'skill_feat' && $slot_type !== 'general_feat' && $slot_type !== 'ancestry_feat') {
+      $catalog = array_merge(
+        $this->featLibrary->getClassFeats($class_name),
+        $this->featLibrary->getSkillFeats(),
+        $this->featLibrary->getGeneralFeats(),
+      );
+    }
 
     // AC-003: also search archetype feats for class_feat slots so dedication
     // + archetype feat selections are accepted by the validator.
@@ -744,8 +1350,8 @@ class CharacterLevelingService {
     }
 
     // Already-owned check — with repeatable and per-skill exceptions.
-    $owned_feats = $char_data['features']['feats'] ?? [];
-    $owned_ids = array_column($owned_feats, 'id');
+    $owned_feats = is_array($char_data['features']['feats'] ?? NULL) ? $char_data['features']['feats'] : [];
+    $owned_ids = $this->getTakenFeatIds($char_data);
 
     if (!empty($feat['repeatable'])) {
       // Repeatable feats (e.g., Armor Proficiency, Weapon Proficiency): allow
@@ -993,174 +1599,72 @@ class CharacterLevelingService {
           400
         );
       }
-      $valid_spell_ids = array_map(
-        static fn(array $spell): string => (string) ($spell['id'] ?? ''),
-        $this->getCharacterManager()->getSpellsByTradition('occult', $highest_rank)
+      $this->assertSpellIdsAreValid(
+        [$selected_spell],
+        $this->collectValidSpellIds(['occult'], $highest_rank, $highest_rank),
+        'studious-capacity',
+        "occult rank {$highest_rank} spell"
       );
-      if (!in_array($selected_spell, $valid_spell_ids, TRUE)) {
-        throw new \InvalidArgumentException(
-          "Feat 'studious-capacity' spell '{$selected_spell}' is not a valid occult rank {$highest_rank} spell",
-          400
-        );
-      }
     }
     if ($feat_id === 'greater-vital-evolution') {
-      $selected_spells = $feat_params['selected_spells'] ?? [];
-      if (!is_array($selected_spells) || count($selected_spells) !== 2) {
-        throw new \InvalidArgumentException(
-          "Feat 'greater-vital-evolution' requires feat_params['selected_spells'] with exactly 2 arcane spell ids",
-          400
-        );
-      }
-      $normalized = [];
-      foreach ($selected_spells as $spell_id) {
-        if (!is_string($spell_id) || trim($spell_id) === '') {
-          throw new \InvalidArgumentException(
-            "Feat 'greater-vital-evolution' requires non-empty spell ids in feat_params['selected_spells']",
-            400
-          );
-        }
-        $normalized[] = trim($spell_id);
-      }
-      if (count(array_unique($normalized)) !== 2) {
-        throw new \InvalidArgumentException(
-          "Feat 'greater-vital-evolution' requires two distinct arcane spell ids",
-          400
-        );
-      }
-      $valid_spell_ids = [];
-      for ($rank = 1; $rank <= 10; $rank++) {
-        foreach ($this->getCharacterManager()->getSpellsByTradition('arcane', $rank) as $spell) {
-          $valid_spell_ids[] = (string) ($spell['id'] ?? '');
-        }
-      }
-      foreach ($normalized as $spell_id) {
-        if (!in_array($spell_id, $valid_spell_ids, TRUE)) {
-          throw new \InvalidArgumentException(
-            "Feat 'greater-vital-evolution' spell '{$spell_id}' is not a valid arcane spell",
-            400
-          );
-        }
-      }
+      $this->assertSpellIdsAreValid(
+        $this->normalizeSelectedSpellIds(
+          $feat_params['selected_spells'] ?? [],
+          'greater-vital-evolution',
+          2,
+          2,
+          'exactly 2 arcane spell ids',
+          'two distinct arcane spell ids'
+        ),
+        $this->collectValidSpellIds(['arcane'], 1, 10),
+        'greater-vital-evolution',
+        'arcane spell'
+      );
     }
     if ($feat_id === 'spell-mastery') {
-      $selected_spells = $feat_params['selected_spells'] ?? [];
-      if (!is_array($selected_spells) || count($selected_spells) !== 4) {
-        throw new \InvalidArgumentException(
-          "Feat 'spell-mastery' requires feat_params['selected_spells'] with exactly 4 arcane spell ids",
-          400
-        );
-      }
-      $normalized = [];
-      foreach ($selected_spells as $spell_id) {
-        if (!is_string($spell_id) || trim($spell_id) === '') {
-          throw new \InvalidArgumentException(
-            "Feat 'spell-mastery' requires non-empty spell ids in feat_params['selected_spells']",
-            400
-          );
-        }
-        $normalized[] = trim($spell_id);
-      }
-      if (count(array_unique($normalized)) !== 4) {
-        throw new \InvalidArgumentException(
-          "Feat 'spell-mastery' requires four distinct arcane spell ids",
-          400
-        );
-      }
-      $valid_spell_ids = [];
-      for ($rank = 1; $rank <= 9; $rank++) {
-        foreach ($this->getCharacterManager()->getSpellsByTradition('arcane', $rank) as $spell) {
-          $valid_spell_ids[] = (string) ($spell['id'] ?? '');
-        }
-      }
-      foreach ($normalized as $spell_id) {
-        if (!in_array($spell_id, $valid_spell_ids, TRUE)) {
-          throw new \InvalidArgumentException(
-            "Feat 'spell-mastery' spell '{$spell_id}' is not a valid arcane rank-9-or-lower spell",
-            400
-          );
-        }
-      }
+      $this->assertSpellIdsAreValid(
+        $this->normalizeSelectedSpellIds(
+          $feat_params['selected_spells'] ?? [],
+          'spell-mastery',
+          4,
+          4,
+          'exactly 4 arcane spell ids',
+          'four distinct arcane spell ids'
+        ),
+        $this->collectValidSpellIds(['arcane'], 1, 9),
+        'spell-mastery',
+        'arcane rank-9-or-lower spell'
+      );
     }
     if ($feat_id === 'infinite-possibilities') {
-      $selected_spells = $feat_params['selected_spells'] ?? [];
-      if (!is_array($selected_spells) || count($selected_spells) < 1 || count($selected_spells) > 3) {
-        throw new \InvalidArgumentException(
-          "Feat 'infinite-possibilities' requires feat_params['selected_spells'] with 1 to 3 spell ids",
-          400
-        );
-      }
-      $normalized = [];
-      foreach ($selected_spells as $spell_id) {
-        if (!is_string($spell_id) || trim($spell_id) === '') {
-          throw new \InvalidArgumentException(
-            "Feat 'infinite-possibilities' requires non-empty spell ids in feat_params['selected_spells']",
-            400
-          );
-        }
-        $normalized[] = trim($spell_id);
-      }
-      if (count(array_unique($normalized)) !== count($normalized)) {
-        throw new \InvalidArgumentException(
-          "Feat 'infinite-possibilities' requires distinct spell ids",
-          400
-        );
-      }
-      $valid_spell_ids = [];
-      foreach (['arcane', 'divine', 'occult', 'primal'] as $tradition) {
-        for ($rank = 1; $rank <= 10; $rank++) {
-          foreach ($this->getCharacterManager()->getSpellsByTradition($tradition, $rank) as $spell) {
-            $valid_spell_ids[] = (string) ($spell['id'] ?? '');
-          }
-        }
-      }
-      foreach ($normalized as $spell_id) {
-        if (!in_array($spell_id, $valid_spell_ids, TRUE)) {
-          throw new \InvalidArgumentException(
-            "Feat 'infinite-possibilities' spell '{$spell_id}' is not a valid common spell id",
-            400
-          );
-        }
-      }
+      $this->assertSpellIdsAreValid(
+        $this->normalizeSelectedSpellIds(
+          $feat_params['selected_spells'] ?? [],
+          'infinite-possibilities',
+          1,
+          3,
+          '1 to 3 spell ids',
+          'distinct spell ids'
+        ),
+        $this->collectValidSpellIds(['arcane', 'divine', 'occult', 'primal'], 1, 10),
+        'infinite-possibilities',
+        'common spell id'
+      );
     }
     if ($feat_id === 'scroll-savant') {
-      $selected_spells = $feat_params['selected_spells'] ?? [];
-      if (!is_array($selected_spells) || count($selected_spells) !== 2) {
-        throw new \InvalidArgumentException(
-          "Feat 'scroll-savant' requires feat_params['selected_spells'] with exactly 2 arcane spell ids",
-          400
-        );
-      }
-      $normalized = [];
-      foreach ($selected_spells as $spell_id) {
-        if (!is_string($spell_id) || trim($spell_id) === '') {
-          throw new \InvalidArgumentException(
-            "Feat 'scroll-savant' requires non-empty spell ids in feat_params['selected_spells']",
-            400
-          );
-        }
-        $normalized[] = trim($spell_id);
-      }
-      if (count(array_unique($normalized)) !== 2) {
-        throw new \InvalidArgumentException(
-          "Feat 'scroll-savant' requires two distinct arcane spell ids",
-          400
-        );
-      }
-      $valid_spell_ids = [];
-      for ($rank = 1; $rank <= 10; $rank++) {
-        foreach ($this->getCharacterManager()->getSpellsByTradition('arcane', $rank) as $spell) {
-          $valid_spell_ids[] = (string) ($spell['id'] ?? '');
-        }
-      }
-      foreach ($normalized as $spell_id) {
-        if (!in_array($spell_id, $valid_spell_ids, TRUE)) {
-          throw new \InvalidArgumentException(
-            "Feat 'scroll-savant' spell '{$spell_id}' is not a valid arcane spell",
-            400
-          );
-        }
-      }
+      $this->assertSpellIdsAreValid(
+        $this->normalizeSelectedSpellIds(
+          $feat_params['selected_spells'] ?? [],
+          'scroll-savant',
+          2,
+          2,
+          'exactly 2 arcane spell ids',
+          'two distinct arcane spell ids'
+        ),
+        $this->collectValidSpellIds(['arcane'], 1, 10),
+        'scroll-savant',
+        'arcane spell'
+      );
     }
 
     return $feat;
@@ -1184,21 +1688,40 @@ class CharacterLevelingService {
     }
 
     $heritage_id = trim((string) ($char_data['basicInfo']['heritage'] ?? $char_data['heritage'] ?? ''));
-    $catalog = CharacterManager::getEligibleAncestryFeats($ancestry_name, $heritage_id);
+    $pools = [$ancestry_name];
+    if ($heritage_id !== '') {
+      foreach (CharacterManager::HERITAGES[$ancestry_name] ?? [] as $heritage) {
+        if (($heritage['id'] ?? '') !== $heritage_id) {
+          continue;
+        }
+        foreach ((array) ($heritage['cross_ancestry_feat_pool'] ?? []) as $pool_ancestry) {
+          if (is_string($pool_ancestry) && $pool_ancestry !== '' && !in_array($pool_ancestry, $pools, TRUE)) {
+            $pools[] = $pool_ancestry;
+          }
+        }
+        break;
+      }
+    }
+
+    $catalog = [];
+    $seen = [];
+    foreach ($pools as $pool) {
+      foreach ($this->featLibrary->getAncestryFeats($pool) as $feat) {
+        $feat_id = (string) ($feat['id'] ?? '');
+        if ($feat_id === '' || isset($seen[$feat_id])) {
+          continue;
+        }
+        $seen[$feat_id] = TRUE;
+        $catalog[] = $feat;
+      }
+    }
+
     $adopted_ancestry = $this->getSelectedAdoptedAncestryName($char_data);
     if ($adopted_ancestry === '') {
       return $catalog;
     }
 
-    $seen = [];
-    foreach ($catalog as $feat) {
-      $feat_id = (string) ($feat['id'] ?? '');
-      if ($feat_id !== '') {
-        $seen[$feat_id] = TRUE;
-      }
-    }
-
-    foreach (CharacterManager::getAncestryFeats($adopted_ancestry) as $feat) {
+    foreach ($this->featLibrary->getAncestryFeats($adopted_ancestry) as $feat) {
       $feat_id = (string) ($feat['id'] ?? '');
       if ($feat_id === '' || isset($seen[$feat_id])) {
         continue;
@@ -1208,6 +1731,19 @@ class CharacterLevelingService {
     }
 
     return $catalog;
+  }
+
+  /**
+   * Resolve the feat catalog for a given slot type.
+   */
+  private function getSlotFeatCatalog(string $slot_type, string $class_name, array $char_data): array {
+    return match ($slot_type) {
+      'class_feat' => $this->featLibrary->getClassFeats($class_name),
+      'skill_feat' => $this->featLibrary->getSkillFeats(),
+      'general_feat' => $this->featLibrary->getGeneralFeats(),
+      'ancestry_feat' => $this->getAvailableAncestryFeatCatalog($char_data),
+      default => [],
+    };
   }
 
   /**
@@ -1456,21 +1992,100 @@ class CharacterLevelingService {
       );
     }
 
-    $valid_spell_ids = [];
-    for ($rank = 1; $rank <= $highest_rank; $rank++) {
-      foreach ($this->getCharacterManager()->getSpellsByTradition($tradition, $rank) as $spell) {
-        $valid_spell_ids[] = (string) ($spell['id'] ?? '');
-      }
-    }
+    $this->assertSpellIdsAreValid(
+      [$selected_spell],
+      $this->collectValidSpellIds([$tradition], 1, $highest_rank),
+      $feat_id,
+      "{$tradition} spell of rank {$highest_rank} or lower"
+    );
 
-    if (!in_array($selected_spell, $valid_spell_ids, TRUE)) {
+    return $selected_spell;
+  }
+
+  /**
+   * Normalize feat-selected spell IDs and enforce count/distinctness contracts.
+   *
+   * @return array<int, string>
+   *   Canonical selected spell IDs.
+   */
+  private function normalizeSelectedSpellIds(
+    mixed $selected_spells,
+    string $feat_id,
+    int $min_count,
+    int $max_count,
+    string $count_requirement,
+    string $distinct_requirement,
+  ): array {
+    if (!is_array($selected_spells) || count($selected_spells) < $min_count || count($selected_spells) > $max_count) {
       throw new \InvalidArgumentException(
-        "Feat '{$feat_id}' spell '{$selected_spell}' is not a valid {$tradition} spell of rank {$highest_rank} or lower",
+        "Feat '{$feat_id}' requires feat_params['selected_spells'] with {$count_requirement}",
         400
       );
     }
 
-    return $selected_spell;
+    $normalized = [];
+    foreach ($selected_spells as $spell_id) {
+      if (!is_string($spell_id) || trim($spell_id) === '') {
+        throw new \InvalidArgumentException(
+          "Feat '{$feat_id}' requires non-empty spell ids in feat_params['selected_spells']",
+          400
+        );
+      }
+      $normalized[] = trim($spell_id);
+    }
+
+    if (count(array_unique($normalized)) !== count($normalized)) {
+      throw new \InvalidArgumentException(
+        "Feat '{$feat_id}' requires {$distinct_requirement}",
+        400
+      );
+    }
+
+    return $normalized;
+  }
+
+  /**
+   * Collect valid spell IDs across one or more traditions and rank ranges.
+   *
+   * @param array<int, string> $traditions
+   *   Traditions to query.
+   *
+   * @return array<int, string>
+   *   Distinct valid spell IDs.
+   */
+  private function collectValidSpellIds(array $traditions, int $min_rank, int $max_rank): array {
+    $valid_spell_ids = [];
+    foreach ($traditions as $tradition) {
+      for ($rank = $min_rank; $rank <= $max_rank; $rank++) {
+        foreach ($this->getCharacterManager()->getSpellsByTradition($tradition, $rank) as $spell) {
+          $spell_id = trim((string) ($spell['id'] ?? ''));
+          if ($spell_id !== '') {
+            $valid_spell_ids[] = $spell_id;
+          }
+        }
+      }
+    }
+
+    return array_values(array_unique($valid_spell_ids));
+  }
+
+  /**
+   * Assert that selected spell IDs resolve against the canonical spell catalog.
+   *
+   * @param array<int, string> $selected_spell_ids
+   *   Selected spell IDs to validate.
+   * @param array<int, string> $valid_spell_ids
+   *   Canonical valid IDs.
+   */
+  private function assertSpellIdsAreValid(array $selected_spell_ids, array $valid_spell_ids, string $feat_id, string $spell_label): void {
+    foreach ($selected_spell_ids as $spell_id) {
+      if (!in_array($spell_id, $valid_spell_ids, TRUE)) {
+        throw new \InvalidArgumentException(
+          "Feat '{$feat_id}' spell '{$spell_id}' is not a valid {$spell_label}",
+          400
+        );
+      }
+    }
   }
 
   /**

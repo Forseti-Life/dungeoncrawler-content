@@ -354,22 +354,96 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
   /**
    * @covers ::buildNpcTurnPlan
    */
+  public function testBuildNpcTurnPlanUsesPersistedConversationStateAsOnlySpeaker(): void {
+    $roomNpcs = [
+      [
+        'entity_ref' => 'eldric',
+        'profile' => [
+          'display_name' => 'Eldric',
+          'role' => 'merchant',
+        ],
+      ],
+      [
+        'entity_ref' => 'marta_the_scholar',
+        'profile' => [
+          'display_name' => 'Marta the Scholar',
+        ],
+      ],
+    ];
+
+    $plan = $this->roomChatService->publicBuildNpcTurnPlan(
+      $roomNpcs,
+      'One ale, then.',
+      'Eldric stays focused on the order.',
+      [
+        'rooms' => [
+          [
+            'room_id' => 'tavern-room',
+            'conversation_state' => [
+              'entity_ref' => 'eldric',
+              'speaker_name' => 'Eldric',
+              'intent' => 'direct_npc_transaction',
+              'channel' => 'room',
+            ],
+            'chat' => [
+              ['speaker' => 'Player', 'message' => 'Eldric, what are you serving?', 'type' => 'player', 'channel' => 'room'],
+              ['speaker' => 'Game Master', 'message' => 'Eldric gives you his full attention.', 'type' => 'npc', 'channel' => 'room'],
+            ],
+          ],
+        ],
+      ],
+      'tavern-room'
+    );
+
+    $this->assertNull($plan['directly_addressed_npc']);
+    $this->assertSame('eldric', $plan['active_conversation_npc']['entity_ref']);
+    $this->assertCount(1, $plan['ordered_npcs']);
+    $this->assertSame('eldric', $plan['ordered_npcs'][0]['entity_ref']);
+  }
+
+  /**
+   * @covers ::buildNpcTurnPlan
+   */
   public function testBuildNpcTurnPlanUsesInitiativeOrderBeforeRoomFallback(): void {
     $roomNpcs = [
       [
         'entity_ref' => 'scholar_npc',
+        'entity' => [
+          'state' => [
+            'abilities' => [
+              'charisma' => 50,
+              'intelligence' => 50,
+            ],
+          ],
+        ],
         'profile' => [
           'display_name' => 'Marta the Scholar',
         ],
       ],
       [
         'entity_ref' => 'tavern_keeper',
+        'entity' => [
+          'state' => [
+            'abilities' => [
+              'charisma' => 50,
+              'intelligence' => 50,
+            ],
+          ],
+        ],
         'profile' => [
           'display_name' => 'Eldric',
         ],
       ],
       [
         'entity_ref' => 'guard_captain',
+        'entity' => [
+          'state' => [
+            'abilities' => [
+              'charisma' => 50,
+              'intelligence' => 50,
+            ],
+          ],
+        ],
         'profile' => [
           'display_name' => 'Captain Hadrik',
         ],
@@ -404,6 +478,121 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
   }
 
   /**
+   * @covers ::buildNpcTurnPlan
+   */
+  public function testBuildNpcTurnPlanFiltersAmbientSideChatterByCharismaAndIntelligence(): void {
+    $roomNpcs = [
+      [
+        'entity_ref' => 'quiet_guard',
+        'entity' => [
+          'state' => [
+            'abilities' => [
+              'charisma' => 0,
+              'intelligence' => 0,
+            ],
+          ],
+        ],
+        'profile' => [
+          'display_name' => 'Quiet Guard',
+        ],
+      ],
+      [
+        'entity_ref' => 'chatty_scholar',
+        'entity' => [
+          'state' => [
+            'abilities' => [
+              'charisma' => 18,
+              'intelligence' => 18,
+            ],
+          ],
+        ],
+        'profile' => [
+          'display_name' => 'Chatty Scholar',
+        ],
+      ],
+    ];
+
+    $plan = $this->roomChatService->publicBuildNpcTurnPlan(
+      $roomNpcs,
+      'What does the room look like?',
+      'Dusty shelves line the wall.',
+      [],
+      'room-library',
+      'ambient-side-chatter-seed'
+    );
+
+    $orderedRefs = array_map(static fn(array $npc): string => $npc['entity_ref'], $plan['ordered_npcs']);
+    $this->assertSame(['chatty_scholar'], $orderedRefs);
+  }
+
+  /**
+   * @covers ::buildNpcTurnPlan
+   */
+  public function testBuildNpcTurnPlanDoesNotGateNpcNamedInConversation(): void {
+    $roomNpcs = [
+      [
+        'entity_ref' => 'quiet_guard',
+        'entity' => [
+          'state' => [
+            'abilities' => [
+              'charisma' => 0,
+              'intelligence' => 0,
+            ],
+          ],
+        ],
+        'profile' => [
+          'display_name' => 'Quiet Guard',
+        ],
+      ],
+    ];
+
+    $plan = $this->roomChatService->publicBuildNpcTurnPlan(
+      $roomNpcs,
+      'Quiet Guard, what happened here?',
+      'The room stills around the question.',
+      [],
+      'room-guardpost',
+      'ambient-side-chatter-seed'
+    );
+
+    $orderedRefs = array_map(static fn(array $npc): string => $npc['entity_ref'], $plan['ordered_npcs']);
+    $this->assertSame(['quiet_guard'], $orderedRefs);
+  }
+
+  /**
+   * @covers ::buildNpcTurnPlan
+   */
+  public function testBuildNpcTurnPlanDoesNotTreatVerbUseAsNpcReference(): void {
+    $roomNpcs = [
+      [
+        'entity_ref' => 'guard',
+        'entity' => [
+          'state' => [
+            'abilities' => [
+              'charisma' => 0,
+              'intelligence' => 0,
+            ],
+          ],
+        ],
+        'profile' => [
+          'display_name' => 'Guard',
+        ],
+      ],
+    ];
+
+    $plan = $this->roomChatService->publicBuildNpcTurnPlan(
+      $roomNpcs,
+      'I guard the door.',
+      'The torchlight flickers.',
+      [],
+      'room-gatehouse',
+      'ambient-side-chatter-seed'
+    );
+
+    $this->assertSame([], $plan['ordered_npcs']);
+  }
+
+  /**
    * @covers ::buildCharacterDialoguePayload
    * @covers ::buildCharacterDialogueChatMessage
    */
@@ -435,6 +624,7 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
       NULL,
       NULL,
       NULL,
+      NULL,
       $validator
     );
 
@@ -455,7 +645,7 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
     $message = $service->publicBuildCharacterDialogueChatMessage($payload);
 
     $this->assertSame('character-dialogue-v1', $payload['schema_version']);
-    $this->assertSame('scholar_npc', $payload['speaker_ref']);
+    $this->assertSame('scholar_npc', $payload['entity_ref']);
     $this->assertSame('room_interjection', $payload['delivery_type']);
     $this->assertSame('deterministic', $payload['context']['generation_source']);
     $this->assertTrue($payload['flags']['interjection']);
@@ -492,6 +682,7 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
       $this->createMock(MapGeneratorService::class),
       $this->createMock(CanonicalActionRegistryService::class),
       $this->createMock(GmOrchestrationBrokerService::class),
+      NULL,
       NULL,
       NULL,
       NULL,
@@ -551,7 +742,7 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
           'interjection' => TRUE,
           'dialogue_payload' => [
             'schema_version' => 'character-dialogue-v1',
-            'speaker_ref' => 'scholar_npc',
+            'entity_ref' => 'scholar_npc',
             'speaker_name' => 'Marta the Scholar',
             'channel' => 'room',
             'delivery_type' => 'room_interjection',
@@ -650,6 +841,32 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
   }
 
   /**
+   * @covers ::buildGmRoomResponsePayload
+   * @covers ::buildRoomTurnHarnessPayload
+   * @covers ::buildRoomChatResponsePayload
+   * @covers ::buildQueuedRoomContinuationPayload
+   */
+  public function testQuestUpdatePayloadTruncatesOverlongGeneratedFieldsToCanonicalLimits(): void {
+    $payload = $this->roomChatService->publicBuildQuestUpdatePayload(
+      str_repeat('q', 220),
+      str_repeat('N', 320),
+      str_repeat('s', 120),
+      [str_repeat('o', 1205), ''],
+      'invalid-source',
+      str_repeat('t', 220)
+    );
+
+    $this->assertSame('quest-update-v1', $payload['schema_version']);
+    $this->assertSame(160, strlen($payload['quest_id']));
+    $this->assertSame(255, strlen($payload['quest_name']));
+    $this->assertSame(64, strlen($payload['status']));
+    $this->assertSame('available_quest', $payload['source']);
+    $this->assertSame(160, strlen((string) $payload['storyline_id']));
+    $this->assertCount(1, $payload['objectives']);
+    $this->assertSame(1000, strlen($payload['objectives'][0]));
+  }
+
+  /**
    * @covers ::selectBestMatchingQuestLeadCandidate
    * @covers ::extractSpecificQuestLeadTokens
    */
@@ -721,10 +938,10 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
   /**
    * @covers ::buildQuestgiverQuestDialogueLine
    */
-  public function testBuildQuestgiverQuestDialogueLineUsesOfferForAvailableQuest(): void {
+  public function testBuildQuestgiverQuestDialogueLineUsesOfferForOfferedQuest(): void {
     $line = $this->roomChatService->publicBuildQuestgiverQuestDialogueLine((object) [
       'quest_name' => 'Collect Wine Bottles',
-      'status' => 'available',
+      'status' => 'offered',
       'quest_description' => 'Recover some bottles for the tavern.',
       'generated_objectives' => '[{"phase":1,"objectives":[{"description":"Collect wine bottle from around the tavern"}]}]',
     ], 'Eldric');
@@ -1338,6 +1555,50 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
   }
 
   /**
+   * @covers ::classifyRoomTurnIntent
+   */
+  public function testClassifyRoomTurnIntentKeepsBriefMerchantFollowupOnActiveNpcThread(): void {
+    $active_npc = [
+      'entity_ref' => 'eldric',
+      'profile' => [
+        'display_name' => 'Eldric',
+        'role' => 'merchant',
+        'motivations' => 'sell food and drink to travelers',
+      ],
+    ];
+
+    $intent = $this->roomChatService->publicClassifyRoomTurnIntentWithActiveConversation(
+      'One ale, then.',
+      [$active_npc],
+      NULL,
+      $active_npc
+    );
+
+    $this->assertSame('direct_npc_transaction', $intent);
+  }
+
+  /**
+   * @covers ::classifyRoomTurnIntent
+   */
+  public function testClassifyRoomTurnIntentLetsClearSceneActionBreakActiveNpcThread(): void {
+    $active_npc = [
+      'entity_ref' => 'marta_the_scholar',
+      'profile' => [
+        'display_name' => 'Marta the Scholar',
+      ],
+    ];
+
+    $intent = $this->roomChatService->publicClassifyRoomTurnIntentWithActiveConversation(
+      'I inspect the desk for ledgers.',
+      [$active_npc],
+      NULL,
+      $active_npc
+    );
+
+    $this->assertSame('gm_narration', $intent);
+  }
+
+  /**
    * @covers ::resolveActiveDirectConversationNpc
    */
   public function testResolveActiveDirectConversationNpcAllowsSimplePlayerFollowups(): void {
@@ -1628,7 +1889,7 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
   public function testDeterministicNpcDialoguePrefersStorylineLeadOverGreeting(): void {
     $this->psychologyService->method('loadProfile')
       ->willReturnMap([
-        [22, 'gribbles_rindsworth', [
+        [22, 'npc_tavern_keeper', [
           'display_name' => 'Gribbles Rindsworth',
           'attitude' => 'friendly',
           'role' => 'quest_giver',
@@ -1639,7 +1900,7 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
     $relationship_manager = $this->createMock(\Drupal\dungeoncrawler_content\Service\RelationshipManagerService::class);
     $relationship_manager->expects($this->once())
       ->method('getCampaignStorylineContacts')
-      ->with(22, 'gribbles_rindsworth')
+      ->with(22, 'npc_tavern_keeper')
       ->willReturn([
         [
           'name' => 'Threshold of Knowledge',
@@ -1656,7 +1917,7 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
 
     $reply = $this->roomChatService->publicBuildDeterministicNpcDialogue(
       22,
-      'gribbles_rindsworth',
+      'npc_tavern_keeper',
       'Gribbles Rindsworth',
       'OK, hey Gribbles. I need a storyline.'
     );
@@ -2194,6 +2455,28 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
  */
 class TestableRoomChatService extends RoomChatService {
 
+  protected function resolveRoomSlugForQuery(int $campaign_id, string $room_id, array $dungeon_data): ?string {
+    return $room_id !== '' ? $room_id : NULL;
+  }
+
+  protected function loadExistingQuestgiverStoryline(int $campaign_id, string $entity_ref): ?array {
+    return NULL;
+  }
+
+  protected function resolveCampaignQuestgiverNpcId(
+    int $campaign_id,
+    string $entity_ref,
+    string $display_name,
+    string $room_id,
+    array $dungeon_data = []
+  ): ?int {
+    return NULL;
+  }
+
+  protected function loadRoomQuestLeadCandidates(int $campaign_id, string $room_id, array $dungeon_data = []): array {
+    return [];
+  }
+
   public function publicResolveCampaignCharacterNpcProfile(int $campaign_id, object $row, array $seen_refs = []): array {
     return $this->resolveCampaignCharacterNpcProfile($campaign_id, $row, $seen_refs);
   }
@@ -2293,9 +2576,10 @@ class TestableRoomChatService extends RoomChatService {
     string $player_message,
     string $gm_narrative,
     array $dungeon_data = [],
-    string $room_id = ''
+    string $room_id = '',
+    string $turn_seed = ''
   ): array {
-    return $this->buildNpcTurnPlan($room_npcs, $player_message, $gm_narrative, $dungeon_data, $room_id);
+    return $this->buildNpcTurnPlan($room_npcs, $player_message, $gm_narrative, $dungeon_data, $room_id, $turn_seed);
   }
 
   public function publicBuildDeterministicNpcDialogue(
@@ -2420,6 +2704,17 @@ class TestableRoomChatService extends RoomChatService {
 
   public function publicBuildQuestgiverQuestDialogueLine(object $row, string $display_name): ?string {
     return $this->buildQuestgiverQuestDialogueLine($row, $display_name);
+  }
+
+  public function publicBuildQuestUpdatePayload(
+    string $quest_id,
+    string $quest_name,
+    string $status,
+    array $objectives,
+    string $source,
+    string $storyline_id = ''
+  ): array {
+    return $this->buildQuestUpdatePayload($quest_id, $quest_name, $status, $objectives, $source, $storyline_id);
   }
 
 }

@@ -281,6 +281,7 @@ class CampaignInitializationService {
     $dungeon_theme = $theme !== '' ? $theme : 'starter_asset';
     $room_payload = [
       'room_id' => $runtime_room_id,
+      'source_room_id' => (string) ($starter_room['room_id'] ?? $runtime_room_id),
       'name' => $dungeon_name,
       'description' => $dungeon_description,
       'hexes' => is_array($layout_data['hexes'] ?? NULL) ? $layout_data['hexes'] : [],
@@ -617,9 +618,11 @@ class CampaignInitializationService {
     $starter_templates = [
       'tavern_storyline_leads' => [
         'giver_npc_id' => $npc_ids['tavern_keeper'] ?? NULL,
+        'initial_status' => 'offered',
       ],
       'collect_spellbooks' => [
         'giver_npc_id' => $npc_ids['scholar_npc'] ?? NULL,
+        'initial_status' => 'lead',
       ],
     ];
 

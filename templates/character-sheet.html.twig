@@ -3,6 +3,14 @@
  # Full PF2e character sheet rendered from JSON data.
  #}
 <div class="dc-character-sheet">
+  {% set sheet_summary = sheet_effect_summary ?? {} %}
+  {% set stat_summary = sheet_summary.stats ?? {} %}
+  {% set hp_summary = stat_summary.hp_max ?? {} %}
+  {% set ac_summary = stat_summary.armor_class ?? {} %}
+  {% set speed_summary = stat_summary.speed ?? {} %}
+  {% set perception_summary = stat_summary.perception ?? {} %}
+  {% set initiative_summary = stat_summary.initiative ?? {} %}
+  {% set conditional_effects = sheet_summary.conditional ?? [] %}
 
   {% if not embed_mode %}
     {# Navigation #}
@@ -106,7 +114,9 @@
           <span class="dc-sheet__detail-chip">{{ ancestry.size }}</span>
         {% endif %}
         {% if ancestry.speed %}
-          <span class="dc-sheet__detail-chip">{{ ancestry.speed }}ft</span>
+          <span class="dc-sheet__detail-chip{% if speed_summary.modified %} dc-sheet__detail-chip--{{ speed_summary.direction }}{% endif %}">
+            {{ speed_summary.final ?? ancestry.speed }} ft
+          </span>
         {% endif %}
         {% if ancestry.languages|length > 0 %}
           <span class="dc-sheet__detail-chip">{{ ancestry.languages|join(', ') }}</span>
@@ -114,6 +124,17 @@
           <span class="dc-sheet__detail-chip">{{ char_data.languages|join(', ') }}</span>
         {% endif %}
       </div>
+      {% if speed_summary.modified %}
+        <div class="dc-sheet__details-row dc-sheet__details-row--effect">
+          <span class="dc-sheet__stat-badge dc-sheet__stat-badge--{{ speed_summary.direction == 'negative' ? 'penalty' : 'modified' }}">
+            {{ speed_summary.direction == 'negative' ? 'Penalty' : 'Modified' }}
+          </span>
+          <span class="dc-sheet__stat-breakdown-base">Speed base {{ speed_summary.base }} ft</span>
+          {% for contribution in speed_summary.contributions %}
+            <span class="dc-sheet__stat-breakdown-item">{{ contribution.formatted_value }} {{ contribution.label }}</span>
+          {% endfor %}
+        </div>
+      {% endif %}
       {% if ancestry.traits|length > 0 %}
         <div class="dc-sheet__tags">
           {% for trait in ancestry.traits %}
@@ -136,6 +157,17 @@
           <span class="dc-sheet__hp-separator">/</span>
           <span class="dc-sheet__hp-max">{{ hp.max }}</span>
         </div>
+        {% if hp_summary.modified %}
+          <div class="dc-sheet__stat-breakdown dc-sheet__stat-breakdown--{{ hp_summary.direction }}">
+            <span class="dc-sheet__stat-badge dc-sheet__stat-badge--{{ hp_summary.direction == 'negative' ? 'penalty' : 'modified' }}">
+              {{ hp_summary.direction == 'negative' ? 'Penalty' : 'Modified' }}
+            </span>
+            <span class="dc-sheet__stat-breakdown-base">Base max {{ hp_summary.base }}</span>
+            {% for contribution in hp_summary.contributions %}
+              <span class="dc-sheet__stat-breakdown-item">{{ contribution.formatted_value }} {{ contribution.label }}</span>
+            {% endfor %}
+          </div>
+        {% endif %}
         {% if hp.temporary > 0 %}
           <div class="dc-sheet__hp-temp">+{{ hp.temporary }} temp</div>
         {% endif %}
@@ -144,6 +176,17 @@
       <div class="dc-sheet__vital-box dc-sheet__vital-box--ac">
         <div class="dc-sheet__vital-label">AC</div>
         <div class="dc-sheet__vital-value">{{ ac }}</div>
+        {% if ac_summary.modified %}
+          <div class="dc-sheet__stat-breakdown dc-sheet__stat-breakdown--{{ ac_summary.direction }}">
+            <span class="dc-sheet__stat-badge dc-sheet__stat-badge--{{ ac_summary.direction == 'negative' ? 'penalty' : 'modified' }}">
+              {{ ac_summary.direction == 'negative' ? 'Penalty' : 'Modified' }}
+            </span>
+            <span class="dc-sheet__stat-breakdown-base">Base {{ ac_summary.base }}</span>
+            {% for contribution in ac_summary.contributions %}
+              <span class="dc-sheet__stat-breakdown-item">{{ contribution.formatted_value }} {{ contribution.label }}</span>
+            {% endfor %}
+          </div>
+        {% endif %}
       </div>
 
       <div class="dc-sheet__vital-box">
@@ -196,6 +239,32 @@
           <span class="dc-sheet__save-prof dc-sheet__prof--{{ perception.proficiency|lower }}">{{ perception.proficiency|slice(0, 1) }}</span>
           {{ perception.modifier >= 0 ? '+' : '' }}{{ perception.modifier }}
         </div>
+        {% if perception_summary.modified %}
+          <div class="dc-sheet__stat-breakdown dc-sheet__stat-breakdown--{{ perception_summary.direction }}">
+            <span class="dc-sheet__stat-badge dc-sheet__stat-badge--{{ perception_summary.direction == 'negative' ? 'penalty' : 'modified' }}">
+              {{ perception_summary.direction == 'negative' ? 'Penalty' : 'Modified' }}
+            </span>
+            <span class="dc-sheet__stat-breakdown-base">Base {{ perception_summary.base >= 0 ? '+' : '' }}{{ perception_summary.base }}</span>
+            {% for contribution in perception_summary.contributions %}
+              <span class="dc-sheet__stat-breakdown-item">{{ contribution.formatted_value }} {{ contribution.label }}</span>
+            {% endfor %}
+          </div>
+        {% endif %}
+        <div class="dc-sheet__perception-initiative">
+          <span class="dc-sheet__perception-initiative-label">Initiative</span>
+          <span class="dc-sheet__perception-initiative-value">{{ initiative_summary.final >= 0 ? '+' : '' }}{{ initiative_summary.final }}</span>
+        </div>
+        {% if initiative_summary.modified %}
+          <div class="dc-sheet__stat-breakdown dc-sheet__stat-breakdown--{{ initiative_summary.direction }}">
+            <span class="dc-sheet__stat-badge dc-sheet__stat-badge--{{ initiative_summary.direction == 'negative' ? 'penalty' : 'modified' }}">
+              {{ initiative_summary.direction == 'negative' ? 'Penalty' : 'Modified' }}
+            </span>
+            <span class="dc-sheet__stat-breakdown-base">Base {{ initiative_summary.base >= 0 ? '+' : '' }}{{ initiative_summary.base }}</span>
+            {% for contribution in initiative_summary.contributions %}
+              <span class="dc-sheet__stat-breakdown-item">{{ contribution.formatted_value }} {{ contribution.label }}</span>
+            {% endfor %}
+          </div>
+        {% endif %}
         {% if perception.senses|length > 0 %}
           <div class="dc-sheet__senses">
             {% for sense in perception.senses %}
@@ -207,6 +276,16 @@
     </div>
   </div>
 
+  {% if conditional_effects|length > 0 %}
+    <div class="dc-sheet__section">
+      <h2 class="dc-sheet__section-title">Conditional Effects</h2>
+      {% for effect in conditional_effects %}
+        <div class="dc-sheet__detail">
+          <strong>{{ effect.label }}</strong>{% if effect.context %} <span class="dc-sheet__tag">{{ effect.context }}</span>{% endif %}
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
 
 
   {# Skills #}

@@ -50,3 +50,11 @@ services:
       - '@dungeoncrawler_content.player_agent_harness'
     tags:
       - { name: drush.command }
+
+  dungeoncrawler_content.commands.institution_backfill:
+    class: Drupal\dungeoncrawler_content\Commands\InstitutionBackfillCommands
+    arguments:
+      - '@dungeoncrawler_content.library_institution_backfill'
+      - '@dungeoncrawler_content.campaign_institution_backfill'
+    tags:
+      - { name: drush.command }

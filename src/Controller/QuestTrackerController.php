@@ -69,6 +69,40 @@ class QuestTrackerController extends ControllerBase {
   }
 
   /**
+   * Partition quest rows into the canonical quest summary buckets.
+   */
+  protected function partitionQuestRowsForSummary(array $rows): array {
+    $active = [];
+    $offers = [];
+    $leads = [];
+
+    foreach ($rows as $row) {
+      if (!is_array($row)) {
+        continue;
+      }
+
+      $status = strtolower(trim((string) ($row['status'] ?? '')));
+      if (in_array($status, ['active', 'ready_for_turn_in'], TRUE)) {
+        $active[] = $row;
+        continue;
+      }
+      if ($status === 'offered') {
+        $offers[] = $row;
+        continue;
+      }
+      if ($status === 'lead') {
+        $leads[] = $row;
+      }
+    }
+
+    return [
+      'active' => $active,
+      'offers' => $offers,
+      'leads' => $leads,
+    ];
+  }
+
+  /**
    * {@inheritdoc}
    */
   public static function create(ContainerInterface $container): self {
@@ -96,18 +130,24 @@ class QuestTrackerController extends ControllerBase {
     try {
       $character_id = (int) $request->query->get('character_id', 0);
       $location_id = trim((string) $request->query->get('location_id', ''));
-      $available = [];
+      $offers = [];
+      $leads = [];
       if ($location_id !== '') {
-        $available = $this->questTracker->getAvailableQuests($campaign_id, $location_id, $character_id);
+        $offers = $this->questTracker->getOfferQuests($campaign_id, $location_id, $character_id);
+        $leads = $this->questTracker->getLeadQuests($campaign_id, $location_id, $character_id);
       }
 
       $quest_summary = $this->questGenerator->buildQuestSummaryPayload(
-        $location_id !== '' ? $location_id : $this->resolveQuestSummaryLocationId($campaign_id, $available),
+        $location_id !== '' ? $location_id : $this->resolveQuestSummaryLocationId($campaign_id, array_merge($offers, $leads)),
         [],
-        $available,
+        $offers,
+        $leads,
         $campaign_id
       );
-      $quests = $quest_summary['available'] ?? [];
+      $quests = array_merge(
+        is_array($quest_summary['offers'] ?? NULL) ? $quest_summary['offers'] : [],
+        is_array($quest_summary['leads'] ?? NULL) ? $quest_summary['leads'] : []
+      );
 
       return new JsonResponse([
         'success' => TRUE,
@@ -341,7 +381,8 @@ class QuestTrackerController extends ControllerBase {
       $log = $quest_tracker->getCharacterQuestLog($campaign_id, (int) $character_id);
       $journal_tracking = array_map([$this, 'normalizeQuestJournalTrackingEntry'], $tracking);
       $journal_log = array_map([$this, 'normalizeQuestJournalLogEntry'], $log);
-      $quest_summary = $this->questGenerator->buildQuestSummaryPayload('campaign', $tracking, [], $campaign_id);
+      ['active' => $active, 'offers' => $offers, 'leads' => $leads] = $this->partitionQuestRowsForSummary($tracking);
+      $quest_summary = $this->questGenerator->buildQuestSummaryPayload('campaign', $active, $offers, $leads, $campaign_id);
 
       $this->logger->info('Quest journal payload built: campaign={campaign_id} character={character_id} tracking={tracking} active_summary={active_summary}', [
         'campaign_id' => $campaign_id,
@@ -406,7 +447,13 @@ class QuestTrackerController extends ControllerBase {
         'campaign_id' => $campaign_id,
         'tracking' => array_values($campaign_tracking),
         'log' => array_values($campaign_log),
-        'quest_summary' => $this->questGenerator->buildQuestSummaryPayload('campaign', $tracking, [], $campaign_id),
+        'quest_summary' => $this->questGenerator->buildQuestSummaryPayload(
+          'campaign',
+          $this->partitionQuestRowsForSummary($tracking)['active'],
+          $this->partitionQuestRowsForSummary($tracking)['offers'],
+          $this->partitionQuestRowsForSummary($tracking)['leads'],
+          $campaign_id
+        ),
         'counts' => [
           'tracking' => count($campaign_tracking),
           'log' => count($campaign_log),
@@ -574,10 +621,14 @@ class QuestTrackerController extends ControllerBase {
             $touchpoint_payload['touchpoint'] = [];
           }
 
+          if (empty($selected_objective_id) && count($resolved['candidates'] ?? []) === 1) {
+            $selected_objective_id = (string) (($resolved['candidates'][0]['objective_id'] ?? ''));
+          }
           if (!empty($selected_objective_id)) {
             $touchpoint_payload['touchpoint']['objective_id'] = (string) $selected_objective_id;
           }
           $touchpoint_payload['touchpoint']['confidence'] = 'high';
+          $touchpoint_payload['touchpoint']['matching_mode'] = 'typed_receipt';
 
           /** @var \Drupal\dungeoncrawler_content\Service\QuestTouchpointService $touchpoint_service */
           $touchpoint_service = \Drupal::service('dungeoncrawler_content.quest_touchpoint');

@@ -25,6 +25,11 @@
  * - 10058: Import remaining bundled module asset templates into the library
  * - 10059: Relationship template/runtime storage and default NPC relationship import
  * - 10062: Structured room turn troubleshooting logs
+ * - 10068: Character advancement draft/apply audit storage
+ * - 10067: Backfill canonical feat records into content registry
+ * - 10069: Campaign subject registry storage for collective runtime actors
+ * - 10072: Structured institution review-resolution decision storage
+ * - 10073: Widen registry version storage for packaged feat imports
  *
  * @see dungeoncrawler_content_schema()
  */
@@ -104,7 +109,7 @@ function dungeoncrawler_content_schema() {
       ],
       'version' => [
         'type' => 'varchar',
-        'length' => 20,
+        'length' => 128,
         'not null' => FALSE,
         'description' => 'Content version',
       ],
@@ -1382,6 +1387,102 @@ function dungeoncrawler_content_schema() {
     ],
   ];
 
+  $schema['dc_character_advancement'] = [
+    'description' => 'Auditable draft/apply records for character level advancement.',
+    'fields' => [
+      'id' => [
+        'type' => 'serial',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'description' => 'Primary key.',
+      ],
+      'character_id' => [
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Library character row id.',
+      ],
+      'uid' => [
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Owning user id.',
+      ],
+      'campaign_id' => [
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Campaign context, 0 for canonical/library advancement.',
+      ],
+      'target_level' => [
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 1,
+        'description' => 'Level the advancement plan targets.',
+      ],
+      'status' => [
+        'type' => 'varchar',
+        'length' => 16,
+        'not null' => TRUE,
+        'default' => 'draft',
+        'description' => 'draft, ready, applied, cancelled.',
+      ],
+      'is_active' => [
+        'type' => 'int',
+        'size' => 'tiny',
+        'not null' => TRUE,
+        'default' => 1,
+        'description' => 'Boolean active-plan guard.',
+      ],
+      'class_name' => [
+        'type' => 'varchar',
+        'length' => 64,
+        'not null' => TRUE,
+        'default' => '',
+        'description' => 'Class id the advancement plan is for.',
+      ],
+      'plan_data' => [
+        'type' => 'text',
+        'size' => 'big',
+        'not null' => TRUE,
+        'description' => 'Draft plan payload as JSON.',
+      ],
+      'applied_data' => [
+        'type' => 'text',
+        'size' => 'big',
+        'not null' => FALSE,
+        'description' => 'Applied-result payload as JSON.',
+      ],
+      'created' => [
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Unix timestamp created.',
+      ],
+      'updated' => [
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Unix timestamp updated.',
+      ],
+      'applied' => [
+        'type' => 'int',
+        'not null' => FALSE,
+        'description' => 'Unix timestamp applied.',
+      ],
+    ],
+    'primary key' => ['id'],
+    'indexes' => [
+      'character_level_active' => ['character_id', 'campaign_id', 'target_level', 'is_active'],
+      'character_status' => ['character_id', 'status'],
+      'uid' => ['uid'],
+    ],
+  ];
+
   $schema['dc_campaign_encounter_instances'] = [
     'description' => 'Runtime encounter instances for campaigns.',
     'fields' => [
@@ -2620,6 +2721,121 @@ function dungeoncrawler_content_schema() {
       'campaign_target' => ['campaign_id', 'target_type', 'target_id'],
       'campaign_relationship_type' => ['campaign_id', 'relationship_type'],
       'default_relationship_id' => ['default_relationship_id'],
+    ],
+  ];
+
+  $schema['dc_campaign_subject_registry'] = [
+    'description' => 'Campaign-scoped registry for collective runtime social subjects.',
+    'fields' => [
+      'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE, 'description' => 'Primary key.'],
+      'campaign_id' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'description' => 'Owning campaign.'],
+      'subject_id' => ['type' => 'varchar', 'length' => 191, 'not null' => TRUE, 'description' => 'Stable campaign runtime subject id.'],
+      'subject_kind' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE, 'description' => 'Runtime subject kind.'],
+      'subject_domain' => ['type' => 'varchar', 'length' => 64, 'not null' => FALSE, 'description' => 'Canonical domain within the subject kind.'],
+      'subject_key' => ['type' => 'varchar', 'length' => 191, 'not null' => TRUE, 'description' => 'Canonical uniqueness key within the campaign.'],
+      'display_name' => ['type' => 'varchar', 'length' => 255, 'not null' => TRUE, 'description' => 'Human-facing label.'],
+      'normalized_label' => ['type' => 'varchar', 'length' => 191, 'not null' => TRUE, 'description' => 'Normalized label for duplicate prevention.'],
+      'entity_ref' => ['type' => 'varchar', 'length' => 191, 'not null' => FALSE, 'description' => 'Optional runtime entity reference.'],
+      'source_asset_type' => ['type' => 'varchar', 'length' => 64, 'not null' => FALSE, 'description' => 'Source asset type for provenance.'],
+      'source_asset_id' => ['type' => 'varchar', 'length' => 191, 'not null' => FALSE, 'description' => 'Source asset id for provenance.'],
+      'status' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => 'active', 'description' => 'Registry status.'],
+      'metadata_json' => ['type' => 'text', 'size' => 'big', 'not null' => FALSE, 'description' => 'Structured metadata and provenance payload.'],
+      'created' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Created timestamp.'],
+      'changed' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Updated timestamp.'],
+    ],
+    'primary key' => ['id'],
+    'unique keys' => [
+      'campaign_subject' => ['campaign_id', 'subject_id'],
+      'campaign_subject_key' => ['campaign_id', 'subject_kind', 'subject_key'],
+    ],
+    'indexes' => [
+      'campaign_kind' => ['campaign_id', 'subject_kind'],
+      'campaign_domain' => ['campaign_id', 'subject_domain'],
+      'source_lookup' => ['source_asset_type', 'source_asset_id'],
+    ],
+  ];
+
+  $schema['dc_library_institution_manifest'] = [
+    'description' => 'Staged normalization manifest for library actor institution backfill.',
+    'fields' => [
+      'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE, 'description' => 'Primary key.'],
+      'source_table' => ['type' => 'varchar', 'length' => 128, 'not null' => TRUE, 'description' => 'Source table family.'],
+      'source_file' => ['type' => 'varchar', 'length' => 255, 'not null' => TRUE, 'description' => 'Authoritative packaged source file.'],
+      'source_asset_id' => ['type' => 'varchar', 'length' => 191, 'not null' => TRUE, 'description' => 'Stable source asset identifier.'],
+      'library_character_id' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => FALSE, 'description' => 'Resolved library character row id when available.'],
+      'row_type' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'description' => 'Original row type.'],
+      'classification' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'description' => 'Backfill classification bucket.'],
+      'status' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => 'pending', 'description' => 'Manifest status.'],
+      'normalized_payload_json' => ['type' => 'text', 'size' => 'big', 'not null' => FALSE, 'description' => 'Normalized institution payload.'],
+      'review_reasons_json' => ['type' => 'text', 'size' => 'big', 'not null' => FALSE, 'description' => 'Review reasons for unresolved fields.'],
+      'provenance_json' => ['type' => 'text', 'size' => 'big', 'not null' => FALSE, 'description' => 'Source provenance details.'],
+      'created' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Created timestamp.'],
+      'changed' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Updated timestamp.'],
+    ],
+    'primary key' => ['id'],
+    'unique keys' => [
+      'source_asset' => ['source_file', 'source_asset_id'],
+    ],
+    'indexes' => [
+      'source_lookup' => ['source_table', 'source_asset_id'],
+      'status' => ['status'],
+      'classification' => ['classification'],
+    ],
+  ];
+
+  $schema['dc_library_institution_review'] = [
+    'description' => 'Review queue rows for unresolved library institution backfill cases.',
+    'fields' => [
+      'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE, 'description' => 'Primary key.'],
+      'manifest_id' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'description' => 'Owning manifest row.'],
+      'source_table' => ['type' => 'varchar', 'length' => 128, 'not null' => TRUE, 'description' => 'Source table family.'],
+      'source_file' => ['type' => 'varchar', 'length' => 255, 'not null' => TRUE, 'description' => 'Authoritative packaged source file.'],
+      'source_asset_id' => ['type' => 'varchar', 'length' => 191, 'not null' => TRUE, 'description' => 'Stable source asset identifier.'],
+      'review_reason' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE, 'description' => 'Reason this row requires review.'],
+      'details_json' => ['type' => 'text', 'size' => 'big', 'not null' => FALSE, 'description' => 'Supporting context for review.'],
+      'status' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => 'open', 'description' => 'Review workflow status.'],
+      'resolution_action' => ['type' => 'varchar', 'length' => 64, 'not null' => FALSE, 'description' => 'Structured review action applied to this row.'],
+      'resolution_payload_json' => ['type' => 'text', 'size' => 'big', 'not null' => FALSE, 'description' => 'Structured reviewer decision payload.'],
+      'resolution_actor_uid' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => FALSE, 'description' => 'User id of the reviewer who last updated the row.'],
+      'resolved_at' => ['type' => 'int', 'not null' => FALSE, 'description' => 'Unix timestamp when the current decision was applied.'],
+      'created' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Created timestamp.'],
+      'changed' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Updated timestamp.'],
+    ],
+    'primary key' => ['id'],
+    'indexes' => [
+      'manifest_lookup' => ['manifest_id'],
+      'manifest_reason_lookup' => ['manifest_id', 'review_reason'],
+      'status' => ['status'],
+      'resolution_action' => ['resolution_action'],
+      'source_lookup' => ['source_table', 'source_asset_id'],
+    ],
+  ];
+
+  $schema['dc_campaign_institution_backfill_review'] = [
+    'description' => 'Review queue rows for unresolved campaign institution backfill cases.',
+    'fields' => [
+      'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE, 'description' => 'Primary key.'],
+      'campaign_id' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'description' => 'Owning campaign.'],
+      'source_type' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE, 'description' => 'Runtime actor source type.'],
+      'source_id' => ['type' => 'varchar', 'length' => 191, 'not null' => TRUE, 'description' => 'Runtime actor source id.'],
+      'actor_row_id' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => FALSE, 'description' => 'Runtime actor row id.'],
+      'actor_type' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'description' => 'PC or NPC runtime actor type.'],
+      'review_reason' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE, 'description' => 'Reason this actor requires review.'],
+      'details_json' => ['type' => 'text', 'size' => 'big', 'not null' => FALSE, 'description' => 'Supporting review context.'],
+      'status' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => 'open', 'description' => 'Review workflow status.'],
+      'resolution_action' => ['type' => 'varchar', 'length' => 64, 'not null' => FALSE, 'description' => 'Structured review action applied to this row.'],
+      'resolution_payload_json' => ['type' => 'text', 'size' => 'big', 'not null' => FALSE, 'description' => 'Structured reviewer decision payload.'],
+      'resolution_actor_uid' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => FALSE, 'description' => 'User id of the reviewer who last updated the row.'],
+      'resolved_at' => ['type' => 'int', 'not null' => FALSE, 'description' => 'Unix timestamp when the current decision was applied.'],
+      'created' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Created timestamp.'],
+      'changed' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Updated timestamp.'],
+    ],
+    'primary key' => ['id'],
+    'indexes' => [
+      'campaign_source' => ['campaign_id', 'source_type', 'source_id'],
+      'campaign_source_reason_lookup' => ['campaign_id', 'source_type', 'source_id', 'review_reason'],
+      'status' => ['status'],
+      'resolution_action' => ['resolution_action'],
     ],
   ];
 
@@ -6593,6 +6809,17 @@ function dungeoncrawler_content_update_10052() {
 }
 
 /**
+ * Backfill canonical feat records into the content registry.
+ */
+function dungeoncrawler_content_update_10067() {
+  /** @var \Drupal\dungeoncrawler_content\Service\ContentRegistry $registry */
+  $registry = \Drupal::service('dungeoncrawler_content.content_registry');
+  $count = $registry->importContentFromJson('feat');
+
+  return t('Imported @count canonical feat records into the content registry.', ['@count' => $count]);
+}
+
+/**
  * Create durable quest confirmation storage and migrate key-value entries.
  */
 function dungeoncrawler_content_update_10053() {
@@ -7569,6 +7796,209 @@ function dungeoncrawler_content_build_bootstrap_canonical_ids(string $storyline_
     'contact_id' => $storyline_id . '-questgiver',
     'connector_id' => $storyline_id . '-bootstrap-handoff',
   ];
+}
+
+/**
+ * Create auditable character advancement storage for draft/apply leveling.
+ */
+function dungeoncrawler_content_update_10068() {
+  $schema = dungeoncrawler_content_schema();
+  $database = \Drupal::database();
+  $schema_handler = $database->schema();
+
+  if (!$schema_handler->tableExists('dc_character_advancement')) {
+    $schema_handler->createTable('dc_character_advancement', $schema['dc_character_advancement']);
+    return t('Created dc_character_advancement table.');
+  }
+
+  foreach (array_keys($schema['dc_character_advancement']['fields']) as $field) {
+    if (!$schema_handler->fieldExists('dc_character_advancement', $field)) {
+      $schema_handler->addField('dc_character_advancement', $field, $schema['dc_character_advancement']['fields'][$field]);
+    }
+  }
+
+  foreach (['character_level_active', 'character_status', 'uid'] as $index) {
+    if (!$schema_handler->indexExists('dc_character_advancement', $index)) {
+      $schema_handler->addIndex('dc_character_advancement', $index, $schema['dc_character_advancement']['indexes'][$index], $schema['dc_character_advancement']);
+    }
+  }
+
+  return t('Verified dc_character_advancement schema.');
+}
+
+/**
+ * Create campaign subject-registry storage for collective runtime actors.
+ */
+function dungeoncrawler_content_update_10069() {
+  $schema = dungeoncrawler_content_schema();
+  $database = \Drupal::database();
+  $schema_handler = $database->schema();
+
+  if ($schema_handler->tableExists('dc_campaign_subject_registry')) {
+    return t('dc_campaign_subject_registry already exists.');
+  }
+
+  $schema_handler->createTable('dc_campaign_subject_registry', $schema['dc_campaign_subject_registry']);
+  return t('Created dc_campaign_subject_registry table.');
+}
+
+/**
+ * Create staged manifest storage for library institution backfill.
+ */
+function dungeoncrawler_content_update_10070() {
+  $schema = dungeoncrawler_content_schema();
+  $database = \Drupal::database();
+  $schema_handler = $database->schema();
+  $messages = [];
+
+  if (!$schema_handler->tableExists('dc_library_institution_manifest')) {
+    $schema_handler->createTable('dc_library_institution_manifest', $schema['dc_library_institution_manifest']);
+    $messages[] = 'Created dc_library_institution_manifest table.';
+  }
+
+  if (!$schema_handler->tableExists('dc_library_institution_review')) {
+    $schema_handler->createTable('dc_library_institution_review', $schema['dc_library_institution_review']);
+    $messages[] = 'Created dc_library_institution_review table.';
+  }
+
+  return t(implode(' ', $messages ?: ['Library institution backfill tables already exist.']));
+}
+
+/**
+ * Create review storage for live campaign institution backfill.
+ */
+function dungeoncrawler_content_update_10071() {
+  $schema = dungeoncrawler_content_schema();
+  $database = \Drupal::database();
+  $schema_handler = $database->schema();
+
+  if ($schema_handler->tableExists('dc_campaign_institution_backfill_review')) {
+    return t('dc_campaign_institution_backfill_review already exists.');
+  }
+
+  $schema_handler->createTable('dc_campaign_institution_backfill_review', $schema['dc_campaign_institution_backfill_review']);
+  return t('Created dc_campaign_institution_backfill_review table.');
+}
+
+/**
+ * Add structured institution review-resolution fields.
+ */
+function dungeoncrawler_content_update_10072() {
+  $schema = dungeoncrawler_content_schema();
+  $database = \Drupal::database();
+  $schema_handler = $database->schema();
+  $messages = [];
+
+  $review_tables = [
+    'dc_library_institution_review',
+    'dc_campaign_institution_backfill_review',
+  ];
+  $fields = [
+    'resolution_action',
+    'resolution_payload_json',
+    'resolution_actor_uid',
+    'resolved_at',
+  ];
+
+  foreach ($review_tables as $table) {
+    if (!$schema_handler->tableExists($table)) {
+      continue;
+    }
+
+    foreach ($fields as $field) {
+      if (!$schema_handler->fieldExists($table, $field)) {
+        $schema_handler->addField($table, $field, $schema[$table]['fields'][$field]);
+        $messages[] = 'Added ' . $table . '.' . $field;
+      }
+    }
+
+    if (!$schema_handler->indexExists($table, 'resolution_action')) {
+      $schema_handler->addIndex($table, 'resolution_action', ['resolution_action'], $schema[$table]);
+      $messages[] = 'Added ' . $table . '.resolution_action index';
+    }
+  }
+
+  if ($messages === []) {
+    return t('Institution review-resolution fields already exist.');
+  }
+
+  return t('Institution review-resolution update complete: @messages', ['@messages' => implode(' ', $messages)]);
+}
+
+/**
+ * Widen registry version storage for packaged content imports.
+ */
+function dungeoncrawler_content_update_10073() {
+  $database = \Drupal::database();
+  $schema = dungeoncrawler_content_schema();
+  $schema_handler = $database->schema();
+
+  if (!$schema_handler->tableExists('dungeoncrawler_content_registry')) {
+    return t('dungeoncrawler_content_registry does not exist; no action taken.');
+  }
+
+  $schema_handler->changeField(
+    'dungeoncrawler_content_registry',
+    'version',
+    'version',
+    $schema['dungeoncrawler_content_registry']['fields']['version']
+  );
+
+  return t('Expanded dungeoncrawler_content_registry.version to support longer packaged content versions.');
+}
+
+/**
+ * Allow institution review history rows to reopen as fresh open items.
+ */
+function dungeoncrawler_content_update_10074() {
+  $database = \Drupal::database();
+  $schema = dungeoncrawler_content_schema();
+  $schema_handler = $database->schema();
+  $messages = [];
+
+  if ($schema_handler->tableExists('dc_library_institution_review')) {
+    try {
+      $schema_handler->dropUniqueKey('dc_library_institution_review', 'manifest_reason');
+      $messages[] = 'Dropped dc_library_institution_review.manifest_reason unique key';
+    }
+    catch (\Drupal\Core\Database\SchemaObjectDoesNotExistException) {
+      // Fresh databases or already-updated installs do not have the legacy key.
+    }
+    if (!$schema_handler->indexExists('dc_library_institution_review', 'manifest_reason_lookup')) {
+      $schema_handler->addIndex(
+        'dc_library_institution_review',
+        'manifest_reason_lookup',
+        ['manifest_id', 'review_reason'],
+        $schema['dc_library_institution_review']
+      );
+      $messages[] = 'Added dc_library_institution_review.manifest_reason_lookup index';
+    }
+  }
+
+  if ($schema_handler->tableExists('dc_campaign_institution_backfill_review')) {
+    try {
+      $schema_handler->dropUniqueKey('dc_campaign_institution_backfill_review', 'campaign_source_reason');
+      $messages[] = 'Dropped dc_campaign_institution_backfill_review.campaign_source_reason unique key';
+    }
+    catch (\Drupal\Core\Database\SchemaObjectDoesNotExistException) {
+      // Fresh databases or already-updated installs do not have the legacy key.
+    }
+    if (!$schema_handler->indexExists('dc_campaign_institution_backfill_review', 'campaign_source_reason_lookup')) {
+      $schema_handler->addIndex(
+        'dc_campaign_institution_backfill_review',
+        'campaign_source_reason_lookup',
+        ['campaign_id', 'source_type', 'source_id', 'review_reason'],
+        $schema['dc_campaign_institution_backfill_review']
+      );
+      $messages[] = 'Added dc_campaign_institution_backfill_review.campaign_source_reason_lookup index';
+    }
+  }
+
+  if ($messages === []) {
+    return t('Institution review reopen-history indexes already match the current schema.');
+  }
+
+  return t('Institution review reopen-history update complete: @messages', ['@messages' => implode(' ', $messages)]);
 }
 
 /**

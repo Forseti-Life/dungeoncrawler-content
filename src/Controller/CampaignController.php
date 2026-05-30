@@ -11,6 +11,7 @@ use Drupal\Core\Url;
 use Drupal\dungeoncrawler_content\Form\CampaignCreateForm;
 use Drupal\dungeoncrawler_content\Service\CharacterManager;
 use Drupal\dungeoncrawler_content\Service\GeneratedImageRepository;
+use Drupal\dungeoncrawler_content\Service\InstitutionMembershipService;
 use Drupal\dungeoncrawler_content\Service\QuestTrackerService;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -28,14 +29,16 @@ class CampaignController extends ControllerBase {
   protected FormBuilderInterface $formBuilderService;
   protected QuestTrackerService $questTracker;
   protected GeneratedImageRepository $imageRepository;
+  protected InstitutionMembershipService $institutionMembership;
   protected TimeInterface $time;
 
-  public function __construct(Connection $database, CharacterManager $character_manager, FormBuilderInterface $form_builder, QuestTrackerService $quest_tracker, GeneratedImageRepository $image_repository, TimeInterface $time) {
+  public function __construct(Connection $database, CharacterManager $character_manager, FormBuilderInterface $form_builder, QuestTrackerService $quest_tracker, GeneratedImageRepository $image_repository, InstitutionMembershipService $institution_membership, TimeInterface $time) {
     $this->database = $database;
     $this->characterManager = $character_manager;
     $this->formBuilderService = $form_builder;
     $this->questTracker = $quest_tracker;
     $this->imageRepository = $image_repository;
+    $this->institutionMembership = $institution_membership;
     $this->time = $time;
   }
 
@@ -49,6 +52,7 @@ class CampaignController extends ControllerBase {
       $container->get('form_builder'),
       $container->get('dungeoncrawler_content.quest_tracker'),
       $container->get('dungeoncrawler_content.generated_image_repository'),
+      $container->get('dungeoncrawler_content.institution_membership'),
       $container->get('datetime.time'),
     );
   }
@@ -288,10 +292,11 @@ class CampaignController extends ControllerBase {
       }
       // Incomplete characters (status=0 or step<8): Can continue creation
       elseif ($status === 0 || $step < 8) {
+        $continue_campaign_id = !empty($record->campaign_id) ? (int) $record->campaign_id : $campaign_id;
         $continue_query = [
           'character_id' => (int) $record->id,
           'step' => $step,
-          'campaign_id' => $campaign_id,
+          'campaign_id' => $continue_campaign_id,
         ];
         $continue_url = Url::fromRoute('dungeoncrawler_content.character_setup', [], [
           'query' => $continue_query,
@@ -945,6 +950,7 @@ class CampaignController extends ControllerBase {
       'location_type' => $location_fields['location_type'],
       'location_ref' => $location_fields['location_ref'],
       'is_active' => 1,
+      'status' => max(1, (int) ($character->status ?? 1)),
       'joined' => $now,
       'changed' => $now,
       'updated' => $now,
@@ -983,6 +989,14 @@ class CampaignController extends ControllerBase {
       ])
       ->condition('id', $campaign_id)
       ->execute();
+
+    if ($instance_id !== '' && is_array($character_data)) {
+      $this->institutionMembership->syncCampaignCharacterMemberships(
+        $campaign_id,
+        $instance_id,
+        $character_data
+      );
+    }
 
     $this->startStarterQuest($campaign_id, $canonical_character_id);
 
@@ -1035,7 +1049,7 @@ class CampaignController extends ControllerBase {
     $available = $this->database->select('dc_campaign_quests', 'q')
       ->fields('q', ['quest_id', 'source_template_id'])
       ->condition('campaign_id', $campaign_id)
-      ->condition('status', 'available')
+      ->condition('status', ['offered', 'available'], 'IN')
       ->execute()
       ->fetchAll(\PDO::FETCH_ASSOC);
 

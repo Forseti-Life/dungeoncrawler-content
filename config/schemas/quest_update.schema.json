@@ -22,7 +22,7 @@
     },
     "type": {
       "type": "string",
-      "enum": ["quest_started"]
+      "enum": ["quest_started", "quest_surfaced"]
     },
     "quest_id": {
       "type": "string",

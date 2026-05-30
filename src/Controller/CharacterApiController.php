@@ -299,10 +299,15 @@ class CharacterApiController extends ControllerBase {
         '@message' => $exception->getMessage(),
       ]);
 
+      $status_code = (int) $exception->getCode();
+      if ($status_code < 400 || $status_code >= 600) {
+        $status_code = 500;
+      }
+
       return new JsonResponse([
         'success' => FALSE,
         'error' => $exception->getMessage(),
-      ], 500);
+      ], $status_code);
     }
   }
 

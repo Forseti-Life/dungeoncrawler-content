@@ -1,7 +1,7 @@
 # Chat, Session & Narration Architecture
 
-**Last updated:** 2026-03-05  
-**Status:** Implemented and tested (369 tests, 0 failures)
+**Last updated:** 2026-05-27  
+**Status:** Implemented and tested
 
 ---
 
@@ -98,6 +98,20 @@ gm_private:{campaign_id}
 whisper:{campaign_id}:{char_a_id}:{char_b_id}
 spell:{campaign_id}:{spell_name}:{caster_id}
 ```
+
+### Canonical Room Alias Reuse
+
+Room-session creation now treats the logical room as canonical even when the same
+room is requested through different dungeon-scope aliases (for example, a raw map
+UUID versus the stable onboarding scope). In those cases the existing room
+session chain is reused instead of forking a second transcript for the same room.
+
+Operationally this means:
+
+- one logical room should keep one live `room` session chain per campaign
+- follow-up room chat should append to the existing chain, not create a sibling
+- the preserved session metadata remains the authoritative record for the first
+  live dungeon scope that claimed that room
 
 ### Feed-Up Rules
 

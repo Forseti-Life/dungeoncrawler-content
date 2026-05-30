@@ -6,13 +6,16 @@ use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Database\Connection;
 use Drupal\dungeoncrawler_content\Service\AnimalCompanionService;
 use Drupal\dungeoncrawler_content\Service\CampaignCharacterRuntimeSyncService;
+use Drupal\dungeoncrawler_content\Service\CharacterManager;
 use Drupal\dungeoncrawler_content\Service\GeneratedImageRepository;
+use Drupal\dungeoncrawler_content\Service\MapVisualStateProjector;
 use Drupal\dungeoncrawler_content\Service\QuestGeneratorService;
 use Drupal\dungeoncrawler_content\Service\QuestTrackerService;
 use Drupal\dungeoncrawler_content\Service\RelationshipManagerService;
 use Drupal\dungeoncrawler_content\Service\StateValidationService;
 use Drupal\dungeoncrawler_content\Service\StorylineManagerService;
 use Symfony\Component\HttpFoundation\RequestStack;
+use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 
@@ -22,7 +25,7 @@ use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 class HexMapController extends ControllerBase {
 
   protected const DEFAULT_OBJECT_ORIENTATION = 'n';
-  protected const QUEST_SUMMARY_SCHEMA_VERSION = 'quest-summary-v1';
+  protected const QUEST_SUMMARY_SCHEMA_VERSION = 'quest-summary-v2';
 
   protected RequestStack $requestStack;
 
@@ -32,6 +35,7 @@ class HexMapController extends ControllerBase {
   protected QuestTrackerService $questTracker;
   protected QuestGeneratorService $questGenerator;
   protected GeneratedImageRepository $imageRepository;
+  protected MapVisualStateProjector $mapVisualStateProjector;
   protected StorylineManagerService $storylineManager;
   protected RelationshipManagerService $relationshipManager;
   protected StateValidationService $stateValidationService;
@@ -44,7 +48,7 @@ class HexMapController extends ControllerBase {
    * @var array<string, array|null>
    */
   protected array $roomContentsCache = [];
-  public function __construct(RequestStack $request_stack, Connection $database, AnimalCompanionService $animal_companion_service, CampaignCharacterRuntimeSyncService $campaign_character_runtime_sync, QuestTrackerService $quest_tracker, QuestGeneratorService $quest_generator, GeneratedImageRepository $image_repository, StorylineManagerService $storyline_manager, RelationshipManagerService $relationship_manager, StateValidationService $state_validation_service) {
+  public function __construct(RequestStack $request_stack, Connection $database, AnimalCompanionService $animal_companion_service, CampaignCharacterRuntimeSyncService $campaign_character_runtime_sync, QuestTrackerService $quest_tracker, QuestGeneratorService $quest_generator, GeneratedImageRepository $image_repository, MapVisualStateProjector $map_visual_state_projector, StorylineManagerService $storyline_manager, RelationshipManagerService $relationship_manager, StateValidationService $state_validation_service) {
     $this->requestStack = $request_stack;
     $this->database = $database;
     $this->animalCompanionService = $animal_companion_service;
@@ -52,6 +56,7 @@ class HexMapController extends ControllerBase {
     $this->questTracker = $quest_tracker;
     $this->questGenerator = $quest_generator;
     $this->imageRepository = $image_repository;
+    $this->mapVisualStateProjector = $map_visual_state_projector;
     $this->storylineManager = $storyline_manager;
     $this->relationshipManager = $relationship_manager;
     $this->stateValidationService = $state_validation_service;
@@ -69,6 +74,7 @@ class HexMapController extends ControllerBase {
       $container->get('dungeoncrawler_content.quest_tracker'),
       $container->get('dungeoncrawler_content.quest_generator'),
       $container->get('dungeoncrawler_content.generated_image_repository'),
+      $container->get('dungeoncrawler_content.map_visual_state_projector'),
       $container->get('dungeoncrawler_content.storyline_manager'),
       $container->get('dungeoncrawler_content.relationship_manager'),
       $container->get('dungeoncrawler_content.state_validation_service'),
@@ -83,7 +89,80 @@ class HexMapController extends ControllerBase {
    */
   public function demo() {
     $account = $this->currentUser();
+    $launch_context = $this->buildLaunchContextFromRequest();
 
+    $this->getLogger('dungeoncrawler_hexmap')->notice('Hexmap demo launch request: campaign_id=@campaign_id character_id=@character_id map_id=@map_id dungeon_level_id=@dungeon_level_id room_id=@room_id start_q=@start_q start_r=@start_r next_room_id=@next_room_id', [
+      '@campaign_id' => (int) ($launch_context['campaign_id'] ?? 0),
+      '@character_id' => (int) ($launch_context['character_id'] ?? 0),
+      '@map_id' => (string) ($launch_context['map_id'] ?? ''),
+      '@dungeon_level_id' => (string) ($launch_context['dungeon_level_id'] ?? ''),
+      '@room_id' => (string) ($launch_context['room_id'] ?? ''),
+      '@start_q' => (int) ($launch_context['start_q'] ?? 0),
+      '@start_r' => (int) ($launch_context['start_r'] ?? 0),
+      '@next_room_id' => (string) ($launch_context['next_room_id'] ?? ''),
+    ]);
+
+    // Determine admin status for shell gating (debug panels, dev controls).
+    $is_admin = in_array('administrator', $account->getRoles(), TRUE)
+      || (int) $account->id() === 1;
+
+    $this->assertCampaignAccess($launch_context, $is_admin);
+    $hexmap_state = $this->buildHexmapStateBundle($launch_context);
+    $dungeon_payload = $hexmap_state['dungeon_payload'];
+    $launch_character = $hexmap_state['launch_character'];
+    $quest_summary = $hexmap_state['quest_summary'];
+    $storyline_contacts = $hexmap_state['storyline_contacts'];
+    $campaign_title = $hexmap_state['campaign_title'];
+    $visual_map_state = $hexmap_state['map_visual_state'];
+
+    return [
+      '#theme' => 'hexmap_demo',
+      '#title' => $campaign_title,
+      '#campaign_title' => $campaign_title,
+      '#launch_context' => $launch_context,
+      '#dungeon_payload' => $dungeon_payload,
+      '#is_admin' => $is_admin,
+      '#attached' => [
+        'library' => [
+          'dungeoncrawler_content/hexmap',
+        ],
+        'drupalSettings' => [
+          'dungeoncrawlerContent' => [
+            'hexmapLaunchContext' => $launch_context,
+           'hexmapDungeonData' => $dungeon_payload,
+           'map_visual_state' => $visual_map_state,
+           'hexmapLaunchCharacter' => $launch_character,
+           'hexmapQuestSummary' => $quest_summary,
+           'hexmapStorylineContacts' => $storyline_contacts,
+         ],
+       ],
+      ],
+      '#cache' => [
+        'max-age' => 0,
+        'contexts' => ['url.query_args:campaign_id', 'url.query_args:character_id', 'url.query_args:dungeon_level_id', 'url.query_args:map_id', 'url.query_args:room_id', 'url.query_args:next_room_id', 'url.query_args:start_q', 'url.query_args:start_r'],
+      ],
+    ];
+  }
+
+  /**
+   * Read-only API endpoint for canonical visual state delivery.
+   */
+  public function visualState(): JsonResponse {
+    $launch_context = $this->buildLaunchContextFromRequest();
+    $this->assertCampaignAccess($launch_context);
+    $hexmap_state = $this->buildHexmapStateBundle($launch_context);
+
+    return new JsonResponse([
+      'success' => TRUE,
+      'launch_context' => $launch_context,
+      'map_visual_state' => $hexmap_state['map_visual_state'],
+    ]);
+  }
+
+  /**
+   * Build launch context from request query parameters.
+   */
+  protected function buildLaunchContextFromRequest(): array {
     $request = $this->requestStack->getCurrentRequest();
     $query = $request->query;
 
@@ -105,43 +184,37 @@ class HexMapController extends ControllerBase {
       $query->has('start_q'),
       $query->has('start_r')
     );
-    $launch_context = $this->ensureLaunchRuntimeCharacter(
+
+    return $this->ensureLaunchRuntimeCharacter(
       $launch_context,
       $query->has('room_id'),
       $query->has('start_q'),
       $query->has('start_r')
     );
+  }
 
-    $this->getLogger('dungeoncrawler_hexmap')->notice('Hexmap demo launch request: campaign_id=@campaign_id character_id=@character_id map_id=@map_id dungeon_level_id=@dungeon_level_id room_id=@room_id start_q=@start_q start_r=@start_r next_room_id=@next_room_id', [
-      '@campaign_id' => (int) ($launch_context['campaign_id'] ?? 0),
-      '@character_id' => (int) ($launch_context['character_id'] ?? 0),
-      '@map_id' => (string) ($launch_context['map_id'] ?? ''),
-      '@dungeon_level_id' => (string) ($launch_context['dungeon_level_id'] ?? ''),
-      '@room_id' => (string) ($launch_context['room_id'] ?? ''),
-      '@start_q' => (int) ($launch_context['start_q'] ?? 0),
-      '@start_r' => (int) ($launch_context['start_r'] ?? 0),
-      '@next_room_id' => (string) ($launch_context['next_room_id'] ?? ''),
-    ]);
-
-    // Determine admin status for shell gating (debug panels, dev controls).
-    $is_admin = in_array('administrator', $account->getRoles(), TRUE)
-      || (int) $account->id() === 1;
-
-    // Verify the current user owns the campaign before exposing data.
-    // Administrators may access any campaign for testing/debugging.
-    if ($launch_context['campaign_id'] > 0) {
-      if (!$is_admin) {
-        $campaign_uid = $this->database->select('dc_campaigns', 'c')
-          ->fields('c', ['uid'])
-          ->condition('id', $launch_context['campaign_id'])
-          ->execute()
-          ->fetchField();
-        if ($campaign_uid === FALSE || (int) $campaign_uid !== (int) $account->id()) {
-          throw new AccessDeniedHttpException('You do not own this campaign.');
-        }
-      }
+  /**
+   * Enforce campaign ownership before returning campaign-scoped state.
+   */
+  protected function assertCampaignAccess(array $launch_context, bool $is_admin = FALSE): void {
+    if ((int) ($launch_context['campaign_id'] ?? 0) <= 0 || $is_admin) {
+      return;
     }
 
+    $campaign_uid = $this->database->select('dc_campaigns', 'c')
+      ->fields('c', ['uid'])
+      ->condition('id', (int) $launch_context['campaign_id'])
+      ->execute()
+      ->fetchField();
+    if ($campaign_uid === FALSE || (int) $campaign_uid !== (int) $this->currentUser()->id()) {
+      throw new AccessDeniedHttpException('You do not own this campaign.');
+    }
+  }
+
+  /**
+   * Build the shared hexmap state bundle consumed by shell and API delivery.
+   */
+  protected function buildHexmapStateBundle(array $launch_context): array {
     $dungeon_payload = $this->loadDungeonPayload($launch_context);
     $dungeon_payload = $this->adjustBarCounterPlacements($dungeon_payload);
     $dungeon_payload = $this->composeLongTableSegments($dungeon_payload);
@@ -164,10 +237,10 @@ class HexMapController extends ControllerBase {
     $dungeon_payload = $this->attachEntityPortraitUrls($dungeon_payload, $launch_context);
     $dungeon_payload = $this->ensurePayloadObjectOrientations($dungeon_payload);
 
-    // Bootstrap NPC psychology profiles for all NPCs in the active room.
     $this->ensureRoomNpcPsychologyProfiles($dungeon_payload, $launch_context);
+    $visual_map_state = $this->mapVisualStateProjector->project($dungeon_payload, $launch_context, $launch_character);
 
-    $this->getLogger('dungeoncrawler_hexmap')->notice('Hexmap demo payload ready: campaign_id=@campaign_id room_id=@room_id active_room_id=@active_room_id room_count=@room_count entity_count=@entity_count', [
+    $this->getLogger('dungeoncrawler_hexmap')->notice('Hexmap payload ready: campaign_id=@campaign_id room_id=@room_id active_room_id=@active_room_id room_count=@room_count entity_count=@entity_count', [
       '@campaign_id' => (int) ($launch_context['campaign_id'] ?? 0),
       '@room_id' => (string) ($launch_context['room_id'] ?? ''),
       '@active_room_id' => (string) ($dungeon_payload['active_room_id'] ?? ''),
@@ -176,30 +249,12 @@ class HexMapController extends ControllerBase {
     ]);
 
     return [
-      '#theme' => 'hexmap_demo',
-      '#title' => $campaign_title,
-      '#campaign_title' => $campaign_title,
-      '#launch_context' => $launch_context,
-      '#dungeon_payload' => $dungeon_payload,
-      '#is_admin' => $is_admin,
-      '#attached' => [
-        'library' => [
-          'dungeoncrawler_content/hexmap',
-        ],
-        'drupalSettings' => [
-          'dungeoncrawlerContent' => [
-            'hexmapLaunchContext' => $launch_context,
-             'hexmapDungeonData' => $dungeon_payload,
-             'hexmapLaunchCharacter' => $launch_character,
-             'hexmapQuestSummary' => $quest_summary,
-             'hexmapStorylineContacts' => $storyline_contacts,
-           ],
-         ],
-       ],
-      '#cache' => [
-        'max-age' => 0,
-        'contexts' => ['url.query_args:campaign_id', 'url.query_args:character_id', 'url.query_args:dungeon_level_id', 'url.query_args:map_id', 'url.query_args:room_id', 'url.query_args:next_room_id', 'url.query_args:start_q', 'url.query_args:start_r'],
-      ],
+      'campaign_title' => $campaign_title,
+      'dungeon_payload' => $dungeon_payload,
+      'launch_character' => $launch_character,
+      'map_visual_state' => $visual_map_state,
+      'quest_summary' => $quest_summary,
+      'storyline_contacts' => $storyline_contacts,
     ];
   }
 
@@ -661,8 +716,11 @@ class HexMapController extends ControllerBase {
 
     // Extract inventory
     $inventory = is_array($character_data['inventory'] ?? NULL) ? $character_data['inventory'] : [];
-    $inv_currency = $inventory['currency'] ?? [];
-    $gold = (float) ($inv_currency['gp'] ?? ($character_data['gold'] ?? 0));
+    $inv_currency = CharacterManager::normalizeCurrencyDenominations(
+      is_array($inventory['currency'] ?? NULL) ? $inventory['currency'] : [],
+      isset($character_data['gold']) ? (float) $character_data['gold'] : NULL
+    );
+    $gold = CharacterManager::currencyDenominationsToGoldValue($inv_currency);
 
     // Extract hero points
     $hero_points = $character_data['hero_points'] ?? 1;
@@ -748,7 +806,7 @@ class HexMapController extends ControllerBase {
       'feats' => $feats,
       'spells' => $spells,
       'inventory' => $inventory,
-      'currency' => $inv_currency ?: ['gp' => $gold, 'sp' => 0, 'cp' => 0],
+      'currency' => $inv_currency,
       'hero_points' => $hero_points,
       'conditions' => $conditions,
       'portrait_url' => $portrait_url,
@@ -805,12 +863,13 @@ class HexMapController extends ControllerBase {
     }
 
     if ($campaign_id <= 0 || $character_id <= 0) {
-      return $this->questGenerator->buildQuestSummaryPayload($location_id, [], [], $campaign_id);
+      return $this->questGenerator->buildQuestSummaryPayload($location_id, [], [], [], $campaign_id);
     }
 
     $active = $this->questTracker->getActiveQuests($campaign_id, $character_id);
-    $available = $this->questTracker->getAvailableQuests($campaign_id, $location_id, $character_id);
-    return $this->questGenerator->buildQuestSummaryPayload($location_id, $active, $available, $campaign_id);
+    $offers = $this->questTracker->getOfferQuests($campaign_id, $location_id, $character_id);
+    $leads = $this->questTracker->getLeadQuests($campaign_id, $location_id, $character_id);
+    return $this->questGenerator->buildQuestSummaryPayload($location_id, $active, $offers, $leads, $campaign_id);
   }
 
   /**
@@ -823,7 +882,7 @@ class HexMapController extends ControllerBase {
       'source_template_id' => isset($quest['source_template_id']) && $quest['source_template_id'] !== '' ? (string) $quest['source_template_id'] : NULL,
       'title' => (string) ($quest['title'] ?? $quest['quest_name'] ?? $quest['name'] ?? $quest['quest_id'] ?? ''),
       'quest_name' => (string) ($quest['quest_name'] ?? $quest['title'] ?? $quest['quest_id'] ?? ''),
-      'status' => (string) ($quest['status'] ?? 'available'),
+      'status' => (string) ($quest['status'] ?? 'lead'),
       'current_phase' => max(1, (int) ($quest['current_phase'] ?? 1)),
       'generated_objectives' => $this->decodeQuestJsonArray($quest['generated_objectives'] ?? []),
       'objective_states' => $this->decodeQuestJsonArray($quest['objective_states'] ?? []),
@@ -1257,6 +1316,9 @@ class HexMapController extends ControllerBase {
    */
   protected function findCampaignNpcPortraitSourceId(int $campaign_id, string $content_id, string $name): ?int {
     if ($campaign_id <= 0 || ($content_id === '' && $name === '')) {
+      return NULL;
+    }
+    if (!$this->database->schema()->tableExists('dc_npc')) {
       return NULL;
     }
 
@@ -2014,7 +2076,9 @@ class HexMapController extends ControllerBase {
       return $dungeon_payload;
     }
 
-    $campaign_portrait_rows = $this->loadCampaignRoomNpcPortraitRows($campaign_id, $placement_room_id ?? $room_id);
+    // The active_room_id (UUID) is the correct value for entity placement.
+    $placement_room_id = $room_id;
+    $campaign_portrait_rows = $this->loadCampaignRoomNpcPortraitRows($campaign_id, $placement_room_id);
 
     // Collect content_ids already present in the entity list so we don't duplicate.
     $existing_content_ids = [];
@@ -2027,9 +2091,6 @@ class HexMapController extends ControllerBase {
         $existing_content_ids[$ecid] = TRUE;
       }
     }
-
-    // The active_room_id (UUID) is the correct value for entity placement.
-    $placement_room_id = $room_id;
 
     foreach ($npcs as $npc) {
       if (!is_array($npc)) {

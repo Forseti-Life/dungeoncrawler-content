@@ -80,6 +80,26 @@ dungeoncrawler_content.room_turn_log_browser:
   requirements:
     _permission: 'access content overview'
 
+dungeoncrawler_content.institution_review_browser:
+  path: '/admin/content/dungeoncrawler/institution-reviews'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\InstitutionReviewBrowserController::content'
+    _title: 'Institution Review Queue'
+  methods: [GET]
+  requirements:
+    _permission: 'access content overview'
+
+dungeoncrawler_content.institution_review_resolution:
+  path: '/admin/content/dungeoncrawler/institution-reviews/{queue_type}/{row_id}/resolve'
+  defaults:
+    _form: '\Drupal\dungeoncrawler_content\Form\InstitutionReviewResolutionForm'
+    _title: 'Resolve institution review item'
+  methods: [GET, POST]
+  requirements:
+    _permission: 'access content overview'
+    queue_type: 'library|campaign'
+    row_id: '\d+'
+
 dungeoncrawler_content.text_to_speech_interface:
   path: '/admin/config/content/dungeoncrawler/text-to-speech'
   defaults:
@@ -242,6 +262,16 @@ dungeoncrawler_content.hexmap_demo:
   methods: [GET]
   requirements:
     _access: 'TRUE'
+
+dungeoncrawler_content.api.map_visual_state:
+  path: '/api/map/visual-state'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\HexMapController::visualState'
+  methods: [GET]
+  requirements:
+    _access: 'TRUE'
+  options:
+    _format: json
 
 # ==============================================================================
 # CHARACTER MANAGEMENT ROUTES

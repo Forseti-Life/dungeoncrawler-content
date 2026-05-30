@@ -15,16 +15,27 @@ class QuestPayloadSchemaDefinitionTest extends UnitTestCase {
   /**
    * Verifies the hexmap quest summary schema is explicit and versioned.
    */
-  public function testQuestSummarySchemaRequiresVersionedActiveAndAvailableBuckets(): void {
+  public function testQuestSummarySchemaRequiresVersionedActiveOfferAndLeadBuckets(): void {
     $schema_path = dirname(__DIR__, 4) . '/config/schemas/quest_summary.schema.json';
     $schema = json_decode((string) file_get_contents($schema_path), TRUE);
+    $properties = $schema['properties'] ?? [];
+    $count_properties = $properties['counts']['properties'] ?? [];
 
     $this->assertIsArray($schema);
-    $this->assertSame(['quest-summary-v1'], $schema['properties']['schema_version']['enum'] ?? NULL);
+    $this->assertSame(['quest-summary-v2'], $properties['schema_version']['enum'] ?? NULL);
     $this->assertContains('active', $schema['required'] ?? []);
-    $this->assertContains('available', $schema['required'] ?? []);
+    $this->assertContains('offers', $schema['required'] ?? []);
+    $this->assertContains('leads', $schema['required'] ?? []);
     $this->assertContains('counts', $schema['required'] ?? []);
-    $this->assertContains('management_tree', array_keys($schema['properties'] ?? []));
+    $this->assertContains('management_tree', array_keys($properties));
+    $this->assertArrayHasKey('active', $properties);
+    $this->assertArrayHasKey('offers', $properties);
+    $this->assertArrayHasKey('leads', $properties);
+    $this->assertArrayNotHasKey('available', $properties);
+    $this->assertArrayHasKey('active', $count_properties);
+    $this->assertArrayHasKey('offers', $count_properties);
+    $this->assertArrayHasKey('leads', $count_properties);
+    $this->assertArrayNotHasKey('available', $count_properties);
     $this->assertArrayHasKey('questObjective', $schema['definitions'] ?? []);
     $this->assertArrayHasKey('questObjectiveCompletionCriteria', $schema['definitions'] ?? []);
     $this->assertContains('completion_criteria', $schema['definitions']['questObjective']['required'] ?? []);
@@ -42,6 +53,7 @@ class QuestPayloadSchemaDefinitionTest extends UnitTestCase {
     $this->assertSame(['quest-update-v1'], $schema['properties']['schema_version']['enum'] ?? NULL);
     $this->assertContains('source', $schema['required'] ?? []);
     $this->assertContains('storyline_id', $schema['required'] ?? []);
+    $this->assertSame(['quest_started', 'quest_surfaced'], $schema['properties']['type']['enum'] ?? []);
     $this->assertSame(
       ['available_quest', 'brokered_storyline'],
       $schema['properties']['source']['enum'] ?? []
@@ -57,7 +69,7 @@ class QuestPayloadSchemaDefinitionTest extends UnitTestCase {
 
     $this->assertIsArray($schema);
     $this->assertSame(['character-dialogue-v1'], $schema['properties']['schema_version']['enum'] ?? NULL);
-    $this->assertContains('speaker_ref', $schema['required'] ?? []);
+    $this->assertContains('entity_ref', $schema['required'] ?? []);
     $this->assertContains('delivery_type', $schema['required'] ?? []);
     $this->assertContains('context', $schema['required'] ?? []);
     $this->assertContains('flags', $schema['required'] ?? []);
@@ -131,6 +143,7 @@ class QuestPayloadSchemaDefinitionTest extends UnitTestCase {
     $this->assertContains('client_request_id', array_keys($schema['properties'] ?? []));
     $this->assertContains('turn_harness', array_keys($schema['properties'] ?? []));
     $this->assertContains('npc_interjections', array_keys($schema['properties'] ?? []));
+    $this->assertContains('quest_updates', array_keys($schema['properties'] ?? []));
     $this->assertFalse($schema['additionalProperties'] ?? TRUE);
   }
 

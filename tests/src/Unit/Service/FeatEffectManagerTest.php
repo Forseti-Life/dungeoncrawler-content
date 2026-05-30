@@ -1862,7 +1862,7 @@ class FeatEffectManagerTest extends UnitTestCase {
     $this->assertSame('single', $grant['type']);
     $this->assertTrue($grant['required']);
     $this->assertArrayHasKey('arcana', $grant['options']);
-    $this->assertSame(['Society'], $effects['training_grants']['skills']);
+    $this->assertSame(['Society' => 'trained'], $effects['training_grants']['skills']);
     $this->assertTrue($effects['feat_overrides']['mastermind-racket']['selection_pending']);
     $this->assertContains('mastermind-racket', $effects['applied_feats']);
   }
@@ -1881,7 +1881,10 @@ class FeatEffectManagerTest extends UnitTestCase {
     $this->assertSame('arcana', $override['selected_knowledge_skill']);
     $this->assertSame('Arcana', $override['selected_knowledge_skill_name']);
     $this->assertTrue($override['recall_knowledge_flat_footed_on_success']);
-    $this->assertSame(['Society', 'Arcana'], $effects['training_grants']['skills']);
+    $this->assertSame([
+      'Society' => 'trained',
+      'Arcana' => 'trained',
+    ], $effects['training_grants']['skills']);
     $combat_advantage = NULL;
     foreach ($effects['conditional_modifiers'] as $modifier) {
       if (is_array($modifier) && (($modifier['type'] ?? NULL) === 'combat_advantage')) {
@@ -6708,6 +6711,30 @@ class FeatEffectManagerTest extends UnitTestCase {
     $grant = $effects['training_grants']['weapons'][0];
     $this->assertSame('Halfling Weapons', $grant['group']);
     $this->assertSame('expert', $grant['proficiency']);
+    $this->assertSame(['sling', 'halfling sling staff', 'shortsword'], $grant['specific_weapons']);
+    $this->assertSame('expert', $effects['derived_adjustments']['flags']['halfling_weapon_expertise_cascade_rank']);
+    $this->assertContains('halfling-weapon-expertise', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testHalflingWeaponExpertiseBackfillsFamiliarityGrantWhenMissing(): void {
+    $character = [
+      'feats' => [
+        ['id' => 'halfling-weapon-expertise'],
+      ],
+      'level' => 13,
+      'class_features' => [
+        ['id' => 'wizard-weapon-expertise'],
+      ],
+    ];
+    $effects = $this->manager->buildEffectState($character);
+
+    $grant = $effects['training_grants']['weapons'][0];
+    $this->assertSame('Halfling Weapons', $grant['group']);
+    $this->assertSame('expert', $grant['proficiency']);
+    $this->assertSame(['sling', 'halfling sling staff'], $grant['examples']);
     $this->assertSame(['sling', 'halfling sling staff', 'shortsword'], $grant['specific_weapons']);
     $this->assertSame('expert', $effects['derived_adjustments']['flags']['halfling_weapon_expertise_cascade_rank']);
     $this->assertContains('halfling-weapon-expertise', $effects['applied_feats']);

@@ -14,6 +14,36 @@ Use this with `QUEST_FULFILLMENT_PROCESS_FLOW.md`.
 
 ---
 
+## 0) Quest Summary Read Contract
+
+Any room-chat or journal payload that summarizes quest state should use the
+canonical `quest-summary-v2` envelope:
+
+```json
+{
+  "schema_version": "quest-summary-v2",
+  "location_id": "tavern_entrance",
+  "active": [],
+  "offers": [],
+  "leads": [],
+  "counts": {
+    "active": 0,
+    "offers": 0,
+    "leads": 0
+  }
+}
+```
+
+Rules:
+
+- `offers` and `leads` are surfaced quests that are **not** yet active
+- the old `available` bucket is legacy-only and should not be emitted by new
+  summary payloads
+- room dialogue mentioning an NPC or quest topic can surface a `lead` or
+  `offered` quest, but must not auto-start that quest
+
+---
+
 ## 1) Touchpoint Event Contract (Canonical)
 
 A touchpoint is a normalized event emitted from gameplay or DM-agent reasoning
@@ -55,6 +85,13 @@ when something may affect quest progress.
 - `source_ref`: producer-specific pointer to raw event/entity.
 - `objective_id`: optional for extraction cases; resolver may fill it.
 - `confidence`: `high|medium|low`; low typically routes to confirmation.
+
+Touchpoint eligibility rules:
+
+- `lead` quests are not eligible
+- `offered` quests are not eligible
+- only `active` / `ready_for_turn_in` quests with a progress row may consume the
+  touchpoint
 
 ### 1.3 Fingerprint (Deduplication)
 

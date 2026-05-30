@@ -607,6 +607,7 @@ class FamiliarService {
    * Persist character_data back to the database.
    */
   private function persistCharacterData(string $character_id, array $char_data): void {
+    $char_data = CharacterManager::normalizePersistentCharacterPayload($char_data);
     $this->database->update('dc_campaign_characters')
       ->fields([
         'character_data' => json_encode($char_data),

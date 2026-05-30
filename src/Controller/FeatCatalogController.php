@@ -3,7 +3,7 @@
 namespace Drupal\dungeoncrawler_content\Controller;
 
 use Drupal\Core\Controller\ControllerBase;
-use Drupal\dungeoncrawler_content\Service\CharacterManager;
+use Drupal\dungeoncrawler_content\Service\FeatLibraryService;
 use GuzzleHttp\ClientInterface;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -22,15 +22,21 @@ use Symfony\Component\HttpFoundation\Request;
 class FeatCatalogController extends ControllerBase {
 
   const VALID_SOURCE_BOOKS = ['crb', 'apg', 'all'];
-  const VALID_TYPES = ['general', 'skill'];
+  const VALID_TYPES = FeatLibraryService::FEAT_TYPES;
   const ARCHIVES_OF_NETHYS_FEATS_URL = 'https://2e.aonprd.com/Feats.aspx';
   const ARCHIVES_OF_NETHYS_SEARCH_URL = 'https://2e.aonprd.com/Search.aspx';
   const ARCHIVES_OF_NETHYS_ELASTICSEARCH_URL = 'https://elasticsearch.aonprd.com/aon/_search';
 
-  public function __construct(protected ?ClientInterface $httpClient = NULL) {}
+  public function __construct(
+    protected FeatLibraryService $featLibrary,
+    protected ?ClientInterface $httpClient = NULL,
+  ) {}
 
   public static function create(ContainerInterface $container): static {
-    return new static($container->get('http_client'));
+    return new static(
+      $container->get('dungeoncrawler_content.feat_library'),
+      $container->get('http_client'),
+    );
   }
 
   /**
@@ -57,8 +63,18 @@ class FeatCatalogController extends ControllerBase {
       ], 400);
     }
 
-    $pool = $this->buildPool($type_filter);
-    $feats = $this->filterBySourceBook($pool, $source_book);
+    try {
+      $feats = $this->featLibrary->getFeats([
+        'source_book' => $source_book,
+        'type' => $type_filter,
+      ]);
+    }
+    catch (\RuntimeException $e) {
+      return new JsonResponse([
+        'success' => FALSE,
+        'error' => $e->getMessage(),
+      ], 503);
+    }
 
     return new JsonResponse([
       'success'     => TRUE,
@@ -73,7 +89,15 @@ class FeatCatalogController extends ControllerBase {
    * GET /api/feats/{feat_id}
    */
   public function get(string $feat_id): JsonResponse {
-    $feat = $this->findFeat($feat_id);
+    try {
+      $feat = $this->featLibrary->getFeat($feat_id);
+    }
+    catch (\RuntimeException $e) {
+      return new JsonResponse([
+        'error' => $e->getMessage(),
+      ], 503);
+    }
+
     if ($feat !== NULL) {
       return new JsonResponse($feat, 200);
     }
@@ -83,54 +107,6 @@ class FeatCatalogController extends ControllerBase {
       'not_in_catalog' => TRUE,
       'fallback_lookup' => $this->buildArchivesOfNethysLookup($feat_id),
     ], 404);
-  }
-
-  /**
-   * Build the initial feat pool based on type filter.
-   */
-  private function buildPool(string $type_filter): array {
-    if ($type_filter === 'skill') {
-      return CharacterManager::SKILL_FEATS;
-    }
-    if ($type_filter === 'general') {
-      // General feats = non-skill general feats only.
-      return CharacterManager::getGeneralFeats();
-    }
-    // No type filter — return both pools combined.
-    return array_merge(CharacterManager::getGeneralFeats(), CharacterManager::SKILL_FEATS);
-  }
-
-  /**
-   * Filter feat pool by source_book.
-   *
-   * CRB items have no source_book key in the raw catalog; getters normalize them.
-   */
-  private function filterBySourceBook(array $feats, string $source_book): array {
-    if ($source_book === 'all') {
-      return $feats;
-    }
-    return array_filter($feats, static function (array $feat) use ($source_book): bool {
-      $book = $feat['source_book'] ?? 'crb';
-      return $book === $source_book;
-    });
-  }
-
-  /**
-   * Find a local feat by canonical ID or name.
-   */
-  private function findFeat(string $feat_id): ?array {
-    $requested = $this->normalizeFeatId($feat_id);
-    foreach ($this->buildPool('') as $feat) {
-      if (!is_array($feat)) {
-        continue;
-      }
-      $candidate = $this->normalizeFeatId((string) ($feat['id'] ?? $feat['name'] ?? ''));
-      if ($candidate === $requested) {
-        return $feat;
-      }
-    }
-
-    return NULL;
   }
 
   /**

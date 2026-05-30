@@ -75,7 +75,11 @@ class RoomViewImageService {
   public function getRoomViewImage(int $campaign_id, string $room_id): array {
     $record = $this->loadLatestDungeonRecord($campaign_id);
     if (!$record) {
-      throw new \RuntimeException('No active dungeon found for campaign.', 404);
+      return $this->buildUnavailableRoomViewPayload(
+        $campaign_id,
+        $room_id,
+        'Room view image is not ready yet for this campaign.'
+      );
     }
 
     $dungeon_data = json_decode((string) ($record['dungeon_data'] ?? ''), TRUE);
@@ -83,9 +87,14 @@ class RoomViewImageService {
       throw new \RuntimeException('Stored dungeon data is invalid.', 500);
     }
 
-    $room = $this->resolveRoom($dungeon_data, $room_id);
+    $payload_room_id = $this->resolvePayloadRoomIdForRequest($campaign_id, $room_id, $dungeon_data);
+    $room = $this->resolveRoom($dungeon_data, $payload_room_id);
     if ($room === NULL) {
-      throw new \RuntimeException('Room not found in the active dungeon payload.', 404);
+      return $this->buildUnavailableRoomViewPayload(
+        $campaign_id,
+        $room_id,
+        'Room view image is not ready yet for this room.'
+      );
     }
 
     $campaign_room_cache_key = $this->resolveCampaignRoomCacheObjectId($campaign_id, $room_id, $room, $dungeon_data);
@@ -1309,6 +1318,116 @@ class RoomViewImageService {
     }
 
     return NULL;
+  }
+
+  /**
+   * Resolve a requested campaign room slug onto the runtime dungeon payload id.
+   */
+  protected function resolvePayloadRoomIdForRequest(int $campaign_id, string $room_id, array $dungeon_data): string {
+    if ($room_id === '' || $this->resolveRoom($dungeon_data, $room_id) !== NULL) {
+      return $room_id;
+    }
+
+    $campaign_room = $this->loadCampaignRoomRecord($campaign_id, $room_id);
+    if (!is_array($campaign_room)) {
+      return $room_id;
+    }
+
+    $candidate_ids = array_values(array_unique(array_filter([
+      trim((string) ($campaign_room['room_id'] ?? '')),
+      trim((string) ($campaign_room['source_room_id'] ?? '')),
+      $room_id,
+    ])));
+    $campaign_room_name = trim((string) ($campaign_room['name'] ?? ''));
+
+    foreach (($dungeon_data['rooms'] ?? []) as $candidate_key => $candidate) {
+      if (!is_array($candidate)) {
+        continue;
+      }
+
+      $candidate_room_id = trim((string) ($candidate['room_id'] ?? $candidate['id'] ?? $candidate_key));
+      $candidate_source_room_id = trim((string) ($candidate['source_room_id'] ?? $candidate['canonical_room_id'] ?? ''));
+      $candidate_name = trim((string) ($candidate['name'] ?? ''));
+
+      if (
+        ($candidate_room_id !== '' && in_array($candidate_room_id, $candidate_ids, TRUE))
+        || ($candidate_source_room_id !== '' && in_array($candidate_source_room_id, $candidate_ids, TRUE))
+      ) {
+        return $candidate_room_id !== '' ? $candidate_room_id : $room_id;
+      }
+
+      if ($campaign_room_name !== '' && $candidate_name !== '' && strcasecmp($candidate_name, $campaign_room_name) === 0) {
+        return $candidate_room_id !== '' ? $candidate_room_id : $room_id;
+      }
+    }
+
+    foreach (($dungeon_data['hex_map']['regions'] ?? []) as $region) {
+      if (!is_array($region)) {
+        continue;
+      }
+
+      $region_name = trim((string) ($region['name'] ?? ''));
+      if ($campaign_room_name === '' || $region_name === '' || strcasecmp($region_name, $campaign_room_name) !== 0) {
+        continue;
+      }
+
+      foreach (($region['room_ids'] ?? []) as $region_room_id) {
+        $resolved_room_id = trim((string) $region_room_id);
+        if ($resolved_room_id !== '' && $this->resolveRoom($dungeon_data, $resolved_room_id) !== NULL) {
+          return $resolved_room_id;
+        }
+      }
+    }
+
+    return $room_id;
+  }
+
+  /**
+   * Load the persisted campaign-room record for slug/runtime bridging.
+   *
+   * @return array<string, mixed>|null
+   *   Campaign-room record or NULL if none exists.
+   */
+  protected function loadCampaignRoomRecord(int $campaign_id, string $room_id): ?array {
+    if ($campaign_id <= 0 || $room_id === '') {
+      return NULL;
+    }
+
+    $record = $this->database->select('dc_campaign_rooms', 'r')
+      ->fields('r', ['room_id', 'source_room_id', 'name'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('room_id', $room_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+
+    return is_array($record) ? $record : NULL;
+  }
+
+  /**
+   * Build a structured unavailable payload instead of surfacing a hard 404.
+   */
+  protected function buildUnavailableRoomViewPayload(int $campaign_id, string $room_id, string $message): array {
+    $campaign_room = $this->loadCampaignRoomRecord($campaign_id, $room_id) ?? [];
+    $room_meta = $this->buildRoomMeta([
+      'room_id' => $room_id,
+      'name' => (string) ($campaign_room['name'] ?? ''),
+      'description' => '',
+    ], $room_id);
+
+    return [
+      'success' => FALSE,
+      'available' => FALSE,
+      'status' => 'pending',
+      'provider' => 'unavailable',
+      'mode' => 'establishing',
+      'message' => $message,
+      'room' => $room_meta,
+      'message_batch_size' => 0,
+      'generated_entry_count' => 0,
+      'character_reference_count' => 0,
+      'entries' => [],
+    ];
   }
 
   /**

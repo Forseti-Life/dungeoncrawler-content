@@ -179,7 +179,7 @@ class RoomGeneratorService {
    *
    * @return array
    *   Complete room structure matching room.schema.json:
-   *   - room_id: string (UUID)
+   *   - room_id: string (stable room identifier)
    *   - name: string
    *   - description: string
    *   - hexes: array of hex objects with terrain
@@ -247,11 +247,7 @@ class RoomGeneratorService {
     $lighting = $this->generateLighting($context);
 
     // Compute room_id early so entities can reference it
-    $room_id = sprintf('room_%d_%d_%d',
-      $context['dungeon_id'],
-      $context['level_id'],
-      $context['room_index']
-    );
+    $room_id = $this->buildRoomId($context);
     $context['room_id'] = $room_id;
 
     // Step 5: Place entities (creatures, items, hazards)
@@ -387,11 +383,7 @@ class RoomGeneratorService {
    *   Cached room data array, or NULL if not found.
    */
   protected function getRoomFromCache(array $context): ?array {
-    $room_id = sprintf('room_%d_%d_%d',
-      $context['dungeon_id'] ?? 0,
-      $context['level_id'] ?? 0,
-      $context['room_index'] ?? 0
-    );
+    $room_id = $this->buildRoomId($context);
 
     try {
       $row = $this->database->select('dc_campaign_rooms', 'r')
@@ -1535,6 +1527,33 @@ class RoomGeneratorService {
       ->execute();
 
     return (int) $db_id;
+  }
+
+  /**
+   * Builds the stable room identifier used by room generation and caching.
+   *
+   * @param array $context
+   *   Generation context with dungeon_id, level_id, and room_index.
+   */
+  protected function buildRoomId(array $context): string {
+    return sprintf(
+      'room_%s_%s_%s',
+      $this->normalizeRoomIdPart($context['dungeon_id'] ?? 0),
+      $this->normalizeRoomIdPart($context['level_id'] ?? 0),
+      $this->normalizeRoomIdPart($context['room_index'] ?? 0)
+    );
+  }
+
+  /**
+   * Normalizes a room-id segment into a stable URL-safe identifier token.
+   *
+   * @param mixed $value
+   *   Segment source value.
+   */
+  protected function normalizeRoomIdPart($value): string {
+    $normalized = preg_replace('/[^A-Za-z0-9_-]+/', '_', trim((string) $value));
+    $normalized = trim((string) $normalized, '_');
+    return $normalized !== '' ? $normalized : '0';
   }
 
 }

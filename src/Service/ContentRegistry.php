@@ -22,6 +22,11 @@ class ContentRegistry {
   protected const SPELL_TYPES = ['spell', 'cantrip', 'focus', 'ritual'];
 
   /**
+   * Valid canonical feat categories accepted by registry imports.
+   */
+  protected const FEAT_TYPES = ['ancestry', 'class', 'general', 'skill'];
+
+  /**
    * The database connection.
    *
    * @var \Drupal\Core\Database\Connection
@@ -84,14 +89,21 @@ class ContentRegistry {
     $types_to_load = $content_type ? [$content_type] : $this->getContentTypes();
     
     foreach ($types_to_load as $type) {
+      $generated_records = $this->getGeneratedRegistryRecords($type);
       $type_dirs = array_values(array_filter(
         $this->getImportDirectories($type),
         static fn(string $dir): bool => is_dir($dir)
       ));
 
-      if ($type_dirs === []) {
+      if ($type_dirs === [] && $generated_records === []) {
         $logger->warning('Content directory not found: @dir', ['@dir' => implode(', ', $this->getImportDirectories($type))]);
         continue;
+      }
+
+      foreach ($generated_records as $record) {
+        if ($this->importPreparedRecord($type, $record, $source_filter, '[generated]')) {
+          $count++;
+        }
       }
 
       foreach ($type_dirs as $type_dir) {
@@ -103,29 +115,9 @@ class ContentRegistry {
             $records = $this->prepareRegistryRecords($type, $payload, $file);
 
             foreach ($records as $record) {
-              if (empty($record['content_id']) || empty($record['name'])) {
-                $logger->error('Invalid content in @file: missing id or name', ['@file' => $file]);
-                continue;
+              if ($this->importPreparedRecord($type, $record, $source_filter, $file)) {
+                $count++;
               }
-
-              if ($source_filter !== NULL) {
-                $record_source = $record['schema_data']['bestiary_source'] ?? NULL;
-                if ($record_source !== $source_filter) {
-                  continue;
-                }
-              }
-
-              $validation = $this->validateContent($type, $record['schema_data']);
-              if (!$validation['valid']) {
-                $logger->error('Validation failed for @file: @errors', [
-                  '@file' => $file,
-                  '@errors' => implode(', ', $validation['errors']),
-                ]);
-                continue;
-              }
-
-              $this->upsertRegistryRecord($type, $record);
-              $count++;
             }
           }
           catch (\Exception $e) {
@@ -140,6 +132,49 @@ class ContentRegistry {
     
     $logger->notice('Imported @count content items', ['@count' => $count]);
     return $count;
+  }
+
+  /**
+   * Imports a prepared registry record after source filtering and validation.
+   *
+   * @param string $content_type
+   *   Registry content type.
+   * @param array<string, mixed> $record
+   *   Prepared registry record.
+   * @param string|null $source_filter
+   *   Optional creature-source filter.
+   * @param string $source_label
+   *   Human-readable source label for logging.
+   *
+   * @return bool
+   *   TRUE when the record was imported; FALSE when skipped.
+   */
+  protected function importPreparedRecord(string $content_type, array $record, ?string $source_filter, string $source_label): bool {
+    $logger = $this->loggerFactory->get('dungeoncrawler_content');
+
+    if (empty($record['content_id']) || empty($record['name'])) {
+      $logger->error('Invalid content in @source: missing id or name', ['@source' => $source_label]);
+      return FALSE;
+    }
+
+    if ($source_filter !== NULL) {
+      $record_source = $record['schema_data']['bestiary_source'] ?? NULL;
+      if ($record_source !== $source_filter) {
+        return FALSE;
+      }
+    }
+
+    $validation = $this->validateContent($content_type, $record['schema_data']);
+    if (!$validation['valid']) {
+      $logger->error('Validation failed for @source: @errors', [
+        '@source' => $source_label,
+        '@errors' => implode(', ', $validation['errors']),
+      ]);
+      return FALSE;
+    }
+
+    $this->upsertRegistryRecord($content_type, $record);
+    return TRUE;
   }
 
   /**
@@ -164,6 +199,19 @@ class ContentRegistry {
     }
 
     return array_values(array_unique($directories));
+  }
+
+  /**
+   * Returns generated records for content types that still need synthetic rows.
+   *
+   * @param string $content_type
+   *   Content type being imported.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Prepared registry rows.
+   */
+  protected function getGeneratedRegistryRecords(string $content_type): array {
+    return [];
   }
 
   /**
@@ -244,6 +292,12 @@ class ContentRegistry {
         $schema_data['spell_type'] = $schema_data['is_cantrip'] ? 'cantrip' : 'spell';
       }
     }
+    elseif ($record_type === 'feat') {
+      $content_id = $this->normalizeFeatContentId((string) $content_id);
+      $schema_data['id'] = $content_id;
+      $schema_data[$id_field] = $content_id;
+      $schema_data['content_id'] = $content_id;
+    }
     else {
       $schema_data['content_id'] = (string) $content_id;
     }
@@ -258,6 +312,9 @@ class ContentRegistry {
     $tags = $content_data['tags'] ?? $schema_data['tags'] ?? $schema_data['traits'] ?? [];
     if ($record_type === 'spell' && $tags === []) {
       $tags = $this->buildSpellTags($schema_data);
+    }
+    elseif ($record_type === 'feat' && $tags === []) {
+      $tags = $this->buildFeatTags($schema_data);
     }
 
     $normalized_tags = $this->normalizeTagList($tags);
@@ -459,6 +516,10 @@ class ContentRegistry {
 
       case 'spell':
         $errors = array_merge($errors, $this->validateSpell($content_data));
+        break;
+
+      case 'feat':
+        $errors = array_merge($errors, $this->validateFeat($content_data));
         break;
     }
     
@@ -707,6 +768,45 @@ class ContentRegistry {
   }
 
   /**
+   * Validate feat-specific fields.
+   *
+   * @param array $data
+   *   Feat data.
+   *
+   * @return array
+   *   Array of validation errors.
+   */
+  protected function validateFeat(array $data): array {
+    $errors = [];
+
+    $feat_type = strtolower((string) ($data['type'] ?? $data['feat_type'] ?? ''));
+    if ($feat_type === '') {
+      $errors[] = 'Feat must have type';
+    }
+    elseif (!in_array($feat_type, self::FEAT_TYPES, TRUE)) {
+      $errors[] = 'Feat type must be one of: ' . implode(', ', self::FEAT_TYPES);
+    }
+
+    $level = $data['level'] ?? NULL;
+    if (!isset($level) || !is_numeric($level)) {
+      $errors[] = 'Feat must have a numeric level';
+    }
+    elseif ((int) $level < 1 || (int) $level > 20) {
+      $errors[] = 'Feat level must be between 1 and 20';
+    }
+
+    if (isset($data['traits']) && !is_array($data['traits'])) {
+      $errors[] = 'Feat traits must be an array';
+    }
+
+    if (!empty($data['source_book']) && !is_scalar($data['source_book'])) {
+      $errors[] = 'Feat source_book must be a string';
+    }
+
+    return $errors;
+  }
+
+  /**
    * Update content in registry.
    *
    * @param string $content_type
@@ -874,6 +974,40 @@ class ContentRegistry {
       return $content_data;
     }
 
+    if ($content_type === 'feat') {
+      if (!empty($content_data['id']) && is_string($content_data['id'])) {
+        $content_data['id'] = $this->normalizeFeatContentId($content_data['id']);
+      }
+      if (!empty($content_data['feat_id']) && is_string($content_data['feat_id'])) {
+        $content_data['feat_id'] = $this->normalizeFeatContentId($content_data['feat_id']);
+      }
+      if (!empty($content_data['content_id']) && is_string($content_data['content_id'])) {
+        $content_data['content_id'] = $this->normalizeFeatContentId($content_data['content_id']);
+      }
+      if (!empty($content_data['type']) && is_string($content_data['type'])) {
+        $content_data['type'] = strtolower(trim($content_data['type']));
+      }
+      if (!empty($content_data['source_book']) && is_string($content_data['source_book'])) {
+        $content_data['source_book'] = strtolower(trim($content_data['source_book']));
+      }
+      if (!empty($content_data['class']) && is_string($content_data['class'])) {
+        $content_data['class'] = $this->normalizeFeatContentId($content_data['class']);
+      }
+      if (!empty($content_data['ancestry']) && is_string($content_data['ancestry'])) {
+        $content_data['ancestry'] = $this->normalizeFeatContentId($content_data['ancestry']);
+      }
+      if (!empty($content_data['skill']) && is_string($content_data['skill'])) {
+        $content_data['skill'] = strtolower(trim($content_data['skill']));
+      }
+      if (isset($content_data['traits']) && is_array($content_data['traits'])) {
+        $content_data['traits'] = array_values(array_filter(array_map(
+          static fn($trait): string => trim((string) $trait),
+          $content_data['traits']
+        ), static fn(string $trait): bool => $trait !== ''));
+      }
+      return $content_data;
+    }
+
     if ($content_type !== 'creature') {
       return $content_data;
     }
@@ -914,7 +1048,7 @@ class ContentRegistry {
    *   Array of content type names.
    */
   public function getContentTypes(): array {
-    return ['creature', 'item', 'trap', 'hazard', 'spell'];
+    return ['creature', 'item', 'trap', 'hazard', 'spell', 'feat'];
   }
 
   /**
@@ -922,6 +1056,16 @@ class ContentRegistry {
    */
   protected function normalizeSpellContentId(string $spell_id): string {
     return strtolower(str_replace('_', '-', trim($spell_id)));
+  }
+
+  /**
+   * Normalize a feat content identifier to the canonical hyphenated form.
+   */
+  protected function normalizeFeatContentId(string $feat_id): string {
+    $feat_id = strtolower(trim($feat_id));
+    $feat_id = str_replace(['_', '\''], ['-', ''], $feat_id);
+    $feat_id = preg_replace('/[^a-z0-9]+/', '-', $feat_id) ?? '';
+    return trim($feat_id, '-');
   }
 
   /**
@@ -979,6 +1123,43 @@ class ContentRegistry {
     }
     if (!empty($schema_data['spell_type'])) {
       $tags[] = $schema_data['spell_type'];
+    }
+
+    return $this->normalizeTagList($tags);
+  }
+
+  /**
+   * Derive searchable top-level tags from feat schema metadata.
+   *
+   * @param array<string, mixed> $schema_data
+   *   Feat schema data.
+   *
+   * @return array<int, string>
+   *   Derived tags.
+   */
+  protected function buildFeatTags(array $schema_data): array {
+    $tags = ['feat'];
+
+    if (!empty($schema_data['type'])) {
+      $tags[] = (string) $schema_data['type'];
+    }
+    if (!empty($schema_data['traits']) && is_array($schema_data['traits'])) {
+      $tags = array_merge($tags, $schema_data['traits']);
+    }
+    if (!empty($schema_data['source_book'])) {
+      $tags[] = 'source:' . strtolower((string) $schema_data['source_book']);
+    }
+    if (!empty($schema_data['class'])) {
+      $tags[] = 'class:' . strtolower((string) $schema_data['class']);
+    }
+    if (!empty($schema_data['ancestry'])) {
+      $tags[] = 'ancestry:' . $this->normalizeFeatContentId((string) $schema_data['ancestry']);
+    }
+    if (!empty($schema_data['skill'])) {
+      $tags[] = 'skill:' . strtolower((string) $schema_data['skill']);
+    }
+    if (!empty($schema_data['rarity'])) {
+      $tags[] = strtolower((string) $schema_data['rarity']);
     }
 
     return $this->normalizeTagList($tags);

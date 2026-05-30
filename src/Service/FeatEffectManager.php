@@ -39,6 +39,7 @@ class FeatEffectManager {
       'training_grants' => [
         'skills' => [],
         'lore' => [],
+        'lores' => [],
         'weapons' => [],
         'proficiencies' => [],
       ],
@@ -128,6 +129,34 @@ class FeatEffectManager {
 
         case 'graceful-step':
           $this->addConditionalSkillModifier($effects, 'Acrobatics', 2, 'Balance and Tumble Through');
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'halfling-resolve':
+          $effects['conditional_modifiers']['outcome_upgrades'][] = [
+            'id' => 'halfling-resolve',
+            'target' => 'saving_throw',
+            'from' => 'success',
+            'to' => 'critical_success',
+            'context' => 'emotion effects',
+          ];
+          if (($character_data['heritage'] ?? '') === 'gutsy') {
+            $effects['conditional_modifiers']['outcome_upgrades'][] = [
+              'id' => 'halfling-resolve-gutsy',
+              'target' => 'saving_throw',
+              'from' => 'critical_failure',
+              'to' => 'failure',
+              'context' => 'emotion effects',
+            ];
+          }
+          $effects['derived_adjustments']['flags']['halfling_resolve_emotion_save_upgrade'] = TRUE;
+          $effects['derived_adjustments']['flags']['halfling_resolve_active'] = TRUE;
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'ceaseless-shadows':
+          $effects['derived_adjustments']['flags']['ceaseless_shadows_hide_sneak_no_cover'] = TRUE;
+          $effects['derived_adjustments']['flags']['ceaseless_shadows_creature_cover_upgrade'] = TRUE;
           $effects['applied_feats'][] = $feat_id;
           break;
 
@@ -3650,13 +3679,15 @@ class FeatEffectManager {
           foreach ($selected_skills as $skill_name) {
             $this->addSkillTraining($effects, $skill_name);
           }
-          $this->addSelectionGrant(
-            $effects,
-            'natural-skill',
-            'bonus_skill_training',
-            max(0, 2 - count($selected_skills)),
-            'Select two additional trained skills.'
-          );
+          if (count($selected_skills) < 2) {
+            $this->addSelectionGrant(
+              $effects,
+              'natural-skill',
+              'bonus_skill_training',
+              2 - count($selected_skills),
+              'Select two additional trained skills.'
+            );
+          }
           $effects['applied_feats'][] = $feat_id;
           break;
 
@@ -3810,6 +3841,21 @@ class FeatEffectManager {
           $this->addSkillTraining($effects, 'Acrobatics');
           $this->addSkillTraining($effects, 'Stealth');
           $this->addLoreTraining($effects, 'Catfolk Lore');
+          $effects['applied_feats'][] = $feat_id;
+          break;
+
+        case 'halfling-weapon-expertise':
+          $cascade_rank = $this->getClassWeaponExpertiseRank($this->extractClassFeatures($character_data));
+          if ($cascade_rank !== '') {
+            $this->cascadeWeaponFamiliarityRank(
+              $effects,
+              'Halfling Weapons',
+              $cascade_rank,
+              ['sling', 'halfling sling staff'],
+              ['sling', 'halfling sling staff', 'shortsword']
+            );
+            $effects['derived_adjustments']['flags']['halfling_weapon_expertise_cascade_rank'] = $cascade_rank;
+          }
           $effects['applied_feats'][] = $feat_id;
           break;
 
@@ -5098,18 +5144,9 @@ class FeatEffectManager {
           break;
 
         case 'gnome-weapon-expertise':
-          $cascade_rank = $this->getClassWeaponExpertiseRank($character_data['class_features'] ?? []);
+          $cascade_rank = $this->getClassWeaponExpertiseRank($this->extractClassFeatures($character_data));
           if ($cascade_rank !== '') {
-            foreach ($effects['training_grants']['weapons'] as &$weapon_entry) {
-              if (($weapon_entry['group'] ?? '') === 'Gnome Weapons') {
-                $existing_rank = $weapon_entry['proficiency'] ?? 'trained';
-                $rank_order = ['untrained' => 0, 'trained' => 1, 'expert' => 2, 'master' => 3, 'legendary' => 4];
-                if (($rank_order[$cascade_rank] ?? 0) > ($rank_order[$existing_rank] ?? 0)) {
-                  $weapon_entry['proficiency'] = $cascade_rank;
-                }
-              }
-            }
-            unset($weapon_entry);
+            $this->cascadeWeaponFamiliarityRank($effects, 'Gnome Weapons', $cascade_rank, ['glaive', 'kukri']);
             $effects['derived_adjustments']['flags']['gnome_weapon_expertise_cascade_rank'] = $cascade_rank;
           }
           $effects['applied_feats'][] = $feat_id;
@@ -6454,15 +6491,19 @@ class FeatEffectManager {
    * Add a trained skill grant.
    */
   private function addSkillTraining(array &$effects, string $skill_name): void {
-    if (!in_array($skill_name, $effects['training_grants']['skills'], TRUE)) {
-      $effects['training_grants']['skills'][] = $skill_name;
-    }
+    $effects['training_grants']['skills'][$skill_name] = 'trained';
   }
 
   /**
    * Add a lore skill grant.
+   *
+   * During migration, training_grants.lore remains a legacy hybrid bucket used as
+   * both keyed lookup and contains-able list, while training_grants.lores is the
+   * canonical keyed lookup for newer consumers.
    */
   private function addLoreTraining(array &$effects, string $lore_name): void {
+    $effects['training_grants']['lores'][$lore_name] = 'trained';
+    $effects['training_grants']['lore'][$lore_name] = 'trained';
     if (!in_array($lore_name, $effects['training_grants']['lore'], TRUE)) {
       $effects['training_grants']['lore'][] = $lore_name;
     }
@@ -6483,6 +6524,37 @@ class FeatEffectManager {
       'proficiency' => 'trained',
       'examples' => $examples,
     ];
+  }
+
+  /**
+   * Ensure a named weapon familiarity grant exists and return its array index.
+   */
+  private function ensureWeaponFamiliarityIndex(array &$effects, string $group_name, array $examples = []): int {
+    foreach ($effects['training_grants']['weapons'] as $index => $existing) {
+      if (($existing['group'] ?? '') === $group_name) {
+        return $index;
+      }
+    }
+
+    $this->addWeaponFamiliarity($effects, $group_name, $examples);
+    return array_key_last($effects['training_grants']['weapons']);
+  }
+
+  /**
+   * Cascade a class weapon proficiency rank into a familiarity grant.
+   */
+  private function cascadeWeaponFamiliarityRank(array &$effects, string $group_name, string $cascade_rank, array $examples = [], array $specific_weapons = []): void {
+    $weapon_index = $this->ensureWeaponFamiliarityIndex($effects, $group_name, $examples);
+    $existing_rank = $effects['training_grants']['weapons'][$weapon_index]['proficiency'] ?? 'trained';
+    $rank_order = ['untrained' => 0, 'trained' => 1, 'expert' => 2, 'master' => 3, 'legendary' => 4];
+
+    if (($rank_order[$cascade_rank] ?? 0) > ($rank_order[$existing_rank] ?? 0)) {
+      $effects['training_grants']['weapons'][$weapon_index]['proficiency'] = $cascade_rank;
+    }
+
+    if ($specific_weapons !== []) {
+      $effects['training_grants']['weapons'][$weapon_index]['specific_weapons'] = $specific_weapons;
+    }
   }
 
   /**
@@ -6566,6 +6638,7 @@ class FeatEffectManager {
       }
     }
     $effects['selection_grants'][] = [
+      'feat_id' => $source_feat,
       'source' => $source_feat,
       'source_feat' => $source_feat,
       'id' => $selection_type,
@@ -6574,6 +6647,20 @@ class FeatEffectManager {
       'status' => 'pending_choice',
       'description' => $description,
     ];
+  }
+
+  /**
+   * Resolve class features from either legacy or canonical payload shape.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Normalized class feature list.
+   */
+  private function extractClassFeatures(array $character_data): array {
+    $features = $character_data['features']['classFeatures']
+      ?? $character_data['class_features']
+      ?? [];
+
+    return is_array($features) ? $features : [];
   }
 
   /**
@@ -6793,6 +6880,7 @@ class FeatEffectManager {
       'bonus' => $bonus,
       'context' => $context,
       'type' => 'circumstance',
+      'bonus_type' => 'circumstance',
     ];
   }
 
