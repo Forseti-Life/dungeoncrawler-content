@@ -13,6 +13,15 @@ use Drupal\ai_conversation\Service\AIApiService;
  */
 class CharacterCreationGmService {
 
+  protected const GM_FACTION_CREATE_LABELS_FIELD = 'faction_refs_create_labels';
+  protected const GM_FACTION_CREATE_ROLE_FIELD = 'faction_refs_create_role';
+  protected const GM_FACTION_CREATE_WHY_FIELD = 'faction_refs_create_why';
+  protected const GM_FACTION_CREATE_PUBLIC_FACE_FIELD = 'faction_refs_create_public_face';
+  protected const GM_FACTION_CREATE_HIDDEN_FACE_FIELD = 'faction_refs_create_hidden_face';
+  protected const GM_FACTION_CREATE_IDEOLOGY_TAGS_FIELD = 'faction_refs_create_ideology_tags';
+  protected const GM_FACTION_CREATE_METHOD_TAGS_FIELD = 'faction_refs_create_method_tags';
+  protected const GM_FACTION_CREATE_MEMBERSHIP_STYLE_FIELD = 'faction_refs_create_membership_style';
+
   /**
    * Constructs the service.
    */
@@ -23,6 +32,8 @@ class CharacterCreationGmService {
     protected UuidInterface $uuid,
     protected CharacterManager $characterManager,
     protected AbilityScoreTracker $abilityScoreTracker,
+    protected InstitutionMembershipService $institutionMembership,
+    protected FactionGenerationService $factionGeneration,
     protected ?AIApiService $aiApiService = NULL,
   ) {}
 
@@ -36,10 +47,11 @@ class CharacterCreationGmService {
 
     $requested_character_id = $character_id ? (int) $character_id : 0;
     $record = $character_id ? $this->loadOwnedDraft($character_id) : NULL;
+    $resolved_campaign_id = $this->resolveDraftCampaignId($record, $campaign_id);
     $character_data = $this->loadCharacterData($record);
     $history = $this->getChatHistory($character_data);
 
-    $prompt = $this->buildUserPrompt($message, $step, $character_data, $history);
+    $prompt = $this->buildUserPrompt($message, $step, $character_data, $history, $resolved_campaign_id);
     $result = $this->aiApiService->invokeModelDirect(
       $prompt,
       'dungeoncrawler_content',
@@ -47,7 +59,7 @@ class CharacterCreationGmService {
       [
         'uid' => (int) $this->currentUser->id(),
         'character_id' => $character_id ?? 0,
-        'campaign_id' => $campaign_id ?? 0,
+        'campaign_id' => $resolved_campaign_id,
         'step' => $step,
         'message_hash' => sha1($message),
       ],
@@ -92,11 +104,11 @@ class CharacterCreationGmService {
       'last_updated' => date('c', $timestamp),
     ];
 
-    $saved_character_id = $this->saveDraft($record, $character_data, $campaign_id);
+    $saved_character_id = $this->saveDraft($record, $character_data, $resolved_campaign_id);
 
     $query = ['character_id' => $saved_character_id];
-    if ($campaign_id) {
-      $query['campaign_id'] = $campaign_id;
+    if ($resolved_campaign_id > 0) {
+      $query['campaign_id'] = $resolved_campaign_id;
     }
 
     return [
@@ -180,7 +192,7 @@ PROMPT;
   /**
    * Builds the user prompt with current draft context.
    */
-  private function buildUserPrompt(string $message, int $step, array $character_data, array $history): string {
+  private function buildUserPrompt(string $message, int $step, array $character_data, array $history, ?int $campaign_id = NULL): string {
     $recent_history = array_slice($history, -8);
     $history_lines = [];
     foreach ($recent_history as $entry) {
@@ -223,10 +235,31 @@ PROMPT;
       }
     }
 
+    $allowed_update_fields = [
+      'name', 'concept', 'ancestry', 'heritage', 'ancestry_boosts', 'background',
+      'background_boosts', 'class', 'class_key_ability', 'class_feat', 'subclass',
+      'cantrips', 'spells_first', 'free_boosts', 'trained_skills', 'alignment',
+      'deity', 'general_feat', 'age', 'gender', 'appearance', 'personality',
+      'roleplay_style', 'backstory', 'portrait_generate', 'portrait_prompt',
+      'equipment_ids',
+    ];
+    if (($campaign_id ?? 0) > 0 && $this->factionGeneration->isGenerationStorageReady()) {
+      $allowed_update_fields = array_merge($allowed_update_fields, [
+        'faction_refs_create_labels',
+        'faction_refs_create_role',
+        'faction_refs_create_why',
+        'faction_refs_create_public_face',
+        'faction_refs_create_hidden_face',
+        'faction_refs_create_ideology_tags',
+        'faction_refs_create_method_tags',
+        'faction_refs_create_membership_style',
+      ]);
+    }
+
     return implode("\n\n", [
       'CURRENT STEP: ' . $step,
       'CURRENT DRAFT JSON: ' . json_encode($this->buildPromptCharacterContext($character_data), JSON_PRETTY_PRINT),
-      'ALLOWED UPDATE FIELDS: name, concept, ancestry, heritage, ancestry_boosts, background, background_boosts, class, class_key_ability, class_feat, subclass, cantrips, spells_first, free_boosts, trained_skills, alignment, deity, general_feat, age, gender, appearance, personality, roleplay_style, backstory, portrait_generate, portrait_prompt, equipment_ids',
+      'ALLOWED UPDATE FIELDS: ' . implode(', ', $allowed_update_fields),
       'VALID ANCESTRIES: ' . implode('; ', $ancestry_options),
       'VALID BACKGROUNDS: ' . implode('; ', $background_options),
       'VALID CLASSES: ' . implode('; ', $class_options),
@@ -256,8 +289,8 @@ PROMPT;
       'class_key_ability' => $character_data['class_key_ability'] ?? '',
       'class_feat' => $character_data['class_feat'] ?? '',
       'subclass' => $character_data['subclass'] ?? '',
-      'cantrips' => $character_data['cantrips'] ?? [],
-      'spells_first' => $character_data['spells_first'] ?? [],
+      'cantrips' => CharacterManager::getSelectedCantripIds($character_data),
+      'spells_first' => CharacterManager::getSelectedFirstLevelSpellIds($character_data),
       'free_boosts' => $character_data['free_boosts'] ?? [],
       'alignment' => $character_data['alignment'] ?? '',
       'deity' => $character_data['deity'] ?? '',
@@ -272,6 +305,7 @@ PROMPT;
       'portrait_generate' => $character_data['portrait_generate'] ?? 1,
       'portrait_prompt' => $character_data['portrait_prompt'] ?? '',
       'equipment_ids' => $character_data['gm_equipment_ids'] ?? [],
+      'faction_refs' => $character_data['faction_refs'] ?? [],
     ];
   }
 
@@ -331,6 +365,13 @@ PROMPT;
       'roleplay_style',
       'backstory',
       'portrait_prompt',
+      self::GM_FACTION_CREATE_ROLE_FIELD,
+      self::GM_FACTION_CREATE_WHY_FIELD,
+      self::GM_FACTION_CREATE_PUBLIC_FACE_FIELD,
+      self::GM_FACTION_CREATE_HIDDEN_FACE_FIELD,
+      self::GM_FACTION_CREATE_IDEOLOGY_TAGS_FIELD,
+      self::GM_FACTION_CREATE_METHOD_TAGS_FIELD,
+      self::GM_FACTION_CREATE_MEMBERSHIP_STYLE_FIELD,
     ];
 
     foreach ($string_fields as $field) {
@@ -372,7 +413,7 @@ PROMPT;
       }
     }
 
-    foreach (['cantrips', 'spells_first', 'trained_skills', 'equipment_ids'] as $field) {
+    foreach (['cantrips', 'spells_first', 'trained_skills', 'equipment_ids', self::GM_FACTION_CREATE_LABELS_FIELD] as $field) {
       if (array_key_exists($field, $updates)) {
         $sanitized[$field] = $this->sanitizeStringList($updates[$field]);
       }
@@ -485,7 +526,7 @@ PROMPT;
     if ($record) {
       $data = json_decode((string) $record->character_data, TRUE);
       $form_data = is_array($data['wizard'] ?? NULL) ? $data['wizard'] : $data;
-      return is_array($form_data) ? $form_data : [];
+      return $this->characterManager->canonicalizeCharacterData(is_array($form_data) ? $form_data : []);
     }
 
     return [
@@ -530,66 +571,183 @@ PROMPT;
    */
   private function saveDraft(?object $record, array $character_data, ?int $campaign_id): int {
     $now = $this->time->getRequestTime();
-    $schema_data = $this->characterManager->canonicalizeCharacterData($character_data);
-    if (empty($schema_data['created_at'])) {
-      $schema_data['created_at'] = date('c', $now);
+    $resolved_campaign_id = $this->resolveDraftCampaignId($record, $campaign_id);
+    $character_id = 0;
+    $instance_id = '';
+
+    try {
+      $transaction = $this->database->startTransaction();
+      $this->resolveFactionDraftCreations($character_data, $resolved_campaign_id);
+      
+      // Ensure nested wizard state is synced with top-level updates before canonicalization.
+      if (isset($character_data['gm_chat']) && is_array($character_data['gm_chat'])) {
+        if (!isset($character_data['wizard']) || !is_array($character_data['wizard'])) {
+          $character_data['wizard'] = [];
+        }
+        $character_data['wizard']['gm_chat'] = $character_data['gm_chat'];
+      }
+      
+      $schema_data = $this->characterManager->canonicalizeCharacterData($character_data);
+      if (empty($schema_data['created_at'])) {
+        $schema_data['created_at'] = date('c', $now);
+      }
+      $schema_data['updated_at'] = date('c', $now);
+      $hot = $this->characterManager->extractHotColumnsFromData($schema_data);
+
+      if ($record) {
+        $next_version = (int) ($record->version ?? 0) + 1;
+        $this->database->update('dc_campaign_characters')
+          ->fields([
+            'campaign_id' => $resolved_campaign_id,
+            'name' => $schema_data['name'] ?: 'Unnamed Character',
+            'level' => $schema_data['level'],
+            'ancestry' => $schema_data['ancestry'] ?? '',
+            'class' => $schema_data['class'] ?? '',
+            'hp_current' => $hot['hp_current'],
+            'hp_max' => $hot['hp_max'],
+            'armor_class' => $hot['armor_class'],
+            'experience_points' => (int) ($schema_data['experience_points'] ?? 0),
+            'position_q' => (int) ($schema_data['position']['q'] ?? 0),
+            'position_r' => (int) ($schema_data['position']['r'] ?? 0),
+            'last_room_id' => (string) ($schema_data['position']['room_id'] ?? ''),
+            'character_data' => json_encode($schema_data, JSON_PRETTY_PRINT),
+            'status' => $schema_data['step'] >= 8 ? 1 : 0,
+            'version' => $next_version,
+            'changed' => $now,
+          ])
+          ->condition('id', (int) $record->id)
+          ->execute();
+        $character_id = (int) $record->id;
+        $instance_id = (string) ($record->instance_id ?? '');
+      }
+      else {
+        $instance_id = $this->uuid->generate();
+        $character_id = (int) $this->database->insert('dc_campaign_characters')
+          ->fields([
+            'uuid' => $instance_id,
+            'campaign_id' => $resolved_campaign_id,
+            'character_id' => 0,
+            'instance_id' => $instance_id,
+            'uid' => (int) $this->currentUser->id(),
+            'name' => $schema_data['name'] ?: 'Unnamed Character',
+            'level' => $schema_data['level'],
+            'ancestry' => $schema_data['ancestry'] ?? '',
+            'class' => $schema_data['class'] ?? '',
+            'hp_current' => $hot['hp_current'],
+            'hp_max' => $hot['hp_max'],
+            'armor_class' => $hot['armor_class'],
+            'experience_points' => (int) ($schema_data['experience_points'] ?? 0),
+            'position_q' => (int) ($schema_data['position']['q'] ?? 0),
+            'position_r' => (int) ($schema_data['position']['r'] ?? 0),
+            'last_room_id' => (string) ($schema_data['position']['room_id'] ?? ''),
+            'character_data' => json_encode($schema_data, JSON_PRETTY_PRINT),
+            'status' => $schema_data['step'] >= 8 ? 1 : 0,
+            'created' => $now,
+            'changed' => $now,
+          ])
+          ->execute();
+      }
+
+      if ($resolved_campaign_id > 0 && $instance_id !== '' && (int) ($schema_data['step'] ?? 0) >= 8) {
+        $this->institutionMembership->syncCampaignCharacterMemberships(
+          $resolved_campaign_id,
+          $instance_id,
+          $schema_data
+        );
+      }
     }
-    $schema_data['updated_at'] = date('c', $now);
-    $hot = $this->characterManager->extractHotColumnsFromData($schema_data);
-    $resolved_campaign_id = $campaign_id ?: 0;
-
-    if ($record) {
-      $next_version = (int) ($record->version ?? 0) + 1;
-      $this->database->update('dc_campaign_characters')
-        ->fields([
-          'campaign_id' => $resolved_campaign_id,
-          'name' => $schema_data['name'] ?: 'Unnamed Character',
-          'level' => $schema_data['level'],
-          'ancestry' => $schema_data['ancestry'] ?? '',
-          'class' => $schema_data['class'] ?? '',
-          'hp_current' => $hot['hp_current'],
-          'hp_max' => $hot['hp_max'],
-          'armor_class' => $hot['armor_class'],
-          'experience_points' => (int) ($schema_data['experience_points'] ?? 0),
-          'position_q' => (int) ($schema_data['position']['q'] ?? 0),
-          'position_r' => (int) ($schema_data['position']['r'] ?? 0),
-          'last_room_id' => (string) ($schema_data['position']['room_id'] ?? ''),
-          'character_data' => json_encode($schema_data, JSON_PRETTY_PRINT),
-          'status' => $schema_data['step'] >= 8 ? 1 : 0,
-          'version' => $next_version,
-          'changed' => $now,
-        ])
-        ->condition('id', (int) $record->id)
-        ->execute();
-
-      return (int) $record->id;
+    catch (\Throwable $exception) {
+      if (is_object($transaction ?? NULL) && method_exists($transaction, 'rollBack')) {
+        $transaction->rollBack();
+      }
+      throw $exception;
     }
 
-    $instance_id = $this->uuid->generate();
-    return (int) $this->database->insert('dc_campaign_characters')
-      ->fields([
-        'uuid' => $instance_id,
-        'campaign_id' => $resolved_campaign_id,
-        'character_id' => 0,
-        'instance_id' => $instance_id,
-        'uid' => (int) $this->currentUser->id(),
-        'name' => $schema_data['name'] ?: 'Unnamed Character',
-        'level' => $schema_data['level'],
-        'ancestry' => $schema_data['ancestry'] ?? '',
-        'class' => $schema_data['class'] ?? '',
-        'hp_current' => $hot['hp_current'],
-        'hp_max' => $hot['hp_max'],
-        'armor_class' => $hot['armor_class'],
-        'experience_points' => (int) ($schema_data['experience_points'] ?? 0),
-        'position_q' => (int) ($schema_data['position']['q'] ?? 0),
-        'position_r' => (int) ($schema_data['position']['r'] ?? 0),
-        'last_room_id' => (string) ($schema_data['position']['room_id'] ?? ''),
-        'character_data' => json_encode($schema_data, JSON_PRETTY_PRINT),
-        'status' => 0,
-        'created' => $now,
-        'changed' => $now,
-      ])
-      ->execute();
+    return $character_id;
+  }
+
+  /**
+   * Resolves the campaign binding for a GM draft save.
+   */
+  private function resolveDraftCampaignId(?object $record, ?int $campaign_id): int {
+    if ($record && !empty($record->campaign_id)) {
+      return (int) $record->campaign_id;
+    }
+    return $campaign_id ?? 0;
+  }
+
+  /**
+   * Resolves any pending GM-authored faction draft creations into subject ids.
+   */
+  private function resolveFactionDraftCreations(array &$character_data, int $campaign_id): void {
+    $labels = $this->sanitizeStringList($character_data[self::GM_FACTION_CREATE_LABELS_FIELD] ?? []);
+    if ($labels !== [] && $campaign_id <= 0) {
+      throw new \InvalidArgumentException('GM faction creation requires a campaign context.', 400);
+    }
+
+    if ($campaign_id <= 0) {
+      $this->clearFactionDraftHelperFields($character_data);
+      return;
+    }
+
+    if ($labels === []) {
+      $this->clearFactionDraftHelperFields($character_data);
+      return;
+    }
+
+    if (!$this->factionGeneration->isGenerationStorageReady()) {
+      throw new \InvalidArgumentException('Faction generation requires the library manifest and campaign subject registry storage to be installed.', 400);
+    }
+
+    $this->validateFactionDraftCreationRequest($character_data);
+    $resolved_subject_ids = $this->normalizeFactionRefIds($character_data['faction_refs'] ?? []);
+    foreach ($labels as $label) {
+      $resolved = $this->factionGeneration->createOrReuseFactionForNeed($campaign_id, $this->buildFactionDraftCreationRequest($character_data, $label));
+      $resolved_subject_id = trim((string) ($resolved['campaignSubjectId'] ?? ''));
+      if ($resolved_subject_id !== '') {
+        $resolved_subject_ids[] = $resolved_subject_id;
+      }
+    }
+
+    $character_data['faction_refs'] = array_values(array_unique($resolved_subject_ids));
+    $this->clearFactionDraftHelperFields($character_data);
+  }
+
+  /**
+   * Validates that the GM helper field bundle can create a canonical faction.
+   */
+  private function validateFactionDraftCreationRequest(array $character_data): void {
+    $labels = $this->sanitizeStringList($character_data[self::GM_FACTION_CREATE_LABELS_FIELD] ?? []);
+    foreach ($labels as $label) {
+      try {
+        $this->factionGeneration->normalizeNarrativeNeedRequest(1, $this->buildFactionDraftCreationRequest($character_data, $label));
+      }
+      catch (\InvalidArgumentException $exception) {
+        throw new \InvalidArgumentException('GM faction creation update is incomplete: ' . $exception->getMessage(), 400, $exception);
+      }
+    }
+  }
+
+  /**
+   * Builds one GM faction-generation request payload.
+   *
+   * @return array<string, mixed>
+   *   Canonical faction-generation request.
+   */
+  private function buildFactionDraftCreationRequest(array $character_data, string $label): array {
+    return [
+      'label' => $label,
+      'domain' => 'faction',
+      'requestSource' => 'character_creation_gm_chat',
+      'roleInStory' => trim((string) ($character_data[self::GM_FACTION_CREATE_ROLE_FIELD] ?? '')),
+      'whyExistingFactionIsInsufficient' => trim((string) ($character_data[self::GM_FACTION_CREATE_WHY_FIELD] ?? '')),
+      'publicFace' => trim((string) ($character_data[self::GM_FACTION_CREATE_PUBLIC_FACE_FIELD] ?? '')),
+      'hiddenFace' => trim((string) ($character_data[self::GM_FACTION_CREATE_HIDDEN_FACE_FIELD] ?? '')),
+      'ideologyTags' => trim((string) ($character_data[self::GM_FACTION_CREATE_IDEOLOGY_TAGS_FIELD] ?? '')),
+      'methodTags' => trim((string) ($character_data[self::GM_FACTION_CREATE_METHOD_TAGS_FIELD] ?? '')),
+      'membershipStyle' => trim((string) ($character_data[self::GM_FACTION_CREATE_MEMBERSHIP_STYLE_FIELD] ?? '')),
+      'provenanceNote' => 'Requested through GM chat character creation flow.',
+    ];
   }
 
   /**
@@ -605,6 +763,24 @@ PROMPT;
       }
     }
     return array_values(array_unique($normalized));
+  }
+
+  /**
+   * Removes transient faction-generation helper fields from draft storage.
+   */
+  private function clearFactionDraftHelperFields(array &$character_data): void {
+    foreach ([
+      self::GM_FACTION_CREATE_LABELS_FIELD,
+      self::GM_FACTION_CREATE_ROLE_FIELD,
+      self::GM_FACTION_CREATE_WHY_FIELD,
+      self::GM_FACTION_CREATE_PUBLIC_FACE_FIELD,
+      self::GM_FACTION_CREATE_HIDDEN_FACE_FIELD,
+      self::GM_FACTION_CREATE_IDEOLOGY_TAGS_FIELD,
+      self::GM_FACTION_CREATE_METHOD_TAGS_FIELD,
+      self::GM_FACTION_CREATE_MEMBERSHIP_STYLE_FIELD,
+    ] as $field) {
+      unset($character_data[$field]);
+    }
   }
 
   /**
@@ -634,6 +810,38 @@ PROMPT;
     }
 
     return array_values(array_unique($items));
+  }
+
+  /**
+   * Normalize faction_refs by extracting subject_ids from structured entries.
+   *
+   * Handles both simple string IDs and structured affiliation refs with metadata.
+   *
+   * @return array<int, string>
+   *   Flat list of subject IDs.
+   */
+  private function normalizeFactionRefIds(mixed $value): array {
+    if (!is_array($value)) {
+      $value = [trim((string) $value)];
+    }
+
+    $subject_ids = [];
+    foreach ($value as $item) {
+      if (is_array($item)) {
+        $subject_id = trim((string) ($item['subject_id'] ?? ''));
+        if ($subject_id !== '') {
+          $subject_ids[] = $subject_id;
+        }
+      }
+      else {
+        $subject_id = trim((string) $item);
+        if ($subject_id !== '') {
+          $subject_ids[] = $subject_id;
+        }
+      }
+    }
+
+    return array_values(array_unique($subject_ids));
   }
 
   /**

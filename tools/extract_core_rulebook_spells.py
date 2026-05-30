@@ -74,6 +74,26 @@ SPELL_DETAIL_NAME_RE = re.compile(r"^[A-ZÀ-ÖØ-Þ][A-ZÀ-ÖØ-Þ0-9'’,\- ]{1
 RANK_RE = re.compile(r"^(CANTRIP \d+|SPELL \d+|FOCUS \d+|RITUAL \d+)$")
 HEIGHTENED_RE = re.compile(r"^Heightened\s+\(([^)]+)\)\s*(.*)$")
 OUTCOME_PREFIXES = ("Critical Success", "Success", "Failure", "Critical Failure")
+RAW_TEXT_DESCRIPTION_OVERRIDE_IDS = {
+    "aerial_form",
+    "air_walk",
+    "animal_form",
+    "curse_of_lost_time",
+    "detect_alignment",
+    "devil_form",
+    "foresight",
+    "fungal_infestation",
+    "gate",
+    "ghostly_tragedy",
+    "grisly_growths",
+    "heal",
+    "holy_cascade",
+    "ice_storm",
+    "impending_doom",
+    "inner_radiance_torrent",
+    "invoke_spirits",
+    "one_with_the_land",
+}
 CONDITION_NAMES = [
     "blinded",
     "broken",
@@ -1158,9 +1178,15 @@ SOURCE_BACKED_OVERRIDES: dict[str, dict[str, Any]] = {
         "save": "NA",
         "save_type": "NA",
         "description": (
-            "You reshape your body into a Medium flying animal battle form such as a bat, "
-            "bird, pterosaur, or wasp. The form grants flight, aerial attacks, and "
-            "heightened battle-form improvements at higher ranks."
+            "You harness your mastery of primal forces to reshape your body into a Medium "
+            "flying animal battle form. When you cast this spell, choose bat, bird, "
+            "pterosaur, or wasp. While in this form, you gain the animal trait. You gain "
+            "the following statistics and abilities regardless of which battle form you "
+            "choose: AC = 18 + your level, 5 temporary Hit Points, low-light vision, "
+            "aerial unarmed attacks, and Acrobatics +16 unless your own modifier is "
+            "higher. Bat Speed 20 feet, fly Speed 30 feet; Bird Speed 10 feet, fly Speed "
+            "50 feet; Pterosaur Speed 10 feet, fly Speed 40 feet; Wasp Speed 20 feet, fly "
+            "Speed 40 feet."
         ),
         "description_snippet": "Turn into a flying combatant.",
         "heightened": [
@@ -1509,8 +1535,14 @@ SOURCE_BACKED_OVERRIDES: dict[str, dict[str, Any]] = {
         "save": "basic Reflex",
         "save_type": "basic_reflex",
         "description": (
-            "You create a gray storm cloud that pelts creatures with magical hail and "
-            "continues to fill the area with snow, sleet, concealment, and cold."
+            "You create a gray storm cloud that pelts creatures with an icy deluge. "
+            "When you Cast the Spell, a burst of magical hail deals 2d8 bludgeoning "
+            "damage and 2d8 cold damage to each creature in the area below the cloud. "
+            "Snow and sleet continue to rain down in the area for the remainder of the "
+            "spell's duration, making the area difficult terrain and causing creatures "
+            "in the storm to be concealed. Any creature that ends its turn in the storm "
+            "takes 4 cold damage. If you Cast this Spell outdoors, you can create two "
+            "non-overlapping clouds instead of one."
         ),
         "description_snippet": "Call a storm cloud that pelts creatures with an icy deluge.",
         "heightened": [
@@ -6467,9 +6499,55 @@ def infer_traditions(
     return []
 
 
+def should_skip_raw_text_prelude_line(line: str) -> bool:
+    normalized = normalize_whitespace(line)
+    if not normalized:
+        return True
+    if FIELD_START_RE.match(normalized):
+        return True
+    if RANK_RE.match(normalized):
+        return True
+    if normalized in PAGE_NOISE_LINES or normalized in SECTION_BREAK_LINES:
+        return True
+    if re.fullmatch(r"[A-ZÀ-ÖØ-Þ0-9'’,\- ]{2,80}", normalized) and not any(ch.islower() for ch in normalized):
+        return True
+    lowered = normalized.lower()
+    if lowered.startswith("domain ") or lowered.startswith("casting "):
+        return True
+
+    return False
+
+
+def extract_description_from_raw_text(raw_text_block: str) -> str:
+    lines = [normalize_whitespace(line) for line in raw_text_block.splitlines() if normalize_whitespace(line)]
+    if not lines:
+        return ""
+
+    started = False
+    description_lines: list[str] = []
+    for line in lines:
+        if not started:
+            if should_skip_raw_text_prelude_line(line):
+                continue
+            started = True
+
+        if HEIGHTENED_RE.match(line):
+            break
+        if any(line.startswith(prefix) for prefix in OUTCOME_PREFIXES):
+            break
+        description_lines.append(line)
+
+    return normalize_whitespace(" ".join(description_lines))
+
+
 def apply_source_backed_overrides(schema_data: dict[str, Any]) -> dict[str, Any]:
     for key, value in SOURCE_BACKED_OVERRIDES.get(schema_data["id"], {}).items():
         schema_data[key] = value
+    if schema_data["id"] in RAW_TEXT_DESCRIPTION_OVERRIDE_IDS:
+        raw_text_description = extract_description_from_raw_text(str(schema_data.get("raw_text_block", "")))
+        current_description = normalize_whitespace(str(schema_data.get("description", "")))
+        if raw_text_description and len(raw_text_description) > len(current_description):
+            schema_data["description"] = raw_text_description
     return schema_data
 
 

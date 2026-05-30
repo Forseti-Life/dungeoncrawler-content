@@ -35,6 +35,7 @@ class RoomChatServiceQuestTouchpointTest extends UnitTestCase {
           'room_id' => 'crossroads',
           'confidence' => 'high',
           'quantity' => 1,
+          'matching_mode' => 'typed_receipt',
         ],
       ])
       ->willReturn([
@@ -67,6 +68,102 @@ class RoomChatServiceQuestTouchpointTest extends UnitTestCase {
         'entity_ref' => 'npc-guard',
       ]
     );
+  }
+
+  /**
+   * Missing quest hints still use the default touchpoint contract.
+   *
+   * @covers ::activateMentionedAvailableQuests
+   */
+  public function testActivateMentionedAvailableQuestsDefaultsQuestHintToArray(): void {
+    $quest_tracker = $this->createMock(\Drupal\dungeoncrawler_content\Service\QuestTrackerService::class);
+    $quest_tracker->expects($this->once())
+      ->method('findMentionedAvailableQuests')
+      ->with(93, 'tavern_entrance', 361, 'Eldric gives you their full attention and prepares to answer directly.', 2, 5)
+      ->willReturn([]);
+
+    $quest_touchpoint = $this->createMock(QuestTouchpointService::class);
+    $quest_touchpoint->expects($this->once())
+      ->method('ingestEvent')
+      ->with(93, [
+        'character_id' => 361,
+        'touchpoint' => [
+          'objective_type' => 'interact',
+          'objective_id' => '',
+          'npc_ref' => 'Eldric',
+          'entity_ref' => 'npc_tavern_keeper',
+          'room_id' => 'tavern_entrance',
+          'confidence' => 'high',
+          'quantity' => 1,
+          'matching_mode' => 'text_inference',
+        ],
+      ])
+      ->willReturn([
+        'success' => TRUE,
+        'decision' => 'REQUEST_CONFIRMATION',
+      ]);
+
+    $service = new class extends RoomChatService {
+      public function __construct() {}
+
+      public function exposedActivateMentionedAvailableQuests(
+        int $campaign_id,
+        string $room_id,
+        ?int $character_id,
+        array $dungeon_data,
+        ?array $gm_response,
+        array $npc_interjections,
+        array $quest_touchpoint_hint = []
+      ): array {
+        return $this->activateMentionedAvailableQuests(
+          $campaign_id,
+          $room_id,
+          $character_id,
+          $dungeon_data,
+          $gm_response,
+          $npc_interjections,
+          $quest_touchpoint_hint
+        );
+      }
+
+      protected function resolveRoomSlugForQuery(int $campaign_id, string $room_id, array $dungeon_data): ?string {
+        return $room_id;
+      }
+
+      protected function activateMentionedBrokeredStorylineQuests(
+        int $campaign_id,
+        string $room_id,
+        string $location_id,
+        int $character_id,
+        string $combined_text,
+        array $message_entries = []
+      ): array {
+        return [];
+      }
+
+      protected function looksLikeQuestOrLeadRequest(string $text): bool {
+        return FALSE;
+      }
+    };
+
+    $this->setProtectedProperty($service, 'questTracker', $quest_tracker);
+    $this->setProtectedProperty($service, 'questTouchpointService', $quest_touchpoint);
+    $this->setProtectedProperty($service, 'logger', $this->createMock(LoggerInterface::class));
+
+    $result = $service->exposedActivateMentionedAvailableQuests(
+      93,
+      'tavern_entrance',
+      361,
+      ['rooms' => [['room_id' => 'tavern_entrance', 'name' => 'Tavern Entrance']]],
+      [
+        'entity_ref' => 'npc_tavern_keeper',
+        'speaker_name' => 'Eldric',
+        'message' => 'Eldric gives you their full attention and prepares to answer directly.',
+      ],
+      []
+    );
+
+    $this->assertSame([], $result);
   }
 
   /**

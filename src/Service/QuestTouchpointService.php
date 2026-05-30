@@ -49,7 +49,7 @@ class QuestTouchpointService {
    * Ingest a canonical quest touchpoint event.
    */
   public function ingestEvent(int $campaign_id, array $payload): array {
-    $touchpoint = is_array($payload['touchpoint'] ?? NULL) ? $payload['touchpoint'] : $payload;
+    $touchpoint = $this->resolveTouchpointPayload($payload);
     $character_id = (int) ($payload['character_id'] ?? $touchpoint['character_id'] ?? 0);
 
     if ($character_id <= 0) {
@@ -89,6 +89,25 @@ class QuestTouchpointService {
         'success' => TRUE,
         'decision' => 'NO_ACTION',
         'reason' => 'No active objective matched touchpoint',
+      ];
+    }
+
+    if (!$this->isDeterministicTouchpoint($touchpoint)) {
+      $confirmation = $this->confirmationService->createPending(
+        $campaign_id,
+        $character_id,
+        $payload,
+        $candidates,
+        'Text-only quest touchpoint requires confirmation before applying progress.'
+      );
+
+      return [
+        'success' => TRUE,
+        'decision' => 'REQUEST_CONFIRMATION',
+        'requires_confirmation' => TRUE,
+        'confirmation_id' => $confirmation['confirmation_id'],
+        'candidates' => $confirmation['candidates'],
+        'reason' => 'Text-only quest touchpoint requires confirmation before applying progress.',
       ];
     }
 
@@ -147,6 +166,115 @@ class QuestTouchpointService {
       'progress_delta' => $amount,
       'objective_state' => $result,
     ];
+  }
+
+  /**
+   * Resolve the effective touchpoint payload, preferring typed receipts.
+   */
+  protected function resolveTouchpointPayload(array $payload): array {
+    $touchpoint = is_array($payload['touchpoint'] ?? NULL) ? $payload['touchpoint'] : $payload;
+    $receipt_touchpoint = $this->extractDeterministicReceiptTouchpoint($payload);
+    if ($receipt_touchpoint !== []) {
+      $touchpoint = $this->mergeTouchpointPayloads($touchpoint, $receipt_touchpoint);
+    }
+
+    if (empty($touchpoint['matching_mode'])) {
+      $touchpoint['matching_mode'] = !empty($touchpoint['objective_id']) ? 'typed_receipt' : 'text_inference';
+    }
+
+    return $touchpoint;
+  }
+
+  /**
+   * Extract a deterministic quest touchpoint from known receipt envelopes.
+   */
+  protected function extractDeterministicReceiptTouchpoint(array $payload): array {
+    $receipt_candidates = [];
+    foreach (['receipt', 'runtime_receipt', 'room_receipt'] as $receipt_key) {
+      if (is_array($payload[$receipt_key] ?? NULL)) {
+        $receipt_candidates[] = $payload[$receipt_key];
+      }
+    }
+    if (is_array($payload['receipts'] ?? NULL)) {
+      foreach ($payload['receipts'] as $receipt) {
+        if (is_array($receipt)) {
+          $receipt_candidates[] = $receipt;
+        }
+      }
+    }
+
+    foreach ($receipt_candidates as $receipt) {
+      $touchpoint = is_array($receipt['touchpoint'] ?? NULL) ? $receipt['touchpoint'] : [];
+      if ($touchpoint !== []) {
+        $touchpoint['matching_mode'] = 'typed_receipt';
+        return $touchpoint;
+      }
+
+      $route = strtolower(trim((string) ($receipt['route'] ?? '')));
+      $tool = strtolower(trim((string) ($receipt['tool'] ?? '')));
+      $schema = strtolower(trim((string) ($receipt['schema_version'] ?? $receipt['receipt_schema'] ?? $receipt['schema'] ?? '')));
+      if (
+        !in_array($route, ['quest_progression'], TRUE)
+        && !in_array($tool, ['quest_turn_in'], TRUE)
+        && !in_array($schema, ['quest_progress_receipt', 'quest-touchpoint-receipt-v1'], TRUE)
+      ) {
+        continue;
+      }
+
+      $resolved_arguments = is_array($receipt['resolved_arguments'] ?? NULL) ? $receipt['resolved_arguments'] : [];
+      $quest = is_array($resolved_arguments['quest'] ?? NULL) ? $resolved_arguments['quest'] : [];
+      if ($quest === [] && is_array($resolved_arguments['details']['quest'] ?? NULL)) {
+        $quest = $resolved_arguments['details']['quest'];
+      }
+      $execution = is_array($receipt['execution'] ?? NULL) ? $receipt['execution'] : [];
+
+      $receipt_touchpoint = [
+        'objective_type' => (string) ($quest['objective_type'] ?? $execution['objective_type'] ?? ''),
+        'objective_id' => (string) ($execution['objective_id'] ?? $quest['objective_id'] ?? ''),
+        'item_ref' => (string) ($quest['item_ref'] ?? ''),
+        'npc_ref' => (string) ($quest['npc_ref'] ?? ''),
+        'entity_ref' => (string) ($quest['entity_ref'] ?? $quest['npc_ref'] ?? $quest['item_ref'] ?? ''),
+        'quantity' => (int) ($quest['quantity'] ?? $execution['progress_delta'] ?? 1),
+        'room_id' => (string) ($quest['room_id'] ?? $receipt['room_id'] ?? ''),
+        'confidence' => 'high',
+        'matching_mode' => 'typed_receipt',
+      ];
+
+      if ($receipt_touchpoint['objective_type'] !== '' || $receipt_touchpoint['objective_id'] !== '') {
+        return $receipt_touchpoint;
+      }
+    }
+
+    return [];
+  }
+
+  /**
+   * Merge touchpoint payloads without dropping meaningful base values.
+   */
+  protected function mergeTouchpointPayloads(array $base, array $override): array {
+    foreach ($override as $key => $value) {
+      if ($value === NULL) {
+        continue;
+      }
+      if (is_string($value) && trim($value) === '') {
+        continue;
+      }
+      $base[$key] = $value;
+    }
+
+    return $base;
+  }
+
+  /**
+   * Determine whether the touchpoint came from a deterministic typed receipt.
+   */
+  protected function isDeterministicTouchpoint(array $touchpoint): bool {
+    $matching_mode = strtolower(trim((string) ($touchpoint['matching_mode'] ?? '')));
+    if (in_array($matching_mode, ['typed_receipt', 'runtime_receipt', 'room_receipt', 'canonical_receipt'], TRUE)) {
+      return TRUE;
+    }
+
+    return trim((string) ($touchpoint['objective_id'] ?? '')) !== '';
   }
 
   /**

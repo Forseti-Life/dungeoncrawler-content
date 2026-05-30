@@ -9,6 +9,7 @@ use Drupal\Core\Url;
 use Drupal\dungeoncrawler_content\Form\CharacterPortraitRegenerateForm;
 use Drupal\dungeoncrawler_content\Form\CharacterPortraitUploadForm;
 use Drupal\dungeoncrawler_content\Service\CharacterManager;
+use Drupal\dungeoncrawler_content\Service\FeatLibraryService;
 use Drupal\dungeoncrawler_content\Service\FeatEffectManager;
 use Drupal\dungeoncrawler_content\Service\GeneratedImageRepository;
 use Symfony\Component\DependencyInjection\ContainerInterface;
@@ -24,13 +25,15 @@ class CharacterViewController extends ControllerBase {
 
   protected CharacterManager $characterManager;
   protected FeatEffectManager $featEffectManager;
+  protected FeatLibraryService $featLibrary;
   protected GeneratedImageRepository $imageRepository;
   protected Connection $database;
   protected TimeInterface $time;
 
-  public function __construct(CharacterManager $character_manager, FeatEffectManager $feat_effect_manager, GeneratedImageRepository $image_repository, Connection $database, TimeInterface $time) {
+  public function __construct(CharacterManager $character_manager, FeatEffectManager $feat_effect_manager, FeatLibraryService $feat_library, GeneratedImageRepository $image_repository, Connection $database, TimeInterface $time) {
     $this->characterManager = $character_manager;
     $this->featEffectManager = $feat_effect_manager;
+    $this->featLibrary = $feat_library;
     $this->imageRepository = $image_repository;
     $this->database = $database;
     $this->time = $time;
@@ -40,6 +43,7 @@ class CharacterViewController extends ControllerBase {
     return new static(
       $container->get('dungeoncrawler_content.character_manager'),
       $container->get('dungeoncrawler_content.feat_effect_manager'),
+      $container->get('dungeoncrawler_content.feat_library'),
       $container->get('dungeoncrawler_content.generated_image_repository'),
       $container->get('database'),
       $container->get('datetime.time'),
@@ -181,25 +185,52 @@ class CharacterViewController extends ControllerBase {
       ? ((int) ($char_data['class']['hp_per_level'] ?? 8))
       : 8;
 
+    $condition_effects = $this->extractConditionStatEffects(is_array($char_data['conditions'] ?? NULL) ? $char_data['conditions'] : []);
+
     $feat_effects = $this->featEffectManager->buildEffectState($char_data, [
       'level' => (int) $level,
       'base_speed' => (int) $base_speed,
       'existing_hp_max' => (int) $max_hp,
     ]);
 
-    $perception['modifier'] += (int) ($feat_effects['derived_adjustments']['perception_bonus'] ?? 0);
+    $base_perception_modifier = (int) $perception['modifier'];
+    $perception_bonus = (int) ($feat_effects['derived_adjustments']['perception_bonus'] ?? 0);
+    $initiative_bonus = (int) ($feat_effects['derived_adjustments']['initiative_bonus'] ?? 0);
+    $perception['modifier'] += $perception_bonus;
     $perception['senses'] = array_map(static function (array $sense): string {
       return (string) ($sense['name'] ?? '');
     }, $feat_effects['senses'] ?? []);
 
+    $base_max_hp = $max_hp;
     $max_hp += (int) ($feat_effects['derived_adjustments']['hp_max_bonus'] ?? 0);
-    $speed = (int) ($feat_effects['derived_adjustments']['computed_speed'] ?? $base_speed);
+    $ac_base = $ac;
+    $ac += (int) ($condition_effects['armor_class']['total'] ?? 0);
+    $feat_speed = (int) ($feat_effects['derived_adjustments']['computed_speed'] ?? $base_speed);
+    $speed = max(0, $feat_speed + (int) ($condition_effects['speed']['total'] ?? 0));
+    $sheet_effect_summary = $this->buildSheetEffectSummary($char_data, $feat_effects, [
+      'condition_effects' => $condition_effects,
+      'hp_max_base' => $base_max_hp,
+      'hp_max_final' => $max_hp,
+      'ac_base' => (int) $ac_base,
+      'ac_final' => (int) $ac,
+      'speed_base' => (int) $base_speed,
+      'speed_feat_final' => (int) $feat_speed,
+      'speed_final' => (int) $speed,
+      'perception_base' => $base_perception_modifier,
+      'perception_final' => (int) $perception['modifier'],
+      'initiative_base' => $base_perception_modifier,
+      'initiative_final' => (int) ($perception['modifier'] + $initiative_bonus),
+      'initiative_bonus_total' => $perception_bonus + $initiative_bonus,
+    ]);
 
     // Read inventory data (structured format from Step 7).
     $inventory = $char_data['inventory'] ?? [];
     $equipment_items = $this->enrichEquipmentItems($inventory['carried'] ?? []);
-    $inv_currency = $inventory['currency'] ?? [];
-    $equipment_gold = (float) ($inv_currency['gp'] ?? ($char_data['gold'] ?? 15));
+    $inv_currency = CharacterManager::normalizeCurrencyDenominations(
+      is_array($inventory['currency'] ?? NULL) ? $inventory['currency'] : [],
+      isset($char_data['gold']) ? (float) $char_data['gold'] : 15.0
+    );
+    $equipment_gold = CharacterManager::currencyDenominationsToGoldValue($inv_currency);
 
     // Load portrait: try generated images first, fall back to DB column.
     $portrait_url = NULL;
@@ -273,7 +304,7 @@ class CharacterViewController extends ControllerBase {
         'name' => $ancestry_name,
         'heritage' => $heritage,
         'size' => $size,
-        'speed' => $speed,
+        'speed' => (int) $base_speed,
         'languages' => $languages,
         'traits' => [],
       ],
@@ -308,6 +339,7 @@ class CharacterViewController extends ControllerBase {
       '#spells' => $this->buildSpellsDisplayData($char_data, $feat_effects),
       '#conditions' => $char_data['conditions'] ?? [],
       '#feat_effects' => $feat_effects,
+      '#sheet_effect_summary' => $sheet_effect_summary,
       '#personality' => [
         'alignment' => $alignment,
         'deity' => $deity,
@@ -461,6 +493,313 @@ class CharacterViewController extends ControllerBase {
   }
 
   /**
+   * Build a sheet-facing summary of applied and conditional effects.
+   */
+  private function buildSheetEffectSummary(array $char_data, array $feat_effects, array $context): array {
+    $condition_effects = is_array($context['condition_effects'] ?? NULL)
+      ? $context['condition_effects']
+      : $this->extractConditionStatEffects(is_array($char_data['conditions'] ?? NULL) ? $char_data['conditions'] : []);
+    $applied_feat_label = $this->resolveAppliedFeatLabel($feat_effects);
+    $adjustments = is_array($feat_effects['derived_adjustments'] ?? NULL) ? $feat_effects['derived_adjustments'] : [];
+    $hp_max_base = $this->requireContextInt($context, 'hp_max_base');
+    $hp_max_final = $this->requireContextInt($context, 'hp_max_final');
+    $speed_base = $this->requireContextInt($context, 'speed_base');
+    $speed_feat_final = $this->requireContextInt($context, 'speed_feat_final');
+    $speed_final = $this->requireContextInt($context, 'speed_final');
+    $perception_base = $this->requireContextInt($context, 'perception_base');
+    $perception_final = $this->requireContextInt($context, 'perception_final');
+    $ac_base = $this->requireContextInt($context, 'ac_base');
+    $ac_final = $this->requireContextInt($context, 'ac_final');
+    $initiative_base = $this->requireContextInt($context, 'initiative_base');
+    $initiative_final = $this->requireContextInt($context, 'initiative_final');
+    $initiative_bonus_total = $this->requireContextInt($context, 'initiative_bonus_total');
+
+    $hp_contributions = [];
+    $hp_bonus = (int) ($adjustments['hp_max_bonus'] ?? 0);
+    if ($hp_bonus !== 0) {
+      $hp_contributions[] = [
+        'source' => 'feat',
+        'label' => $applied_feat_label,
+        'value' => $hp_bonus,
+      ];
+    }
+
+    $speed_contributions = [];
+    $feat_speed_delta = $speed_feat_final - $speed_base;
+    if ($feat_speed_delta !== 0) {
+      $speed_contributions[] = [
+        'source' => 'feat',
+        'label' => $applied_feat_label,
+        'value' => $feat_speed_delta,
+      ];
+    }
+    foreach ($condition_effects['speed']['contributions'] ?? [] as $contribution) {
+      $speed_contributions[] = $contribution;
+    }
+    $speed_raw_final = $speed_feat_final + (int) ($condition_effects['speed']['total'] ?? 0);
+    $speed_clamp_adjustment = $speed_final - $speed_raw_final;
+    if ($speed_clamp_adjustment !== 0) {
+      $speed_contributions[] = [
+        'source' => 'system',
+        'label' => 'Minimum speed 0 ft',
+        'value' => $speed_clamp_adjustment,
+      ];
+    }
+
+    $perception_contributions = [];
+    $perception_bonus = (int) ($adjustments['perception_bonus'] ?? 0);
+    if ($perception_bonus !== 0) {
+      $perception_contributions[] = [
+        'source' => 'feat',
+        'label' => $applied_feat_label,
+        'value' => $perception_bonus,
+      ];
+    }
+
+    $initiative_contributions = [];
+    if ($initiative_bonus_total !== 0) {
+      $initiative_contributions[] = [
+        'source' => 'feat',
+        'label' => $applied_feat_label,
+        'value' => $initiative_bonus_total,
+      ];
+    }
+
+    $speed_summary = $this->buildStatSummary(
+      $speed_base,
+      $speed_final,
+      $speed_contributions,
+      'ft'
+    );
+    $speed_summary['clamped'] = $speed_clamp_adjustment !== 0;
+    $speed_summary['raw_final'] = $speed_raw_final;
+
+    return [
+      'stats' => [
+        'hp_max' => $this->buildStatSummary(
+          $hp_max_base,
+          $hp_max_final,
+          $hp_contributions
+        ),
+        'speed' => $speed_summary,
+        'perception' => $this->buildStatSummary(
+          $perception_base,
+          $perception_final,
+          $perception_contributions
+        ),
+        'armor_class' => $this->buildStatSummary(
+          $ac_base,
+          $ac_final,
+          is_array($condition_effects['armor_class']['contributions'] ?? NULL) ? $condition_effects['armor_class']['contributions'] : []
+        ),
+        'initiative' => $this->buildStatSummary(
+          $initiative_base,
+          $initiative_final,
+          $initiative_contributions
+        ),
+      ],
+      'conditional' => $this->buildConditionalEffectSummary($feat_effects),
+    ];
+  }
+
+  /**
+   * Reads a required integer context value for sheet effect summaries.
+   */
+  private function requireContextInt(array $context, string $key): int {
+    if (!array_key_exists($key, $context)) {
+      throw new \InvalidArgumentException(sprintf('Missing required sheet effect context key: %s', $key));
+    }
+
+    return (int) $context[$key];
+  }
+
+  /**
+   * Build a normalized stat-summary payload for Twig.
+   */
+  private function buildStatSummary(int $base, int $final, array $contributions, string $unit = ''): array {
+    $normalized_contributions = [];
+    foreach ($contributions as $contribution) {
+      if (!is_array($contribution)) {
+        continue;
+      }
+      $value = (int) ($contribution['value'] ?? 0);
+      if ($value === 0) {
+        continue;
+      }
+      $normalized_contributions[] = [
+        'source' => (string) ($contribution['source'] ?? 'effect'),
+        'label' => trim((string) ($contribution['label'] ?? 'Effect')),
+        'value' => $value,
+        'formatted_value' => ($value > 0 ? '+' : '') . $value . ($unit !== '' ? ' ' . $unit : ''),
+      ];
+    }
+
+    $delta = $final - $base;
+    $direction = $delta > 0 ? 'positive' : ($delta < 0 ? 'negative' : 'neutral');
+
+    return [
+      'base' => $base,
+      'final' => $final,
+      'modified' => $delta !== 0 || $normalized_contributions !== [],
+      'direction' => $direction,
+      'delta' => $delta,
+      'formatted_delta' => ($delta > 0 ? '+' : '') . $delta . ($unit !== '' && $delta !== 0 ? ' ' . $unit : ''),
+      'contributions' => $normalized_contributions,
+      'unit' => $unit,
+    ];
+  }
+
+  /**
+   * Build a compact display list for conditional-only effects.
+   */
+  private function buildConditionalEffectSummary(array $feat_effects): array {
+    $conditional = is_array($feat_effects['conditional_modifiers'] ?? NULL) ? $feat_effects['conditional_modifiers'] : [];
+    $items = [];
+
+    foreach ($conditional['saving_throws'] ?? [] as $modifier) {
+      if (!is_array($modifier)) {
+        continue;
+      }
+      $items[] = [
+        'label' => sprintf(
+          '%s%s %s saves',
+          ((int) ($modifier['bonus'] ?? 0)) > 0 ? '+' : '',
+          (int) ($modifier['bonus'] ?? 0),
+          (string) ($modifier['save'] ?? 'saving throw')
+        ),
+        'context' => (string) ($modifier['context'] ?? ''),
+      ];
+    }
+
+    foreach ($conditional['skills'] ?? [] as $modifier) {
+      if (!is_array($modifier)) {
+        continue;
+      }
+      $items[] = [
+        'label' => sprintf(
+          '%s%s %s',
+          ((int) ($modifier['bonus'] ?? 0)) > 0 ? '+' : '',
+          (int) ($modifier['bonus'] ?? 0),
+          (string) ($modifier['skill'] ?? 'skill')
+        ),
+        'context' => (string) ($modifier['context'] ?? ''),
+      ];
+    }
+
+    foreach ($conditional['movement'] ?? [] as $modifier) {
+      if (!is_array($modifier)) {
+        continue;
+      }
+      $items[] = [
+        'label' => ucfirst(str_replace('_', ' ', (string) ($modifier['rule'] ?? 'movement modifier'))),
+        'context' => (string) ($modifier['context'] ?? ''),
+      ];
+    }
+
+    foreach ($conditional['outcome_upgrades'] ?? [] as $modifier) {
+      if (!is_array($modifier)) {
+        continue;
+      }
+      $items[] = [
+        'label' => sprintf(
+          '%s: %s -> %s',
+          (string) ($modifier['target'] ?? 'outcome'),
+          str_replace('_', ' ', (string) ($modifier['from'] ?? '')),
+          str_replace('_', ' ', (string) ($modifier['to'] ?? ''))
+        ),
+        'context' => (string) ($modifier['context'] ?? ''),
+      ];
+    }
+
+    return $items;
+  }
+
+  /**
+   * Extract supported condition-driven stat effects for sheet rendering.
+   */
+  private function extractConditionStatEffects(array $conditions): array {
+    $summary = [
+      'armor_class' => [
+        'total' => 0,
+        'contributions' => [],
+      ],
+      'speed' => [
+        'total' => 0,
+        'contributions' => [],
+      ],
+    ];
+
+    foreach ($conditions as $condition) {
+      if (!is_array($condition) && !is_string($condition)) {
+        continue;
+      }
+
+      $name = is_array($condition)
+        ? (string) ($condition['name'] ?? $condition['condition_type'] ?? $condition['id'] ?? 'Condition')
+        : (string) $condition;
+      $raw_code = is_array($condition)
+        ? (string) ($condition['condition_type'] ?? $condition['id'] ?? $condition['name'] ?? '')
+        : (string) $condition;
+      $code = strtolower(str_replace([' ', '-'], '_', trim($raw_code)));
+      $value = (int) (is_array($condition) ? ($condition['value'] ?? 0) : 0);
+      if ($value === 0 && preg_match('/_(\d+)$/', $code, $matches) === 1) {
+        $value = (int) $matches[1];
+      }
+
+      switch ($code) {
+        case 'flat_footed':
+          $summary['armor_class']['total'] -= 2;
+          $summary['armor_class']['contributions'][] = [
+            'source' => 'condition',
+            'label' => $name,
+            'value' => -2,
+          ];
+          break;
+
+        case 'frightened':
+          $penalty = max(1, $value);
+          $summary['armor_class']['total'] -= $penalty;
+          $summary['armor_class']['contributions'][] = [
+            'source' => 'condition',
+            'label' => $penalty > 1 ? $name . ' ' . $penalty : $name,
+            'value' => -$penalty,
+          ];
+          break;
+
+        default:
+          if (str_starts_with($code, 'speed_penalty_')) {
+            $penalty = max(0, $value);
+            if ($penalty > 0) {
+              $summary['speed']['total'] -= $penalty;
+              $summary['speed']['contributions'][] = [
+                'source' => 'condition',
+                'label' => $name,
+                'value' => -$penalty,
+              ];
+            }
+          }
+          break;
+      }
+    }
+
+    return $summary;
+  }
+
+  /**
+   * Resolve a human-readable feat label for summary rows.
+   */
+  private function resolveAppliedFeatLabel(array $feat_effects): string {
+    $applied = array_values(array_filter(array_map('strval', is_array($feat_effects['applied_feats'] ?? NULL) ? $feat_effects['applied_feats'] : [])));
+    if ($applied === []) {
+      return 'Feat effects';
+    }
+    if (count($applied) === 1) {
+      return $this->humanizeName($applied[0]);
+    }
+    return 'Feat effects';
+  }
+
+  /**
    * Normalizes ability scores from canonical, nested, or flat payloads.
    */
   private function buildAbilityDisplayData(array $char_data): array {
@@ -591,8 +930,14 @@ class CharacterViewController extends ControllerBase {
 
       $feat_id = (string) ($feat['feat_id'] ?? $feat['id'] ?? '');
       $description = trim((string) ($feat['description'] ?? ''));
-      if ($description === '' && $feat_id !== '' && !empty($lookup[$feat_id]['benefit'])) {
-        $feats[$index]['description'] = (string) $lookup[$feat_id]['benefit'];
+      if ($description === '' && $feat_id !== '') {
+        $canonical = $lookup[$feat_id] ?? NULL;
+        if (is_array($canonical)) {
+          $resolved_description = trim((string) ($canonical['description'] ?? $canonical['benefit'] ?? ''));
+          if ($resolved_description !== '') {
+            $feats[$index]['description'] = $resolved_description;
+          }
+        }
       }
       if (!isset($feats[$index]['type']) && isset($feat['feat_type'])) {
         $feats[$index]['type'] = $feat['feat_type'];
@@ -609,31 +954,7 @@ class CharacterViewController extends ControllerBase {
    * Flattens static feat definitions keyed by feat id.
    */
   private function buildFeatDefinitionLookup(): array {
-    $lookup = [];
-
-    foreach (CharacterManager::getAncestryFeats() as $feat_pool) {
-      foreach ($feat_pool as $feat) {
-        if (!empty($feat['id'])) {
-          $lookup[$feat['id']] = $feat;
-        }
-      }
-    }
-
-    foreach (CharacterManager::getClassFeats() as $feat_pool) {
-      foreach ($feat_pool as $feat) {
-        if (!empty($feat['id'])) {
-          $lookup[$feat['id']] = $feat;
-        }
-      }
-    }
-
-    foreach (array_merge(CharacterManager::getGeneralFeats(), CharacterManager::SKILL_FEATS) as $feat) {
-      if (!empty($feat['id'])) {
-        $lookup[$feat['id']] = $feat;
-      }
-    }
-
-    return $lookup;
+    return $this->featLibrary->getFeatLookup();
   }
 
   /**

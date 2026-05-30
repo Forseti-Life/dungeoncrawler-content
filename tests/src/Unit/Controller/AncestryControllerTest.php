@@ -3,6 +3,8 @@
 namespace Drupal\Tests\dungeoncrawler_content\Unit\Controller;
 
 use Drupal\dungeoncrawler_content\Controller\AncestryController;
+use Drupal\dungeoncrawler_content\Service\CharacterManager;
+use Drupal\dungeoncrawler_content\Service\FeatLibraryService;
 use Drupal\Tests\UnitTestCase;
 
 /**
@@ -25,7 +27,16 @@ class AncestryControllerTest extends UnitTestCase {
 
   protected function setUp(): void {
     parent::setUp();
-    $this->controller = new AncestryController();
+    $feat_library = new class extends FeatLibraryService {
+
+      public function __construct() {}
+
+      public function getAncestryFeats(?string $ancestry = NULL): array {
+        return CharacterManager::getAncestryFeats($ancestry ?? '');
+      }
+
+    };
+    $this->controller = new AncestryController($feat_library);
   }
 
   // ---------------------------------------------------------------------------

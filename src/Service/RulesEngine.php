@@ -208,10 +208,8 @@ class RulesEngine {
       case 'cast_spell':
         $action_data = is_array($action) ? $action : [];
         $spell_level = (int) ($action_data['spell_level'] ?? 1);
-        $slots = (array) ($entity_ref['spell_slots'] ?? []);
-        $remaining = (int) ($slots[$spell_level] ?? $slots['level_' . $spell_level] ?? 0);
         // Cantrips (level 0) are unlimited.
-        if ($spell_level > 0 && $remaining <= 0) {
+        if ($spell_level > 0 && $this->getRemainingSpellSlots($entity_ref, $spell_level) <= 0) {
           return ['is_valid' => FALSE, 'reason' => "No spell slots remaining at level {$spell_level}."];
         }
         break;
@@ -560,9 +558,7 @@ class RulesEngine {
     // 4. Spell slot check (cantrips are unlimited).
     if ($level > 0) {
       $entity_ref = $this->decodeEntityRef($caster);
-      $slots = (array) ($entity_ref['spell_slots'] ?? []);
-      $remaining = (int) ($slots[$level] ?? $slots['level_' . $level] ?? 0);
-      if ($remaining <= 0) {
+      if ($this->getRemainingSpellSlots($entity_ref, $level) <= 0) {
         return ['is_valid' => FALSE, 'reason' => "No spell slots remaining at level {$level}."];
       }
     }
@@ -617,6 +613,62 @@ class RulesEngine {
       return is_array($decoded) ? $decoded : [];
     }
     return is_array($ref) ? $ref : [];
+  }
+
+  /**
+   * Resolve remaining spell slots from canonical resources first, then legacy mirrors.
+   */
+  protected function getRemainingSpellSlots(array $entity_ref, int $spell_level): int {
+    if ($spell_level <= 0) {
+      return PHP_INT_MAX;
+    }
+
+    $canonical_key = (string) $spell_level;
+    $resource_slots = is_array($entity_ref['resources']['spellSlots'] ?? NULL) ? $entity_ref['resources']['spellSlots'] : [];
+    if (isset($resource_slots[$canonical_key]) && is_array($resource_slots[$canonical_key])) {
+      return max(0, (int) ($resource_slots[$canonical_key]['current'] ?? 0));
+    }
+
+    $legacy_slots = is_array($entity_ref['spell_slots'] ?? NULL) ? $entity_ref['spell_slots'] : [];
+    foreach ([$canonical_key, 'level_' . $canonical_key, $this->legacySpellSlotKey($canonical_key)] as $slot_key) {
+      if (!array_key_exists($slot_key, $legacy_slots)) {
+        continue;
+      }
+      $slot_state = $legacy_slots[$slot_key];
+      if (is_array($slot_state)) {
+        $max = (int) ($slot_state['max'] ?? $slot_state['current'] ?? 0);
+        $current = array_key_exists('current', $slot_state)
+          ? (int) $slot_state['current']
+          : max(0, $max - (int) ($slot_state['used'] ?? 0));
+        return max(0, min($current, $max > 0 ? $max : $current));
+      }
+      return max(0, (int) $slot_state);
+    }
+
+    $spells = is_array($entity_ref['spells'] ?? NULL) ? $entity_ref['spells'] : [];
+    $legacy_key = $this->legacySpellSlotKey($canonical_key);
+    $max = (int) ($spells['slots'][$legacy_key] ?? $spells['slots'][$canonical_key] ?? 0);
+    $used = (int) ($spells['slots_used'][$legacy_key] ?? $spells['slots_used'][$canonical_key] ?? 0);
+    return max(0, $max - $used);
+  }
+
+  /**
+   * Convert canonical slot ranks into legacy mirror keys.
+   */
+  protected function legacySpellSlotKey(string $canonical_key): string {
+    return match ($canonical_key) {
+      '1' => 'first',
+      '2' => 'second',
+      '3' => 'third',
+      '4' => 'fourth',
+      '5' => 'fifth',
+      '6' => 'sixth',
+      '7' => 'seventh',
+      '8' => 'eighth',
+      '9' => 'ninth',
+      '10' => 'tenth',
+      default => $canonical_key,
+    };
   }
 
   /**

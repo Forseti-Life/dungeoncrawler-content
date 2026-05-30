@@ -297,6 +297,9 @@ class MapGeneratorService {
     // Step 2: Build the room structure.
     $room = $this->buildRoomFromSetting($setting, $origin_room_id);
 
+    // Finalize generated NPC/item contracts now that the room id is known.
+    $setting = $this->finalizeGeneratedSettingContracts($setting, $room['room_id']);
+
     // Step 3: Generate entities (NPCs, objects, furniture) for the room.
     $entities = $this->generateSettingEntities($setting, $room['room_id'], $campaign_id);
 
@@ -1007,8 +1010,14 @@ class MapGeneratorService {
       if (!$content_id) {
         continue;
       }
+      $instance_id = $this->buildGeneratedNpcInstanceId((string) $content_id);
+      $inventory = is_array($npc['inventory'] ?? NULL) ? $npc['inventory'] : [];
+      $equipment_labels = is_array($npc['equipment'] ?? NULL) ? $npc['equipment'] : [];
+
+      $this->registerGeneratedEquipmentItems($campaign_id, $equipment_labels);
 
       $schema_data = json_encode([
+        'schema_version' => '1.0.0',
         'content_id'  => $content_id,
         'name'        => $name,
         'ancestry'    => $npc['ancestry'] ?? 'Human',
@@ -1019,7 +1028,8 @@ class MapGeneratorService {
         'backstory'   => $npc['backstory'] ?? '',
         'attitude'    => $npc['attitude'] ?? 'indifferent',
         'stats'       => $npc['stats'] ?? [],
-        'equipment'   => $npc['equipment'] ?? [],
+        'inventory'   => $inventory,
+        'equipment_labels' => $equipment_labels,
         'source'      => 'ai_generated',
       ]);
 
@@ -1085,7 +1095,7 @@ class MapGeneratorService {
         $existing = $this->database->select('dc_campaign_characters', 'c')
           ->fields('c', ['id'])
           ->condition('campaign_id', $campaign_id)
-          ->condition('instance_id', $content_id)
+          ->condition('instance_id', $instance_id)
           ->execute()
           ->fetchField();
 
@@ -1095,7 +1105,7 @@ class MapGeneratorService {
             'role'        => $npc['role'] ?? 'neutral',
             'description' => $npc['description'] ?? '',
             'stats'       => $npc['stats'] ?? [],
-            'equipment'   => $npc['equipment'] ?? [],
+            'inventory'   => $inventory,
             'attitude'    => $npc['attitude'] ?? 'indifferent',
           ]);
 
@@ -1107,7 +1117,7 @@ class MapGeneratorService {
               'role'          => $npc['role'] ?? 'npc',
               'is_active'     => 1,
               'joined'        => $now,
-              'instance_id'   => $content_id,
+              'instance_id'   => $instance_id,
               'type'          => 'npc',
               'character_data' => $state_data,
               'location_type' => 'room',
@@ -1133,7 +1143,7 @@ class MapGeneratorService {
 
           $this->logger->info('NPC @name (@id) registered in campaign @cid, room @room', [
             '@name' => $name,
-            '@id'   => $content_id,
+            '@id'   => $instance_id,
             '@cid'  => $campaign_id,
             '@room' => $room_id,
           ]);
@@ -1147,6 +1157,7 @@ class MapGeneratorService {
       }
 
       $this->npcSheetGenerationService->enqueueNpcSheetGeneration($campaign_id, $content_id, [
+        'instance_id' => $instance_id,
         'entity_ref' => $content_id,
         'name' => $name,
         'ancestry' => $npc['ancestry'] ?? 'Human',
@@ -1441,10 +1452,14 @@ PROMPT;
     );
 
     // Validate NPCs.
-    $setting['npcs'] = array_map(function($npc) {
+    $used_npc_ids = [];
+    $setting['npcs'] = array_map(function($npc) use (&$used_npc_ids) {
+      $name = isset($npc['name']) && is_scalar($npc['name']) ? trim((string) $npc['name']) : '';
+      $content_id = isset($npc['content_id']) && is_scalar($npc['content_id']) ? trim((string) $npc['content_id']) : '';
+      $content_id = $this->buildStableMachineId($content_id !== '' ? $content_id : $name, 'npc', $used_npc_ids);
       return [
-        'name' => $npc['name'] ?? 'Unknown NPC',
-        'content_id' => $npc['content_id'] ?? strtolower(preg_replace('/[^a-z0-9]+/i', '_', $npc['name'] ?? 'npc_' . uniqid())),
+        'name' => $name !== '' ? $name : 'Unknown NPC',
+        'content_id' => $content_id,
         'ancestry' => $npc['ancestry'] ?? 'Human',
         'class' => $npc['class'] ?? 'Commoner',
         'role' => $npc['role'] ?? 'neutral',
@@ -1466,16 +1481,55 @@ PROMPT;
     }, $setting['npcs'] ?? []);
 
     // Validate objects.
-    $setting['objects'] = array_map(function($obj) {
+    $used_object_ids = [];
+    $setting['objects'] = array_map(function($obj) use (&$used_object_ids) {
+      $label = isset($obj['label']) && is_scalar($obj['label']) ? trim((string) $obj['label']) : '';
+      $object_id = isset($obj['object_id']) && is_scalar($obj['object_id']) ? trim((string) $obj['object_id']) : '';
+      $object_id = $this->buildStableMachineId($object_id !== '' ? $object_id : $label, 'object', $used_object_ids);
       return [
-        'object_id' => $obj['object_id'] ?? strtolower(preg_replace('/[^a-z0-9]+/i', '_', $obj['label'] ?? 'obj_' . uniqid())),
-        'label' => $obj['label'] ?? 'Object',
+        'object_id' => $object_id,
+        'label' => $label !== '' ? $label : 'Object',
         'category' => $obj['category'] ?? 'custom',
         'description' => $obj['description'] ?? '',
         'passable' => $obj['passable'] ?? TRUE,
         'interactable' => $obj['interactable'] ?? FALSE,
       ];
     }, $setting['objects'] ?? []);
+
+    return $setting;
+  }
+
+  /**
+   * Finalize generated NPC contracts once the room id is known.
+   */
+  protected function finalizeGeneratedSettingContracts(array $setting, string $room_id): array {
+    if (!is_array($setting['npcs'] ?? NULL)) {
+      return $setting;
+    }
+
+    $used_content_ids = [];
+    foreach ($setting['npcs'] as $index => $npc) {
+      if (!is_array($npc)) {
+        continue;
+      }
+
+      $base_content_id = isset($npc['content_id']) && is_scalar($npc['content_id'])
+        ? trim((string) $npc['content_id'])
+        : '';
+      if ($base_content_id === '') {
+        $base_content_id = isset($npc['name']) && is_scalar($npc['name'])
+          ? trim((string) $npc['name'])
+          : 'npc';
+      }
+
+      $equipment_labels = $this->normalizeGeneratedEquipmentLabels(
+        is_array($npc['equipment'] ?? NULL) ? $npc['equipment'] : []
+      );
+
+      $setting['npcs'][$index]['content_id'] = $this->buildGeneratedNpcContentId($room_id, $base_content_id, $used_content_ids);
+      $setting['npcs'][$index]['equipment'] = $equipment_labels;
+      $setting['npcs'][$index]['inventory'] = $this->buildGeneratedNpcInventory($equipment_labels);
+    }
 
     return $setting;
   }
@@ -1650,8 +1704,19 @@ PROMPT;
       $placeable = array_keys($hexes);
     }
 
-    // Shuffle placement indices deterministically.
-    shuffle($placeable);
+    usort($placeable, function (int $a, int $b) use ($hexes): int {
+      $hexA = $hexes[$a] ?? ['q' => 0, 'r' => 0];
+      $hexB = $hexes[$b] ?? ['q' => 0, 'r' => 0];
+      $distanceCompare = (abs((int) $hexA['q']) + abs((int) $hexA['r'])) <=> (abs((int) $hexB['q']) + abs((int) $hexB['r']));
+      if ($distanceCompare !== 0) {
+        return $distanceCompare;
+      }
+      $rowCompare = ((int) $hexA['r']) <=> ((int) $hexB['r']);
+      if ($rowCompare !== 0) {
+        return $rowCompare;
+      }
+      return ((int) $hexA['q']) <=> ((int) $hexB['q']);
+    });
 
     foreach ($objects as $i => $obj) {
       if (!isset($placeable[$i])) {
@@ -1659,8 +1724,10 @@ PROMPT;
       }
       $hex_idx = $placeable[$i];
       $hexes[$hex_idx]['objects'][] = [
-        'ref' => $obj['object_id'],
-        'facing' => 0,
+        'object_id' => (string) ($obj['object_id'] ?? ''),
+        'label' => (string) ($obj['label'] ?? $obj['object_id'] ?? 'Object'),
+        'category' => (string) ($obj['category'] ?? 'custom'),
+        'orientation' => 'n',
       ];
     }
 
@@ -1693,6 +1760,7 @@ PROMPT;
       $hex = $hexes_for_npcs[$i] ?? ['q' => $i, 'r' => 0];
 
       $entities[] = [
+        'schema_version' => '1.0.0',
         'entity_instance_id' => $this->generateUuid(),
         'entity_type' => 'npc',
         'entity_ref' => [
@@ -1702,11 +1770,16 @@ PROMPT;
         'placement' => [
           'room_id' => $room_id,
           'hex' => $hex,
-          'spawn_type' => 'npc',
-          'orientation' => 'n',
+          'spawn_type' => 'permanent',
+          'facing' => 0,
         ],
         'state' => [
           'active' => TRUE,
+          'hit_points' => [
+            'current' => (int) ($npc['stats']['currentHp'] ?? $npc['stats']['maxHp'] ?? 10),
+            'max' => (int) ($npc['stats']['maxHp'] ?? 10),
+          ],
+          'inventory' => is_array($npc['inventory'] ?? NULL) ? array_values($npc['inventory']) : [],
           'metadata' => [
             'display_name' => $npc['name'],
             'team' => $npc['team'],
@@ -1717,7 +1790,6 @@ PROMPT;
             'description' => $npc['description'],
             'backstory' => $npc['backstory'],
             'stats' => $npc['stats'],
-            'equipment' => $npc['equipment'],
             'languages' => ['Common'],
             'senses' => [],
             'abilities' => [],
@@ -1754,6 +1826,231 @@ PROMPT;
     ];
 
     return array_slice($positions, 0, $count);
+  }
+
+  /**
+   * Build a stable snake_case identifier and keep it unique within a collection.
+   *
+   * @param string $source
+   *   Preferred source string, such as a name or existing ID.
+   * @param string $fallback_prefix
+   *   Prefix used when the source normalizes to an empty string.
+   * @param array<string, bool> $used_ids
+   *   Set of identifiers already used in the current collection.
+   */
+  protected function buildStableMachineId(string $source, string $fallback_prefix, array &$used_ids): string {
+    $base = strtolower(trim(preg_replace('/[^a-z0-9]+/i', '_', $source), '_'));
+    if ($base === '') {
+      $base = $fallback_prefix;
+    }
+
+    $candidate = $base;
+    $suffix = 2;
+    while (isset($used_ids[$candidate])) {
+      $candidate = $base . '_' . $suffix;
+      $suffix++;
+    }
+
+    $used_ids[$candidate] = TRUE;
+    return $candidate;
+  }
+
+  /**
+   * Build a room-scoped canonical content id for generated NPCs.
+   *
+   * @param array<string, bool> $used_ids
+   *   Set of ids already used within the generated room payload.
+   */
+  protected function buildGeneratedNpcContentId(string $room_id, string $source, array &$used_ids): string {
+    $normalized_room = strtolower(trim((string) preg_replace('/[^a-z0-9]+/i', '_', $room_id), '_'));
+    $normalized_room = $normalized_room !== '' ? $normalized_room : 'room';
+
+    return $this->buildStableMachineId(
+      $normalized_room . '_' . $source,
+      'npc_' . $normalized_room,
+      $used_ids
+    );
+  }
+
+  /**
+   * Normalize generated equipment labels into trimmed strings.
+   *
+   * @return string[]
+   *   Equipment labels, preserving duplicates for quantity counting.
+   */
+  protected function normalizeGeneratedEquipmentLabels(array $equipment): array {
+    $labels = [];
+    foreach ($equipment as $item) {
+      if (!is_scalar($item)) {
+        continue;
+      }
+      $label = trim((string) $item);
+      if ($label === '') {
+        continue;
+      }
+      $labels[] = $label;
+    }
+    return $labels;
+  }
+
+  /**
+   * Build canonical inventory refs from generated equipment labels.
+   *
+   * @param string[] $equipment_labels
+   *   Raw generated equipment labels.
+   *
+   * @return array<int, array{content_id:string, quantity:int}>
+   *   Inventory refs keyed numerically for entity state payloads.
+   */
+  protected function buildGeneratedNpcInventory(array $equipment_labels): array {
+    $inventory = [];
+
+    foreach ($equipment_labels as $label) {
+      $content_id = $this->buildGeneratedItemContentId($label);
+      if (!isset($inventory[$content_id])) {
+        $inventory[$content_id] = [
+          'content_id' => $content_id,
+          'quantity' => 0,
+        ];
+      }
+      $inventory[$content_id]['quantity']++;
+    }
+
+    return array_values($inventory);
+  }
+
+  /**
+   * Build a stable canonical item content id for generated equipment.
+   */
+  protected function buildGeneratedItemContentId(string $label): string {
+    $normalized = strtolower(trim((string) preg_replace('/[^a-z0-9]+/i', '_', $label), '_'));
+    $normalized = preg_replace('/_+/', '_', (string) $normalized);
+    return $normalized !== '' ? 'generated_item_' . $normalized : 'generated_item';
+  }
+
+  /**
+   * Persist generated equipment items into the library and campaign registries.
+   *
+   * @param string[] $equipment_labels
+   *   Generated equipment labels from the NPC setting.
+   */
+  protected function registerGeneratedEquipmentItems(int $campaign_id, array $equipment_labels): void {
+    $now = time();
+    $registered = [];
+
+    foreach ($equipment_labels as $label) {
+      $content_id = $this->buildGeneratedItemContentId($label);
+      if (isset($registered[$content_id])) {
+        continue;
+      }
+      $registered[$content_id] = TRUE;
+
+      $contract = $this->buildGeneratedItemContract($content_id, $label);
+      $schema_data = json_encode($contract);
+      $tags = json_encode(array_values(array_filter([
+        'item',
+        $contract['item_type'] ?? NULL,
+        'ai_generated',
+      ])));
+
+      $this->database->merge('dungeoncrawler_content_registry')
+        ->keys(['content_type' => 'item', 'content_id' => $content_id])
+        ->fields([
+          'content_type' => 'item',
+          'content_id' => $content_id,
+          'name' => $contract['name'],
+          'level' => $contract['level'],
+          'rarity' => $contract['rarity'],
+          'tags' => $tags,
+          'schema_data' => $schema_data,
+          'source_file' => 'ai_generated',
+          'version' => '1.0.0',
+          'updated' => $now,
+        ])
+        ->expression('created', 'COALESCE(created, :created)', [':created' => $now])
+        ->execute();
+
+      $this->database->merge('dc_campaign_content_registry')
+        ->keys(['campaign_id' => $campaign_id, 'content_type' => 'item', 'content_id' => $content_id])
+        ->fields([
+          'campaign_id' => $campaign_id,
+          'content_type' => 'item',
+          'content_id' => $content_id,
+          'name' => $contract['name'],
+          'level' => $contract['level'],
+          'rarity' => $contract['rarity'],
+          'tags' => $tags,
+          'schema_data' => $schema_data,
+          'source_content_id' => $content_id,
+          'updated' => $now,
+        ])
+        ->expression('created', 'COALESCE(created, :created)', [':created' => $now])
+        ->execute();
+    }
+  }
+
+  /**
+   * Build a minimal canonical item contract for generated equipment.
+   */
+  protected function buildGeneratedItemContract(string $content_id, string $label): array {
+    $item_type = $this->inferGeneratedEquipmentItemType($label);
+
+    return [
+      'schema_version' => '1.0.0',
+      'item_id' => $content_id,
+      'name' => $label,
+      'item_type' => $item_type,
+      'level' => 0,
+      'rarity' => 'common',
+      'description' => 'Generated NPC equipment item.',
+    ];
+  }
+
+  /**
+   * Infer a coarse canonical item type from generated equipment text.
+   */
+  protected function inferGeneratedEquipmentItemType(string $label): string {
+    $normalized = strtolower($label);
+
+    foreach ([
+      'shield' => 'shield',
+      'armor' => 'armor',
+      'mail' => 'armor',
+      'plate' => 'armor',
+      'helm' => 'armor',
+      'dagger' => 'weapon',
+      'sword' => 'weapon',
+      'spear' => 'weapon',
+      'axe' => 'weapon',
+      'bow' => 'weapon',
+      'staff' => 'weapon',
+      'mace' => 'weapon',
+      'hammer' => 'weapon',
+      'crossbow' => 'weapon',
+      'club' => 'weapon',
+    ] as $needle => $item_type) {
+      if (str_contains($normalized, $needle)) {
+        return $item_type;
+      }
+    }
+
+    return 'adventuring_gear';
+  }
+
+  /**
+   * Builds a stable room-scoped instance id for generated NPC campaign rows.
+   */
+  protected function buildGeneratedNpcInstanceId(string $content_id): string {
+    $normalized_content_id = strtolower(trim((string) preg_replace('/[^a-z0-9]+/i', '_', $content_id), '_'));
+    $candidate = 'npc_instance_' . ($normalized_content_id !== '' ? $normalized_content_id : 'npc');
+    if (strlen($candidate) <= 100) {
+      return $candidate;
+    }
+
+    $hash = substr(hash('sha256', $candidate), 0, 16);
+    $prefix_length = 100 - strlen($hash) - 1;
+    $prefix = rtrim(substr($candidate, 0, $prefix_length), '_');
+    return $prefix . '_' . $hash;
   }
 
   // =========================================================================

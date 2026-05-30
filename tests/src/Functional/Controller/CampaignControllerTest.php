@@ -61,6 +61,51 @@ class CampaignControllerTest extends BrowserTestBase {
   public function testCampaignCreationSubmitPositive(): void {
     $user = $this->drupalCreateUser(['access dungeoncrawler characters']);
     $this->drupalLogin($user);
+    $database = \Drupal::database();
+    $now = time();
+
+    $database->insert('dungeoncrawler_content_rooms')
+      ->fields([
+        'room_id' => 'tavern_entrance',
+        'source_room_id' => 'tavern_entrance',
+        'name' => 'The Gilded Tankard',
+        'description' => 'Starter tavern room seed for campaign initialization.',
+        'environment_tags' => json_encode(['indoor', 'tavern', 'safe', 'starting_area']),
+        'layout_data' => json_encode([
+          'hexes' => [
+            ['q' => 0, 'r' => 0, 'tile_type' => 'floor'],
+            ['q' => 1, 'r' => 0, 'tile_type' => 'floor'],
+          ],
+          'entry_points' => [],
+          'exit_points' => [],
+          'terrain' => [],
+          'lighting' => [],
+        ]),
+        'contents_data' => json_encode([
+          'items' => [],
+          'npcs' => [
+            [
+              'content_id' => 'tavern_keeper',
+              'name' => 'Mira',
+              'role' => 'innkeeper',
+              'description' => 'Keeps the tavern running smoothly.',
+              'position' => ['q' => 0, 'r' => 0],
+              'quests' => [],
+            ],
+            [
+              'content_id' => 'scholar_npc',
+              'name' => 'Talandra',
+              'role' => 'scholar',
+              'description' => 'Offers leads for new adventurers.',
+              'position' => ['q' => 1, 'r' => 0],
+              'quests' => [],
+            ],
+          ],
+        ]),
+        'created' => $now,
+        'updated' => $now,
+      ])
+      ->execute();
 
     $this->drupalGet('/campaigns/create');
     $this->assertSession()->statusCodeEquals(200);
@@ -72,7 +117,8 @@ class CampaignControllerTest extends BrowserTestBase {
     ], 'Create Campaign');
 
     $this->assertSession()->statusCodeEquals(200);
-    $this->assertSession()->pageTextContains('Tavern Entrance');
+    $this->assertSession()->pageTextContains('Legacy Tavern Entrance');
+    $this->assertSession()->pageTextContains('No Characters Available');
   }
 
   /**
@@ -91,7 +137,7 @@ class CampaignControllerTest extends BrowserTestBase {
     $this->drupalLogin($user);
 
     $this->drupalGet('/campaigns/99999/tavernentrance');
-    $this->assertSession()->statusCodeEquals(404);
+    $this->assertSession()->statusCodeEquals(403);
   }
 
   /**
@@ -291,7 +337,7 @@ class CampaignControllerTest extends BrowserTestBase {
     $this->drupalLogin($user);
 
     $this->drupalGet('/campaigns/99999/select-character/1');
-    $this->assertSession()->statusCodeEquals(404);
+    $this->assertSession()->statusCodeEquals(403);
   }
 
   /**
@@ -417,12 +463,134 @@ class CampaignControllerTest extends BrowserTestBase {
 
     $launch_context = $settings['dungeoncrawlerContent']['hexmapLaunchContext'] ?? [];
     $dungeon_payload_loaded = $settings['dungeoncrawlerContent']['hexmapDungeonData'] ?? [];
+    $visual_state = $settings['dungeoncrawlerContent']['map_visual_state'] ?? [];
 
     $this->assertSame($character_row_id, (int) ($launch_context['character_id'] ?? 0));
     $this->assertSame('room-current', (string) ($launch_context['room_id'] ?? ''));
     $this->assertSame(4, (int) ($launch_context['start_q'] ?? -1));
     $this->assertSame(2, (int) ($launch_context['start_r'] ?? -1));
     $this->assertSame('room-current', (string) ($dungeon_payload_loaded['active_room_id'] ?? ''));
+    $this->assertSame('room-current', (string) ($visual_state['map_meta']['active_room_id'] ?? ''));
+  }
+
+  /**
+   * Tests selecting a library character materializes a ready campaign row.
+   */
+  public function testSelectCharacterMarksMaterializedCampaignRowReady(): void {
+    $user = $this->drupalCreateUser(['access dungeoncrawler characters']);
+    $this->drupalLogin($user);
+
+    $database = \Drupal::database();
+    $uuid = \Drupal::service('uuid');
+    $now = time();
+
+    $campaign_id = $database->insert('dc_campaigns')
+      ->fields([
+        'uuid' => $uuid->generate(),
+        'uid' => $user->id(),
+        'name' => 'Ready Status Campaign',
+        'status' => 'draft',
+        'campaign_data' => json_encode([]),
+        'created' => $now,
+        'changed' => $now,
+      ])
+      ->execute();
+
+    $database->insert('dc_campaign_dungeons')
+      ->fields([
+        'campaign_id' => $campaign_id,
+        'dungeon_id' => 'ready-map-1',
+        'name' => 'Ready Dungeon',
+        'description' => 'Starter dungeon for materialization.',
+        'theme' => 'classic_dungeon',
+        'dungeon_data' => json_encode([
+          'schema_version' => '1.0.0',
+          'level_id' => 'ready-level-1',
+          'hex_map' => [
+            'map_id' => 'ready-map-1',
+            'connections' => [],
+          ],
+          'rooms' => [
+            [
+              'room_id' => 'ready-room',
+              'name' => 'Ready Room',
+              'description' => 'Launch room.',
+              'hexes' => [
+                ['q' => 0, 'r' => 0],
+              ],
+            ],
+          ],
+        ]),
+        'created' => $now,
+        'updated' => $now,
+      ])
+      ->execute();
+
+    $library_character_id = (int) $database->insert('dc_campaign_characters')
+      ->fields([
+        'uuid' => $uuid->generate(),
+        'campaign_id' => 0,
+        'character_id' => 0,
+        'instance_id' => $uuid->generate(),
+        'uid' => $user->id(),
+        'name' => 'Materialized Hero',
+        'class' => 'wizard',
+        'ancestry' => 'elf',
+        'level' => 1,
+        'hp_current' => 12,
+        'hp_max' => 12,
+        'armor_class' => 15,
+        'experience_points' => 0,
+        'position_q' => 0,
+        'position_r' => 0,
+        'last_room_id' => '',
+        'type' => 'pc',
+        'status' => 1,
+        'character_data' => json_encode([
+          'step' => 8,
+          'basicInfo' => [
+            'name' => 'Materialized Hero',
+            'class' => 'wizard',
+            'ancestry' => 'elf',
+            'level' => 1,
+          ],
+          'resources' => [
+            'hitPoints' => [
+              'current' => 12,
+              'max' => 12,
+            ],
+          ],
+        ]),
+        'default_character_data' => json_encode([
+          'step' => 8,
+          'basicInfo' => [
+            'name' => 'Materialized Hero',
+            'class' => 'wizard',
+            'ancestry' => 'elf',
+            'level' => 1,
+          ],
+        ]),
+        'created' => $now,
+        'changed' => $now,
+      ])
+      ->execute();
+
+    $this->drupalGet("/campaigns/{$campaign_id}/select-character/{$library_character_id}");
+    $this->assertSession()->statusCodeEquals(200);
+
+    $campaign_character = $database->select('dc_campaign_characters', 'cc')
+      ->fields('cc', ['id', 'character_id', 'campaign_id', 'status', 'type'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('character_id', $library_character_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+
+    $this->assertNotEmpty($campaign_character);
+    $this->assertSame((string) $campaign_id, (string) ($campaign_character['campaign_id'] ?? ''));
+    $this->assertSame((string) $library_character_id, (string) ($campaign_character['character_id'] ?? ''));
+    $this->assertSame('1', (string) ($campaign_character['status'] ?? ''));
+    $this->assertSame('pc', (string) ($campaign_character['type'] ?? ''));
   }
 
   /**
@@ -448,8 +616,7 @@ class CampaignControllerTest extends BrowserTestBase {
     $this->drupalGet("/campaigns/{$campaign_id}/archive");
     $this->assertSession()->statusCodeEquals(200);
     $this->assertSession()->pageTextNotContains('I confirm I want to archive this campaign.');
-
-    $this->submitForm([], 'Archive Campaign');
+    $this->assertSession()->pageTextContains('Archive Me archived. It is now hidden from your campaigns list.');
 
     $status_after_success = $database->select('dc_campaigns', 'c')
       ->fields('c', ['status'])
@@ -467,7 +634,7 @@ class CampaignControllerTest extends BrowserTestBase {
     $this->drupalLogin($user);
 
     $database = \Drupal::database();
-    $archived_campaign_id = $database->insert('dc_campaigns')
+    $visible_campaign_id = $database->insert('dc_campaigns')
       ->fields([
         'uuid' => \Drupal::service('uuid')->generate(),
         'uid' => $user->id(),
@@ -495,7 +662,13 @@ class CampaignControllerTest extends BrowserTestBase {
     $this->assertSession()->statusCodeEquals(200);
     $this->assertSession()->pageTextContains('Visible Campaign');
     $this->assertSession()->pageTextContains('Archived Campaigns');
+    $this->assertSession()->pageTextNotContains('Hidden Campaign');
+    $this->assertSession()->linkByHrefExists('/campaigns/archived');
+
+    $this->drupalGet('/campaigns/archived');
+    $this->assertSession()->statusCodeEquals(200);
     $this->assertSession()->pageTextContains('Hidden Campaign');
+    $this->assertSession()->pageTextNotContains('Visible Campaign');
     $this->assertSession()->linkByHrefExists("/campaigns/{$archived_campaign_id}/unarchive");
   }
 
@@ -519,7 +692,7 @@ class CampaignControllerTest extends BrowserTestBase {
       ])
       ->execute();
 
-    $this->drupalGet('/campaigns');
+    $this->drupalGet('/campaigns/archived');
     $this->assertSession()->pageTextContains('Unarchive Me');
 
     $this->drupalGet("/campaigns/{$campaign_id}/unarchive");
@@ -535,6 +708,8 @@ class CampaignControllerTest extends BrowserTestBase {
 
     $this->drupalGet('/campaigns');
     $this->assertSession()->pageTextContains('Unarchive Me');
+    $this->drupalGet('/campaigns/archived');
+    $this->assertSession()->pageTextNotContains('Unarchive Me');
   }
 
   /**
@@ -558,7 +733,7 @@ class CampaignControllerTest extends BrowserTestBase {
       ->execute();
 
     $this->drupalGet("/campaigns/{$campaign_id}/archive");
-    $this->submitForm([], 'Archive Campaign');
+    $this->assertSession()->statusCodeEquals(200);
 
     $status_after_archive = $database->select('dc_campaigns', 'c')
       ->fields('c', ['status'])

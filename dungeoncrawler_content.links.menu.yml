@@ -44,6 +44,13 @@ dungeoncrawler_content.room_turn_log_browser:
   parent: dungeoncrawler_content.dashboard
   weight: 8
 
+dungeoncrawler_content.institution_review_browser:
+  title: 'Institution Review Queue'
+  description: 'Inspect unresolved institution normalization and backfill rows.'
+  route_name: dungeoncrawler_content.institution_review_browser
+  parent: dungeoncrawler_content.dashboard
+  weight: 9
+
 dungeoncrawler_content.text_to_speech_interface:
   title: 'Text-to-Speech'
   description: 'Run a smoke test through the optional Forseti TTS integration module.'
@@ -191,6 +198,13 @@ dungeoncrawler_content.menu.dc_administration_data_lineage:
   route_name: dungeoncrawler_content.data_lineage_architecture
   parent: dungeoncrawler_content.menu.dc_administration
   weight: 11
+
+dungeoncrawler_content.menu.dc_administration_institution_review:
+  title: 'Institution Review Queue'
+  description: 'Inspect unresolved institution normalization and backfill rows.'
+  route_name: dungeoncrawler_content.institution_review_browser
+  parent: dungeoncrawler_content.menu.dc_administration
+  weight: 12
 
 # ==============================================================================
 # FOOTER MENU LINKS

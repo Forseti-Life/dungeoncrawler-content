@@ -31,4 +31,28 @@ class GameplayActionProcessorStateDiffSummaryTest extends UnitTestCase {
     $this->assertFalse($summary['has_mechanical_effects']);
   }
 
+  /**
+   * @covers ::buildRealitySnapshot
+   */
+  public function testBuildRealitySnapshotPrefersCanonicalSpellSlotResources(): void {
+    $processor = new class extends GameplayActionProcessor {
+      public function __construct() {}
+    };
+
+    $snapshot = $processor->buildRealitySnapshot([
+      'name' => 'Meris',
+      'spells' => [
+        'slots' => ['first' => 2],
+        'slots_used' => ['first' => 0],
+      ],
+      'resources' => [
+        'spellSlots' => [
+          '1' => ['current' => 1, 'max' => 2],
+        ],
+      ],
+    ]);
+
+    $this->assertSame(['first' => 1], $snapshot['character']['spell_slots_remaining']);
+  }
+
 }

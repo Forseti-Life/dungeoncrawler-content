@@ -70,6 +70,8 @@ class NpcService {
     protected readonly Connection $database,
     protected readonly AccountInterface $currentUser,
     protected readonly NpcSheetGenerationService $npcSheetGenerationService,
+    protected readonly InstitutionMembershipService $institutionMembership,
+    protected readonly FactionGenerationService $factionGeneration,
     protected readonly ?NameGeneratorService $nameGenerator = NULL,
   ) {}
 
@@ -144,28 +146,98 @@ class NpcService {
       'updated'       => $now,
     ];
 
-    $npc_id = (int) $this->database->insert('dc_npc')->fields($fields)->execute();
-    $fields['id'] = $npc_id;
+    $transaction = $this->database->startTransaction();
+    try {
+      $this->resolveNpcFactionCreateRequests($campaign_id, $data);
 
-    $this->npcSheetGenerationService->enqueueNpcSheetGeneration($campaign_id, $entity_ref, [
-      'entity_ref' => $entity_ref,
-      'name' => $name,
-      'role' => $role,
-      'level' => (int) ($fields['level'] ?? 1),
-      'description' => (string) ($data['dialogue_notes'] ?? $data['lore_notes'] ?? ''),
-      'attitude' => $attitude,
-      'stats' => [
-        'perception' => (int) ($fields['perception'] ?? 0),
-        'ac' => (int) ($fields['armor_class'] ?? 10),
-        'currentHp' => (int) ($fields['hit_points'] ?? 0),
-        'maxHp' => (int) ($fields['hit_points'] ?? 0),
-        'fortitude' => (int) ($fields['fort_save'] ?? 0),
-        'reflex' => (int) ($fields['ref_save'] ?? 0),
-        'will' => (int) ($fields['will_save'] ?? 0),
-      ],
-    ]);
+      $npc_id = (int) $this->database->insert('dc_npc')->fields($fields)->execute();
+      $fields['id'] = $npc_id;
+
+      $this->institutionMembership->syncCampaignNpcMemberships($campaign_id, $entity_ref, $data);
+
+      $this->npcSheetGenerationService->enqueueNpcSheetGeneration($campaign_id, $entity_ref, [
+        'entity_ref' => $entity_ref,
+        'name' => $name,
+        'role' => $role,
+        'level' => (int) ($fields['level'] ?? 1),
+        'description' => (string) ($data['dialogue_notes'] ?? $data['lore_notes'] ?? ''),
+        'attitude' => $attitude,
+        'stats' => [
+          'perception' => (int) ($fields['perception'] ?? 0),
+          'ac' => (int) ($fields['armor_class'] ?? 10),
+          'currentHp' => (int) ($fields['hit_points'] ?? 0),
+          'maxHp' => (int) ($fields['hit_points'] ?? 0),
+          'fortitude' => (int) ($fields['fort_save'] ?? 0),
+          'reflex' => (int) ($fields['ref_save'] ?? 0),
+          'will' => (int) ($fields['will_save'] ?? 0),
+        ],
+      ]);
+    }
+    catch (\Throwable $exception) {
+      if (is_object($transaction) && method_exists($transaction, 'rollBack')) {
+        $transaction->rollBack();
+      }
+      throw $exception;
+    }
 
     return $fields;
+  }
+
+  /**
+   * Resolves structured NPC faction-generation requests into faction refs.
+   *
+   * @param array<string, mixed> $data
+   *   NPC create payload.
+   */
+  protected function resolveNpcFactionCreateRequests(int $campaign_id, array &$data): void {
+    $requests = $data['faction_create_requests'] ?? [];
+    if ($requests === [] || $requests === NULL) {
+      unset($data['faction_create_requests']);
+      return;
+    }
+    if (!is_array($requests) || !array_is_list($requests)) {
+      throw new \InvalidArgumentException('faction_create_requests must be a list of structured faction generation requests.', 400);
+    }
+
+    $faction_refs = is_array($data['faction_refs'] ?? NULL) ? array_values($data['faction_refs']) : [];
+    foreach ($requests as $request) {
+      if (!is_array($request)) {
+        throw new \InvalidArgumentException('Each faction generation request must be an object payload.', 400);
+      }
+
+      $resolved = $this->factionGeneration->createOrReuseFactionForNeed($campaign_id, [
+        'label' => $request['label'] ?? '',
+        'domain' => $request['domain'] ?? 'faction',
+        'requestSource' => $request['requestSource'] ?? 'npc_authoring_support',
+        'roleInStory' => $request['roleInStory'] ?? '',
+        'whyExistingFactionIsInsufficient' => $request['whyExistingFactionIsInsufficient'] ?? '',
+        'publicFace' => $request['publicFace'] ?? '',
+        'hiddenFace' => $request['hiddenFace'] ?? '',
+        'ideologyTags' => $request['ideologyTags'] ?? [],
+        'methodTags' => $request['methodTags'] ?? [],
+        'membershipStyle' => $request['membershipStyle'] ?? 'invite_only',
+        'parentSubjectId' => $request['parentSubjectId'] ?? '',
+        'provenanceNote' => $request['provenanceNote'] ?? 'Requested through NPC authoring flow.',
+      ]);
+
+      $resolved_subject_id = trim((string) ($resolved['campaignSubjectId'] ?? ''));
+      if ($resolved_subject_id === '') {
+        continue;
+      }
+
+      $faction_refs[] = [
+        'subject_id' => $resolved_subject_id,
+        'metadata' => [
+          'created_via' => 'npc_service',
+          'request_source' => (string) ($request['requestSource'] ?? 'npc_authoring_support'),
+        ],
+      ];
+    }
+
+    if ($faction_refs !== []) {
+      $data['faction_refs'] = $faction_refs;
+    }
+    unset($data['faction_create_requests']);
   }
 
   /**

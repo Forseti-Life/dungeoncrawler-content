@@ -9,6 +9,7 @@ use Drupal\Core\Database\Connection;
 use Drupal\Core\Url;
 use Drupal\dungeoncrawler_content\Service\CharacterManager;
 use Drupal\dungeoncrawler_content\Service\CharacterPortraitGenerationService;
+use Drupal\dungeoncrawler_content\Service\FeatLibraryService;
 use Drupal\dungeoncrawler_content\Service\SchemaLoader;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\RedirectResponse;
@@ -25,13 +26,15 @@ class CharacterCreationStepController extends ControllerBase {
   protected CsrfTokenGenerator $csrfToken;
   protected Connection $database;
   protected CharacterPortraitGenerationService $portraitGenerator;
+  protected FeatLibraryService $featLibrary;
 
-  public function __construct(CharacterManager $character_manager, SchemaLoader $schema_loader, CsrfTokenGenerator $csrf_token, Connection $database, CharacterPortraitGenerationService $portrait_generator) {
+  public function __construct(CharacterManager $character_manager, SchemaLoader $schema_loader, CsrfTokenGenerator $csrf_token, Connection $database, CharacterPortraitGenerationService $portrait_generator, FeatLibraryService $feat_library) {
     $this->characterManager = $character_manager;
     $this->schemaLoader = $schema_loader;
     $this->csrfToken = $csrf_token;
     $this->database = $database;
     $this->portraitGenerator = $portrait_generator;
+    $this->featLibrary = $feat_library;
   }
 
   public static function create(ContainerInterface $container) {
@@ -41,6 +44,7 @@ class CharacterCreationStepController extends ControllerBase {
       $container->get('csrf_token'),
       $container->get('database'),
       $container->get('dungeoncrawler_content.character_portrait_generator'),
+      $container->get('dungeoncrawler_content.feat_library'),
     );
   }
 
@@ -59,12 +63,13 @@ class CharacterCreationStepController extends ControllerBase {
       if ($character && ($character->uid == $this->currentUser()->id() || $is_admin)) {
         $data = json_decode($character->character_data, TRUE);
         $step = (int) ($data['step'] ?? 1);
+        $resolved_campaign_id = !empty($character->campaign_id) ? (int) $character->campaign_id : (int) ($campaign_id ?? 0);
         $url = Url::fromRoute('dungeoncrawler_content.character_step', [
           'step' => $step,
         ]);
         $query = ['character_id' => $character_id];
-        if ($campaign_id) {
-          $query['campaign_id'] = $campaign_id;
+        if ($resolved_campaign_id > 0) {
+          $query['campaign_id'] = $resolved_campaign_id;
         }
         $url->setOption('query', $query);
         return new RedirectResponse($url->toString());
@@ -75,6 +80,8 @@ class CharacterCreationStepController extends ControllerBase {
     $existing_draft = $this->database->select('dc_campaign_characters', 'c')
       ->fields('c', ['id'])
       ->condition('uid', (int) $this->currentUser()->id())
+      ->condition('campaign_id', 0)
+      ->condition('character_id', 0)
       ->condition('status', 0)
       ->range(0, 1)
       ->execute()
@@ -115,6 +122,7 @@ class CharacterCreationStepController extends ControllerBase {
         $this->messenger()->addError($this->t('Access denied.'));
         return new RedirectResponse($this->buildCharactersUrl($campaign_id));
       }
+      $resolved_campaign_id = !empty($character->campaign_id) ? (int) $character->campaign_id : (int) ($campaign_id ?? 0);
 
       $character_data = json_decode((string) $character->character_data, TRUE);
       $saved_step = (int) (($character_data['step'] ?? 1));
@@ -122,8 +130,8 @@ class CharacterCreationStepController extends ControllerBase {
 
       if ($step > $saved_step) {
         $query = ['character_id' => $character_id];
-        if ($campaign_id) {
-          $query['campaign_id'] = $campaign_id;
+        if ($resolved_campaign_id > 0) {
+          $query['campaign_id'] = $resolved_campaign_id;
         }
 
         $this->messenger()->addWarning($this->t('Please complete the previous step before continuing.'));
@@ -172,6 +180,9 @@ class CharacterCreationStepController extends ControllerBase {
     
     // Load existing character
     $character = $character_id ? $this->characterManager->loadCharacter($character_id) : NULL;
+    $resolved_campaign_id = $character && !empty($character->campaign_id)
+      ? (int) $character->campaign_id
+      : (int) ($campaign_id ?? 0);
     
     if ($character && $character->uid != $this->currentUser()->id()
       && !$this->currentUser()->hasPermission('administer dungeoncrawler content')) {
@@ -179,6 +190,13 @@ class CharacterCreationStepController extends ControllerBase {
         'success' => FALSE,
         'message' => $this->t('Access denied.'),
       ], 403);
+    }
+
+    if ($resolved_campaign_id > 0) {
+      return new JsonResponse([
+        'success' => FALSE,
+        'message' => $this->t('Campaign-scoped character creation saves must use the campaign wizard form submission path.'),
+      ], 400);
     }
 
     // Merge with existing data
@@ -204,6 +222,7 @@ class CharacterCreationStepController extends ControllerBase {
     $character_data = $result;
     $next_step = $this->getNextStep($step);
     $character_data['step'] = $next_step; // Advance to next step
+    $character_data = CharacterManager::normalizePersistentCharacterPayload($character_data);
 
     $hit_points = is_array($character_data['hit_points'] ?? NULL) ? $character_data['hit_points'] : [];
     $abilities = is_array($character_data['abilities'] ?? NULL) ? $character_data['abilities'] : [];
@@ -211,8 +230,6 @@ class CharacterCreationStepController extends ControllerBase {
 
     // Character creation persists to the canonical library row. Campaign
     // selection attaches that row to a campaign separately.
-    $resolved_campaign_id = $character ? (int) ($character->campaign_id ?? 0) : 0;
-
     // Save to database
     if ($character) {
       $this->characterManager->updateCharacter($character_id, [
@@ -443,30 +460,8 @@ class CharacterCreationStepController extends ControllerBase {
           ? array_values(array_filter($raw_spells, static fn($v) => $v !== 0 && $v !== '' && $v !== NULL && $v !== FALSE))
           : [];
 
-        $spell_slots = CharacterManager::CASTER_SPELL_SLOTS[$selected_class] ?? [];
-
-        $ability_map = [
-          'wizard' => 'intelligence', 'witch' => 'intelligence',
-          'cleric' => 'wisdom', 'druid' => 'wisdom',
-          'bard' => 'charisma', 'sorcerer' => 'charisma', 'oracle' => 'charisma',
-        ];
-
-        $character_data['cantrips'] = $cantrip_ids;
-        $character_data['spells_first'] = $spell_ids;
-        $character_data['spells'] = [
-          'tradition' => $tradition,
-          'casting_ability' => $ability_map[strtolower($selected_class)] ?? 'charisma',
-          'cantrips' => $cantrip_ids,
-          'first_level' => $spell_ids,
-          'slots' => [
-            'cantrips' => $spell_slots['cantrips'] ?? 5,
-            'first' => $spell_slots['first'] ?? 2,
-          ],
-        ];
-
-        if ($selected_class === 'wizard') {
-          $character_data['spells']['spellbook_size'] = $spell_slots['spellbook'] ?? 10;
-        }
+        $spell_payload = CharacterManager::buildSpellSelectionPayload($selected_class, $tradition, $cantrip_ids, $spell_ids);
+        $character_data['spells'] = $spell_payload['spells'];
       }
     }
 
@@ -610,7 +605,8 @@ class CharacterCreationStepController extends ControllerBase {
       }
 
       $remaining_gp = max(0, round(15 - $total_cost, 2));
-      $character_data['gold'] = $remaining_gp;
+      $starting_currency = CharacterManager::normalizeCurrencyDenominations(['gp' => $remaining_gp]);
+      $character_data['gold'] = CharacterManager::currencyDenominationsToGoldValue($starting_currency);
 
       // Build proper inventory structure.
       $carried = [];
@@ -640,7 +636,7 @@ class CharacterCreationStepController extends ControllerBase {
       $character_data['inventory'] = [
         'worn' => ['weapons' => [], 'armor' => NULL, 'shield' => NULL, 'accessories' => []],
         'carried' => $carried,
-        'currency' => ['cp' => 0, 'sp' => 0, 'gp' => $remaining_gp, 'pp' => 0],
+        'currency' => $starting_currency,
         'totalBulk' => $total_bulk,
         'encumbrance' => 'unencumbered',
       ];
@@ -1133,7 +1129,7 @@ class CharacterCreationStepController extends ControllerBase {
     foreach ($auto_grant_ids as $auto_id) {
       // Look up display name from ANCESTRY_FEATS if available; fall back to ID.
       $display_name = ucwords(str_replace('-', ' ', $auto_id));
-      $ancestry_feats_all = CharacterManager::getAncestryFeats($ancestry_name);
+      $ancestry_feats_all = $this->featLibrary->getAncestryFeats($ancestry_name);
       foreach ($ancestry_feats_all as $f) {
         if ($f['id'] === $auto_id) {
           $display_name = $f['name'];
@@ -1146,7 +1142,7 @@ class CharacterCreationStepController extends ControllerBase {
     // Ancestry feat.
     if (!empty($character_data['ancestry_feat'])) {
       $ancestry_name = ucfirst($character_data['ancestry'] ?? '');
-      $ancestry_feats = CharacterManager::getAncestryFeats($ancestry_name);
+      $ancestry_feats = $this->featLibrary->getAncestryFeats($ancestry_name);
       foreach ($ancestry_feats as $f) {
         if ($f['id'] === $character_data['ancestry_feat']) {
           $feats[] = ['type' => 'ancestry', 'id' => $f['id'], 'name' => $f['name'], 'level' => 1];
@@ -1157,7 +1153,7 @@ class CharacterCreationStepController extends ControllerBase {
 
     // Class feat.
     if (!empty($character_data['class_feat'])) {
-      $class_feats = CharacterManager::getClassFeats($character_data['class'] ?? '');
+      $class_feats = $this->featLibrary->getClassFeats((string) ($character_data['class'] ?? ''));
       foreach ($class_feats as $f) {
         if ($f['id'] === $character_data['class_feat']) {
           $feats[] = ['type' => 'class', 'id' => $f['id'], 'name' => $f['name'], 'level' => 1];
@@ -1168,7 +1164,7 @@ class CharacterCreationStepController extends ControllerBase {
 
     // General feat.
     if (!empty($character_data['general_feat'])) {
-      foreach (CharacterManager::getGeneralFeats() as $f) {
+      foreach ($this->featLibrary->getGeneralFeats() as $f) {
         if ($f['id'] === $character_data['general_feat']) {
           $feats[] = ['type' => 'general', 'id' => $f['id'], 'name' => $f['name'], 'level' => 1];
           break;
@@ -1178,7 +1174,7 @@ class CharacterCreationStepController extends ControllerBase {
 
     if (($character_data['ancestry_feat'] ?? '') === 'general-training') {
       $bonus_general_feat = trim((string) ($character_data['feat_selections']['general-training']['bonus_general_feat'] ?? ''));
-      foreach (CharacterManager::getGeneralFeats() as $f) {
+      foreach ($this->featLibrary->getGeneralFeats() as $f) {
         if ($f['id'] === $bonus_general_feat) {
           $already_listed = in_array($bonus_general_feat, array_column($feats, 'id'), TRUE);
           if (!$already_listed) {

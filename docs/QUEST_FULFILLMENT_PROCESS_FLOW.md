@@ -13,6 +13,32 @@ manual GM checkboxing for every event.
 - Deterministic touchpoints auto-apply; ambiguous touchpoints require confirmation.
 - Progress updates are idempotent to prevent duplicate increments.
 - UI (Quest Journal) renders from canonical state, never from narration text.
+- Surfacing a quest lead or offer is not the same thing as activating the quest.
+
+## Session / Journal Read Model
+
+Room chat and the quest journal now share the same top-level quest summary
+contract:
+
+- `schema_version = quest-summary-v2`
+- `active[]`
+- `offers[]`
+- `leads[]`
+- `counts.active|offers|leads`
+
+The legacy `available` bucket is no longer the canonical client-facing summary
+shape.
+
+## Quest Surfacing Contract
+
+When room conversation introduces quest content:
+
+- rumor/discovery chatter creates or refreshes a `lead`
+- a concrete ask from a quest giver creates or refreshes an `offered` quest
+- only explicit acceptance moves that quest to `active`
+
+This prevents incidental NPC mention from auto-starting a quest and keeps
+touchpoint/progress logic scoped to actually accepted work.
 
 ## State Model
 

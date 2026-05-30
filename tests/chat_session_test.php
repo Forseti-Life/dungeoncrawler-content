@@ -119,6 +119,47 @@ assert_equals((int) $room['id'], (int) $char_session['parent_session_id'], 'Char
 assert_true(strpos($char_session['label'], 'Thordak') !== FALSE, 'Label contains character name');
 
 // ============================================================================
+echo "\n--- Test 4b: Room session aliases reuse the existing logical room chain ---\n";
+// ============================================================================
+$alias_campaign_id = 99997;
+$alias_room_id = 'tavern_entrance';
+$raw_dungeon_id = '47f1dca7-432b-4c88-b021-862ca7708503';
+$canonical_dungeon_id = 'onboarding';
+$sessionManager->deleteAllForCampaign($alias_campaign_id);
+$sessionManager->ensureCampaignSessions($alias_campaign_id, 'Alias Test Campaign');
+
+$raw_room = $sessionManager->ensureRoomSession($alias_campaign_id, $raw_dungeon_id, $alias_room_id, 'Tavern Entrance');
+$canonical_room = $sessionManager->ensureRoomSession($alias_campaign_id, $canonical_dungeon_id, $alias_room_id, 'Tavern Entrance');
+
+assert_equals((int) $raw_room['id'], (int) $canonical_room['id'], 'Canonical room request reuses existing room alias');
+assert_equals($raw_dungeon_id, (string) ($canonical_room['metadata']['dungeon_id'] ?? ''), 'Room alias keeps the authoritative existing dungeon scope');
+
+$room_alias_count = (int) $db->select('dc_chat_sessions', 's')
+  ->condition('campaign_id', $alias_campaign_id)
+  ->condition('session_type', 'room')
+  ->condition('scope_ref', $alias_room_id)
+  ->countQuery()
+  ->execute()
+  ->fetchField();
+assert_equals(1, $room_alias_count, 'Only one room session exists for the logical room');
+
+$raw_char_session = $sessionManager->ensureCharacterNarrativeSession(
+  $alias_campaign_id,
+  $raw_dungeon_id,
+  $alias_room_id,
+  73,
+  'Alias Tester'
+);
+$canonical_char_session = $sessionManager->loadCharacterNarrativeSession(
+  $alias_campaign_id,
+  $canonical_dungeon_id,
+  $alias_room_id,
+  73
+);
+assert_not_null($canonical_char_session, 'Canonical narrative load resolves through room alias');
+assert_equals((int) $raw_char_session['id'], (int) $canonical_char_session['id'], 'Canonical narrative load reuses the existing character narrative session');
+
+// ============================================================================
 echo "\n--- Test 5: Post message to room with feed-up ---\n";
 // ============================================================================
 $msg_id = $sessionManager->postMessage(

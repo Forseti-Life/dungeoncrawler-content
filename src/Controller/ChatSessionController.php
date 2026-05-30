@@ -246,8 +246,7 @@ class ChatSessionController extends ControllerBase {
 
       // If room_id + dungeon_id given, return that specific narrative session.
       if ($dungeon_id && $room_id) {
-        $key = $this->sessionManager->characterNarrativeKey($campaign_id, $dungeon_id, $room_id, $character_id);
-        $session = $this->sessionManager->loadSession($key);
+        $session = $this->sessionManager->loadCharacterNarrativeSession($campaign_id, $dungeon_id, $room_id, $character_id);
         if (!$session) {
           return new JsonResponse([
             'success' => TRUE,

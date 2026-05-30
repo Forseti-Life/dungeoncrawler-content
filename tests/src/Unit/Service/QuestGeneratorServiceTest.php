@@ -441,7 +441,7 @@ class QuestGeneratorServiceTest extends UnitTestCase {
       'quest_id' => 'ltba-enter-the-vault_65_123',
       'source_template_id' => 'ltba-enter-the-vault',
       'quest_name' => 'Enter the Vault',
-      'status' => 'available',
+      'status' => 'offered',
       'generated_objectives' => [
         [
           'phase' => 1,
@@ -466,15 +466,29 @@ class QuestGeneratorServiceTest extends UnitTestCase {
       'generated_rewards' => ['xp' => 50],
       'quest_data' => ['difficulty' => 'moderate'],
       'location_id' => 'tavern_entrance',
+    ]], [[
+      'quest_id' => 'tok-find-the-missing-teacher_65_456',
+      'source_template_id' => 'tok-find-the-missing-teacher',
+      'quest_name' => 'Find the Missing Teacher',
+      'status' => 'lead',
+      'generated_objectives' => [],
+      'generated_rewards' => ['xp' => 25],
+      'quest_data' => ['difficulty' => 'moderate'],
+      'location_id' => 'tavern_entrance',
     ]]);
 
     $this->assertSame(QuestGeneratorService::QUEST_SUMMARY_SCHEMA_VERSION, $payload['schema_version']);
     $this->assertSame('tavern_entrance', $payload['location_id']);
-    $this->assertCount(1, $payload['available']);
+    $this->assertCount(0, $payload['active']);
+    $this->assertCount(1, $payload['offers']);
+    $this->assertCount(1, $payload['leads']);
     $this->assertSame([], $payload['management_tree']);
     $this->assertSame(0, $payload['counts']['active']);
-    $this->assertSame(1, $payload['counts']['available']);
-    $this->assertSame('Enter the Vault', $payload['available'][0]['quest_name']);
+    $this->assertSame(1, $payload['counts']['offers']);
+    $this->assertSame(1, $payload['counts']['leads']);
+    $this->assertArrayNotHasKey('available', $payload);
+    $this->assertSame('Enter the Vault', $payload['offers'][0]['quest_name']);
+    $this->assertSame('Find the Missing Teacher', $payload['leads'][0]['quest_name']);
   }
 
   /**
@@ -502,7 +516,7 @@ class QuestGeneratorServiceTest extends UnitTestCase {
           'storyline_id' => 'threshold-of-knowledge',
           'template_id' => 'threshold-of-knowledge',
           'name' => 'Threshold of Knowledge',
-          'status' => 'available',
+          'status' => 'lead',
           'priority' => 100,
           'current_chapter_id' => 'magaambya-campus',
           'current_scene_id' => 'missing-teacher',

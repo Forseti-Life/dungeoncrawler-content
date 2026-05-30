@@ -157,6 +157,7 @@ class CharacterStateService {
           'encumbrance' => 'unencumbered',
         ],
         'features' => $features,
+        'progression' => is_array($merged_library['progression'] ?? NULL) ? $merged_library['progression'] : [],
         'portrait_url' => $portrait_url,
         'portrait' => $portrait_url, // Legacy alias still read by older character-sheet callers.
         'descriptors' => $descriptors,
@@ -1406,6 +1407,10 @@ class CharacterStateService {
 
     $type = $persisted_state['type'] ?? ($campaign_row['type'] ?? 'pc');
 
+    if ($type === 'pc') {
+      $persisted_state = CharacterManager::normalizePersistentCharacterPayload($persisted_state);
+    }
+
     // Extract fields for columns with fallbacks for non-PC entities.
     if ($type === 'pc') {
       $name = $persisted_state['basicInfo']['name'] ?? '';
@@ -1421,12 +1426,12 @@ class CharacterStateService {
       $class = $persisted_state['basicInfo']['class'] ?? '';
     }
 
-    $resources = is_array($state['resources'] ?? NULL) ? $state['resources'] : [];
+    $resources = is_array($persisted_state['resources'] ?? NULL) ? $persisted_state['resources'] : [];
     $hitPoints = is_array($resources['hitPoints'] ?? NULL) ? $resources['hitPoints'] : [];
-    $defenses = is_array($state['defenses'] ?? NULL) ? $state['defenses'] : [];
+    $defenses = is_array($persisted_state['defenses'] ?? NULL) ? $persisted_state['defenses'] : [];
     $armorClassState = is_array($defenses['armorClass'] ?? NULL) ? $defenses['armorClass'] : [];
-    $position = is_array($state['position'] ?? NULL) ? $state['position'] : [];
-    $location = is_array($state['location'] ?? NULL) ? $state['location'] : [];
+    $position = is_array($persisted_state['position'] ?? NULL) ? $persisted_state['position'] : [];
+    $location = is_array($persisted_state['location'] ?? NULL) ? $persisted_state['location'] : [];
 
     $hpCurrent = (int) ($hitPoints['current'] ?? 0);
     $hpMax = (int) ($hitPoints['max'] ?? 0);
@@ -1735,7 +1740,7 @@ class CharacterStateService {
 
     return $this->featEffectManager->buildEffectState([
       'level' => $level,
-      'feats' => $feats,
+      'feats' => $this->buildRuntimeFeatRefs($feats),
       'feat_selections' => $feat_selections,
       'feat_resources' => is_array($state['resources']['featResources'] ?? NULL) ? $state['resources']['featResources'] : [],
       'heritage' => $state['basicInfo']['heritage'] ?? '',
@@ -1748,6 +1753,52 @@ class CharacterStateService {
       'base_speed' => $base_speed,
       'existing_hp_max' => (int) ($state['resources']['hitPoints']['max'] ?? 0),
     ]);
+  }
+
+  /**
+   * Reduce persisted feat entries to the runtime metadata the effect layer needs.
+   *
+   * @param array<int|string,mixed> $feats
+   *   Persisted feature feat payload.
+   *
+   * @return array<int,array<string,mixed>>
+   *   Compact runtime feat refs keyed by canonical id plus review/selection metadata.
+   */
+  private function buildRuntimeFeatRefs(array $feats): array {
+    $runtime_feats = [];
+    foreach ($feats as $feat) {
+      if (is_string($feat)) {
+        $id = trim($feat);
+        if ($id !== '') {
+          $runtime_feats[] = ['id' => $id];
+        }
+        continue;
+      }
+
+      if (!is_array($feat)) {
+        continue;
+      }
+
+      $id = trim((string) ($feat['id'] ?? ''));
+      if ($id === '') {
+        continue;
+      }
+
+      $runtime_feat = ['id' => $id];
+      foreach (['name', 'status', 'implementation', 'review', 'note'] as $key) {
+        if (isset($feat[$key]) && is_string($feat[$key]) && trim($feat[$key]) !== '') {
+          $runtime_feat[$key] = trim($feat[$key]);
+        }
+      }
+
+      if (isset($feat['feat_params']) && is_array($feat['feat_params']) && $feat['feat_params'] !== []) {
+        $runtime_feat['feat_params'] = $feat['feat_params'];
+      }
+
+      $runtime_feats[] = $runtime_feat;
+    }
+
+    return $runtime_feats;
   }
 
   /**

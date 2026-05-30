@@ -54,7 +54,7 @@ class CharacterSetupController extends ControllerBase {
       throw new AccessDeniedHttpException('Access denied.');
     }
 
-    if ($character && ($campaign_id === NULL || $campaign_id === '') && !empty($character->campaign_id)) {
+    if ($character && !empty($character->campaign_id)) {
       $campaign_id = (int) $character->campaign_id;
     }
 

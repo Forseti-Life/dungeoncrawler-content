@@ -13,10 +13,15 @@ use Drupal\Core\Session\AccountProxyInterface;
 use Drupal\Core\DependencyInjection\ContainerBuilder;
 use Drupal\dungeoncrawler_content\Form\CharacterCreationStepForm;
 use Drupal\dungeoncrawler_content\Service\AbilityScoreTracker;
+use Drupal\dungeoncrawler_content\Service\CampaignSubjectRegistryService;
 use Drupal\dungeoncrawler_content\Service\CharacterCreationGmService;
 use Drupal\dungeoncrawler_content\Service\CharacterManager;
 use Drupal\dungeoncrawler_content\Service\CharacterPortraitGenerationService;
+use Drupal\dungeoncrawler_content\Service\FactionGenerationService;
+use Drupal\dungeoncrawler_content\Service\FeatLibraryService;
 use Drupal\dungeoncrawler_content\Service\ImageGenerationIntegrationService;
+use Drupal\dungeoncrawler_content\Service\InstitutionMembershipService;
+use Drupal\dungeoncrawler_content\Service\InstitutionNormalizationService;
 use Drupal\dungeoncrawler_content\Service\SchemaLoader;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\RequestStack;
@@ -140,14 +145,605 @@ class CharacterCreationStepFormTest extends UnitTestCase {
     $this->assertContains('leather', $form_array['equipment_armor']['armor']['#default_value']);
   }
 
-  private function buildFormObject(CharacterManager $character_manager): CharacterCreationStepForm {
+  /**
+   * @covers ::validateGeneralTrainingSelection
+   */
+  public function testValidateGeneralTrainingSelectionAcceptsCanonicalFeatLibraryChoice(): void {
+    $feat_library = $this->createMock(FeatLibraryService::class);
+    $feat_library->expects($this->once())
+      ->method('getGeneralFeats')
+      ->willReturn([
+        ['id' => 'toughness', 'name' => 'Toughness'],
+      ]);
+
+    $form = $this->buildFormObject($this->createMock(CharacterManager::class), $feat_library);
+    $form_state = (new FormState())->setValues([
+      'feat_selections' => [
+        'general-training' => [
+          'bonus_general_feat' => 'toughness',
+        ],
+      ],
+    ]);
+
+    $method = new \ReflectionMethod($form, 'validateGeneralTrainingSelection');
+    $method->setAccessible(TRUE);
+    $method->invoke($form, $form_state);
+
+    $this->assertSame([], $form_state->getErrors());
+  }
+
+  /**
+   * @covers ::validateNaturalAmbitionSelection
+   */
+  public function testValidateNaturalAmbitionSelectionAcceptsCanonicalFeatLibraryChoice(): void {
+    $feat_library = $this->createMock(FeatLibraryService::class);
+    $feat_library->expects($this->once())
+      ->method('getClassFeats')
+      ->with('fighter')
+      ->willReturn([
+        ['id' => 'power-attack', 'name' => 'Power Attack'],
+      ]);
+
+    $form = $this->buildFormObject($this->createMock(CharacterManager::class), $feat_library);
+    $form_state = (new FormState())->setValues([
+      'feat_selections' => [
+        'natural-ambition' => [
+          'bonus_class_feat' => 'power-attack',
+        ],
+      ],
+    ]);
+
+    $method = new \ReflectionMethod($form, 'validateNaturalAmbitionSelection');
+    $method->setAccessible(TRUE);
+    $method->invoke($form, $form_state, 'fighter');
+
+    $this->assertSame([], $form_state->getErrors());
+  }
+
+  /**
+   * @covers ::buildStep6Fields
+   */
+  public function testBuildStep6FieldsAddsStructuredCampaignAffiliationSelectors(): void {
+    $feat_library = $this->createMock(FeatLibraryService::class);
+    $feat_library->method('getGeneralFeats')->willReturn([]);
+    $database = $this->buildSubjectRegistryDatabaseMock(TRUE, [
+      [
+        'campaign_id' => 70,
+        'subject_kind' => 'institution',
+        'subject_domain' => 'settlement',
+        'subject_id' => 'institution_settlement_fordwatch',
+        'display_name' => 'Fordwatch',
+      ],
+      [
+        'campaign_id' => 70,
+        'subject_kind' => 'institution',
+        'subject_domain' => 'security',
+        'subject_id' => 'institution_security_city-watch',
+        'display_name' => 'City Watch',
+      ],
+    ]);
+
+    $form = $this->buildFormObject(
+      $this->createMock(CharacterManager::class),
+      $feat_library,
+      $database
+    );
+    $form_state = new FormState();
+    $form_state->set('campaign_id', 70);
+    $form_array = [];
+    $character_data = [
+      'class' => 'fighter',
+      'intelligence' => 10,
+      'home_settlement_ref' => 'institution_settlement_fordwatch',
+      'security_affiliation_refs' => ['institution_security_city-watch'],
+    ];
+
+    $method = new \ReflectionMethod($form, 'buildStep6Fields');
+    $method->setAccessible(TRUE);
+    $method->invokeArgs($form, [&$form_array, $form_state, $character_data, []]);
+
+    $this->assertArrayHasKey('structured_affiliations', $form_array);
+    $this->assertSame('institution_settlement_fordwatch', $form_array['structured_affiliations']['home_settlement_ref']['#default_value']);
+    $this->assertArrayHasKey('institution_settlement_fordwatch', $form_array['structured_affiliations']['home_settlement_ref']['#options']);
+    $this->assertArrayHasKey('__create__', $form_array['structured_affiliations']['home_settlement_ref']['#options']);
+    $this->assertTrue($form_array['structured_affiliations']['security_affiliation_refs']['#multiple']);
+    $this->assertContains('institution_security_city-watch', $form_array['structured_affiliations']['security_affiliation_refs']['#default_value']);
+    $this->assertArrayHasKey('home_settlement_ref__create_details', $form_array['structured_affiliations']);
+    $this->assertArrayHasKey('home_settlement_ref__create_labels', $form_array['structured_affiliations']['home_settlement_ref__create_details']);
+  }
+
+  /**
+   * @covers ::validateForm
+   */
+  public function testValidateFormRejectsStructuredAffiliationInWrongDomain(): void {
+    $database = $this->buildSubjectRegistryDatabaseMock(TRUE, [
+      [
+        'campaign_id' => 70,
+        'subject_kind' => 'institution',
+        'subject_domain' => 'family',
+        'subject_id' => 'institution_family_house-briar',
+        'display_name' => 'House Briar',
+      ],
+    ]);
+
+    $form = $this->buildFormObject(
+      $this->createMock(CharacterManager::class),
+      $this->buildGeneralFeatLibraryMock(),
+      $database
+    );
+    $form_state = (new FormState())->setValues([
+      'alignment' => 'NG',
+      'general_feat' => 'toughness',
+      'security_affiliation_refs' => ['institution_family_house-briar'],
+    ]);
+    $form_state->set('step', 6);
+    $form_state->set('campaign_id', 70);
+    $form_state->set('character_id', 0);
+
+    $form_array = [];
+    $form->validateForm($form_array, $form_state);
+
+    $this->assertArrayHasKey('security_affiliation_refs', $form_state->getErrors());
+  }
+
+  /**
+   * @covers ::validateForm
+   */
+  public function testValidateFormRejectsDuplicateStructuredAffiliationCreation(): void {
+    $database = $this->buildSubjectRegistryDatabaseMock(TRUE, [
+      [
+        'campaign_id' => 70,
+        'subject_kind' => 'institution',
+        'subject_domain' => 'settlement',
+        'subject_id' => 'institution_settlement_fordwatch',
+        'display_name' => 'Fordwatch',
+        'normalized_label' => 'fordwatch',
+      ],
+    ]);
+
+    $registry = $this->createMock(CampaignSubjectRegistryService::class);
+    $registry->method('isSubjectRegistryReady')->willReturn(TRUE);
+
+    $form = $this->buildFormObject(
+      $this->createMock(CharacterManager::class),
+      $this->buildGeneralFeatLibraryMock(),
+      $database,
+      70,
+      $registry
+    );
+    $form_state = (new FormState())->setValues([
+      'alignment' => 'NG',
+      'general_feat' => 'toughness',
+      'home_settlement_ref' => '__create__',
+      'home_settlement_ref__create_labels' => 'Fordwatch',
+    ]);
+    $form_state->set('step', 6);
+    $form_state->set('campaign_id', 70);
+    $form_state->set('character_id', 0);
+
+    $form_array = [];
+    $form->validateForm($form_array, $form_state);
+
+    $this->assertArrayHasKey('home_settlement_ref__create_labels', $form_state->getErrors());
+  }
+
+  /**
+   * @covers ::resolveStructuredAffiliationCreations
+   */
+  public function testResolveStructuredAffiliationCreationsAppendsCreatedSubjectIds(): void {
+    $registry = $this->createMock(CampaignSubjectRegistryService::class);
+    $registry->expects($this->once())
+      ->method('resolveOrCreateInstitutionSubject')
+      ->with(
+        70,
+        $this->callback(static function (array $input): bool {
+          return ($input['domain'] ?? '') === 'settlement'
+            && ($input['display_name'] ?? '') === 'Moon Harbor'
+            && ($input['metadata']['created_via'] ?? '') === 'character_creation_step6';
+        })
+      )
+      ->willReturn([
+        'subject_id' => 'institution_settlement_moon-harbor',
+      ]);
+
+    $form = $this->buildFormObject(
+      $this->createMock(CharacterManager::class),
+      $this->createMock(FeatLibraryService::class),
+      $this->buildSubjectRegistryDatabaseMock(FALSE),
+      70,
+      $registry
+    );
+    $form_state = (new FormState())->setValues([
+      'home_settlement_ref' => '__create__',
+      'home_settlement_ref__create_labels' => 'Moon Harbor',
+      'home_settlement_ref__create_note' => 'Authored during character setup',
+    ]);
+    $character_data = [];
+
+    $method = new \ReflectionMethod($form, 'resolveStructuredAffiliationCreations');
+    $method->setAccessible(TRUE);
+    $method->invokeArgs($form, [$form_state, &$character_data, 70, 0]);
+
+    $this->assertSame('institution_settlement_moon-harbor', $character_data['home_settlement_ref']);
+  }
+
+  /**
+   * @covers ::saveCharacter
+   */
+  public function testSaveCharacterSyncsCampaignMembershipsForCampaignBoundRecord(): void {
+    $schema_data = [
+      'name' => 'Meris',
+      'level' => 1,
+      'step' => 8,
+      'class' => 'wizard',
+      'government_ref' => 'institution_government_free-city',
+      'position' => ['q' => 0, 'r' => 0, 'room_id' => ''],
+    ];
+    $character_manager = $this->createMock(CharacterManager::class);
+    $character_manager->expects($this->once())
+      ->method('canonicalizeCharacterData')
+      ->with($schema_data)
+      ->willReturn($schema_data);
+    $character_manager->expects($this->once())
+      ->method('extractHotColumnsFromData')
+      ->with($this->callback(static function (array $input): bool {
+        return ($input['name'] ?? NULL) === 'Meris'
+          && ($input['government_ref'] ?? NULL) === 'institution_government_free-city'
+          && isset($input['created_at'], $input['updated_at']);
+      }))
+      ->willReturn([
+        'hp_current' => 12,
+        'hp_max' => 12,
+        'armor_class' => 16,
+      ]);
+    $character_manager->expects($this->once())
+      ->method('loadCharacter')
+      ->with(77)
+      ->willReturn((object) [
+        'campaign_id' => 70,
+        'instance_id' => 'pc-meris-77',
+      ]);
+
     $database = $this->createMock(Connection::class);
-    $schema = $this->createMock(Schema::class);
-    $schema->method('tableExists')->willReturn(FALSE);
-    $database->method('schema')->willReturn($schema);
+    $database->method('startTransaction')->willReturn(new class() {
+      public function rollBack(): void {}
+    });
+    $database->expects($this->once())
+      ->method('update')
+      ->with('dc_campaign_characters')
+      ->willReturn(new class() {
+        public array $fields = [];
+        public function fields(array $fields): self {
+          $this->fields = $fields;
+          return $this;
+        }
+        public function condition(string $field, mixed $value): self {
+          return $this;
+        }
+        public function execute(): int {
+          return 1;
+        }
+      });
+
+    $institution_membership = $this->createMock(InstitutionMembershipService::class);
+    $institution_membership->expects($this->once())
+      ->method('syncCampaignCharacterMemberships')
+      ->with(
+        70,
+        'pc-meris-77',
+        $this->callback(static function (array $input): bool {
+          return ($input['name'] ?? NULL) === 'Meris'
+            && ($input['government_ref'] ?? NULL) === 'institution_government_free-city'
+            && isset($input['created_at'], $input['updated_at']);
+        })
+      );
+
+    $form = $this->buildFormObject(
+      $character_manager,
+      $this->createMock(FeatLibraryService::class),
+      $database,
+      70,
+      $this->createMock(CampaignSubjectRegistryService::class),
+      new InstitutionNormalizationService(),
+      $this->createMock(FactionGenerationService::class),
+      $institution_membership
+    );
+
+    $method = new \ReflectionMethod($form, 'saveCharacter');
+    $method->setAccessible(TRUE);
+
+    $saved_character_id = $method->invoke($form, 77, $schema_data, 4, 70);
+
+    $this->assertSame(77, $saved_character_id);
+  }
+
+  /**
+   * @covers ::saveCharacter
+   */
+  public function testSaveCharacterResolvesStructuredAffiliationsInsideTransaction(): void {
+    $order = [];
+    $character_manager = $this->createMock(CharacterManager::class);
+    $character_manager->expects($this->once())
+      ->method('canonicalizeCharacterData')
+      ->with($this->callback(static function (array $input): bool {
+        return ($input['home_settlement_ref'] ?? NULL) === 'institution_settlement_moon-harbor';
+      }))
+      ->willReturnCallback(static fn(array $input): array => $input);
+    $character_manager->expects($this->once())
+      ->method('extractHotColumnsFromData')
+      ->willReturn([
+        'hp_current' => 12,
+        'hp_max' => 12,
+        'armor_class' => 16,
+      ]);
+    $character_manager->expects($this->once())
+      ->method('loadCharacter')
+      ->with(77)
+      ->willReturn((object) [
+        'campaign_id' => 70,
+        'instance_id' => 'pc-meris-77',
+      ]);
+
+    $database = $this->createMock(Connection::class);
+    $database->expects($this->once())
+      ->method('startTransaction')
+      ->willReturnCallback(static function () use (&$order) {
+        $order[] = 'transaction';
+        return new class() {
+          public function rollBack(): void {}
+        };
+      });
+    $database->expects($this->once())
+      ->method('update')
+      ->with('dc_campaign_characters')
+      ->willReturn(new class() {
+        public function fields(array $fields): self { return $this; }
+        public function condition(string $field, mixed $value): self { return $this; }
+        public function execute(): int { return 1; }
+      });
+
+    $registry = $this->createMock(CampaignSubjectRegistryService::class);
+    $registry->expects($this->once())
+      ->method('resolveOrCreateInstitutionSubject')
+      ->willReturnCallback(static function (int $campaign_id, array $request) use (&$order): array {
+        $order[] = 'resolve';
+        return ['subject_id' => 'institution_settlement_moon-harbor'];
+      });
+
+    $form = $this->buildFormObject(
+      $character_manager,
+      $this->createMock(FeatLibraryService::class),
+      $database,
+      70,
+      $registry,
+      new InstitutionNormalizationService(),
+      $this->createMock(FactionGenerationService::class),
+      $this->createMock(InstitutionMembershipService::class)
+    );
+
+    $form_state = (new FormState())->setValues([
+      'home_settlement_ref' => '__create__',
+      'home_settlement_ref__create_labels' => 'Moon Harbor',
+    ]);
+    $character_data = [
+      'name' => 'Meris',
+      'level' => 1,
+      'step' => 6,
+      'position' => ['q' => 0, 'r' => 0, 'room_id' => ''],
+    ];
+
+    $method = new \ReflectionMethod($form, 'saveCharacter');
+    $method->setAccessible(TRUE);
+    $method->invoke($form, 77, $character_data, 4, 70, $form_state, 6);
+
+    $this->assertSame(['transaction', 'resolve'], array_slice($order, 0, 2));
+  }
+
+  /**
+   * @covers ::saveCharacter
+   */
+  public function testSaveCharacterUsesStoredCampaignForStructuredAffiliations(): void {
+    $character_manager = $this->createMock(CharacterManager::class);
+    $character_manager->method('canonicalizeCharacterData')
+      ->willReturnCallback(static fn(array $input): array => $input);
+    $character_manager->method('extractHotColumnsFromData')
+      ->willReturn([
+        'hp_current' => 12,
+        'hp_max' => 12,
+        'armor_class' => 16,
+      ]);
+    $character_manager->expects($this->once())
+      ->method('loadCharacter')
+      ->with(77)
+      ->willReturn((object) [
+        'campaign_id' => 70,
+        'instance_id' => 'pc-meris-77',
+      ]);
+
+    $database = $this->createMock(Connection::class);
+    $database->method('startTransaction')->willReturn(new class() {
+      public function rollBack(): void {}
+    });
+    $database->method('update')->willReturn(new class() {
+      public function fields(array $fields): self { return $this; }
+      public function condition(string $field, mixed $value): self { return $this; }
+      public function execute(): int { return 1; }
+    });
+
+    $registry = $this->createMock(CampaignSubjectRegistryService::class);
+    $registry->expects($this->once())
+      ->method('resolveOrCreateInstitutionSubject')
+      ->with(
+        70,
+        $this->callback(static function (array $request): bool {
+          return ($request['display_name'] ?? NULL) === 'Moon Harbor'
+            && ($request['source_asset_id'] ?? NULL) === '77';
+        })
+      )
+      ->willReturn(['subject_id' => 'institution_settlement_moon-harbor']);
+
+    $form = $this->buildFormObject(
+      $character_manager,
+      $this->createMock(FeatLibraryService::class),
+      $database,
+      12,
+      $registry,
+      new InstitutionNormalizationService(),
+      $this->createMock(FactionGenerationService::class),
+      $this->createMock(InstitutionMembershipService::class)
+    );
+
+    $form_state = (new FormState())->setValues([
+      'home_settlement_ref' => '__create__',
+      'home_settlement_ref__create_labels' => 'Moon Harbor',
+    ]);
+
+    $method = new \ReflectionMethod($form, 'saveCharacter');
+    $method->setAccessible(TRUE);
+    $method->invoke($form, 77, [
+      'name' => 'Meris',
+      'level' => 1,
+      'step' => 6,
+      'position' => ['q' => 0, 'r' => 0, 'room_id' => ''],
+    ], 4, 12, $form_state, 6);
+  }
+
+  /**
+   * @covers ::saveCharacter
+   */
+  public function testSaveCharacterUsesRequestedCampaignForUnboundDraftStructuredAffiliations(): void {
+    $character_manager = $this->createMock(CharacterManager::class);
+    $character_manager->method('canonicalizeCharacterData')
+      ->willReturnCallback(static fn(array $input): array => $input);
+    $character_manager->method('extractHotColumnsFromData')
+      ->willReturn([
+        'hp_current' => 12,
+        'hp_max' => 12,
+        'armor_class' => 16,
+      ]);
+    $character_manager->expects($this->once())
+      ->method('loadCharacter')
+      ->with(77)
+      ->willReturn((object) [
+        'campaign_id' => 0,
+        'instance_id' => 'pc-meris-77',
+      ]);
+
+    $update_query = new class() {
+      public array $fields = [];
+      public function fields(array $fields): self {
+        $this->fields = $fields;
+        return $this;
+      }
+      public function condition(string $field, mixed $value): self {
+        return $this;
+      }
+      public function execute(): int {
+        return 1;
+      }
+    };
+    $database = $this->createMock(Connection::class);
+    $database->method('startTransaction')->willReturn(new class() {
+      public function rollBack(): void {}
+    });
+    $database->method('update')->with('dc_campaign_characters')->willReturn($update_query);
+
+    $registry = $this->createMock(CampaignSubjectRegistryService::class);
+    $registry->expects($this->once())
+      ->method('resolveOrCreateInstitutionSubject')
+      ->with(
+        70,
+        $this->callback(static function (array $request): bool {
+          return ($request['display_name'] ?? NULL) === 'Moon Harbor';
+        })
+      )
+      ->willReturn(['subject_id' => 'institution_settlement_moon-harbor']);
+
+    $form = $this->buildFormObject(
+      $character_manager,
+      $this->createMock(FeatLibraryService::class),
+      $database,
+      70,
+      $registry,
+      new InstitutionNormalizationService(),
+      $this->createMock(FactionGenerationService::class),
+      $this->createMock(InstitutionMembershipService::class)
+    );
+
+    $form_state = (new FormState())->setValues([
+      'home_settlement_ref' => '__create__',
+      'home_settlement_ref__create_labels' => 'Moon Harbor',
+    ]);
+
+    $method = new \ReflectionMethod($form, 'saveCharacter');
+    $method->setAccessible(TRUE);
+    $method->invoke($form, 77, [
+      'name' => 'Meris',
+      'level' => 1,
+      'step' => 6,
+      'position' => ['q' => 0, 'r' => 0, 'room_id' => ''],
+    ], 4, 70, $form_state, 6);
+
+    $this->assertSame(70, $update_query->fields['campaign_id'] ?? NULL);
+  }
+
+  /**
+   * @covers ::resolveEffectiveCampaignId
+   */
+  public function testResolveEffectiveCampaignIdPrefersStoredBinding(): void {
+    $form = $this->buildFormObject($this->createMock(CharacterManager::class), NULL, NULL, 12);
+    $method = new \ReflectionMethod($form, 'resolveEffectiveCampaignId');
+    $method->setAccessible(TRUE);
+
+    $resolved = $method->invoke($form, (object) ['campaign_id' => 70], 12);
+
+    $this->assertSame(70, $resolved);
+  }
+
+  /**
+   * @covers ::resolveEffectiveCampaignId
+   */
+  public function testResolveEffectiveCampaignIdUsesRequestForUnboundDraft(): void {
+    $form = $this->buildFormObject($this->createMock(CharacterManager::class), NULL, NULL, 12);
+    $method = new \ReflectionMethod($form, 'resolveEffectiveCampaignId');
+    $method->setAccessible(TRUE);
+
+    $resolved = $method->invoke($form, (object) ['campaign_id' => 0], 12);
+
+    $this->assertSame(12, $resolved);
+  }
+
+  private function buildFormObject(CharacterManager $character_manager, ?FeatLibraryService $feat_library = NULL, ?Connection $database = NULL, int $campaign_id = 70, ?CampaignSubjectRegistryService $campaign_subject_registry = NULL, ?InstitutionNormalizationService $institution_normalization = NULL, ?FactionGenerationService $faction_generation = NULL, ?InstitutionMembershipService $institution_membership = NULL): CharacterCreationStepForm {
+    $database ??= $this->buildSubjectRegistryDatabaseMock(FALSE);
+    $campaign_subject_registry ??= $this->createMock(CampaignSubjectRegistryService::class);
+    $institution_normalization ??= new InstitutionNormalizationService();
+    $faction_generation ??= $this->createMock(FactionGenerationService::class);
+    $institution_membership ??= $this->createMock(InstitutionMembershipService::class);
+    $ability_score_tracker = $this->createMock(AbilityScoreTracker::class);
+    $ability_score_tracker->method('calculateAbilityScores')->willReturn([
+      'scores' => [
+        'strength' => 10,
+        'dexterity' => 10,
+        'constitution' => 10,
+        'intelligence' => 10,
+        'wisdom' => 10,
+        'charisma' => 10,
+      ],
+      'modifiers' => [
+        'strength' => 0,
+        'dexterity' => 0,
+        'constitution' => 0,
+        'intelligence' => 0,
+        'wisdom' => 0,
+        'charisma' => 0,
+      ],
+      'sources' => [],
+    ]);
+    $time = $this->createMock(TimeInterface::class);
+    $time->method('getRequestTime')->willReturn(1700000000);
 
     $request_stack = new RequestStack();
-    $request_stack->push(Request::create('/charactersetup', 'GET', ['campaign_id' => 70]));
+    $request_stack->push(Request::create('/charactersetup', 'GET', ['campaign_id' => $campaign_id]));
     $container = new ContainerBuilder();
     $container->set('request_stack', $request_stack);
     \Drupal::setContainer($container);
@@ -159,17 +755,96 @@ class CharacterCreationStepFormTest extends UnitTestCase {
       $this->createMock(UuidInterface::class),
       $this->createMock(AccountProxyInterface::class),
       $this->createMock(DateFormatterInterface::class),
-      $this->createMock(TimeInterface::class),
+      $time,
       $this->createMock(CharacterPortraitGenerationService::class),
-      $this->createMock(AbilityScoreTracker::class),
+      $ability_score_tracker,
       $this->createMock(ImageGenerationIntegrationService::class),
       $this->createMock(CharacterCreationGmService::class),
+      $feat_library ?? $this->createMock(FeatLibraryService::class),
       $this->createMock(CsrfTokenGenerator::class),
+      $campaign_subject_registry,
+      $institution_membership,
+      $institution_normalization,
+      $faction_generation,
     );
 
     $form->setStringTranslation($this->getStringTranslationStub());
 
     return $form;
+  }
+
+  private function buildGeneralFeatLibraryMock(): FeatLibraryService {
+    $feat_library = $this->createMock(FeatLibraryService::class);
+    $feat_library->method('getGeneralFeats')->willReturn([
+      ['id' => 'toughness', 'name' => 'Toughness'],
+    ]);
+    return $feat_library;
+  }
+
+  private function buildSubjectRegistryDatabaseMock(bool $table_exists, array $rows = []): Connection {
+    $database = $this->createMock(Connection::class);
+    $schema = $this->createMock(Schema::class);
+    $schema->method('tableExists')->willReturnCallback(static function (string $table) use ($table_exists): bool {
+      return $table === 'dc_campaign_subject_registry' ? $table_exists : FALSE;
+    });
+    $database->method('schema')->willReturn($schema);
+
+    if ($table_exists) {
+      $database->method('select')
+        ->willReturnCallback(static function (string $table, string $alias) use ($rows): object {
+          return new class($table, $alias, $rows) {
+            private array $conditions = [];
+
+            public function __construct(
+              private string $table,
+              private string $alias,
+              private array $rows,
+            ) {}
+
+            public function fields(string $table_alias, array $fields = []): static {
+              return $this;
+            }
+
+            public function condition(string $field, mixed $value, ?string $operator = NULL): static {
+              $this->conditions[] = [$field, $value, $operator];
+              return $this;
+            }
+
+            public function orderBy(string $field, string $direction = 'ASC'): static {
+              return $this;
+            }
+
+            public function execute(): object {
+              $rows = $this->rows;
+              foreach ($this->conditions as [$field, $value, $operator]) {
+                $rows = array_values(array_filter($rows, static function (array $row) use ($field, $value, $operator): bool {
+                  $candidate = $row[$field] ?? NULL;
+                  if ($operator === 'IN' && is_array($value)) {
+                    return in_array($candidate, $value, TRUE);
+                  }
+                  return $candidate === $value;
+                }));
+              }
+
+              usort($rows, static function (array $left, array $right): int {
+                $left_key = ($left['subject_domain'] ?? '') . ':' . ($left['display_name'] ?? '');
+                $right_key = ($right['subject_domain'] ?? '') . ':' . ($right['display_name'] ?? '');
+                return strcmp($left_key, $right_key);
+              });
+
+              return new class($rows) {
+                public function __construct(private array $rows) {}
+
+                public function fetchAll(int $mode): array {
+                  return $this->rows;
+                }
+              };
+            }
+          };
+        });
+    }
+
+    return $database;
   }
 
 }

@@ -5232,7 +5232,7 @@
         "cost": "none",
         "primary_check": "none",
         "secondary_casters": "none",
-        "description": "Your eyes glow as you sense aligned auras. Choose chaotic, evil, good, or lawful. You detect auras of that alignment. You receive no information beyond presence or absence. You can choose not to detect creatures or effects you're aware have that alignment.",
+        "description": "Your eyes glow as you sense aligned auras. Choose chaotic, evil, good, or lawful. You detect auras of that alignment. You receive no information beyond presence or absence. You can choose not to detect creatures or effects you're aware have that alignment. Only creatures of 6th level or higher—unless divine spellcasters, undead, or beings from the Outer Sphere—have alignment auras.",
         "description_snippet": "See auras of a chosen alignment.",
         "heightened": [
           {
@@ -5261,7 +5261,7 @@
           "none"
         ],
         "effects": {
-          "description": "Your eyes glow as you sense aligned auras. Choose chaotic, evil, good, or lawful. You detect auras of that alignment. You receive no information beyond presence or absence. You can choose not to detect creatures or effects you're aware have that alignment.",
+          "description": "Your eyes glow as you sense aligned auras. Choose chaotic, evil, good, or lawful. You detect auras of that alignment. You receive no information beyond presence or absence. You can choose not to detect creatures or effects you're aware have that alignment. Only creatures of 6th level or higher—unless divine spellcasters, undead, or beings from the Outer Sphere—have alignment auras.",
           "outcomes": {}
         },
         "conditions_caused": [
@@ -7420,7 +7420,7 @@
         "cost": "none",
         "primary_check": "none",
         "secondary_casters": "none",
-        "description": "You channel positive energy to heal the living or damage the undead. If the target is a willing living creature, you restore 1d8 Hit Points. If the target is undead, you deal that amount of positive damage to it, and it gets a basic Fortitude save.",
+        "description": "You channel positive energy to heal the living or damage the undead. If the target is a willing living creature, you restore 1d8 Hit Points. If the target is undead, you deal that amount of positive damage to it, and it gets a basic Fortitude save. The number of actions you spend when Casting this Spell determines its targets, range, area, and other parameters. [one-action] (somatic) The spell has a range of touch. [two-actions] (somatic, verbal) The spell has a range of 30 feet. If you're healing a living creature, increase the Hit Points restored by 8. [three-actions] (material, somatic, verbal) You disperse positive energy in a 30-foot emanation. This targets all living and undead creatures in the burst.",
         "description_snippet": "Positive energy heals the living or harms the undead.",
         "heightened": [
           {
@@ -7449,7 +7449,7 @@
           "none"
         ],
         "effects": {
-          "description": "You channel positive energy to heal the living or damage the undead. If the target is a willing living creature, you restore 1d8 Hit Points. If the target is undead, you deal that amount of positive damage to it, and it gets a basic Fortitude save.",
+          "description": "You channel positive energy to heal the living or damage the undead. If the target is a willing living creature, you restore 1d8 Hit Points. If the target is undead, you deal that amount of positive damage to it, and it gets a basic Fortitude save. The number of actions you spend when Casting this Spell determines its targets, range, area, and other parameters. [one-action] (somatic) The spell has a range of touch. [two-actions] (somatic, verbal) The spell has a range of 30 feet. If you're healing a living creature, increase the Hit Points restored by 8. [three-actions] (material, somatic, verbal) You disperse positive energy in a 30-foot emanation. This targets all living and undead creatures in the burst.",
           "outcomes": {}
         },
         "conditions_caused": [
@@ -14244,7 +14244,7 @@
         "cost": "none",
         "primary_check": "none",
         "secondary_casters": "none",
-        "description": "You call upon primal energy to transform yourself into a Medium animal battle form. When you first cast this spell, choose ape, bear, bull, canine, cat, deer, frog, shark, or snake. While in this form, you gain the animal trait and use the battle form's listed statistics and attacks.",
+        "description": "You call upon primal energy to transform yourself into a Medium animal battle form. When you first cast this spell, choose ape, bear, bull, canine, cat, deer, frog, shark, or snake. You can decide the specific type of animal, but this has no effect on the form's Size or statistics. While in this form, you gain the animal trait. You can Dismiss the spell. You gain the following statistics and abilities regardless of which battle form you choose: AC = 16 + your level; 5 temporary Hit Points; low-light vision and imprecise scent 30 feet; one or more unarmed melee attacks specific to the battle form you choose; and Athletics modifier +9 unless your own modifier is higher. You also gain specific abilities based on the type of animal you choose, including ape, bear, bull, canine, cat, deer, frog, shark, and snake movement and attack profiles.",
         "description_snippet": "Turn into a Medium animal battle form.",
         "heightened": [
           {
@@ -14297,7 +14297,7 @@
           "none"
         ],
         "effects": {
-          "description": "You call upon primal energy to transform yourself into a Medium animal battle form. When you first cast this spell, choose ape, bear, bull, canine, cat, deer, frog, shark, or snake. While in this form, you gain the animal trait and use the battle form's listed statistics and attacks.",
+          "description": "You call upon primal energy to transform yourself into a Medium animal battle form. When you first cast this spell, choose ape, bear, bull, canine, cat, deer, frog, shark, or snake. You can decide the specific type of animal, but this has no effect on the form's Size or statistics. While in this form, you gain the animal trait. You can Dismiss the spell. You gain the following statistics and abilities regardless of which battle form you choose: AC = 16 + your level; 5 temporary Hit Points; low-light vision and imprecise scent 30 feet; one or more unarmed melee attacks specific to the battle form you choose; and Athletics modifier +9 unless your own modifier is higher. You also gain specific abilities based on the type of animal you choose, including ape, bear, bull, canine, cat, deer, frog, shark, and snake movement and attack profiles.",
           "outcomes": {}
         },
         "conditions_caused": [
@@ -26064,7 +26064,7 @@
         "cost": "none",
         "primary_check": "none",
         "secondary_casters": "none",
-        "description": "You reshape your body into a Medium flying animal battle form such as a bat, bird, pterosaur, or wasp. The form grants flight, aerial attacks, and heightened battle-form improvements at higher ranks.",
+        "description": "You harness your mastery of primal forces to reshape your body into a Medium flying animal battle form. When you cast this spell, choose bat, bird, pterosaur, or wasp. While in this form, you gain the animal trait. You gain the following statistics and abilities regardless of which battle form you choose: AC = 18 + your level, 5 temporary Hit Points, low-light vision, aerial unarmed attacks, and Acrobatics +16 unless your own modifier is higher. Bat Speed 20 feet, fly Speed 30 feet; Bird Speed 10 feet, fly Speed 50 feet; Pterosaur Speed 10 feet, fly Speed 40 feet; Wasp Speed 20 feet, fly Speed 40 feet.",
         "description_snippet": "Turn into a flying combatant.",
         "heightened": [
           {
@@ -26105,7 +26105,7 @@
           "none"
         ],
         "effects": {
-          "description": "You reshape your body into a Medium flying animal battle form such as a bat, bird, pterosaur, or wasp. The form grants flight, aerial attacks, and heightened battle-form improvements at higher ranks.",
+          "description": "You harness your mastery of primal forces to reshape your body into a Medium flying animal battle form. When you cast this spell, choose bat, bird, pterosaur, or wasp. While in this form, you gain the animal trait. You gain the following statistics and abilities regardless of which battle form you choose: AC = 18 + your level, 5 temporary Hit Points, low-light vision, aerial unarmed attacks, and Acrobatics +16 unless your own modifier is higher. Bat Speed 20 feet, fly Speed 30 feet; Bird Speed 10 feet, fly Speed 50 feet; Pterosaur Speed 10 feet, fly Speed 40 feet; Wasp Speed 20 feet, fly Speed 40 feet.",
           "outcomes": {}
         },
         "conditions_caused": [
@@ -26173,7 +26173,7 @@
         "cost": "none",
         "primary_check": "none",
         "secondary_casters": "none",
-        "description": "The target can walk on air as if it were solid ground, ascending and descending at a limited angle.",
+        "description": "The target can walk on air as if it were solid ground. It can ascend and descend in this way at a maximum of a 45-degree angle.",
         "description_snippet": "Walk on air as though it were solid ground.",
         "heightened": [
           {
@@ -26200,7 +26200,7 @@
           "none"
         ],
         "effects": {
-          "description": "The target can walk on air as if it were solid ground, ascending and descending at a limited angle.",
+          "description": "The target can walk on air as if it were solid ground. It can ascend and descend in this way at a maximum of a 45-degree angle.",
           "outcomes": {}
         },
         "conditions_caused": [
@@ -29052,7 +29052,7 @@
         "cost": "one vial of holy water",
         "primary_check": "none",
         "secondary_casters": "none",
-        "description": "You amplify a vial of holy water into an enormous sacred blast that batters creatures with water and deals extra positive or good damage to the unholy.",
+        "description": "You call upon sacred energy to amplify a vial of holy water, tossing it an incredible distance. It explodes in an enormous burst that deals 3d6 bludgeoning damage from the cascade of water. The water deals an additional 6d6 positive damage to undead and 6d6 good damage to fiends.",
         "description_snippet": "Turn a vial of holy water into an explosion of blessed water.",
         "heightened": [
           {
@@ -29081,7 +29081,7 @@
           "none"
         ],
         "effects": {
-          "description": "You amplify a vial of holy water into an enormous sacred blast that batters creatures with water and deals extra positive or good damage to the unholy.",
+          "description": "You call upon sacred energy to amplify a vial of holy water, tossing it an incredible distance. It explodes in an enormous burst that deals 3d6 bludgeoning damage from the cascade of water. The water deals an additional 6d6 positive damage to undead and 6d6 good damage to fiends.",
           "outcomes": {}
         },
         "conditions_caused": [
@@ -48161,7 +48161,7 @@
         "cost": "none",
         "primary_check": "none",
         "secondary_casters": "none",
-        "description": "You gain a sixth sense that warns you of danger that might befall the target. The target gains improved initiative and defenses, and the spell grants a reaction that twists hostile rolls.",
+        "description": "You gain a sixth sense that warns you of danger that might befall the target of the spell. If you choose a creature other than yourself as the target, you create a psychic link through which you can inform the target of danger. This link is a mental effect. Due to the amount of information this spell requires you to process, you can't have more than one foresight spell in effect at a time. Casting foresight again ends the previous foresight. While foresight is in effect, the target gains a +2 status bonus to initiative rolls and isn't flat-footed against undetected creatures or when flanked. In addition, you gain the following reaction. Foresight [reaction] Trigger The target of foresight defends against a hostile creature or other danger; Effect If the hostile creature or danger forces the target to roll dice, the target rolls twice and uses the higher result, and this spell gains the fortune trait. But if the hostile creature or danger is rolling against the target, that hostile creature or danger rolls twice and uses the lower result, and this spell gains the misfortune trait.",
         "description_snippet": "Grant a creature preternatural warning of danger.",
         "heightened": [
           {
@@ -48188,7 +48188,7 @@
           "none"
         ],
         "effects": {
-          "description": "You gain a sixth sense that warns you of danger that might befall the target. The target gains improved initiative and defenses, and the spell grants a reaction that twists hostile rolls.",
+          "description": "You gain a sixth sense that warns you of danger that might befall the target of the spell. If you choose a creature other than yourself as the target, you create a psychic link through which you can inform the target of danger. This link is a mental effect. Due to the amount of information this spell requires you to process, you can't have more than one foresight spell in effect at a time. Casting foresight again ends the previous foresight. While foresight is in effect, the target gains a +2 status bonus to initiative rolls and isn't flat-footed against undetected creatures or when flanked. In addition, you gain the following reaction. Foresight [reaction] Trigger The target of foresight defends against a hostile creature or other danger; Effect If the hostile creature or danger forces the target to roll dice, the target rolls twice and uses the higher result, and this spell gains the fortune trait. But if the hostile creature or danger is rolling against the target, that hostile creature or danger rolls twice and uses the lower result, and this spell gains the misfortune trait.",
           "outcomes": {}
         },
         "conditions_caused": [
@@ -50348,7 +50348,7 @@
         "cost": "none",
         "primary_check": "none",
         "secondary_casters": "none",
-        "description": "You tear open a rift to another plane, creating a portal that creatures can travel through in either direction. The portal is vertical and circular, and appears at a location of your choice on the destination plane.",
+        "description": "You tear open a rift to another plane, creating a portal that creatures can travel through in either direction. This portal is vertical and circular, with a radius of 40 feet. The portal appears at a location of your choice on the destination plane, assuming you have a clear idea of both the destination's location on the plane and what the destination looks like. If you attempt to create a gate into or out of the realm of a deity or another powerful being, that being can prevent the gate from forming.",
         "description_snippet": "Open a portal to another plane.",
         "heightened": [
           {
@@ -50375,7 +50375,7 @@
           "none"
         ],
         "effects": {
-          "description": "You tear open a rift to another plane, creating a portal that creatures can travel through in either direction. The portal is vertical and circular, and appears at a location of your choice on the destination plane.",
+          "description": "You tear open a rift to another plane, creating a portal that creatures can travel through in either direction. This portal is vertical and circular, with a radius of 40 feet. The portal appears at a location of your choice on the destination plane, assuming you have a clear idea of both the destination's location on the plane and what the destination looks like. If you attempt to create a gate into or out of the realm of a deity or another powerful being, that being can prevent the gate from forming.",
           "outcomes": {}
         },
         "conditions_caused": [

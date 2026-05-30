@@ -21,8 +21,8 @@
     },
     "room_id": {
       "type": "string",
-      "format": "uuid",
-      "description": "Unique room identifier."
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$",
+      "description": "Stable room identifier used for persistence, navigation, and map references."
     },
     "name": {
       "type": "string",
@@ -785,6 +785,26 @@
       "type": "object",
       "description": "A physical object placed on a hex (furniture, pillar, debris, etc.).",
       "properties": {
+        "object_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$",
+          "description": "Canonical object definition id referenced by this room hex placement."
+        },
+        "label": {
+          "type": "string",
+          "maxLength": 120,
+          "description": "Display label for the placed object."
+        },
+        "category": {
+          "type": "string",
+          "maxLength": 80,
+          "description": "Canonical object category for the placement."
+        },
+        "orientation": {
+          "type": "string",
+          "enum": ["n", "ne", "e", "se", "s", "sw", "w", "nw"],
+          "description": "Facing/orientation for the placed object."
+        },
         "name": {
           "type": "string",
           "minLength": 1,

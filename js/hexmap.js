@@ -17,7 +17,7 @@ import { SpriteService } from './SpriteService.js';
 (function (Drupal, once) {
   'use strict';
 
-  const QUEST_SUMMARY_SCHEMA_VERSION = 'quest-summary-v1';
+  const QUEST_SUMMARY_SCHEMA_VERSION = 'quest-summary-v2';
   const QUEST_UPDATE_SCHEMA_VERSION = 'quest-update-v1';
 
   function resolveQuestTitle(quest) {
@@ -157,7 +157,7 @@ import { SpriteService } from './SpriteService.js';
       source_template_id: quest.source_template_id == null || quest.source_template_id === '' ? null : String(quest.source_template_id),
       title,
       quest_name: questName,
-      status: String(quest.status || 'available').trim() || 'available',
+      status: String(quest.status || 'lead').trim() || 'lead',
       current_phase: Math.max(1, Number(quest.current_phase || 1)),
       generated_objectives: parseArray(quest.generated_objectives)
         .map((phase, index) => normalizeQuestPhasePayload(phase, index + 1))
@@ -188,7 +188,10 @@ import { SpriteService } from './SpriteService.js';
     const active = (Array.isArray(source.active) ? source.active : [])
       .map(normalizeQuestEntryPayload)
       .filter(Boolean);
-    const available = (Array.isArray(source.available) ? source.available : [])
+    const offers = (Array.isArray(source.offers) ? source.offers : [])
+      .map(normalizeQuestEntryPayload)
+      .filter(Boolean);
+    const leads = (Array.isArray(source.leads) ? source.leads : [])
       .map(normalizeQuestEntryPayload)
       .filter(Boolean);
     const managementTree = (Array.isArray(source.management_tree) ? source.management_tree : [])
@@ -199,11 +202,13 @@ import { SpriteService } from './SpriteService.js';
       schema_version: QUEST_SUMMARY_SCHEMA_VERSION,
       location_id: String(source.location_id || '').trim(),
       active,
-      available,
+      offers,
+      leads,
       management_tree: managementTree,
       counts: {
         active: active.length,
-        available: available.length,
+        offers: offers.length,
+        leads: leads.length,
       },
     };
   }
@@ -311,7 +316,7 @@ import { SpriteService } from './SpriteService.js';
       quest_id: questId,
       quest_name: questName,
       title: String(quest.title || questName).trim(),
-      status: String(quest.status || 'available').trim() || 'available',
+      status: String(quest.status || 'lead').trim() || 'lead',
       location: normalizeQuestManagementLocation(quest.location),
       next_step: String(quest.next_step || questName).trim(),
       access: normalizeQuestManagementAccess(quest.access),
@@ -510,13 +515,13 @@ import { SpriteService } from './SpriteService.js';
     const questName = String(update.quest_name || questId).trim();
     const type = String(update.type || '').trim();
     const source = String(update.source || '').trim();
-    if (!questId || !questName || type !== 'quest_started') {
+    if (!questId || !questName || !['quest_started', 'quest_surfaced'].includes(type)) {
       return null;
     }
 
     return {
       schema_version: QUEST_UPDATE_SCHEMA_VERSION,
-      type: 'quest_started',
+      type,
       quest_id: questId,
       quest_name: questName,
       status: String(update.status || 'active').trim() || 'active',
@@ -1799,7 +1804,10 @@ import { SpriteService } from './SpriteService.js';
       this.roomViewCache = new Map();
       this.roomViewInflight = new Map();
       this.roomViewCacheTtlMs = 60000;
+      this.roomViewPendingCacheTtlMs = 2000;
       this.roomViewRefreshCooldownMs = 2500;
+      this.roomViewRetryDelayMs = 3000;
+      this.roomViewRetryTimer = null;
       this.pendingChatRequests = new Map();
       this.lastChatTurnStatusKey = '';
       this.roomTurnSequenceCache = new Map();
@@ -1822,7 +1830,7 @@ import { SpriteService } from './SpriteService.js';
       this.activeActionRailCategory = null;
       this.actionRailFilters = {};
       this.actionRailDescriptionsCollapsed = false;
-      this.activeGameShellTab = 'chat';
+      this.activeGameShellTab = 'map';
       this.navigateLocationGroups = [];
       this.navigateLocationsCampaignId = null;
       this.navigateLocationsInflight = null;
@@ -1844,10 +1852,12 @@ import { SpriteService } from './SpriteService.js';
       this.setupActionFooterToggle();
       this.setupFullscreenToggle();
       this.cacheElements();
+      this.activeGameShellTab = this.resolveInitialGameShellTab();
       this.setupPartyRailHandlers();
       this.setupInventoryPanelActions();
       this.setupMerchantPanelActions();
       this.setupGameShellTabEffects();
+      this.refreshActiveGameShellTab({ force: true });
       this.setupChatLog();
       this.setupChannelTabs();
       this.setupSessionViewTabs();
@@ -1914,6 +1924,22 @@ import { SpriteService } from './SpriteService.js';
       }
 
       footer.dataset.initialStateApplied = 'true';
+    }
+
+    refreshActiveGameShellTab(options = {}) {
+      const force = Boolean(options.force);
+
+      if (this.activeGameShellTab === 'view') {
+        this.clearMerchantPanelRetry();
+        this.loadActiveRoomView(null, { force, preserveExisting: !force });
+      } else if (this.activeGameShellTab === 'portraits') {
+        this.clearMerchantPanelRetry();
+        this.loadRoomPortraitsPanel();
+      } else if (this.activeGameShellTab === 'merchant') {
+        this.loadMerchantPanel(force);
+      } else {
+        this.clearMerchantPanelRetry();
+      }
     }
 
     updateFullscreenViewportMetrics(container = null) {
@@ -2551,18 +2577,48 @@ import { SpriteService } from './SpriteService.js';
           tabId: requestedTab,
         });
 
-        if (requestedTab === 'view') {
-          this.clearMerchantPanelRetry();
-          this.loadActiveRoomView();
-        } else if (requestedTab === 'portraits') {
-          this.clearMerchantPanelRetry();
-          this.loadRoomPortraitsPanel();
-        } else if (requestedTab === 'merchant') {
-          this.loadMerchantPanel();
-        } else {
-          this.clearMerchantPanelRetry();
-        }
+        this.refreshActiveGameShellTab();
       });
+    }
+
+    resolveInitialGameShellTab() {
+      const shell = document.querySelector('[data-game-shell]');
+      if (!shell) {
+        return 'map';
+      }
+
+      const validTabs = Array.from(shell.querySelectorAll('[data-game-tab]'))
+        .map((tab) => (typeof tab.dataset.gameTab === 'string' ? tab.dataset.gameTab.trim() : ''))
+        .filter((tabId) => tabId !== '');
+      if (!validTabs.length) {
+        return 'map';
+      }
+
+      const normalize = (tabId) => {
+        const requestedTab = typeof tabId === 'string' ? tabId.trim() : '';
+        if (requestedTab !== '' && validTabs.includes(requestedTab)) {
+          return requestedTab;
+        }
+
+        const defaultTab = typeof shell.dataset.gameShellDefault === 'string' ? shell.dataset.gameShellDefault.trim() : '';
+        if (defaultTab !== '' && validTabs.includes(defaultTab)) {
+          return defaultTab;
+        }
+
+        return validTabs[0];
+      };
+
+      const storedTab = typeof window !== 'undefined' && window.localStorage
+        ? window.localStorage.getItem('dc_game_shell_surface')
+        : null;
+      if (storedTab !== null) {
+        return normalize(storedTab);
+      }
+
+      const activeTab = shell.dataset.gameShellActive
+        || shell.querySelector('.game-shell__tab--active')?.dataset?.gameTab
+        || shell.querySelector('[data-game-tab][aria-selected="true"]')?.dataset?.gameTab;
+      return normalize(activeTab);
     }
 
     resolveActiveMerchantCharacterId() {
@@ -4235,7 +4291,8 @@ import { SpriteService } from './SpriteService.js';
     collectNavigateLocationGroups(context) {
       const hexmap = context.hexmap;
       const dungeonData = hexmap?.dungeonData || {};
-      const rooms = dungeonData?.rooms && typeof dungeonData.rooms === 'object' ? dungeonData.rooms : {};
+      const visualRooms = typeof hexmap?.getVisualRooms === 'function' ? hexmap.getVisualRooms() : {};
+      const rooms = visualRooms && typeof visualRooms === 'object' ? visualRooms : {};
       const activeRoomId = hexmap?.resolveActiveRoomId?.() || null;
       const visitOrder = new Map();
       const history = Array.isArray(dungeonData?.location_history) ? dungeonData.location_history : [];
@@ -4924,7 +4981,7 @@ import { SpriteService } from './SpriteService.js';
         let changed = false;
         if (Number.isFinite(originQ) && Number.isFinite(originR)) {
           changed = Boolean(hexmap.tryTransitionAtHex?.(originQ, originR));
-        } else if (hexmap?.dungeonData?.rooms?.[roomId]) {
+        } else if (hexmap?.getVisualRooms?.()?.[roomId]) {
           changed = Boolean(hexmap.navigateToVisitedRoom?.(roomId));
         }
         if (!changed) {
@@ -5337,8 +5394,9 @@ import { SpriteService } from './SpriteService.js';
 
       const hexmap = this.stateManager?.hexmap || null;
       const resolvedRoomId = roomId || hexmap?.resolveActiveRoomId?.() || null;
-      const room = resolvedRoomId && hexmap?.dungeonData?.rooms
-        ? hexmap.dungeonData.rooms[resolvedRoomId] || null
+      const visualRooms = typeof hexmap?.getVisualRooms === 'function' ? hexmap.getVisualRooms() : {};
+      const room = resolvedRoomId
+        ? visualRooms[resolvedRoomId] || null
         : hexmap?.getActiveRoomData?.() || null;
       const entries = this.buildRoomPortraitEntries(resolvedRoomId);
 
@@ -5379,42 +5437,15 @@ import { SpriteService } from './SpriteService.js';
         return;
       }
 
-      const tabs = shell.querySelectorAll('[data-game-tab]');
-      const panels = shell.querySelectorAll('.game-shell__panel');
-      let matched = false;
-
-      tabs.forEach((tab) => {
-        const active = tab.dataset.gameTab === requestedTab;
-        matched = matched || active;
-        tab.classList.toggle('game-shell__tab--active', active);
-        tab.setAttribute('aria-selected', active ? 'true' : 'false');
-        tab.setAttribute('tabindex', active ? '0' : '-1');
-      });
-
+      const matched = Array.from(shell.querySelectorAll('[data-game-tab]'))
+        .some((tab) => tab.dataset.gameTab === requestedTab);
       if (!matched) {
         return;
-      }
-
-      this.activeGameShellTab = requestedTab;
-
-      panels.forEach((panel) => {
-        const active = panel.id === `game-panel-${requestedTab}`;
-        panel.classList.toggle('game-shell__panel--active', active);
-        panel.hidden = !active;
-      });
-
-      if (requestedTab === 'view') {
-        this.loadActiveRoomView();
-      } else if (requestedTab === 'portraits') {
-        this.loadRoomPortraitsPanel();
-      } else if (requestedTab === 'merchant') {
-        this.loadMerchantPanel();
       }
 
       shell.dispatchEvent(new CustomEvent('dungeoncrawler:activate-tab', {
         detail: { tabId: requestedTab },
       }));
-      window.dispatchEvent(new Event('resize'));
     }
 
     buildRoomViewCard(entry, room) {
@@ -5469,22 +5500,53 @@ import { SpriteService } from './SpriteService.js';
       if (!entry) {
         return null;
       }
-      if ((Date.now() - entry.storedAt) >= this.roomViewCacheTtlMs) {
+      const ttlMs = Number.isFinite(entry.ttlMs) ? entry.ttlMs : this.roomViewCacheTtlMs;
+      if ((Date.now() - entry.storedAt) >= ttlMs) {
         this.roomViewCache.delete(cacheKey);
         return null;
       }
       return entry.payload || null;
     }
 
+    resolveRoomViewCacheTtlMs(payload) {
+      const status = String(payload?.status || '').toLowerCase();
+      return status === 'pending'
+        ? this.roomViewPendingCacheTtlMs
+        : this.roomViewCacheTtlMs;
+    }
+
     setCachedRoomViewPayload(cacheKey, payload) {
       if (!cacheKey) {
         return payload;
       }
+      const ttlMs = this.resolveRoomViewCacheTtlMs(payload);
       this.roomViewCache.set(cacheKey, {
         storedAt: Date.now(),
+        ttlMs,
         payload,
       });
       return payload;
+    }
+
+    clearRoomViewRetry() {
+      if (this.roomViewRetryTimer) {
+        window.clearTimeout(this.roomViewRetryTimer);
+        this.roomViewRetryTimer = null;
+      }
+    }
+
+    scheduleRoomViewRetry(roomId, viewKey) {
+      this.clearRoomViewRetry();
+      this.roomViewRetryTimer = window.setTimeout(() => {
+        this.roomViewRetryTimer = null;
+        if (this.lastRoomViewKey !== viewKey) {
+          return;
+        }
+        this.loadActiveRoomView(roomId, {
+          force: true,
+          preserveExisting: true,
+        });
+      }, this.roomViewRetryDelayMs);
     }
 
     async fetchRoomViewPayload(campaignId, roomId, options = {}) {
@@ -5496,7 +5558,10 @@ import { SpriteService } from './SpriteService.js';
 
       const cacheEntry = cacheKey ? this.roomViewCache.get(cacheKey) : null;
       const cacheAgeMs = cacheEntry ? (Date.now() - cacheEntry.storedAt) : Number.POSITIVE_INFINITY;
-      if (cacheEntry && cacheAgeMs < this.roomViewCacheTtlMs) {
+      const cacheTtlMs = cacheEntry && Number.isFinite(cacheEntry.ttlMs)
+        ? cacheEntry.ttlMs
+        : this.roomViewCacheTtlMs;
+      if (cacheEntry && cacheAgeMs < cacheTtlMs) {
         if (!force || cacheAgeMs < this.roomViewRefreshCooldownMs) {
           return cacheEntry.payload || null;
         }
@@ -5532,6 +5597,7 @@ import { SpriteService } from './SpriteService.js';
       const room = hexmap?.getActiveRoomData?.() || null;
 
       if (!campaignId || !resolvedRoomId) {
+        this.clearRoomViewRetry();
         this.lastRoomViewKey = null;
         this.updateRoomViewPanel(room, {
           statusLabel: 'Unavailable',
@@ -5591,7 +5657,13 @@ import { SpriteService } from './SpriteService.js';
           placeholderText,
           entries,
         });
+        if (entries.length === 0 && String(payload?.status || '').toLowerCase() === 'pending') {
+          this.scheduleRoomViewRetry(resolvedRoomId, viewKey);
+        } else {
+          this.clearRoomViewRetry();
+        }
       } catch (error) {
+        this.clearRoomViewRetry();
         if (requestToken !== this.roomViewRequestToken) {
           return;
         }
@@ -6755,7 +6827,7 @@ import { SpriteService } from './SpriteService.js';
         const roomId = this.stateManager?.hexmap?.resolveActiveRoomId?.() || null;
         const characterData = this.stateManager?.hexmap?.characterData || {};
         const characterName = characterData.name || 'You';
-        const characterId = characterData.id || null;
+        const characterId = this.resolveActiveChatCharacterId();
 
         if (!campaignId) {
           this.appendChatLine('System', 'Unable to send message: No active campaign', 'system');
@@ -6816,6 +6888,27 @@ import { SpriteService } from './SpriteService.js';
       // (via state subscription or explicit call from room change handler)
     }
 
+    resolveActiveChatCharacterId() {
+      const hexmap = this.stateManager?.hexmap || null;
+      const runtimeContext = hexmap?.resolveLaunchCharacterRuntimeContext?.() || null;
+      const runtimeCharacterId = Number(runtimeContext?.characterId || 0);
+      if (runtimeCharacterId > 0) {
+        return runtimeCharacterId;
+      }
+
+      const characterData = hexmap?.characterData || {};
+      return Number(
+        characterData.id
+        || characterData.characterId
+        || characterData.character_id
+        || hexmap?.launchCharacter?.id
+        || hexmap?.launchCharacter?.characterId
+        || hexmap?.launchCharacter?.character_id
+        || hexmap?.launchContext?.character_id
+        || 0
+      ) || null;
+    }
+
     async submitRoomChatMessage(message, options = {}) {
       const trimmedMessage = typeof message === 'string' ? message.trim() : '';
       if (!trimmedMessage) {
@@ -6829,7 +6922,7 @@ import { SpriteService } from './SpriteService.js';
       const roomId = options.roomId || this.stateManager?.hexmap?.resolveActiveRoomId?.() || null;
       const characterData = this.stateManager?.hexmap?.characterData || {};
       const characterName = options.speaker || characterData.name || 'You';
-      const characterId = options.characterId ?? characterData.id ?? null;
+      const characterId = options.characterId ?? this.resolveActiveChatCharacterId();
       const activeChannelKey = options.channelKey || 'room';
 
       if (!campaignId) {
@@ -7016,8 +7109,7 @@ import { SpriteService } from './SpriteService.js';
     async loadChannels() {
       const campaignId = this.stateManager?.hexmap?.resolveCampaignId?.() || null;
       const roomId = this.stateManager?.hexmap?.resolveActiveRoomId?.() || null;
-      const characterData = this.stateManager?.hexmap?.characterData || {};
-      const characterId = characterData.id || null;
+      const characterId = this.resolveActiveChatCharacterId();
 
       if (!campaignId || !roomId) return;
 
@@ -7080,8 +7172,7 @@ import { SpriteService } from './SpriteService.js';
     async openChannel(targetEntity, targetName, sourceAbility = 'whisper') {
       const campaignId = this.stateManager?.hexmap?.resolveCampaignId?.() || null;
       const roomId = this.stateManager?.hexmap?.resolveActiveRoomId?.() || null;
-      const characterData = this.stateManager?.hexmap?.characterData || {};
-      const characterId = characterData.id || null;
+      const characterId = this.resolveActiveChatCharacterId();
 
       if (!campaignId || !roomId) return;
 
@@ -7179,8 +7270,7 @@ import { SpriteService } from './SpriteService.js';
     getChatContext() {
       const campaignId = this.stateManager?.hexmap?.resolveCampaignId?.() || null;
       const roomId = this.resolvePinnedChatRoomId();
-      const characterData = this.stateManager?.hexmap?.characterData || {};
-      const characterId = characterData.id || null;
+      const characterId = this.resolveActiveChatCharacterId();
 
       return {
         campaignId,
@@ -9100,7 +9190,9 @@ import { SpriteService } from './SpriteService.js';
       const campaignId = hexmap?.resolveCampaignId?.() || null;
       const currentRoomId = hexmap?.resolveActiveRoomId?.() || null;
       const characterId = Number(hexmap?.characterData?.id || 0) || null;
-      const connections = Array.isArray(hexmap?.dungeonData?.connections) ? hexmap.dungeonData.connections : [];
+      const connections = typeof hexmap?.getVisualConnections === 'function'
+        ? hexmap.getVisualConnections()
+        : (Array.isArray(hexmap?.dungeonData?.connections) ? hexmap.dungeonData.connections : []);
       if (!campaignId || !currentRoomId || !connections.length) {
         return;
       }
@@ -9110,10 +9202,16 @@ import { SpriteService } from './SpriteService.js';
         if (connection?.is_passable === false) {
           return;
         }
-        if (connection.from_room === currentRoomId && connection.to_room) {
-          nextRoomIds.push(String(connection.to_room));
-        } else if (connection.to_room === currentRoomId && connection.from_room) {
-          nextRoomIds.push(String(connection.from_room));
+        const fromRoomId = typeof hexmap?.getConnectionRoomId === 'function'
+          ? hexmap.getConnectionRoomId(connection, 'from')
+          : connection?.from_room;
+        const toRoomId = typeof hexmap?.getConnectionRoomId === 'function'
+          ? hexmap.getConnectionRoomId(connection, 'to')
+          : connection?.to_room;
+        if (fromRoomId === currentRoomId && toRoomId) {
+          nextRoomIds.push(String(toRoomId));
+        } else if (toRoomId === currentRoomId && fromRoomId) {
+          nextRoomIds.push(String(fromRoomId));
         }
       });
 
@@ -9425,9 +9523,13 @@ import { SpriteService } from './SpriteService.js';
         ? { active: questSummary, management_tree: [] }
         : (questSummary && typeof questSummary === 'object' ? questSummary : { active: [], management_tree: [] });
       const activeQuests = Array.isArray(summary.active) ? summary.active : [];
+      const offeredQuests = Array.isArray(summary.offers) ? summary.offers : [];
+      const leadQuests = Array.isArray(summary.leads) ? summary.leads : [];
       const managementTree = Array.isArray(summary.management_tree) ? summary.management_tree : [];
       console.warn('Quest journal debug: rendering quest journal', {
         activeCount: activeQuests.length,
+        offerCount: offeredQuests.length,
+        leadCount: leadQuests.length,
         managementTreeCount: managementTree.length,
         activeQuestIds: activeQuests.map((quest) => quest?.quest_id || quest?.quest_key || quest?.id || resolveQuestTitle(quest)),
       });
@@ -9439,16 +9541,16 @@ import { SpriteService } from './SpriteService.js';
         return;
       }
 
-      if (!Array.isArray(activeQuests) || activeQuests.length === 0) {
-        list.innerHTML = '<li class="quest-empty">No active quests</li>';
+      if (activeQuests.length === 0 && offeredQuests.length === 0 && leadQuests.length === 0) {
+        list.innerHTML = '<li class="quest-empty">No active quests, offers, or leads</li>';
         if (count) count.textContent = '0';
         this.updateQuestJournalControlState();
         return;
       }
 
-      if (count) count.textContent = String(activeQuests.length);
+      if (count) count.textContent = String(activeQuests.length + offeredQuests.length + leadQuests.length);
 
-      list.innerHTML = activeQuests.map(quest => {
+      const activeHtml = activeQuests.map(quest => {
         const title = resolveQuestTitle(quest);
         const phases = extractQuestPhases(quest);
         const objectiveIndex = buildObjectiveStateIndex(quest);
@@ -9487,7 +9589,36 @@ import { SpriteService } from './SpriteService.js';
           bodyHtml: `<ul class="quest-objectives">${objectiveHtml}</ul>`,
         });
       }).join('');
+
+      const offerHtml = offeredQuests.map((quest) => renderQuestTreeNodeHtml({
+        itemClass: 'quest-entry quest-entry--quest',
+        title: resolveQuestTitle(quest),
+        titlePrefix: '🤝',
+        metaLines: ['Status: Offered'],
+        bodyHtml: `<ul class="quest-objectives">${this.renderQuestSummaryPreviewLines(quest, 'Quest offered. Review the details and accept it to begin.')}</ul>`,
+      })).join('');
+
+      const leadHtml = leadQuests.map((quest) => renderQuestTreeNodeHtml({
+        itemClass: 'quest-entry quest-entry--quest',
+        title: resolveQuestTitle(quest),
+        titlePrefix: '🧭',
+        metaLines: ['Status: Lead'],
+        bodyHtml: `<ul class="quest-objectives">${this.renderQuestSummaryPreviewLines(quest, 'Quest lead discovered. Follow up with the relevant contact to unlock it.')}</ul>`,
+      })).join('');
+
+      list.innerHTML = `${activeHtml}${offerHtml}${leadHtml}`;
       this.updateQuestJournalControlState();
+    }
+
+    renderQuestSummaryPreviewLines(quest, fallbackLine) {
+      const phases = extractQuestPhases(quest);
+      const firstPhase = Array.isArray(phases) && phases.length > 0 ? phases[0] : null;
+      const objectives = firstPhase ? flattenQuestObjectives(firstPhase.objectives || []) : [];
+      const lines = objectives.slice(0, 3).map((objective) => {
+        const description = String(objective?.description || objective?.objective_id || '').trim();
+        return description ? `<li class="quest-objective">⬜ ${description}</li>` : '';
+      }).filter(Boolean);
+      return lines.length > 0 ? lines.join('') : `<li class="quest-objective">${fallbackLine}</li>`;
     }
 
     /**
@@ -9646,6 +9777,9 @@ import { SpriteService } from './SpriteService.js';
     lastCharacterStateRequestId: null,
     playerAutomation: null,
 
+    // Canonical visual bootstrap contract.
+    mapVisualState: {},
+
     // Dungeon payload for room-aware rendering and transitions.
     dungeonData: {},
     activeRoomId: null,
@@ -9687,6 +9821,7 @@ import { SpriteService } from './SpriteService.js';
       if (Number.isFinite(initialCampaignId) && initialCampaignId > 0) {
         this.stateManager.set('campaignId', initialCampaignId);
       }
+      this.mapVisualState = settings?.dungeoncrawlerContent?.map_visual_state || {};
       this.dungeonData = settings?.dungeoncrawlerContent?.hexmapDungeonData || {};
       this.launchCharacter = settings?.dungeoncrawlerContent?.hexmapLaunchCharacter || {};
       this.characterData = this.launchCharacter;
@@ -9733,7 +9868,7 @@ import { SpriteService } from './SpriteService.js';
       console.log('HexMap Init - Launch Character:', this.launchCharacter);
       console.log('HexMap Init - Runtime Launch Summary:', runtimeLaunchSummary);
       console.log('HexMap Init - Has Dungeon Data:', Object.keys(this.dungeonData).length > 0);
-      this.activeRoomId = this.dungeonData?.active_room_id || null;
+      this.activeRoomId = this.mapVisualState?.map_meta?.active_room_id || this.launchContext?.room_id || null;
       this.currentUserId = Number(settings?.user?.uid || 0);
 
       this.initPixiApp(container[0]);
@@ -9856,6 +9991,7 @@ import { SpriteService } from './SpriteService.js';
 
       this.launchContext = {};
       this.dungeonData = {};
+      this.mapVisualState = {};
       this.launchCharacter = {};
       this.activeRoomId = null;
       
@@ -11800,14 +11936,16 @@ import { SpriteService } from './SpriteService.js';
      * @returns {Object|null}
      */
     findConnectionAtHex: function (q, r) {
-      const connections = Array.isArray(this.dungeonData?.connections) ? this.dungeonData.connections : [];
+      const connections = this.getVisualConnections();
       return connections.find((connection) => {
-        const fromMatch = connection?.from_room === this.activeRoomId &&
-          Number(connection?.from_hex?.q) === q &&
-          Number(connection?.from_hex?.r) === r;
-        const toMatch = connection?.to_room === this.activeRoomId &&
-          Number(connection?.to_hex?.q) === q &&
-          Number(connection?.to_hex?.r) === r;
+        const fromHex = this.getConnectionHex(connection, 'from');
+        const toHex = this.getConnectionHex(connection, 'to');
+        const fromMatch = this.getConnectionRoomId(connection, 'from') === this.activeRoomId &&
+          Number(fromHex?.q) === q &&
+          Number(fromHex?.r) === r;
+        const toMatch = this.getConnectionRoomId(connection, 'to') === this.activeRoomId &&
+          Number(toHex?.q) === q &&
+          Number(toHex?.r) === r;
         return fromMatch || toMatch;
       }) || null;
     },
@@ -11824,15 +11962,13 @@ import { SpriteService } from './SpriteService.js';
       }
 
       const actorPos = actor?.getComponent?.('PositionComponent') || null;
-      const objectDefinitions = this.dungeonData?.object_definitions && typeof this.dungeonData.object_definitions === 'object'
-        ? this.dungeonData.object_definitions
-        : {};
-      const entities = Array.isArray(this.dungeonData?.entities) ? this.dungeonData.entities : [];
-      const roomEntities = entities.filter((entity) => String(entity?.placement?.room_id || '') === roomId);
+      const objectDefinitions = this.getPresentationObjectDefinitions();
+      const room = this.getActiveRoomData?.() || {};
       const interactables = [];
       const seenKeys = new Set();
       const typeOrder = {
         npc: 1,
+        creature: 1,
         item: 2,
         obstacle: 3,
         passage: 4,
@@ -11864,38 +12000,40 @@ import { SpriteService } from './SpriteService.js';
         });
       };
 
-      roomEntities.forEach((entity) => {
-        if (!entity || entity.entity_type === 'player_character') {
+      const canonicalOccupants = this.hasVisualOccupants?.()
+        ? this.getVisualOccupants().filter((occupant) => {
+          if (String(occupant?.room_id || '') !== roomId) {
+            return false;
+          }
+          if (!this.isVisualOccupantVisible?.(occupant)) {
+            return false;
+          }
+          const type = String(occupant?.occupant_type || '').toLowerCase();
+          return type !== 'player_character' && type !== 'player' && type !== 'pc';
+        })
+        : [];
+
+      canonicalOccupants.forEach((occupant) => {
+        if (!occupant) {
           return;
         }
 
-        const placement = entity.placement || {};
-        const hex = placement.hex || {};
-        const q = Number(hex.q);
-        const r = Number(hex.r);
-        const metadata = entity?.state?.metadata || {};
-        const contentId = String(entity?.entity_ref?.content_id || '');
-        const objectDefinition = contentId ? (objectDefinitions[contentId] || {}) : {};
+        const q = Number(occupant?.placement?.q);
+        const r = Number(occupant?.placement?.r);
+        const contentId = String(occupant?.content_id || '');
         const title = String(
-          metadata.display_name
-          || metadata.name
-          || objectDefinition.label
+          occupant?.label
           || contentId
-          || entity.entity_type
+          || occupant?.occupant_id
         ).trim();
 
         if (!title) {
           return;
         }
 
-        const description = String(
-          metadata.description
-          || metadata.item_description
-          || objectDefinition.description
-          || ''
-        ).trim();
-        const type = String(entity.entity_type || '').toLowerCase();
-        const objectId = contentId || String(entity.instance_id || title);
+        const description = String(occupant?.description || occupant?.presentation?.description || '').trim();
+        const type = String(occupant?.occupant_type || '').toLowerCase();
+        const objectId = contentId || String(occupant?.occupant_id || title);
         const options = [];
 
         if (type === 'npc') {
@@ -11904,28 +12042,13 @@ import { SpriteService } from './SpriteService.js';
             options.push('Quest turn-in');
           }
           options.push('Inspect');
-        } else if (type === 'item') {
-          if (metadata.collectible) {
-            options.push('Collect');
-          }
-          options.push('Inspect');
-        } else if (type === 'obstacle') {
-          const label = String(title).toLowerCase();
-          const passable = metadata.passable !== true;
-          if (/(door|gate|hatch|portal)/.test(label) && passable) {
-            options.push('Open');
-          }
-          if (metadata.movable) {
-            options.push('Move');
-          }
-          options.push('Inspect');
         } else {
           options.push('Inspect');
         }
 
         pushEntry({
           key: `${type}:${objectId}:${q}:${r}`,
-          entityId: String(entity.instance_id || ''),
+          entityId: String(occupant?.occupant_id || ''),
           q,
           r,
           title,
@@ -11938,22 +12061,84 @@ import { SpriteService } from './SpriteService.js';
         });
       });
 
-      const connections = Array.isArray(this.dungeonData?.connections) ? this.dungeonData.connections : [];
+      const roomHexes = Array.isArray(room?.hexes) ? room.hexes : [];
+      roomHexes.forEach((hex) => {
+        const q = Number(hex?.q);
+        const r = Number(hex?.r);
+        const objects = Array.isArray(hex?.objects) ? hex.objects : [];
+        objects.forEach((object, index) => {
+          const objectId = String(object?.object_id || '').trim();
+          if (!objectId) {
+            return;
+          }
+
+          const objectDefinition = objectDefinitions[objectId] || {};
+          const category = String(object?.category || objectDefinition?.category || '').toLowerCase();
+          const inferredType = (
+            object?.collectible === true
+            || objectDefinition?.collectible === true
+            || ['item', 'loot', 'treasure', 'reward', 'consumable'].some((token) => category.includes(token))
+          ) ? 'item' : 'obstacle';
+          const title = String(object?.label || objectDefinition?.label || objectId).trim();
+          if (!title) {
+            return;
+          }
+
+          const description = String(object?.description || objectDefinition?.description || '').trim();
+          const mobility = inferredType === 'obstacle'
+            ? this.buildObstacleMobilityProfile(objectDefinition, object || {}, objectId)
+            : null;
+          const options = [];
+          if (inferredType === 'item') {
+            if (object?.collectible === true || objectDefinition?.collectible === true) {
+              options.push('Collect');
+            }
+            options.push('Inspect');
+          } else {
+            const label = String(title).toLowerCase();
+            if (/(door|gate|hatch|portal)/.test(label) && mobility?.passable === false) {
+              options.push('Open');
+            }
+            if (mobility?.movable) {
+              options.push('Move');
+            }
+            options.push('Inspect');
+          }
+
+          pushEntry({
+            key: `object:${objectId}:${q}:${r}:${index}`,
+            entityId: '',
+            q,
+            r,
+            title,
+            typeLabel: inferredType,
+            optionsLabel: options.join(', '),
+            meta: description || `Hex (${q}, ${r})`,
+            actionLabel: options[0] || 'Inspect',
+            canUse: Boolean(actorPos) && Number.isFinite(q) && Number.isFinite(r) && buildDistanceLabel(q, r) === 'Adjacent',
+            sortWeight: typeOrder[inferredType] || 99,
+          });
+        });
+      });
+
+      const connections = this.getVisualConnections();
       connections.forEach((connection) => {
-        const isFrom = String(connection?.from_room || '') === roomId;
-        const isTo = String(connection?.to_room || '') === roomId;
+        const fromHex = this.getConnectionHex(connection, 'from');
+        const toHex = this.getConnectionHex(connection, 'to');
+        const isFrom = this.getConnectionRoomId(connection, 'from') === roomId;
+        const isTo = this.getConnectionRoomId(connection, 'to') === roomId;
         if (!isFrom && !isTo) {
           return;
         }
 
-        const hex = isFrom ? (connection?.from_hex || {}) : (connection?.to_hex || {});
-        const q = Number(hex.q);
-        const r = Number(hex.r);
+        const hex = isFrom ? (fromHex || {}) : (toHex || {});
+        const q = Number(hex?.q);
+        const r = Number(hex?.r);
         if (!Number.isFinite(q) || !Number.isFinite(r)) {
           return;
         }
 
-        const destinationRoom = String(isFrom ? (connection?.to_room || '') : (connection?.from_room || ''));
+        const destinationRoom = String(isFrom ? (this.getConnectionRoomId(connection, 'to') || '') : (this.getConnectionRoomId(connection, 'from') || ''));
         const title = String(connection?.label || connection?.name || `Passage to ${destinationRoom || 'another room'}`);
         const options = connection?.is_passable === false ? ['Open'] : ['Travel'];
 
@@ -11972,7 +12157,6 @@ import { SpriteService } from './SpriteService.js';
         });
       });
 
-      const room = this.getActiveRoomData?.() || ((this.dungeonData?.rooms && roomId) ? this.dungeonData.rooms[roomId] : null) || {};
       const authoredInteractables = Array.isArray(room?.interactables) ? room.interactables : [];
       authoredInteractables.forEach((interactable, index) => {
         const title = typeof interactable === 'string'
@@ -12084,6 +12268,17 @@ import { SpriteService } from './SpriteService.js';
       const roomId = String(worldDelta.room_id || this.activeRoomId || '');
       const targetHex = worldDelta.target_hex || {};
       const destinationHex = worldDelta.destination_hex || {};
+      const visualConnections = Array.isArray(this.mapVisualState?.topology?.connections)
+        ? this.mapVisualState.topology.connections
+        : [];
+      const visualRooms = this.getVisualRooms?.() || {};
+      const visualRoom = roomId ? (visualRooms[roomId] || null) : null;
+      const sourceHex = Array.isArray(visualRoom?.hexes)
+        ? visualRoom.hexes.find((hex) => Number(hex?.q) === Number(targetHex.q) && Number(hex?.r) === Number(targetHex.r)) || null
+        : null;
+      const destinationRoomHex = Array.isArray(visualRoom?.hexes)
+        ? visualRoom.hexes.find((hex) => Number(hex?.q) === Number(destinationHex.q) && Number(hex?.r) === Number(destinationHex.r)) || null
+        : null;
 
       if (type === 'open_passage') {
         const connectionId = worldDelta.connection_id;
@@ -12107,6 +12302,27 @@ import { SpriteService } from './SpriteService.js';
           connection.is_passable = true;
           connection.is_discovered = true;
         });
+
+        visualConnections.forEach((connection) => {
+          if (connectionId && connection?.connection_id !== connectionId) {
+            return;
+          }
+          const fromHex = this.getConnectionHex?.(connection, 'from') || {};
+          const toHex = this.getConnectionHex?.(connection, 'to') || {};
+          const fromMatch = this.getConnectionRoomId?.(connection, 'from') === roomId
+            && Number(fromHex?.q) === Number(targetHex.q)
+            && Number(fromHex?.r) === Number(targetHex.r);
+          const toMatch = this.getConnectionRoomId?.(connection, 'to') === roomId
+            && Number(toHex?.q) === Number(targetHex.q)
+            && Number(toHex?.r) === Number(targetHex.r);
+          if (!connectionId && !fromMatch && !toMatch) {
+            return;
+          }
+
+          connection.is_passable = true;
+          connection.is_discovered = true;
+          connection.visibility_state = 'visible';
+        });
       }
 
       if (type === 'open_door') {
@@ -12129,6 +12345,13 @@ import { SpriteService } from './SpriteService.js';
           entity.state.metadata = entity.state.metadata || {};
           entity.state.metadata.passable = true;
         });
+
+        if (sourceHex && Array.isArray(sourceHex.objects)) {
+          sourceHex.objects.forEach((object) => {
+            object.passable = true;
+            object.blocks_movement = false;
+          });
+        }
       }
 
       if (type === 'move_object') {
@@ -12158,6 +12381,18 @@ import { SpriteService } from './SpriteService.js';
           if (pos) {
             pos.q = Number(destinationHex.q);
             pos.r = Number(destinationHex.r);
+          }
+        }
+
+        if (sourceHex && destinationRoomHex && Array.isArray(sourceHex.objects) && Array.isArray(destinationRoomHex.objects)) {
+          const movedObjects = sourceHex.objects.filter((object) =>
+            object?.movable === true
+            || object?.blocks_movement === true
+            || String(object?.category || '').toLowerCase() === 'obstacle'
+          );
+          if (movedObjects.length) {
+            sourceHex.objects = sourceHex.objects.filter((object) => !movedObjects.includes(object));
+            destinationRoomHex.objects.push(...movedObjects);
           }
         }
       }
@@ -12408,8 +12643,117 @@ import { SpriteService } from './SpriteService.js';
      * @returns {string|null}
      */
     resolveActiveRoomId: function () {
-      const payloadRoomId = this.dungeonData?.active_room_id || Object.keys(this.dungeonData?.rooms || {})[0] || null;
-      return this.activeRoomId || this.stateManager.get('activeRoomId') || this.launchContext?.room_id || payloadRoomId || null;
+      const visualRoomId = this.mapVisualState?.map_meta?.active_room_id
+        || Object.keys(this.mapVisualState?.topology?.rooms || {})[0]
+        || null;
+      return this.activeRoomId || this.stateManager.get('activeRoomId') || visualRoomId || this.launchContext?.room_id || null;
+    },
+
+    getVisualRooms: function () {
+      const rooms = this.mapVisualState?.topology?.rooms;
+      return rooms && typeof rooms === 'object' ? rooms : {};
+    },
+
+    getPresentationObjectDefinitions: function () {
+      const visualDefinitions = this.mapVisualState?.presentation?.object_definitions;
+      return visualDefinitions && typeof visualDefinitions === 'object' ? visualDefinitions : {};
+    },
+
+    hasVisualOccupants: function () {
+      return Array.isArray(this.mapVisualState?.occupants?.party)
+        || Array.isArray(this.mapVisualState?.occupants?.entities);
+    },
+
+    getVisualOccupants: function () {
+      if (!this.hasVisualOccupants()) {
+        return [];
+      }
+
+      return [
+        ...(Array.isArray(this.mapVisualState?.occupants?.party) ? this.mapVisualState.occupants.party : []),
+        ...(Array.isArray(this.mapVisualState?.occupants?.entities) ? this.mapVisualState.occupants.entities : []),
+      ];
+    },
+
+    isVisualOccupantVisible: function (occupant) {
+      if (!occupant) {
+        return false;
+      }
+
+      if (occupant.visible === true) {
+        return true;
+      }
+
+      if (occupant.visible === false) {
+        return false;
+      }
+
+      const hidden = occupant?.hidden === true || occupant?.state?.hidden === true;
+      const detected = occupant?.detected === true || occupant?.state?.detected === true;
+      if (hidden && !detected) {
+        return false;
+      }
+
+      return true;
+    },
+
+    getInspectorEntities: function () {
+      if (!this.hasVisualOccupants()) {
+        return [];
+      }
+
+      return this.getVisualOccupants().map((occupant) => ({
+        roomId: String(occupant?.room_id || ''),
+        q: Number(occupant?.placement?.q),
+        r: Number(occupant?.placement?.r),
+        entityType: String(occupant?.occupant_type || 'unknown'),
+        contentId: String(occupant?.content_id || ''),
+        instanceId: String(occupant?.occupant_id || ''),
+        displayName: String(occupant?.label || occupant?.content_id || occupant?.occupant_id || 'occupant'),
+        team: String(occupant?.presentation?.badge || ''),
+        settingState: 'n/a',
+      }));
+    },
+
+    getVisualConnections: function () {
+      return Array.isArray(this.mapVisualState?.topology?.connections)
+        ? this.mapVisualState.topology.connections
+        : [];
+    },
+
+    parseVisualHexId: function (hexId) {
+      const normalized = String(hexId || '').trim();
+      if (!normalized) {
+        return null;
+      }
+
+      const segments = normalized.split(':');
+      if (segments.length < 3) {
+        return null;
+      }
+
+      const r = Number(segments.pop());
+      const q = Number(segments.pop());
+      const roomId = segments.join(':');
+      if (!roomId || !Number.isFinite(q) || !Number.isFinite(r)) {
+        return null;
+      }
+
+      return {
+        room_id: roomId,
+        q,
+        r,
+      };
+    },
+
+    getConnectionRoomId: function (connection, side) {
+      const key = side === 'to' ? 'to' : 'from';
+      return String(connection?.[`${key}_room_id`] || connection?.[`${key}_room`] || '').trim() || null;
+    },
+
+    getConnectionHex: function (connection, side) {
+      const key = side === 'to' ? 'to' : 'from';
+      return this.parseVisualHexId(connection?.[`${key}_hex_id`]) || connection?.[`${key}_hex`] || null;
     },
 
     updateLaunchLocationContext: function (roomId, q = null, r = null) {
@@ -13345,7 +13689,7 @@ import { SpriteService } from './SpriteService.js';
         return true;
       }
 
-      if (this.dungeonData?.rooms?.[targetRoomId]) {
+      if (this.getVisualRooms?.()?.[targetRoomId]) {
         this.setActiveRoom(targetRoomId);
         this.updateLaunchLocationContext?.(targetRoomId);
         return true;
@@ -14906,7 +15250,10 @@ import { SpriteService } from './SpriteService.js';
       }
       // Use room terrain type to pick a scene-appropriate floor texture.
       const room = this.getActiveRoomData();
-      const terrainType = room?.terrain?.type || '';
+      const terrainValues = Array.isArray(room?.terrain)
+        ? room.terrain
+        : (room?.terrain?.type ? [room.terrain.type] : []);
+      const terrainType = terrainValues.map((value) => String(value || '').toLowerCase()).join(' ');
       if (terrainType.includes('wood') || terrainType.includes('tavern') || terrainType.includes('plank')) {
         return 'wooden_floor';
       }
@@ -15025,10 +15372,22 @@ import { SpriteService } from './SpriteService.js';
      * @returns {Object|null}
      */
     getActiveRoomData: function () {
-      if (!this.dungeonData || !this.activeRoomId || !this.dungeonData.rooms) {
+      const roomId = this.activeRoomId || this.resolveActiveRoomId?.() || null;
+      if (!roomId) {
         return null;
       }
-      return this.dungeonData.rooms[this.activeRoomId] || null;
+
+      const visualRoom = this.getVisualRooms()[roomId] || null;
+      return visualRoom || null;
+    },
+
+    getActiveRoomHex: function (q, r) {
+      const room = this.getActiveRoomData();
+      if (!room || !Array.isArray(room.hexes)) {
+        return null;
+      }
+
+      return room.hexes.find((candidate) => Number(candidate?.q) === q && Number(candidate?.r) === r) || null;
     },
 
     /**
@@ -15036,52 +15395,47 @@ import { SpriteService } from './SpriteService.js';
      * @returns {string}
      */
     buildActiveRoomOccupantSummary: function () {
-      if (!this.dungeonData || !this.activeRoomId) {
+      const roomId = this.activeRoomId || this.resolveActiveRoomId?.() || null;
+      if (!roomId) {
         return '';
       }
 
-      const entities = Array.isArray(this.dungeonData.entities) ? this.dungeonData.entities : [];
       const groupedNames = { pc: [], npc: [], creature: [] };
       const seen = new Set();
-
-      entities.forEach((entity) => {
-        const placement = entity?.placement;
-        if (!placement || placement.room_id !== this.activeRoomId) {
+      const pushGroupedName = (bucket, name) => {
+        if (!bucket || !name) {
           return;
         }
-
-        const rawType = entity?.entity_type ? String(entity.entity_type).toLowerCase() : '';
-        let bucket = '';
-        if (rawType === 'player_character' || rawType === 'player') {
-          bucket = 'pc';
-        } else if (rawType === 'npc') {
-          bucket = 'npc';
-        } else if (rawType === 'creature') {
-          bucket = 'creature';
-        }
-
-        if (!bucket) {
-          return;
-        }
-
-        const metadata = entity?.state?.metadata || {};
-        const contentId = entity?.entity_ref?.content_id;
-        const objectDefinition = this.getObjectDefinition(contentId);
-        const name = String(
-          metadata.display_name || metadata.name || entity?.display_name || objectDefinition?.label || ''
-        ).trim();
-
-        if (!name) {
-          return;
-        }
-
-        const dedupeKey = `${bucket}:${name.toLowerCase()}`;
+        const dedupeKey = `${bucket}:${String(name).toLowerCase()}`;
         if (seen.has(dedupeKey)) {
           return;
         }
         seen.add(dedupeKey);
         groupedNames[bucket].push(name);
-      });
+      };
+
+      if (this.hasVisualOccupants?.()) {
+        const occupants = this.getVisualOccupants().filter((occupant) => {
+          if (String(occupant?.room_id || '') !== roomId) {
+            return false;
+          }
+          return this.isVisualOccupantVisible?.(occupant);
+        });
+        occupants.forEach((occupant) => {
+          const rawType = String(occupant?.occupant_type || '').toLowerCase();
+          let bucket = '';
+          if (rawType === 'player_character' || rawType === 'player' || rawType === 'pc') {
+            bucket = 'pc';
+          } else if (rawType === 'npc') {
+            bucket = 'npc';
+          } else if (rawType === 'creature') {
+            bucket = 'creature';
+          }
+
+          const name = String(occupant?.label || occupant?.content_id || '').trim();
+          pushGroupedName(bucket, name);
+        });
+      }
 
       const parts = [];
       if (groupedNames.pc.length) {
@@ -15265,7 +15619,7 @@ import { SpriteService } from './SpriteService.js';
         return null;
       }
 
-      const definitions = this.dungeonData?.object_definitions;
+      const definitions = this.getPresentationObjectDefinitions();
       if (!definitions || typeof definitions !== 'object') {
         return null;
       }
@@ -15273,50 +15627,31 @@ import { SpriteService } from './SpriteService.js';
       return definitions[contentId] || null;
     },
 
-    /**
-     * Get obstacle mobility profile at hex in active room.
-     * @param {number} q - Axial q coordinate
-     * @param {number} r - Axial r coordinate
-     * @returns {{movable: boolean, passable: boolean, stackable: boolean, isWall: boolean}|null}
-     */
-    getObstacleMobilityAtHex: function (q, r) {
-      const entities = Array.isArray(this.dungeonData?.entities) ? this.dungeonData.entities : [];
-      if (!entities.length || !this.activeRoomId) {
-        return null;
-      }
-
-      const obstacle = entities.find((entity) => {
-        if (entity?.entity_type !== 'obstacle') {
-          return false;
-        }
-
-        const placement = entity.placement;
-        if (!placement || placement.room_id !== this.activeRoomId || !placement.hex) {
-          return false;
-        }
-
-        return Number(placement.hex.q) === q && Number(placement.hex.r) === r;
-      });
-
-      if (!obstacle) {
-        return null;
-      }
-
-      const objectDefinition = this.getObjectDefinition(obstacle?.entity_ref?.content_id);
-      const metadata = obstacle?.state?.metadata || {};
+    buildObstacleMobilityProfile: function (objectDefinition, metadata = {}, contentId = '') {
       const definitionMovement = objectDefinition?.movement || {};
-      const contentId = String(obstacle?.entity_ref?.content_id || '').toLowerCase();
-
+      const normalizedContentId = String(contentId || '').toLowerCase();
+      const metadataBlocksMovement = (typeof metadata.blocks_movement === 'boolean') ? metadata.blocks_movement : null;
+      const definitionBlocksMovement = (typeof definitionMovement.blocks_movement === 'boolean')
+        ? definitionMovement.blocks_movement
+        : ((typeof objectDefinition?.blocks_movement === 'boolean') ? objectDefinition.blocks_movement : null);
       const movable = (typeof metadata.movable === 'boolean') ? metadata.movable : Boolean(objectDefinition?.movable);
-      const passable = (typeof metadata.passable === 'boolean') ? metadata.passable : Boolean(definitionMovement.passable);
+      const passable = (typeof metadata.passable === 'boolean')
+        ? metadata.passable
+        : (metadataBlocksMovement !== null)
+          ? !metadataBlocksMovement
+          : (typeof definitionMovement.passable === 'boolean')
+            ? definitionMovement.passable
+            : (definitionBlocksMovement === true ? false : Boolean(definitionMovement.passable));
       const stackable = (typeof metadata.stackable === 'boolean') ? metadata.stackable : Boolean(objectDefinition?.stackable);
       const indicatorValues = [
         metadata.fixture_type,
         metadata.obstacle_type,
+        metadata.category,
+        metadata.type,
         objectDefinition?.category,
         objectDefinition?.type,
         objectDefinition?.object_type,
-        contentId,
+        normalizedContentId,
       ]
         .filter((value) => typeof value === 'string' && value.length)
         .map((value) => value.toLowerCase());
@@ -15332,6 +15667,35 @@ import { SpriteService } from './SpriteService.js';
         tagValues.some((value) => value === 'wall' || value.includes('boundary_wall') || value.includes('perimeter_wall'));
 
       return { movable, passable, stackable, isWall };
+    },
+
+    /**
+     * Get obstacle mobility profile at hex in active room.
+     * @param {number} q - Axial q coordinate
+     * @param {number} r - Axial r coordinate
+     * @returns {{movable: boolean, passable: boolean, stackable: boolean, isWall: boolean}|null}
+     */
+    getObstacleMobilityAtHex: function (q, r) {
+      const roomHex = this.getActiveRoomHex(q, r);
+      const roomObjects = Array.isArray(roomHex?.objects) ? roomHex.objects : [];
+      const candidate = roomObjects.find((object) => {
+        const objectId = String(object?.object_id || '').trim();
+        const category = String(object?.category || this.getObjectDefinition(objectId)?.category || '').toLowerCase();
+        const objectDefinition = this.getObjectDefinition(objectId);
+        const movement = objectDefinition?.movement || {};
+        if (typeof object?.blocks_movement === 'boolean' || typeof object?.passable === 'boolean') {
+          return object.blocks_movement === true || object.passable === false;
+        }
+        return movement.blocks_movement === true
+          || movement.passable === false
+          || ['obstacle', 'wall', 'barrier', 'barricade', 'door', 'collapsed'].some((token) => category.includes(token));
+      });
+      if (!candidate) {
+        return null;
+      }
+
+      const objectId = String(candidate?.object_id || '').trim();
+      return this.buildObstacleMobilityProfile(this.getObjectDefinition(objectId), candidate || {}, objectId);
     },
 
     /**
@@ -15355,7 +15719,7 @@ import { SpriteService } from './SpriteService.js';
     },
 
     /**
-     * Describe entities at a hex (live ECS first, then payload fallback).
+     * Describe entities at a hex (live ECS first, then canonical occupants).
      */
     describeEntitiesAtHex: function (q, r) {
       const labels = [];
@@ -15378,25 +15742,30 @@ import { SpriteService } from './SpriteService.js';
         return labels;
       }
 
-      const payloadEntities = Array.isArray(this.dungeonData?.entities) ? this.dungeonData.entities : [];
-      const fallback = payloadEntities.filter((candidate) => {
-        if (!candidate?.placement || candidate.placement.room_id !== this.activeRoomId) {
-          return false;
-        }
-        const hex = candidate.placement.hex;
-        return hex && Number(hex.q) === q && Number(hex.r) === r;
-      });
+      if (this.hasVisualOccupants()) {
+        const occupants = this.getVisualOccupants().filter((candidate) => {
+          if (String(candidate?.room_id || '') !== this.activeRoomId) {
+            return false;
+          }
+          if (!this.isVisualOccupantVisible?.(candidate)) {
+            return false;
+          }
+          return Number(candidate?.placement?.q) === q && Number(candidate?.placement?.r) === r;
+        });
 
-      fallback.forEach((candidate) => {
-        const metadata = candidate?.state?.metadata || {};
-        const displayName = metadata.display_name || metadata.name;
-        if (displayName) {
-          labels.push(displayName);
-          return;
-        }
-        const contentId = candidate?.entity_ref?.content_id;
-        labels.push(contentId ? String(contentId).replace(/[_-]+/g, ' ') : String(candidate.entity_type || 'entity'));
-      });
+        occupants.forEach((candidate) => {
+          const label = String(candidate?.label || candidate?.content_id || candidate?.occupant_id || '').trim();
+          if (!label) {
+            return;
+          }
+          const team = String(candidate?.presentation?.badge || '').trim();
+          labels.push(team ? `${label} (${team})` : label);
+        });
+      }
+
+      if (labels.length) {
+        return labels;
+      }
 
       return labels;
     },
@@ -15429,23 +15798,25 @@ import { SpriteService } from './SpriteService.js';
      * Describe connection metadata for a hex if present.
      */
     describeConnectionAtHex: function (q, r) {
-      const connections = Array.isArray(this.dungeonData?.connections) ? this.dungeonData.connections : [];
+      const connections = this.getVisualConnections();
       if (!connections.length) {
         return null;
       }
 
       const match = connections.find((connection) => {
-        const fromHex = connection?.from_hex;
-        const toHex = connection?.to_hex;
-        return (fromHex && Number(fromHex.q) === q && Number(fromHex.r) === r) ||
-               (toHex && Number(toHex.q) === q && Number(toHex.r) === r);
+        const fromHex = this.getConnectionHex(connection, 'from');
+        const toHex = this.getConnectionHex(connection, 'to');
+        return (fromHex && this.getConnectionRoomId(connection, 'from') === this.activeRoomId && Number(fromHex.q) === q && Number(fromHex.r) === r) ||
+               (toHex && this.getConnectionRoomId(connection, 'to') === this.activeRoomId && Number(toHex.q) === q && Number(toHex.r) === r);
       });
 
       if (!match) {
         return null;
       }
 
-      const targetRoom = match.to_room === this.activeRoomId ? match.from_room : match.to_room;
+      const targetRoom = this.getConnectionRoomId(match, 'to') === this.activeRoomId
+        ? this.getConnectionRoomId(match, 'from')
+        : this.getConnectionRoomId(match, 'to');
       const status = [];
       status.push(match.is_passable ? 'passable' : 'blocked');
       if (match.is_discovered) {
@@ -15469,14 +15840,22 @@ import { SpriteService } from './SpriteService.js';
       const obstacleProfile = this.getObstacleMobilityAtHex(q, r);
 
        const terrainKey = this.resolveTerrainKey(obstacleProfile, inRoom);
-       const roomTerrain = room.terrain?.type && room.terrain.type !== 'unknown' ? String(room.terrain.type) : null;
+       const roomTerrainValues = Array.isArray(room?.terrain)
+         ? room.terrain
+         : (room?.terrain?.type ? [room.terrain.type] : []);
+       const roomTerrain = roomTerrainValues
+         .map((value) => String(value || '').trim())
+         .filter((value) => value && value !== 'unknown')
+         .join(', ');
        const terrainLabel = roomTerrain ? `${terrainKey} (${roomTerrain})` : terrainKey;
 
       return {
         roomName: inRoom ? room.name : `${room.name} (outside footprint)` ,
         terrain: terrainLabel,
         elevationFt: inRoom && Number.isFinite(Number(hex?.elevation_ft)) ? Number(hex.elevation_ft) : null,
-        lighting: room.lighting?.level || 'unknown',
+        lighting: typeof room?.lighting === 'string'
+          ? room.lighting
+          : (room?.lighting?.level || 'unknown'),
         passability: this.describePassability(obstacleProfile, inRoom),
         objects: this.describeObjectsAtHex(hex, q, r),
         entities: this.describeEntitiesAtHex(q, r),
@@ -15507,39 +15886,23 @@ import { SpriteService } from './SpriteService.js';
         }
       }
 
-      // Fallback to dungeon payload for pre-seeded entities
-      const entities = Array.isArray(this.dungeonData?.entities) ? this.dungeonData.entities : [];
-      if (!entities.length || !this.activeRoomId) {
-        return null;
-      }
-
-      const entity = entities.find((candidate) => {
-        if (!candidate?.placement || candidate.placement.room_id !== this.activeRoomId) {
-          return false;
+      const roomHex = this.getActiveRoomHex(q, r);
+      if (roomHex && Array.isArray(roomHex.objects) && roomHex.objects.length) {
+        const object = roomHex.objects.find((candidate) => candidate && typeof candidate === 'object') || roomHex.objects[0];
+        if (object?.label) {
+          return object.label;
         }
-
-        const hex = candidate.placement.hex;
-        if (!hex) {
-          return false;
+        const objectId = String(object?.object_id || '').trim();
+        const definition = this.getObjectDefinition(objectId);
+        if (definition?.label) {
+          return definition.label;
         }
-        return Number(hex.q) === q && Number(hex.r) === r;
-      });
-
-      if (!entity) {
-        return null;
+        if (objectId) {
+          return objectId.replace(/[_-]+/g, ' ');
+        }
       }
 
-      const contentId = entity?.entity_ref?.content_id;
-      const definition = this.getObjectDefinition(contentId);
-      if (definition?.label) {
-        return definition.label;
-      }
-
-      if (contentId) {
-        return String(contentId).replace(/[_-]+/g, ' ');
-      }
-
-      return entity.entity_type ? String(entity.entity_type) : null;
+      return null;
     },
 
     /**
@@ -15549,28 +15912,16 @@ import { SpriteService } from './SpriteService.js';
      * @returns {string|null}
      */
     getObjectIdAtHex: function (q, r) {
-      const entities = Array.isArray(this.dungeonData?.entities) ? this.dungeonData.entities : [];
-      if (!entities.length || !this.activeRoomId) {
-        return null;
+      const roomHex = this.getActiveRoomHex(q, r);
+      if (roomHex && Array.isArray(roomHex.objects) && roomHex.objects.length) {
+        const object = roomHex.objects.find((candidate) => candidate && typeof candidate === 'object') || roomHex.objects[0];
+        const objectId = String(object?.object_id || '').trim();
+        if (objectId) {
+          return objectId;
+        }
       }
 
-      const entity = entities.find((candidate) => {
-        if (!candidate?.placement || candidate.placement.room_id !== this.activeRoomId) {
-          return false;
-        }
-
-        const hex = candidate.placement.hex;
-        if (!hex) {
-          return false;
-        }
-        return Number(hex.q) === q && Number(hex.r) === r;
-      });
-
-      if (!entity) {
-        return null;
-      }
-
-      return entity?.instance_id || entity?.entity_ref?.content_id || entity?.entity_type || null;
+      return null;
     },
 
     /**
@@ -15578,7 +15929,8 @@ import { SpriteService } from './SpriteService.js';
      * @param {string} roomId - Target room ID
      */
     setActiveRoom: function (roomId) {
-      if (!roomId || !this.dungeonData?.rooms || !this.dungeonData.rooms[roomId]) {
+      const visualRoom = this.getVisualRooms()[roomId] || null;
+      if (!roomId || !visualRoom) {
         return;
       }
 
@@ -15593,6 +15945,9 @@ import { SpriteService } from './SpriteService.js';
           roomId,
         });
         this.uiManager.loadMerchantPanel(true);
+      }
+      if (this.uiManager?.activeGameShellTab === 'portraits') {
+        this.uiManager.loadRoomPortraitsPanel(roomId);
       }
       // Load channels and chat history for the newly active room
       if (this.uiManager) {
@@ -15617,13 +15972,19 @@ import { SpriteService } from './SpriteService.js';
       }
 
       // Display room banner with scene description.
-      const room = this.dungeonData.rooms[roomId];
+      const room = visualRoom;
       if (room) {
-        const terrainLabel = room.terrain?.type
-          ? room.terrain.type.replace(/_/g, ' ')
+        const terrainValues = Array.isArray(room?.terrain)
+          ? room.terrain
+          : (room?.terrain?.type ? [room.terrain.type] : []);
+        const terrainLabel = terrainValues.length > 0
+          ? terrainValues.map((value) => String(value || '').replace(/_/g, ' ')).filter(Boolean).join(', ')
           : '';
-        const lightingLabel = room.lighting && room.lighting !== 'normal'
-          ? ` | Lighting: ${room.lighting}`
+        const lightingValue = typeof room?.lighting === 'string'
+          ? room.lighting
+          : (room?.lighting?.level || '');
+        const lightingLabel = lightingValue && lightingValue !== 'normal'
+          ? ` | Lighting: ${lightingValue}`
           : '';
         const sizeLabel = room.size_category && room.size_category !== 'medium'
           ? ` | ${room.size_category}`
@@ -15671,7 +16032,7 @@ import { SpriteService } from './SpriteService.js';
         this.uiManager.renderQuestJournal(this.questData);
       }
       this.refreshQuestConfirmations();
-      console.log('Quest data initialized:', { active: (this.questData.active || []).length, available: (this.questData.available || []).length, management_tree: (this.questData.management_tree || []).length });
+      console.log('Quest data initialized:', { active: (this.questData.active || []).length, offers: (this.questData.offers || []).length, leads: (this.questData.leads || []).length, management_tree: (this.questData.management_tree || []).length });
     },
 
     /**
@@ -15731,13 +16092,13 @@ import { SpriteService } from './SpriteService.js';
           const tracking = Array.isArray(payload.tracking)
             ? payload.tracking.map(normalizeQuestEntryPayload).filter(Boolean)
             : [];
-          const inactiveStatuses = new Set(['completed', 'failed', 'abandoned', 'archived']);
-          const activeQuests = tracking.filter((quest) => {
-            const status = String(quest?.status || '').trim().toLowerCase();
-            return status === '' || !inactiveStatuses.has(status);
-          });
+          const activeQuests = tracking.filter((quest) => ['active', 'ready_for_turn_in'].includes(String(quest?.status || '').trim().toLowerCase()));
+          const offeredQuests = tracking.filter((quest) => String(quest?.status || '').trim().toLowerCase() === 'offered');
+          const leadQuests = tracking.filter((quest) => String(quest?.status || '').trim().toLowerCase() === 'lead');
           this.questData = this.questData || {};
           this.questData.active = activeQuests;
+          this.questData.offers = offeredQuests;
+          this.questData.leads = leadQuests;
           this.questData.management_tree = [];
         }
 
@@ -15786,9 +16147,12 @@ import { SpriteService } from './SpriteService.js';
         const objectiveLines = Array.isArray(normalizedUpdate.objectives)
           ? normalizedUpdate.objectives.filter(Boolean).map((line) => `- ${line}`)
           : [];
+        const updateLabel = normalizedUpdate.type === 'quest_surfaced'
+          ? (normalizedUpdate.status === 'offered' ? 'Quest offered' : 'Quest lead')
+          : 'Quest started';
         const toastMessage = objectiveLines.length
-          ? `Quest added: ${title}\n${objectiveLines.join('\n')}`
-          : `Quest added: ${title}`;
+          ? `${updateLabel}: ${title}\n${objectiveLines.join('\n')}`
+          : `${updateLabel}: ${title}`;
         this.uiManager?.showQuestToast(toastMessage, 'success');
       });
     },
@@ -16354,23 +16718,24 @@ import { SpriteService } from './SpriteService.js';
      */
     applyDungeonData: function () {
       // Validate schema version for compatibility
-      const schemaVersion = this.dungeonData?.schema_version;
+      const schemaVersion = this.mapVisualState?.schema_version;
       if (!schemaVersion) {
-        console.warn('Dungeon payload missing schema_version field. Assuming 1.0.0.');
+        console.warn('Map visual state missing schema_version field. Assuming 1.0.0.');
       } else if (schemaVersion !== '1.0.0') {
-        console.warn(`Dungeon schema version ${schemaVersion} may not be fully compatible. Expected 1.0.0.`);
+        console.warn(`Map visual schema version ${schemaVersion} may not be fully compatible. Expected 1.0.0.`);
       }
 
-      const rooms = this.dungeonData?.rooms;
-      if (!rooms || Object.keys(rooms).length === 0) {
+      const rooms = this.getVisualRooms();
+      const roomIds = Object.keys(rooms);
+      if (!roomIds.length) {
         return;
       }
 
-      if (!this.activeRoomId || !rooms[this.activeRoomId]) {
-        this.activeRoomId = Object.keys(rooms)[0];
-      }
-
-      this.setActiveRoom(this.activeRoomId);
+      const resolvedRoomId = this.resolveActiveRoomId();
+      const nextRoomId = resolvedRoomId && rooms[resolvedRoomId]
+        ? resolvedRoomId
+        : roomIds[0];
+      this.setActiveRoom(nextRoomId);
       this.renderDungeonStateInspector();
     },
 
@@ -16389,12 +16754,13 @@ import { SpriteService } from './SpriteService.js';
         return;
       }
 
-      const dungeon = this.dungeonData || {};
-      const rooms = dungeon.rooms && typeof dungeon.rooms === 'object' ? dungeon.rooms : {};
-      const entities = Array.isArray(dungeon.entities) ? dungeon.entities : [];
-      const defs = dungeon.object_definitions && typeof dungeon.object_definitions === 'object'
-        ? dungeon.object_definitions
+      const dungeon = (this.mapVisualState && typeof this.mapVisualState === 'object')
+        ? this.mapVisualState
         : {};
+      const visualRooms = this.getVisualRooms();
+      const rooms = visualRooms && typeof visualRooms === 'object' ? visualRooms : {};
+      const entities = this.getInspectorEntities();
+      const defs = this.getPresentationObjectDefinitions();
 
       const roomCount = Object.keys(rooms).length;
       const objectCount = Object.keys(defs).length;
@@ -16402,21 +16768,42 @@ import { SpriteService } from './SpriteService.js';
       summaryEl.textContent = `Active room: ${this.activeRoomId || 'n/a'} · Rooms: ${roomCount} · Objects: ${objectCount} · Entities: ${entityCount}`;
 
       const usageCounts = {};
+      const placedObjectIds = [];
       const requiresObjectDefinition = (entityType) => {
         const t = String(entityType || '').toLowerCase();
         return t === 'obstacle' || t === 'item';
       };
 
-      entities.forEach((entity) => {
-        if (!requiresObjectDefinition(entity?.entity_type)) {
-          return;
-        }
-        const contentId = entity?.entity_ref?.content_id;
-        if (!contentId) {
-          return;
-        }
-        usageCounts[contentId] = (usageCounts[contentId] || 0) + 1;
+      Object.values(rooms).forEach((room) => {
+        const hexes = Array.isArray(room?.hexes) ? room.hexes : [];
+        hexes.forEach((hex) => {
+          const objects = Array.isArray(hex?.objects) ? hex.objects : [];
+          objects.forEach((object) => {
+            const objectId = String(object?.object_id || '').trim();
+            if (!objectId) {
+              return;
+            }
+            placedObjectIds.push(objectId);
+          });
+        });
       });
+
+      if (placedObjectIds.length) {
+        placedObjectIds.forEach((objectId) => {
+          usageCounts[objectId] = (usageCounts[objectId] || 0) + 1;
+        });
+      } else {
+        entities.forEach((entity) => {
+          if (!requiresObjectDefinition(entity?.entityType)) {
+            return;
+          }
+          const contentId = entity?.contentId;
+          if (!contentId) {
+            return;
+          }
+          usageCounts[contentId] = (usageCounts[contentId] || 0) + 1;
+        });
+      }
 
       const usedObjectIds = Object.keys(usageCounts);
       const missingDefinitionIds = usedObjectIds.filter((objectId) => !defs[objectId]);
@@ -16502,7 +16889,7 @@ import { SpriteService } from './SpriteService.js';
         gridEl.innerHTML = [...cards, ...missingCards, footer].join('');
       }
 
-      const activeRoomEntities = entities.filter((entity) => entity?.placement?.room_id === this.activeRoomId);
+      const activeRoomEntities = entities.filter((entity) => entity?.roomId === this.activeRoomId);
       entitiesSummaryEl.textContent = `Active room entities: ${activeRoomEntities.length} · Total entities: ${entities.length}`;
 
       let missingPlacement = 0;
@@ -16513,13 +16900,13 @@ import { SpriteService } from './SpriteService.js';
       let otherRoom = 0;
 
       entities.forEach((entity) => {
-        const roomId = String(entity?.placement?.room_id || '');
-        const q = Number(entity?.placement?.hex?.q);
-        const r = Number(entity?.placement?.hex?.r);
+        const roomId = String(entity?.roomId || '');
+        const q = Number(entity?.q);
+        const r = Number(entity?.r);
         const hasHex = Number.isFinite(q) && Number.isFinite(r);
-        const instanceId = String(entity?.instance_id || entity?.entity_instance_id || '');
-        const contentId = String(entity?.entity_ref?.content_id || '');
-        const team = entity?.state?.metadata?.team;
+        const instanceId = String(entity?.instanceId || '');
+        const contentId = String(entity?.contentId || '');
+        const team = entity?.team;
 
         if (!roomId) {
           missingPlacement++;
@@ -16543,14 +16930,14 @@ import { SpriteService } from './SpriteService.js';
       entitiesAnalysisEl.textContent = `Not in active room: ${otherRoom} · Missing placement: ${missingPlacement} · Missing hex: ${missingHex} · Team N/A: ${missingTeam} · Content ID N/A: ${missingContent} · Instance N/A: ${missingInstance}`;
 
       const sortedEntities = [...entities].sort((a, b) => {
-        const roomA = String(a?.placement?.room_id || '');
-        const roomB = String(b?.placement?.room_id || '');
+        const roomA = String(a?.roomId || '');
+        const roomB = String(b?.roomId || '');
         if (roomA !== roomB) return roomA.localeCompare(roomB);
-        const typeA = String(a?.entity_type || '');
-        const typeB = String(b?.entity_type || '');
+        const typeA = String(a?.entityType || '');
+        const typeB = String(b?.entityType || '');
         if (typeA !== typeB) return typeA.localeCompare(typeB);
-        const nameA = String(a?.state?.metadata?.display_name || a?.entity_ref?.content_id || a?.instance_id || '');
-        const nameB = String(b?.state?.metadata?.display_name || b?.entity_ref?.content_id || b?.instance_id || '');
+        const nameA = String(a?.displayName || a?.contentId || a?.instanceId || '');
+        const nameB = String(b?.displayName || b?.contentId || b?.instanceId || '');
         return nameA.localeCompare(nameB);
       });
 
@@ -16558,16 +16945,16 @@ import { SpriteService } from './SpriteService.js';
         entitiesGridEl.innerHTML = '<div class="dungeon-objects-empty">No entities available.</div>';
       } else {
         entitiesGridEl.innerHTML = sortedEntities.map((entity) => {
-          const roomId = String(entity?.placement?.room_id || 'n/a');
-          const q = Number(entity?.placement?.hex?.q);
-          const r = Number(entity?.placement?.hex?.r);
+          const roomId = String(entity?.roomId || 'n/a');
+          const q = Number(entity?.q);
+          const r = Number(entity?.r);
           const hasHex = Number.isFinite(q) && Number.isFinite(r);
-          const entityType = String(entity?.entity_type || 'unknown');
-          const contentId = String(entity?.entity_ref?.content_id || 'n/a');
-          const instanceId = String(entity?.instance_id || entity?.entity_instance_id || 'n/a');
-          const displayName = entity?.state?.metadata?.display_name || contentId;
-          const team = entity?.state?.metadata?.team || (entityType === 'obstacle' || entityType === 'item' ? 'n/a (non-combat)' : 'n/a');
-          const settingState = entity?.state?.metadata?.setting_state === true ? 'yes' : 'no';
+          const entityType = String(entity?.entityType || 'unknown');
+          const contentId = String(entity?.contentId || 'n/a');
+          const instanceId = String(entity?.instanceId || 'n/a');
+          const displayName = entity?.displayName || contentId;
+          const team = entity?.team || (entityType === 'obstacle' || entityType === 'item' ? 'n/a (non-combat)' : 'n/a');
+          const settingState = entity?.settingState || 'n/a';
           const isActiveRoom = roomId === this.activeRoomId;
 
           return `
@@ -16597,16 +16984,18 @@ import { SpriteService } from './SpriteService.js';
      * @returns {{q:number, r:number}}
      */
     resolveVisitedRoomEntryHex: function (roomId) {
-      const connections = Array.isArray(this.dungeonData?.connections) ? this.dungeonData.connections : [];
+      const connections = this.getVisualConnections();
       const connection = connections.find((candidate) => {
         if (!candidate || candidate.is_passable === false) {
           return false;
         }
-        return candidate.from_room === roomId || candidate.to_room === roomId;
+        return this.getConnectionRoomId(candidate, 'from') === roomId || this.getConnectionRoomId(candidate, 'to') === roomId;
       });
 
       if (connection) {
-        const connectionHex = connection.from_room === roomId ? connection.from_hex : connection.to_hex;
+        const connectionHex = this.getConnectionRoomId(connection, 'from') === roomId
+          ? this.getConnectionHex(connection, 'from')
+          : this.getConnectionHex(connection, 'to');
         if (connectionHex && Number.isFinite(Number(connectionHex.q)) && Number.isFinite(Number(connectionHex.r))) {
           return {
             q: Number(connectionHex.q),
@@ -16615,9 +17004,12 @@ import { SpriteService } from './SpriteService.js';
         }
       }
 
-      const room = this.dungeonData?.rooms?.[roomId] || null;
-      const startQ = Number(room?.start_q ?? room?.entry_hex?.q ?? room?.spawn_hex?.q ?? 0);
-      const startR = Number(room?.start_r ?? room?.entry_hex?.r ?? room?.spawn_hex?.r ?? 0);
+      const room = this.getVisualRooms()[roomId] || null;
+      const entryHex = Array.isArray(room?.hexes)
+        ? room.hexes.find((hex) => hex?.is_entry === true) || room.hexes[0] || null
+        : null;
+      const startQ = Number(room?.start_q ?? room?.entry_hex?.q ?? room?.spawn_hex?.q ?? entryHex?.q ?? 0);
+      const startR = Number(room?.start_r ?? room?.entry_hex?.r ?? room?.spawn_hex?.r ?? entryHex?.r ?? 0);
       return { q: startQ, r: startR };
     },
 
@@ -16627,7 +17019,8 @@ import { SpriteService } from './SpriteService.js';
      * @returns {boolean}
      */
     navigateToVisitedRoom: function (roomId) {
-      if (!roomId || !this.dungeonData?.rooms?.[roomId] || roomId === this.activeRoomId) {
+      const hasTargetRoom = Boolean(this.getVisualRooms()[roomId]);
+      if (!roomId || !hasTargetRoom || roomId === this.activeRoomId) {
         return false;
       }
 
@@ -16707,19 +17100,17 @@ import { SpriteService } from './SpriteService.js';
      */
     resolveNavigationCapabilities: function (roomId) {
       const activeRoomId = String(roomId || this.activeRoomId || '').trim();
-      const rawConnections = Array.isArray(this.dungeonData?.connections)
-        ? this.dungeonData.connections
-        : (Array.isArray(this.dungeonData?.hex_map?.connections) ? this.dungeonData.hex_map.connections : []);
+      const rawConnections = this.getVisualConnections();
 
       if (!activeRoomId || !rawConnections.length) {
         return [];
       }
 
       return rawConnections
-        .filter((connection) => connection && typeof connection === 'object' && (connection.from_room === activeRoomId || connection.to_room === activeRoomId))
+        .filter((connection) => connection && typeof connection === 'object' && (this.getConnectionRoomId(connection, 'from') === activeRoomId || this.getConnectionRoomId(connection, 'to') === activeRoomId))
         .map((connection) => {
-          const travelsForward = connection.from_room === activeRoomId;
-          const targetRoomId = String(travelsForward ? (connection.to_room || '') : (connection.from_room || ''));
+          const travelsForward = this.getConnectionRoomId(connection, 'from') === activeRoomId;
+          const targetRoomId = String(travelsForward ? (this.getConnectionRoomId(connection, 'to') || '') : (this.getConnectionRoomId(connection, 'from') || ''));
           const isDiscovered = Object.prototype.hasOwnProperty.call(connection, 'is_discovered')
             ? Boolean(connection.is_discovered)
             : true;
@@ -16732,7 +17123,7 @@ import { SpriteService } from './SpriteService.js';
             : (!isDiscovered ? 'undiscovered' : (!isPassable ? 'blocked' : null));
 
           return {
-            connection_id: String(connection.connection_id || `${connection.from_room || 'unknown'}__${connection.to_room || 'unknown'}`),
+            connection_id: String(connection.connection_id || `${this.getConnectionRoomId(connection, 'from') || 'unknown'}__${this.getConnectionRoomId(connection, 'to') || 'unknown'}`),
             origin_room_id: activeRoomId,
             target_room_id: targetRoomId,
             type,
@@ -16744,8 +17135,8 @@ import { SpriteService } from './SpriteService.js';
               ? Boolean(connection.bidirectional)
               : type !== 'one_way',
             requires_interaction: !isPassable || ['door', 'locked_door', 'secret_door', 'trapped_door', 'barricade', 'collapsed', 'magical_barrier'].includes(type),
-            origin_hex: travelsForward ? (connection.from_hex || null) : (connection.to_hex || null),
-            target_hex: travelsForward ? (connection.to_hex || null) : (connection.from_hex || null),
+            origin_hex: travelsForward ? (this.getConnectionHex(connection, 'from') || null) : (this.getConnectionHex(connection, 'to') || null),
+            target_hex: travelsForward ? (this.getConnectionHex(connection, 'to') || null) : (this.getConnectionHex(connection, 'from') || null),
             connection,
           };
         });

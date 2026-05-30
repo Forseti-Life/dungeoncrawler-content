@@ -12,6 +12,20 @@ use Drupal\dungeoncrawler_content\Service\InventoryManagementService;
  */
 class CharacterManager {
 
+  protected const STRUCTURED_AFFILIATION_FIELDS = [
+    'home_settlement_ref',
+    'government_ref',
+    'family_refs',
+    'religion_refs',
+    'security_affiliation_refs',
+    'employer_refs',
+    'faction_refs',
+    'order_refs',
+    'noble_refs',
+    'criminal_refs',
+    'culture_refs',
+  ];
+
   private const QUICKPLAY_PROFILE_VERSION = 3;
 
   protected Connection $database;
@@ -20,6 +34,8 @@ class CharacterManager {
   protected ?InventoryManagementService $inventoryManagement = NULL;
   protected ?DeityService $deityService = NULL;
   protected ?NameGeneratorService $nameGenerator = NULL;
+  protected ?FeatLibraryService $featLibrary = NULL;
+  protected ?SpellCatalogService $spellCatalog = NULL;
 
   /**
    * PF2e ancestries with base stats.
@@ -10265,13 +10281,15 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
     return (int) round($entry['base_price_cp'] * $multiplier);
   }
 
-  public function __construct(Connection $database, AccountProxyInterface $current_user, UuidInterface $uuid, ?InventoryManagementService $inventory_management = NULL, ?DeityService $deity_service = NULL, ?NameGeneratorService $name_generator = NULL) {
+  public function __construct(Connection $database, AccountProxyInterface $current_user, UuidInterface $uuid, ?InventoryManagementService $inventory_management = NULL, ?DeityService $deity_service = NULL, ?NameGeneratorService $name_generator = NULL, ?FeatLibraryService $feat_library = NULL, ?SpellCatalogService $spell_catalog = NULL) {
     $this->database = $database;
     $this->currentUser = $current_user;
     $this->uuid = $uuid;
     $this->inventoryManagement = $inventory_management;
     $this->deityService = $deity_service;
     $this->nameGenerator = $name_generator;
+    $this->featLibrary = $feat_library;
+    $this->spellCatalog = $spell_catalog;
   }
 
   /**
@@ -10797,8 +10815,6 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
 
       if ($this->resolveClassTradition($class_id, $canonical) !== NULL && empty($canonical['spells'])) {
         $spell_data = $this->buildQuickPlaySpellData($class_id, (string) ($canonical['subclass'] ?? ''));
-        $canonical['cantrips'] = $spell_data['cantrips'];
-        $canonical['spells_first'] = $spell_data['spells_first'];
         $canonical['spells'] = $spell_data['spells'];
       }
 
@@ -10859,8 +10875,8 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
     $wizard['class_key_ability'] = (string) ($canonical['class_key_ability'] ?? '');
     $wizard['class_feat'] = (string) ($canonical['class_feat'] ?? '');
     $wizard['subclass'] = (string) ($canonical['subclass'] ?? '');
-    $wizard['cantrips'] = is_array($canonical['cantrips'] ?? NULL) ? $canonical['cantrips'] : [];
-    $wizard['spells_first'] = is_array($canonical['spells_first'] ?? NULL) ? $canonical['spells_first'] : [];
+    $wizard['cantrips'] = self::getSelectedCantripIds($canonical);
+    $wizard['spells_first'] = self::getSelectedFirstLevelSpellIds($canonical);
     $wizard['free_boosts'] = is_array($canonical['free_boosts'] ?? NULL) ? $canonical['free_boosts'] : [];
     $wizard['trained_skills'] = is_array($canonical['trained_skills'] ?? NULL) ? $canonical['trained_skills'] : [];
     $wizard['alignment'] = $this->normalizeAlignmentCode((string) $canonical['alignment']);
@@ -11081,8 +11097,6 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
       'class_key_ability' => $class_key_ability,
       'class_feat' => $class_feat,
       'subclass' => $subclass,
-      'cantrips' => $spell_data['cantrips'],
-      'spells_first' => $spell_data['spells_first'],
       'free_boosts' => $free_boosts,
       'trained_skills' => $trained_skills,
       'alignment' => $alignment,
@@ -11230,7 +11244,7 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
       'domain-initiate',
     ];
     $fallback = '';
-    foreach (self::getClassFeats($class_id) as $feat) {
+    foreach ($this->getCanonicalClassFeatCandidates($class_id) as $feat) {
       $feat_id = trim((string) ($feat['id'] ?? ''));
       if ($feat_id === '' || in_array($feat_id, $excluded, TRUE)) {
         continue;
@@ -11256,12 +11270,12 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
       'bard', 'rogue', 'ranger', 'swashbuckler' => 'fleet',
       default => 'toughness',
     };
-    foreach (self::getGeneralFeats() as $feat) {
+    foreach ($this->getCanonicalGeneralFeatCandidates() as $feat) {
       if (($feat['id'] ?? '') === $preferred) {
         return $preferred;
       }
     }
-    foreach (self::getGeneralFeats() as $feat) {
+    foreach ($this->getCanonicalGeneralFeatCandidates() as $feat) {
       $feat_id = trim((string) ($feat['id'] ?? ''));
       $prerequisites = strtolower(trim((string) ($feat['prerequisites'] ?? 'none')));
       if ($feat_id !== '' && ($prerequisites === '' || $prerequisites === 'none')) {
@@ -11361,8 +11375,7 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
    */
   private function buildQuickPlaySpellData(string $class_id, string $subclass): array {
     $tradition = $this->resolveClassTradition($class_id, ['subclass' => $subclass]);
-    $spell_slots = self::CASTER_SPELL_SLOTS[$class_id] ?? NULL;
-    if ($tradition === NULL || !is_array($spell_slots)) {
+    if ($tradition === NULL || !isset(self::CASTER_SPELL_SLOTS[$class_id])) {
       return [
         'cantrips' => [],
         'spells_first' => [],
@@ -11370,6 +11383,7 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
       ];
     }
 
+    $spell_slots = self::CASTER_SPELL_SLOTS[$class_id];
     $cantrip_limit = (int) ($spell_slots['cantrips'] ?? 5);
     $first_limit = (int) ($spell_slots['first'] ?? 2);
     $wizard_spellbook_limit = (int) ($spell_slots['spellbook'] ?? $first_limit);
@@ -11379,36 +11393,210 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
       'id'
     );
 
-    $spells = [
-      'tradition' => $tradition,
-      'casting_ability' => $this->resolveQuickPlaySpellcastingAbility($class_id),
-      'cantrips' => $cantrip_ids,
-      'first_level' => $first_ids,
-      'slots' => [
-        'cantrips' => $cantrip_limit,
-        'first' => $first_limit,
-      ],
-    ];
-    if ($class_id === 'wizard') {
-      $spells['spellbook_size'] = $wizard_spellbook_limit;
-    }
-
-    return [
-      'cantrips' => $cantrip_ids,
-      'spells_first' => $first_ids,
-      'spells' => $spells,
-    ];
+    return self::buildSpellSelectionPayload($class_id, $tradition, $cantrip_ids, $first_ids);
   }
 
   /**
-   * Resolve spellcasting ability for quick-play casters.
+   * Resolve spellcasting ability for a class.
    */
-  private function resolveQuickPlaySpellcastingAbility(string $class_id): string {
+  public static function getClassSpellcastingAbility(string $class_id): string {
     return match ($class_id) {
       'wizard', 'witch', 'magus', 'inventor', 'alchemist', 'investigator' => 'intelligence',
       'cleric', 'druid' => 'wisdom',
       default => 'charisma',
     };
+  }
+
+  /**
+   * Build canonical spell-selection state plus legacy compatibility mirrors.
+   *
+   * The structured `spells` payload is the primary authored contract; the
+   * top-level `cantrips` / `spells_first` arrays remain migration-period mirrors
+   * for older creation and GM helper flows.
+   *
+   * @return array{cantrips: string[], spells_first: string[], spells: array<string,mixed>}
+   *   Canonical spell payload with legacy mirrors.
+   */
+  public static function buildSpellSelectionPayload(string $class_id, string $tradition, array $cantrip_ids, array $first_level_ids): array {
+    $spell_slots = self::CASTER_SPELL_SLOTS[$class_id] ?? [];
+    $spells = [
+      'tradition' => $tradition,
+      'casting_ability' => self::getClassSpellcastingAbility($class_id),
+      'cantrips' => array_values($cantrip_ids),
+      'first_level' => array_values($first_level_ids),
+      'slots' => [
+        'cantrips' => (int) ($spell_slots['cantrips'] ?? 5),
+        'first' => (int) ($spell_slots['first'] ?? 2),
+      ],
+    ];
+
+    if ($class_id === 'wizard') {
+      $spells['spellbook_size'] = (int) ($spell_slots['spellbook'] ?? 10);
+    }
+
+    return [
+      'cantrips' => array_values($cantrip_ids),
+      'spells_first' => array_values($first_level_ids),
+      'spells' => $spells,
+    ];
+  }
+
+  /**
+   * Resolve selected cantrip IDs from canonical spell payloads.
+   *
+   * @return array<int, string>
+   *   Selected cantrip IDs.
+   */
+  public static function getSelectedCantripIds(array $character_data): array {
+    $spells = is_array($character_data['spells'] ?? NULL) ? $character_data['spells'] : [];
+    $cantrips = is_array($spells['cantrips'] ?? NULL) ? $spells['cantrips'] : [];
+    return array_values(array_filter($cantrips, static fn($value): bool => is_string($value) && trim($value) !== ''));
+  }
+
+  /**
+   * Resolve selected prepared/starting spell IDs from canonical spell payloads.
+   *
+   * @return array<int, string>
+   *   Selected first-rank spell IDs.
+   */
+  public static function getSelectedFirstLevelSpellIds(array $character_data): array {
+    $spells = is_array($character_data['spells'] ?? NULL) ? $character_data['spells'] : [];
+    $first_level = is_array($spells['first_level'] ?? NULL) ? $spells['first_level'] : [];
+    return array_values(array_filter($first_level, static fn($value): bool => is_string($value) && trim($value) !== ''));
+  }
+
+  /**
+   * Resolve selected cantrip IDs from legacy top-level mirrors.
+   *
+   * @return array<int, string>
+   *   Selected cantrip IDs.
+   */
+  private static function getLegacySelectedCantripIds(array $character_data): array {
+    $cantrips = is_array($character_data['cantrips'] ?? NULL) ? $character_data['cantrips'] : [];
+    return array_values(array_filter($cantrips, static fn($value): bool => is_string($value) && trim($value) !== ''));
+  }
+
+  /**
+   * Resolve selected first-rank spell IDs from legacy top-level mirrors.
+   *
+   * @return array<int, string>
+   *   Selected first-rank spell IDs.
+   */
+  private static function getLegacySelectedFirstLevelSpellIds(array $character_data): array {
+    $first_level = is_array($character_data['spells_first'] ?? NULL) ? $character_data['spells_first'] : [];
+    return array_values(array_filter($first_level, static fn($value): bool => is_string($value) && trim($value) !== ''));
+  }
+
+  /**
+   * Synchronize compatibility mirrors from canonical spell/feature payloads.
+   *
+   * Canonical writes should author `spells` and `features.*`. Top-level
+   * `cantrips`, `spells_first`, `feats`, and `feat_selections` remain
+   * compatibility-only mirrors for older readers.
+   */
+  public static function synchronizeCompatibilityMirrors(array $character_data): array {
+    $features = is_array($character_data['features'] ?? NULL) ? $character_data['features'] : [];
+    $features['ancestryFeatures'] = is_array($features['ancestryFeatures'] ?? NULL) ? $features['ancestryFeatures'] : [];
+    $features['classFeatures'] = is_array($features['classFeatures'] ?? NULL) ? $features['classFeatures'] : [];
+    $raw_feat_selections = is_array($features['featSelections'] ?? NULL)
+      ? $features['featSelections']
+      : (is_array($character_data['feat_selections'] ?? NULL) ? $character_data['feat_selections'] : []);
+    $features['featSelections'] = self::normalizeFeatSelectionsForMirror($raw_feat_selections);
+
+    $raw_feature_feats = (!empty($features['feats']) && is_array($features['feats']))
+      ? $features['feats']
+      : (is_array($character_data['feats'] ?? NULL) ? $character_data['feats'] : []);
+    $normalized_feature_feats = self::normalizeFeatureEntriesForMirror($raw_feature_feats);
+    $stored_feature_feats = self::buildStoredFeatRefsForMirror($normalized_feature_feats);
+    $features['feats'] = $stored_feature_feats;
+    $character_data['features'] = $features;
+    $character_data['feats'] = $stored_feature_feats;
+    $character_data['feat_selections'] = $features['featSelections'];
+
+    $spells = is_array($character_data['spells'] ?? NULL) ? $character_data['spells'] : [];
+    if ($spells !== []) {
+      unset($character_data['cantrips'], $character_data['spells_first']);
+    }
+    elseif (!empty($character_data['cantrips']) || !empty($character_data['spells_first'])) {
+      $character_data['cantrips'] = self::getLegacySelectedCantripIds($character_data);
+      $character_data['spells_first'] = self::getLegacySelectedFirstLevelSpellIds($character_data);
+    }
+
+    return $character_data;
+  }
+
+  /**
+   * Normalize a character payload before any persistence write.
+   */
+  public static function normalizePersistentCharacterPayload(array $character_data): array {
+    $character_data = self::synchronizeCompatibilityMirrors($character_data);
+
+    $inventory = is_array($character_data['inventory'] ?? NULL) ? $character_data['inventory'] : [];
+    $has_currency_payload = $inventory !== []
+      || is_array($character_data['currency'] ?? NULL)
+      || array_key_exists('gold', $character_data);
+    if ($has_currency_payload) {
+      $inventory['currency'] = self::normalizeCurrencyDenominations(
+        is_array($inventory['currency'] ?? NULL)
+          ? $inventory['currency']
+          : (is_array($character_data['currency'] ?? NULL) ? $character_data['currency'] : []),
+        isset($character_data['gold']) ? (float) $character_data['gold'] : NULL
+      );
+      $character_data['inventory'] = $inventory;
+      $character_data['gold'] = self::currencyDenominationsToGoldValue($inventory['currency']);
+    }
+
+    if (!empty($character_data['spells']) && is_array($character_data['spells'])) {
+      $normalized_spellcasting = self::normalizeSpellcastingResources(
+        $character_data['spells'],
+        is_array($character_data['resources'] ?? NULL) ? $character_data['resources'] : [],
+        (string) ($character_data['basicInfo']['class'] ?? $character_data['class'] ?? '')
+      );
+      $character_data['spells'] = $normalized_spellcasting['spells'];
+      $character_data['resources'] = $normalized_spellcasting['resources'];
+    }
+
+    return $character_data;
+  }
+
+  /**
+   * Normalize mixed currency payloads into whole-number denomination buckets.
+   */
+  public static function normalizeCurrencyDenominations(array $currency, ?float $gold_fallback = NULL): array {
+    $normalized_input = [];
+    if ($currency !== []) {
+      if (!isset($currency['cp'], $currency['sp'], $currency['gp'], $currency['pp'])
+        && (isset($currency['gold']) || isset($currency['silver']) || isset($currency['copper']) || isset($currency['platinum']))) {
+        $normalized_input = [
+          'cp' => (float) ($currency['copper'] ?? 0),
+          'sp' => (float) ($currency['silver'] ?? 0),
+          'gp' => (float) ($currency['gold'] ?? 0),
+          'pp' => (float) ($currency['platinum'] ?? 0),
+        ];
+      }
+      else {
+        $normalized_input = [
+          'cp' => (float) ($currency['cp'] ?? 0),
+          'sp' => (float) ($currency['sp'] ?? 0),
+          'gp' => (float) ($currency['gp'] ?? 0),
+          'pp' => (float) ($currency['pp'] ?? 0),
+        ];
+      }
+    }
+
+    $total_cp = self::currencyDenominationsToCopper($normalized_input);
+    if ($total_cp <= 0 && $gold_fallback !== NULL) {
+      $total_cp = max(0, (int) round($gold_fallback * 100));
+    }
+
+    return self::copperToCurrencyDenominations($total_cp);
+  }
+
+  /**
+   * Convert normalized denomination buckets to a gold-value summary.
+   */
+  public static function currencyDenominationsToGoldValue(array $currency): float {
+    return round(self::currencyDenominationsToCopper($currency) / 100, 2);
   }
 
   /**
@@ -11584,7 +11772,7 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
    */
   private function buildQuickPlayFeatList(string $class_id, string $class_feat_id, string $general_feat_id, string $background_feat_name): array {
     $feats = [];
-    foreach (self::getClassFeats($class_id) as $feat) {
+    foreach ($this->getCanonicalClassFeatCandidates($class_id) as $feat) {
       if (($feat['id'] ?? '') === $class_feat_id) {
         $feats[] = [
           'id' => $class_feat_id,
@@ -11594,7 +11782,7 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
         break;
       }
     }
-    foreach (self::getGeneralFeats() as $feat) {
+    foreach ($this->getCanonicalGeneralFeatCandidates() as $feat) {
       if (($feat['id'] ?? '') === $general_feat_id) {
         $feats[] = [
           'id' => $general_feat_id,
@@ -11815,8 +12003,27 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
     $canonical['position'] = is_array($characterData['position'] ?? NULL)
       ? $characterData['position']
       : (is_array($canonical['position'] ?? NULL) ? $canonical['position'] : ['q' => 0, 'r' => 0, 'room_id' => '']);
+    $canonical = $this->preserveStructuredAffiliationFields($canonical, $characterData, $wizard);
 
     return $this->synchronizeLegacyCharacterMirrors($canonical);
+  }
+
+  /**
+   * Preserves structured institution/faction references on canonical payloads.
+   */
+  private function preserveStructuredAffiliationFields(array $canonical, array $character_data, ?array $wizard_data = NULL): array {
+    foreach (self::STRUCTURED_AFFILIATION_FIELDS as $field) {
+      if (array_key_exists($field, $character_data)) {
+        $canonical[$field] = $character_data[$field];
+        continue;
+      }
+
+      if (is_array($wizard_data) && array_key_exists($field, $wizard_data)) {
+        $canonical[$field] = $wizard_data[$field];
+      }
+    }
+
+    return $canonical;
   }
 
   /**
@@ -11930,22 +12137,7 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
       ]
     );
 
-    $features = is_array($character_data['features'] ?? NULL) ? $character_data['features'] : [];
-    $features['ancestryFeatures'] = is_array($features['ancestryFeatures'] ?? NULL) ? $features['ancestryFeatures'] : [];
-    $features['classFeatures'] = is_array($features['classFeatures'] ?? NULL) ? $features['classFeatures'] : [];
-    $features['featSelections'] = is_array($features['featSelections'] ?? NULL)
-      ? $features['featSelections']
-      : (is_array($character_data['feat_selections'] ?? NULL) ? $character_data['feat_selections'] : []);
-
-    $raw_feature_feats = (!empty($features['feats']) && is_array($features['feats']))
-      ? $features['feats']
-      : (is_array($character_data['feats'] ?? NULL) ? $character_data['feats'] : []);
-    $feature_feats = $this->normalizeFeatureEntries($raw_feature_feats);
-    $features['feats'] = $this->dedupeFeatureEntries($feature_feats);
-
-    $character_data['features'] = $features;
-    $character_data['feats'] = $features['feats'];
-    $character_data['feat_selections'] = $features['featSelections'];
+    $character_data = self::normalizePersistentCharacterPayload($character_data);
     if (is_array($character_data['wizard'] ?? NULL)) {
       $character_data['gm_chat'] = is_array($character_data['wizard']['gm_chat'] ?? NULL)
         ? $character_data['wizard']['gm_chat']
@@ -11959,6 +12151,196 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
   }
 
   /**
+   * Normalize a mixed feature list for compatibility mirror generation.
+   *
+   * @param array<int|string, mixed> $entries
+   *   Mixed feature payloads from canonical or legacy storage.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Normalized feature entries.
+   */
+  private static function normalizeFeatureEntriesForMirror(array $entries): array {
+    $normalized = [];
+    foreach ($entries as $entry) {
+      if (is_string($entry) && trim($entry) !== '') {
+        $normalized[] = [
+          'id' => self::normalizeFeatureIdentifierForMirror($entry),
+          'name' => self::humanizeFeatureIdentifierForMirror($entry),
+          'description' => '',
+        ];
+        continue;
+      }
+
+      if (!is_array($entry)) {
+        continue;
+      }
+
+      $id = trim((string) ($entry['id'] ?? $entry['name'] ?? ''));
+      $name = trim((string) ($entry['name'] ?? $entry['label'] ?? $id));
+      if ($id === '' && $name === '') {
+        continue;
+      }
+
+      $normalized[] = $entry + [
+        'id' => $id !== '' ? self::normalizeFeatureIdentifierForMirror($id) : self::normalizeFeatureIdentifierForMirror($name),
+        'name' => $name !== '' ? $name : self::humanizeFeatureIdentifierForMirror($id),
+        'description' => trim((string) ($entry['description'] ?? $entry['benefit'] ?? $entry['desc'] ?? '')),
+      ];
+    }
+
+    return self::dedupeFeatureEntriesForMirror($normalized);
+  }
+
+  /**
+   * Normalize feat selection payloads to a canonical keyed map.
+   *
+   * @param array<int|string, mixed> $selections
+   *   Mixed feat selection payloads from canonical or legacy storage.
+   *
+   * @return array<string, array<string, mixed>>
+   *   Canonical feat selection map keyed by normalized feat id.
+   */
+  private static function normalizeFeatSelectionsForMirror(array $selections): array {
+    $normalized = [];
+    foreach ($selections as $key => $selection) {
+      if (!is_array($selection)) {
+        continue;
+      }
+
+      $selection_key = is_string($key) ? trim($key) : '';
+      if ($selection_key === '') {
+        $selection_key = trim((string) ($selection['feat_id'] ?? $selection['id'] ?? $selection['feat'] ?? ''));
+      }
+      $selection_key = self::normalizeFeatureIdentifierForMirror($selection_key);
+      if ($selection_key === '') {
+        continue;
+      }
+
+      $normalized[$selection_key] = $selection;
+    }
+
+    return $normalized;
+  }
+
+  /**
+   * Convert denomination buckets into total copper.
+   */
+  private static function currencyDenominationsToCopper(array $currency): int {
+    return max(
+      0,
+      (int) round(
+        ((float) ($currency['pp'] ?? 0) * 1000)
+        + ((float) ($currency['gp'] ?? 0) * 100)
+        + ((float) ($currency['sp'] ?? 0) * 10)
+        + (float) ($currency['cp'] ?? 0)
+      )
+    );
+  }
+
+  /**
+   * Convert total copper into normalized denomination buckets.
+   */
+  private static function copperToCurrencyDenominations(int $total_cp): array {
+    $remaining = max(0, $total_cp);
+    $pp = intdiv($remaining, 1000);
+    $remaining %= 1000;
+    $gp = intdiv($remaining, 100);
+    $remaining %= 100;
+    $sp = intdiv($remaining, 10);
+    $cp = $remaining % 10;
+
+    return [
+      'cp' => $cp,
+      'sp' => $sp,
+      'gp' => $gp,
+      'pp' => $pp,
+    ];
+  }
+
+  /**
+   * Reduce canonical feat entries to compact compatibility refs.
+   *
+   * @param array<int, array<string, mixed>> $entries
+   *   Canonical feature feat entries.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Compact feat refs.
+   */
+  private static function buildStoredFeatRefsForMirror(array $entries): array {
+    $stored = [];
+    foreach ($entries as $entry) {
+      if (!is_array($entry)) {
+        continue;
+      }
+
+      $id = trim((string) ($entry['id'] ?? ''));
+      if ($id === '') {
+        continue;
+      }
+
+      $stored_entry = [
+        'id' => self::normalizeFeatureIdentifierForMirror($id),
+        'name' => trim((string) ($entry['name'] ?? self::humanizeFeatureIdentifierForMirror($id))),
+      ];
+
+      foreach (['slot_type', 'source_book', 'status', 'implementation', 'review', 'note'] as $key) {
+        if (isset($entry[$key]) && is_string($entry[$key]) && trim($entry[$key]) !== '') {
+          $stored_entry[$key] = trim((string) $entry[$key]);
+        }
+      }
+
+      if (isset($entry['feat_params']) && is_array($entry['feat_params']) && $entry['feat_params'] !== []) {
+        $stored_entry['feat_params'] = $entry['feat_params'];
+      }
+
+      $stored[] = $stored_entry;
+    }
+
+    return $stored;
+  }
+
+  /**
+   * Dedupe compatibility feature entries by canonical id.
+   *
+   * @param array<int, array<string, mixed>> $entries
+   *   Normalized entries.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Dedupe-preserving normalized entries.
+   */
+  private static function dedupeFeatureEntriesForMirror(array $entries): array {
+    $deduped = [];
+    foreach ($entries as $entry) {
+      $key = self::normalizeFeatureIdentifierForMirror((string) ($entry['id'] ?? $entry['name'] ?? ''));
+      if ($key === '' || isset($deduped[$key])) {
+        continue;
+      }
+      $deduped[$key] = $entry;
+    }
+
+    return array_values($deduped);
+  }
+
+  /**
+   * Normalize feature identifiers for compatibility mirrors.
+   */
+  private static function normalizeFeatureIdentifierForMirror(string $value): string {
+    $normalized = strtolower(trim($value));
+    $normalized = str_replace('_', '-', $normalized);
+    $normalized = preg_replace('/[^a-z0-9\-]+/', '-', $normalized) ?? $normalized;
+    $normalized = preg_replace('/-+/', '-', $normalized) ?? $normalized;
+    return trim($normalized, '-');
+  }
+
+  /**
+   * Humanize a feature identifier when only an ID is available.
+   */
+  private static function humanizeFeatureIdentifierForMirror(string $value): string {
+    $normalized = self::normalizeFeatureIdentifierForMirror($value);
+    return ucwords(str_replace('-', ' ', $normalized));
+  }
+
+  /**
    * Normalize spellcasting runtime resources onto canonical state.
    */
   public static function normalizeSpellcastingResources(array $spells, array $resources, string $class_name = ''): array {
@@ -11967,7 +12349,17 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
 
     $slot_display = is_array($spells['slots'] ?? NULL) ? $spells['slots'] : [];
     $existing_slots = is_array($resources['spellSlots'] ?? NULL) ? $resources['spellSlots'] : [];
+    $existing_used = is_array($spells['slots_used'] ?? NULL) ? $spells['slots_used'] : [];
     $normalized_slots = [];
+    $normalized_used = [];
+
+    foreach ($existing_used as $slot_key => $used_count) {
+      $canonical_key = self::canonicalizeSpellSlotKey((string) $slot_key);
+      if ($canonical_key === NULL || $canonical_key === 'cantrips') {
+        continue;
+      }
+      $normalized_used[$canonical_key] = max(0, (int) $used_count);
+    }
 
     foreach ($existing_slots as $slot_key => $slot_state) {
       $canonical_key = self::canonicalizeSpellSlotKey((string) $slot_key);
@@ -11992,7 +12384,7 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
         continue;
       }
       $existing = $normalized_slots[$canonical_key] ?? [];
-      $current = (int) ($existing['current'] ?? $existing['max'] ?? $max);
+      $current = (int) ($existing['current'] ?? $existing['max'] ?? max(0, $max - (int) ($normalized_used[$canonical_key] ?? 0)));
       $normalized_slots[$canonical_key] = [
         'current' => max(0, min($current, $max)),
         'max' => $max,
@@ -12002,6 +12394,16 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
     if (!empty($normalized_slots)) {
       ksort($normalized_slots, SORT_NATURAL);
       $resources['spellSlots'] = $normalized_slots;
+      $spells['slots_used'] = [];
+      foreach ($normalized_slots as $canonical_key => $slot_state) {
+        $legacy_key = self::legacySpellSlotMirrorKey($canonical_key);
+        if ($legacy_key === NULL) {
+          continue;
+        }
+        $max = (int) ($slot_state['max'] ?? 0);
+        $current = (int) ($slot_state['current'] ?? $max);
+        $spells['slots_used'][$legacy_key] = max(0, min($max, $max - $current));
+      }
     }
 
     $class_key = strtolower(trim($class_name));
@@ -12041,6 +12443,25 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
       '8', '8th', 'eighth' => '8',
       '9', '9th', 'ninth' => '9',
       '10', '10th', 'tenth' => '10',
+      default => NULL,
+    };
+  }
+
+  /**
+   * Convert canonical slot ranks into legacy mirror keys.
+   */
+  private static function legacySpellSlotMirrorKey(string $canonical_key): ?string {
+    return match ($canonical_key) {
+      '1' => 'first',
+      '2' => 'second',
+      '3' => 'third',
+      '4' => 'fourth',
+      '5' => 'fifth',
+      '6' => 'sixth',
+      '7' => 'seventh',
+      '8' => 'eighth',
+      '9' => 'ninth',
+      '10' => 'tenth',
       default => NULL,
     };
   }
@@ -12264,10 +12685,10 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
 
     $feats = $this->normalizeFeatureEntries($existing['feats'] ?? $data['feats'] ?? []);
     $selected_feat_fields = [
-      $this->resolveFeatChoice($data['ancestry_feat'] ?? '', 'ancestry_feat', self::getEligibleAncestryFeats($ancestry_name, $heritage)),
-      $this->resolveFeatChoice($data['class_feat'] ?? '', 'class_feat', self::getClassFeats(strtolower($class_name))),
-      $this->resolveFeatChoice($data['general_feat'] ?? '', 'general_feat', self::getGeneralFeats()),
-      $this->resolveFeatChoice($data['background_skill_feat'] ?? '', 'background_feat', self::getGeneralFeats()),
+      $this->resolveFeatChoice($data['ancestry_feat'] ?? '', 'ancestry_feat', $this->getCanonicalAncestryFeatCandidates($ancestry_name, $heritage)),
+      $this->resolveFeatChoice($data['class_feat'] ?? '', 'class_feat', $this->getCanonicalClassFeatCandidates($class_name)),
+      $this->resolveFeatChoice($data['general_feat'] ?? '', 'general_feat', $this->getCanonicalGeneralFeatCandidates()),
+      $this->resolveFeatChoice($data['background_skill_feat'] ?? '', 'background_feat', $this->getCanonicalSkillFeatCandidates()),
     ];
 
     foreach ($selected_feat_fields as $resolved_feat) {
@@ -12287,17 +12708,107 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
   }
 
   /**
+   * Resolve ancestry feat candidates through the registry-backed feat library.
+   *
+   * During migration this preserves the existing cross-ancestry heritage merge
+   * semantics while switching the canonical source away from feat constants when
+   * the shared feat library is available.
+   */
+  private function getCanonicalAncestryFeatCandidates(string $ancestry_name, string $heritage_id): array {
+    if ($this->featLibrary === NULL) {
+      return self::getEligibleAncestryFeats($ancestry_name, $heritage_id);
+    }
+
+    $pools = [$ancestry_name];
+    if ($heritage_id !== '') {
+      $heritage = self::getHeritageDefinition($ancestry_name, $heritage_id);
+      if ($heritage !== NULL && !empty($heritage['cross_ancestry_feat_pool'])) {
+        foreach ((array) $heritage['cross_ancestry_feat_pool'] as $pool_ancestry) {
+          if (!in_array($pool_ancestry, $pools, TRUE)) {
+            $pools[] = $pool_ancestry;
+          }
+        }
+      }
+    }
+
+    $feats = [];
+    $seen = [];
+    foreach ($pools as $pool) {
+      foreach ($this->featLibrary->getAncestryFeats((string) $pool) as $feat) {
+        $id = (string) ($feat['id'] ?? '');
+        if ($id === '' || isset($seen[$id])) {
+          continue;
+        }
+        $seen[$id] = TRUE;
+        $feats[] = $feat;
+      }
+    }
+
+    return $feats;
+  }
+
+  /**
+   * Resolve class feat candidates through the shared feat library when present.
+   */
+  private function getCanonicalClassFeatCandidates(string $class_name): array {
+    if ($this->featLibrary === NULL) {
+      return self::getClassFeats(strtolower($class_name));
+    }
+
+    return $this->featLibrary->getClassFeats($class_name);
+  }
+
+  /**
+   * Resolve general feat candidates through the shared feat library when present.
+   */
+  private function getCanonicalGeneralFeatCandidates(): array {
+    if ($this->featLibrary === NULL) {
+      return self::getGeneralFeats();
+    }
+
+    return $this->featLibrary->getGeneralFeats();
+  }
+
+  /**
+   * Resolve skill feat candidates through the shared feat library when present.
+   */
+  private function getCanonicalSkillFeatCandidates(): array {
+    if ($this->featLibrary === NULL) {
+      return self::normalizeFeatList(self::SKILL_FEATS, 'crb');
+    }
+
+    return $this->featLibrary->getSkillFeats();
+  }
+
+  /**
+   * Resolve spell catalog reads through the canonical spell service.
+   */
+  private function getSpellCatalog(): SpellCatalogService {
+    if ($this->spellCatalog === NULL) {
+      $this->spellCatalog = new SpellCatalogService($this->database);
+    }
+
+    return $this->spellCatalog;
+  }
+
+  /**
    * Build canonical spell payload from wizard/runtime sources.
    */
   private function buildCanonicalSpellPayload(array $data, string $class_name): array {
     $spells = is_array($data['spells'] ?? NULL) ? $data['spells'] : [];
     if ($spells !== []) {
+      if (!is_array($spells['cantrips'] ?? NULL)) {
+        $spells['cantrips'] = self::getLegacySelectedCantripIds($data);
+      }
+      if (!is_array($spells['first_level'] ?? NULL)) {
+        $spells['first_level'] = self::getLegacySelectedFirstLevelSpellIds($data);
+      }
       return $spells;
     }
 
     $tradition = $this->resolveClassTradition($class_name, $data);
-    $cantrips = is_array($data['cantrips'] ?? NULL) ? array_values(array_filter($data['cantrips'])) : [];
-    $first_level = is_array($data['spells_first'] ?? NULL) ? array_values(array_filter($data['spells_first'])) : [];
+    $cantrips = self::getLegacySelectedCantripIds($data);
+    $first_level = self::getLegacySelectedFirstLevelSpellIds($data);
 
     if ($tradition === NULL && $cantrips === [] && $first_level === []) {
       return [];
@@ -12470,6 +12981,52 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
   }
 
   /**
+   * Reduce stored top-level feat mirrors to compact runtime-friendly refs.
+   *
+   * The canonical feature payload remains under features.feats during migration,
+   * but the legacy top-level feats mirror no longer needs to duplicate full
+   * canonical feat definitions.
+   *
+   * @param array<int, array<string, mixed>> $entries
+   *   Normalized feature feat entries.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Compact stored refs.
+   */
+  private function buildStoredFeatRefs(array $entries): array {
+    $stored = [];
+    foreach ($entries as $entry) {
+      if (!is_array($entry)) {
+        continue;
+      }
+
+      $id = trim((string) ($entry['id'] ?? ''));
+      if ($id === '') {
+        continue;
+      }
+
+      $stored_entry = [
+        'id' => $this->normalizeFeatureIdentifier($id),
+        'name' => trim((string) ($entry['name'] ?? $this->humanizeIdentifier($id))),
+      ];
+
+      foreach (['slot_type', 'source_book', 'status', 'implementation', 'review', 'note'] as $key) {
+        if (isset($entry[$key]) && is_string($entry[$key]) && trim($entry[$key]) !== '') {
+          $stored_entry[$key] = trim((string) $entry[$key]);
+        }
+      }
+
+      if (isset($entry['feat_params']) && is_array($entry['feat_params']) && $entry['feat_params'] !== []) {
+        $stored_entry['feat_params'] = $entry['feat_params'];
+      }
+
+      $stored[] = $stored_entry;
+    }
+
+    return $stored;
+  }
+
+  /**
    * Resolve a selected feat against canonical candidates.
    */
   private function resolveFeatChoice(mixed $selection, string $slot_type, array $candidates): ?array {
@@ -12572,6 +13129,19 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
    * Update character data.
    */
   public function updateCharacter(int $id, array $fields): bool {
+    if (array_key_exists('character_data', $fields)) {
+      $character_data = $fields['character_data'];
+      if (is_string($character_data)) {
+        $character_data = json_decode($character_data, TRUE);
+      }
+      if (is_array($character_data)) {
+        $fields['character_data'] = json_encode(
+          self::normalizePersistentCharacterPayload($character_data),
+          JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE
+        );
+      }
+    }
+
     $fields['changed'] = \Drupal::time()->getRequestTime();
     $updated = $this->database->update('dc_campaign_characters')
       ->fields($fields)
@@ -13330,11 +13900,6 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
     return NULL;
   }
 
-  const VALID_SPELL_SCHOOLS = [
-    'abjuration', 'conjuration', 'divination', 'enchantment',
-    'evocation', 'illusion', 'necromancy', 'transmutation',
-  ];
-
   /**
    * Rune system data: fundamental runes, property rune rules, etching/transfer rules.
    *
@@ -13534,194 +14099,7 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
      *   traditions, description, rarity, source, and related spell metadata.
    */
   public function getSpellsByTradition(string $tradition, int $level = 0, string $rarity = 'common'): array {
-    $tradition = strtolower($tradition);
-    $query = $this->database->select('dungeoncrawler_content_registry', 'r')
-      ->fields('r', ['content_id', 'name', 'level', 'tags', 'schema_data'])
-      ->condition('content_type', 'spell')
-      ->condition('level', $level)
-      ->condition('tags', '%"' . $this->database->escapeLike($tradition) . '"%', 'LIKE');
-
-    // Exclude _c suffix duplicates (primal-only copies from bulk import).
-    $query->condition('r.content_id', '%\_c', 'NOT LIKE');
-
-    $query->orderBy('name');
-    $rows = $query->execute()->fetchAll();
-
-    $spells = [];
-    $spell_scores = [];
-    foreach ($rows as $row) {
-      $schema = json_decode($row->schema_data, TRUE) ?: [];
-
-      // Filter out non-spell entries with invalid school values.
-      $school = strtolower($schema['school'] ?? '');
-      if ($school !== '' && !in_array($school, self::VALID_SPELL_SCHOOLS, TRUE)) {
-        continue;
-      }
-
-      // Rarity gate: skip spells that don't match the requested rarity.
-      $spell_rarity = strtolower($schema['rarity'] ?? 'common');
-      if ($rarity !== 'all' && $spell_rarity !== $rarity) {
-        continue;
-      }
-
-      $normalized_id = $this->normalizeSpellCatalogId((string) $row->content_id);
-      $candidate = [
-        'id' => str_contains((string) $row->content_id, '-') ? (string) $row->content_id : $normalized_id,
-        'name' => $row->name,
-        'level' => (int) $row->level,
-        'school' => $school ?: 'unknown',
-        'traditions' => $schema['traditions'] ?? [],
-        'description' => $this->resolveSpellCatalogDescription($schema, (string) $row->name),
-        'description_source' => $this->resolveSpellCatalogDescriptionSource($schema),
-        'rarity' => $spell_rarity,
-        'source' => trim((string) ($schema['source_display'] ?? $schema['source_book'] ?? '')),
-        'source_display' => trim((string) ($schema['source_display'] ?? '')),
-        'source_book' => trim((string) ($schema['source_book'] ?? '')),
-        'cast' => $schema['cast'] ?? '',
-        'cast_actions' => $schema['cast_actions'] ?? '',
-        'actions' => $schema['actions'] ?? '',
-        'range' => $schema['range'] ?? '',
-        'targets' => $schema['targets'] ?? '',
-        'target' => $schema['target'] ?? '',
-        'area' => $schema['area'] ?? '',
-        'duration' => $schema['duration'] ?? '',
-        'save' => $schema['save'] ?? '',
-        'saving_throw' => $schema['saving_throw'] ?? '',
-        'save_type' => $schema['save_type'] ?? '',
-        'components' => is_array($schema['components'] ?? NULL) ? $schema['components'] : [],
-        'heightenable' => !empty($schema['heightenable']) || !empty($schema['heightened']) || !empty($schema['heightened_scaling']),
-      ];
-
-      $candidate_score = $this->scoreSpellCatalogRow((string) $row->content_id, $schema);
-      if (!isset($spells[$normalized_id]) || $candidate_score > $spell_scores[$normalized_id]) {
-        $spells[$normalized_id] = $candidate;
-        $spell_scores[$normalized_id] = $candidate_score;
-      }
-    }
-
-    return array_values($spells);
-  }
-
-  /**
-   * Normalizes spell catalog IDs to the canonical hyphenated form.
-   */
-  protected function normalizeSpellCatalogId(string $content_id): string {
-    return str_replace('_', '-', strtolower(trim($content_id)));
-  }
-
-  /**
-   * Chooses the best available spell description for UI display.
-   */
-  protected function resolveSpellCatalogDescription(array $schema, string $fallback_name): string {
-    $description = trim((string) ($schema['description'] ?? ''));
-    $display_description = $fallback_name;
-    if ($this->hasCompleteSpellDescription($description)) {
-      $display_description = $description;
-    }
-    elseif ($description !== '') {
-      $display_description = $description;
-    }
-    else {
-      $snippet = trim((string) ($schema['description_snippet'] ?? ''));
-      if ($snippet !== '') {
-        $display_description = $snippet;
-      }
-    }
-
-    return $this->appendSpellOutcomeSummary($display_description, $schema);
-  }
-
-  /**
-   * Identifies which field supplied the spell description.
-   */
-  protected function resolveSpellCatalogDescriptionSource(array $schema): string {
-    if ($this->hasCompleteSpellDescription(trim((string) ($schema['description'] ?? '')))) {
-      return 'description';
-    }
-
-    if (trim((string) ($schema['description_snippet'] ?? '')) !== '') {
-      return 'description_snippet';
-    }
-
-    return 'fallback';
-  }
-
-  /**
-   * Appends degree-of-success outcomes when the base description omits them.
-   */
-  protected function appendSpellOutcomeSummary(string $description, array $schema): string {
-    $description = trim($description);
-    $outcomes = $schema['effects']['outcomes'] ?? [];
-    if (!is_array($outcomes) || $outcomes === []) {
-      return $description;
-    }
-
-    $ordered_labels = ['Critical Success', 'Success', 'Failure', 'Critical Failure'];
-    $summary_parts = [];
-    foreach ($ordered_labels as $label) {
-      $text = trim((string) ($outcomes[$label] ?? ''));
-      if ($text !== '') {
-        if (stripos($description, $label . ':') !== FALSE) {
-          return $description;
-        }
-        $summary_parts[] = $label . ': ' . $text;
-      }
-      unset($outcomes[$label]);
-    }
-    foreach ($outcomes as $label => $text) {
-      $label = trim((string) $label);
-      $text = trim((string) $text);
-      if ($label === '' || $text === '') {
-        continue;
-      }
-      if (stripos($description, $label . ':') !== FALSE) {
-        return $description;
-      }
-      $summary_parts[] = $label . ': ' . $text;
-    }
-
-    if ($summary_parts === []) {
-      return $description;
-    }
-
-    return trim($description . ' ' . implode(' ', $summary_parts));
-  }
-
-  /**
-   * Scores a spell registry row so canonical, full-description records win.
-   */
-  protected function scoreSpellCatalogRow(string $content_id, array $schema): int {
-    $score = 0;
-
-    if (str_contains($content_id, '-')) {
-      $score += 100;
-    }
-
-    if ($this->hasCompleteSpellDescription(trim((string) ($schema['description'] ?? '')))) {
-      $score += 50;
-    }
-
-    if (trim((string) ($schema['description_snippet'] ?? '')) !== '') {
-      $score += 10;
-    }
-
-    return $score;
-  }
-
-  /**
-   * Heuristically determines whether a stored description reads as complete text.
-   */
-  protected function hasCompleteSpellDescription(string $description): bool {
-    $description = trim($description);
-    if ($description === '') {
-      return FALSE;
-    }
-
-    if (preg_match('/[.!?][\'")\]]?$/u', $description)) {
-      return TRUE;
-    }
-
-    return mb_strlen($description) >= 160;
+    return $this->getSpellCatalog()->getSpellsByTradition($tradition, $level, $rarity);
   }
 
   /**

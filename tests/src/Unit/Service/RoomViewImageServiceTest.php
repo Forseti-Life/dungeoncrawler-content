@@ -154,6 +154,108 @@ class RoomViewImageServiceTest extends UnitTestCase {
   }
 
   /**
+   * @covers ::getRoomViewImage
+   */
+  public function testGetRoomViewImageReturnsUnavailablePayloadWhenCampaignHasNoDungeon(): void {
+    $chat_session_manager = $this->createMock(ChatSessionManager::class);
+    $chat_session_manager->expects($this->never())
+      ->method('ensureRoomSession');
+
+    $service = new TestRoomViewImageService(
+      $this->createMock(Connection::class),
+      $this->buildLoggerFactory(),
+      $this->createMock(ImageGenerationIntegrationService::class),
+      $chat_session_manager,
+      $this->createMock(GeneratedImageRepository::class),
+      $this->createMock(FileSystemInterface::class),
+    );
+    $service->campaignRoomRecords['tavern_entrance'] = [
+      'room_id' => 'tavern_entrance',
+      'source_room_id' => 'tavern_entrance',
+      'name' => 'The Gilded Tankard',
+    ];
+
+    $result = $service->getRoomViewImage(66, 'tavern_entrance');
+
+    $this->assertFalse($result['success']);
+    $this->assertFalse($result['available']);
+    $this->assertSame('pending', $result['status']);
+    $this->assertSame('tavern_entrance', $result['room']['room_id']);
+    $this->assertSame('The Gilded Tankard', $result['room']['name']);
+    $this->assertSame([], $result['entries']);
+  }
+
+  /**
+   * @covers ::getRoomViewImage
+   */
+  public function testGetRoomViewImageResolvesCampaignSlugToRuntimeRoom(): void {
+    $chat_session_manager = $this->createMock(ChatSessionManager::class);
+    $chat_session_manager->method('ensureRoomSession')
+      ->willReturn(['id' => 455]);
+
+    $service = new TestRoomViewImageService(
+      $this->createMock(Connection::class),
+      $this->buildLoggerFactory(),
+      $this->createMock(ImageGenerationIntegrationService::class),
+      $chat_session_manager,
+      $this->createMock(GeneratedImageRepository::class),
+      $this->createMock(FileSystemInterface::class),
+    );
+
+    $service->latestDungeonRecord = [
+      'dungeon_id' => 'dungeon-1',
+      'dungeon_data' => json_encode([
+        'hex_map' => [
+          'regions' => [
+            [
+              'name' => 'The Gilded Tankard',
+              'room_ids' => ['runtime-room-1'],
+            ],
+          ],
+        ],
+        'rooms' => [
+          [
+            'room_id' => 'runtime-room-1',
+            'name' => 'The Gilded Tankard',
+            'description' => 'A warm tavern room with tense corners.',
+          ],
+        ],
+      ]),
+    ];
+    $service->campaignRoomRecords['tavern_entrance'] = [
+      'room_id' => 'tavern_entrance',
+      'source_room_id' => 'tavern_entrance',
+      'name' => 'The Gilded Tankard',
+    ];
+    $service->establishingEntry = [
+      'id' => 'establishing-shot',
+      'entry_type' => 'establishing',
+      'title' => 'Establishing Shot',
+      'summary' => 'A warm tavern room with tense corners.',
+      'status' => 'ready',
+      'provider' => 'vertex',
+      'mode' => 'cache',
+      'created' => 0,
+      'message_window' => [
+        'index' => 0,
+        'count' => 0,
+        'label' => 'Room opening view',
+      ],
+      'image' => [
+        'url' => 'https://example.com/establishing.png',
+        'data_uri' => NULL,
+        'mime_type' => 'image/png',
+      ],
+    ];
+
+    $result = $service->getRoomViewImage(66, 'tavern_entrance');
+
+    $this->assertSame('runtime-room-1', $service->lastEstablishingRoom['room_id'] ?? NULL);
+    $this->assertSame('tavern_entrance', $result['room']['room_id']);
+    $this->assertSame('Loaded cached room view image.', $result['message']);
+  }
+
+  /**
    * @covers ::persistGalleryGenerationResult
    */
   public function testPersistGalleryGenerationResultPromotesDataUriToStoredUrl(): void {
@@ -270,6 +372,20 @@ class TestRoomViewImageService extends RoomViewImageService {
   public bool $vertexAvailable = TRUE;
 
   /**
+   * Fake campaign room records keyed by requested room id.
+   *
+   * @var array<string, array<string, mixed>>
+   */
+  public array $campaignRoomRecords = [];
+
+  /**
+   * Captured room payload used to build the establishing entry.
+   *
+   * @var array<string, mixed>|null
+   */
+  public ?array $lastEstablishingRoom = NULL;
+
+  /**
    * {@inheritdoc}
    */
   protected function loadLatestDungeonRecord(int $campaign_id): ?array {
@@ -293,6 +409,13 @@ class TestRoomViewImageService extends RoomViewImageService {
   /**
    * {@inheritdoc}
    */
+  protected function loadCampaignRoomRecord(int $campaign_id, string $room_id): ?array {
+    return $this->campaignRoomRecords[$room_id] ?? NULL;
+  }
+
+  /**
+   * {@inheritdoc}
+   */
   protected function buildTransitionGalleryEntries(int $campaign_id, string $dungeon_id, string $room_id, array $room, int $room_session_id, array $portrait_references = []): array {
     return $this->transitionEntries;
   }
@@ -308,6 +431,7 @@ class TestRoomViewImageService extends RoomViewImageService {
    * {@inheritdoc}
    */
   protected function buildEstablishingEntry(int $campaign_id, string $dungeon_id, string $room_id, array $room, ?string $campaign_room_cache_key = NULL, array $portrait_references = []): ?array {
+    $this->lastEstablishingRoom = $room;
     return $this->establishingEntry;
   }
 

@@ -127,7 +127,8 @@ class QuestGeneratorController extends ControllerBase {
       $quest_summary = $this->questGenerator->buildQuestSummaryPayload(
         (string) ($quest_contract['location_id'] ?? ('campaign-' . $campaign_id)),
         [],
-        [$quest_data]
+        in_array((string) ($quest_data['status'] ?? ''), ['offered', 'available'], TRUE) ? [$quest_data] : [],
+        (string) ($quest_data['status'] ?? '') === 'lead' ? [$quest_data] : []
       );
 
       return new JsonResponse([
@@ -199,7 +200,8 @@ class QuestGeneratorController extends ControllerBase {
       $quest_summary = $this->questGenerator->buildQuestSummaryPayload(
         (string) ($context['location'] ?? ('campaign-' . $campaign_id)),
         [],
-        $quests
+        array_values(array_filter($quests, static fn(array $quest): bool => in_array((string) ($quest['status'] ?? ''), ['offered', 'available'], TRUE))),
+        array_values(array_filter($quests, static fn(array $quest): bool => (string) ($quest['status'] ?? '') === 'lead'))
       );
 
       $response_quests = array_map(function ($q) {

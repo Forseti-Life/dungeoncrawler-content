@@ -85,7 +85,11 @@ class CharacterManagerSpellCatalogTest extends UnitTestCase {
 
     $database = $this->createMock(Connection::class);
     $database->method('select')->with('dungeoncrawler_content_registry', 'r')->willReturn($query);
-    $database->method('escapeLike')->willReturnArgument(0);
+    $schema = $this->getMockBuilder(\stdClass::class)
+      ->addMethods(['tableExists'])
+      ->getMock();
+    $schema->method('tableExists')->with('dungeoncrawler_content_registry')->willReturn(TRUE);
+    $database->method('schema')->willReturn($schema);
 
     $manager = new CharacterManager(
       $database,
@@ -146,7 +150,11 @@ class CharacterManagerSpellCatalogTest extends UnitTestCase {
 
     $database = $this->createMock(Connection::class);
     $database->method('select')->with('dungeoncrawler_content_registry', 'r')->willReturn($query);
-    $database->method('escapeLike')->willReturnArgument(0);
+    $schema = $this->getMockBuilder(\stdClass::class)
+      ->addMethods(['tableExists'])
+      ->getMock();
+    $schema->method('tableExists')->with('dungeoncrawler_content_registry')->willReturn(TRUE);
+    $database->method('schema')->willReturn($schema);
 
     $manager = new CharacterManager(
       $database,
@@ -160,6 +168,101 @@ class CharacterManagerSpellCatalogTest extends UnitTestCase {
     $this->assertStringContainsString('Critical Success:', $spells[0]['description']);
     $this->assertStringContainsString('Success: The target takes a -10-foot circumstance penalty', $spells[0]['description']);
     $this->assertStringContainsString('Failure: The target is unaffected.', $spells[0]['description']);
+  }
+
+  /**
+   * @covers ::normalizePersistentCharacterPayload
+   */
+  public function testNormalizePersistentCharacterPayloadHardensFeatSelectionsAndSpellResources(): void {
+    $payload = CharacterManager::normalizePersistentCharacterPayload([
+      'basicInfo' => [
+        'class' => 'wizard',
+      ],
+      'features' => [
+        'feats' => [
+          'Adapted Cantrip',
+          [
+            'id' => 'Toughness',
+            'name' => 'Toughness',
+          ],
+        ],
+        'featSelections' => [
+          'Adapted Cantrip' => [
+            'selected_tradition' => 'occult',
+            'selected_cantrip' => 'daze',
+          ],
+          'broken-entry' => 'not-an-array',
+          7 => [
+            'feat_id' => 'Weapon Proficiency',
+            'selected_weapon' => 'longsword',
+          ],
+        ],
+      ],
+      'spells' => [
+        'cantrips' => ['shield', '', 'detect-magic'],
+        'first_level' => ['magic-missile'],
+        'slots' => ['1st' => 2],
+      ],
+      'resources' => [
+        'spellSlots' => [
+          '1st' => ['current' => 5, 'max' => 1],
+        ],
+        'focusPoints' => [
+          'current' => 3,
+          'max' => 1,
+        ],
+      ],
+    ]);
+
+    $this->assertSame(['shield', 'detect-magic'], $payload['cantrips']);
+    $this->assertSame(['magic-missile'], $payload['spells_first']);
+    $this->assertArrayHasKey('adapted-cantrip', $payload['feat_selections']);
+    $this->assertArrayHasKey('weapon-proficiency', $payload['feat_selections']);
+    $this->assertArrayNotHasKey('broken-entry', $payload['feat_selections']);
+    $this->assertSame(2, $payload['resources']['spellSlots']['1']['max']);
+    $this->assertSame(1, $payload['resources']['spellSlots']['1']['current']);
+    $this->assertSame(1, $payload['spells']['slots_used']['first']);
+    $this->assertSame(1, $payload['resources']['focusPoints']['current']);
+    $this->assertSame(1, $payload['resources']['focusPoints']['max']);
+  }
+
+  /**
+   * @covers ::normalizePersistentCharacterPayload
+   */
+  public function testNormalizePersistentCharacterPayloadRepairsLegacySpellUsageFromCanonicalResources(): void {
+    $payload = CharacterManager::normalizePersistentCharacterPayload([
+      'spells' => [
+        'slots' => ['first' => 2, 'second' => 1],
+        'slots_used' => ['first' => 0, 'second' => 1],
+      ],
+      'resources' => [
+        'spellSlots' => [
+          '1' => ['current' => 1, 'max' => 2],
+          '2' => ['current' => 1, 'max' => 1],
+        ],
+      ],
+    ]);
+
+    $this->assertSame(['current' => 1, 'max' => 2], $payload['resources']['spellSlots']['1']);
+    $this->assertSame(['current' => 1, 'max' => 1], $payload['resources']['spellSlots']['2']);
+    $this->assertSame(1, $payload['spells']['slots_used']['first']);
+    $this->assertSame(0, $payload['spells']['slots_used']['second']);
+  }
+
+  /**
+   * @covers ::normalizeCurrencyDenominations
+   * @covers ::currencyDenominationsToGoldValue
+   */
+  public function testNormalizeCurrencyDenominationsConvertsFractionalGoldToWholeBuckets(): void {
+    $currency = CharacterManager::normalizeCurrencyDenominations(['gp' => 0.04]);
+
+    $this->assertSame([
+      'cp' => 4,
+      'sp' => 0,
+      'gp' => 0,
+      'pp' => 0,
+    ], $currency);
+    $this->assertSame(0.04, CharacterManager::currencyDenominationsToGoldValue($currency));
   }
 
 }

@@ -655,6 +655,7 @@ class InventoryManagementService {
           else {
             $char_data['currency'] = $new_currency;
           }
+          $char_data = CharacterManager::normalizePersistentCharacterPayload($char_data);
           $this->database->update('dc_campaign_characters')
             ->fields(['character_data' => json_encode($char_data)])
             ->condition('id', $owner_id)
@@ -744,6 +745,7 @@ class InventoryManagementService {
     $new_currency = $this->copperToCurrencyArray($total_owned_cp - $total_price_cp);
     $this->writeCharacterCurrency($char_data, $new_currency);
     $this->writeRuntimeCurrency($runtime_state, $new_currency);
+    $this->synchronizeCharacterPersistencePayloads($char_data, $runtime_state);
 
     $transaction = $this->database->startTransaction();
     try {
@@ -1251,6 +1253,8 @@ class InventoryManagementService {
       $this->writeCharacterCurrency($dest_data, $dest_updated_currency);
       $this->writeRuntimeCurrency($source_state, $source_updated_currency);
       $this->writeRuntimeCurrency($dest_state, $dest_updated_currency);
+      $this->synchronizeCharacterPersistencePayloads($source_data, $source_state);
+      $this->synchronizeCharacterPersistencePayloads($dest_data, $dest_state);
 
       $this->database->update('dc_campaign_characters')
         ->fields([
@@ -2841,21 +2845,10 @@ class InventoryManagementService {
       ?? $character_data['currency']
       ?? ['cp' => 0, 'sp' => 0, 'gp' => 0, 'pp' => 0];
 
-    if (!isset($currency['gp']) && isset($currency['gold'])) {
-      $currency = [
-        'pp' => (int) ($currency['pp'] ?? 0),
-        'gp' => (int) $currency['gold'],
-        'sp' => (int) ($currency['silver'] ?? 0),
-        'cp' => (int) ($currency['copper'] ?? 0),
-      ];
-    }
-
-    return [
-      'cp' => (int) ($currency['cp'] ?? 0),
-      'sp' => (int) ($currency['sp'] ?? 0),
-      'gp' => (int) ($currency['gp'] ?? ($character_data['gold'] ?? 0)),
-      'pp' => (int) ($currency['pp'] ?? 0),
-    ];
+    return CharacterManager::normalizeCurrencyDenominations(
+      is_array($currency) ? $currency : [],
+      isset($character_data['gold']) ? (float) $character_data['gold'] : NULL
+    );
   }
 
   /**
@@ -2883,6 +2876,16 @@ class InventoryManagementService {
     }
 
     $character_data['gold'] = (int) ($currency['gp'] ?? 0);
+  }
+
+  /**
+   * Keep canonical spell/feat mirrors aligned before persisting character rows.
+   */
+  protected function synchronizeCharacterPersistencePayloads(array &$character_data, ?array &$runtime_state = NULL): void {
+    $character_data = CharacterManager::normalizePersistentCharacterPayload($character_data);
+    if ($runtime_state !== NULL) {
+      $runtime_state = CharacterManager::normalizePersistentCharacterPayload($runtime_state);
+    }
   }
 
   /**

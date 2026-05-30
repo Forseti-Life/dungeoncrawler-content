@@ -404,9 +404,13 @@ class ChatSessionManager {
    *   Room session record.
    */
   public function ensureRoomSession(int $campaign_id, int|string $dungeon_id, string $room_id, string $room_name = ''): array {
-    $dungeon_session = $this->ensureDungeonSession($campaign_id, $dungeon_id);
+    $existing = $this->loadRoomSession($campaign_id, $dungeon_id, $room_id);
+    if ($existing !== NULL) {
+      return $existing;
+    }
 
     $key = $this->roomSessionKey($campaign_id, $dungeon_id, $room_id);
+    $dungeon_session = $this->ensureDungeonSession($campaign_id, $dungeon_id);
     return $this->getOrCreateSession(
       $campaign_id,
       'room',
@@ -432,8 +436,9 @@ class ChatSessionManager {
     string $character_name = ''
   ): array {
     $room_session = $this->ensureRoomSession($campaign_id, $dungeon_id, $room_id);
+    $canonical_dungeon_id = (string) ($room_session['metadata']['dungeon_id'] ?? $dungeon_id);
 
-    $key = $this->characterNarrativeKey($campaign_id, $dungeon_id, $room_id, $character_id);
+    $key = $this->characterNarrativeKey($campaign_id, $canonical_dungeon_id, $room_id, $character_id);
     return $this->getOrCreateSession(
       $campaign_id,
       'character_narrative',
@@ -441,8 +446,126 @@ class ChatSessionManager {
       $character_name ? "{$character_name}'s perspective" : "Character #{$character_id} perspective",
       (string) $character_id,
       (int) $room_session['id'],
-      ['character_id' => $character_id, 'dungeon_id' => $dungeon_id, 'room_id' => $room_id]
+      ['character_id' => $character_id, 'dungeon_id' => $canonical_dungeon_id, 'room_id' => $room_id]
     );
+  }
+
+  /**
+   * Load the authoritative room session for a logical room.
+   */
+  public function loadRoomSession(int $campaign_id, int|string $dungeon_id, string $room_id): ?array {
+    $key = $this->roomSessionKey($campaign_id, $dungeon_id, $room_id);
+    $existing = $this->loadSession($key);
+    if ($existing !== NULL) {
+      return $existing;
+    }
+
+    $alias = $this->resolveExistingRoomSessionAlias($campaign_id, $room_id, (string) $dungeon_id);
+    if ($alias !== NULL && $alias['session_key'] !== $key) {
+      $this->logger->info('Reusing canonical room session alias for campaign {campaign_id}: requested={requested_key} canonical={canonical_key}', [
+        'campaign_id' => $campaign_id,
+        'requested_key' => $key,
+        'canonical_key' => $alias['session_key'],
+      ]);
+    }
+
+    return $alias;
+  }
+
+  /**
+   * Load the authoritative character narrative session for a logical room.
+   */
+  public function loadCharacterNarrativeSession(
+    int $campaign_id,
+    int|string $dungeon_id,
+    string $room_id,
+    int|string $character_id
+  ): ?array {
+    $room_session = $this->loadRoomSession($campaign_id, $dungeon_id, $room_id);
+    if ($room_session === NULL) {
+      return NULL;
+    }
+
+    $canonical_dungeon_id = (string) ($room_session['metadata']['dungeon_id'] ?? $dungeon_id);
+    $key = $this->characterNarrativeKey($campaign_id, $canonical_dungeon_id, $room_id, $character_id);
+    return $this->loadSession($key);
+  }
+
+  /**
+   * Reuse an existing room session for the same logical room across dungeon aliases.
+   */
+  protected function resolveExistingRoomSessionAlias(int $campaign_id, string $room_id, string $requested_dungeon_id): ?array {
+    $rows = $this->database->select('dc_chat_sessions', 's')
+      ->fields('s')
+      ->condition('campaign_id', $campaign_id)
+      ->condition('session_type', 'room')
+      ->condition('scope_ref', $room_id)
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+
+    if ($rows === []) {
+      return NULL;
+    }
+
+    $sessions = array_map([$this, 'normalizeSessionRow'], $rows);
+    usort($sessions, function (array $left, array $right) use ($requested_dungeon_id): int {
+      $left_score = $this->scoreRoomSessionAlias($left, $requested_dungeon_id);
+      $right_score = $this->scoreRoomSessionAlias($right, $requested_dungeon_id);
+      if ($left_score !== $right_score) {
+        return $right_score <=> $left_score;
+      }
+
+      return ((int) ($right['id'] ?? 0)) <=> ((int) ($left['id'] ?? 0));
+    });
+
+    return $sessions[0] ?? NULL;
+  }
+
+  /**
+   * Normalize a session row loaded from storage.
+   */
+  protected function normalizeSessionRow(array $row): array {
+    $row['metadata'] = json_decode($row['metadata'] ?: '{}', TRUE) ?: [];
+    $row['message_count'] = (int) ($row['message_count'] ?? 0);
+    $row['parent_session_id'] = !empty($row['parent_session_id']) ? (int) $row['parent_session_id'] : NULL;
+    $row['id'] = (int) ($row['id'] ?? 0);
+    $row['last_message_at'] = (int) ($row['last_message_at'] ?? 0);
+    $row['updated'] = (int) ($row['updated'] ?? 0);
+    $row['created'] = (int) ($row['created'] ?? 0);
+    return $row;
+  }
+
+  /**
+   * Score a room session candidate for alias reuse.
+   */
+  protected function scoreRoomSessionAlias(array $session, string $requested_dungeon_id): int {
+    $metadata = is_array($session['metadata'] ?? NULL) ? $session['metadata'] : [];
+    $candidate_dungeon_id = trim((string) ($metadata['dungeon_id'] ?? ''));
+    $status = strtolower((string) ($session['status'] ?? ''));
+
+    $score = 0;
+    if ($status === 'active') {
+      $score += 1000;
+    }
+    if ($candidate_dungeon_id !== '' && !$this->isUuidLikeIdentifier($candidate_dungeon_id)) {
+      $score += 200;
+    }
+    if ($candidate_dungeon_id !== '' && strcasecmp($candidate_dungeon_id, $requested_dungeon_id) === 0) {
+      $score += 50;
+    }
+
+    $score += min(100, (int) ($session['message_count'] ?? 0));
+    $score += min(100, (int) floor(((int) ($session['last_message_at'] ?? 0)) / 1000000));
+    $score += min(50, (int) floor(((int) ($session['updated'] ?? 0)) / 1000000));
+
+    return $score;
+  }
+
+  /**
+   * Check whether an identifier looks like a raw UUID-style dungeon key.
+   */
+  protected function isUuidLikeIdentifier(string $identifier): bool {
+    return (bool) preg_match('/^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i', $identifier);
   }
 
   /**
@@ -812,8 +935,7 @@ class ChatSessionManager {
    *   Keyed by character_id => session record.
    */
   public function getCharacterNarrativesForRoom(int $campaign_id, int|string $dungeon_id, string $room_id): array {
-    $room_key = $this->roomSessionKey($campaign_id, $dungeon_id, $room_id);
-    $room_session = $this->loadSession($room_key);
+    $room_session = $this->loadRoomSession($campaign_id, $dungeon_id, $room_id);
     if (!$room_session) {
       return [];
     }

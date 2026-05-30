@@ -145,15 +145,20 @@ class GameplayActionProcessor {
     }
 
     $slot_info = [];
-    // Map named keys to display format
     $slot_display_map = ['cantrips' => 'Cantrips', 'first' => '1st', 'second' => '2nd', 'third' => '3rd'];
-    $slots_used = $spells['slots_used'] ?? [];
-    foreach ($slots as $level_key => $count) {
-      if ($level_key === 'cantrips') continue; // cantrips are at-will
+    foreach ($this->buildSpellSlotAvailabilitySnapshot($character_data) as $level_key => $remaining) {
+      if ($level_key === 'cantrips') {
+        continue;
+      }
+      $canonical_key = $this->canonicalizeSpellSlotLevel((string) $level_key);
+      $max = $canonical_key !== NULL
+        ? (int) ($character_data['resources']['spellSlots'][$canonical_key]['max'] ?? 0)
+        : 0;
+      if ($max <= 0) {
+        $max = (int) ($slots[$level_key] ?? 0);
+      }
       $display = $slot_display_map[$level_key] ?? $level_key;
-      $used = $slots_used[$level_key] ?? 0;
-      $remaining = $count - $used;
-      $slot_info[] = "{$display} level: {$remaining}/{$count} remaining";
+      $slot_info[] = "{$display} level: {$remaining}/{$max} remaining";
     }
 
     // Inventory
@@ -1105,7 +1110,7 @@ ENTRY_NARRATION_RULES;
 
     // Snapshot before values
     $diff['hp_before'] = $this->getCurrentHp($char_data);
-    $diff['spell_slots_before'] = $char_data['spells']['slots_used'] ?? [];
+    $diff['spell_slots_before'] = $this->buildSpellSlotUsageSnapshot($char_data);
     $diff['hero_points_before'] = $this->getHeroPoints($char_data);
 
     foreach ($actions as $action) {
@@ -1168,16 +1173,7 @@ ENTRY_NARRATION_RULES;
 
       // Spell slot usage
       if (!empty($state_changes['spell_slot_used'])) {
-        $slot_key = $this->mapSpellSlotKey((string) $state_changes['spell_slot_used']);
-
-        if (!isset($char_data['spells']['slots_used'])) {
-          $char_data['spells']['slots_used'] = [];
-        }
-        $used = ($char_data['spells']['slots_used'][$slot_key] ?? 0) + 1;
-        $max_slots = $char_data['spells']['slots'][$slot_key] ?? 0;
-        // Don't exceed max slots
-        $char_data['spells']['slots_used'][$slot_key] = min($used, $max_slots);
-        $changed = TRUE;
+        $changed = $this->consumeSpellSlotInCharacterData($char_data, (string) $state_changes['spell_slot_used']) || $changed;
       }
 
       // Currency delta.
@@ -1285,12 +1281,14 @@ ENTRY_NARRATION_RULES;
 
     // Snapshot after values
     $diff['hp_after'] = $this->getCurrentHp($char_data);
-    $diff['spell_slots_after'] = $char_data['spells']['slots_used'] ?? [];
+    $diff['spell_slots_after'] = $this->buildSpellSlotUsageSnapshot($char_data);
     $diff['hero_points_after'] = $this->getHeroPoints($char_data);
 
     // Persist changes
     if ($changed) {
+      $char_data = CharacterManager::normalizePersistentCharacterPayload($char_data);
       $runtime_state = $this->syncRuntimeStateFromCharacterData($char_data, $runtime_state);
+      $runtime_state = CharacterManager::normalizePersistentCharacterPayload($runtime_state);
 
       $this->database->update('dc_campaign_characters')
         ->fields([
@@ -1599,9 +1597,7 @@ ENTRY_NARRATION_RULES;
 
       if (!empty($state_changes['spell_slot_used'])) {
         $slot_key = $this->mapSpellSlotKey((string) $state_changes['spell_slot_used']);
-        $slots = $simulated_state['spells']['slots'][$slot_key] ?? 0;
-        $used = $simulated_state['spells']['slots_used'][$slot_key] ?? 0;
-        if (($slots - $used) < 1) {
+        if ($this->getSpellSlotRemainingForLevel($simulated_state, (string) $state_changes['spell_slot_used']) < 1) {
           $action_errors[] = "no {$slot_key}-level spell slots remain";
         }
       }
@@ -1965,9 +1961,19 @@ ENTRY_NARRATION_RULES;
    * Build remaining spell slot snapshot for prompts.
    */
   protected function buildSpellSlotAvailabilitySnapshot(array $character_data): array {
+    $resources = is_array($character_data['resources']['spellSlots'] ?? NULL) ? $character_data['resources']['spellSlots'] : [];
+    $remaining = [];
+
+    if ($resources !== []) {
+      foreach ($resources as $slot_key => $slot_state) {
+        $legacy_key = $this->mapSpellSlotKey((string) $slot_key);
+        $remaining[$legacy_key] = max(0, (int) ($slot_state['current'] ?? 0));
+      }
+      return $remaining;
+    }
+
     $slots = $character_data['spells']['slots'] ?? [];
     $used = $character_data['spells']['slots_used'] ?? [];
-    $remaining = [];
     foreach ($slots as $slot_key => $count) {
       if ($slot_key === 'cantrips') {
         continue;
@@ -1982,8 +1988,7 @@ ENTRY_NARRATION_RULES;
    */
   protected function simulateCharacterStateChanges(array &$char_data, array $state_changes): void {
     if (!empty($state_changes['spell_slot_used'])) {
-      $slot_key = $this->mapSpellSlotKey((string) $state_changes['spell_slot_used']);
-      $char_data['spells']['slots_used'][$slot_key] = ($char_data['spells']['slots_used'][$slot_key] ?? 0) + 1;
+      $this->consumeSpellSlotInCharacterData($char_data, (string) $state_changes['spell_slot_used']);
     }
 
     if (!empty($state_changes['currency_delta']) && is_array($state_changes['currency_delta'])) {
@@ -2024,6 +2029,114 @@ ENTRY_NARRATION_RULES;
       'seventh' => 'seventh', 'eighth' => 'eighth', 'ninth' => 'ninth', 'tenth' => 'tenth',
     ];
     return $slot_key_map[strtolower($level)] ?? strtolower($level);
+  }
+
+  /**
+   * Convert spell level labels into canonical spell-slot resource keys.
+   */
+  protected function canonicalizeSpellSlotLevel(string $level): ?string {
+    return match (strtolower(trim($level))) {
+      '1', '1st', 'first' => '1',
+      '2', '2nd', 'second' => '2',
+      '3', '3rd', 'third' => '3',
+      '4', '4th', 'fourth' => '4',
+      '5', '5th', 'fifth' => '5',
+      '6', '6th', 'sixth' => '6',
+      '7', '7th', 'seventh' => '7',
+      '8', '8th', 'eighth' => '8',
+      '9', '9th', 'ninth' => '9',
+      '10', '10th', 'tenth' => '10',
+      default => NULL,
+    };
+  }
+
+  /**
+   * Build a spent-slot snapshot keyed to the legacy mirror shape.
+   */
+  protected function buildSpellSlotUsageSnapshot(array $character_data): array {
+    $resources = is_array($character_data['resources']['spellSlots'] ?? NULL) ? $character_data['resources']['spellSlots'] : [];
+    if ($resources === []) {
+      return is_array($character_data['spells']['slots_used'] ?? NULL) ? $character_data['spells']['slots_used'] : [];
+    }
+
+    $usage = [];
+    foreach ($resources as $slot_key => $slot_state) {
+      $legacy_key = $this->mapSpellSlotKey((string) $slot_key);
+      $max = (int) ($slot_state['max'] ?? 0);
+      $current = (int) ($slot_state['current'] ?? $max);
+      $usage[$legacy_key] = max(0, $max - $current);
+    }
+
+    return $usage;
+  }
+
+  /**
+   * Return remaining slots for the requested spell level.
+   */
+  protected function getSpellSlotRemainingForLevel(array $character_data, string $requested_level): int {
+    $canonical_key = $this->canonicalizeSpellSlotLevel($requested_level);
+    if ($canonical_key === NULL) {
+      return 0;
+    }
+
+    $resource_state = $character_data['resources']['spellSlots'][$canonical_key] ?? NULL;
+    if (is_array($resource_state)) {
+      return max(0, (int) ($resource_state['current'] ?? 0));
+    }
+
+    $legacy_key = $this->mapSpellSlotKey($canonical_key);
+    $max_slots = (int) ($character_data['spells']['slots'][$legacy_key] ?? $character_data['spells']['slots'][$canonical_key] ?? 0);
+    $used_slots = (int) ($character_data['spells']['slots_used'][$legacy_key] ?? $character_data['spells']['slots_used'][$canonical_key] ?? 0);
+    return max(0, $max_slots - $used_slots);
+  }
+
+  /**
+   * Consume one spell slot while keeping canonical resources and legacy mirrors aligned.
+   */
+  protected function consumeSpellSlotInCharacterData(array &$character_data, string $requested_level): bool {
+    $canonical_key = $this->canonicalizeSpellSlotLevel($requested_level);
+    if ($canonical_key === NULL) {
+      return FALSE;
+    }
+
+    $remaining = $this->getSpellSlotRemainingForLevel($character_data, $requested_level);
+    if ($remaining < 1) {
+      return FALSE;
+    }
+
+    if (!isset($character_data['resources']) || !is_array($character_data['resources'])) {
+      $character_data['resources'] = [];
+    }
+    if (!isset($character_data['resources']['spellSlots']) || !is_array($character_data['resources']['spellSlots'])) {
+      $character_data['resources']['spellSlots'] = [];
+    }
+
+    $legacy_key = $this->mapSpellSlotKey($canonical_key);
+    $existing_resource = is_array($character_data['resources']['spellSlots'][$canonical_key] ?? NULL)
+      ? $character_data['resources']['spellSlots'][$canonical_key]
+      : [];
+    $max_slots = (int) ($existing_resource['max']
+      ?? $character_data['spells']['slots'][$legacy_key]
+      ?? $character_data['spells']['slots'][$canonical_key]
+      ?? $remaining);
+    $current = (int) ($existing_resource['current'] ?? $remaining);
+    $character_data['resources']['spellSlots'][$canonical_key] = [
+      'current' => max(0, min($max_slots, $current - 1)),
+      'max' => max(0, $max_slots),
+    ];
+
+    if (!isset($character_data['spells']) || !is_array($character_data['spells'])) {
+      $character_data['spells'] = [];
+    }
+    if (!isset($character_data['spells']['slots_used']) || !is_array($character_data['spells']['slots_used'])) {
+      $character_data['spells']['slots_used'] = [];
+    }
+    $character_data['spells']['slots_used'][$legacy_key] = max(
+      0,
+      $character_data['resources']['spellSlots'][$canonical_key]['max'] - $character_data['resources']['spellSlots'][$canonical_key]['current']
+    );
+
+    return TRUE;
   }
 
   /**

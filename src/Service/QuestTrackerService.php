@@ -108,6 +108,15 @@ class QuestTrackerService {
         return FALSE;
       }
 
+      $quest_status = strtolower(trim((string) ($quest['status'] ?? '')));
+      if ($quest_status !== 'offered') {
+        $this->logger->warning('Quest cannot be started from status @status: @quest', [
+          '@status' => $quest_status !== '' ? $quest_status : 'unknown',
+          '@quest' => $quest_id,
+        ]);
+        return FALSE;
+      }
+
       // Check if already started
       if ($this->hasActiveProgress($campaign_id, $quest_id, $character_id, $party_id)) {
         $this->logger->warning('Quest already active: @quest', ['@quest' => $quest_id]);
@@ -353,8 +362,32 @@ class QuestTrackerService {
     return array_values(array_filter(
       $this->loadCharacterQuestRows($campaign_id, $character_id),
       static function (array $quest): bool {
-        return strtolower((string) ($quest['status'] ?? '')) === 'active'
+        return in_array(strtolower((string) ($quest['status'] ?? '')), ['active', 'ready_for_turn_in'], TRUE)
           && empty($quest['completed_at']);
+      }
+    ));
+  }
+
+  /**
+   * Get quest offers at a location.
+   */
+  public function getOfferQuests(int $campaign_id, string $location_id, int $character_id): array {
+    return array_values(array_filter(
+      $this->getAvailableQuests($campaign_id, $location_id, $character_id),
+      static function (array $quest): bool {
+        return strtolower((string) ($quest['status'] ?? '')) === 'offered';
+      }
+    ));
+  }
+
+  /**
+   * Get quest leads at a location.
+   */
+  public function getLeadQuests(int $campaign_id, string $location_id, int $character_id): array {
+    return array_values(array_filter(
+      $this->getAvailableQuests($campaign_id, $location_id, $character_id),
+      static function (array $quest): bool {
+        return strtolower((string) ($quest['status'] ?? '')) === 'lead';
       }
     ));
   }
@@ -723,7 +756,7 @@ class QuestTrackerService {
       ->fields('q')
       ->condition('campaign_id', $campaign_id)
       ->condition('location_id', $location_id)
-      ->condition('status', 'available')
+      ->condition('status', ['offered', 'lead'], 'IN')
       ->execute()
       ->fetchAll(\PDO::FETCH_ASSOC);
   }

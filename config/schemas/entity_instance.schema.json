@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://dungeoncrawler.life/schemas/entity_instance.schema.json",
   "title": "Entity Instance Schema",
-  "description": "Unified placed entity instance for dungeon maps. Canonical runtime list for creatures, items, and obstacles. This is the primary data structure for all placed entities in dungeon levels at runtime, providing a consistent interface for entity lifecycle management (spawn, move, despawn) and mutable state tracking.",
+  "description": "Unified placed entity instance for dungeon maps. Canonical runtime list for NPCs, creatures, items, and obstacles. This is the primary data structure for all placed entities in dungeon levels at runtime, providing a consistent interface for entity lifecycle management (spawn, move, despawn) and mutable state tracking.",
   "type": "object",
   "required": ["entity_instance_id", "entity_type", "entity_ref", "placement", "state", "schema_version"],
   "properties": {
@@ -20,7 +20,7 @@
     },
     "entity_type": {
       "type": "string",
-      "enum": ["creature", "item", "obstacle"],
+      "enum": ["npc", "creature", "item", "obstacle"],
       "description": "Runtime entity category."
     },
     "entity_ref": {
@@ -31,7 +31,7 @@
       "properties": {
         "content_type": {
           "type": "string",
-          "enum": ["creature", "item", "obstacle", "trap", "hazard"],
+          "enum": ["npc", "creature", "item", "obstacle", "trap", "hazard"],
           "description": "Registry content type this instance points to."
         },
         "content_id": {
@@ -56,8 +56,8 @@
       "properties": {
         "room_id": {
           "type": "string",
-          "format": "uuid",
-          "maxLength": 36,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$",
+          "maxLength": 255,
           "description": "Owning room for placement scope."
         },
         "hex": {

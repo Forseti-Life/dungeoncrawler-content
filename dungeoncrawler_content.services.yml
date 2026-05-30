@@ -24,7 +24,7 @@ services:
 
   dungeoncrawler_content.character_manager:
     class: Drupal\dungeoncrawler_content\Service\CharacterManager
-    arguments: ['@database', '@current_user', '@uuid', '@dungeoncrawler_content.inventory_management', '@dungeoncrawler_content.deity_catalog', '@dungeoncrawler_content.name_generator']
+    arguments: ['@database', '@current_user', '@uuid', '@dungeoncrawler_content.inventory_management', '@dungeoncrawler_content.deity_catalog', '@dungeoncrawler_content.name_generator', '@dungeoncrawler_content.feat_library', '@dungeoncrawler_content.spell_catalog']
 
   dungeoncrawler_content.name_generator:
     class: Drupal\dungeoncrawler_content\Service\NameGeneratorService
@@ -57,7 +57,62 @@ services:
       - '@database'
       - '@current_user'
       - '@dungeoncrawler_content.npc_sheet_generation'
+      - '@dungeoncrawler_content.institution_membership'
+      - '@dungeoncrawler_content.faction_generation'
       - '@dungeoncrawler_content.name_generator'
+
+  dungeoncrawler_content.institution_normalization:
+    class: Drupal\dungeoncrawler_content\Service\InstitutionNormalizationService
+
+  dungeoncrawler_content.campaign_subject_registry:
+    class: Drupal\dungeoncrawler_content\Service\CampaignSubjectRegistryService
+    arguments:
+      - '@database'
+      - '@dungeoncrawler_content.institution_normalization'
+      - '@dungeoncrawler_content.relationship_manager'
+
+  dungeoncrawler_content.institution_membership:
+    class: Drupal\dungeoncrawler_content\Service\InstitutionMembershipService
+    arguments:
+      - '@database'
+      - '@dungeoncrawler_content.campaign_subject_registry'
+      - '@dungeoncrawler_content.institution_normalization'
+      - '@dungeoncrawler_content.relationship_manager'
+
+  dungeoncrawler_content.faction_generation:
+    class: Drupal\dungeoncrawler_content\Service\FactionGenerationService
+    arguments:
+      - '@database'
+      - '@dungeoncrawler_content.institution_normalization'
+      - '@dungeoncrawler_content.campaign_subject_registry'
+
+  dungeoncrawler_content.library_institution_backfill:
+    class: Drupal\dungeoncrawler_content\Service\LibraryInstitutionBackfillService
+    arguments:
+      - '@database'
+      - '@extension.list.module'
+      - '@dungeoncrawler_content.institution_membership'
+
+  dungeoncrawler_content.campaign_institution_backfill:
+    class: Drupal\dungeoncrawler_content\Service\CampaignInstitutionBackfillService
+    arguments:
+      - '@database'
+      - '@dungeoncrawler_content.institution_membership'
+
+  dungeoncrawler_content.institution_review_decision:
+    class: Drupal\dungeoncrawler_content\Service\InstitutionReviewDecisionService
+    arguments:
+      - '@database'
+      - '@datetime.time'
+
+  dungeoncrawler_content.institution_review_application:
+    class: Drupal\dungeoncrawler_content\Service\InstitutionReviewApplicationService
+    arguments:
+      - '@database'
+      - '@dungeoncrawler_content.institution_review_decision'
+      - '@dungeoncrawler_content.campaign_institution_backfill'
+      - '@dungeoncrawler_content.library_institution_backfill'
+      - '@datetime.time'
 
   dungeoncrawler_content.npc_sheet_generation:
     class: Drupal\dungeoncrawler_content\Service\NpcSheetGenerationService
@@ -74,6 +129,11 @@ services:
       - '@database'
       - '@dungeoncrawler_content.multiclass_archetype_service'
       - '@dungeoncrawler_content.deity_catalog'
+      - '@dungeoncrawler_content.character_progression_registry'
+      - '@dungeoncrawler_content.feat_library'
+
+  dungeoncrawler_content.character_progression_registry:
+    class: Drupal\dungeoncrawler_content\Service\CharacterProgressionRegistry
 
   dungeoncrawler_content.inventory_management:
     class: Drupal\dungeoncrawler_content\Service\InventoryManagementService
@@ -108,6 +168,9 @@ services:
   dungeoncrawler_content.schema_loader:
     class: Drupal\dungeoncrawler_content\Service\SchemaLoader
 
+  dungeoncrawler_content.map_visual_state_projector:
+    class: Drupal\dungeoncrawler_content\Service\MapVisualStateProjector
+
   dungeoncrawler_content.roadmap_pipeline_status_resolver:
     class: Drupal\dungeoncrawler_content\Service\RoadmapPipelineStatusResolver
 
@@ -124,6 +187,8 @@ services:
       - '@uuid'
       - '@dungeoncrawler_content.character_manager'
       - '@dungeoncrawler_content.ability_score_tracker'
+      - '@dungeoncrawler_content.institution_membership'
+      - '@dungeoncrawler_content.faction_generation'
       - '@?ai_conversation.ai_api_service'
 
   dungeoncrawler_content.feat_effect_manager:
@@ -879,6 +944,11 @@ services:
     arguments:
       - '@database'
       - '@http_client'
+
+  dungeoncrawler_content.feat_library:
+    class: Drupal\dungeoncrawler_content\Service\FeatLibraryService
+    arguments:
+      - '@database'
 
   dungeoncrawler_content.learn_a_spell:
     class: Drupal\dungeoncrawler_content\Service\LearnASpellService

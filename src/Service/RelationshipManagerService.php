@@ -222,6 +222,13 @@ class RelationshipManagerService {
   }
 
   /**
+   * Public wrapper for runtime relationship upserts.
+   */
+  public function upsertRuntimeRelationship(int $campaign_id, array $relationship): int {
+    return $this->upsertCampaignRelationship($campaign_id, $relationship);
+  }
+
+  /**
    * Ensures bundled storylines and their broker/contact graph exist for a campaign.
    */
   protected function ensureCampaignStorylineContactGraph(int $campaign_id): void {

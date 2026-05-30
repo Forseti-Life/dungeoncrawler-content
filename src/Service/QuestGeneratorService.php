@@ -18,7 +18,7 @@ use Psr\Log\LoggerInterface;
  */
 class QuestGeneratorService {
 
-  public const QUEST_SUMMARY_SCHEMA_VERSION = 'quest-summary-v1';
+  public const QUEST_SUMMARY_SCHEMA_VERSION = 'quest-summary-v2';
 
   /**
    * The database connection.
@@ -165,7 +165,7 @@ class QuestGeneratorService {
         ]),
         'generated_objectives' => json_encode($generated_objectives),
         'generated_rewards' => json_encode($generated_rewards),
-        'status' => 'available',
+        'status' => (string) ($context['initial_status'] ?? 'offered'),
         'giver_npc_id' => $context['giver_npc_id'] ?? NULL,
         'location_id' => $context['location'] ?? NULL,
         'created_at' => \Drupal::time()->getRequestTime(),
@@ -256,7 +256,7 @@ class QuestGeneratorService {
       'source_template_id' => $source_template_id,
       'title' => trim((string) ($quest_row['title'] ?? $quest_name)),
       'quest_name' => $quest_name,
-      'status' => trim((string) ($quest_row['status'] ?? 'available')) ?: 'available',
+      'status' => trim((string) ($quest_row['status'] ?? 'lead')) ?: 'lead',
       'current_phase' => max(1, (int) ($quest_row['current_phase'] ?? 1)),
       'generated_objectives' => $generated_objectives,
       'objective_states' => $objective_states,
@@ -422,20 +422,23 @@ class QuestGeneratorService {
   /**
    * Build and validate a canonical quest summary payload.
    */
-  public function buildQuestSummaryPayload(?string $location_id, array $active = [], array $available = [], int $campaign_id = 0): array {
+  public function buildQuestSummaryPayload(?string $location_id, array $active = [], array $offers = [], array $leads = [], int $campaign_id = 0): array {
     $active_entries = array_values(array_map([$this, 'buildQuestSummaryEntry'], $active));
-    $available_entries = array_values(array_map([$this, 'buildQuestSummaryEntry'], $available));
+    $offer_entries = array_values(array_map([$this, 'buildQuestSummaryEntry'], $offers));
+    $lead_entries = array_values(array_map([$this, 'buildQuestSummaryEntry'], $leads));
     $payload = [
       'schema_version' => self::QUEST_SUMMARY_SCHEMA_VERSION,
       'location_id' => $location_id !== NULL && trim($location_id) !== '' ? trim($location_id) : 'campaign',
       'active' => $active_entries,
-      'available' => $available_entries,
+      'offers' => $offer_entries,
+      'leads' => $lead_entries,
       'management_tree' => $campaign_id > 0
-        ? $this->buildQuestManagementTree($campaign_id, $active_entries, $available_entries, $location_id)
+        ? $this->buildQuestManagementTree($campaign_id, $active_entries, array_merge($offer_entries, $lead_entries), $location_id)
         : [],
       'counts' => [
         'active' => count($active),
-        'available' => count($available),
+        'offers' => count($offers),
+        'leads' => count($leads),
       ],
     ];
 
@@ -1478,7 +1481,7 @@ class QuestGeneratorService {
         'template_id' => NULL,
         'name' => 'Standalone Quests',
         'synopsis' => 'Quest work not currently attached to a campaign storyline.',
-        'status' => (string) ($quest_contract['status'] ?? 'available'),
+        'status' => (string) ($quest_contract['status'] ?? 'lead'),
         'priority' => 0,
         'storyline_type' => 'questline',
         'metadata' => [
@@ -1697,7 +1700,7 @@ class QuestGeneratorService {
     $status_by_node = [];
     foreach ($ordered_quest_ids as $ordered_quest_id) {
       $entry = $matching_entries[$ordered_quest_id] ?? NULL;
-      $status_by_node[$ordered_quest_id] = strtolower(trim((string) ($entry['status'] ?? ($linked_quests[$ordered_quest_id]['status'] ?? 'available'))));
+      $status_by_node[$ordered_quest_id] = strtolower(trim((string) ($entry['status'] ?? ($linked_quests[$ordered_quest_id]['status'] ?? 'lead'))));
     }
 
     foreach ($ordered_quest_ids as $ordered_quest_id) {
@@ -1768,7 +1771,7 @@ class QuestGeneratorService {
     $scene_id = $this->normalizeNullableString($quest['storyline']['scene_id'] ?? ($linked_quest['scene_id'] ?? NULL));
     $chapter_id = $this->normalizeNullableString($quest['storyline']['chapter_id'] ?? ($linked_quest['chapter_id'] ?? NULL));
     $location = $this->resolveQuestManagementLocation($quest, $scene_index, $lead_location, $scene_id, $chapter_id);
-    $status = strtolower(trim((string) ($quest['status'] ?? 'available')));
+    $status = strtolower(trim((string) ($quest['status'] ?? 'lead')));
     $access = $this->buildManagementAccessDescriptor($location, !$blocked, $current_location_id, $status);
     $objectives = $this->buildQuestManagementObjectives($quest, $location, $blocked, $current_location_id, $storyline_contacts);
     if ($objectives === [] && !$this->shouldRetainQuestWithoutVisibleObjectives($quest, $quest_node, $linked_quest)) {
@@ -1801,7 +1804,7 @@ class QuestGeneratorService {
     $scene_id = $this->normalizeNullableString($quest_node['scene_id'] ?? ($linked_quest['scene_id'] ?? NULL));
     $chapter_id = $this->normalizeNullableString($quest_node['chapter_id'] ?? ($linked_quest['chapter_id'] ?? NULL));
     $location = $this->resolveSceneOrLeadLocation($scene_index, $scene_id, $chapter_id, $lead_location);
-    $access = $this->buildManagementAccessDescriptor($location, !$blocked, $current_location_id, 'available');
+    $access = $this->buildManagementAccessDescriptor($location, !$blocked, $current_location_id, 'lead');
     $scene_meta = $this->resolveSceneMeta($scene_index, $scene_id, $chapter_id);
     $objective = [
       'objective_id' => $quest_node_id . '--followup',
@@ -1829,7 +1832,7 @@ class QuestGeneratorService {
       'source_template_id' => $quest_node_id,
       'title' => trim((string) ($scene_meta['name'] ?? $quest_node_id)),
       'quest_name' => trim((string) ($scene_meta['name'] ?? $quest_node_id)),
-      'status' => trim((string) ($quest_node['status'] ?? ($blocked ? 'blocked' : 'available'))) ?: ($blocked ? 'blocked' : 'available'),
+      'status' => trim((string) ($quest_node['status'] ?? ($blocked ? 'blocked' : 'lead'))) ?: ($blocked ? 'blocked' : 'lead'),
       'current_phase' => 1,
       'generated_objectives' => [],
       'objective_states' => [],
@@ -1857,7 +1860,7 @@ class QuestGeneratorService {
       'id' => $this->normalizeNullableString($quest['location_id'] ?? NULL),
       'label' => $this->humanizeIdentifier($quest['location_id'] ?? 'campaign'),
     ]);
-    $access = $this->buildManagementAccessDescriptor($location, TRUE, $current_location_id, (string) ($quest['status'] ?? 'available'));
+    $access = $this->buildManagementAccessDescriptor($location, TRUE, $current_location_id, (string) ($quest['status'] ?? 'lead'));
     $objectives = $this->buildQuestManagementObjectives($quest, $location, FALSE, $current_location_id, []);
 
     $quest['location'] = $location;

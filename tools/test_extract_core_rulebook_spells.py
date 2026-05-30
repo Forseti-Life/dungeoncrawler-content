@@ -5,6 +5,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from extract_core_rulebook_spells import (
+    APG_SOURCE,
     DEFAULT_SOURCE,
     SOM_SOURCE,
     activate_book_config,
@@ -250,6 +251,141 @@ class ExtractCoreRulebookSpellsTest(unittest.TestCase):
         self.assertEqual("1 undead creature", schema["targets"])
         self.assertEqual("Fortitude", schema["save"])
         self.assertEqual("none", schema["duration"])
+
+    def test_ice_storm_override_keeps_full_description(self) -> None:
+        activate_book_config(APG_SOURCE)
+        block = {
+            "name": "Ice Storm",
+            "content_id": "ice_storm",
+            "start_line": 31361,
+            "end_line": 31401,
+            "lines": [
+                "ICE STORM",
+                "SPELL 4",
+                "EVOCATION",
+                "COLD",
+                "Traditions arcane, primal",
+                "Cast [three-actions] material, somatic, verbal",
+                "Range 120 feet; Area 5-foot burst",
+                "Saving Throw basic Reflex; Duration 1 minute",
+                "You create a gray storm cloud that pelts creatures with an icy deluge.",
+            ],
+        }
+
+        record = parse_spell_block(
+            block,
+            {
+                "content_id": "ice_storm",
+                "level": 4,
+                "school": "evocation",
+                "traditions": ["arcane", "primal"],
+                "rarity": "common",
+            },
+        )
+        schema = record["schema_data"]
+
+        self.assertIn("2d8 bludgeoning damage", schema["description"])
+        self.assertIn("two non-overlapping clouds instead of one", schema["description"])
+        self.assertEqual(
+            "Call a storm cloud that pelts creatures with an icy deluge.",
+            schema["description_snippet"],
+        )
+
+    def test_aerial_form_override_keeps_full_description(self) -> None:
+        block = {
+            "name": "Aerial Form",
+            "content_id": "aerial_form",
+            "start_line": 49425,
+            "end_line": 49474,
+            "lines": [
+                "AERIAL FORM",
+                "SPELL 4",
+                "TRANSMUTATION",
+                "Traditions arcane, primal",
+                "Cast [two-actions] somatic, verbal",
+                "Duration 1 minute",
+                "You harness your mastery of primal forces to reshape your body into a Medium flying animal battle form.",
+            ],
+        }
+
+        record = parse_spell_block(
+            block,
+            {
+                "content_id": "aerial_form",
+                "level": 4,
+                "school": "transmutation",
+                "traditions": ["arcane", "primal"],
+                "rarity": "common",
+            },
+        )
+        schema = record["schema_data"]
+
+        self.assertIn("When you cast this spell, choose bat, bird, pterosaur, or wasp.", schema["description"])
+        self.assertIn("Bat Speed 20 feet, fly Speed 30 feet", schema["description"])
+        self.assertEqual("Turn into a flying combatant.", schema["description_snippet"])
+
+    def test_air_walk_override_uses_full_raw_text_description(self) -> None:
+        block = {
+            "name": "Air Walk",
+            "content_id": "air_walk",
+            "start_line": 50128,
+            "end_line": 50140,
+            "lines": [
+                "AIR WALK",
+                "SPELL 4",
+                "TRANSMUTATION",
+                "Traditions divine, primal",
+                "Cast [two-actions] somatic, verbal",
+                "Range touch; Targets 1 creature",
+                "Duration 5 minutes",
+                "The target can walk on air as if it were solid ground.",
+            ],
+        }
+
+        record = parse_spell_block(
+            block,
+            {
+                "content_id": "air_walk",
+                "level": 4,
+                "school": "transmutation",
+                "traditions": ["divine", "primal"],
+                "rarity": "common",
+            },
+        )
+        schema = record["schema_data"]
+
+        self.assertIn("The target can walk on air as if it were solid ground.", schema["description"])
+        self.assertIn("ascend and descend in this way at a maximum of a 45-degree angle.", schema["description"])
+
+    def test_heal_override_keeps_action_variants(self) -> None:
+        block = {
+            "name": "Heal",
+            "content_id": "heal",
+            "start_line": 1,
+            "end_line": 20,
+            "lines": [
+                "Traditions divine, primal",
+                "Cast [one-action] to [three-actions]",
+                "Range varies; Targets 1 willing living creature or 1 undead creature",
+                "You channel positive energy to heal the living or damage the undead.",
+            ],
+        }
+
+        record = parse_spell_block(
+            block,
+            {
+                "content_id": "heal",
+                "level": 1,
+                "school": "necromancy",
+                "traditions": ["divine", "primal"],
+                "rarity": "common",
+            },
+        )
+        schema = record["schema_data"]
+
+        self.assertIn("[one-action] (somatic) The spell has a range of touch.", schema["description"])
+        self.assertIn("[two-actions] (somatic, verbal) The spell has a range of 30 feet.", schema["description"])
+        self.assertIn("[three-actions] (material, somatic, verbal)", schema["description"])
 
     def test_positive_luminance_is_remapped_and_overridden(self) -> None:
         block = {
