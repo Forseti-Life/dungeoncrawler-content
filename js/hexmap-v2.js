@@ -28,7 +28,7 @@ import { GameShell } from './v2/GameShell.js';
       const [wrapper] = once('hexmap-v2', '[data-hexmap-v2]', context);
       if (!wrapper) return;
 
-      activeShell = new GameShell(wrapper, settings?.hexmap ?? {});
+      activeShell = new GameShell(wrapper, settings?.dungeoncrawlerContent ?? {});
       activeShell.init();
     },
 
