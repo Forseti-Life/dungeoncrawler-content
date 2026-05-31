@@ -124,6 +124,8 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
    */
   protected RoomChatService $roomChatService;
 
+  protected ?ExplorationPhaseHandler $explorationPhaseHandler;
+
   /**
    * Canonical client-facing encounter action definitions.
    */
@@ -148,6 +150,13 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
       'category' => 'utility',
       'requires_turn' => TRUE,
       'targeting' => 'entity_or_object',
+    ],
+    'search' => [
+      'label' => 'Search',
+      'cost' => 1,
+      'category' => 'perception',
+      'requires_turn' => TRUE,
+      'targeting' => 'room',
     ],
     'cast_spell' => [
       'label' => 'Cast Spell',
@@ -214,7 +223,8 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
     ?HazardService $hazard_service = NULL,
     ?MagicItemService $magic_item_service = NULL,
     ?SpellCatalogService $spell_catalog = NULL,
-    ?RoomChatService $room_chat_service = NULL
+    ?RoomChatService $room_chat_service = NULL,
+    ?ExplorationPhaseHandler $exploration_phase_handler = NULL
   ) {
     $this->database = $database;
     $this->logger = $logger_factory->get('dungeoncrawler');
@@ -237,6 +247,7 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
     $this->magicItemService = $magic_item_service ?? new MagicItemService($number_generation_service);
     $this->spellCatalog = $spell_catalog ?? new SpellCatalogService();
     $this->roomChatService = $room_chat_service ?? \Drupal::service('dungeoncrawler_content.room_chat_service');
+    $this->explorationPhaseHandler = $exploration_phase_handler;
   }
 
   /**
@@ -255,6 +266,7 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
       'stride',
       'cast_spell',
       'interact',
+      'search',
       'talk',
       'end_turn',
       'delay',
@@ -408,7 +420,7 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
     }
 
     // Validate action economy.
-    if (in_array($type, ['strike', 'stride', 'cast_spell', 'interact'])) {
+    if (in_array($type, ['strike', 'stride', 'cast_spell', 'interact', 'search'])) {
       $actions_remaining = $game_state['turn']['actions_remaining'] ?? 0;
       $action_cost = $this->getActionCost($type, $intent['params'] ?? []);
       if ($actions_remaining < $action_cost) {
@@ -955,6 +967,46 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
         $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
         $events[] = GameEventLogger::buildEvent('seek', 'encounter', $actor_id, [
           'round' => $game_state['round'] ?? NULL,
+        ]);
+        break;
+
+      case 'search':
+        if (!$this->explorationPhaseHandler) {
+          return [
+            'success' => FALSE,
+            'result' => ['error' => 'Room search handler is unavailable.'],
+            'mutations' => [],
+            'events' => [],
+            'phase_transition' => NULL,
+            'narration' => NULL,
+          ];
+        }
+        $result = $this->explorationPhaseHandler->processSearch($actor_id, $params, $game_state, $dungeon_data, $campaign_id);
+        $mutations = $result['mutations'] ?? [];
+        $narration = $result['narration'] ?? NULL;
+        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+        $events[] = GameEventLogger::buildEvent('search', 'encounter', $actor_id, [
+          'roll' => $result['roll'] ?? NULL,
+          'dc' => $result['dc'] ?? NULL,
+          'degree' => $result['degree'] ?? NULL,
+          'discoveries' => $result['discoveries'] ?? [],
+          'round' => $game_state['round'] ?? NULL,
+        ], $narration);
+        $actor_name = $this->resolveEntityName($actor_id, $game_state, $dungeon_data);
+        $this->queueNarrationEvent($campaign_id, $dungeon_data, [
+          'type' => 'skill_check_result',
+          'speaker' => 'System',
+          'speaker_type' => 'system',
+          'speaker_ref' => '',
+          'content' => sprintf('%s searches the area (Perception %d vs DC %d: %s).', $actor_name, $result['total'] ?? 0, $result['dc'] ?? 15, $result['degree'] ?? 'unknown'),
+          'mechanical_data' => [
+            'skill' => 'perception',
+            'roll' => $result['roll'] ?? NULL,
+            'total' => $result['total'] ?? NULL,
+            'dc' => $result['dc'] ?? NULL,
+            'degree' => $result['degree'] ?? NULL,
+          ],
+          'visibility' => 'public',
         ]);
         break;
 
@@ -3355,6 +3407,7 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
         $actions[] = 'strike';
         $actions[] = 'stride';
         $actions[] = 'interact';
+        $actions[] = 'search';
         if ($actor_heritage === 'chameleon') {
           $actions[] = 'minor_color_shift';
         }

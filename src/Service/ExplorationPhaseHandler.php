@@ -2024,7 +2024,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
   /**
    * Process a search action (Perception check to reveal hidden entities).
    */
-  protected function processSearch(string $actor_id, array $params, array &$game_state, array &$dungeon_data, int $campaign_id): array {
+  public function processSearch(string $actor_id, array $params, array &$game_state, array &$dungeon_data, int $campaign_id): array {
     // Roll Perception check using server-authoritative dice.
     $perception_bonus = (int) ($params['perception_bonus'] ?? 0);
     $perception_rank = (int) ($params['perception_proficiency_rank'] ?? 1);

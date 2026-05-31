@@ -3967,7 +3967,18 @@ import { SpriteService } from './SpriteService.js';
         return !context.encounterActive;
       }
 
-      if (actionKey === 'attack' || actionKey === 'search') {
+      if (actionKey === 'search') {
+        if (!context.actor || context.isActorTurn === false) {
+          return true;
+        }
+        if (context.encounterActive) {
+          const remainingActions = getActionRailRemainingActions(context);
+          return remainingActions !== null && remainingActions < 1;
+        }
+        return false;
+      }
+
+      if (actionKey === 'attack') {
         return !context.actor;
       }
 

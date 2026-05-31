@@ -399,7 +399,18 @@ export class ActionRailPanel {
       return !context.encounterActive;
     }
 
-    if (actionKey === 'attack' || actionKey === 'search') {
+    if (actionKey === 'search') {
+      if (!context.actor || context.isActorTurn === false) {
+        return true;
+      }
+      if (context.encounterActive) {
+        const remainingActions = getActionRailRemainingActions(context);
+        return remainingActions !== null && remainingActions < 1;
+      }
+      return false;
+    }
+
+    if (actionKey === 'attack') {
       return !context.actor;
     }
 
@@ -1073,9 +1084,12 @@ export class ActionRailPanel {
       hexmap.endTurn?.();
       return;
     }
+    if (actionKey === 'search') {
+      this.bus.emit('user:action-selected', { actionKey, button: document.createElement('button') });
+      return;
+    }
 
     const guidance = {
-      search: 'Open Search and run a room-level Perception check for new details.',
     };
     this.bus.emit('chat:system-message', { text: guidance[actionKey] || 'That action is not available right now.', speaker: 'System', kind: 'system' });
   }

@@ -800,6 +800,7 @@ services:
       - '@dungeoncrawler_content.magic_item_service'
       - '@dungeoncrawler_content.spell_catalog'
       - '@dungeoncrawler_content.room_chat_service'
+      - '@dungeoncrawler_content.exploration_phase_handler'
 
   dungeoncrawler_content.crafting:
     class: Drupal\dungeoncrawler_content\Service\CraftingService
