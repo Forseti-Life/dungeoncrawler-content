@@ -40,7 +40,17 @@ export class PortraitPanel {
   }
 
   _subscribe() {
+    this.activeGameShellTab = null;
+    const tabHandler = (e) => {
+      const prevTab = this.activeGameShellTab;
+      this.activeGameShellTab = e.detail?.tabId || null;
+      if (this.activeGameShellTab === 'portraits' && prevTab !== 'portraits') {
+        this.loadRoomPortraitsPanel();
+      }
+    };
+    window.addEventListener('dungeoncrawler:game-shell-tab-changed', tabHandler);
     this._unsubs.push(
+      () => window.removeEventListener('dungeoncrawler:game-shell-tab-changed', tabHandler),
       this.bus.on('room:changed', (d) => this.loadRoomPortraitsPanel(d?.roomId)),
       this.bus.on('room:occupants-changed', (d) => this.loadRoomPortraitsPanel(d?.roomId)),
     );
@@ -197,6 +207,7 @@ export class PortraitPanel {
         panelHasActiveClass: portraitPanelEl?.classList?.contains('game-shell__panel--active') ?? 'no-ancestor',
         withPortrait: entries.filter((e) => !!e?.portraitUrl).length,
         withInitials: entries.filter((e) => !e?.portraitUrl).length,
+        activeTab: this.activeGameShellTab,
       });
     }
     if (this._el.npcPortraitsPlaceholder) {
