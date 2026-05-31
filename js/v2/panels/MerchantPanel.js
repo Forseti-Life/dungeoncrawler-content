@@ -799,6 +799,7 @@ export class MerchantPanel {
         panelHidden: this._el.merchantPanelGrid?.closest('#game-panel-merchant')?.hidden ?? 'no-ancestor',
       });
     }
+  }
 
   async dispatchMerchantAction(button) {
     const hexmap = this.stateManager?.hexmap || null;
