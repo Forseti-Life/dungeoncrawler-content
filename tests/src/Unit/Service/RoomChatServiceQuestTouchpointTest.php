@@ -95,12 +95,12 @@ class RoomChatServiceQuestTouchpointTest extends UnitTestCase {
           'room_id' => 'tavern_entrance',
           'confidence' => 'high',
           'quantity' => 1,
-          'matching_mode' => 'text_inference',
+          'matching_mode' => 'direct_npc_dialogue',
         ],
       ])
       ->willReturn([
         'success' => TRUE,
-        'decision' => 'REQUEST_CONFIRMATION',
+        'decision' => 'APPLY_PROGRESS',
       ]);
 
     $service = new class extends RoomChatService {

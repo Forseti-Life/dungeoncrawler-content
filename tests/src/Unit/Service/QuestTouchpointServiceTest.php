@@ -182,6 +182,54 @@ class QuestTouchpointServiceTest extends UnitTestCase {
   }
 
   /**
+   * Direct NPC dialogue touchpoints are deterministic when one active objective matches.
+   */
+  public function testIngestEventAppliesDirectNpcDialogueTouchpoint(): void {
+    $store = $this->createMock(KeyValueStoreInterface::class);
+    $store->expects($this->once())
+      ->method('get')
+      ->willReturn(NULL);
+    $store->expects($this->once())
+      ->method('set');
+
+    $factory = $this->createMock(KeyValueFactoryInterface::class);
+    $factory->method('get')->willReturn($store);
+
+    $quest_tracker = $this->createMock(QuestTrackerService::class);
+    $quest_tracker->expects($this->once())
+      ->method('getActiveQuests')
+      ->with(85, 99)
+      ->willReturn([$this->buildActiveQuestRow()]);
+    $quest_tracker->expects($this->once())
+      ->method('updateObjectiveProgress')
+      ->with(85, 'rescue_merchant', 'escort_to_safety_runtime_1', 1, 99)
+      ->willReturn(['success' => TRUE]);
+
+    $confirmation_service = $this->createMock(QuestConfirmationService::class);
+    $confirmation_service->expects($this->never())
+      ->method('createPending');
+
+    $time = $this->createMock(TimeInterface::class);
+    $time->method('getRequestTime')->willReturn(1700000000);
+
+    $service = new QuestTouchpointService($quest_tracker, $confirmation_service, $factory, $time);
+    $result = $service->ingestEvent(85, [
+      'character_id' => 99,
+      'touchpoint' => [
+        'objective_type' => 'interact',
+        'npc_ref' => 'Guard Captain',
+        'entity_ref' => 'npc-guard',
+        'room_id' => 'crossroads',
+        'matching_mode' => 'direct_npc_dialogue',
+      ],
+    ]);
+
+    $this->assertTrue($result['success']);
+    $this->assertSame('APPLY_PROGRESS', $result['decision']);
+    $this->assertSame('escort_to_safety_runtime_1', $result['objective_id']);
+  }
+
+  /**
    * Receipt touchpoints override text-only room hints when both are present.
    */
   public function testIngestEventPrefersDeterministicReceiptTouchpoint(): void {

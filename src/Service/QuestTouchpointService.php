@@ -270,7 +270,7 @@ class QuestTouchpointService {
    */
   protected function isDeterministicTouchpoint(array $touchpoint): bool {
     $matching_mode = strtolower(trim((string) ($touchpoint['matching_mode'] ?? '')));
-    if (in_array($matching_mode, ['typed_receipt', 'runtime_receipt', 'room_receipt', 'canonical_receipt'], TRUE)) {
+    if (in_array($matching_mode, ['typed_receipt', 'runtime_receipt', 'room_receipt', 'canonical_receipt', 'direct_npc_dialogue'], TRUE)) {
       return TRUE;
     }
 

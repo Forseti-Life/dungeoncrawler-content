@@ -204,6 +204,8 @@ class QuestTrackerService {
 
       $objective_states = json_decode($progress_record['objective_states'], TRUE);
       $current_phase = (int) $progress_record['current_phase'];
+      $progress_character_id = !empty($progress_record['character_id']) ? (int) $progress_record['character_id'] : $character_id;
+      $progress_party_id = !empty($progress_record['party_id']) ? (int) $progress_record['party_id'] : NULL;
 
       ['updated' => $updated, 'objective_completed' => $objective_completed] = $this->applyObjectiveUpdate(
         $objective_states,
@@ -223,8 +225,8 @@ class QuestTrackerService {
       $this->saveProgressRecord(
         $campaign_id,
         $quest_id,
-        $character_id,
-        NULL,
+        $progress_character_id,
+        $progress_party_id,
         $objective_states,
         $current_phase
       );
@@ -245,10 +247,10 @@ class QuestTrackerService {
 
       if ($phase_complete) {
         if ($quest_complete) {
-          $this->completeQuest($campaign_id, $quest_id, $character_id);
+          $this->completeQuest($campaign_id, $quest_id, $progress_character_id);
         }
         else {
-          $this->advancePhase($campaign_id, $quest_id, $character_id);
+          $this->advancePhase($campaign_id, $quest_id, $progress_character_id);
         }
       }
 

@@ -9574,7 +9574,7 @@ PROMPT;
 
     $matching_mode = strtolower(trim((string) ($quest_touchpoint_hint['matching_mode'] ?? '')));
     if ($matching_mode === '') {
-      $matching_mode = $objective_id !== '' ? 'typed_receipt' : 'text_inference';
+      $matching_mode = $objective_id !== '' ? 'typed_receipt' : 'direct_npc_dialogue';
     }
 
     $result = $this->questTouchpointService->ingestEvent($campaign_id, [
