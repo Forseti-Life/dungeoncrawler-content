@@ -790,7 +790,15 @@ export class MerchantPanel {
         this.renderMerchantSellItemHtml
       );
     }
-  }
+
+    if (hasContext) {
+      console.log('[MerchantPanel] renderMerchantPanel:dom', {
+        gridHidden: this._el.merchantPanelGrid?.hidden ?? 'no-el',
+        stockHtmlLen: this._el.merchantStockList?.innerHTML?.length ?? 0,
+        sellHtmlLen: this._el.merchantSellList?.innerHTML?.length ?? 0,
+        panelHidden: this._el.merchantPanelGrid?.closest('#game-panel-merchant')?.hidden ?? 'no-ancestor',
+      });
+    }
 
   async dispatchMerchantAction(button) {
     const hexmap = this.stateManager?.hexmap || null;

@@ -102,9 +102,15 @@ export class CharacterPanel {
     tabs.forEach((tab) => {
       tab.addEventListener('click', () => {
         const targetId = `sidebar-panel-${tab.dataset.sidebarTab}`;
-        console.log('[CharacterPanel] sidebar tab clicked', { target: targetId });
         tabs.forEach((t)   => t.classList.toggle('sidebar-tab--active',   t === tab));
-        panels.forEach((p) => p.classList.toggle('sidebar-panel--active', p.id === targetId));
+        panels.forEach((p) => {
+          const active = p.id === targetId;
+          p.classList.toggle('sidebar-panel--active', active);
+          // Clear any inline display style so CSS class controls visibility.
+          // Twig template sets style="display:none;" on non-default panels.
+          p.style.display = '';
+        });
+        console.log('[CharacterPanel] sidebar tab clicked', { target: targetId, panelVisible: !!document.getElementById(targetId) && !document.getElementById(targetId).classList.contains('dc-is-hidden') });
       });
     });
   }
