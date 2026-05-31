@@ -172,11 +172,24 @@ export class CharacterPanel {
     });
   }
 
+  /**
+   * Activate a sidebar sub-tab by ID (e.g. 'character', 'inventory').
+   * Clicking the button triggers both the Twig localStorage handler and our class handler.
+   */
+  _activateSidebarTab(tabId) {
+    const sidebar = this.container?.closest('.game-layout__sidebar');
+    if (!sidebar) return;
+    const tab = sidebar.querySelector(`[data-sidebar-tab="${tabId}"]`);
+    if (tab) tab.click();
+  }
+
   showEmbeddedCharacterSheet(characterId) {
     if (!characterId) {
       return;
     }
     console.log('[CharacterPanel] showEmbeddedCharacterSheet', { characterId });
+    // Ensure the character sub-panel is visible (localStorage may have restored a different tab).
+    this._activateSidebarTab('character');
     if (this._el.characterSheetEmbedWrap) {
       this._el.characterSheetEmbedWrap.style.display = 'none';
     }
@@ -186,11 +199,14 @@ export class CharacterPanel {
     if (this._el.characterSheetLegacy) {
       this._el.characterSheetLegacy.style.display = '';
     }
+    const charSubPanel = document.getElementById('sidebar-panel-character');
     console.log('[CharacterPanel] showEmbeddedCharacterSheet:done', {
       legacyShown: !!this._el.characterSheetLegacy,
       embedHidden: !!this._el.characterSheetEmbedWrap,
       legacyStyle: this._el.characterSheetLegacy?.style?.display ?? 'no-el',
       gamePanelHidden: document.getElementById('game-panel-character')?.hidden ?? 'no-el',
+      charSubPanelDisplay: charSubPanel?.style?.display ?? 'no-el',
+      charSubPanelActive: charSubPanel?.classList?.contains('sidebar-panel--active') ?? false,
     });
   }
 
