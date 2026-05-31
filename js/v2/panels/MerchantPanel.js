@@ -71,7 +71,18 @@ export class MerchantPanel {
 
   _subscribe() {
     const tabHandler = (e) => {
+      const prevTab = this.activeGameShellTab;
       this.activeGameShellTab = e.detail?.tabId || null;
+      // When merchant tab becomes active, re-render with current context so
+      // data loaded while on another tab becomes immediately visible.
+      if (this.activeGameShellTab === 'merchant' && prevTab !== 'merchant') {
+        this.logMerchantPanelTrace('tab-activated', {
+          prevTab,
+          hasCachedContext: !!this.currentMerchantContext,
+          hasCandidates: (this.currentMerchantCandidates?.length ?? 0) > 0,
+        });
+        this.loadMerchantPanel();
+      }
     };
     window.addEventListener('dungeoncrawler:game-shell-tab-changed', tabHandler);
     this._unsubs.push(() => window.removeEventListener('dungeoncrawler:game-shell-tab-changed', tabHandler));
@@ -84,6 +95,11 @@ export class MerchantPanel {
       this.bus.on('room:occupants-changed', (d) => {
         this._cachedOccupants = d?.occupants ?? [];
         const entries = this._buildMerchantEntriesFromOccupants(d?.roomId, this._cachedOccupants);
+        this.logMerchantPanelTrace('occupants-changed', {
+          entryCount: entries.length,
+          activeTab: this.activeGameShellTab,
+          roomId: d?.roomId ?? null,
+        });
         if (entries.length > 0) {
           this.loadMerchantPanel();
         }
@@ -577,6 +593,7 @@ export class MerchantPanel {
       campaignId,
       roomId,
       previousRoomId,
+      activeTab: this.activeGameShellTab,
       currentMerchantRef: this.currentMerchantRef,
       candidateRefs: merchantEntries.map((entry) => entry.entityId),
       candidateNames: merchantEntries.map((entry) => entry.name),
@@ -802,11 +819,16 @@ export class MerchantPanel {
     }
 
     if (hasContext) {
+      const panelEl = this._el.merchantPanelGrid?.closest('#game-panel-merchant');
+      const computedDisplay = panelEl ? window.getComputedStyle(panelEl).display : 'no-ancestor';
       console.log('[MerchantPanel] renderMerchantPanel:dom', {
         gridHidden: this._el.merchantPanelGrid?.hidden ?? 'no-el',
         stockHtmlLen: this._el.merchantStockList?.innerHTML?.length ?? 0,
         sellHtmlLen: this._el.merchantSellList?.innerHTML?.length ?? 0,
-        panelHidden: this._el.merchantPanelGrid?.closest('#game-panel-merchant')?.hidden ?? 'no-ancestor',
+        panelHidden: panelEl?.hidden ?? 'no-ancestor',
+        panelDisplay: computedDisplay,
+        panelHasActiveClass: panelEl?.classList?.contains('game-shell__panel--active') ?? 'no-ancestor',
+        activeTab: this.activeGameShellTab,
       });
     }
   }

@@ -188,10 +188,13 @@ export class PortraitPanel {
       entries.forEach((entry) => {
         this._el.npcPortraitsGrid.appendChild(this.buildRoomPortraitCard(entry));
       });
+      const portraitPanelEl = this._el.npcPortraitsGrid?.closest('#game-panel-portraits');
       console.log('[PortraitPanel] loadRoomPortraitsPanel:dom', {
         gridHidden: this._el.npcPortraitsGrid.hidden,
         cardCount: this._el.npcPortraitsGrid.children.length,
-        panelHidden: this._el.npcPortraitsGrid.closest('#game-panel-portraits')?.hidden ?? 'no-ancestor',
+        panelHidden: portraitPanelEl?.hidden ?? 'no-ancestor',
+        panelDisplay: portraitPanelEl ? window.getComputedStyle(portraitPanelEl).display : 'no-ancestor',
+        panelHasActiveClass: portraitPanelEl?.classList?.contains('game-shell__panel--active') ?? 'no-ancestor',
         withPortrait: entries.filter((e) => !!e?.portraitUrl).length,
         withInitials: entries.filter((e) => !e?.portraitUrl).length,
       });

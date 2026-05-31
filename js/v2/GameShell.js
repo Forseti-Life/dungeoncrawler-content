@@ -540,6 +540,11 @@ export class GameShell {
     if (!campaignId || !roomId) return;
 
     const merchants = this._currentOccupants.filter((o) => o?.presentation?.is_merchant);
+    console.log('[GameShell] _loadMerchantStock start', {
+      merchantCount: merchants.length,
+      merchantRefs: merchants.map((m) => m?.occupant_id ?? m?.content_id ?? null),
+      activeTab: this.activeGameShellTab,
+    });
     if (!merchants.length) return;
 
     const updatedOccupants = [...this._currentOccupants];
@@ -581,6 +586,10 @@ export class GameShell {
 
     this._currentOccupants = updatedOccupants;
     const room = this.mapVisualState?.topology?.rooms?.[roomId];
+    console.log('[GameShell] _loadMerchantStock complete', {
+      activeTab: this.activeGameShellTab,
+      stockedMerchantCount: updatedOccupants.filter((o) => o?.presentation?.stock).length,
+    });
     this.bus.emit('room:occupants-changed', {
       roomId,
       roomName: room?.name ?? roomId,
