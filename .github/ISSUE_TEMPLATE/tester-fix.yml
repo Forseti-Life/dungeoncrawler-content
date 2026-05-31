@@ -1,0 +1,27 @@
+name: Tester fix
+description: Create a tester fix issue that will auto-open a draft PR against the testing branch.
+title: "Tester fix: <summary>"
+labels:
+  - tester-fix
+assignees:
+  - copilot
+body:
+  - type: textarea
+    id: context
+    attributes:
+      label: Context / failure details
+      description: Describe the tester finding, steps, logs, or linked Drush output.
+      placeholder: "Failed stage, logs, expected vs actual"
+    validations:
+      required: true
+  - type: textarea
+    id: proposed
+    attributes:
+      label: Proposed fix or hints
+      description: Optional ideas for fixing.
+  - type: textarea
+    id: verification
+    attributes:
+      label: Verification
+      description: How to verify the fix (tests, commands, routes).
+      placeholder: "drush dctr:stage:run <stage>"

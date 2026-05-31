@@ -1,0 +1,36 @@
+# Copilot HQ — Node Identity Configuration Template
+# Copy this file to node-identity.conf and edit for your machine.
+# node-identity.conf is gitignored — each node manages its own copy locally.
+#
+# ---------------------------------------------------------------------------
+# MASTER NODE example:
+# ---------------------------------------------------------------------------
+# NODE_ID=master
+# NODE_ROLE=master
+# NODE_LABEL="Production Master (forseti.life AWS EC2)"
+# NODE_PROJECTS="forseti-safety-application forseti-agent-tracker dungeoncrawler infrastructure"
+# NODE_CEO_AGENT=ceo-copilot-2
+# NODE_DEFAULT_AGENT=dev-forseti
+#
+# ---------------------------------------------------------------------------
+# WORKER NODE (dev-laptop) example:
+# ---------------------------------------------------------------------------
+# NODE_ID=dev-laptop
+# NODE_ROLE=worker
+# NODE_LABEL="Keith's Dev Laptop"
+# NODE_PROJECTS="forseti-jobhunter-automation"
+# NODE_CEO_AGENT=ceo-dev-laptop
+# NODE_DEFAULT_AGENT=dev-jobhunter
+#
+# ---------------------------------------------------------------------------
+# Canonical project-roadmap URL (same for all nodes).
+# ---------------------------------------------------------------------------
+NODE_PROJECTS_URL=https://raw.githubusercontent.com/keithaumiller/forseti.life/main/copilot-hq/dashboards/PROJECTS.md
+
+# ---------------------------------------------------------------------------
+# Runtime knobs (can be overridden by environment variables)
+# ---------------------------------------------------------------------------
+# DEV_SYNC_AUTO_PULL=1
+# DEV_SYNC_AUTO_COMMIT=0
+# DEV_SYNC_AUTO_PUSH=0
+# DEV_SYNC_MAX_COMMANDS=1

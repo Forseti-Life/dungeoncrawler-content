@@ -1,0 +1,64 @@
+# Module ownership is defined at the Drupal module level.
+# Websites are the top-level separation for work streams.
+# `module_owners` is the explicit seat map when a website has subproduct-level splits.
+
+websites:
+  infrastructure:
+    pm_owners:
+      - role: product-manager
+        name: "PM (infrastructure / sysadmin + security)"
+    modules: []
+
+  forseti.life:
+    pm_owners:
+      - role: product-manager
+        name: "PM (forseti.life)"
+    modules:
+      - job_hunter
+      - copilot_agent_tracker
+      - ai_conversation
+    module_owners:
+      job_hunter:
+        pm: pm-forseti
+        ba: ba-forseti
+        dev: dev-forseti
+        qa: qa-forseti
+        security: sec-analyst-forseti
+      copilot_agent_tracker:
+        pm: pm-forseti-agent-tracker
+        ba: ba-forseti-agent-tracker
+        dev: dev-forseti-agent-tracker
+        qa: qa-forseti-agent-tracker
+        security: sec-analyst-forseti-agent-tracker
+      ai_conversation:
+        pm: pm-forseti
+        ba: ba-forseti
+        dev: dev-forseti
+        qa: qa-forseti
+        security: sec-analyst-forseti
+
+  dungeoncrawler:
+    pm_owners:
+      - role: product-manager
+        name: "PM (dungeoncrawler)"
+    modules:
+      - dungeoncrawler_content
+      - dungeoncrawler_tester
+
+  stlouisintegration.com:
+    pm_owners:
+      - role: product-manager
+        name: "PM (stlouisintegration.com)"
+    modules: []
+
+  theoryofconspiracies.com:
+    pm_owners:
+      - role: product-manager
+        name: "PM (theoryofconspiracies.com)"
+    modules: []
+
+  thetruthperspective.org:
+    pm_owners:
+      - role: product-manager
+        name: "PM (thetruthperspective.org)"
+    modules: []

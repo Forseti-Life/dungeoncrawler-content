@@ -1,0 +1,30 @@
+{
+  "feature_id": "dc-ui-hexmap-thin-client",
+  "product_id": "dungeoncrawler",
+  "owner_seat": "qa-dungeoncrawler",
+  "status": "ready",
+  "test_plan": "features/dc-ui-hexmap-thin-client/03-test-plan.md",
+  "suites": [
+    {
+      "id": "dc-ui-hexmap-thin-client-runtime",
+      "feature_id": "dc-ui-hexmap-thin-client",
+      "label": "Hexmap thin client runtime - server-authoritative combat, movement, room transitions, and chat stability",
+      "type": "e2e",
+      "command": "npx playwright test --grep \"dc-ui-hexmap-thin-client\"",
+      "artifacts": [
+        "playwright-report/dc-ui-hexmap-thin-client.html"
+      ],
+      "required_for_release": true,
+      "owner_seat": "qa-dungeoncrawler",
+      "source_path": "sites/dungeoncrawler/web/modules/custom/dungeoncrawler_content/",
+      "env_requirements": [
+        "Node.js with Playwright installed",
+        "Dungeoncrawler UI test environment"
+      ],
+      "release_checkpoint": "final-pre-ship",
+      "suite_context": "playwright/hexmap",
+      "status": "pending_implementation",
+      "notes": "Role-url-audit baseline already covers existing gameplay mutation and access surfaces; add feature-specific qa-permissions rules later only if new concrete routes appear."
+    }
+  ]
+}

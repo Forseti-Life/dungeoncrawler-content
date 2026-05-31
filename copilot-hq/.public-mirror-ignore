@@ -1,0 +1,25 @@
+# Source-control internals
+.git/
+
+# Runtime state and local environments
+**/.venv/
+orchestrator/.venv/
+*.pid
+
+# Local/volatile outputs
+inbox/responses/
+tmp/
+
+# Session/audit trail is private by default
+sessions/
+
+# Local LLM heavy artifacts
+llm/models/*.gguf
+llm/models/*.bin
+llm/cache/sessions/**
+llm/.venv/**
+
+# OS/editor noise
+.DS_Store
+*.log
+*.tmp

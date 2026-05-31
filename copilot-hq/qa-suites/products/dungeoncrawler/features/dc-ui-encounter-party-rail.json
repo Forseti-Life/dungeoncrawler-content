@@ -1,0 +1,30 @@
+{
+  "feature_id": "dc-ui-encounter-party-rail",
+  "product_id": "dungeoncrawler",
+  "owner_seat": "qa-dungeoncrawler",
+  "status": "ready",
+  "test_plan": "features/dc-ui-encounter-party-rail/03-test-plan.md",
+  "suites": [
+    {
+      "id": "dc-ui-encounter-party-rail-runtime",
+      "feature_id": "dc-ui-encounter-party-rail",
+      "label": "Encounter party rail - participant cards, turn emphasis, HP updates, and board sync",
+      "type": "e2e",
+      "command": "npx playwright test --grep \"dc-ui-encounter-party-rail\"",
+      "artifacts": [
+        "playwright-report/dc-ui-encounter-party-rail.html"
+      ],
+      "required_for_release": true,
+      "owner_seat": "qa-dungeoncrawler",
+      "source_path": "sites/dungeoncrawler/web/modules/custom/dungeoncrawler_content/",
+      "env_requirements": [
+        "Node.js with Playwright installed",
+        "Dungeoncrawler UI test environment"
+      ],
+      "release_checkpoint": "final-pre-ship",
+      "suite_context": "playwright/encounter",
+      "status": "pending_implementation",
+      "notes": "Role-url-audit baseline already covers page payload leakage checks on existing encounter/map surfaces; add feature-specific qa-permissions rules later only if new concrete routes appear."
+    }
+  ]
+}

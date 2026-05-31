@@ -1,0 +1,30 @@
+{
+  "feature_id": "dc-gmg-running-guide",
+  "product_id": "dungeoncrawler",
+  "owner_seat": "qa-dungeoncrawler",
+  "status": "ready",
+  "test_plan": "features/dc-gmg-running-guide/03-test-plan.md",
+  "suites": [
+    {
+      "id": "dc-gmg-running-guide-e2e",
+      "feature_id": "dc-gmg-running-guide",
+      "label": "GMG Running Guide - downtime, encounter, and character-creation flow coverage",
+      "type": "e2e",
+      "command": "npx playwright test --grep \"dc-gmg-running-guide\"",
+      "artifacts": [
+        "playwright-report/dc-gmg-running-guide.html"
+      ],
+      "required_for_release": true,
+      "owner_seat": "qa-dungeoncrawler",
+      "source_path": "sites/dungeoncrawler/web/modules/custom/dungeoncrawler_content/",
+      "env_requirements": [
+        "Node.js with Playwright installed",
+        "Dungeoncrawler UI test environment"
+      ],
+      "release_checkpoint": "final-pre-ship",
+      "suite_context": "playwright/downtime",
+      "status": "pending_implementation",
+      "notes": "Test plan grants a no-new-routes security exemption, so no qa-permissions update was required at activation time."
+    }
+  ]
+}
