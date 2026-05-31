@@ -82,7 +82,7 @@ export class ChatPanel {
     this.dungeonData = null;
     this.activeSessionView = 'room';
     this._chatCache = new Map();
-    this._pendingChatRequests = new Map();
+    this.pendingChatRequests = new Map();
     // Channel / multi-view state
     this.activeChannel = 'room';
     this.channels = { room: { key: 'room', label: 'Room', type: 'room', active: true } };
