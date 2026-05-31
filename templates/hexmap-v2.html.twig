@@ -9,7 +9,7 @@
  */
 #}
 
-  <div class="hexmap-container" id="hexmap-container" data-hexmap-v2{% if is_admin %} data-admin="1"{% endif %}>
+  <div class="hexmap-container" id="hexmap-container" data-hexmap-v2 data-panel="status"{% if is_admin %} data-admin="1"{% endif %}>
   <div class="game-shell" data-game-shell data-game-shell-default="map">
     <div class="game-shell__tabs" role="tablist" aria-label="{{ 'Campaign play views'|t }}">
       <button id="game-tab-map" class="game-shell__tab game-shell__tab--active" type="button" role="tab" aria-selected="true" aria-controls="game-panel-map" data-game-tab="map" tabindex="0">

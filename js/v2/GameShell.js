@@ -226,6 +226,21 @@ export class GameShell {
     // RoomViewPanel requests a room view reload (e.g. retry after pending)
     this.bus.on('room:view-reload-requested', () => this._loadRoomView());
 
+    // Bridge: entity:select-request (from stateManager shim / HexInputHandler) →
+    // resolve entity from ECS and emit entity:selected for CharacterPanel etc.
+    this.bus.on('entity:select-request', ({ id } = {}) => {
+      if (!id) {
+        this.bus.emit('entity:deselected');
+        return;
+      }
+      const entity = this.entityManager?.getEntity(id) ?? null;
+      if (entity) {
+        this.bus.emit('entity:selected', { entity });
+      } else {
+        console.warn('[GameShell] entity:select-request — entity not found in ECS:', id);
+      }
+    });
+
     // CharacterPanel requests inventory refresh from API
     this.bus.on('character:inventory-refresh-requested', (ctx) => {
       if (ctx) void this.refreshCharacterInventoryFromApi(ctx);
