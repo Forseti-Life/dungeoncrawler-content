@@ -415,6 +415,7 @@ class InstitutionReviewApplicationService {
     $action = strtolower(trim((string) ($review_row['resolution_action'] ?? '')));
     $source_asset_id = (string) ($review_row['source_asset_id'] ?? '');
     $manifest_id = (int) ($review_row['manifest_id'] ?? 0);
+    $payload = $this->decodeJsonArray($review_row['resolution_payload_json'] ?? NULL);
 
     $new_manifest_status = match ($action) {
       'approve_faction' => 'normalized',
@@ -441,6 +442,16 @@ class InstitutionReviewApplicationService {
       throw new \InvalidArgumentException('Generated faction review rows require manifest_id or source_asset_id.');
     }
 
+    if ($action === 'reject_faction' && $source_asset_id !== '') {
+      $this->orphanGeneratedFactionSubjects($source_asset_id, $now);
+    }
+    elseif ($action === 'merge_with_existing' && $source_asset_id !== '') {
+      $target_identifier = trim((string) ($payload['target_identifier'] ?? ''));
+      if ($target_identifier !== '') {
+        $this->rebindGeneratedFactionSubjects($source_asset_id, $target_identifier, $now);
+      }
+    }
+
     return [
       'applied' => TRUE,
       'queue_type' => 'library',
@@ -448,6 +459,33 @@ class InstitutionReviewApplicationService {
       'manifest_status' => $new_manifest_status,
       'source_asset_id' => $source_asset_id,
     ];
+  }
+
+  /**
+   * Marks all campaign subjects generated from a rejected faction as orphaned.
+   */
+  protected function orphanGeneratedFactionSubjects(string $canonical_slug, int $now): void {
+    $this->database->update('dc_campaign_subject_registry')
+      ->fields(['status' => 'orphaned', 'changed' => $now])
+      ->condition('source_asset_type', 'library_faction')
+      ->condition('source_asset_id', $canonical_slug)
+      ->condition('status', 'active')
+      ->execute();
+  }
+
+  /**
+   * Rebinds campaign subjects from a merged faction to the confirmed target.
+   */
+  protected function rebindGeneratedFactionSubjects(string $canonical_slug, string $target_slug, int $now): void {
+    $this->database->update('dc_campaign_subject_registry')
+      ->fields([
+        'source_asset_id' => $target_slug,
+        'changed' => $now,
+      ])
+      ->condition('source_asset_type', 'library_faction')
+      ->condition('source_asset_id', $canonical_slug)
+      ->condition('status', 'active')
+      ->execute();
   }
 
   /**
