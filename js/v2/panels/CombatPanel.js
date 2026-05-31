@@ -117,8 +117,8 @@ export class CombatPanel {
 
     if (actionInteractBtn) {
       actionInteractBtn.textContent = maxActions !== null
-        ? `Interact (${actionsRemaining}/${maxActions})`
-        : 'Interact';
+        ? `Search (${actionsRemaining}/${maxActions})`
+        : 'Search';
       applyDisabledState(actionInteractBtn, !canInteract);
     }
 
@@ -201,7 +201,7 @@ export class CombatPanel {
       this._el.turnActionChips.innerHTML = `
         <span class="chip ${moveLeft ? 'chip-live' : 'chip-dim'}">Navigate</span>
         <span class="chip ${canAct ? 'chip-live' : 'chip-dim'}">Strike</span>
-        <span class="chip ${canAct ? 'chip-live' : 'chip-dim'}">Interact</span>
+        <span class="chip ${canAct ? 'chip-live' : 'chip-dim'}">Search</span>
         <span class="chip chip-live">Talk</span>
         <span class="chip chip-end">End Turn</span>`;
     }

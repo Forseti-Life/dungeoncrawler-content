@@ -587,14 +587,18 @@ class GameCoordinatorService {
   protected function loadDungeonData(int $campaign_id, ?string $preferred_actor_id = NULL): ?array {
     try {
       $row = $this->database->select('dc_campaign_dungeons', 'd')
-        ->fields('d', ['dungeon_data'])
+        ->fields('d', ['id', 'dungeon_data'])
         ->condition('d.campaign_id', $campaign_id)
         ->execute()
-        ->fetchField();
+        ->fetchAssoc();
 
-      if ($row) {
-        $decoded = json_decode($row, TRUE) ?: NULL;
+      if (!empty($row['dungeon_data'])) {
+        $decoded = json_decode($row['dungeon_data'], TRUE) ?: NULL;
         if (is_array($decoded)) {
+          if (empty($decoded['active_room_id'])) {
+            $this->resolveStartupRoomId($decoded);
+          }
+          $decoded['__campaign_dungeon_row_id'] = (int) ($row['id'] ?? 0);
           return $this->campaignCharacterRuntimeSync->syncActiveRoomPlayerEntities($decoded, $campaign_id, $preferred_actor_id);
         }
       }
@@ -614,10 +618,15 @@ class GameCoordinatorService {
    */
   protected function persistDungeonData(int $campaign_id, array $dungeon_data): bool {
     try {
-      $this->database->update('dc_campaign_dungeons')
+      $row_id = (int) ($dungeon_data['__campaign_dungeon_row_id'] ?? 0);
+      unset($dungeon_data['__campaign_dungeon_row_id']);
+      $query = $this->database->update('dc_campaign_dungeons')
         ->fields(['dungeon_data' => json_encode($dungeon_data)])
-        ->condition('campaign_id', $campaign_id)
-        ->execute();
+        ->condition('campaign_id', $campaign_id);
+      if ($row_id > 0) {
+        $query->condition('id', $row_id);
+      }
+      $query->execute();
       return TRUE;
     }
     catch (\Exception $e) {

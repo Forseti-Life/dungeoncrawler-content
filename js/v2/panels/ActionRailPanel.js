@@ -1,7 +1,7 @@
 /**
  * @file panels/ActionRailPanel.js
  *
- * 3-action economy UI — attack, spell, skill, interact, navigate, consumable sub-panels.
+ * 3-action economy UI — attack, spell, skill, search, navigate, consumable sub-panels.
  * Methods ported verbatim from hexmap.js UIManager.
  */
 
@@ -399,7 +399,7 @@ export class ActionRailPanel {
       return !context.encounterActive;
     }
 
-    if (actionKey === 'attack' || actionKey === 'interact') {
+    if (actionKey === 'attack' || actionKey === 'search') {
       return !context.actor;
     }
 
@@ -459,14 +459,14 @@ export class ActionRailPanel {
       return `<div class="action-rail__empty"><p>Select or load a character to enable direct action buttons.</p></div>`;
     }
 
-    return `<div class="action-rail__empty"><p>Choose Attack, Navigate, Interact, Spells, Consumables, Skills, or Feats to open direct action buttons for ${escapeQuestHtml(context.actorLabel)}.</p></div>`;
+    return `<div class="action-rail__empty"><p>Choose Attack, Navigate, Search, Spells, Consumables, Skills, or Feats to open direct action buttons for ${escapeQuestHtml(context.actorLabel)}.</p></div>`;
   }
 
   buildActionRailPanel(category, context) {
     const builders = {
       attack: () => this.buildAttackActionRailPanel(context),
       navigate: () => this.buildNavigateActionRailPanel(context),
-      interact: () => this.buildInteractActionRailPanel(context),
+      search: () => this.buildSearchActionRailPanel(context),
       spells: () => this.buildSpellActionRailPanel(context),
       consumables: () => this.buildConsumableActionRailPanel(context),
       skills: () => this.buildSkillActionRailPanel(context),
@@ -852,36 +852,25 @@ export class ActionRailPanel {
     return sections.filter((section) => section.locations.length > 0);
   }
 
-  buildInteractActionRailPanel(context) {
-    const interactables = context.hexmap?.collectInteractableEntriesForActionRail?.(context.actor) || [];
-    const entries = interactables.map((entry) => this.renderActionRailEntry({
-      execute: 'interact',
-      title: entry.title || 'Interactable',
+  buildSearchActionRailPanel(context) {
+    const disabled = context.encounterActive
+      ? this.isActionRailExecutionDisabled(1, context)
+      : !context.actorRef;
+    const entries = [this.renderActionRailEntry({
+      execute: 'search',
+      title: 'Search the room',
       summary: buildActionRailEntrySummary([
-        entry.typeLabel || '',
-        entry.optionsLabel || '',
-        entry.distanceLabel || '',
-        context.encounterActive && entry.canUse ? formatActionRailCost(1) : '',
+        'Perception',
+        context.encounterActive ? formatActionRailCost(1) : '10 minutes',
       ]),
-      meta: entry.meta || '',
-      disabled: entry.canUse ? this.isActionRailExecutionDisabled(1, context) : false,
-      dataset: {
-        targetEntityId: entry.entityId || '',
-        targetQ: Number.isFinite(entry.q) ? String(entry.q) : '',
-        targetR: Number.isFinite(entry.r) ? String(entry.r) : '',
-        targetName: entry.title || 'Interactable',
-        actionLabel: entry.actionLabel || 'Inspect',
-        canUse: entry.canUse ? '1' : '0',
-      },
-      actionLabel: entry.canUse ? (entry.actionLabel || 'Use') : 'Focus',
-    }));
-
+      meta: 'Run a room-level Perception check and ask the narrator to reveal any newly unlocked sensory details, clues, hazards, or hidden objects.',
+      disabled,
+      actionLabel: 'Search',
+    })];
     return {
-      title: 'Interactables',
-      chip: `${entries.length} in room`,
-      html: entries.length
-        ? entries.join('')
-        : `<div class="action-rail__empty"><p>No obvious interactables are currently visible in this room.</p></div>`,
+      title: 'Search',
+      chip: 'Perception',
+      html: entries.join(''),
     };
   }
 
@@ -1086,7 +1075,7 @@ export class ActionRailPanel {
     }
 
     const guidance = {
-      interact: 'Interact stays in-place now. Choose the object, door, or NPC on the map when you are ready.',
+      search: 'Open Search and run a room-level Perception check for new details.',
     };
     this.bus.emit('chat:system-message', { text: guidance[actionKey] || 'That action is not available right now.', speaker: 'System', kind: 'system' });
   }
@@ -1131,7 +1120,7 @@ export class ActionRailPanel {
 
     setActive(actionMoveBtn, mode === 'move');
     setActive(actionAttackBtn, mode === 'attack');
-    setActive(actionInteractBtn, mode === 'interact');
+    setActive(actionInteractBtn, mode === 'search');
 
     if (actionMoveBtn) {
       actionMoveBtn.title = isPlayersTurn
@@ -1145,7 +1134,7 @@ export class ActionRailPanel {
     }
     if (actionInteractBtn) {
       actionInteractBtn.title = isPlayersTurn
-        ? (canInteract ? 'Interact with nearby objects, doors, and room transitions' : 'No interaction actions available')
+        ? (canInteract ? 'Search the room for clues, hidden objects, hazards, and sensory details' : 'No search actions available')
         : 'Not your turn';
     }
 
@@ -1156,9 +1145,9 @@ export class ActionRailPanel {
       } else if (mode === 'move') {
         actionInstruction.hidden = false;
         actionInstruction.textContent = moveLeft > 0 ? `Click a blue hex to navigate (${moveLeft} ft left).` : 'No movement left; switch to attack or end turn.';
-      } else if (mode === 'interact') {
+      } else if (mode === 'search') {
         actionInstruction.hidden = false;
-        actionInstruction.textContent = canInteract ? 'Click an adjacent item, NPC, door, or obstacle to interact.' : 'No interaction actions remaining; attack, move, or end turn.';
+        actionInstruction.textContent = canInteract ? 'Search runs a room-level Perception check for new details.' : 'No search actions remaining; attack, move, or end turn.';
       } else {
         actionInstruction.hidden = false;
         actionInstruction.textContent = canAct ? 'Select a hostile target to attack.' : 'No actions remaining; move or end turn.';

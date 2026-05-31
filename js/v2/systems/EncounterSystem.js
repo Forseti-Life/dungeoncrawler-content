@@ -1,7 +1,7 @@
 /**
  * @file systems/EncounterSystem.js
  *
- * Combat participant resolution, attack/spell/skill/interact execution.
+ * Combat participant resolution, attack/spell/skill/search execution.
  * Methods ported verbatim from hexmap.js UIManager.
  */
 
@@ -32,6 +32,7 @@ export class EncounterSystem {
         if (key === 'attack')   this.executeDirectAttack(d?.button);
         if (key === 'spell')    this.executeDirectSpell(d?.button);
         if (key === 'interact') this.executeDirectInteract(d?.button);
+        if (key === 'search')   this.executeDirectSearch(d?.button);
         if (key === 'skill')    this.executeDirectSkill(d?.button);
       }),
       this.bus.on('user:combat-start', () => this.startCombat()),
@@ -136,6 +137,58 @@ export class EncounterSystem {
       return '';
     }
     return rawTeam.charAt(0).toUpperCase() + rawTeam.slice(1);
+  }
+
+  async executeDirectSearch(button) {
+    if (!this._beginActionRailRequest(button)) {
+      return;
+    }
+
+    try {
+      const context = this._getActionRailContext();
+      const hexmap = context.hexmap;
+      const runtimeContext = context.runtimeContext || {};
+      const campaignId = runtimeContext.campaignId || null;
+      const actorRef = context.actorRef || null;
+      const perceptionBonus = this._resolvePerceptionModifier(context.state || {});
+      if (!hexmap || !campaignId || !actorRef) {
+        this._appendChatLine('System', 'Search requires an active campaign room and character.', 'system');
+        return;
+      }
+
+      const response = await fetch(`/api/game/${campaignId}/action`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          type: 'search',
+          actor: actorRef,
+          params: {
+            character_id: context.characterId || null,
+            room_id: runtimeContext.roomId || hexmap.resolveActiveRoomId?.() || null,
+            perception_bonus: perceptionBonus,
+          },
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        this._appendChatLine('System', data.error || data.result?.error || 'Unable to search this room.', 'system');
+        return;
+      }
+
+      this._appendChatLine('System', `${context.actorLabel} searches the room.`, 'system');
+      if (typeof data.narration === 'string' && data.narration.trim()) {
+        this._appendChatLine('Game Master', data.narration.trim(), 'gm');
+      }
+      hexmap.loadCharacterFromApi?.(context.characterId);
+      this._refreshActionRail();
+    } finally {
+      this._endActionRailRequest(button);
+    }
   }
 
   async executeDirectAttack(button) {
@@ -457,6 +510,19 @@ export class EncounterSystem {
 
   _appendChatLine(speaker, message, type = 'system') {
     this.bus.emit('chat:system-message', { text: message, speaker, kind: type });
+  }
+
+  _resolvePerceptionModifier(state = {}) {
+    const skills = state?.data?.skills || state?.skills || {};
+    if (Array.isArray(skills)) {
+      const perception = skills.find((skill) => String(skill?.name || '').toLowerCase() === 'perception');
+      return Number(perception?.bonus ?? perception?.modifier ?? 0) || 0;
+    }
+    const perception = skills?.perception || skills?.Perception || null;
+    if (perception && typeof perception === 'object') {
+      return Number(perception.bonus ?? perception.modifier ?? 0) || 0;
+    }
+    return 0;
   }
 
 }

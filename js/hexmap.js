@@ -3967,7 +3967,7 @@ import { SpriteService } from './SpriteService.js';
         return !context.encounterActive;
       }
 
-      if (actionKey === 'attack' || actionKey === 'interact') {
+      if (actionKey === 'attack' || actionKey === 'search') {
         return !context.actor;
       }
 
@@ -4027,14 +4027,14 @@ import { SpriteService } from './SpriteService.js';
         return `<div class="action-rail__empty"><p>Select or load a character to enable direct action buttons.</p></div>`;
       }
 
-      return `<div class="action-rail__empty"><p>Choose Attack, Navigate, Interact, Spells, Consumables, Skills, or Feats to open direct action buttons for ${escapeQuestHtml(context.actorLabel)}.</p></div>`;
+      return `<div class="action-rail__empty"><p>Choose Attack, Navigate, Search, Spells, Consumables, Skills, or Feats to open direct action buttons for ${escapeQuestHtml(context.actorLabel)}.</p></div>`;
     }
 
     buildActionRailPanel(category, context) {
       const builders = {
         attack: () => this.buildAttackActionRailPanel(context),
         navigate: () => this.buildNavigateActionRailPanel(context),
-        interact: () => this.buildInteractActionRailPanel(context),
+        search: () => this.buildSearchActionRailPanel(context),
         spells: () => this.buildSpellActionRailPanel(context),
         consumables: () => this.buildConsumableActionRailPanel(context),
         skills: () => this.buildSkillActionRailPanel(context),
@@ -4428,36 +4428,25 @@ import { SpriteService } from './SpriteService.js';
       return sections.filter((section) => section.locations.length > 0);
     }
 
-    buildInteractActionRailPanel(context) {
-      const interactables = context.hexmap?.collectInteractableEntriesForActionRail?.(context.actor) || [];
-      const entries = interactables.map((entry) => this.renderActionRailEntry({
-        execute: 'interact',
-        title: entry.title || 'Interactable',
+    buildSearchActionRailPanel(context) {
+      const disabled = context.encounterActive
+        ? this.isActionRailExecutionDisabled(1, context)
+        : !context.actorRef;
+      const entries = [this.renderActionRailEntry({
+        execute: 'search',
+        title: 'Search the room',
         summary: buildActionRailEntrySummary([
-          entry.typeLabel || '',
-          entry.optionsLabel || '',
-          entry.distanceLabel || '',
-          context.encounterActive && entry.canUse ? formatActionRailCost(1) : '',
+          'Perception',
+          context.encounterActive ? formatActionRailCost(1) : '10 minutes',
         ]),
-        meta: entry.meta || '',
-        disabled: entry.canUse ? this.isActionRailExecutionDisabled(1, context) : false,
-        dataset: {
-          targetEntityId: entry.entityId || '',
-          targetQ: Number.isFinite(entry.q) ? String(entry.q) : '',
-          targetR: Number.isFinite(entry.r) ? String(entry.r) : '',
-          targetName: entry.title || 'Interactable',
-          actionLabel: entry.actionLabel || 'Inspect',
-          canUse: entry.canUse ? '1' : '0',
-        },
-        actionLabel: entry.canUse ? (entry.actionLabel || 'Use') : 'Focus',
-      }));
-
+        meta: 'Run a room-level Perception check and ask the narrator to reveal any newly unlocked sensory details, clues, hazards, or hidden objects.',
+        disabled,
+        actionLabel: 'Search',
+      })];
       return {
-        title: 'Interactables',
-        chip: `${entries.length} in room`,
-        html: entries.length
-          ? entries.join('')
-          : `<div class="action-rail__empty"><p>No obvious interactables are currently visible in this room.</p></div>`,
+        title: 'Search',
+        chip: 'Perception',
+        html: entries.join(''),
       };
     }
 
@@ -4715,7 +4704,7 @@ import { SpriteService } from './SpriteService.js';
       }
 
       const guidance = {
-        interact: 'Interact stays in-place now. Choose the object, door, or NPC on the map when you are ready.',
+        search: 'Open Search and run a room-level Perception check for new details.',
       };
       this.appendChatLine('System', guidance[actionKey] || 'That action is not available right now.', 'system');
     }
@@ -4744,6 +4733,10 @@ import { SpriteService } from './SpriteService.js';
       }
       if (actionType === 'interact') {
         this.executeDirectInteract(button);
+        return;
+      }
+      if (actionType === 'search') {
+        this.executeDirectSearch(button);
         return;
       }
       if (actionType === 'navigate') {
@@ -4935,6 +4928,60 @@ import { SpriteService } from './SpriteService.js';
         if (!interacted) {
           this.appendChatLine('System', `No direct interaction resolved for ${targetName}. Inspect it or move closer if needed.`, 'system');
         }
+      } finally {
+        this.endActionRailRequest(button);
+      }
+    }
+
+    async executeDirectSearch(button) {
+      if (!this.beginActionRailRequest(button)) {
+        return;
+      }
+
+      try {
+        const context = this.getActionRailContext();
+        const hexmap = context.hexmap;
+        const runtimeContext = context.runtimeContext || {};
+        const campaignId = runtimeContext.campaignId || null;
+        const actorRef = context.actorRef || null;
+        const perception = collectCharacterSkillEntries(context.state || {})
+          .find((skill) => String(skill.name || '').toLowerCase() === 'perception');
+        const perceptionBonus = Number(perception?.modifier ?? 0) || 0;
+        if (!hexmap || !campaignId || !actorRef) {
+          this.appendChatLine('System', 'Search requires an active campaign room and character.', 'system');
+          return;
+        }
+
+        const response = await fetch(`/api/game/${campaignId}/action`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest',
+          },
+          credentials: 'include',
+          body: JSON.stringify({
+            type: 'search',
+            actor: actorRef,
+            params: {
+              character_id: context.characterId || null,
+              room_id: runtimeContext.roomId || hexmap.resolveActiveRoomId?.() || null,
+              perception_bonus: perceptionBonus,
+            },
+          }),
+        });
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+          this.appendChatLine('System', data.error || data.result?.error || 'Unable to search this room.', 'system');
+          return;
+        }
+
+        this.appendChatLine('System', `${context.actorLabel} searches the room.`, 'system');
+        if (typeof data.narration === 'string' && data.narration.trim()) {
+          this.appendChatLine('Game Master', data.narration.trim(), 'gm');
+        }
+        hexmap.loadCharacterFromApi?.(context.characterId);
+        this.refreshActionRail();
       } finally {
         this.endActionRailRequest(button);
       }
@@ -5837,7 +5884,7 @@ import { SpriteService } from './SpriteService.js';
         this.elements.turnActionChips.innerHTML = `
           <span class="chip ${moveLeft ? 'chip-live' : 'chip-dim'}">Navigate</span>
           <span class="chip ${canAct ? 'chip-live' : 'chip-dim'}">Strike</span>
-          <span class="chip ${canAct ? 'chip-live' : 'chip-dim'}">Interact</span>
+          <span class="chip ${canAct ? 'chip-live' : 'chip-dim'}">Search</span>
           <span class="chip chip-live">Talk</span>
           <span class="chip chip-end">End Turn</span>`;
       }
@@ -5870,7 +5917,7 @@ import { SpriteService } from './SpriteService.js';
 
       setActive(actionMoveBtn, mode === 'move');
       setActive(actionAttackBtn, mode === 'attack');
-      setActive(actionInteractBtn, mode === 'interact');
+      setActive(actionInteractBtn, mode === 'search');
 
       if (actionMoveBtn) {
         actionMoveBtn.title = isPlayersTurn
@@ -5884,7 +5931,7 @@ import { SpriteService } from './SpriteService.js';
       }
       if (actionInteractBtn) {
         actionInteractBtn.title = isPlayersTurn
-          ? (canInteract ? 'Interact with nearby objects, doors, and room transitions' : 'No interaction actions available')
+          ? (canInteract ? 'Search the room for clues, hidden objects, hazards, and sensory details' : 'No search actions available')
           : 'Not your turn';
       }
 
@@ -5893,8 +5940,8 @@ import { SpriteService } from './SpriteService.js';
           actionInstruction.textContent = 'Watching enemy turn...';
         } else if (mode === 'move') {
           actionInstruction.textContent = moveLeft > 0 ? `Click a blue hex to navigate (${moveLeft} ft left).` : 'No movement left; switch to attack or end turn.';
-        } else if (mode === 'interact') {
-          actionInstruction.textContent = canInteract ? 'Click an adjacent item, NPC, door, or obstacle to interact.' : 'No interaction actions remaining; attack, move, or end turn.';
+        } else if (mode === 'search') {
+          actionInstruction.textContent = canInteract ? 'Search runs a room-level Perception check for new details.' : 'No search actions remaining; attack, move, or end turn.';
         } else {
           actionInstruction.textContent = canAct ? 'Select a hostile target to attack.' : 'No actions remaining; move or end turn.';
         }
@@ -5936,8 +5983,8 @@ import { SpriteService } from './SpriteService.js';
 
       if (actionInteractBtn) {
         actionInteractBtn.textContent = maxActions !== null
-          ? `Interact (${actionsRemaining}/${maxActions})`
-          : 'Interact';
+          ? `Search (${actionsRemaining}/${maxActions})`
+          : 'Search';
         applyDisabledState(actionInteractBtn, !canInteract);
       }
 
@@ -14886,7 +14933,7 @@ import { SpriteService } from './SpriteService.js';
       });
 
       const actionInteractBtn = document.getElementById('action-interact');
-      addTrackedListener(actionInteractBtn, 'click', function () {
+      addTrackedListener(actionInteractBtn, 'click', async function () {
         if (this.disabled || this.classList.contains('btn-disabled')) {
           return;
         }
@@ -14898,7 +14945,7 @@ import { SpriteService } from './SpriteService.js';
           return;
         }
 
-        self.stateManager.set('actionMode', 'interact');
+        self.stateManager.set('actionMode', 'search');
         const actions = actor.getComponent('ActionsComponent');
         const movement = actor.getComponent('MovementComponent');
         const combat = actor.getComponent('CombatComponent');
@@ -14912,16 +14959,16 @@ import { SpriteService } from './SpriteService.js';
         self.hideMovementRange();
         self.hideAttackTargets();
         if (self.uiManager) {
-          self.uiManager.activeActionRailCategory = 'interact';
+          self.uiManager.activeActionRailCategory = 'search';
           self.uiManager.refreshActionRail();
         }
-        self.uiManager.updateActionMode('interact', {
+        self.uiManager.updateActionMode('search', {
           canAct: actions ? actions.actionsRemaining > 0 : false,
           canInteract: actions ? actions.actionsRemaining > 0 : false,
           moveLeft: movement ? movement.movementRemaining : 0,
           isPlayersTurn
         });
-        self.uiManager?.appendChatLine('System', 'Interact selected. Review the room list, then click an adjacent hex, object, or NPC when ready.', 'system');
+        await self.uiManager?.executeDirectSearch(this);
       });
 
       const actionTalkBtn = document.getElementById('action-talk');
