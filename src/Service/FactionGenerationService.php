@@ -340,6 +340,24 @@ class FactionGenerationService {
    */
   protected function createNearMatchReviewItem(int $manifest_id, array $draft, array $near_matches): void {
     $now = time();
+
+    $draft_preview = [
+      'canonical_label' => (string) ($draft['canonicalLabel'] ?? ''),
+      'canonical_slug'  => (string) ($draft['canonicalSlug'] ?? ''),
+      'public_face'     => (string) ($draft['public_face'] ?? ''),
+      'hidden_face'     => (string) ($draft['hidden_face'] ?? ''),
+      'ideology_tags'   => (array) ($draft['ideology_tags'] ?? []),
+      'method_tags'     => (array) ($draft['method_tags'] ?? []),
+      'role_in_story'   => (string) ($draft['role_in_story'] ?? ''),
+    ];
+
+    $near_match_candidates = array_map(static fn(array $m): array => [
+      'manifest_id'    => (int) ($m['manifest_id'] ?? 0),
+      'slug'           => (string) ($m['canonical_slug'] ?? ''),
+      'label'          => (string) ($m['canonical_slug'] ?? ''),
+      'shared_tokens'  => (array) ($m['shared_tokens'] ?? []),
+    ], $near_matches);
+
     $this->database->insert('dc_library_institution_review')
       ->fields([
         'manifest_id' => $manifest_id,
@@ -348,8 +366,8 @@ class FactionGenerationService {
         'source_asset_id' => (string) ($draft['canonicalSlug'] ?? ''),
         'review_reason' => self::NEAR_MATCH_REVIEW_REASON,
         'details_json' => json_encode([
-          'canonical_label' => (string) ($draft['canonicalLabel'] ?? ''),
-          'near_matches' => $near_matches,
+          'draft' => $draft_preview,
+          'near_match_candidates' => $near_match_candidates,
         ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
         'status' => 'open',
         'created' => $now,

@@ -7,6 +7,7 @@ use Drupal\Core\Form\FormBase;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Session\AccountProxyInterface;
 use Drupal\Core\Url;
+use Drupal\dungeoncrawler_content\Service\FactionGenerationService;
 use Drupal\dungeoncrawler_content\Service\InstitutionReviewApplicationService;
 use Drupal\dungeoncrawler_content\Service\InstitutionReviewDecisionService;
 use Symfony\Component\DependencyInjection\ContainerInterface;
@@ -89,9 +90,9 @@ class InstitutionReviewResolutionForm extends FormBase {
     $form['details'] = [
       '#type' => 'details',
       '#title' => $this->t('Structured source details'),
-      '#open' => FALSE,
+      '#open' => $this->isGeneratedFactionRow($this->reviewRow),
       'payload' => [
-        '#markup' => '<pre class="small mb-0">' . Html::escape($this->encodeJson($this->reviewRow['details_json'] ?? NULL)) . '</pre>',
+        '#markup' => $this->buildDetailsMarkup($queue_type, $this->reviewRow),
       ],
     ];
 
@@ -109,7 +110,7 @@ class InstitutionReviewResolutionForm extends FormBase {
     $form['resolution_action'] = [
       '#type' => 'select',
       '#title' => $this->t('Resolution action'),
-      '#options' => $this->buildActionOptions(),
+      '#options' => $this->buildActionOptions($this->reviewRow),
       '#default_value' => $default_action,
       '#required' => TRUE,
       '#description' => $this->t('Use reopen to clear a prior decision. Use defer for rows that still need operator follow-up.'),
@@ -139,7 +140,7 @@ class InstitutionReviewResolutionForm extends FormBase {
       '#title' => $this->t('Target identifier'),
       '#default_value' => (string) ($current_payload['target_identifier'] ?? ''),
       '#maxlength' => 191,
-      '#description' => $this->t('Use a canonical institution subject id or other stable target key when mapping to an existing institution.'),
+      '#description' => $this->t('Required for map_existing and merge_with_existing: canonical slug or subject id of the target institution or faction.'),
     ];
     $form['note'] = [
       '#type' => 'textarea',
@@ -187,6 +188,9 @@ class InstitutionReviewResolutionForm extends FormBase {
     }
     if ($status === InstitutionReviewDecisionService::STATUS_RESOLVED && $action === 'map_existing' && $target_identifier === '') {
       $form_state->setErrorByName('target_identifier', $this->t('Mapping to an existing institution requires a target identifier.'));
+    }
+    if ($status === InstitutionReviewDecisionService::STATUS_RESOLVED && $action === 'merge_with_existing' && $target_identifier === '') {
+      $form_state->setErrorByName('target_identifier', $this->t('Merging with an existing faction requires a target identifier.'));
     }
     if ($status === InstitutionReviewDecisionService::STATUS_RESOLVED && $action === 'create_institution') {
       if ($canonical_domain === '') {
@@ -248,18 +252,107 @@ class InstitutionReviewResolutionForm extends FormBase {
   }
 
   /**
-   * Builds the action select options.
+   * Builds the action select options, adding faction-specific options when relevant.
+   *
+   * @param array<string, mixed>|null $row
    *
    * @return array<string, string>
    */
-  protected function buildActionOptions(): array {
-    return [
+  protected function buildActionOptions(?array $row = NULL): array {
+    $options = [
       'reopen' => (string) $this->t('Reopen / clear prior decision'),
       'map_existing' => (string) $this->t('Map to existing canonical institution'),
       'create_institution' => (string) $this->t('Create new canonical institution'),
       'mark_blank' => (string) $this->t('Mark intentionally blank / not represented'),
       'defer' => (string) $this->t('Defer for later follow-up'),
     ];
+
+    if ($row !== NULL && $this->isGeneratedFactionRow($row)) {
+      $options['approve_faction'] = (string) $this->t('Approve: confirm as a distinct canonical faction');
+      $options['reject_faction'] = (string) $this->t('Reject: discard duplicate or invalid faction');
+      $options['merge_with_existing'] = (string) $this->t('Merge: rebind campaign subjects to an existing faction');
+    }
+
+    return $options;
+  }
+
+  /**
+   * Returns TRUE when the review row belongs to a near-match generated faction.
+   *
+   * @param array<string, mixed> $row
+   */
+  protected function isGeneratedFactionRow(array $row): bool {
+    return ($row['source_file'] ?? '') === FactionGenerationService::MANIFEST_SOURCE_FILE
+      || ($row['review_reason'] ?? '') === FactionGenerationService::NEAR_MATCH_REVIEW_REASON;
+  }
+
+  /**
+   * Builds the details markup section; uses rich faction draft view when relevant.
+   */
+  protected function buildDetailsMarkup(string $queue_type, array $row): string {
+    if ($queue_type === 'library' && $this->isGeneratedFactionRow($row)) {
+      return $this->buildFactionDraftMarkup($row);
+    }
+
+    return '<pre class="small mb-0">' . Html::escape($this->encodeJson($row['details_json'] ?? NULL)) . '</pre>';
+  }
+
+  /**
+   * Builds side-by-side faction draft + near-match candidates markup.
+   *
+   * @param array<string, mixed> $row
+   */
+  protected function buildFactionDraftMarkup(array $row): string {
+    $details = $this->decodeJsonArray($row['details_json'] ?? NULL);
+
+    $draft = $details['draft'] ?? [];
+    $candidates = $details['near_match_candidates'] ?? [];
+
+    $output = '';
+
+    if ($draft !== []) {
+      $output .= '<div class="mb-3"><strong>' . Html::escape((string) $this->t('Generated faction draft')) . '</strong><dl class="mt-1 small">';
+      foreach ([
+        'canonical_label' => 'Label',
+        'canonical_slug' => 'Slug',
+        'public_face' => 'Public face',
+        'hidden_face' => 'Hidden face',
+        'ideology_tags' => 'Ideology tags',
+        'method_tags' => 'Method tags',
+        'role_in_story' => 'Story role',
+      ] as $key => $label) {
+        $val = $draft[$key] ?? '';
+        if ($val === '' || $val === [] || $val === NULL) {
+          continue;
+        }
+        if (is_array($val)) {
+          $val = implode(', ', $val);
+        }
+        $output .= '<dt class="fw-semibold mb-0">' . Html::escape((string) $this->t($label)) . '</dt>'
+          . '<dd class="ms-3 mb-1">' . Html::escape((string) $val) . '</dd>';
+      }
+      $output .= '</dl></div>';
+    }
+
+    if ($candidates !== []) {
+      $output .= '<div class="mb-2"><strong>' . Html::escape((string) $this->t('Near-match candidates (shared tokens)')) . '</strong><ul class="mt-1 small mb-0">';
+      foreach ($candidates as $c) {
+        $slug = Html::escape((string) ($c['slug'] ?? ''));
+        $label = Html::escape((string) ($c['label'] ?? $slug));
+        $tokens = '';
+        if (!empty($c['shared_tokens'])) {
+          $tokens = ' &mdash; shared: ' . Html::escape(implode(', ', (array) $c['shared_tokens']));
+        }
+        $output .= '<li><code>' . $slug . '</code> ' . $label . $tokens . '</li>';
+      }
+      $output .= '</ul></div>';
+    }
+
+    if ($output === '') {
+      $output = '<pre class="small mb-0">' . Html::escape($this->encodeJson($row['details_json'] ?? NULL)) . '</pre>';
+    }
+
+    return $output;
   }
 
   /**
