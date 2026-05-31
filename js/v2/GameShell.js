@@ -167,6 +167,7 @@ export class GameShell {
     const visualRooms = this.mapVisualState?.topology?.rooms ?? {};
     const room = visualRooms[roomId] ?? null;
     const roomName = room?.name ?? roomId;
+    this._activeRoomData = room ?? null;
 
     this.bus.emit('room:changed', {
       roomId,
@@ -255,6 +256,8 @@ export class GameShell {
     this.bus.on('room:changed', ({ roomId, roomName, occupants, _source } = {}) => {
       if (_source === 'shell' || !roomId) return;
       this._chatHistoryLoaded = false;
+      this.activeRoomId = roomId;
+      this._activeRoomData = this.mapVisualState?.topology?.rooms?.[roomId] ?? null;
       // Update navigate panel connections for the new room
       this.bus.emit('room:changed', {
         roomId,
