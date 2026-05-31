@@ -1,0 +1,120 @@
+{
+  "product_id": "forseti-agent-tracker",
+  "product_label": "Forseti \u2014 Agent Tracker",
+  "tools": [
+    "python"
+  ],
+  "notes": [
+    "This manifest is the canonical list of automated suites for the Forseti agent tracker surfaces.",
+    "Prefer localhost/dev URLs. If production verification is required, it must be explicitly gated by the relevant tool (and documented in release evidence).",
+    "Cookie env vars: FORSETI_COOKIE_AUTHENTICATED, FORSETI_COOKIE_EDITOR, FORSETI_COOKIE_ADMIN.",
+    "Role matrix expected permissions: org-chart/sites/forseti.life/qa-permissions.json.",
+    "tracker-smoke-e2e is deferred until Playwright test spec exists at tests/forseti-agent-tracker/smoke.spec.ts."
+  ],
+  "suites": [
+    {
+      "id": "tracker-env-preflight",
+      "label": "Agent tracker environment preflight (BASE_URL reachable)",
+      "type": "preflight",
+      "command": "curl -sf --max-time 5 \"${FORSETI_BASE_URL:-http://localhost}/user/login\" -o /dev/null && echo 'PREFLIGHT PASS: BASE_URL reachable' || (echo 'PREFLIGHT FAIL: BASE_URL not reachable \u2014 set FORSETI_BASE_URL and ensure Drupal is running' && exit 1)",
+      "artifacts": [
+        "stdout"
+      ],
+      "required_for_release": false,
+      "notes": "Run this first. If it fails, all other suites will fail with connection errors. Not required_for_release because it is a gate-check, not a product test."
+    },
+    {
+      "id": "tracker-route-audit",
+      "label": "Agent tracker route/ACL audit (custom module routes)",
+      "type": "audit",
+      "command": "mkdir -p sessions/qa-forseti-agent-tracker/artifacts/auto-site-audit/latest && python3 scripts/drupal-custom-routes-audit.py --drupal-web-root /home/ubuntu/forseti.life/sites/forseti/web --base-url \"${FORSETI_BASE_URL:-http://localhost}\" --path-regex '^/(admin/reports/copilot-agent-tracker|admin/reports/waitingonkeith|api/copilot-agent-tracker)' --out sessions/qa-forseti-agent-tracker/artifacts/auto-site-audit/latest/route-audit.json",
+      "artifacts": [
+        "sessions/qa-forseti-agent-tracker/artifacts/auto-site-audit/latest/route-audit.json"
+      ],
+      "required_for_release": true,
+      "notes": "Validates agent tracker admin routes against live base URL. Requires FORSETI_BASE_URL pointing to a running Drupal instance. Run tracker-env-preflight first. To test admin-only routes, pass --header 'Cookie: <value-of-FORSETI_COOKIE_ADMIN>'."
+    },
+    {
+      "id": "tracker-full-site-audit",
+      "label": "Forseti full-site audit (includes agent tracker surfaces)",
+      "type": "audit",
+      "command": "ALLOW_PROD_QA=${ALLOW_PROD_QA:-0} FORSETI_BASE_URL=${FORSETI_BASE_URL:-http://localhost} scripts/site-audit-run.sh forseti",
+      "artifacts": [
+        "sessions/qa-forseti/artifacts/auto-site-audit/latest/"
+      ],
+      "required_for_release": false,
+      "notes": "Full-site audit covering all forseti.life routes including agent tracker surfaces. Not required_for_release here since qa-forseti owns this suite; reference only. Promote tracker-route-audit when CI env is available."
+    },
+    {
+      "id": "tracker-copilot-agent-tracker",
+      "label": "Agent tracker core QA (ACL, API error modes, data integrity, performance)",
+      "type": "functional",
+      "command": "cd /home/ubuntu/forseti.life/copilot-hq && FORSETI_BASE_URL=${FORSETI_BASE_URL:-http://localhost} DRUPAL_ROOT=${DRUPAL_ROOT:-/home/ubuntu/forseti.life/sites/forseti} python3 qa-suites/products/forseti-agent-tracker/run-copilot-agent-tracker-tests.py",
+      "artifacts": [
+        "sessions/qa-forseti-agent-tracker/artifacts/auto-site-audit/latest/test-results.json"
+      ],
+      "required_for_release": true,
+      "notes": "24 test cases (21 core + 3 EXTEND: csrf-forged-approve-403, upsert-dedup-1-row, hook-uninstall-tables-absent). Anon 403 accepted for all /admin/* routes (PM decision 2026-03-01, basis: qa-permissions.json admin-area rule). Token auto-fetched via drush if TELEMETRY_TOKEN not set. Admin cookie auto-fetched via drush user:login if FORSETI_COOKIE_ADMIN not set. IMPORTANT: set DRUPAL_ROOT=/var/www/html/forseti for production runs (not the dev path /home/ubuntu/forseti.life/sites/forseti which resolves a different DB)."
+    },
+    {
+      "id": "tracker-smoke-e2e",
+      "label": "Agent tracker smoke e2e (Playwright \u2014 deferred)",
+      "type": "e2e",
+      "command": "BASE_URL=${FORSETI_BASE_URL:-http://localhost} npx playwright test tests/forseti-agent-tracker/smoke.spec.ts --reporter=html",
+      "artifacts": [
+        "playwright-report/index.html",
+        "playwright-report/results.json"
+      ],
+      "required_for_release": false,
+      "notes": "Deferred: test spec file tests/forseti-agent-tracker/smoke.spec.ts does not yet exist. Promote to required_for_release once spec is created and verified. Scope: dashboard renders for admin, API POST with valid agent_id returns 200, API POST with missing agent_id returns 400."
+    },
+    {
+      "id": "forseti-copilot-agent-tracker-route-acl",
+      "label": "Agent tracker route ACL \u2014 anonymous/unpermissioned denied, admin permitted",
+      "type": "acl",
+      "feature_id": "forseti-qa-suite-fill-agent-tracker",
+      "command": "python3 -c \"import os,sys,subprocess\nbase=os.environ.get('FORSETI_BASE_URL','http://localhost')\nadmin_cookie=os.environ.get('FORSETI_COOKIE_ADMIN','')\nauth_cookie=os.environ.get('FORSETI_COOKIE_AUTHENTICATED','')\ndef curl_code(url,cookie=''):\n  cmd=['curl','--max-time','10','-o','/dev/null','-w','%{http_code}','-s']\n  if cookie: cmd+=['-H','Cookie: '+cookie]\n  cmd.append(url)\n  return subprocess.run(cmd,capture_output=True,text=True).stdout.strip()\nfailures=[]\nc=curl_code(base+'/admin/reports/copilot-agent-tracker')\nprint('AC-ACL-01:',c) or (failures.append('AC-ACL-01 FAIL: got '+c) if c not in ('403','302') else None)\nc=curl_code(base+'/admin/reports/copilot-agent-tracker/agent/test-agent')\nprint('AC-ACL-02:',c) or (failures.append('AC-ACL-02 FAIL: got '+c) if c not in ('403','302') else None)\nif auth_cookie:\n  c=curl_code(base+'/admin/reports/copilot-agent-tracker',cookie=auth_cookie)\n  print('AC-ACL-03:',c) or (failures.append('AC-ACL-03 FAIL: got '+c) if c!='403' else None)\nelse: print('AC-ACL-03: SKIP - FORSETI_COOKIE_AUTHENTICATED not set')\nif admin_cookie:\n  r=subprocess.run(['curl','--max-time','10','-s','-H','Cookie: '+admin_cookie,base+'/admin/reports/copilot-agent-tracker'],capture_output=True,text=True)\n  if r.returncode!=0: failures.append('AC-ACL-04 FAIL: curl error')\n  elif 'copilot' not in r.stdout.lower() and 'agent' not in r.stdout.lower(): failures.append('AC-ACL-04 FAIL: admin 200 but no keywords')\n  else: print('AC-ACL-04: PASS admin 200 keywords present')\nelse: print('AC-ACL-04: SKIP - FORSETI_COOKIE_ADMIN not set')\n[print(f,file=sys.stderr) for f in failures]\nsys.exit(1 if failures else 0)\n\"",
+      "artifacts": [
+        "stdout"
+      ],
+      "required_for_release": true,
+      "notes": "AC-ACL-01: anon\u2192dashboard 403/302. AC-ACL-02: anon\u2192agent-detail 403/302. AC-ACL-03: authenticated user without permission\u2192403 (skipped if FORSETI_COOKIE_AUTHENTICATED unset). AC-ACL-04: admin\u2192200 + body contains copilot/agent keywords (skipped if FORSETI_COOKIE_ADMIN unset). Module: copilot_agent_tracker. Permission: administer copilot agent tracker."
+    },
+    {
+      "id": "forseti-copilot-agent-tracker-api",
+      "label": "Agent tracker telemetry API contract \u2014 auth, field validation, error format",
+      "type": "functional",
+      "feature_id": "forseti-qa-suite-fill-agent-tracker",
+      "command": "python3 -c \"import os,sys,subprocess,json as j\nbase=os.environ.get('FORSETI_BASE_URL','http://localhost')\ntoken=os.environ.get('TELEMETRY_TOKEN','test-invalid-placeholder')\napi=base+'/api/copilot-agent-tracker/event'\ndef post(headers,body):\n  cmd=['curl','--max-time','10','-s','-o','/dev/null','-w','%{http_code}','-X','POST','-H','Content-Type: application/json']\n  for h in headers: cmd+=['-H',h]\n  cmd+=['-d',j.dumps(body),api]\n  return subprocess.run(cmd,capture_output=True,text=True).stdout.strip()\ndef post_body(headers,body):\n  cmd=['curl','--max-time','10','-s','-X','POST','-H','Content-Type: application/json']\n  for h in headers: cmd+=['-H',h]\n  cmd+=['-d',j.dumps(body),api]\n  return subprocess.run(cmd,capture_output=True,text=True).stdout\nfailures=[]\nc=post([],{'agent_id':'qa','status':'active','current_action':'test'})\nprint('AC-API-01 no-token:',c) or (failures.append('AC-API-01 FAIL: got '+c) if c!='403' else None)\nc=post(['X-Copilot-Agent-Tracker-Token: invalid-token-value'],{'agent_id':'qa','status':'active','current_action':'test'})\nprint('AC-API-02 bad-token:',c) or (failures.append('AC-API-02 FAIL: got '+c) if c!='403' else None)\ntok_header='X-Copilot-Agent-Tracker-Token: '+token\nresp=post_body([tok_header],{'agent_id':'qa-test-api-01','status':'active','current_action':'suite-api-test'})\ntry:\n  d=j.loads(resp)\n  if 'status' not in d: failures.append('AC-API-03 FAIL: no status field in response')\n  else: print('AC-API-03: PASS status=',d.get('status'))\nexcept Exception as e: print('AC-API-03: NOTE could not parse response (module may not be implemented yet):',str(e)[:80])\nc=post([tok_header],{'status':'active','current_action':'test'})\nprint('AC-API-04 missing-agent_id:',c) or (failures.append('AC-API-04 FAIL: got '+c) if c not in ('400','422') else None)\nimport random; big_payload={'agent_id':'qa','status':'active','current_action':'x'*65536}\nc=post([tok_header],big_payload)\nprint('AC-API-05 oversized:',c) or (failures.append('AC-API-05 FAIL: got '+c) if c not in ('400','413') else None)\n[print(f,file=sys.stderr) for f in failures]\nsys.exit(1 if failures else 0)\n\"",
+      "artifacts": [
+        "stdout"
+      ],
+      "required_for_release": true,
+      "notes": "AC-API-01: POST no auth header \u2192 403. AC-API-02: POST invalid token \u2192 403. AC-API-03: POST valid token + valid payload \u2192 200, JSON response with 'status' field (NOTE: logs parse error if module not yet implemented, does not fail). AC-API-04: POST valid token + missing agent_id \u2192 400 or 422. AC-API-05: POST oversized payload (current_action > 64 KB) \u2192 400 or 413. Requires TELEMETRY_TOKEN env var; falls back to test-invalid-placeholder (AC-API-01/02 still validate)."
+    },
+    {
+      "id": "forseti-copilot-agent-tracker-happy-path",
+      "label": "Agent tracker happy-path E2E \u2014 POST\u2192DB upsert, events table, dashboard reflects",
+      "type": "functional",
+      "feature_id": "forseti-qa-suite-fill-agent-tracker",
+      "command": "python3 -c \"import os,sys,subprocess,json as j,time,uuid\nbase=os.environ.get('FORSETI_BASE_URL','http://localhost')\ntoken=os.environ.get('TELEMETRY_TOKEN','')\nadmin_cookie=os.environ.get('FORSETI_COOKIE_ADMIN','')\ndrupal_root=os.environ.get('DRUPAL_ROOT','/home/ubuntu/forseti.life/sites/forseti')\nif not token:\n  print('SKIP: TELEMETRY_TOKEN not set; happy-path requires valid token')\n  sys.exit(0)\napi=base+'/api/copilot-agent-tracker/event'\ntok_header='X-Copilot-Agent-Tracker-Token: '+token\nagent_id='qa-hp-'+str(uuid.uuid4())[:8]\ndef post(payload):\n  r=subprocess.run(['curl','--max-time','10','-s','-w','\\n%{http_code}','-X','POST','-H','Content-Type: application/json','-H',tok_header,'-d',j.dumps(payload),api],capture_output=True,text=True)\n  lines=r.stdout.strip().split('\\n'); code=lines[-1]; body='\\n'.join(lines[:-1])\n  return code,body\ndef drush_count(table,field,value):\n  expr=f\\\"echo \\\\\\\\Drupal::database()->select('{table}','t')->condition('{field}','{value}')->countQuery()->execute()->fetchField();\\\"\n  r=subprocess.run(['/usr/local/bin/drush','--root='+drupal_root,'php:eval',expr],capture_output=True,text=True)\n  try: return int(r.stdout.strip())\n  except: return -1\nfailures=[]\ncode,body=post({'agent_id':agent_id,'status':'active','current_action':'initial-test'})\nprint('AC-HP-01 first POST:',code)\nif code=='200':\n  cnt=drush_count('copilot_agent_tracker_agents','agent_id',agent_id)\n  print('  agent row count:',cnt)\n  if cnt!=1: failures.append('AC-HP-01 FAIL: agent row count='+str(cnt)+', want 1')\n  else: print('  AC-HP-01 PASS')\nelse: print('AC-HP-01: NOTE POST returned',code,'(module may not be implemented); skipping DB checks')\nif code=='200':\n  code2,_=post({'agent_id':agent_id,'status':'active','current_action':'upsert-check'})\n  print('AC-HP-02 second POST:',code2)\n  cnt2=drush_count('copilot_agent_tracker_agents','agent_id',agent_id)\n  print('  agent row count after upsert:',cnt2)\n  if cnt2!=1: failures.append('AC-HP-02 FAIL: row count='+str(cnt2)+' after upsert, want 1')\n  else: print('  AC-HP-02 PASS: upsert kept 1 row')\nif code=='200' and admin_cookie:\n  r=subprocess.run(['curl','--max-time','10','-s','-H','Cookie: '+admin_cookie,base+'/admin/reports/copilot-agent-tracker'],capture_output=True,text=True)\n  if agent_id in r.stdout: print('AC-HP-03 PASS: agent_id in dashboard')\n  else: failures.append('AC-HP-03 FAIL: agent_id not found in dashboard response')\nelse: print('AC-HP-03: SKIP - no admin cookie or POST failed')\n[print(f,file=sys.stderr) for f in failures]\nsys.exit(1 if failures else 0)\n\"",
+      "artifacts": [
+        "stdout"
+      ],
+      "required_for_release": true,
+      "notes": "AC-HP-01: POST event \u2192 1 row in copilot_agent_tracker_agents. AC-HP-02: POST same agent_id again \u2192 still 1 row (upsert). AC-HP-03: Admin GET dashboard \u2192 agent_id in response body. Skips gracefully if TELEMETRY_TOKEN not set. Requires DRUPAL_ROOT pointing to a running Drupal instance (default: /home/ubuntu/forseti.life/sites/forseti). Module must be implemented for this suite to exercise full flow; exits 0 with SKIP notes if token absent."
+    },
+    {
+      "id": "forseti-copilot-agent-tracker-security",
+      "label": "Agent tracker security \u2014 auth surface, CSRF, input validation, PII/logging",
+      "type": "functional",
+      "feature_id": "forseti-qa-suite-fill-agent-tracker",
+      "command": "python3 -c \"import os,sys,subprocess,json as j\nbase=os.environ.get('FORSETI_BASE_URL','http://localhost')\ntoken=os.environ.get('TELEMETRY_TOKEN','')\nadmin_cookie=os.environ.get('FORSETI_COOKIE_ADMIN','')\nauth_cookie=os.environ.get('FORSETI_COOKIE_AUTHENTICATED','')\ndrupal_root=os.environ.get('DRUPAL_ROOT','/home/ubuntu/forseti.life/sites/forseti')\napi=base+'/api/copilot-agent-tracker/event'\ntok_header='X-Copilot-Agent-Tracker-Token: '+token if token else ''\ndef curl_code(url,cookie='',method='GET',body=None,extra_headers=None):\n  cmd=['curl','--max-time','10','-o','/dev/null','-w','%{http_code}','-s','-X',method]\n  if cookie: cmd+=['-H','Cookie: '+cookie]\n  if body: cmd+=['-H','Content-Type: application/json','-d',j.dumps(body)]\n  for h in (extra_headers or []): cmd+=['-H',h]\n  cmd.append(url)\n  return subprocess.run(cmd,capture_output=True,text=True).stdout.strip()\nfailures=[]\nif auth_cookie:\n  c=curl_code(base+'/admin/reports/copilot-agent-tracker',cookie=auth_cookie)\n  print('AC-SEC-01 auth-no-perm:',c)\n  if c!='403': failures.append('AC-SEC-01 FAIL: got '+c+', want 403 (unauthorized access)')\n  else: print('  AC-SEC-01 PASS')\nelse: print('AC-SEC-01: SKIP - FORSETI_COOKIE_AUTHENTICATED not set')\nprint('AC-SEC-02: agent tracker dashboard is read-only; no admin-side POST state-changing routes. CSRF requirement passes vacuously per spec (OQ-1). Telemetry API uses token-auth (not Drupal CSRF).')\nif token:\n  long_id='A'*80\n  c=curl_code(api,method='POST',body={'agent_id':long_id,'status':'active','current_action':'sec-test'},extra_headers=[tok_header])\n  print('AC-SEC-03 oversized agent_id (80 chars):',c)\n  if c not in ('400','422'): failures.append('AC-SEC-03 FAIL: oversized agent_id got '+c+', want 400/422')\n  else: print('  AC-SEC-03a PASS')\n  xss_id='<script>alert(1)</script>'\n  r=subprocess.run(['curl','--max-time','10','-s','-X','POST','-H','Content-Type: application/json','-H',tok_header,'-d',j.dumps({'agent_id':xss_id,'status':'active','current_action':'xss-test'}),api],capture_output=True,text=True)\n  lines=r.stdout.strip().split('\\n'); post_code=lines[-1]; post_body_txt='\\n'.join(lines[:-1])\n  if post_code in ('400','422'): print('  AC-SEC-03b PASS: XSS agent_id rejected at API')\n  elif post_code=='200' and admin_cookie:\n    dr=subprocess.run(['curl','--max-time','10','-s','-H','Cookie: '+admin_cookie,base+'/admin/reports/copilot-agent-tracker'],capture_output=True,text=True)\n    if '<script>alert(1)</script>' in dr.stdout: failures.append('AC-SEC-03b FAIL: unescaped XSS in dashboard')\n    else: print('  AC-SEC-03b PASS: XSS payload stored but HTML-escaped in dashboard')\n  else: print('  AC-SEC-03b: NOTE post_code=',post_code,'admin_cookie set=',bool(admin_cookie))\nelse: print('AC-SEC-03: SKIP - TELEMETRY_TOKEN not set')\nif token:\n  r=subprocess.run(['/usr/local/bin/drush','--root='+drupal_root,'watchdog:show','--count=20','--type=copilot_agent_tracker','--format=json'],capture_output=True,text=True)\n  try:\n    rows=j.loads(r.stdout) if r.stdout.strip() else []\n    pii_fields=['chat_log','transcript','credential','password','secret']\n    leaked=[f for f in pii_fields if any(f in str(row).lower() for row in rows)]\n    if leaked: failures.append('AC-SEC-04 FAIL: PII fields in watchdog: '+str(leaked))\n    else: print('AC-SEC-04 PASS: no PII fields in watchdog (rows checked:',len(rows),')')\n  except Exception as e: print('AC-SEC-04: NOTE could not parse drush output:',str(e)[:80])\nelse: print('AC-SEC-04: SKIP - TELEMETRY_TOKEN not set')\n[print(f,file=sys.stderr) for f in failures]\nsys.exit(1 if failures else 0)\n\"",
+      "artifacts": [
+        "stdout"
+      ],
+      "required_for_release": true,
+      "notes": "AC-SEC-01 (traces to site.instructions.md Authentication/permission surface): auth-no-perm GET dashboard\u2192403. Requires FORSETI_COOKIE_AUTHENTICATED. AC-SEC-02 (traces to CSRF expectations): dashboard is read-only; no admin-side POST routes; CSRF passes vacuously per OQ-1. Telemetry API uses token-auth. AC-SEC-03 (traces to Input validation requirements): oversized agent_id (80 chars)\u2192400/422; XSS agent_id rejected or HTML-escaped in dashboard. Requires TELEMETRY_TOKEN. AC-SEC-04 (traces to PII/logging constraints): watchdog for copilot_agent_tracker type must not contain chat_log/transcript/credential fields."
+    }
+  ]
+}

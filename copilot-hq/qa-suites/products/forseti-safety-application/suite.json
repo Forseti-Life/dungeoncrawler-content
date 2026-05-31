@@ -1,0 +1,24 @@
+{
+  "product_id": "forseti-safety-application",
+  "product_label": "Forseti Safety Application",
+  "tools": [
+    "playwright",
+    "python"
+  ],
+  "notes": [
+    "This product slice runs on the canonical Forseti site and reuses the shared Forseti QA seat.",
+    "Independent release preflight is disabled for this product; executable QA remains tracked under the parent Forseti suite until a dedicated safety-specific suite is warranted."
+  ],
+  "suites": [
+    {
+      "id": "inherit-forseti-suite",
+      "label": "QA handled by parent Forseti suite",
+      "type": "meta",
+      "command": "bash -c 'echo \"Executable QA for this product slice is covered by qa-suites/products/forseti/suite.json\"'",
+      "artifacts": [
+        "stdout"
+      ],
+      "required_for_release": false
+    }
+  ]
+}

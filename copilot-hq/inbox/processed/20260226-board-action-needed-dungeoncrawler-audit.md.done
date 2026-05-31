@@ -1,0 +1,19 @@
+# Board Action Required: Run Dungeoncrawler QA Audit
+
+- created_at: 2026-02-26T14:26:00Z
+- work_item: 20260225-215254-qa-findings-dungeoncrawler-2
+- topic: board-action-dungeoncrawler-audit
+- ROI: 60 (~2 min, closes 33-cycle spin loop)
+
+## What is blocked
+The dungeoncrawler release cycle is gated on a fresh QA audit. The audit must be run from a terminal with access to the dungeoncrawler service. All agent-chain decisions are resolved — this is a terminal-execution gate only.
+
+## Action needed from Board (Keith)
+```bash
+cd /home/keithaumiller/copilot-sessions-hq && \
+  DUNGEONCRAWLER_BASE_URL=http://localhost:8080 bash scripts/site-audit-run.sh dungeoncrawler
+```
+Deliver the output to `sessions/qa-dungeoncrawler/inbox/` for Gate 2 sign-off.
+
+## After running
+The qa-dungeoncrawler seat will produce an APPROVE/BLOCK, then pm-dungeoncrawler can declare ship.

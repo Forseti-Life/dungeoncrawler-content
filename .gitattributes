@@ -1,0 +1,2 @@
+sites/dungeoncrawler/web/modules/custom/dungeoncrawler_content/content/images/files/*.png filter=lfs diff=lfs merge=lfs -text
+sites/dungeoncrawler/web/modules/custom/dungeoncrawler_content/content/images/files/*.jpg filter=lfs diff=lfs merge=lfs -text

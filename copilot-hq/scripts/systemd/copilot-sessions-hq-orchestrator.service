@@ -1,0 +1,31 @@
+[Unit]
+Description=Copilot Sessions HQ - LangGraph Orchestrator
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/ubuntu/forseti.life/copilot-hq
+
+Environment=PYTHONUNBUFFERED=1
+
+# Prefer the orchestrator venv if present; fall back to system python.
+# Use a non-login shell so we don't source interactive shell init files.
+# Also: keep Drupal publish out of this service; publish is handled by its own cron installer.
+ExecStart=/usr/bin/env bash -c 'if [ -x orchestrator/.venv/bin/python ]; then PY=orchestrator/.venv/bin/python; else PY=python3; fi; AGENT_CAP="${ORCHESTRATOR_AGENT_CAP:-}"; if [ -z "$AGENT_CAP" ]; then if [ -n "${ORCHESTRATOR_NON_CEO_CAP:-}" ]; then AGENT_CAP="$((ORCHESTRATOR_NON_CEO_CAP + 1))"; else AGENT_CAP=6; fi; fi; exec "$PY" -u orchestrator/run.py --interval ${ORCHESTRATOR_INTERVAL:-60} --agent-cap "${AGENT_CAP}" --no-publish'
+
+StandardOutput=journal
+StandardError=journal
+
+Restart=always
+RestartSec=3
+
+# Avoid long hangs on stop/restart if child processes are busy.
+KillMode=mixed
+TimeoutStopSec=15
+
+# Keep resource usage reasonable.
+Nice=5
+
+[Install]
+WantedBy=default.target

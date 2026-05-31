@@ -1,0 +1,8 @@
+[Unit]
+Description=Copilot Sessions HQ - Automated Site Audit (forseti + dungeoncrawler)
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ubuntu/forseti.life/copilot-hq
+Environment=ALLOW_PROD_QA=0
+ExecStart=/usr/bin/env bash /home/ubuntu/forseti.life/copilot-hq/scripts/site-audit-run.sh

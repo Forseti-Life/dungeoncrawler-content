@@ -1,0 +1,43 @@
+{
+  "product_id": "integrations",
+  "product_label": "Integrations Governance",
+  "tools": [
+    "python"
+  ],
+  "notes": [
+    "This manifest validates the integration-governance lane, not a standalone web product.",
+    "Integrations QA is operator-audit and artifact-driven."
+  ],
+  "suites": [
+    {
+      "id": "integrations-registry-parse",
+      "label": "Integration registry parses and contains entries",
+      "type": "lint",
+      "command": "python3 -c \"import sys,yaml; data=yaml.safe_load(open('dashboards/integrations/integration-registry.yaml')); entries=data.get('entries',[]); print('PASS:',len(entries),'integration registry entries loaded') if entries else None; sys.exit(0 if entries else 1)\"",
+      "artifacts": [
+        "stdout/stderr logs"
+      ],
+      "required_for_release": true
+    },
+    {
+      "id": "integrations-core-doc-links",
+      "label": "Integration governance core docs exist",
+      "type": "lint",
+      "command": "python3 -c \"from pathlib import Path; import sys; required=['dashboards/integrations/README.md','dashboards/integrations/integration-registry.yaml','dashboards/integrations/server-integration-inventory-2026-04.md','dashboards/integrations/centralized-integration-management-plan.md']; missing=[p for p in required if not Path(p).is_file()]; [print('MISSING:',p) for p in missing]; print('PASS: all integration governance core docs present') if not missing else None; sys.exit(1 if missing else 0)\"",
+      "artifacts": [
+        "stdout/stderr logs"
+      ],
+      "required_for_release": true
+    },
+    {
+      "id": "integrations-owner-confirmation-monitor",
+      "label": "Monitor unresolved integration owners",
+      "type": "monitor",
+      "command": "python3 -c \"import yaml; data=yaml.safe_load(open('dashboards/integrations/integration-registry.yaml')); entries=data.get('entries',[]); unresolved=[e['id'] for e in entries if e.get('owner')=='needs-owner-confirmation']; print('MONITOR:',len(unresolved),'entries still need owner confirmation'); [print('  -',item) for item in unresolved]\"",
+      "artifacts": [
+        "stdout/stderr logs"
+      ],
+      "required_for_release": false
+    }
+  ]
+}

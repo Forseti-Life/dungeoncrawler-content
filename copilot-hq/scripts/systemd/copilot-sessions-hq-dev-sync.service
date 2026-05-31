@@ -1,0 +1,30 @@
+[Unit]
+Description=Copilot Sessions HQ - Dev Laptop Sync Worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/keithaumiller/forseti.life/copilot-hq
+
+Environment=DEV_SYNC_TARGET=dev-laptop
+Environment=DEV_SYNC_DEFAULT_AGENT=dev-forseti
+Environment=DEV_SYNC_INTERVAL=300
+Environment=DEV_SYNC_AUTO_PULL=1
+Environment=DEV_SYNC_EXECUTE=1
+Environment=DEV_SYNC_AUTO_COMMIT=0
+Environment=DEV_SYNC_AUTO_PUSH=0
+
+ExecStart=/usr/bin/env bash -lc 'exec ./scripts/dev-sync-loop.sh run ${DEV_SYNC_INTERVAL:-300}'
+
+StandardOutput=journal
+StandardError=journal
+
+Restart=always
+RestartSec=3
+KillMode=mixed
+TimeoutStopSec=15
+Nice=5
+
+[Install]
+WantedBy=default.target

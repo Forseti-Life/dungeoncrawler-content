@@ -1,0 +1,30 @@
+{
+  "feature_id": "dc-b2-bestiary2",
+  "product_id": "dungeoncrawler",
+  "owner_seat": "qa-dungeoncrawler",
+  "status": "ready",
+  "test_plan": "features/dc-b2-bestiary2/03-test-plan.md",
+  "suites": [
+    {
+      "id": "dc-b2-bestiary2-e2e",
+      "feature_id": "dc-b2-bestiary2",
+      "label": "Bestiary 2 import, filtering, and GM-access coverage",
+      "type": "e2e",
+      "command": "npx playwright test --grep \"dc-b2-bestiary2\"",
+      "artifacts": [
+        "playwright-report/dc-b2-bestiary2.html"
+      ],
+      "required_for_release": true,
+      "owner_seat": "qa-dungeoncrawler",
+      "source_path": "sites/dungeoncrawler/web/modules/custom/dungeoncrawler_content/",
+      "env_requirements": [
+        "Node.js with Playwright installed",
+        "Dungeoncrawler UI test environment"
+      ],
+      "release_checkpoint": "final-pre-ship",
+      "suite_context": "playwright/encounter",
+      "status": "pending_implementation",
+      "notes": "Covers Bestiary 2 import idempotency, encounter filtering, and GM-only mutation access."
+    }
+  ]
+}
