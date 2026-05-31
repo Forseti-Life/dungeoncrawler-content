@@ -103,6 +103,16 @@ export class GameShell {
     this.movementSystem = null;
     this.combatSystem = null;
     this.turnManagementSystem = null;
+
+    /** @type {Array} Latest flat occupant list for the active room (used by merchant stock loader) */
+    this._currentOccupants = [];
+
+    /** @type {Map<string, number>} merchantRef → request token (prevent stale responses) */
+    this._merchantRequestTokens = new Map();
+    /** @type {number} room-view request token */
+    this._roomViewRequestToken = 0;
+    /** @type {boolean} chat history already loaded for this session */
+    this._chatHistoryLoaded = false;
   }
 
   /**
@@ -115,6 +125,14 @@ export class GameShell {
     this._initCanvas();
     this._initSystems();
     this._initPanels();
+
+    // Build flat quests array with objectives flattened from phases
+    const allQuests = [
+      ...(Array.isArray(this.questSummary?.active) ? this.questSummary.active : []),
+      ...(Array.isArray(this.questSummary?.offers) ? this.questSummary.offers : []),
+      ...(Array.isArray(this.questSummary?.leads)  ? this.questSummary.leads  : []),
+    ].map((q) => ({ ...q, objectives: _flattenQuestObjectives(q) }));
+
     this.bus.emit('game:init', {
       launchContext: this.launchContext,
       // Canonical keys panels expect
@@ -123,11 +141,7 @@ export class GameShell {
         items:    this.launchCharacter?.inventory?.items ?? [],
         currency: this.launchCharacter?.currency ?? this.launchCharacter?.inventory?.currency ?? {},
       },
-      quests:        [
-        ...(Array.isArray(this.questSummary?.active) ? this.questSummary.active : []),
-        ...(Array.isArray(this.questSummary?.offers) ? this.questSummary.offers : []),
-        ...(Array.isArray(this.questSummary?.leads)  ? this.questSummary.leads  : []),
-      ],
+      quests: allQuests,
       // Raw payloads for systems that need full context
       launchCharacter: this.launchCharacter,
       questSummary:  this.questSummary,
@@ -136,6 +150,7 @@ export class GameShell {
       activeRoomId:  this.activeRoomId,
     });
     this._emitInitialRoomState();
+    this._initApiHandlers();
   }
 
   /**
@@ -155,7 +170,9 @@ export class GameShell {
       roomId,
       roomName,
       sceneImageUrl: room?.image_url ?? null,
+      connections:   _buildRoomConnections(roomId, this.mapVisualState),
       responders: [],
+      _source: 'shell',
     });
 
     const occupantsData = this.mapVisualState?.occupants ?? {};
@@ -167,10 +184,265 @@ export class GameShell {
       (o) => String(o?.room_id ?? '') === roomId && o?.state?.hidden !== true,
     );
 
+    this._currentOccupants = roomOccupants;
     this.bus.emit('room:occupants-changed', {
       roomId,
       roomName,
       occupants: roomOccupants,
+    });
+  }
+
+  /**
+   * Wire up API-driven handlers: tab-change triggers, chat submit, initial loads.
+   * Called once after initial bus events are emitted.
+   * @private
+   */
+  _initApiHandlers() {
+    // Tab change → trigger appropriate API load
+    this._tabChangedHandler = (e) => this._onTabChanged(e.detail?.tabId ?? '');
+    window.addEventListener('dungeoncrawler:game-shell-tab-changed', this._tabChangedHandler);
+
+    // Chat submit → POST to server, emit response lines
+    this.bus.on('user:chat-submitted', (data) => this._handleChatSubmit(data));
+
+    // Bridge: when NavigationSystem fires room:changed after a room transition,
+    // relay occupants to room:occupants-changed and reload per-room data.
+    // We mark our own internal room:changed emits with _source:'shell' to avoid loops.
+    this.bus.on('room:changed', ({ roomId, roomName, occupants, _source } = {}) => {
+      if (_source === 'shell' || !roomId) return;
+      this._chatHistoryLoaded = false;
+      // Relay occupants (empty array clears panels for the new room — correct)
+      if (Array.isArray(occupants)) {
+        this._currentOccupants = occupants;
+        this.bus.emit('room:occupants-changed', { roomId, roomName, occupants });
+      }
+      // Pre-load chat history and scene image for the new room
+      this._loadChatHistory();
+      this._loadRoomView();
+    });
+
+    // Load chat history and room view on startup
+    this._loadChatHistory();
+    this._loadRoomView();
+  }
+
+  /**
+   * Handle top-level game-shell tab activation.
+   * @param {string} tabId
+   * @private
+   */
+  _onTabChanged(tabId) {
+    if (tabId === 'view')     this._loadRoomView();
+    if (tabId === 'merchant') this._loadMerchantStock();
+    if (tabId === 'chat' && !this._chatHistoryLoaded) this._loadChatHistory();
+  }
+
+  /**
+   * Load chat history for the active room and emit chat:history-loaded.
+   * @private
+   */
+  async _loadChatHistory() {
+    const campaignId = this.launchContext?.campaign_id;
+    const roomId     = this.activeRoomId;
+    const charId     = this.launchCharacter?.id ?? this.launchContext?.character_id;
+    if (!campaignId || !roomId) return;
+
+    try {
+      let url = `/api/campaign/${encodeURIComponent(campaignId)}/room/${encodeURIComponent(roomId)}/chat`;
+      if (charId) url += `?character_id=${encodeURIComponent(charId)}`;
+      const resp = await fetch(url, {
+        headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+        credentials: 'same-origin',
+      });
+      if (!resp.ok) return;
+      const result = await resp.json().catch(() => ({}));
+      if (!result?.success || !Array.isArray(result.data?.messages)) return;
+
+      const lines = result.data.messages.map((msg, i) => {
+        const ts = String(msg.timestamp ?? '').trim();
+        return {
+          lineId:   ts ? `${ts}:${i}` : `history:${i}`,
+          speaker:  msg.speaker  ?? '',
+          message:  msg.message  ?? '',
+          type:     msg.type     ?? 'say',
+          channel:  msg.channel  ?? 'room',
+          created:  ts ? (Date.parse(ts) || 0) : 0,
+        };
+      });
+
+      this._chatHistoryLoaded = true;
+      this.bus.emit('chat:history-loaded', { lines, channel: 'room' });
+    } catch (_) {
+      // Chat history is best-effort; no user-facing error
+    }
+  }
+
+  /**
+   * POST a player chat message and emit the server's response lines.
+   * @param {{ message: string, channel: string }} data
+   * @private
+   */
+  async _handleChatSubmit({ message = '', channel = 'room' } = {}) {
+    const campaignId = this.launchContext?.campaign_id;
+    const roomId     = this.activeRoomId;
+    const charId     = this.launchCharacter?.id ?? this.launchContext?.character_id;
+    const speaker    = this.launchCharacter?.name ?? 'Player';
+    if (!campaignId || !roomId || !message.trim()) return;
+
+    // Optimistic echo of the player's line
+    this.bus.emit('chat:message-received', {
+      line: { speaker, message: message.trim(), type: 'say', channel },
+      channel,
+    });
+
+    try {
+      const resp = await fetch(
+        `/api/campaign/${encodeURIComponent(campaignId)}/room/${encodeURIComponent(roomId)}/chat`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+            'X-Requested-With': 'XMLHttpRequest',
+          },
+          credentials: 'same-origin',
+          body: JSON.stringify({
+            speaker,
+            message: message.trim(),
+            type: 'player',
+            character_id: charId ?? null,
+            channel,
+            stream: false,
+          }),
+        },
+      );
+      if (!resp.ok) return;
+      const result = await resp.json().catch(() => ({}));
+      if (!result?.success) return;
+
+      // Emit non-player response lines (GM narration, NPC replies, system)
+      (result.data?.messages ?? []).forEach((msg) => {
+        const type = msg.type ?? 'npc';
+        if (type === 'player') return;
+        this.bus.emit('chat:message-received', {
+          line: {
+            speaker: msg.speaker ?? 'GM',
+            message: msg.message ?? '',
+            type,
+            channel: msg.channel ?? channel,
+          },
+          channel: msg.channel ?? channel,
+        });
+      });
+
+      // Relay any quest progress updates
+      (result.data?.quest_updates ?? []).forEach((q) => {
+        this.bus.emit('quest:progress-updated', {
+          quest: { ...q, objectives: _flattenQuestObjectives(q) },
+        });
+      });
+    } catch (_) {
+      // Server errors are silent; the optimistic player line remains visible
+    }
+  }
+
+  /**
+   * Fetch room view images and emit room:changed with sceneImageUrl.
+   * @private
+   */
+  async _loadRoomView() {
+    const campaignId = this.launchContext?.campaign_id;
+    const roomId     = this.activeRoomId;
+    if (!campaignId || !roomId) return;
+
+    const token = ++this._roomViewRequestToken;
+    try {
+      const resp = await fetch(
+        `/api/campaign/${encodeURIComponent(campaignId)}/room/${encodeURIComponent(roomId)}/view-image`,
+        {
+          headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+          credentials: 'same-origin',
+        },
+      );
+      if (token !== this._roomViewRequestToken) return; // superseded
+      if (!resp.ok) return;
+      const result = await resp.json().catch(() => ({}));
+      if (!result?.success || !result?.data) return;
+
+      const entries = Array.isArray(result.data.entries) ? result.data.entries : [];
+      const first = entries.find((e) => e?.image?.url || e?.image?.data_uri);
+      const sceneImageUrl = first?.image?.url ?? first?.image?.data_uri ?? null;
+
+      const room = this.mapVisualState?.topology?.rooms?.[roomId];
+      this.bus.emit('room:changed', {
+        roomId,
+        roomName: result.data.room?.name ?? room?.name ?? roomId,
+        sceneImageUrl,
+        responders: [],
+        _source: 'shell',
+      });
+    } catch (_) {
+      // Room view is best-effort
+    }
+  }
+
+  /**
+   * Fetch stock for all merchant occupants in the current room and
+   * re-emit room:occupants-changed with stock injected into presentation.
+   * @private
+   */
+  async _loadMerchantStock() {
+    const campaignId = this.launchContext?.campaign_id;
+    const roomId     = this.activeRoomId;
+    const charId     = this.launchCharacter?.id ?? this.launchContext?.character_id;
+    if (!campaignId || !roomId) return;
+
+    const merchants = this._currentOccupants.filter((o) => o?.presentation?.is_merchant);
+    if (!merchants.length) return;
+
+    const updatedOccupants = [...this._currentOccupants];
+
+    await Promise.all(merchants.map(async (merchant) => {
+      const merchantRef = merchant.occupant_id ?? merchant.content_id;
+      if (!merchantRef) return;
+      const token = (this._merchantRequestTokens.get(merchantRef) ?? 0) + 1;
+      this._merchantRequestTokens.set(merchantRef, token);
+
+      try {
+        const params = charId ? `?character_id=${encodeURIComponent(charId)}` : '';
+        const url = `/api/campaign/${encodeURIComponent(campaignId)}/room/${encodeURIComponent(roomId)}/merchant/${encodeURIComponent(merchantRef)}${params}`;
+        const resp = await fetch(url, {
+          headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+          credentials: 'same-origin',
+        });
+        if (this._merchantRequestTokens.get(merchantRef) !== token) return;
+        if (!resp.ok) return;
+        const result = await resp.json().catch(() => ({}));
+        if (!result?.success || !result?.context) return;
+
+        const ctx = result.context;
+        const idx = updatedOccupants.findIndex((o) => o.occupant_id === merchant.occupant_id);
+        if (idx !== -1) {
+          updatedOccupants[idx] = {
+            ...updatedOccupants[idx],
+            presentation: {
+              ...updatedOccupants[idx].presentation,
+              stock:           Array.isArray(ctx.stock) ? ctx.stock : [],
+              player_currency: ctx.player?.currency ?? ctx.player_currency ?? {},
+            },
+          };
+        }
+      } catch (_) {
+        // Per-merchant failure is silent
+      }
+    }));
+
+    this._currentOccupants = updatedOccupants;
+    const room = this.mapVisualState?.topology?.rooms?.[roomId];
+    this.bus.emit('room:occupants-changed', {
+      roomId,
+      roomName: room?.name ?? roomId,
+      occupants: updatedOccupants,
     });
   }
 
@@ -295,6 +567,11 @@ export class GameShell {
    * Called from Drupal.behaviors.hexMapV2.detach.
    */
   destroy() {
+    if (this._tabChangedHandler) {
+      window.removeEventListener('dungeoncrawler:game-shell-tab-changed', this._tabChangedHandler);
+      this._tabChangedHandler = null;
+    }
+
     Object.values(this.panels).forEach((p) => p?.destroy?.());
     Object.values(this.systems).forEach((s) => s?.destroy?.());
     this.canvas?.input?.destroy?.();
@@ -303,10 +580,67 @@ export class GameShell {
     this.canvas?.app?.destroy?.();
     this.bus?.destroy?.();
 
+    this._currentOccupants = [];
+    this._merchantRequestTokens.clear();
     this.entityManager = null;
     this.canvas = null;
     this.systems = {};
     this.panels = {};
     this.bus = null;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Module-level helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Flatten phase-based objectives from a quest entry (server shape) into a
+ * flat array that QuestPanel can render directly.
+ *
+ * Server shape: quest.objective_states = [{ phase_id, objectives: [{label, status, ...}] }]
+ *
+ * @param {object} quest
+ * @returns {Array<{label: string, status: string, children?: Array}>}
+ */
+function _flattenQuestObjectives(quest) {
+  const phases = quest.objective_states ?? quest.generated_objectives ?? [];
+  if (!Array.isArray(phases)) return [];
+  return phases.flatMap((phase) => Array.isArray(phase.objectives) ? phase.objectives : []);
+}
+
+/**
+ * Build a connections array for the navigate sub-panel from mapVisualState topology.
+ * Returns connections that originate FROM the given roomId (or are passable to/from it).
+ *
+ * @param {string} roomId
+ * @param {object} mapVisualState
+ * @returns {Array<{room_id, room_name, connection_id, direction?}>}
+ */
+function _buildRoomConnections(roomId, mapVisualState) {
+  const topology = mapVisualState?.topology ?? {};
+  const rooms = topology.rooms ?? {};
+  const allConnections = Array.isArray(topology.connections) ? topology.connections : [];
+
+  const result = [];
+  const seen = new Set();
+
+  allConnections.forEach((conn) => {
+    if (!conn.is_passable) return;
+
+    let targetRoomId = null;
+    if (conn.from_room_id === roomId) targetRoomId = conn.to_room_id;
+    else if (conn.to_room_id === roomId) targetRoomId = conn.from_room_id;
+    if (!targetRoomId || seen.has(conn.connection_id)) return;
+
+    seen.add(conn.connection_id);
+    result.push({
+      connection_id: conn.connection_id,
+      room_id:       targetRoomId,
+      room_name:     rooms[targetRoomId]?.name ?? targetRoomId,
+      type:          conn.type ?? 'open_passage',
+    });
+  });
+
+  return result;
 }
