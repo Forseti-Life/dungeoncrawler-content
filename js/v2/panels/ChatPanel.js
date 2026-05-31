@@ -137,7 +137,8 @@ export class ChatPanel {
     this._unsubs.push(
       this.bus.on('chat:history-loaded',   (d) => this.renderRoomChatHistory(d)),
       this.bus.on('chat:message-received',  (d) => {
-        if (d?.speaker && d?.message) this.appendChatLine(d.speaker, d.message, d.type || 'npc', d.options);
+        const line = d?.line ?? d;
+        if (line?.speaker && line?.message) this.appendChatLine(line.speaker, line.message, line.type || 'npc', line.options);
       }),
       this.bus.on('chat:system-message',    (d) => {
         if (d?.text) this.appendChatLine('System', d.text, 'system');

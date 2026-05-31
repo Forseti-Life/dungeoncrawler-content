@@ -323,21 +323,9 @@ export class GameShell {
         return;
       }
 
-      const lines = result.data.messages.map((msg, i) => {
-        const ts = String(msg.timestamp ?? '').trim();
-        return {
-          lineId:   ts ? `${ts}:${i}` : `history:${i}`,
-          speaker:  msg.speaker  ?? '',
-          message:  msg.message  ?? '',
-          type:     msg.type     ?? 'say',
-          channel:  msg.channel  ?? 'room',
-          created:  ts ? (Date.parse(ts) || 0) : 0,
-        };
-      });
-
       this._chatHistoryLoaded = true;
-      console.log('[GameShell] _loadChatHistory: loaded', { lineCount: lines.length });
-      this.bus.emit('chat:history-loaded', { lines, channel: 'room' });
+      console.log('[GameShell] _loadChatHistory: loaded', { lineCount: result.data.messages.length });
+      this.bus.emit('chat:history-loaded', result);
     } catch (_) {
       // Chat history is best-effort; no user-facing error
     }
@@ -405,12 +393,26 @@ export class GameShell {
         });
       });
 
-      // Relay any quest progress updates
-      (result.data?.quest_updates ?? []).forEach((q) => {
-        this.bus.emit('quest:progress-updated', {
-          quest: { ...q, objectives: _flattenQuestObjectives(q) },
+      // Relay any quest progress updates — merge into local summary and emit full summary
+      const questUpdates = result.data?.quest_updates ?? [];
+      if (questUpdates.length > 0) {
+        if (!this.questSummary) this.questSummary = { active: [], offers: [], leads: [] };
+        questUpdates.forEach((q) => {
+          const updated = { ...q, objectives: _flattenQuestObjectives(q) };
+          const questKey = q.quest_id ?? q.quest_key ?? q.id ?? null;
+          ['active', 'offers', 'leads'].forEach((bucket) => {
+            if (!Array.isArray(this.questSummary[bucket])) this.questSummary[bucket] = [];
+            if (questKey) {
+              const idx = this.questSummary[bucket].findIndex(
+                (x) => (x?.quest_id ?? x?.quest_key ?? x?.id) === questKey
+              );
+              if (idx >= 0) this.questSummary[bucket][idx] = updated;
+              else if (bucket === 'active') this.questSummary[bucket].push(updated);
+            }
+          });
         });
-      });
+        this.bus.emit('quest:progress-updated', { questSummary: this.questSummary });
+      }
 
       // Notify ChatPanel the turn is complete
       this.bus.emit('chat:turn-status-changed', { status: 'idle' });
