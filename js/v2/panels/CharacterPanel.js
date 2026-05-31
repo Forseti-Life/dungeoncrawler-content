@@ -97,7 +97,8 @@ export class CharacterPanel {
     }
     const tabs   = Array.from(sidebar.querySelectorAll('[data-sidebar-tab]'));
     const panels = Array.from(sidebar.querySelectorAll('.sidebar-panel'));
-    console.log('[CharacterPanel] _initSidebarTabs', { tabCount: tabs.length, panelCount: panels.length });
+    const initialPanelStyles = Object.fromEntries(panels.map((p) => [p.id, p.style.display || '(none)']));
+    console.log('[CharacterPanel] _initSidebarTabs', { tabCount: tabs.length, panelCount: panels.length, initialStyles: initialPanelStyles });
 
     tabs.forEach((tab) => {
       tab.addEventListener('click', () => {
@@ -185,7 +186,12 @@ export class CharacterPanel {
     if (this._el.characterSheetLegacy) {
       this._el.characterSheetLegacy.style.display = '';
     }
-    console.log('[CharacterPanel] showEmbeddedCharacterSheet:done', { legacyShown: !!this._el.characterSheetLegacy, embedHidden: !!this._el.characterSheetEmbedWrap });
+    console.log('[CharacterPanel] showEmbeddedCharacterSheet:done', {
+      legacyShown: !!this._el.characterSheetLegacy,
+      embedHidden: !!this._el.characterSheetEmbedWrap,
+      legacyStyle: this._el.characterSheetLegacy?.style?.display ?? 'no-el',
+      gamePanelHidden: document.getElementById('game-panel-character')?.hidden ?? 'no-el',
+    });
   }
 
   showEntityInfo(entity) {
@@ -791,6 +797,8 @@ export class CharacterPanel {
       hp: this._el.characterHp?.textContent,
       ac: this._el.characterAc?.textContent,
       level: this._el.characterLevel?.textContent,
+      legacyStyle: this._el.characterSheetLegacy?.style?.display ?? 'no-el',
+      gamePanelHidden: document.getElementById('game-panel-character')?.hidden ?? 'no-el',
     });
   }
 
