@@ -196,12 +196,16 @@ export class CombatPanel {
 
     if (this._el.actionInstruction) {
       if (!isPlayersTurn) {
+        this._el.actionInstruction.hidden = false;
         this._el.actionInstruction.textContent = 'Watching enemy turn...';
       } else if (actions && actions.actionsRemaining > 0) {
+        this._el.actionInstruction.hidden = false;
         this._el.actionInstruction.textContent = 'Select a hostile target to attack or click a blue hex to navigate.';
       } else if (movement && movement.movementRemaining > 0) {
+        this._el.actionInstruction.hidden = false;
         this._el.actionInstruction.textContent = 'Navigate to a blue hex, then end turn.';
       } else {
+        this._el.actionInstruction.hidden = false;
         this._el.actionInstruction.textContent = 'No actions left — end your turn.';
       }
     }

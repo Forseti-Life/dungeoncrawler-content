@@ -1142,12 +1142,16 @@ export class ActionRailPanel {
 
     if (actionInstruction) {
       if (!isPlayersTurn) {
+        actionInstruction.hidden = false;
         actionInstruction.textContent = 'Watching enemy turn...';
       } else if (mode === 'move') {
+        actionInstruction.hidden = false;
         actionInstruction.textContent = moveLeft > 0 ? `Click a blue hex to navigate (${moveLeft} ft left).` : 'No movement left; switch to attack or end turn.';
       } else if (mode === 'interact') {
+        actionInstruction.hidden = false;
         actionInstruction.textContent = canInteract ? 'Click an adjacent item, NPC, door, or obstacle to interact.' : 'No interaction actions remaining; attack, move, or end turn.';
       } else {
+        actionInstruction.hidden = false;
         actionInstruction.textContent = canAct ? 'Select a hostile target to attack.' : 'No actions remaining; move or end turn.';
       }
     }
