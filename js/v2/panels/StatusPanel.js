@@ -21,26 +21,11 @@ export class StatusPanel {
     // Elements matching original hexmap.js IDs (graceful degradation if absent)
     const id = (k) => document.getElementById(k);
     this._el = {
-      unavailBanner:              s('unavail-banner'),
-      zoom:                       s('zoom'),
-      hexInfo:                    s('hex-info'),
-      fullscreen:                 s('fullscreen'),
-      // Original hexmap.js element IDs — present only if added to template
-      hoveredHex:                 id('hovered-hex'),
-      hoveredObject:              id('hovered-object'),
-      selectedHex:                id('selected-hex'),
-      zoomLevel:                  id('zoom-level') || s('zoom'),
-      hexDetailRoom:              id('hex-detail-room'),
-      hexDetailTerrain:           id('hex-detail-terrain'),
-      hexDetailElevation:         id('hex-detail-elevation'),
-      hexDetailLighting:          id('hex-detail-lighting'),
-      hexDetailPassability:       id('hex-detail-passability'),
-      hexDetailObjects:           id('hex-detail-objects'),
-      hexDetailEntities:          id('hex-detail-entities'),
-      hexDetailConnection:        id('hex-detail-connection'),
-      selectedHexContentsSummary: id('selected-hex-contents-summary'),
-      selectedHexContentsEmpty:   id('selected-hex-contents-empty'),
-      selectedHexContentsList:    id('selected-hex-contents-list'),
+      unavailBanner: s('unavail-banner'),
+      zoom:          s('zoom'),
+      hexInfo:       s('hex-info'),
+      fullscreen:    s('fullscreen'),
+      zoomLevel:     id('zoom-level') || s('zoom'),
     };
     const nullKeys = Object.entries(this._el).filter(([,v]) => !v).map(([k]) => k);
     console.log('[StatusPanel] init', { container: !!this.container, nullEl: nullKeys });
@@ -91,8 +76,10 @@ export class StatusPanel {
 
     this._lastServerMsgAt = now;
 
-    if (this._el.actionInstruction) {
-      this._el.actionInstruction.textContent = message;
+    if (this._el.unavailBanner) {
+      this._el.unavailBanner.hidden = false;
+      const span = this._el.unavailBanner.querySelector('span') || this._el.unavailBanner;
+      span.textContent = message;
     }
 
     this.bus.emit('chat:system-message', { text: message, kind: 'system' });
@@ -143,6 +130,7 @@ export class StatusPanel {
     if (this._el.hoveredHex) {
       this._el.hoveredHex.textContent = q !== null ? `(${q}, ${r})` : 'None';
     }
+    this._syncHexInfoElement(q, r);
   }
 
   updateHoveredObject(label) {
