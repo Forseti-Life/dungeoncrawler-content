@@ -69,9 +69,13 @@ export class ActionRailPanel {
         this.refreshActionRail();
         this.updateActionRailClocks(d);
       }),
+      this.bus.on('combat:state-changed', () => this.refreshActionRail()),
       this.bus.on('game:init', () => this.refreshActionRail()),
       this.bus.on('room:changed', () => this.refreshActionRail()),
+      this.bus.on('room:occupants-changed', () => this.refreshActionRail()),
       this.bus.on('character:updated', () => this.refreshActionRail()),
+      this.bus.on('inventory:changed', () => this.refreshActionRail()),
+      this.bus.on('quest:progress-updated', () => this.refreshActionRail()),
     );
   }
 

@@ -440,6 +440,9 @@ export class GameShell {
 
       // Notify ChatPanel the turn is complete
       this.bus.emit('chat:turn-status-changed', { status: 'idle' });
+
+      // Refresh view tab if open (AI may have generated a new scene image)
+      this._loadRoomView({ force: true, preserveExisting: true });
     } catch (_) {
       this.bus.emit('game:server-unavailable', { message: 'Server unreachable. Please check your connection.' });
     }
