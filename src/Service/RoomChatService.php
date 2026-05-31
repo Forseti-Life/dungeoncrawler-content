@@ -1189,6 +1189,7 @@ class RoomChatService {
       $stage_started_at = hrtime(true);
       $session_context = $this->buildCompactSessionContext($session_key, $campaign_id, 2, 900, 320, FALSE);
       $actor_grounding = $this->buildRoomActorGroundingSummary($campaign_id, $room_id, $dungeon_data);
+      $room_quest_context = $this->buildRoomQuestbookPromptContext($campaign_id, $room_id, $character_id);
 
       $prompt = '';
       if ($session_context !== '') {
@@ -1205,6 +1206,9 @@ class RoomChatService {
       }
       if ($actor_grounding !== '') {
         $prompt .= $actor_grounding . "\n\n";
+      }
+      if ($room_quest_context !== '') {
+        $prompt .= $room_quest_context . "\n\n";
       }
       if (!empty($prompt_artifacts['merchant_summary']) && $turn_intent === 'gm_narration') {
         $prompt .= $prompt_artifacts['merchant_summary'] . "\n\n";
@@ -1230,6 +1234,7 @@ class RoomChatService {
         'prompt_length' => strlen($prompt),
         'room_entry' => $is_room_entry,
         'quest_context_length' => strlen($quest_prompt_context),
+        'room_quest_context_length' => strlen($room_quest_context),
         'actor_grounding_length' => strlen($actor_grounding),
         'artifact_bytes' => strlen(json_encode($prompt_artifacts) ?: ''),
       ]);
@@ -8385,6 +8390,60 @@ PROMPT;
   }
 
   /**
+   * Build current-room questbook context for GM prompts.
+   */
+  protected function buildRoomQuestbookPromptContext(int $campaign_id, string $room_id, ?int $character_id, int $max_quests = 5): string {
+    if ($campaign_id <= 0 || $room_id === '' || !$this->questTracker) {
+      return '';
+    }
+
+    $quests = array_values(array_filter($this->questTracker->getCampaignQuestTracking($campaign_id), static function (array $quest) use ($room_id): bool {
+      $status = strtolower(trim((string) ($quest['status'] ?? '')));
+      if (!in_array($status, ['active', 'lead', 'offered'], TRUE)) {
+        return FALSE;
+      }
+      if (!empty($quest['completed_at'])) {
+        return FALSE;
+      }
+      return trim((string) ($quest['location_id'] ?? '')) === $room_id;
+    }));
+
+    if ($quests === []) {
+      return '';
+    }
+
+    usort($quests, static function (array $a, array $b): int {
+      $status_rank = ['active' => 0, 'lead' => 1, 'offered' => 2];
+      $a_status = strtolower(trim((string) ($a['status'] ?? '')));
+      $b_status = strtolower(trim((string) ($b['status'] ?? '')));
+      $rank_compare = ($status_rank[$a_status] ?? 99) <=> ($status_rank[$b_status] ?? 99);
+      if ($rank_compare !== 0) {
+        return $rank_compare;
+      }
+      return ((int) ($b['last_updated'] ?? $b['created_at'] ?? 0)) <=> ((int) ($a['last_updated'] ?? $a['created_at'] ?? 0));
+    });
+
+    $lines = [
+      '=== ROOM QUESTBOOK CONTEXT ===',
+      'These are non-completed quests tied to the current room. Treat this as authoritative questbook state for guidance, item searches, and NPC quest dialogue.',
+    ];
+
+    foreach (array_slice($quests, 0, max(1, $max_quests)) as $quest) {
+      $quest_id = trim((string) ($quest['quest_id'] ?? 'unknown_quest'));
+      $quest_name = trim((string) ($quest['quest_name'] ?? $quest_id));
+      $status = strtolower(trim((string) ($quest['status'] ?? 'lead'))) ?: 'lead';
+      $current_phase = max(1, (int) ($quest['current_phase'] ?? 1));
+      $lines[] = sprintf('- %s {quest_id: %s} [status: %s, phase: %d]', $quest_name, $quest_id, $status, $current_phase);
+
+      foreach (array_slice($this->extractIncompleteObjectivesForPhase($quest, $current_phase), 0, 3) as $objective) {
+        $lines[] = '  Objective: ' . $this->truncateContextBlock($objective, 240, 0.85);
+      }
+    }
+
+    return $this->truncateContextBlock(implode("\n", $lines), 1400, 0.75);
+  }
+
+  /**
    * Start clearly mentioned location quests for the acting character.
    */
   protected function activateMentionedAvailableQuests(
@@ -9274,8 +9333,16 @@ PROMPT;
       if ($target_count > 0) {
         $description .= sprintf(' (%d/%d)', $current, $target_count);
       }
+      $next_step = trim((string) ($objective['next_step'] ?? ''));
+      $completion = trim((string) ($objective['completion_criteria']['description'] ?? ''));
       $target = trim((string) ($objective['target'] ?? $objective['npc_ref'] ?? ''));
       $item = trim((string) ($objective['item'] ?? ''));
+      if ($next_step !== '') {
+        $description .= ' [next: ' . $next_step . ']';
+      }
+      if ($completion !== '') {
+        $description .= ' [complete when: ' . $completion . ']';
+      }
       if ($target !== '') {
         $description .= ' [target: ' . $target . ']';
       }

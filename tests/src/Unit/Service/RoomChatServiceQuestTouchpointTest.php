@@ -167,6 +167,72 @@ class RoomChatServiceQuestTouchpointTest extends UnitTestCase {
   }
 
   /**
+   * Current-room lead quests are included in GM questbook context.
+   *
+   * @covers ::buildRoomQuestbookPromptContext
+   */
+  public function testRoomQuestbookContextIncludesRoomLeadObjectives(): void {
+    $quest_tracker = $this->createMock(\Drupal\dungeoncrawler_content\Service\QuestTrackerService::class);
+    $quest_tracker->expects($this->once())
+      ->method('getCampaignQuestTracking')
+      ->with(107)
+      ->willReturn([
+        [
+          'quest_id' => 'collect_spellbooks_107',
+          'quest_name' => 'Collect Lost Spellbooks',
+          'status' => 'lead',
+          'location_id' => 'tavern_entrance',
+          'generated_objectives' => json_encode([
+            [
+              'phase' => 1,
+              'objectives' => [[
+                'objective_id' => 'collect_books',
+                'type' => 'collect',
+                'description' => 'Find and collect Spellbooks in The Gilded Tankard',
+                'item' => 'Spellbooks',
+                'current' => 0,
+                'target_count' => 4,
+                'next_step' => 'Search The Gilded Tankard and pick up each Spellbook quest item.',
+                'completion_criteria' => [
+                  'description' => 'Collect 4 Spellbooks in The Gilded Tankard.',
+                ],
+              ]],
+            ],
+          ]),
+          'objective_states' => '',
+          'current_phase' => 1,
+        ],
+        [
+          'quest_id' => 'other_room_quest',
+          'quest_name' => 'Other Room Quest',
+          'status' => 'lead',
+          'location_id' => 'upstairs',
+          'generated_objectives' => '[]',
+          'objective_states' => '',
+        ],
+      ]);
+
+    $service = new class extends RoomChatService {
+      public function __construct() {}
+
+      public function exposedBuildRoomQuestbookPromptContext(int $campaign_id, string $room_id, ?int $character_id): string {
+        return $this->buildRoomQuestbookPromptContext($campaign_id, $room_id, $character_id);
+      }
+    };
+
+    $this->setProtectedProperty($service, 'questTracker', $quest_tracker);
+
+    $context = $service->exposedBuildRoomQuestbookPromptContext(107, 'tavern_entrance', 417);
+
+    $this->assertStringContainsString('=== ROOM QUESTBOOK CONTEXT ===', $context);
+    $this->assertStringContainsString('Collect Lost Spellbooks', $context);
+    $this->assertStringContainsString('Find and collect Spellbooks in The Gilded Tankard (0/4)', $context);
+    $this->assertStringContainsString('Search The Gilded Tankard', $context);
+    $this->assertStringContainsString('Collect 4 Spellbooks in The Gilded Tankard.', $context);
+    $this->assertStringNotContainsString('Other Room Quest', $context);
+  }
+
+  /**
    * Set a protected property on the test double.
    */
   private function setProtectedProperty(object $object, string $property_name, mixed $value): void {
