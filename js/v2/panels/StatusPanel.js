@@ -2,55 +2,48 @@
  * @file panels/StatusPanel.js
  *
  * HUD overlays and system status indicators.
- *
- * PURE UI — no game logic. All state is server or canvas pushed.
- *
- * Renders:
- *   - Server unavailability banner
- *   - Zoom level indicator
- *   - Hovered hex info (coordinates + terrain type)
- *   - Fullscreen toggle button
- *
- * DOM bindings (via [data-status="key"]):
- *   unavail-banner  — server unavailability notice (hidden by default)
- *   zoom            — current zoom/scale display
- *   hex-info        — hovered hex coordinate + terrain display
- *   fullscreen      — fullscreen toggle button
- *
- * Subscribes to bus events:
- *   game:server-unavailable  — show unavailability banner
- *   game:server-available    — hide unavailability banner
- *   hex:hovered              — { q, r, terrain? }  update hex info display
- *   hex:out                  — clear hex info display
- *   canvas:zoom-changed      — { scale }  update zoom indicator
- *
- * Fires bus events:
- *   user:fullscreen-toggle  — user clicked fullscreen button
+ * Methods ported verbatim from hexmap.js UIManager.
  */
 
 export class StatusPanel {
-  /**
-   * @param {HTMLElement} container
-   * @param {import('../GameEventBus').GameEventBus} bus
-   */
   constructor(container, bus) {
     this.container = container;
     this.bus = bus;
     this._unsubs = [];
     this._el = {};
+    this._lastServerMsgAt = 0;
+    this._serverMsgCooldown = 3000;
   }
 
   init() {
-    const s = (key) => this.container.querySelector(`[data-status="${key}"]`);
+    // Elements matching v2 template data-status attributes
+    const s = (k) => this.container?.querySelector(`[data-status="${k}"]`) || null;
+    // Elements matching original hexmap.js IDs (graceful degradation if absent)
+    const id = (k) => document.getElementById(k);
     this._el = {
-      unavailBanner: s('unavail-banner'),
-      zoom:          s('zoom'),
-      hexInfo:       s('hex-info'),
-      fullscreen:    s('fullscreen'),
+      unavailBanner:              s('unavail-banner'),
+      zoom:                       s('zoom'),
+      hexInfo:                    s('hex-info'),
+      fullscreen:                 s('fullscreen'),
+      // Original hexmap.js element IDs — present only if added to template
+      hoveredHex:                 id('hovered-hex'),
+      hoveredObject:              id('hovered-object'),
+      selectedHex:                id('selected-hex'),
+      zoomLevel:                  id('zoom-level') || s('zoom'),
+      hexDetailRoom:              id('hex-detail-room'),
+      hexDetailTerrain:           id('hex-detail-terrain'),
+      hexDetailElevation:         id('hex-detail-elevation'),
+      hexDetailLighting:          id('hex-detail-lighting'),
+      hexDetailPassability:       id('hex-detail-passability'),
+      hexDetailObjects:           id('hex-detail-objects'),
+      hexDetailEntities:          id('hex-detail-entities'),
+      hexDetailConnection:        id('hex-detail-connection'),
+      selectedHexContentsSummary: id('selected-hex-contents-summary'),
+      selectedHexContentsEmpty:   id('selected-hex-contents-empty'),
+      selectedHexContentsList:    id('selected-hex-contents-list'),
     };
-    this._bindEvents();
+    this._bindDom();
     this._subscribe();
-    // Initialise banner hidden
     if (this._el.unavailBanner) this._el.unavailBanner.hidden = true;
     if (this._el.hexInfo)       this._el.hexInfo.hidden = true;
   }
@@ -61,15 +54,13 @@ export class StatusPanel {
   }
 
   // ---------------------------------------------------------------------------
-  // DOM events
+  // DOM
   // ---------------------------------------------------------------------------
 
-  _bindEvents() {
+  _bindDom() {
     const { fullscreen } = this._el;
     if (fullscreen) {
-      fullscreen.addEventListener('click', () => {
-        this.bus.emit('user:fullscreen-toggle');
-      });
+      fullscreen.addEventListener('click', () => this.bus.emit('user:fullscreen-toggle'));
     }
   }
 
@@ -79,47 +70,176 @@ export class StatusPanel {
 
   _subscribe() {
     this._unsubs.push(
-      this.bus.on('game:server-unavailable', () => this._onServerUnavailable()),
-      this.bus.on('game:server-available',   () => this._onServerAvailable()),
-      this.bus.on('hex:hovered',             (d) => this._onHexHovered(d)),
-      this.bus.on('hex:out',                 () => this._onHexOut()),
-      this.bus.on('canvas:zoom-changed',     (d) => this._onZoomChanged(d)),
+      this.bus.on('game:server-unavailable', (d) => this.showServerUnavailable(d?.message)),
+      this.bus.on('game:server-available',   () => { if (this._el.unavailBanner) this._el.unavailBanner.hidden = true; }),
+      this.bus.on('hex:hovered',             (d) => this.updateHoveredHex(d?.q ?? null, d?.r ?? null)),
+      this.bus.on('hex:out',                 () => this.updateHoveredHex(null, null)),
+      this.bus.on('hex:clicked',             (d) => this.updateSelectedHex(d?.q ?? 0, d?.r ?? 0)),
+      this.bus.on('canvas:zoom-changed',     (d) => this.updateZoomLevel(d?.scale ?? 1)),
+      this.bus.on('hex:details',             (d) => this.updateHexDetails(d)),
+      this.bus.on('hex:contents',            (d) => this.updateSelectedHexContents(d?.occupants ?? [], d?.q, d?.r, d?.onChoose ?? (() => {}))),
     );
   }
 
-  _onServerUnavailable() {
-    const { unavailBanner } = this._el;
-    if (unavailBanner) unavailBanner.hidden = false;
+  showServerUnavailable(message = 'Unable to connect to server. Please try again.') {
+    const now = Date.now();
+    if ((now - this._lastServerMsgAt) < this._serverMsgCooldown) {
+      return;
+    }
+
+    this._lastServerMsgAt = now;
+
+    if (this._el.actionInstruction) {
+      this._el.actionInstruction.textContent = message;
+    }
+
+    this.bus.emit('chat:system-message', { text: message, kind: 'system' });
   }
 
-  _onServerAvailable() {
-    const { unavailBanner } = this._el;
-    if (unavailBanner) unavailBanner.hidden = true;
+  updateHexDetails(details) {
+    const fallback = {
+      room: 'None',
+      terrain: 'Unknown',
+      elevation: '-',
+      lighting: 'Unknown',
+      passability: 'Unknown',
+      objects: 'None',
+      entities: 'None',
+      connection: 'None'
+    };
+
+    const payload = details ? {
+      room: details.roomName || fallback.room,
+      terrain: details.terrain || fallback.terrain,
+      elevation: Number.isFinite(details.elevationFt) ? `${details.elevationFt} ft` : fallback.elevation,
+      lighting: details.lighting || fallback.lighting,
+      passability: details.passability || fallback.passability,
+      objects: Array.isArray(details.objects) && details.objects.length ? details.objects.join(', ') : fallback.objects,
+      entities: Array.isArray(details.entities) && details.entities.length ? details.entities.join(', ') : fallback.entities,
+      connection: details.connection || fallback.connection
+    } : fallback;
+
+    const map = {
+      hexDetailRoom: payload.room,
+      hexDetailTerrain: payload.terrain,
+      hexDetailElevation: payload.elevation,
+      hexDetailLighting: payload.lighting,
+      hexDetailPassability: payload.passability,
+      hexDetailObjects: payload.objects,
+      hexDetailEntities: payload.entities,
+      hexDetailConnection: payload.connection
+    };
+
+    Object.entries(map).forEach(([key, value]) => {
+      if (this.elements[key]) {
+        this.elements[key].textContent = value;
+      }
+    });
   }
 
-  _onHexHovered({ q, r, terrain } = {}) {
+  updateHoveredHex(q, r) {
+    if (this._el.hoveredHex) {
+      this._el.hoveredHex.textContent = q !== null ? `(${q}, ${r})` : 'None';
+    }
+  }
+
+  updateHoveredObject(label) {
+    if (this._el.hoveredObject) {
+      this._el.hoveredObject.textContent = label || 'None';
+    }
+  }
+
+  updateSelectedHex(q, r) {
+    if (this._el.selectedHex) {
+      this._el.selectedHex.textContent = `(${q}, ${r})`;
+    }
+  }
+
+  updateSelectedHexContents(occupants, q, r, onChoose) {
+    const summary = this._el.selectedHexContentsSummary;
+    const empty = this._el.selectedHexContentsEmpty;
+    const list = this._el.selectedHexContentsList;
+    if (!summary || !empty || !list) {
+      return;
+    }
+
+    const hasCoords = Number.isFinite(q) && Number.isFinite(r);
+    summary.textContent = hasCoords
+      ? `Hex (${q}, ${r}) contains ${occupants.length} entr${occupants.length === 1 ? 'y' : 'ies'}.`
+      : 'Click a hex to inspect everything on it.';
+
+    list.innerHTML = '';
+
+    if (!occupants.length) {
+      empty.style.display = '';
+      return;
+    }
+
+    empty.style.display = 'none';
+
+    occupants.forEach((occupant) => {
+      const row = document.createElement('div');
+      row.className = 'hex-contents-item';
+      if (occupant.isSelected) {
+        row.classList.add('is-selected');
+      }
+
+      const meta = document.createElement('div');
+      meta.className = 'hex-contents-item__meta';
+
+      const name = document.createElement('div');
+      name.className = 'hex-contents-item__name';
+      name.textContent = occupant.name;
+
+      const detail = document.createElement('div');
+      detail.className = 'hex-contents-item__detail';
+      detail.textContent = `${occupant.typeLabel}${occupant.teamLabel ? ` • ${occupant.teamLabel}` : ''}`;
+
+      meta.appendChild(name);
+      meta.appendChild(detail);
+
+      const actions = document.createElement('div');
+      actions.className = 'hex-contents-item__actions';
+
+      const inspectBtn = document.createElement('button');
+      inspectBtn.type = 'button';
+      inspectBtn.className = 'hex-contents-item__button hex-contents-item__button--secondary';
+      inspectBtn.textContent = 'Inspect';
+      inspectBtn.addEventListener('click', () => onChoose(occupant.entityId, 'inspect'));
+      actions.appendChild(inspectBtn);
+
+      if (occupant.canSelect) {
+        const selectBtn = document.createElement('button');
+        selectBtn.type = 'button';
+        selectBtn.className = 'hex-contents-item__button';
+        selectBtn.textContent = occupant.isSelected ? 'Selected' : 'Select';
+        selectBtn.addEventListener('click', () => onChoose(occupant.entityId, 'select'));
+        actions.appendChild(selectBtn);
+      }
+
+      row.appendChild(meta);
+      row.appendChild(actions);
+      list.appendChild(row);
+    });
+  }
+
+  updateZoomLevel(scale) {
+    if (this._el.zoomLevel) {
+      const zoomPercent = Math.round(scale * 100);
+      this._el.zoomLevel.textContent = `${zoomPercent}%`;
+    }
+  }
+
+  // Emit hex-info in simple mode when hex-info element exists but not hoveredHex
+  _syncHexInfoElement(q, r) {
     const { hexInfo } = this._el;
     if (!hexInfo) return;
-    hexInfo.hidden  = false;
-    hexInfo.textContent = terrain
-      ? `(${q}, ${r}) — ${terrain}`
-      : `(${q}, ${r})`;
-  }
-
-  _onHexOut() {
-    const { hexInfo } = this._el;
-    if (!hexInfo) return;
-    hexInfo.hidden = true;
-    hexInfo.textContent = '';
-  }
-
-  _onZoomChanged({ scale } = {}) {
-    const { zoom } = this._el;
-    if (!zoom) return;
-    zoom.textContent = `${Math.round((scale ?? 1) * 100)}%`;
+    if (q === null) {
+      hexInfo.hidden = true;
+      hexInfo.textContent = '';
+    } else {
+      hexInfo.hidden = false;
+      hexInfo.textContent = `(${q}, ${r})`;
+    }
   }
 }
-
-// ---------------------------------------------------------------------------
-// (No innerHTML usage in this panel — textContent only, no _esc needed)
-// ---------------------------------------------------------------------------

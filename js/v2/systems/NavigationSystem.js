@@ -1,37 +1,22 @@
 /**
  * @file systems/NavigationSystem.js
  *
- * Room navigation and dungeon context transitions.
- *
- * THIN ADAPTER: translates user intent events into API calls, then emits
- * bus events based on server responses. No game-state logic client-side.
- *
- * Flow:
- *   user:navigate-to-room → API /api/combat/navigate → room:changed
- *   hex:clicked → check dungeon connections → user:navigate-to-room (if passable)
- *
- * Fires bus events:
- *   room:changing   — { fromRoomId, toRoomId } — transition about to occur
- *   room:changed    — { roomId, roomName, ... } — transition complete (server data)
- *
- * Responds to bus events:
- *   user:navigate-to-room    — { roomId, connectionId? }
- *   hex:clicked              — { q, r } — check for navigation at this hex
+ * Room transition and dungeon context switching.
+ * Methods ported verbatim from hexmap.js UIManager.
  */
 
 export class NavigationSystem {
-  /**
-   * @param {import('../GameShell').GameShell} shell
-   * @param {import('../GameEventBus').GameEventBus} bus
-   */
   constructor(shell, bus) {
     this.shell = shell;
     this.bus = bus;
+    this.stateManager = null;
+    this.dungeonData = null;
     this._unsubs = [];
-    this._navigating = false;
   }
 
-  init() {
+  init(dungeonData, stateManager) {
+    this.dungeonData = dungeonData || {};
+    this.stateManager = stateManager || {};
     this._subscribe();
   }
 
@@ -40,72 +25,260 @@ export class NavigationSystem {
     this._unsubs = [];
   }
 
-  // ---------------------------------------------------------------------------
-  // Bus
-  // ---------------------------------------------------------------------------
-
   _subscribe() {
     this._unsubs.push(
-      this.bus.on('user:navigate-to-room', (data) => this._onNavigateToRoom(data)),
-      this.bus.on('hex:clicked',           (data) => this._onHexClicked(data)),
+      this.bus.on('user:navigate', (d) => this.executeDirectNavigate(d?.button)),
+      this.bus.on('user:navigate-dungeon', (d) => this.navigateToDungeonContext(d?.dungeonSwitch)),
     );
   }
 
-  async _onNavigateToRoom({ roomId, connectionId } = {}) {
-    if (!roomId || this._navigating) return;
-    this._navigating = true;
+  ensureNavigateLocationGroups(campaignId) {
+    if (!campaignId || (this.navigateLocationsCampaignId === campaignId && Array.isArray(this.navigateLocationGroups) && this.navigateLocationGroups.length)) {
+      return;
+    }
+    if (this.navigateLocationsInflight) {
+      return;
+    }
 
-    const fromRoomId = this.shell.activeRoomId;
-    this.bus.emit('room:changing', { fromRoomId, toRoomId: roomId });
+    this.navigateLocationsInflight = fetch(`/api/campaign/${campaignId}/visited-locations`, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+    })
+      .then(async (response) => {
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.success) {
+          throw new Error(data.error || 'Unable to load visited locations.');
+        }
+
+        this.navigateLocationsCampaignId = campaignId;
+        this.navigateLocationGroups = (Array.isArray(data.dungeons) ? data.dungeons : [])
+          .map((group) => ({
+            dungeonId: String(group?.dungeon_id || ''),
+            dungeonName: String(group?.dungeon_name || group?.dungeon_id || 'Dungeon'),
+            mapId: String(group?.map_id || group?.dungeon_id || ''),
+            dungeonLevelId: String(group?.dungeon_level_id || ''),
+            locations: Array.isArray(group?.locations)
+              ? group.locations.map((location) => ({
+                roomId: String(location?.room_id || ''),
+                roomName: String(location?.room_name || location?.room_id || 'Room'),
+                meta: String(location?.description || ''),
+                lastVisitedLabel: Number(location?.last_visited || 0) > 0
+                  ? `Visited ${new Date(Number(location.last_visited) * 1000).toLocaleString()}`
+                  : 'Visited by party',
+              })).filter((location) => location.roomId)
+              : [],
+          }))
+          .filter((group) => group.locations.length > 0);
+      })
+      .catch((error) => {
+        console.warn('Failed to load campaign visited locations:', error);
+      })
+      .finally(() => {
+        this.navigateLocationsInflight = null;
+        if (this.activeActionRailCategory === 'navigate') {
+          this.refreshActionRail();
+        }
+      });
+  }
+
+  async executeDirectNavigate(button) {
+    if (!this.beginActionRailRequest(button)) {
+      return;
+    }
 
     try {
-      const ctx = this.shell.launchContext ?? {};
-      const payload = {
-        campaignId:    ctx.campaign_id,
-        characterId:   ctx.character_id,
-        mapId:         ctx.map_id,
-        currentRoomId: fromRoomId,
-        connectionId:  connectionId ?? null,
-        targetRoomId:  roomId,
-      };
+      const context = this.getActionRailContext();
+      const hexmap = context.hexmap;
+      const roomId = String(button.dataset.roomId || '').trim();
+      const roomName = button.dataset.roomName || roomId || 'that room';
+      const rawOriginQ = String(button.dataset.originQ || '').trim();
+      const rawOriginR = String(button.dataset.originR || '').trim();
+      const originQ = rawOriginQ !== '' ? Number(rawOriginQ) : null;
+      const originR = rawOriginR !== '' ? Number(rawOriginR) : null;
 
-      let roomData = {};
-      if (typeof fetch !== 'undefined') {
-        const mod = await import('../../hexmap-api.js').catch(() => null);
-        if (mod?.default?.navigate) {
-          const result = await mod.default.navigate(payload);
-          roomData = result?.room ?? {};
+      if (!hexmap || !roomId) {
+        return;
+      }
+
+      let changed = false;
+      if (Number.isFinite(originQ) && Number.isFinite(originR)) {
+        changed = Boolean(hexmap.tryTransitionAtHex?.(originQ, originR));
+      } else if (hexmap?.getVisualRooms?.()?.[roomId]) {
+        changed = Boolean(hexmap.navigateToVisitedRoom?.(roomId));
+      }
+      if (!changed) {
+        this.appendChatLine('System', 'That destination is not navigable right now.', 'system');
+        return;
+      }
+
+      this.appendChatLine('System', `Navigating to ${roomName}.`, 'system');
+      this.refreshActionRail();
+    } finally {
+      this.endActionRailRequest(button);
+    }
+  }
+
+  handleNavigationResult(nav) {
+    const hexmap = this.stateManager?.hexmap;
+    if (!hexmap || !hexmap.dungeonData) {
+      console.error('[Navigation] hexmap or dungeonData not available');
+      return;
+    }
+
+    const targetRoomId = nav.target_room_id;
+    const newRoom = nav.room;
+    const newEntities = nav.entities || [];
+    const newConnections = nav.connections || [];
+    const entryHex = nav.entry_hex || { q: 0, r: 0 };
+
+    console.log('[Navigation] Transitioning to:', targetRoomId, nav.destination);
+
+    if (nav.dungeon_switch?.map_id) {
+      this.appendChatLine('System', `🗺️ Traveling to ${nav.destination || targetRoomId}...`, 'system');
+      this.navigateToDungeonContext(nav.dungeon_switch);
+      return;
+    }
+
+    // 1. Inject the new room into dungeonData.rooms (keyed by room_id).
+    if (newRoom && targetRoomId) {
+      hexmap.dungeonData.rooms[targetRoomId] = newRoom;
+    }
+
+    // 2. Append new entities to dungeonData.entities.
+    if (!Array.isArray(hexmap.dungeonData.entities)) {
+      hexmap.dungeonData.entities = [];
+    }
+    for (const entity of newEntities) {
+      // Avoid duplicates by instance_id.
+      const existingIdx = hexmap.dungeonData.entities.findIndex(
+        (e) => (e.instance_id || e.entity_instance_id) === (entity.instance_id || entity.entity_instance_id)
+      );
+      if (existingIdx === -1) {
+        hexmap.dungeonData.entities.push(entity);
+      }
+    }
+
+    // 3. Append new connections to dungeonData.connections.
+    if (!Array.isArray(hexmap.dungeonData.connections)) {
+      hexmap.dungeonData.connections = [];
+    }
+    for (const conn of newConnections) {
+      // Avoid duplicate connections.
+      const connId = conn.connection_id || `${conn.from_room}_${conn.to_room}`;
+      const exists = hexmap.dungeonData.connections.some(
+        (c) => (c.connection_id || `${c.from_room}_${c.to_room}`) === connId
+      );
+      if (!exists) {
+        hexmap.dungeonData.connections.push(conn);
+      }
+    }
+
+    // 4. Move the selected player entity to the new room entry hex.
+    const selectedEntity = hexmap.stateManager?.get('selectedEntity');
+    if (selectedEntity && Array.isArray(hexmap.dungeonData.entities)) {
+      const entityRef = selectedEntity.dcEntityRef;
+      for (const de of hexmap.dungeonData.entities) {
+        const deRef = de.instance_id || de.entity_instance_id;
+        if (deRef === entityRef || (selectedEntity.dcCharacterId && de?.state?.metadata?.character_id == selectedEntity.dcCharacterId)) {
+          de.placement = {
+            room_id: targetRoomId,
+            hex: { q: Number(entryHex.q), r: Number(entryHex.r) },
+          };
+          break;
         }
       }
 
-      this.shell.activeRoomId = roomId;
-      this.bus.emit('room:changed', {
-        roomId,
-        roomName:      roomData.name ?? roomData.room_name ?? '',
-        sceneImageUrl: roomData.scene_image_url ?? null,
-        responders:    roomData.responders ?? [],
-        occupants:     roomData.occupants ?? [],
-        ...roomData,
+      // Also move ally NPCs to adjacent hexes.
+      const allyNpcs = hexmap.dungeonData.entities.filter(
+        (e) => e.entity_type === 'npc' && e?.state?.metadata?.team === 'ally'
+      );
+      const offsets = [{ q: 1, r: 0 }, { q: -1, r: 0 }, { q: 0, r: 1 }, { q: 0, r: -1 }, { q: 1, r: -1 }, { q: -1, r: 1 }];
+      allyNpcs.forEach((npc, i) => {
+        const offset = offsets[i % offsets.length];
+        const npcQ = Number(entryHex.q) + offset.q;
+        const npcR = Number(entryHex.r) + offset.r;
+        npc.placement = {
+          room_id: targetRoomId,
+          hex: { q: npcQ, r: npcR },
+        };
+        hexmap.persistLaunchLocationContext?.(
+          targetRoomId,
+          npcQ,
+          npcR,
+          npc.instance_id || npc.entity_instance_id || null
+        );
       });
-    } catch (err) {
-      // Re-surface as a game:error — server handles recovery
-      this.bus.emit('game:error', { source: 'NavigationSystem', error: err.message });
-    } finally {
-      this._navigating = false;
+
+      // Deselect before room switch.
+      hexmap.deselectEntity();
     }
+
+    hexmap.persistLaunchLocationContext?.(
+      targetRoomId,
+      Number(entryHex.q),
+      Number(entryHex.r),
+      selectedEntity?.dcEntityRef || null
+    );
+
+    // 5. Show travel notification in chat.
+    this.appendChatLine('System', `🗺️ Traveling to ${nav.destination || newRoom?.name || targetRoomId}...`, 'system');
+
+    // 6. Switch to the new room (triggers full re-render, chat reload, banner).
+    hexmap.setActiveRoom(targetRoomId);
+    hexmap.updateLaunchLocationContext?.(targetRoomId, Number(entryHex.q), Number(entryHex.r));
+    this.activateGameShellTab('view');
+    if (targetRoomId && this.loadActiveRoomView) {
+      this.loadActiveRoomView(targetRoomId, { force: true, preserveExisting: true });
+    }
+
+    // 7. Re-select the player entity in the new room.
+    const newPlayerEntity = hexmap.findLaunchPlayerEntity();
+    if (newPlayerEntity) {
+      hexmap.selectEntity(newPlayerEntity);
+      if (hexmap.launchCharacter) {
+        hexmap.uiManager?.showLaunchCharacter?.(hexmap.launchCharacter);
+      }
+    }
+
+    console.log('[Navigation] Room switch complete:', targetRoomId);
   }
 
-  _onHexClicked({ q, r } = {}) {
-    // Check dungeon graph for a connection at this hex
-    const dungeon = this.shell.dungeonData ?? {};
-    const connections = dungeon.connections ?? dungeon.room_connections ?? [];
-    const match = connections.find((c) => c.hex_q === q && c.hex_r === r);
-    if (match?.target_room_id) {
-      this.bus.emit('user:navigate-to-room', {
-        roomId:       match.target_room_id,
-        connectionId: match.connection_id ?? null,
-      });
+  navigateToDungeonContext(dungeonSwitch) {
+    if (typeof window === 'undefined' || !window.location) {
+      console.error('[Navigation] window.location not available for dungeon switch');
+      return;
     }
+
+    const hexmap = this.stateManager?.hexmap;
+    const params = new URLSearchParams(window.location.search);
+    const campaignId = hexmap?.resolveCampaignId?.() || params.get('campaign_id');
+    const characterId = hexmap?.launchContext?.character_id || params.get('character_id');
+
+    if (campaignId) {
+      params.set('campaign_id', String(campaignId));
+    }
+    if (characterId) {
+      params.set('character_id', String(characterId));
+    }
+
+    params.set('map_id', String(dungeonSwitch.map_id));
+    params.set('room_id', String(dungeonSwitch.room_id || dungeonSwitch.target_room_id || ''));
+    if (dungeonSwitch.dungeon_level_id) {
+      params.set('dungeon_level_id', String(dungeonSwitch.dungeon_level_id));
+    }
+    if (dungeonSwitch.next_room_id) {
+      params.set('next_room_id', String(dungeonSwitch.next_room_id));
+    } else {
+      params.delete('next_room_id');
+    }
+    params.set('start_q', '0');
+    params.set('start_r', '0');
+
+    window.location.assign(`${window.location.pathname}?${params.toString()}`);
   }
+
 }
-

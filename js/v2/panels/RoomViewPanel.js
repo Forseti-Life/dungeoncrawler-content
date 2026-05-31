@@ -1,113 +1,212 @@
 /**
  * @file panels/RoomViewPanel.js
  *
- * Renders the room scene image, room name, and NPC responder thumbnails.
- *
- * PURE UI — no game logic, no server fetching.
- * All room display data is pushed via bus events from the server.
- *
- * DOM bindings (via [data-room="key"]):
- *   scene-image  — <img> for the room scene/background art
- *   name         — room name heading
- *   responders   — container for NPC responder portrait chips
- *   empty        — shown when no room is loaded
- *
- * room:changed event shape (server-pushed):
- *   { roomId, roomName, sceneImageUrl?, responders?: [{ npc_id, name, portrait_url? }] }
- *
- * Subscribes to bus events:
- *   room:changed  — render view for the new room
- *
- * Fires no bus events (display only).
+ * Room view gallery, image cache, and responder context.
+ * Methods ported verbatim from hexmap.js UIManager.
  */
 
 export class RoomViewPanel {
-  /**
-   * @param {HTMLElement} container
-   * @param {import('../GameEventBus').GameEventBus} bus
-   */
   constructor(container, bus) {
     this.container = container;
     this.bus = bus;
     this._unsubs = [];
-    this._currentRoomId = null;
     this._el = {};
+    this._roomViewCache = new Map();
+    this._roomViewRetryTimer = null;
   }
 
   init() {
-    const s = (key) => this.container.querySelector(`[data-room="${key}"]`);
+    const id = (k) => document.getElementById(k);
+    const s = (k) => this.container?.querySelector(`[data-room="${k}"]`) || null;
     this._el = {
-      sceneImage: s('scene-image'),
-      name:       s('name'),
-      responders: s('responders'),
-      empty:      s('empty'),
+      roomViewName:            id('room-view-name')            || s('name'),
+      roomViewMeta:            id('room-view-meta'),
+      roomViewStatus:          id('room-view-status'),
+      roomViewGallery:         id('room-view-gallery')         || s('gallery'),
+      roomViewPlaceholder:     id('room-view-placeholder')     || s('empty'),
+      roomViewPlaceholderText: id('room-view-placeholder-text'),
+      roomViewCardTemplate:    id('room-view-card-template'),
+      roomViewSceneImage:      s('scene-image'),
+      roomViewResponders:      s('responders'),
     };
-    this._showEmpty();
     this._subscribe();
   }
 
   destroy() {
     this._unsubs.forEach((fn) => fn());
     this._unsubs = [];
-    this._currentRoomId = null;
+    if (this._roomViewRetryTimer) clearTimeout(this._roomViewRetryTimer);
   }
-
-  // ---------------------------------------------------------------------------
-  // Bus
-  // ---------------------------------------------------------------------------
 
   _subscribe() {
     this._unsubs.push(
-      this.bus.on('room:changed', (data) => this._onRoomChanged(data)),
+      this.bus.on('room:changed', (d) => this.updateRoomViewPanel(d?.room, d?.viewState)),
+      this.bus.on('room:view-loaded', (d) => this.updateRoomViewPanel(d?.room, d?.viewState)),
     );
   }
 
-  _onRoomChanged({ roomId, roomName, sceneImageUrl, responders = [] } = {}) {
-    this._currentRoomId = roomId ?? null;
-    const { sceneImage, name, responders: respEl, empty } = this._el;
+  formatRoomViewMeta(room) {
+    if (!room || typeof room !== 'object') {
+      return 'Waiting for room context...';
+    }
 
-    if (empty) empty.hidden = true;
+    return [
+      room.room_type ? String(room.room_type).replace(/_/g, ' ') : '',
+      room.size_category ? String(room.size_category).replace(/_/g, ' ') : '',
+      room.terrain ? String(room.terrain).replace(/_/g, ' ') : '',
+      room.lighting ? `lighting: ${String(room.lighting).replace(/_/g, ' ')}` : '',
+    ].filter(Boolean).join(' • ') || 'Current room scene';
+  }
 
-    if (name) name.textContent = String(roomName ?? '');
+  buildRoomViewCard(entry, room) {
+    const template = this._el.roomViewCardTemplate;
+    const imageSrc = entry?.image?.url || entry?.image?.data_uri || '';
+    if (!template || !imageSrc) {
+      return null;
+    }
 
-    if (sceneImage) {
-      if (sceneImageUrl) {
-        sceneImage.src     = sceneImageUrl;
-        sceneImage.hidden  = false;
-      } else {
-        sceneImage.src     = '';
-        sceneImage.hidden  = true;
+    const fragment = template.content?.cloneNode(true);
+    if (!fragment) {
+      return null;
+    }
+
+    const article = fragment.querySelector('.room-view-card');
+    const eyebrow = fragment.querySelector('.room-view-card__eyebrow');
+    const title = fragment.querySelector('.room-view-card__title');
+    const status = fragment.querySelector('.room-view-card__status');
+    const image = fragment.querySelector('.room-view-card__image');
+
+    if (eyebrow) {
+      eyebrow.textContent = entry?.message_window?.label || 'Scene snapshot';
+    }
+    if (title) {
+      title.textContent = entry?.title || room?.name || 'Generated Scene';
+    }
+    if (status) {
+      status.textContent = entry?.mode === 'cache' ? 'Cached' : 'Generated';
+    }
+    if (image) {
+      image.src = imageSrc;
+      image.alt = entry?.title
+        ? `${entry.title} for ${room?.name || 'current room'}`
+        : 'Generated room scene';
+    }
+
+    return article;
+  }
+
+  buildRoomViewCacheKey(campaignId, roomId) {
+    if (!campaignId || !roomId) {
+      return '';
+    }
+    return ['room-view', campaignId, roomId].join(':');
+  }
+
+  clearRoomViewRetry() {
+    if (this.roomViewRetryTimer) {
+      window.clearTimeout(this.roomViewRetryTimer);
+      this.roomViewRetryTimer = null;
+    }
+  }
+
+  getCachedRoomViewPayload(cacheKey) {
+    if (!cacheKey) {
+      return null;
+    }
+    const entry = this.roomViewCache.get(cacheKey);
+    if (!entry) {
+      return null;
+    }
+    const ttlMs = Number.isFinite(entry.ttlMs) ? entry.ttlMs : this.roomViewCacheTtlMs;
+    if ((Date.now() - entry.storedAt) >= ttlMs) {
+      this.roomViewCache.delete(cacheKey);
+      return null;
+    }
+    return entry.payload || null;
+  }
+
+  resolveRoomViewCacheTtlMs(payload) {
+    const status = String(payload?.status || '').toLowerCase();
+    return status === 'pending'
+      ? this.roomViewPendingCacheTtlMs
+      : this.roomViewCacheTtlMs;
+  }
+
+  resolveRoomViewImageSrc(entries = []) {
+    if (!Array.isArray(entries)) {
+      return '';
+    }
+    const firstImageEntry = entries.find((entry) => entry?.entry_type === 'establishing' && Boolean(entry?.image?.url || entry?.image?.data_uri))
+      || entries.find((entry) => Boolean(entry?.image?.url || entry?.image?.data_uri));
+    return firstImageEntry?.image?.url || firstImageEntry?.image?.data_uri || '';
+  }
+
+  scheduleRoomViewRetry(roomId, viewKey) {
+    this.clearRoomViewRetry();
+    this.roomViewRetryTimer = window.setTimeout(() => {
+      this.roomViewRetryTimer = null;
+      if (this.lastRoomViewKey !== viewKey) {
+        return;
       }
+      this.loadActiveRoomView(roomId, {
+        force: true,
+        preserveExisting: true,
+      });
+    }, this.roomViewRetryDelayMs);
+  }
+
+  setCachedRoomViewPayload(cacheKey, payload) {
+    if (!cacheKey) {
+      return payload;
+    }
+    const ttlMs = this.resolveRoomViewCacheTtlMs(payload);
+    this.roomViewCache.set(cacheKey, {
+      storedAt: Date.now(),
+      ttlMs,
+      payload,
+    });
+    return payload;
+  }
+
+  updateRoomViewPanel(room, state = {}) {
+    const {
+      statusLabel = 'Idle',
+      placeholderText = 'Room transition imagery will appear here.',
+      entries = [],
+      preserveChatBackground = false,
+    } = state;
+
+    if (this._el.roomViewName) {
+      this._el.roomViewName.textContent = room?.name || 'Current room';
+    }
+    if (this._el.roomViewMeta) {
+      this._el.roomViewMeta.textContent = this.formatRoomViewMeta(room);
+    }
+    if (this._el.roomViewStatus) {
+      this._el.roomViewStatus.textContent = statusLabel;
+    }
+    if (this._el.roomViewPlaceholderText) {
+      this._el.roomViewPlaceholderText.textContent = placeholderText;
     }
 
-    if (respEl) {
-      respEl.innerHTML = responders.map((r) => this._responderChipHtml(r)).join('');
+    if (this._el.roomViewGallery) {
+      this._el.roomViewGallery.innerHTML = '';
+      this._el.roomViewGallery.hidden = entries.length === 0;
+      entries.forEach((entry) => {
+        const card = this.buildRoomViewCard(entry, room);
+        if (card) {
+          this._el.roomViewGallery.appendChild(card);
+        }
+      });
+    }
+    if (this._el.roomViewPlaceholder) {
+      this._el.roomViewPlaceholder.hidden = entries.length > 0;
+    }
+
+    const sceneImageSrc = this.resolveRoomViewImageSrc(entries);
+    if (sceneImageSrc || !preserveChatBackground) {
+      this.setChatPanelSceneBackground(sceneImageSrc, room);
     }
   }
 
-  _responderChipHtml(r) {
-    const name = _esc(r.name ?? 'NPC');
-    const id   = _esc(r.npc_id ?? '');
-    const img  = r.portrait_url
-      ? `<img class="room-responder__portrait" src="${_esc(r.portrait_url)}" alt="${name}">`
-      : `<span class="room-responder__initial">${_esc((r.name ?? '?')[0].toUpperCase())}</span>`;
-    return `<div class="room-responder" data-npc-id="${id}">${img}<span class="room-responder__name">${name}</span></div>`;
-  }
-
-  _showEmpty() {
-    const { empty } = this._el;
-    if (empty) empty.hidden = false;
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Utility
-// ---------------------------------------------------------------------------
-
-function _esc(str) {
-  return String(str ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
 }

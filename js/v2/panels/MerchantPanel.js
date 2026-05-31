@@ -1,290 +1,707 @@
 /**
  * @file panels/MerchantPanel.js
  *
- * Renders the merchant shop for NPCs where presentation.is_merchant === true.
- *
- * Data source: canonical occupant API — is_merchant flag set server-side
- * by MapVisualStateProjector (keyword detection + explicit flags).
- * No client-side merchant heuristics.
- *
- * Occupant shape: { occupant_id, label, presentation: { is_merchant, portrait_url, role,
- *   stock: [{ item_id, item_name, price, quantity, description, item_type }],
- *   player_currency: { gp, sp, cp } } }
- *
- * Subscribes to bus events:
- *   room:occupants-changed   — { occupants: Array } re-evaluate merchant list
- *   user:merchant-selected   — { occupantId } show that merchant's stock
- *
- * Fires bus events:
- *   user:purchase-requested  — { merchantId, itemId, itemName, price }
- *
- * DOM selectors (all optional, graceful degradation):
- *   [data-merchant="select"]          <select> for merchant choice (if >1)
- *   [data-merchant="name"]            Active merchant name
- *   [data-merchant="portrait"]        <img> merchant portrait
- *   [data-merchant="portrait-wrap"]   Portrait container (shows/hides placeholder)
- *   [data-merchant="role"]            Merchant role label
- *   [data-merchant="player-currency"] Player gold display
- *   [data-merchant="filter"]          <input> for item text search
- *   [data-merchant="stock-grid"]      Stock item card container
- *   [data-merchant="empty"]           Shown when stock empty / no merchant
- *   [data-merchant="status"]          Loading/error status label
- *
- * @see PortraitPanel — sibling panel, same data source
+ * Merchant catalog, buy/sell, inventory sync.
+ * Methods ported verbatim from hexmap.js UIManager.
  */
 
 export class MerchantPanel {
-  /**
-   * @param {HTMLElement} container
-   * @param {import('../GameEventBus').GameEventBus} bus
-   */
   constructor(container, bus) {
     this.container = container;
     this.bus = bus;
-    this._merchants = [];        // merchant occupants for current room
-    this._activeMerchantId = null;
-    this._filterText = '';
     this._unsubs = [];
     this._el = {};
+    this.stateManager = null;
+    this.dungeonData = null;
+    this._merchantRetryTimer = null;
+    this._merchantCatalogSearch = '';
+    this._inventoryPanel = null;
   }
 
-  init() {
-    this._bindElements();
-    this._bindEvents();
-
-    this._unsubs.push(
-      this.bus.on('room:occupants-changed', ({ occupants } = {}) => {
-        this._onOccupantsChanged(Array.isArray(occupants) ? occupants : []);
-      }),
-      this.bus.on('user:merchant-selected', ({ occupantId } = {}) => {
-        this._selectMerchant(occupantId ?? null);
-      }),
-    );
-
-    this._renderEmpty('Enter a room to meet merchants.');
+  init(dungeonData, stateManager, inventoryPanel = null) {
+    this.dungeonData = dungeonData || {};
+    this.stateManager = stateManager || {};
+    this._inventoryPanel = inventoryPanel;
+    const id = (k) => document.getElementById(k);
+    const s = (k) => this.container?.querySelector(`[data-merchant="${k}"]`) || null;
+    this._el = {
+      merchantPanel:         id('merchant-panel'),
+      merchantStatus:        id('merchant-status')         || s('status'),
+      merchantPortraitWrap:  id('merchant-panel-portrait-wrap') || s('portrait-wrap'),
+      merchantPortrait:      id('merchant-panel-portrait') || s('portrait'),
+      merchantList:          id('merchant-list')           || s('catalog-list'),
+      merchantSearch:        id('merchant-search')         || s('search'),
+      merchantSearchInput:   id('merchant-search-input')   || s('search-input'),
+      merchantSellList:      id('merchant-sell-list')      || s('sell-list'),
+      merchantActorName:     id('merchant-actor-name')     || s('actor-name'),
+    };
+    this._subscribe();
+    this.setupMerchantPanelActions();
   }
 
   destroy() {
     this._unsubs.forEach((fn) => fn());
     this._unsubs = [];
+    if (this._merchantRetryTimer) clearTimeout(this._merchantRetryTimer);
   }
 
-  // ---------------------------------------------------------------------------
-  // Private — DOM binding
-  // ---------------------------------------------------------------------------
-
-  _bindElements() {
-    const s = (attr) => this.container?.querySelector(`[data-merchant="${attr}"]`) ?? null;
-    this._el = {
-      select:         s('select'),
-      name:           s('name'),
-      portrait:       s('portrait'),
-      portraitWrap:   s('portrait-wrap'),
-      role:           s('role'),
-      currency:       s('player-currency'),
-      filter:         s('filter'),
-      stockGrid:      s('stock-grid'),
-      empty:          s('empty'),
-      status:         s('status'),
-    };
+  _subscribe() {
+    this._unsubs.push(
+      this.bus.on('room:changed',           (d) => this.buildRoomMerchantEntries(d?.roomId)),
+      this.bus.on('room:occupants-changed',  (d) => this.buildRoomMerchantEntries(d?.roomId)),
+      this.bus.on('merchant:stock-loaded',   (d) => this.renderMerchantPanel(d?.context)),
+    );
   }
 
-  _bindEvents() {
-    const { select, filter, stockGrid } = this._el;
-
-    if (select) {
-      select.addEventListener('change', () => {
-        this._selectMerchant(select.value || null);
-      });
-    }
-
-    if (filter) {
-      filter.addEventListener('input', () => {
-        this._filterText = filter.value ?? '';
-        this._applyFilter();
-      });
-    }
-
-    if (stockGrid) {
-      stockGrid.addEventListener('click', (e) => {
-        const btn = e.target?.closest?.('[data-merchant-buy]');
-        if (!btn || btn.disabled) return;
-        this.bus.emit('user:purchase-requested', {
-          merchantId: this._activeMerchantId,
-          itemId:     btn.dataset.itemId,
-          itemName:   btn.dataset.itemName,
-          price:      Number(btn.dataset.price ?? 0),
-        });
-      });
+  // syncMerchantContextIntoInventoryPanel: delegate to bound inventoryPanel if available
+  _syncInventory(context) {
+    if (this._inventoryPanel?.renderInventoryPanel) {
+      this._inventoryPanel.renderInventoryPanel(context);
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Private — state management
-  // ---------------------------------------------------------------------------
-
-  _onOccupantsChanged(occupants) {
-    this._merchants = occupants.filter((occ) => occ?.presentation?.is_merchant);
-
-    if (!this._merchants.length) {
-      this._activeMerchantId = null;
-      this._renderEmpty('No merchants are present in this room.');
+  setupMerchantPanelActions() {
+    if (typeof document === 'undefined' || document.body?.dataset.merchantPanelBound === 'true') {
       return;
     }
 
-    // Auto-select first or reconfirm existing selection
-    const ids = this._merchants.map((m) => m.occupant_id);
-    if (!this._activeMerchantId || !ids.includes(this._activeMerchantId)) {
-      this._activeMerchantId = this._merchants[0].occupant_id;
-    }
-
-    this._populateSelect();
-    this._renderMerchant();
-  }
-
-  _selectMerchant(occupantId) {
-    if (!occupantId) return;
-    const found = this._merchants.find((m) => m.occupant_id === occupantId);
-    if (!found) return;
-    this._activeMerchantId = occupantId;
-    if (this._el.select) this._el.select.value = occupantId;
-    this._filterText = '';
-    if (this._el.filter) this._el.filter.value = '';
-    this._renderMerchant();
-  }
-
-  _populateSelect() {
-    const sel = this._el.select;
-    if (!sel) return;
-    sel.innerHTML = this._merchants.map((m) =>
-      `<option value="${this._esc(m.occupant_id)}">${this._esc(m.label ?? m.occupant_id)}</option>`
-    ).join('');
-    sel.value = this._activeMerchantId ?? '';
-    sel.style.display = this._merchants.length > 1 ? '' : 'none';
-  }
-
-  // ---------------------------------------------------------------------------
-  // Private — rendering
-  // ---------------------------------------------------------------------------
-
-  _renderMerchant() {
-    const merchant = this._merchants.find((m) => m.occupant_id === this._activeMerchantId);
-    if (!merchant) {
-      this._renderEmpty('Merchant not found.');
-      return;
-    }
-
-    const pres = merchant.presentation ?? {};
-    const name = String(merchant.label ?? 'Merchant').trim();
-    const role = String(pres.role ?? '').trim();
-    const portraitUrl = pres.portrait_url ?? null;
-    const currency = pres.player_currency ?? {};
-    const stock = Array.isArray(pres.stock) ? pres.stock : [];
-
-    if (this._el.name)   this._el.name.textContent   = name;
-    if (this._el.role)   this._el.role.textContent   = role || 'Merchant';
-
-    if (this._el.portrait) {
-      if (portraitUrl) {
-        this._el.portrait.src = portraitUrl;
-        this._el.portrait.alt = `${name} portrait`;
-        this._el.portrait.hidden = false;
-      } else {
-        this._el.portrait.hidden = true;
+    document.body.dataset.merchantPanelBound = 'true';
+    this.logMerchantPanelTrace('handler-bound', {
+      scope: 'document',
+      panelSelector: '#game-panel-merchant',
+    });
+    document.addEventListener('change', (event) => {
+      if (event.target?.id !== 'merchant-entity-select') {
+        return;
       }
-    }
+      this.currentMerchantRef = event.target.value || null;
+      this.currentMerchantContext = null;
+      this.resetMerchantCatalogSearch();
+      this.logMerchantPanelTrace('merchant-selected', {
+        merchantRef: this.currentMerchantRef,
+      });
+      this.loadMerchantPanel(true);
+    });
 
-    if (this._el.currency) {
-      const gp = Number(currency.gp ?? 0);
-      const sp = Number(currency.sp ?? 0);
-      const cp = Number(currency.cp ?? 0);
-      const parts = [];
-      if (gp) parts.push(`${gp} gp`);
-      if (sp) parts.push(`${sp} sp`);
-      if (cp) parts.push(`${cp} cp`);
-      this._el.currency.textContent = parts.join(', ') || '—';
-    }
+    document.addEventListener('input', (event) => {
+      if (event.target?.id !== 'merchant-item-filter') {
+        return;
+      }
+      this.currentMerchantFilterText = String(event.target.value || '').trim();
+      this.logMerchantPanelTrace('filter-changed', {
+        query: this.currentMerchantFilterText || null,
+      });
+      this.resetMerchantCatalogSearch();
+      this.renderMerchantPanel(this.currentMerchantContext);
+    });
 
-    this._renderStock(stock);
-  }
-
-  /**
-   * @param {Array} stock
-   * @private
-   */
-  _renderStock(stock) {
-    if (this._el.empty)     this._el.empty.hidden     = stock.length > 0;
-    if (this._el.stockGrid) {
-      this._el.stockGrid.innerHTML = stock.map((item) => this._itemCardHtml(item)).join('');
-      this._el.stockGrid.hidden = stock.length === 0;
-    }
-    if (this._el.status) this._el.status.textContent = '';
-    this._applyFilter();
-  }
-
-  _renderEmpty(message) {
-    if (this._el.empty) {
-      this._el.empty.hidden = false;
-      this._el.empty.textContent = message;
-    }
-    if (this._el.stockGrid) {
-      this._el.stockGrid.innerHTML = '';
-      this._el.stockGrid.hidden = true;
-    }
-    if (this._el.name)    this._el.name.textContent    = '';
-    if (this._el.role)    this._el.role.textContent    = '';
-    if (this._el.status)  this._el.status.textContent  = '';
-    if (this._el.select)  this._el.select.style.display = 'none';
-  }
-
-  _applyFilter() {
-    if (!this._el.stockGrid) return;
-    const q = this._filterText.toLowerCase().trim();
-    this._el.stockGrid.querySelectorAll('.merchant-item-card').forEach((card) => {
-      const hay = (card.dataset.searchText ?? card.textContent).toLowerCase();
-      card.hidden = !!(q && !hay.includes(q));
+    document.addEventListener('click', (event) => {
+      const panel = event.target.closest('#game-panel-merchant');
+      if (!panel) {
+        return;
+      }
+      const backroomButton = event.target.closest('[data-merchant-backroom-search]');
+      if (backroomButton) {
+        event.preventDefault();
+        this.triggerMerchantCatalogSearch();
+        return;
+      }
+      const button = event.target.closest('[data-merchant-action]');
+      if (!button) {
+        return;
+      }
+      event.preventDefault();
+      this.logMerchantPanelTrace('trade-click', {
+        action: button.dataset.merchantAction || null,
+        itemId: button.dataset.itemId || null,
+        itemInstanceId: button.dataset.itemInstanceId || null,
+        merchantRef: this.currentMerchantRef,
+      });
+      this.dispatchMerchantAction(button);
     });
   }
 
-  /**
-   * @param {{ item_id, item_name, price, quantity, description, item_type }} item
-   * @returns {string} HTML
-   * @private
-   */
-  _itemCardHtml(item) {
-    const name  = String(item?.item_name ?? item?.name ?? 'Item').trim();
-    const price = Number(item?.price ?? 0);
-    const qty   = item?.quantity != null ? Number(item.quantity) : null;
-    const desc  = String(item?.description ?? '').trim();
-    const type  = String(item?.item_type ?? item?.type ?? '').trim();
-    const searchText = `${name} ${desc} ${type}`.toLowerCase();
-    const priceLabel = price ? `${price} gp` : 'Free';
-    const qtyLabel   = qty != null ? `Qty: ${qty}` : '';
+  logMerchantPanelTrace(stage, details = {}) {
+    console.log('[MerchantPanel]', {
+      stage,
+      timestamp: new Date().toISOString(),
+      ...details,
+    });
+  }
 
-    return `<div class="merchant-item-card" data-search-text="${this._esc(searchText)}">
-      <div class="merchant-item-card__info">
-        <span class="merchant-item-card__name">${this._esc(name)}</span>
-        ${type ? `<span class="merchant-item-card__type">${this._esc(type)}</span>` : ''}
-        ${desc ? `<p class="merchant-item-card__desc">${this._esc(desc)}</p>` : ''}
-        <span class="merchant-item-card__meta">${this._esc([priceLabel, qtyLabel].filter(Boolean).join(' • '))}</span>
+  clearMerchantPanelRetry() {
+    if (this.merchantPanelRetryTimer) {
+      window.clearTimeout(this.merchantPanelRetryTimer);
+      this.merchantPanelRetryTimer = null;
+    }
+    this.merchantPanelRetryAttempts = 0;
+  }
+
+  resetMerchantCatalogSearch() {
+    this.currentMerchantCatalogSearch = {
+      query: '',
+      roomId: null,
+      merchantRef: null,
+      status: 'idle',
+      results: [],
+      error: '',
+    };
+  }
+
+  async triggerMerchantCatalogSearch() {
+    const context = this.currentMerchantContext;
+    const merchant = context?.merchant || null;
+    const roomId = this.currentMerchantRoomId || null;
+    const merchantRef = this.currentMerchantRef || null;
+    const filterText = String(this.currentMerchantFilterText || '').trim().toLowerCase();
+    const stock = Array.isArray(context?.stock) ? context.stock : [];
+    const filteredStock = filterText
+      ? stock.filter((item) => this.buildMerchantItemSearchText(item).includes(filterText))
+      : stock;
+    const sellableInventory = Array.isArray(context?.player?.sellable_inventory) ? context.player.sellable_inventory : [];
+    const filteredSellableInventory = filterText
+      ? sellableInventory.filter((item) => this.buildMerchantItemSearchText(item).includes(filterText))
+      : sellableInventory;
+
+    if (!merchant || !roomId || !merchantRef || !filterText || filteredStock.length > 0 || filteredSellableInventory.length > 0 || typeof fetch !== 'function') {
+      return;
+    }
+
+    this.currentMerchantCatalogSearch = {
+      query: filterText,
+      roomId,
+      merchantRef,
+      status: 'loading',
+      results: [],
+      error: '',
+    };
+    this.renderMerchantPanel(this.currentMerchantContext);
+    await this.loadMerchantCatalogSearch(filterText, roomId, merchantRef);
+  }
+
+  async loadMerchantCatalogSearch(query, roomId, merchantRef) {
+    const hexmap = this.stateManager?.hexmap || null;
+    const campaignId = Number(hexmap?.resolveCampaignId?.() || 0);
+    if (!campaignId || !roomId || !merchantRef || !query) {
+      this.resetMerchantCatalogSearch();
+      this.renderMerchantPanel(this.currentMerchantContext);
+      return;
+    }
+
+    const requestToken = ++this.merchantCatalogSearchRequestToken;
+    try {
+      const params = new URLSearchParams({ query });
+      const response = await fetch(`/api/campaign/${encodeURIComponent(campaignId)}/room/${encodeURIComponent(roomId)}/merchant/${encodeURIComponent(merchantRef)}/search?${params.toString()}`, {
+        headers: {
+          'Accept': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+        credentials: 'same-origin',
+      });
+      const result = await response.json().catch(() => ({}));
+      if (requestToken !== this.merchantCatalogSearchRequestToken) {
+        return;
+      }
+      if (!response.ok || !result?.success) {
+        throw new Error(result?.error || 'Merchant catalog search failed.');
+      }
+
+      this.currentMerchantCatalogSearch = {
+        query,
+        roomId,
+        merchantRef,
+        status: Array.isArray(result?.items) && result.items.length > 0 ? 'loaded' : 'not_found',
+        results: Array.isArray(result?.items) ? result.items : [],
+        error: '',
+      };
+    } catch (error) {
+      if (requestToken !== this.merchantCatalogSearchRequestToken) {
+        return;
+      }
+      this.currentMerchantCatalogSearch = {
+        query,
+        roomId,
+        merchantRef,
+        status: 'error',
+        results: [],
+        error: error?.message || 'Merchant catalog search failed.',
+      };
+    }
+
+    this.renderMerchantPanel(this.currentMerchantContext);
+  }
+
+  scheduleMerchantPanelRetry(reason = 'room-pending') {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    if (this.merchantPanelRetryTimer || this.activeGameShellTab !== 'merchant') {
+      return;
+    }
+    if (this.merchantPanelRetryAttempts >= 8) {
+      this.logMerchantPanelTrace('load-retry-aborted', {
+        reason,
+        attempts: this.merchantPanelRetryAttempts,
+      });
+      return;
+    }
+
+    this.merchantPanelRetryAttempts += 1;
+    const attempt = this.merchantPanelRetryAttempts;
+    this.logMerchantPanelTrace('load-retry-scheduled', {
+      reason,
+      attempt,
+    });
+    this.merchantPanelRetryTimer = window.setTimeout(() => {
+      this.merchantPanelRetryTimer = null;
+      this.loadMerchantPanel(true);
+    }, 500);
+  }
+
+  resolveActiveMerchantCharacterId() {
+    const hexmap = this.stateManager?.hexmap || null;
+    const candidates = [
+      this.currentCharacterInventoryContext?.characterId,
+      hexmap?.launchContext?.character_id,
+      hexmap?.launchCharacter?.id,
+      hexmap?.launchCharacter?.character_id,
+    ];
+
+    for (const candidate of candidates) {
+      const numeric = Number(candidate || 0);
+      if (Number.isFinite(numeric) && numeric > 0) {
+        return numeric;
+      }
+    }
+
+    return null;
+  }
+
+  entityLooksMerchant(entity) {
+    if (!entity || String(entity?.entity_type || '').trim().toLowerCase() !== 'npc') {
+      return false;
+    }
+
+    const metadata = entity?.state?.metadata || {};
+    const descriptor = [
+      metadata.display_name,
+      metadata.name,
+      metadata.role,
+      metadata.occupation,
+      metadata.description,
+      metadata.content_id,
+      metadata.runtime_entity_id,
+      entity?.state?.content_id,
+      entity?.state?.runtime_entity_id,
+      entity?.entity_ref?.content_id,
+      entity?.entity_instance_id,
+      entity?.instance_id,
+      entity?.id,
+    ].map((value) => String(value || '').toLowerCase()).join(' ');
+
+    return [
+      'merchant',
+      'vendor',
+      'shop',
+      'shopkeeper',
+      'barkeep',
+      'bartender',
+      'keeper',
+      'innkeeper',
+      'tavern',
+      'bar',
+      'blacksmith',
+      'smith',
+      'armorer',
+      'apothecary',
+      'alchemist',
+      'herbalist',
+      'trader',
+    ].some((keyword) => descriptor.includes(keyword))
+      || Boolean(entity?.state?.merchant_enabled || entity?.state?.merchant?.enabled || entity?.state?.merchant_stock);
+  }
+
+  buildRoomMerchantEntries(roomId = null) {
+    const hexmap = this.stateManager?.hexmap || null;
+    const resolvedRoomId = roomId || hexmap?.resolveActiveRoomId?.() || null;
+    if (!resolvedRoomId) {
+      return [];
+    }
+
+    const canonicalOccupants = typeof hexmap?.getVisualOccupants === 'function'
+      ? hexmap.getVisualOccupants()
+      : [];
+    const merchantOccupants = canonicalOccupants.filter((occupant) => {
+      if (String(occupant?.room_id || '') !== resolvedRoomId) {
+        return false;
+      }
+      if (hexmap?.isVisualOccupantVisible?.(occupant) === false) {
+        return false;
+      }
+      return occupant?.presentation?.is_merchant === true;
+    });
+
+    if (merchantOccupants.length === 0) {
+      return [];
+    }
+
+    const entries = [];
+    const seen = new Set();
+    merchantOccupants.forEach((occupant) => {
+      const entityId = String(occupant?.occupant_id || '').trim();
+      if (!entityId || seen.has(entityId)) {
+        return;
+      }
+      seen.add(entityId);
+
+      entries.push({
+        entityId,
+        name: String(occupant?.label || entityId).trim(),
+        summary: String(occupant?.presentation?.role || 'Merchant').trim(),
+        portraitUrl: occupant?.presentation?.portrait_url || '',
+      });
+    });
+
+    entries.sort((left, right) => left.name.localeCompare(right.name));
+    return entries;
+  }
+
+  buildMerchantItemSearchText(item = {}) {
+    const catalogItem = item?.catalog_item && typeof item.catalog_item === 'object' ? item.catalog_item : {};
+    return [
+      item?.name,
+      item?.item_id,
+      item?.type,
+      item?.subtype,
+      item?.bulk,
+      item?.level,
+      item?.description,
+      item?.source,
+      item?.blocked_message,
+      catalogItem?.description,
+      catalogItem?.type,
+      catalogItem?.subtype,
+    ]
+      .map((value) => String(value || '').trim().toLowerCase())
+      .filter(Boolean)
+      .join(' ');
+  }
+
+  buildMerchantItemMetaHtml(item = {}, options = {}) {
+    const {
+      quantityLabel = '',
+      availabilityLabel = '',
+      descriptionOverride = '',
+    } = options;
+    const catalogItem = item?.catalog_item && typeof item.catalog_item === 'object' ? item.catalog_item : {};
+    const summaryParts = [
+      item?.type,
+      item?.subtype,
+      item?.bulk ? `Bulk ${item.bulk}` : '',
+      item?.level ? `Lvl ${item.level}` : '',
+      quantityLabel,
+      availabilityLabel,
+      item?.source ? `Source ${item.source}` : '',
+    ].filter(Boolean);
+    const description = String(descriptionOverride || item?.description || catalogItem?.description || '').trim();
+    return [
+      summaryParts.length > 0 ? `<div class="merchant-item__meta">${escapeQuestHtml(summaryParts.join(' · '))}</div>` : '',
+      description ? `<div class="merchant-item__meta">${escapeQuestHtml(description)}</div>` : '',
+    ].filter(Boolean).join('');
+  }
+
+  resolveMerchantCategoryLabel(item = {}) {
+    const type = String(item?.type || item?.item_type || '').trim();
+    const subtype = String(item?.subtype || '').trim();
+    const rawLabel = subtype || type || 'miscellaneous';
+    return rawLabel
+      .replace(/[_-]+/g, ' ')
+      .replace(/\b\w/g, (char) => char.toUpperCase());
+  }
+
+  groupMerchantItemsByCategory(items = []) {
+    const groups = new Map();
+    items.forEach((item) => {
+      const categoryLabel = this.resolveMerchantCategoryLabel(item);
+      if (!groups.has(categoryLabel)) {
+        groups.set(categoryLabel, []);
+      }
+      groups.get(categoryLabel).push(item);
+    });
+
+    return Array.from(groups.entries())
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([label, entries]) => ({ label, entries }));
+  }
+
+  renderMerchantStockItemHtml(item = {}) {
+    return `<article class="merchant-item">
+      <div class="merchant-item__copy">
+        <div class="merchant-item__name">${escapeQuestHtml(item.name || item.item_id || 'Item')}</div>
+        ${this.buildMerchantItemMetaHtml(item, {
+          availabilityLabel: Number.isInteger(item.quantity_available) ? `Qty ${item.quantity_available}` : '',
+        })}
       </div>
-      <button type="button" class="btn-primary btn-sm merchant-item-card__buy"
-              data-merchant-buy="true"
-              data-item-id="${this._esc(String(item?.item_id ?? ''))}"
-              data-item-name="${this._esc(name)}"
-              data-price="${price}"
-              ${qty === 0 ? 'disabled aria-disabled="true"' : ''}>
-        Buy${price ? ` (${price} gp)` : ''}
-      </button>
-    </div>`;
+      <div class="merchant-item__actions">
+        <span class="merchant-item__price">${escapeQuestHtml(item.price_label || '0 cp')}</span>
+        <button type="button" class="btn btn-primary btn-sm" data-merchant-action="buy" data-item-id="${escapeTooltipAttr(item.item_id || '')}">Buy</button>
+      </div>
+    </article>`;
   }
 
-  /** @private */
-  _esc(str) {
-    return String(str ?? '')
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
+  renderMerchantSellItemHtml(item = {}) {
+    const disabled = item.blocked ? ' disabled aria-disabled="true"' : '';
+    const buttonLabel = item.blocked ? 'Blocked' : 'Sell';
+    return `<article class="merchant-item">
+      <div class="merchant-item__copy">
+        <div class="merchant-item__name">${escapeQuestHtml(item.name || item.item_id || 'Item')}</div>
+        ${this.buildMerchantItemMetaHtml(item, {
+          quantityLabel: item.quantity > 1 ? `Qty ${item.quantity}` : '',
+          descriptionOverride: item.blocked ? (item.blocked_message || 'Cannot sell') : '',
+        })}
+      </div>
+      <div class="merchant-item__actions">
+        <span class="merchant-item__price">${escapeQuestHtml(item.offer_label || '0 cp')}</span>
+        <button type="button" class="btn btn-secondary btn-sm" data-merchant-action="sell" data-item-instance-id="${escapeTooltipAttr(item.item_instance_id || '')}"${disabled}>${escapeQuestHtml(buttonLabel)}</button>
+      </div>
+    </article>`;
   }
+
+  renderMerchantGroupedListHtml(items = [], emptyText, renderItem) {
+    if (!Array.isArray(items) || items.length === 0) {
+      return `<div class="merchant-trade-card__empty">${escapeQuestHtml(emptyText)}</div>`;
+    }
+
+    return this.groupMerchantItemsByCategory(items).map((group) => {
+      return `<details class="merchant-category-group">
+        <summary class="merchant-category-group__summary">
+          <span class="merchant-category-group__label">${escapeQuestHtml(group.label)}</span>
+          <span class="merchant-category-group__count">${escapeQuestHtml(String(group.entries.length))}</span>
+        </summary>
+        <div class="merchant-category-group__items">
+          ${group.entries.map((item) => renderItem.call(this, item)).join('')}
+        </div>
+      </details>`;
+    }).join('');
+  }
+
+  setMerchantStatus(message, tone = 'info') {
+    this.currentMerchantStatus = {
+      tone,
+      message: message || '',
+    };
+    if (this._el.merchantPanelStatus) {
+      this._el.merchantPanelStatus.textContent = message || '';
+      this._el.merchantPanelStatus.dataset.tone = tone;
+    }
+  }
+
+  syncMerchantContextIntoInventoryPanel(context) {
+    const player = context?.player || {};
+    const characterId = Number(player.character_id || 0);
+    if (!characterId || !player.inventory || !this.currentCharacterInventoryContext) {
+      return;
+    }
+
+    if (Number(this.currentCharacterInventoryContext.characterId || 0) !== characterId) {
+      return;
+    }
+
+    const inventory = normalizeInventoryState(player.inventory || {}, player.currency || this.currentCharacterInventoryContext.currency || {});
+    this.currentCharacterInventoryContext = {
+      ...this.currentCharacterInventoryContext,
+      inventory,
+      currency: inventory.currency || player.currency || this.currentCharacterInventoryContext.currency || {},
+    };
+    this.renderInventoryPanel(this.currentCharacterInventoryContext);
+  }
+
+  renderMerchantPanel(context = null) {
+    const merchantEntries = Array.isArray(this.currentMerchantCandidates) ? this.currentMerchantCandidates : [];
+    const merchant = context?.merchant || null;
+    const selectedMerchantEntry = merchantEntries.find((entry) => entry.entityId === this.currentMerchantRef) || merchantEntries[0] || null;
+    const player = context?.player || {};
+    const stock = Array.isArray(context?.stock) ? context.stock : [];
+    const sellableInventory = Array.isArray(player?.sellable_inventory) ? player.sellable_inventory : [];
+    const filterText = String(this.currentMerchantFilterText || '').trim().toLowerCase();
+    const filteredStock = filterText
+      ? stock.filter((item) => this.buildMerchantItemSearchText(item).includes(filterText))
+      : stock;
+    const filteredSellableInventory = filterText
+      ? sellableInventory.filter((item) => this.buildMerchantItemSearchText(item).includes(filterText))
+      : sellableInventory;
+    const searchState = this.currentMerchantCatalogSearch || {};
+    const hasContext = Boolean(context && merchant);
+    const fallbackSearchApplies = filterText
+      && filteredStock.length === 0
+      && filteredSellableInventory.length === 0
+      && searchState.query === filterText
+      && searchState.roomId === this.currentMerchantRoomId
+      && searchState.merchantRef === this.currentMerchantRef;
+    const showBackroomButton = hasContext && filterText && filteredStock.length === 0 && filteredSellableInventory.length === 0 && searchState.status !== 'loaded';
+    const fallbackStock = fallbackSearchApplies && searchState.status === 'loaded' && Array.isArray(searchState.results)
+      ? searchState.results
+      : filteredStock;
+    let stockEmptyText = filterText ? 'No stock items match the current search.' : 'No stock is listed for this merchant.';
+    if (fallbackSearchApplies && searchState.status === 'loading') {
+      stockEmptyText = 'No stock items match the current search. Searching the backroom...';
+    } else if (fallbackSearchApplies && searchState.status === 'not_found') {
+      stockEmptyText = 'No stock items match the current search, and the backroom search came up empty.';
+    } else if (fallbackSearchApplies && searchState.status === 'error') {
+      stockEmptyText = `No stock items match the current search. ${searchState.error || 'Backroom search failed.'}`;
+    }
+    this.logMerchantPanelTrace('render', {
+      merchantRef: this.currentMerchantRef,
+      merchantName: merchant?.name || null,
+      merchantCount: merchantEntries.length,
+      stockCount: fallbackStock.length,
+      sellableCount: filteredSellableInventory.length,
+      filterText: filterText || null,
+      hasContext: Boolean(context && merchant),
+    });
+
+    if (this._el.merchantEntitySelect) {
+      const options = merchantEntries.length > 0
+        ? merchantEntries.map((entry) => `<option value="${escapeTooltipAttr(entry.entityId)}"${entry.entityId === this.currentMerchantRef ? ' selected' : ''}>${escapeQuestHtml(entry.name)}</option>`)
+        : ['<option value="">No merchant available</option>'];
+      this._el.merchantEntitySelect.innerHTML = options.join('');
+      this._el.merchantEntitySelect.disabled = merchantEntries.length === 0;
+    }
+
+    if (this._el.merchantPanelName) {
+      this._el.merchantPanelName.textContent = merchant?.name || selectedMerchantEntry?.name || 'No merchant selected';
+    }
+    if (this._el.merchantPanelSummary) {
+      this._el.merchantPanelSummary.textContent = merchant?.summary || merchant?.role || selectedMerchantEntry?.summary || 'Choose a merchant in the active room to browse stock and sell inventory.';
+    }
+    if (this._el.merchantPanelPortraitWrap && this._el.merchantPanelPortrait) {
+      const merchantPortraitUrl = String(merchant?.portrait_url || merchant?.portrait || selectedMerchantEntry?.portraitUrl || '').trim();
+      if (merchantPortraitUrl) {
+        const merchantName = merchant?.name || selectedMerchantEntry?.name || 'Merchant';
+        this._el.merchantPanelPortrait.src = merchantPortraitUrl;
+        this._el.merchantPanelPortrait.alt = `${merchantName} portrait`;
+        this._el.merchantPanelPortraitWrap.hidden = false;
+      } else {
+        this._el.merchantPanelPortrait.removeAttribute('src');
+        this._el.merchantPanelPortrait.alt = '';
+        this._el.merchantPanelPortraitWrap.hidden = true;
+      }
+    }
+    if (this._el.merchantPanelCurrency) {
+      this._el.merchantPanelCurrency.textContent = `Party coin: ${player?.currency_label || '0 cp'}`;
+    }
+    if (this._el.merchantItemFilter) {
+      this._el.merchantItemFilter.value = this.currentMerchantFilterText || '';
+      this._el.merchantItemFilter.disabled = !hasContext;
+    }
+    if (this._el.merchantBackroomSearch) {
+      this._el.merchantBackroomSearch.hidden = !showBackroomButton;
+      this._el.merchantBackroomSearch.disabled = searchState.status === 'loading';
+      this._el.merchantBackroomSearch.textContent = searchState.status === 'loading'
+        ? 'Searching the backroom...'
+        : 'Search the backroom';
+    }
+    if (this._el.merchantPanelGrid) {
+      this._el.merchantPanelGrid.hidden = !hasContext;
+    }
+    if (this._el.merchantPanelEmpty) {
+      this._el.merchantPanelEmpty.hidden = hasContext;
+      if (!hasContext) {
+        this._el.merchantPanelEmpty.textContent = merchantEntries.length > 0
+          ? 'Select a merchant to load trade details.'
+          : 'No merchant context is active for this room yet.';
+      }
+    }
+
+    if (this._el.merchantStockList) {
+      this._el.merchantStockList.innerHTML = this.renderMerchantGroupedListHtml(
+        fallbackStock,
+        stockEmptyText,
+        this.renderMerchantStockItemHtml
+      );
+    }
+
+    if (this._el.merchantSellList) {
+      this._el.merchantSellList.innerHTML = this.renderMerchantGroupedListHtml(
+        filteredSellableInventory,
+        filterText ? 'No sellable items match the current search.' : 'No sellable inventory is available for the active character.',
+        this.renderMerchantSellItemHtml
+      );
+    }
+  }
+
+  async dispatchMerchantAction(button) {
+    const hexmap = this.stateManager?.hexmap || null;
+    const campaignId = Number(hexmap?.resolveCampaignId?.() || 0);
+    const roomId = hexmap?.resolveActiveRoomId?.() || null;
+    const merchantRef = this.currentMerchantRef;
+    if (!campaignId || !roomId || !merchantRef) {
+      this.setMerchantStatus('Merchant context is not ready yet.', 'error');
+      return;
+    }
+
+    const action = button.dataset.merchantAction || '';
+    const payload = {
+      action,
+      character_id: this.resolveActiveMerchantCharacterId(),
+      quantity: Number(button.dataset.quantity || 1) || 1,
+    };
+    if (button.dataset.itemId) {
+      payload.item_id = button.dataset.itemId;
+    }
+    if (button.dataset.itemInstanceId) {
+      payload.item_instance_id = button.dataset.itemInstanceId;
+    }
+
+    this.logMerchantPanelTrace('trade-submit', {
+      action,
+      campaignId,
+      roomId,
+      merchantRef,
+      payload,
+    });
+    this.setMerchantStatus('Submitting trade...', 'pending');
+
+    try {
+      const response = await fetch(`/api/campaign/${encodeURIComponent(campaignId)}/room/${encodeURIComponent(roomId)}/merchant/${encodeURIComponent(merchantRef)}/transaction`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+        credentials: 'same-origin',
+        body: JSON.stringify(payload),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!result || typeof result !== 'object') {
+        throw new Error('Merchant trade failed.');
+      }
+
+      this.logMerchantPanelTrace('trade-response', {
+        action,
+        merchantRef,
+        ok: response.ok,
+        success: Boolean(result.success),
+        status: result.status || null,
+        message: result.message || result.error || null,
+      });
+      this.currentMerchantContext = result.context || this.currentMerchantContext;
+      this.renderMerchantPanel(this.currentMerchantContext);
+      this.syncMerchantContextIntoInventoryPanel(this.currentMerchantContext);
+      if (!response.ok || !result.success) {
+        this.setMerchantStatus(result.error || result.message || 'Merchant trade failed.', 'error');
+        return;
+      }
+      this.setMerchantStatus(result.message || 'Trade complete.', 'success');
+    } catch (error) {
+      this.logMerchantPanelTrace('trade-error', {
+        action,
+        merchantRef,
+        error: error?.message || String(error),
+      });
+      this.setMerchantStatus(error?.message || 'Merchant trade failed.', 'error');
+    }
+  }
+
 }

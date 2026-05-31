@@ -2,47 +2,32 @@
  * @file panels/PortraitPanel.js
  *
  * Renders room occupant portraits (PCs and NPCs).
- *
- * Data source: canonical occupant API (MapVisualStateProjector output).
- * Occupant shape expected in room:occupants-changed payload:
- *   { occupant_id, content_id, label, occupant_type, presentation: { portrait_url, role } }
- *
- * PC entries sort before NPCs; each group sorted alphabetically.
- *
- * Subscribes to bus events:
- *   room:occupants-changed  — { occupants: Array } re-render portrait cards
- *
- * Fires no bus events (display only).
- *
- * DOM selectors (all optional, graceful degradation):
- *   [data-portrait="room-name"]   Room name label
- *   [data-portrait="count"]       "N occupants" chip
- *   [data-portrait="grid"]        Portrait card container
- *   [data-portrait="placeholder"] Shown when grid is empty
- *
- * @see MerchantPanel — sibling panel, same data source
+ * Methods ported verbatim from hexmap.js UIManager.
  */
 
 export class PortraitPanel {
-  /**
-   * @param {HTMLElement} container
-   * @param {import('../GameEventBus').GameEventBus} bus
-   */
   constructor(container, bus) {
     this.container = container;
     this.bus = bus;
     this._unsubs = [];
     this._el = {};
+    // State carried over from UIManager
+    this.dungeonData = null;
+    this.stateManager = null;
   }
 
-  init() {
-    this._bindElements();
-    this._unsubs.push(
-      this.bus.on('room:occupants-changed', ({ occupants, roomName } = {}) => {
-        this._render(Array.isArray(occupants) ? occupants : [], roomName ?? '');
-      }),
-    );
-    this._render([], '');
+  init(dungeonData, stateManager) {
+    this.dungeonData = dungeonData || {};
+    this.stateManager = stateManager || {};
+    const s = (k) => this.container?.querySelector(`[data-portrait="${k}"]`) || null;
+    const id = (k) => document.getElementById(k);
+    this._el = {
+      roomName:    s('room-name'),
+      count:       s('count'),
+      grid:        s('grid'),
+      placeholder: s('placeholder'),
+    };
+    this._subscribe();
   }
 
   destroy() {
@@ -50,97 +35,153 @@ export class PortraitPanel {
     this._unsubs = [];
   }
 
-  // ---------------------------------------------------------------------------
-  // Private
-  // ---------------------------------------------------------------------------
-
-  _bindElements() {
-    const s = (attr) => this.container?.querySelector(`[data-portrait="${attr}"]`) ?? null;
-    this._el = {
-      roomName:    s('room-name'),
-      count:       s('count'),
-      grid:        s('grid'),
-      placeholder: s('placeholder'),
-    };
+  _subscribe() {
+    this._unsubs.push(
+      this.bus.on('room:changed', (d) => this.loadRoomPortraitsPanel(d?.roomId)),
+      this.bus.on('room:occupants-changed', (d) => this.loadRoomPortraitsPanel(d?.roomId)),
+    );
   }
 
-  /**
-   * Re-render portrait grid for the given occupant list.
-   * @param {Array} occupants
-   * @param {string} roomName
-   * @private
-   */
-  _render(occupants, roomName) {
-    const entries = this._buildEntries(occupants);
-
-    if (this._el.roomName) this._el.roomName.textContent = roomName || 'Current room';
-    if (this._el.count)    this._el.count.textContent    = `${entries.length} occupant${entries.length !== 1 ? 's' : ''}`;
-
-    if (this._el.grid) {
-      this._el.grid.innerHTML = entries.map((e) => this._cardHtml(e)).join('');
-      this._el.grid.hidden = entries.length === 0;
+  buildRoomPortraitEntries(roomId = null) {
+    const hexmap = this.stateManager?.hexmap || null;
+    const resolvedRoomId = roomId || hexmap?.resolveActiveRoomId?.() || null;
+    if (!resolvedRoomId) {
+      return [];
     }
-    if (this._el.placeholder) {
-      this._el.placeholder.hidden = entries.length > 0;
-    }
-  }
 
-  /**
-   * Map raw occupants to normalised entry objects; sort PCs before NPCs, then alpha.
-   * @param {Array} occupants
-   * @returns {Array<{entityId, name, kind, portraitUrl, summary}>}
-   * @private
-   */
-  _buildEntries(occupants) {
-    const seen = new Set();
+    const canonicalOccupants = typeof hexmap?.getVisualOccupants === 'function'
+      ? hexmap.getVisualOccupants()
+      : [];
+    const roomOccupants = canonicalOccupants.filter((occupant) => {
+      if (String(occupant?.room_id || '') !== resolvedRoomId) {
+        return false;
+      }
+      const rawType = String(occupant?.occupant_type || '').trim().toLowerCase();
+      if (!['npc', 'player_character', 'player'].includes(rawType)) {
+        return false;
+      }
+      return hexmap?.isVisualOccupantVisible?.(occupant) !== false;
+    });
+
+    if (roomOccupants.length === 0) {
+      return [];
+    }
+
     const entries = [];
-
-    occupants.forEach((occ) => {
-      const entityId = String(occ?.occupant_id ?? '').trim();
-      if (!entityId || seen.has(entityId)) return;
+    const seen = new Set();
+    roomOccupants.forEach((occupant) => {
+      const entityId = String(occupant?.occupant_id || '').trim();
+      if (!entityId || seen.has(entityId)) {
+        return;
+      }
       seen.add(entityId);
 
-      const rawType = String(occ?.occupant_type ?? '').toLowerCase();
+      const contentId = String(occupant?.content_id || '').trim();
+      const objectDefinition = contentId ? hexmap?.getObjectDefinition?.(contentId) : null;
+      const portraitSpriteId = contentId ? `portrait_${contentId}` : null;
+      const fallbackPortraitSpriteId = typeof objectDefinition?.visual?.sprite_id === 'string'
+        && objectDefinition.visual.sprite_id.startsWith('portrait_')
+        ? objectDefinition.visual.sprite_id
+        : null;
+      const portraitUrl = occupant?.presentation?.portrait_url
+        || (portraitSpriteId ? hexmap?.spriteService?.getCachedUrl?.(portraitSpriteId) : null)
+        || (fallbackPortraitSpriteId ? hexmap?.spriteService?.getCachedUrl?.(fallbackPortraitSpriteId) : null)
+        || null;
+      const name = String(occupant?.label || objectDefinition?.label || contentId || 'Unknown').trim();
+      const rawType = String(occupant?.occupant_type || '').trim().toLowerCase();
+      const kind = rawType === 'npc' ? 'NPC' : 'PC';
+      const summary = String(occupant?.presentation?.role || objectDefinition?.description || '').trim();
+
       entries.push({
         entityId,
-        name:       String(occ?.label ?? occ?.content_id ?? 'Unknown').trim(),
-        kind:       rawType === 'npc' ? 'NPC' : 'PC',
-        portraitUrl: occ?.presentation?.portrait_url ?? null,
-        summary:    String(occ?.presentation?.role ?? '').trim(),
+        name,
+        kind,
+        portraitUrl,
+        summary,
       });
     });
 
-    return entries.sort((a, b) => {
-      if (a.kind !== b.kind) return a.kind === 'PC' ? -1 : 1;
+    entries.sort((a, b) => {
+      if (a.kind !== b.kind) {
+        return a.kind === 'PC' ? -1 : 1;
+      }
       return a.name.localeCompare(b.name);
     });
+    return entries;
   }
 
-  /**
-   * @param {{entityId, name, kind, portraitUrl, summary}} entry
-   * @returns {string} HTML
-   * @private
-   */
-  _cardHtml({ name, kind, portraitUrl, summary }) {
-    const initial = (name.trim()[0] ?? '?').toUpperCase();
-    const imageHtml = portraitUrl
-      ? `<img class="npc-portrait-card__image" src="${this._esc(portraitUrl)}" alt="${this._esc(name)} portrait" loading="lazy">`
-      : `<div class="npc-portrait-card__placeholder" aria-hidden="true">${this._esc(initial)}</div>`;
+  buildRoomPortraitCard(entry = {}) {
+    const card = document.createElement('article');
+    card.className = 'npc-portrait-card';
 
-    return `<article class="npc-portrait-card">
-      <div class="npc-portrait-card__frame">${imageHtml}</div>
-      <h4 class="npc-portrait-card__name">${this._esc(name)}</h4>
-      <p class="npc-portrait-card__meta">${this._esc(kind)}</p>
-      ${summary ? `<p class="npc-portrait-card__summary">${this._esc(summary)}</p>` : ''}
-    </article>`;
+    const frame = document.createElement('div');
+    frame.className = 'npc-portrait-card__frame';
+    if (entry.portraitUrl) {
+      const image = document.createElement('img');
+      image.className = 'npc-portrait-card__image';
+      image.src = entry.portraitUrl;
+      image.alt = `${entry.name || 'Room occupant'} portrait`;
+      frame.appendChild(image);
+    } else {
+      const placeholder = document.createElement('div');
+      placeholder.className = 'npc-portrait-card__placeholder';
+      placeholder.textContent = String(entry.name || '?').trim().charAt(0).toUpperCase() || '?';
+      frame.appendChild(placeholder);
+    }
+
+    const name = document.createElement('h4');
+    name.className = 'npc-portrait-card__name';
+    name.textContent = entry.name || 'Unknown';
+
+    const meta = document.createElement('p');
+    meta.className = 'npc-portrait-card__meta';
+    meta.textContent = entry.kind || 'Room occupant';
+
+    const summary = document.createElement('p');
+    summary.className = 'npc-portrait-card__summary';
+    summary.textContent = entry.summary || 'No additional summary available.';
+
+    card.append(frame, name, meta, summary);
+    return card;
   }
 
-  /** @private */
-  _esc(str) {
-    return String(str ?? '')
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
+  loadRoomPortraitsPanel(roomId = null) {
+    if (!this._el.npcPortraitsPanel) {
+      return;
+    }
+
+    const hexmap = this.stateManager?.hexmap || null;
+    const resolvedRoomId = roomId || hexmap?.resolveActiveRoomId?.() || null;
+    const visualRooms = typeof hexmap?.getVisualRooms === 'function' ? hexmap.getVisualRooms() : {};
+    const room = resolvedRoomId
+      ? visualRooms[resolvedRoomId] || null
+      : hexmap?.getActiveRoomData?.() || null;
+    const entries = this.buildRoomPortraitEntries(resolvedRoomId);
+
+    if (this._el.npcPortraitsName) {
+      this._el.npcPortraitsName.textContent = room?.name || 'Current room';
+    }
+    if (this._el.npcPortraitsMeta) {
+      this._el.npcPortraitsMeta.textContent = this.formatPortraitsMeta(room, entries.length);
+    }
+    if (this._el.npcPortraitsStatus) {
+      this._el.npcPortraitsStatus.textContent = entries.length > 0 ? `${entries.length} Loaded` : 'Unavailable';
+    }
+    if (this._el.npcPortraitsPlaceholderText) {
+      this._el.npcPortraitsPlaceholderText.textContent = entries.length > 0
+        ? ''
+        : 'No PC or NPC portraits are available for the active room yet.';
+    }
+    if (this._el.npcPortraitsGrid) {
+      this._el.npcPortraitsGrid.innerHTML = '';
+      this._el.npcPortraitsGrid.hidden = entries.length === 0;
+      entries.forEach((entry) => {
+        this._el.npcPortraitsGrid.appendChild(this.buildRoomPortraitCard(entry));
+      });
+    }
+    if (this._el.npcPortraitsPlaceholder) {
+      this._el.npcPortraitsPlaceholder.hidden = entries.length > 0;
+    }
   }
+
 }
