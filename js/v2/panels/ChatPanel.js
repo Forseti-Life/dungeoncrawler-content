@@ -92,6 +92,13 @@ export class ChatPanel {
     this.roomChatCache = new Map();
     this.roomTurnSequenceCache = new Map();
     this.sessionViewCache = new Map();
+    this.roomChatInflight = new Map();
+    this.sessionViewInflight = new Map();
+    this.chatCacheTtlMs = 15000;
+    this.chatSessionApi = null;
+    this.roomChatBusy = false;
+    this.roomChatQueueDraining = false;
+    this.roomChatDeferredMessages = [];
   }
 
   init(dungeonData, stateManager) {
@@ -206,7 +213,7 @@ export class ChatPanel {
           sendButton.textContent = 'Sending...';
         }
         try {
-          this.bus.emit('user:session-message-submitted', { characterName, message, characterId });
+          await this.postSessionViewMessage(characterName, message, characterId);
         } catch (error) {
           console.error('Failed to send session message:', error);
           this.appendChatLine('System', `Failed to send: ${error.message}`, 'system');
@@ -221,15 +228,26 @@ export class ChatPanel {
         return;
       }
 
-      // Emit to GameShell which handles the API call and emits chat:message-received
-      this.bus.emit('user:chat-submitted', {
-        message,
-        speaker: characterName,
-        characterId,
-        campaignId,
-        roomId,
-        channel: this.activeChannel || 'room',
-      });
+      try {
+        await this.submitRoomChatMessage(message, {
+          speaker: characterName,
+          characterId,
+          campaignId,
+          roomId,
+          channelKey: this.activeChannel || 'room',
+        });
+      } catch (error) {
+        if (error.message.includes('403')) {
+          console.warn('Chat message send denied (permission)');
+        } else if (/not your turn/i.test(error.message)) {
+          this.appendChatLine('System', error.message, 'system');
+          input.value = message;
+        } else {
+          console.error('Failed to send chat message:', error);
+          this.appendChatLine('System', `Failed to send message: ${error.message}`, 'system');
+          input.value = message;
+        }
+      }
     });
 
     // Chat history will be loaded when room becomes active
@@ -255,6 +273,223 @@ export class ChatPanel {
       || hexmap?.launchContext?.character_id
       || 0
     ) || null;
+  }
+
+  async submitRoomChatMessage(message, options = {}) {
+    const trimmedMessage = typeof message === 'string' ? message.trim() : '';
+    if (!trimmedMessage) {
+      throw new Error('Message is required.');
+    }
+    if (trimmedMessage.length > 2000) {
+      throw new Error('Message too long (max 2000 characters)');
+    }
+
+    const campaignId = options.campaignId || this.stateManager?.hexmap?.resolveCampaignId?.() || null;
+    const roomId = options.roomId || this.stateManager?.hexmap?.resolveActiveRoomId?.() || null;
+    const characterData = this.stateManager?.hexmap?.characterData || {};
+    const characterName = options.speaker || characterData.name || 'You';
+    const characterId = options.characterId ?? this.resolveActiveChatCharacterId();
+    const activeChannelKey = options.channelKey || 'room';
+
+    if (!campaignId) {
+      throw new Error('Unable to send message: No active campaign');
+    }
+    if (!roomId) {
+      throw new Error('Unable to send message: No active room');
+    }
+
+    const clientRequestId = options.clientRequestId || `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const chatTarget = this.buildChatRenderTarget({
+      view: 'room',
+      channelKey: activeChannelKey,
+      context: {
+        campaignId,
+        roomId,
+        characterId,
+      },
+    });
+    const queueOnly = this.roomChatBusy || this.roomChatQueueDraining;
+    const pendingResponder = this.resolvePendingResponder(trimmedMessage, {
+      channelKey: activeChannelKey,
+      roomId,
+      target: chatTarget,
+    });
+    const pendingRequest = this.buildPendingChatRequest(clientRequestId, characterName, trimmedMessage, roomId, {
+      includePlayer: true,
+      includePlaceholder: !queueOnly,
+      placeholderText: '...',
+      placeholderSpeaker: activeChannelKey === 'room' ? 'Narrator' : pendingResponder.speaker,
+      placeholderType: pendingResponder.type,
+      target: chatTarget,
+    });
+
+    this.prefetchSessionViews();
+    this.bus.emit('room:view-reload-requested', { roomId, force: true, preserveExisting: true });
+
+    try {
+      if (!queueOnly) {
+        this.roomChatBusy = true;
+      }
+      if (queueOnly) {
+        this.roomChatDeferredMessages.push({
+          requestId: clientRequestId,
+          speaker: characterName,
+          message: trimmedMessage,
+          roomId,
+          campaignId,
+          characterId,
+          channel: activeChannelKey,
+          pendingRequest,
+          target: chatTarget,
+        });
+        this.updateQueuedChatStatus(this.roomChatDeferredMessages.length);
+        return {
+          success: true,
+          data: {
+            queued: true,
+          },
+        };
+      }
+      return await this.postChatMessage(campaignId, roomId, characterName, trimmedMessage, characterId, {
+        clientRequestId,
+        pendingRequest,
+        channelKey: activeChannelKey,
+        context: chatTarget.context,
+        target: chatTarget,
+      });
+    } catch (error) {
+      this.settlePendingChatRequest(pendingRequest, {
+        removePlayer: true,
+        removePlaceholder: true,
+      });
+      throw error;
+    } finally {
+      if (!queueOnly) {
+        if (this.roomChatDeferredMessages.length > 0) {
+          this.roomChatQueueDraining = true;
+          this.roomChatBusy = false;
+          try {
+            await this.flushDeferredRoomMessages(campaignId, roomId, characterId);
+          } finally {
+            this.roomChatBusy = false;
+            this.roomChatQueueDraining = false;
+          }
+        } else {
+          this.roomChatBusy = false;
+        }
+      }
+    }
+  }
+
+  async postChatMessage(campaignId, roomId, speaker, message, characterId = null, options = {}) {
+    const supportsStreaming = typeof ReadableStream !== 'undefined';
+    const shouldStream = supportsStreaming && !options.suppressGm;
+    const chatTarget = this.buildChatRenderTarget(options.target || {
+      view: 'room',
+      channelKey: options.channelKey,
+      context: options.context,
+    });
+    const response = await fetch(
+      `/api/campaign/${encodeURIComponent(campaignId)}/room/${encodeURIComponent(roomId)}/chat`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+        credentials: 'same-origin',
+        body: JSON.stringify({
+          speaker,
+          message,
+          type: 'player',
+          character_id: characterId,
+          channel: chatTarget.channelKey,
+          stream: shouldStream,
+          client_request_id: options.clientRequestId || '',
+          suppress_gm: Boolean(options.suppressGm),
+          continue_gm: Boolean(options.continueGm),
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      const result = await response.json().catch(() => ({}));
+      throw new Error(result.error || `HTTP ${response.status}`);
+    }
+
+    const contentType = response.headers.get('content-type') || '';
+    if (contentType.includes('application/x-ndjson') && response.body?.getReader) {
+      return await this.consumeStreamedChatResponse(response, {
+        ...options,
+        target: chatTarget,
+      });
+    }
+
+    const result = await response.json();
+    if (!result.success) {
+      throw new Error(result.error || 'Unknown error');
+    }
+    if (Array.isArray(result.data?.turn_sequence)) {
+      this.rememberRoomTurnSequence(result.data.turn_sequence, chatTarget.context, chatTarget.channelKey);
+    }
+
+    const pending = options.pendingRequest || null;
+    if (pending) {
+      this.settlePendingChatRequest(pending, {
+        removePlayer: false,
+        removePlaceholder: !result.data?.gm_response,
+      });
+    } else {
+      this.appendChatLineToTarget(chatTarget, speaker, message, 'player');
+    }
+
+    if (result.data?.turn_logs?.length) {
+      for (const logMsg of result.data.turn_logs) {
+        this.appendChatLineToTarget(chatTarget, logMsg.speaker || 'System', logMsg.message || '', logMsg.type || 'system');
+      }
+    }
+
+    if (result.data?.gm_response) {
+      this.renderPendingGmResponse(pending, result.data.gm_response);
+    } else if (!options.suppressGm && !options.continueGm) {
+      await this.loadChatHistory({ force: true });
+    }
+
+    if (result.data?.npc_interjections?.length) {
+      for (const npcMsg of result.data.npc_interjections) {
+        this.appendChatLineToTarget(chatTarget, npcMsg.speaker, npcMsg.message, 'npc');
+      }
+    }
+
+    const questHexmap = this.stateManager?.hexmap || null;
+    let questJournalRefreshed = false;
+    if (result.data?.quest_updates?.length) {
+      await questHexmap?.applyQuestUpdates?.(result.data.quest_updates);
+      questJournalRefreshed = true;
+    }
+
+    if (!questJournalRefreshed && typeof questHexmap?.refreshQuestJournalFromApi === 'function') {
+      await questHexmap.refreshQuestJournalFromApi();
+    }
+
+    if (result.data?.navigation?.target_room_id) {
+      this.handleNavigationResult(result.data.navigation);
+    }
+
+    const pinnedRoomId = this.resolvePinnedChatRoomTarget(chatTarget?.context?.roomId, roomId);
+    if (pinnedRoomId) {
+      this.bus.emit('room:view-reload-requested', { roomId: pinnedRoomId, force: true, preserveExisting: true });
+    }
+
+    this.invalidateChatCaches({
+      room: true,
+      sessionViews: ['narrative', 'party', 'gm-private', 'system-log'],
+    });
+    options.onPrimaryResponse?.(result);
+    this.logChatTimingSummary(result, pending);
+    this.prefetchSessionViews();
+    return result;
   }
 
   setupChannelTabs() {
@@ -1533,6 +1768,78 @@ export class ChatPanel {
     return { speaker: 'Game Master', type: 'npc' };
   }
 
+  async flushDeferredRoomMessages(campaignId, roomId, characterId = null) {
+    if (this.roomChatBusy || !this.roomChatDeferredMessages.length) {
+      return;
+    }
+    const nextDeferred = this.roomChatDeferredMessages.shift() || null;
+    this.updateQueuedChatStatus(this.roomChatDeferredMessages.length);
+    if (!nextDeferred) {
+      return;
+    }
+
+    this.roomChatBusy = true;
+    const targetChannel = nextDeferred.channel || 'room';
+    const targetRoomId = nextDeferred.roomId || roomId;
+    const targetCampaignId = nextDeferred.campaignId || campaignId;
+    const targetCharacterId = nextDeferred.characterId ?? characterId;
+    const targetContext = {
+      campaignId: targetCampaignId,
+      roomId: targetRoomId,
+      characterId: targetCharacterId,
+    };
+    const target = nextDeferred.target || this.buildChatRenderTarget({
+      view: 'room',
+      channelKey: targetChannel,
+      context: targetContext,
+    });
+    const requestId = nextDeferred.requestId || `chat-followup-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const pendingRequest = nextDeferred.pendingRequest || this.buildPendingChatRequest(
+      requestId,
+      nextDeferred.speaker || '',
+      nextDeferred.message || '',
+      targetRoomId,
+      {
+        includePlayer: true,
+        includePlaceholder: true,
+        placeholderText: '...',
+        placeholderSpeaker: 'Narrator',
+        placeholderType: 'npc',
+        target,
+      }
+    );
+
+    try {
+      await this.postChatMessage(
+        targetCampaignId,
+        targetRoomId,
+        nextDeferred.speaker || 'You',
+        nextDeferred.message || '',
+        targetCharacterId,
+        {
+          clientRequestId: requestId,
+          pendingRequest,
+          channelKey: targetChannel,
+          context: targetContext,
+          target,
+        }
+      );
+    } catch (error) {
+      console.error('Failed to send queued room turn:', error);
+      this.settlePendingChatRequest(pendingRequest, {
+        removePlayer: true,
+        removePlaceholder: true,
+      });
+      this.appendChatLine('System', `Failed to send queued turn: ${error.message}`, 'system');
+    } finally {
+      this.roomChatBusy = false;
+      if (this.roomChatDeferredMessages.length > 0) {
+        this.updateQueuedChatStatus(this.roomChatDeferredMessages.length);
+        void this.flushDeferredRoomMessages(targetCampaignId, targetRoomId, targetCharacterId);
+      }
+    }
+  }
+
   logChatTimingSummary(result, pending = null) {
     const timing = result?.data?.timing || null;
     const debugTrace = result?.data?.debug_trace || null;
@@ -2094,9 +2401,8 @@ export class ChatPanel {
   }
 
   async loadSessionViewMessages(view, options = {}) {
-    // Room view uses bus to request history from GameShell
     if (view === 'room') {
-      this.bus.emit('user:chat-history-requested', options);
+      await this.loadChatHistory(options);
       return;
     }
 
@@ -2171,7 +2477,13 @@ export class ChatPanel {
       if (context.characterId) {
         url += `&character_id=${context.characterId}`;
       }
-      const response = await fetch(url);
+      const response = await fetch(url, {
+        headers: {
+          'Accept': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+        credentials: 'same-origin',
+      });
 
       if (response.status === 403) {
         console.warn('Chat access denied for campaign:', context.campaignId);
@@ -2198,6 +2510,148 @@ export class ChatPanel {
         this.roomChatInflight.delete(cacheKey);
       }
     }
+  }
+
+  async postSessionViewMessage(speaker, message, characterId) {
+    const api = this.ensureChatSessionApi();
+    if (!api) return;
+
+    try {
+      switch (this.activeSessionView) {
+        case 'party': {
+          const partyLine = this.appendChatLine(speaker, message, 'player');
+          const partyResult = await api.postPartyChat(speaker, message, String(characterId || ''));
+          if (partyLine && partyResult?.message_id) {
+            partyLine.dataset.messageId = String(partyResult.message_id);
+            this.syncCurrentChatViewState('party');
+          }
+          this.invalidateChatCaches({ sessionViews: ['party'] });
+          break;
+        }
+
+        case 'gm-private': {
+          if (!characterId) {
+            this.appendChatLine('System', 'No character selected.', 'system');
+            return;
+          }
+          const requestedRoom = parseGmRoomRequest(message);
+          if (requestedRoom) {
+            const originRoomId = this.stateManager?.hexmap?.resolveActiveRoomId?.() || null;
+            const dungeonData = this.stateManager?.hexmap?.dungeonData || {};
+            if (!originRoomId || !dungeonData?.level_id || !dungeonData?.map_id) {
+              this.appendChatLine('System', 'Missing dungeon context for procedural room generation.', 'system');
+              return;
+            }
+            this.appendChatLine(speaker, message, 'secret');
+            const roomResult = await api.requestRoomGeneration({
+              origin_room_id: originRoomId,
+              level_id: dungeonData.level_id,
+              room_type: requestedRoom.roomType,
+              terrain_type: requestedRoom.terrainType,
+              room_size: requestedRoom.roomSize,
+              character_id: characterId,
+              speaker,
+              gm_private_message: message,
+            });
+            if (roomResult?.message) {
+              this.appendChatLine('Game Master', roomResult.message, 'gm');
+            }
+            if (roomResult?.navigation?.target_room_id) {
+              this.handleNavigationResult(roomResult.navigation);
+            }
+            this.invalidateChatCaches({ sessionViews: ['gm-private', 'narrative', 'system-log'] });
+            break;
+          }
+
+          const requestedQuests = parseGmQuestRequest(message);
+          if (requestedQuests) {
+            const roomId = this.stateManager?.hexmap?.resolveActiveRoomId?.() || null;
+            if (!roomId) {
+              this.appendChatLine('System', 'No active room available for quest generation.', 'system');
+              return;
+            }
+            this.appendChatLine(speaker, message, 'secret');
+            const questResult = await api.requestLocationQuests({
+              room_id: roomId,
+              count: requestedQuests.count,
+              character_id: characterId,
+              speaker,
+              gm_private_message: message,
+            });
+            if (questResult?.message) {
+              this.appendChatLine('Game Master', questResult.message, 'gm');
+            }
+            await this.stateManager?.hexmap?.refreshQuestJournalFromApi?.();
+            this.invalidateChatCaches({ sessionViews: ['gm-private', 'narrative', 'system-log'] });
+            break;
+          }
+
+          const requestedDungeon = parseGmDungeonRequest(message);
+          if (requestedDungeon) {
+            this.appendChatLine(speaker, message, 'secret');
+            const dungeonResult = await api.generateDungeon({
+              location_x: requestedDungeon.locationX,
+              location_y: requestedDungeon.locationY,
+              party_level: requestedDungeon.partyLevel || 1,
+              theme: requestedDungeon.theme || undefined,
+              character_id: characterId,
+              speaker,
+              gm_private_message: message,
+            });
+            const dungeonName = dungeonResult?.name || dungeonResult?.data?.name || dungeonResult?.dungeon_id || 'new dungeon';
+            this.appendChatLine('Game Master', `Generated dungeon site: ${dungeonName}.`, 'gm');
+            this.invalidateChatCaches({ sessionViews: ['gm-private', 'system-log'] });
+            break;
+          }
+
+          const requestedDestination = parseGmLocationRequest(message);
+          if (requestedDestination) {
+            const originRoomId = this.stateManager?.hexmap?.resolveActiveRoomId?.() || null;
+            if (!originRoomId) {
+              this.appendChatLine('System', 'No active room available for location generation.', 'system');
+              return;
+            }
+            this.appendChatLine(speaker, message, 'secret');
+            const locationResult = await api.requestLocationGeneration({
+              destination: requestedDestination,
+              origin_room_id: originRoomId,
+              character_id: characterId,
+              speaker,
+              gm_private_message: message,
+            });
+            if (locationResult?.message) {
+              this.appendChatLine('Game Master', locationResult.message, 'gm');
+            }
+            if (locationResult?.navigation?.target_room_id) {
+              this.handleNavigationResult(locationResult.navigation);
+            }
+            this.invalidateChatCaches({ sessionViews: ['gm-private', 'narrative', 'system-log'] });
+            break;
+          }
+
+          const gmPrivateLine = this.appendChatLine(speaker, message, 'secret');
+          const gmPrivateResult = await api.postGmPrivate(characterId, speaker, message);
+          if (gmPrivateLine && gmPrivateResult?.message_id) {
+            gmPrivateLine.dataset.messageId = String(gmPrivateResult.message_id);
+            this.syncCurrentChatViewState('gm-private');
+          }
+          this.invalidateChatCaches({ sessionViews: ['gm-private'] });
+          break;
+        }
+
+        case 'narrative':
+          this.appendChatLine('System', 'Your story is narrated by the GM.', 'system');
+          return;
+
+        case 'system-log':
+          return;
+      }
+    } catch (err) {
+      console.error(`Failed to post to ${this.activeSessionView}:`, err);
+      this.appendChatLine('System', `Failed to send: ${err.message}`, 'system');
+    }
+
+    this.prefetchSessionViews();
   }
 
   navigateToDungeonContext(dungeonSwitch) {
