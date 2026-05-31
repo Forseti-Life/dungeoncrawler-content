@@ -119,8 +119,15 @@ export class GameShell {
       launchContext: this.launchContext,
       // Canonical keys panels expect
       character:     this.launchCharacter,
-      inventory:     this.launchCharacter?.inventory ?? {},
-      quests:        Array.isArray(this.questSummary?.quests) ? this.questSummary.quests : [],
+      inventory:     {
+        items:    this.launchCharacter?.inventory?.items ?? [],
+        currency: this.launchCharacter?.currency ?? this.launchCharacter?.inventory?.currency ?? {},
+      },
+      quests:        [
+        ...(Array.isArray(this.questSummary?.active) ? this.questSummary.active : []),
+        ...(Array.isArray(this.questSummary?.offers) ? this.questSummary.offers : []),
+        ...(Array.isArray(this.questSummary?.leads)  ? this.questSummary.leads  : []),
+      ],
       // Raw payloads for systems that need full context
       launchCharacter: this.launchCharacter,
       questSummary:  this.questSummary,
