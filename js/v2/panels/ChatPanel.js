@@ -166,6 +166,7 @@ export class ChatPanel {
 
   _subscribe() {
     this._unsubs.push(
+      this.bus.on('game:init',                (data) => this._onGameInit(data)),
       this.bus.on('chat:message-received',    (data) => this._onMessageReceived(data)),
       this.bus.on('chat:history-loaded',      (data) => this._onHistoryLoaded(data)),
       this.bus.on('chat:turn-status-changed', (data) => this._onTurnStatusChanged(data)),
@@ -178,6 +179,12 @@ export class ChatPanel {
   // ---------------------------------------------------------------------------
   // Event handlers
   // ---------------------------------------------------------------------------
+
+  _onGameInit({ launchContext } = {}) {
+    const campaignId = launchContext?.campaign_id ?? '';
+    const msg = campaignId ? `Campaign ${campaignId} loaded. Ready.` : 'Session loaded. Ready.';
+    this._appendLine({ speaker: 'System', message: msg, type: 'system' });
+  }
 
   _onMessageReceived({ line, channel } = {}) {
     const ch = channel ?? line?.channel ?? 'room';

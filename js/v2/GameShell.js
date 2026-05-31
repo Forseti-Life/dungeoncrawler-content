@@ -76,6 +76,8 @@ export class GameShell {
     this.mapVisualState = rawSettings.map_visual_state || {};
     /** Launch character summary for initial sheet hydration */
     this.launchCharacter = rawSettings.hexmapLaunchCharacter || {};
+    /** Quest summary payload for initial QuestPanel render */
+    this.questSummary = rawSettings.hexmapQuestSummary || {};
 
     this.currentUserId = Number(rawSettings.userId || 0);
     this.activeRoomId =
@@ -115,10 +117,53 @@ export class GameShell {
     this._initPanels();
     this.bus.emit('game:init', {
       launchContext: this.launchContext,
+      // Canonical keys panels expect
+      character:     this.launchCharacter,
+      inventory:     this.launchCharacter?.inventory ?? {},
+      quests:        Array.isArray(this.questSummary?.quests) ? this.questSummary.quests : [],
+      // Raw payloads for systems that need full context
       launchCharacter: this.launchCharacter,
-      dungeonData: this.dungeonData,
+      questSummary:  this.questSummary,
+      dungeonData:   this.dungeonData,
       mapVisualState: this.mapVisualState,
-      activeRoomId: this.activeRoomId,
+      activeRoomId:  this.activeRoomId,
+    });
+    this._emitInitialRoomState();
+  }
+
+  /**
+   * Emit room:changed and room:occupants-changed for the active room on startup,
+   * using the bootstrapped mapVisualState from Drupal settings.
+   * @private
+   */
+  _emitInitialRoomState() {
+    const roomId = this.activeRoomId;
+    if (!roomId) return;
+
+    const visualRooms = this.mapVisualState?.topology?.rooms ?? {};
+    const room = visualRooms[roomId] ?? null;
+    const roomName = room?.name ?? roomId;
+
+    this.bus.emit('room:changed', {
+      roomId,
+      roomName,
+      sceneImageUrl: room?.image_url ?? null,
+      responders: [],
+    });
+
+    const occupantsData = this.mapVisualState?.occupants ?? {};
+    const partyOccupants = (Array.isArray(occupantsData.party) ? occupantsData.party : [])
+      .map((o) => ({ ...o, is_party: true }));
+    const entityOccupants = Array.isArray(occupantsData.entities) ? occupantsData.entities : [];
+    const allOccupants = [...partyOccupants, ...entityOccupants];
+    const roomOccupants = allOccupants.filter(
+      (o) => String(o?.room_id ?? '') === roomId && o?.state?.hidden !== true,
+    );
+
+    this.bus.emit('room:occupants-changed', {
+      roomId,
+      roomName,
+      occupants: roomOccupants,
     });
   }
 

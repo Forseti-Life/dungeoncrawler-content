@@ -79,7 +79,9 @@ export class PartyRailPanel {
   }
 
   _onOccupantsChanged({ occupants = [] } = {}) {
-    this._members = occupants.filter((o) => o.occupant_type === 'pc');
+    this._members = occupants.filter(
+      (o) => o.is_party === true || o.occupant_type === 'player_character' || o.occupant_type === 'pc',
+    );
     this._renderRail();
   }
 
