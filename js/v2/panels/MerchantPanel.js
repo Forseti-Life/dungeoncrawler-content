@@ -83,7 +83,10 @@ export class MerchantPanel {
       }),
       this.bus.on('room:occupants-changed', (d) => {
         this._cachedOccupants = d?.occupants ?? [];
-        this._buildMerchantEntriesFromOccupants(d?.roomId, this._cachedOccupants);
+        const entries = this._buildMerchantEntriesFromOccupants(d?.roomId, this._cachedOccupants);
+        if (entries.length > 0) {
+          this.loadMerchantPanel();
+        }
       }),
       this.bus.on('inventory:changed', (d) => {
         this.currentCharacterInventoryContext = d || null;

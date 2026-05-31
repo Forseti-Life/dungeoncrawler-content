@@ -967,7 +967,7 @@ export class GameShell {
         characterId: context.characterId,
       });
       if (this.activeGameShellTab === 'merchant') {
-        this.loadMerchantPanel(true);
+        this.panels.merchant.loadMerchantPanel(true);
       }
     } catch (error) {
       console.error('Character inventory refresh failed', error);
