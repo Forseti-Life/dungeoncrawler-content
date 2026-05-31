@@ -12,25 +12,12 @@
 use Drupal\Core\Entity\Display\EntityViewDisplayInterface;
 use Drupal\Core\Entity\EntityInterface;
 use Drupal\Core\Form\FormStateInterface;
-use Drupal\Core\Url;
 use Drupal\node\NodeInterface;
 
 /**
  * Implements hook_form_FORM_ID_alter() for user_login_form.
  */
 function dungeoncrawler_content_form_user_login_form_alter(array &$form, FormStateInterface $form_state, $form_id): void {
-  $form['#submit'][] = 'dungeoncrawler_content_user_login_form_submit_redirect_campaigns';
-}
-
-/**
- * Redirect successful logins to the campaigns page by default.
- */
-function dungeoncrawler_content_user_login_form_submit_redirect_campaigns(array &$form, FormStateInterface $form_state): void {
-  if (\Drupal::request()->query->has('destination')) {
-    return;
-  }
-
-  $form_state->setRedirectUrl(Url::fromUserInput('/campaigns'));
 }
 
 /**
@@ -93,17 +80,8 @@ function dungeoncrawler_content_theme(array $existing, string $type, string $the
       'variables' => [
         'characters' => [],
         'create_url' => NULL,
-        'archived_url' => NULL,
       ],
       'template' => 'character-list',
-      'path' => $path . '/templates',
-    ],
-    'character_archived_list' => [
-      'variables' => [
-        'characters' => [],
-        'back_url' => NULL,
-      ],
-      'template' => 'character-archived-list',
       'path' => $path . '/templates',
     ],
     'campaign_list' => [
@@ -130,7 +108,6 @@ function dungeoncrawler_content_theme(array $existing, string $type, string $the
       'variables' => [
         'campaign' => [],
         'characters' => [],
-        'character_groups' => [],
         'dungeon_selection_url' => NULL,
         'create_character_url' => NULL,
         'back_url' => NULL,
@@ -190,15 +167,12 @@ function dungeoncrawler_content_theme(array $existing, string $type, string $the
         'npc_data' => NULL,
         'raw_json' => '',
         'edit_url' => NULL,
-        'continue_url' => NULL,
         'archive_url' => NULL,
         'launch_url' => NULL,
         'tavern_url' => NULL,
         'campaign_id' => NULL,
         'back_url' => NULL,
         'embed_mode' => FALSE,
-        'portrait_upload_form' => NULL,
-        'portrait_regenerate_form' => NULL,
       ],
       'template' => 'character-sheet',
       'path' => $path . '/templates',
@@ -232,21 +206,6 @@ function dungeoncrawler_content_theme(array $existing, string $type, string $the
       'path' => $path . '/templates',
     ],
 
-    'character_setup_page' => [
-      'variables' => [
-        'steps' => [],
-        'active_step' => 1,
-        'step_form' => [],
-        'back_url' => NULL,
-        'character_id' => NULL,
-        'campaign_id' => NULL,
-        'summary' => [],
-        'history' => [],
-      ],
-      'template' => 'character-setup-page',
-      'path' => $path . '/templates',
-    ],
-
     // Pathbuilder-style ability score widget with interactive boost selection.
     // Supports three modes: full (detailed), compact (minimal), interactive (selectable).
     'character_ability_widget' => [
@@ -263,7 +222,7 @@ function dungeoncrawler_content_theme(array $existing, string $type, string $the
       'path' => $path . '/templates',
     ],
 
-    // Hexmap v2 — ES-module replacement UI (hexmap-demo.html.twig retained as reference only).
+    // Hexmap v2 — ES-module replacement UI.
     'hexmap_v2' => [
       'variables' => [
         'launch_context' => [],
@@ -307,10 +266,6 @@ function dungeoncrawler_content_theme(array $existing, string $type, string $the
         'impl_pct'       => 0,
         'prog_pct'       => 0,
         'is_admin'       => FALSE,
-        'feature_counts' => [],
-        'feature_flow_counts' => [],
-        'requirement_mapping' => [],
-        'release_snapshot' => [],
         'backlog_groups' => [],
         'status_labels'  => [],
       ],
