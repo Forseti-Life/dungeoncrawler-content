@@ -121,7 +121,7 @@ export class ChatPanel {
       chatTurnNextRoundOrder:     id('chat-turn-next-round-order'),
     };
     const nullKeys = Object.entries(this._el).filter(([,v]) => !v).map(([k]) => k);
-    console.log('[ChatPanel] init', { container: !!this.container, nullEl: nullKeys });
+    console.log('[ChatPanel] init', { container: !!this.container, nullEl: nullKeys.length, nullKeys: nullKeys.join(',') || 'none' });
     this._subscribe();
     this.setupChatLog();
     this.setupChannelTabs();

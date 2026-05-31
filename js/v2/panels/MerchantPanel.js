@@ -58,7 +58,7 @@ export class MerchantPanel {
       merchantSellList:          id('merchant-sell-list')          || s('sell-list'),
     };
     const nullKeys = Object.entries(this._el).filter(([,v]) => !v).map(([k]) => k);
-    console.log('[MerchantPanel] init', { container: !!this.container, nullEl: nullKeys });
+    console.log('[MerchantPanel] init', { container: !!this.container, nullEl: nullKeys.length, nullKeys: nullKeys.join(',') || 'none' });
     this._subscribe();
     this.setupMerchantPanelActions();
   }

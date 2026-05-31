@@ -40,7 +40,7 @@ export class CombatPanel {
       actionTalkBtn:    id('action-talk'),
     };
     const nullKeys = Object.entries(this._el).filter(([,v]) => !v).map(([k]) => k);
-    console.log('[CombatPanel] init', { container: !!this.container, nullEl: nullKeys });
+    console.log('[CombatPanel] init', { container: !!this.container, nullEl: nullKeys.length, nullKeys: nullKeys.join(',') || 'none' });
     this._bindDom();
     this._subscribe();
   }

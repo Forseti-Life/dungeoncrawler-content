@@ -35,7 +35,7 @@ export class RoomViewPanel {
       chatShell:               document.getElementById('hexmap-chat'),
     };
     const nullKeys = Object.entries(this._el).filter(([,v]) => !v).map(([k]) => k);
-    console.log('[RoomViewPanel] init', { container: !!this.container, chatShell: !!this._el.chatShell, nullEl: nullKeys });
+    console.log('[RoomViewPanel] init', { container: !!this.container, chatShell: !!this._el.chatShell, nullEl: nullKeys.length, nullKeys: nullKeys.join(',') || 'none' });
     this._subscribe();
   }
 

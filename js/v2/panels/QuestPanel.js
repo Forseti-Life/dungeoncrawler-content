@@ -37,7 +37,7 @@ export class QuestPanel {
       questCollapseAll: id('quest-collapse-all'),
     };
     const nullKeys = Object.entries(this._el).filter(([,v]) => !v).map(([k]) => k);
-    console.log('[QuestPanel] init', { container: !!this.container, nullEl: nullKeys });
+    console.log('[QuestPanel] init', { container: !!this.container, nullEl: nullKeys.length, nullKeys: nullKeys.join(',') || 'none' });
     this._subscribe();
     this.setupQuestJournalControls();
   }

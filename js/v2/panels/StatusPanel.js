@@ -28,7 +28,7 @@ export class StatusPanel {
       zoomLevel:     id('zoom-level') || s('zoom'),
     };
     const nullKeys = Object.entries(this._el).filter(([,v]) => !v).map(([k]) => k);
-    console.log('[StatusPanel] init', { container: !!this.container, nullEl: nullKeys });
+    console.log('[StatusPanel] init', { container: !!this.container, nullEl: nullKeys.length, nullKeys: nullKeys.join(',') || 'none' });
     this._bindDom();
     this._subscribe();
     if (this._el.unavailBanner) this._el.unavailBanner.hidden = true;

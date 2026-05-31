@@ -79,7 +79,7 @@ export class CharacterPanel {
       characterFeatures:       id('char-features'),
     };
     const nullKeys = Object.entries(this._el).filter(([,v]) => !v).map(([k]) => k);
-    console.log('[CharacterPanel] init', { container: !!this.container, nullEl: nullKeys });
+    console.log('[CharacterPanel] init', { container: !!this.container, nullEl: nullKeys.length, nullKeys: nullKeys.join(',') || 'none' });
     this._subscribe();
     this.setupCharacterSheetSections();
   }
