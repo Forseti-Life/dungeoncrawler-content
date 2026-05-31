@@ -114,7 +114,7 @@ export class ActionRailPanel {
       const category = button.dataset.actionRailCategory || '';
       if (directAction) {
         this.activeActionRailCategory = null;
-        this.handleActionRailDirectAction(directAction);
+        this.handleActionRailDirectAction(directAction, button);
         this.refreshActionRail();
         return;
       }
@@ -1074,7 +1074,7 @@ export class ActionRailPanel {
     </article>`;
   }
 
-  handleActionRailDirectAction(actionKey) {
+  handleActionRailDirectAction(actionKey, button = null) {
     const context = this.getActionRailContext();
     const hexmap = context.hexmap;
     if (!hexmap) {
@@ -1085,7 +1085,7 @@ export class ActionRailPanel {
       return;
     }
     if (actionKey === 'search') {
-      this.bus.emit('user:action-selected', { actionKey, button: document.createElement('button') });
+      this.bus.emit('user:action-selected', { actionKey, button });
       return;
     }
 

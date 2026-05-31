@@ -3687,7 +3687,7 @@ import { SpriteService } from './SpriteService.js';
         const category = button.dataset.actionRailCategory || '';
         if (directAction) {
           this.activeActionRailCategory = null;
-          this.handleActionRailDirectAction(directAction);
+          this.handleActionRailDirectAction(directAction, button);
           this.refreshActionRail();
           return;
         }
@@ -4703,7 +4703,7 @@ import { SpriteService } from './SpriteService.js';
       </article>`;
     }
 
-    handleActionRailDirectAction(actionKey) {
+    handleActionRailDirectAction(actionKey, button = null) {
       const context = this.getActionRailContext();
       const hexmap = context.hexmap;
       if (!hexmap) {
@@ -4713,9 +4713,12 @@ import { SpriteService } from './SpriteService.js';
         hexmap.endTurn?.();
         return;
       }
+      if (actionKey === 'search') {
+        this.executeDirectSearch(button);
+        return;
+      }
 
       const guidance = {
-        search: 'Open Search and run a room-level Perception check for new details.',
       };
       this.appendChatLine('System', guidance[actionKey] || 'That action is not available right now.', 'system');
     }
@@ -14945,6 +14948,45 @@ import { SpriteService } from './SpriteService.js';
 
       const actionInteractBtn = document.getElementById('action-interact');
       addTrackedListener(actionInteractBtn, 'click', async function () {
+        if (this.disabled || this.classList.contains('btn-disabled')) {
+          return;
+        }
+
+        const selected = self.stateManager.get('selectedEntity');
+        const current = self.turnManagementSystem?.getCurrentTurnEntity?.();
+        const actor = selected || current;
+        if (!actor) {
+          return;
+        }
+
+        self.stateManager.set('actionMode', 'search');
+        const actions = actor.getComponent('ActionsComponent');
+        const movement = actor.getComponent('MovementComponent');
+        const combat = actor.getComponent('CombatComponent');
+        const isPlayersTurn = combat?.isPlayerTeam ? combat.isPlayerTeam() : (combat?.team === Team.PLAYER || combat?.team === 'player');
+
+        if (actor !== selected) {
+          self.stateManager.set('selectedEntity', actor);
+          self.uiManager.showEntityInfo(actor);
+        }
+
+        self.hideMovementRange();
+        self.hideAttackTargets();
+        if (self.uiManager) {
+          self.uiManager.activeActionRailCategory = 'search';
+          self.uiManager.refreshActionRail();
+        }
+        self.uiManager.updateActionMode('search', {
+          canAct: actions ? actions.actionsRemaining > 0 : false,
+          canInteract: actions ? actions.actionsRemaining > 0 : false,
+          moveLeft: movement ? movement.movementRemaining : 0,
+          isPlayersTurn
+        });
+        await self.uiManager?.executeDirectSearch(this);
+      });
+
+      const actionSearchBtn = document.getElementById('action-search');
+      addTrackedListener(actionSearchBtn, 'click', async function () {
         if (this.disabled || this.classList.contains('btn-disabled')) {
           return;
         }

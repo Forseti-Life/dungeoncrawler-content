@@ -144,6 +144,7 @@ const loadRoomPortraitsPanelSource = extractMethodSource(source, 'loadRoomPortra
 const buildRoomPortraitEntriesSource = extractMethodSource(source, 'buildRoomPortraitEntries(roomId = null) {', 'buildRoomPortraitEntries');
 const buildRoomMerchantEntriesSource = extractMethodSource(source, 'buildRoomMerchantEntries(roomId = null) {', 'buildRoomMerchantEntries');
 const executeDirectNavigateSource = extractMethodSource(source, 'async executeDirectNavigate(button) {', 'executeDirectNavigate');
+const handleActionRailDirectActionSource = extractMethodSource(source, 'handleActionRailDirectAction(actionKey, button = null) {', 'handleActionRailDirectAction');
 const applyPlayerAutomationRoomTransitionSource = extractFunctionExpressionSource(source, 'applyPlayerAutomationRoomTransition: function (events = []) {', 'applyPlayerAutomationRoomTransition');
 const prefetchConnectedRoomContextSource = extractMethodSource(source, 'prefetchConnectedRoomContext(limit = 2) {', 'prefetchConnectedRoomContext');
 
@@ -180,6 +181,7 @@ ${loadRoomPortraitsPanelSource}
 ${buildRoomPortraitEntriesSource}
 ${buildRoomMerchantEntriesSource}
 ${executeDirectNavigateSource}
+${handleActionRailDirectActionSource}
 ${applyPlayerAutomationRoomTransitionSource}
 ${prefetchConnectedRoomContextSource}
 return {
@@ -215,6 +217,7 @@ return {
   buildRoomPortraitEntries,
   buildRoomMerchantEntries,
   executeDirectNavigate,
+  handleActionRailDirectAction,
   applyPlayerAutomationRoomTransition,
   prefetchConnectedRoomContext
 };
@@ -1215,6 +1218,33 @@ console.log('\n=== Hexmap canonical visual-state bootstrap ===');
   assert(chatLines.some((entry) => entry.message === 'That destination is not navigable right now.'), 'Direct navigation reports canonical-only room misses');
   assert(ended === true, 'Direct navigation still ends requests for payload-only room misses');
 }
+
+{
+  const searchButton = { dataset: {} };
+  let searchedWithButton = null;
+  let chatLine = null;
+  const panel = {
+    getActionRailContext() {
+      return {
+        hexmap: {},
+      };
+    },
+    executeDirectSearch(button) {
+      searchedWithButton = button;
+    },
+    appendChatLine(author, message, tone) {
+      chatLine = { author, message, tone };
+    },
+  };
+
+  methods.handleActionRailDirectAction.call(panel, 'search', searchButton);
+
+  assert(searchedWithButton === searchButton, 'Action-rail Search direct action executes the room search with the clicked button');
+  assert(chatLine === null, 'Action-rail Search no longer stops at guidance text');
+}
+
+assert(source.includes("const actionSearchBtn = document.getElementById('action-search');"), 'Standalone #action-search button is explicitly bound');
+assert(source.includes('await self.uiManager?.executeDirectSearch(this);'), 'Standalone #action-search button executes the shared search action');
 
 {
   let selectedEntity = null;
