@@ -88,7 +88,7 @@ class FactionGenerationServiceTest extends UnitTestCase {
         ];
       }
 
-      protected function upsertLibraryFactionManifest(array $draft): int {
+      protected function upsertLibraryFactionManifest(array $draft, string $status = self::MANIFEST_STATUS): int {
         throw new \RuntimeException('Manifest insert should not run when reusing an existing faction.');
       }
 
@@ -130,9 +130,13 @@ class FactionGenerationServiceTest extends UnitTestCase {
         return NULL;
       }
 
-      protected function upsertLibraryFactionManifest(array $draft): int {
+      protected function upsertLibraryFactionManifest(array $draft, string $status = self::MANIFEST_STATUS): int {
         $this->capturedDrafts[] = $draft;
         return 81;
+      }
+
+      protected function findNearMatchLibraryFactions(string $canonical_slug): array {
+        return [];
       }
 
       protected function instantiateCampaignFactionSubject(int $campaign_id, array $draft): array {
@@ -153,6 +157,120 @@ class FactionGenerationServiceTest extends UnitTestCase {
     $this->assertSame('institution_allegiance_keepers-of-the-third-bell', $result['campaignSubjectId']);
     $this->assertCount(1, $service->capturedDrafts);
     $this->assertSame('keepers-of-the-third-bell', $service->capturedDrafts[0]['canonicalSlug']);
+  }
+
+  /**
+   * @covers ::createOrReuseFactionForNeed
+   */
+  public function testCreateOrReuseFactionForNeedFlagsNearMatchAsPendingReview(): void {
+    $service = new class(
+      $this->createMock(Connection::class),
+      new InstitutionNormalizationService(),
+      $this->createMock(CampaignSubjectRegistryService::class)
+    ) extends FactionGenerationService {
+      public array $capturedDrafts = [];
+      public array $reviewItems = [];
+
+      public function isGenerationStorageReady(): bool {
+        return TRUE;
+      }
+
+      protected function findExistingLibraryFactionBySlug(string $canonical_slug): ?array {
+        return NULL;
+      }
+
+      protected function findNearMatchLibraryFactions(string $canonical_slug): array {
+        return [
+          [
+            'manifest_id' => 55,
+            'canonical_slug' => 'iron-brotherhood',
+            'shared_tokens' => ['iron'],
+          ],
+        ];
+      }
+
+      protected function upsertLibraryFactionManifest(array $draft, string $status = self::MANIFEST_STATUS): int {
+        $this->capturedDrafts[] = ['draft' => $draft, 'status' => $status];
+        return 91;
+      }
+
+      protected function createNearMatchReviewItem(int $manifest_id, array $draft, array $near_matches): void {
+        $this->reviewItems[] = ['manifest_id' => $manifest_id, 'near_matches' => $near_matches];
+      }
+
+      protected function instantiateCampaignFactionSubject(int $campaign_id, array $draft): array {
+        return ['subject_id' => 'institution_allegiance_iron-circle'];
+      }
+    };
+
+    $result = $service->createOrReuseFactionForNeed(42, [
+      'label' => 'Iron Circle',
+      'whyExistingFactionIsInsufficient' => 'Needs a new mercantile iron guild distinct from the brotherhood.',
+      'roleInStory' => 'Trades refined iron for political favors',
+    ]);
+
+    $this->assertSame('pending_review', $result['status']);
+    $this->assertTrue($result['created']);
+    $this->assertSame(91, $result['manifestId']);
+    $this->assertCount(1, $result['nearMatches']);
+    $this->assertSame('iron-brotherhood', $result['nearMatches'][0]['canonical_slug']);
+    $this->assertCount(1, $service->capturedDrafts);
+    $this->assertSame(FactionGenerationService::MANIFEST_PENDING_STATUS, $service->capturedDrafts[0]['status']);
+    $this->assertCount(1, $service->reviewItems);
+    $this->assertSame(91, $service->reviewItems[0]['manifest_id']);
+  }
+
+  /**
+   * @covers ::createOrReuseFactionForNeed
+   */
+  public function testCreateOrReuseFactionForNeedCreatesDirectlyWhenNoNearMatches(): void {
+    $service = new class(
+      $this->createMock(Connection::class),
+      new InstitutionNormalizationService(),
+      $this->createMock(CampaignSubjectRegistryService::class)
+    ) extends FactionGenerationService {
+      public array $capturedDrafts = [];
+      public array $reviewItems = [];
+
+      public function isGenerationStorageReady(): bool {
+        return TRUE;
+      }
+
+      protected function findExistingLibraryFactionBySlug(string $canonical_slug): ?array {
+        return NULL;
+      }
+
+      protected function findNearMatchLibraryFactions(string $canonical_slug): array {
+        return [];
+      }
+
+      protected function upsertLibraryFactionManifest(array $draft, string $status = self::MANIFEST_STATUS): int {
+        $this->capturedDrafts[] = ['draft' => $draft, 'status' => $status];
+        return 99;
+      }
+
+      protected function createNearMatchReviewItem(int $manifest_id, array $draft, array $near_matches): void {
+        $this->reviewItems[] = $manifest_id;
+      }
+
+      protected function instantiateCampaignFactionSubject(int $campaign_id, array $draft): array {
+        return ['subject_id' => 'institution_allegiance_silver-pact'];
+      }
+    };
+
+    $result = $service->createOrReuseFactionForNeed(42, [
+      'label' => 'Silver Pact',
+      'whyExistingFactionIsInsufficient' => 'Unique merchant alliance with no existing overlap.',
+      'ideologyTags' => 'neutrality, commerce',
+    ]);
+
+    $this->assertSame('created', $result['status']);
+    $this->assertTrue($result['created']);
+    $this->assertSame(99, $result['manifestId']);
+    $this->assertSame([], $result['nearMatches']);
+    $this->assertCount(1, $service->capturedDrafts);
+    $this->assertSame(FactionGenerationService::MANIFEST_STATUS, $service->capturedDrafts[0]['status']);
+    $this->assertCount(0, $service->reviewItems);
   }
 
 }

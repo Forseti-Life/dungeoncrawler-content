@@ -105,14 +105,15 @@ class InstitutionReviewBrowserController extends ControllerBase {
       $generated_faction_rows = $this->loadGeneratedFactionRows($filters);
       $build['generated_factions'] = $this->buildQueueCard(
         (string) $this->t('Generated faction manifest'),
-        (string) $this->t('Canonical library-backed factions created through the narrative-need generation flow.'),
+        (string) $this->t('Canonical library-backed factions created through the narrative-need generation flow. Rows flagged as pending_review have near-match candidates that require operator approval before use.'),
         [
           $this->t('Updated'),
           $this->t('Slug'),
           $this->t('Label'),
           $this->t('Domain'),
-          $this->t('Classification'),
           $this->t('Status'),
+          $this->t('Near Matches'),
+          $this->t('Action'),
           $this->t('Inspector'),
         ],
         $this->buildGeneratedFactionTableRows($generated_faction_rows),
@@ -329,6 +330,11 @@ class InstitutionReviewBrowserController extends ControllerBase {
       ->fields('m', ['id', 'source_asset_id', 'row_type', 'classification', 'status', 'changed', 'normalized_payload_json', 'provenance_json'])
       ->condition('m.source_table', 'generated_faction');
 
+    $query->leftJoin('dc_library_institution_review', 'r', "r.manifest_id = m.id AND r.review_reason = 'near_match_detected' AND r.status = 'open'");
+    $query->addField('r', 'id', 'review_row_id');
+    $query->addField('r', 'details_json', 'review_details_json');
+    $query->addField('r', 'status', 'review_row_status');
+
     if ($filters['search'] !== '') {
       $group = $query->orConditionGroup()
         ->condition('m.source_asset_id', '%' . $this->database->escapeLike($filters['search']) . '%', 'LIKE')
@@ -352,18 +358,48 @@ class InstitutionReviewBrowserController extends ControllerBase {
     $table_rows = [];
     foreach ($rows as $row) {
       $payload = $this->decodeJsonArray($row['normalized_payload_json'] ?? NULL);
+      $review_row_id = isset($row['review_row_id']) ? (int) $row['review_row_id'] : NULL;
+      $review_details = $this->decodeJsonArray($row['review_details_json'] ?? NULL);
+      $near_matches = is_array($review_details['near_matches'] ?? NULL) ? $review_details['near_matches'] : [];
+
+      $near_match_cell = $this->buildNearMatchCell($near_matches);
+      $action_cell = $review_row_id !== NULL
+        ? $this->buildActionCell('library', ['id' => $review_row_id, 'status' => 'open'], 'dc_library_institution_review')
+        : (string) $this->t('None');
+
       $table_rows[] = [
         $this->dateFormatter->format((int) ($row['changed'] ?? 0), 'short'),
         (string) ($row['source_asset_id'] ?? ''),
         (string) ($payload['canonicalLabel'] ?? $row['source_asset_id'] ?? ''),
         (string) ($payload['domain'] ?? ''),
-        (string) ($row['classification'] ?? ''),
         (string) ($row['status'] ?? ''),
+        ['data' => ['#markup' => $near_match_cell]],
+        $action_cell,
         ['data' => ['#markup' => $this->buildJsonInspectorMarkup($payload)]],
       ];
     }
 
     return $table_rows;
+  }
+
+  /**
+   * Builds a compact near-match candidate cell.
+   *
+   * @param array<int, array<string, mixed>> $near_matches
+   */
+  protected function buildNearMatchCell(array $near_matches): string {
+    if ($near_matches === []) {
+      return '<span class="text-muted">—</span>';
+    }
+
+    $items = [];
+    foreach ($near_matches as $match) {
+      $slug = Html::escape((string) ($match['canonical_slug'] ?? ''));
+      $shared = implode(', ', array_map('Html::escape', (array) ($match['shared_tokens'] ?? [])));
+      $items[] = '<li><code>' . $slug . '</code>' . ($shared !== '' ? ' <span class="text-muted small">(' . $shared . ')</span>' : '') . '</li>';
+    }
+
+    return '<details><summary>' . Html::escape((string) $this->t('@count near match(es)', ['@count' => count($near_matches)])) . '</summary><ul class="small mb-0">' . implode('', $items) . '</ul></details>';
   }
 
   /**

@@ -123,6 +123,10 @@ class InstitutionReviewDecisionService {
       throw new \InvalidArgumentException('Mapping to an existing institution requires a target identifier.');
     }
 
+    if ($status === self::STATUS_RESOLVED && $action === 'merge_with_existing' && (string) ($normalized_payload['target_identifier'] ?? '') === '') {
+      throw new \InvalidArgumentException('Merging with an existing faction requires a target identifier.');
+    }
+
     if ($status === self::STATUS_RESOLVED && $action === 'create_institution') {
       if ((string) ($normalized_payload['canonical_domain'] ?? '') === '') {
         throw new \InvalidArgumentException('Creating an institution requires a canonical domain.');
@@ -169,7 +173,7 @@ class InstitutionReviewDecisionService {
   public function getAllowedActionsByStatus(): array {
     return [
       self::STATUS_OPEN => ['reopen'],
-      self::STATUS_RESOLVED => ['map_existing', 'create_institution', 'mark_blank'],
+      self::STATUS_RESOLVED => ['map_existing', 'create_institution', 'mark_blank', 'approve_faction', 'reject_faction', 'merge_with_existing'],
       self::STATUS_DEFERRED => ['defer'],
     ];
   }
