@@ -414,6 +414,31 @@ class MapVisualStateProjector {
 
       $metadata = is_array($entity['state']['metadata'] ?? NULL) ? $entity['state']['metadata'] : [];
       $definition = $content_id !== '' ? ($object_definitions[$content_id] ?? []) : [];
+      $entity_state = is_array($entity['state'] ?? NULL) ? $entity['state'] : [];
+      $merchant_state = is_array($entity_state['merchant'] ?? NULL) ? $entity_state['merchant'] : [];
+      $is_merchant = (bool) ($entity_state['merchant_enabled'] ?? $merchant_state['enabled'] ?? !empty($entity_state['merchant_stock']));
+      if (!$is_merchant && strtolower(trim((string) ($entity['entity_type'] ?? ''))) === 'npc') {
+        $descriptor = strtolower(implode(' ', array_filter(array_map('strval', [
+          $metadata['display_name'] ?? '',
+          $metadata['name'] ?? '',
+          $metadata['role'] ?? '',
+          $metadata['occupation'] ?? '',
+          $metadata['description'] ?? '',
+          $content_id,
+          $occupant_id,
+        ]))));
+        $merchant_keywords = [
+          'merchant', 'vendor', 'shop', 'shopkeeper', 'barkeep', 'bartender',
+          'keeper', 'innkeeper', 'tavern', 'bar', 'blacksmith', 'smith',
+          'armorer', 'apothecary', 'alchemist', 'herbalist', 'trader',
+        ];
+        foreach ($merchant_keywords as $keyword) {
+          if (str_contains($descriptor, $keyword)) {
+            $is_merchant = TRUE;
+            break;
+          }
+        }
+      }
       $occupant = [
         'occupant_id' => $occupant_id,
         'occupant_type' => (string) ($entity['entity_type'] ?? 'unknown'),
@@ -429,6 +454,8 @@ class MapVisualStateProjector {
         'presentation' => [
           'sprite_id' => (string) ($metadata['sprite_id'] ?? $definition['visual']['sprite_id'] ?? $content_id),
           'portrait_url' => isset($metadata['portrait_url']) ? (string) $metadata['portrait_url'] : NULL,
+          'role' => (string) ($metadata['role'] ?? $metadata['occupation'] ?? ''),
+          'is_merchant' => $is_merchant,
           'layer' => (string) ($definition['visual']['layer'] ?? $this->resolveVisualLayer((string) ($entity['entity_type'] ?? 'unknown'))),
           'badge' => isset($metadata['team']) ? (string) $metadata['team'] : NULL,
         ],
