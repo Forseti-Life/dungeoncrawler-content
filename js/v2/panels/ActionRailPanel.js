@@ -6,8 +6,10 @@
  */
 
 import { getActionRailCost, formatActionRailCost, getActionRailRemainingActions } from '../utils/action-utils.js';
-import { normalizeSpellcastingData, collectSpellRankGroups } from '../utils/spell-utils.js';
+import { normalizeSpellcastingData, collectSpellRankGroups, normalizeDisplayedSpellSlots } from '../utils/spell-utils.js';
 import { extractReadyWeapons, extractConsumableItems, collectCharacterSkillEntries, buildActionRailEntrySummary } from '../utils/inventory-utils.js';
+import { escapeQuestHtml } from '../utils/quest-utils.js';
+import { escapeTooltipAttr, flattenTooltipBuckets, slugifyTooltipKey } from '../utils/dom-utils.js';
 
 export class ActionRailPanel {
   constructor(container, bus) {

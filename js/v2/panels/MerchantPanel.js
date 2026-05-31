@@ -6,6 +6,8 @@
  */
 
 import { escapeQuestHtml } from '../utils/quest-utils.js';
+import { escapeTooltipAttr } from '../utils/dom-utils.js';
+import { normalizeInventoryState } from '../utils/inventory-utils.js';
 
 export class MerchantPanel {
   constructor(container, bus) {

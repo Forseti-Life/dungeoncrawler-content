@@ -11,6 +11,12 @@ import {
   renderQuestManagementQuestHtml,
   renderQuestManagementStorylineHtml,
   renderQuestManagementNpcHtml,
+  buildObjectiveStateIndex,
+  extractQuestPhases,
+  flattenQuestObjectives,
+  mergeObjectiveProgress,
+  renderQuestTreeNodeHtml,
+  resolveQuestTitle,
 } from '../utils/quest-utils.js';
 
 export class QuestPanel {

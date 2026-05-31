@@ -13,6 +13,8 @@ import {
   renderInventoryPanelList,
   renderInventorySlotGrid,
   estimateInventoryBulk,
+  collectWornInventoryItems,
+  formatBulkValue,
 } from '../utils/inventory-utils.js';
 
 export class InventoryPanel {

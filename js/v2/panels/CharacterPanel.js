@@ -5,7 +5,10 @@
  * Methods ported verbatim from hexmap.js UIManager.
  */
 
-import { collectCharacterSkillEntries } from '../utils/inventory-utils.js';
+import { collectCharacterSkillEntries, normalizeInventoryState } from '../utils/inventory-utils.js';
+import { normalizeSpellcastingData, collectSpellRankGroups, normalizeDisplayedSpellSlots, formatSpellRankLabel } from '../utils/spell-utils.js';
+import { escapeQuestHtml } from '../utils/quest-utils.js';
+import { escapeTooltipAttr, flattenTooltipBuckets, formatTooltipActionCost, slugifyTooltipKey, tooltipSourceMatches, uniqueTooltipStrings } from '../utils/dom-utils.js';
 
 export class CharacterPanel {
   constructor(container, bus) {
