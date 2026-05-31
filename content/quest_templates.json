@@ -24,11 +24,12 @@
               5
             ],
             "description": "Collect {item_name} from around the tavern",
+            "next_step": "Search the tavern common room and pick up each {item_name} quest item.",
             "completion_criteria": {
               "kind": "count",
               "metric": "current",
               "target_count": 1,
-              "description": "Collect the required amount of {item_name}."
+              "description": "Complete when {target_count} {item_name} have been collected from the tavern."
             }
           }
         ]
@@ -41,11 +42,12 @@
             "type": "interact",
             "target": "tavern_keeper",
             "description": "Return the wine to the tavern keeper",
+            "next_step": "Speak to the tavern keeper after collecting the wine.",
             "completion_criteria": {
               "kind": "flag",
               "metric": "completed",
               "required_value": true,
-              "description": "Speak to the tavern keeper and return the wine."
+              "description": "Complete when the wine handoff to the tavern keeper is finished."
             }
           }
         ]
@@ -101,11 +103,12 @@
               6
             ],
             "description": "Gather {item_name} scattered around the tavern",
+            "next_step": "Search the tavern common room and pick up each {item_name} quest item.",
             "completion_criteria": {
               "kind": "count",
               "metric": "current",
               "target_count": 1,
-              "description": "Collect the required amount of {item_name}."
+              "description": "Complete when {target_count} {item_name} have been collected from the tavern."
             }
           }
         ]
@@ -118,11 +121,12 @@
             "type": "interact",
             "target": "tavern_keeper",
             "description": "Bring the torch components to the tavern keeper",
+            "next_step": "Speak to the tavern keeper after collecting the torch components.",
             "completion_criteria": {
               "kind": "flag",
               "metric": "completed",
               "required_value": true,
-              "description": "Speak to the tavern keeper and deliver the torch components."
+              "description": "Complete when the torch components are delivered to the tavern keeper."
             }
           }
         ]
@@ -257,11 +261,12 @@
               12
             ],
             "description": "Slay the goblins in the den",
+            "next_step": "Enter the goblin den and defeat each goblin warrior encounter.",
             "completion_criteria": {
               "kind": "count",
               "metric": "current",
               "target_count": 1,
-              "description": "Defeat the required number of goblins in the den."
+              "description": "Complete when {target_count} goblin warriors in the den have been defeated."
             }
           },
           {
@@ -270,6 +275,7 @@
             "target": "goblin_chieftain",
             "target_count": 1,
             "description": "Defeat the Goblin Chieftain",
+            "next_step": "Find the Goblin Chieftain in the den and defeat them.",
             "completion_criteria": {
               "kind": "count",
               "metric": "current",
@@ -324,6 +330,7 @@
             "type": "explore",
             "description": "Travel to {destination}",
             "location": "{destination}",
+            "next_step": "Travel to {destination} and reveal or enter the delivery location.",
             "completion_criteria": {
               "kind": "flag",
               "metric": "discovered",
@@ -336,6 +343,7 @@
             "type": "interact",
             "target": "recipient",
             "description": "Deliver the package to the recipient",
+            "next_step": "Speak to the recipient at {destination} and hand over the package.",
             "completion_criteria": {
               "kind": "flag",
               "metric": "completed",
@@ -390,11 +398,12 @@
               8
             ],
             "description": "Collect {herb_name} from {location}",
+            "next_step": "Search {location} and pick up each {herb_name} quest item.",
             "completion_criteria": {
               "kind": "count",
               "metric": "current",
               "target_count": 1,
-              "description": "Collect the required amount of {herb_name}."
+              "description": "Complete when {target_count} {herb_name} have been collected from {location}."
             }
           }
         ]
@@ -407,11 +416,12 @@
             "type": "interact",
             "target": "alchemist",
             "description": "Return the herbs to the alchemist",
+            "next_step": "Speak to the alchemist after collecting the herbs.",
             "completion_criteria": {
               "kind": "flag",
               "metric": "completed",
               "required_value": true,
-              "description": "Speak to the alchemist and hand over the herbs."
+              "description": "Complete when the herbs are handed over to the alchemist."
             }
           }
         ]
@@ -464,6 +474,7 @@
             "item": "room_supply",
             "target_count": 2,
             "description": "Collect 2 supplies from the room",
+            "next_step": "Search the current room and pick up both room supply quest items.",
             "completion_criteria": {
               "kind": "count",
               "metric": "current",
@@ -481,6 +492,7 @@
             "type": "interact",
             "target": "tavern_keeper",
             "description": "Return the supplies to the tavern keeper",
+            "next_step": "Speak to the tavern keeper after collecting both room supplies.",
             "completion_criteria": {
               "kind": "flag",
               "metric": "completed",
@@ -536,6 +548,7 @@
             "type": "explore",
             "description": "Locate the {location}",
             "location": "{location}",
+            "next_step": "Travel to {location} and reveal the ruins location on the map.",
             "completion_criteria": {
               "kind": "flag",
               "metric": "discovered",
@@ -548,6 +561,7 @@
             "type": "explore",
             "description": "Explore the inner chambers",
             "location": "{location}_inner",
+            "next_step": "Enter the inner chambers of {location} and reveal the chamber area.",
             "completion_criteria": {
               "kind": "flag",
               "metric": "discovered",
@@ -566,6 +580,7 @@
             "item": "ancient_artifact",
             "target_count": 1,
             "description": "Retrieve the mysterious artifact",
+            "next_step": "Search the ruins for the mysterious artifact and pick it up.",
             "completion_criteria": {
               "kind": "count",
               "metric": "current",
@@ -583,6 +598,7 @@
             "type": "interact",
             "target": "quest_giver",
             "description": "Report your findings",
+            "next_step": "Return to the quest giver and report what you found in the ruins.",
             "completion_criteria": {
               "kind": "flag",
               "metric": "completed",
@@ -646,6 +662,7 @@
             "type": "explore",
             "description": "Find the {location}",
             "location": "{location}",
+            "next_step": "Travel to {location} and reveal the rescue site on the map.",
             "completion_criteria": {
               "kind": "flag",
               "metric": "discovered",
@@ -662,11 +679,12 @@
               8
             ],
             "description": "Defeat the {target}s holding {npc}",
+            "next_step": "Enter {location}, engage the {target}s guarding {npc}, and defeat them.",
             "completion_criteria": {
               "kind": "count",
               "metric": "current",
               "target_count": 1,
-              "description": "Defeat the captors holding {npc}."
+              "description": "Complete when {target_count} {target}s holding {npc} have been defeated."
             }
           },
           {
@@ -674,6 +692,7 @@
             "type": "interact",
             "target": "{npc}",
             "description": "Free {npc} from captivity",
+            "next_step": "Interact with {npc} after the captors are defeated to free them.",
             "completion_criteria": {
               "kind": "flag",
               "metric": "completed",
@@ -707,6 +726,7 @@
               "ambush"
             ],
             "description": "Escort {npc} back to safety",
+            "next_step": "Travel with {npc} to {safe_location}; resolve the 1-3 route encounters and keep {npc} alive.",
             "completion_criteria": {
               "kind": "flag",
               "metric": "arrived",

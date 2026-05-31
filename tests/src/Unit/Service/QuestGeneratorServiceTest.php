@@ -98,6 +98,10 @@ class QuestGeneratorServiceTest extends UnitTestCase {
     $this->assertSame('threshold-of-knowledge', $entry['storyline']['storyline_id']);
     $this->assertSame('all_children', $entry['generated_objectives'][0]['objectives'][0]['completion_criteria']['kind']);
     $this->assertSame('count', $entry['generated_objectives'][0]['objectives'][0]['children'][0]['completion_criteria']['kind']);
+    $this->assertSame(
+      'Investigate Magaambya Campus until the clue or lead is recorded.',
+      $entry['generated_objectives'][0]['objectives'][0]['next_step']
+    );
   }
 
   /**

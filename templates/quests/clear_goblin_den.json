@@ -22,11 +22,12 @@
             12
           ],
           "description": "Slay the goblins in the den",
+          "next_step": "Enter the goblin den and defeat each goblin warrior encounter.",
           "completion_criteria": {
             "kind": "count",
             "metric": "current",
             "target_count": 1,
-            "description": "Defeat the required number of goblins in the den."
+            "description": "Complete when {target_count} goblin warriors in the den have been defeated."
           }
         },
         {
@@ -35,6 +36,7 @@
           "target": "goblin_chieftain",
           "target_count": 1,
           "description": "Defeat the Goblin Chieftain",
+          "next_step": "Find the Goblin Chieftain in the den and defeat them.",
           "completion_criteria": {
             "kind": "count",
             "metric": "current",

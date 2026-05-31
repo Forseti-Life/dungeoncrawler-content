@@ -257,7 +257,9 @@ export class QuestPanel {
     }
     const criteriaDescription = String(objective?.completion_criteria?.description || '').trim();
     if (criteriaDescription) {
-      details.push(`Complete when: ${criteriaDescription}`);
+      details.push(criteriaDescription.toLowerCase().startsWith('complete when')
+        ? criteriaDescription
+        : `Complete when: ${criteriaDescription}`);
     }
     return details.length > 0
       ? `<div class="quest-objective__details">${details.map(line => `<div class="quest-objective__detail">${line}</div>`).join('')}</div>`

@@ -306,6 +306,7 @@ class QuestGeneratorService {
         }
       }
     }
+    $objective = $this->ensureObjectiveGuidance($objective, $quest_row);
 
     if (is_array($objective['children'] ?? NULL)) {
       $objective['children'] = array_map(
@@ -315,6 +316,136 @@ class QuestGeneratorService {
     }
 
     return $objective;
+  }
+
+  /**
+   * Ensure every objective explains the next action and completion trigger.
+   */
+  protected function ensureObjectiveGuidance(array $objective, array $quest_row): array {
+    if (trim((string) ($objective['next_step'] ?? '')) === '') {
+      $objective['next_step'] = $this->deriveSummaryObjectiveNextStep($objective, $quest_row);
+    }
+
+    $criteria = is_array($objective['completion_criteria'] ?? NULL) ? $objective['completion_criteria'] : [];
+    $criteria = $this->normalizeObjectiveCompletionCriteria($criteria, $objective);
+    $description = trim((string) ($criteria['description'] ?? ''));
+    $generic_descriptions = [
+      'mark this objective complete.',
+      'reach the required progress count.',
+      'discover the required location.',
+      'complete this objective.',
+    ];
+    if ($description === '' || in_array(strtolower($description), $generic_descriptions, TRUE)) {
+      $criteria['description'] = $this->deriveSummaryObjectiveCompletionDescription($objective, $quest_row);
+    }
+    $objective['completion_criteria'] = $criteria;
+
+    return $objective;
+  }
+
+  /**
+   * Derive a player-facing next action from the objective contract.
+   */
+  protected function deriveSummaryObjectiveNextStep(array $objective, array $quest_row): string {
+    $type = strtolower(trim((string) ($objective['type'] ?? 'objective')));
+    $description = trim((string) ($objective['description'] ?? 'this objective'));
+    $target = $this->objectiveReferenceDisplay($objective, $quest_row, 'target');
+    $item = $this->objectiveReferenceDisplay($objective, $quest_row, 'item');
+    $location = $this->objectiveReferenceDisplay($objective, $quest_row, 'location')
+      ?: $this->objectiveReferenceDisplay($objective, $quest_row, 'location_id');
+    $destination = $this->objectiveReferenceDisplay($objective, $quest_row, 'destination')
+      ?: $this->objectiveReferenceDisplay($objective, $quest_row, 'destination_id');
+    $count = max(1, (int) ($objective['target_count'] ?? $objective['completion_criteria']['target_count'] ?? 1));
+
+    switch ($type) {
+      case 'collect':
+        $item_text = $item !== '' ? $item : 'the required item';
+        $location_text = $location !== '' ? " in {$location}" : '';
+        return "Search{$location_text} and collect {$count} {$item_text}.";
+
+      case 'kill':
+        $target_text = $target !== '' ? $target : 'the required foe';
+        $location_text = $location !== '' ? " in {$location}" : '';
+        return "Engage{$location_text} and defeat {$count} {$target_text}.";
+
+      case 'explore':
+        $location_text = $location !== '' ? $location : ($target !== '' ? $target : $description);
+        return "Travel to {$location_text} and enter or reveal it on the map.";
+
+      case 'investigate':
+        $target_text = $target !== '' ? $target : ($location !== '' ? $location : $description);
+        return "Investigate {$target_text} until the clue or lead is recorded.";
+
+      case 'escort':
+        $target_text = $target !== '' ? $target : 'the escorted NPC';
+        $destination_text = $destination !== '' ? $destination : 'the destination';
+        return "Keep {$target_text} with the party and reach {$destination_text}.";
+
+      case 'interact':
+        $target_text = $target !== '' ? $target : $description;
+        $location_text = $location !== '' ? " in {$location}" : '';
+        return "Speak with or interact with {$target_text}{$location_text}.";
+
+      default:
+        return "Complete this objective: {$description}.";
+    }
+  }
+
+  /**
+   * Derive a concrete completion condition from the objective contract.
+   */
+  protected function deriveSummaryObjectiveCompletionDescription(array $objective, array $quest_row): string {
+    $type = strtolower(trim((string) ($objective['type'] ?? 'objective')));
+    $target = $this->objectiveReferenceDisplay($objective, $quest_row, 'target');
+    $item = $this->objectiveReferenceDisplay($objective, $quest_row, 'item');
+    $location = $this->objectiveReferenceDisplay($objective, $quest_row, 'location')
+      ?: $this->objectiveReferenceDisplay($objective, $quest_row, 'location_id');
+    $destination = $this->objectiveReferenceDisplay($objective, $quest_row, 'destination')
+      ?: $this->objectiveReferenceDisplay($objective, $quest_row, 'destination_id');
+    $count = max(1, (int) ($objective['target_count'] ?? $objective['completion_criteria']['target_count'] ?? 1));
+
+    switch ($type) {
+      case 'collect':
+        $item_text = $item !== '' ? $item : 'required item';
+        $location_text = $location !== '' ? " in {$location}" : '';
+        return "Complete when {$count} {$item_text} have been collected{$location_text}.";
+
+      case 'kill':
+        $target_text = $target !== '' ? $target : 'required foe';
+        return "Complete when {$count} {$target_text} have been defeated.";
+
+      case 'explore':
+        $location_text = $location !== '' ? $location : ($target !== '' ? $target : 'the target location');
+        return "Complete when {$location_text} is discovered.";
+
+      case 'investigate':
+        $target_text = $target !== '' ? $target : ($location !== '' ? $location : 'the investigation lead');
+        return "Complete when the clue or lead for {$target_text} is recorded.";
+
+      case 'escort':
+        $target_text = $target !== '' ? $target : 'the escorted NPC';
+        $destination_text = $destination !== '' ? $destination : 'the destination';
+        return "Complete when {$target_text} arrives safely at {$destination_text}.";
+
+      case 'interact':
+        $target_text = $target !== '' ? $target : 'the target';
+        return "Complete when the required conversation or handoff with {$target_text} is finished.";
+
+      default:
+        return 'Complete when the objective state is marked complete.';
+    }
+  }
+
+  /**
+   * Resolve an objective reference field into display text.
+   */
+  protected function objectiveReferenceDisplay(array $objective, array $quest_row, string $field): string {
+    $value = trim((string) ($objective[$field] ?? ''));
+    if ($value === '') {
+      return '';
+    }
+    $label = $this->resolveObjectiveReferenceLabel($quest_row, $value);
+    return $label !== '' ? $label : $value;
   }
 
   /**
@@ -985,6 +1116,7 @@ class QuestGeneratorService {
         $generated_obj['target'] = $this->resolveVariables((string) ($objective_schema['target'] ?? ''), $variables);
         $generated_obj['current'] = 0;
         $generated_obj['target_count'] = max(1, (int) $target_count);
+        $variables['target_count'] = (string) $generated_obj['target_count'];
         break;
 
       case 'collect':

@@ -23,11 +23,12 @@
               "description": "Determine where the teacher disappeared from the Magaambya.",
               "target": "tok-missing-teacher",
               "target_count": 1,
+              "next_step": "Question Magaambya contacts and inspect the last known campus location for the missing teacher.",
               "completion_criteria": {
                 "kind": "count",
                 "metric": "current",
                 "target_count": 1,
-                "description": "Reach the required progress count."
+                "description": "Complete when the teacher's last known location is identified and recorded."
               }
             }
           ]
@@ -70,11 +71,12 @@
               "description": "Collect enough evidence on campus to follow the mystery into Nantambu.",
               "target": "magaambya",
               "target_count": 1,
+              "next_step": "Question campus allies and inspect evidence around the Magaambya grounds.",
               "completion_criteria": {
                 "kind": "count",
                 "metric": "current",
                 "target_count": 1,
-                "description": "Reach the required progress count."
+                "description": "Complete when enough campus evidence is recorded to unlock the Nantambu follow-up."
               }
             }
           ]
@@ -115,11 +117,12 @@
               "objective_id": "trace_nantambu_leads",
               "type": "explore",
               "description": "Follow the strongest leads through the city.",
+              "next_step": "Travel to Nantambu and pursue the strongest city lead revealed by the campus clues.",
               "completion_criteria": {
                 "kind": "flag",
                 "metric": "discovered",
                 "required_value": true,
-                "description": "Discover the required location."
+                "description": "Complete when the Nantambu investigation location is discovered."
               },
               "location": "nantambu"
             }
@@ -162,11 +165,12 @@
               "type": "interact",
               "description": "Defuse the danger tied to the missing teacher and secure the academy.",
               "target": "tok-underlying-threat",
+              "next_step": "Confront the revealed threat and resolve the danger before returning to the academy.",
               "completion_criteria": {
                 "kind": "flag",
                 "metric": "completed",
                 "required_value": true,
-                "description": "Mark this objective complete."
+                "description": "Complete when the threat is resolved and the academy is safe."
               }
             }
           ]

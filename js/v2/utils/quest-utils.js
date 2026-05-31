@@ -438,7 +438,10 @@ export function renderQuestManagementObjectiveHtml(objective) {
     detailLines.push(`Detail: ${details}`);
   }
   if (objective.completion_criteria) {
-    detailLines.push(`Complete when: ${formatQuestCompletionCriteria(objective.completion_criteria)}`);
+    const completionCriteria = formatQuestCompletionCriteria(objective.completion_criteria);
+    detailLines.push(completionCriteria.toLowerCase().startsWith('complete when')
+      ? completionCriteria
+      : `Complete when: ${completionCriteria}`);
   }
   const childrenHtml = Array.isArray(objective.children) && objective.children.length > 0
     ? `<ul class="quest-objectives">${objective.children.map(renderQuestManagementObjectiveHtml).join('')}</ul>`
@@ -602,6 +605,8 @@ export function mergeObjectiveProgress(baseObjective, objectiveIndex) {
     objective_id: objectiveId,
     type: baseObjective?.type || '',
     description: baseObjective?.description || objectiveId || '',
+    next_step: baseObjective?.next_step || '',
+    completion_criteria: baseObjective?.completion_criteria || null,
     target_count: Number(baseObjective?.target_count || 1),
     current: Number(baseObjective?.current || 0),
     completed: Boolean(baseObjective?.completed),
@@ -613,6 +618,12 @@ export function mergeObjectiveProgress(baseObjective, objectiveIndex) {
     merged.target_count = Number(merged.target_count || state.target || 1);
     if (!baseObjective?.description) {
       merged.description = state.description || merged.description;
+    }
+    if (!merged.next_step && state.next_step) {
+      merged.next_step = state.next_step;
+    }
+    if (!merged.completion_criteria && state.completion_criteria) {
+      merged.completion_criteria = state.completion_criteria;
     }
     merged.completed = merged.completed || Boolean(state.completed) || merged.current >= merged.target_count;
   } else {

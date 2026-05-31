@@ -18,6 +18,7 @@
           "type": "explore",
           "description": "Travel to {destination}",
           "location": "{destination}",
+          "next_step": "Travel to {destination} and reveal or enter the delivery location.",
           "completion_criteria": {
             "kind": "flag",
             "metric": "discovered",
@@ -30,6 +31,7 @@
           "type": "interact",
           "target": "recipient",
           "description": "Deliver the package to the recipient",
+          "next_step": "Speak to the recipient at {destination} and hand over the package.",
           "completion_criteria": {
             "kind": "flag",
             "metric": "completed",

@@ -21,6 +21,7 @@
           "item": "room_supply",
           "target_count": 2,
           "description": "Collect 2 supplies from the room",
+          "next_step": "Search the current room and pick up both room supply quest items.",
           "completion_criteria": {
             "kind": "count",
             "metric": "current",
@@ -38,6 +39,7 @@
           "type": "interact",
           "target": "tavern_keeper",
           "description": "Return the supplies to the tavern keeper",
+          "next_step": "Speak to the tavern keeper after collecting both room supplies.",
           "completion_criteria": {
             "kind": "flag",
             "metric": "completed",

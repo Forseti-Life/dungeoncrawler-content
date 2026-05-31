@@ -22,11 +22,12 @@
               "type": "interact",
               "description": "Hear the mission briefing and commit the party to the adventure.",
               "target": "tal-mission-handler",
+              "next_step": "Speak with the mission handler, listen to the briefing, and choose to accept the mission.",
               "completion_criteria": {
                 "kind": "flag",
                 "metric": "completed",
                 "required_value": true,
-                "description": "Mark this objective complete."
+                "description": "Complete when the briefing conversation confirms the party has accepted the mission."
               }
             }
           ]
@@ -69,11 +70,12 @@
               "description": "Defeat or resolve the opening encounter.",
               "target": "tal-opening-encounter",
               "target_count": 1,
+              "next_step": "Start the opening encounter and defeat, negotiate with, or otherwise resolve the opposing threat.",
               "completion_criteria": {
                 "kind": "count",
                 "metric": "current",
                 "target_count": 1,
-                "description": "Reach the required progress count."
+                "description": "Complete when the opening encounter is resolved."
               }
             }
           ]

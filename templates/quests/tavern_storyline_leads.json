@@ -21,11 +21,12 @@
           "type": "interact",
           "target": "tavern_keeper",
           "description": "Speak to Eldric and gather his storyline lead.",
+          "next_step": "Talk to Eldric in The Gilded Tankard and ask what work or danger he knows about.",
           "completion_criteria": {
             "kind": "flag",
             "metric": "completed",
             "required_value": true,
-            "description": "Speak to Eldric and hear his lead."
+            "description": "Complete when Eldric's storyline lead has been added to the journal."
           }
         },
         {
@@ -33,11 +34,12 @@
           "type": "interact",
           "target": "scholar_npc",
           "description": "Speak to Marta the Scholar and gather her storyline lead.",
+          "next_step": "Talk to Marta the Scholar in The Gilded Tankard and ask what problem needs help.",
           "completion_criteria": {
             "kind": "flag",
             "metric": "completed",
             "required_value": true,
-            "description": "Speak to Marta and hear her lead."
+            "description": "Complete when Marta's storyline lead has been added to the journal."
           }
         }
       ]

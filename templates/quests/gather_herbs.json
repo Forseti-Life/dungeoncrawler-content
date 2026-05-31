@@ -22,11 +22,12 @@
             8
           ],
           "description": "Collect {herb_name} from {location}",
+          "next_step": "Search {location} and pick up each {herb_name} quest item.",
           "completion_criteria": {
             "kind": "count",
             "metric": "current",
             "target_count": 1,
-            "description": "Collect the required amount of {herb_name}."
+            "description": "Complete when {target_count} {herb_name} have been collected from {location}."
           }
         }
       ]
@@ -39,11 +40,12 @@
           "type": "interact",
           "target": "alchemist",
           "description": "Return the herbs to the alchemist",
+          "next_step": "Speak to the alchemist after collecting the herbs.",
           "completion_criteria": {
             "kind": "flag",
             "metric": "completed",
             "required_value": true,
-            "description": "Speak to the alchemist and hand over the herbs."
+            "description": "Complete when the herbs are handed over to the alchemist."
           }
         }
       ]

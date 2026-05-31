@@ -21,11 +21,12 @@
               "objective_id": "enter_vault",
               "type": "explore",
               "description": "Reach the vault entry and begin the delve.",
+              "next_step": "Travel with the Hookclaw kobolds to the vault entry and enter the first vault area.",
               "completion_criteria": {
                 "kind": "flag",
                 "metric": "discovered",
                 "required_value": true,
-                "description": "Discover the required location."
+                "description": "Complete when the vault entry location is discovered."
               },
               "location": "ltba-vault-entry"
             }
@@ -68,11 +69,12 @@
               "type": "interact",
               "description": "Disarm or bypass the chamber hazards.",
               "target": "ltba-tomb-hazard-room",
+              "next_step": "Enter the hazard chamber and use skills, spells, or alternate routes to neutralize each hazard.",
               "completion_criteria": {
                 "kind": "flag",
                 "metric": "completed",
                 "required_value": true,
-                "description": "Mark this objective complete."
+                "description": "Complete when the tomb hazards are disarmed, bypassed, or otherwise made safe."
               }
             }
           ]
@@ -114,11 +116,12 @@
               "type": "interact",
               "description": "Speak with the old lady and accept the job.",
               "target": "ltba-grandmother",
+              "next_step": "Speak with Grandmother and explicitly accept her request to recover the magical hedge trimmer.",
               "completion_criteria": {
                 "kind": "flag",
                 "metric": "completed",
                 "required_value": true,
-                "description": "Mark this objective complete."
+                "description": "Complete when the party accepts Grandmother's request."
               }
             }
           ]
@@ -164,11 +167,12 @@
                 1
               ],
               "description": "Recover the magical hedge trimmer.",
+              "next_step": "Search the upstairs area for the magical hedge trimmer and pick it up.",
               "completion_criteria": {
                 "kind": "count",
                 "metric": "current",
                 "target_count": 1,
-                "description": "Reach the required progress count."
+                "description": "Complete when the magical hedge trimmer has been collected."
               }
             }
           ]
