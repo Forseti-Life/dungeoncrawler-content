@@ -429,8 +429,8 @@ export class CharacterPanel {
     ];
 
     abilityPairs.forEach(([name, score]) => {
-      const valueEl = this.elements[`character${name}`];
-      const modEl = this.elements[`character${name}Mod`];
+      const valueEl = this._el[`character${name}`];
+      const modEl = this._el[`character${name}Mod`];
       if (valueEl) valueEl.textContent = score;
       if (modEl) modEl.textContent = calcMod(score);
     });

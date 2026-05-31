@@ -59,7 +59,7 @@ export class CombatPanel {
   }
 
   renderActionButtons(actions, movement, isPlayersTurn) {
-    const { actionMoveBtn, actionAttackBtn, actionInteractBtn, actionTalkBtn, endTurnBtn } = this.elements;
+    const { actionMoveBtn, actionAttackBtn, actionInteractBtn, actionTalkBtn, endTurnBtn } = this._el;
     const maxActions = actions ? actions.maxActions + (actions.actionBonus || 0) : null;
     const actionsRemaining = actions ? actions.actionsRemaining : 0;
     const canAct = !!(isPlayersTurn && actions && actions.canAct !== false && actionsRemaining > 0);

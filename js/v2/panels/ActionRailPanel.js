@@ -1101,7 +1101,7 @@ export class ActionRailPanel {
   }
 
   updateActionMode(mode, { canAct = false, canInteract = false, moveLeft = 0, isPlayersTurn = false } = {}) {
-    const { actionMoveBtn, actionAttackBtn, actionInteractBtn, actionInstruction } = this.elements;
+    const { actionMoveBtn, actionAttackBtn, actionInteractBtn, actionInstruction } = this._el;
 
     const setActive = (btn, active) => {
       if (!btn) return;

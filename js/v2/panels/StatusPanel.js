@@ -131,8 +131,8 @@ export class StatusPanel {
     };
 
     Object.entries(map).forEach(([key, value]) => {
-      if (this.elements[key]) {
-        this.elements[key].textContent = value;
+      if (this._el[key]) {
+        this._el[key].textContent = value;
       }
     });
   }
