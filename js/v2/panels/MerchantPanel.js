@@ -796,9 +796,14 @@ export class MerchantPanel {
     if (this._el.merchantPanelEmpty) {
       this._el.merchantPanelEmpty.hidden = hasContext;
       if (!hasContext) {
-        this._el.merchantPanelEmpty.textContent = merchantEntries.length > 0
-          ? 'Select a merchant to load trade details.'
-          : 'No merchant context is active for this room yet.';
+        const selectedEntry = merchantEntries.find((e) => e.entityId === this.currentMerchantRef) || merchantEntries[0] || null;
+        if (merchantEntries.length === 0) {
+          this._el.merchantPanelEmpty.textContent = 'No merchant is present in this room.';
+        } else if (this.currentMerchantRef && selectedEntry) {
+          this._el.merchantPanelEmpty.textContent = `Loading ${selectedEntry.name || 'merchant'}'s wares\u2026`;
+        } else {
+          this._el.merchantPanelEmpty.textContent = 'Select a merchant to load trade details.';
+        }
       }
     }
 
