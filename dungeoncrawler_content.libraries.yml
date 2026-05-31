@@ -203,6 +203,8 @@ hexmap-v2:
     https://cdn.jsdelivr.net/npm/pixi.js@7.3.2/dist/pixi.min.js: { type: external, minified: true }
     # ECS Core (reused from existing js/ecs/)
     js/ecs/index.js: { attributes: { type: module } }
+    # Tab controller (shared with hexmap library — handles [data-game-shell] top-level tabs)
+    js/GameShellTabs.js: {}
     # V2 entry point (imports all js/v2/** modules internally)
     js/hexmap-v2.js: { attributes: { type: module } }
   css:
