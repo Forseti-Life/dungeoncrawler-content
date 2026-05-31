@@ -276,6 +276,7 @@ export class GameShell {
       this._clearRoomViewRetry();
       this._roomViewLastKey = null;
       this._roomViewHasContent = false;
+      this._merchantStockLoading = false;
       // Update navigate panel connections for the new room
       this.bus.emit('room:changed', {
         roomId,
@@ -602,6 +603,18 @@ export class GameShell {
    * @private
    */
   async _loadMerchantStock() {
+    // Prevent concurrent duplicate fetches; re-trigger is handled by MerchantPanel's own retry.
+    if (this._merchantStockLoading) return;
+    this._merchantStockLoading = true;
+
+    try {
+      await this.__loadMerchantStockImpl();
+    } finally {
+      this._merchantStockLoading = false;
+    }
+  }
+
+  async __loadMerchantStockImpl() {
     const campaignId = this.launchContext?.campaign_id;
     const roomId     = this.activeRoomId;
     const charId     = this.launchCharacter?.id ?? this.launchContext?.character_id;

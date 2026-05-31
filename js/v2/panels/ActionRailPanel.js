@@ -746,9 +746,10 @@ export class ActionRailPanel {
     const activeRoomId = hexmap?.resolveActiveRoomId?.() || null;
     const visitOrder = new Map();
     const history = Array.isArray(dungeonData?.location_history) ? dungeonData.location_history : [];
-    const capabilities = typeof hexmap?.resolveNavigationCapabilities === 'function'
+    const capabilitiesRaw = typeof hexmap?.resolveNavigationCapabilities === 'function'
       ? hexmap.resolveNavigationCapabilities(activeRoomId)
       : [];
+    const capabilities = Array.isArray(capabilitiesRaw) ? capabilitiesRaw : [];
     const capabilityByRoomId = new Map();
 
     capabilities.forEach((capability) => {
