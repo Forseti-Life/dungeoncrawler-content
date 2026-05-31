@@ -38,6 +38,8 @@ export class InventoryPanel {
       inventoryStatus:      id('inventory-status'),
       inventorySlotGrid:    id('inventory-slot-grid'),
     };
+    const nullKeys = Object.entries(this._el).filter(([,v]) => !v).map(([k]) => k);
+    console.log('[InventoryPanel] init', { container: !!this.container, nullEl: nullKeys });
     this._subscribe();
     this.setupInventoryPanelActions();
   }
@@ -290,6 +292,7 @@ export class InventoryPanel {
   }
 
   renderInventoryPanel(context) {
+    console.log('[InventoryPanel] renderInventoryPanel', { itemCount: context?.inventory?.items?.length ?? context?.items?.length ?? 0, hasEquipment: !!context?.equipment });
     const inventory = normalizeInventoryState(context?.inventory || {}, context?.currency || {});
     const items = collectInventoryItems(inventory, context?.equipment || []);
     const summaryHtml = formatInventoryItemList(items);

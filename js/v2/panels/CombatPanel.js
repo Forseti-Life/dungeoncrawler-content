@@ -30,6 +30,8 @@ export class CombatPanel {
       endCombatBtn:     id('end-combat')        || s('end-combat-btn'),
       endTurnBtn:       id('end-turn')          || s('end-turn-btn'),
     };
+    const nullKeys = Object.entries(this._el).filter(([,v]) => !v).map(([k]) => k);
+    console.log('[CombatPanel] init', { container: !!this.container, nullEl: nullKeys });
     this._bindDom();
     this._subscribe();
   }
@@ -59,6 +61,7 @@ export class CombatPanel {
   }
 
   renderActionButtons(actions, movement, isPlayersTurn) {
+    console.log('[CombatPanel] renderActionButtons', { isPlayersTurn, actionsRemaining: actions?.actionsRemaining });
     const { actionMoveBtn, actionAttackBtn, actionInteractBtn, actionTalkBtn, endTurnBtn } = this._el;
     const maxActions = actions ? actions.maxActions + (actions.actionBonus || 0) : null;
     const actionsRemaining = actions ? actions.actionsRemaining : 0;

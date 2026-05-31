@@ -30,6 +30,8 @@ export class RoomViewPanel {
       roomViewResponders:      s('responders'),
       chatShell:               document.getElementById('hexmap-chat'),
     };
+    const nullKeys = Object.entries(this._el).filter(([,v]) => !v).map(([k]) => k);
+    console.log('[RoomViewPanel] init', { container: !!this.container, chatShell: !!this._el.chatShell, nullEl: nullKeys });
     this._subscribe();
   }
 
@@ -175,6 +177,7 @@ export class RoomViewPanel {
   }
 
   updateRoomViewPanel(room, state = {}) {
+    console.log('[RoomViewPanel] updateRoomViewPanel', { roomId: room?.id, roomName: room?.name, entries: state?.entries?.length ?? 0 });
     const {
       statusLabel = 'Idle',
       placeholderText = 'Room transition imagery will appear here.',

@@ -687,10 +687,16 @@ export class GameShell {
   _initPanels() {
     const c = this.container;
     const bus = this.bus;
-    const panel = (sel) => c.querySelector(sel) ?? c;
+    const panel = (sel) => {
+      const el = c.querySelector(sel);
+      if (!el) console.warn('[GameShell] panel container NOT FOUND:', sel);
+      return el ?? c;
+    };
     const hexmap = this._buildHexmapShim();
     // stateManager.get needed by ActionRailPanel (this.stateManager?.get?.('selectedEntity'))
     const stateManager = { hexmap, get: (_key) => null };
+
+    console.log('[GameShell] _initPanels start', { dungeonData: !!this.dungeonData, launchCharacter: !!this.launchCharacter });
 
     this.panels.portrait   = new PortraitPanel(panel('[data-panel="portrait"]'), bus);
     this.panels.merchant   = new MerchantPanel(panel('[data-panel="merchant"]'), bus);
@@ -716,6 +722,8 @@ export class GameShell {
     this.panels.quest.init();
     this.panels.roomView.init();
     this.panels.status.init();
+
+    console.log('[GameShell] _initPanels complete');
   }
 
   /**

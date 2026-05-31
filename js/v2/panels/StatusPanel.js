@@ -42,6 +42,8 @@ export class StatusPanel {
       selectedHexContentsEmpty:   id('selected-hex-contents-empty'),
       selectedHexContentsList:    id('selected-hex-contents-list'),
     };
+    const nullKeys = Object.entries(this._el).filter(([,v]) => !v).map(([k]) => k);
+    console.log('[StatusPanel] init', { container: !!this.container, nullEl: nullKeys });
     this._bindDom();
     this._subscribe();
     if (this._el.unavailBanner) this._el.unavailBanner.hidden = true;

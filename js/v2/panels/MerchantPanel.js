@@ -39,6 +39,8 @@ export class MerchantPanel {
       merchantSellList:      id('merchant-sell-list')      || s('sell-list'),
       merchantActorName:     id('merchant-actor-name')     || s('actor-name'),
     };
+    const nullKeys = Object.entries(this._el).filter(([,v]) => !v).map(([k]) => k);
+    console.log('[MerchantPanel] init', { container: !!this.container, nullEl: nullKeys });
     this._subscribe();
     this.setupMerchantPanelActions();
   }
@@ -514,6 +516,7 @@ export class MerchantPanel {
   }
 
   renderMerchantPanel(context = null) {
+    console.log('[MerchantPanel] renderMerchantPanel', { hasMerchant: !!context?.merchant, stockCount: context?.stock?.length ?? 0 });
     const merchantEntries = Array.isArray(this.currentMerchantCandidates) ? this.currentMerchantCandidates : [];
     const merchant = context?.merchant || null;
     const selectedMerchantEntry = merchantEntries.find((entry) => entry.entityId === this.currentMerchantRef) || merchantEntries[0] || null;

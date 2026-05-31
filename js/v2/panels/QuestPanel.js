@@ -36,6 +36,8 @@ export class QuestPanel {
       questExpandAll:  id('quest-expand-all'),
       questCollapseAll: id('quest-collapse-all'),
     };
+    const nullKeys = Object.entries(this._el).filter(([,v]) => !v).map(([k]) => k);
+    console.log('[QuestPanel] init', { container: !!this.container, nullEl: nullKeys });
     this._subscribe();
     this.setupQuestJournalControls();
   }
@@ -125,6 +127,7 @@ export class QuestPanel {
   }
 
   renderQuestJournal(questSummary) {
+    console.log('[QuestPanel] renderQuestJournal', { activeCount: questSummary?.active?.length ?? 0 });
     const list = this._el.questList;
     const count = this._el.questCount;
     if (!list) return;

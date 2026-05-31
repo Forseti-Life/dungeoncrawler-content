@@ -43,6 +43,8 @@ export class ActionRailPanel {
       actionMenu:               id('action-menu'),
       endTurnBtn:               id('end-turn'),
     };
+    const nullKeys = Object.entries(this._el).filter(([,v]) => !v).map(([k]) => k);
+    console.log('[ActionRailPanel] init', { container: !!this.container, nullEl: nullKeys });
     this._subscribe();
     this.setupActionRail();
   }
@@ -146,6 +148,7 @@ export class ActionRailPanel {
   }
 
   refreshActionRail() {
+    console.log('[ActionRailPanel] refreshActionRail');
     const categories = this._el.actionRailCategories;
     const panelTitle = this._el.actionRailPanelTitle;
     const panelChip = this._el.actionRailPanelChip;

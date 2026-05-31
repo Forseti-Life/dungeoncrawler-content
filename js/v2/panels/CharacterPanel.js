@@ -53,6 +53,8 @@ export class CharacterPanel {
       charEntityName:     s('entity-name'),
       charEntityStats:    s('entity-stats'),
     };
+    const nullKeys = Object.entries(this._el).filter(([,v]) => !v).map(([k]) => k);
+    console.log('[CharacterPanel] init', { container: !!this.container, nullEl: nullKeys });
     this._subscribe();
     this.setupCharacterSheetSections();
   }
@@ -130,6 +132,7 @@ export class CharacterPanel {
   }
 
   showEntityInfo(entity) {
+    console.log('[CharacterPanel] showEntityInfo', { id: entity?.id, type: entity?.type });
     if (!this._el.entityInfoPanel) return;
 
     this._el.entityInfoPanel.classList.remove('dc-is-hidden');
@@ -242,7 +245,7 @@ export class CharacterPanel {
       return;
     }
 
-    console.log('showLaunchCharacter received:', launchCharacter);
+    console.log('[CharacterPanel] showLaunchCharacter', { id: launchCharacter?.id, instance: launchCharacter?.instance_id });
 
     // Support both legacy format and new API state format
     const state = launchCharacter.data || launchCharacter;
