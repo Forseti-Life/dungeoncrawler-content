@@ -12,6 +12,7 @@ import {
   formatInventoryItemList,
   renderInventoryPanelList,
   renderInventorySlotGrid,
+  estimateInventoryBulk,
 } from '../utils/inventory-utils.js';
 
 export class InventoryPanel {

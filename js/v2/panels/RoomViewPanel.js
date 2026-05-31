@@ -28,6 +28,7 @@ export class RoomViewPanel {
       roomViewCardTemplate:    id('room-view-card-template'),
       roomViewSceneImage:      s('scene-image'),
       roomViewResponders:      s('responders'),
+      chatShell:               document.getElementById('hexmap-chat'),
     };
     this._subscribe();
   }
@@ -211,6 +212,37 @@ export class RoomViewPanel {
     const sceneImageSrc = this.resolveRoomViewImageSrc(entries);
     if (sceneImageSrc || !preserveChatBackground) {
       this.setChatPanelSceneBackground(sceneImageSrc, room);
+    }
+  }
+
+  setChatPanelSceneBackground(imageSrc = '', room = null) {
+    const chatShell = this._el.chatShell;
+    if (!chatShell) {
+      return;
+    }
+
+    const normalizedImageSrc = typeof imageSrc === 'string' ? imageSrc.trim() : '';
+    if (!normalizedImageSrc) {
+      chatShell.style.removeProperty('--chat-scene-image');
+      chatShell.style.removeProperty('background-image');
+      chatShell.style.removeProperty('background-position');
+      chatShell.style.removeProperty('background-size');
+      chatShell.style.removeProperty('background-repeat');
+      chatShell.dataset.sceneReady = 'false';
+      chatShell.removeAttribute('data-scene-room');
+      return;
+    }
+
+    chatShell.style.setProperty('--chat-scene-image', `url(${JSON.stringify(normalizedImageSrc)})`);
+    chatShell.style.backgroundImage = `linear-gradient(180deg, rgba(6, 10, 18, 0.22) 0%, rgba(6, 10, 18, 0.54) 55%, rgba(6, 10, 18, 0.72) 100%), url(${JSON.stringify(normalizedImageSrc)})`;
+    chatShell.style.backgroundPosition = 'center';
+    chatShell.style.backgroundSize = 'cover';
+    chatShell.style.backgroundRepeat = 'no-repeat';
+    chatShell.dataset.sceneReady = 'true';
+    if (room?.name) {
+      chatShell.dataset.sceneRoom = String(room.name);
+    } else {
+      chatShell.removeAttribute('data-scene-room');
     }
   }
 

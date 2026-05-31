@@ -5,6 +5,8 @@
  * Methods ported verbatim from hexmap.js UIManager.
  */
 
+import { escapeQuestHtml } from '../utils/quest-utils.js';
+
 export class MerchantPanel {
   constructor(container, bus) {
     this.container = container;

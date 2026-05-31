@@ -5,6 +5,8 @@
  * Methods ported verbatim from hexmap.js UIManager.
  */
 
+import { collectCharacterSkillEntries } from '../utils/inventory-utils.js';
+
 export class CharacterPanel {
   constructor(container, bus) {
     this.container = container;
