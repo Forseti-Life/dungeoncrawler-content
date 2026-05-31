@@ -45,8 +45,14 @@ export function normalizeQuestObjectivePayload(objective) {
   if (objective.location != null && String(objective.location).trim()) {
     normalized.location = String(objective.location).trim();
   }
+  if (objective.location_id != null && String(objective.location_id).trim()) {
+    normalized.location_id = String(objective.location_id).trim();
+  }
   if (objective.destination != null && String(objective.destination).trim()) {
     normalized.destination = String(objective.destination).trim();
+  }
+  if (objective.destination_id != null && String(objective.destination_id).trim()) {
+    normalized.destination_id = String(objective.destination_id).trim();
   }
   if (objective.npc_id != null && Number.isFinite(Number(objective.npc_id))) {
     normalized.npc_id = Math.max(0, Number(objective.npc_id));

@@ -173,26 +173,29 @@ export class QuestPanel {
       const rawStatus = String(quest.status || '').trim().toLowerCase();
       const status = rawStatus ? rawStatus.charAt(0).toUpperCase() + rawStatus.slice(1) : 'Active';
 
-      // Build objective list HTML for the first incomplete phase.
-      let objectiveHtml = '';
+      let nextStep = '';
+      const objectiveRows = [];
       for (const phase of phases) {
         const objectives = flattenQuestObjectives(phase.objectives || []);
-        objectiveHtml = objectives.map(obj => {
+        objectives.forEach(obj => {
           const merged = mergeObjectiveProgress(obj, objectiveIndex);
+          if (merged.hidden && !merged.revealed && !merged.completed) {
+            return;
+          }
           const current = merged.current;
           const target = merged.target_count || 1;
           const completed = merged.completed;
           const icon = completed ? '✅' : '⬜';
           const desc = merged.description || merged.objective_id;
           const progress = merged.type === 'collect' ? ` (${current}/${target})` : '';
-          return `<li class="quest-objective ${completed ? 'quest-objective--done' : ''}">${icon} ${desc}${progress}</li>`;
-        }).join('');
-
-        // Show only the first phase that has incomplete objectives.
-        const allDone = objectives.every(o => mergeObjectiveProgress(o, objectiveIndex).completed);
-        if (!allDone) break;
+          if (!completed && !nextStep) {
+            nextStep = `${desc}${progress}`;
+          }
+          objectiveRows.push(`<li class="quest-objective ${completed ? 'quest-objective--done' : ''}">${icon} ${desc}${progress}</li>`);
+        });
       }
 
+      let objectiveHtml = objectiveRows.join('');
       if (!objectiveHtml) {
         objectiveHtml = '<li class="quest-objective">✅ All objectives complete</li>';
       }
@@ -201,7 +204,7 @@ export class QuestPanel {
         itemClass: 'quest-entry quest-entry--quest',
         title,
         titlePrefix: '📜',
-        metaLines: [`Status: ${status}`],
+        metaLines: [`Status: ${status}`, nextStep ? `Next: ${nextStep}` : 'Next: Review quest completion.'],
         bodyHtml: `<ul class="quest-objectives">${objectiveHtml}</ul>`,
       });
     }).join('');
@@ -229,8 +232,9 @@ export class QuestPanel {
 
   renderQuestSummaryPreviewLines(quest, fallbackLine) {
     const phases = extractQuestPhases(quest);
-    const firstPhase = Array.isArray(phases) && phases.length > 0 ? phases[0] : null;
-    const objectives = firstPhase ? flattenQuestObjectives(firstPhase.objectives || []) : [];
+    const objectives = (Array.isArray(phases) ? phases : [])
+      .flatMap((phase) => flattenQuestObjectives(phase.objectives || []))
+      .filter((objective) => !objective?.hidden || objective?.revealed || objective?.completed);
     const lines = objectives.slice(0, 3).map((objective) => {
       const description = String(objective?.description || objective?.objective_id || '').trim();
       return description ? `<li class="quest-objective">⬜ ${description}</li>` : '';

@@ -252,6 +252,7 @@ class QuestGeneratorService {
 
     return [
       'quest_id' => trim((string) ($quest_row['quest_id'] ?? '')),
+      'campaign_id' => isset($quest_row['campaign_id']) ? (int) $quest_row['campaign_id'] : 0,
       'quest_key' => trim((string) ($quest_row['quest_key'] ?? $source_template_id ?? $quest_row['quest_id'] ?? '')),
       'source_template_id' => $source_template_id,
       'title' => trim((string) ($quest_row['title'] ?? $quest_name)),
@@ -292,7 +293,7 @@ class QuestGeneratorService {
    * Attach labels to a single objective node recursively.
    */
   protected function hydrateObjectiveNodeLabels(array $objective, array $quest_row): array {
-    foreach (['target', 'item', 'location', 'destination'] as $field) {
+    foreach (['target', 'item', 'location', 'location_id', 'destination', 'destination_id'] as $field) {
       $value = trim((string) ($objective[$field] ?? ''));
       if ($value !== '') {
         $label = $this->resolveObjectiveReferenceLabel($quest_row, $value);
@@ -338,6 +339,34 @@ class QuestGeneratorService {
         ->fetchField();
       if (is_string($room_name) && $room_name !== '') {
         return $room_name;
+      }
+
+      $location_id = $this->normalizeNullableString($quest_row['location_id'] ?? NULL);
+      if ($location_id !== NULL) {
+        $room_row = $this->database->select('dc_campaign_rooms', 'r')
+          ->fields('r', ['contents_data'])
+          ->condition('campaign_id', $campaign_id)
+          ->condition('room_id', $location_id)
+          ->range(0, 1)
+          ->execute()
+          ->fetchAssoc();
+        $contents = is_array($room_row) ? (json_decode((string) ($room_row['contents_data'] ?? '{}'), TRUE) ?: []) : [];
+        foreach ((array) ($contents['npcs'] ?? []) as $npc) {
+          if (!is_array($npc)) {
+            continue;
+          }
+          $npc_refs = array_filter([
+            $npc['content_id'] ?? NULL,
+            $npc['id'] ?? NULL,
+            $npc['npc_id'] ?? NULL,
+          ], static fn($ref): bool => $ref !== NULL && trim((string) $ref) !== '');
+          if (in_array($value, array_map('strval', $npc_refs), TRUE)) {
+            $npc_name = trim((string) ($npc['name'] ?? ''));
+            if ($npc_name !== '') {
+              return $npc_name;
+            }
+          }
+        }
       }
     }
 
@@ -843,7 +872,6 @@ class QuestGeneratorService {
         $item_name = $this->deriveItemNameFromQuestLabel((string) ($quest['title'] ?? ''), $template);
         if ($item_name !== '') {
           $hints['item_name'] = $item_name;
-          return $hints;
         }
       }
     }
@@ -861,7 +889,8 @@ class QuestGeneratorService {
 
     if ($associated_item_names !== []) {
       arsort($associated_item_names);
-      $hints['item_name'] = (string) array_key_first($associated_item_names);
+      $hints['item_name'] = $hints['item_name'] ?? (string) array_key_first($associated_item_names);
+      $hints['target_count'] = (string) array_sum($associated_item_names);
     }
 
     return $hints;
@@ -952,7 +981,19 @@ class QuestGeneratorService {
         break;
 
       case 'collect':
-        $target_count = $objective_schema['target_count'] ?? $this->numberGeneration->rollRange(3, 8);
+        $range = is_array($objective_schema['target_count_range'] ?? NULL) ? array_values($objective_schema['target_count_range']) : [];
+        if (isset($objective_schema['target_count'])) {
+          $target_count = $objective_schema['target_count'];
+        }
+        elseif (isset($variables['target_count']) && is_numeric($variables['target_count'])) {
+          $target_count = (int) $variables['target_count'];
+        }
+        elseif (count($range) === 2) {
+          $target_count = $this->numberGeneration->rollRange((int) $range[0], (int) $range[1]);
+        }
+        else {
+          $target_count = $this->numberGeneration->rollRange(3, 8);
+        }
         $generated_obj['item'] = $this->resolveVariables((string) ($objective_schema['item'] ?? ''), $variables);
         $generated_obj['current'] = 0;
         $generated_obj['target_count'] = max(1, (int) $target_count);
@@ -1018,7 +1059,18 @@ class QuestGeneratorService {
       $generated_obj['children'] = $children;
     }
 
-    $generated_obj['completion_criteria'] = $this->normalizeObjectiveCompletionCriteria($objective_schema['completion_criteria'] ?? [], $generated_obj);
+    $criteria_schema = $objective_schema['completion_criteria'] ?? [];
+    if (is_array($criteria_schema)) {
+      foreach ($criteria_schema as $criteria_key => $criteria_value) {
+        if (is_string($criteria_value)) {
+          $criteria_schema[$criteria_key] = $this->resolveVariables($criteria_value, $variables);
+        }
+      }
+    }
+    $generated_obj['completion_criteria'] = $this->normalizeObjectiveCompletionCriteria($criteria_schema, $generated_obj);
+    if (($generated_obj['completion_criteria']['kind'] ?? '') === 'count' && isset($generated_obj['target_count'])) {
+      $generated_obj['completion_criteria']['target_count'] = max(1, (int) $generated_obj['target_count']);
+    }
     return $generated_obj;
   }
 
@@ -1302,7 +1354,7 @@ class QuestGeneratorService {
       }
     }
 
-    $optional_string_fields = ['target', 'item', 'location', 'destination'];
+    $optional_string_fields = ['target', 'item', 'location', 'location_id', 'destination', 'destination_id'];
     foreach ($optional_string_fields as $field) {
       if (isset($objective[$field]) && $objective[$field] !== '') {
         $normalized[$field] = trim((string) $objective[$field]);
@@ -2523,7 +2575,8 @@ class QuestGeneratorService {
       }
     }
 
-    return $target;
+    $label = $this->resolveObjectiveReferenceLabel($quest, $target);
+    return $label !== '' ? $label : $target;
   }
 
   /**

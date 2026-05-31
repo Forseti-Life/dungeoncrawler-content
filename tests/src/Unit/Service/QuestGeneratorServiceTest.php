@@ -185,6 +185,59 @@ class QuestGeneratorServiceTest extends UnitTestCase {
   }
 
   /**
+   * Verifies collect objectives use canonical generated counts and criteria.
+   */
+  public function testGenerateCollectObjectiveUsesTargetCountRangeForCriteria(): void {
+    $logger = $this->createMock(LoggerInterface::class);
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($logger);
+
+    $state_validation = $this->createMock(StateValidationService::class);
+    $state_validation->method('validateQuestSummary')->willReturn([
+      'valid' => TRUE,
+      'errors' => [],
+    ]);
+
+    $number_generation = $this->createMock(NumberGenerationService::class);
+    $number_generation->expects($this->once())
+      ->method('rollRange')
+      ->with(2, 4)
+      ->willReturn(4);
+
+    $service = new class(
+      $this->createMock(Connection::class),
+      $logger_factory,
+      $number_generation,
+      $state_validation
+    ) extends QuestGeneratorService {
+      public function exposedGenerateObjectiveNode(array $objective_schema, array $variables = [], array $context = []): array {
+        return $this->generateObjectiveNode($objective_schema, $variables, $context);
+      }
+    };
+
+    $objective = $service->exposedGenerateObjectiveNode([
+      'objective_id' => 'collect_books',
+      'type' => 'collect',
+      'item' => '{item_name}',
+      'target_count_range' => [2, 4],
+      'description' => 'Find and collect {item_name}',
+      'completion_criteria' => [
+        'kind' => 'count',
+        'metric' => 'current',
+        'target_count' => 1,
+        'description' => 'Collect the required number of {item_name}.',
+      ],
+    ], [
+      'item_name' => 'Spellbooks',
+    ]);
+
+    $this->assertSame('Spellbooks', $objective['item']);
+    $this->assertSame(4, $objective['target_count']);
+    $this->assertSame(4, $objective['completion_criteria']['target_count']);
+    $this->assertSame('Collect the required number of Spellbooks.', $objective['completion_criteria']['description']);
+  }
+
+  /**
    * Verifies investigate objectives inherit a discoverable location target.
    */
   public function testGenerateObjectiveNodeMapsInvestigateTargetToLocation(): void {
