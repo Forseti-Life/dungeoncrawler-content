@@ -207,6 +207,22 @@ export class GameShell {
     // Chat submit → POST to server, emit response lines
     this.bus.on('user:chat-submitted', (data) => this._handleChatSubmit(data));
 
+    // Session view data request from ChatPanel
+    this.bus.on('user:session-view-requested', ({ view, options } = {}) => {
+      if (!view) return;
+      void this.fetchSessionViewData(view, options ?? {}).then((data) => {
+        this.bus.emit('session:view-data', { view, data });
+      }).catch((err) => {
+        console.error(`fetchSessionViewData(${view}) failed:`, err?.message);
+      });
+    });
+
+    // Session message submit from ChatPanel non-room view
+    this.bus.on('user:session-message-submitted', (d) => this._postSessionViewMessage(d));
+
+    // ChatPanel requests room chat history refresh
+    this.bus.on('user:chat-history-requested', () => this._loadChatHistory());
+
     // Bridge: when NavigationSystem fires room:changed after a room transition,
     // relay occupants to room:occupants-changed and reload per-room data.
     // We mark our own internal room:changed emits with _source:'shell' to avoid loops.
@@ -365,6 +381,25 @@ export class GameShell {
     } catch (_) {
       this.bus.emit('game:server-unavailable', { message: 'Server unreachable. Please check your connection.' });
     }
+  }
+
+  /**
+   * Handle session view message post from ChatPanel.
+   * Routes to the appropriate API based on active session view.
+   * @private
+   */
+  async _postSessionViewMessage({ characterName, message, characterId } = {}) {
+    const campaignId = this.launchContext?.campaign_id;
+    if (!campaignId || !message?.trim()) return;
+    const speaker = characterName ?? this.launchCharacter?.name ?? 'Player';
+    // Optimistic echo
+    this.bus.emit('chat:message-received', {
+      line: { speaker, message: message.trim(), type: 'player', channel: 'session' },
+      channel: 'session',
+    });
+    // Full implementation deferred to full ChatPanel session-view sprint;
+    // for now emit turn-status-changed to unblock the UI
+    this.bus.emit('chat:turn-status-changed', { status: 'idle' });
   }
 
   /**

@@ -122,6 +122,9 @@ export class ChatPanel {
       this.bus.on('room:changed',            (d) => {
         if (d?.room) this.setChatPanelSceneBackground(d.room.imageUrl, d.room);
       }),
+      this.bus.on('session:view-data', (d) => {
+        if (d?.view && d?.data) this.renderSessionViewData(d.view, d.data);
+      }),
     );
   }
 
@@ -212,7 +215,7 @@ export class ChatPanel {
           sendButton.textContent = 'Sending...';
         }
         try {
-          await this.postSessionViewMessage(characterName, message, characterId);
+          this.bus.emit('user:session-message-submitted', { characterName, message, characterId });
         } catch (error) {
           console.error('Failed to send session message:', error);
           this.appendChatLine('System', `Failed to send: ${error.message}`, 'system');
@@ -227,26 +230,15 @@ export class ChatPanel {
         return;
       }
 
-      try {
-        await this.submitRoomChatMessage(message, {
-          speaker: characterName,
-          characterId,
-          campaignId,
-          roomId,
-          channelKey: this.activeChannel || 'room',
-        });
-      } catch (error) {
-        if (error.message.includes('403')) {
-          console.warn('Chat message send denied (permission)');
-        } else if (/not your turn/i.test(error.message)) {
-          this.appendChatLine('System', error.message, 'system');
-          input.value = message;
-        } else {
-          console.error('Failed to send chat message:', error);
-          this.appendChatLine('System', `Failed to send message: ${error.message}`, 'system');
-          input.value = message;
-        }
-      }
+      // Emit to GameShell which handles the API call and emits chat:message-received
+      this.bus.emit('user:chat-submitted', {
+        message,
+        speaker: characterName,
+        characterId,
+        campaignId,
+        roomId,
+        channel: this.activeChannel || 'room',
+      });
     });
 
     // Chat history will be loaded when room becomes active
@@ -1720,9 +1712,9 @@ export class ChatPanel {
   }
 
   async loadSessionViewMessages(view, options = {}) {
-    // Room view uses existing legacy loading.
+    // Room view uses bus to request history from GameShell
     if (view === 'room') {
-      this.loadChatHistory(options);
+      this.bus.emit('user:chat-history-requested', options);
       return;
     }
 
@@ -1736,12 +1728,8 @@ export class ChatPanel {
       return;
     }
 
-    try {
-      const data = await this.fetchSessionViewData(view, options);
-      this.renderSessionViewData(view, data);
-    } catch (err) {
-      console.error(`Failed to load ${view} messages:`, err);
-    }
+    // Emit request; GameShell handles the fetch and emits session:view-data back
+    this.bus.emit('user:session-view-requested', { view, options });
   }
 
 }

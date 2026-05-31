@@ -1020,37 +1020,14 @@ export class ActionRailPanel {
     const guidance = {
       interact: 'Interact stays in-place now. Choose the object, door, or NPC on the map when you are ready.',
     };
-    this.appendChatLine('System', guidance[actionKey] || 'That action is not available right now.', 'system');
+    this.bus.emit('chat:system-message', { text: guidance[actionKey] || 'That action is not available right now.', speaker: 'System', kind: 'system' });
   }
 
   handleActionRailPanelAction(button) {
     const actionType = button.dataset.actionRailExecute || '';
-    if (actionType === 'spell') {
-      this.executeDirectSpell(button);
-      return;
-    }
-    if (actionType === 'attack') {
-      this.executeDirectAttack(button);
-      return;
-    }
-    if (actionType === 'consumable') {
-      this.executeDirectConsumable(button);
-      return;
-    }
-    if (actionType === 'skill') {
-      this.executeDirectSkill(button);
-      return;
-    }
-    if (actionType === 'feat') {
-      this.executeDirectFeat(button);
-      return;
-    }
-    if (actionType === 'interact') {
-      this.executeDirectInteract(button);
-      return;
-    }
-    if (actionType === 'navigate') {
-      this.executeDirectNavigate(button);
+    // Emit user:action-selected — EncounterSystem / NavigationSystem / PlayerAutomation handle it
+    if (actionType) {
+      this.bus.emit('user:action-selected', { actionKey: actionType, button });
     }
   }
 
