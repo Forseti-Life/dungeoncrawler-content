@@ -111,6 +111,14 @@ export class GameShell {
     this._merchantRequestTokens = new Map();
     /** @type {number} room-view request token */
     this._roomViewRequestToken = 0;
+    /** @type {Map<string, Promise>} in-flight room view requests keyed by campaignId:roomId */
+    this._roomViewInflight = new Map();
+    /** @type {string|null} last fetched view key */
+    this._roomViewLastKey = null;
+    /** @type {boolean} current room view has gallery content */
+    this._roomViewHasContent = false;
+    /** @type {number|null} pending retry timer */
+    this._roomViewRetryTimer = null;
     /** @type {boolean} chat history already loaded for this session */
     this._chatHistoryLoaded = false;
     /** @type {string} currently active tab id */
@@ -231,7 +239,7 @@ export class GameShell {
     this.bus.on('user:chat-history-requested', () => this._loadChatHistory());
 
     // RoomViewPanel requests a room view reload (e.g. retry after pending)
-    this.bus.on('room:view-reload-requested', () => this._loadRoomView());
+    this.bus.on('room:view-reload-requested', (opts) => this._loadRoomView(opts ?? {}));
 
     // Bridge: entity:select-request (from stateManager shim / HexInputHandler) →
     // resolve entity from ECS and emit entity:selected for CharacterPanel etc.
@@ -264,6 +272,10 @@ export class GameShell {
       this._chatHistoryLoaded = false;
       this.activeRoomId = roomId;
       this._activeRoomData = this.mapVisualState?.topology?.rooms?.[roomId] ?? null;
+      // Reset view state for new room
+      this._clearRoomViewRetry();
+      this._roomViewLastKey = null;
+      this._roomViewHasContent = false;
       // Update navigate panel connections for the new room
       this.bus.emit('room:changed', {
         roomId,
@@ -292,10 +304,12 @@ export class GameShell {
    * @private
    */
   _onTabChanged(tabId) {
+    const prevTab = this.activeGameShellTab;
     this.activeGameShellTab = tabId;
-    console.log('[GameShell] _onTabChanged', { tabId });
-    if (tabId === 'view')      this._loadRoomView();
+    console.log('[GameShell] _onTabChanged', { tabId, prevTab });
+    if (tabId === 'view')      this._loadRoomView({ preserveExisting: this._roomViewHasContent });
     if (tabId === 'merchant')  this._loadMerchantStock();
+    if (tabId !== 'view' && prevTab === 'view') this._clearRoomViewRetry();
     if (tabId === 'chat' && !this._chatHistoryLoaded) this._loadChatHistory();
     if (tabId === 'character') {
       const charId = this.launchCharacter?.id ?? this.launchContext?.character_id ?? null;
@@ -453,17 +467,45 @@ export class GameShell {
    * Fetch room view images and emit room:changed with sceneImageUrl.
    * @private
    */
-  async _loadRoomView() {
+  async _loadRoomView(options = {}) {
     const campaignId = this.launchContext?.campaign_id;
     const roomId     = this.activeRoomId;
     if (!campaignId || !roomId) {
       console.warn('[GameShell] _loadRoomView: missing campaignId or roomId', { campaignId, roomId });
       return;
     }
-    console.log('[GameShell] _loadRoomView', { campaignId, roomId });
 
+    const force          = Boolean(options.force);
+    const preserveExisting = Boolean(options.preserveExisting);
+    const viewKey        = `${campaignId}:${roomId}`;
+    const visualRoom     = this.mapVisualState?.topology?.rooms?.[roomId] ?? {};
+    const payloadRoomBase = { ...visualRoom, id: roomId };
+
+    // Dedup: skip if same key already loaded unless forced
+    if (!force && this._roomViewLastKey === viewKey && this._roomViewHasContent) {
+      console.log('[GameShell] _loadRoomView: skipped (cached)', { viewKey });
+      return;
+    }
+
+    // In-flight dedup: return same promise if already fetching
+    if (this._roomViewInflight.has(viewKey)) {
+      console.log('[GameShell] _loadRoomView: skipped (inflight)', { viewKey });
+      return;
+    }
+
+    this._roomViewLastKey = viewKey;
     const token = ++this._roomViewRequestToken;
-    try {
+    console.log('[GameShell] _loadRoomView', { campaignId, roomId, force, preserveExisting });
+
+    // Show "Generating" immediately unless preserving existing gallery
+    if (!preserveExisting || !this._roomViewHasContent) {
+      this.bus.emit('room:view-loaded', {
+        room: payloadRoomBase,
+        viewState: { statusLabel: 'Generating', placeholderText: 'Loading room scene...', entries: [] },
+      });
+    }
+
+    const request = (async () => {
       const resp = await fetch(
         `/api/campaign/${encodeURIComponent(campaignId)}/room/${encodeURIComponent(roomId)}/view-image`,
         {
@@ -471,14 +513,14 @@ export class GameShell {
           credentials: 'same-origin',
         },
       );
-      if (token !== this._roomViewRequestToken) return; // superseded
+      if (token !== this._roomViewRequestToken) return;
       if (!resp.ok) {
         this.bus.emit('game:server-unavailable', { message: `Room view unavailable (${resp.status})` });
         return;
       }
       const result = await resp.json().catch(() => ({}));
       if (!result?.success || !result?.data) {
-        console.warn('[GameShell] _loadRoomView: bad result', { success: result?.success, hasData: !!result?.data, status: resp.status });
+        console.warn('[GameShell] _loadRoomView: bad result', { success: result?.success, hasData: !!result?.data });
         return;
       }
 
@@ -487,11 +529,9 @@ export class GameShell {
         : [];
       const first = entries[0];
       const sceneImageUrl = first?.image?.url ?? first?.image?.data_uri ?? null;
-      console.log('[GameShell] _loadRoomView: result', { success: result.success, rawEntries: result.data.entries?.length ?? 0, filteredEntries: entries.length, sceneImageUrl: !!sceneImageUrl, available: result.data.available, message: result.data.message ?? null });
 
-      const visualRoom = this.mapVisualState?.topology?.rooms?.[roomId];
-      // id must come AFTER spread — API room object may contain id:undefined which would override
-      const payloadRoom = { ...(result.data.room ?? visualRoom ?? {}), id: roomId };
+      // id must come AFTER spread — API room object may contain id:undefined
+      const payloadRoom = { ...(result.data.room ?? visualRoom), id: roomId };
       const roomName = payloadRoom?.name ?? visualRoom?.name ?? roomId;
 
       const statusLabel = entries.length > 0
@@ -501,30 +541,57 @@ export class GameShell {
         ? ''
         : (result.data.message || 'No room view image is available yet.');
 
-      // Emit for ChatPanel scene background and other room-change listeners
-      this.bus.emit('room:changed', {
-        roomId,
-        roomName,
-        sceneImageUrl,
-        responders: [],
-        _source: 'shell',
+      const dataStatus = String(result.data.status || '').toLowerCase();
+      this._roomViewHasContent = entries.length > 0;
+
+      console.log('[GameShell] _loadRoomView: result', {
+        rawEntries: result.data.entries?.length ?? 0,
+        filteredEntries: entries.length,
+        sceneImageUrl: !!sceneImageUrl,
+        available: result.data.available,
+        status: dataStatus,
+        message: result.data.message ?? null,
       });
 
-      // Emit full view payload for RoomViewPanel
-      this.bus.emit('room:view-loaded', {
-        room: payloadRoom,
-        viewState: { statusLabel, placeholderText, entries },
-      });
+      this.bus.emit('room:changed', { roomId, roomName, sceneImageUrl, responders: [], _source: 'shell' });
+      this.bus.emit('room:view-loaded', { room: payloadRoom, viewState: { statusLabel, placeholderText, entries } });
+
+      // Auto-retry when pending (image generation queued server-side)
+      if (entries.length === 0 && dataStatus === 'pending') {
+        this._scheduleRoomViewRetry(roomId, viewKey);
+      } else {
+        this._clearRoomViewRetry();
+      }
+    })();
+
+    this._roomViewInflight.set(viewKey, request);
+    try {
+      await request;
     } catch (err) {
       if (token !== this._roomViewRequestToken) return;
       this.bus.emit('room:view-loaded', {
-        room: { ...(this.mapVisualState?.topology?.rooms?.[roomId] ?? {}), id: roomId },
-        viewState: {
-          statusLabel: 'Unavailable',
-          placeholderText: err?.message || 'Room view generation failed.',
-          entries: [],
-        },
+        room: payloadRoomBase,
+        viewState: { statusLabel: 'Unavailable', placeholderText: err?.message || 'Room view generation failed.', entries: [] },
       });
+    } finally {
+      this._roomViewInflight.delete(viewKey);
+    }
+  }
+
+  _scheduleRoomViewRetry(roomId, viewKey) {
+    this._clearRoomViewRetry();
+    this._roomViewRetryTimer = window.setTimeout(() => {
+      this._roomViewRetryTimer = null;
+      if (this._roomViewLastKey !== viewKey) return;
+      console.log('[GameShell] _loadRoomView: retrying pending', { viewKey });
+      this._loadRoomView({ force: true, preserveExisting: true });
+    }, 5000);
+  }
+
+  _clearRoomViewRetry() {
+    if (this._roomViewRetryTimer) {
+      window.clearTimeout(this._roomViewRetryTimer);
+      this._roomViewRetryTimer = null;
     }
   }
 

@@ -224,6 +224,22 @@ export class RoomViewPanel {
     if (sceneImageSrc || !preserveChatBackground) {
       this.setChatPanelSceneBackground(sceneImageSrc, room);
     }
+
+    // DOM visibility trace — helps identify panel hidden/CSS issues
+    const gamePanel = this._el.roomViewGallery?.closest('#game-panel-view');
+    console.log('[RoomViewPanel] updateRoomViewPanel:dom', {
+      source: _source,
+      entryCount: entries.length,
+      statusLabel,
+      placeholderText,
+      galleryHidden: this._el.roomViewGallery?.hidden ?? 'no-el',
+      placeholderHidden: this._el.roomViewPlaceholder?.hidden ?? 'no-el',
+      roomViewNameText: this._el.roomViewName?.textContent ?? 'no-el',
+      roomViewStatusText: this._el.roomViewStatus?.textContent ?? 'no-el',
+      panelHidden: gamePanel?.hidden ?? 'no-ancestor',
+      panelDisplay: gamePanel ? window.getComputedStyle(gamePanel).display : 'no-ancestor',
+      panelHasActiveClass: gamePanel?.classList?.contains('game-shell__panel--active') ?? 'no-ancestor',
+    });
   }
 
   setChatPanelSceneBackground(imageSrc = '', room = null) {
