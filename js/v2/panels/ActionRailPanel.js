@@ -44,16 +44,10 @@ export class ActionRailPanel {
       actionRailCampaignClock:    id('action-rail-campaign-clock'),
       actionRailCampaignClockMeta: id('action-rail-campaign-clock-meta'),
       actionRailCategories:       id('action-rail-categories'),
-      actionRailPanel:            id('action-rail-panel'),
-      actionRailPanelWrap:        id('action-rail-panel-wrap'),
       actionRailPanelTitle:       id('action-rail-panel-title'),
       actionRailPanelChip:        id('action-rail-panel-chip'),
       actionRailPanelBody:        id('action-rail-panel-body'),
-      actionRailSearch:           id('action-rail-search'),
-      actionRailList:             id('action-rail-list'),
-      actionRailActionBtns:       id('action-rail-action-btns'),
       actionInstruction:          id('action-instruction'),
-      actionMenu:                 id('action-menu'),
       endTurnBtn:                 id('end-turn'),
     };
     const nullKeys = Object.entries(this._el).filter(([,v]) => !v).map(([k]) => k);

@@ -190,6 +190,8 @@
           <span class="chip chip-end">{{ 'End Turn'|t }}</span>
         </div>
 
+        <p id="action-instruction" class="turn-hud__instruction" hidden></p>
+
         {# V2 CombatPanel end-turn binding #}
         <button type="button" class="btn btn-action btn-action--end dc-is-hidden" data-combat="end-turn-btn">{{ 'End Turn'|t }}</button>
 
@@ -402,8 +404,21 @@
       </div>
         {# V2 CharacterPanel — entity info (canvas token selected) #}
         <div id="char-entity-info" data-char="entity-info" class="entity-info-panel" hidden>
+          <div id="entity-image-wrap" class="entity-info-panel__portrait dc-is-hidden">
+            <img id="entity-image" class="entity-info-panel__img" src="" alt="" />
+          </div>
           <h4 data-char="entity-name" class="entity-info-panel__name"></h4>
-          <div data-char="entity-stats" class="entity-info-panel__stats"></div>
+          <p id="entity-type" class="entity-info-panel__type"></p>
+          <p id="entity-summary" class="entity-info-panel__summary"></p>
+          <p id="entity-team" class="entity-info-panel__team pill pill-muted"></p>
+          <p id="entity-description" class="entity-info-panel__description"></p>
+          <ul id="entity-known-details" class="entity-info-panel__details"></ul>
+          <div class="entity-info-panel__stats" data-char="entity-stats">
+            <span class="entity-stat">{{ 'HP'|t }}: <strong id="entity-hp">-</strong></span>
+            <span class="entity-stat">{{ 'AC'|t }}: <strong id="entity-ac">-</strong></span>
+            <span class="entity-stat">{{ 'Actions'|t }}: <strong id="entity-actions">-</strong></span>
+            <span class="entity-stat">{{ 'Move'|t }}: <strong id="entity-movement">-</strong></span>
+          </div>
         </div>
       <div class="character-badges">
         <span id="char-ancestry" class="pill pill-muted">{{ 'Ancestry —'|t }}</span>
