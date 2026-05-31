@@ -40,7 +40,12 @@ export class RoomViewPanel {
 
   _subscribe() {
     this._unsubs.push(
-      this.bus.on('room:changed', (d) => this.updateRoomViewPanel(d?.room, d?.viewState)),
+      // room:changed fires on room transitions — update name/meta with minimal data
+      this.bus.on('room:changed', (d) => {
+        const room = { name: d?.roomName, ...(d?.room ?? {}) };
+        this.updateRoomViewPanel(room, d?.viewState ?? {});
+      }),
+      // room:view-loaded fires after the view-image API completes with full entries
       this.bus.on('room:view-loaded', (d) => this.updateRoomViewPanel(d?.room, d?.viewState)),
     );
   }

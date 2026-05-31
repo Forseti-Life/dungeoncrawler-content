@@ -42,14 +42,17 @@ export class QuestPanel {
 
   _subscribe() {
     this._unsubs.push(
-      this.bus.on('quest:updated',         (d) => this.renderQuestJournal(d?.questSummary)),
-      this.bus.on('quest:completed',       (d) => {
+      // GameShell emits quest:progress-updated after chat responses; keep legacy names for compat
+      this.bus.on('quest:progress-updated', (d) => this.renderQuestJournal(d?.questSummary)),
+      this.bus.on('quest:updated',          (d) => this.renderQuestJournal(d?.questSummary)),
+      this.bus.on('quest:completed',        (d) => {
         this.showQuestToast(d?.message || 'Quest completed!', 'success');
         this.renderQuestJournal(d?.questSummary);
       }),
       this.bus.on('quest:progress-changed', (d) => this.renderQuestJournal(d?.questSummary)),
       this.bus.on('game:init',              (d) => {
-        if (d?.questSummary) this.renderQuestJournal(d.questSummary);
+        const summary = d?.questSummary ?? (d?.quests ? { active: d.quests } : null);
+        if (summary) this.renderQuestJournal(summary);
       }),
     );
   }

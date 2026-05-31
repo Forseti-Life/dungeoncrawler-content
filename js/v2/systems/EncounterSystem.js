@@ -34,6 +34,9 @@ export class EncounterSystem {
         if (key === 'interact') this.executeDirectInteract(d?.button);
         if (key === 'skill')    this.executeDirectSkill(d?.button);
       }),
+      this.bus.on('user:combat-start', () => this.startCombat()),
+      this.bus.on('user:combat-end',   () => this.endCombat()),
+      this.bus.on('user:end-turn',     () => this.endCurrentTurn()),
     );
   }
 
@@ -416,6 +419,21 @@ export class EncounterSystem {
       .map((turn) => String(turn?.name || '').trim())
       .filter(Boolean)
       .sort((left, right) => right.length - left.length);
+  }
+
+  startCombat() {
+    const hexmap = this.stateManager?.hexmap;
+    hexmap?.startCombat?.();
+  }
+
+  endCombat() {
+    const hexmap = this.stateManager?.hexmap;
+    hexmap?.endCombat?.();
+  }
+
+  endCurrentTurn() {
+    const hexmap = this.stateManager?.hexmap;
+    hexmap?.endTurn?.();
   }
 
 }
