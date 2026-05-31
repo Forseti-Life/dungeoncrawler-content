@@ -5,6 +5,8 @@
  * Methods ported verbatim from hexmap.js UIManager.
  */
 
+import { CombatState } from '../../ecs/systems/TurnManagementSystem.js';
+
 export class CombatPanel {
   constructor(container, bus) {
     this.container = container;
@@ -29,6 +31,13 @@ export class CombatPanel {
       startCombatBtn:   id('start-combat')      || s('start-btn'),
       endCombatBtn:     id('end-combat')        || s('end-combat-btn'),
       endTurnBtn:       id('end-turn')          || s('end-turn-btn'),
+      turnHud:          id('turn-hud'),
+      turnActionChips:  id('turn-action-chips'),
+      actionInstruction: id('action-instruction'),
+      actionMoveBtn:    id('action-move'),
+      actionAttackBtn:  id('action-attack'),
+      actionInteractBtn: id('action-interact'),
+      actionTalkBtn:    id('action-talk'),
     };
     const nullKeys = Object.entries(this._el).filter(([,v]) => !v).map(([k]) => k);
     console.log('[CombatPanel] init', { container: !!this.container, nullEl: nullKeys });
@@ -110,7 +119,7 @@ export class CombatPanel {
       applyDisabledState(endTurnBtn, !isPlayersTurn);
     }
 
-    this.refreshActionRail();
+    this.bus.emit('character:updated', null);
   }
 
   updateCombatControls(combatState) {
@@ -136,7 +145,7 @@ export class CombatPanel {
       this._el.turnOwner.textContent = isInactive ? 'No active combat' : 'Active encounter';
     }
 
-    this.refreshActionRail();
+    this.bus.emit('character:updated', null);
   }
 
   updateCurrentTurn(name, actions, movement, hasReaction, team = null, isPlayersTurn = false) {

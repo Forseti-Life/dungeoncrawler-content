@@ -11,8 +11,12 @@ export class RoomViewPanel {
     this.bus = bus;
     this._unsubs = [];
     this._el = {};
-    this._roomViewCache = new Map();
-    this._roomViewRetryTimer = null;
+    this.roomViewCache = new Map();
+    this.roomViewRetryTimer = null;
+    this.roomViewCacheTtlMs = 300000;        // 5 min default TTL
+    this.roomViewPendingCacheTtlMs = 30000;  // 30 sec for pending entries
+    this.roomViewRetryDelayMs = 5000;        // 5 sec retry delay
+    this.lastRoomViewKey = null;
   }
 
   init() {
@@ -38,7 +42,7 @@ export class RoomViewPanel {
   destroy() {
     this._unsubs.forEach((fn) => fn());
     this._unsubs = [];
-    if (this._roomViewRetryTimer) clearTimeout(this._roomViewRetryTimer);
+    if (this.roomViewRetryTimer) clearTimeout(this.roomViewRetryTimer);
   }
 
   _subscribe() {

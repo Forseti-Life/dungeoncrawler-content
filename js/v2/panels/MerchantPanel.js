@@ -17,9 +17,22 @@ export class MerchantPanel {
     this._el = {};
     this.stateManager = null;
     this.dungeonData = null;
-    this._merchantRetryTimer = null;
-    this._merchantCatalogSearch = '';
     this._inventoryPanel = null;
+    // Retry logic
+    this.merchantPanelRetryTimer = null;
+    this.merchantPanelRetryAttempts = 0;
+    // Catalog search state
+    this.merchantCatalogSearchRequestToken = 0;
+    this.currentMerchantCatalogSearch = null;
+    // Panel state
+    this.currentMerchantCandidates = [];
+    this.currentMerchantContext = null;
+    this.currentMerchantFilterText = '';
+    this.currentMerchantRef = null;
+    this.currentMerchantRoomId = null;
+    this.currentMerchantStatus = null;
+    this.activeGameShellTab = null;
+    this.currentCharacterInventoryContext = null;
   }
 
   init(dungeonData, stateManager, inventoryPanel = null) {
@@ -52,10 +65,16 @@ export class MerchantPanel {
   destroy() {
     this._unsubs.forEach((fn) => fn());
     this._unsubs = [];
-    if (this._merchantRetryTimer) clearTimeout(this._merchantRetryTimer);
+    if (this.merchantPanelRetryTimer) clearTimeout(this.merchantPanelRetryTimer);
   }
 
   _subscribe() {
+    const tabHandler = (e) => {
+      this.activeGameShellTab = e.detail?.tabId || null;
+    };
+    window.addEventListener('dungeoncrawler:game-shell-tab-changed', tabHandler);
+    this._unsubs.push(() => window.removeEventListener('dungeoncrawler:game-shell-tab-changed', tabHandler));
+
     this._unsubs.push(
       this.bus.on('room:changed', (d) => {
         this._cachedOccupants = [];
