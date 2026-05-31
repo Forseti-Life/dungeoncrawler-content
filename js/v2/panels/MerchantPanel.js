@@ -29,15 +29,19 @@ export class MerchantPanel {
     const id = (k) => document.getElementById(k);
     const s = (k) => this.container?.querySelector(`[data-merchant="${k}"]`) || null;
     this._el = {
-      merchantPanel:         id('merchant-panel'),
-      merchantStatus:        id('merchant-status')         || s('status'),
-      merchantPortraitWrap:  id('merchant-panel-portrait-wrap') || s('portrait-wrap'),
-      merchantPortrait:      id('merchant-panel-portrait') || s('portrait'),
-      merchantList:          id('merchant-list')           || s('catalog-list'),
-      merchantSearch:        id('merchant-search')         || s('search'),
-      merchantSearchInput:   id('merchant-search-input')   || s('search-input'),
-      merchantSellList:      id('merchant-sell-list')      || s('sell-list'),
-      merchantActorName:     id('merchant-actor-name')     || s('actor-name'),
+      merchantPanelPortraitWrap: id('merchant-panel-portrait-wrap') || s('portrait-wrap'),
+      merchantPanelPortrait:     id('merchant-panel-portrait'),
+      merchantPanelName:         id('merchant-panel-name')         || s('name'),
+      merchantPanelSummary:      id('merchant-panel-summary')      || s('role'),
+      merchantEntitySelect:      id('merchant-entity-select')      || s('select'),
+      merchantItemFilter:        id('merchant-item-filter')        || s('filter'),
+      merchantBackroomSearch:    id('merchant-backroom-search'),
+      merchantPanelStatus:       id('merchant-panel-status')       || s('status'),
+      merchantPanelCurrency:     id('merchant-player-currency')    || s('player-currency'),
+      merchantPanelGrid:         id('merchant-panel-grid')         || s('grid'),
+      merchantPanelEmpty:        id('merchant-panel-empty')        || s('empty'),
+      merchantStockList:         id('merchant-stock-list')         || s('stock-grid'),
+      merchantSellList:          id('merchant-sell-list')          || s('sell-list'),
     };
     const nullKeys = Object.entries(this._el).filter(([,v]) => !v).map(([k]) => k);
     console.log('[MerchantPanel] init', { container: !!this.container, nullEl: nullKeys });

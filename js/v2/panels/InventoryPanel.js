@@ -32,11 +32,19 @@ export class InventoryPanel {
     this.dungeonData = dungeonData || {};
     this.stateManager = stateManager || {};
     const id = (k) => document.getElementById(k);
+    const c = (k) => this.container?.querySelector(`[data-inv="${k}"]`) || null;
     this._el = {
-      inventoryPanel:       id('inventory-panel'),
-      inventoryList:        id('inventory-list'),
-      inventoryStatus:      id('inventory-status'),
-      inventorySlotGrid:    id('inventory-slot-grid'),
+      inventorySlotGrid:     id('inv-slot-grid')      || c('slot-grid'),
+      inventoryItemList:     id('inv-item-list')       || c('item-list'),
+      inventoryActionStatus: id('inv-action-status')  || c('status'),
+      inventoryBulkCurrent:  id('inv-bulk-current'),
+      inventoryBulkMax:      id('inv-bulk-max'),
+      inventoryPp:           id('inv-pp'),
+      inventoryGp:           id('inv-gp'),
+      inventoryEp:           id('inv-ep'),
+      inventorySp:           id('inv-sp'),
+      inventoryCp:           id('inv-cp'),
+      characterInventory:    id('char-inventory'),
     };
     const nullKeys = Object.entries(this._el).filter(([,v]) => !v).map(([k]) => k);
     console.log('[InventoryPanel] init', { container: !!this.container, nullEl: nullKeys });
