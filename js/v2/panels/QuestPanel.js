@@ -188,10 +188,11 @@ export class QuestPanel {
           const icon = completed ? '✅' : '⬜';
           const desc = merged.description || merged.objective_id;
           const progress = merged.type === 'collect' ? ` (${current}/${target})` : '';
+          const details = this.renderObjectiveGuidanceLines(merged);
           if (!completed && !nextStep) {
-            nextStep = `${desc}${progress}`;
+            nextStep = merged.next_step || `${desc}${progress}`;
           }
-          objectiveRows.push(`<li class="quest-objective ${completed ? 'quest-objective--done' : ''}">${icon} ${desc}${progress}</li>`);
+          objectiveRows.push(`<li class="quest-objective ${completed ? 'quest-objective--done' : ''}">${icon} ${desc}${progress}${details}</li>`);
         });
       }
 
@@ -237,9 +238,30 @@ export class QuestPanel {
       .filter((objective) => !objective?.hidden || objective?.revealed || objective?.completed);
     const lines = objectives.slice(0, 3).map((objective) => {
       const description = String(objective?.description || objective?.objective_id || '').trim();
-      return description ? `<li class="quest-objective">⬜ ${description}</li>` : '';
+      const current = Number.isFinite(Number(objective?.current)) ? Number(objective.current) : 0;
+      const target = Number.isFinite(Number(objective?.target_count)) ? Number(objective.target_count) : 0;
+      const progress = String(objective?.type || '').toLowerCase() === 'collect' && target > 0
+        ? ` (${current}/${target})`
+        : '';
+      const details = this.renderObjectiveGuidanceLines(objective);
+      return description ? `<li class="quest-objective">⬜ ${description}${progress}${details}</li>` : '';
     }).filter(Boolean);
     return lines.length > 0 ? lines.join('') : `<li class="quest-objective">${fallbackLine}</li>`;
+  }
+
+  renderObjectiveGuidanceLines(objective) {
+    const details = [];
+    const nextStep = String(objective?.next_step || '').trim();
+    if (nextStep) {
+      details.push(`Next: ${nextStep}`);
+    }
+    const criteriaDescription = String(objective?.completion_criteria?.description || '').trim();
+    if (criteriaDescription) {
+      details.push(`Complete when: ${criteriaDescription}`);
+    }
+    return details.length > 0
+      ? `<div class="quest-objective__details">${details.map(line => `<div class="quest-objective__detail">${line}</div>`).join('')}</div>`
+      : '';
   }
 
   showQuestToast(message, type = 'info') {

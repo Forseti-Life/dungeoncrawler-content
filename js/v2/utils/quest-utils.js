@@ -29,6 +29,9 @@ export function normalizeQuestObjectivePayload(objective) {
     description,
     completed: Boolean(objective.completed),
   };
+  if (objective.next_step != null && String(objective.next_step).trim()) {
+    normalized.next_step = String(objective.next_step).trim();
+  }
 
   if (objective.current != null) {
     normalized.current = Math.max(0, Number(objective.current || 0));

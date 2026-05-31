@@ -25,11 +25,12 @@
           ],
           "location_id": "{location}",
           "description": "Find and collect {item_name} in {room_name}",
+          "next_step": "Search {room_name} and pick up each {item_name} quest item.",
           "completion_criteria": {
             "kind": "count",
             "metric": "current",
             "target_count": 1,
-            "description": "Collect the required number of {item_name}."
+            "description": "Collect {target_count} {item_name} in {room_name}."
           }
         }
       ]
@@ -43,6 +44,7 @@
           "target": "scholar_npc",
           "location_id": "{location}",
           "description": "Return the books to the scholar",
+          "next_step": "Speak to Marta the Scholar in {room_name} after collecting the {item_name}.",
           "completion_criteria": {
             "kind": "flag",
             "metric": "completed",

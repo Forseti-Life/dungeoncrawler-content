@@ -45,6 +45,9 @@ import { SpriteService } from './SpriteService.js';
       description,
       completed: Boolean(objective.completed),
     };
+    if (objective.next_step != null && String(objective.next_step).trim()) {
+      normalized.next_step = String(objective.next_step).trim();
+    }
 
     if (objective.current != null) {
       normalized.current = Math.max(0, Number(objective.current || 0));
@@ -61,8 +64,14 @@ import { SpriteService } from './SpriteService.js';
     if (objective.location != null && String(objective.location).trim()) {
       normalized.location = String(objective.location).trim();
     }
+    if (objective.location_id != null && String(objective.location_id).trim()) {
+      normalized.location_id = String(objective.location_id).trim();
+    }
     if (objective.destination != null && String(objective.destination).trim()) {
       normalized.destination = String(objective.destination).trim();
+    }
+    if (objective.destination_id != null && String(objective.destination_id).trim()) {
+      normalized.destination_id = String(objective.destination_id).trim();
     }
     if (objective.npc_id != null && Number.isFinite(Number(objective.npc_id))) {
       normalized.npc_id = Math.max(0, Number(objective.npc_id));
@@ -9548,7 +9557,7 @@ import { SpriteService } from './SpriteService.js';
         activeQuestIds: activeQuests.map((quest) => quest?.quest_id || quest?.quest_key || quest?.id || resolveQuestTitle(quest)),
       });
 
-      if (managementTree.length > 0) {
+      if (managementTree.length > 0 && activeQuests.length === 0 && offeredQuests.length === 0 && leadQuests.length === 0) {
         if (count) count.textContent = String(managementTree.length);
         list.innerHTML = managementTree.map(renderQuestManagementNpcHtml).join('');
         this.updateQuestJournalControlState();
@@ -9571,26 +9580,30 @@ import { SpriteService } from './SpriteService.js';
         const rawStatus = String(quest.status || '').trim().toLowerCase();
         const status = rawStatus ? rawStatus.charAt(0).toUpperCase() + rawStatus.slice(1) : 'Active';
 
-        // Build objective list HTML for the first incomplete phase.
-        let objectiveHtml = '';
+        let nextStep = '';
+        const objectiveRows = [];
         for (const phase of phases) {
           const objectives = flattenQuestObjectives(phase.objectives || []);
-          objectiveHtml = objectives.map(obj => {
+          objectives.forEach(obj => {
             const merged = mergeObjectiveProgress(obj, objectiveIndex);
+            if (merged.hidden && !merged.revealed && !merged.completed) {
+              return;
+            }
             const current = merged.current;
             const target = merged.target_count || 1;
             const completed = merged.completed;
             const icon = completed ? '✅' : '⬜';
             const desc = merged.description || merged.objective_id;
             const progress = merged.type === 'collect' ? ` (${current}/${target})` : '';
-            return `<li class="quest-objective ${completed ? 'quest-objective--done' : ''}">${icon} ${desc}${progress}</li>`;
-          }).join('');
-
-          // Show only the first phase that has incomplete objectives.
-          const allDone = objectives.every(o => mergeObjectiveProgress(o, objectiveIndex).completed);
-          if (!allDone) break;
+            const details = this.renderObjectiveGuidanceLines(merged);
+            if (!completed && !nextStep) {
+              nextStep = merged.next_step || `${desc}${progress}`;
+            }
+            objectiveRows.push(`<li class="quest-objective ${completed ? 'quest-objective--done' : ''}">${icon} ${desc}${progress}${details}</li>`);
+          });
         }
 
+        let objectiveHtml = objectiveRows.join('');
         if (!objectiveHtml) {
           objectiveHtml = '<li class="quest-objective">✅ All objectives complete</li>';
         }
@@ -9599,7 +9612,7 @@ import { SpriteService } from './SpriteService.js';
           itemClass: 'quest-entry quest-entry--quest',
           title,
           titlePrefix: '📜',
-          metaLines: [`Status: ${status}`],
+          metaLines: [`Status: ${status}`, nextStep ? `Next: ${nextStep}` : 'Next: Review quest completion.'],
           bodyHtml: `<ul class="quest-objectives">${objectiveHtml}</ul>`,
         });
       }).join('');
@@ -9626,13 +9639,35 @@ import { SpriteService } from './SpriteService.js';
 
     renderQuestSummaryPreviewLines(quest, fallbackLine) {
       const phases = extractQuestPhases(quest);
-      const firstPhase = Array.isArray(phases) && phases.length > 0 ? phases[0] : null;
-      const objectives = firstPhase ? flattenQuestObjectives(firstPhase.objectives || []) : [];
+      const objectives = (Array.isArray(phases) ? phases : [])
+        .flatMap((phase) => flattenQuestObjectives(phase.objectives || []))
+        .filter((objective) => !objective?.hidden || objective?.revealed || objective?.completed);
       const lines = objectives.slice(0, 3).map((objective) => {
         const description = String(objective?.description || objective?.objective_id || '').trim();
-        return description ? `<li class="quest-objective">⬜ ${description}</li>` : '';
+        const current = Number.isFinite(Number(objective?.current)) ? Number(objective.current) : 0;
+        const target = Number.isFinite(Number(objective?.target_count)) ? Number(objective.target_count) : 0;
+        const progress = String(objective?.type || '').toLowerCase() === 'collect' && target > 0
+          ? ` (${current}/${target})`
+          : '';
+        const details = this.renderObjectiveGuidanceLines(objective);
+        return description ? `<li class="quest-objective">⬜ ${description}${progress}${details}</li>` : '';
       }).filter(Boolean);
       return lines.length > 0 ? lines.join('') : `<li class="quest-objective">${fallbackLine}</li>`;
+    }
+
+    renderObjectiveGuidanceLines(objective) {
+      const details = [];
+      const nextStep = String(objective?.next_step || '').trim();
+      if (nextStep) {
+        details.push(`Next: ${nextStep}`);
+      }
+      const criteriaDescription = String(objective?.completion_criteria?.description || '').trim();
+      if (criteriaDescription) {
+        details.push(`Complete when: ${criteriaDescription}`);
+      }
+      return details.length > 0
+        ? `<div class="quest-objective__details">${details.map(line => `<div class="quest-objective__detail">${line}</div>`).join('')}</div>`
+        : '';
     }
 
     /**

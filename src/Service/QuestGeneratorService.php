@@ -972,6 +972,9 @@ class QuestGeneratorService {
       'description' => $this->resolveVariables((string) ($objective_schema['description'] ?? $objective_schema['objective_id'] ?? 'Objective'), $variables),
       'completed' => !empty($objective_schema['completed']),
     ];
+    if (isset($objective_schema['next_step'])) {
+      $generated_obj['next_step'] = $this->resolveVariables((string) $objective_schema['next_step'], $variables);
+    }
 
     switch ($generated_obj['type']) {
       case 'kill':
@@ -1001,6 +1004,7 @@ class QuestGeneratorService {
         $generated_obj['item'] = $this->resolveVariables((string) ($objective_schema['item'] ?? ''), $variables);
         $generated_obj['current'] = 0;
         $generated_obj['target_count'] = max(1, (int) $target_count);
+        $variables['target_count'] = (string) $generated_obj['target_count'];
         break;
 
       case 'explore':
@@ -1358,7 +1362,7 @@ class QuestGeneratorService {
       }
     }
 
-    $optional_string_fields = ['target', 'item', 'location', 'location_id', 'destination', 'destination_id'];
+    $optional_string_fields = ['target', 'item', 'location', 'location_id', 'destination', 'destination_id', 'next_step'];
     foreach ($optional_string_fields as $field) {
       if (isset($objective[$field]) && $objective[$field] !== '') {
         $normalized[$field] = trim((string) $objective[$field]);

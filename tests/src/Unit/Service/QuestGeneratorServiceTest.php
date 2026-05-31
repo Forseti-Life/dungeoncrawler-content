@@ -222,24 +222,26 @@ class QuestGeneratorServiceTest extends UnitTestCase {
       'location_id' => '{location}',
       'target_count_range' => [2, 4],
       'description' => 'Find and collect {item_name} in {room_name}',
+      'next_step' => 'Search {room_name} and pick up each {item_name} quest item.',
       'completion_criteria' => [
         'kind' => 'count',
         'metric' => 'current',
         'target_count' => 1,
-        'description' => 'Collect the required number of {item_name}.',
-      ],
+        'description' => 'Collect {target_count} {item_name} in {room_name}.',
+        ],
     ], [
-      'item_name' => 'Spellbooks',
-      'location' => 'tavern_entrance',
-      'room_name' => 'The Gilded Tankard',
+        'item_name' => 'Spellbooks',
+        'location' => 'tavern_entrance',
+        'room_name' => 'The Gilded Tankard',
     ]);
 
     $this->assertSame('Spellbooks', $objective['item']);
     $this->assertSame('tavern_entrance', $objective['location_id']);
     $this->assertSame('Find and collect Spellbooks in The Gilded Tankard', $objective['description']);
+    $this->assertSame('Search The Gilded Tankard and pick up each Spellbooks quest item.', $objective['next_step']);
     $this->assertSame(4, $objective['target_count']);
     $this->assertSame(4, $objective['completion_criteria']['target_count']);
-    $this->assertSame('Collect the required number of Spellbooks.', $objective['completion_criteria']['description']);
+    $this->assertSame('Collect 4 Spellbooks in The Gilded Tankard.', $objective['completion_criteria']['description']);
   }
 
   /**
