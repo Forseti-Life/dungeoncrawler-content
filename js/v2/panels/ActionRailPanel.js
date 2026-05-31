@@ -286,6 +286,51 @@ export class ActionRailPanel {
     };
   }
 
+  formatRealWorldClock(now = new Date()) {
+    const localLabel = new Intl.DateTimeFormat(undefined, {
+      dateStyle: 'medium',
+      timeStyle: 'medium',
+    }).format(now);
+    const timezoneLabel = new Intl.DateTimeFormat(undefined, {
+      timeZoneName: 'short',
+    }).formatToParts(now).find((part) => part.type === 'timeZoneName')?.value || 'Local time';
+
+    return {
+      value: localLabel,
+      meta: timezoneLabel,
+    };
+  }
+
+  formatCampaignClock(clock) {
+    if (!clock || typeof clock !== 'object') {
+      return {
+        value: 'Unavailable',
+        meta: 'Advances when actions consume time',
+      };
+    }
+
+    const timezone = typeof clock.timezone === 'string' && clock.timezone.trim() !== ''
+      ? clock.timezone.trim()
+      : 'UTC';
+    const datetime = typeof clock.datetime === 'string' ? clock.datetime : '';
+    const parsedDate = datetime ? new Date(datetime) : null;
+    const hasValidDate = parsedDate instanceof Date && !Number.isNaN(parsedDate.getTime());
+    const fallbackValue = [clock.date, clock.time, timezone].filter(Boolean).join(' ');
+    const formattedValue = hasValidDate
+      ? new Intl.DateTimeFormat(undefined, {
+        dateStyle: 'medium',
+        timeStyle: 'short',
+        timeZone: timezone,
+      }).format(parsedDate)
+      : (fallbackValue || 'Unavailable');
+    const metaParts = [clock.weekday, clock.season, timezone].filter(Boolean);
+
+    return {
+      value: formattedValue,
+      meta: metaParts.join(' • ') || 'Campaign time',
+    };
+  }
+
   updateActionRailClocks(context = null) {
     const realClock = this._el.actionRailRealClock;
     const realClockMeta = this._el.actionRailRealClockMeta;
