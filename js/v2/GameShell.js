@@ -323,10 +323,14 @@ export class GameShell {
           }),
         },
       );
-      if (!resp.ok) return;
+      if (!resp.ok) {
+        this.bus.emit('game:server-unavailable', { message: `Server error (${resp.status})` });
+        return;
+      }
       const result = await resp.json().catch(() => ({}));
       if (!result?.success) return;
 
+      this.bus.emit('game:server-available');
       // Emit non-player response lines (GM narration, NPC replies, system)
       (result.data?.messages ?? []).forEach((msg) => {
         const type = msg.type ?? 'npc';
@@ -349,7 +353,7 @@ export class GameShell {
         });
       });
     } catch (_) {
-      // Server errors are silent; the optimistic player line remains visible
+      this.bus.emit('game:server-unavailable', { message: 'Server unreachable. Please check your connection.' });
     }
   }
 
@@ -372,24 +376,54 @@ export class GameShell {
         },
       );
       if (token !== this._roomViewRequestToken) return; // superseded
-      if (!resp.ok) return;
+      if (!resp.ok) {
+        this.bus.emit('game:server-unavailable', { message: `Room view unavailable (${resp.status})` });
+        return;
+      }
       const result = await resp.json().catch(() => ({}));
       if (!result?.success || !result?.data) return;
 
-      const entries = Array.isArray(result.data.entries) ? result.data.entries : [];
-      const first = entries.find((e) => e?.image?.url || e?.image?.data_uri);
+      const entries = Array.isArray(result.data.entries)
+        ? result.data.entries.filter((e) => e?.image?.url || e?.image?.data_uri)
+        : [];
+      const first = entries[0];
       const sceneImageUrl = first?.image?.url ?? first?.image?.data_uri ?? null;
 
-      const room = this.mapVisualState?.topology?.rooms?.[roomId];
+      const visualRoom = this.mapVisualState?.topology?.rooms?.[roomId];
+      const payloadRoom = result.data.room ?? visualRoom ?? null;
+      const roomName = payloadRoom?.name ?? visualRoom?.name ?? roomId;
+
+      const statusLabel = entries.length > 0
+        ? `${entries.length} Scene${entries.length === 1 ? '' : 's'}`
+        : (result.data.available === false ? 'Unavailable' : 'Pending');
+      const placeholderText = entries.length > 0
+        ? ''
+        : (result.data.message || 'No room view image is available yet.');
+
+      // Emit for ChatPanel scene background and other room-change listeners
       this.bus.emit('room:changed', {
         roomId,
-        roomName: result.data.room?.name ?? room?.name ?? roomId,
+        roomName,
         sceneImageUrl,
         responders: [],
         _source: 'shell',
       });
-    } catch (_) {
-      // Room view is best-effort
+
+      // Emit full view payload for RoomViewPanel
+      this.bus.emit('room:view-loaded', {
+        room: payloadRoom,
+        viewState: { statusLabel, placeholderText, entries },
+      });
+    } catch (err) {
+      if (token !== this._roomViewRequestToken) return;
+      this.bus.emit('room:view-loaded', {
+        room: this.mapVisualState?.topology?.rooms?.[roomId] ?? null,
+        viewState: {
+          statusLabel: 'Unavailable',
+          placeholderText: err?.message || 'Room view generation failed.',
+          entries: [],
+        },
+      });
     }
   }
 
@@ -545,6 +579,34 @@ export class GameShell {
   }
 
   /**
+   * Build a lightweight shim that satisfies the `stateManager.hexmap` interface
+   * used by ported panel methods. Returns an object with the most-used accessors.
+   * Missing methods degrade gracefully via optional chaining at call sites.
+   * @private
+   */
+  _buildHexmapShim() {
+    const shell = this;
+    return {
+      resolveCampaignId:  () => shell.launchContext?.campaign_id ?? null,
+      resolveActiveRoomId: () => shell.activeRoomId,
+      dungeonData:         shell.dungeonData,
+      entityManager:       shell.entityManager,
+      movementSystem:      shell.movementSystem,
+      getVisualOccupants:  () => shell._currentOccupants,
+      startCombat:         () => shell.systems.encounter?.startCombat?.(),
+      endCombat:           () => shell.systems.encounter?.endCombat?.(),
+      endTurn:             () => shell.systems.encounter?.endCurrentTurn?.(),
+      stateManager: {
+        get: (key) => {
+          if (key === 'selectedEntity') return null;
+          if (key === 'encounterId')    return null;
+          return null;
+        },
+      },
+    };
+  }
+
+  /**
    * Create panels and wire them to the bus.
    * Phase 4–9 fill these in; stubs safe for now.
    * @private
@@ -553,6 +615,8 @@ export class GameShell {
     const c = this.container;
     const bus = this.bus;
     const panel = (sel) => c.querySelector(sel) ?? c;
+    const hexmap = this._buildHexmapShim();
+    const stateManager = { hexmap };
 
     this.panels.portrait   = new PortraitPanel(panel('[data-panel="portrait"]'), bus);
     this.panels.merchant   = new MerchantPanel(panel('[data-panel="merchant"]'), bus);
@@ -566,7 +630,18 @@ export class GameShell {
     this.panels.partyRail  = new PartyRailPanel(panel('[data-panel="party-rail"]'), bus);
     this.panels.status     = new StatusPanel(panel('[data-panel="status"]'), bus);
 
-    Object.values(this.panels).forEach((p) => p.init());
+    this.panels.portrait.init(this.dungeonData, stateManager);
+    this.panels.merchant.init(this.dungeonData, stateManager, this.panels.inventory);
+    this.panels.actionRail.init(this.dungeonData, stateManager);
+    this.panels.chat.init(this.dungeonData, stateManager);
+    this.panels.inventory.init(this.dungeonData, stateManager);
+    this.panels.character.init(this.dungeonData, stateManager);
+    this.panels.partyRail.init(this.dungeonData, stateManager);
+    // Panels with no-arg init
+    this.panels.combat.init();
+    this.panels.quest.init();
+    this.panels.roomView.init();
+    this.panels.status.init();
   }
 
   /**

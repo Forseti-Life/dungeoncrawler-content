@@ -51,9 +51,10 @@ export class InventoryPanel {
         this.renderInventoryPanel(d);
       }),
       this.bus.on('game:init', (d) => {
-        if (d?.inventoryContext) {
-          this.currentCharacterInventoryContext = d.inventoryContext;
-          this.renderInventoryPanel(d.inventoryContext);
+        const ctx = d?.inventory ?? d?.inventoryContext ?? null;
+        if (ctx) {
+          this.currentCharacterInventoryContext = ctx;
+          this.renderInventoryPanel(ctx);
         }
       }),
     );

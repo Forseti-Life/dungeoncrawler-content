@@ -47,9 +47,14 @@ export class MerchantPanel {
 
   _subscribe() {
     this._unsubs.push(
-      this.bus.on('room:changed',           (d) => this.buildRoomMerchantEntries(d?.roomId)),
-      this.bus.on('room:occupants-changed',  (d) => this.buildRoomMerchantEntries(d?.roomId)),
-      this.bus.on('merchant:stock-loaded',   (d) => this.renderMerchantPanel(d?.context)),
+      this.bus.on('room:changed', (d) => {
+        this._cachedOccupants = [];
+        this._buildMerchantEntriesFromOccupants(d?.roomId, []);
+      }),
+      this.bus.on('room:occupants-changed', (d) => {
+        this._cachedOccupants = d?.occupants ?? [];
+        this._buildMerchantEntriesFromOccupants(d?.roomId, this._cachedOccupants);
+      }),
     );
   }
 
@@ -321,39 +326,22 @@ export class MerchantPanel {
       || Boolean(entity?.state?.merchant_enabled || entity?.state?.merchant?.enabled || entity?.state?.merchant_stock);
   }
 
-  buildRoomMerchantEntries(roomId = null) {
-    const hexmap = this.stateManager?.hexmap || null;
-    const resolvedRoomId = roomId || hexmap?.resolveActiveRoomId?.() || null;
-    if (!resolvedRoomId) {
-      return [];
-    }
-
-    const canonicalOccupants = typeof hexmap?.getVisualOccupants === 'function'
-      ? hexmap.getVisualOccupants()
-      : [];
-    const merchantOccupants = canonicalOccupants.filter((occupant) => {
-      if (String(occupant?.room_id || '') !== resolvedRoomId) {
-        return false;
-      }
-      if (hexmap?.isVisualOccupantVisible?.(occupant) === false) {
+  // Bus-driven entry: called with the occupants array from room:occupants-changed
+  _buildMerchantEntriesFromOccupants(roomId, occupants = []) {
+    const resolvedRoomId = roomId ?? null;
+    const merchantOccupants = occupants.filter((occupant) => {
+      if (resolvedRoomId && String(occupant?.room_id ?? '') !== String(resolvedRoomId)) {
         return false;
       }
       return occupant?.presentation?.is_merchant === true;
     });
 
-    if (merchantOccupants.length === 0) {
-      return [];
-    }
-
     const entries = [];
     const seen = new Set();
     merchantOccupants.forEach((occupant) => {
       const entityId = String(occupant?.occupant_id || '').trim();
-      if (!entityId || seen.has(entityId)) {
-        return;
-      }
+      if (!entityId || seen.has(entityId)) return;
       seen.add(entityId);
-
       entries.push({
         entityId,
         name: String(occupant?.label || entityId).trim(),
@@ -361,9 +349,14 @@ export class MerchantPanel {
         portraitUrl: occupant?.presentation?.portrait_url || '',
       });
     });
-
-    entries.sort((left, right) => left.name.localeCompare(right.name));
+    entries.sort((a, b) => a.name.localeCompare(b.name));
+    this.currentMerchantCandidates = entries;
+    this.renderMerchantPanel(this.currentMerchantContext);
     return entries;
+  }
+
+  buildRoomMerchantEntries(roomId = null) {
+    return this._buildMerchantEntriesFromOccupants(roomId, this._cachedOccupants ?? []);
   }
 
   buildMerchantItemSearchText(item = {}) {
