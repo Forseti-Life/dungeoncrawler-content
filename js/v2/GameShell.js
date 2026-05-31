@@ -211,6 +211,13 @@ export class GameShell {
     this.bus.on('room:changed', ({ roomId, roomName, occupants, _source } = {}) => {
       if (_source === 'shell' || !roomId) return;
       this._chatHistoryLoaded = false;
+      // Update navigate panel connections for the new room
+      this.bus.emit('room:changed', {
+        roomId,
+        roomName,
+        connections: _buildRoomConnections(roomId, this.mapVisualState),
+        _source: 'shell',
+      });
       // Relay occupants (empty array clears panels for the new room — correct)
       if (Array.isArray(occupants)) {
         this._currentOccupants = occupants;
