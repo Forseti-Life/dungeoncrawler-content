@@ -93,6 +93,10 @@ class InstitutionReviewApplicationService {
       throw new \InvalidArgumentException('Library review rows require source_file and source_asset_id.');
     }
 
+    if ($source_file === FactionGenerationService::MANIFEST_SOURCE_FILE) {
+      return $this->applyGeneratedFactionDecision($review_row);
+    }
+
     $payload = json_decode((string) file_get_contents($source_file), TRUE);
     if (!is_array($payload)) {
       throw new \RuntimeException(sprintf('Library source file %s could not be decoded.', $source_file));
@@ -395,6 +399,55 @@ class InstitutionReviewApplicationService {
     $subject_id = preg_replace('/[_-]+/', ' ', trim($subject_id)) ?? $subject_id;
     $subject_id = preg_replace('/\s+/', ' ', $subject_id) ?? $subject_id;
     return ucwords(trim($subject_id));
+  }
+
+  /**
+   * Applies a resolved near-match decision for a generated faction manifest row.
+   *
+   * Handles approve_faction, reject_faction, and merge_with_existing actions
+   * instead of reading from a packaged source file.
+   *
+   * @param array<string, mixed> $review_row
+   *
+   * @return array<string, mixed>
+   */
+  protected function applyGeneratedFactionDecision(array $review_row): array {
+    $action = strtolower(trim((string) ($review_row['resolution_action'] ?? '')));
+    $source_asset_id = (string) ($review_row['source_asset_id'] ?? '');
+    $manifest_id = (int) ($review_row['manifest_id'] ?? 0);
+
+    $new_manifest_status = match ($action) {
+      'approve_faction' => 'normalized',
+      'reject_faction' => 'rejected',
+      'merge_with_existing' => 'merged',
+      default => throw new \InvalidArgumentException(sprintf('Unsupported generated faction review action "%s".', $action)),
+    };
+
+    $now = $this->time->getRequestTime();
+    if ($manifest_id > 0) {
+      $this->database->update('dc_library_institution_manifest')
+        ->fields(['status' => $new_manifest_status, 'changed' => $now])
+        ->condition('id', $manifest_id)
+        ->execute();
+    }
+    elseif ($source_asset_id !== '') {
+      $this->database->update('dc_library_institution_manifest')
+        ->fields(['status' => $new_manifest_status, 'changed' => $now])
+        ->condition('source_asset_id', $source_asset_id)
+        ->condition('source_table', FactionGenerationService::MANIFEST_SOURCE_TABLE)
+        ->execute();
+    }
+    else {
+      throw new \InvalidArgumentException('Generated faction review rows require manifest_id or source_asset_id.');
+    }
+
+    return [
+      'applied' => TRUE,
+      'queue_type' => 'library',
+      'action' => $action,
+      'manifest_status' => $new_manifest_status,
+      'source_asset_id' => $source_asset_id,
+    ];
   }
 
   /**

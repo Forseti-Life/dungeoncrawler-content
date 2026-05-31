@@ -76,4 +76,80 @@ class InstitutionReviewDecisionServiceTest extends UnitTestCase {
     $this->assertSame(222, $update['changed']);
   }
 
+  /**
+   * @covers ::buildDecisionUpdate
+   */
+  public function testBuildDecisionUpdateForApproveFaction(): void {
+    $service = new InstitutionReviewDecisionService(
+      $this->createMock(Connection::class),
+      $this->createMock(TimeInterface::class)
+    );
+
+    $update = $service->buildDecisionUpdate('resolved', 'approve_faction', [
+      'decision_summary' => 'Approved generated faction draft. Label is distinct from near-match.',
+    ], 9, 300);
+
+    $this->assertSame('resolved', $update['status']);
+    $this->assertSame('approve_faction', $update['resolution_action']);
+    $this->assertSame(9, $update['resolution_actor_uid']);
+    $payload = json_decode((string) $update['resolution_payload_json'], TRUE);
+    $this->assertSame('Approved generated faction draft. Label is distinct from near-match.', $payload['decision_summary']);
+  }
+
+  /**
+   * @covers ::buildDecisionUpdate
+   */
+  public function testBuildDecisionUpdateForRejectFaction(): void {
+    $service = new InstitutionReviewDecisionService(
+      $this->createMock(Connection::class),
+      $this->createMock(TimeInterface::class)
+    );
+
+    $update = $service->buildDecisionUpdate('resolved', 'reject_faction', [
+      'decision_summary' => 'Near-match is sufficiently close. Operator will reuse Iron Brotherhood instead.',
+    ], 3, 400);
+
+    $this->assertSame('resolved', $update['status']);
+    $this->assertSame('reject_faction', $update['resolution_action']);
+    $payload = json_decode((string) $update['resolution_payload_json'], TRUE);
+    $this->assertStringContainsString('Iron Brotherhood', $payload['decision_summary']);
+  }
+
+  /**
+   * @covers ::buildDecisionUpdate
+   */
+  public function testBuildDecisionUpdateForMergeWithExistingRequiresTargetIdentifier(): void {
+    $service = new InstitutionReviewDecisionService(
+      $this->createMock(Connection::class),
+      $this->createMock(TimeInterface::class)
+    );
+
+    $this->expectException(\InvalidArgumentException::class);
+    $this->expectExceptionMessage('Merging with an existing faction requires a target identifier.');
+
+    $service->buildDecisionUpdate('resolved', 'merge_with_existing', [
+      'decision_summary' => 'This faction should redirect to the Iron Brotherhood canonical entry.',
+    ], 2, 500);
+  }
+
+  /**
+   * @covers ::buildDecisionUpdate
+   */
+  public function testBuildDecisionUpdateForMergeWithExistingAcceptsTargetIdentifier(): void {
+    $service = new InstitutionReviewDecisionService(
+      $this->createMock(Connection::class),
+      $this->createMock(TimeInterface::class)
+    );
+
+    $update = $service->buildDecisionUpdate('resolved', 'merge_with_existing', [
+      'decision_summary' => 'Merged into existing Iron Brotherhood canonical entry.',
+      'target_identifier' => 'iron-brotherhood',
+    ], 5, 600);
+
+    $this->assertSame('resolved', $update['status']);
+    $this->assertSame('merge_with_existing', $update['resolution_action']);
+    $payload = json_decode((string) $update['resolution_payload_json'], TRUE);
+    $this->assertSame('iron-brotherhood', $payload['target_identifier']);
+  }
+
 }

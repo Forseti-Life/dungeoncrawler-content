@@ -9,11 +9,13 @@ use Drupal\Core\Database\Connection;
  */
 class FactionGenerationService {
 
-  protected const MANIFEST_SOURCE_TABLE = 'generated_faction';
-  protected const MANIFEST_SOURCE_FILE = '__generated__/factions';
+  public const MANIFEST_SOURCE_TABLE = 'generated_faction';
+  public const MANIFEST_SOURCE_FILE = '__generated__/factions';
   protected const MANIFEST_ROW_TYPE = 'institution';
   protected const MANIFEST_CLASSIFICATION = 'canonical_faction';
-  protected const MANIFEST_STATUS = 'normalized';
+  public const MANIFEST_STATUS = 'normalized';
+  public const MANIFEST_PENDING_STATUS = 'pending_review';
+  public const NEAR_MATCH_REVIEW_REASON = 'near_match_detected';
 
   public function __construct(
     protected Connection $database,
@@ -175,16 +177,23 @@ class FactionGenerationService {
       ];
     }
 
-    $manifest_id = $this->upsertLibraryFactionManifest($draft);
+    $near_matches = $this->findNearMatchLibraryFactions((string) $draft['canonicalSlug']);
+    $manifest_status = $near_matches !== [] ? self::MANIFEST_PENDING_STATUS : self::MANIFEST_STATUS;
+    $manifest_id = $this->upsertLibraryFactionManifest($draft, $manifest_status);
     $campaign_subject = $this->instantiateCampaignFactionSubject($campaign_id, $draft);
 
+    if ($near_matches !== []) {
+      $this->createNearMatchReviewItem($manifest_id, $draft, $near_matches);
+    }
+
     return [
-      'status' => 'created',
+      'status' => $manifest_status === self::MANIFEST_PENDING_STATUS ? 'pending_review' : 'created',
       'created' => TRUE,
       'manifestId' => $manifest_id,
       'canonicalSlug' => (string) $draft['canonicalSlug'],
       'librarySubjectId' => (string) $draft['librarySubjectId'],
       'campaignSubjectId' => (string) ($campaign_subject['subject_id'] ?? ''),
+      'nearMatches' => $near_matches,
       'draft' => $draft,
     ];
   }
@@ -215,7 +224,7 @@ class FactionGenerationService {
   /**
    * Writes or updates the canonical faction manifest row.
    */
-  protected function upsertLibraryFactionManifest(array $draft): int {
+  protected function upsertLibraryFactionManifest(array $draft, string $status = self::MANIFEST_STATUS): int {
     $now = time();
     $fields = [
       'source_table' => self::MANIFEST_SOURCE_TABLE,
@@ -224,7 +233,7 @@ class FactionGenerationService {
       'library_character_id' => NULL,
       'row_type' => self::MANIFEST_ROW_TYPE,
       'classification' => self::MANIFEST_CLASSIFICATION,
-      'status' => self::MANIFEST_STATUS,
+      'status' => $status,
       'normalized_payload_json' => json_encode($draft, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
       'review_reasons_json' => json_encode([], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
       'provenance_json' => json_encode($draft['requestContext'] ?? [], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
@@ -268,6 +277,85 @@ class FactionGenerationService {
         'requested_characteristics' => $draft['requestedCharacteristics'] ?? [],
       ],
     ]);
+  }
+
+  /**
+   * Finds existing generated library factions that share meaningful slug tokens.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Near-match candidates. Each entry has manifest_id, canonical_slug, shared_tokens.
+   */
+  protected function findNearMatchLibraryFactions(string $canonical_slug): array {
+    if ($canonical_slug === '') {
+      return [];
+    }
+
+    $rows = $this->database->select('dc_library_institution_manifest', 'm')
+      ->fields('m', ['id', 'source_asset_id'])
+      ->condition('source_table', self::MANIFEST_SOURCE_TABLE)
+      ->condition('source_asset_id', $canonical_slug, '<>')
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC);
+
+    if (!is_array($rows) || $rows === []) {
+      return [];
+    }
+
+    $request_tokens = $this->extractMeaningfulSlugTokens($canonical_slug);
+    if ($request_tokens === []) {
+      return [];
+    }
+
+    $near_matches = [];
+    foreach ($rows as $row) {
+      $existing_tokens = $this->extractMeaningfulSlugTokens((string) ($row['source_asset_id'] ?? ''));
+      $shared = array_values(array_intersect($request_tokens, $existing_tokens));
+      if ($shared !== []) {
+        $near_matches[] = [
+          'manifest_id' => (int) ($row['id'] ?? 0),
+          'canonical_slug' => (string) ($row['source_asset_id'] ?? ''),
+          'shared_tokens' => $shared,
+        ];
+      }
+    }
+
+    return $near_matches;
+  }
+
+  /**
+   * Extracts meaningful tokens (4+ chars) from a normalized slug.
+   *
+   * @return array<int, string>
+   */
+  protected function extractMeaningfulSlugTokens(string $slug): array {
+    $tokens = explode('-', $slug);
+    $meaningful = array_filter($tokens, static fn(string $t): bool => strlen($t) >= 4);
+    return array_values(array_unique($meaningful));
+  }
+
+  /**
+   * Creates a near-match review queue item for a newly generated faction.
+   *
+   * @param array<int, array<string, mixed>> $near_matches
+   */
+  protected function createNearMatchReviewItem(int $manifest_id, array $draft, array $near_matches): void {
+    $now = time();
+    $this->database->insert('dc_library_institution_review')
+      ->fields([
+        'manifest_id' => $manifest_id,
+        'source_table' => self::MANIFEST_SOURCE_TABLE,
+        'source_file' => self::MANIFEST_SOURCE_FILE,
+        'source_asset_id' => (string) ($draft['canonicalSlug'] ?? ''),
+        'review_reason' => self::NEAR_MATCH_REVIEW_REASON,
+        'details_json' => json_encode([
+          'canonical_label' => (string) ($draft['canonicalLabel'] ?? ''),
+          'near_matches' => $near_matches,
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        'status' => 'open',
+        'created' => $now,
+        'changed' => $now,
+      ])
+      ->execute();
   }
 
   /**
