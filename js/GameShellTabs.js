@@ -106,7 +106,9 @@
   function initGameShellTabs(shell) {
     const tabs = shell.querySelectorAll('[data-game-tab]');
     const panels = shell.querySelectorAll('.game-shell__panel');
+    console.log('[GameShellTabs] initGameShellTabs', { tabCount: tabs.length, panelCount: panels.length });
     if (!tabs.length || !panels.length) {
+      console.warn('[GameShellTabs] no tabs or panels found — aborting');
       return;
     }
 
@@ -123,6 +125,7 @@
 
     tabs.forEach((tab) => {
       tab.addEventListener('click', () => {
+        console.log('[GameShellTabs] tab clicked', { tabId: tab.dataset.gameTab });
         activateGameShellTab(shell, tab.dataset.gameTab, { storage });
       });
     });

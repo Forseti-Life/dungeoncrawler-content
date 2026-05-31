@@ -284,11 +284,13 @@ export class GameShell {
    */
   _onTabChanged(tabId) {
     this.activeGameShellTab = tabId;
+    console.log('[GameShell] _onTabChanged', { tabId });
     if (tabId === 'view')      this._loadRoomView();
     if (tabId === 'merchant')  this._loadMerchantStock();
     if (tabId === 'chat' && !this._chatHistoryLoaded) this._loadChatHistory();
     if (tabId === 'character') {
       const charId = this.launchCharacter?.id ?? this.launchContext?.character_id ?? null;
+      console.log('[GameShell] character tab → sheet-requested', { charId });
       if (charId) this.bus.emit('character:sheet-requested', { characterId: charId });
     }
   }
@@ -301,7 +303,11 @@ export class GameShell {
     const campaignId = this.launchContext?.campaign_id;
     const roomId     = this.activeRoomId;
     const charId     = this.launchCharacter?.id ?? this.launchContext?.character_id;
-    if (!campaignId || !roomId) return;
+    if (!campaignId || !roomId) {
+      console.warn('[GameShell] _loadChatHistory: missing campaignId or roomId', { campaignId, roomId });
+      return;
+    }
+    console.log('[GameShell] _loadChatHistory', { campaignId, roomId });
 
     try {
       let url = `/api/campaign/${encodeURIComponent(campaignId)}/room/${encodeURIComponent(roomId)}/chat`;
@@ -312,7 +318,10 @@ export class GameShell {
       });
       if (!resp.ok) return;
       const result = await resp.json().catch(() => ({}));
-      if (!result?.success || !Array.isArray(result.data?.messages)) return;
+      if (!result?.success || !Array.isArray(result.data?.messages)) {
+        console.warn('[GameShell] _loadChatHistory: unexpected response', { ok: resp.ok, success: result?.success, messageCount: result?.data?.messages?.length });
+        return;
+      }
 
       const lines = result.data.messages.map((msg, i) => {
         const ts = String(msg.timestamp ?? '').trim();
@@ -327,6 +336,7 @@ export class GameShell {
       });
 
       this._chatHistoryLoaded = true;
+      console.log('[GameShell] _loadChatHistory: loaded', { lineCount: lines.length });
       this.bus.emit('chat:history-loaded', { lines, channel: 'room' });
     } catch (_) {
       // Chat history is best-effort; no user-facing error
@@ -435,7 +445,11 @@ export class GameShell {
   async _loadRoomView() {
     const campaignId = this.launchContext?.campaign_id;
     const roomId     = this.activeRoomId;
-    if (!campaignId || !roomId) return;
+    if (!campaignId || !roomId) {
+      console.warn('[GameShell] _loadRoomView: missing campaignId or roomId', { campaignId, roomId });
+      return;
+    }
+    console.log('[GameShell] _loadRoomView', { campaignId, roomId });
 
     const token = ++this._roomViewRequestToken;
     try {
@@ -707,7 +721,8 @@ export class GameShell {
     const c = this.container;
     const bus = this.bus;
     const panel = (sel) => {
-      const el = c.querySelector(sel);
+      // querySelector only searches descendants; also check if container itself matches
+      const el = c.querySelector(sel) ?? (c.matches?.(sel) ? c : null);
       if (!el) console.warn('[GameShell] panel container NOT FOUND:', sel);
       return el ?? c;
     };
