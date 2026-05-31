@@ -25,6 +25,7 @@ export class RoomViewPanel {
     this._el = {
       roomViewName:            id('room-view-name')            || s('name'),
       roomViewMeta:            id('room-view-meta'),
+      roomViewDescription:     id('room-view-description')     || s('description'),
       roomViewStatus:          id('room-view-status'),
       roomViewGallery:         id('room-view-gallery')         || s('gallery'),
       roomViewPlaceholder:     id('room-view-placeholder')     || s('empty'),
@@ -63,11 +64,19 @@ export class RoomViewPanel {
     }
 
     return [
-      room.room_type ? String(room.room_type).replace(/_/g, ' ') : '',
+      room.room_type && String(room.room_type) !== 'unknown' ? String(room.room_type).replace(/_/g, ' ') : '',
       room.size_category ? String(room.size_category).replace(/_/g, ' ') : '',
-      room.terrain ? String(room.terrain).replace(/_/g, ' ') : '',
-      room.lighting ? `lighting: ${String(room.lighting).replace(/_/g, ' ')}` : '',
+      this.formatRoomViewField(room.terrain),
+      this.formatRoomViewField(room.lighting) ? `lighting: ${this.formatRoomViewField(room.lighting)}` : '',
     ].filter(Boolean).join(' • ') || 'Current room scene';
+  }
+
+  formatRoomViewField(value) {
+    if (!value) return '';
+    if (typeof value === 'object') {
+      return String(value.type || value.level || value.name || '').replace(/_/g, ' ');
+    }
+    return String(value).replace(/_/g, ' ');
   }
 
   buildRoomViewCard(entry, room) {
@@ -199,6 +208,11 @@ export class RoomViewPanel {
     if (this._el.roomViewMeta) {
       this._el.roomViewMeta.textContent = this.formatRoomViewMeta(room);
     }
+    if (this._el.roomViewDescription) {
+      const description = String(room?.description || '').trim();
+      this._el.roomViewDescription.textContent = description;
+      this._el.roomViewDescription.hidden = description === '';
+    }
     if (this._el.roomViewStatus) {
       this._el.roomViewStatus.textContent = statusLabel;
     }
@@ -235,6 +249,7 @@ export class RoomViewPanel {
       galleryHidden: this._el.roomViewGallery?.hidden ?? 'no-el',
       placeholderHidden: this._el.roomViewPlaceholder?.hidden ?? 'no-el',
       roomViewNameText: this._el.roomViewName?.textContent ?? 'no-el',
+      roomViewDescriptionLength: this._el.roomViewDescription?.textContent?.trim()?.length ?? 'no-el',
       roomViewStatusText: this._el.roomViewStatus?.textContent ?? 'no-el',
       panelHidden: gamePanel?.hidden ?? 'no-ancestor',
       panelDisplay: gamePanel ? window.getComputedStyle(gamePanel).display : 'no-ancestor',

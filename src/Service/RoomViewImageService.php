@@ -90,11 +90,18 @@ class RoomViewImageService {
     $payload_room_id = $this->resolvePayloadRoomIdForRequest($campaign_id, $room_id, $dungeon_data);
     $room = $this->resolveRoom($dungeon_data, $payload_room_id);
     if ($room === NULL) {
-      return $this->buildUnavailableRoomViewPayload(
-        $campaign_id,
-        $room_id,
-        'Room view image is not ready yet for this room.'
-      );
+      $campaign_room = $this->loadCampaignRoomRecord($campaign_id, $room_id);
+      if (is_array($campaign_room)) {
+        $room = $this->normalizeCampaignRoomRecord($campaign_room, $room_id);
+        $payload_room_id = (string) ($room['room_id'] ?? $room_id);
+      }
+      else {
+        return $this->buildUnavailableRoomViewPayload(
+          $campaign_id,
+          $room_id,
+          'Room view image is not ready yet for this room.'
+        );
+      }
     }
 
     $campaign_room_cache_key = $this->resolveCampaignRoomCacheObjectId($campaign_id, $room_id, $room, $dungeon_data);
@@ -1394,7 +1401,15 @@ class RoomViewImageService {
     }
 
     $record = $this->database->select('dc_campaign_rooms', 'r')
-      ->fields('r', ['room_id', 'source_room_id', 'name'])
+      ->fields('r', [
+        'room_id',
+        'source_room_id',
+        'name',
+        'description',
+        'environment_tags',
+        'layout_data',
+        'contents_data',
+      ])
       ->condition('campaign_id', $campaign_id)
       ->condition('room_id', $room_id)
       ->range(0, 1)
@@ -1402,6 +1417,126 @@ class RoomViewImageService {
       ->fetchAssoc();
 
     return is_array($record) ? $record : NULL;
+  }
+
+  /**
+   * Normalize a persisted campaign-room row into the room payload shape.
+   *
+   * Campaign-instantiated rooms are authoritative runtime room records. The
+   * active dungeon payload may point at a different/latest dungeon, so room-view
+   * lookup must still be able to load the established campaign room directly.
+   *
+   * @param array<string, mixed> $record
+   *   Campaign room row.
+   * @param string $fallback_room_id
+   *   Requested room id.
+   *
+   * @return array<string, mixed>
+   *   Room payload.
+   */
+  protected function normalizeCampaignRoomRecord(array $record, string $fallback_room_id): array {
+    $layout_data = $this->decodeJsonObject((string) ($record['layout_data'] ?? ''));
+    $contents_data = $this->decodeJsonObject((string) ($record['contents_data'] ?? ''));
+    $raw_environment_tags = (string) ($record['environment_tags'] ?? '');
+    $environment_tags = $this->decodeJsonObject($raw_environment_tags);
+    if ($environment_tags === [] && trim($raw_environment_tags) !== '') {
+      $environment_tags = array_values(array_filter(array_map('trim', explode(',', $raw_environment_tags))));
+    }
+    elseif (array_is_list($environment_tags) === FALSE) {
+      $environment_tags = array_values(array_filter(array_map('strval', $environment_tags)));
+    }
+
+    return [
+      'room_id' => (string) ($record['room_id'] ?? $fallback_room_id),
+      'source_room_id' => (string) ($record['source_room_id'] ?? ''),
+      'name' => (string) ($record['name'] ?? 'Unknown Room'),
+      'description' => (string) ($record['description'] ?? ''),
+      'environment_tags' => $environment_tags,
+      'layout_data' => $layout_data,
+      'contents_data' => $contents_data,
+      'room_type' => $this->inferRoomTypeFromTags($environment_tags),
+      'size_category' => $this->inferRoomSizeFromLayout($layout_data),
+      'terrain' => $this->inferRoomTerrainFromLayout($layout_data),
+      'lighting' => '',
+    ];
+  }
+
+  /**
+   * Decode JSON object/array payloads from campaign-room columns.
+   *
+   * @return array<mixed>
+   *   Decoded payload or an empty array.
+   */
+  protected function decodeJsonObject(string $value): array {
+    $value = trim($value);
+    if ($value === '') {
+      return [];
+    }
+
+    $decoded = json_decode($value, TRUE);
+    return is_array($decoded) ? $decoded : [];
+  }
+
+  /**
+   * Infer a readable room type from environment tags.
+   *
+   * @param array<mixed> $environment_tags
+   *   Environment tags.
+   */
+  protected function inferRoomTypeFromTags(array $environment_tags): string {
+    foreach ($environment_tags as $tag) {
+      $tag = trim((string) $tag);
+      if ($tag !== '' && !in_array($tag, ['indoor', 'outdoor', 'safe', 'starting_area'], TRUE)) {
+        return $tag;
+      }
+    }
+    return '';
+  }
+
+  /**
+   * Infer the room size label from layout dimensions.
+   *
+   * @param array<mixed> $layout_data
+   *   Layout data.
+   */
+  protected function inferRoomSizeFromLayout(array $layout_data): string {
+    $dimensions = is_array($layout_data['dimensions'] ?? NULL) ? $layout_data['dimensions'] : [];
+    $width = (int) ($dimensions['width'] ?? 0);
+    $height = (int) ($dimensions['height'] ?? 0);
+    $max_dimension = max($width, $height);
+    if ($max_dimension >= 16) {
+      return 'large';
+    }
+    if ($max_dimension > 0 && $max_dimension <= 8) {
+      return 'small';
+    }
+    return $max_dimension > 0 ? 'medium' : '';
+  }
+
+  /**
+   * Infer the dominant terrain type from the terrain grid.
+   *
+   * @param array<mixed> $layout_data
+   *   Layout data.
+   */
+  protected function inferRoomTerrainFromLayout(array $layout_data): string {
+    $terrain_grid = is_array($layout_data['terrain_grid'] ?? NULL) ? $layout_data['terrain_grid'] : [];
+    $counts = [];
+    foreach ($terrain_grid as $tile) {
+      if (!is_array($tile)) {
+        continue;
+      }
+      $type = trim((string) ($tile['type'] ?? ''));
+      if ($type === '' || $type === 'wall') {
+        continue;
+      }
+      $counts[$type] = ($counts[$type] ?? 0) + 1;
+    }
+    if ($counts === []) {
+      return '';
+    }
+    arsort($counts);
+    return (string) array_key_first($counts);
   }
 
   /**

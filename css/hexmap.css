@@ -752,6 +752,13 @@
   color: var(--muted);
 }
 
+.room-view-panel__description {
+  max-width: 78ch;
+  margin: var(--space-3) 0 0;
+  color: var(--text);
+  line-height: 1.55;
+}
+
 .room-view-panel__placeholder {
   min-height: 240px;
   display: grid;

@@ -176,10 +176,24 @@ export class GameShell {
     const room = visualRooms[roomId] ?? null;
     const roomName = room?.name ?? roomId;
     this._activeRoomData = room ?? null;
+    const roomHexes = Array.isArray(room?.hexes) ? room.hexes : [];
+    const roomObjectCount = roomHexes.reduce((count, hex) => count + (Array.isArray(hex?.objects) ? hex.objects.length : 0), 0);
+    console.info('[GameShell] active room resolved', {
+      roomId,
+      roomName,
+      hasRoom: !!room,
+      hasDescription: Boolean(String(room?.description ?? '').trim()),
+      descriptionLength: String(room?.description ?? '').trim().length,
+      hexCount: roomHexes.length,
+      objectCount: roomObjectCount,
+      connectionCount: _buildRoomConnections(roomId, this.mapVisualState).length,
+      mapMetaActiveRoomId: this.mapVisualState?.map_meta?.active_room_id ?? null,
+    });
 
     this.bus.emit('room:changed', {
       roomId,
       roomName,
+      room,
       sceneImageUrl: room?.image_url ?? null,
       connections:   _buildRoomConnections(roomId, this.mapVisualState),
       responders: [],
@@ -534,8 +548,8 @@ export class GameShell {
       const first = entries[0];
       const sceneImageUrl = first?.image?.url ?? first?.image?.data_uri ?? null;
 
-      // id must come AFTER spread — API room object may contain id:undefined
-      const payloadRoom = { ...(result.data.room ?? visualRoom), id: roomId };
+      const apiRoom = _isPlainObject(result.data.room) ? result.data.room : {};
+      const payloadRoom = _mergeRoomMetadata(visualRoom, apiRoom, roomId);
       const roomName = payloadRoom?.name ?? visualRoom?.name ?? roomId;
 
       const dataStatus = String(result.data.status || '').toLowerCase();
@@ -557,6 +571,10 @@ export class GameShell {
         available: result.data.available,
         status: dataStatus,
         message: result.data.message ?? null,
+        visualRoomHasDescription: Boolean(String(visualRoom?.description ?? '').trim()),
+        apiRoomHasDescription: Boolean(String(apiRoom?.description ?? '').trim()),
+        payloadRoomHasDescription: Boolean(String(payloadRoom?.description ?? '').trim()),
+        payloadRoomName: payloadRoom?.name ?? null,
       });
 
       this.bus.emit('room:view-loaded', { room: payloadRoom, viewState: { statusLabel, placeholderText, entries } });
@@ -1162,6 +1180,35 @@ function _flattenQuestObjectives(quest) {
   const phases = quest.objective_states ?? quest.generated_objectives ?? [];
   if (!Array.isArray(phases)) return [];
   return phases.flatMap((phase) => Array.isArray(phase.objectives) ? phase.objectives : []);
+}
+
+function _isPlainObject(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function _hasMeaningfulValue(value) {
+  if (value === null || value === undefined) return false;
+  if (typeof value === 'string') return value.trim() !== '';
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === 'object') return Object.keys(value).length > 0;
+  return true;
+}
+
+function _mergeRoomMetadata(visualRoom = {}, apiRoom = {}, roomId = '') {
+  const merged = {
+    ...(_isPlainObject(visualRoom) ? visualRoom : {}),
+    ...(_isPlainObject(apiRoom) ? apiRoom : {}),
+    id: roomId,
+    room_id: apiRoom.room_id || visualRoom.room_id || roomId,
+  };
+
+  ['name', 'description', 'room_type', 'size_category', 'terrain', 'lighting'].forEach((key) => {
+    if (!_hasMeaningfulValue(apiRoom?.[key]) && _hasMeaningfulValue(visualRoom?.[key])) {
+      merged[key] = visualRoom[key];
+    }
+  });
+
+  return merged;
 }
 
 /**
