@@ -848,7 +848,7 @@ class QuestGeneratorService {
     }
 
     $row = $this->database->select('dc_campaign_rooms', 'r')
-      ->fields('r', ['contents_data'])
+      ->fields('r', ['name', 'contents_data'])
       ->condition('campaign_id', $campaign_id)
       ->condition('room_id', $location_id)
       ->range(0, 1)
@@ -860,6 +860,10 @@ class QuestGeneratorService {
     }
 
     $hints = [];
+    $room_name = is_array($row) ? trim((string) ($row['name'] ?? '')) : '';
+    if ($room_name !== '') {
+      $hints['room_name'] = $room_name;
+    }
 
     foreach ((array) ($contents['npcs'] ?? []) as $npc) {
       if (!is_array($npc)) {

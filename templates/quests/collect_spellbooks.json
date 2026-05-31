@@ -23,7 +23,8 @@
             2,
             4
           ],
-          "description": "Find and collect {item_name}",
+          "location_id": "{location}",
+          "description": "Find and collect {item_name} in {room_name}",
           "completion_criteria": {
             "kind": "count",
             "metric": "current",
