@@ -8002,6 +8002,126 @@ function dungeoncrawler_content_update_10074() {
 }
 
 /**
+ * Sync spellbook quest location guidance into templates and live instances.
+ */
+function dungeoncrawler_content_update_10075() {
+  $database = \Drupal::database();
+  $schema_handler = $database->schema();
+  $messages = [];
+
+  if (!$schema_handler->tableExists('dungeoncrawler_content_quest_templates') || !$schema_handler->tableExists('dc_campaign_quests')) {
+    return t('Quest template or campaign quest tables are missing; no action taken.');
+  }
+
+  $module_path = \Drupal::service('extension.list.module')->getPath('dungeoncrawler_content');
+  $template_file = DRUPAL_ROOT . '/' . $module_path . '/templates/quests/collect_spellbooks.json';
+  if (is_file($template_file)) {
+    $template = json_decode((string) file_get_contents($template_file), TRUE);
+    if (is_array($template) && ($template['template_id'] ?? '') === 'collect_spellbooks') {
+      $database->update('dungeoncrawler_content_quest_templates')
+        ->fields([
+          'name' => (string) ($template['name'] ?? 'Collect Lost {item_name}'),
+          'description' => (string) ($template['description'] ?? ''),
+          'objectives_schema' => json_encode($template['objectives_schema'] ?? []),
+          'rewards_schema' => json_encode($template['rewards_schema'] ?? []),
+          'updated' => \Drupal::time()->getRequestTime(),
+        ])
+        ->condition('template_id', 'collect_spellbooks')
+        ->execute();
+      $messages[] = 'Synced collect_spellbooks template guidance.';
+    }
+  }
+
+  if (!$schema_handler->tableExists('dc_campaign_rooms')) {
+    return t('@messages Campaign rooms table is missing; live quest rows were not repaired.', ['@messages' => implode(' ', $messages)]);
+  }
+
+  $rows = $database->select('dc_campaign_quests', 'q')
+    ->fields('q', ['id', 'campaign_id', 'quest_id', 'location_id', 'generated_objectives'])
+    ->condition('source_template_id', 'collect_spellbooks')
+    ->execute()
+    ->fetchAll(\PDO::FETCH_ASSOC);
+
+  $updated_rows = 0;
+  foreach ($rows as $row) {
+    $campaign_id = (int) ($row['campaign_id'] ?? 0);
+    $location_id = trim((string) ($row['location_id'] ?? ''));
+    if ($campaign_id <= 0 || $location_id === '') {
+      continue;
+    }
+
+    $room = $database->select('dc_campaign_rooms', 'r')
+      ->fields('r', ['name', 'contents_data'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('room_id', $location_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    if (!is_array($room)) {
+      continue;
+    }
+
+    $objectives = json_decode((string) ($row['generated_objectives'] ?? '[]'), TRUE);
+    if (!is_array($objectives)) {
+      continue;
+    }
+
+    $room_name = trim((string) ($room['name'] ?? '')) ?: $location_id;
+    $contents = json_decode((string) ($room['contents_data'] ?? '{}'), TRUE) ?: [];
+    $spellbook_count = 0;
+    foreach ((array) ($contents['items'] ?? []) as $item) {
+      if (is_array($item) && trim((string) ($item['quest_association'] ?? '')) === 'collect_spellbooks') {
+        $spellbook_count++;
+      }
+    }
+
+    $changed = FALSE;
+    foreach ($objectives as &$phase) {
+      if (!is_array($phase) || !isset($phase['objectives']) || !is_array($phase['objectives'])) {
+        continue;
+      }
+      foreach ($phase['objectives'] as &$objective) {
+        if (!is_array($objective)) {
+          continue;
+        }
+        if (($objective['objective_id'] ?? '') === 'collect_books') {
+          $target_count = $spellbook_count > 0 ? $spellbook_count : max(1, (int) ($objective['target_count'] ?? 1));
+          $objective['location_id'] = $location_id;
+          $objective['target_count'] = $target_count;
+          $objective['description'] = 'Find and collect Spellbooks in ' . $room_name;
+          $objective['next_step'] = 'Search ' . $room_name . ' and pick up each Spellbook quest item.';
+          $objective['completion_criteria'] = [
+            'kind' => 'count',
+            'metric' => 'current',
+            'description' => 'Collect ' . $target_count . ' Spellbooks in ' . $room_name . '.',
+            'target_count' => $target_count,
+          ];
+          $changed = TRUE;
+        }
+        elseif (($objective['objective_id'] ?? '') === 'return_books') {
+          $objective['location_id'] = $location_id;
+          $objective['next_step'] = 'Speak to Marta the Scholar in ' . $room_name . ' after collecting the Spellbooks.';
+          $changed = TRUE;
+        }
+      }
+      unset($objective);
+    }
+    unset($phase);
+
+    if ($changed) {
+      $database->update('dc_campaign_quests')
+        ->fields(['generated_objectives' => json_encode($objectives)])
+        ->condition('id', (int) $row['id'])
+        ->execute();
+      $updated_rows++;
+    }
+  }
+
+  $messages[] = 'Repaired ' . $updated_rows . ' collect_spellbooks campaign quest rows.';
+  return t('@messages', ['@messages' => implode(' ', $messages)]);
+}
+
+/**
  * Recursively replace string values within nested arrays.
  *
  * @param mixed $value
