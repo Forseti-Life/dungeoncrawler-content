@@ -84,7 +84,7 @@ export class CharacterPanel {
     if (!character) return;
     const { name, cls, level, portrait, hp, ac, sheetLink } = this._el;
     if (name)    name.textContent    = String(character.name ?? '');
-    if (cls)     cls.textContent     = String(character.class_name ?? '');
+    if (cls)     cls.textContent     = String(character.class_name ?? character.class ?? '');
     if (level)   level.textContent   = String(character.level ?? '');
     if (portrait && character.portrait_url) {
       portrait.src = character.portrait_url;
@@ -95,7 +95,7 @@ export class CharacterPanel {
         ? `${character.hp_current} / ${character.hp_max}`
         : '';
     }
-    if (ac)        ac.textContent  = String(character.ac ?? '');
+    if (ac)        ac.textContent  = String(character.ac ?? character.armor_class ?? '');
     if (sheetLink && character.sheet_url) sheetLink.href = character.sheet_url;
   }
 
