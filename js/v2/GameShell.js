@@ -595,62 +595,7 @@ export class GameShell {
     this.panels = {};
     this.bus = null;
   }
-}
 
-// ---------------------------------------------------------------------------
-// Module-level helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Flatten phase-based objectives from a quest entry (server shape) into a
- * flat array that QuestPanel can render directly.
- *
- * Server shape: quest.objective_states = [{ phase_id, objectives: [{label, status, ...}] }]
- *
- * @param {object} quest
- * @returns {Array<{label: string, status: string, children?: Array}>}
- */
-function _flattenQuestObjectives(quest) {
-  const phases = quest.objective_states ?? quest.generated_objectives ?? [];
-  if (!Array.isArray(phases)) return [];
-  return phases.flatMap((phase) => Array.isArray(phase.objectives) ? phase.objectives : []);
-}
-
-/**
- * Build a connections array for the navigate sub-panel from mapVisualState topology.
- * Returns connections that originate FROM the given roomId (or are passable to/from it).
- *
- * @param {string} roomId
- * @param {object} mapVisualState
- * @returns {Array<{room_id, room_name, connection_id, direction?}>}
- */
-function _buildRoomConnections(roomId, mapVisualState) {
-  const topology = mapVisualState?.topology ?? {};
-  const rooms = topology.rooms ?? {};
-  const allConnections = Array.isArray(topology.connections) ? topology.connections : [];
-
-  const result = [];
-  const seen = new Set();
-
-  allConnections.forEach((conn) => {
-    if (!conn.is_passable) return;
-
-    let targetRoomId = null;
-    if (conn.from_room_id === roomId) targetRoomId = conn.to_room_id;
-    else if (conn.to_room_id === roomId) targetRoomId = conn.from_room_id;
-    if (!targetRoomId || seen.has(conn.connection_id)) return;
-
-    seen.add(conn.connection_id);
-    result.push({
-      connection_id: conn.connection_id,
-      room_id:       targetRoomId,
-      room_name:     rooms[targetRoomId]?.name ?? targetRoomId,
-      type:          conn.type ?? 'open_passage',
-    });
-  });
-
-  return result;
-  // --- ported from hexmap.js ---
   updateFullscreenViewportMetrics(container = null) {
     const target = container || document.getElementById('hexmap-container');
     if (!target) {
@@ -900,4 +845,60 @@ function _buildRoomConnections(roomId, mapVisualState) {
   }
 
 
+}
+
+
+// ---------------------------------------------------------------------------
+// Module-level helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Flatten phase-based objectives from a quest entry (server shape) into a
+ * flat array that QuestPanel can render directly.
+ *
+ * Server shape: quest.objective_states = [{ phase_id, objectives: [{label, status, ...}] }]
+ *
+ * @param {object} quest
+ * @returns {Array<{label: string, status: string, children?: Array}>}
+ */
+function _flattenQuestObjectives(quest) {
+  const phases = quest.objective_states ?? quest.generated_objectives ?? [];
+  if (!Array.isArray(phases)) return [];
+  return phases.flatMap((phase) => Array.isArray(phase.objectives) ? phase.objectives : []);
+}
+
+/**
+ * Build a connections array for the navigate sub-panel from mapVisualState topology.
+ * Returns connections that originate FROM the given roomId (or are passable to/from it).
+ *
+ * @param {string} roomId
+ * @param {object} mapVisualState
+ * @returns {Array<{room_id, room_name, connection_id, direction?}>}
+ */
+function _buildRoomConnections(roomId, mapVisualState) {
+  const topology = mapVisualState?.topology ?? {};
+  const rooms = topology.rooms ?? {};
+  const allConnections = Array.isArray(topology.connections) ? topology.connections : [];
+
+  const result = [];
+  const seen = new Set();
+
+  allConnections.forEach((conn) => {
+    if (!conn.is_passable) return;
+
+    let targetRoomId = null;
+    if (conn.from_room_id === roomId) targetRoomId = conn.to_room_id;
+    else if (conn.to_room_id === roomId) targetRoomId = conn.from_room_id;
+    if (!targetRoomId || seen.has(conn.connection_id)) return;
+
+    seen.add(conn.connection_id);
+    result.push({
+      connection_id: conn.connection_id,
+      room_id:       targetRoomId,
+      room_name:     rooms[targetRoomId]?.name ?? targetRoomId,
+      type:          conn.type ?? 'open_passage',
+    });
+  });
+
+  return result;
 }
