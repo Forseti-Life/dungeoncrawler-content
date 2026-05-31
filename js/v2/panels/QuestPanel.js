@@ -150,12 +150,14 @@ export class QuestPanel {
     if (managementTree.length > 0) {
       if (count) count.textContent = String(managementTree.length);
       list.innerHTML = managementTree.map(renderQuestManagementNpcHtml).join('');
+      console.log('[QuestPanel] renderQuestJournal:branch', { branch: 'managementTree', htmlLen: list.innerHTML.length });
       this.updateQuestJournalControlState();
       return;
     }
 
     if (activeQuests.length === 0 && offeredQuests.length === 0 && leadQuests.length === 0) {
       list.innerHTML = '<li class="quest-empty">No active quests, offers, or leads</li>';
+      console.log('[QuestPanel] renderQuestJournal:branch', { branch: 'empty' });
       if (count) count.textContent = '0';
       this.updateQuestJournalControlState();
       return;
@@ -220,6 +222,7 @@ export class QuestPanel {
     })).join('');
 
     list.innerHTML = `${activeHtml}${offerHtml}${leadHtml}`;
+    console.log('[QuestPanel] renderQuestJournal:branch', { branch: 'active', htmlLen: list.innerHTML.length });
     this.updateQuestJournalControlState();
   }
 

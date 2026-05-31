@@ -144,8 +144,7 @@ export class CharacterPanel {
     if (!characterId) {
       return;
     }
-
-    if (this._el.characterSheetEmbedWrap) {
+    console.log('[CharacterPanel] showEmbeddedCharacterSheet', { characterId });
       this._el.characterSheetEmbedWrap.style.display = 'none';
     }
     if (this._el.characterSheetEmbed) {
@@ -754,6 +753,12 @@ export class CharacterPanel {
     }
 
     this.bus.emit('character:updated');
+    console.log('[CharacterPanel] showLaunchCharacter:done', {
+      name: this._el.characterName?.textContent,
+      hp: this._el.characterHp?.textContent,
+      ac: this._el.characterAc?.textContent,
+      level: this._el.characterLevel?.textContent,
+    });
   }
 
 }

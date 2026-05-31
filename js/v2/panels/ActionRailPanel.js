@@ -168,6 +168,9 @@ export class ActionRailPanel {
     const hexmap = this.stateManager?.hexmap || null;
 
     if (!categories || !panelBody || !actorName || !status) {
+      console.warn('[ActionRailPanel] refreshActionRail: missing el', {
+        categories: !!categories, panelBody: !!panelBody, actorName: !!actorName, status: !!status,
+      });
       return;
     }
 
@@ -179,6 +182,7 @@ export class ActionRailPanel {
     };
     actorName.textContent = context.actorLabel;
     status.textContent = context.statusLabel;
+    console.log('[ActionRailPanel] refreshActionRail:render', { actor: context.actorLabel, status: context.statusLabel, encounter: context.encounterActive });
     if (automationToggle) {
       const automationActive = Boolean(context.automationState?.active);
       const automationBusy = Boolean(context.automationState?.inflight || this.actionRailAutomationTogglePending);

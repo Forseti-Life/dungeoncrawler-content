@@ -151,6 +151,7 @@ export class PortraitPanel {
 
   loadRoomPortraitsPanel(roomId = null) {
     if (!this._el.npcPortraitsPanel) {
+      console.warn('[PortraitPanel] loadRoomPortraitsPanel: npcPortraitsPanel el missing');
       return;
     }
 
@@ -162,6 +163,7 @@ export class PortraitPanel {
       : hexmap?.getActiveRoomData?.() || null;
     const entries = this.buildRoomPortraitEntries(resolvedRoomId);
 
+    console.log('[PortraitPanel] loadRoomPortraitsPanel', { roomId: resolvedRoomId, entryCount: entries.length });
     if (this._el.npcPortraitsName) {
       this._el.npcPortraitsName.textContent = room?.name || 'Current room';
     }

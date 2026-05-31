@@ -612,6 +612,7 @@ export class ChatPanel {
 
   renderRoomChatHistory(result) {
     if (!result?.success || !result.data?.messages) {
+      console.warn('[ChatPanel] renderRoomChatHistory: bad result', { success: result?.success, hasMessages: !!result?.data?.messages });
       return;
     }
 
@@ -632,6 +633,7 @@ export class ChatPanel {
       context,
       channelKey: this.activeChannel,
     });
+    console.log('[ChatPanel] renderRoomChatHistory:render', { incoming: incoming.length, merged: merged.length });
     this.renderChatLineRecords(merged, 'room', {
       context,
       channelKey: this.activeChannel,
@@ -1668,6 +1670,7 @@ export class ChatPanel {
 
   renderChatLineRecords(lines = [], view = this.activeSessionView, options = {}) {
     const log = this._el.chatLog;
+    console.log('[ChatPanel] renderChatLineRecords', { lineCount: lines?.length ?? 0, view, hasLog: !!log });
     if (log) {
       log.innerHTML = '';
     }
