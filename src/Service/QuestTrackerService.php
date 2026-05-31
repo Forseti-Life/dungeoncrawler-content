@@ -292,6 +292,10 @@ class QuestTrackerService {
   ): array {
     try {
       $now = $this->time->getRequestTime();
+      $progress_record = $character_id !== NULL ? $this->loadProgress($campaign_id, $quest_id, $character_id) : NULL;
+      $quest = $this->loadCampaignQuest($campaign_id, $quest_id);
+      $already_completed = !empty($progress_record['completed_at'])
+        || strtolower((string) ($quest['status'] ?? '')) === 'completed';
 
       // Update requested scope progress record.
       $this->database->update('dc_campaign_quest_progress')
@@ -311,16 +315,18 @@ class QuestTrackerService {
         ->condition('quest_id', $quest_id)
         ->execute();
 
-      // Load quest for rewards
-      $quest = $this->loadCampaignQuest($campaign_id, $quest_id);
+      // Load quest rewards.
       $rewards = json_decode($quest['generated_rewards'] ?? '{}', TRUE);
+      $rewards_applied = !$already_completed
+        ? $this->applyQuestRewards($campaign_id, $character_id, is_array($rewards) ? $rewards : [])
+        : [];
 
       // Log completion
       $this->logQuestEvent(
         $campaign_id,
         $quest_id,
         'completed',
-        ['outcome' => $outcome, 'rewards' => $rewards],
+        ['outcome' => $outcome, 'rewards' => $rewards, 'rewards_applied' => $rewards_applied],
         "Quest completed with outcome: $outcome",
         $character_id
       );
@@ -340,6 +346,7 @@ class QuestTrackerService {
         'quest_id' => $quest_id,
         'outcome' => $outcome,
         'rewards' => $rewards,
+        'rewards_applied' => $rewards_applied,
         'completed_at' => $now,
       ];
     }
@@ -347,6 +354,44 @@ class QuestTrackerService {
       $this->logger->error('Failed to complete quest: @error', ['@error' => $e->getMessage()]);
       return ['success' => FALSE, 'error' => $e->getMessage()];
     }
+  }
+
+  /**
+   * Apply quest rewards to the owning character exactly once on completion.
+   *
+   * @param array<string, mixed> $rewards
+   *   Normalized generated reward payload.
+   *
+   * @return array<string, int>
+   *   Reward amounts that were persisted.
+   */
+  protected function applyQuestRewards(int $campaign_id, ?int $character_id, array $rewards): array {
+    if ($campaign_id <= 0 || $character_id === NULL || $character_id <= 0) {
+      return [];
+    }
+
+    $xp = max(0, (int) ($rewards['xp'] ?? $rewards['experience_points'] ?? 0));
+    if ($xp <= 0) {
+      return [];
+    }
+
+    $updated = $this->database->update('dc_campaign_characters')
+      ->expression('experience_points', 'experience_points + :xp', [':xp' => $xp])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('character_id', $character_id)
+      ->condition('type', 'pc')
+      ->execute();
+
+    if ((int) $updated <= 0) {
+      $updated = $this->database->update('dc_campaign_characters')
+        ->expression('experience_points', 'experience_points + :xp', [':xp' => $xp])
+        ->condition('campaign_id', $campaign_id)
+        ->condition('id', $character_id)
+        ->condition('type', 'pc')
+        ->execute();
+    }
+
+    return (int) $updated > 0 ? ['xp' => $xp] : [];
   }
 
   /**
