@@ -173,6 +173,15 @@ export class GameShell {
     const hexCanvas = new HexCanvas(canvasContainer, this.bus, DEFAULT_CANVAS_CONFIG);
     hexCanvas.init();
 
+    // Update RenderSystem with real PIXI containers now that canvas is initialized
+    if (this.renderSystem && hexCanvas.objectContainer) {
+      this.renderSystem.containers = {
+        hex: hexCanvas.hexContainer,
+        object: hexCanvas.objectContainer,
+        ui: hexCanvas.uiContainer,
+      };
+    }
+
     const tokens = new HexTokenRenderer(hexCanvas, this.bus);
     tokens.init();
 
