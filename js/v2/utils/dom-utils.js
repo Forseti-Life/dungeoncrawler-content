@@ -1,84 +1,52 @@
 /**
  * @file utils/dom-utils.js
  *
- * Shared DOM manipulation helpers for panels.
- *
- * All functions are pure or have minimal side effects (only operate on
- * the element passed in). No framework dependencies.
+ * Shared DOM/tooltip helpers ported verbatim from hexmap.js.
+ * Note: escapeTooltipAttr delegates to quest-utils escapeQuestHtml.
  */
 
-/**
- * Remove all child nodes from an element.
- * @param {HTMLElement} el
- */
-export function clearChildren(el) {
-  if (!el) return;
-  while (el.firstChild) el.removeChild(el.firstChild);
+import { escapeQuestHtml } from './quest-utils.js';
+
+export function escapeTooltipAttr(value) {
+  return escapeQuestHtml(value);
 }
 
-/**
- * Create a DOM element with optional attributes and text content.
- * @param {string} tag
- * @param {Record<string, string>} [attrs]
- * @param {string} [text]
- * @returns {HTMLElement}
- */
-export function createElement(tag, attrs = {}, text = '') {
-  const el = document.createElement(tag);
-  Object.entries(attrs).forEach(([k, v]) => {
-    if (k === 'className') {
-      el.className = v;
-    } else if (k === 'dataset') {
-      Object.entries(v).forEach(([dk, dv]) => { el.dataset[dk] = dv; });
-    } else {
-      el.setAttribute(k, v);
-    }
-  });
-  if (text) el.textContent = text;
-  return el;
+export function slugifyTooltipKey(value) {
+  return String(value ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
 }
 
-/**
- * Toggle element visibility (via hidden attribute).
- * @param {HTMLElement|null} el
- * @param {boolean} visible
- */
-export function setVisible(el, visible) {
-  if (el) el.hidden = !visible;
+export function uniqueTooltipStrings(values) {
+  return Array.from(new Set((Array.isArray(values) ? values : [])
+    .map(value => String(value ?? '').trim())
+    .filter(Boolean)));
 }
 
-/**
- * Scroll a container to its bottom (latest content).
- * @param {HTMLElement|null} el
- */
-export function scrollToBottom(el) {
-  if (el) el.scrollTop = el.scrollHeight;
+export function flattenTooltipBuckets(value) {
+  if (Array.isArray(value)) {
+    return value;
+  }
+  if (!value || typeof value !== 'object') {
+    return [];
+  }
+  return Object.values(value).flatMap(entry => Array.isArray(entry) ? entry : []);
 }
 
-/**
- * Debounce a function — delays execution until after `ms` ms of silence.
- * @param {Function} fn
- * @param {number} ms
- * @returns {Function}
- */
-export function debounce(fn, ms) {
-  let timer = null;
-  return function (...args) {
-    clearTimeout(timer);
-    timer = setTimeout(() => { timer = null; fn.apply(this, args); }, ms);
-  };
+export function tooltipSourceMatches(candidate, sourceId) {
+  if (!candidate || !sourceId) {
+    return false;
+  }
+  return candidate === sourceId || candidate.indexOf(`${sourceId}-`) === 0;
 }
 
-/**
- * HTML-escape a string for safe injection into innerHTML.
- * @param {string|*} str
- * @returns {string}
- */
-export function esc(str) {
-  return String(str ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+export function formatTooltipActionCost(actionCost) {
+  if (actionCost == null || actionCost === '') {
+    return '';
+  }
+  if (typeof actionCost === 'number') {
+    return `${actionCost} action${actionCost === 1 ? '' : 's'}`;
+  }
+  return String(actionCost).replace(/_/g, ' ');
 }
-

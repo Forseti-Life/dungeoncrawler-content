@@ -650,4 +650,254 @@ function _buildRoomConnections(roomId, mapVisualState) {
   });
 
   return result;
+  // --- ported from hexmap.js ---
+  updateFullscreenViewportMetrics(container = null) {
+    const target = container || document.getElementById('hexmap-container');
+    if (!target) {
+      return null;
+    }
+
+    const viewportHeight = Math.max(
+      0,
+      Math.round(
+        window.visualViewport?.height
+        || window.innerHeight
+        || document.documentElement?.clientHeight
+        || 0,
+      ),
+    );
+    const tabs = target.querySelector('.game-shell__tabs');
+    const headerHeight = tabs
+      ? Math.max(0, Math.round(tabs.getBoundingClientRect().height))
+      : 0;
+    const bodyHeight = Math.max(0, viewportHeight - headerHeight - 16);
+
+    target.style.setProperty('--dc-fullscreen-height', `${viewportHeight}px`);
+    target.style.setProperty('--dc-fullscreen-header-height', `${headerHeight}px`);
+    target.style.setProperty('--dc-fullscreen-body-height', `${bodyHeight}px`);
+    target.dataset.fullscreenCompact = viewportHeight <= 820 ? 'true' : 'false';
+
+    return {
+      viewportHeight,
+      headerHeight,
+      bodyHeight,
+    };
+  }
+
+  // --- ported from hexmap.js ---
+  clearFullscreenViewportMetrics(container = null) {
+    const target = container || document.getElementById('hexmap-container');
+    if (!target) {
+      return;
+    }
+
+    target.style.removeProperty('--dc-fullscreen-height');
+    target.style.removeProperty('--dc-fullscreen-header-height');
+    target.style.removeProperty('--dc-fullscreen-body-height');
+    delete target.dataset.fullscreenCompact;
+  }
+
+  // --- ported from hexmap.js ---
+  setupFullscreenToggle() {
+    const btn = document.getElementById('fullscreen-toggle');
+    if (!btn || btn.dataset.bound === 'true') {
+      return;
+    }
+
+    const updateFullscreenButton = (button, isFullscreen) => {
+      const label = button.querySelector('[data-fullscreen-label]');
+      const icon = button.querySelector('[data-fullscreen-icon]');
+      if (label) {
+        label.textContent = isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen';
+      }
+      if (icon) {
+        icon.textContent = isFullscreen ? '⛌' : '⛶';
+      }
+      button.setAttribute('title', isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen');
+      button.setAttribute('aria-pressed', isFullscreen ? 'true' : 'false');
+    };
+
+    const syncFullscreenMetrics = () => {
+      const container = document.getElementById('hexmap-container');
+      if (!container || !container.classList.contains('fullscreen')) {
+        return;
+      }
+      this.updateFullscreenViewportMetrics(container);
+    };
+
+    if (!window.__dcFullscreenMetricsBound) {
+      window.addEventListener('resize', syncFullscreenMetrics);
+      if (window.visualViewport) {
+        window.visualViewport.addEventListener('resize', syncFullscreenMetrics);
+        window.visualViewport.addEventListener('scroll', syncFullscreenMetrics);
+      }
+      window.__dcFullscreenMetricsBound = true;
+    }
+
+    btn.dataset.bound = 'true';
+    btn.addEventListener('click', () => {
+      const container = document.getElementById('hexmap-container');
+      if (!container) {
+        return;
+      }
+
+      const isFullscreen = document.fullscreenElement !== null;
+
+      if (isFullscreen) {
+        // Exit fullscreen
+        document.exitFullscreen().catch(() => {});
+        updateFullscreenButton(btn, false);
+        container.classList.remove('fullscreen');
+        this.clearFullscreenViewportMetrics(container);
+      } else {
+        // Enter fullscreen
+        this.updateFullscreenViewportMetrics(container);
+        container.requestFullscreen().catch(() => {});
+        updateFullscreenButton(btn, true);
+        container.classList.add('fullscreen');
+      }
+    });
+
+    // Listen for fullscreen change events (e.g., user presses Esc)
+    document.addEventListener('fullscreenchange', () => {
+      const btn = document.getElementById('fullscreen-toggle');
+      const isFullscreen = document.fullscreenElement !== null;
+      if (btn) {
+        updateFullscreenButton(btn, isFullscreen);
+        const container = document.getElementById('hexmap-container');
+        if (container) {
+          container.classList.toggle('fullscreen', isFullscreen);
+          if (isFullscreen) {
+            this.updateFullscreenViewportMetrics(container);
+          } else {
+            this.clearFullscreenViewportMetrics(container);
+          }
+        }
+      }
+    });
+
+    updateFullscreenButton(btn, document.fullscreenElement !== null);
+  }
+
+  // --- ported from hexmap.js ---
+  async refreshCharacterInventoryFromApi(context) {
+    if (!context?.characterId || typeof fetch !== 'function') {
+      return;
+    }
+
+    const params = new URLSearchParams();
+    if (context.campaignId) {
+      params.set('campaign_id', String(context.campaignId));
+    }
+    const requestUrl = `/api/inventory/character/${encodeURIComponent(context.characterId)}${params.toString() ? `?${params.toString()}` : ''}`;
+
+    try {
+      const response = await fetch(requestUrl, {
+        headers: {
+          'Accept': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+        credentials: 'same-origin',
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result?.success || !result?.inventory) {
+        throw new Error(result?.error || result?.message || 'Inventory refresh failed.');
+      }
+
+      const currentContext = this.currentCharacterInventoryContext;
+      if (!currentContext || String(currentContext.characterId || '') !== String(context.characterId || '') || Number(currentContext.campaignId || 0) !== Number(context.campaignId || 0)) {
+        return;
+      }
+
+      const nextInventory = normalizeInventoryState(result.inventory || {}, currentContext.currency || context.currency || {});
+      this.currentCharacterInventoryContext = {
+        ...currentContext,
+        inventory: nextInventory,
+        currency: nextInventory.currency || currentContext.currency || context.currency || {},
+      };
+      this.renderInventoryPanel(this.currentCharacterInventoryContext);
+      if (this.activeGameShellTab === 'merchant') {
+        this.loadMerchantPanel(true);
+      }
+    } catch (error) {
+      console.error('Character inventory refresh failed', error);
+    }
+  }
+
+  // --- ported from hexmap.js ---
+  prefetchConnectedRoomContext(limit = 2) {
+    const hexmap = this.stateManager?.hexmap;
+    const campaignId = hexmap?.resolveCampaignId?.() || null;
+    const currentRoomId = hexmap?.resolveActiveRoomId?.() || null;
+    const characterId = Number(hexmap?.characterData?.id || 0) || null;
+    const connections = typeof hexmap?.getVisualConnections === 'function'
+      ? hexmap.getVisualConnections()
+      : (Array.isArray(hexmap?.dungeonData?.connections) ? hexmap.dungeonData.connections : []);
+    if (!campaignId || !currentRoomId || !connections.length) {
+      return;
+    }
+
+    const nextRoomIds = [];
+    connections.forEach((connection) => {
+      if (connection?.is_passable === false) {
+        return;
+      }
+      const fromRoomId = typeof hexmap?.getConnectionRoomId === 'function'
+        ? hexmap.getConnectionRoomId(connection, 'from')
+        : connection?.from_room;
+      const toRoomId = typeof hexmap?.getConnectionRoomId === 'function'
+        ? hexmap.getConnectionRoomId(connection, 'to')
+        : connection?.to_room;
+      if (fromRoomId === currentRoomId && toRoomId) {
+        nextRoomIds.push(String(toRoomId));
+      } else if (toRoomId === currentRoomId && fromRoomId) {
+        nextRoomIds.push(String(fromRoomId));
+      }
+    });
+
+    Array.from(new Set(nextRoomIds)).filter(Boolean).slice(0, limit).forEach((roomId) => {
+      const context = { campaignId, roomId, characterId };
+      void this.fetchRoomChatHistoryForContext(context, { channelKey: 'room' }).catch((error) => {
+        console.debug(`Skipped connected-room chat warm for ${roomId}:`, error?.message || error);
+      });
+      void this.fetchRoomViewPayload(campaignId, roomId).catch((error) => {
+        console.debug(`Skipped connected-room view warm for ${roomId}:`, error?.message || error);
+      });
+    });
+  }
+
+  // --- ported from hexmap.js ---
+  prefetchSessionViews(views = ['narrative', 'party', 'gm-private', 'system-log']) {
+    views.forEach((view) => {
+      if (!view || view === this.activeSessionView || view === 'room') {
+        return;
+      }
+      void this.fetchSessionViewData(view).catch((error) => {
+        console.debug(`Skipped prefetch for ${view}:`, error?.message || error);
+      });
+    });
+  }
+
+  // --- ported from hexmap.js ---
+  reset() {
+    this.state = {
+      selectedEntity: null,
+      selectedHex: null,
+      hoveredHex: null,
+      movementRange: null,
+      movementRangeOverlay: null,
+      combatActive: false,
+      serverCombatMode: false,
+      attackTarget: null,
+      draggedObject: null,
+      assetsLoaded: false,
+      showCoordinates: false,
+      showGrid: true,
+      showFog: true,
+      fogOverlay: null,
+      visibleHexes: null
+    };
+  }
+
+
 }

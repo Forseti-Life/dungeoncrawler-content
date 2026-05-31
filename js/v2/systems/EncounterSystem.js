@@ -1,94 +1,23 @@
 /**
  * @file systems/EncounterSystem.js
  *
- * Bridges the ECS TurnManagementSystem + CombatSystem to the GameEventBus.
- *
- * Responsibilities:
- *   - Wire ECS turn/round/state callbacks → bus events
- *   - Expose startCombat / endCombat / endTurn for bus consumers
- *   - Forward attack and damage results onto the bus
- *
- * Fires bus events:
- *   combat:started           — encounter began
- *   combat:turn-changed      — { entity, turnIndex, totalTurns, initiativeOrder }
- *   combat:round-changed     — { roundNumber }
- *   combat:state-changed     — { state }  ('active'|'inactive'|'ended')
- *   combat:attack-performed  — { attacker, target, result }
- *   combat:damage-dealt      — { target, amount, remaining }
- *
- * Responds to bus events:
- *   user:combat-start  — begin encounter (startCombat)
- *   user:combat-end    — end encounter (endCombat)
- *   user:end-turn      — advance turn (endTurn)
- *   user:attack        — { attacker, target } perform attack
+ * Combat participant resolution, attack/spell/skill/interact execution.
+ * Methods ported verbatim from hexmap.js UIManager.
  */
 
 export class EncounterSystem {
-  /**
-   * @param {import('../GameShell').GameShell} shell
-   * @param {import('../GameEventBus').GameEventBus} bus
-   */
   constructor(shell, bus) {
     this.shell = shell;
     this.bus = bus;
+    this.stateManager = null;
+    this.dungeonData = null;
     this._unsubs = [];
   }
 
-  init() {
-    const { turnManagementSystem, combatSystem } = this.shell;
-
-    // --- Wire ECS turn management callbacks → bus ---
-
-    if (turnManagementSystem) {
-      turnManagementSystem.onTurnChange((entity, turnIndex, totalTurns) => {
-        const initiativeOrder = turnManagementSystem.getInitiativeOrder?.() ?? [];
-        this.bus.emit('combat:turn-changed', { entity, turnIndex, totalTurns, initiativeOrder });
-      });
-
-      turnManagementSystem.onRoundChange((roundNumber) => {
-        this.bus.emit('combat:round-changed', { roundNumber });
-      });
-
-      turnManagementSystem.onCombatStateChange((combatState) => {
-        const state = this._normalizeState(combatState);
-        this.bus.emit('combat:state-changed', { state });
-        if (state === 'active') {
-          this.bus.emit('combat:started');
-        }
-      });
-    }
-
-    // --- Wire ECS combat system callbacks → bus ---
-
-    if (combatSystem) {
-      combatSystem.onAttack?.((data) => {
-        this.bus.emit('combat:attack-performed', {
-          attacker: data.attacker,
-          target:   data.target,
-          result:   data.result,
-        });
-      });
-
-      combatSystem.onDamage?.((data) => {
-        const stats = data.target?.getComponent?.('StatsComponent');
-        this.bus.emit('combat:damage-dealt', {
-          target:    data.target,
-          amount:    data.damage ?? data.amount ?? 0,
-          remaining: stats?.currentHp ?? 0,
-        });
-      });
-    }
-
-    // --- Respond to player bus events ---
-
-    this._unsubs.push(
-      this.bus.on('user:combat-start', () => this.startCombat()),
-      this.bus.on('user:combat-end',   () => this.endCombat()),
-      this.bus.on('user:end-turn',     () => this.endTurn()),
-      this.bus.on('user:attack',       ({ attacker, target } = {}) => {
-        this._performAttack(attacker, target);
-      }),
-    );
+  init(dungeonData, stateManager) {
+    this.dungeonData = dungeonData || {};
+    this.stateManager = stateManager || {};
+    this._subscribe();
   }
 
   destroy() {
@@ -96,65 +25,397 @@ export class EncounterSystem {
     this._unsubs = [];
   }
 
-  // ---------------------------------------------------------------------------
-  // Public API (called via bus or GameShell)
-  // ---------------------------------------------------------------------------
+  _subscribe() {
+    this._unsubs.push(
+      this.bus.on('user:action-selected', (d) => {
+        const key = d?.actionKey;
+        if (key === 'attack')   this.executeDirectAttack(d?.button);
+        if (key === 'spell')    this.executeDirectSpell(d?.button);
+        if (key === 'interact') this.executeDirectInteract(d?.button);
+        if (key === 'skill')    this.executeDirectSkill(d?.button);
+      }),
+    );
+  }
 
-  /** Begin combat with entities currently in the room. */
-  startCombat() {
-    const { turnManagementSystem, entityManager } = this.shell;
-    if (!turnManagementSystem) return;
-
-    // Collect all combatants present in the room
-    const combatants = entityManager
-      ? entityManager.getAllEntities().filter((e) => e.getComponent?.('CombatComponent'))
+  buildActiveRoomNpcTurnOrder(roomId = null) {
+    const hexmap = this.stateManager?.hexmap;
+    const activeRoomId = roomId || hexmap?.resolveActiveRoomId?.() || null;
+    const entities = Array.isArray(hexmap?.dungeonData?.entities) ? hexmap.dungeonData.entities : [];
+    const initiativeOrder = Array.isArray(hexmap?.dungeonData?.game_state?.initiative_order)
+      ? hexmap.dungeonData.game_state.initiative_order
       : [];
+    const roomNpcs = entities.filter((entity) => (
+      (entity?.placement?.room_id || null) === activeRoomId
+      && String(entity?.entity_type || '').toLowerCase() === 'npc'
+    ));
+    const candidateMaps = new Map();
+    const normalizeName = (value) => String(value || '').trim().toLowerCase();
+    roomNpcs.forEach((entity) => {
+      const metadata = entity?.state?.metadata || {};
+      const displayName = String(metadata.display_name || metadata.name || entity?.display_name || entity?.name || '').trim();
+      const keys = [
+        entity?.instance_id,
+        entity?.entity_instance_id,
+        entity?.id,
+        entity?.entity_id,
+        entity?.entity_ref?.content_id,
+        entity?.entity_ref?.id,
+        metadata.entity_ref,
+        metadata.entity_id,
+        displayName,
+      ];
+      keys.forEach((key) => {
+        const normalizedKey = normalizeName(key);
+        if (normalizedKey && !candidateMaps.has(normalizedKey)) {
+          candidateMaps.set(normalizedKey, entity);
+        }
+      });
+    });
 
-    turnManagementSystem.startCombat(combatants);
+    const orderedTurns = [];
+    const seenNames = new Set();
+    initiativeOrder.forEach((participant) => {
+      if (!participant || typeof participant !== 'object') {
+        return;
+      }
+      const participantRoomId = String(participant.room_id || participant?.placement?.room_id || '').trim();
+      if (activeRoomId && participantRoomId && participantRoomId !== activeRoomId) {
+        return;
+      }
+      const matchedEntity = [
+        participant.entity_ref,
+        participant.entity_id,
+        participant.participant_ref,
+        participant.name,
+      ].map(normalizeName).filter(Boolean).map((key) => candidateMaps.get(key)).find(Boolean) || null;
+      if (!matchedEntity) {
+        return;
+      }
+      const metadata = matchedEntity?.state?.metadata || {};
+      const displayName = String(metadata.display_name || metadata.name || matchedEntity?.display_name || matchedEntity?.name || '').trim();
+      const normalizedDisplayName = normalizeName(displayName);
+      if (!displayName || seenNames.has(normalizedDisplayName)) {
+        return;
+      }
+      seenNames.add(normalizedDisplayName);
+      orderedTurns.push({
+        role: 'npc',
+        name: displayName,
+        initiative: Number.isFinite(Number(participant?.initiative_total))
+          ? Number(participant.initiative_total)
+          : null,
+      });
+    });
+
+    roomNpcs.forEach((entity) => {
+      const metadata = entity?.state?.metadata || {};
+      const displayName = String(metadata.display_name || metadata.name || entity?.display_name || entity?.name || '').trim();
+      const normalizedDisplayName = normalizeName(displayName);
+      if (!displayName || seenNames.has(normalizedDisplayName)) {
+        return;
+      }
+      seenNames.add(normalizedDisplayName);
+      orderedTurns.push({
+        role: 'npc',
+        name: displayName,
+        initiative: null,
+      });
+    });
+
+    return orderedTurns;
   }
 
-  /** End combat and reset turn state. */
-  endCombat() {
-    this.shell.turnManagementSystem?.endCombat?.();
+  describeCombatantTeam(entity) {
+    const combat = entity?.getComponent?.('CombatComponent');
+    const rawTeam = String(combat?.team || '').trim();
+    if (!rawTeam) {
+      return '';
+    }
+    return rawTeam.charAt(0).toUpperCase() + rawTeam.slice(1);
   }
 
-  /** Advance to the next turn. */
-  endTurn() {
-    this.shell.turnManagementSystem?.endTurn?.();
-  }
-
-  // ---------------------------------------------------------------------------
-  // Private
-  // ---------------------------------------------------------------------------
-
-  /**
-   * Resolve and execute an attack through the ECS CombatSystem.
-   * @param {object} attacker - ECS Entity
-   * @param {object} target   - ECS Entity
-   * @private
-   */
-  _performAttack(attacker, target) {
-    const { combatSystem } = this.shell;
-    if (!combatSystem || !attacker || !target) return;
-    const check = combatSystem.canAttack?.(attacker, target);
-    if (check && !check.canAttack) {
-      this.bus.emit('combat:action-denied', { reason: check.reason });
+  async executeDirectAttack(button) {
+    if (!this.beginActionRailRequest(button)) {
       return;
     }
-    combatSystem.makeAttack?.(attacker, target);
+
+    try {
+      const context = this.getActionRailContext();
+      const hexmap = context.hexmap;
+      const targetId = Number(button.dataset.targetId || 0);
+      const weaponId = String(button.dataset.weaponId || '').trim();
+      const weaponName = button.dataset.weaponName || 'weapon';
+
+      if (!hexmap || !context.actor || !targetId) {
+        this.appendChatLine('System', 'Attack options require an active character and target.', 'system');
+        return;
+      }
+
+      let target = hexmap.entityManager?.getEntity?.(targetId) || null;
+      if (!target) {
+        this.appendChatLine('System', 'That target is no longer available.', 'system');
+        return;
+      }
+
+      if (!context.encounterActive) {
+        const combatState = await hexmap.startCombat?.();
+        if (!combatState || !hexmap.stateManager?.get?.('encounterId')) {
+          this.appendChatLine('System', 'Unable to start combat for that attack.', 'system');
+          return;
+        }
+
+        target = hexmap.entityManager?.getEntity?.(targetId) || target;
+        const currentTurnEntity = hexmap.turnManagementSystem?.getCurrentTurnEntity?.() || null;
+        if (!currentTurnEntity || currentTurnEntity.id !== context.actor.id) {
+          const actingName = currentTurnEntity?.getComponent?.('IdentityComponent')?.name || 'another combatant';
+          this.appendChatLine('System', `Combat begins and initiative is rolled. It is ${actingName}'s turn.`, 'system');
+          this.refreshActionRail();
+          return;
+        }
+      }
+
+      await hexmap.performAttack?.(context.actor, target, {
+        weaponId,
+        weaponName,
+      });
+      this.refreshActionRail();
+    } finally {
+      this.endActionRailRequest(button);
+    }
   }
 
-  /**
-   * Normalize ECS CombatState strings to the canonical bus values.
-   * @param {string} ecsState
-   * @returns {'active'|'inactive'|'ended'}
-   * @private
-   */
-  _normalizeState(ecsState) {
-    const s = String(ecsState ?? '').toLowerCase();
-    if (s === 'inactive')   return 'inactive';
-    if (s === 'ended')      return 'ended';
-    // IN_PROGRESS / ROLLING_INITIATIVE → 'active'
-    return 'active';
+  async executeDirectInteract(button) {
+    if (!this.beginActionRailRequest(button)) {
+      return;
+    }
+
+    try {
+      const context = this.getActionRailContext();
+      const hexmap = context.hexmap;
+      const actor = context.actor;
+      if (!hexmap || !actor) {
+        return;
+      }
+
+      const targetQ = Number(button.dataset.targetQ);
+      const targetR = Number(button.dataset.targetR);
+      const hasTargetHex = Number.isFinite(targetQ) && Number.isFinite(targetR);
+      const targetEntityId = button.dataset.targetEntityId || '';
+      const targetName = button.dataset.targetName || 'target';
+      let targetEntity = null;
+      if (targetEntityId && hexmap.entityManager?.getEntitiesWith) {
+        const candidates = hexmap.entityManager.getEntitiesWith('PositionComponent', 'IdentityComponent');
+        targetEntity = candidates.find((entity) => {
+          const instanceId = String(entity?.dcEntityInstanceId || entity?.instanceId || '');
+          return String(entity?.id || '') === targetEntityId || instanceId === targetEntityId;
+        }) || null;
+      }
+      if (!targetEntity && hasTargetHex && hexmap.getLiveEntitiesAtHex) {
+        targetEntity = hexmap.getLiveEntitiesAtHex(targetQ, targetR)?.[0] || null;
+      }
+
+      if (targetEntity) {
+        hexmap.selectEntity?.(actor);
+        this.showEntityInfo(targetEntity);
+      }
+
+      if (!hasTargetHex) {
+        this.appendChatLine('System', `Inspect ${targetName} in the room view or on the map for more detail.`, 'system');
+        return;
+      }
+
+      hexmap.refreshSelectedHexContents?.(targetQ, targetR);
+
+      const actorPos = actor.getComponent?.('PositionComponent');
+      const distance = actorPos && hexmap.movementSystem?.hexDistance
+        ? hexmap.movementSystem.hexDistance(actorPos.q, actorPos.r, targetQ, targetR)
+        : null;
+
+      if (distance !== null && distance > 1) {
+        this.appendChatLine('System', `${targetName} is in hex (${targetQ}, ${targetR}). Move adjacent to use ${button.dataset.actionLabel || 'that interaction'}.`, 'system');
+        return;
+      }
+
+      const interacted = hexmap.performInteractAtHex(actor, targetQ, targetR, targetEntity || undefined);
+      if (!interacted) {
+        this.appendChatLine('System', `No direct interaction resolved for ${targetName}. Inspect it or move closer if needed.`, 'system');
+      }
+    } finally {
+      this.endActionRailRequest(button);
+    }
   }
+
+  async executeDirectSkill(button) {
+    if (!this.beginActionRailRequest(button)) {
+      return;
+    }
+
+    try {
+    const context = this.getActionRailContext();
+    const skillName = String(button.dataset.skillName || '').replace(/_/g, ' ');
+    const skillModifier = Number(button.dataset.skillModifier || 0);
+    const label = `${skillName}${Number.isFinite(skillModifier) ? ` (${skillModifier >= 0 ? '+' : ''}${skillModifier})` : ''}`;
+
+    if (context.encounterActive && context.actor && context.hexmap) {
+      const response = await context.hexmap.performCombatAction({
+        actorId: context.actor.id,
+        actionType: 'skill',
+        actionCost: 1,
+        skillName,
+        skillModifier,
+      });
+      if (response) {
+        this.appendChatLine('System', response.action_result?.summary || `${context.actorLabel} uses ${label}.`, 'system');
+      }
+      return;
+    }
+
+    const runtimeContext = context.runtimeContext || {};
+    const response = await fetch(`/api/character/${context.characterId}/actions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify({
+        actionType: 'skill',
+        actionName: skillName,
+        summary: `${context.actorLabel} uses ${label}.`,
+        source: 'action_rail',
+        payload: {
+          skillName,
+          skillModifier,
+        },
+        campaignId: runtimeContext.campaignId || null,
+        instanceId: runtimeContext.instanceId || null,
+      }),
+    });
+    const data = await response.json();
+    if (!response.ok || !data.success) {
+      this.appendChatLine('System', data.error || `Unable to use ${label}.`, 'system');
+      return;
+    }
+
+    this.appendChatLine('System', data.action?.summary || `${context.actorLabel} uses ${label}.`, 'system');
+    context.hexmap?.loadCharacterFromApi(context.characterId);
+    } finally {
+      this.endActionRailRequest(button);
+    }
+  }
+
+  async executeDirectSpell(button) {
+    if (!this.beginActionRailRequest(button)) {
+      return;
+    }
+
+    try {
+    const context = this.getActionRailContext();
+    const hexmap = context.hexmap;
+    if (!hexmap || !context.characterId) {
+      return;
+    }
+
+    const spellName = button.dataset.spellName || 'spell';
+    const payload = {
+      spellId: button.dataset.spellId || '',
+      spellName,
+      spellLevel: Number(button.dataset.spellLevel || 0),
+      isFocusSpell: button.dataset.isFocusSpell === '1',
+      actionCost: getActionRailCost(button.dataset.actionCost, 2),
+    };
+
+    if (context.encounterActive && context.actor) {
+      const response = await hexmap.performCombatAction({
+        actorId: context.actor.id,
+        actionType: 'cast_spell',
+        actionCost: payload.actionCost,
+        characterId: context.characterId,
+        spellId: payload.spellId,
+        spellName: payload.spellName,
+        spellLevel: payload.spellLevel,
+        isFocusSpell: payload.isFocusSpell,
+      });
+      if (response) {
+        this.appendChatLine('System', response.action_result?.summary || `${context.actorLabel} casts ${spellName}.`, 'system');
+        hexmap.loadCharacterFromApi(context.characterId);
+      }
+      return;
+    }
+
+    const runtimeContext = context.runtimeContext || {};
+    if (runtimeContext.campaignId && context.actorRef && hexmap) {
+      const response = await fetch(`/api/game/${runtimeContext.campaignId}/action`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          type: 'cast_spell',
+          actor: context.actorRef,
+          params: {
+            spell_id: payload.spellId,
+            spell_name: payload.spellName,
+            spell_level: payload.spellLevel,
+            cast_at_level: payload.spellLevel,
+            is_focus_spell: payload.isFocusSpell,
+            is_cantrip: payload.spellLevel === 0,
+            character_id: context.characterId,
+          },
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        this.appendChatLine('System', data.error || data.result?.error || `Unable to cast ${spellName}.`, 'system');
+        return;
+      }
+
+      this.appendChatLine('System', `${context.actorLabel} casts ${spellName}.`, 'system');
+      if (typeof data.narration === 'string' && data.narration.trim()) {
+        this.appendChatLine('Game Master', data.narration.trim(), 'gm');
+      }
+      hexmap.loadCharacterFromApi(context.characterId);
+      return;
+    }
+
+    const response = await fetch(`/api/character/${context.characterId}/cast-spell`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify({
+        spellId: payload.spellId,
+        level: payload.spellLevel,
+        isFocusSpell: payload.isFocusSpell,
+        campaignId: runtimeContext.campaignId || null,
+        instanceId: runtimeContext.instanceId || null,
+      }),
+    });
+    const data = await response.json();
+    if (!response.ok || !data.success) {
+      this.appendChatLine('System', data.error || `Unable to cast ${spellName}.`, 'system');
+      return;
+    }
+
+    this.appendChatLine('System', `${context.actorLabel} casts ${spellName}.`, 'system');
+    hexmap.loadCharacterFromApi(context.characterId);
+    } finally {
+      this.endActionRailRequest(button);
+    }
+  }
+
+  getActiveRoomNpcResponderNames(roomId = null) {
+    return this.buildActiveRoomNpcTurnOrder(roomId)
+      .map((turn) => String(turn?.name || '').trim())
+      .filter(Boolean)
+      .sort((left, right) => right.length - left.length);
+  }
+
 }

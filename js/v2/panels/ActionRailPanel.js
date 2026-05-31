@@ -1,509 +1,1120 @@
 /**
  * @file panels/ActionRailPanel.js
  *
- * Renders the 3-action economy rail for the active player's turn.
- *
- * Sub-panels rendered on demand (via [data-action-rail-category] buttons):
- *   attack      — weapon strike; lists hostile targets
- *   spells      — spell selection by rank, cast on target
- *   skills      — skill check actions
- *   interact    — object/door/NPC interactions
- *   navigate    — room connection navigation
- *   consumables — use consumable items
- *
- * Subscribes to bus events:
- *   combat:turn-changed      — rebuild rail for new active entity; { entity, initiativeOrder }
- *   combat:state-changed     — { state } show/hide rail
- *   entity:selected          — { entity } update context for selected entity
- *   room:changed             — { room, connections } refresh navigate panel
- *   room:entities-changed    — { entities } refresh attack target list
- *
- * Fires bus events:
- *   user:action-selected     — { actionKey, cost, context }
- *   user:attack              — { attacker, targetEntityId, weaponId }
- *   user:cast-spell          — { spellId, rank, targetEntityId }
- *   user:interact            — { targetEntityId, interactionType }
- *   user:navigate-to-room    — { roomId, connectionId }
- *
- * DOM selectors (all optional — graceful degradation):
- *   [data-action-rail="actor-name"]    Active entity label
- *   [data-action-rail="status"]        Actions/movement summary
- *   [data-action-rail="categories"]    Category button container (delegated clicks)
- *   [data-action-rail="panel-title"]   Active sub-panel title
- *   [data-action-rail="panel-body"]    Active sub-panel content
+ * 3-action economy UI — attack, spell, skill, interact, navigate, consumable sub-panels.
+ * Methods ported verbatim from hexmap.js UIManager.
  */
 
+import { getActionRailCost, formatActionRailCost, getActionRailRemainingActions } from '../utils/action-utils.js';
+import { normalizeSpellcastingData, collectSpellRankGroups } from '../utils/spell-utils.js';
+import { extractReadyWeapons, extractConsumableItems, collectCharacterSkillEntries, buildActionRailEntrySummary } from '../utils/inventory-utils.js';
+
 export class ActionRailPanel {
-  /**
-   * @param {HTMLElement} container
-   * @param {import('../GameEventBus').GameEventBus} bus
-   */
   constructor(container, bus) {
     this.container = container;
     this.bus = bus;
-
-    /** @type {object|null} Active ECS entity (player-team, current or selected) */
-    this._actor = null;
-    /** @type {Array} Room entities for target selection */
-    this._roomEntities = [];
-    /** @type {Array} Room connections for navigation */
-    this._connections = [];
-    /** @type {string|null} Active category tab */
-    this._activeCategory = null;
-    /** @type {string} Filter text for current sub-panel */
-    this._filterText = '';
-    /** @type {boolean} Whether combat is active */
-    this._combatActive = false;
-
-    this._el = {};
     this._unsubs = [];
+    this._el = {};
+    this.stateManager = null;
+    this.dungeonData = null;
+    this._actionRailRealtimeTimer = null;
   }
 
-  init() {
-    this._bindElements();
-    this._bindCategoryClicks();
-    this._bindPanelBodyClicks();
-
-    this._unsubs.push(
-      this.bus.on('combat:turn-changed', ({ entity } = {}) => {
-        if (entity) this._setActor(entity);
-        this._render();
-      }),
-      this.bus.on('combat:state-changed', ({ state } = {}) => {
-        this._combatActive = (state === 'active');
-        this._render();
-      }),
-      this.bus.on('entity:selected', ({ entity } = {}) => {
-        if (entity) this._setActorIfPlayer(entity);
-        this._renderActorHeader();
-        if (this._activeCategory) this._renderSubPanel();
-      }),
-      this.bus.on('room:changed', ({ connections } = {}) => {
-        this._connections = Array.isArray(connections) ? connections : [];
-        if (this._activeCategory === 'navigate') this._renderSubPanel();
-      }),
-      this.bus.on('room:entities-changed', ({ entities } = {}) => {
-        this._roomEntities = Array.isArray(entities) ? entities : [];
-        if (this._activeCategory === 'attack') this._renderSubPanel();
-      }),
-    );
-
-    this._render();
+  init(dungeonData, stateManager) {
+    this.dungeonData = dungeonData || {};
+    this.stateManager = stateManager || {};
+    const id = (k) => document.getElementById(k);
+    this._el = {
+      actionRail:               id('hexmap-action-rail'),
+      actionRailActorName:      id('action-rail-actor-name'),
+      actionRailStatus:         id('action-rail-status'),
+      actionRailAutomationToggle: id('action-rail-automate-toggle'),
+      actionRailAutomationMeta: id('action-rail-automation-meta'),
+      actionRailRealClock:      id('action-rail-real-clock'),
+      actionRailGameClock:      id('action-rail-game-clock'),
+      actionRailPanel:          id('action-rail-panel'),
+      actionRailPanelWrap:      id('action-rail-panel-wrap'),
+      actionRailSearch:         id('action-rail-search'),
+      actionRailList:           id('action-rail-list'),
+      actionRailActionBtns:     id('action-rail-action-btns'),
+      actionInstruction:        id('action-instruction'),
+      actionMenu:               id('action-menu'),
+      endTurnBtn:               id('end-turn'),
+    };
+    this._subscribe();
+    this.setupActionRail();
   }
 
   destroy() {
     this._unsubs.forEach((fn) => fn());
     this._unsubs = [];
+    if (this._actionRailRealtimeTimer) clearInterval(this._actionRailRealtimeTimer);
   }
 
-  // ---------------------------------------------------------------------------
-  // Private — DOM binding
-  // ---------------------------------------------------------------------------
-
-  _bindElements() {
-    const s = (attr) => this.container?.querySelector(`[data-action-rail="${attr}"]`) ?? null;
-    this._el = {
-      actorName:  s('actor-name'),
-      status:     s('status'),
-      categories: s('categories'),
-      panelTitle: s('panel-title'),
-      panelBody:  s('panel-body'),
-    };
+  _subscribe() {
+    this._unsubs.push(
+      this.bus.on('combat:turn-changed', (d) => {
+        this.refreshActionRail();
+        this.updateActionRailClocks(d);
+      }),
+      this.bus.on('game:init', () => this.refreshActionRail()),
+      this.bus.on('room:changed', () => this.refreshActionRail()),
+    );
   }
 
-  _bindCategoryClicks() {
-    const cats = this._el.categories;
-    if (!cats) return;
-    cats.addEventListener('click', (e) => {
-      const btn = e.target?.closest?.('[data-action-rail-category]');
-      if (!btn || btn.disabled) return;
-      const cat = btn.dataset.actionRailCategory;
-      this._activeCategory = (this._activeCategory === cat) ? null : cat;
-      this._filterText = '';
-      this._renderCategoryButtons();
-      this._renderSubPanel();
-    });
-  }
-
-  _bindPanelBodyClicks() {
-    const body = this._el.panelBody;
-    if (!body) return;
-    body.addEventListener('click', (e) => {
-      const btn = e.target?.closest?.('[data-rail-execute]');
-      if (!btn || btn.disabled) return;
-      this._handleExecute(btn);
-    });
-    body.addEventListener('input', (e) => {
-      if (e.target?.dataset?.railFilter) {
-        this._filterText = e.target.value ?? '';
-        this._applyFilter();
-      }
-    });
-  }
-
-  // ---------------------------------------------------------------------------
-  // Private — actor management
-  // ---------------------------------------------------------------------------
-
-  _setActor(entity) {
-    this._actor = entity;
-  }
-
-  _setActorIfPlayer(entity) {
-    const combat = entity?.getComponent?.('CombatComponent');
-    const isPlayer = combat?.isPlayerTeam?.() || combat?.team === 'player';
-    if (isPlayer) this._actor = entity;
-  }
-
-  // ---------------------------------------------------------------------------
-  // Private — rendering
-  // ---------------------------------------------------------------------------
-
-  _render() {
-    this._renderActorHeader();
-    this._renderCategoryButtons();
-    this._renderSubPanel();
-  }
-
-  _renderActorHeader() {
-    const actor = this._actor;
-    const identity = actor?.getComponent?.('IdentityComponent');
-    const actions  = actor?.getComponent?.('ActionsComponent');
-    const movement = actor?.getComponent?.('MovementComponent');
-
-    const name = identity?.name ?? (actor ? `Entity ${actor.id}` : 'No actor');
-    if (this._el.actorName) this._el.actorName.textContent = name;
-
-    if (this._el.status) {
-      const parts = [];
-      if (actions) parts.push(`${actions.actionsRemaining ?? '?'}/${actions.maxActions ?? '?'} actions`);
-      if (movement && Number.isFinite(movement.movementRemaining)) parts.push(`${movement.movementRemaining} ft move`);
-      this._el.status.textContent = parts.join(' • ') || (this._combatActive ? 'No actor loaded' : 'Exploration ready');
+  setupActionRail() {
+    const categories = this._el.actionRailCategories;
+    const panelBody = this._el.actionRailPanelBody;
+    const automationToggle = this._el.actionRailAutomationToggle;
+    this.updateActionRailClocks();
+    if (!this.actionRailRealClockTimer) {
+      this.actionRailRealClockTimer = window.setInterval(() => {
+        this.updateActionRailClocks();
+      }, 1000);
     }
-  }
-
-  _renderCategoryButtons() {
-    const cats = this._el.categories;
-    if (!cats) return;
-    cats.querySelectorAll('[data-action-rail-category]').forEach((btn) => {
-      const cat = btn.dataset.actionRailCategory;
-      btn.classList.toggle('action-rail__category--active', cat === this._activeCategory);
-      const canAct = this._canAct();
-      btn.disabled = !canAct && !['navigate', 'skills', 'interact'].includes(cat);
-      btn.setAttribute('aria-disabled', btn.disabled ? 'true' : 'false');
-    });
-  }
-
-  _renderSubPanel() {
-    const body = this._el.panelBody;
-    if (!body) return;
-
-    if (!this._activeCategory) {
-      this._setPanelTitle('Quick actions');
-      body.innerHTML = this._renderEmptyState();
+    if (!categories || categories.dataset.bound === 'true') {
+      this.refreshActionRail();
       return;
     }
 
-    const panel = this._buildPanel(this._activeCategory);
-    this._setPanelTitle(panel.title);
-    body.innerHTML = panel.html;
-    this._applyFilter();
-  }
-
-  _setPanelTitle(title) {
-    if (this._el.panelTitle) this._el.panelTitle.textContent = title;
-  }
-
-  _canAct() {
-    if (!this._actor) return false;
-    const actions = this._actor.getComponent?.('ActionsComponent');
-    return (actions?.actionsRemaining ?? 0) > 0;
-  }
-
-  // ---------------------------------------------------------------------------
-  // Private — sub-panel builders
-  // ---------------------------------------------------------------------------
-
-  _buildPanel(category) {
-    const builders = {
-      attack:      () => this._buildAttackPanel(),
-      spells:      () => this._buildSpellsPanel(),
-      skills:      () => this._buildSkillsPanel(),
-      interact:    () => this._buildInteractPanel(),
-      navigate:    () => this._buildNavigatePanel(),
-      consumables: () => this._buildConsumablesPanel(),
-    };
-    return builders[category]?.() ?? { title: category, html: this._renderEmptyState() };
-  }
-
-  _buildAttackPanel() {
-    const actor = this._actor;
-    if (!actor) {
-      return { title: 'Attack', html: '<div class="action-rail__empty"><p>No active actor.</p></div>' };
+    if (automationToggle && automationToggle.dataset.bound !== 'true') {
+      automationToggle.dataset.bound = 'true';
+      automationToggle.addEventListener('click', () => {
+        this.handleActionRailAutomationToggle();
+      });
     }
 
-    const hostile = this._roomEntities.filter((e) => {
-      if (e.id === actor.id) return false;
-      const combat = e.getComponent?.('CombatComponent');
-      const stats  = e.getComponent?.('StatsComponent');
-      const alive  = stats?.isAlive?.() ?? ((stats?.currentHp ?? 1) > 0);
-      return combat && alive && combat.team === 'enemy';
+    categories.dataset.bound = 'true';
+    categories.addEventListener('click', (event) => {
+      const button = event.target instanceof HTMLElement
+        ? event.target.closest('[data-action-rail-category], [data-action-rail-direct]')
+        : null;
+      if (!(button instanceof HTMLButtonElement) || button.disabled) {
+        return;
+      }
+
+      const directAction = button.dataset.actionRailDirect || '';
+      const category = button.dataset.actionRailCategory || '';
+      if (directAction) {
+        this.activeActionRailCategory = null;
+        this.handleActionRailDirectAction(directAction);
+        this.refreshActionRail();
+        return;
+      }
+
+      if (category) {
+        this.activeActionRailCategory = this.activeActionRailCategory === category ? null : category;
+        this.refreshActionRail();
+      }
     });
 
-    if (!hostile.length) {
+    if (panelBody) {
+      panelBody.addEventListener('click', (event) => {
+        const toggle = event.target instanceof HTMLElement
+          ? event.target.closest('[data-action-rail-toggle-descriptions]')
+          : null;
+        if (toggle instanceof HTMLButtonElement) {
+          this.actionRailDescriptionsCollapsed = !this.actionRailDescriptionsCollapsed;
+          this.syncActionRailPanelState();
+          return;
+        }
+        const button = event.target instanceof HTMLElement
+          ? event.target.closest('[data-action-rail-execute]')
+          : null;
+        if (!(button instanceof HTMLButtonElement) || button.disabled) {
+          return;
+        }
+        this.handleActionRailPanelAction(button);
+      });
+      panelBody.addEventListener('input', (event) => {
+        const input = event.target instanceof HTMLElement
+          ? event.target.closest('[data-action-rail-filter]')
+          : null;
+        if (!(input instanceof HTMLInputElement)) {
+          return;
+        }
+        const category = input.dataset.actionRailFilterCategory || this.activeActionRailCategory || '';
+        this.actionRailFilters[category] = input.value || '';
+        this.syncActionRailPanelState();
+      });
+    }
+
+    this.refreshActionRail();
+  }
+
+  refreshActionRail() {
+    const categories = this._el.actionRailCategories;
+    const panelTitle = this._el.actionRailPanelTitle;
+    const panelChip = this._el.actionRailPanelChip;
+    const panelBody = this._el.actionRailPanelBody;
+    const actorName = this._el.actionRailActorName;
+    const status = this._el.actionRailStatus;
+    const automationToggle = this._el.actionRailAutomationToggle;
+    const automationMeta = this._el.actionRailAutomationMeta;
+    const hexmap = this.stateManager?.hexmap || null;
+
+    if (!categories || !panelBody || !actorName || !status) {
+      return;
+    }
+
+    const context = this.getActionRailContext();
+    const maybeWakeAutomation = () => {
+      if (context.automationState?.active) {
+        hexmap?.queuePlayerAutomationStep?.('action-rail-refresh');
+      }
+    };
+    actorName.textContent = context.actorLabel;
+    status.textContent = context.statusLabel;
+    if (automationToggle) {
+      const automationActive = Boolean(context.automationState?.active);
+      const automationBusy = Boolean(context.automationState?.inflight || this.actionRailAutomationTogglePending);
+      const canToggle = automationActive || context.canAutomate;
+      const toggleDisabled = !canToggle || (!automationActive && automationBusy);
+      automationToggle.disabled = toggleDisabled;
+      automationToggle.setAttribute('aria-disabled', toggleDisabled ? 'true' : 'false');
+      automationToggle.setAttribute('aria-pressed', automationActive ? 'true' : 'false');
+      automationToggle.textContent = automationActive ? 'Stop automation' : (automationBusy ? 'Thinking…' : 'Suggest next move');
+      automationToggle.classList.toggle('action-rail__automation-toggle--active', automationActive);
+    }
+    if (automationMeta) {
+      automationMeta.textContent = context.automationState?.statusLabel
+        || 'Draft and send the next in-character room chat line.';
+    }
+    this.updateActionRailClocks(context);
+
+    categories.querySelectorAll('[data-action-rail-category], [data-action-rail-direct]').forEach((button) => {
+      const nextButton = /** @type {HTMLButtonElement} */ (button);
+      const category = nextButton.dataset.actionRailCategory || '';
+      const directAction = nextButton.dataset.actionRailDirect || '';
+      const disabled = this.isActionRailButtonDisabled(category || directAction, context);
+      nextButton.disabled = disabled;
+      nextButton.setAttribute('aria-disabled', disabled ? 'true' : 'false');
+      nextButton.classList.toggle('action-rail__category--active', Boolean(category) && this.activeActionRailCategory === category);
+    });
+
+    if (!this.activeActionRailCategory) {
+      if (panelTitle) {
+        panelTitle.textContent = 'Quick actions';
+      }
+      if (panelChip) {
+        panelChip.textContent = context.encounterActive ? 'Encounter' : 'Direct';
+      }
+      panelBody.innerHTML = this.renderActionRailEmptyState(context);
+      maybeWakeAutomation();
+      return;
+    }
+
+    const panel = this.buildActionRailPanel(this.activeActionRailCategory, context);
+    if (panelTitle) {
+      panelTitle.textContent = panel.title;
+    }
+    if (panelChip) {
+      panelChip.textContent = panel.chip;
+    }
+    panelBody.innerHTML = panel.html;
+    if (context.automationState?.active) {
+      panelBody.querySelectorAll('[data-action-rail-execute]').forEach((entry) => {
+        if (entry instanceof HTMLButtonElement) {
+          entry.disabled = true;
+          entry.setAttribute('aria-disabled', 'true');
+        }
+      });
+    }
+    this.syncActionRailPanelState();
+    maybeWakeAutomation();
+  }
+
+  getActionRailContext() {
+    const hexmap = this.stateManager?.hexmap || null;
+    const selected = this.stateManager?.get?.('selectedEntity') || null;
+    const current = hexmap?.turnManagementSystem?.getCurrentTurnEntity?.() || null;
+    const encounterActive = Boolean(hexmap?.stateManager?.get?.('encounterId'));
+    const launchPlayer = hexmap?.findLaunchPlayerEntity?.() || null;
+    const actor = encounterActive
+      ? (selected || current || launchPlayer || null)
+      : (launchPlayer || selected || current || null);
+    const state = hexmap?.launchCharacter || hexmap?.characterData || {};
+    const basicInfo = state?.basicInfo || {};
+    const actorName = basicInfo.name || state?.name || actor?.getComponent?.('IdentityComponent')?.name || 'No actor selected';
+    const runtimeContext = hexmap?.resolveLaunchCharacterRuntimeContext?.() || {};
+    const automationProfile = hexmap?.buildPlayerAutomationProfile?.() || {};
+    const phaseSnapshot = hexmap?.gameCoordinator?.phaseManager?.getSnapshot?.() || {};
+    const automationState = hexmap?.getPlayerAutomationState?.() || {};
+    const actions = actor?.getComponent?.('ActionsComponent') || null;
+    const movement = actor?.getComponent?.('MovementComponent') || null;
+    const actionText = actions ? `${actions.actionsRemaining}/${actions.maxActions ?? actions.actionsRemaining} actions` : null;
+    const movementText = movement && Number.isFinite(movement.movementRemaining)
+      ? `${movement.movementRemaining} ft move`
+      : null;
+    const currentTurnLabel = current?.getComponent?.('IdentityComponent')?.name || actorName;
+    const isActorTurn = !encounterActive || !current || !actor || current.id === actor.id;
+    const actorRef = actor?.dcEntityRef || actor?.dcEntityInstanceId || runtimeContext?.instanceId || null;
+    const characterId = Number(state?.characterId || state?.id || 0) || 0;
+    const baseStatus = buildActionRailEntrySummary([
+      encounterActive ? 'Encounter active' : 'Exploration ready',
+      encounterActive ? (isActorTurn ? 'Active turn' : `${currentTurnLabel}'s turn`) : '',
+      actionText,
+      movementText,
+    ]) || 'Select your character to unlock direct actions.';
+
+    return {
+      hexmap,
+      state,
+      actor,
+      actorRef,
+      actorLabel: actorName,
+      characterId,
+      runtimeContext,
+      phaseSnapshot,
+      campaignClock: phaseSnapshot?.campaignClock || null,
+      timedActivities: Array.isArray(phaseSnapshot?.timedActivities) ? phaseSnapshot.timedActivities : [],
+      encounterActive,
+      isActorTurn,
+      automationState,
+      canAutomate: Boolean(
+        runtimeContext?.campaignId
+        && Number(automationProfile?.character_id || 0) > 0
+        && String(runtimeContext?.roomId || hexmap?.resolveActiveRoomId?.() || '').trim() !== ''
+      ),
+      actions,
+      movement,
+      statusLabel: buildActionRailEntrySummary([
+        baseStatus,
+        automationState?.inflight ? 'Running next autonomous step' : '',
+        automationState?.lastError ? 'Automation failed' : '',
+      ]) || baseStatus,
+    };
+  }
+
+  updateActionRailClocks(context = null) {
+    const realClock = this._el.actionRailRealClock;
+    const realClockMeta = this._el.actionRailRealClockMeta;
+    const campaignClock = this._el.actionRailCampaignClock;
+    const campaignClockMeta = this._el.actionRailCampaignClockMeta;
+
+    if (realClock || realClockMeta) {
+      const realWorld = this.formatRealWorldClock();
+      if (realClock) {
+        realClock.textContent = realWorld.value;
+      }
+      if (realClockMeta) {
+        realClockMeta.textContent = realWorld.meta;
+      }
+    }
+
+    if (campaignClock || campaignClockMeta) {
+      const resolvedContext = context || this.getActionRailContext();
+      const campaign = this.formatCampaignClock(resolvedContext?.campaignClock || null);
+      if (campaignClock) {
+        campaignClock.textContent = campaign.value;
+      }
+      if (campaignClockMeta) {
+        const activeCount = Array.isArray(resolvedContext?.timedActivities)
+          ? resolvedContext.timedActivities.filter((activity) => activity?.status === 'active').length
+          : 0;
+        campaignClockMeta.textContent = activeCount > 0
+          ? `${campaign.meta} • ${activeCount} active timed activit${activeCount === 1 ? 'y' : 'ies'}`
+          : campaign.meta;
+      }
+    }
+  }
+
+  isActionRailButtonDisabled(actionKey, context) {
+    if (context.automationState?.active) {
+      return true;
+    }
+
+    if (!context.characterId) {
+      return true;
+    }
+
+    if (actionKey === 'end-turn') {
+      return !context.encounterActive;
+    }
+
+    if (actionKey === 'attack' || actionKey === 'interact') {
+      return !context.actor;
+    }
+
+    return false;
+  }
+
+  isActionRailExecutionDisabled(actionCost, context, disabled = false) {
+    if (disabled) {
+      return true;
+    }
+
+    if (!context?.encounterActive) {
+      return false;
+    }
+
+    if (context.isActorTurn === false) {
+      return true;
+    }
+
+    const remainingActions = getActionRailRemainingActions(context);
+    if (remainingActions === null) {
+      return false;
+    }
+
+    return getActionRailCost(actionCost, 1) > remainingActions;
+  }
+
+  async handleActionRailAutomationToggle() {
+    if (this.actionRailAutomationTogglePending) {
+      return;
+    }
+
+    const hexmap = this.stateManager?.hexmap || null;
+    if (!hexmap) {
+      return;
+    }
+
+    const automationState = hexmap.getPlayerAutomationState?.() || {};
+    if (automationState.active) {
+      hexmap.stopPlayerAutomation?.('manual');
+      this.refreshActionRail();
+      return;
+    }
+
+    this.actionRailAutomationTogglePending = true;
+    this.refreshActionRail();
+    try {
+      await hexmap.startPlayerAutomation?.();
+    } finally {
+      this.actionRailAutomationTogglePending = false;
+      this.refreshActionRail();
+    }
+  }
+
+  renderActionRailEmptyState(context) {
+    if (!context.characterId) {
+      return `<div class="action-rail__empty"><p>Select or load a character to enable direct action buttons.</p></div>`;
+    }
+
+    return `<div class="action-rail__empty"><p>Choose Attack, Navigate, Interact, Spells, Consumables, Skills, or Feats to open direct action buttons for ${escapeQuestHtml(context.actorLabel)}.</p></div>`;
+  }
+
+  buildActionRailPanel(category, context) {
+    const builders = {
+      attack: () => this.buildAttackActionRailPanel(context),
+      navigate: () => this.buildNavigateActionRailPanel(context),
+      interact: () => this.buildInteractActionRailPanel(context),
+      spells: () => this.buildSpellActionRailPanel(context),
+      consumables: () => this.buildConsumableActionRailPanel(context),
+      skills: () => this.buildSkillActionRailPanel(context),
+      feats: () => this.buildFeatActionRailPanel(context),
+    };
+    const builder = builders[category];
+    if (!builder) {
       return {
-        title: 'Attack',
-        html: '<div class="action-rail__empty"><p>No hostile targets in range.</p></div>',
+        title: 'Quick actions',
+        chip: 'Direct',
+        html: this.renderActionRailEmptyState(context),
+      };
+    }
+    return builder();
+  }
+
+  syncActionRailPanelState() {
+    const panelBody = this._el.actionRailPanelBody;
+    if (!panelBody || !this.activeActionRailCategory) {
+      return;
+    }
+    const category = this.activeActionRailCategory;
+    const entries = Array.from(panelBody.querySelectorAll('.action-rail__entry'));
+    const groups = Array.from(panelBody.querySelectorAll('.action-rail__group'));
+    const standaloneEntries = entries.filter((entry) => !entry.closest('.action-rail__group'));
+    const activeFilter = this.normalizeActionRailSearchText(this.actionRailFilters[category] || '');
+    let toolbar = panelBody.querySelector('[data-action-rail-toolbar]');
+    if (!(toolbar instanceof HTMLElement)) {
+      toolbar = document.createElement('div');
+      toolbar.dataset.actionRailToolbar = 'true';
+      toolbar.className = 'action-rail__toolbar';
+      toolbar.innerHTML = `
+        <label class="action-rail__filter">
+          <span class="action-rail__filter-label">Filter options</span>
+          <input
+            type="search"
+            class="action-rail__filter-input"
+            data-action-rail-filter="true"
+            data-action-rail-filter-category="${escapeTooltipAttr(category)}"
+            placeholder="Filter actions, targets, or locations"
+            autocomplete="off"
+          />
+        </label>
+        <button
+          type="button"
+          class="action-rail__toggle-descriptions"
+          data-action-rail-toggle-descriptions="true"
+          aria-pressed="false"
+        >Hide descriptions</button>
+      `;
+      panelBody.prepend(toolbar);
+    }
+
+    const filterInput = toolbar.querySelector('[data-action-rail-filter]');
+    if (filterInput instanceof HTMLInputElement && filterInput.value !== (this.actionRailFilters[category] || '')) {
+      filterInput.value = this.actionRailFilters[category] || '';
+    }
+
+    const toggleButton = toolbar.querySelector('[data-action-rail-toggle-descriptions]');
+    if (toggleButton instanceof HTMLButtonElement) {
+      toggleButton.setAttribute('aria-pressed', this.actionRailDescriptionsCollapsed ? 'true' : 'false');
+      toggleButton.textContent = this.actionRailDescriptionsCollapsed ? 'Show descriptions' : 'Hide descriptions';
+    }
+
+    panelBody.classList.toggle('action-rail__panel-body--descriptions-collapsed', this.actionRailDescriptionsCollapsed);
+
+    let visibleEntries = 0;
+    groups.forEach((group) => {
+      const label = this.normalizeActionRailSearchText(group.querySelector('.action-rail__group-label')?.textContent || '');
+      let groupVisibleEntries = 0;
+      group.querySelectorAll('.action-rail__entry').forEach((entry) => {
+        if (!(entry instanceof HTMLElement)) {
+          return;
+        }
+        const haystack = entry.dataset.actionRailSearch || this.normalizeActionRailSearchText(entry.textContent || '');
+        const matches = !activeFilter || haystack.includes(activeFilter) || label.includes(activeFilter);
+        entry.hidden = !matches;
+        if (matches) {
+          groupVisibleEntries += 1;
+          visibleEntries += 1;
+        }
+      });
+      group.hidden = groupVisibleEntries === 0;
+    });
+
+    standaloneEntries.forEach((entry) => {
+      if (!(entry instanceof HTMLElement)) {
+        return;
+      }
+      const haystack = entry.dataset.actionRailSearch || this.normalizeActionRailSearchText(entry.textContent || '');
+      const matches = !activeFilter || haystack.includes(activeFilter);
+      entry.hidden = !matches;
+      if (matches) {
+        visibleEntries += 1;
+      }
+    });
+
+    let emptyState = panelBody.querySelector('[data-action-rail-filter-empty]');
+    if (!(emptyState instanceof HTMLElement)) {
+      emptyState = document.createElement('div');
+      emptyState.dataset.actionRailFilterEmpty = 'true';
+      emptyState.className = 'action-rail__empty action-rail__empty--filtered';
+      emptyState.innerHTML = '<p>No actions match the current filter.</p>';
+      panelBody.append(emptyState);
+    }
+    emptyState.hidden = !(activeFilter && entries.length > 0 && visibleEntries === 0);
+  }
+
+  normalizeActionRailSearchText(value = '') {
+    return String(value)
+      .toLowerCase()
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  buildAttackActionRailPanel(context) {
+    const weapons = extractReadyWeapons(context.state?.inventory || {}, context.state?.equipment || []);
+    const availableTargets = this.collectAttackTargets(context);
+
+    if (!weapons.length) {
+      return {
+        title: 'Attack options',
+        chip: 'No weapons',
+        html: `<div class="action-rail__empty"><p>No ready weapons are available for ${escapeQuestHtml(context.actorLabel)}.</p></div>`,
       };
     }
 
-    const html = hostile.map((target) => {
-      const id  = target?.getComponent?.('IdentityComponent');
-      const st  = target?.getComponent?.('StatsComponent');
-      const pct = st && st.maxHp ? Math.round((st.currentHp / st.maxHp) * 100) : 0;
-      const name = id?.name ?? `Entity ${target.id}`;
-      return this._renderEntry({
-        execute: 'attack', title: name,
-        summary: `Strike • 1 action • HP ${pct}%`,
-        dataset: { targetEntityId: String(target.id) },
-        disabled: !this._canAct(),
-        actionLabel: 'Strike',
-      });
-    }).join('');
-
-    return { title: `Attack (${hostile.length} target${hostile.length > 1 ? 's' : ''})`, html };
-  }
-
-  _buildSpellsPanel() {
-    const actor = this._actor;
-    const state = actor?.dcStatePayload?.state ?? actor?.dcStatePayload ?? {};
-    const spells = state?.spells ?? state?.known_spells ?? [];
-
-    if (!Array.isArray(spells) || !spells.length) {
-      return { title: 'Spells', html: '<div class="action-rail__empty"><p>No spells available.</p></div>' };
+    if (!context.actor) {
+      return {
+        title: 'Attack options',
+        chip: 'No attacker',
+        html: `<div class="action-rail__empty"><p>Select or load a character to enable attacks.</p></div>`,
+      };
     }
 
-    const html = spells.slice(0, 20).map((spell) => {
-      const name  = spell?.name ?? spell?.spell_name ?? 'Unknown spell';
-      const rank  = spell?.rank ?? spell?.level ?? 1;
-      const cost  = spell?.action_cost ?? 2;
-      return this._renderEntry({
-        execute: 'cast-spell', title: name,
-        summary: `Rank ${rank} • ${cost} action${cost !== 1 ? 's' : ''}`,
-        dataset: { spellId: String(spell?.id ?? spell?.spell_id ?? ''), rank: String(rank) },
-        disabled: (this._actor?.getComponent?.('ActionsComponent')?.actionsRemaining ?? 0) < cost,
-        actionLabel: 'Cast',
-      });
+    if (!availableTargets.length) {
+      return {
+        title: 'Attack options',
+        chip: 'No targets',
+        html: `<div class="action-rail__empty"><p>${context.encounterActive ? 'No hostile targets are currently available for attack.' : 'No other room occupants are currently available to target.'}</p></div>`,
+      };
+    }
+
+    const sections = weapons.map((weapon) => {
+      const entries = availableTargets.map(({ target, distance, teamLabel = '' }) => {
+        const targetName = target?.getComponent?.('IdentityComponent')?.name || 'Target';
+        const summaryParts = [
+          weapon.sourceLabel,
+          weapon.damage || '',
+          teamLabel,
+          Number.isFinite(distance) ? `${distance} hex` : '',
+          context.encounterActive ? formatActionRailCost(1) : 'Starts combat',
+        ];
+        return this.renderActionRailEntry({
+          execute: 'attack',
+          title: targetName,
+          summary: buildActionRailEntrySummary(summaryParts),
+          meta: buildActionRailEntrySummary([
+            weapon.traits || '',
+            weapon.description || '',
+          ]),
+          disabled: this.isActionRailExecutionDisabled(1, context),
+          dataset: {
+            targetId: String(target?.id || ''),
+            targetName,
+            weaponId: String(weapon.id || ''),
+            weaponName: weapon.name,
+          },
+          actionLabel: context.encounterActive ? 'Strike target' : 'Start combat',
+        });
+      }).join('');
+
+      return `<section class="action-rail__group"><p class="action-rail__group-label">${escapeQuestHtml(weapon.name || 'Weapon')}</p>${entries}</section>`;
     }).join('');
 
-    return { title: `Spells (${spells.length})`, html };
+    return {
+      title: 'Attack options',
+      chip: `${weapons.length} weapon${weapons.length === 1 ? '' : 's'} / ${availableTargets.length} target${availableTargets.length === 1 ? '' : 's'}`,
+      html: sections,
+    };
   }
 
-  _buildSkillsPanel() {
-    const SKILLS = [
-      { id: 'acrobatics',   label: 'Acrobatics',   desc: 'Balance, tumble, squeeze through tight spaces' },
-      { id: 'athletics',    label: 'Athletics',    desc: 'Climb, swim, jump, shove' },
-      { id: 'deception',    label: 'Deception',    desc: 'Lie, feint, impersonate' },
-      { id: 'diplomacy',    label: 'Diplomacy',    desc: 'Negotiate, perform, request' },
-      { id: 'intimidation', label: 'Intimidation', desc: 'Coerce, demoralise' },
-      { id: 'medicine',     label: 'Medicine',     desc: 'Administer first aid, treat wounds' },
-      { id: 'nature',       label: 'Nature',       desc: 'Command an animal, identify creatures' },
-      { id: 'perception',   label: 'Perception',   desc: 'Seek, sense motive' },
-      { id: 'stealth',      label: 'Stealth',      desc: 'Hide, sneak, conceal object' },
-      { id: 'thievery',     label: 'Thievery',     desc: 'Pick lock, disable device, steal' },
+  collectAttackTargets(context) {
+    const actor = context.actor;
+    const hexmap = context.hexmap;
+    if (!actor || !hexmap?.entityManager) {
+      return [];
+    }
+
+    if (context.encounterActive) {
+      const hostileTargets = Array.isArray(hexmap.getHostileTargets?.(actor))
+        ? hexmap.getHostileTargets(actor)
+        : [];
+      return hostileTargets.filter(({ target }) => {
+        const check = hexmap?.combatSystem?.canAttack?.(actor, target);
+        return check ? check.canAttack !== false : true;
+      }).map(({ target, distance }) => ({
+        target,
+        distance,
+        teamLabel: this.describeCombatantTeam(target),
+      }));
+    }
+
+    const actorPos = actor.getComponent?.('PositionComponent');
+    const candidates = hexmap.entityManager.getEntitiesWith('CombatComponent', 'StatsComponent', 'PositionComponent', 'IdentityComponent') || [];
+    return candidates
+      .filter((candidate) => {
+        if (!candidate || candidate.id === actor.id) {
+          return false;
+        }
+        const identity = candidate.getComponent?.('IdentityComponent');
+        const stats = candidate.getComponent?.('StatsComponent');
+        const pos = candidate.getComponent?.('PositionComponent');
+        if (!identity?.isCreature?.() || !stats?.isAlive?.() || !pos || !actorPos) {
+          return false;
+        }
+        return hexmap.hasLineOfSight(actorPos.q, actorPos.r, pos.q, pos.r);
+      })
+      .map((target) => {
+        const pos = target.getComponent?.('PositionComponent');
+        const distance = actorPos && pos ? hexmap.movementSystem?.hexDistance?.(actorPos.q, actorPos.r, pos.q, pos.r) : null;
+        return {
+          target,
+          distance,
+          teamLabel: this.describeCombatantTeam(target),
+        };
+      })
+      .sort((left, right) => {
+        const leftName = left.target?.getComponent?.('IdentityComponent')?.name || '';
+        const rightName = right.target?.getComponent?.('IdentityComponent')?.name || '';
+        return leftName.localeCompare(rightName);
+      });
+  }
+
+  buildNavigateActionRailPanel(context) {
+    const groups = this.collectNavigateLocationGroups(context);
+
+    if (!groups.length) {
+      return {
+        title: 'Navigate',
+        chip: 'No routes',
+        html: `<div class="action-rail__empty"><p>No known routes are available from the current dungeon state yet.</p></div>`,
+      };
+    }
+
+    const entryCount = groups.reduce((total, group) => total + group.locations.length, 0);
+    const html = groups.map((group) => {
+      const entries = group.locations.map((location) => this.renderActionRailEntry({
+        execute: 'navigate',
+        title: location.roomName,
+        summary: buildActionRailEntrySummary([
+          location.statusLabel,
+          location.lastVisitedLabel,
+        ]),
+        meta: location.meta,
+        disabled: !location.navigable,
+        dataset: {
+          roomId: location.roomId,
+          roomName: location.roomName,
+          connectionId: location.connectionId,
+          originQ: location.originQ,
+          originR: location.originR,
+        },
+        actionLabel: location.navigable ? 'Travel here' : 'Unavailable',
+      })).join('');
+      return `<section class="action-rail__group"><p class="action-rail__group-label">${escapeQuestHtml(group.title)}</p>${entries}</section>`;
+    }).join('');
+
+    return {
+      title: 'Navigate',
+      chip: `${entryCount} rooms`,
+      html,
+    };
+  }
+
+  collectNavigateLocationGroups(context) {
+    const hexmap = context.hexmap;
+    const dungeonData = hexmap?.dungeonData || {};
+    const visualRooms = typeof hexmap?.getVisualRooms === 'function' ? hexmap.getVisualRooms() : {};
+    const rooms = visualRooms && typeof visualRooms === 'object' ? visualRooms : {};
+    const activeRoomId = hexmap?.resolveActiveRoomId?.() || null;
+    const visitOrder = new Map();
+    const history = Array.isArray(dungeonData?.location_history) ? dungeonData.location_history : [];
+    const capabilities = typeof hexmap?.resolveNavigationCapabilities === 'function'
+      ? hexmap.resolveNavigationCapabilities(activeRoomId)
+      : [];
+    const capabilityByRoomId = new Map();
+
+    capabilities.forEach((capability) => {
+      const targetRoomId = String(capability?.target_room_id || '').trim();
+      if (!targetRoomId) {
+        return;
+      }
+
+      const existing = capabilityByRoomId.get(targetRoomId);
+      if (!existing || (!existing.available && capability?.available)) {
+        capabilityByRoomId.set(targetRoomId, capability);
+      }
+    });
+
+    history.forEach((entry, index) => {
+      const roomId = String(entry?.room_id || '').trim();
+      if (roomId) {
+        visitOrder.set(roomId, index);
+      }
+    });
+
+    Object.entries(rooms).forEach(([roomId, room]) => {
+      if (room?.state?.explored) {
+        visitOrder.set(String(roomId), Math.max(visitOrder.get(String(roomId)) ?? -1, history.length));
+      }
+    });
+
+    const sections = [
+      { key: 'explored-navigable', title: 'Explored navigable', locations: [] },
+      { key: 'explored-blocked', title: 'Explored not navigable', locations: [] },
+      { key: 'unexplored-navigable', title: 'Unexplored navigable', locations: [] },
+      { key: 'unexplored-blocked', title: 'Unexplored not navigable', locations: [] },
     ];
 
-    const html = SKILLS.map((sk) => this._renderEntry({
-      execute: 'skill', title: sk.label, summary: sk.desc,
-      dataset: { skillId: sk.id },
-      disabled: false,
-      actionLabel: 'Roll',
-    })).join('');
+    const destinations = Object.entries(rooms)
+      .map(([roomId, room]) => {
+        const normalizedRoomId = String(roomId || '').trim();
+        if (!normalizedRoomId || normalizedRoomId === activeRoomId) {
+          return null;
+        }
 
-    return { title: 'Skill actions', html };
-  }
+        const capability = capabilityByRoomId.get(normalizedRoomId) || null;
+        const lastHistoryEntry = [...history].reverse().find((entry) => String(entry?.room_id || '') === normalizedRoomId) || null;
+        const explored = visitOrder.has(normalizedRoomId);
+        const navigable = Boolean(capability?.available);
+        const blockedReason = String(capability?.blocked_reason || '').trim();
+        const roomName = String(room?.name || lastHistoryEntry?.room_name || normalizedRoomId);
+        const statusLabel = [
+          explored ? 'Explored' : 'Unexplored',
+          navigable ? 'Navigable' : 'Not navigable',
+        ].join(' · ');
+        const lastVisitedLabel = explored
+          ? (lastHistoryEntry?.timestamp ? `Seen ${lastHistoryEntry.timestamp}` : 'Visited by party')
+          : 'Not yet explored';
+        const metaParts = [
+          room?.description || room?.short_description || '',
+          !navigable && blockedReason === 'blocked' ? 'Route is currently blocked.' : '',
+          !navigable && blockedReason === 'undiscovered' ? 'Route has not been discovered yet.' : '',
+          !navigable && !blockedReason && !capability ? 'No direct route from the current room.' : '',
+        ].filter(Boolean);
 
-  _buildInteractPanel() {
-    const targets = this._roomEntities.filter((e) => {
-      const type = e.getComponent?.('IdentityComponent')?.entityType ?? '';
-      return ['obstacle', 'door', 'npc', 'item', 'object'].includes(type);
+        return {
+          roomId: normalizedRoomId,
+          roomName,
+          statusLabel,
+          lastVisitedLabel,
+          meta: metaParts.join(' '),
+          order: Number(visitOrder.get(normalizedRoomId) ?? -1),
+          explored,
+          navigable,
+          connectionId: String(capability?.connection_id || ''),
+          originQ: capability?.origin_hex?.q ?? '',
+          originR: capability?.origin_hex?.r ?? '',
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => {
+        if (b.order !== a.order) {
+          return b.order - a.order;
+        }
+        return a.roomName.localeCompare(b.roomName);
+      });
+
+    destinations.forEach((destination) => {
+      const key = `${destination.explored ? 'explored' : 'unexplored'}-${destination.navigable ? 'navigable' : 'blocked'}`;
+      const section = sections.find((candidate) => candidate.key === key);
+      if (section) {
+        section.locations.push(destination);
+      }
     });
 
-    if (!targets.length) {
-      return { title: 'Interact', html: '<div class="action-rail__empty"><p>Nothing to interact with nearby.</p></div>' };
+    if (!destinations.length) {
+      return [];
     }
 
-    const html = targets.map((target) => {
-      const id   = target?.getComponent?.('IdentityComponent');
-      const name = id?.name ?? `Object ${target.id}`;
-      const type = id?.entityType ?? 'object';
-      return this._renderEntry({
-        execute: 'interact', title: name,
-        summary: `${type} • free interaction`,
-        dataset: { targetEntityId: String(target.id), interactionType: type },
-        disabled: false,
-        actionLabel: 'Interact',
-      });
-    }).join('');
-
-    return { title: `Interact (${targets.length})`, html };
+    return sections.filter((section) => section.locations.length > 0);
   }
 
-  _buildNavigatePanel() {
-    if (!this._connections.length) {
-      return { title: 'Navigate', html: '<div class="action-rail__empty"><p>No known routes from this room.</p></div>' };
-    }
+  buildInteractActionRailPanel(context) {
+    const interactables = context.hexmap?.collectInteractableEntriesForActionRail?.(context.actor) || [];
+    const entries = interactables.map((entry) => this.renderActionRailEntry({
+      execute: 'interact',
+      title: entry.title || 'Interactable',
+      summary: buildActionRailEntrySummary([
+        entry.typeLabel || '',
+        entry.optionsLabel || '',
+        entry.distanceLabel || '',
+        context.encounterActive && entry.canUse ? formatActionRailCost(1) : '',
+      ]),
+      meta: entry.meta || '',
+      disabled: entry.canUse ? this.isActionRailExecutionDisabled(1, context) : false,
+      dataset: {
+        targetEntityId: entry.entityId || '',
+        targetQ: Number.isFinite(entry.q) ? String(entry.q) : '',
+        targetR: Number.isFinite(entry.r) ? String(entry.r) : '',
+        targetName: entry.title || 'Interactable',
+        actionLabel: entry.actionLabel || 'Inspect',
+        canUse: entry.canUse ? '1' : '0',
+      },
+      actionLabel: entry.canUse ? (entry.actionLabel || 'Use') : 'Focus',
+    }));
 
-    const html = this._connections.map((conn) => {
-      const name = conn?.room_name ?? conn?.roomName ?? conn?.destination ?? `Room ${conn?.room_id ?? conn?.roomId ?? '?'}`;
-      const roomId = String(conn?.room_id ?? conn?.roomId ?? '');
-      const connId = String(conn?.connection_id ?? conn?.connectionId ?? conn?.id ?? '');
-      return this._renderEntry({
-        execute: 'navigate', title: name,
-        summary: conn?.direction ? `Direction: ${conn.direction}` : 'Travel to room',
-        dataset: { roomId, connectionId: connId },
-        disabled: false,
-        actionLabel: 'Travel',
-      });
-    }).join('');
-
-    return { title: `Navigate (${this._connections.length})`, html };
+    return {
+      title: 'Interactables',
+      chip: `${entries.length} in room`,
+      html: entries.length
+        ? entries.join('')
+        : `<div class="action-rail__empty"><p>No obvious interactables are currently visible in this room.</p></div>`,
+    };
   }
 
-  _buildConsumablesPanel() {
-    const actor = this._actor;
-    const state = actor?.dcStatePayload?.state ?? actor?.dcStatePayload ?? {};
-    const inventory = state?.inventory ?? {};
-    const items = Object.values(inventory).flat?.() ?? [];
-    const consumables = items.filter((item) => item?.item_type === 'consumable' || item?.type === 'consumable');
+  buildSpellActionRailPanel(context) {
+    const spells = normalizeSpellcastingData(context.state?.spells || {}, context.state || {});
+    const rankGroups = collectSpellRankGroups(spells);
+    const runtimeSlots = normalizeDisplayedSpellSlots(context.state?.resources?.spellSlots, spells.slots);
+    const entries = [];
 
-    if (!consumables.length) {
-      return { title: 'Consumables', html: '<div class="action-rail__empty"><p>No consumable items in inventory.</p></div>' };
-    }
-
-    const html = consumables.map((item) => {
-      const name = item?.item_name ?? item?.name ?? 'Item';
-      const qty  = item?.quantity ?? 1;
-      return this._renderEntry({
-        execute: 'use-consumable', title: name,
-        summary: `Qty: ${qty} • 1 action`,
-        dataset: { itemId: String(item?.id ?? item?.item_id ?? '') },
-        disabled: !this._canAct(),
-        actionLabel: 'Use',
+    rankGroups.forEach(({ rank, label, spells: rankSpells }) => {
+      rankSpells.forEach((spell) => {
+        const spellId = typeof spell === 'string' ? spell : (spell.spell_id || spell.id || '');
+        const spellName = typeof spell === 'string'
+          ? spell.replace(/_/g, ' ')
+          : (spell.spell_name || spell.name || spellId || 'Spell');
+        const slotState = rank > 0 ? runtimeSlots[String(rank)] || null : null;
+        const isFocusSpell = Boolean(spell?.is_focus_spell || spell?.focus || spell?.focus_spell);
+        const remaining = isFocusSpell
+          ? Number(context.state?.resources?.focusPoints?.current ?? 0)
+          : Number(slotState?.current ?? 0);
+        const disabled = rank > 0 && !isFocusSpell ? remaining <= 0 : false;
+        const actionCost = getActionRailCost(spell?.action_cost ?? spell?.actions ?? spell?.cast_actions, 2);
+        entries.push(this.renderActionRailEntry({
+          execute: 'spell',
+          title: spellName,
+          summary: buildActionRailEntrySummary([
+            rank === 0 ? 'Cantrip' : label,
+            spell?.tradition ? `${String(spell.tradition).replace(/^./, (char) => char.toUpperCase())}` : '',
+            isFocusSpell ? `Focus ${remaining}` : (slotState ? `Slots ${slotState.current}/${slotState.max}` : ''),
+            formatActionRailCost(actionCost),
+          ]),
+          meta: typeof spell === 'object' ? (spell.description || spell.desc || '') : '',
+          disabled: this.isActionRailExecutionDisabled(actionCost, context, disabled),
+          dataset: {
+            spellId,
+            spellName,
+            spellLevel: String(rank),
+            isFocusSpell: isFocusSpell ? '1' : '0',
+            actionCost: String(actionCost),
+          },
+        }));
       });
-    }).join('');
+    });
 
-    return { title: `Consumables (${consumables.length})`, html };
+    return {
+      title: 'Spell actions',
+      chip: `${entries.length} loaded`,
+      html: entries.length
+        ? entries.join('')
+        : `<div class="action-rail__empty"><p>No spell actions are available for this character.</p></div>`,
+    };
   }
 
-  // ---------------------------------------------------------------------------
-  // Private — HTML helpers
-  // ---------------------------------------------------------------------------
+  buildConsumableActionRailPanel(context) {
+    const items = extractConsumableItems(context.state?.inventory || {}, context.state?.equipment || []);
+    const entries = items.map((item) => {
+      const itemId = item.id || item.item_id || item.name || '';
+      const quantity = Number(item.quantity || 1);
+      const actionCost = getActionRailCost(item.action_cost ?? item.actions, 1);
+      return this.renderActionRailEntry({
+        execute: 'consumable',
+        title: item.name || itemId || 'Consumable',
+        summary: buildActionRailEntrySummary([
+          item.type || item.category || 'Consumable',
+          quantity > 1 ? `x${quantity}` : '',
+          formatActionRailCost(actionCost),
+        ]),
+        meta: item.consumable_stats?.effect || item.effect || item.description || item.desc || '',
+        disabled: this.isActionRailExecutionDisabled(actionCost, context),
+        dataset: {
+          itemId: String(itemId),
+          actionCost: String(actionCost),
+        },
+      });
+    });
 
-  /** @private */
-  _renderEntry({ execute, title, summary, dataset = {}, disabled = false, actionLabel = 'Execute' }) {
-    const dataAttrs = Object.entries(dataset)
-      .map(([k, v]) => `data-${k}="${this._esc(v)}"`)
-      .join(' ');
-    const searchText = `${title} ${summary}`.toLowerCase();
-    return `<div class="action-rail__entry" data-rail-search="${this._esc(searchText)}">
-      <div class="action-rail__entry-main">
-        <span class="action-rail__entry-title">${this._esc(title)}</span>
-        <span class="action-rail__entry-summary">${this._esc(summary)}</span>
+    return {
+      title: 'Consumables',
+      chip: `${entries.length} ready`,
+      html: entries.length
+        ? entries.join('')
+        : `<div class="action-rail__empty"><p>No consumables are currently available.</p></div>`,
+    };
+  }
+
+  buildSkillActionRailPanel(context) {
+    const skills = collectCharacterSkillEntries(context.state)
+      .sort((a, b) => Number(b.modifier || 0) - Number(a.modifier || 0));
+    const entries = skills.map((skill) => {
+      const modifier = Number(skill.modifier || 0);
+      return this.renderActionRailEntry({
+        execute: 'skill',
+        title: String(skill.name || 'Skill').replace(/_/g, ' '),
+        summary: buildActionRailEntrySummary([
+          modifier >= 0 ? `+${modifier}` : `${modifier}`,
+          skill.proficiency || 'untrained',
+          context.encounterActive ? formatActionRailCost(1) : 'Direct log',
+        ]),
+        meta: context.encounterActive
+          ? 'Resolve this skill directly without using chat.'
+          : 'Logs the declared skill action directly in the shell.',
+        disabled: this.isActionRailExecutionDisabled(1, context),
+        dataset: {
+          skillName: String(skill.name || ''),
+          skillModifier: String(modifier),
+        },
+      });
+    });
+
+    return {
+      title: 'Skill actions',
+      chip: `${entries.length} skills`,
+      html: entries.length
+        ? entries.join('')
+        : `<div class="action-rail__empty"><p>No skill actions are available yet.</p></div>`,
+    };
+  }
+
+  buildFeatActionRailPanel(context) {
+    const features = context.state?.features || {};
+    const featActions = flattenTooltipBuckets(context.state?.actions?.availableActions?.feat || features?.featEffects?.available_actions || {});
+    const fallbackFeats = [
+      ...(Array.isArray(features.ancestryFeatures) ? features.ancestryFeatures : []),
+      ...(Array.isArray(features.classFeatures) ? features.classFeatures : []),
+      ...(Array.isArray(features.feats) ? features.feats : []),
+    ];
+
+    const actionEntries = featActions.length > 0
+      ? featActions.map((action) => ({
+        title: action.name || 'Feat action',
+        summary: buildActionRailEntrySummary([
+          action.source_feat || '',
+          formatActionRailCost(getActionRailCost(action.action_cost, 1)),
+          action.uses_remaining != null && action.uses_max != null ? `${action.uses_remaining}/${action.uses_max} uses` : '',
+        ]),
+        meta: action.description || '',
+        dataset: {
+          featName: action.name || 'Feat action',
+          featId: action.id || action.source_feat || '',
+          actionCost: String(getActionRailCost(action.action_cost, 1)),
+        },
+      }))
+      : fallbackFeats.map((feat) => ({
+        title: feat.name || String(feat || 'Feat'),
+        summary: buildActionRailEntrySummary([
+          feat.type || 'feat',
+          feat.level ? `Lv ${feat.level}` : '',
+          context.encounterActive ? formatActionRailCost(1) : 'Direct log',
+        ]),
+        meta: feat.description || feat.desc || feat.benefit || '',
+        dataset: {
+          featName: feat.name || String(feat || 'Feat'),
+          featId: feat.id || slugifyTooltipKey(feat.name || String(feat || 'feat')),
+          actionCost: '1',
+        },
+      }));
+
+    const entries = actionEntries.map((entry) => this.renderActionRailEntry({
+      execute: 'feat',
+      title: entry.title,
+      summary: entry.summary,
+      meta: entry.meta,
+      disabled: this.isActionRailExecutionDisabled(entry.dataset.actionCost, context),
+      dataset: entry.dataset,
+    }));
+
+    return {
+      title: 'Feat actions',
+      chip: `${entries.length} available`,
+      html: entries.length
+        ? entries.join('')
+        : `<div class="action-rail__empty"><p>No direct feat actions are currently available.</p></div>`,
+    };
+  }
+
+  renderActionRailEntry({ execute, title, summary = '', meta = '', disabled = false, dataset = {}, actionLabel = 'Use action' }) {
+    const searchText = this.normalizeActionRailSearchText([title, summary, meta, actionLabel].filter(Boolean).join(' '));
+    const encodedDataset = Object.entries(dataset)
+      .map(([key, value]) => ` data-${key.replace(/[A-Z]/g, (match) => `-${match.toLowerCase()}`)}="${escapeTooltipAttr(value)}"`)
+      .join('');
+    return `<article class="action-rail__entry" data-action-rail-search="${escapeTooltipAttr(searchText)}">
+      <div class="action-rail__entry-top">
+        <div>
+          <p class="action-rail__entry-title">${escapeQuestHtml(title)}</p>
+          ${summary ? `<p class="action-rail__entry-summary">${escapeQuestHtml(summary)}</p>` : ''}
+        </div>
       </div>
-      <button type="button" class="action-rail__execute btn-primary btn-sm"
-              data-rail-execute="${this._esc(execute)}" ${dataAttrs}
-              ${disabled ? 'disabled aria-disabled="true"' : ''}>
-        ${this._esc(actionLabel)}
-      </button>
-    </div>`;
+      ${meta ? `<p class="action-rail__entry-meta">${escapeQuestHtml(meta)}</p>` : ''}
+      <button type="button" class="btn btn-action action-rail__entry-action" data-action-rail-execute="${escapeTooltipAttr(execute)}"${encodedDataset}${disabled ? ' disabled aria-disabled="true"' : ''}>${escapeQuestHtml(actionLabel)}</button>
+    </article>`;
   }
 
-  /** @private */
-  _renderEmptyState() {
-    const label = this._combatActive ? 'Select an action category above.' : 'Click a category above to prepare your action.';
-    return `<div class="action-rail__empty"><p>${label}</p></div>`;
+  handleActionRailDirectAction(actionKey) {
+    const context = this.getActionRailContext();
+    const hexmap = context.hexmap;
+    if (!hexmap) {
+      return;
+    }
+    if (actionKey === 'end-turn') {
+      hexmap.endTurn?.();
+      return;
+    }
+
+    const guidance = {
+      interact: 'Interact stays in-place now. Choose the object, door, or NPC on the map when you are ready.',
+    };
+    this.appendChatLine('System', guidance[actionKey] || 'That action is not available right now.', 'system');
   }
 
-  /** @private */
-  _esc(str) {
-    return String(str ?? '')
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
-  }
-
-  // ---------------------------------------------------------------------------
-  // Private — filter
-  // ---------------------------------------------------------------------------
-
-  _applyFilter() {
-    const body = this._el.panelBody;
-    if (!body) return;
-    const q = this._filterText.toLowerCase().trim();
-    body.querySelectorAll('.action-rail__entry').forEach((entry) => {
-      const hay = entry.dataset.railSearch ?? entry.textContent.toLowerCase();
-      entry.hidden = !!(q && !hay.includes(q));
-    });
-  }
-
-  // ---------------------------------------------------------------------------
-  // Private — action execution
-  // ---------------------------------------------------------------------------
-
-  _handleExecute(btn) {
-    const execute = btn.dataset.railExecute;
-    const actor   = this._actor;
-
-    switch (execute) {
-      case 'attack':
-        this.bus.emit('user:attack', {
-          attacker:       actor,
-          targetEntityId: btn.dataset.targetEntityId,
-        });
-        break;
-
-      case 'cast-spell':
-        this.bus.emit('user:cast-spell', {
-          spellId:        btn.dataset.spellId,
-          rank:           Number(btn.dataset.rank ?? 1),
-          targetEntityId: btn.dataset.targetEntityId ?? null,
-        });
-        break;
-
-      case 'interact':
-        this.bus.emit('user:interact', {
-          targetEntityId:  btn.dataset.targetEntityId,
-          interactionType: btn.dataset.interactionType,
-        });
-        break;
-
-      case 'navigate':
-        this.bus.emit('user:navigate-to-room', {
-          roomId:       btn.dataset.roomId,
-          connectionId: btn.dataset.connectionId,
-        });
-        break;
-
-      case 'skill':
-        this.bus.emit('user:action-selected', {
-          actionKey: btn.dataset.skillId,
-          cost: 1,
-          context: { actor },
-        });
-        break;
-
-      case 'use-consumable':
-        this.bus.emit('user:action-selected', {
-          actionKey: 'use-consumable',
-          cost: 1,
-          context: { actor, itemId: btn.dataset.itemId },
-        });
-        break;
-
-      default:
-        this.bus.emit('user:action-selected', { actionKey: execute, cost: 1, context: { actor } });
+  handleActionRailPanelAction(button) {
+    const actionType = button.dataset.actionRailExecute || '';
+    if (actionType === 'spell') {
+      this.executeDirectSpell(button);
+      return;
+    }
+    if (actionType === 'attack') {
+      this.executeDirectAttack(button);
+      return;
+    }
+    if (actionType === 'consumable') {
+      this.executeDirectConsumable(button);
+      return;
+    }
+    if (actionType === 'skill') {
+      this.executeDirectSkill(button);
+      return;
+    }
+    if (actionType === 'feat') {
+      this.executeDirectFeat(button);
+      return;
+    }
+    if (actionType === 'interact') {
+      this.executeDirectInteract(button);
+      return;
+    }
+    if (actionType === 'navigate') {
+      this.executeDirectNavigate(button);
     }
   }
+
+  beginActionRailRequest(button) {
+    if (!(button instanceof HTMLButtonElement)) {
+      return false;
+    }
+    if (button.dataset.actionRailPending === '1') {
+      return false;
+    }
+    button.dataset.actionRailPending = '1';
+    button.disabled = true;
+    button.setAttribute('aria-busy', 'true');
+    return true;
+  }
+
+  endActionRailRequest(button) {
+    if (!(button instanceof HTMLButtonElement)) {
+      return;
+    }
+    delete button.dataset.actionRailPending;
+    button.disabled = false;
+    button.removeAttribute('aria-busy');
+  }
+
+  updateActionMode(mode, { canAct = false, canInteract = false, moveLeft = 0, isPlayersTurn = false } = {}) {
+    const { actionMoveBtn, actionAttackBtn, actionInteractBtn, actionInstruction } = this.elements;
+
+    const setActive = (btn, active) => {
+      if (!btn) return;
+      btn.classList.toggle('btn-active', !!active);
+    };
+
+    setActive(actionMoveBtn, mode === 'move');
+    setActive(actionAttackBtn, mode === 'attack');
+    setActive(actionInteractBtn, mode === 'interact');
+
+    if (actionMoveBtn) {
+      actionMoveBtn.title = isPlayersTurn
+        ? (moveLeft > 0 ? `${moveLeft} ft remaining` : 'No movement left')
+        : 'Not your turn';
+    }
+    if (actionAttackBtn) {
+      actionAttackBtn.title = isPlayersTurn
+        ? (canAct ? 'Click an enemy to attack' : 'No actions remaining')
+        : 'Not your turn';
+    }
+    if (actionInteractBtn) {
+      actionInteractBtn.title = isPlayersTurn
+        ? (canInteract ? 'Interact with nearby objects, doors, and room transitions' : 'No interaction actions available')
+        : 'Not your turn';
+    }
+
+    if (actionInstruction) {
+      if (!isPlayersTurn) {
+        actionInstruction.textContent = 'Watching enemy turn...';
+      } else if (mode === 'move') {
+        actionInstruction.textContent = moveLeft > 0 ? `Click a blue hex to navigate (${moveLeft} ft left).` : 'No movement left; switch to attack or end turn.';
+      } else if (mode === 'interact') {
+        actionInstruction.textContent = canInteract ? 'Click an adjacent item, NPC, door, or obstacle to interact.' : 'No interaction actions remaining; attack, move, or end turn.';
+      } else {
+        actionInstruction.textContent = canAct ? 'Select a hostile target to attack.' : 'No actions remaining; move or end turn.';
+      }
+    }
+  }
+
 }

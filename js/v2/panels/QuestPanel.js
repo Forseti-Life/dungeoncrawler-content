@@ -1,155 +1,230 @@
 /**
  * @file panels/QuestPanel.js
  *
- * Renders the quest journal: active quests, objective trees,
- * and toast notifications for quest progress.
- *
- * PURE UI — no game logic. All quest state is server-authoritative,
- * pushed via bus events.
- *
- * DOM bindings (via [data-quest="key"]):
- *   list    — quest card list container
- *   empty   — shown when no quests
- *   toast   — toast notification area
- *
- * Quest shape (from server):
- *   { quest_id, title, status, description?,
- *     objectives: [{ objective_id, label, status, children? }] }
- *
- * Subscribes to bus events:
- *   quest:progress-updated  — { quest }          re-render one quest
- *   quest:completed         — { quest }          show completion toast
- *   quest:item-collected    — { itemName }        show collection toast
- *   game:init               — { quests: [] }     initial render
- *
- * Fires no bus events (display only).
+ * Quest journal, objectives, toast notifications.
+ * Methods ported verbatim from hexmap.js UIManager.
+ * Rendering helpers imported from quest-utils.js.
  */
 
-/** Toast auto-dismiss timeout (ms). */
-const TOAST_DURATION_MS = 4000;
+import {
+  normalizeQuestSummaryPayload,
+  renderQuestManagementQuestHtml,
+  renderQuestManagementStorylineHtml,
+  renderQuestManagementNpcHtml,
+  renderQuestSummaryPreviewLines as renderSummaryPreview,
+} from '../utils/quest-utils.js';
 
 export class QuestPanel {
-  /**
-   * @param {HTMLElement} container
-   * @param {import('../GameEventBus').GameEventBus} bus
-   */
   constructor(container, bus) {
     this.container = container;
     this.bus = bus;
     this._unsubs = [];
-    /** @type {Map<string, object>} quest_id → quest */
-    this._quests = new Map();
-    /** @type {object} bound DOM elements */
     this._el = {};
-    /** @type {number|null} toast hide timer id */
-    this._toastTimer = null;
   }
 
   init() {
-    const s = (key) => this.container.querySelector(`[data-quest="${key}"]`);
-    this._el = { list: s('list'), empty: s('empty'), toast: s('toast') };
+    const id = (k) => document.getElementById(k);
+    this._el = {
+      questJournal:    id('quest-journal'),
+      questList:       id('quest-list'),
+      questCount:      id('quest-count'),
+      questExpandAll:  id('quest-expand-all'),
+      questCollapseAll: id('quest-collapse-all'),
+    };
     this._subscribe();
-    this._renderList();
+    this.setupQuestJournalControls();
   }
 
   destroy() {
     this._unsubs.forEach((fn) => fn());
     this._unsubs = [];
-    if (this._toastTimer) clearTimeout(this._toastTimer);
-    this._quests.clear();
   }
-
-  // ---------------------------------------------------------------------------
-  // Bus
-  // ---------------------------------------------------------------------------
 
   _subscribe() {
     this._unsubs.push(
-      this.bus.on('game:init',              (data) => this._onInit(data)),
-      this.bus.on('quest:progress-updated', (data) => this._onProgressUpdated(data)),
-      this.bus.on('quest:completed',        (data) => this._onCompleted(data)),
-      this.bus.on('quest:item-collected',   (data) => this._onItemCollected(data)),
+      this.bus.on('quest:updated',         (d) => this.renderQuestJournal(d?.questSummary)),
+      this.bus.on('quest:completed',       (d) => {
+        this.showQuestToast(d?.message || 'Quest completed!', 'success');
+        this.renderQuestJournal(d?.questSummary);
+      }),
+      this.bus.on('quest:progress-changed', (d) => this.renderQuestJournal(d?.questSummary)),
+      this.bus.on('game:init',              (d) => {
+        if (d?.questSummary) this.renderQuestJournal(d.questSummary);
+      }),
     );
   }
 
-  _onInit({ quests = [] } = {}) {
-    this._quests.clear();
-    quests.forEach((q) => this._quests.set(q.quest_id, q));
-    this._renderList();
+  setupQuestJournalControls() {
+    const expandButton = this._el.questExpandAll;
+    const collapseButton = this._el.questCollapseAll;
+    const questJournal = this._el.questJournal;
+    if (!expandButton || !collapseButton || !questJournal) {
+      return;
+    }
+
+    if (questJournal.dataset.toggleBound !== 'true') {
+      questJournal.dataset.toggleBound = 'true';
+      questJournal.addEventListener('toggle', (event) => {
+        if (event.target && event.target.matches && event.target.matches('details[data-quest-collapsible]')) {
+          this.updateQuestJournalControlState();
+        }
+      }, true);
+    }
+
+    if (expandButton.dataset.bound !== 'true') {
+      expandButton.dataset.bound = 'true';
+      expandButton.addEventListener('click', () => {
+        this.setQuestJournalExpansion(true);
+      });
+    }
+
+    if (collapseButton.dataset.bound !== 'true') {
+      collapseButton.dataset.bound = 'true';
+      collapseButton.addEventListener('click', () => {
+        this.setQuestJournalExpansion(false);
+      });
+    }
+
+    this.updateQuestJournalControlState();
   }
 
-  _onProgressUpdated({ quest } = {}) {
-    if (!quest?.quest_id) return;
-    this._quests.set(quest.quest_id, quest);
-    this._renderList();
+  setQuestJournalExpansion(expanded) {
+    const list = this._el.questList;
+    if (!list) {
+      return;
+    }
+
+    list.querySelectorAll('details[data-quest-collapsible]').forEach((node) => {
+      node.open = expanded;
+    });
+    this.updateQuestJournalControlState();
   }
 
-  _onCompleted({ quest } = {}) {
-    if (!quest?.quest_id) return;
-    this._quests.set(quest.quest_id, quest);
-    this._renderList();
-    this._showToast(`✅ Quest complete: ${_esc(quest.title ?? 'Unknown')}`);
+  updateQuestJournalControlState() {
+    const list = this._el.questList;
+    const expandButton = this._el.questExpandAll;
+    const collapseButton = this._el.questCollapseAll;
+    if (!list || !expandButton || !collapseButton) {
+      return;
+    }
+
+    const nodes = Array.from(list.querySelectorAll('details[data-quest-collapsible]'));
+    const hasNodes = nodes.length > 0;
+    const openCount = nodes.filter((node) => node.open).length;
+
+    expandButton.disabled = !hasNodes || openCount === nodes.length;
+    collapseButton.disabled = !hasNodes || openCount === 0;
   }
 
-  _onItemCollected({ itemName } = {}) {
-    this._showToast(`🎒 Collected: ${_esc(itemName ?? 'item')}`);
-  }
-
-  // ---------------------------------------------------------------------------
-  // Rendering
-  // ---------------------------------------------------------------------------
-
-  _renderList() {
-    const { list, empty } = this._el;
-    const quests = [...this._quests.values()];
-    if (empty) empty.hidden = quests.length > 0;
+  renderQuestJournal(questSummary) {
+    const list = this._el.questList;
+    const count = this._el.questCount;
     if (!list) return;
-    list.innerHTML = quests.map((q) => this._questCardHtml(q)).join('');
+
+    const summary = Array.isArray(questSummary)
+      ? { active: questSummary, management_tree: [] }
+      : (questSummary && typeof questSummary === 'object' ? questSummary : { active: [], management_tree: [] });
+    const activeQuests = Array.isArray(summary.active) ? summary.active : [];
+    const offeredQuests = Array.isArray(summary.offers) ? summary.offers : [];
+    const leadQuests = Array.isArray(summary.leads) ? summary.leads : [];
+    const managementTree = Array.isArray(summary.management_tree) ? summary.management_tree : [];
+    console.warn('Quest journal debug: rendering quest journal', {
+      activeCount: activeQuests.length,
+      offerCount: offeredQuests.length,
+      leadCount: leadQuests.length,
+      managementTreeCount: managementTree.length,
+      activeQuestIds: activeQuests.map((quest) => quest?.quest_id || quest?.quest_key || quest?.id || resolveQuestTitle(quest)),
+    });
+
+    if (managementTree.length > 0) {
+      if (count) count.textContent = String(managementTree.length);
+      list.innerHTML = managementTree.map(renderQuestManagementNpcHtml).join('');
+      this.updateQuestJournalControlState();
+      return;
+    }
+
+    if (activeQuests.length === 0 && offeredQuests.length === 0 && leadQuests.length === 0) {
+      list.innerHTML = '<li class="quest-empty">No active quests, offers, or leads</li>';
+      if (count) count.textContent = '0';
+      this.updateQuestJournalControlState();
+      return;
+    }
+
+    if (count) count.textContent = String(activeQuests.length + offeredQuests.length + leadQuests.length);
+
+    const activeHtml = activeQuests.map(quest => {
+      const title = resolveQuestTitle(quest);
+      const phases = extractQuestPhases(quest);
+      const objectiveIndex = buildObjectiveStateIndex(quest);
+      const rawStatus = String(quest.status || '').trim().toLowerCase();
+      const status = rawStatus ? rawStatus.charAt(0).toUpperCase() + rawStatus.slice(1) : 'Active';
+
+      // Build objective list HTML for the first incomplete phase.
+      let objectiveHtml = '';
+      for (const phase of phases) {
+        const objectives = flattenQuestObjectives(phase.objectives || []);
+        objectiveHtml = objectives.map(obj => {
+          const merged = mergeObjectiveProgress(obj, objectiveIndex);
+          const current = merged.current;
+          const target = merged.target_count || 1;
+          const completed = merged.completed;
+          const icon = completed ? '✅' : '⬜';
+          const desc = merged.description || merged.objective_id;
+          const progress = merged.type === 'collect' ? ` (${current}/${target})` : '';
+          return `<li class="quest-objective ${completed ? 'quest-objective--done' : ''}">${icon} ${desc}${progress}</li>`;
+        }).join('');
+
+        // Show only the first phase that has incomplete objectives.
+        const allDone = objectives.every(o => mergeObjectiveProgress(o, objectiveIndex).completed);
+        if (!allDone) break;
+      }
+
+      if (!objectiveHtml) {
+        objectiveHtml = '<li class="quest-objective">✅ All objectives complete</li>';
+      }
+
+      return renderQuestTreeNodeHtml({
+        itemClass: 'quest-entry quest-entry--quest',
+        title,
+        titlePrefix: '📜',
+        metaLines: [`Status: ${status}`],
+        bodyHtml: `<ul class="quest-objectives">${objectiveHtml}</ul>`,
+      });
+    }).join('');
+
+    const offerHtml = offeredQuests.map((quest) => renderQuestTreeNodeHtml({
+      itemClass: 'quest-entry quest-entry--quest',
+      title: resolveQuestTitle(quest),
+      titlePrefix: '🤝',
+      metaLines: ['Status: Offered'],
+      bodyHtml: `<ul class="quest-objectives">${this.renderQuestSummaryPreviewLines(quest, 'Quest offered. Review the details and accept it to begin.')}</ul>`,
+    })).join('');
+
+    const leadHtml = leadQuests.map((quest) => renderQuestTreeNodeHtml({
+      itemClass: 'quest-entry quest-entry--quest',
+      title: resolveQuestTitle(quest),
+      titlePrefix: '🧭',
+      metaLines: ['Status: Lead'],
+      bodyHtml: `<ul class="quest-objectives">${this.renderQuestSummaryPreviewLines(quest, 'Quest lead discovered. Follow up with the relevant contact to unlock it.')}</ul>`,
+    })).join('');
+
+    list.innerHTML = `${activeHtml}${offerHtml}${leadHtml}`;
+    this.updateQuestJournalControlState();
   }
 
-  _questCardHtml(quest) {
-    const status    = quest.status ?? 'active';
-    const title     = _esc(quest.title ?? 'Unnamed Quest');
-    const desc      = quest.description ? `<p class="quest-card__desc">${_esc(quest.description)}</p>` : '';
-    const objectives = (quest.objectives ?? []).map((o) => this._objectiveHtml(o)).join('');
-    const objList   = objectives ? `<ul class="quest-objectives">${objectives}</ul>` : '';
-    return `<div class="quest-card quest-card--${_esc(status)}" data-quest-id="${_esc(quest.quest_id)}">
-  <h3 class="quest-card__title">${title}</h3>
-  ${desc}
-  ${objList}
-</div>`;
+  renderQuestSummaryPreviewLines(quest, fallbackLine) {
+    const phases = extractQuestPhases(quest);
+    const firstPhase = Array.isArray(phases) && phases.length > 0 ? phases[0] : null;
+    const objectives = firstPhase ? flattenQuestObjectives(firstPhase.objectives || []) : [];
+    const lines = objectives.slice(0, 3).map((objective) => {
+      const description = String(objective?.description || objective?.objective_id || '').trim();
+      return description ? `<li class="quest-objective">⬜ ${description}</li>` : '';
+    }).filter(Boolean);
+    return lines.length > 0 ? lines.join('') : `<li class="quest-objective">${fallbackLine}</li>`;
   }
 
-  _objectiveHtml(obj) {
-    const status   = obj.status ?? 'incomplete';
-    const label    = _esc(obj.label ?? '');
-    const children = (obj.children ?? []).map((c) => this._objectiveHtml(c)).join('');
-    const nested   = children ? `<ul class="quest-objectives">${children}</ul>` : '';
-    return `<li class="quest-objective quest-objective--${_esc(status)}">${label}${nested}</li>`;
+  showQuestToast(message, type = 'info') {
+    this.appendChatLine('Quest', message, 'system');
   }
 
-  _showToast(html) {
-    const { toast } = this._el;
-    if (!toast) return;
-    toast.innerHTML = html;
-    toast.hidden = false;
-    if (this._toastTimer) clearTimeout(this._toastTimer);
-    this._toastTimer = setTimeout(() => {
-      toast.hidden = true;
-      toast.innerHTML = '';
-      this._toastTimer = null;
-    }, TOAST_DURATION_MS);
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Utility
-// ---------------------------------------------------------------------------
-
-function _esc(str) {
-  return String(str ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
 }

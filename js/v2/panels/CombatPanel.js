@@ -1,39 +1,11 @@
 /**
  * @file panels/CombatPanel.js
  *
- * Renders initiative tracker, current turn indicator, round counter,
- * and combat state controls (start/end combat).
- *
- * Subscribes to bus events:
- *   combat:turn-changed    — { entity, turnIndex, totalTurns }
- *   combat:round-changed   — { roundNumber }
- *   combat:state-changed   — { state } ('active'|'inactive'|'ended')
- *   combat:damage-dealt    — { target, amount, remaining }
- *
- * Fires bus events:
- *   user:combat-start  — player requests combat start
- *   user:combat-end    — player requests combat end
- *   user:end-turn      — player ends their turn
- *
- * DOM selectors (all optional — panel degrades gracefully if elements missing):
- *   [data-combat="turn-name"]          Active entity name
- *   [data-combat="turn-label"]         "Your turn" / "Enemy turn" etc.
- *   [data-combat="turn-actions"]       Actions remaining summary
- *   [data-combat="turn-movement"]      Movement remaining summary
- *   [data-combat="turn-reaction"]      Reaction state badge
- *   [data-combat="round-counter"]      Round N label
- *   [data-combat="initiative-list"]    Initiative tracker container
- *   [data-combat="start-btn"]          Start combat button
- *   [data-combat="end-turn-btn"]       End turn button
- *   [data-combat="end-combat-btn"]     End combat button
- *   [data-combat="tracker-wrap"]       Wrapper hidden when inactive
+ * Initiative tracker, current turn indicator, round counter, combat controls.
+ * Methods ported verbatim from hexmap.js UIManager.
  */
 
 export class CombatPanel {
-  /**
-   * @param {HTMLElement} container
-   * @param {import('../GameEventBus').GameEventBus} bus
-   */
   constructor(container, bus) {
     this.container = container;
     this.bus = bus;
@@ -42,17 +14,24 @@ export class CombatPanel {
   }
 
   init() {
-    this._bindElements();
-    this._bindButtons();
-
-    this._unsubs.push(
-      this.bus.on('combat:turn-changed', (data) => this._onTurnChanged(data)),
-      this.bus.on('combat:round-changed', ({ roundNumber } = {}) => this._onRoundChanged(roundNumber)),
-      this.bus.on('combat:state-changed', ({ state } = {}) => this._onStateChanged(state)),
-      this.bus.on('combat:damage-dealt', (data) => this._onDamageDealt(data)),
-    );
-
-    this._onStateChanged('inactive');
+    const id = (k) => document.getElementById(k);
+    const s = (k) => this.container?.querySelector(`[data-combat="${k}"]`) || null;
+    this._el = {
+      // Map both by ID (original) and data-combat attribute (v2 template)
+      currentTurn:      id('current-turn')      || s('turn-name'),
+      currentRound:     id('current-round')     || s('round-counter'),
+      initiativeList:   id('initiative-list')   || s('initiative-list'),
+      initiativeTracker: id('initiative-tracker') || s('tracker-wrap'),
+      turnOwner:        id('turn-owner')        || s('turn-label'),
+      turnActionSummary: id('turn-action-summary') || s('turn-actions'),
+      turnMoveSummary:  id('turn-move-summary') || s('turn-movement'),
+      turnReaction:     id('turn-reaction')     || s('turn-reaction'),
+      startCombatBtn:   id('start-combat')      || s('start-btn'),
+      endCombatBtn:     id('end-combat')        || s('end-combat-btn'),
+      endTurnBtn:       id('end-turn')          || s('end-turn-btn'),
+    };
+    this._bindDom();
+    this._subscribe();
   }
 
   destroy() {
@@ -60,187 +39,224 @@ export class CombatPanel {
     this._unsubs = [];
   }
 
-  // ---------------------------------------------------------------------------
-  // Private — DOM binding
-  // ---------------------------------------------------------------------------
+  _bindDom() {
+    const { startCombatBtn, endCombatBtn, endTurnBtn } = this._el;
+    if (startCombatBtn) startCombatBtn.addEventListener('click', () => this.bus.emit('user:combat-start'));
+    if (endCombatBtn)   endCombatBtn.addEventListener('click', () => this.bus.emit('user:combat-end'));
+    if (endTurnBtn)     endTurnBtn.addEventListener('click', () => this.bus.emit('user:end-turn'));
+  }
 
-  _bindElements() {
-    const sel = (attr) => this.container?.querySelector(`[data-combat="${attr}"]`) ?? null;
-    this._el = {
-      turnName:       sel('turn-name'),
-      turnLabel:      sel('turn-label'),
-      turnActions:    sel('turn-actions'),
-      turnMovement:   sel('turn-movement'),
-      turnReaction:   sel('turn-reaction'),
-      roundCounter:   sel('round-counter'),
-      initiativeList: sel('initiative-list'),
-      startBtn:       sel('start-btn'),
-      endTurnBtn:     sel('end-turn-btn'),
-      endCombatBtn:   sel('end-combat-btn'),
-      trackerWrap:    sel('tracker-wrap'),
+  _subscribe() {
+    this._unsubs.push(
+      this.bus.on('combat:turn-changed', (d) => {
+        this.updateCurrentTurn(d?.name, d?.actions, d?.movement, d?.hasReaction, d?.team, d?.isPlayersTurn);
+        if (d?.actions !== undefined) this.renderActionButtons(d.actions, d.movement, d.isPlayersTurn);
+      }),
+      this.bus.on('combat:round-changed',  (d) => this.updateRound(d?.roundNumber)),
+      this.bus.on('combat:state-changed',  (d) => this.updateCombatControls(d?.state)),
+      this.bus.on('combat:order-changed',  (d) => this.updateInitiativeTracker(d?.order)),
+    );
+  }
+
+  renderActionButtons(actions, movement, isPlayersTurn) {
+    const { actionMoveBtn, actionAttackBtn, actionInteractBtn, actionTalkBtn, endTurnBtn } = this.elements;
+    const maxActions = actions ? actions.maxActions + (actions.actionBonus || 0) : null;
+    const actionsRemaining = actions ? actions.actionsRemaining : 0;
+    const canAct = !!(isPlayersTurn && actions && actions.canAct !== false && actionsRemaining > 0);
+    const canMove = !!(isPlayersTurn && movement && Number.isFinite(movement.movementRemaining) && movement.movementRemaining > 0);
+    const canInteract = canAct;
+
+    const applyDisabledState = (button, disabled) => {
+      if (!button) {
+        return;
+      }
+      button.classList.toggle('btn-disabled', !!disabled);
+      button.disabled = !!disabled;
+      button.setAttribute('aria-disabled', disabled ? 'true' : 'false');
     };
-  }
 
-  _bindButtons() {
-    const { startBtn, endTurnBtn, endCombatBtn } = this._el;
-    if (startBtn)     startBtn.addEventListener('click',    () => this.bus.emit('user:combat-start'));
-    if (endTurnBtn)   endTurnBtn.addEventListener('click',  () => this.bus.emit('user:end-turn'));
-    if (endCombatBtn) endCombatBtn.addEventListener('click',() => this.bus.emit('user:combat-end'));
-  }
-
-  // ---------------------------------------------------------------------------
-  // Private — event handlers
-  // ---------------------------------------------------------------------------
-
-  _onTurnChanged({ entity, turnIndex, totalTurns, initiativeOrder } = {}) {
-    if (!entity) return;
-
-    const identity  = entity.getComponent?.('IdentityComponent');
-    const actions   = entity.getComponent?.('ActionsComponent');
-    const movement  = entity.getComponent?.('MovementComponent');
-    const combat    = entity.getComponent?.('CombatComponent');
-    const name      = identity?.name ?? `Entity ${entity.id}`;
-    const isPlayer  = combat?.isPlayerTeam?.() || combat?.team === 'player';
-
-    const { turnName, turnLabel, turnActions, turnMovement, turnReaction } = this._el;
-
-    if (turnName)  turnName.textContent  = name;
-    if (turnLabel) turnLabel.textContent = isPlayer ? 'Your turn' : (combat?.team ? `${combat.team} turn` : 'Turn');
-
-    if (turnActions) {
-      const max = actions ? (actions.maxActions || 0) + (actions.actionBonus || 0) : null;
-      turnActions.textContent = max !== null ? `${actions.actionsRemaining}/${max} actions` : 'Actions: —';
+    if (actionMoveBtn) {
+      const moveLabel = movement && Number.isFinite(movement.movementRemaining)
+        ? `Navigate (${movement.movementRemaining} ft)`
+        : 'Navigate';
+      actionMoveBtn.textContent = moveLabel;
+      applyDisabledState(actionMoveBtn, !canMove);
     }
 
-    if (turnMovement) {
-      const mv = movement?.movementRemaining;
-      turnMovement.textContent = Number.isFinite(mv) ? `${mv} ft left` : 'Movement: —';
+    if (actionAttackBtn) {
+      const attackLabel = maxActions !== null
+        ? `Attack (${actionsRemaining}/${maxActions})`
+        : 'Attack';
+      actionAttackBtn.textContent = attackLabel;
+      applyDisabledState(actionAttackBtn, !canAct);
     }
 
-    if (turnReaction) {
-      const hasReaction = actions?.hasReaction ?? actions?.hasReactionAvailable?.() ?? false;
-      turnReaction.textContent = hasReaction ? 'Reaction ready' : 'Reaction spent';
-      turnReaction.classList.toggle('pill-positive', !!hasReaction);
-      turnReaction.classList.toggle('pill-muted',    !hasReaction);
+    if (actionInteractBtn) {
+      actionInteractBtn.textContent = maxActions !== null
+        ? `Interact (${actionsRemaining}/${maxActions})`
+        : 'Interact';
+      applyDisabledState(actionInteractBtn, !canInteract);
     }
 
-    if (initiativeOrder) {
-      this._renderInitiativeList(initiativeOrder);
+    if (actionTalkBtn) {
+      actionTalkBtn.textContent = 'Talk (Free)';
+      applyDisabledState(actionTalkBtn, !isPlayersTurn);
     }
-  }
 
-  _onRoundChanged(roundNumber) {
-    if (this._el.roundCounter) {
-      this._el.roundCounter.textContent = `Round ${roundNumber ?? 1}`;
+    if (endTurnBtn) {
+      applyDisabledState(endTurnBtn, !isPlayersTurn);
     }
+
+    this.refreshActionRail();
   }
 
-  _onStateChanged(state) {
-    const inactive = (state === 'inactive' || state === 'ended');
-    const { startBtn, endTurnBtn, endCombatBtn, trackerWrap } = this._el;
+  updateCombatControls(combatState) {
+    const isInactive = (combatState === CombatState.INACTIVE || combatState === CombatState.ENDED);
 
-    if (startBtn)     startBtn.style.display     = inactive ? '' : 'none';
-    if (endTurnBtn)   endTurnBtn.style.display    = inactive ? 'none' : '';
-    if (endCombatBtn) endCombatBtn.style.display  = inactive ? 'none' : '';
-    if (trackerWrap)  trackerWrap.style.display   = inactive ? 'none' : '';
+    if (this._el.startCombatBtn) {
+      this._el.startCombatBtn.style.display = isInactive ? 'inline-block' : 'none';
+    }
+    if (this._el.endTurnBtn) {
+      this._el.endTurnBtn.style.display = isInactive ? 'none' : 'inline-block';
+    }
+    if (this._el.endCombatBtn) {
+      this._el.endCombatBtn.style.display = isInactive ? 'none' : 'inline-block';
+    }
+    if (this._el.initiativeTracker) {
+      this._el.initiativeTracker.style.display = isInactive ? 'none' : 'block';
+    }
 
-    if (inactive && this._el.turnName)   this._el.turnName.textContent   = '—';
-    if (inactive && this._el.turnLabel)  this._el.turnLabel.textContent  = 'No active combat';
-    if (inactive && this._el.turnActions)  this._el.turnActions.textContent  = '';
-    if (inactive && this._el.turnMovement) this._el.turnMovement.textContent = '';
+    if (this._el.turnHud) {
+      this._el.turnHud.classList.toggle('hud-inactive', isInactive);
+    }
+    if (this._el.turnOwner) {
+      this._el.turnOwner.textContent = isInactive ? 'No active combat' : 'Active encounter';
+    }
+
+    this.refreshActionRail();
   }
 
-  /**
-   * Flash a damage indicator on the correct initiative card.
-   * @private
-   */
-  _onDamageDealt({ target } = {}) {
-    if (!target?.id || !this._el.initiativeList) return;
-    const card = this._el.initiativeList.querySelector(`[data-entity-id="${target.id}"]`);
-    if (!card) return;
-    card.classList.add('rail-card--damaged');
-    setTimeout(() => card.classList.remove('rail-card--damaged'), 600);
+  updateCurrentTurn(name, actions, movement, hasReaction, team = null, isPlayersTurn = false) {
+    if (this._el.currentTurn) {
+      const turnLabel = isPlayersTurn ? 'Your turn' : (team ? `${team} turn` : 'Turn');
+      const reactionBadge = hasReaction ? '<span class="pill pill-positive">Reaction ready</span>' : '<span class="pill pill-muted">Reaction spent</span>';
+      this._el.currentTurn.innerHTML = `
+        <div class="turn-name">${name}</div>
+        <div class="turn-sub">
+          <span class="pill pill-strong">${turnLabel}</span>
+          ${reactionBadge}
+        </div>`;
+    }
+
+    if (this._el.turnOwner) {
+      this._el.turnOwner.textContent = isPlayersTurn ? 'Your turn' : (team ? `${team} turn` : 'Awaiting combat');
+    }
+
+    const maxActions = actions ? actions.maxActions + (actions.actionBonus || 0) : null;
+    if (this._el.turnActionSummary) {
+      const remaining = actions ? `${actions.actionsRemaining}/${maxActions} actions` : 'Actions: -';
+      this._el.turnActionSummary.textContent = remaining;
+    }
+
+    if (this._el.turnMoveSummary) {
+      const moveText = movement && Number.isFinite(movement.movementRemaining)
+        ? `${movement.movementRemaining} ft left`
+        : 'Movement: -';
+      this._el.turnMoveSummary.textContent = moveText;
+    }
+
+    if (this._el.turnReaction) {
+      this._el.turnReaction.textContent = hasReaction ? 'Reaction ready' : 'Reaction spent';
+      this._el.turnReaction.classList.toggle('pill-positive', !!hasReaction);
+      this._el.turnReaction.classList.toggle('pill-muted', !hasReaction);
+    }
+
+    if (this._el.turnActionChips) {
+      const canAct = actions ? actions.actionsRemaining > 0 : false;
+      const moveLeft = movement ? movement.movementRemaining > 0 : false;
+      this._el.turnActionChips.innerHTML = `
+        <span class="chip ${moveLeft ? 'chip-live' : 'chip-dim'}">Navigate</span>
+        <span class="chip ${canAct ? 'chip-live' : 'chip-dim'}">Strike</span>
+        <span class="chip ${canAct ? 'chip-live' : 'chip-dim'}">Interact</span>
+        <span class="chip chip-live">Talk</span>
+        <span class="chip chip-end">End Turn</span>`;
+    }
+
+    if (this._el.actionInstruction) {
+      if (!isPlayersTurn) {
+        this._el.actionInstruction.textContent = 'Watching enemy turn...';
+      } else if (actions && actions.actionsRemaining > 0) {
+        this._el.actionInstruction.textContent = 'Select a hostile target to attack or click a blue hex to navigate.';
+      } else if (movement && movement.movementRemaining > 0) {
+        this._el.actionInstruction.textContent = 'Navigate to a blue hex, then end turn.';
+      } else {
+        this._el.actionInstruction.textContent = 'No actions left — end your turn.';
+      }
+    }
+
+    this.renderActionButtons(actions, movement, isPlayersTurn);
   }
 
-  // ---------------------------------------------------------------------------
-  // Private — initiative list renderer
-  // ---------------------------------------------------------------------------
+  updateInitiativeTracker(initiativeOrder) {
+    if (!this._el.initiativeList) return;
 
-  /**
-   * Render rich participant cards in the initiative tracker.
-   * HP is shown exactly for player-team; as a state bar for enemies.
-   * Action pips are shown only on the active card.
-   *
-   * @param {Array<{entity, entityId, name, initiative, isCurrent, isDefeated}>} order
-   * @private
-   */
-  _renderInitiativeList(order) {
-    const list = this._el.initiativeList;
-    if (!list) return;
+    let html = '';
+    initiativeOrder.forEach((data) => {
+      const combat = data.entity?.getComponent('CombatComponent');
+      const stats = data.entity?.getComponent('StatsComponent');
+      const actions = data.entity?.getComponent('ActionsComponent');
+      const team = combat?.team || 'neutral';
+      const teamLabels = { player: 'Player', enemy: 'Enemy', ally: 'Ally', neutral: 'NPC' };
+      const teamLabel = teamLabels[team] || team;
 
-    list.innerHTML = order.map((data) => {
-      const combat  = data.entity?.getComponent?.('CombatComponent');
-      const stats   = data.entity?.getComponent?.('StatsComponent');
-      const actions = data.entity?.getComponent?.('ActionsComponent');
-      const team    = combat?.team ?? 'neutral';
-      const teamLabel = { player: 'Player', enemy: 'Enemy', ally: 'Ally', neutral: 'NPC' }[team] ?? team;
+      // HP bar — exact values only for player team (AC-004 visibility rule)
+      let hpHtml = '';
+      if (stats && stats.maxHp > 0) {
+        const pct = Math.max(0, Math.min(100, Math.round((stats.currentHp / stats.maxHp) * 100)));
+        let hpStateClass = 'hp-bar--healthy';
+        if (pct <= 0) hpStateClass = 'hp-bar--defeated';
+        else if (pct <= 25) hpStateClass = 'hp-bar--critical';
+        else if (pct <= 50) hpStateClass = 'hp-bar--bloodied';
+        const hpLabel = team === 'player' ? `${stats.currentHp}/${stats.maxHp}` : '';
+        hpHtml = `<div class="rail-card__hp-wrap" title="${hpLabel || 'HP status'}">
+            <div class="rail-card__hp-track"><div class="rail-card__hp-bar ${hpStateClass}" style="width:${pct}%"></div></div>
+            ${hpLabel ? `<span class="rail-card__hp-label">${hpLabel}</span>` : ''}
+          </div>`;
+      }
 
-      const hpHtml = this._buildHpHtml(stats, team);
-      const pipsHtml = data.isCurrent ? this._buildPipsHtml(actions) : '';
-      const activeClass   = data.isCurrent  ? 'rail-card--active'   : '';
+      // Action pips — only shown on active combatant (AC-001 compact status cues)
+      let actionsHtml = '';
+      if (data.isCurrent && actions) {
+        const maxA = actions.maxActions || 3;
+        let pips = '';
+        for (let i = 0; i < maxA; i++) {
+          const spent = i >= actions.actionsRemaining;
+          pips += `<span class="rail-card__pip ${spent ? 'pip--spent' : 'pip--ready'}" title="${spent ? 'Action spent' : 'Action ready'}"></span>`;
+        }
+        const rxClass = actions.hasReaction ? 'pip--reaction-ready' : 'pip--reaction-spent';
+        pips += `<span class="rail-card__pip rail-card__pip--reaction ${rxClass}" title="${actions.hasReaction ? 'Reaction ready' : 'Reaction spent'}">R</span>`;
+        actionsHtml = `<div class="rail-card__actions">${pips}</div>`;
+      }
+
+      const activeClass = data.isCurrent ? 'rail-card--active' : '';
       const defeatedClass = data.isDefeated ? 'rail-card--defeated' : '';
-
-      return `<div class="initiative-item rail-card ${activeClass} ${defeatedClass}"
-                   data-entity-id="${data.entityId ?? ''}"
-                   role="button" tabindex="0"
-                   aria-label="${data.name}${data.isCurrent ? ' — active turn' : ''}">
-        <div class="rail-card__header">
-          <span class="rail-card__init">${data.initiative ?? '?'}</span>
-          <span class="rail-card__name">${data.name ?? 'Unknown'}</span>
-          <span class="rail-card__team-badge rail-card__team--${team}">${teamLabel}</span>
-        </div>
-        ${hpHtml}
-        ${pipsHtml}
-      </div>`;
-    }).join('');
-
-    // Wire click → entity:selected
-    list.querySelectorAll('[data-entity-id]').forEach((card) => {
-      card.addEventListener('click', () => {
-        const entityId = card.dataset.entityId;
-        if (entityId) this.bus.emit('user:select-entity', { entityId });
-      });
+      html += `<div class="initiative-item rail-card ${activeClass} ${defeatedClass}" data-entity-id="${data.entityId}" role="button" tabindex="0" aria-label="${data.name}${data.isCurrent ? ' — active turn' : ''}">
+          <div class="rail-card__header">
+            <span class="rail-card__init">${data.initiative}</span>
+            <span class="rail-card__name">${data.name}</span>
+            <span class="rail-card__team-badge rail-card__team--${team}">${teamLabel}</span>
+          </div>
+          ${hpHtml}
+          ${actionsHtml}
+        </div>`;
     });
+    this._el.initiativeList.innerHTML = html;
   }
 
-  /** @private */
-  _buildHpHtml(stats, team) {
-    if (!stats || !stats.maxHp) return '';
-    const pct = Math.max(0, Math.min(100, Math.round((stats.currentHp / stats.maxHp) * 100)));
-    let barClass = 'hp-bar--healthy';
-    if (pct <= 0)  barClass = 'hp-bar--defeated';
-    else if (pct <= 25) barClass = 'hp-bar--critical';
-    else if (pct <= 50) barClass = 'hp-bar--bloodied';
-    const label = team === 'player' ? `${stats.currentHp}/${stats.maxHp}` : '';
-    return `<div class="rail-card__hp-wrap">
-      <div class="rail-card__hp-track">
-        <div class="rail-card__hp-bar ${barClass}" style="width:${pct}%"></div>
-      </div>
-      ${label ? `<span class="rail-card__hp-label">${label}</span>` : ''}
-    </div>`;
-  }
-
-  /** @private */
-  _buildPipsHtml(actions) {
-    if (!actions) return '';
-    const max = actions.maxActions ?? 3;
-    let pips = '';
-    for (let i = 0; i < max; i++) {
-      const spent = i >= (actions.actionsRemaining ?? 0);
-      pips += `<span class="rail-card__pip ${spent ? 'pip--spent' : 'pip--ready'}" title="${spent ? 'Action spent' : 'Action ready'}"></span>`;
+  updateRound(roundNumber) {
+    if (this._el.currentRound) {
+      this._el.currentRound.textContent = `Round ${roundNumber}`;
     }
-    const rxClass = (actions.hasReaction ?? actions.hasReactionAvailable?.()) ? 'pip--reaction-ready' : 'pip--reaction-spent';
-    pips += `<span class="rail-card__pip rail-card__pip--reaction ${rxClass}" title="Reaction">R</span>`;
-    return `<div class="rail-card__actions">${pips}</div>`;
   }
+
 }
