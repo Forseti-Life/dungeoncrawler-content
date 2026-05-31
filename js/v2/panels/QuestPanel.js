@@ -147,7 +147,8 @@ export class QuestPanel {
       activeQuestIds: activeQuests.map((quest) => quest?.quest_id || quest?.quest_key || quest?.id || resolveQuestTitle(quest)),
     });
 
-    if (managementTree.length > 0) {
+    if (managementTree.length > 0 && activeQuests.length === 0 && offeredQuests.length === 0 && leadQuests.length === 0) {
+      // Only fall back to management tree view when there's nothing player-facing to show.
       if (count) count.textContent = String(managementTree.length);
       list.innerHTML = managementTree.map(renderQuestManagementNpcHtml).join('');
       console.log('[QuestPanel] renderQuestJournal:branch', { branch: 'managementTree', htmlLen: list.innerHTML.length });
