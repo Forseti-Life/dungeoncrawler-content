@@ -6,6 +6,7 @@
  * Largest panel: 65 functions.
  */
 
+import { ChatSessionApi } from '../../ChatSessionApi.js';
 import { escapeQuestHtml } from '../utils/quest-utils.js';
 
 // --- parseGm* helpers (module-level in original hexmap.js, used internally) ---
@@ -2141,6 +2142,255 @@ export class ChatPanel {
 
     // Emit request; GameShell handles the fetch and emits session:view-data back
     this.bus.emit('user:session-view-requested', { view, options });
+  }
+
+  async loadChatHistory(options = {}) {
+    const context = this.getChatContext();
+
+    if (!context.campaignId || !context.roomId) {
+      return;
+    }
+
+    try {
+      const result = await this.fetchRoomChatHistory(options);
+      if (result?.success && result.data?.messages) {
+        this.renderRoomChatHistory(result);
+        this.prefetchSessionViews();
+        this.prefetchConnectedRoomContext();
+      }
+    } catch (error) {
+      console.error('Failed to load chat history:', error);
+    }
+  }
+
+  async fetchRoomChatHistory(options = {}) {
+    return this.fetchRoomChatHistoryForContext(this.getChatContext(), options);
+  }
+
+  async fetchRoomChatHistoryForContext(context, options = {}) {
+    const { force = false } = options;
+    const channelKey = options.channelKey || this.activeChannel || 'room';
+
+    if (!this.roomChatCache) {
+      this.roomChatCache = new Map();
+    }
+    if (!this.roomChatInflight) {
+      this.roomChatInflight = new Map();
+    }
+    if (!Number.isFinite(this.chatCacheTtlMs)) {
+      this.chatCacheTtlMs = 15000;
+    }
+
+    if (!context.campaignId || !context.roomId) {
+      return null;
+    }
+
+    const cacheKey = this.buildRoomChatCacheKey(context, channelKey);
+    if (!force) {
+      const cached = this.getCachedChatPayload(this.roomChatCache, cacheKey);
+      if (cached) {
+        return cached;
+      }
+      if (this.roomChatInflight.has(cacheKey)) {
+        return this.roomChatInflight.get(cacheKey);
+      }
+    }
+
+    const request = (async () => {
+      let url = `/api/campaign/${context.campaignId}/room/${context.roomId}/chat?channel=${encodeURIComponent(channelKey)}`;
+      if (context.characterId) {
+        url += `&character_id=${context.characterId}`;
+      }
+      const response = await fetch(url);
+
+      if (response.status === 403) {
+        console.warn('Chat access denied for campaign:', context.campaignId);
+        return null;
+      }
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const result = await response.json();
+      if (result?.success && result.data?.messages) {
+        this.setCachedChatPayload(this.roomChatCache, cacheKey, result);
+      }
+      return result;
+    })();
+
+    this.roomChatInflight.set(cacheKey, request);
+
+    try {
+      return await request;
+    } finally {
+      if (this.roomChatInflight.get(cacheKey) === request) {
+        this.roomChatInflight.delete(cacheKey);
+      }
+    }
+  }
+
+  navigateToDungeonContext(dungeonSwitch) {
+    if (typeof window === 'undefined' || !window.location) {
+      console.error('[Navigation] window.location not available for dungeon switch');
+      return;
+    }
+
+    const hexmap = this.stateManager?.hexmap;
+    const params = new URLSearchParams(window.location.search);
+    const campaignId = hexmap?.resolveCampaignId?.() || params.get('campaign_id');
+    const characterId = hexmap?.launchContext?.character_id || params.get('character_id');
+
+    if (campaignId) {
+      params.set('campaign_id', String(campaignId));
+    }
+    if (characterId) {
+      params.set('character_id', String(characterId));
+    }
+
+    params.set('map_id', String(dungeonSwitch.map_id));
+    params.set('room_id', String(dungeonSwitch.room_id || dungeonSwitch.target_room_id || ''));
+    if (dungeonSwitch.dungeon_level_id) {
+      params.set('dungeon_level_id', String(dungeonSwitch.dungeon_level_id));
+    }
+    if (dungeonSwitch.next_room_id) {
+      params.set('next_room_id', String(dungeonSwitch.next_room_id));
+    } else {
+      params.delete('next_room_id');
+    }
+    params.set('start_q', '0');
+    params.set('start_r', '0');
+
+    window.location.assign(`${window.location.pathname}?${params.toString()}`);
+  }
+
+  ensureChatSessionApi() {
+    const campaignId = this.stateManager?.hexmap?.resolveCampaignId?.() || null;
+    if (!campaignId) return null;
+
+    if (!this.chatSessionApi || this.chatSessionApi.campaignId !== campaignId) {
+      this.chatSessionApi = new ChatSessionApi(campaignId);
+    }
+    return this.chatSessionApi;
+  }
+
+  async fetchSessionViewData(view, options = {}) {
+    const { force = false } = options;
+    const context = this.getChatContext();
+    const cacheKey = this.buildSessionViewCacheKey(view, context);
+    const shouldCache = view !== 'system-log';
+    if (!cacheKey) {
+      return null;
+    }
+
+    if (!this.sessionViewCache) {
+      this.sessionViewCache = new Map();
+    }
+    if (!this.sessionViewInflight) {
+      this.sessionViewInflight = new Map();
+    }
+    if (!Number.isFinite(this.chatCacheTtlMs)) {
+      this.chatCacheTtlMs = 15000;
+    }
+
+    if (!force && shouldCache) {
+      const cached = this.getCachedChatPayload(this.sessionViewCache, cacheKey);
+      if (cached) {
+        return cached;
+      }
+      if (this.sessionViewInflight.has(cacheKey)) {
+        return this.sessionViewInflight.get(cacheKey);
+      }
+    }
+
+    const api = this.ensureChatSessionApi();
+    if (!api) {
+      return null;
+    }
+
+    const request = (async () => {
+      let data = null;
+
+      switch (view) {
+        case 'narrative': {
+          const dungeonId = this.stateManager?.hexmap?.dungeonData?.id || null;
+          data = await api.getCharacterNarrative(context.characterId, {
+            dungeonId: dungeonId || undefined,
+            roomId: context.roomId || undefined,
+            limit: 50,
+          });
+          break;
+        }
+
+        case 'party':
+          data = await api.getPartyChat({ limit: 50 });
+          break;
+
+        case 'gm-private':
+          data = await api.getGmPrivate(context.characterId, { limit: 50 });
+          break;
+
+        case 'system-log':
+          data = await api.getSystemLog({ limit: 100 });
+          break;
+      }
+
+      if (shouldCache) {
+        this.setCachedChatPayload(this.sessionViewCache, cacheKey, data || { messages: [] });
+      }
+      return data;
+    })();
+
+    if (shouldCache) {
+      this.sessionViewInflight.set(cacheKey, request);
+    }
+
+    try {
+      return await request;
+    } finally {
+      if (shouldCache && this.sessionViewInflight.get(cacheKey) === request) {
+        this.sessionViewInflight.delete(cacheKey);
+      }
+    }
+  }
+
+  prefetchConnectedRoomContext(limit = 2) {
+    const hexmap = this.stateManager?.hexmap;
+    const campaignId = hexmap?.resolveCampaignId?.() || null;
+    const currentRoomId = hexmap?.resolveActiveRoomId?.() || null;
+    const characterId = Number(hexmap?.characterData?.id || 0) || null;
+    const connections = typeof hexmap?.getVisualConnections === 'function'
+      ? hexmap.getVisualConnections()
+      : (Array.isArray(hexmap?.dungeonData?.connections) ? hexmap.dungeonData.connections : []);
+    if (!campaignId || !currentRoomId || !connections.length) {
+      return;
+    }
+
+    const nextRoomIds = [];
+    connections.forEach((connection) => {
+      if (connection?.is_passable === false) {
+        return;
+      }
+      const fromRoomId = typeof hexmap?.getConnectionRoomId === 'function'
+        ? hexmap.getConnectionRoomId(connection, 'from')
+        : connection?.from_room;
+      const toRoomId = typeof hexmap?.getConnectionRoomId === 'function'
+        ? hexmap.getConnectionRoomId(connection, 'to')
+        : connection?.to_room;
+      if (fromRoomId === currentRoomId && toRoomId) {
+        nextRoomIds.push(String(toRoomId));
+      } else if (toRoomId === currentRoomId && fromRoomId) {
+        nextRoomIds.push(String(fromRoomId));
+      }
+    });
+
+    Array.from(new Set(nextRoomIds)).filter(Boolean).slice(0, limit).forEach((roomId) => {
+      const context = { campaignId, roomId, characterId };
+      void this.fetchRoomChatHistoryForContext(context, { channelKey: 'room' }).catch((error) => {
+        console.debug(`Skipped connected-room chat warm for ${roomId}:`, error?.message || error);
+      });
+      this.bus.emit('room:view-prefetch-requested', { campaignId, roomId });
+    });
   }
 
 }

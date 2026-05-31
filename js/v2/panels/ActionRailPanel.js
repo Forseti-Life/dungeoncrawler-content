@@ -1157,4 +1157,13 @@ export class ActionRailPanel {
     }
   }
 
+  describeCombatantTeam(entity) {
+    const combat = entity?.getComponent?.('CombatComponent');
+    const rawTeam = String(combat?.team || '').trim();
+    if (!rawTeam) {
+      return '';
+    }
+    return rawTeam.charAt(0).toUpperCase() + rawTeam.slice(1);
+  }
+
 }
