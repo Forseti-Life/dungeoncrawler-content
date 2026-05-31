@@ -1,0 +1,188 @@
+{#
+/**
+ * @file
+ * Template for the hexmap-v2 UI.
+ *
+ * This is the clean ES-module replacement for hexmap-demo.html.twig.
+ * The old template is preserved at hexmap-demo.html.twig for reference.
+ *
+ * DOM contract: selectors match js/v2/GameShell.js panel init and
+ * each panel's data-* attribute bindings.
+ *
+ * Available variables:
+ * - launch_context: Campaign/dungeon launch context.
+ * - dungeon_payload: Room/entity payload from server.
+ * - is_admin: Boolean flag for admin-only UI elements.
+ */
+#}
+<div class="hexmap-v2" data-hexmap-v2{% if is_admin %} data-admin="1"{% endif %}>
+
+  {# ── Status bar (server connectivity, zoom, hex tooltip) ─────────────────── #}
+  <div class="hv2-status" data-panel="status" role="status" aria-live="polite">
+    <div class="hv2-status__unavail" data-status="unavail-banner" hidden>
+      {{ 'Server unavailable — retrying…'|t }}
+    </div>
+    <span class="hv2-status__zoom" data-status="zoom" aria-label="{{ 'Zoom level'|t }}">100%</span>
+    <span class="hv2-status__hex-info" data-status="hex-info" aria-label="{{ 'Hovered hex'|t }}"></span>
+    <button type="button" class="hv2-status__fullscreen btn btn-icon"
+            data-status="fullscreen"
+            title="{{ 'Toggle fullscreen'|t }}"
+            aria-pressed="false">
+      {{ 'Fullscreen'|t }}
+    </button>
+  </div>
+
+  {# ── Main workspace ─────────────────────────────────────────────────────── #}
+  <div class="hv2-workspace">
+
+    {# Left rail: party portraits + action controls #}
+    <aside class="hv2-sidebar hv2-sidebar--left" aria-label="{{ 'Party and actions'|t }}">
+
+      {# Party rail #}
+      <section class="hv2-party-rail" data-panel="party-rail" aria-label="{{ 'Party members'|t }}">
+        <div class="hv2-party-rail__tiles" data-party="rail"></div>
+        <p class="hv2-party-rail__empty" data-party="empty" hidden>{{ 'No party members in room.'|t }}</p>
+      </section>
+
+      {# Action rail #}
+      <section class="hv2-action-rail" data-panel="action-rail" aria-label="{{ 'Player actions'|t }}">
+        <header class="hv2-action-rail__header">
+          <p class="hv2-action-rail__actor" data-action-rail="actor-name">{{ 'No actor selected'|t }}</p>
+          <p class="hv2-action-rail__status" data-action-rail="status"></p>
+        </header>
+        <div class="hv2-action-rail__cats" data-action-rail="categories" role="group" aria-label="{{ 'Action categories'|t }}">
+          {# Category buttons injected by ActionRailPanel #}
+        </div>
+        <div class="hv2-action-rail__panel">
+          <h3 class="hv2-action-rail__panel-title" data-action-rail="panel-title"></h3>
+          <div class="hv2-action-rail__panel-body" data-action-rail="panel-body"></div>
+        </div>
+      </section>
+
+    </aside>
+
+    {# Centre: hex canvas #}
+    <main class="hv2-canvas-area" aria-label="{{ 'Dungeon map'|t }}">
+      <div class="hv2-canvas" data-hexmap-canvas></div>
+
+      {# Room view overlay (scene image + NPC responders) #}
+      <section class="hv2-room-view" data-panel="room-view" aria-label="{{ 'Current room'|t }}">
+        <img class="hv2-room-view__scene" data-room="scene-image" src="" alt="{{ 'Room scene'|t }}" hidden />
+        <h2 class="hv2-room-view__name" data-room="name"></h2>
+        <div class="hv2-room-view__responders" data-room="responders" role="list" aria-label="{{ 'NPC responders'|t }}"></div>
+        <p class="hv2-room-view__empty" data-room="empty">{{ 'No room loaded.'|t }}</p>
+      </section>
+    </main>
+
+    {# Right rail: character, chat, quest, inventory #}
+    <aside class="hv2-sidebar hv2-sidebar--right" aria-label="{{ 'Character and journal'|t }}">
+
+      {# Character panel #}
+      <section class="hv2-character" data-panel="character" aria-label="{{ 'Character summary'|t }}">
+        <img class="hv2-character__portrait" data-char="portrait" src="" alt="{{ 'Character portrait'|t }}" />
+        <div class="hv2-character__info">
+          <p class="hv2-character__name" data-char="name"></p>
+          <p class="hv2-character__class" data-char="class"></p>
+          <p class="hv2-character__level">{{ 'Level'|t }} <span data-char="level"></span></p>
+          <p class="hv2-character__hp" data-char="hp"></p>
+          <p class="hv2-character__ac">{{ 'AC'|t }} <span data-char="ac"></span></p>
+          <a class="hv2-character__sheet-link" data-char="sheet-link" href="#" target="_blank">{{ 'Full sheet'|t }}</a>
+        </div>
+        <div class="hv2-character__entity-info" data-char="entity-info" hidden>
+          <p class="hv2-character__entity-name" data-char="entity-name"></p>
+          <div class="hv2-character__entity-stats" data-char="entity-stats"></div>
+        </div>
+      </section>
+
+      {# Chat panel #}
+      <section class="hv2-chat" data-panel="chat" aria-label="{{ 'Chat'|t }}">
+        <div class="hv2-chat__channel-tabs" data-chat="channel-tabs" role="tablist" aria-label="{{ 'Chat channels'|t }}">
+          <button type="button" class="hv2-chat__tab hv2-chat__tab--active" role="tab"
+                  data-channel="room" aria-selected="true">{{ 'Room'|t }}</button>
+          <button type="button" class="hv2-chat__tab" role="tab"
+                  data-channel="ooc" aria-selected="false">{{ 'OOC'|t }}</button>
+          <button type="button" class="hv2-chat__tab" role="tab"
+                  data-channel="gm" aria-selected="false">{{ 'GM'|t }}</button>
+          <button type="button" class="hv2-chat__tab" role="tab"
+                  data-channel="combat-log" aria-selected="false">{{ 'Combat'|t }}</button>
+        </div>
+        <div class="hv2-chat__turn-status" data-chat="turn-status" hidden></div>
+        <div class="hv2-chat__log" data-chat="log" role="log" aria-live="polite" aria-label="{{ 'Chat messages'|t }}"></div>
+        <form class="hv2-chat__compose" aria-label="{{ 'Send message'|t }}">
+          <input class="hv2-chat__input" data-chat="input"
+                 type="text" autocomplete="off"
+                 placeholder="{{ 'Say something…'|t }}" />
+          <button class="hv2-chat__send btn btn-primary" data-chat="send" type="submit">
+            {{ 'Send'|t }}
+          </button>
+        </form>
+      </section>
+
+      {# Quest journal #}
+      <section class="hv2-quest" data-panel="quest" aria-label="{{ 'Quest journal'|t }}">
+        <div class="hv2-quest__list" data-quest="list"></div>
+        <p class="hv2-quest__empty" data-quest="empty">{{ 'No active quests.'|t }}</p>
+        <div class="hv2-quest__toast" data-quest="toast" role="alert" aria-live="assertive" hidden></div>
+      </section>
+
+      {# Inventory #}
+      <section class="hv2-inventory" data-panel="inventory" aria-label="{{ 'Inventory'|t }}">
+        <p class="hv2-inventory__currency" data-inv="currency"></p>
+        <div class="hv2-inventory__items" data-inv="item-list"></div>
+        <p class="hv2-inventory__empty" data-inv="empty">{{ 'Your inventory is empty.'|t }}</p>
+      </section>
+
+    </aside>
+  </div>{# /.hv2-workspace #}
+
+  {# ── Overlay panels (portrait viewer, merchant, combat tracker) ──────────── #}
+
+  {# Portrait panel (NPC portrait viewer modal) #}
+  <section class="hv2-portraits" data-panel="portrait" aria-label="{{ 'NPC portraits'|t }}" hidden>
+    <header class="hv2-portraits__header">
+      <span class="hv2-portraits__room-name" data-portrait="room-name"></span>
+      <span class="hv2-portraits__count" data-portrait="count"></span>
+    </header>
+    <div class="hv2-portraits__grid" data-portrait="grid" role="list"></div>
+    <p class="hv2-portraits__placeholder" data-portrait="placeholder">{{ 'No NPCs in this room.'|t }}</p>
+  </section>
+
+  {# Merchant panel #}
+  <section class="hv2-merchant" data-panel="merchant" aria-label="{{ 'Merchant'|t }}" hidden>
+    <header class="hv2-merchant__header">
+      <select class="hv2-merchant__select" data-merchant="select" aria-label="{{ 'Choose merchant'|t }}" hidden></select>
+      <div class="hv2-merchant__portrait-wrap" data-merchant="portrait-wrap">
+        <img class="hv2-merchant__portrait" data-merchant="portrait" src="" alt="{{ 'Merchant portrait'|t }}" />
+      </div>
+      <p class="hv2-merchant__name" data-merchant="name"></p>
+      <p class="hv2-merchant__role" data-merchant="role"></p>
+    </header>
+    <p class="hv2-merchant__currency">{{ 'Your gold:'|t }} <span data-merchant="player-currency">—</span></p>
+    <input class="hv2-merchant__filter" data-merchant="filter"
+           type="search" placeholder="{{ 'Search items…'|t }}" autocomplete="off" />
+    <div class="hv2-merchant__grid" data-merchant="stock-grid"></div>
+    <p class="hv2-merchant__empty" data-merchant="empty" hidden>{{ 'No items available.'|t }}</p>
+    <p class="hv2-merchant__status" data-merchant="status" hidden></p>
+  </section>
+
+  {# Combat tracker panel #}
+  <section class="hv2-combat" data-panel="combat" aria-label="{{ 'Combat tracker'|t }}" hidden>
+    <div class="hv2-combat__tracker" data-combat="tracker-wrap" hidden>
+      <p class="hv2-combat__round" data-combat="round-counter"></p>
+      <p class="hv2-combat__turn-name" data-combat="turn-name"></p>
+      <p class="hv2-combat__turn-label" data-combat="turn-label"></p>
+      <p class="hv2-combat__turn-actions" data-combat="turn-actions"></p>
+      <p class="hv2-combat__turn-movement" data-combat="turn-movement"></p>
+      <span class="hv2-combat__reaction" data-combat="turn-reaction"></span>
+      <ol class="hv2-combat__initiative" data-combat="initiative-list" aria-label="{{ 'Initiative order'|t }}"></ol>
+      <div class="hv2-combat__actions">
+        <button type="button" class="btn btn-primary" data-combat="end-turn-btn">{{ 'End Turn'|t }}</button>
+        <button type="button" class="btn btn-danger" data-combat="end-combat-btn">{{ 'End Combat'|t }}</button>
+      </div>
+    </div>
+    <button type="button" class="btn btn-primary hv2-combat__start" data-combat="start-btn">
+      {{ 'Start Combat'|t }}
+    </button>
+  </section>
+
+</div>{# /.hexmap-v2 #}
