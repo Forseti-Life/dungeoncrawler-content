@@ -534,15 +534,17 @@ export class GameShell {
       const payloadRoom = { ...(result.data.room ?? visualRoom), id: roomId };
       const roomName = payloadRoom?.name ?? visualRoom?.name ?? roomId;
 
-      const statusLabel = entries.length > 0
-        ? `${entries.length} Scene${entries.length === 1 ? '' : 's'}`
-        : (result.data.available === false ? 'Unavailable' : 'Pending');
-      const placeholderText = entries.length > 0
-        ? ''
-        : (result.data.message || 'No room view image is available yet.');
-
       const dataStatus = String(result.data.status || '').toLowerCase();
       this._roomViewHasContent = entries.length > 0;
+
+      const statusLabel = entries.length > 0
+        ? `${entries.length} Scene${entries.length === 1 ? '' : 's'}`
+        : (dataStatus === 'pending' ? 'Generating' : (result.data.available === false ? 'Unavailable' : 'Pending'));
+      const placeholderText = entries.length > 0
+        ? ''
+        : (dataStatus === 'pending'
+          ? 'Room scene is being generated — checking again shortly...'
+          : (result.data.message || 'No room view image is available yet.'));
 
       console.log('[GameShell] _loadRoomView: result', {
         rawEntries: result.data.entries?.length ?? 0,
@@ -553,7 +555,6 @@ export class GameShell {
         message: result.data.message ?? null,
       });
 
-      this.bus.emit('room:changed', { roomId, roomName, sceneImageUrl, responders: [], _source: 'shell' });
       this.bus.emit('room:view-loaded', { room: payloadRoom, viewState: { statusLabel, placeholderText, entries } });
 
       // Auto-retry when pending (image generation queued server-side)
