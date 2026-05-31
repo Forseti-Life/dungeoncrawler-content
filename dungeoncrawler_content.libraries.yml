@@ -192,6 +192,26 @@ hexmap:
     - core/drupal
     - core/once
 
+# Hex Map V2 — clean architecture (Event Bus + Panels)
+# NOT attached to any page until Phase 10 cutover.
+# All js/v2/** modules are imported inside hexmap-v2.js (ES module imports);
+# only the entry point is listed here.
+hexmap-v2:
+  version: VERSION
+  js:
+    # PixiJS CDN (version locked — same as hexmap library)
+    https://cdn.jsdelivr.net/npm/pixi.js@7.3.2/dist/pixi.min.js: { type: external, minified: true }
+    # ECS Core (reused from existing js/ecs/)
+    js/ecs/index.js: { attributes: { type: module } }
+    # V2 entry point (imports all js/v2/** modules internally)
+    js/hexmap-v2.js: { attributes: { type: module } }
+  css:
+    theme:
+      css/hexmap.css: {}
+  dependencies:
+    - core/drupal
+    - core/once
+
 credits:
   css:
     theme:
