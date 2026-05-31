@@ -113,6 +113,8 @@ export class GameShell {
     this._roomViewRequestToken = 0;
     /** @type {boolean} chat history already loaded for this session */
     this._chatHistoryLoaded = false;
+    /** @type {string} currently active tab id */
+    this.activeGameShellTab = 'map';
   }
 
   /**
@@ -239,9 +241,14 @@ export class GameShell {
    * @private
    */
   _onTabChanged(tabId) {
-    if (tabId === 'view')     this._loadRoomView();
-    if (tabId === 'merchant') this._loadMerchantStock();
+    this.activeGameShellTab = tabId;
+    if (tabId === 'view')      this._loadRoomView();
+    if (tabId === 'merchant')  this._loadMerchantStock();
     if (tabId === 'chat' && !this._chatHistoryLoaded) this._loadChatHistory();
+    if (tabId === 'character') {
+      const charId = this.launchCharacter?.id ?? this.launchContext?.character_id ?? null;
+      if (charId) this.bus.emit('character:sheet-requested', { characterId: charId });
+    }
   }
 
   /**
@@ -352,6 +359,9 @@ export class GameShell {
           quest: { ...q, objectives: _flattenQuestObjectives(q) },
         });
       });
+
+      // Notify ChatPanel the turn is complete
+      this.bus.emit('chat:turn-status-changed', { status: 'idle' });
     } catch (_) {
       this.bus.emit('game:server-unavailable', { message: 'Server unreachable. Please check your connection.' });
     }
@@ -587,21 +597,41 @@ export class GameShell {
   _buildHexmapShim() {
     const shell = this;
     return {
-      resolveCampaignId:  () => shell.launchContext?.campaign_id ?? null,
+      // Core resolution
+      resolveCampaignId:   () => shell.launchContext?.campaign_id ?? null,
       resolveActiveRoomId: () => shell.activeRoomId,
-      dungeonData:         shell.dungeonData,
-      entityManager:       shell.entityManager,
-      movementSystem:      shell.movementSystem,
+      // Data refs (live values via getters for freshness)
+      get dungeonData()    { return shell.dungeonData; },
+      get launchContext()  { return shell.launchContext; },
+      get characterData()  { return shell.launchCharacter; },
+      get launchCharacter(){ return shell.launchCharacter; },
+      get entityManager()  { return shell.entityManager; },
+      get movementSystem() { return shell.movementSystem; },
+      // Occupant queries
       getVisualOccupants:  () => shell._currentOccupants,
+      getVisualRooms:      () => [],
+      getActiveRoomData:   () => shell._activeRoomData ?? null,
+      buildActiveRoomOccupantSummary: () => '',
+      isVisualOccupantVisible: () => true,
+      getObjectDefinition: () => null,
+      spriteService: { getCachedUrl: () => null },
+      // Entity interaction
+      selectEntity:        (id) => shell.bus.emit('entity:select-request', { id }),
+      // Navigation / automation stubs
+      resolveNavigationCapabilities: () => ({}),
+      getPlayerAutomationState:      () => null,
+      startPlayerAutomation:         () => {},
+      stopPlayerAutomation:          () => {},
+      // Combat
       startCombat:         () => shell.systems.encounter?.startCombat?.(),
       endCombat:           () => shell.systems.encounter?.endCombat?.(),
       endTurn:             () => shell.systems.encounter?.endCurrentTurn?.(),
+      getHostileTargets:   () => [],
+      hasLineOfSight:      () => false,
+      performCombatAction: () => {},
+      // Inner stateManager.get used by ActionRailPanel
       stateManager: {
-        get: (key) => {
-          if (key === 'selectedEntity') return null;
-          if (key === 'encounterId')    return null;
-          return null;
-        },
+        get: (_key) => null,
       },
     };
   }
@@ -616,7 +646,8 @@ export class GameShell {
     const bus = this.bus;
     const panel = (sel) => c.querySelector(sel) ?? c;
     const hexmap = this._buildHexmapShim();
-    const stateManager = { hexmap };
+    // stateManager.get needed by ActionRailPanel (this.stateManager?.get?.('selectedEntity'))
+    const stateManager = { hexmap, get: (_key) => null };
 
     this.panels.portrait   = new PortraitPanel(panel('[data-panel="portrait"]'), bus);
     this.panels.merchant   = new MerchantPanel(panel('[data-panel="merchant"]'), bus);
@@ -835,7 +866,12 @@ export class GameShell {
         inventory: nextInventory,
         currency: nextInventory.currency || currentContext.currency || context.currency || {},
       };
-      this.renderInventoryPanel(this.currentCharacterInventoryContext);
+      // Emit bus event so InventoryPanel and MerchantPanel react
+      this.bus.emit('inventory:changed', {
+        inventory: nextInventory,
+        currency: nextInventory.currency || {},
+        characterId: context.characterId,
+      });
       if (this.activeGameShellTab === 'merchant') {
         this.loadMerchantPanel(true);
       }
@@ -846,13 +882,10 @@ export class GameShell {
 
   // --- ported from hexmap.js ---
   prefetchConnectedRoomContext(limit = 2) {
-    const hexmap = this.stateManager?.hexmap;
-    const campaignId = hexmap?.resolveCampaignId?.() || null;
-    const currentRoomId = hexmap?.resolveActiveRoomId?.() || null;
-    const characterId = Number(hexmap?.characterData?.id || 0) || null;
-    const connections = typeof hexmap?.getVisualConnections === 'function'
-      ? hexmap.getVisualConnections()
-      : (Array.isArray(hexmap?.dungeonData?.connections) ? hexmap.dungeonData.connections : []);
+    const campaignId    = this.launchContext?.campaign_id ?? null;
+    const currentRoomId = this.activeRoomId ?? null;
+    const characterId   = Number(this.launchCharacter?.id || 0) || null;
+    const connections   = Array.isArray(this.dungeonData?.connections) ? this.dungeonData.connections : [];
     if (!campaignId || !currentRoomId || !connections.length) {
       return;
     }
@@ -862,12 +895,8 @@ export class GameShell {
       if (connection?.is_passable === false) {
         return;
       }
-      const fromRoomId = typeof hexmap?.getConnectionRoomId === 'function'
-        ? hexmap.getConnectionRoomId(connection, 'from')
-        : connection?.from_room;
-      const toRoomId = typeof hexmap?.getConnectionRoomId === 'function'
-        ? hexmap.getConnectionRoomId(connection, 'to')
-        : connection?.to_room;
+      const fromRoomId = connection?.from_room;
+      const toRoomId   = connection?.to_room;
       if (fromRoomId === currentRoomId && toRoomId) {
         nextRoomIds.push(String(toRoomId));
       } else if (toRoomId === currentRoomId && fromRoomId) {
