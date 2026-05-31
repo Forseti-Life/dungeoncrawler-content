@@ -7,7 +7,7 @@
 
 import { escapeQuestHtml } from '../utils/quest-utils.js';
 import { escapeTooltipAttr } from '../utils/dom-utils.js';
-import { normalizeInventoryState } from '../utils/inventory-utils.js';
+import { collectInventoryItems, normalizeInventoryState } from '../utils/inventory-utils.js';
 
 export class MerchantPanel {
   constructor(container, bus) {
@@ -84,6 +84,9 @@ export class MerchantPanel {
       this.bus.on('room:occupants-changed', (d) => {
         this._cachedOccupants = d?.occupants ?? [];
         this._buildMerchantEntriesFromOccupants(d?.roomId, this._cachedOccupants);
+      }),
+      this.bus.on('inventory:changed', (d) => {
+        this.currentCharacterInventoryContext = d || null;
       }),
     );
   }
@@ -537,6 +540,138 @@ export class MerchantPanel {
       currency: inventory.currency || player.currency || this.currentCharacterInventoryContext.currency || {},
     };
     this.bus.emit('inventory:changed', this.currentCharacterInventoryContext);
+  }
+
+  async loadMerchantPanel(force = false) {
+    const hexmap = this.stateManager?.hexmap || null;
+    const campaignId = Number(hexmap?.resolveCampaignId?.() || 0);
+    const roomId = hexmap?.resolveActiveRoomId?.() || null;
+    const merchantEntries = this.buildRoomMerchantEntries(roomId);
+    const previousRoomId = this.currentMerchantRoomId;
+
+    if (previousRoomId && roomId && previousRoomId !== roomId) {
+      this.currentMerchantContext = null;
+      this.resetMerchantCatalogSearch();
+    }
+
+    this.currentMerchantRoomId = roomId;
+    this.currentMerchantCandidates = merchantEntries;
+    if (roomId) {
+      this.clearMerchantPanelRetry();
+    }
+    this.logMerchantPanelTrace('load-start', {
+      force,
+      campaignId,
+      roomId,
+      previousRoomId,
+      currentMerchantRef: this.currentMerchantRef,
+      candidateRefs: merchantEntries.map((entry) => entry.entityId),
+      candidateNames: merchantEntries.map((entry) => entry.name),
+    });
+    this.renderMerchantPanel(this.currentMerchantContext);
+
+    if (!campaignId || !roomId || merchantEntries.length === 0) {
+      this.currentMerchantContext = null;
+      this.resetMerchantCatalogSearch();
+      this.renderMerchantPanel(null);
+      this.logMerchantPanelTrace('load-skipped', {
+        force,
+        campaignId,
+        roomId,
+        merchantCount: merchantEntries.length,
+      });
+      if (campaignId && !roomId) {
+        this.setMerchantStatus('Loading room merchant context...', 'pending');
+        this.scheduleMerchantPanelRetry('room-pending');
+        return;
+      }
+      this.setMerchantStatus(merchantEntries.length === 0 ? 'No merchant is present in this room.' : 'Merchant context is unavailable.', 'info');
+      return;
+    }
+
+    const currentChoiceValid = merchantEntries.some((entry) => entry.entityId === this.currentMerchantRef);
+    if (!currentChoiceValid) {
+      this.currentMerchantRef = merchantEntries[0]?.entityId || null;
+    }
+    if (!this.currentMerchantRef) {
+      this.currentMerchantContext = null;
+      this.resetMerchantCatalogSearch();
+      this.renderMerchantPanel(null);
+      return;
+    }
+
+    if (!force && this.currentMerchantContext?.merchant?.merchant_ref === this.currentMerchantRef && previousRoomId === roomId) {
+      this.renderMerchantPanel(this.currentMerchantContext);
+      return;
+    }
+
+    const occupant = Array.isArray(this._cachedOccupants)
+      ? this._cachedOccupants.find((entry) => String(entry?.occupant_id || entry?.content_id || '') === String(this.currentMerchantRef || '')) || null
+      : null;
+    const presentation = occupant?.presentation && typeof occupant.presentation === 'object' ? occupant.presentation : {};
+    const hasMerchantStock = Object.prototype.hasOwnProperty.call(presentation, 'stock');
+    const selectedMerchantEntry = merchantEntries.find((entry) => entry.entityId === this.currentMerchantRef) || merchantEntries[0] || null;
+    const characterId = this.resolveActiveMerchantCharacterId();
+
+    if (force || !hasMerchantStock) {
+      this.bus.emit('character:inventory-refresh-requested', {
+        characterId,
+        campaignId,
+        currency: this.currentCharacterInventoryContext?.currency || {},
+      });
+    }
+
+    if (!hasMerchantStock && !this.currentMerchantContext) {
+      this.currentMerchantContext = null;
+      this.resetMerchantCatalogSearch();
+      this.renderMerchantPanel(null);
+      this.setMerchantStatus('Loading merchant stock...', 'pending');
+      this.scheduleMerchantPanelRetry('stock-pending');
+      return;
+    }
+
+    const existingContext = this.currentMerchantContext?.merchant?.merchant_ref === this.currentMerchantRef
+      ? this.currentMerchantContext
+      : null;
+    const inventory = normalizeInventoryState(
+      this.currentCharacterInventoryContext?.inventory || existingContext?.player?.inventory || {},
+      this.currentCharacterInventoryContext?.currency || existingContext?.player?.currency || presentation.player_currency || {}
+    );
+    const sellableInventory = Array.isArray(existingContext?.player?.sellable_inventory) && existingContext.player.sellable_inventory.length > 0
+      ? existingContext.player.sellable_inventory
+      : collectInventoryItems(inventory, this.currentCharacterInventoryContext?.equipment || []);
+
+    this.currentMerchantContext = {
+      ...existingContext,
+      merchant: {
+        ...(existingContext?.merchant || {}),
+        merchant_ref: this.currentMerchantRef,
+        name: selectedMerchantEntry?.name || occupant?.label || existingContext?.merchant?.name || 'Merchant',
+        summary: selectedMerchantEntry?.summary || presentation.role || existingContext?.merchant?.summary || '',
+        role: presentation.role || existingContext?.merchant?.role || selectedMerchantEntry?.summary || 'Merchant',
+        portrait_url: selectedMerchantEntry?.portraitUrl || presentation.portrait_url || existingContext?.merchant?.portrait_url || '',
+      },
+      stock: hasMerchantStock ? (Array.isArray(presentation.stock) ? presentation.stock : []) : (existingContext?.stock || []),
+      player: {
+        ...(existingContext?.player || {}),
+        character_id: characterId,
+        inventory,
+        currency: inventory.currency || presentation.player_currency || existingContext?.player?.currency || {},
+        currency_label: existingContext?.player?.currency_label || '0 cp',
+        sellable_inventory: Array.isArray(sellableInventory) ? sellableInventory : [],
+      },
+    };
+
+    this.logMerchantPanelTrace('load-success', {
+      force,
+      merchantRef: this.currentMerchantRef,
+      merchantName: this.currentMerchantContext?.merchant?.name || null,
+      stockCount: Array.isArray(this.currentMerchantContext?.stock) ? this.currentMerchantContext.stock.length : 0,
+      sellableCount: Array.isArray(this.currentMerchantContext?.player?.sellable_inventory) ? this.currentMerchantContext.player.sellable_inventory.length : 0,
+      delegatedToShell: true,
+    });
+    this.renderMerchantPanel(this.currentMerchantContext);
+    this.setMerchantStatus(hasMerchantStock ? 'Ready to trade.' : 'Merchant context is syncing...', hasMerchantStock ? 'info' : 'pending');
   }
 
   renderMerchantPanel(context = null) {

@@ -1650,6 +1650,396 @@ export class ChatPanel {
     return `${text.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
   }
 
+  renderChatLineRecords(lines = [], view = this.activeSessionView, options = {}) {
+    const log = this._el.chatLog;
+    if (log) {
+      log.innerHTML = '';
+    }
+
+    const normalizedLines = Array.isArray(lines) ? lines : [];
+    normalizedLines.forEach((line) => {
+      this.appendChatLine(line.speaker, line.message, line.type, {
+        lineId: line.lineId,
+        transient: line.transient,
+        messageId: line.messageId,
+        sourceMessageId: line.sourceMessageId,
+        created: line.created,
+        suppressRemember: true,
+      });
+    });
+
+    this.rememberChatLines(view, normalizedLines, {
+      context: options.context,
+      channelKey: options.channelKey,
+      replace: true,
+    });
+  }
+
+  switchChannel(channelKey) {
+    this.activeChannel = channelKey;
+
+    const tabContainer = this._el.chatChannelTabs;
+    if (tabContainer) {
+      tabContainer.querySelectorAll('.chat-channel-tab').forEach((tab) => {
+        tab.classList.toggle('chat-channel-tab--active', tab.dataset.channel === channelKey);
+      });
+    }
+
+    const channel = this.channels[channelKey];
+    let channelType = 'room';
+    let indicatorIcon = '📢';
+    let indicatorText = 'Room — Everyone can hear';
+
+    if (channel && channelKey !== 'room') {
+      const targetName = channel.target_name || channel.label || 'NPC';
+      const ability = channel.source_ability || 'whisper';
+      if (channelKey.startsWith('spell:')) {
+        channelType = 'spell';
+        indicatorIcon = '✨';
+        indicatorText = `${channel.label || ability} — Magical link with ${targetName}`;
+      } else {
+        channelType = 'whisper';
+        indicatorIcon = '🗣';
+        indicatorText = `Whisper — Private with ${targetName}`;
+      }
+    }
+
+    const indicator = this._el.chatChannelIndicator;
+    if (indicator) {
+      indicator.dataset.channelType = channelType;
+      const iconEl = indicator.querySelector('.channel-indicator__icon');
+      if (iconEl) iconEl.textContent = indicatorIcon;
+    }
+    const label = this._el.chatChannelLabel;
+    if (label) label.textContent = indicatorText;
+
+    const log = this._el.chatLog;
+    if (log) log.dataset.channelType = channelType;
+
+    const input = this._el.chatInput;
+    if (input) {
+      if (channelKey === 'room') {
+        input.placeholder = 'Say something to the room...';
+      } else {
+        const targetName = channel?.target_name || channel?.label || 'NPC';
+        input.placeholder = `${channel?.source_ability || 'Whisper'} to ${targetName}...`;
+      }
+    }
+
+    if (this.activeSessionView === 'room') {
+      if (typeof this.loadChatHistory === 'function') {
+        this.loadChatHistory();
+      } else if (typeof this.loadSessionViewMessages === 'function') {
+        this.loadSessionViewMessages('room', { channelKey });
+      }
+    }
+    this.syncChatTurnStatus();
+  }
+
+  handleNavigationResult(nav) {
+    const hexmap = this.stateManager?.hexmap;
+    if (!nav || !hexmap || !hexmap.dungeonData) {
+      console.error('[Navigation] hexmap or dungeonData not available');
+      return;
+    }
+
+    const targetRoomId = nav.target_room_id;
+    const newRoom = nav.room;
+    const newEntities = nav.entities || [];
+    const newConnections = nav.connections || [];
+    const entryHex = nav.entry_hex || { q: 0, r: 0 };
+
+    console.log('[Navigation] Transitioning to:', targetRoomId, nav.destination);
+
+    if (nav.dungeon_switch?.map_id) {
+      this.appendChatLine('System', `🗺️ Traveling to ${nav.destination || targetRoomId}...`, 'system');
+      if (typeof this.navigateToDungeonContext === 'function') {
+        this.navigateToDungeonContext(nav.dungeon_switch);
+      } else {
+        this.bus.emit('user:navigate-dungeon', { dungeonSwitch: nav.dungeon_switch });
+      }
+      return;
+    }
+
+    if (newRoom && targetRoomId) {
+      hexmap.dungeonData.rooms = hexmap.dungeonData.rooms || {};
+      hexmap.dungeonData.rooms[targetRoomId] = newRoom;
+    }
+
+    if (!Array.isArray(hexmap.dungeonData.entities)) {
+      hexmap.dungeonData.entities = [];
+    }
+    for (const entity of newEntities) {
+      const existingIdx = hexmap.dungeonData.entities.findIndex(
+        (candidate) => (candidate.instance_id || candidate.entity_instance_id) === (entity.instance_id || entity.entity_instance_id)
+      );
+      if (existingIdx === -1) {
+        hexmap.dungeonData.entities.push(entity);
+      }
+    }
+
+    if (!Array.isArray(hexmap.dungeonData.connections)) {
+      hexmap.dungeonData.connections = [];
+    }
+    for (const conn of newConnections) {
+      const connId = conn.connection_id || `${conn.from_room}_${conn.to_room}`;
+      const exists = hexmap.dungeonData.connections.some(
+        (candidate) => (candidate.connection_id || `${candidate.from_room}_${candidate.to_room}`) === connId
+      );
+      if (!exists) {
+        hexmap.dungeonData.connections.push(conn);
+      }
+    }
+
+    const selectedEntity = hexmap.stateManager?.get?.('selectedEntity') || this.stateManager?.get?.('selectedEntity') || null;
+    if (selectedEntity && Array.isArray(hexmap.dungeonData.entities)) {
+      const entityRef = selectedEntity.dcEntityRef;
+      for (const entity of hexmap.dungeonData.entities) {
+        const candidateRef = entity.instance_id || entity.entity_instance_id;
+        if (candidateRef === entityRef || (selectedEntity.dcCharacterId && entity?.state?.metadata?.character_id == selectedEntity.dcCharacterId)) {
+          entity.placement = {
+            room_id: targetRoomId,
+            hex: { q: Number(entryHex.q), r: Number(entryHex.r) },
+          };
+          break;
+        }
+      }
+
+      const allyNpcs = hexmap.dungeonData.entities.filter(
+        (entity) => entity.entity_type === 'npc' && entity?.state?.metadata?.team === 'ally'
+      );
+      const offsets = [{ q: 1, r: 0 }, { q: -1, r: 0 }, { q: 0, r: 1 }, { q: 0, r: -1 }, { q: 1, r: -1 }, { q: -1, r: 1 }];
+      allyNpcs.forEach((npc, index) => {
+        const offset = offsets[index % offsets.length];
+        const npcQ = Number(entryHex.q) + offset.q;
+        const npcR = Number(entryHex.r) + offset.r;
+        npc.placement = {
+          room_id: targetRoomId,
+          hex: { q: npcQ, r: npcR },
+        };
+        hexmap.persistLaunchLocationContext?.(
+          targetRoomId,
+          npcQ,
+          npcR,
+          npc.instance_id || npc.entity_instance_id || null
+        );
+      });
+
+      hexmap.deselectEntity?.();
+    }
+
+    hexmap.persistLaunchLocationContext?.(
+      targetRoomId,
+      Number(entryHex.q),
+      Number(entryHex.r),
+      selectedEntity?.dcEntityRef || null
+    );
+
+    this.appendChatLine('System', `🗺️ Traveling to ${nav.destination || newRoom?.name || targetRoomId}...`, 'system');
+
+    if (typeof hexmap.setActiveRoom === 'function') {
+      hexmap.setActiveRoom(targetRoomId);
+    } else if (hexmap?.launchContext && targetRoomId) {
+      hexmap.launchContext.room_id = targetRoomId;
+    }
+    hexmap.updateLaunchLocationContext?.(targetRoomId, Number(entryHex.q), Number(entryHex.r));
+
+    if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function' && typeof CustomEvent === 'function') {
+      window.dispatchEvent(new CustomEvent('dungeoncrawler:game-shell-tab-changed', {
+        detail: { tabId: 'view' },
+      }));
+    }
+    this.bus.emit('room:changed', {
+      roomId: targetRoomId,
+      roomName: nav.destination || newRoom?.name || targetRoomId,
+      room: newRoom || null,
+    });
+    if (targetRoomId) {
+      this.bus.emit('room:view-reload-requested', { roomId: targetRoomId, force: true, preserveExisting: true });
+    }
+
+    const newPlayerEntity = hexmap.findLaunchPlayerEntity?.();
+    if (newPlayerEntity) {
+      hexmap.selectEntity?.(newPlayerEntity);
+      if (hexmap.launchCharacter) {
+        hexmap.uiManager?.showLaunchCharacter?.(hexmap.launchCharacter);
+      }
+    }
+
+    console.log('[Navigation] Room switch complete:', targetRoomId);
+  }
+
+  buildActiveRoomNpcTurnOrder(roomId = null) {
+    const hexmap = this.stateManager?.hexmap;
+    const activeRoomId = roomId || hexmap?.resolveActiveRoomId?.() || null;
+    const entities = Array.isArray(hexmap?.dungeonData?.entities) ? hexmap.dungeonData.entities : [];
+    const initiativeOrder = Array.isArray(hexmap?.dungeonData?.game_state?.initiative_order)
+      ? hexmap.dungeonData.game_state.initiative_order
+      : [];
+    const roomNpcs = entities.filter((entity) => (
+      (entity?.placement?.room_id || null) === activeRoomId
+      && String(entity?.entity_type || '').toLowerCase() === 'npc'
+    ));
+    const candidateMaps = new Map();
+    const normalizeName = (value) => String(value || '').trim().toLowerCase();
+    roomNpcs.forEach((entity) => {
+      const metadata = entity?.state?.metadata || {};
+      const displayName = String(metadata.display_name || metadata.name || entity?.display_name || entity?.name || '').trim();
+      const keys = [
+        entity?.instance_id,
+        entity?.entity_instance_id,
+        entity?.id,
+        entity?.entity_id,
+        entity?.entity_ref?.content_id,
+        entity?.entity_ref?.id,
+        metadata.entity_ref,
+        metadata.entity_id,
+        displayName,
+      ];
+      keys.forEach((key) => {
+        const normalizedKey = normalizeName(key);
+        if (normalizedKey && !candidateMaps.has(normalizedKey)) {
+          candidateMaps.set(normalizedKey, entity);
+        }
+      });
+    });
+
+    const orderedTurns = [];
+    const seenNames = new Set();
+    initiativeOrder.forEach((participant) => {
+      if (!participant || typeof participant !== 'object') {
+        return;
+      }
+      const participantRoomId = String(participant.room_id || participant?.placement?.room_id || '').trim();
+      if (activeRoomId && participantRoomId && participantRoomId !== activeRoomId) {
+        return;
+      }
+      const matchedEntity = [
+        participant.entity_ref,
+        participant.entity_id,
+        participant.participant_ref,
+        participant.name,
+      ].map(normalizeName).filter(Boolean).map((key) => candidateMaps.get(key)).find(Boolean) || null;
+      if (!matchedEntity) {
+        return;
+      }
+      const metadata = matchedEntity?.state?.metadata || {};
+      const displayName = String(metadata.display_name || metadata.name || matchedEntity?.display_name || matchedEntity?.name || '').trim();
+      const normalizedDisplayName = normalizeName(displayName);
+      if (!displayName || seenNames.has(normalizedDisplayName)) {
+        return;
+      }
+      seenNames.add(normalizedDisplayName);
+      orderedTurns.push({
+        role: 'npc',
+        name: displayName,
+        initiative: Number.isFinite(Number(participant?.initiative_total))
+          ? Number(participant.initiative_total)
+          : null,
+      });
+    });
+
+    roomNpcs.forEach((entity) => {
+      const metadata = entity?.state?.metadata || {};
+      const displayName = String(metadata.display_name || metadata.name || entity?.display_name || entity?.name || '').trim();
+      const normalizedDisplayName = normalizeName(displayName);
+      if (!displayName || seenNames.has(normalizedDisplayName)) {
+        return;
+      }
+      seenNames.add(normalizedDisplayName);
+      orderedTurns.push({
+        role: 'npc',
+        name: displayName,
+        initiative: null,
+      });
+    });
+
+    return orderedTurns;
+  }
+
+  getActiveRoomNpcResponderNames(roomId = null) {
+    return this.buildActiveRoomNpcTurnOrder(roomId)
+      .map((turn) => String(turn?.name || '').trim())
+      .filter(Boolean)
+      .sort((left, right) => right.length - left.length);
+  }
+
+  prefetchSessionViews(views = ['narrative', 'party', 'gm-private', 'system-log']) {
+    views.forEach((view) => {
+      if (!view || view === this.activeSessionView || view === 'room') {
+        return;
+      }
+      if (typeof this.fetchSessionViewData !== 'function') {
+        return;
+      }
+      void this.fetchSessionViewData(view).catch((error) => {
+        console.debug(`Skipped prefetch for ${view}:`, error?.message || error);
+      });
+    });
+  }
+
+  switchSessionView(view) {
+    this.activeSessionView = view;
+
+    const container = this._el.chatSessionTabs || this._el.chatViewTabs;
+    if (container) {
+      container.querySelectorAll('.session-view-tab').forEach((tab) => {
+        tab.classList.toggle('session-view-tab--active', tab.dataset.view === view);
+      });
+    }
+
+    const channelTabs = this._el.chatChannelTabs;
+    const channelIndicator = this._el.chatChannelIndicator;
+    const quickActions = this._el.chatQuickActions;
+    if (channelTabs) channelTabs.style.display = view === 'room' ? '' : 'none';
+    if (channelIndicator) channelIndicator.style.display = view === 'room' ? '' : 'none';
+    if (quickActions) quickActions.style.display = view === 'room' ? '' : 'none';
+
+    const titles = {
+      room: 'Room Dialogue',
+      narrative: 'My Story',
+      party: 'Party Chat',
+      'gm-private': 'GM Secret',
+      'system-log': 'Dice Log',
+    };
+    if (this._el.chatPanelTitle) {
+      this._el.chatPanelTitle.textContent = titles[view] || 'Chat';
+    }
+
+    const log = this._el.chatLog;
+    if (log) {
+      if (view === 'room') {
+        const channelType = this.activeChannel === 'room' ? 'room'
+          : this.activeChannel.startsWith('spell:') ? 'spell' : 'whisper';
+        log.dataset.channelType = channelType;
+        delete log.dataset.viewType;
+      } else {
+        delete log.dataset.channelType;
+        log.dataset.viewType = view;
+      }
+    }
+
+    const input = this._el.chatInput;
+    const sendBtn = this._el.chatSend || this._el.chatSubmit;
+    const isReadOnly = view === 'system-log';
+
+    if (input) {
+      input.disabled = isReadOnly;
+      const placeholders = {
+        room: 'Say something to the room...',
+        narrative: 'Your story unfolds here (read-only)...',
+        party: 'Whisper to your party...',
+        'gm-private': 'Send a private note to the GM or use /location, /room, /quests, /dungeon',
+        'system-log': 'Dice rolls appear here automatically...',
+      };
+      input.placeholder = placeholders[view] || '';
+    }
+    if (sendBtn) sendBtn.disabled = isReadOnly;
+
+    this.loadSessionViewMessages(view);
+    this.syncChatTurnStatus();
+  }
+
   renderSessionViewData(view, data) {
     const context = this.getChatContext();
 
