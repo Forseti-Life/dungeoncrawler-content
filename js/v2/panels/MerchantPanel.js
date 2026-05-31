@@ -33,6 +33,7 @@ export class MerchantPanel {
     this.currentMerchantStatus = null;
     this.activeGameShellTab = null;
     this.currentCharacterInventoryContext = null;
+    this._cachedOccupants = [];
   }
 
   init(dungeonData, stateManager, inventoryPanel = null) {

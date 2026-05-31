@@ -24,6 +24,7 @@ export class InventoryPanel {
     this._unsubs = [];
     this._el = {};
     this.currentCharacterInventoryContext = null;
+    this.inventoryActionStatusTimer = null;
     this.stateManager = null;
     this.dungeonData = null;
   }

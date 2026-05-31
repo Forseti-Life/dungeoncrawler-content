@@ -18,6 +18,7 @@ export class CharacterPanel {
     this._el = {};
     this.stateManager = null;
     this.dungeonData = null;
+    this.currentCharacterInventoryContext = null;
   }
 
   init(dungeonData, stateManager) {

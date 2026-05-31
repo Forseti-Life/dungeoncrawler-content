@@ -20,6 +20,13 @@ export class ActionRailPanel {
     this.stateManager = null;
     this.dungeonData = null;
     this._actionRailRealtimeTimer = null;
+    // Timer for real-world clock updates (separate naming to match usage)
+    this.actionRailRealClockTimer = null;
+    // UI state
+    this.activeActionRailCategory = null;
+    this.actionRailDescriptionsCollapsed = false;
+    this.actionRailFilters = {};
+    this.actionRailAutomationTogglePending = false;
   }
 
   init(dungeonData, stateManager) {
@@ -59,6 +66,7 @@ export class ActionRailPanel {
     this._unsubs.forEach((fn) => fn());
     this._unsubs = [];
     if (this._actionRailRealtimeTimer) clearInterval(this._actionRailRealtimeTimer);
+    if (this.actionRailRealClockTimer) clearInterval(this.actionRailRealClockTimer);
   }
 
   _subscribe() {
