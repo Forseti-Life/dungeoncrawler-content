@@ -7,6 +7,7 @@ use Drupal\Core\Database\Connection;
 use Drupal\dungeoncrawler_content\Service\AnimalCompanionService;
 use Drupal\dungeoncrawler_content\Service\CampaignCharacterRuntimeSyncService;
 use Drupal\dungeoncrawler_content\Service\CharacterManager;
+use Drupal\dungeoncrawler_content\Service\CharacterStateService;
 use Drupal\dungeoncrawler_content\Service\GeneratedImageRepository;
 use Drupal\dungeoncrawler_content\Service\MapVisualStateProjector;
 use Drupal\dungeoncrawler_content\Service\QuestGeneratorService;
@@ -40,6 +41,7 @@ class HexMapController extends ControllerBase {
   protected RelationshipManagerService $relationshipManager;
   protected StateValidationService $stateValidationService;
   protected CharacterManager $characterManager;
+  protected CharacterStateService $characterStateService;
 
   /**
    * Per-request cache of room contents_data to avoid redundant DB reads.
@@ -49,7 +51,7 @@ class HexMapController extends ControllerBase {
    * @var array<string, array|null>
    */
   protected array $roomContentsCache = [];
-  public function __construct(RequestStack $request_stack, Connection $database, AnimalCompanionService $animal_companion_service, CampaignCharacterRuntimeSyncService $campaign_character_runtime_sync, QuestTrackerService $quest_tracker, QuestGeneratorService $quest_generator, GeneratedImageRepository $image_repository, MapVisualStateProjector $map_visual_state_projector, StorylineManagerService $storyline_manager, RelationshipManagerService $relationship_manager, StateValidationService $state_validation_service, CharacterManager $character_manager) {
+  public function __construct(RequestStack $request_stack, Connection $database, AnimalCompanionService $animal_companion_service, CampaignCharacterRuntimeSyncService $campaign_character_runtime_sync, QuestTrackerService $quest_tracker, QuestGeneratorService $quest_generator, GeneratedImageRepository $image_repository, MapVisualStateProjector $map_visual_state_projector, StorylineManagerService $storyline_manager, RelationshipManagerService $relationship_manager, StateValidationService $state_validation_service, CharacterManager $character_manager, CharacterStateService $character_state_service) {
     $this->requestStack = $request_stack;
     $this->database = $database;
     $this->animalCompanionService = $animal_companion_service;
@@ -62,6 +64,7 @@ class HexMapController extends ControllerBase {
     $this->relationshipManager = $relationship_manager;
     $this->stateValidationService = $state_validation_service;
     $this->characterManager = $character_manager;
+    $this->characterStateService = $character_state_service;
   }
 
   /**
@@ -81,6 +84,7 @@ class HexMapController extends ControllerBase {
       $container->get('dungeoncrawler_content.relationship_manager'),
       $container->get('dungeoncrawler_content.state_validation_service'),
       $container->get('dungeoncrawler_content.character_manager'),
+      $container->get('dungeoncrawler_content.character_state'),
     );
   }
 
@@ -651,6 +655,11 @@ class HexMapController extends ControllerBase {
     }
 
     $character_data = $this->decodeLaunchCharacterData($record);
+    $effective_state = $this->characterStateService->getState(
+      (string) ($record['id'] ?? $character_id),
+      $campaign_id,
+      (string) ($record['instance_id'] ?? '')
+    );
 
     $name = (string) ($record['name'] ?? '');
     if ($name === '') {
@@ -711,7 +720,8 @@ class HexMapController extends ControllerBase {
     }
 
     // Extract features/feats
-    $feats = $character_data['feats'] ?? [];
+    $features = is_array($character_data['features'] ?? NULL) ? $character_data['features'] : [];
+    $feats = $effective_state['features']['feats'] ?? $features['feats'] ?? $character_data['feats'] ?? [];
     if (!is_array($feats)) {
       $feats = [];
     }
@@ -752,7 +762,16 @@ class HexMapController extends ControllerBase {
     }
 
     // Extract spells data
-    $spells = $this->normalizeLaunchCharacterSpells($character_data, $class);
+    $spells = $this->normalizeLaunchCharacterSpells($effective_state + $character_data, $class);
+    $features = is_array($effective_state['features'] ?? NULL)
+      ? array_replace_recursive($features, $effective_state['features'])
+      : $features;
+    $actions = is_array($effective_state['actions'] ?? NULL)
+      ? $effective_state['actions']
+      : ($character_data['actions'] ?? []);
+    $resources = is_array($effective_state['resources'] ?? NULL)
+      ? $effective_state['resources']
+      : ($character_data['resources'] ?? []);
 
     // Extract heritage, background, speed, alignment, deity
     $heritage = is_array($character_data['ancestry'] ?? NULL)
@@ -807,6 +826,9 @@ class HexMapController extends ControllerBase {
       'skills' => $skills,
       'feats' => $feats,
       'spells' => $spells,
+      'features' => $features,
+      'actions' => $actions,
+      'resources' => $resources,
       'inventory' => $inventory,
       'currency' => $inv_currency,
       'hero_points' => $hero_points,

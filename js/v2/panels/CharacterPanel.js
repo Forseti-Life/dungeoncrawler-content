@@ -804,6 +804,39 @@ export class CharacterPanel {
             spellEntries.push(`<li class="spell-entry spell-entry--detail" data-tooltip-enabled="true" data-tooltip-resolver="spell" data-item-id="${escapeTooltipAttr(spellId)}" data-tooltip-name="${spellNameHtml}" data-tooltip-type="${spellType}" data-tooltip-desc="${escapeTooltipAttr(spellDescription)}" data-tooltip-traits="${escapeTooltipAttr(spellTraits)}" data-tooltip-stats="${escapeTooltipAttr(JSON.stringify(spellStats))}">${spellNameHtml}</li>`);
           });
         });
+        const rawFeatActionBuckets = state.actions?.availableActions?.feat || featEffects.available_actions || {};
+        const spellActionBuckets = Array.isArray(rawFeatActionBuckets)
+          ? [['actions', rawFeatActionBuckets]]
+          : Object.entries(rawFeatActionBuckets || {});
+        const spellActionLabels = {
+          actions: 'Spell Actions',
+          at_will: 'At-Will Spell Actions',
+          per_short_rest: 'Short-Rest Spell Actions',
+          per_long_rest: 'Long-Rest Spell Actions',
+          spellshape: 'Spellshape Actions',
+          metamagic: 'Metamagic Actions',
+        };
+        spellActionBuckets.forEach(([bucketKey, actions]) => {
+          const actionList = Array.isArray(actions) ? actions.filter(Boolean) : [];
+          if (actionList.length === 0) {
+            return;
+          }
+          spellEntries.push(`<li class="spell-rank-header spell-rank-header--actions">${escapeQuestHtml(spellActionLabels[bucketKey] || String(bucketKey).replace(/_/g, ' '))}</li>`);
+          actionList.forEach(action => {
+            const actionName = action?.name || 'Spell Action';
+            const actionNameHtml = escapeTooltipAttr(actionName);
+            const actionCost = formatTooltipActionCost(action?.action_cost);
+            const actionDescription = action?.description || 'Spellcasting action.';
+            const actionStats = [
+              ...(actionCost ? [{ label: 'Cost', value: actionCost }] : []),
+              ...(action?.uses_remaining != null || action?.uses_max != null
+                ? [{ label: 'Uses', value: `${action.uses_remaining ?? 0}/${action.uses_max ?? action.uses_remaining ?? 0}` }]
+                : []),
+            ];
+            const actionLabel = actionCost ? `${actionNameHtml} <span class="spell-action-cost">${escapeQuestHtml(actionCost)}</span>` : actionNameHtml;
+            spellEntries.push(`<li class="spell-entry spell-entry--detail spell-entry--action" data-tooltip-enabled="true" data-tooltip-name="${actionNameHtml}" data-tooltip-type="spell action" data-tooltip-desc="${escapeTooltipAttr(actionDescription)}" data-tooltip-stats="${escapeTooltipAttr(JSON.stringify(actionStats))}">${actionLabel}</li>`);
+          });
+        });
         this._el.characterSpells.innerHTML = spellEntries.length > 0
           ? spellEntries.join('')
           : '<li class="spells-empty">No spells</li>';
