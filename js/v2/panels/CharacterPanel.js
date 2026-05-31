@@ -725,7 +725,7 @@ export class CharacterPanel {
       }
     }
 
-    this.refreshActionRail();
+    this.bus.emit('character:updated');
   }
 
 }

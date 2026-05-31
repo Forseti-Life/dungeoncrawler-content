@@ -61,6 +61,7 @@ export class ActionRailPanel {
       }),
       this.bus.on('game:init', () => this.refreshActionRail()),
       this.bus.on('room:changed', () => this.refreshActionRail()),
+      this.bus.on('character:updated', () => this.refreshActionRail()),
     );
   }
 

@@ -4,6 +4,8 @@
  * Inventory, equipment, and skill helpers ported verbatim from hexmap.js.
  */
 
+import { escapeTooltipAttr } from './dom-utils.js';
+
 export function normalizeInventoryState(rawInventory, fallbackCurrency = {}) {
   if (Array.isArray(rawInventory)) {
     return {
