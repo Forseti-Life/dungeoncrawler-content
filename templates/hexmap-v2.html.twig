@@ -242,6 +242,7 @@
               <input id="chat-input" type="text" data-chat="input" placeholder="{{ 'Say something to the room...'|t }}" autocomplete="off" />
               <button id="chat-send" class="btn btn-primary" type="submit" data-chat="send">{{ 'Send'|t }}</button>
             </form>
+            <div class="hexmap-chat__quick-actions" id="chat-quick-actions" style="display:none;"></div>
             <div class="hexmap-chat__turn-status" id="chat-turn-status" data-chat="turn-status" hidden aria-live="polite" aria-atomic="true">
               <span class="chat-turn-status__badge" id="chat-turn-role">{{ 'Player'|t }}</span>
               <div class="chat-turn-status__content">
