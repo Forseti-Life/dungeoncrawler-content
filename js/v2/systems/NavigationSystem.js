@@ -80,18 +80,18 @@ export class NavigationSystem {
       .finally(() => {
         this.navigateLocationsInflight = null;
         if (this.activeActionRailCategory === 'navigate') {
-          this.refreshActionRail();
+          this._refreshActionRail();
         }
       });
   }
 
   async executeDirectNavigate(button) {
-    if (!this.beginActionRailRequest(button)) {
+    if (!this._beginActionRailRequest(button)) {
       return;
     }
 
     try {
-      const context = this.getActionRailContext();
+      const context = this._getActionRailContext();
       const hexmap = context.hexmap;
       const roomId = String(button.dataset.roomId || '').trim();
       const roomName = button.dataset.roomName || roomId || 'that room';
@@ -111,14 +111,14 @@ export class NavigationSystem {
         changed = Boolean(hexmap.navigateToVisitedRoom?.(roomId));
       }
       if (!changed) {
-        this.appendChatLine('System', 'That destination is not navigable right now.', 'system');
+        this._appendChatLine('System', 'That destination is not navigable right now.', 'system');
         return;
       }
 
-      this.appendChatLine('System', `Navigating to ${roomName}.`, 'system');
-      this.refreshActionRail();
+      this._appendChatLine('System', `Navigating to ${roomName}.`, 'system');
+      this._refreshActionRail();
     } finally {
-      this.endActionRailRequest(button);
+      this._endActionRailRequest(button);
     }
   }
 
@@ -138,7 +138,7 @@ export class NavigationSystem {
     console.log('[Navigation] Transitioning to:', targetRoomId, nav.destination);
 
     if (nav.dungeon_switch?.map_id) {
-      this.appendChatLine('System', `🗺️ Traveling to ${nav.destination || targetRoomId}...`, 'system');
+      this._appendChatLine('System', `🗺️ Traveling to ${nav.destination || targetRoomId}...`, 'system');
       this.navigateToDungeonContext(nav.dungeon_switch);
       return;
     }
@@ -225,7 +225,7 @@ export class NavigationSystem {
     );
 
     // 5. Show travel notification in chat.
-    this.appendChatLine('System', `🗺️ Traveling to ${nav.destination || newRoom?.name || targetRoomId}...`, 'system');
+    this._appendChatLine('System', `🗺️ Traveling to ${nav.destination || newRoom?.name || targetRoomId}...`, 'system');
 
     // 6. Switch to the new room (triggers full re-render, chat reload, banner).
     hexmap.setActiveRoom(targetRoomId);
@@ -279,6 +279,28 @@ export class NavigationSystem {
     params.set('start_r', '0');
 
     window.location.assign(`${window.location.pathname}?${params.toString()}`);
+  }
+
+  // --- Proxy helpers (UIManager methods now live on panels/bus) ---
+
+  _beginActionRailRequest(button) {
+    return this.shell.panels.actionRail?.beginActionRailRequest(button) ?? false;
+  }
+
+  _endActionRailRequest(button) {
+    this.shell.panels.actionRail?.endActionRailRequest(button);
+  }
+
+  _getActionRailContext() {
+    return this.shell.panels.actionRail?.getActionRailContext() ?? {};
+  }
+
+  _refreshActionRail() {
+    this.shell.panels.actionRail?.refreshActionRail?.();
+  }
+
+  _appendChatLine(speaker, message, type = 'system') {
+    this.bus.emit('chat:system-message', { text: message, speaker, kind: type });
   }
 
 }

@@ -55,12 +55,12 @@ export class PlayerAutomation {
   }
 
   async executeDirectConsumable(button) {
-    if (!this.beginActionRailRequest(button)) {
+    if (!this._beginActionRailRequest(button)) {
       return;
     }
 
     try {
-    const context = this.getActionRailContext();
+    const context = this._getActionRailContext();
     const hexmap = context.hexmap;
     const items = extractConsumableItems(context.state?.inventory || {}, context.state?.equipment || []);
     const item = items.find((entry) => String(entry.id || entry.item_id || entry.name || '') === String(button.dataset.itemId || ''));
@@ -81,7 +81,7 @@ export class PlayerAutomation {
         item,
       });
       if (response) {
-        this.appendChatLine('System', response.action_result?.summary || `${context.actorLabel} uses ${itemLabel}.`, 'system');
+        this._appendChatLine('System', response.action_result?.summary || `${context.actorLabel} uses ${itemLabel}.`, 'system');
         hexmap.loadCharacterFromApi(context.characterId);
       }
       return;
@@ -105,24 +105,24 @@ export class PlayerAutomation {
     });
     const data = await response.json();
     if (!response.ok || !data.success) {
-      this.appendChatLine('System', data.error || `Unable to use ${itemLabel}.`, 'system');
+      this._appendChatLine('System', data.error || `Unable to use ${itemLabel}.`, 'system');
       return;
     }
 
-    this.appendChatLine('System', data.actionSummary || `${context.actorLabel} uses ${itemLabel}.`, 'system');
+    this._appendChatLine('System', data.actionSummary || `${context.actorLabel} uses ${itemLabel}.`, 'system');
     hexmap.loadCharacterFromApi(context.characterId);
     } finally {
-      this.endActionRailRequest(button);
+      this._endActionRailRequest(button);
     }
   }
 
   async executeDirectFeat(button) {
-    if (!this.beginActionRailRequest(button)) {
+    if (!this._beginActionRailRequest(button)) {
       return;
     }
 
     try {
-    const context = this.getActionRailContext();
+    const context = this._getActionRailContext();
     const featName = button.dataset.featName || 'feat action';
     const actionCost = getActionRailCost(button.dataset.actionCost, 1);
 
@@ -135,7 +135,7 @@ export class PlayerAutomation {
         featName,
       });
       if (response) {
-        this.appendChatLine('System', response.action_result?.summary || `${context.actorLabel} uses ${featName}.`, 'system');
+        this._appendChatLine('System', response.action_result?.summary || `${context.actorLabel} uses ${featName}.`, 'system');
       }
       return;
     }
@@ -165,14 +165,14 @@ export class PlayerAutomation {
     });
     const data = await response.json();
     if (!response.ok || !data.success) {
-      this.appendChatLine('System', data.error || `Unable to use ${featName}.`, 'system');
+      this._appendChatLine('System', data.error || `Unable to use ${featName}.`, 'system');
       return;
     }
 
-    this.appendChatLine('System', data.action?.summary || `${context.actorLabel} uses ${featName}.`, 'system');
+    this._appendChatLine('System', data.action?.summary || `${context.actorLabel} uses ${featName}.`, 'system');
     context.hexmap?.loadCharacterFromApi(context.characterId);
     } finally {
-      this.endActionRailRequest(button);
+      this._endActionRailRequest(button);
     }
   }
 
@@ -181,7 +181,7 @@ export class PlayerAutomation {
       return;
     }
     const nextDeferred = this.roomChatDeferredMessages.shift() || null;
-    this.updateQueuedChatStatus(this.roomChatDeferredMessages.length);
+    this._updateQueuedChatStatus(this.roomChatDeferredMessages.length);
     if (!nextDeferred) {
       return;
     }
@@ -201,7 +201,7 @@ export class PlayerAutomation {
       context: targetContext,
     });
     const requestId = nextDeferred.requestId || `chat-followup-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const pendingRequest = nextDeferred.pendingRequest || this.buildPendingChatRequest(requestId, nextDeferred.speaker || '', nextDeferred.message || '', targetRoomId, {
+    const pendingRequest = nextDeferred.pendingRequest || this._buildPendingChatRequest(requestId, nextDeferred.speaker || '', nextDeferred.message || '', targetRoomId, {
       includePlayer: true,
       includePlaceholder: true,
       placeholderText: '...',
@@ -220,18 +220,52 @@ export class PlayerAutomation {
       });
     } catch (error) {
       console.error('Failed to send queued room turn:', error);
-      this.settlePendingChatRequest(pendingRequest, {
+      this._settlePendingChatRequest(pendingRequest, {
         removePlayer: true,
         removePlaceholder: true,
       });
-      this.appendChatLine('System', `Failed to send queued turn: ${error.message}`, 'system');
+      this._appendChatLine('System', `Failed to send queued turn: ${error.message}`, 'system');
     } finally {
       this.roomChatBusy = false;
       if (this.roomChatDeferredMessages.length > 0) {
-        this.updateQueuedChatStatus(this.roomChatDeferredMessages.length);
+        this._updateQueuedChatStatus(this.roomChatDeferredMessages.length);
         void this.flushDeferredRoomMessages(targetCampaignId, targetRoomId, targetCharacterId);
       }
     }
+  }
+
+  // --- Proxy helpers (UIManager methods now live on panels/bus) ---
+
+  _beginActionRailRequest(button) {
+    return this.shell.panels.actionRail?.beginActionRailRequest(button) ?? false;
+  }
+
+  _endActionRailRequest(button) {
+    this.shell.panels.actionRail?.endActionRailRequest(button);
+  }
+
+  _getActionRailContext() {
+    return this.shell.panels.actionRail?.getActionRailContext() ?? {};
+  }
+
+  _refreshActionRail() {
+    this.shell.panels.actionRail?.refreshActionRail?.();
+  }
+
+  _appendChatLine(speaker, message, type = 'system') {
+    this.bus.emit('chat:system-message', { text: message, speaker, kind: type });
+  }
+
+  _buildPendingChatRequest(...args) {
+    return this.shell.panels.chat?.buildPendingChatRequest?.(...args) ?? null;
+  }
+
+  _settlePendingChatRequest(...args) {
+    this.shell.panels.chat?.settlePendingChatRequest?.(...args);
+  }
+
+  _updateQueuedChatStatus(count) {
+    this.shell.panels.chat?.updateQueuedChatStatus?.(count);
   }
 
 }

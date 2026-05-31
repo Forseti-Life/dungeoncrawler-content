@@ -125,6 +125,7 @@ export class EncounterSystem {
       });
     });
 
+    this.bus.emit('combat:order-changed', { order: orderedTurns });
     return orderedTurns;
   }
 
@@ -138,32 +139,32 @@ export class EncounterSystem {
   }
 
   async executeDirectAttack(button) {
-    if (!this.beginActionRailRequest(button)) {
+    if (!this._beginActionRailRequest(button)) {
       return;
     }
 
     try {
-      const context = this.getActionRailContext();
+      const context = this._getActionRailContext();
       const hexmap = context.hexmap;
       const targetId = Number(button.dataset.targetId || 0);
       const weaponId = String(button.dataset.weaponId || '').trim();
       const weaponName = button.dataset.weaponName || 'weapon';
 
       if (!hexmap || !context.actor || !targetId) {
-        this.appendChatLine('System', 'Attack options require an active character and target.', 'system');
+        this._appendChatLine('System', 'Attack options require an active character and target.', 'system');
         return;
       }
 
       let target = hexmap.entityManager?.getEntity?.(targetId) || null;
       if (!target) {
-        this.appendChatLine('System', 'That target is no longer available.', 'system');
+        this._appendChatLine('System', 'That target is no longer available.', 'system');
         return;
       }
 
       if (!context.encounterActive) {
         const combatState = await hexmap.startCombat?.();
         if (!combatState || !hexmap.stateManager?.get?.('encounterId')) {
-          this.appendChatLine('System', 'Unable to start combat for that attack.', 'system');
+          this._appendChatLine('System', 'Unable to start combat for that attack.', 'system');
           return;
         }
 
@@ -171,8 +172,8 @@ export class EncounterSystem {
         const currentTurnEntity = hexmap.turnManagementSystem?.getCurrentTurnEntity?.() || null;
         if (!currentTurnEntity || currentTurnEntity.id !== context.actor.id) {
           const actingName = currentTurnEntity?.getComponent?.('IdentityComponent')?.name || 'another combatant';
-          this.appendChatLine('System', `Combat begins and initiative is rolled. It is ${actingName}'s turn.`, 'system');
-          this.refreshActionRail();
+          this._appendChatLine('System', `Combat begins and initiative is rolled. It is ${actingName}'s turn.`, 'system');
+          this._refreshActionRail();
           return;
         }
       }
@@ -181,19 +182,19 @@ export class EncounterSystem {
         weaponId,
         weaponName,
       });
-      this.refreshActionRail();
+      this._refreshActionRail();
     } finally {
-      this.endActionRailRequest(button);
+      this._endActionRailRequest(button);
     }
   }
 
   async executeDirectInteract(button) {
-    if (!this.beginActionRailRequest(button)) {
+    if (!this._beginActionRailRequest(button)) {
       return;
     }
 
     try {
-      const context = this.getActionRailContext();
+      const context = this._getActionRailContext();
       const hexmap = context.hexmap;
       const actor = context.actor;
       if (!hexmap || !actor) {
@@ -223,7 +224,7 @@ export class EncounterSystem {
       }
 
       if (!hasTargetHex) {
-        this.appendChatLine('System', `Inspect ${targetName} in the room view or on the map for more detail.`, 'system');
+        this._appendChatLine('System', `Inspect ${targetName} in the room view or on the map for more detail.`, 'system');
         return;
       }
 
@@ -235,26 +236,26 @@ export class EncounterSystem {
         : null;
 
       if (distance !== null && distance > 1) {
-        this.appendChatLine('System', `${targetName} is in hex (${targetQ}, ${targetR}). Move adjacent to use ${button.dataset.actionLabel || 'that interaction'}.`, 'system');
+        this._appendChatLine('System', `${targetName} is in hex (${targetQ}, ${targetR}). Move adjacent to use ${button.dataset.actionLabel || 'that interaction'}.`, 'system');
         return;
       }
 
       const interacted = hexmap.performInteractAtHex(actor, targetQ, targetR, targetEntity || undefined);
       if (!interacted) {
-        this.appendChatLine('System', `No direct interaction resolved for ${targetName}. Inspect it or move closer if needed.`, 'system');
+        this._appendChatLine('System', `No direct interaction resolved for ${targetName}. Inspect it or move closer if needed.`, 'system');
       }
     } finally {
-      this.endActionRailRequest(button);
+      this._endActionRailRequest(button);
     }
   }
 
   async executeDirectSkill(button) {
-    if (!this.beginActionRailRequest(button)) {
+    if (!this._beginActionRailRequest(button)) {
       return;
     }
 
     try {
-    const context = this.getActionRailContext();
+    const context = this._getActionRailContext();
     const skillName = String(button.dataset.skillName || '').replace(/_/g, ' ');
     const skillModifier = Number(button.dataset.skillModifier || 0);
     const label = `${skillName}${Number.isFinite(skillModifier) ? ` (${skillModifier >= 0 ? '+' : ''}${skillModifier})` : ''}`;
@@ -268,7 +269,7 @@ export class EncounterSystem {
         skillModifier,
       });
       if (response) {
-        this.appendChatLine('System', response.action_result?.summary || `${context.actorLabel} uses ${label}.`, 'system');
+        this._appendChatLine('System', response.action_result?.summary || `${context.actorLabel} uses ${label}.`, 'system');
       }
       return;
     }
@@ -297,24 +298,24 @@ export class EncounterSystem {
     });
     const data = await response.json();
     if (!response.ok || !data.success) {
-      this.appendChatLine('System', data.error || `Unable to use ${label}.`, 'system');
+      this._appendChatLine('System', data.error || `Unable to use ${label}.`, 'system');
       return;
     }
 
-    this.appendChatLine('System', data.action?.summary || `${context.actorLabel} uses ${label}.`, 'system');
+    this._appendChatLine('System', data.action?.summary || `${context.actorLabel} uses ${label}.`, 'system');
     context.hexmap?.loadCharacterFromApi(context.characterId);
     } finally {
-      this.endActionRailRequest(button);
+      this._endActionRailRequest(button);
     }
   }
 
   async executeDirectSpell(button) {
-    if (!this.beginActionRailRequest(button)) {
+    if (!this._beginActionRailRequest(button)) {
       return;
     }
 
     try {
-    const context = this.getActionRailContext();
+    const context = this._getActionRailContext();
     const hexmap = context.hexmap;
     if (!hexmap || !context.characterId) {
       return;
@@ -341,7 +342,7 @@ export class EncounterSystem {
         isFocusSpell: payload.isFocusSpell,
       });
       if (response) {
-        this.appendChatLine('System', response.action_result?.summary || `${context.actorLabel} casts ${spellName}.`, 'system');
+        this._appendChatLine('System', response.action_result?.summary || `${context.actorLabel} casts ${spellName}.`, 'system');
         hexmap.loadCharacterFromApi(context.characterId);
       }
       return;
@@ -373,13 +374,13 @@ export class EncounterSystem {
       });
       const data = await response.json();
       if (!response.ok || !data.success) {
-        this.appendChatLine('System', data.error || data.result?.error || `Unable to cast ${spellName}.`, 'system');
+        this._appendChatLine('System', data.error || data.result?.error || `Unable to cast ${spellName}.`, 'system');
         return;
       }
 
-      this.appendChatLine('System', `${context.actorLabel} casts ${spellName}.`, 'system');
+      this._appendChatLine('System', `${context.actorLabel} casts ${spellName}.`, 'system');
       if (typeof data.narration === 'string' && data.narration.trim()) {
-        this.appendChatLine('Game Master', data.narration.trim(), 'gm');
+        this._appendChatLine('Game Master', data.narration.trim(), 'gm');
       }
       hexmap.loadCharacterFromApi(context.characterId);
       return;
@@ -403,14 +404,14 @@ export class EncounterSystem {
     });
     const data = await response.json();
     if (!response.ok || !data.success) {
-      this.appendChatLine('System', data.error || `Unable to cast ${spellName}.`, 'system');
+      this._appendChatLine('System', data.error || `Unable to cast ${spellName}.`, 'system');
       return;
     }
 
-    this.appendChatLine('System', `${context.actorLabel} casts ${spellName}.`, 'system');
+    this._appendChatLine('System', `${context.actorLabel} casts ${spellName}.`, 'system');
     hexmap.loadCharacterFromApi(context.characterId);
     } finally {
-      this.endActionRailRequest(button);
+      this._endActionRailRequest(button);
     }
   }
 
@@ -434,6 +435,28 @@ export class EncounterSystem {
   endCurrentTurn() {
     const hexmap = this.stateManager?.hexmap;
     hexmap?.endTurn?.();
+  }
+
+  // --- Proxy helpers (UIManager methods now live on panels/bus) ---
+
+  _beginActionRailRequest(button) {
+    return this.shell.panels.actionRail?.beginActionRailRequest(button) ?? false;
+  }
+
+  _endActionRailRequest(button) {
+    this.shell.panels.actionRail?.endActionRailRequest(button);
+  }
+
+  _getActionRailContext() {
+    return this.shell.panels.actionRail?.getActionRailContext() ?? {};
+  }
+
+  _refreshActionRail() {
+    this.shell.panels.actionRail?.refreshActionRail?.();
+  }
+
+  _appendChatLine(speaker, message, type = 'system') {
+    this.bus.emit('chat:system-message', { text: message, speaker, kind: type });
   }
 
 }
