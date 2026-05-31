@@ -11534,7 +11534,7 @@ import { SpriteService } from './SpriteService.js';
 
         const identity = entity.getComponent('IdentityComponent');
         render._isInteractable = identity
-          ? interactableTypes.has(identity.type)
+          ? interactableTypes.has(identity.entityType)
           : false;
       }
     },
@@ -15580,7 +15580,7 @@ import { SpriteService } from './SpriteService.js';
 
       const resolvedLaunchCharacterId = Number(this.launchContext?.character_id || 0);
       const playerEntitySummary = this.entityManager.getEntitiesWith('IdentityComponent', 'PositionComponent')
-        .filter((entity) => entity?.type === EntityType.PLAYER_CHARACTER)
+        .filter((entity) => entity?.getComponent?.('IdentityComponent')?.entityType === EntityType.PLAYER_CHARACTER)
         .map((entity) => {
           const position = entity.getComponent('PositionComponent');
           const identity = entity.getComponent('IdentityComponent');
