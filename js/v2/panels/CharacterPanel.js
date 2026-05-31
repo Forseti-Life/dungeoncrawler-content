@@ -493,11 +493,8 @@ export class CharacterPanel {
       currency,
       abilities: normalizedAbilities,
     };
-    this.renderInventoryPanel(this.currentCharacterInventoryContext);
-    this.refreshCharacterInventoryFromApi(this.currentCharacterInventoryContext);
-    if (this.activeGameShellTab === 'merchant') {
-      this.loadMerchantPanel(true);
-    }
+    this.bus.emit('inventory:changed', this.currentCharacterInventoryContext);
+    this.bus.emit('character:inventory-refresh-requested', this.currentCharacterInventoryContext);
 
     // Update features & feats (with type badges)
     if (this._el.characterFeatures) {

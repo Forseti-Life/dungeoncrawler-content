@@ -223,6 +223,14 @@ export class GameShell {
     // ChatPanel requests room chat history refresh
     this.bus.on('user:chat-history-requested', () => this._loadChatHistory());
 
+    // CharacterPanel requests inventory refresh from API
+    this.bus.on('character:inventory-refresh-requested', (ctx) => {
+      if (ctx) void this.refreshCharacterInventoryFromApi(ctx);
+      if (this.activeGameShellTab === 'merchant') {
+        void this._loadMerchantStock(true);
+      }
+    });
+
     // Bridge: when NavigationSystem fires room:changed after a room transition,
     // relay occupants to room:occupants-changed and reload per-room data.
     // We mark our own internal room:changed emits with _source:'shell' to avoid loops.
