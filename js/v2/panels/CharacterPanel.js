@@ -82,6 +82,31 @@ export class CharacterPanel {
     console.log('[CharacterPanel] init', { container: !!this.container, nullEl: nullKeys.length, nullKeys: nullKeys.join(',') || 'none' });
     this._subscribe();
     this.setupCharacterSheetSections();
+    this._initSidebarTabs();
+  }
+
+  /**
+   * Wire sidebar sub-tab buttons (Character / Spells & Feats / Inventory / Quests).
+   * Buttons use [data-sidebar-tab] and panels use .sidebar-panel + matching IDs.
+   */
+  _initSidebarTabs() {
+    const sidebar = this.container?.closest('.game-layout__sidebar');
+    if (!sidebar) {
+      console.warn('[CharacterPanel] _initSidebarTabs: no .game-layout__sidebar ancestor found');
+      return;
+    }
+    const tabs   = Array.from(sidebar.querySelectorAll('[data-sidebar-tab]'));
+    const panels = Array.from(sidebar.querySelectorAll('.sidebar-panel'));
+    console.log('[CharacterPanel] _initSidebarTabs', { tabCount: tabs.length, panelCount: panels.length });
+
+    tabs.forEach((tab) => {
+      tab.addEventListener('click', () => {
+        const targetId = `sidebar-panel-${tab.dataset.sidebarTab}`;
+        console.log('[CharacterPanel] sidebar tab clicked', { target: targetId });
+        tabs.forEach((t)   => t.classList.toggle('sidebar-tab--active',   t === tab));
+        panels.forEach((p) => p.classList.toggle('sidebar-panel--active', p.id === targetId));
+      });
+    });
   }
 
   destroy() {
