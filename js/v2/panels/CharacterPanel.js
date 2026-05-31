@@ -145,6 +145,7 @@ export class CharacterPanel {
       return;
     }
     console.log('[CharacterPanel] showEmbeddedCharacterSheet', { characterId });
+    if (this._el.characterSheetEmbedWrap) {
       this._el.characterSheetEmbedWrap.style.display = 'none';
     }
     if (this._el.characterSheetEmbed) {
