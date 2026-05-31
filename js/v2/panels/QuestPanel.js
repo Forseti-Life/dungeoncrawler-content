@@ -11,7 +11,6 @@ import {
   renderQuestManagementQuestHtml,
   renderQuestManagementStorylineHtml,
   renderQuestManagementNpcHtml,
-  renderQuestSummaryPreviewLines as renderSummaryPreview,
 } from '../utils/quest-utils.js';
 
 export class QuestPanel {
