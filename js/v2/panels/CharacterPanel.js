@@ -101,7 +101,7 @@ export class CharacterPanel {
     console.log('[CharacterPanel] _initSidebarTabs', { tabCount: tabs.length, panelCount: panels.length, initialStyles: initialPanelStyles });
 
     tabs.forEach((tab) => {
-      tab.addEventListener('click', () => {
+      const handler = () => {
         const targetId = `sidebar-panel-${tab.dataset.sidebarTab}`;
         tabs.forEach((t)   => t.classList.toggle('sidebar-tab--active',   t === tab));
         panels.forEach((p) => {
@@ -112,7 +112,9 @@ export class CharacterPanel {
           p.style.display = '';
         });
         console.log('[CharacterPanel] sidebar tab clicked', { target: targetId, panelVisible: !!document.getElementById(targetId) && !document.getElementById(targetId).classList.contains('dc-is-hidden') });
-      });
+      };
+      tab.addEventListener('click', handler);
+      this._unsubs.push(() => tab.removeEventListener('click', handler));
     });
   }
 
