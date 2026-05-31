@@ -471,13 +471,17 @@ export class GameShell {
         return;
       }
       const result = await resp.json().catch(() => ({}));
-      if (!result?.success || !result?.data) return;
+      if (!result?.success || !result?.data) {
+        console.warn('[GameShell] _loadRoomView: bad result', { success: result?.success, hasData: !!result?.data, status: resp.status });
+        return;
+      }
 
       const entries = Array.isArray(result.data.entries)
         ? result.data.entries.filter((e) => e?.image?.url || e?.image?.data_uri)
         : [];
       const first = entries[0];
       const sceneImageUrl = first?.image?.url ?? first?.image?.data_uri ?? null;
+      console.log('[GameShell] _loadRoomView: result', { success: result.success, rawEntries: result.data.entries?.length ?? 0, filteredEntries: entries.length, sceneImageUrl: !!sceneImageUrl, available: result.data.available, message: result.data.message ?? null });
 
       const visualRoom = this.mapVisualState?.topology?.rooms?.[roomId];
       // id must come AFTER spread — API room object may contain id:undefined which would override

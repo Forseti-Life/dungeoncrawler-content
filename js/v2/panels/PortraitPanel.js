@@ -163,7 +163,11 @@ export class PortraitPanel {
       : hexmap?.getActiveRoomData?.() || null;
     const entries = this.buildRoomPortraitEntries(resolvedRoomId);
 
-    console.log('[PortraitPanel] loadRoomPortraitsPanel', { roomId: resolvedRoomId, entryCount: entries.length });
+    console.log('[PortraitPanel] loadRoomPortraitsPanel', {
+      roomId: resolvedRoomId,
+      entryCount: entries.length,
+      entries: entries.map((e) => ({ id: e?.id, type: e?.type, name: e?.name, hasPortrait: !!e?.portrait_url })),
+    });
     if (this._el.npcPortraitsName) {
       this._el.npcPortraitsName.textContent = room?.name || 'Current room';
     }

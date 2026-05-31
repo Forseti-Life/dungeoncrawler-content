@@ -50,10 +50,10 @@ export class RoomViewPanel {
       // room:changed fires on room transitions — update name/meta with minimal data
       this.bus.on('room:changed', (d) => {
         const room = { name: d?.roomName, id: d?.roomId, ...(d?.room ?? {}) };
-        this.updateRoomViewPanel(room, d?.viewState ?? {});
+        this.updateRoomViewPanel(room, d?.viewState ?? {}, 'room:changed');
       }),
       // room:view-loaded fires after the view-image API completes with full entries
-      this.bus.on('room:view-loaded', (d) => this.updateRoomViewPanel(d?.room, d?.viewState)),
+      this.bus.on('room:view-loaded', (d) => this.updateRoomViewPanel(d?.room, d?.viewState, 'room:view-loaded')),
     );
   }
 
@@ -184,8 +184,8 @@ export class RoomViewPanel {
     return payload;
   }
 
-  updateRoomViewPanel(room, state = {}) {
-    console.log('[RoomViewPanel] updateRoomViewPanel', { roomId: room?.id, roomName: room?.name, entries: state?.entries?.length ?? 0 });
+  updateRoomViewPanel(room, state = {}, _source = 'unknown') {
+    console.log('[RoomViewPanel] updateRoomViewPanel', { source: _source, roomId: room?.id, roomName: room?.name, entries: state?.entries?.length ?? 0, statusLabel: state?.statusLabel ?? 'none' });
     const {
       statusLabel = 'Idle',
       placeholderText = 'Room transition imagery will appear here.',

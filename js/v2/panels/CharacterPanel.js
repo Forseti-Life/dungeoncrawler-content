@@ -179,6 +179,7 @@ export class CharacterPanel {
     if (this._el.characterSheetLegacy) {
       this._el.characterSheetLegacy.style.display = '';
     }
+    console.log('[CharacterPanel] showEmbeddedCharacterSheet:done', { legacyShown: !!this._el.characterSheetLegacy, embedHidden: !!this._el.characterSheetEmbedWrap });
   }
 
   showEntityInfo(entity) {
