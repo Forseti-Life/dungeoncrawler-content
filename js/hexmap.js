@@ -2687,20 +2687,31 @@ import { SpriteService } from './SpriteService.js';
     buildRoomMerchantEntries(roomId = null) {
       const hexmap = this.stateManager?.hexmap || null;
       const resolvedRoomId = roomId || hexmap?.resolveActiveRoomId?.() || null;
-      const entities = Array.isArray(hexmap?.dungeonData?.entities) ? hexmap.dungeonData.entities : [];
-      if (!resolvedRoomId || entities.length === 0) {
+      if (!resolvedRoomId) {
+        return [];
+      }
+
+      const canonicalOccupants = typeof hexmap?.getVisualOccupants === 'function'
+        ? hexmap.getVisualOccupants()
+        : [];
+      const merchantOccupants = canonicalOccupants.filter((occupant) => {
+        if (String(occupant?.room_id || '') !== resolvedRoomId) {
+          return false;
+        }
+        if (hexmap?.isVisualOccupantVisible?.(occupant) === false) {
+          return false;
+        }
+        return occupant?.presentation?.is_merchant === true;
+      });
+
+      if (merchantOccupants.length === 0) {
         return [];
       }
 
       const entries = [];
       const seen = new Set();
-      entities.forEach((entity) => {
-        if (entity?.placement?.room_id !== resolvedRoomId || !this.entityLooksMerchant(entity)) {
-          return;
-        }
-
-        const metadata = entity?.state?.metadata || {};
-        const entityId = String(entity?.entity_instance_id || entity?.instance_id || entity?.id || '').trim();
+      merchantOccupants.forEach((occupant) => {
+        const entityId = String(occupant?.occupant_id || '').trim();
         if (!entityId || seen.has(entityId)) {
           return;
         }
@@ -2708,9 +2719,9 @@ import { SpriteService } from './SpriteService.js';
 
         entries.push({
           entityId,
-          name: metadata.display_name || metadata.name || entityId,
-          summary: metadata.role || metadata.occupation || metadata.description || 'Merchant',
-          portraitUrl: metadata.portrait_url || metadata.portrait || '',
+          name: String(occupant?.label || entityId).trim(),
+          summary: String(occupant?.presentation?.role || 'Merchant').trim(),
+          portraitUrl: occupant?.presentation?.portrait_url || '',
         });
       });
 
@@ -5290,49 +5301,52 @@ import { SpriteService } from './SpriteService.js';
     buildRoomPortraitEntries(roomId = null) {
       const hexmap = this.stateManager?.hexmap || null;
       const resolvedRoomId = roomId || hexmap?.resolveActiveRoomId?.() || null;
-      const entities = Array.isArray(hexmap?.dungeonData?.entities) ? hexmap.dungeonData.entities : [];
-      if (!resolvedRoomId || entities.length === 0) {
+      if (!resolvedRoomId) {
+        return [];
+      }
+
+      const canonicalOccupants = typeof hexmap?.getVisualOccupants === 'function'
+        ? hexmap.getVisualOccupants()
+        : [];
+      const roomOccupants = canonicalOccupants.filter((occupant) => {
+        if (String(occupant?.room_id || '') !== resolvedRoomId) {
+          return false;
+        }
+        const rawType = String(occupant?.occupant_type || '').trim().toLowerCase();
+        if (!['npc', 'player_character', 'player'].includes(rawType)) {
+          return false;
+        }
+        return hexmap?.isVisualOccupantVisible?.(occupant) !== false;
+      });
+
+      if (roomOccupants.length === 0) {
         return [];
       }
 
       const entries = [];
       const seen = new Set();
-      entities.forEach((entity) => {
-        if (entity?.placement?.room_id !== resolvedRoomId) {
-          return;
-        }
-
-        const rawType = String(entity?.entity_type || '').trim().toLowerCase();
-        if (!['npc', 'player_character', 'player'].includes(rawType)) {
-          return;
-        }
-
-        const metadata = entity?.state?.metadata || {};
-        const contentId = String(entity?.entity_ref?.content_id || entity?.entity_instance_id || entity?.instance_id || entity?.id || '').trim();
-        const entityId = String(entity?.entity_instance_id || entity?.instance_id || entity?.id || contentId).trim();
-        if (entityId === '' || seen.has(entityId)) {
+      roomOccupants.forEach((occupant) => {
+        const entityId = String(occupant?.occupant_id || '').trim();
+        if (!entityId || seen.has(entityId)) {
           return;
         }
         seen.add(entityId);
 
+        const contentId = String(occupant?.content_id || '').trim();
         const objectDefinition = contentId ? hexmap?.getObjectDefinition?.(contentId) : null;
         const portraitSpriteId = contentId ? `portrait_${contentId}` : null;
         const fallbackPortraitSpriteId = typeof objectDefinition?.visual?.sprite_id === 'string'
           && objectDefinition.visual.sprite_id.startsWith('portrait_')
           ? objectDefinition.visual.sprite_id
           : null;
-        const portraitUrl = metadata.portrait_url
-          || metadata.portrait
+        const portraitUrl = occupant?.presentation?.portrait_url
           || (portraitSpriteId ? hexmap?.spriteService?.getCachedUrl?.(portraitSpriteId) : null)
           || (fallbackPortraitSpriteId ? hexmap?.spriteService?.getCachedUrl?.(fallbackPortraitSpriteId) : null)
           || null;
-        const name = metadata.display_name
-          || metadata.name
-          || objectDefinition?.label
-          || contentId
-          || 'Unknown';
+        const name = String(occupant?.label || objectDefinition?.label || contentId || 'Unknown').trim();
+        const rawType = String(occupant?.occupant_type || '').trim().toLowerCase();
         const kind = rawType === 'npc' ? 'NPC' : 'PC';
-        const summary = metadata.role || metadata.class || metadata.occupation || metadata.description || '';
+        const summary = String(occupant?.presentation?.role || objectDefinition?.description || '').trim();
 
         entries.push({
           entityId,

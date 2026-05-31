@@ -141,6 +141,8 @@ const applyDungeonDataSource = extractFunctionExpressionSource(source, 'applyDun
 const renderDungeonStateInspectorSource = extractFunctionExpressionSource(source, 'renderDungeonStateInspector: function () {', 'renderDungeonStateInspector');
 const collectNavigateLocationGroupsSource = extractMethodSource(source, 'collectNavigateLocationGroups(context) {', 'collectNavigateLocationGroups');
 const loadRoomPortraitsPanelSource = extractMethodSource(source, 'loadRoomPortraitsPanel(roomId = null) {', 'loadRoomPortraitsPanel');
+const buildRoomPortraitEntriesSource = extractMethodSource(source, 'buildRoomPortraitEntries(roomId = null) {', 'buildRoomPortraitEntries');
+const buildRoomMerchantEntriesSource = extractMethodSource(source, 'buildRoomMerchantEntries(roomId = null) {', 'buildRoomMerchantEntries');
 const executeDirectNavigateSource = extractMethodSource(source, 'async executeDirectNavigate(button) {', 'executeDirectNavigate');
 const applyPlayerAutomationRoomTransitionSource = extractFunctionExpressionSource(source, 'applyPlayerAutomationRoomTransition: function (events = []) {', 'applyPlayerAutomationRoomTransition');
 const prefetchConnectedRoomContextSource = extractMethodSource(source, 'prefetchConnectedRoomContext(limit = 2) {', 'prefetchConnectedRoomContext');
@@ -175,6 +177,8 @@ ${applyDungeonDataSource}
 ${renderDungeonStateInspectorSource}
 ${collectNavigateLocationGroupsSource}
 ${loadRoomPortraitsPanelSource}
+${buildRoomPortraitEntriesSource}
+${buildRoomMerchantEntriesSource}
 ${executeDirectNavigateSource}
 ${applyPlayerAutomationRoomTransitionSource}
 ${prefetchConnectedRoomContextSource}
@@ -208,6 +212,8 @@ return {
   renderDungeonStateInspector,
   collectNavigateLocationGroups,
   loadRoomPortraitsPanel,
+  buildRoomPortraitEntries,
+  buildRoomMerchantEntries,
   executeDirectNavigate,
   applyPlayerAutomationRoomTransition,
   prefetchConnectedRoomContext
@@ -1697,6 +1703,250 @@ console.log('\n=== Hexmap canonical visual-state bootstrap ===');
 
   assert(selectedRoomId === null, 'Map application ignores legacy payload-only rooms during strict canonical bootstrap');
   assert(inspectorRendered === false, 'Map application stays idle when canonical rooms are absent');
+}
+
+// ── Portrait panel — canonical occupant cutover ──────────────────────────────
+
+{
+  // PC and NPC occupants are returned for the matching room from canonical state.
+  const context = {
+    stateManager: {
+      hexmap: {
+        mapVisualState: {
+          occupants: {
+            party: [
+              {
+                occupant_id: 'pc-1',
+                occupant_type: 'player_character',
+                content_id: 'hero',
+                room_id: 'room-a',
+                label: 'Hero',
+                visible: true,
+                presentation: { portrait_url: 'https://example.com/hero.png', role: '', is_merchant: false },
+              },
+            ],
+            entities: [
+              {
+                occupant_id: 'npc-1',
+                occupant_type: 'npc',
+                content_id: 'guard',
+                room_id: 'room-a',
+                label: 'Guard',
+                visible: true,
+                presentation: { portrait_url: null, role: 'guard', is_merchant: false },
+              },
+              {
+                occupant_id: 'npc-2',
+                occupant_type: 'npc',
+                content_id: 'shadow',
+                room_id: 'room-b',
+                label: 'Shadow',
+                visible: true,
+                presentation: { portrait_url: null, role: '', is_merchant: false },
+              },
+            ],
+          },
+        },
+        hasVisualOccupants: methods.hasVisualOccupants,
+        getVisualOccupants: methods.getVisualOccupants,
+        isVisualOccupantVisible: methods.isVisualOccupantVisible,
+        getObjectDefinition() { return null; },
+        resolveActiveRoomId() { return 'room-a'; },
+      },
+    },
+  };
+
+  const entries = methods.buildRoomPortraitEntries.call(context, 'room-a');
+  assert(entries.length === 2, 'Portrait entries includes PC and NPC from active room');
+  const pc = entries.find((e) => e.entityId === 'pc-1');
+  const npc = entries.find((e) => e.entityId === 'npc-1');
+  assert(pc?.kind === 'PC', 'PC occupant mapped to PC kind');
+  assert(npc?.kind === 'NPC', 'NPC occupant mapped to NPC kind');
+  assert(pc?.portraitUrl === 'https://example.com/hero.png', 'Portrait URL sourced from canonical presentation');
+  assert(npc?.summary === 'guard', 'NPC role sourced from canonical presentation.role');
+  assert(entries[0].kind === 'PC', 'PCs sorted before NPCs in portrait entries');
+}
+
+{
+  // Occupants from a different room are excluded.
+  const context = {
+    stateManager: {
+      hexmap: {
+        mapVisualState: {
+          occupants: {
+            party: [],
+            entities: [
+              {
+                occupant_id: 'npc-other',
+                occupant_type: 'npc',
+                content_id: 'traveler',
+                room_id: 'room-b',
+                label: 'Traveler',
+                visible: true,
+                presentation: { portrait_url: null, role: '', is_merchant: false },
+              },
+            ],
+          },
+        },
+        hasVisualOccupants: methods.hasVisualOccupants,
+        getVisualOccupants: methods.getVisualOccupants,
+        isVisualOccupantVisible: methods.isVisualOccupantVisible,
+        getObjectDefinition() { return null; },
+        resolveActiveRoomId() { return 'room-a'; },
+      },
+    },
+  };
+
+  const entries = methods.buildRoomPortraitEntries.call(context, 'room-a');
+  assert(entries.length === 0, 'Occupants in other rooms excluded from portrait entries');
+}
+
+{
+  // Hidden occupants (visible: false) are excluded.
+  const context = {
+    stateManager: {
+      hexmap: {
+        mapVisualState: {
+          occupants: {
+            party: [],
+            entities: [
+              {
+                occupant_id: 'npc-hidden',
+                occupant_type: 'npc',
+                content_id: 'ghost',
+                room_id: 'room-a',
+                label: 'Ghost',
+                visible: false,
+                presentation: { portrait_url: null, role: '', is_merchant: false },
+              },
+            ],
+          },
+        },
+        hasVisualOccupants: methods.hasVisualOccupants,
+        getVisualOccupants: methods.getVisualOccupants,
+        isVisualOccupantVisible: methods.isVisualOccupantVisible,
+        getObjectDefinition() { return null; },
+        resolveActiveRoomId() { return 'room-a'; },
+      },
+    },
+  };
+
+  const entries = methods.buildRoomPortraitEntries.call(context, 'room-a');
+  assert(entries.length === 0, 'Hidden occupants excluded from portrait entries');
+}
+
+// ── Merchant panel — canonical is_merchant cutover ───────────────────────────
+
+{
+  // Merchant occupants (is_merchant: true) are returned; non-merchants are excluded.
+  const context = {
+    stateManager: {
+      hexmap: {
+        mapVisualState: {
+          occupants: {
+            party: [],
+            entities: [
+              {
+                occupant_id: 'npc-merchant',
+                occupant_type: 'npc',
+                content_id: 'blacksmith',
+                room_id: 'room-a',
+                label: 'Anvil',
+                visible: true,
+                presentation: { portrait_url: 'https://example.com/anvil.png', role: 'blacksmith', is_merchant: true },
+              },
+              {
+                occupant_id: 'npc-guard',
+                occupant_type: 'npc',
+                content_id: 'guard',
+                room_id: 'room-a',
+                label: 'Guard',
+                visible: true,
+                presentation: { portrait_url: null, role: 'guard', is_merchant: false },
+              },
+            ],
+          },
+        },
+        hasVisualOccupants: methods.hasVisualOccupants,
+        getVisualOccupants: methods.getVisualOccupants,
+        isVisualOccupantVisible: methods.isVisualOccupantVisible,
+        resolveActiveRoomId() { return 'room-a'; },
+      },
+    },
+  };
+
+  const entries = methods.buildRoomMerchantEntries.call(context, 'room-a');
+  assert(entries.length === 1, 'Merchant panel returns only is_merchant occupants');
+  assert(entries[0].entityId === 'npc-merchant', 'Correct merchant occupant returned');
+  assert(entries[0].name === 'Anvil', 'Merchant name sourced from canonical label');
+  assert(entries[0].summary === 'blacksmith', 'Merchant summary sourced from canonical presentation.role');
+  assert(entries[0].portraitUrl === 'https://example.com/anvil.png', 'Merchant portrait URL from canonical presentation');
+}
+
+{
+  // No merchants in room returns empty array.
+  const context = {
+    stateManager: {
+      hexmap: {
+        mapVisualState: {
+          occupants: {
+            party: [],
+            entities: [
+              {
+                occupant_id: 'npc-guard',
+                occupant_type: 'npc',
+                content_id: 'guard',
+                room_id: 'room-a',
+                label: 'Guard',
+                visible: true,
+                presentation: { portrait_url: null, role: 'guard', is_merchant: false },
+              },
+            ],
+          },
+        },
+        hasVisualOccupants: methods.hasVisualOccupants,
+        getVisualOccupants: methods.getVisualOccupants,
+        isVisualOccupantVisible: methods.isVisualOccupantVisible,
+        resolveActiveRoomId() { return 'room-a'; },
+      },
+    },
+  };
+
+  const entries = methods.buildRoomMerchantEntries.call(context, 'room-a');
+  assert(entries.length === 0, 'Merchant panel returns empty when no merchants in room');
+}
+
+{
+  // Merchant in different room is excluded.
+  const context = {
+    stateManager: {
+      hexmap: {
+        mapVisualState: {
+          occupants: {
+            party: [],
+            entities: [
+              {
+                occupant_id: 'npc-far-merchant',
+                occupant_type: 'npc',
+                content_id: 'trader',
+                room_id: 'room-b',
+                label: 'Trader',
+                visible: true,
+                presentation: { portrait_url: null, role: 'trader', is_merchant: true },
+              },
+            ],
+          },
+        },
+        hasVisualOccupants: methods.hasVisualOccupants,
+        getVisualOccupants: methods.getVisualOccupants,
+        isVisualOccupantVisible: methods.isVisualOccupantVisible,
+        resolveActiveRoomId() { return 'room-a'; },
+      },
+    },
+  };
+
+  const entries = methods.buildRoomMerchantEntries.call(context, 'room-a');
+  assert(entries.length === 0, 'Merchant in different room excluded from merchant panel');
 }
 
 console.log('\n============================================');

@@ -191,4 +191,93 @@ class MapVisualStateProjectorTest extends UnitTestCase {
     $this->assertSame('visible', $result['topology']['connections'][0]['visibility_state']);
   }
 
+  /**
+   * Verifies occupant presentation includes role and is_merchant fields.
+   */
+  public function testOccupantPresentationIncludesMerchantAndRole(): void {
+    $projector = new MapVisualStateProjector();
+
+    $result = $projector->project([
+      'rooms' => [
+        'room-a' => [
+          'room_id' => 'room-a',
+          'hexes' => [['q' => 0, 'r' => 0]],
+        ],
+      ],
+      'entities' => [
+        [
+          'entity_type' => 'npc',
+          'entity_instance_id' => 'npc-shopkeeper',
+          'entity_ref' => ['content_id' => 'guildsmith'],
+          'placement' => [
+            'room_id' => 'room-a',
+            'hex' => ['q' => 0, 'r' => 0],
+          ],
+          'state' => [
+            'active' => TRUE,
+            'metadata' => [
+              'display_name' => 'Guild Smith',
+              'role' => 'blacksmith',
+              'portrait_url' => 'https://example.com/smith.png',
+            ],
+          ],
+        ],
+        [
+          'entity_type' => 'npc',
+          'entity_instance_id' => 'npc-guard',
+          'entity_ref' => ['content_id' => 'city-guard'],
+          'placement' => [
+            'room_id' => 'room-a',
+            'hex' => ['q' => 0, 'r' => 0],
+          ],
+          'state' => [
+            'active' => TRUE,
+            'metadata' => [
+              'display_name' => 'City Guard',
+              'occupation' => 'guard',
+            ],
+          ],
+        ],
+        [
+          'entity_type' => 'npc',
+          'entity_instance_id' => 'npc-vendor-explicit',
+          'entity_ref' => ['content_id' => 'potion-vendor'],
+          'placement' => [
+            'room_id' => 'room-a',
+            'hex' => ['q' => 0, 'r' => 0],
+          ],
+          'state' => [
+            'merchant_enabled' => TRUE,
+            'active' => TRUE,
+            'metadata' => [
+              'display_name' => 'Potion Seller',
+            ],
+          ],
+        ],
+      ],
+    ], [], []);
+
+    $occupants = array_merge(
+      $result['occupants']['party'] ?? [],
+      $result['occupants']['entities'] ?? []
+    );
+    $byId = [];
+    foreach ($occupants as $occ) {
+      $byId[$occ['occupant_id']] = $occ;
+    }
+
+    // Blacksmith: keyword-detected as merchant, role from metadata.
+    $this->assertTrue($byId['npc-shopkeeper']['presentation']['is_merchant'], 'Blacksmith NPC detected as merchant via keyword');
+    $this->assertSame('blacksmith', $byId['npc-shopkeeper']['presentation']['role'], 'Role emitted from metadata.role');
+    $this->assertSame('https://example.com/smith.png', $byId['npc-shopkeeper']['presentation']['portrait_url']);
+
+    // City guard: not a merchant, role from occupation fallback.
+    $this->assertFalse($byId['npc-guard']['presentation']['is_merchant'], 'Guard NPC not flagged as merchant');
+    $this->assertSame('guard', $byId['npc-guard']['presentation']['role'], 'Role falls back to metadata.occupation');
+
+    // Explicit merchant_enabled flag.
+    $this->assertTrue($byId['npc-vendor-explicit']['presentation']['is_merchant'], 'Explicit merchant_enabled flag detected');
+    $this->assertSame('', $byId['npc-vendor-explicit']['presentation']['role'], 'Role is empty string when no role/occupation');
+  }
+
 }
