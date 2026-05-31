@@ -648,11 +648,9 @@ export class ChatPanel {
 
     this.scrollChatToBottom({ defer: true });
     this.syncChatTurnStatus();
-    if (this.loadActiveRoomView) {
-      const pinnedRoomId = this.resolvePinnedChatRoomTarget(context.roomId);
-      if (pinnedRoomId) {
-        this.loadActiveRoomView(pinnedRoomId, { force: true });
-      }
+    const pinnedRoomId = this.resolvePinnedChatRoomTarget(context.roomId);
+    if (pinnedRoomId) {
+      this.bus.emit('room:view-reload-requested', { roomId: pinnedRoomId, force: true });
     }
   }
 
@@ -918,8 +916,8 @@ export class ChatPanel {
     }
 
     const pinnedRoomId = this.resolvePinnedChatRoomTarget(chatTarget?.context?.roomId);
-    if (pinnedRoomId && this.loadActiveRoomView) {
-      this.loadActiveRoomView(pinnedRoomId, { force: true, preserveExisting: true });
+    if (pinnedRoomId) {
+      this.bus.emit('room:view-reload-requested', { roomId: pinnedRoomId, force: true, preserveExisting: true });
     }
 
     this.invalidateChatCaches({

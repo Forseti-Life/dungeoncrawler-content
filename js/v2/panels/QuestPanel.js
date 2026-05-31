@@ -235,7 +235,7 @@ export class QuestPanel {
   }
 
   showQuestToast(message, type = 'info') {
-    this.appendChatLine('Quest', message, 'system');
+    this.bus.emit('chat:message-received', { speaker: 'Quest', message, type: 'system' });
   }
 
 }

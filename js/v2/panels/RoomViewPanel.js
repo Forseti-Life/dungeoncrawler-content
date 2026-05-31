@@ -167,6 +167,10 @@ export class RoomViewPanel {
     }, this.roomViewRetryDelayMs);
   }
 
+  loadActiveRoomView(roomId, options = {}) {
+    this.bus.emit('room:view-reload-requested', { roomId, ...options });
+  }
+
   setCachedRoomViewPayload(cacheKey, payload) {
     if (!cacheKey) {
       return payload;

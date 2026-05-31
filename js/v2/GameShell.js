@@ -223,6 +223,9 @@ export class GameShell {
     // ChatPanel requests room chat history refresh
     this.bus.on('user:chat-history-requested', () => this._loadChatHistory());
 
+    // RoomViewPanel requests a room view reload (e.g. retry after pending)
+    this.bus.on('room:view-reload-requested', () => this._loadRoomView());
+
     // CharacterPanel requests inventory refresh from API
     this.bus.on('character:inventory-refresh-requested', (ctx) => {
       if (ctx) void this.refreshCharacterInventoryFromApi(ctx);
