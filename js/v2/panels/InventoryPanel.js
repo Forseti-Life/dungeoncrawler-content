@@ -84,7 +84,7 @@ export class InventoryPanel {
       scope: 'document',
       panelSelector: '#sidebar-panel-inventory',
     });
-    document.addEventListener('click', (event) => {
+    const handler = (event) => {
       const panel = event.target.closest('#sidebar-panel-inventory');
       if (!panel) {
         return;
@@ -112,7 +112,12 @@ export class InventoryPanel {
         });
         this.dispatchInventoryAction(button);
       }
-    }, true);
+    };
+    document.addEventListener('click', handler, true);
+    this._unsubs.push(() => {
+      document.removeEventListener('click', handler, true);
+      delete document.body.dataset.inventoryActionBound;
+    });
   }
 
   dispatchInventoryAction(button) {

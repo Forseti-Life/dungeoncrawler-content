@@ -144,21 +144,15 @@ export class CharacterPanel {
 
   setupCharacterSheetSections() {
     const sectionHeaders = document.querySelectorAll('.character-sheet__section .section-header');
-    sectionHeaders.forEach(header => {
+    sectionHeaders.forEach((header) => {
       if (header.classList.contains('section-header--static')) return;
-      if (header.dataset.bound === 'true') return;
-      header.dataset.bound = 'true';
-
-      header.addEventListener('click', () => {
+      const handler = () => {
         const section = header.closest('.character-sheet__section');
         const sectionName = header.dataset.section;
         const body = section.querySelector(`.section-body[data-section="${sectionName}"]`);
         const toggle = header.querySelector('.section-toggle');
-
         if (!body || !toggle) return;
-
         const isCollapsed = section.classList.contains('collapsed');
-
         if (isCollapsed) {
           section.classList.remove('collapsed');
           body.style.display = '';
@@ -168,19 +162,29 @@ export class CharacterPanel {
           body.style.display = 'none';
           toggle.textContent = '▸';
         }
-      });
+      };
+      header.addEventListener('click', handler);
+      this._unsubs.push(() => header.removeEventListener('click', handler));
     });
   }
 
   /**
    * Activate a sidebar sub-tab by ID (e.g. 'character', 'inventory').
-   * Clicking the button triggers both the Twig localStorage handler and our class handler.
+   * Directly toggles CSS classes and clears inline display styles — does NOT
+   * call .click() so localStorage is not touched on programmatic activation.
    */
   _activateSidebarTab(tabId) {
     const sidebar = this.container?.closest('.game-layout__sidebar');
     if (!sidebar) return;
-    const tab = sidebar.querySelector(`[data-sidebar-tab="${tabId}"]`);
-    if (tab) tab.click();
+    sidebar.querySelectorAll('[data-sidebar-tab]').forEach((t) => {
+      t.classList.toggle('sidebar-tab--active', t.dataset.sidebarTab === tabId);
+    });
+    sidebar.querySelectorAll('.sidebar-panel').forEach((p) => {
+      const active = p.id === `sidebar-panel-${tabId}`;
+      p.classList.toggle('sidebar-panel--active', active);
+      // Clear inline style so CSS class controls visibility.
+      p.style.display = '';
+    });
   }
 
   showEmbeddedCharacterSheet(characterId) {

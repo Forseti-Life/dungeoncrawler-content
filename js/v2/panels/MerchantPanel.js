@@ -111,7 +111,7 @@ export class MerchantPanel {
       scope: 'document',
       panelSelector: '#game-panel-merchant',
     });
-    document.addEventListener('change', (event) => {
+    const changeHandler = (event) => {
       if (event.target?.id !== 'merchant-entity-select') {
         return;
       }
@@ -122,9 +122,9 @@ export class MerchantPanel {
         merchantRef: this.currentMerchantRef,
       });
       this.loadMerchantPanel(true);
-    });
+    };
 
-    document.addEventListener('input', (event) => {
+    const inputHandler = (event) => {
       if (event.target?.id !== 'merchant-item-filter') {
         return;
       }
@@ -134,9 +134,9 @@ export class MerchantPanel {
       });
       this.resetMerchantCatalogSearch();
       this.renderMerchantPanel(this.currentMerchantContext);
-    });
+    };
 
-    document.addEventListener('click', (event) => {
+    const clickHandler = (event) => {
       const panel = event.target.closest('#game-panel-merchant');
       if (!panel) {
         return;
@@ -159,6 +159,16 @@ export class MerchantPanel {
         merchantRef: this.currentMerchantRef,
       });
       this.dispatchMerchantAction(button);
+    };
+
+    document.addEventListener('change', changeHandler);
+    document.addEventListener('input', inputHandler);
+    document.addEventListener('click', clickHandler);
+    this._unsubs.push(() => {
+      document.removeEventListener('change', changeHandler);
+      document.removeEventListener('input', inputHandler);
+      document.removeEventListener('click', clickHandler);
+      delete document.body.dataset.merchantPanelBound;
     });
   }
 

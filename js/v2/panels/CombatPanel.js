@@ -52,9 +52,21 @@ export class CombatPanel {
 
   _bindDom() {
     const { startCombatBtn, endCombatBtn, endTurnBtn } = this._el;
-    if (startCombatBtn) startCombatBtn.addEventListener('click', () => this.bus.emit('user:combat-start'));
-    if (endCombatBtn)   endCombatBtn.addEventListener('click', () => this.bus.emit('user:combat-end'));
-    if (endTurnBtn)     endTurnBtn.addEventListener('click', () => this.bus.emit('user:end-turn'));
+    if (startCombatBtn) {
+      const onStart = () => this.bus.emit('user:combat-start');
+      startCombatBtn.addEventListener('click', onStart);
+      this._unsubs.push(() => startCombatBtn.removeEventListener('click', onStart));
+    }
+    if (endCombatBtn) {
+      const onEnd = () => this.bus.emit('user:combat-end');
+      endCombatBtn.addEventListener('click', onEnd);
+      this._unsubs.push(() => endCombatBtn.removeEventListener('click', onEnd));
+    }
+    if (endTurnBtn) {
+      const onTurn = () => this.bus.emit('user:end-turn');
+      endTurnBtn.addEventListener('click', onTurn);
+      this._unsubs.push(() => endTurnBtn.removeEventListener('click', onTurn));
+    }
   }
 
   _subscribe() {

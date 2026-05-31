@@ -125,16 +125,23 @@ export class PartyRailPanel {
     const list = this._el.initiativeList;
     if (!list) return;
 
-    list.addEventListener('click', (e) => {
+    const onClickHandler = (e) => {
       const card = e.target.closest('.rail-card[data-entity-id]');
       if (!card) return;
       this._onCardClick(card.dataset.entityId);
-    });
+    };
 
-    list.addEventListener('keydown', (e) => {
+    const onKeydownHandler = (e) => {
       if (e.key !== 'Enter' && e.key !== ' ') return;
       const card = e.target.closest('.rail-card[data-entity-id]');
       if (card) this._onCardClick(card.dataset.entityId);
+    };
+
+    list.addEventListener('click', onClickHandler);
+    list.addEventListener('keydown', onKeydownHandler);
+    this._unsubs.push(() => {
+      list.removeEventListener('click', onClickHandler);
+      list.removeEventListener('keydown', onKeydownHandler);
     });
   }
 

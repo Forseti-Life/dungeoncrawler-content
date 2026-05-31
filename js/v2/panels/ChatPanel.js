@@ -144,44 +144,10 @@ export class ChatPanel {
         if (d?.text) this.appendChatLine('System', d.text, 'system');
       }),
       this.bus.on('chat:turn-status-changed', () => this.syncChatTurnStatus()),
-      this.bus.on('room:changed',            (d) => {
-        if (d?.room) this.setChatPanelSceneBackground(d.room.imageUrl, d.room);
-      }),
       this.bus.on('session:view-data', (d) => {
         if (d?.view && d?.data) this.renderSessionViewData(d.view, d.data);
       }),
     );
-  }
-
-  setChatPanelSceneBackground(imageSrc = '', room = null) {
-    const chatShell = this._el.chatShell;
-    if (!chatShell) {
-      return;
-    }
-
-    const normalizedImageSrc = typeof imageSrc === 'string' ? imageSrc.trim() : '';
-    if (!normalizedImageSrc) {
-      chatShell.style.removeProperty('--chat-scene-image');
-      chatShell.style.removeProperty('background-image');
-      chatShell.style.removeProperty('background-position');
-      chatShell.style.removeProperty('background-size');
-      chatShell.style.removeProperty('background-repeat');
-      chatShell.dataset.sceneReady = 'false';
-      chatShell.removeAttribute('data-scene-room');
-      return;
-    }
-
-    chatShell.style.setProperty('--chat-scene-image', `url(${JSON.stringify(normalizedImageSrc)})`);
-    chatShell.style.backgroundImage = `linear-gradient(180deg, rgba(6, 10, 18, 0.22) 0%, rgba(6, 10, 18, 0.54) 55%, rgba(6, 10, 18, 0.72) 100%), url(${JSON.stringify(normalizedImageSrc)})`;
-    chatShell.style.backgroundPosition = 'center';
-    chatShell.style.backgroundSize = 'cover';
-    chatShell.style.backgroundRepeat = 'no-repeat';
-    chatShell.dataset.sceneReady = 'true';
-    if (room?.name) {
-      chatShell.dataset.sceneRoom = String(room.name);
-    } else {
-      chatShell.removeAttribute('data-scene-room');
-    }
   }
 
   setupChatLog() {
@@ -839,7 +805,7 @@ export class ChatPanel {
               const questHexmap = this.stateManager?.hexmap || null;
               const questCampaignId = questHexmap?.resolveCampaignId?.() || Number(questHexmap?.launchContext?.campaign_id || 0) || null;
               const questCharacterId = Number(questHexmap?.launchContext?.character_id || 0);
-              console.error('Quest journal debug: streamed complete event received', {
+              console.log('[ChatPanel] Quest journal debug: streamed complete event received', {
                 campaignId: questCampaignId,
                 characterId: questCharacterId,
                 eventKeys: event.data && typeof event.data === 'object' ? Object.keys(event.data) : [],
@@ -848,7 +814,7 @@ export class ChatPanel {
                 success: true,
                 data: event.data || {},
               };
-              console.error('Quest journal debug: streamed complete payload summary', {
+              console.log('[ChatPanel] Quest journal debug: streamed complete payload summary', {
                 campaignId: questCampaignId,
                 characterId: questCharacterId,
                 hasQuestUpdatesArray: Array.isArray(completeResult.data?.quest_updates),
@@ -865,14 +831,14 @@ export class ChatPanel {
               }
               let questJournalRefreshed = false;
               if (Array.isArray(completeResult.data?.quest_updates) && completeResult.data.quest_updates.length > 0) {
-                console.warn('Quest journal debug: streamed room chat received quest updates', {
+                console.log('[ChatPanel] Quest journal debug: streamed room chat received quest updates', {
                   campaignId: questCampaignId,
                   characterId: questCharacterId,
                   questUpdateCount: completeResult.data.quest_updates.length,
                   questIds: completeResult.data.quest_updates.map((update) => update?.quest_id || update?.quest_key || update?.quest_name || 'unknown'),
                 });
                 await questHexmap?.applyQuestUpdates?.(completeResult.data.quest_updates);
-                console.error('Quest journal debug: streamed quest update application finished', {
+                console.log('[ChatPanel] Quest journal debug: streamed quest update application finished', {
                   campaignId: questCampaignId,
                   characterId: questCharacterId,
                   questUpdateCount: completeResult.data.quest_updates.length,
@@ -880,12 +846,12 @@ export class ChatPanel {
                 questJournalRefreshed = true;
               }
               if (!questJournalRefreshed && typeof questHexmap?.refreshQuestJournalFromApi === 'function') {
-                console.warn('Quest journal debug: streamed room chat had no quest updates, refreshing journal from API', {
+                console.log('[ChatPanel] Quest journal debug: streamed room chat had no quest updates, refreshing journal from API', {
                   campaignId: questCampaignId,
                   characterId: questCharacterId,
                 });
                 await questHexmap.refreshQuestJournalFromApi();
-                console.error('Quest journal debug: streamed fallback journal refresh finished', {
+                console.log('[ChatPanel] Quest journal debug: streamed fallback journal refresh finished', {
                   campaignId: questCampaignId,
                   characterId: questCharacterId,
                 });

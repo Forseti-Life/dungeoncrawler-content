@@ -47,7 +47,9 @@ export class StatusPanel {
   _bindDom() {
     const { fullscreen } = this._el;
     if (fullscreen) {
-      fullscreen.addEventListener('click', () => this.bus.emit('user:fullscreen-toggle'));
+      const onFullscreen = () => this.bus.emit('user:fullscreen-toggle');
+      fullscreen.addEventListener('click', onFullscreen);
+      this._unsubs.push(() => fullscreen.removeEventListener('click', onFullscreen));
     }
   }
 
