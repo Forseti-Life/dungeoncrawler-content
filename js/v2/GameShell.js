@@ -446,7 +446,7 @@ export class GameShell {
       const sceneImageUrl = first?.image?.url ?? first?.image?.data_uri ?? null;
 
       const visualRoom = this.mapVisualState?.topology?.rooms?.[roomId];
-      const payloadRoom = result.data.room ?? visualRoom ?? null;
+      const payloadRoom = { id: roomId, ...(result.data.room ?? visualRoom ?? {}) };
       const roomName = payloadRoom?.name ?? visualRoom?.name ?? roomId;
 
       const statusLabel = entries.length > 0
@@ -473,7 +473,7 @@ export class GameShell {
     } catch (err) {
       if (token !== this._roomViewRequestToken) return;
       this.bus.emit('room:view-loaded', {
-        room: this.mapVisualState?.topology?.rooms?.[roomId] ?? null,
+        room: { id: roomId, ...(this.mapVisualState?.topology?.rooms?.[roomId] ?? {}) },
         viewState: {
           statusLabel: 'Unavailable',
           placeholderText: err?.message || 'Room view generation failed.',
