@@ -98,15 +98,29 @@ export class ChatPanel {
     this.stateManager = stateManager || {};
     const id = (k) => document.getElementById(k);
     this._el = {
-      chatLog:          id('chat-log'),
-      chatSummary:      id('chat-summary'),
-      chatInput:        id('chat-input'),
-      chatSubmit:       id('chat-submit'),
-      chatChannelTabs:  id('chat-channel-tabs'),
-      chatPendingWrap:  id('chat-pending-wrap'),
-      chatSceneImg:     id('chat-scene-bg'),
-      chatViewTabs:     id('chat-view-tabs'),
+      chatShell:                  id('hexmap-chat'),
+      chatPanelTitle:             id('chat-panel-title'),
+      chatLog:                    id('chat-log'),
+      chatSummary:                id('chat-summary'),
+      chatInput:                  id('chat-input'),
+      chatSend:                   id('chat-send'),
+      chatForm:                   id('chat-form'),
+      chatChannelTabs:            id('chat-channel-tabs'),
+      chatChannelIndicator:       id('chat-channel-indicator'),
+      chatChannelLabel:           id('chat-channel-label'),
+      chatSessionTabs:            id('chat-session-tabs'),
+      chatQuickActions:           id('chat-quick-actions'),
+      chatTurnStatus:             id('chat-turn-status'),
+      chatTurnRole:               id('chat-turn-role'),
+      chatTurnName:               id('chat-turn-name'),
+      chatTurnMeta:               id('chat-turn-meta'),
+      chatTurnCurrentRoundLabel:  id('chat-turn-current-round-label'),
+      chatTurnCurrentRoundOrder:  id('chat-turn-current-round-order'),
+      chatTurnNextRoundLabel:     id('chat-turn-next-round-label'),
+      chatTurnNextRoundOrder:     id('chat-turn-next-round-order'),
     };
+    const nullKeys = Object.entries(this._el).filter(([,v]) => !v).map(([k]) => k);
+    console.log('[ChatPanel] init', { container: !!this.container, nullEl: nullKeys });
     this._subscribe();
     this.setupChatLog();
     this.setupChannelTabs();

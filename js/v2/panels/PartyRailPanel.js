@@ -19,10 +19,14 @@ export class PartyRailPanel {
     this.dungeonData = dungeonData || {};
     this.stateManager = stateManager || {};
     const s = (k) => this.container?.querySelector(`[data-party="${k}"]`) || null;
+    const id = (k) => document.getElementById(k);
     this._el = {
-      rail:  s('rail'),
-      empty: s('empty'),
+      rail:           s('rail'),
+      empty:          s('empty'),
+      initiativeList: id('initiative-list'),
     };
+    const nullKeys = Object.entries(this._el).filter(([,v]) => !v).map(([k]) => k);
+    console.log('[PartyRailPanel] init', { container: !!this.container, nullEl: nullKeys });
     this._subscribe();
     this.setupPartyRailHandlers();
   }

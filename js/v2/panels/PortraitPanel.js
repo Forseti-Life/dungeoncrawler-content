@@ -19,14 +19,18 @@ export class PortraitPanel {
   init(dungeonData, stateManager) {
     this.dungeonData = dungeonData || {};
     this.stateManager = stateManager || {};
-    const s = (k) => this.container?.querySelector(`[data-portrait="${k}"]`) || null;
     const id = (k) => document.getElementById(k);
     this._el = {
-      roomName:    s('room-name'),
-      count:       s('count'),
-      grid:        s('grid'),
-      placeholder: s('placeholder'),
+      npcPortraitsPanel:           id('npc-portraits-panel'),
+      npcPortraitsName:            id('npc-portraits-name'),
+      npcPortraitsMeta:            id('npc-portraits-meta'),
+      npcPortraitsStatus:          id('npc-portraits-status'),
+      npcPortraitsGrid:            id('npc-portraits-grid'),
+      npcPortraitsPlaceholder:     id('npc-portraits-placeholder'),
+      npcPortraitsPlaceholderText: id('npc-portraits-placeholder-text'),
     };
+    const nullKeys = Object.entries(this._el).filter(([,v]) => !v).map(([k]) => k);
+    console.log('[PortraitPanel] init', { container: !!this.container, nullEl: nullKeys });
     this._subscribe();
   }
 
