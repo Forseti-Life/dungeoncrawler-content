@@ -184,4 +184,18 @@ export class PortraitPanel {
     }
   }
 
+  formatPortraitsMeta(room, entryCount = 0) {
+    const summary = entryCount > 0
+      ? `${entryCount} room portrait${entryCount === 1 ? '' : 's'}`
+      : 'Portraits for PCs and NPCs in the active room.';
+    if (!room || typeof room !== 'object') {
+      return summary;
+    }
+    return [
+      summary,
+      room.room_type ? String(room.room_type).replace(/_/g, ' ') : '',
+      room.size_category ? String(room.size_category).replace(/_/g, ' ') : '',
+    ].filter(Boolean).join(' • ');
+  }
+
 }
