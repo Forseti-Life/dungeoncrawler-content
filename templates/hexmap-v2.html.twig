@@ -10,12 +10,12 @@
 #}
 
   <div class="hexmap-container" id="hexmap-container" data-hexmap-v2 data-panel="status"{% if is_admin %} data-admin="1"{% endif %}>
-  <div class="game-shell" data-game-shell data-game-shell-default="map">
+  <div class="game-shell" data-game-shell data-game-shell-default="chat">
     <div class="game-shell__tabs" role="tablist" aria-label="{{ 'Campaign play views'|t }}">
-      <button id="game-tab-map" class="game-shell__tab game-shell__tab--active" type="button" role="tab" aria-selected="true" aria-controls="game-panel-map" data-game-tab="map" tabindex="0">
+      <button id="game-tab-map" class="game-shell__tab" type="button" role="tab" aria-selected="false" aria-controls="game-panel-map" data-game-tab="map" tabindex="0">
         {{ 'Map'|t }}
       </button>
-      <button id="game-tab-chat" class="game-shell__tab" type="button" role="tab" aria-selected="false" aria-controls="game-panel-chat" data-game-tab="chat" tabindex="0">
+      <button id="game-tab-chat" class="game-shell__tab game-shell__tab--active" type="button" role="tab" aria-selected="true" aria-controls="game-panel-chat" data-game-tab="chat" tabindex="0">
         {{ 'Chat'|t }}
       </button>
       <button id="game-tab-view" class="game-shell__tab" type="button" role="tab" aria-selected="false" aria-controls="game-panel-view" data-game-tab="view" tabindex="0">
@@ -97,7 +97,7 @@
       </aside>
 
       <div class="game-shell__content">
-    <div class="game-shell__panel game-shell__panel--active" id="game-panel-map" role="tabpanel" aria-labelledby="game-tab-map">
+    <div class="game-shell__panel" id="game-panel-map" role="tabpanel" aria-labelledby="game-tab-map" hidden>
       <div class="game-shell__map-panel">
         <div class="hexmap-controls hexmap-debug-panel">
       <div class="control-group control-group--config">
@@ -209,11 +209,12 @@
           </div>
         </div>
       </div>
-    </div>
+      </div>{# /#hexmap-canvas-container #}
+    </div>{# /.hexmap-stage #}
+      </div>{# /.game-shell__map-panel #}
+    </div>{# /#game-panel-map #}
 
-    </div>
-
-    <div class="game-shell__panel" id="game-panel-chat" role="tabpanel" aria-labelledby="game-tab-chat" hidden>
+    <div class="game-shell__panel game-shell__panel--active" id="game-panel-chat" role="tabpanel" aria-labelledby="game-tab-chat">
       <div class="game-shell__chat-panel">
         <div class="hexmap-chat" id="hexmap-chat" data-panel="chat">
           <div class="hexmap-chat__header">

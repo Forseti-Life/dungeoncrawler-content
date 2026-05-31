@@ -17,14 +17,15 @@
 
 :root {
   /* Core Color Palette */
-  --ink: var(--dc-surface-abyss);
-  --panel: var(--dc-surface-abyss);
-  --panel-border: var(--bs-border-color);
-  --muted: var(--dc-text-muted);
-  --text: var(--dc-text-primary);
-  --text-bright: var(--bs-light);
-  --accent: var(--dc-accent-cyan);
-  --accent-strong: var(--dc-accent-cyan-strong);
+  --bg: var(--dc-surface-primary, #1a1a2e);
+  --ink: var(--dc-surface-abyss, #0f0f1a);
+  --panel: var(--dc-surface-abyss, #0f0f1a);
+  --panel-border: var(--bs-border-color, rgba(148, 163, 184, 0.24));
+  --muted: var(--dc-text-muted, #94a3b8);
+  --text: var(--dc-text-primary, #e2e8f0);
+  --text-bright: var(--bs-light, #f8f9fa);
+  --accent: var(--dc-accent-cyan, #00d4ff);
+  --accent-strong: var(--dc-accent-cyan-strong, #38bdf8);
   --accent-dark: color-mix(in srgb, var(--accent) 30%, black);
   --alert: var(--bs-warning);
   --success: var(--bs-success);
@@ -215,6 +216,16 @@
    ========================================================================== */
 
 .hexmap-container {
+  --bg: #1a1a2e;
+  --ink: #0f0f1a;
+  --panel: #0f0f1a;
+  --panel-border: rgba(148, 163, 184, 0.24);
+  --muted: #94a3b8;
+  --text: #e2e8f0;
+  --text-bright: #f8f9fa;
+  --accent: #00d4ff;
+  --accent-strong: #38bdf8;
+  --canvas-bg: #1a1a2e;
   --dc-fullscreen-height: 100dvh;
   --dc-fullscreen-header-height: 0px;
   --dc-fullscreen-body-height: 100dvh;
@@ -226,6 +237,11 @@
   display: flex;
   flex-direction: column;
   height: auto;
+  color: var(--text);
+  background:
+    radial-gradient(circle at top left, color-mix(in srgb, var(--accent) 12%, transparent) 0%, transparent 32rem),
+    linear-gradient(180deg, var(--bg) 0%, var(--ink) 100%);
+  border-radius: var(--radius-3xl);
 }
 
 .game-shell {
@@ -243,6 +259,7 @@
 
 .game-shell__content {
   min-width: 0;
+  color: var(--text);
 }
 
 .game-shell__action-rail {
@@ -651,6 +668,7 @@
 
 .game-shell__panel {
   display: block;
+  color: var(--text);
 }
 
 .game-shell__panel[hidden] {
@@ -1323,7 +1341,9 @@
   min-height: min(840px, calc(100vh - 24px));
   height: min(1040px, calc(100vh - 24px));
   max-height: calc(100vh - 24px);
-  background: rgba(8, 12, 20, 0.20);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--panel) 88%, white) 0%, var(--panel) 100%),
+    var(--panel);
   border: 1px solid var(--overlay-white-08);
   border-radius: var(--radius-3xl);
   padding: var(--space-4);
@@ -1670,8 +1690,6 @@
 
 .hexmap-chat__input .btn {
   min-width: 110px;
-}
-
 }
 
 .turn-hud__actions-list .list-label {
