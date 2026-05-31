@@ -39,6 +39,7 @@ class HexMapController extends ControllerBase {
   protected StorylineManagerService $storylineManager;
   protected RelationshipManagerService $relationshipManager;
   protected StateValidationService $stateValidationService;
+  protected CharacterManager $characterManager;
 
   /**
    * Per-request cache of room contents_data to avoid redundant DB reads.
@@ -48,7 +49,7 @@ class HexMapController extends ControllerBase {
    * @var array<string, array|null>
    */
   protected array $roomContentsCache = [];
-  public function __construct(RequestStack $request_stack, Connection $database, AnimalCompanionService $animal_companion_service, CampaignCharacterRuntimeSyncService $campaign_character_runtime_sync, QuestTrackerService $quest_tracker, QuestGeneratorService $quest_generator, GeneratedImageRepository $image_repository, MapVisualStateProjector $map_visual_state_projector, StorylineManagerService $storyline_manager, RelationshipManagerService $relationship_manager, StateValidationService $state_validation_service) {
+  public function __construct(RequestStack $request_stack, Connection $database, AnimalCompanionService $animal_companion_service, CampaignCharacterRuntimeSyncService $campaign_character_runtime_sync, QuestTrackerService $quest_tracker, QuestGeneratorService $quest_generator, GeneratedImageRepository $image_repository, MapVisualStateProjector $map_visual_state_projector, StorylineManagerService $storyline_manager, RelationshipManagerService $relationship_manager, StateValidationService $state_validation_service, CharacterManager $character_manager) {
     $this->requestStack = $request_stack;
     $this->database = $database;
     $this->animalCompanionService = $animal_companion_service;
@@ -60,6 +61,7 @@ class HexMapController extends ControllerBase {
     $this->storylineManager = $storyline_manager;
     $this->relationshipManager = $relationship_manager;
     $this->stateValidationService = $state_validation_service;
+    $this->characterManager = $character_manager;
   }
 
   /**
@@ -78,6 +80,7 @@ class HexMapController extends ControllerBase {
       $container->get('dungeoncrawler_content.storyline_manager'),
       $container->get('dungeoncrawler_content.relationship_manager'),
       $container->get('dungeoncrawler_content.state_validation_service'),
+      $container->get('dungeoncrawler_content.character_manager'),
     );
   }
 
@@ -749,7 +752,7 @@ class HexMapController extends ControllerBase {
     }
 
     // Extract spells data
-    $spells = $character_data['spells'] ?? [];
+    $spells = $this->normalizeLaunchCharacterSpells($character_data, $class);
 
     // Extract heritage, background, speed, alignment, deity
     $heritage = is_array($character_data['ancestry'] ?? NULL)
@@ -845,6 +848,47 @@ class HexMapController extends ControllerBase {
     }
 
     return array_replace_recursive($default_character_data, $character_data);
+  }
+
+  /**
+   * Normalize launch spell data so the V2 sheet receives full ranked spells.
+   *
+   * Wizard runtime rows can carry the canonical spellbook contract as a
+   * spellbook size plus slots. The tab needs the concrete rank entries, so use
+   * the same deterministic class/tradition catalog source as character creation
+   * instead of rendering an empty first-rank list.
+   *
+   * @param array<string, mixed> $character_data
+   *   Decoded campaign character data.
+   * @param string $class
+   *   Character class label/id.
+   *
+   * @return array<string, mixed>
+   *   Spell payload for the launch character.
+   */
+  protected function normalizeLaunchCharacterSpells(array $character_data, string $class): array {
+    $spells = is_array($character_data['spells'] ?? NULL) ? $character_data['spells'] : [];
+    if ($spells === []) {
+      return [];
+    }
+
+    $spells['cantrips'] = is_array($spells['cantrips'] ?? NULL) ? $spells['cantrips'] : [];
+    $spells['first_level'] = is_array($spells['first_level'] ?? NULL) ? $spells['first_level'] : [];
+
+    $class_key = strtolower(trim($class));
+    $tradition = strtolower(trim((string) ($spells['tradition'] ?? '')));
+    $spellbook_size = (int) ($spells['spellbook_size'] ?? 0);
+    if (
+      $class_key === 'wizard'
+      && $tradition !== ''
+      && $spellbook_size > 0
+      && empty($spells['first_level'])
+    ) {
+      $first_rank_spells = $this->characterManager->getSpellsByTradition($tradition, 1);
+      $spells['first_level'] = array_column(array_slice($first_rank_spells, 0, $spellbook_size), 'id');
+    }
+
+    return $spells;
   }
 
   /**
