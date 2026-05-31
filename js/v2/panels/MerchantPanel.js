@@ -506,7 +506,7 @@ export class MerchantPanel {
       inventory,
       currency: inventory.currency || player.currency || this.currentCharacterInventoryContext.currency || {},
     };
-    this.renderInventoryPanel(this.currentCharacterInventoryContext);
+    this.bus.emit('inventory:changed', this.currentCharacterInventoryContext);
   }
 
   renderMerchantPanel(context = null) {
