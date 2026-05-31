@@ -188,6 +188,12 @@ export class GameShell {
     );
 
     this._currentOccupants = roomOccupants;
+    console.log('[GameShell] _emitInitialOccupants', {
+      total: allOccupants.length,
+      forRoom: roomOccupants.length,
+      npcsWithPortrait: roomOccupants.filter((o) => o?.presentation?.portrait_url).length,
+      npcSample: roomOccupants.filter((o) => o?.occupant_type === 'npc').map((o) => ({ name: o?.label, portrait: o?.presentation?.portrait_url ? o.presentation.portrait_url.slice(-40) : null })),
+    });
     this.bus.emit('room:occupants-changed', {
       roomId,
       roomName,

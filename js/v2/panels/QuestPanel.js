@@ -139,7 +139,7 @@ export class QuestPanel {
     const offeredQuests = Array.isArray(summary.offers) ? summary.offers : [];
     const leadQuests = Array.isArray(summary.leads) ? summary.leads : [];
     const managementTree = Array.isArray(summary.management_tree) ? summary.management_tree : [];
-    console.warn('Quest journal debug: rendering quest journal', {
+    console.log('[QuestPanel] renderQuestJournal:debug', {
       activeCount: activeQuests.length,
       offerCount: offeredQuests.length,
       leadCount: leadQuests.length,

@@ -166,7 +166,7 @@ export class PortraitPanel {
     console.log('[PortraitPanel] loadRoomPortraitsPanel', {
       roomId: resolvedRoomId,
       entryCount: entries.length,
-      entries: entries.map((e) => ({ id: e?.entityId, type: e?.kind, name: e?.name, hasPortrait: !!e?.portraitUrl })),
+      entries: entries.map((e) => ({ id: e?.entityId, type: e?.kind, name: e?.name, portraitUrl: e?.portraitUrl ? e.portraitUrl.slice(-40) : null })),
     });
     if (this._el.npcPortraitsName) {
       this._el.npcPortraitsName.textContent = room?.name || 'Current room';
