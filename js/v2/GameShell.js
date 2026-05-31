@@ -4,9 +4,9 @@
  * Top-level orchestrator for hexmap-v2.
  *
  * Responsibilities:
- *   - Read Drupal settings and build launch context
- *   - Instantiate GameEventBus, canvas modules, systems, and panels
- *   - Wire ECS (EntityManager, systems) to bus events
+ *   - Parse Drupal settings into a structured launch context
+ *   - Instantiate GameEventBus, ECS, canvas modules, systems, and panels
+ *   - Wire ECS system callbacks → bus events (no direct callbacks between modules)
  *   - Delegate all sub-domain logic to owned modules
  *
  * NOT responsible for:
@@ -20,37 +20,232 @@
  * @see panels/PortraitPanel
  */
 
-// Phase 1 implementation.
+import { GameEventBus } from './GameEventBus.js';
+import { HexCanvas } from './canvas/HexCanvas.js';
+import { HexTokenRenderer } from './canvas/HexTokenRenderer.js';
+import { HexFogOfWar } from './canvas/HexFogOfWar.js';
+import { HexInputHandler } from './canvas/HexInputHandler.js';
+import { EncounterSystem } from './systems/EncounterSystem.js';
+import { NavigationSystem } from './systems/NavigationSystem.js';
+import { PlayerAutomation } from './systems/PlayerAutomation.js';
+import { QuestSystem } from './systems/QuestSystem.js';
+import { PortraitPanel } from './panels/PortraitPanel.js';
+import { MerchantPanel } from './panels/MerchantPanel.js';
+import { CombatPanel } from './panels/CombatPanel.js';
+import { ActionRailPanel } from './panels/ActionRailPanel.js';
+import { ChatPanel } from './panels/ChatPanel.js';
+import { QuestPanel } from './panels/QuestPanel.js';
+import { InventoryPanel } from './panels/InventoryPanel.js';
+import { CharacterPanel } from './panels/CharacterPanel.js';
+import { RoomViewPanel } from './panels/RoomViewPanel.js';
+import { PartyRailPanel } from './panels/PartyRailPanel.js';
+import { StatusPanel } from './panels/StatusPanel.js';
+import {
+  EntityManager,
+  RenderSystem,
+  MovementSystem,
+  TurnManagementSystem,
+  CombatSystem,
+} from '../ecs/index.js';
+
+/** Canvas config defaults — matches old hexmap behavior.config */
+const DEFAULT_CANVAS_CONFIG = {
+  hexSize: 30,
+  gridWidth: 20,
+  gridHeight: 20,
+  minZoom: 0.5,
+  maxZoom: 3.0,
+  defaultVisionRange: 8,
+  backgroundColor: 0x1a1a2e,
+  serverStateSyncIntervalMs: 3000,
+};
+
 export class GameShell {
   /**
-   * @param {object} settings - Drupal.settings subset
-   * @param {HTMLElement} container - Root DOM container
+   * @param {HTMLElement} container - Root DOM container for hexmap-v2
+   * @param {object} rawSettings    - drupalSettings.dungeoncrawlerContent subset
    */
-  constructor(settings, container) {
-    this.settings = settings;
+  constructor(container, rawSettings = {}) {
     this.container = container;
 
-    // Populated in Phase 1
+    /** Parsed launch context from Drupal settings */
+    this.launchContext = rawSettings.hexmapLaunchContext || {};
+    /** Full dungeon payload (room graph, entity instances, quest data) */
+    this.dungeonData = rawSettings.hexmapDungeonData || {};
+    /** Canonical visual bootstrap state from MapVisualStateProjector */
+    this.mapVisualState = rawSettings.map_visual_state || {};
+    /** Launch character summary for initial sheet hydration */
+    this.launchCharacter = rawSettings.hexmapLaunchCharacter || {};
+
+    this.currentUserId = Number(rawSettings.userId || 0);
+    this.activeRoomId =
+      this.mapVisualState?.map_meta?.active_room_id ||
+      this.launchContext?.room_id ||
+      null;
+
+    // Sub-module handles — populated in init()
     this.bus = null;
+
+    /** @type {{ app: import('./canvas/HexCanvas').HexCanvas, tokens: HexTokenRenderer, fog: HexFogOfWar, input: HexInputHandler }} */
     this.canvas = null;
+
+    /** @type {{ encounter: EncounterSystem, navigation: NavigationSystem, automation: PlayerAutomation, quest: QuestSystem }} */
     this.systems = {};
+
+    /** @type {{ portrait: PortraitPanel, merchant: MerchantPanel, combat: CombatPanel, actionRail: ActionRailPanel, chat: ChatPanel, quest: QuestPanel, inventory: InventoryPanel, character: CharacterPanel, roomView: RoomViewPanel, partyRail: PartyRailPanel, status: StatusPanel }} */
     this.panels = {};
+
+    // ECS — populated in _initECS()
+    this.entityManager = null;
+    this.renderSystem = null;
+    this.movementSystem = null;
+    this.combatSystem = null;
+    this.turnManagementSystem = null;
   }
 
   /**
    * Initialize all sub-modules. Called from Drupal.behaviors.hexMapV2.attach.
+   * Order: bus → ECS → canvas → systems → panels → emit game:init
    */
   init() {
-    // Phase 1: implement
+    this.bus = new GameEventBus();
+    this._initECS();
+    this._initCanvas();
+    this._initSystems();
+    this._initPanels();
+    this.bus.emit('game:init', {
+      launchContext: this.launchContext,
+      launchCharacter: this.launchCharacter,
+      dungeonData: this.dungeonData,
+      mapVisualState: this.mapVisualState,
+      activeRoomId: this.activeRoomId,
+    });
   }
 
   /**
-   * Tear down all sub-modules. Called from Drupal.behaviors.hexMapV2.detach.
+   * Create ECS entity manager and systems; wire callbacks → bus events.
+   * @private
+   */
+  _initECS() {
+    const bus = this.bus;
+    this.entityManager = new EntityManager();
+
+    // RenderSystem: phase 2 will pass PIXI containers once HexCanvas is init'd
+    this.renderSystem = new RenderSystem(this.entityManager, null, {
+      hex: null,
+      object: null,
+      ui: null,
+    });
+    this.entityManager.addSystem(this.renderSystem);
+
+    this.movementSystem = new MovementSystem(this.entityManager);
+    this.entityManager.addSystem(this.movementSystem);
+
+    this.combatSystem = new CombatSystem(this.entityManager);
+    this.combatSystem.onAttack((attackData) => {
+      bus.emit('combat:attack-performed', attackData);
+    });
+    this.combatSystem.onDamage((damageData) => {
+      bus.emit('combat:damage-dealt', damageData);
+    });
+    this.entityManager.addSystem(this.combatSystem);
+
+    this.turnManagementSystem = new TurnManagementSystem(this.entityManager);
+    this.turnManagementSystem.onTurnChange((entity, turnIndex, totalTurns) => {
+      bus.emit('combat:turn-changed', { entity, turnIndex, totalTurns });
+    });
+    this.turnManagementSystem.onRoundChange?.((roundNumber) => {
+      bus.emit('combat:round-changed', { roundNumber });
+    });
+    this.turnManagementSystem.onCombatStateChange?.((state) => {
+      bus.emit('combat:state-changed', { state });
+    });
+    this.entityManager.addSystem(this.turnManagementSystem);
+  }
+
+  /**
+   * Create canvas modules and wire them to the bus.
+   * Phase 2 fills HexCanvas with real PIXI rendering; stubs safe for now.
+   * @private
+   */
+  _initCanvas() {
+    const canvasContainer = this.container.querySelector('[data-hexmap-canvas]') ?? this.container;
+    const hexCanvas = new HexCanvas(canvasContainer, this.bus, DEFAULT_CANVAS_CONFIG);
+    hexCanvas.init();
+
+    const tokens = new HexTokenRenderer(hexCanvas, this.bus);
+    tokens.init();
+
+    const fog = new HexFogOfWar(hexCanvas, this.bus);
+    fog.init();
+
+    const input = new HexInputHandler(hexCanvas, this.bus);
+    input.init();
+
+    this.canvas = { app: hexCanvas, tokens, fog, input };
+  }
+
+  /**
+   * Create game systems and wire them to the bus.
+   * Phase 4–8 fill these in; stubs safe for now.
+   * @private
+   */
+  _initSystems() {
+    this.systems.navigation = new NavigationSystem(this, this.bus);
+    this.systems.navigation.init();
+
+    this.systems.encounter = new EncounterSystem(this, this.bus);
+    this.systems.encounter.init();
+
+    this.systems.automation = new PlayerAutomation(this, this.bus);
+    this.systems.automation.init();
+
+    this.systems.quest = new QuestSystem(this, this.bus);
+    this.systems.quest.init();
+  }
+
+  /**
+   * Create panels and wire them to the bus.
+   * Phase 4–9 fill these in; stubs safe for now.
+   * @private
+   */
+  _initPanels() {
+    const c = this.container;
+    const bus = this.bus;
+    const panel = (sel) => c.querySelector(sel) ?? c;
+
+    this.panels.portrait   = new PortraitPanel(panel('[data-panel="portrait"]'), bus);
+    this.panels.merchant   = new MerchantPanel(panel('[data-panel="merchant"]'), bus);
+    this.panels.combat     = new CombatPanel(panel('[data-panel="combat"]'), bus);
+    this.panels.actionRail = new ActionRailPanel(panel('[data-panel="action-rail"]'), bus);
+    this.panels.chat       = new ChatPanel(panel('[data-panel="chat"]'), bus);
+    this.panels.quest      = new QuestPanel(panel('[data-panel="quest"]'), bus);
+    this.panels.inventory  = new InventoryPanel(panel('[data-panel="inventory"]'), bus);
+    this.panels.character  = new CharacterPanel(panel('[data-panel="character"]'), bus);
+    this.panels.roomView   = new RoomViewPanel(panel('[data-panel="room-view"]'), bus);
+    this.panels.partyRail  = new PartyRailPanel(panel('[data-panel="party-rail"]'), bus);
+    this.panels.status     = new StatusPanel(panel('[data-panel="status"]'), bus);
+
+    Object.values(this.panels).forEach((p) => p.init());
+  }
+
+  /**
+   * Tear down all sub-modules in reverse init order.
+   * Called from Drupal.behaviors.hexMapV2.detach.
    */
   destroy() {
     Object.values(this.panels).forEach((p) => p?.destroy?.());
     Object.values(this.systems).forEach((s) => s?.destroy?.());
-    this.canvas?.destroy?.();
+    this.canvas?.input?.destroy?.();
+    this.canvas?.fog?.destroy?.();
+    this.canvas?.tokens?.destroy?.();
+    this.canvas?.app?.destroy?.();
     this.bus?.destroy?.();
+
+    this.entityManager = null;
+    this.canvas = null;
+    this.systems = {};
+    this.panels = {};
+    this.bus = null;
   }
 }
