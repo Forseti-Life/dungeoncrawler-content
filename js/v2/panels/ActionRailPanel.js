@@ -27,6 +27,9 @@ export class ActionRailPanel {
     this.actionRailDescriptionsCollapsed = false;
     this.actionRailFilters = {};
     this.actionRailAutomationTogglePending = false;
+    this.navigateLocationGroups = [];
+    this.navigateLocationsCampaignId = null;
+    this.navigateLocationsInflight = null;
   }
 
   init(dungeonData, stateManager) {
@@ -713,13 +716,18 @@ export class ActionRailPanel {
   }
 
   buildNavigateActionRailPanel(context) {
-    const groups = this.collectNavigateLocationGroups(context);
+    const campaignId = Number(context.runtimeContext?.campaignId || context.hexmap?.resolveCampaignId?.() || 0);
+    this.ensureNavigateLocationGroups(campaignId);
+
+    const routeGroups = this.collectNavigateLocationGroups(context);
+    const visitedGroups = this.collectVisitedNavigateLocationGroups(context, campaignId);
+    const groups = [...routeGroups, ...visitedGroups];
 
     if (!groups.length) {
       return {
         title: 'Navigate',
-        chip: 'No routes',
-        html: `<div class="action-rail__empty"><p>No known routes are available from the current dungeon state yet.</p></div>`,
+        chip: this.navigateLocationsInflight ? 'Loading' : 'No routes',
+        html: `<div class="action-rail__empty"><p>${this.navigateLocationsInflight ? 'Loading previously visited dungeons and rooms...' : 'No known routes or visited destinations are available from the current campaign state yet.'}</p></div>`,
       };
     }
 
@@ -729,26 +737,28 @@ export class ActionRailPanel {
         execute: 'navigate',
         title: location.roomName,
         summary: buildActionRailEntrySummary([
-          location.statusLabel,
+          location.statusLabel || group.dungeonName || group.title,
           location.lastVisitedLabel,
         ]),
         meta: location.meta,
-        disabled: !location.navigable,
+        disabled: location.disabled === true || location.navigable === false,
         dataset: {
           roomId: location.roomId,
           roomName: location.roomName,
           connectionId: location.connectionId,
           originQ: location.originQ,
           originR: location.originR,
+          mapId: location.mapId || group.mapId || '',
+          dungeonLevelId: location.dungeonLevelId || group.dungeonLevelId || '',
         },
-        actionLabel: location.navigable ? 'Travel here' : 'Unavailable',
+        actionLabel: location.navigable === false ? 'Unavailable' : 'Travel here',
       })).join('');
-      return `<section class="action-rail__group"><p class="action-rail__group-label">${escapeQuestHtml(group.title)}</p>${entries}</section>`;
+      return `<section class="action-rail__group"><p class="action-rail__group-label">${escapeQuestHtml(group.title || group.dungeonName || 'Destinations')}</p>${entries}</section>`;
     }).join('');
 
     return {
       title: 'Navigate',
-      chip: `${entryCount} rooms`,
+      chip: `${entryCount} destination${entryCount === 1 ? '' : 's'}`,
       html,
     };
   }
@@ -861,6 +871,116 @@ export class ActionRailPanel {
     }
 
     return sections.filter((section) => section.locations.length > 0);
+  }
+
+  collectVisitedNavigateLocationGroups(context, campaignId) {
+    if (!campaignId || this.navigateLocationsCampaignId !== campaignId || !Array.isArray(this.navigateLocationGroups)) {
+      return [];
+    }
+
+    const hexmap = context.hexmap;
+    const activeRoomId = String(hexmap?.resolveActiveRoomId?.() || '').trim();
+    const currentMapId = String(hexmap?.dungeonData?.map_id || hexmap?.launchContext?.map_id || this.stateManager?.get?.('mapId') || '').trim();
+    const directRouteKeys = new Set();
+
+    this.collectNavigateLocationGroups(context).forEach((group) => {
+      (Array.isArray(group.locations) ? group.locations : []).forEach((location) => {
+        const roomId = String(location?.roomId || '').trim();
+        if (roomId) {
+          directRouteKeys.add(`${currentMapId}:${roomId}`);
+        }
+      });
+    });
+
+    return this.navigateLocationGroups
+      .map((group) => {
+        const mapId = String(group?.mapId || group?.dungeonId || '').trim();
+        const dungeonLevelId = String(group?.dungeonLevelId || '').trim();
+        const locations = (Array.isArray(group?.locations) ? group.locations : [])
+          .map((location) => ({
+            ...location,
+            roomId: String(location?.roomId || '').trim(),
+            roomName: String(location?.roomName || location?.roomId || 'Room'),
+            mapId,
+            dungeonLevelId,
+            statusLabel: 'Visited',
+            lastVisitedLabel: String(location?.lastVisitedLabel || 'Visited by party'),
+            meta: String(location?.meta || ''),
+          }))
+          .filter((location) => {
+            if (!location.roomId) {
+              return false;
+            }
+            const sameMap = !mapId || !currentMapId || mapId === currentMapId;
+            if (sameMap && location.roomId === activeRoomId) {
+              return false;
+            }
+            return !directRouteKeys.has(`${mapId || currentMapId}:${location.roomId}`);
+          });
+
+        return {
+          ...group,
+          title: String(group?.dungeonName || group?.title || group?.dungeonId || 'Visited destinations'),
+          dungeonName: String(group?.dungeonName || group?.title || group?.dungeonId || 'Visited destinations'),
+          mapId,
+          dungeonLevelId,
+          locations,
+        };
+      })
+      .filter((group) => Array.isArray(group.locations) && group.locations.length > 0);
+  }
+
+  ensureNavigateLocationGroups(campaignId) {
+    if (!campaignId || (this.navigateLocationsCampaignId === campaignId && Array.isArray(this.navigateLocationGroups) && this.navigateLocationGroups.length)) {
+      return;
+    }
+    if (this.navigateLocationsInflight) {
+      return;
+    }
+
+    this.navigateLocationsInflight = fetch(`/api/campaign/${campaignId}/visited-locations`, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+    })
+      .then(async (response) => {
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.success) {
+          throw new Error(data.error || 'Unable to load visited locations.');
+        }
+
+        this.navigateLocationsCampaignId = campaignId;
+        this.navigateLocationGroups = (Array.isArray(data.dungeons) ? data.dungeons : [])
+          .map((group) => ({
+            dungeonId: String(group?.dungeon_id || ''),
+            dungeonName: String(group?.dungeon_name || group?.dungeon_id || 'Dungeon'),
+            mapId: String(group?.map_id || group?.dungeon_id || ''),
+            dungeonLevelId: String(group?.dungeon_level_id || ''),
+            locations: Array.isArray(group?.locations)
+              ? group.locations.map((location) => ({
+                roomId: String(location?.room_id || ''),
+                roomName: String(location?.room_name || location?.room_id || 'Room'),
+                meta: String(location?.description || ''),
+                lastVisitedLabel: Number(location?.last_visited || 0) > 0
+                  ? `Visited ${new Date(Number(location.last_visited) * 1000).toLocaleString()}`
+                  : 'Visited by party',
+              })).filter((location) => location.roomId)
+              : [],
+          }))
+          .filter((group) => group.locations.length > 0);
+      })
+      .catch((error) => {
+        console.warn('Failed to load campaign visited locations:', error);
+      })
+      .finally(() => {
+        this.navigateLocationsInflight = null;
+        if (this.activeActionRailCategory === 'navigate') {
+          this.refreshActionRail();
+        }
+      });
   }
 
   buildSearchActionRailPanel(context) {
