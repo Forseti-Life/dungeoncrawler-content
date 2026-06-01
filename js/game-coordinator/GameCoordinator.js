@@ -656,6 +656,8 @@ export class GameCoordinator {
       this.phaseManager.on('encounterStart', (data) => {
         console.log('[GameCoordinator] Encounter started:', data.encounterId);
         this.hexmap.stateManager?.set('encounterId', data.encounterId);
+        this.hexmap.stateManager?.set('serverCombatMode', true);
+        this.hexmap.stateManager?.set('combatActive', Boolean(data.encounterId));
 
         if (this.hexmap.turnManagementSystem && typeof this.hexmap.turnManagementSystem.hydrateFromServer === 'function') {
           this.hexmap.turnManagementSystem.hydrateFromServer({
@@ -694,12 +696,6 @@ export class GameCoordinator {
       })
     );
 
-    // Available actions update → update action button visibility.
-    this._unsubscribers.push(
-      this.phaseManager.on('actionsUpdate', (actions) => {
-        this._updateActionButtons(actions);
-      })
-    );
   }
 
   // =========================================================================
@@ -737,44 +733,6 @@ export class GameCoordinator {
       turnHud.style.display = phase === 'encounter' ? '' : 'none';
     }
 
-    // Show room-action UI in the live encounter framework.
-    const explorationPanel = document.getElementById('exploration-actions');
-    if (explorationPanel) {
-      explorationPanel.style.display = phase === 'encounter' ? '' : 'none';
-    }
-
-    // Show encounter-specific action bar.
-    const encounterPanel = document.getElementById('encounter-actions');
-    if (encounterPanel) {
-      encounterPanel.style.display = phase === 'encounter' ? '' : 'none';
-    }
-  }
-
-  /**
-   * Update action button visibility based on legal actions.
-   * @param {string[]} legalActions
-   * @private
-   */
-  _updateActionButtons(legalActions) {
-    const buttonMap = {
-      'move': 'action-move',
-      'strike': 'action-attack',
-      'attack': 'action-attack',
-      'interact': 'action-interact',
-      'talk': 'action-talk',
-      'search': 'action-search',
-      'rest': 'action-rest',
-      'end_turn': 'end-turn',
-    };
-
-    for (const [action, elementId] of Object.entries(buttonMap)) {
-      const el = document.getElementById(elementId);
-      if (el) {
-        const isLegal = legalActions.includes(action);
-        el.style.display = isLegal ? '' : 'none';
-        el.disabled = !isLegal;
-      }
-    }
   }
 
   /**

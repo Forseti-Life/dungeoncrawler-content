@@ -31,9 +31,6 @@
         {{ 'Character'|t }}
       </button>
       <div class="game-shell__tab-actions" role="presentation">
-        {% if is_admin %}
-        <button id="debug-panel-toggle" class="btn btn-icon btn--debug-toggle" type="button" title="{{ 'Toggle dev panels'|t }}" aria-pressed="false">{{ 'Dev Panels'|t }}</button>
-        {% endif %}
         <button id="fullscreen-toggle" class="btn btn-primary btn--gameplay-fullscreen" type="button" data-status="fullscreen" title="{{ 'Enter fullscreen'|t }}" aria-pressed="false">
           <span class="btn--gameplay-fullscreen__label" data-fullscreen-label>{{ 'Enter Fullscreen'|t }}</span>
         </button>
@@ -68,9 +65,8 @@
         </div>
 
         <div class="action-rail__categories" id="action-rail-categories" data-action-rail="categories">
-          <button type="button" class="action-rail__category" data-action-rail-category="attack">{{ 'Attack'|t }}</button>
           <button type="button" class="action-rail__category" data-action-rail-category="navigate">{{ 'Navigate'|t }}</button>
-          <button type="button" class="action-rail__category" data-action-rail-direct="search">{{ 'Search'|t }}</button>
+          <button type="button" class="action-rail__category" data-action-rail-category="search">{{ 'Search'|t }}</button>
           <button type="button" class="action-rail__category" data-action-rail-category="rest">{{ 'Rest'|t }}</button>
           <button type="button" class="action-rail__category" data-action-rail-category="spells">{{ 'Spells'|t }}</button>
           <button type="button" class="action-rail__category" data-action-rail-category="consumables">{{ 'Consumables'|t }}</button>
@@ -100,32 +96,6 @@
       <div class="game-shell__content">
     <div class="game-shell__panel" id="game-panel-map" role="tabpanel" aria-labelledby="game-tab-map" hidden>
       <div class="game-shell__map-panel">
-        <div class="hexmap-controls hexmap-debug-panel">
-      <div class="control-group control-group--config">
-        <label class="control-group__title">{{ 'Map Size:'|t }}</label>
-        <select id="grid-size">
-          <option value="small">{{ 'Small (10x10)'|t }}</option>
-          <option value="medium" selected>{{ 'Medium (20x20)'|t }}</option>
-          <option value="large">{{ 'Large (40x40)'|t }}</option>
-        </select>
-      </div>
-      
-      <div class="control-group control-group--config">
-        <label class="control-group__title">{{ 'Zoom Baseline:'|t }}</label>
-        <input type="range" id="hex-size" min="20" max="60" value="30" />
-        <span id="hex-size-value">30px</span>
-      </div>
-      
-      <div class="control-group control-group--view">
-        <label class="control-group__title">{{ 'View:'|t }}</label>
-        <button id="toggle-coordinates" class="btn">{{ 'Toggle Coordinates'|t }}</button>
-        <button id="toggle-grid" class="btn">{{ 'Toggle Grid Lines'|t }}</button>
-        <button id="toggle-fog" class="btn">{{ 'Toggle Fog of War'|t }}</button>
-        <button id="reset-view" class="btn">{{ 'Reset View'|t }}</button>
-      </div>
-
-        </div>
-
         <div class="hexmap-stage">
     <div id="hexmap-canvas-container" class="hexmap-canvas-wrapper" data-hexmap-canvas>
       <!-- PixiJS canvas will be inserted here -->
@@ -150,26 +120,6 @@
         {{ 'Exploration'|t }}
       </div>
 
-      {# Game Coordinator — Exploration Actions Panel #}
-      <div id="exploration-actions" class="exploration-actions" style="display:none;">
-        <div class="exploration-actions__header">
-          <h4>{{ 'Actions'|t }}</h4>
-        </div>
-        <div class="exploration-actions__buttons">
-          <button id="action-move" class="btn btn-action" data-action="move">{{ 'Navigate'|t }}</button>
-          <button id="action-interact" class="btn btn-action" data-action="search">{{ 'Search'|t }}</button>
-          <button id="action-talk" class="btn btn-action" data-action="talk">{{ 'Talk'|t }}</button>
-          <button id="action-search" class="btn btn-action" data-action="search">{{ 'Search'|t }}</button>
-          <button id="action-rest" class="btn btn-action" data-action="rest">{{ 'Rest'|t }}</button>
-        </div>
-      </div>
-
-      {# Encounter-mode action buttons (managed by GameCoordinator) #}
-      <div id="encounter-actions" class="encounter-actions" style="display:none;">
-        <button id="action-attack" class="btn btn-action btn-action--attack" data-action="attack">{{ 'Strike'|t }}</button>
-        <button id="end-turn" class="btn btn-action btn-action--end" data-action="end_turn">{{ 'End Turn'|t }}</button>
-      </div>
-
       <div id="turn-hud" class="turn-hud dc-is-hidden" data-panel="combat">
         <div class="turn-hud__row">
           <span id="turn-owner" class="pill pill-strong" data-combat="turn-label">{{ 'No active combat'|t }}</span>
@@ -192,9 +142,6 @@
         </div>
 
         <p id="action-instruction" class="turn-hud__instruction" hidden></p>
-
-        {# V2 CombatPanel end-turn binding #}
-        <button type="button" class="btn btn-action btn-action--end dc-is-hidden" data-combat="end-turn-btn">{{ 'End Turn'|t }}</button>
 
         <div id="combat-controls" class="turn-hud__controls">
           <button id="start-combat" class="btn btn-success" data-combat="start-btn">{{ 'Start Combat'|t }}</button>
@@ -225,10 +172,9 @@
           <div class="hexmap-chat__body" id="hexmap-chat-body">
             <div class="hexmap-chat__session-tabs" id="chat-session-tabs" data-chat="session-tabs">
               <button class="session-view-tab session-view-tab--active" data-view="room" title="Room dialogue &amp; NPC channels">{{ 'Room'|t }}</button>
-              <button class="session-view-tab" data-view="narrative" title="Your character's perception-filtered story">{{ 'My Story'|t }}</button>
               <button class="session-view-tab" data-view="party" title="Party-only huddle chat">{{ 'Party'|t }}</button>
-              <button class="session-view-tab" data-view="gm-private" title="Secret actions only the GM sees">{{ 'GM Secret'|t }}</button>
-              <button class="session-view-tab" data-view="system-log" title="Dice rolls, checks &amp; mechanical results">{{ 'Dice Log'|t }}</button>
+              <button class="session-view-tab" data-view="gm-private" title="Direct GM channel for questions, escalations, and tool-assisted resolution">{{ 'GM Secret'|t }}</button>
+              <button class="session-view-tab" data-view="system-log" title="System messages, dice rolls, checks &amp; mechanical results">{{ 'System'|t }}</button>
             </div>
             <div class="hexmap-chat__channels" id="chat-channel-tabs" data-chat="channel-tabs">
               <button class="chat-channel-tab chat-channel-tab--active" data-channel="room" title="Main room channel">{{ 'Room'|t }}</button>
@@ -245,23 +191,6 @@
               <button id="chat-send" class="btn btn-primary" type="submit" data-chat="send">{{ 'Send'|t }}</button>
             </form>
             <div class="hexmap-chat__quick-actions" id="chat-quick-actions" style="display:none;"></div>
-            <div class="hexmap-chat__turn-status" id="chat-turn-status" data-chat="turn-status" hidden aria-live="polite" aria-atomic="true">
-              <span class="chat-turn-status__badge" id="chat-turn-role">{{ 'Player'|t }}</span>
-              <div class="chat-turn-status__content">
-                <div class="chat-turn-status__name" id="chat-turn-name">{{ 'You'|t }}</div>
-                <div class="chat-turn-status__meta" id="chat-turn-meta">{{ 'Player turn: write the next line or choose your next action.'|t }}</div>
-                <div class="chat-turn-status__rounds">
-                  <div class="chat-turn-status__round">
-                    <div class="chat-turn-status__round-label" id="chat-turn-current-round-label">{{ 'Current round order'|t }}</div>
-                    <div class="chat-turn-status__round-order" id="chat-turn-current-round-order">{{ 'Turn 1: Narrator'|t ~ "\n" ~ 'Turn 2: Game Master'|t ~ "\n" ~ 'Turn 3: NPC initiative order'|t }}</div>
-                  </div>
-                  <div class="chat-turn-status__round">
-                    <div class="chat-turn-status__round-label" id="chat-turn-next-round-label">{{ 'Next round order'|t }}</div>
-                    <div class="chat-turn-status__round-order" id="chat-turn-next-round-order">{{ 'Turn 1: Narrator'|t ~ "\n" ~ 'Turn 2: Game Master'|t ~ "\n" ~ 'Turn 3: NPC initiative order'|t }}</div>
-                  </div>
-                </div>
-              </div>
-            </div>
           </div>
         </div>
       </div>
@@ -728,38 +657,6 @@
 
     slider.addEventListener('change', function () {
       localStorage.setItem(STORAGE_KEY, this.value);
-    });
-  })();
-
-  /* ---- Debug Panel Toggle (admin only) ---- */
-  (function () {
-    const btn = document.getElementById('debug-panel-toggle');
-    if (!btn) return;
-    const container = document.getElementById('hexmap-container');
-    const DEBUG_KEY = 'dc_debug_mode';
-    const CSS_CLASS = 'hexmap-debug-active';
-
-    function setDebugMode(on) {
-      if (on) {
-        container.classList.add(CSS_CLASS);
-        btn.setAttribute('aria-pressed', 'true');
-        btn.title = _dt('Hide dev panels');
-      } else {
-        container.classList.remove(CSS_CLASS);
-        btn.setAttribute('aria-pressed', 'false');
-        btn.title = _dt('Show dev panels');
-      }
-      localStorage.setItem(DEBUG_KEY, on ? '1' : '0');
-    }
-
-    // Restore saved debug preference
-    const savedDebug = localStorage.getItem(DEBUG_KEY);
-    if (savedDebug === '1') {
-      setDebugMode(true);
-    }
-
-    btn.addEventListener('click', function () {
-      setDebugMode(!container.classList.contains(CSS_CLASS));
     });
   })();
 

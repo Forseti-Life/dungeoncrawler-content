@@ -55,7 +55,7 @@ export class EncounterSystem {
     }
 
     this._lastAnnouncedRound = roundNumber;
-    this._appendNarratorLine(`Round ${roundNumber} begins.`);
+    console.info('[EncounterFlow] round_start', { roundNumber });
   }
 
   announceTurnChange(data = {}) {
@@ -74,10 +74,13 @@ export class EncounterSystem {
     }
 
     this._lastAnnouncedActorKey = actorKey;
-    const turnLabel = Number.isFinite(turnIndex) && Number.isFinite(totalTurns) && totalTurns > 0
-      ? ` (${turnIndex + 1}/${totalTurns})`
-      : '';
-    this._appendNarratorLine(`Next actor: ${actorName}${turnLabel}.`);
+    console.info('[EncounterFlow] turn_start', {
+      actorName,
+      actorId: entity?.id || entity?.dcEntityRef || entity?.dcEntityInstanceId || null,
+      turnIndex: Number.isFinite(turnIndex) ? turnIndex : null,
+      totalTurns: Number.isFinite(totalTurns) ? totalTurns : null,
+      roundNumber: this.shell?.turnManagementSystem?.currentRound || null,
+    });
   }
 
   buildActiveRoomNpcTurnOrder(roomId = null) {
@@ -290,13 +293,19 @@ export class EncounterSystem {
 
       coordinator.applyAuthoritativeUpdate?.(result);
       this.announceGameState(result?.game_state);
-      if (!Array.isArray(result.events) || result.events.length === 0) {
-        this._appendChatLine('System', actionType === 'choose_not_to_act'
-          ? `${context.actorLabel} chooses not to use remaining actions.`
-          : `${context.actorLabel} ends their turn.`, 'system');
-        if (typeof result.narration === 'string' && result.narration.trim()) {
-          this._appendChatLine('Game Master', result.narration.trim(), 'gm');
-        }
+      const eventTypes = Array.isArray(result?.events) ? result.events.map((event) => event?.type || 'unknown').filter(Boolean) : [];
+      console.info('[EncounterFlow] turn_action_ack', {
+        actionType,
+        actorRef,
+        eventTypes,
+        encounterId: result?.game_state?.encounter_id || null,
+      });
+      if (eventTypes.length === 0) {
+        console.warn('[EncounterFlow] missing authoritative turn events', {
+          actionType,
+          actorRef,
+          encounterId: result?.game_state?.encounter_id || null,
+        });
       }
       this._refreshActionRail();
     } finally {
@@ -617,11 +626,29 @@ export class EncounterSystem {
   }
 
   _appendChatLine(speaker, message, type = 'system') {
-    this.bus.emit('chat:system-message', { text: message, speaker, kind: type });
+    this.bus.emit('chat:system-message', {
+      text: message,
+      speaker,
+      kind: type,
+      view: 'room',
+      channel: 'room',
+      source: 'encounter-system',
+      authority: 'authoritative',
+      messageClass: 'authoritative_transcript',
+    });
   }
 
   _appendNarratorLine(message) {
-    this.bus.emit('chat:system-message', { text: message, speaker: 'Narrator', kind: 'system' });
+    this.bus.emit('chat:system-message', {
+      text: message,
+      speaker: 'Narrator',
+      kind: 'system',
+      view: 'room',
+      channel: 'room',
+      source: 'encounter-system',
+      authority: 'authoritative',
+      messageClass: 'authoritative_transcript',
+    });
   }
 
   _resolveEntityName(entity) {

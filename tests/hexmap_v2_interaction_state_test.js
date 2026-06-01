@@ -132,25 +132,54 @@ const bindInteractionSource = extractMethodSource(source, '  _bindInteractionEve
   .replace('  _bindInteractionEvents() {', 'function _bindInteractionEvents() {');
 const setSelectedHexSource = extractMethodSource(source, '  setSelectedHex(q, r, options = {}) {')
   .replace('  setSelectedHex(q, r, options = {}) {', 'function setSelectedHex(q, r, options = {}) {');
+const resolveTerrainKeySource = extractMethodSource(source, '  resolveTerrainKey(obstacleProfile, inActiveRoom) {')
+  .replace('  resolveTerrainKey(obstacleProfile, inActiveRoom) {', 'function resolveTerrainKey(obstacleProfile, inActiveRoom) {');
+const describePassabilitySource = extractMethodSource(source, '  describePassability(obstacleProfile, inActiveRoom) {')
+  .replace('  describePassability(obstacleProfile, inActiveRoom) {', 'function describePassability(obstacleProfile, inActiveRoom) {');
+const describeEntitiesAtHexSource = extractMethodSource(source, '  describeEntitiesAtHex(q, r) {')
+  .replace('  describeEntitiesAtHex(q, r) {', 'function describeEntitiesAtHex(q, r) {');
+const getObjectLabelAtHexSource = extractMethodSource(source, '  getObjectLabelAtHex(q, r) {')
+  .replace('  getObjectLabelAtHex(q, r) {', 'function getObjectLabelAtHex(q, r) {');
+const getObjectIdAtHexSource = extractMethodSource(source, '  getObjectIdAtHex(q, r) {')
+  .replace('  getObjectIdAtHex(q, r) {', 'function getObjectIdAtHex(q, r) {');
+const describeObjectsAtHexSource = extractMethodSource(source, '  describeObjectsAtHex(hex, q, r) {')
+  .replace('  describeObjectsAtHex(hex, q, r) {', 'function describeObjectsAtHex(hex, q, r) {');
+const describeConnectionAtHexSource = extractMethodSource(source, '  describeConnectionAtHex(q, r) {')
+  .replace('  describeConnectionAtHex(q, r) {', 'function describeConnectionAtHex(q, r) {');
 const getHexDetailSource = extractMethodSource(source, '  getHexDetail(q, r) {')
   .replace('  getHexDetail(q, r) {', 'function getHexDetail(q, r) {');
 const setActiveRoomSource = extractMethodSource(source, '  setActiveRoom(roomId) {')
   .replace('  setActiveRoom(roomId) {', 'function setActiveRoom(roomId) {');
+const buildRoomSubtitleSource = extractNamedFunctionSource(source, '_buildRoomSubtitle');
+const isPlainObjectSource = extractNamedFunctionSource(source, '_isPlainObject');
+const hasMeaningfulValueSource = extractNamedFunctionSource(source, '_hasMeaningfulValue');
+const mergeRoomMetadataSource = extractNamedFunctionSource(source, '_mergeRoomMetadata');
 const getEntityDisplayNameSource = extractNamedFunctionSource(source, '_getEntityDisplayName');
 
 const factory = new Function(`
 function _buildRoomConnections(roomId, mapVisualState) {
   return [{ roomId, marker: mapVisualState?.marker || null }];
 }
+${isPlainObjectSource}
+${hasMeaningfulValueSource}
+${buildRoomSubtitleSource}
+${mergeRoomMetadataSource}
 ${getEntityDisplayNameSource}
 ${bindInteractionSource}
 ${setSelectedHexSource}
+${resolveTerrainKeySource}
+${describePassabilitySource}
+${describeEntitiesAtHexSource}
+${getObjectLabelAtHexSource}
+${getObjectIdAtHexSource}
+${describeObjectsAtHexSource}
+${describeConnectionAtHexSource}
 ${getHexDetailSource}
 ${setActiveRoomSource}
-return { _bindInteractionEvents, setSelectedHex, getHexDetail, setActiveRoom };
+return { _bindInteractionEvents, setSelectedHex, resolveTerrainKey, describePassability, describeEntitiesAtHex, getObjectLabelAtHex, getObjectIdAtHex, describeObjectsAtHex, describeConnectionAtHex, getHexDetail, setActiveRoom };
 `);
 
-const { _bindInteractionEvents, setSelectedHex, getHexDetail, setActiveRoom } = factory();
+const { _bindInteractionEvents, setSelectedHex, resolveTerrainKey, describePassability, describeEntitiesAtHex, getObjectLabelAtHex, getObjectIdAtHex, describeObjectsAtHex, describeConnectionAtHex, getHexDetail, setActiveRoom } = factory();
 
 console.log('\n=== Hexmap V2 interaction state ===');
 
@@ -269,6 +298,13 @@ console.log('\n=== Hexmap V2 interaction state ===');
 
 {
   const shell = {
+    resolveTerrainKey,
+    describePassability,
+    describeEntitiesAtHex,
+    getObjectLabelAtHex,
+    getObjectIdAtHex,
+    describeObjectsAtHex,
+    describeConnectionAtHex,
     getActiveRoomHex() {
       return {
         terrain: 'stone',
@@ -278,20 +314,18 @@ console.log('\n=== Hexmap V2 interaction state ===');
       };
     },
     getActiveRoomData() {
-      return { name: 'Hallway' };
-    },
-    resolveNavigationCapabilityAtHex() {
-      return {
-        type: 'door',
-        target_room_id: 'north_room',
-        available: false,
-        blocked_reason: 'locked',
-      };
+      return { name: 'Hallway', terrain: ['stone'], lighting: 'dim' };
     },
     getEntitiesAtHex() {
       return [{
         getComponent(name) {
-          return name === 'IdentityComponent' ? { name: 'Guard' } : null;
+          if (name === 'IdentityComponent') {
+            return { name: 'Guard' };
+          }
+          if (name === 'CombatComponent') {
+            return { team: 'enemy' };
+          }
+          return null;
         },
       }];
     },
@@ -301,12 +335,36 @@ console.log('\n=== Hexmap V2 interaction state ===');
     resolveActiveRoomId() {
       return 'hallway';
     },
+    getVisualConnections() {
+      return [{
+        type: 'door',
+        from_room_id: 'hallway',
+        from_hex_id: 'hallway:1:2',
+        to_room_id: 'north_room',
+        to_hex_id: 'north_room:0:1',
+        is_passable: false,
+        is_discovered: true,
+      }];
+    },
+    getConnectionHex(connection, side) {
+      const hexId = side === 'to' ? connection.to_hex_id : connection.from_hex_id;
+      const [roomId, q, r] = hexId.split(':');
+      return { room_id: roomId, q: Number(q), r: Number(r) };
+    },
+    getConnectionRoomId(connection, side) {
+      return side === 'to' ? connection.to_room_id : connection.from_room_id;
+    },
+    hasVisualOccupants() {
+      return false;
+    },
   };
 
   const detail = getHexDetail.call(shell, 1, 2);
-  assert(Array.isArray(detail.entities) && detail.entities[0] === 'Guard', 'hex detail exposes entity labels instead of raw entity objects');
-  assert(Array.isArray(detail.objects) && detail.objects.join(', ') === 'Crate, door_arch', 'hex detail exposes object labels instead of raw object records');
-  assert(detail.connection === 'door -> north_room (locked)', 'hex detail formats connection status for status-panel rendering');
+  assert(Array.isArray(detail.entities) && detail.entities[0] === 'Guard (enemy)', 'hex detail exposes entity labels instead of raw entity objects');
+  assert(Array.isArray(detail.objects) && detail.objects.join(', ') === 'Crate, door arch, Guard', 'hex detail exposes legacy object labels instead of raw object records');
+  assert(detail.connection === 'door -> north_room (blocked, discovered)', 'hex detail formats legacy connection status for status-panel rendering');
+  assert(detail.terrain === 'stone_floor (stone)', 'hex detail exposes legacy terrain labels instead of raw terrain keys');
+  assert(detail.passability === 'Impassable (fixed)', 'hex detail exposes legacy passability language');
 }
 
 {
@@ -315,8 +373,19 @@ console.log('\n=== Hexmap V2 interaction state ===');
   const shell = {
     bus,
     mapVisualState: { marker: 'test-connection' },
+    prefetchConnectedRoomContext() {
+      calls.push(['prefetch']);
+    },
     getVisualRooms() {
-      return { target_room: { name: 'Target Room', image_url: '/room.png' } };
+      return {
+        target_room: {
+          name: 'Target Room',
+          image_url: '/room.png',
+          terrain: ['stone_floor'],
+          lighting: 'dim',
+          size_category: 'large',
+        },
+      };
     },
     getVisualOccupants() {
       return [
@@ -341,7 +410,9 @@ console.log('\n=== Hexmap V2 interaction state ===');
   const occupantsChanged = bus.events.find((event) => event.name === 'room:occupants-changed');
   assert(calls.some((call) => call[0] === 'sync' && call[1] === 'target_room'), 'setActiveRoom re-syncs active-room entities during transitions');
   assert(Array.isArray(roomChanged?.payload?.connections) && roomChanged.payload.connections.length === 1, 'setActiveRoom emits room-change payloads with canonical connections');
+  assert(roomChanged?.payload?.room?.subtitle === 'stone floor | Lighting: dim | large', 'setActiveRoom emits legacy room subtitle metadata for room-transition surfaces');
   assert(Array.isArray(occupantsChanged?.payload?.occupants) && occupantsChanged.payload.occupants.length === 1, 'setActiveRoom re-broadcasts visible occupants for room-driven panels');
+  assert(calls.some((call) => call[0] === 'prefetch'), 'setActiveRoom prefetches connected-room context during transitions');
 }
 
 console.log(`\nPassed: ${passed}`);

@@ -92,6 +92,7 @@ export class PhaseManager {
     if (!serverState) return;
 
     const previousPhase = this.currentPhase;
+    const previousEncounterId = Number(this.encounterId || 0) || null;
     const previousRound = this.round;
     const previousTurnEntity = this.turn?.entity;
     const mergedState = {
@@ -126,17 +127,19 @@ export class PhaseManager {
         to: this.currentPhase,
         encounterId: this.encounterId,
       });
+    }
 
-      // Specific encounter events.
-      if (this.currentPhase === 'encounter') {
-        this._emit('encounterStart', {
-          encounterId: this.encounterId,
-          initiativeOrder: this.initiativeOrder,
+    const nextEncounterId = Number(this.encounterId || 0) || null;
+    if (previousEncounterId !== nextEncounterId) {
+      if (previousEncounterId) {
+        this._emit('encounterEnd', {
+          encounterId: previousEncounterId,
         });
       }
-      if (previousPhase === 'encounter') {
-        this._emit('encounterEnd', {
-          encounterId: this.encounterId,
+      if (nextEncounterId) {
+        this._emit('encounterStart', {
+          encounterId: nextEncounterId,
+          initiativeOrder: this.initiativeOrder,
         });
       }
     }

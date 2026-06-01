@@ -313,7 +313,16 @@ export class NavigationSystem {
   }
 
   _appendChatLine(speaker, message, type = 'system') {
-    this.bus.emit('chat:system-message', { text: message, speaker, kind: type });
+    this.bus.emit('chat:system-message', {
+      text: message,
+      speaker,
+      kind: type,
+      view: 'room',
+      channel: 'room',
+      source: 'navigation-system',
+      authority: 'authoritative',
+      messageClass: 'authoritative_transcript',
+    });
   }
 
 }

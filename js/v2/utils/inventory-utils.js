@@ -6,21 +6,363 @@
 
 import { escapeTooltipAttr } from './dom-utils.js';
 
+const CANONICAL_SLOT_FRAMEWORKS = {
+  humanoid: {
+    main_hand: { label: 'Main Hand', category: 'held', count: 1 },
+    off_hand: { label: 'Off Hand', category: 'held', count: 1 },
+    armor: { label: 'Armor', category: 'worn', count: 1 },
+    shield: { label: 'Shield', category: 'worn', count: 1 },
+    head: { label: 'Head', category: 'worn', count: 1 },
+    eyes: { label: 'Eyes', category: 'worn', count: 1 },
+    neck: { label: 'Neck', category: 'worn', count: 1 },
+    shoulders: { label: 'Shoulders / Cloak', category: 'worn', count: 1 },
+    body: { label: 'Body / Clothing', category: 'worn', count: 1 },
+    chest: { label: 'Chest / Shirt', category: 'worn', count: 1 },
+    belt: { label: 'Belt', category: 'worn', count: 1 },
+    wrists: { label: 'Wrists / Bracers', category: 'worn', count: 1 },
+    hands: { label: 'Hands / Gloves', category: 'worn', count: 1 },
+    feet: { label: 'Feet / Footwear', category: 'worn', count: 1 },
+    ring: { label: 'Ring', category: 'worn', count: 2 },
+    worn: { label: 'Generic Worn', category: 'worn', count: null },
+  },
+  quadruped: {
+    head: { label: 'Head', category: 'worn', count: 1 },
+    neck: { label: 'Neck', category: 'worn', count: 1 },
+    body: { label: 'Body', category: 'worn', count: 1 },
+    legs: { label: 'Legs', category: 'worn', count: 4 },
+    worn: { label: 'Generic Worn', category: 'worn', count: null },
+  },
+  bird: {
+    head: { label: 'Head', category: 'worn', count: 1 },
+    body: { label: 'Body', category: 'worn', count: 1 },
+    wings: { label: 'Wings', category: 'worn', count: 2 },
+    worn: { label: 'Generic Worn', category: 'worn', count: null },
+  },
+};
+
+function normalizeInventoryBodyShape(bodyShape = '') {
+  const normalized = String(bodyShape || '').trim().toLowerCase();
+  return Object.prototype.hasOwnProperty.call(CANONICAL_SLOT_FRAMEWORKS, normalized) ? normalized : 'humanoid';
+}
+
+function cloneSlotFramework(bodyShape = 'humanoid') {
+  const framework = CANONICAL_SLOT_FRAMEWORKS[normalizeInventoryBodyShape(bodyShape)] || CANONICAL_SLOT_FRAMEWORKS.humanoid;
+  return Object.fromEntries(
+    Object.entries(framework).map(([slotKey, definition]) => [slotKey, { ...definition }]),
+  );
+}
+
+function buildEmptySlotState(bodyShape = 'humanoid') {
+  const framework = cloneSlotFramework(bodyShape);
+  const state = {};
+  Object.entries(framework).forEach(([slotKey, definition]) => {
+    if (definition.count === null) {
+      state[slotKey] = [];
+      return;
+    }
+    if (definition.count === 1) {
+      state[slotKey] = null;
+      return;
+    }
+    state[slotKey] = Array.from({ length: definition.count }, () => null);
+  });
+  state.unassigned = [];
+  return state;
+}
+
+function normalizeWornSlotName(slot = '') {
+  const normalized = String(slot || '').trim().toLowerCase();
+  if (!normalized) {
+    return '';
+  }
+  const aliasMap = {
+    headwear: 'head',
+    eyewear: 'eyes',
+    necklace: 'neck',
+    cloak: 'shoulders',
+    bracelet: 'wrists',
+    bracer: 'wrists',
+    gloves: 'hands',
+    shirt: 'chest',
+    tabard: 'chest',
+    pants: 'body',
+    leggings: 'body',
+    legwear: 'body',
+    boots: 'feet',
+    shoe: 'feet',
+    shoes: 'feet',
+  };
+  const canonical = aliasMap[normalized] || normalized;
+  return [
+    'head',
+    'eyes',
+    'neck',
+    'shoulders',
+    'body',
+    'chest',
+    'legs',
+    'belt',
+    'wrists',
+    'hands',
+    'feet',
+    'ring',
+    'worn',
+    'wings',
+  ].includes(canonical) ? canonical : '';
+}
+
+function normalizeEquippedSlotKey(slotKey = '', bodyShape = 'humanoid') {
+  const normalized = String(slotKey || '').trim().toLowerCase();
+  if (!normalized) {
+    return '';
+  }
+  if (['main_hand', 'off_hand', 'armor', 'shield'].includes(normalized)) {
+    return normalized;
+  }
+  const wornSlot = normalizeWornSlotName(normalized);
+  if (!wornSlot) {
+    return '';
+  }
+  const framework = cloneSlotFramework(bodyShape);
+  return Object.prototype.hasOwnProperty.call(framework, wornSlot) ? wornSlot : '';
+}
+
+function normalizeEquippedSlotIndex(slotIndex) {
+  if (slotIndex === null || slotIndex === undefined || slotIndex === '') {
+    return null;
+  }
+  const normalized = Number(slotIndex);
+  if (!Number.isInteger(normalized) || normalized < 0) {
+    return null;
+  }
+  return normalized;
+}
+
+function resolveExplicitWornSlot(item) {
+  const metadata = item?.inventory_metadata || {};
+  return normalizeWornSlotName(metadata.worn_slot || item?.worn_slot || '');
+}
+
+function deriveHandSlotsRequired(item) {
+  const metadata = item?.inventory_metadata || {};
+  if (metadata.hand_slots_required !== undefined && metadata.hand_slots_required !== null && metadata.hand_slots_required !== '') {
+    return Math.max(0, Math.min(2, Number(metadata.hand_slots_required) || 0));
+  }
+  if (item?.hand_slots_required !== undefined && item?.hand_slots_required !== null && item?.hand_slots_required !== '') {
+    return Math.max(0, Math.min(2, Number(item.hand_slots_required) || 0));
+  }
+  return ({
+    '2': 2,
+    '1': 1,
+    '1+': 1,
+  })[String(item?.hands || '')] || 0;
+}
+
+function assignSingleSlot(slotState, slotKey, reference) {
+  if (!Object.prototype.hasOwnProperty.call(slotState, slotKey)) {
+    slotState.unassigned.push(reference);
+    return;
+  }
+  if (slotState[slotKey] === null) {
+    slotState[slotKey] = reference;
+    return;
+  }
+  slotState.unassigned.push(reference);
+}
+
+function assignHeldItem(slotState, reference, handsRequired) {
+  const requiredHands = Math.max(1, Math.min(2, handsRequired || 0));
+  if (!Object.prototype.hasOwnProperty.call(slotState, 'main_hand') || !Object.prototype.hasOwnProperty.call(slotState, 'off_hand')) {
+    slotState.unassigned.push(reference);
+    return;
+  }
+  if (requiredHands === 2) {
+    if (slotState.main_hand === null && slotState.off_hand === null) {
+      slotState.main_hand = reference;
+      slotState.off_hand = reference;
+      return;
+    }
+    slotState.unassigned.push(reference);
+    return;
+  }
+  if (slotState.main_hand === null) {
+    slotState.main_hand = reference;
+    return;
+  }
+  if (slotState.off_hand === null) {
+    slotState.off_hand = reference;
+    return;
+  }
+  slotState.unassigned.push(reference);
+}
+
+function assignHeldItemToPreferredSlot(slotState, reference, handsRequired, preferredSlot) {
+  const requiredHands = Math.max(1, Math.min(2, handsRequired || 0));
+  if (!Object.prototype.hasOwnProperty.call(slotState, 'main_hand') || !Object.prototype.hasOwnProperty.call(slotState, 'off_hand')) {
+    slotState.unassigned.push(reference);
+    return;
+  }
+  if (requiredHands === 2) {
+    if (slotState.main_hand === null && slotState.off_hand === null) {
+      slotState.main_hand = reference;
+      slotState.off_hand = reference;
+      return;
+    }
+    slotState.unassigned.push(reference);
+    return;
+  }
+  if (slotState[preferredSlot] === null) {
+    slotState[preferredSlot] = reference;
+    return;
+  }
+  const fallbackSlot = preferredSlot === 'main_hand' ? 'off_hand' : 'main_hand';
+  if (slotState[fallbackSlot] === null) {
+    slotState[fallbackSlot] = reference;
+    return;
+  }
+  slotState.unassigned.push(reference);
+}
+
+function assignExplicitSlot(slotState, framework, reference, equipSlot, handsRequired, slotKey, slotIndex = null) {
+  if (['main_hand', 'off_hand'].includes(slotKey)) {
+    assignHeldItemToPreferredSlot(slotState, reference, handsRequired, slotKey);
+    return;
+  }
+  if (!Object.prototype.hasOwnProperty.call(framework, slotKey) || !Object.prototype.hasOwnProperty.call(slotState, slotKey)) {
+    slotState.unassigned.push(reference);
+    return;
+  }
+  if (equipSlot === 'shield' && slotKey !== 'shield') {
+    slotState.unassigned.push(reference);
+    return;
+  }
+  if (equipSlot === 'armor' && !['armor', 'body'].includes(slotKey)) {
+    slotState.unassigned.push(reference);
+    return;
+  }
+  if (Array.isArray(slotState[slotKey])) {
+    if (framework[slotKey]?.count !== null) {
+      if (slotIndex !== null && Object.prototype.hasOwnProperty.call(slotState[slotKey], slotIndex) && slotState[slotKey][slotIndex] === null) {
+        slotState[slotKey][slotIndex] = reference;
+        return;
+      }
+      for (let index = 0; index < slotState[slotKey].length; index += 1) {
+        if (slotState[slotKey][index] === null) {
+          slotState[slotKey][index] = reference;
+          return;
+        }
+      }
+      slotState.unassigned.push(reference);
+      return;
+    }
+    slotState[slotKey].push(reference);
+    return;
+  }
+  assignSingleSlot(slotState, slotKey, reference);
+}
+
+function assignItemToSlotState(slotState, framework, item, bodyShape = 'humanoid') {
+  if (!item || typeof item !== 'object') {
+    return;
+  }
+  const metadata = item.inventory_metadata || {};
+  const reference = { ...item };
+  const equipSlot = String(metadata.equip_slot || item?.equip_slot || '').trim().toLowerCase();
+  const explicitSlotKey = normalizeEquippedSlotKey(item?.equipped_slot_key || '', bodyShape);
+  const explicitSlotIndex = normalizeEquippedSlotIndex(item?.equipped_slot_index);
+  const handsRequired = deriveHandSlotsRequired(item);
+
+  if (explicitSlotKey) {
+    assignExplicitSlot(slotState, framework, reference, equipSlot, handsRequired, explicitSlotKey, explicitSlotIndex);
+    return;
+  }
+  if (equipSlot === 'held') {
+    assignHeldItem(slotState, reference, handsRequired);
+    return;
+  }
+  if (equipSlot === 'armor') {
+    if (Object.prototype.hasOwnProperty.call(framework, 'armor')) {
+      assignSingleSlot(slotState, 'armor', reference);
+      return;
+    }
+    if (Object.prototype.hasOwnProperty.call(framework, 'body')) {
+      assignSingleSlot(slotState, 'body', reference);
+      return;
+    }
+    slotState.unassigned.push(reference);
+    return;
+  }
+  if (equipSlot === 'shield') {
+    if (Object.prototype.hasOwnProperty.call(framework, 'shield')) {
+      assignSingleSlot(slotState, 'shield', reference);
+      return;
+    }
+    slotState.unassigned.push(reference);
+    return;
+  }
+
+  let wornSlot = resolveExplicitWornSlot(item) || 'worn';
+  if (!Object.prototype.hasOwnProperty.call(framework, wornSlot)) {
+    wornSlot = 'worn';
+  }
+  if (!Object.prototype.hasOwnProperty.call(slotState, wornSlot)) {
+    slotState.unassigned.push(reference);
+    return;
+  }
+  if (Array.isArray(slotState[wornSlot])) {
+    if (framework[wornSlot]?.count !== null) {
+      for (let index = 0; index < slotState[wornSlot].length; index += 1) {
+        if (slotState[wornSlot][index] === null) {
+          slotState[wornSlot][index] = reference;
+          return;
+        }
+      }
+      slotState.unassigned.push(reference);
+      return;
+    }
+    slotState[wornSlot].push(reference);
+    return;
+  }
+  assignSingleSlot(slotState, wornSlot, reference);
+}
+
+function synthesizeInventorySlots(rawInventory = {}, carried = [], worn = {}, bodyShape = 'humanoid') {
+  const normalizedBodyShape = normalizeInventoryBodyShape(bodyShape);
+  const slotFramework = cloneSlotFramework(normalizedBodyShape);
+  const slotState = buildEmptySlotState(normalizedBodyShape);
+  const wornItems = [
+    ...(Array.isArray(worn?.weapons) ? worn.weapons : []),
+    ...(Array.isArray(worn?.accessories) ? worn.accessories : []),
+    ...(worn?.armor ? [worn.armor] : []),
+    ...(worn?.shield ? [worn.shield] : []),
+  ];
+  wornItems.forEach((item) => assignItemToSlotState(slotState, slotFramework, item, normalizedBodyShape));
+  return {
+    bodyShape: normalizedBodyShape,
+    slotFramework,
+    slotState,
+    carried: Array.isArray(carried) ? carried : [],
+    rawInventory,
+  };
+}
+
 export function normalizeInventoryState(rawInventory, fallbackCurrency = {}) {
   if (Array.isArray(rawInventory)) {
+    const synthesized = synthesizeInventorySlots({}, rawInventory, {}, 'humanoid');
     return {
-      carried: rawInventory,
+      carried: synthesized.carried,
       worn: {},
       equipped: [],
       stashed: [],
       currency: fallbackCurrency,
       totalBulk: null,
-      bodyShape: 'humanoid',
-      slotFramework: {},
-      slotState: {},
+      bodyShape: synthesized.bodyShape,
+      slotFramework: synthesized.slotFramework,
+      slotState: synthesized.slotState,
     };
   }
   if (!rawInventory || typeof rawInventory !== 'object') {
+    const synthesized = synthesizeInventorySlots({}, [], {}, 'humanoid');
     return {
       carried: [],
       worn: {},
@@ -28,14 +370,22 @@ export function normalizeInventoryState(rawInventory, fallbackCurrency = {}) {
       stashed: [],
       currency: fallbackCurrency,
       totalBulk: null,
-      bodyShape: 'humanoid',
-      slotFramework: {},
-      slotState: {},
+      bodyShape: synthesized.bodyShape,
+      slotFramework: synthesized.slotFramework,
+      slotState: synthesized.slotState,
     };
   }
+  const carried = Array.isArray(rawInventory.carried) ? rawInventory.carried : [];
+  const worn = rawInventory.worn && typeof rawInventory.worn === 'object' ? rawInventory.worn : {};
+  const bodyShape = normalizeInventoryBodyShape(rawInventory.bodyShape || rawInventory.body_shape || 'humanoid');
+  const hasSlotFramework = rawInventory.slotFramework && typeof rawInventory.slotFramework === 'object' && Object.keys(rawInventory.slotFramework).length > 0;
+  const hasSlotState = rawInventory.slotState && typeof rawInventory.slotState === 'object' && Object.keys(rawInventory.slotState).length > 0;
+  const synthesized = (!hasSlotFramework || !hasSlotState)
+    ? synthesizeInventorySlots(rawInventory, carried, worn, bodyShape)
+    : null;
   return {
-    carried: Array.isArray(rawInventory.carried) ? rawInventory.carried : [],
-    worn: rawInventory.worn && typeof rawInventory.worn === 'object' ? rawInventory.worn : {},
+    carried,
+    worn,
     equipped: Array.isArray(rawInventory.equipped) ? rawInventory.equipped : [],
     stashed: Array.isArray(rawInventory.stashed) ? rawInventory.stashed : [],
     currency: rawInventory.currency && typeof rawInventory.currency === 'object'
@@ -44,9 +394,9 @@ export function normalizeInventoryState(rawInventory, fallbackCurrency = {}) {
     totalBulk: Number.isFinite(Number(rawInventory.totalBulk ?? rawInventory.total_bulk))
       ? Number(rawInventory.totalBulk ?? rawInventory.total_bulk)
       : null,
-    bodyShape: String(rawInventory.bodyShape || rawInventory.body_shape || 'humanoid'),
-    slotFramework: rawInventory.slotFramework && typeof rawInventory.slotFramework === 'object' ? rawInventory.slotFramework : {},
-    slotState: rawInventory.slotState && typeof rawInventory.slotState === 'object' ? rawInventory.slotState : {},
+    bodyShape,
+    slotFramework: hasSlotFramework ? rawInventory.slotFramework : synthesized.slotFramework,
+    slotState: hasSlotState ? rawInventory.slotState : synthesized.slotState,
   };
 }
 

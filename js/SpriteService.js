@@ -195,6 +195,7 @@ export class SpriteService {
         const baseTexture = new PIXI.BaseTexture(img);
         const texture = new PIXI.Texture(baseTexture);
         PIXI.utils.TextureCache[cacheKey] = texture;
+        PIXI.utils.TextureCache[spriteId] = texture;
 
         // Verify entity still exists and hasn't been cleared.
         const currentRender = entity.getComponent('RenderComponent');
@@ -233,15 +234,14 @@ export class SpriteService {
 
     allEntities.forEach((entity) => {
       const dcRef = entity.dcEntityRef;
-      if (!dcRef) return;
+      const contentId = String(
+        entity.dcContentId
+        || dungeonEntities.find((candidate) => candidate?.instance_id === dcRef)?.entity_ref?.content_id
+        || dungeonEntities.find((candidate) => candidate?.entity_ref?.content_id === dcRef)?.entity_ref?.content_id
+        || ''
+      ).trim();
+      if (!contentId) return;
 
-      // Find the dungeon entity to get content_id.
-      const match = dungeonEntities.find(e =>
-        (e?.instance_id === dcRef || e?.entity_ref?.content_id === dcRef)
-      );
-      if (!match) return;
-
-      const contentId = match?.entity_ref?.content_id;
       const spriteId = definitions[contentId]?.visual?.sprite_id;
       if (!spriteId || !this._cache[spriteId]) return;
 

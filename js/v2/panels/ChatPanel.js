@@ -1,7 +1,7 @@
 /**
  * @file panels/ChatPanel.js
  *
- * Multi-channel chat log, GM message rendering, pending turn status.
+ * Multi-channel chat log and GM message rendering.
  * Methods ported verbatim from hexmap.js UIManager.
  * Largest panel: 65 functions.
  */
@@ -86,11 +86,9 @@ export class ChatPanel {
     // Channel / multi-view state
     this.activeChannel = 'room';
     this.channels = { room: { key: 'room', label: 'Room', type: 'room', active: true } };
-    this.lastChatTurnStatusKey = null;
     // View-state caches
     this.chatViewStateCache = new Map();
     this.roomChatCache = new Map();
-    this.roomTurnSequenceCache = new Map();
     this.sessionViewCache = new Map();
     this.roomChatInflight = new Map();
     this.sessionViewInflight = new Map();
@@ -119,14 +117,6 @@ export class ChatPanel {
       chatChannelLabel:           id('chat-channel-label'),
       chatSessionTabs:            id('chat-session-tabs'),
       chatQuickActions:           id('chat-quick-actions'),
-      chatTurnStatus:             id('chat-turn-status'),
-      chatTurnRole:               id('chat-turn-role'),
-      chatTurnName:               id('chat-turn-name'),
-      chatTurnMeta:               id('chat-turn-meta'),
-      chatTurnCurrentRoundLabel:  id('chat-turn-current-round-label'),
-      chatTurnCurrentRoundOrder:  id('chat-turn-current-round-order'),
-      chatTurnNextRoundLabel:     id('chat-turn-next-round-label'),
-      chatTurnNextRoundOrder:     id('chat-turn-next-round-order'),
     };
     const nullKeys = Object.entries(this._el).filter(([,v]) => !v).map(([k]) => k);
     console.log('[ChatPanel] init', { container: !!this.container, nullEl: nullKeys.length, nullKeys: nullKeys.join(',') || 'none' });
@@ -150,18 +140,69 @@ export class ChatPanel {
   _subscribe() {
     this._unsubs.push(
       this.bus.on('chat:history-loaded',   (d) => this.renderRoomChatHistory(d)),
-      this.bus.on('chat:message-received',  (d) => {
-        const line = d?.line ?? d;
-        if (line?.speaker && line?.message) this.appendChatLine(line.speaker, line.message, line.type || 'npc', line.options);
-      }),
-      this.bus.on('chat:system-message',    (d) => {
-        if (d?.text) this.appendChatLine(d.speaker || 'System', d.text, d.kind || 'system');
-      }),
-      this.bus.on('chat:turn-status-changed', () => this.syncChatTurnStatus()),
+      this.bus.on('chat:message-received',  (d) => this.handleBusChatMessageReceived(d)),
+      this.bus.on('chat:system-message',    (d) => this.handleBusSystemMessage(d)),
       this.bus.on('session:view-data', (d) => {
         if (d?.view && d?.data) this.renderSessionViewData(d.view, d.data);
       }),
     );
+  }
+
+  handleBusChatMessageReceived(payload = {}) {
+    const line = payload?.line ?? payload;
+    if (!line?.speaker || !line?.message) {
+      return;
+    }
+
+    const target = this.buildChatRenderTarget({
+      view: line?.view || payload?.view || 'room',
+      channelKey: line?.channel || line?.channelKey || payload?.channel || payload?.channelKey || 'room',
+      context: payload?.context || line?.context,
+    });
+
+    this.appendChatLineToTarget(target, line.speaker, line.message, line.type || 'npc', {
+      ...line.options,
+      ...line,
+      suppressRemember: false,
+    });
+  }
+
+  handleBusSystemMessage(payload = {}) {
+    if (!payload?.text) {
+      return;
+    }
+
+    const hasExplicitTarget = Boolean(
+      payload?.view
+      || payload?.channel
+      || payload?.channelKey
+      || payload?.context
+    );
+
+    if (hasExplicitTarget) {
+      const target = this.buildChatRenderTarget({
+        view: payload?.view || 'room',
+        channelKey: payload?.channel || payload?.channelKey || 'room',
+        context: payload?.context,
+      });
+      this.appendChatLineToTarget(target, payload.speaker || 'System', payload.text, payload.kind || 'system', {
+        source: payload.source || 'system-bus',
+        authority: payload.authority || 'authoritative',
+        messageClass: payload.messageClass || 'authoritative_transcript',
+      });
+      return;
+    }
+
+    const systemTarget = this.buildChatRenderTarget({
+      view: 'system-log',
+      channelKey: 'system-log',
+      context: payload?.context,
+    });
+    this.appendChatLineToTarget(systemTarget, payload.speaker || 'System', payload.text, payload.kind || 'system', {
+      source: payload.source || 'local-ui',
+      authority: payload.authority || 'local',
+      messageClass: payload.messageClass || 'local_ui_notice',
+    });
   }
 
   setupChatLog() {
@@ -191,7 +232,11 @@ export class ChatPanel {
 
       // Validate message length (matches backend limit)
       if (message.length > 2000) {
-        this.appendChatLine('System', 'Message too long (max 2000 characters)', 'system');
+        this.appendChatLine('System', 'Message too long (max 2000 characters)', 'system', {
+          source: 'local-ui',
+          authority: 'local',
+          messageClass: 'local_ui_notice',
+        });
         return;
       }
 
@@ -203,7 +248,11 @@ export class ChatPanel {
       const characterId = this.resolveActiveChatCharacterId();
 
       if (!campaignId) {
-        this.appendChatLine('System', 'Unable to send message: No active campaign', 'system');
+        this.appendChatLine('System', 'Unable to send message: No active campaign', 'system', {
+          source: 'local-ui',
+          authority: 'local',
+          messageClass: 'local_ui_notice',
+        });
         return;
       }
 
@@ -223,7 +272,11 @@ export class ChatPanel {
           await this.postSessionViewMessage(characterName, message, characterId);
         } catch (error) {
           console.error('Failed to send session message:', error);
-          this.appendChatLine('System', `Failed to send: ${error.message}`, 'system');
+          this.appendChatLine('System', `Failed to send: ${error.message}`, 'system', {
+            source: 'local-ui',
+            authority: 'local',
+            messageClass: 'local_ui_notice',
+          });
           input.value = message;
         } finally {
           isSubmitting = false;
@@ -247,11 +300,19 @@ export class ChatPanel {
         if (error.message.includes('403')) {
           console.warn('Chat message send denied (permission)');
         } else if (/not your turn/i.test(error.message)) {
-          this.appendChatLine('System', error.message, 'system');
+          this.appendChatLine('System', error.message, 'system', {
+            source: 'local-ui',
+            authority: 'local',
+            messageClass: 'local_ui_notice',
+          });
           input.value = message;
         } else {
           console.error('Failed to send chat message:', error);
-          this.appendChatLine('System', `Failed to send message: ${error.message}`, 'system');
+          this.appendChatLine('System', `Failed to send message: ${error.message}`, 'system', {
+            source: 'local-ui',
+            authority: 'local',
+            messageClass: 'local_ui_notice',
+          });
           input.value = message;
         }
       }
@@ -323,8 +384,7 @@ export class ChatPanel {
     });
     const pendingRequest = this.buildPendingChatRequest(clientRequestId, characterName, trimmedMessage, roomId, {
       includePlayer: true,
-      includePlaceholder: !queueOnly,
-      placeholderText: '...',
+      includePlaceholder: false,
       placeholderSpeaker: activeChannelKey === 'room' ? 'Narrator' : pendingResponder.speaker,
       placeholderType: pendingResponder.type,
       target: chatTarget,
@@ -366,8 +426,7 @@ export class ChatPanel {
       });
     } catch (error) {
       this.settlePendingChatRequest(pendingRequest, {
-        removePlayer: true,
-        removePlaceholder: true,
+        removePlayer: false,
       });
       throw error;
     } finally {
@@ -445,23 +504,26 @@ export class ChatPanel {
       if (!result.success) {
         throw new Error(result.error || 'Unknown error');
       }
-      if (Array.isArray(result.data?.turn_sequence)) {
-        this.rememberRoomTurnSequence(result.data.turn_sequence, chatTarget.context, chatTarget.channelKey);
-      }
-
       const pending = options.pendingRequest || null;
       if (pending) {
         this.settlePendingChatRequest(pending, {
           removePlayer: false,
-          removePlaceholder: !result.data?.gm_response,
         });
       } else {
-        this.appendChatLineToTarget(chatTarget, speaker, message, 'player');
+        this.appendChatLineToTarget(chatTarget, speaker, message, 'player', {
+          source: 'room-response',
+          authority: 'authoritative',
+          messageClass: 'authoritative_transcript',
+        });
       }
 
       if (result.data?.turn_logs?.length) {
         for (const logMsg of result.data.turn_logs) {
-          this.appendChatLineToTarget(chatTarget, logMsg.speaker || 'System', logMsg.message || '', logMsg.type || 'system');
+          this.appendChatLineToTarget(chatTarget, logMsg.speaker || 'System', logMsg.message || '', logMsg.type || 'system', {
+            source: 'room-response',
+            authority: 'authoritative',
+            messageClass: 'authoritative_transcript',
+          });
         }
       }
 
@@ -473,7 +535,11 @@ export class ChatPanel {
 
       if (result.data?.npc_interjections?.length) {
         for (const npcMsg of result.data.npc_interjections) {
-          this.appendChatLineToTarget(chatTarget, npcMsg.speaker, npcMsg.message, 'npc');
+          this.appendChatLineToTarget(chatTarget, npcMsg.speaker, npcMsg.message, 'npc', {
+            source: 'room-response',
+            authority: 'authoritative',
+            messageClass: 'authoritative_transcript',
+          });
         }
       }
 
@@ -499,7 +565,7 @@ export class ChatPanel {
 
       this.invalidateChatCaches({
         room: true,
-        sessionViews: ['narrative', 'party', 'gm-private', 'system-log'],
+        sessionViews: ['party', 'gm-private', 'system-log'],
       });
       options.onPrimaryResponse?.(result);
       this.logChatTimingSummary(result, pending);
@@ -647,12 +713,6 @@ export class ChatPanel {
     }
 
     switch (view) {
-      case 'narrative':
-        if (!resolved.characterId || !resolved.roomId) {
-          return '';
-        }
-        return ['session', view, resolved.campaignId, resolved.characterId, resolved.roomId].join(':');
-
       case 'gm-private':
         if (!resolved.characterId) {
           return '';
@@ -684,11 +744,23 @@ export class ChatPanel {
         resolved.campaignId,
         resolved.roomId,
         resolved.characterId || 0,
-        channelKey || this.activeChannel || 'room',
+        this.resolveChatChannelKey(view, channelKey),
       ].join(':');
     }
 
     return this.buildSessionViewCacheKey(view, resolved);
+  }
+
+  resolveChatChannelKey(view = this.activeSessionView, channelKey = null) {
+    const normalizedView = String(view || this.activeSessionView || 'room').trim() || 'room';
+    const explicitChannel = String(channelKey || '').trim();
+    if (explicitChannel) {
+      return explicitChannel;
+    }
+    if (normalizedView === 'room') {
+      return String(this.activeChannel || 'room').trim() || 'room';
+    }
+    return normalizedView;
   }
 
   buildChatLineContentKey(line = {}) {
@@ -715,15 +787,30 @@ export class ChatPanel {
   }
 
   normalizeChatLineRecord(line = {}) {
+    const normalizedView = String(line.view || this.activeSessionView || 'room').trim() || 'room';
+    const normalizedChannel = this.resolveChatChannelKey(normalizedView, line.channel || line.channelKey);
+    const normalizedSource = String(line.source || '').trim() || 'local-ui';
+    const normalizedAuthority = String(line.authority || '').trim()
+      || (normalizedSource.startsWith('local') ? 'local' : 'authoritative');
+    const normalizedMessageClass = String(line.messageClass || '').trim()
+      || (normalizedAuthority === 'authoritative' ? 'authoritative_transcript' : 'local_ui_notice');
     return {
       speaker: String(line.speaker || ''),
       message: String(line.message || ''),
       type: String(line.type || 'npc'),
       transient: Boolean(line.transient),
+      persistent: typeof line.persistent === 'boolean' ? line.persistent : !Boolean(line.transient),
       lineId: String(line.lineId || ''),
       messageId: Number.isFinite(Number(line.messageId)) ? Number(line.messageId) : null,
       sourceMessageId: Number.isFinite(Number(line.sourceMessageId)) ? Number(line.sourceMessageId) : null,
       created: Number.isFinite(Number(line.created)) ? Number(line.created) : 0,
+      source: normalizedSource,
+      authority: normalizedAuthority,
+      messageClass: normalizedMessageClass,
+      channel: normalizedChannel,
+      view: normalizedView,
+      requestId: String(line.requestId || ''),
+      eventId: String(line.eventId || ''),
     };
   }
 
@@ -741,7 +828,38 @@ export class ChatPanel {
       messageId: next.messageId || base.messageId,
       sourceMessageId: next.sourceMessageId || base.sourceMessageId,
       created: next.created || base.created || 0,
+      persistent: next.persistent || base.persistent,
+      source: next.source || base.source,
+      authority: next.authority || base.authority,
+      messageClass: next.messageClass || base.messageClass,
+      channel: next.channel || base.channel,
+      view: next.view || base.view,
+      requestId: next.requestId || base.requestId,
+      eventId: next.eventId || base.eventId,
     };
+  }
+
+  normalizeChatLineRecords(lines = [], options = {}) {
+    return (Array.isArray(lines) ? lines : []).map((line) => this.normalizeChatLineRecord({
+      ...line,
+      ...options,
+      speaker: line?.speaker,
+      message: line?.message,
+      type: line?.type,
+      transient: typeof line?.transient === 'boolean' ? line.transient : options.transient,
+      persistent: typeof line?.persistent === 'boolean' ? line.persistent : options.persistent,
+      lineId: line?.lineId,
+      messageId: line?.messageId,
+      sourceMessageId: line?.sourceMessageId,
+      created: line?.created,
+      source: line?.source || options.source,
+      authority: line?.authority || options.authority,
+      messageClass: line?.messageClass || options.messageClass,
+      channel: line?.channel || line?.channelKey || options.channel || options.channelKey,
+      view: line?.view || options.view,
+      requestId: line?.requestId || options.requestId,
+      eventId: line?.eventId || options.eventId,
+    }));
   }
 
   mergeRememberedChatLines(existingLines = [], incomingLines = []) {
@@ -836,7 +954,6 @@ export class ChatPanel {
     }
 
     const context = this.getChatContext();
-    this.rememberRoomTurnSequence(result.data?.turn_sequence || [], context, this.activeChannel);
     const incoming = result.data.messages.map((msg, index) => {
       const timestamp = String(msg.timestamp || '').trim();
       const created = timestamp !== '' ? Date.parse(timestamp) || 0 : 0;
@@ -846,6 +963,11 @@ export class ChatPanel {
         type: msg.type,
         lineId: timestamp !== '' ? `${timestamp}:${index}` : `room-history:${index}:${msg.speaker || ''}:${msg.type || ''}`,
         created,
+        source: 'room-history',
+        authority: 'authoritative',
+        messageClass: 'authoritative_transcript',
+        channel: this.activeChannel,
+        view: 'room',
       };
     });
     const merged = this.rememberChatLines('room', incoming, {
@@ -870,21 +992,36 @@ export class ChatPanel {
         const size = roomData.size_category && roomData.size_category !== 'medium' ? ` | ${roomData.size_category}` : '';
         const subtitle = [terrain, lighting, size].filter(Boolean).join('').replace(/^\s*\|\s*/, '');
         const meta = subtitle ? ` (${subtitle})` : '';
-        this.appendChatLine('System', `📍 ${roomData.name}${meta}`, 'system');
+        this.appendChatLine('System', `📍 ${roomData.name}${meta}`, 'system', {
+          source: 'local-ui',
+          authority: 'local',
+          messageClass: 'local_ui_notice',
+        });
       }
       if (roomData?.description) {
-        this.appendChatLine('System', roomData.description, 'system');
+        this.appendChatLine('System', roomData.description, 'system', {
+          source: 'local-ui',
+          authority: 'local',
+          messageClass: 'local_ui_notice',
+        });
       } else {
-        this.appendChatLine('System', 'Welcome to the room. Start a conversation!', 'system');
+        this.appendChatLine('System', 'Welcome to the room. Start a conversation!', 'system', {
+          source: 'local-ui',
+          authority: 'local',
+          messageClass: 'local_ui_notice',
+        });
       }
       const occupantSummary = this.stateManager?.hexmap?.buildActiveRoomOccupantSummary?.() || '';
       if (occupantSummary) {
-        this.appendChatLine('System', occupantSummary, 'system');
+        this.appendChatLine('System', occupantSummary, 'system', {
+          source: 'local-ui',
+          authority: 'local',
+          messageClass: 'local_ui_notice',
+        });
       }
     }
 
     this.scrollChatToBottom({ defer: true });
-    this.syncChatTurnStatus();
     const pinnedRoomId = this.resolvePinnedChatRoomTarget(context.roomId);
     if (pinnedRoomId) {
       this.bus.emit('room:view-reload-requested', { roomId: pinnedRoomId, force: true });
@@ -945,11 +1082,19 @@ export class ChatPanel {
         // Switch to the new channel.
         this.switchChannel(channelKey);
       } else {
-        this.appendChatLine('System', result.data?.error || result.error || 'Unable to open channel.', 'system');
+        this.appendChatLine('System', result.data?.error || result.error || 'Unable to open channel.', 'system', {
+          source: 'local-ui',
+          authority: 'local',
+          messageClass: 'local_ui_notice',
+        });
       }
     } catch (err) {
       console.error('Failed to open channel:', err);
-      this.appendChatLine('System', 'Failed to open channel.', 'system');
+      this.appendChatLine('System', 'Failed to open channel.', 'system', {
+        source: 'local-ui',
+        authority: 'local',
+        messageClass: 'local_ui_notice',
+      });
     }
   }
 
@@ -1022,26 +1167,34 @@ export class ChatPanel {
                   playerLine.dataset.transient = '0';
                 }
               } else {
-                this.appendChatLineToTarget(chatTarget, event.data.speaker || 'You', event.data.message || '', event.data.type || 'player');
+                this.appendChatLineToTarget(chatTarget, event.data.speaker || 'You', event.data.message || '', event.data.type || 'player', {
+                  source: 'room-stream',
+                  authority: 'authoritative',
+                  messageClass: 'authoritative_transcript',
+                });
               }
             } else if (event.type === 'thinking' && event.data) {
-              const thinkingSpeaker = event.data.phase === 'npc-reactions'
-                ? 'Narrator'
-                : (event.data.speaker || '');
+              const thinkingSpeaker = event.data.speaker || '';
               this.updatePendingChatProgress(
                 pending,
                 event.data.message || 'Game Master is thinking...',
                 event.data.phase || '',
                 {
                   speaker: thinkingSpeaker,
-                  role: thinkingSpeaker === 'Narrator' ? 'Narrator' : '',
+                  role: thinkingSpeaker === 'Narrator'
+                    ? 'Narrator'
+                    : (thinkingSpeaker === 'Initiative Order' ? 'Initiative Order' : ''),
                 }
               );
             } else if (event.type === 'gm_response' && event.data) {
               this.renderPendingGmResponse(pending, event.data);
               releasePrimary(event.data);
             } else if (event.type === 'system_message' && event.data) {
-              this.appendChatLineToTarget(chatTarget, event.data.speaker || 'System', event.data.message || '', event.data.type || 'system');
+              this.appendChatLineToTarget(chatTarget, event.data.speaker || 'System', event.data.message || '', event.data.type || 'system', {
+                source: 'room-stream',
+                authority: 'authoritative',
+                messageClass: 'authoritative_transcript',
+              });
               const turnRole = String(event.data.turn_role || '').trim().toLowerCase();
               const turnName = String(event.data.turn_name || '').trim();
               if (pending && turnName && ['narrator', 'gm', 'npc'].includes(turnRole)) {
@@ -1050,10 +1203,13 @@ export class ChatPanel {
                 pending.progressRole = turnRole === 'gm'
                   ? 'GM'
                   : (turnRole === 'narrator' ? 'Narrator' : 'NPC');
-                this.syncChatTurnStatus();
               }
             } else if (event.type === 'npc_interjection' && event.data) {
-              this.appendChatLineToTarget(chatTarget, event.data.speaker, event.data.message, event.data.type || 'npc');
+              this.appendChatLineToTarget(chatTarget, event.data.speaker, event.data.message, event.data.type || 'npc', {
+                source: 'room-stream',
+                authority: 'authoritative',
+                messageClass: 'authoritative_transcript',
+              });
             } else if (event.type === 'complete') {
               const questHexmap = this.stateManager?.hexmap || null;
               const questCampaignId = questHexmap?.resolveCampaignId?.() || Number(questHexmap?.launchContext?.campaign_id || 0) || null;
@@ -1076,9 +1232,6 @@ export class ChatPanel {
                 hasGmResponse: Boolean(completeResult.data?.gm_response),
                 hasNpcInterjections: Array.isArray(completeResult.data?.npc_interjections) ? completeResult.data.npc_interjections.length : 0,
               });
-              if (Array.isArray(completeResult.data?.turn_sequence)) {
-                this.rememberRoomTurnSequence(completeResult.data.turn_sequence, chatTarget.context, chatTarget.channelKey);
-              }
               if (completeResult.data?.navigation?.target_room_id) {
                 this.handleNavigationResult(completeResult.data.navigation);
               }
@@ -1111,7 +1264,6 @@ export class ChatPanel {
               }
               this.settlePendingChatRequest(pending, {
                 removePlayer: false,
-                removePlaceholder: !Boolean(completeResult.data?.gm_response),
               });
               releasePrimary(completeResult);
             } else if (event.type === 'error') {
@@ -1126,7 +1278,6 @@ export class ChatPanel {
               });
               this.settlePendingChatRequest(pending, {
                 removePlayer: false,
-                removePlaceholder: true,
               });
               releasePrimary();
               const errorMessage = event.error || event?.data?.error || 'An error occurred';
@@ -1159,7 +1310,7 @@ export class ChatPanel {
 
     this.invalidateChatCaches({
       room: true,
-      sessionViews: ['narrative', 'party', 'gm-private', 'system-log'],
+      sessionViews: ['party', 'gm-private', 'system-log'],
     });
     this.logChatTimingSummary(completeResult, pending);
     this.prefetchSessionViews();
@@ -1167,10 +1318,11 @@ export class ChatPanel {
   }
 
   buildChatRenderTarget(options = {}) {
+    const normalizedView = String(options.view || this.activeSessionView || 'room').trim() || 'room';
     const context = options.context || this.getChatContext();
     return {
-      view: options.view || this.activeSessionView || 'room',
-      channelKey: options.channelKey || this.activeChannel || 'room',
+      view: normalizedView,
+      channelKey: this.resolveChatChannelKey(normalizedView, options.channelKey),
       context: {
         campaignId: context?.campaignId || null,
         roomId: context?.roomId || null,
@@ -1201,27 +1353,30 @@ export class ChatPanel {
 
   appendChatLineToTarget(target, speaker, message, type = 'npc', options = {}) {
     const normalizedTarget = this.buildChatRenderTarget(target);
-    const lineRecord = {
-      speaker: speaker || '',
-      message: message || '',
-      type: type || 'npc',
-      transient: Boolean(options.transient),
-      lineId: options.lineId || '',
-      messageId: Number.isFinite(Number(options.messageId)) ? Number(options.messageId) : null,
-      sourceMessageId: Number.isFinite(Number(options.sourceMessageId)) ? Number(options.sourceMessageId) : null,
-      created: Number.isFinite(Number(options.created)) ? Number(options.created) : 0,
-    };
+    const lineRecord = this.normalizeChatLineRecord({
+      ...options,
+      speaker,
+      message,
+      type,
+      channel: options.channel || options.channelKey || normalizedTarget.channelKey,
+      view: options.view || normalizedTarget.view,
+    });
 
     let line = null;
     if (this.isChatTargetVisible(normalizedTarget)) {
-      line = this.appendChatLine(speaker, message, type, {
+      line = this.appendChatLine(lineRecord.speaker, lineRecord.message, lineRecord.type, {
         ...options,
+        ...lineRecord,
         suppressRemember: true,
       });
     }
 
     if (!lineRecord.transient) {
-      this.rememberChatLines(normalizedTarget.view, [lineRecord], {
+      this.rememberChatLines(normalizedTarget.view, [{
+        ...lineRecord,
+        channel: normalizedTarget.channelKey,
+        view: normalizedTarget.view,
+      }], {
         context: normalizedTarget.context,
         channelKey: normalizedTarget.channelKey,
       });
@@ -1236,15 +1391,21 @@ export class ChatPanel {
       return null;
     }
 
-    const displayMessage = this.formatEncounterChatMessage(speaker, message, type, options);
-    const existingLine = options.replaceLine || (options.lineId ? this.findChatLineById(options.lineId) : null);
-    if (!existingLine && !options.lineId) {
+    const lineRecord = this.normalizeChatLineRecord({
+      ...options,
+      speaker,
+      message,
+      type,
+    });
+    const displayMessage = this.formatEncounterChatMessage(lineRecord.speaker, lineRecord.message, lineRecord.type, lineRecord);
+    const existingLine = options.replaceLine || (lineRecord.lineId ? this.findChatLineById(lineRecord.lineId) : null);
+    if (!existingLine && !lineRecord.lineId) {
       const lastLine = log.lastElementChild;
       if (
         lastLine
-        && lastLine.dataset?.speaker === (speaker || '')
+        && lastLine.dataset?.speaker === (lineRecord.speaker || '')
         && lastLine.dataset?.message === (displayMessage || '')
-        && lastLine.dataset?.type === (type || 'npc')
+        && lastLine.dataset?.type === (lineRecord.type || 'npc')
         && lastLine.dataset?.transient !== '1'
       ) {
         return lastLine;
@@ -1252,50 +1413,66 @@ export class ChatPanel {
     }
     const line = existingLine || document.createElement('div');
     line.innerHTML = '';
-    line.className = `chat-line chat-line--${type}`;
+    line.className = `chat-line chat-line--${lineRecord.type}`;
     line.classList.toggle('chat-line--pending', Boolean(options.pending));
 
-    if (speaker) {
+    if (lineRecord.speaker) {
       const name = document.createElement('span');
       name.className = 'chat-line__speaker';
-      name.textContent = `${speaker}:`;
+      name.textContent = `${lineRecord.speaker}:`;
       line.appendChild(name);
     }
 
     const text = document.createElement('span');
     text.textContent = displayMessage;
     line.appendChild(text);
-    line.dataset.speaker = speaker || '';
+    line.dataset.speaker = lineRecord.speaker || '';
     line.dataset.message = displayMessage || '';
-    line.dataset.type = type || 'npc';
-    if (options.lineId) {
-      line.dataset.lineId = options.lineId;
+    line.dataset.type = lineRecord.type || 'npc';
+    if (lineRecord.lineId) {
+      line.dataset.lineId = lineRecord.lineId;
     } else {
       delete line.dataset.lineId;
     }
-    if (options.messageId) {
-      line.dataset.messageId = String(options.messageId);
+    if (lineRecord.messageId) {
+      line.dataset.messageId = String(lineRecord.messageId);
     } else {
       delete line.dataset.messageId;
     }
-    if (options.sourceMessageId) {
-      line.dataset.sourceMessageId = String(options.sourceMessageId);
+    if (lineRecord.sourceMessageId) {
+      line.dataset.sourceMessageId = String(lineRecord.sourceMessageId);
     } else {
       delete line.dataset.sourceMessageId;
     }
-    if (options.created) {
-      line.dataset.created = String(options.created);
+    if (lineRecord.created) {
+      line.dataset.created = String(lineRecord.created);
     } else {
       delete line.dataset.created;
     }
-    line.dataset.transient = options.transient ? '1' : '0';
+    line.dataset.transient = lineRecord.transient ? '1' : '0';
+    line.dataset.persistent = lineRecord.persistent ? '1' : '0';
+    line.dataset.source = lineRecord.source;
+    line.dataset.authority = lineRecord.authority;
+    line.dataset.messageClass = lineRecord.messageClass;
+    line.dataset.channel = lineRecord.channel;
+    line.dataset.view = lineRecord.view;
+    if (lineRecord.requestId) {
+      line.dataset.requestId = lineRecord.requestId;
+    } else {
+      delete line.dataset.requestId;
+    }
+    if (lineRecord.eventId) {
+      line.dataset.eventId = lineRecord.eventId;
+    } else {
+      delete line.dataset.eventId;
+    }
 
     if (!existingLine) {
       log.appendChild(line);
     }
     this.scrollChatToBottom();
     this.updateChatSummary();
-    if (!options.transient && !options.suppressRemember) {
+    if (!lineRecord.transient && !options.suppressRemember) {
       this.syncCurrentChatViewState();
     }
     return line;
@@ -1381,13 +1558,17 @@ export class ChatPanel {
       if (!chatLine) {
         continue;
       }
-      this.appendChatLine(chatLine.speaker, chatLine.message, chatLine.type, {
+      this.appendChatLineToTarget({ view: 'room', channelKey: 'room' }, chatLine.speaker, chatLine.message, chatLine.type, {
         lineId: chatLine.lineId,
         encounterEvent: true,
         event: gameEvent,
         round: Number.isFinite(chatLine.round) ? chatLine.round : undefined,
         actorId: chatLine.actorId,
         actorName: chatLine.actorName,
+        source: chatLine.source,
+        authority: chatLine.authority,
+        messageClass: chatLine.messageClass,
+        eventId: chatLine.eventId,
       });
     }
   }
@@ -1413,6 +1594,10 @@ export class ChatPanel {
         round,
         actorId,
         actorName: 'Narrator',
+        source: 'encounter-event',
+        authority: 'authoritative',
+        messageClass: 'authoritative_transcript',
+        eventId: String(event.id || ''),
       };
     }
     if (type === 'turn_start') {
@@ -1424,6 +1609,10 @@ export class ChatPanel {
         round,
         actorId,
         actorName,
+        source: 'encounter-event',
+        authority: 'authoritative',
+        messageClass: 'authoritative_transcript',
+        eventId: String(event.id || ''),
       };
     }
     if (type === 'choose_not_to_act' || type === 'npc_choose_not_to_act' || type === 'end_turn') {
@@ -1435,6 +1624,10 @@ export class ChatPanel {
         round,
         actorId,
         actorName,
+        source: 'encounter-event',
+        authority: 'authoritative',
+        messageClass: 'authoritative_transcript',
+        eventId: String(event.id || ''),
       };
     }
     if (type === 'search' && typeof event.narration === 'string' && event.narration.trim()) {
@@ -1446,6 +1639,10 @@ export class ChatPanel {
         round,
         actorId,
         actorName,
+        source: 'encounter-event',
+        authority: 'authoritative',
+        messageClass: 'authoritative_transcript',
+        eventId: String(event.id || ''),
       };
     }
     return null;
@@ -1518,6 +1715,9 @@ export class ChatPanel {
       lineId: 'chat-gm-queue-status',
       pending: true,
       transient: true,
+      source: 'local-ui',
+      authority: 'local',
+      messageClass: 'local_ui_notice',
     });
   }
 
@@ -1542,13 +1742,21 @@ export class ChatPanel {
       this.appendChatLineToTarget(target, speaker, message, 'player', {
         lineId: playerLineId,
         pending: true,
+        source: 'local-ui',
+        authority: 'local',
+        messageClass: 'local_ui_notice',
+        requestId,
       });
     }
     if (includePlaceholder) {
       this.appendChatLineToTarget(target, placeholderSpeaker, placeholderText, placeholderType, {
         lineId: gmProgressLineId,
         pending: true,
-        transient: true,
+        transient: false,
+        source: 'room-stream',
+        authority: 'authoritative',
+        messageClass: 'authoritative_progress',
+        requestId,
       });
     }
     const pending = {
@@ -1565,9 +1773,11 @@ export class ChatPanel {
       progressText: '',
       progressSpeaker: '',
       progressRole: '',
+      progressLineIds: includePlaceholder ? [gmProgressLineId] : [],
+      progressLineCounter: includePlaceholder ? 1 : 0,
+      lastProgressSignature: includePlaceholder ? `${placeholderSpeaker}::${placeholderText}` : '',
     };
     this.pendingChatRequests.set(requestId, pending);
-    this.syncChatTurnStatus();
     return pending;
   }
 
@@ -1588,10 +1798,18 @@ export class ChatPanel {
         playerLine.dataset.transient = '0';
       }
     }
+    if (Array.isArray(pending.progressLineIds) && this.isChatTargetVisible(pending.target)) {
+      pending.progressLineIds.forEach((lineId) => {
+        const progressLine = this.findChatLineById(lineId);
+        if (!progressLine) {
+          return;
+        }
+        progressLine.classList.remove('chat-line--pending');
+        progressLine.dataset.transient = '0';
+      });
+    }
 
-    this.removeChatLineById(pending.gmProgressLineId);
     this.pendingChatRequests.delete(pending.requestId);
-    this.syncChatTurnStatus();
   }
 
   updatePendingChatProgress(pending, text, phase = '', actor = {}) {
@@ -1604,18 +1822,34 @@ export class ChatPanel {
     if (progressSpeaker && progressSpeaker !== 'Game Master') {
       nextText = String(nextText).replace(/\bGame Master\b/g, progressSpeaker);
     }
+    const progressSignature = `${phase || ''}::${progressSpeaker}::${nextText}`;
+    if (pending.lastProgressSignature === progressSignature) {
+      pending.progressPhase = phase || '';
+      pending.progressText = nextText;
+      pending.progressSpeaker = progressSpeaker;
+      pending.progressRole = progressRole;
+      return;
+    }
+    const progressBaseLineId = pending.gmProgressLineId || `chat-gm-progress-${pending.requestId}`;
+    const progressLineId = pending.progressLineCounter > 0
+      ? `${progressBaseLineId}-${pending.progressLineCounter}`
+      : progressBaseLineId;
     this.appendChatLineToTarget(
       pending.target,
       progressSpeaker || 'Game Master',
       nextText,
       pending.placeholderType || 'npc',
       {
-        lineId: pending.gmProgressLineId,
+        lineId: progressLineId,
         pending: true,
-        transient: true,
+        transient: false,
+        source: 'room-stream',
+        authority: 'authoritative',
+        messageClass: 'authoritative_progress',
+        requestId: pending.requestId,
       }
     );
-    const line = this.isChatTargetVisible(pending.target) ? this.findChatLineById(pending.gmProgressLineId) : null;
+    const line = this.isChatTargetVisible(pending.target) ? this.findChatLineById(progressLineId) : null;
     if (line) {
       if (phase) {
         line.dataset.phase = phase;
@@ -1627,7 +1861,12 @@ export class ChatPanel {
     pending.progressText = nextText;
     pending.progressSpeaker = progressSpeaker;
     pending.progressRole = progressRole;
-    this.syncChatTurnStatus();
+    pending.progressLineIds = Array.isArray(pending.progressLineIds) ? pending.progressLineIds : [];
+    pending.progressLineIds.push(progressLineId);
+    pending.progressLineCounter = Number.isFinite(Number(pending.progressLineCounter))
+      ? Number(pending.progressLineCounter) + 1
+      : 1;
+    pending.lastProgressSignature = progressSignature;
   }
 
   renderPendingGmResponse(pending, response) {
@@ -1635,20 +1874,20 @@ export class ChatPanel {
       return;
     }
     const visibleMessage = this.resolveVisibleGmResponseMessage(response);
-    if (this.isChatTargetVisible(pending?.target || {})) {
-      this.removeChatLineById(pending?.gmProgressLineId || '');
-    }
     this.appendChatLineToTarget(pending?.target || null, response.speaker || 'Game Master', visibleMessage, response.type || 'npc', {
       lineId: pending?.gmResponseLineId || '',
       pending: false,
       transient: false,
+      source: 'room-stream',
+      authority: 'authoritative',
+      messageClass: 'authoritative_transcript',
+      requestId: pending?.requestId || '',
     });
     if (pending) {
       pending.progressPhase = 'responding';
       pending.progressText = visibleMessage;
       pending.progressSpeaker = response.speaker || 'Game Master';
       pending.progressRole = 'GM';
-      this.syncChatTurnStatus();
     }
   }
 
@@ -1668,258 +1907,6 @@ export class ChatPanel {
     }
 
     return 'Game Master update: the situation shifts.';
-  }
-
-  getVisiblePendingChatRequest() {
-    const pendingEntries = Array.from(this.pendingChatRequests.values());
-    for (let index = pendingEntries.length - 1; index >= 0; index -= 1) {
-      const pending = pendingEntries[index];
-      if (pending && this.isChatTargetVisible(pending.target)) {
-        return pending;
-      }
-    }
-    return pendingEntries.length ? pendingEntries[pendingEntries.length - 1] : null;
-  }
-
-  getPendingTurnDescriptor(pending) {
-    const target = pending?.target || {};
-    const rawSpeaker = String(pending?.progressSpeaker || pending?.placeholderSpeaker || '').trim();
-    const rawRole = String(pending?.progressRole || '').trim().toLowerCase();
-    const normalizedSpeaker = rawSpeaker.toLowerCase();
-    const placeholderType = String(pending?.placeholderType || '').trim().toLowerCase();
-
-    if (rawRole === 'narrator') {
-      return { role: 'Narrator', name: rawSpeaker || 'Narrator' };
-    }
-    if (rawRole === 'gm') {
-      return { role: 'GM', name: rawSpeaker || 'Game Master' };
-    }
-    if (rawRole === 'npc') {
-      return { role: 'NPC', name: rawSpeaker || 'NPC' };
-    }
-    if (target.view === 'narrative' || placeholderType === 'narrative') {
-      return { role: 'Narrator', name: rawSpeaker || 'Narrator' };
-    }
-    if (placeholderType === 'player') {
-      return { role: 'Character', name: rawSpeaker || 'Character' };
-    }
-    if (normalizedSpeaker === 'game master' || normalizedSpeaker === 'gm') {
-      return { role: 'GM', name: rawSpeaker || 'Game Master' };
-    }
-    if (normalizedSpeaker === 'narrator') {
-      return { role: 'Narrator', name: rawSpeaker || 'Narrator' };
-    }
-    if (rawSpeaker !== '') {
-      return { role: 'NPC', name: rawSpeaker };
-    }
-    return { role: 'Narrator', name: 'Narrator' };
-  }
-
-  buildPendingTurnMeta(pending, descriptor) {
-    const phase = String(pending?.progressPhase || '').trim().toLowerCase();
-    if (phase === 'reviewing-room') {
-      return `${descriptor.role} turn: reviewing the room and your latest input...`;
-    }
-    if (phase === 'updating-conversation') {
-      return `${descriptor.role} turn: updating the conversation state...`;
-    }
-    if (phase === 'syncing-context') {
-      return `${descriptor.role} turn: syncing the scene context...`;
-    }
-    if (phase === 'checking-reactions') {
-      return `${descriptor.role} turn: checking who is active in the scene...`;
-    }
-    if (phase === 'drafting-response' || phase === 'thinking') {
-      return `${descriptor.role} turn: preparing the scene...`;
-    }
-    if (phase === 'npc-reactions') {
-      return `${descriptor.role} turn: acting in initiative order...`;
-    }
-    if (phase === 'responding' || phase === 'speaking') {
-      return `${descriptor.role} turn: responding now...`;
-    }
-    if (phase === 'queued') {
-      return `${descriptor.role} turn: queued for the next response cycle...`;
-    }
-    return `${descriptor.role} turn in progress.`;
-  }
-
-  rememberRoomTurnSequence(turnSequence = [], context = null, channelKey = null) {
-    const targetContext = context || this.getChatContext();
-    if (!targetContext?.campaignId || !targetContext?.roomId || !this.roomTurnSequenceCache) {
-      return;
-    }
-    const cacheKey = this.buildRoomChatCacheKey(targetContext, channelKey || this.activeChannel || 'room');
-    if (!Array.isArray(turnSequence) || turnSequence.length === 0) {
-      this.roomTurnSequenceCache.delete(cacheKey);
-      return;
-    }
-    this.roomTurnSequenceCache.set(cacheKey, turnSequence.map((turn) => ({ ...turn })));
-  }
-
-  getRememberedRoomTurnSequence(context = null, channelKey = null) {
-    const targetContext = context || this.getChatContext();
-    if (!targetContext?.campaignId || !targetContext?.roomId || !this.roomTurnSequenceCache) {
-      return [];
-    }
-    const cacheKey = this.buildRoomChatCacheKey(targetContext, channelKey || this.activeChannel || 'room');
-    const sequence = this.roomTurnSequenceCache.get(cacheKey);
-    return Array.isArray(sequence) ? sequence.map((turn) => ({ ...turn })) : [];
-  }
-
-  buildChatRoundOrderLines(pending = null) {
-    const target = pending?.target || null;
-    const targetContext = target?.context || this.getChatContext();
-    const targetChannel = target?.channelKey || this.activeChannel || 'room';
-    const rememberedSequence = this.getRememberedRoomTurnSequence(targetContext, targetChannel);
-    const npcTurns = rememberedSequence
-      .filter((turn) => String(turn?.role || '').toLowerCase() === 'npc')
-      .map((turn) => ({
-        role: 'npc',
-        name: String(turn?.display_name || turn?.turn_name || turn?.actor_ref || 'NPC').trim() || 'NPC',
-        initiative: Number.isFinite(Number(turn?.initiative_total)) ? Number(turn.initiative_total) : null,
-      }));
-    const fallbackNpcTurns = npcTurns.length > 0
-      ? npcTurns
-      : this.buildActiveRoomNpcTurnOrder(targetContext?.roomId || null);
-    const orderedTurns = [
-      { role: 'narrator', name: 'Narrator', initiative: null },
-      { role: 'gm', name: 'Game Master', initiative: null },
-      ...(fallbackNpcTurns.length > 0 ? fallbackNpcTurns : [{ role: 'npc', name: 'NPC initiative order', initiative: null }]),
-    ];
-    const descriptor = pending ? this.getPendingTurnDescriptor(pending) : null;
-    const activeRole = String(descriptor?.role || '').trim().toLowerCase();
-    const activeName = String(descriptor?.name || '').trim().toLowerCase();
-
-    const formatLines = (activeMatcher = null) => orderedTurns.map((turn, index) => {
-      const initiativeSuffix = turn.role === 'npc' && Number.isFinite(turn.initiative)
-        ? ` (initiative ${turn.initiative})`
-        : '';
-      const isActive = typeof activeMatcher === 'function' && activeMatcher(turn, index);
-      return `Turn ${index + 1}: ${turn.name}${initiativeSuffix}${isActive ? ' - current' : ''}`;
-    }).join('\n');
-
-    return {
-      currentRoundLabel: 'Current round order',
-      currentRoundOrder: formatLines((turn) => {
-        if (activeRole === 'gm') {
-          return turn.role === 'gm';
-        }
-        if (activeRole === 'narrator') {
-          return turn.role === 'narrator';
-        }
-        if (activeRole === 'npc') {
-          return turn.role === 'npc' && String(turn.name || '').trim().toLowerCase() === activeName;
-        }
-        return false;
-      }),
-      nextRoundLabel: 'Next round order',
-      nextRoundOrder: formatLines(),
-    };
-  }
-
-  buildIdleChatTurnStatus() {
-    if (this.activeSessionView !== 'room') {
-      return null;
-    }
-    const roundOrder = this.buildChatRoundOrderLines();
-    return {
-      role: 'Player',
-      name: 'You',
-      meta: 'Player turn: write the next line or choose your next action.',
-      currentRoundLabel: roundOrder.currentRoundLabel,
-      currentRoundOrder: roundOrder.currentRoundOrder,
-      nextRoundLabel: roundOrder.nextRoundLabel,
-      nextRoundOrder: roundOrder.nextRoundOrder,
-    };
-  }
-
-  setChatTurnStatus(status = null) {
-    const container = this._el.chatTurnStatus;
-    const roleEl = this._el.chatTurnRole;
-    const nameEl = this._el.chatTurnName;
-    const metaEl = this._el.chatTurnMeta;
-    const currentRoundLabelEl = this._el.chatTurnCurrentRoundLabel;
-    const currentRoundOrderEl = this._el.chatTurnCurrentRoundOrder;
-    const nextRoundLabelEl = this._el.chatTurnNextRoundLabel;
-    const nextRoundOrderEl = this._el.chatTurnNextRoundOrder;
-    if (!container || !roleEl || !nameEl || !metaEl) {
-      return;
-    }
-
-    if (!status) {
-      container.hidden = true;
-      if (this.lastChatTurnStatusKey !== 'hidden') {
-        this.lastChatTurnStatusKey = 'hidden';
-        console.info('[RoomChat] current turn', {
-          hidden: true,
-          view: this.activeSessionView,
-          channel: this.activeChannel,
-        });
-      }
-      return;
-    }
-
-    roleEl.textContent = status.role || 'System';
-    nameEl.textContent = status.name || 'Unknown';
-    metaEl.textContent = status.meta || 'Turn in progress.';
-    if (currentRoundLabelEl) {
-      currentRoundLabelEl.textContent = status.currentRoundLabel || 'Current round order';
-    }
-    if (currentRoundOrderEl) {
-      currentRoundOrderEl.textContent = status.currentRoundOrder || '';
-    }
-    if (nextRoundLabelEl) {
-      nextRoundLabelEl.textContent = status.nextRoundLabel || 'Next round order';
-    }
-    if (nextRoundOrderEl) {
-      nextRoundOrderEl.textContent = status.nextRoundOrder || '';
-    }
-    container.hidden = false;
-
-    const statusKey = [
-      status.role || '',
-      status.name || '',
-      status.meta || '',
-      status.currentRoundLabel || '',
-      status.currentRoundOrder || '',
-      status.nextRoundLabel || '',
-      status.nextRoundOrder || '',
-      this.activeSessionView || '',
-      this.activeChannel || '',
-    ].join('|');
-    if (statusKey !== this.lastChatTurnStatusKey) {
-      this.lastChatTurnStatusKey = statusKey;
-      console.info('[RoomChat] current turn', {
-        role: status.role || 'System',
-        name: status.name || 'Unknown',
-        meta: status.meta || 'Turn in progress.',
-        view: this.activeSessionView,
-        channel: this.activeChannel,
-        pendingRequestId: status.pendingRequestId || null,
-      });
-    }
-  }
-
-  syncChatTurnStatus() {
-    const pending = this.getVisiblePendingChatRequest();
-    if (!pending) {
-      this.setChatTurnStatus(this.buildIdleChatTurnStatus());
-      return;
-    }
-
-    const descriptor = this.getPendingTurnDescriptor(pending);
-    const roundOrder = this.buildChatRoundOrderLines(pending);
-    this.setChatTurnStatus({
-      role: descriptor.role,
-      name: descriptor.name,
-      meta: this.buildPendingTurnMeta(pending, descriptor),
-      currentRoundLabel: roundOrder.currentRoundLabel,
-      currentRoundOrder: roundOrder.currentRoundOrder,
-      nextRoundLabel: roundOrder.nextRoundLabel,
-      nextRoundOrder: roundOrder.nextRoundOrder,
-      pendingRequestId: pending.requestId || '',
-    });
   }
 
   normalizeResponderLookupText(value) {
@@ -1986,8 +1973,7 @@ export class ChatPanel {
       targetRoomId,
       {
         includePlayer: true,
-        includePlaceholder: true,
-        placeholderText: '...',
+        includePlaceholder: false,
         placeholderSpeaker: 'Narrator',
         placeholderType: 'npc',
         target,
@@ -2012,10 +1998,13 @@ export class ChatPanel {
     } catch (error) {
       console.error('Failed to send queued room turn:', error);
       this.settlePendingChatRequest(pendingRequest, {
-        removePlayer: true,
-        removePlaceholder: true,
+        removePlayer: false,
       });
-      this.appendChatLine('System', `Failed to send queued turn: ${error.message}`, 'system');
+      this.appendChatLine('System', `Failed to send queued turn: ${error.message}`, 'system', {
+        source: 'local-ui',
+        authority: 'local',
+        messageClass: 'local_ui_notice',
+      });
     } finally {
       this.roomChatBusy = false;
       if (this.roomChatDeferredMessages.length > 0) {
@@ -2077,6 +2066,7 @@ export class ChatPanel {
     return Array.from(log.querySelectorAll('.chat-line'))
       .map((line) => this.normalizeChatLineRecord({
         transient: line.dataset.transient === '1',
+        persistent: line.dataset.persistent !== '0',
         speaker: line.dataset.speaker || '',
         message: line.dataset.message || line.textContent || '',
         type: line.dataset.type || 'npc',
@@ -2084,6 +2074,13 @@ export class ChatPanel {
         messageId: line.dataset.messageId || null,
         sourceMessageId: line.dataset.sourceMessageId || null,
         created: line.dataset.created || 0,
+        source: line.dataset.source || '',
+        authority: line.dataset.authority || '',
+        messageClass: line.dataset.messageClass || '',
+        channel: line.dataset.channel || '',
+        view: line.dataset.view || '',
+        requestId: line.dataset.requestId || '',
+        eventId: line.dataset.eventId || '',
       }))
       .filter((line) => !line.transient);
   }
@@ -2133,14 +2130,25 @@ export class ChatPanel {
       log.innerHTML = '';
     }
 
-    const normalizedLines = Array.isArray(lines) ? lines : [];
+    const normalizedLines = this.normalizeChatLineRecords(lines, {
+      view,
+      channel: options.channelKey || (view === 'room' ? this.activeChannel : view),
+    });
     normalizedLines.forEach((line) => {
       this.appendChatLine(line.speaker, line.message, line.type, {
         lineId: line.lineId,
         transient: line.transient,
+        persistent: line.persistent,
         messageId: line.messageId,
         sourceMessageId: line.sourceMessageId,
         created: line.created,
+        source: line.source,
+        authority: line.authority,
+        messageClass: line.messageClass,
+        channel: line.channel,
+        view: line.view,
+        requestId: line.requestId,
+        eventId: line.eventId,
         suppressRemember: true,
       });
     });
@@ -2210,7 +2218,6 @@ export class ChatPanel {
         this.loadSessionViewMessages('room', { channelKey });
       }
     }
-    this.syncChatTurnStatus();
   }
 
   handleNavigationResult(nav) {
@@ -2229,7 +2236,11 @@ export class ChatPanel {
     console.log('[Navigation] Transitioning to:', targetRoomId, nav.destination);
 
     if (nav.dungeon_switch?.map_id) {
-      this.appendChatLine('System', `🗺️ Traveling to ${nav.destination || targetRoomId}...`, 'system');
+      this.appendChatLine('System', `🗺️ Traveling to ${nav.destination || targetRoomId}...`, 'system', {
+        source: 'local-ui',
+        authority: 'local',
+        messageClass: 'local_ui_notice',
+      });
       if (typeof this.navigateToDungeonContext === 'function') {
         this.navigateToDungeonContext(nav.dungeon_switch);
       } else {
@@ -2312,7 +2323,11 @@ export class ChatPanel {
       selectedEntity?.dcEntityRef || null
     );
 
-    this.appendChatLine('System', `🗺️ Traveling to ${nav.destination || newRoom?.name || targetRoomId}...`, 'system');
+    this.appendChatLine('System', `🗺️ Traveling to ${nav.destination || newRoom?.name || targetRoomId}...`, 'system', {
+      source: 'local-ui',
+      authority: 'local',
+      messageClass: 'local_ui_notice',
+    });
 
     if (typeof hexmap.setActiveRoom === 'function') {
       hexmap.setActiveRoom(targetRoomId);
@@ -2441,7 +2456,7 @@ export class ChatPanel {
       .sort((left, right) => right.length - left.length);
   }
 
-  prefetchSessionViews(views = ['narrative', 'party', 'gm-private', 'system-log']) {
+  prefetchSessionViews(views = ['party', 'gm-private', 'system-log']) {
     views.forEach((view) => {
       if (!view || view === this.activeSessionView || view === 'room') {
         return;
@@ -2474,10 +2489,9 @@ export class ChatPanel {
 
     const titles = {
       room: 'Room Dialogue',
-      narrative: 'My Story',
       party: 'Party Chat',
       'gm-private': 'GM Secret',
-      'system-log': 'Dice Log',
+      'system-log': 'System',
     };
     if (this._el.chatPanelTitle) {
       this._el.chatPanelTitle.textContent = titles[view] || 'Chat';
@@ -2504,17 +2518,15 @@ export class ChatPanel {
       input.disabled = isReadOnly;
       const placeholders = {
         room: 'Say something to the room...',
-        narrative: 'Your story unfolds here (read-only)...',
         party: 'Whisper to your party...',
-        'gm-private': 'Send a private note to the GM or use /location, /room, /quests, /dungeon',
-        'system-log': 'Dice rolls appear here automatically...',
+        'gm-private': 'Message the GM directly. The GM should answer here and use /location, /room, /quests, /dungeon to resolve issues.',
+        'system-log': 'System messages, dice rolls, checks, and mechanical output appear here automatically...',
       };
       input.placeholder = placeholders[view] || '';
     }
     if (sendBtn) sendBtn.disabled = isReadOnly;
 
     this.loadSessionViewMessages(view);
-    this.syncChatTurnStatus();
   }
 
   renderSessionViewData(view, data) {
@@ -2528,6 +2540,11 @@ export class ChatPanel {
         messageId: msg.id || null,
         sourceMessageId: msg.source_message_id || null,
         created: msg.created || 0,
+        source: `session-view:${view}`,
+        authority: 'authoritative',
+        messageClass: 'authoritative_transcript',
+        channel: view,
+        view,
       }));
       const merged = this.rememberChatLines(view, incoming, { context });
       this.renderChatLineRecords(merged, view, { context });
@@ -2536,10 +2553,9 @@ export class ChatPanel {
       });
     } else {
       const emptyMessages = {
-        'narrative': 'Your story in this room has not yet begun...',
         'party': 'No party chatter yet. Say something!',
-        'gm-private': 'No secret notes yet. Messages here go straight to the GM, and slash commands reply here too.',
-        'system-log': 'No dice rolls yet.',
+        'gm-private': 'No GM messages yet. Messages here go straight to the GM, and the GM should answer here while using tools to resolve issues.',
+        'system-log': 'No system messages yet.',
       };
       const remembered = this.getRememberedChatLines(view, { context });
       if (remembered.length > 0) {
@@ -2550,6 +2566,11 @@ export class ChatPanel {
       } else {
         this.renderChatLineRecords([], view, { context });
         this.appendChatLine('System', emptyMessages[view] || 'No messages.', 'system', {
+          source: 'local-ui',
+          authority: 'local',
+          messageClass: 'local_ui_notice',
+          channel: view,
+          view,
           suppressRemember: true,
         });
         this.updateChatSummary([], {
@@ -2580,7 +2601,6 @@ export class ChatPanel {
     if (msg.speaker_type === 'gm') return 'gm';
     if (msg.message_type === 'mechanical' || msg.message_type === 'dice_roll') return 'mechanical';
     if (view === 'gm-private') return msg.speaker_type === 'player' ? 'secret' : 'gm';
-    if (view === 'narrative') return msg.speaker_type === 'player' ? 'player' : 'narrative';
     if (msg.speaker_type === 'player') return 'player';
     return 'npc';
   }
@@ -2594,10 +2614,16 @@ export class ChatPanel {
     const context = this.getChatContext();
     if (!context.campaignId) return;
 
-    if ((view === 'narrative' || view === 'gm-private') && !context.characterId) {
+    if (view === 'gm-private' && !context.characterId) {
       const log = this._el.chatLog;
       if (log) log.innerHTML = '';
-      this.appendChatLine('System', 'No character selected.', 'system');
+      this.appendChatLine('System', 'No character selected.', 'system', {
+        source: 'local-ui',
+        authority: 'local',
+        messageClass: 'local_ui_notice',
+        channel: view,
+        view,
+      });
       return;
     }
 
@@ -2733,7 +2759,13 @@ export class ChatPanel {
     try {
       switch (this.activeSessionView) {
         case 'party': {
-          const partyLine = this.appendChatLine(speaker, message, 'player');
+          const partyLine = this.appendChatLine(speaker, message, 'player', {
+            source: 'session-local:party',
+            authority: 'local',
+            messageClass: 'local_ui_notice',
+            channel: 'party',
+            view: 'party',
+          });
           const partyResult = await api.postPartyChat(speaker, message, String(characterId || ''));
           if (partyLine && partyResult?.message_id) {
             partyLine.dataset.messageId = String(partyResult.message_id);
@@ -2745,7 +2777,13 @@ export class ChatPanel {
 
         case 'gm-private': {
           if (!characterId) {
-            this.appendChatLine('System', 'No character selected.', 'system');
+            this.appendChatLine('System', 'No character selected.', 'system', {
+              source: 'local-ui',
+              authority: 'local',
+              messageClass: 'local_ui_notice',
+              channel: 'gm-private',
+              view: 'gm-private',
+            });
             return;
           }
           const requestedRoom = parseGmRoomRequest(message);
@@ -2753,10 +2791,22 @@ export class ChatPanel {
             const originRoomId = this.stateManager?.hexmap?.resolveActiveRoomId?.() || null;
             const dungeonData = this.stateManager?.hexmap?.dungeonData || {};
             if (!originRoomId || !dungeonData?.level_id || !dungeonData?.map_id) {
-              this.appendChatLine('System', 'Missing dungeon context for procedural room generation.', 'system');
+              this.appendChatLine('System', 'Missing dungeon context for procedural room generation.', 'system', {
+                source: 'local-ui',
+                authority: 'local',
+                messageClass: 'local_ui_notice',
+                channel: 'gm-private',
+                view: 'gm-private',
+              });
               return;
             }
-            this.appendChatLine(speaker, message, 'secret');
+            this.appendChatLine(speaker, message, 'secret', {
+              source: 'session-local:gm-private',
+              authority: 'local',
+              messageClass: 'local_ui_notice',
+              channel: 'gm-private',
+              view: 'gm-private',
+            });
             const roomResult = await api.requestRoomGeneration({
               origin_room_id: originRoomId,
               level_id: dungeonData.level_id,
@@ -2768,12 +2818,18 @@ export class ChatPanel {
               gm_private_message: message,
             });
             if (roomResult?.message) {
-              this.appendChatLine('Game Master', roomResult.message, 'gm');
+              this.appendChatLine('Game Master', roomResult.message, 'gm', {
+                source: 'session-action',
+                authority: 'authoritative',
+                messageClass: 'authoritative_transcript',
+                channel: 'gm-private',
+                view: 'gm-private',
+              });
             }
             if (roomResult?.navigation?.target_room_id) {
               this.handleNavigationResult(roomResult.navigation);
             }
-            this.invalidateChatCaches({ sessionViews: ['gm-private', 'narrative', 'system-log'] });
+            this.invalidateChatCaches({ sessionViews: ['gm-private', 'system-log'] });
             break;
           }
 
@@ -2781,10 +2837,22 @@ export class ChatPanel {
           if (requestedQuests) {
             const roomId = this.stateManager?.hexmap?.resolveActiveRoomId?.() || null;
             if (!roomId) {
-              this.appendChatLine('System', 'No active room available for quest generation.', 'system');
+              this.appendChatLine('System', 'No active room available for quest generation.', 'system', {
+                source: 'local-ui',
+                authority: 'local',
+                messageClass: 'local_ui_notice',
+                channel: 'gm-private',
+                view: 'gm-private',
+              });
               return;
             }
-            this.appendChatLine(speaker, message, 'secret');
+            this.appendChatLine(speaker, message, 'secret', {
+              source: 'session-local:gm-private',
+              authority: 'local',
+              messageClass: 'local_ui_notice',
+              channel: 'gm-private',
+              view: 'gm-private',
+            });
             const questResult = await api.requestLocationQuests({
               room_id: roomId,
               count: requestedQuests.count,
@@ -2793,16 +2861,28 @@ export class ChatPanel {
               gm_private_message: message,
             });
             if (questResult?.message) {
-              this.appendChatLine('Game Master', questResult.message, 'gm');
+              this.appendChatLine('Game Master', questResult.message, 'gm', {
+                source: 'session-action',
+                authority: 'authoritative',
+                messageClass: 'authoritative_transcript',
+                channel: 'gm-private',
+                view: 'gm-private',
+              });
             }
             await this.stateManager?.hexmap?.refreshQuestJournalFromApi?.();
-            this.invalidateChatCaches({ sessionViews: ['gm-private', 'narrative', 'system-log'] });
+            this.invalidateChatCaches({ sessionViews: ['gm-private', 'system-log'] });
             break;
           }
 
           const requestedDungeon = parseGmDungeonRequest(message);
           if (requestedDungeon) {
-            this.appendChatLine(speaker, message, 'secret');
+            this.appendChatLine(speaker, message, 'secret', {
+              source: 'session-local:gm-private',
+              authority: 'local',
+              messageClass: 'local_ui_notice',
+              channel: 'gm-private',
+              view: 'gm-private',
+            });
             const dungeonResult = await api.generateDungeon({
               location_x: requestedDungeon.locationX,
               location_y: requestedDungeon.locationY,
@@ -2813,7 +2893,13 @@ export class ChatPanel {
               gm_private_message: message,
             });
             const dungeonName = dungeonResult?.name || dungeonResult?.data?.name || dungeonResult?.dungeon_id || 'new dungeon';
-            this.appendChatLine('Game Master', `Generated dungeon site: ${dungeonName}.`, 'gm');
+            this.appendChatLine('Game Master', `Generated dungeon site: ${dungeonName}.`, 'gm', {
+              source: 'session-action',
+              authority: 'authoritative',
+              messageClass: 'authoritative_transcript',
+              channel: 'gm-private',
+              view: 'gm-private',
+            });
             this.invalidateChatCaches({ sessionViews: ['gm-private', 'system-log'] });
             break;
           }
@@ -2822,10 +2908,22 @@ export class ChatPanel {
           if (requestedDestination) {
             const originRoomId = this.stateManager?.hexmap?.resolveActiveRoomId?.() || null;
             if (!originRoomId) {
-              this.appendChatLine('System', 'No active room available for location generation.', 'system');
+              this.appendChatLine('System', 'No active room available for location generation.', 'system', {
+                source: 'local-ui',
+                authority: 'local',
+                messageClass: 'local_ui_notice',
+                channel: 'gm-private',
+                view: 'gm-private',
+              });
               return;
             }
-            this.appendChatLine(speaker, message, 'secret');
+            this.appendChatLine(speaker, message, 'secret', {
+              source: 'session-local:gm-private',
+              authority: 'local',
+              messageClass: 'local_ui_notice',
+              channel: 'gm-private',
+              view: 'gm-private',
+            });
             const locationResult = await api.requestLocationGeneration({
               destination: requestedDestination,
               origin_room_id: originRoomId,
@@ -2834,16 +2932,28 @@ export class ChatPanel {
               gm_private_message: message,
             });
             if (locationResult?.message) {
-              this.appendChatLine('Game Master', locationResult.message, 'gm');
+              this.appendChatLine('Game Master', locationResult.message, 'gm', {
+                source: 'session-action',
+                authority: 'authoritative',
+                messageClass: 'authoritative_transcript',
+                channel: 'gm-private',
+                view: 'gm-private',
+              });
             }
             if (locationResult?.navigation?.target_room_id) {
               this.handleNavigationResult(locationResult.navigation);
             }
-            this.invalidateChatCaches({ sessionViews: ['gm-private', 'narrative', 'system-log'] });
+            this.invalidateChatCaches({ sessionViews: ['gm-private', 'system-log'] });
             break;
           }
 
-          const gmPrivateLine = this.appendChatLine(speaker, message, 'secret');
+          const gmPrivateLine = this.appendChatLine(speaker, message, 'secret', {
+            source: 'session-local:gm-private',
+            authority: 'local',
+            messageClass: 'local_ui_notice',
+            channel: 'gm-private',
+            view: 'gm-private',
+          });
           const gmPrivateResult = await api.postGmPrivate(characterId, speaker, message);
           if (gmPrivateLine && gmPrivateResult?.message_id) {
             gmPrivateLine.dataset.messageId = String(gmPrivateResult.message_id);
@@ -2853,16 +2963,18 @@ export class ChatPanel {
           break;
         }
 
-        case 'narrative':
-          this.appendChatLine('System', 'Your story is narrated by the GM.', 'system');
-          return;
-
         case 'system-log':
           return;
       }
     } catch (err) {
       console.error(`Failed to post to ${this.activeSessionView}:`, err);
-      this.appendChatLine('System', `Failed to send: ${err.message}`, 'system');
+      this.appendChatLine('System', `Failed to send: ${err.message}`, 'system', {
+        source: 'local-ui',
+        authority: 'local',
+        messageClass: 'local_ui_notice',
+        channel: this.activeSessionView,
+        view: this.activeSessionView,
+      });
     }
 
     this.prefetchSessionViews();
@@ -2950,16 +3062,6 @@ export class ChatPanel {
       let data = null;
 
       switch (view) {
-        case 'narrative': {
-          const dungeonId = this.stateManager?.hexmap?.dungeonData?.id || null;
-          data = await api.getCharacterNarrative(context.characterId, {
-            dungeonId: dungeonId || undefined,
-            roomId: context.roomId || undefined,
-            limit: 50,
-          });
-          break;
-        }
-
         case 'party':
           data = await api.getPartyChat({ limit: 50 });
           break;

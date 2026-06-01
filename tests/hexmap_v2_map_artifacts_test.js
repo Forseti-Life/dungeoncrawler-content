@@ -67,6 +67,9 @@ const source = fs.readFileSync(sourcePath, 'utf8');
 
 const factory = new Function(`
 ${extractNamedFunctionSource(source, '_isPlainObject')}
+${extractNamedFunctionSource(source, '_getPresentationObjectDefinitions')}
+${extractNamedFunctionSource(source, '_getVisualOccupants')}
+${extractNamedFunctionSource(source, '_isVisualOccupantVisible')}
 ${extractNamedFunctionSource(source, '_buildRenderableEntityBlueprints')}
 ${extractNamedFunctionSource(source, '_buildVisualOccupantIndex')}
 ${extractNamedFunctionSource(source, '_resolveVisualOccupant')}
@@ -85,23 +88,6 @@ console.log('\n=== Hexmap V2 map artifact bootstrap ===');
 
 {
   const dungeonData = {
-    object_definitions: {
-      tavern_table: {
-        label: 'Tavern Table',
-        category: 'obstacle',
-        visual: { color: '#8b5e3c' },
-      },
-      quest_clue: {
-        label: 'Quest Clue',
-        category: 'quest_item',
-        visual: { color: '#f59e0b' },
-      },
-      barkeep_npc: {
-        label: 'Barkeep',
-        category: 'npc',
-        visual: { color: '#22c55e' },
-      },
-    },
     entities: [
       {
         entity_type: 'npc',
@@ -132,6 +118,25 @@ console.log('\n=== Hexmap V2 map artifact bootstrap ===');
   };
 
   const mapVisualState = {
+    presentation: {
+      object_definitions: {
+        tavern_table: {
+          label: 'Tavern Table',
+          category: 'obstacle',
+          visual: { color: '#8b5e3c' },
+        },
+        quest_clue: {
+          label: 'Quest Clue',
+          category: 'quest_item',
+          visual: { color: '#f59e0b' },
+        },
+        barkeep_npc: {
+          label: 'Barkeep',
+          category: 'npc',
+          visual: { color: '#22c55e' },
+        },
+      },
+    },
     occupants: {
       entities: [
         { occupant_id: 'npc-1', content_id: 'barkeep_npc', visible: true },
@@ -193,6 +198,111 @@ console.log('\n=== Hexmap V2 map artifact bootstrap ===');
   const table = blueprints.find((entry) => entry.instanceId === 'room-object:room_tavern:0:0:tavern_table:0');
   assert(!!table, 'adds authored room hex objects as renderable map artifacts');
   assert(table?.entityType === 'obstacle', 'maps room obstacle objects to obstacle render types');
+}
+
+{
+  const dungeonData = {
+    object_definitions: {
+      legacy_guard: {
+        label: 'Legacy Guard',
+        category: 'npc',
+        visual: { sprite_id: 'legacy-guard-sprite' },
+      },
+    },
+    entities: [
+      {
+        entity_type: 'npc',
+        instance_id: 'guard-1',
+        entity_ref: { content_id: 'legacy_guard', content_type: 'npc' },
+        placement: { room_id: 'room_contract', hex: { q: 2, r: 3 } },
+        state: { metadata: { display_name: 'Guard' } },
+      },
+    ],
+  };
+
+  const blueprints = _buildRenderableEntityBlueprints(
+    dungeonData,
+    'room_contract',
+    { character_id: 0 },
+    { topology: { rooms: { room_contract: { hexes: [] } } }, occupants: { entities: [] } },
+  );
+
+  assert(blueprints.length === 1, 'keeps payload entities when canonical presentation object definitions are absent');
+  assert(blueprints[0]?.render?.spriteKey === null, 'ignores legacy payload object definitions when canonical presentation definitions are absent');
+}
+
+{
+  const mapVisualState = {
+    presentation: {
+      object_definitions: {
+        sage_npc: {
+          label: 'Library Sage',
+          category: 'npc',
+          visual: { sprite_id: 'sprite-sage', color: '#7c3aed' },
+        },
+      },
+    },
+    occupants: {
+      entities: [
+        {
+          occupant_id: 'sage-1',
+          occupant_type: 'npc',
+          content_id: 'sage_npc',
+          room_id: 'room_library',
+          label: 'Library Sage',
+          visible: true,
+          placement: { q: 6, r: 2 },
+          presentation: { badge: 'ally' },
+        },
+      ],
+    },
+    topology: {
+      rooms: {
+        room_library: { hexes: [] },
+      },
+    },
+  };
+
+  const blueprints = _buildRenderableEntityBlueprints({}, 'room_library', { character_id: 0 }, mapVisualState);
+  assert(blueprints.length === 1, 'creates renderable map entities from canonical visual occupants even without payload entities');
+  assert(blueprints[0]?.entityType === 'npc', 'maps occupant-only NPC records to npc render entities');
+  assert(blueprints[0]?.render?.spriteKey === 'sprite-sage', 'uses presentation object definitions for occupant-only sprite contracts');
+}
+
+{
+  const mapVisualState = {
+    occupants: {
+      party: [
+        {
+          occupant_id: 'party-eldric',
+          room_id: 'room_square',
+          placement: { q: 1, r: 1 },
+          label: 'Eldric',
+          visible: true,
+        },
+      ],
+    },
+    topology: {
+      rooms: {
+        room_square: { hexes: [] },
+      },
+    },
+  };
+
+  const blueprints = _buildRenderableEntityBlueprints(
+    {},
+    'room_square',
+    {
+      character_id: 42,
+      name: 'Eldric',
+      portrait_sprite_id: 'portrait-eldric',
+    },
+    mapVisualState,
+  );
+
+  assert(blueprints.length === 1, 'creates renderable map entities from canonical party occupants without explicit occupant_type');
+  assert(blueprints[0]?.entityType === 'player_character', 'infers player_character type for canonical party occupants');
+  assert(blueprints[0]?.render?.spriteKey === 'portrait-eldric', 'uses the launch-character portrait sprite contract for canonical party occupants');
 }
 
 {

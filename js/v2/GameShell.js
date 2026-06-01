@@ -40,6 +40,7 @@ import { CharacterPanel } from './panels/CharacterPanel.js';
 import { RoomViewPanel } from './panels/RoomViewPanel.js';
 import { PartyRailPanel } from './panels/PartyRailPanel.js';
 import { StatusPanel } from './panels/StatusPanel.js';
+import { normalizeInventoryState } from './utils/inventory-utils.js';
 import { SpriteService } from '../SpriteService.js';
 import {
   EntityManager,
@@ -214,7 +215,7 @@ export class GameShell {
     if (!roomId) return;
 
     const visualRooms = this.mapVisualState?.topology?.rooms ?? {};
-    const room = visualRooms[roomId] ?? null;
+    const room = _mergeRoomMetadata(visualRooms[roomId] ?? null, {}, roomId);
     const roomName = room?.name ?? roomId;
     this._activeRoomData = room ?? null;
     const roomHexes = Array.isArray(room?.hexes) ? room.hexes : [];
@@ -343,7 +344,7 @@ export class GameShell {
       if (_source === 'shell' || !roomId) return;
       this._chatHistoryLoaded = false;
       this.activeRoomId = roomId;
-      this._activeRoomData = this.mapVisualState?.topology?.rooms?.[roomId] ?? null;
+      this._activeRoomData = _mergeRoomMetadata(this.mapVisualState?.topology?.rooms?.[roomId] ?? null, {}, roomId);
       this._setStateValue('activeRoomId', roomId);
       // Reset view state for new room
       this._clearRoomViewRetry();
@@ -368,6 +369,7 @@ export class GameShell {
       // Pre-load chat history and scene image for the new room
       this._loadChatHistory();
       this._loadRoomView();
+      this.prefetchConnectedRoomContext();
     });
 
     this.bus.on('combat:state-changed', ({ state } = {}) => {
@@ -817,7 +819,24 @@ export class GameShell {
 
     this.turnManagementSystem = new TurnManagementSystem(this.entityManager);
     this.turnManagementSystem.onTurnChange((entity, turnIndex, totalTurns) => {
-      bus.emit('combat:turn-changed', { entity, turnIndex, totalTurns });
+      const identity = entity?.getComponent?.('IdentityComponent') || null;
+      const combat = entity?.getComponent?.('CombatComponent') || null;
+      const actions = entity?.getComponent?.('ActionsComponent') || null;
+      const movement = entity?.getComponent?.('MovementComponent') || null;
+      const launchPlayer = this.findLaunchPlayerEntity?.() || null;
+      bus.emit('combat:turn-changed', {
+        entity,
+        turnIndex,
+        totalTurns,
+        name: identity?.name || entity?.name || entity?.actorName || 'Unknown combatant',
+        actions,
+        movement,
+        hasReaction: typeof actions?.hasReactionAvailable === 'function'
+          ? actions.hasReactionAvailable()
+          : Boolean(actions?.hasReaction),
+        team: combat?.team || null,
+        isPlayersTurn: Boolean(entity && launchPlayer && entity.id === launchPlayer.id),
+      });
     });
     this.turnManagementSystem.onRoundChange?.((roundNumber) => {
       bus.emit('combat:round-changed', { roundNumber });
@@ -916,6 +935,25 @@ export class GameShell {
     this.bus.emit('room:entities-changed', {
       roomId: activeRoomId,
       entities: this.entityManager.getEntitiesWith('PositionComponent', 'RenderComponent'),
+    });
+
+    const objectDefinitions = this.getPresentationObjectDefinitions();
+    const spriteDungeonData = {
+      ...(this.dungeonData && typeof this.dungeonData === 'object' ? this.dungeonData : {}),
+      object_definitions: objectDefinitions,
+    };
+    const campaignId = this.resolveCampaignId();
+    void this.spriteService?.resolveAndApply?.(
+      this.entityManager,
+      this.renderSystem,
+      spriteDungeonData,
+      activeRoomId,
+      campaignId,
+    ).finally(() => {
+      this.bus?.emit('room:entities-changed', {
+        roomId: activeRoomId,
+        entities: this.entityManager?.getEntitiesWith?.('PositionComponent', 'RenderComponent') || [],
+      });
     });
   }
 
@@ -1509,6 +1547,46 @@ export class GameShell {
   }
 
   // --- ported from hexmap.js ---
+  resolveTerrainKey(obstacleProfile, inActiveRoom) {
+    if (obstacleProfile?.isWall && !obstacleProfile.passable && !obstacleProfile.movable) {
+      return 'wall';
+    }
+    if (!inActiveRoom) {
+      return 'outside';
+    }
+
+    const room = this.getActiveRoomData();
+    const terrainValues = Array.isArray(room?.terrain)
+      ? room.terrain
+      : (room?.terrain?.type ? [room.terrain.type] : []);
+    const terrainType = terrainValues.map((value) => String(value || '').toLowerCase()).join(' ');
+    if (terrainType.includes('wood') || terrainType.includes('tavern') || terrainType.includes('plank')) {
+      return 'wooden_floor';
+    }
+    if (terrainType.includes('stone') || terrainType.includes('dungeon') || terrainType.includes('cave')) {
+      return 'stone_floor';
+    }
+    return 'floor';
+  }
+
+  // --- ported from hexmap.js ---
+  describePassability(obstacleProfile, inActiveRoom) {
+    if (obstacleProfile) {
+      if (!obstacleProfile.passable && !obstacleProfile.movable) {
+        return 'Impassable (fixed)';
+      }
+      if (!obstacleProfile.passable && obstacleProfile.movable) {
+        return 'Impassable (movable)';
+      }
+      if (obstacleProfile.passable && obstacleProfile.movable) {
+        return 'Passable (movable)';
+      }
+      return 'Passable';
+    }
+    return inActiveRoom ? 'Open floor' : 'Outside active room';
+  }
+
+  // --- ported from hexmap.js ---
   getAxialLine(fromQ, fromR, toQ, toR) {
     return _getAxialLine(fromQ, fromR, toQ, toR, this.movementSystem);
   }
@@ -1528,6 +1606,138 @@ export class GameShell {
   // --- ported from hexmap.js ---
   getHostileTargets(actor) {
     return _getHostileTargets(actor, this.entityManager, this.movementSystem, (fromQ, fromR, toQ, toR) => this.hasLineOfSight(fromQ, fromR, toQ, toR));
+  }
+
+  // --- ported from hexmap.js ---
+  describeEntitiesAtHex(q, r) {
+    const labels = [];
+    const liveEntities = this.getEntitiesAtHex(q, r);
+    liveEntities.forEach((entity) => {
+      const identity = entity.getComponent?.('IdentityComponent');
+      const combat = entity.getComponent?.('CombatComponent');
+      const teamLabel = combat?.team ? ` (${combat.team})` : '';
+      labels.push(`${identity?.name || _getEntityDisplayName(entity)}${teamLabel}`);
+    });
+    if (labels.length) {
+      return labels;
+    }
+
+    if (!this.hasVisualOccupants()) {
+      return labels;
+    }
+
+    this.getVisualOccupants()
+      .filter((candidate) => {
+        if (String(candidate?.room_id || '') !== String(this.resolveActiveRoomId() || '')) {
+          return false;
+        }
+        if (!this.isVisualOccupantVisible(candidate)) {
+          return false;
+        }
+        return Number(candidate?.placement?.q) === Number(q) && Number(candidate?.placement?.r) === Number(r);
+      })
+      .forEach((candidate) => {
+        const label = String(candidate?.label || candidate?.content_id || candidate?.occupant_id || '').trim();
+        if (!label) {
+          return;
+        }
+        const team = String(candidate?.presentation?.badge || '').trim();
+        labels.push(team ? `${label} (${team})` : label);
+      });
+
+    return labels;
+  }
+
+  // --- ported from hexmap.js ---
+  getObjectLabelAtHex(q, r) {
+    const liveEntity = this.getEntitiesAtHex(q, r)[0] || null;
+    const liveIdentity = liveEntity?.getComponent?.('IdentityComponent');
+    if (liveIdentity?.name) {
+      return liveIdentity.name;
+    }
+
+    const roomHex = this.getActiveRoomHex(q, r);
+    if (roomHex && Array.isArray(roomHex.objects) && roomHex.objects.length) {
+      const object = roomHex.objects.find((candidate) => candidate && typeof candidate === 'object') || roomHex.objects[0];
+      if (object?.label) {
+        return object.label;
+      }
+      const objectId = String(object?.object_id || '').trim();
+      const definition = this.getObjectDefinition(objectId);
+      if (definition?.label) {
+        return definition.label;
+      }
+      if (objectId) {
+        return objectId.replace(/[_-]+/g, ' ');
+      }
+    }
+
+    return null;
+  }
+
+  // --- ported from hexmap.js ---
+  getObjectIdAtHex(q, r) {
+    const roomHex = this.getActiveRoomHex(q, r);
+    if (roomHex && Array.isArray(roomHex.objects) && roomHex.objects.length) {
+      const object = roomHex.objects.find((candidate) => candidate && typeof candidate === 'object') || roomHex.objects[0];
+      const objectId = String(object?.object_id || '').trim();
+      if (objectId) {
+        return objectId;
+      }
+    }
+    return null;
+  }
+
+  // --- ported from hexmap.js ---
+  describeObjectsAtHex(hex, q, r) {
+    const labels = [];
+
+    if (hex && Array.isArray(hex.objects)) {
+      hex.objects.forEach((object) => {
+        if (object?.label) {
+          labels.push(object.label);
+        } else if (object?.object_id) {
+          labels.push(String(object.object_id).replace(/[_-]+/g, ' '));
+        }
+      });
+    }
+
+    const obstacleLabel = this.getObstacleMobilityAtHex(q, r) ? this.getObjectLabelAtHex(q, r) : null;
+    if (obstacleLabel && !labels.includes(obstacleLabel)) {
+      labels.push(obstacleLabel);
+    }
+
+    return labels;
+  }
+
+  // --- ported from hexmap.js ---
+  describeConnectionAtHex(q, r) {
+    const connections = this.getVisualConnections();
+    if (!connections.length) {
+      return null;
+    }
+
+    const activeRoomId = String(this.resolveActiveRoomId() || '');
+    const match = connections.find((connection) => {
+      const fromHex = this.getConnectionHex(connection, 'from');
+      const toHex = this.getConnectionHex(connection, 'to');
+      return (fromHex && this.getConnectionRoomId(connection, 'from') === activeRoomId && Number(fromHex.q) === Number(q) && Number(fromHex.r) === Number(r))
+        || (toHex && this.getConnectionRoomId(connection, 'to') === activeRoomId && Number(toHex.q) === Number(q) && Number(toHex.r) === Number(r));
+    });
+    if (!match) {
+      return null;
+    }
+
+    const targetRoom = this.getConnectionRoomId(match, 'to') === activeRoomId
+      ? this.getConnectionRoomId(match, 'from')
+      : this.getConnectionRoomId(match, 'to');
+    const status = [];
+    status.push(match.is_passable ? 'passable' : 'blocked');
+    if (match.is_discovered) {
+      status.push('discovered');
+    }
+
+    return `${match.type || 'connection'} -> ${targetRoom || 'unknown'} (${status.join(', ')})`;
   }
 
   // --- ported from hexmap.js ---
@@ -1646,30 +1856,38 @@ export class GameShell {
 
   // --- ported from hexmap.js ---
   getHexDetail(q, r) {
-    const activeRoomHex = this.getActiveRoomHex(q, r);
-    const connection = this.resolveNavigationCapabilityAtHex(q, r);
     const activeRoom = this.getActiveRoomData();
-    const entities = this.getEntitiesAtHex(q, r).map((entity) => _getEntityDisplayName(entity));
-    const objects = (Array.isArray(activeRoomHex?.objects) ? activeRoomHex.objects : []).map((object) =>
-      object?.label || object?.name || object?.object_id || object?.id || 'Object'
-    );
-    const passability = this.getObstacleMobilityAtHex(q, r)?.passable === false ? 'Blocked' : 'Passable';
-    const connectionLabel = connection
-      ? `${connection.type || 'passage'} -> ${connection.target_room_id || 'unknown'}${connection.available ? '' : ` (${connection.blocked_reason || 'unavailable'})`}`
-      : null;
+    if (!activeRoom) {
+      return null;
+    }
+
+    const activeRoomHex = this.getActiveRoomHex(q, r);
+    const inRoom = Boolean(activeRoomHex);
+    const obstacleProfile = this.getObstacleMobilityAtHex(q, r);
+    const terrainKey = this.resolveTerrainKey(obstacleProfile, inRoom);
+    const roomTerrainValues = Array.isArray(activeRoom?.terrain)
+      ? activeRoom.terrain
+      : (activeRoom?.terrain?.type ? [activeRoom.terrain.type] : []);
+    const roomTerrain = roomTerrainValues
+      .map((value) => String(value || '').trim())
+      .filter((value) => value && value !== 'unknown')
+      .join(', ');
+    const terrainLabel = roomTerrain ? `${terrainKey} (${roomTerrain})` : terrainKey;
 
     return {
       q: Number(q),
       r: Number(r),
       roomId: this.resolveActiveRoomId(),
-      roomName: activeRoom?.name || this.resolveActiveRoomId(),
-      terrain: activeRoomHex?.terrain || activeRoomHex?.terrain_type || null,
-      lighting: activeRoomHex?.lighting || activeRoom?.lighting || null,
-      elevationFt: Number.isFinite(Number(activeRoomHex?.elevation_ft)) ? Number(activeRoomHex.elevation_ft) : null,
-      passability,
-      entities,
-      objects,
-      connection: connectionLabel,
+      roomName: inRoom ? (activeRoom?.name || this.resolveActiveRoomId()) : `${activeRoom?.name || this.resolveActiveRoomId()} (outside footprint)`,
+      terrain: terrainLabel,
+      lighting: typeof activeRoom?.lighting === 'string'
+        ? activeRoom.lighting
+        : (activeRoom?.lighting?.level || 'unknown'),
+      elevationFt: inRoom && Number.isFinite(Number(activeRoomHex?.elevation_ft)) ? Number(activeRoomHex.elevation_ft) : null,
+      passability: this.describePassability(obstacleProfile, inRoom),
+      entities: this.describeEntitiesAtHex(q, r),
+      objects: this.describeObjectsAtHex(activeRoomHex, q, r),
+      connection: this.describeConnectionAtHex(q, r),
     };
   }
 
@@ -1698,7 +1916,7 @@ export class GameShell {
       return;
     }
 
-    const room = this.getVisualRooms()[normalizedRoomId] || null;
+    const room = _mergeRoomMetadata(this.getVisualRooms()[normalizedRoomId] || null, {}, normalizedRoomId);
     const occupants = this.getVisualOccupants().filter((occupant) => String(occupant?.room_id || '') === normalizedRoomId && this.isVisualOccupantVisible(occupant));
     this.activeRoomId = normalizedRoomId;
     this._activeRoomData = room;
@@ -1717,6 +1935,7 @@ export class GameShell {
       roomName: room?.name ?? normalizedRoomId,
       occupants,
     });
+    this.prefetchConnectedRoomContext?.();
   }
 
   // --- ported from hexmap.js ---
@@ -1756,7 +1975,21 @@ export class GameShell {
   async performCombatAction(options = {}) {
     const encounterId = Number(this._getStateValue('encounterId') || 0) || null;
     const actionType = String(options?.actionType || '').trim();
-    if (!encounterId || !actionType || !this.canUseServerCombatApi()) {
+    if (!actionType) {
+      console.error('[GameShell] performCombatAction missing actionType', { options });
+      return null;
+    }
+    if (!this.canUseServerCombatApi()) {
+      console.error('[GameShell] performCombatAction unavailable: combat API disabled', { actionType });
+      return null;
+    }
+    if (!encounterId) {
+      console.error('[GameShell] performCombatAction missing encounterId', { actionType, options });
+      this.bus?.emit?.('chat:system-message', {
+        speaker: 'System',
+        kind: 'error',
+        text: 'Encounter contract error: missing encounter ID for a turn-based action. Refresh the room state.',
+      });
       return null;
     }
 
@@ -1969,14 +2202,14 @@ function _getPresentationObjectDefinitions(mapVisualState = {}, dungeonData = {}
   if (visualDefinitions && typeof visualDefinitions === 'object') {
     return visualDefinitions;
   }
-
-  const dungeonDefinitions = dungeonData?.object_definitions || dungeonData?.objectDefinitions;
-  return dungeonDefinitions && typeof dungeonDefinitions === 'object' ? dungeonDefinitions : {};
+  return {};
 }
 
 function _getVisualOccupants(mapVisualState = {}) {
   return [
-    ...(Array.isArray(mapVisualState?.occupants?.party) ? mapVisualState.occupants.party : []),
+    ...(Array.isArray(mapVisualState?.occupants?.party)
+      ? mapVisualState.occupants.party.map((occupant) => ({ ...occupant, is_party: true }))
+      : []),
     ...(Array.isArray(mapVisualState?.occupants?.entities) ? mapVisualState.occupants.entities : []),
   ];
 }
@@ -2466,7 +2699,33 @@ function _mergeRoomMetadata(visualRoom = {}, apiRoom = {}, roomId = '') {
     }
   });
 
+  merged.subtitle = _buildRoomSubtitle(merged);
   return merged;
+}
+
+function _buildRoomSubtitle(room = {}) {
+  if (!_isPlainObject(room)) {
+    return '';
+  }
+
+  const terrainValues = Array.isArray(room?.terrain)
+    ? room.terrain
+    : (room?.terrain?.type ? [room.terrain.type] : []);
+  const terrainLabel = terrainValues
+    .map((value) => String(value || '').replace(/_/g, ' ').trim())
+    .filter(Boolean)
+    .join(', ');
+  const lightingValue = typeof room?.lighting === 'string'
+    ? room.lighting
+    : (room?.lighting?.level || '');
+  const lightingLabel = lightingValue && lightingValue !== 'normal'
+    ? `Lighting: ${String(lightingValue).replace(/_/g, ' ')}`
+    : '';
+  const sizeLabel = room?.size_category && room.size_category !== 'medium'
+    ? String(room.size_category).replace(/_/g, ' ')
+    : '';
+
+  return [terrainLabel, lightingLabel, sizeLabel].filter(Boolean).join(' | ');
 }
 
 /**
@@ -2511,10 +2770,7 @@ function _buildRenderableEntityBlueprints(dungeonData = {}, activeRoomId = '', l
     return [];
   }
 
-  const objectDefinitions = {
-    ...(_isPlainObject(mapVisualState?.presentation?.object_definitions) ? mapVisualState.presentation.object_definitions : {}),
-    ...(_isPlainObject(dungeonData?.object_definitions) ? dungeonData.object_definitions : {}),
-  };
+  const objectDefinitions = _getPresentationObjectDefinitions(mapVisualState, dungeonData);
   const visualOccupants = _buildVisualOccupantIndex(mapVisualState);
   const blueprints = [];
   const seen = new Set();
@@ -2524,6 +2780,19 @@ function _buildRenderableEntityBlueprints(dungeonData = {}, activeRoomId = '', l
     || launchCharacter?.character_id
     || 0,
   ) || null;
+  const launchCharacterName = String(
+    launchCharacter?.basicInfo?.name
+    || launchCharacter?.name
+    || launchCharacter?.character_name
+    || '',
+  ).trim();
+  const normalizedLaunchCharacterName = launchCharacterName.toLowerCase();
+  const launchPortraitSpriteId = String(
+    launchCharacter?.portrait?.sprite_id
+    || launchCharacter?.portrait_sprite_id
+    || launchCharacter?.portraitSpriteId
+    || '',
+  ).trim();
 
   const entities = Array.isArray(dungeonData?.entities) ? dungeonData.entities : [];
   entities.forEach((entity) => {
@@ -2545,10 +2814,13 @@ function _buildRenderableEntityBlueprints(dungeonData = {}, activeRoomId = '', l
       || `payload-entity:${roomId}:${q}:${r}:${contentId || rawType || 'unknown'}`;
     const visual = _resolveVisualOccupant(visualOccupants, instanceId, contentId, roomId, q, r);
     const entityCharacterId = Number(metadata?.character_id || entity?.character_id || 0) || null;
+    const isLaunchPlayerEntity = entityType === 'player_character'
+      || Boolean(entityCharacterId && launchCharacterId && entityCharacterId === launchCharacterId);
     const name = String(
       metadata?.display_name
       || metadata?.name
       || entity?.display_name
+      || (isLaunchPlayerEntity ? launchCharacterName : '')
       || definition?.label
       || contentId
       || rawType
@@ -2592,6 +2864,7 @@ function _buildRenderableEntityBlueprints(dungeonData = {}, activeRoomId = '', l
           metadata?.sprite_id
           || definition?.visual?.sprite_id
           || visual?.presentation?.sprite_id
+          || (isLaunchPlayerEntity ? launchPortraitSpriteId : '')
           || '',
         ).trim() || null,
         scale: Number(metadata?.render_scale ?? (entityType === 'item' ? 0.55 : 1)) || (entityType === 'item' ? 0.55 : 1),
@@ -2691,6 +2964,98 @@ function _buildRenderableEntityBlueprints(dungeonData = {}, activeRoomId = '', l
     });
   });
 
+  _getVisualOccupants(mapVisualState)
+    .filter((occupant) => {
+      if (!_isVisualOccupantVisible(occupant)) {
+        return false;
+      }
+      return String(occupant?.room_id || '').trim() === roomId;
+    })
+    .forEach((occupant, occupantIndex) => {
+      const q = Number(occupant?.placement?.q);
+      const r = Number(occupant?.placement?.r);
+      if (!Number.isFinite(q) || !Number.isFinite(r)) {
+        return;
+      }
+
+      const contentId = String(occupant?.content_id || '').trim();
+      const occupantId = String(occupant?.occupant_id || '').trim();
+      const projectionKey = contentId ? _buildRenderableProjectionKey(contentId, roomId, q, r) : '';
+      if ((projectionKey && projectedEntitySignatures.has(projectionKey)) || (occupantId && seen.has(_buildRenderableEntityKey(occupantId, roomId, q, r)))) {
+        return;
+      }
+
+      const definition = contentId ? (objectDefinitions[contentId] || {}) : {};
+      const occupantType = String(occupant?.occupant_type || '').trim().toLowerCase();
+      const entityType = _normalizeRenderableEntityType(occupantType, definition?.category, occupant);
+      const isPartyOccupant = occupant?.is_party === true || occupantType === 'player_character' || occupantType === 'player' || occupantType === 'pc';
+      const occupantCharacterId = Number(occupant?.character_id || occupant?.state?.character_id || 0) || null;
+      const occupantLabel = String(occupant?.label || '').trim();
+      const isLaunchPlayerOccupant = isPartyOccupant && (
+        Boolean(occupantCharacterId && launchCharacterId && occupantCharacterId === launchCharacterId)
+        || Boolean(occupantLabel && normalizedLaunchCharacterName && occupantLabel.toLowerCase() === normalizedLaunchCharacterName)
+      );
+      const instanceId = occupantId || `visual-occupant:${roomId}:${q}:${r}:${contentId || entityType || occupantIndex}`;
+      const key = _buildRenderableEntityKey(instanceId, roomId, q, r);
+      if (seen.has(key)) {
+        return;
+      }
+
+      const team = _normalizeRenderableEntityTeam(
+        isPartyOccupant
+          ? 'player'
+          : (occupant?.presentation?.badge || occupant?.team || occupant?.state?.team || '')
+      );
+      const combatCapable = entityType === 'player_character' || entityType === 'npc' || entityType === 'creature';
+      const blueprint = {
+        key,
+        sourceKind: 'visual-occupant',
+        roomId,
+        q,
+        r,
+        instanceId,
+        entityRef: occupantId || contentId || instanceId,
+        entityType,
+        contentId,
+        characterId: occupantCharacterId,
+        name: String(occupantLabel || (isLaunchPlayerOccupant ? launchCharacterName : '') || definition?.label || contentId || occupantType || 'occupant').trim(),
+        description: String(occupant?.presentation?.summary || definition?.description || '').trim(),
+        hidden: false,
+        combatCapable,
+        team,
+        actionsPerTurn: Number(occupant?.state?.actions_per_turn || 3) || 3,
+        initiativeBonus: Number(occupant?.state?.initiative_bonus || 0) || 0,
+        attackBonus: Number(occupant?.state?.attack_bonus || 0) || 0,
+        stats: {
+          maxHp: Number(occupant?.state?.max_hp ?? occupant?.state?.stats?.max_hp ?? occupant?.state?.stats?.maxHp ?? 10) || 10,
+          currentHp: Number(occupant?.state?.hp ?? occupant?.state?.current_hp ?? occupant?.state?.stats?.current_hp ?? occupant?.state?.stats?.currentHp ?? occupant?.state?.max_hp ?? 10) || 10,
+          ac: Number(occupant?.state?.armor_class ?? occupant?.state?.stats?.ac ?? 10) || 10,
+          perception: Number(occupant?.state?.perception ?? occupant?.state?.stats?.perception ?? 0) || 0,
+          speed: Number(occupant?.state?.movement_speed ?? occupant?.state?.stats?.speed ?? 30) || 30,
+        },
+        render: {
+          spriteKey: String(
+            occupant?.presentation?.sprite_id
+            || definition?.visual?.sprite_id
+            || (isLaunchPlayerOccupant ? launchPortraitSpriteId : '')
+            || '',
+          ).trim() || null,
+          scale: Number(occupant?.presentation?.render_scale ?? (entityType === 'item' ? 0.55 : 1)) || (entityType === 'item' ? 0.55 : 1),
+          orientation: String(occupant?.placement?.orientation || occupant?.presentation?.orientation || definition?.visual?.orientation || 'n').trim().toLowerCase() || 'n',
+          objectCategory: String(definition?.category || occupant?.category || '').trim() || null,
+          objectColor: occupant?.presentation?.color || definition?.visual?.color || null,
+        },
+        state: _isPlainObject(occupant?.state) ? occupant.state : {},
+        source: occupant,
+      };
+
+      seen.add(key);
+      if (projectionKey) {
+        projectedEntitySignatures.add(projectionKey);
+      }
+      blueprints.push(blueprint);
+    });
+
   return blueprints;
 }
 
@@ -2770,6 +3135,9 @@ function _normalizeRenderableEntityType(rawType = '', fallbackCategory = '', met
   }
 
   const category = String(fallbackCategory || metadata?.category || metadata?.type || '').trim().toLowerCase();
+  if (metadata?.is_party === true || metadata?.party_member === true || metadata?.isPlayer === true) {
+    return 'player_character';
+  }
   if (
     category.includes('item')
     || category.includes('loot')

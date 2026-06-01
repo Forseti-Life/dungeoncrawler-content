@@ -666,7 +666,7 @@ class RoomChatController extends ControllerBase {
 
       case 'npc_reactions_generating':
         return [
-          'message' => 'Turn 3+: initiative order is resolving nearby NPC turns...',
+          'message' => 'Initiative order is resolving nearby NPC turns...',
           'phase' => 'npc-reactions',
           'speaker' => 'Initiative Order',
           'client_request_id' => $client_request_id,

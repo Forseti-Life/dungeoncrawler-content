@@ -253,7 +253,16 @@ export class PlayerAutomation {
   }
 
   _appendChatLine(speaker, message, type = 'system') {
-    this.bus.emit('chat:system-message', { text: message, speaker, kind: type });
+    this.bus.emit('chat:system-message', {
+      text: message,
+      speaker,
+      kind: type,
+      view: 'room',
+      channel: 'room',
+      source: 'player-automation',
+      authority: 'authoritative',
+      messageClass: 'authoritative_transcript',
+    });
   }
 
   _buildPendingChatRequest(...args) {

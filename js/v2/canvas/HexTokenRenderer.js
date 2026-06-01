@@ -61,6 +61,12 @@ export class HexTokenRenderer {
     this._selectedId = null;
     /** @type {string|number|null} Active combat turn entity id */
     this._activeTurnId = null;
+    /** @type {string|null} Expanded crowded-hex key */
+    this._spreadExpandedHexKey = null;
+    /** @type {string|null} Hover anchor key while moving between base hex and spread targets */
+    this._spreadHoverAnchorKey = null;
+    /** @type {number|null} Deferred crowded-hex clear timer */
+    this._spreadClearTimer = null;
 
     this._unsubs = [];
   }
@@ -90,6 +96,12 @@ export class HexTokenRenderer {
         if (prev != null) this._refreshTokenHighlight(prev);
         if (this._activeTurnId != null) this._refreshTokenHighlight(this._activeTurnId);
       }),
+      this.bus.on('hex:hovered', ({ q, r, entities = [] } = {}) => {
+        this._handleCrowdedHexHover(q, r, entities);
+      }),
+      this.bus.on('hex:out', ({ q, r } = {}) => {
+        this._scheduleSpreadHoverClear(q, r);
+      }),
       this.bus.on('room:changed', () => {
         this._clearAll();
       })
@@ -111,6 +123,7 @@ export class HexTokenRenderer {
    * @private
    */
   _clearAll() {
+    this._clearCrowdedHexHoverState();
     this._tokens.forEach((container) => {
       container.parent?.removeChild(container);
       container.destroy({ children: true });
@@ -164,13 +177,21 @@ export class HexTokenRenderer {
     const container = new PIXI.Container();
     container.x = pixelPos.x;
     container.y = pixelPos.y;
+    container._baseX = pixelPos.x;
+    container._baseY = pixelPos.y;
     container._entityId = entity.id;
     container._entityType = identity?.entityType ?? 'unknown';
+    container.dcEntity = entity;
 
     // Attempt sprite; fall back to circle
     const spriteKey = render.spriteKey;
-    const texture = spriteKey && PIXI.utils.TextureCache?.[spriteKey]
-      ? PIXI.Texture.from(spriteKey)
+    const resolvedSpriteKey = spriteKey && (
+      PIXI.utils.TextureCache?.[spriteKey]
+      ? spriteKey
+      : (PIXI.utils.TextureCache?.[`gen_${spriteKey}`] ? `gen_${spriteKey}` : null)
+    );
+    const texture = resolvedSpriteKey
+      ? PIXI.Texture.from(resolvedSpriteKey)
       : null;
 
     if (texture) {
@@ -230,8 +251,13 @@ export class HexTokenRenderer {
     const pos = entity.getComponent?.('PositionComponent');
     if (!pos) return;
     const { x, y } = this.hexCanvas.axialToPixel(pos.q, pos.r, this.hexCanvas.config.hexSize);
+    token._baseX = x;
+    token._baseY = y;
     token.x = x;
     token.y = y;
+    if (this._spreadExpandedHexKey === `${Number(pos.q)}:${Number(pos.r)}`) {
+      this._setEntitySpreadForHex(pos.q, pos.r, true);
+    }
   }
 
   /**
@@ -259,6 +285,198 @@ export class HexTokenRenderer {
     const color = isActiveTurn ? 0xfbbf24 : 0x60a5fa; // gold for active turn, blue for selection
     ring.lineStyle(2, color, 0.9);
     ring.drawCircle(0, 0, radius);
+  }
+
+  _handleCrowdedHexHover(q, r, entities = []) {
+    if (!Number.isFinite(Number(q)) || !Number.isFinite(Number(r))) {
+      this._clearCrowdedHexHoverState();
+      return;
+    }
+
+    const crowdedEntities = Array.isArray(entities) && entities.length
+      ? entities
+      : this._getEntitiesAtHex(q, r);
+    const nextKey = `${Number(q)}:${Number(r)}`;
+    if (this._spreadClearTimer) {
+      window.clearTimeout(this._spreadClearTimer);
+      this._spreadClearTimer = null;
+    }
+    this._spreadHoverAnchorKey = crowdedEntities.length > 1 ? nextKey : null;
+
+    if (this._spreadExpandedHexKey && this._spreadExpandedHexKey !== nextKey) {
+      this._clearCrowdedHexHoverState();
+    }
+    if (crowdedEntities.length > 1) {
+      this._setEntitySpreadForHex(q, r, true);
+    } else if (this._spreadExpandedHexKey === nextKey) {
+      this._clearCrowdedHexHoverState();
+    }
+  }
+
+  _getEntitiesAtHex(q, r) {
+    return Array.from(this._tokens.values())
+      .map((token) => token?.dcEntity || null)
+      .filter((entity) => {
+        const position = entity?.getComponent?.('PositionComponent');
+        return position && Number(position.q) === Number(q) && Number(position.r) === Number(r);
+      });
+  }
+
+  _setEntitySpreadForHex(q, r, active) {
+    const entities = this._getEntitiesAtHex(q, r);
+    if (!entities.length) {
+      return;
+    }
+
+    const spreadRadius = Number(this.hexCanvas?.config?.hexSize || 30);
+    if (!active || entities.length <= 1) {
+      entities.forEach((entity) => {
+        const token = this._tokens.get(entity.id);
+        if (!token) {
+          return;
+        }
+        token.x = Number(token._baseX || 0);
+        token.y = Number(token._baseY || 0);
+      });
+      if (this._spreadExpandedHexKey === `${Number(q)}:${Number(r)}`) {
+        this._spreadExpandedHexKey = null;
+      }
+      this._clearSpreadInteractionTargets();
+      return;
+    }
+
+    entities.forEach((entity, index) => {
+      const token = this._tokens.get(entity.id);
+      if (!token) {
+        return;
+      }
+      const angle = ((Math.PI * 2) / entities.length) * index - (Math.PI / 2);
+      token.x = Number(token._baseX || 0) + Math.cos(angle) * spreadRadius;
+      token.y = Number(token._baseY || 0) + Math.sin(angle) * spreadRadius;
+    });
+
+    this._spreadExpandedHexKey = `${Number(q)}:${Number(r)}`;
+    this._refreshSpreadInteractionTargets(q, r);
+  }
+
+  _clearSpreadInteractionTargets() {
+    const interactionContainer = this.hexCanvas?.interactionContainer;
+    if (!interactionContainer) {
+      return;
+    }
+    interactionContainer.removeChildren().forEach((child) => {
+      child.destroy?.({ children: true });
+    });
+  }
+
+  _getRenderedEntityCenter(entity) {
+    const token = this._tokens.get(entity?.id);
+    if (!token) {
+      return null;
+    }
+    return {
+      x: Number(token.x || 0),
+      y: Number(token.y || 0),
+    };
+  }
+
+  _refreshSpreadInteractionTargets(q, r) {
+    this._clearSpreadInteractionTargets();
+
+    const interactionContainer = this.hexCanvas?.interactionContainer;
+    if (!interactionContainer || !window.PIXI) {
+      return;
+    }
+
+    const entities = this._getEntitiesAtHex(q, r);
+    if (entities.length <= 1) {
+      return;
+    }
+
+    const hexKey = `${Number(q)}:${Number(r)}`;
+    entities.forEach((entity) => {
+      const center = this._getRenderedEntityCenter(entity);
+      if (!center) {
+        return;
+      }
+
+      const target = new PIXI.Graphics();
+      target.beginFill(0xffffff, 0.001);
+      target.drawCircle(0, 0, this.hexCanvas.config.hexSize * 0.42);
+      target.endFill();
+      target.x = center.x;
+      target.y = center.y;
+      target.zIndex = 9500;
+      target.eventMode = 'static';
+      target.interactive = true;
+      target.cursor = 'pointer';
+
+      target.on('pointerover', () => {
+        if (this._spreadClearTimer) {
+          window.clearTimeout(this._spreadClearTimer);
+          this._spreadClearTimer = null;
+        }
+        this._spreadHoverAnchorKey = hexKey;
+      });
+
+      target.on('pointerout', () => {
+        if (this._spreadHoverAnchorKey === hexKey) {
+          this._spreadHoverAnchorKey = null;
+        }
+        this._scheduleSpreadHoverClear(q, r);
+      });
+
+      target.on('pointertap', (event) => {
+        event?.stopPropagation?.();
+        this.bus.emit('hex:clicked', {
+          q: Number(q),
+          r: Number(r),
+          button: 0,
+          entities: [entity],
+          source: 'spread-target',
+        });
+      });
+
+      interactionContainer.addChild(target);
+    });
+  }
+
+  _scheduleSpreadHoverClear(q, r) {
+    if (this._spreadClearTimer) {
+      window.clearTimeout(this._spreadClearTimer);
+    }
+
+    const targetKey = Number.isFinite(Number(q)) && Number.isFinite(Number(r))
+      ? `${Number(q)}:${Number(r)}`
+      : this._spreadExpandedHexKey;
+    this._spreadClearTimer = window.setTimeout(() => {
+      this._spreadClearTimer = null;
+      if (!targetKey || this._spreadHoverAnchorKey === targetKey) {
+        return;
+      }
+      if (this._spreadExpandedHexKey !== targetKey) {
+        return;
+      }
+      this._clearCrowdedHexHoverState();
+      this.bus.emit('hex:out', { q: Number(q), r: Number(r), source: 'spread-target' });
+    }, 120);
+  }
+
+  _clearCrowdedHexHoverState() {
+    if (this._spreadClearTimer) {
+      window.clearTimeout(this._spreadClearTimer);
+      this._spreadClearTimer = null;
+    }
+
+    const expandedKey = this._spreadExpandedHexKey;
+    if (expandedKey) {
+      const [q, r] = expandedKey.split(':').map((value) => Number(value));
+      this._setEntitySpreadForHex(q, r, false);
+    }
+
+    this._clearSpreadInteractionTargets();
+    this._spreadExpandedHexKey = null;
+    this._spreadHoverAnchorKey = null;
   }
 }
 

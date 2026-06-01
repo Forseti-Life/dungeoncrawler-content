@@ -73,13 +73,14 @@ assert(
   'v2 action rail Search emits the clicked button to the action executor'
 );
 assert(
-  gameShellSource.includes('resolveLaunchCharacterRuntimeContext: () => ({')
-    && gameShellSource.includes('instanceId: resolveRuntimeInstanceId(),')
-    && gameShellSource.includes('roomId: shell.activeRoomId || shell.launchContext?.room_id || null,'),
+  gameShellSource.includes('resolveLaunchCharacterRuntimeContext: () => shell.resolveLaunchCharacterRuntimeContext(),')
+    && gameShellSource.includes('resolveLaunchCharacterRuntimeContext() {')
+    && gameShellSource.includes('instanceId: launchCharacterId > 0 && selectedCharacterId === launchCharacterId')
+    && gameShellSource.includes('roomId: this.resolveActiveRoomId(),'),
   'v2 hexmap shim exposes runtime actor context so exploration Search can unlock without ECS combat state'
 );
 assert(
-  hexmapV2Source.includes("./v2/GameShell.js?v=20260601-v2-search-framework-4")
+  hexmapV2Source.includes("./v2/GameShell.js?v=20260601-v2-canonical-contracts-2")
     && gameShellSource.includes("./systems/EncounterSystem.js?v=20260601-v2-search-framework-2")
     && gameShellSource.includes("./panels/ChatPanel.js?v=20260601-v2-search-framework-3"),
   'v2 entrypoint cache-busts GameShell imports when action-rail runtime contracts change'
@@ -125,10 +126,11 @@ assert(
 assert(
   encounterSystemSource.includes("this.bus.on('combat:round-changed', (d) => this.announceRoundChange(d))")
     && encounterSystemSource.includes("this.bus.on('combat:turn-changed',  (d) => this.announceTurnChange(d))")
-    && encounterSystemSource.includes("Round ${roundNumber} begins.")
-    && encounterSystemSource.includes("Next actor: ${actorName}${turnLabel}.")
+    && encounterSystemSource.includes("console.info('[EncounterFlow] round_start'")
+    && encounterSystemSource.includes("console.info('[EncounterFlow] turn_start'")
+    && encounterSystemSource.includes("console.warn('[EncounterFlow] missing authoritative turn events'")
     && encounterSystemSource.includes('announceGameState(result?.game_state)'),
-  'v2 encounter system narrates round and next-actor turn transitions'
+  'v2 encounter system traces round and turn transitions in the console while treating server events as authoritative'
 );
 assert(
   statusPanelSource.includes("this.bus.on('game:backend-request-start', (d) => this.showBackendWait(d))")

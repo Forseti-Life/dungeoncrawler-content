@@ -1,13 +1,13 @@
 /**
  * @file panels/ActionRailPanel.js
  *
- * 3-action economy UI — attack, spell, skill, search, navigate, consumable sub-panels.
+ * 3-action economy UI — category-driven action rail with a single direct end-turn action.
  * Methods ported verbatim from hexmap.js UIManager.
  */
 
 import { getActionRailCost, formatActionRailCost, getActionRailRemainingActions } from '../utils/action-utils.js';
 import { normalizeSpellcastingData, collectSpellRankGroups, normalizeDisplayedSpellSlots } from '../utils/spell-utils.js';
-import { extractReadyWeapons, extractConsumableItems, collectCharacterSkillEntries, buildActionRailEntrySummary } from '../utils/inventory-utils.js';
+import { extractConsumableItems, collectCharacterSkillEntries, buildActionRailEntrySummary } from '../utils/inventory-utils.js';
 import { escapeQuestHtml } from '../utils/quest-utils.js';
 import { escapeTooltipAttr, flattenTooltipBuckets, slugifyTooltipKey } from '../utils/dom-utils.js';
 
@@ -188,7 +188,6 @@ export class ActionRailPanel {
       actionRailPanelChip:        id('action-rail-panel-chip'),
       actionRailPanelBody:        id('action-rail-panel-body'),
       actionInstruction:          id('action-instruction'),
-      endTurnBtn:                 id('end-turn'),
     };
     const nullKeys = Object.entries(this._el).filter(([,v]) => !v).map(([k]) => k);
     console.log('[ActionRailPanel] init', { container: !!this.container, nullEl: nullKeys.length, nullKeys: nullKeys.join(',') || 'none' });
@@ -359,7 +358,20 @@ export class ActionRailPanel {
         panelTitle.textContent = 'Quick actions';
       }
       if (panelChip) {
-        panelChip.textContent = context.encounterActive ? 'Encounter' : 'Direct';
+        panelChip.textContent = context.encounterActive ? 'Encounter' : 'Categories';
+      }
+      panelBody.innerHTML = this.renderActionRailEmptyState(context);
+      maybeWakeAutomation();
+      return;
+    }
+
+    if (this.isActionRailButtonDisabled(this.activeActionRailCategory, context)) {
+      this.activeActionRailCategory = null;
+      if (panelTitle) {
+        panelTitle.textContent = 'Quick actions';
+      }
+      if (panelChip) {
+        panelChip.textContent = context.encounterActive ? 'Encounter' : 'Categories';
       }
       panelBody.innerHTML = this.renderActionRailEmptyState(context);
       maybeWakeAutomation();
@@ -394,9 +406,7 @@ export class ActionRailPanel {
     const encounterActive = phaseSnapshot?.phase === 'encounter';
     const hasServerTurn = Boolean(phaseSnapshot?.turn?.entity);
     const launchPlayer = hexmap?.findLaunchPlayerEntity?.() || null;
-    const actor = hasServerTurn
-      ? (selected || current || launchPlayer || null)
-      : (launchPlayer || selected || current || null);
+    const actor = launchPlayer || (!hasServerTurn ? (selected || current || null) : null);
     const state = hexmap?.launchCharacter || hexmap?.characterData || {};
     const basicInfo = state?.basicInfo || {};
     const actorName = basicInfo.name || state?.name || actor?.getComponent?.('IdentityComponent')?.name || 'No actor selected';
@@ -448,6 +458,7 @@ export class ActionRailPanel {
       encounterActive,
       hasServerTurn,
       isActorTurn,
+      selectedEntity: selected,
       availableActions: Array.isArray(phaseSnapshot?.availableActions) ? phaseSnapshot.availableActions : [],
       actionContract: phaseSnapshot?.actionContract || null,
       automationState,
@@ -575,10 +586,6 @@ export class ActionRailPanel {
       return !context.actorRef || !this.isServerActionAvailable(context, 'transition');
     }
 
-    if (actionKey === 'attack') {
-      return !context.actor || !this.isServerActionAvailable(context, 'strike');
-    }
-
     if (actionKey === 'rest') {
       return !['treat_wounds', 'refocus', 'repair', 'daily_preparations']
         .some((restAction) => this.isServerActionAvailable(context, restAction));
@@ -658,12 +665,11 @@ export class ActionRailPanel {
       return `<div class="action-rail__empty"><p>Select or load a character to enable direct action buttons.</p></div>`;
     }
 
-    return `<div class="action-rail__empty"><p>Choose Attack, Navigate, Search, Rest, Spells, Consumables, Skills, or Feats to open direct action buttons for ${escapeQuestHtml(context.actorLabel)}.</p></div>`;
+    return `<div class="action-rail__empty"><p>Choose Navigate, Search, Rest, Spells, Consumables, Skills, or Feats to open direct player actions for ${escapeQuestHtml(context.actorLabel)}.</p></div>`;
   }
 
   buildActionRailPanel(category, context) {
     const builders = {
-      attack: () => this.buildAttackActionRailPanel(context),
       navigate: () => this.buildNavigateActionRailPanel(context),
       search: () => this.buildSearchActionRailPanel(context),
       rest: () => this.buildRestActionRailPanel(context),
@@ -780,125 +786,6 @@ export class ActionRailPanel {
       .toLowerCase()
       .replace(/\s+/g, ' ')
       .trim();
-  }
-
-  buildAttackActionRailPanel(context) {
-    const weapons = extractReadyWeapons(context.state?.inventory || {}, context.state?.equipment || []);
-    const availableTargets = this.collectAttackTargets(context);
-
-    if (!weapons.length) {
-      return {
-        title: 'Attack options',
-        chip: 'No weapons',
-        html: `<div class="action-rail__empty"><p>No ready weapons are available for ${escapeQuestHtml(context.actorLabel)}.</p></div>`,
-      };
-    }
-
-    if (!context.actor) {
-      return {
-        title: 'Attack options',
-        chip: 'No attacker',
-        html: `<div class="action-rail__empty"><p>Select or load a character to enable attacks.</p></div>`,
-      };
-    }
-
-    if (!availableTargets.length) {
-      return {
-        title: 'Attack options',
-        chip: 'No targets',
-        html: `<div class="action-rail__empty"><p>${context.encounterActive ? 'No hostile targets are currently available for attack.' : 'No other room occupants are currently available to target.'}</p></div>`,
-      };
-    }
-
-    const sections = weapons.map((weapon) => {
-      const entries = availableTargets.map(({ target, distance, teamLabel = '' }) => {
-        const targetName = target?.getComponent?.('IdentityComponent')?.name || 'Target';
-        const summaryParts = [
-          weapon.sourceLabel,
-          weapon.damage || '',
-          teamLabel,
-          Number.isFinite(distance) ? `${distance} hex` : '',
-          context.encounterActive ? formatActionRailCost(1) : 'Starts combat',
-        ];
-        return this.renderActionRailEntry({
-          execute: 'attack',
-          title: targetName,
-          summary: buildActionRailEntrySummary(summaryParts),
-          meta: buildActionRailEntrySummary([
-            weapon.traits || '',
-            weapon.description || '',
-          ]),
-          disabled: this.isActionRailExecutionDisabled(1, context),
-          dataset: {
-            targetId: String(target?.id || ''),
-            targetName,
-            weaponId: String(weapon.id || ''),
-            weaponName: weapon.name,
-          },
-          actionLabel: context.encounterActive ? 'Strike target' : 'Start combat',
-        });
-      }).join('');
-
-      return `<section class="action-rail__group"><p class="action-rail__group-label">${escapeQuestHtml(weapon.name || 'Weapon')}</p>${entries}</section>`;
-    }).join('');
-
-    return {
-      title: 'Attack options',
-      chip: `${weapons.length} weapon${weapons.length === 1 ? '' : 's'} / ${availableTargets.length} target${availableTargets.length === 1 ? '' : 's'}`,
-      html: sections,
-    };
-  }
-
-  collectAttackTargets(context) {
-    const actor = context.actor;
-    const hexmap = context.hexmap;
-    if (!actor || !hexmap?.entityManager) {
-      return [];
-    }
-
-    if (context.encounterActive) {
-      const hostileTargets = Array.isArray(hexmap.getHostileTargets?.(actor))
-        ? hexmap.getHostileTargets(actor)
-        : [];
-      return hostileTargets.filter(({ target }) => {
-        const check = hexmap?.combatSystem?.canAttack?.(actor, target);
-        return check ? check.canAttack !== false : true;
-      }).map(({ target, distance }) => ({
-        target,
-        distance,
-        teamLabel: this.describeCombatantTeam(target),
-      }));
-    }
-
-    const actorPos = actor.getComponent?.('PositionComponent');
-    const candidates = hexmap.entityManager.getEntitiesWith('CombatComponent', 'StatsComponent', 'PositionComponent', 'IdentityComponent') || [];
-    return candidates
-      .filter((candidate) => {
-        if (!candidate || candidate.id === actor.id) {
-          return false;
-        }
-        const identity = candidate.getComponent?.('IdentityComponent');
-        const stats = candidate.getComponent?.('StatsComponent');
-        const pos = candidate.getComponent?.('PositionComponent');
-        if (!identity?.isCreature?.() || !stats?.isAlive?.() || !pos || !actorPos) {
-          return false;
-        }
-        return hexmap.hasLineOfSight(actorPos.q, actorPos.r, pos.q, pos.r);
-      })
-      .map((target) => {
-        const pos = target.getComponent?.('PositionComponent');
-        const distance = actorPos && pos ? hexmap.movementSystem?.hexDistance?.(actorPos.q, actorPos.r, pos.q, pos.r) : null;
-        return {
-          target,
-          distance,
-          teamLabel: this.describeCombatantTeam(target),
-        };
-      })
-      .sort((left, right) => {
-        const leftName = left.target?.getComponent?.('IdentityComponent')?.name || '';
-        const rightName = right.target?.getComponent?.('IdentityComponent')?.name || '';
-        return leftName.localeCompare(rightName);
-      });
   }
 
   buildNavigateActionRailPanel(context) {
@@ -1170,9 +1057,10 @@ export class ActionRailPanel {
   }
 
   buildSearchActionRailPanel(context) {
+    const searchAvailable = this.isServerActionAvailable(context, 'search');
     const disabled = context.encounterActive
-      ? this.isActionRailExecutionDisabled(1, context)
-      : !context.actorRef;
+      ? (this.isActionRailExecutionDisabled(1, context) || !searchAvailable)
+      : (!context.actorRef || !searchAvailable);
     const entries = [this.renderActionRailEntry({
       execute: 'search',
       title: 'Search the room',
@@ -1390,14 +1278,8 @@ export class ActionRailPanel {
       this.bus.emit('user:end-turn', { button });
       return;
     }
-    if (actionKey === 'search') {
-      this.bus.emit('user:action-selected', { actionKey, button });
-      return;
-    }
 
-    const guidance = {
-    };
-    this.bus.emit('chat:system-message', { text: guidance[actionKey] || 'That action is not available right now.', speaker: 'System', kind: 'system' });
+    this.bus.emit('chat:system-message', { text: 'That action is not available right now.', speaker: 'System', kind: 'system' });
   }
 
   handleActionRailPanelAction(button) {
@@ -1451,60 +1333,6 @@ export class ActionRailPanel {
       || 'action'
     ).trim();
     return `Waiting for ${label || 'action'} response...`;
-  }
-
-  updateActionMode(mode, { canAct = false, canInteract = false, moveLeft = 0, isPlayersTurn = false } = {}) {
-    const { actionMoveBtn, actionAttackBtn, actionInteractBtn, actionInstruction } = this._el;
-
-    const setActive = (btn, active) => {
-      if (!btn) return;
-      btn.classList.toggle('btn-active', !!active);
-    };
-
-    setActive(actionMoveBtn, mode === 'move');
-    setActive(actionAttackBtn, mode === 'attack');
-    setActive(actionInteractBtn, mode === 'search');
-
-    if (actionMoveBtn) {
-      actionMoveBtn.title = isPlayersTurn
-        ? (moveLeft > 0 ? `${moveLeft} ft remaining` : 'No movement left')
-        : 'Not your turn';
-    }
-    if (actionAttackBtn) {
-      actionAttackBtn.title = isPlayersTurn
-        ? (canAct ? 'Click an enemy to attack' : 'No actions remaining')
-        : 'Not your turn';
-    }
-    if (actionInteractBtn) {
-      actionInteractBtn.title = isPlayersTurn
-        ? (canInteract ? 'Search the room for clues, hidden objects, hazards, and sensory details' : 'No search actions available')
-        : 'Not your turn';
-    }
-
-    if (actionInstruction) {
-      if (!isPlayersTurn) {
-        actionInstruction.hidden = false;
-        actionInstruction.textContent = 'Watching enemy turn...';
-      } else if (mode === 'move') {
-        actionInstruction.hidden = false;
-        actionInstruction.textContent = moveLeft > 0 ? `Click a blue hex to navigate (${moveLeft} ft left).` : 'No movement left; switch to attack or end turn.';
-      } else if (mode === 'search') {
-        actionInstruction.hidden = false;
-        actionInstruction.textContent = canInteract ? 'Search runs a room-level Perception check for new details.' : 'No search actions remaining; attack, move, or end turn.';
-      } else {
-        actionInstruction.hidden = false;
-        actionInstruction.textContent = canAct ? 'Select a hostile target to attack.' : 'No actions remaining; move or end turn.';
-      }
-    }
-  }
-
-  describeCombatantTeam(entity) {
-    const combat = entity?.getComponent?.('CombatComponent');
-    const rawTeam = String(combat?.team || '').trim();
-    if (!rawTeam) {
-      return '';
-    }
-    return rawTeam.charAt(0).toUpperCase() + rawTeam.slice(1);
   }
 
 }

@@ -30,14 +30,9 @@ export class CombatPanel {
       turnReaction:     id('turn-reaction')     || s('turn-reaction'),
       startCombatBtn:   id('start-combat')      || s('start-btn'),
       endCombatBtn:     id('end-combat')        || s('end-combat-btn'),
-      endTurnBtn:       id('end-turn')          || s('end-turn-btn'),
       turnHud:          id('turn-hud'),
       turnActionChips:  id('turn-action-chips'),
       actionInstruction: id('action-instruction'),
-      actionMoveBtn:    id('action-move'),
-      actionAttackBtn:  id('action-attack'),
-      actionInteractBtn: id('action-interact'),
-      actionTalkBtn:    id('action-talk'),
     };
     const nullKeys = Object.entries(this._el).filter(([,v]) => !v).map(([k]) => k);
     console.log('[CombatPanel] init', { container: !!this.container, nullEl: nullKeys.length, nullKeys: nullKeys.join(',') || 'none' });
@@ -51,7 +46,7 @@ export class CombatPanel {
   }
 
   _bindDom() {
-    const { startCombatBtn, endCombatBtn, endTurnBtn } = this._el;
+    const { startCombatBtn, endCombatBtn } = this._el;
     if (startCombatBtn) {
       const onStart = () => this.bus.emit('user:combat-start');
       startCombatBtn.addEventListener('click', onStart);
@@ -62,18 +57,12 @@ export class CombatPanel {
       endCombatBtn.addEventListener('click', onEnd);
       this._unsubs.push(() => endCombatBtn.removeEventListener('click', onEnd));
     }
-    if (endTurnBtn) {
-      const onTurn = () => this.bus.emit('user:end-turn');
-      endTurnBtn.addEventListener('click', onTurn);
-      this._unsubs.push(() => endTurnBtn.removeEventListener('click', onTurn));
-    }
   }
 
   _subscribe() {
     this._unsubs.push(
       this.bus.on('combat:turn-changed', (d) => {
-        this.updateCurrentTurn(d?.name, d?.actions, d?.movement, d?.hasReaction, d?.team, d?.isPlayersTurn);
-        if (d?.actions !== undefined) this.renderActionButtons(d.actions, d.movement, d.isPlayersTurn);
+        this.updateCurrentTurn(d || {});
       }),
       this.bus.on('combat:round-changed',  (d) => this.updateRound(d?.roundNumber)),
       this.bus.on('combat:state-changed',  (d) => this.updateCombatControls(d?.state)),
@@ -81,67 +70,11 @@ export class CombatPanel {
     );
   }
 
-  renderActionButtons(actions, movement, isPlayersTurn) {
-    console.log('[CombatPanel] renderActionButtons', { isPlayersTurn, actionsRemaining: actions?.actionsRemaining });
-    const { actionMoveBtn, actionAttackBtn, actionInteractBtn, actionTalkBtn, endTurnBtn } = this._el;
-    const maxActions = actions ? actions.maxActions + (actions.actionBonus || 0) : null;
-    const actionsRemaining = actions ? actions.actionsRemaining : 0;
-    const canAct = !!(isPlayersTurn && actions && actions.canAct !== false && actionsRemaining > 0);
-    const canMove = !!(isPlayersTurn && movement && Number.isFinite(movement.movementRemaining) && movement.movementRemaining > 0);
-    const canInteract = canAct;
-
-    const applyDisabledState = (button, disabled) => {
-      if (!button) {
-        return;
-      }
-      button.classList.toggle('btn-disabled', !!disabled);
-      button.disabled = !!disabled;
-      button.setAttribute('aria-disabled', disabled ? 'true' : 'false');
-    };
-
-    if (actionMoveBtn) {
-      const moveLabel = movement && Number.isFinite(movement.movementRemaining)
-        ? `Navigate (${movement.movementRemaining} ft)`
-        : 'Navigate';
-      actionMoveBtn.textContent = moveLabel;
-      applyDisabledState(actionMoveBtn, !canMove);
-    }
-
-    if (actionAttackBtn) {
-      const attackLabel = maxActions !== null
-        ? `Attack (${actionsRemaining}/${maxActions})`
-        : 'Attack';
-      actionAttackBtn.textContent = attackLabel;
-      applyDisabledState(actionAttackBtn, !canAct);
-    }
-
-    if (actionInteractBtn) {
-      actionInteractBtn.textContent = maxActions !== null
-        ? `Search (${actionsRemaining}/${maxActions})`
-        : 'Search';
-      applyDisabledState(actionInteractBtn, !canInteract);
-    }
-
-    if (actionTalkBtn) {
-      actionTalkBtn.textContent = 'Talk (Free)';
-      applyDisabledState(actionTalkBtn, !isPlayersTurn);
-    }
-
-    if (endTurnBtn) {
-      applyDisabledState(endTurnBtn, !isPlayersTurn);
-    }
-
-    this.bus.emit('character:updated', null);
-  }
-
   updateCombatControls(combatState) {
     const isInactive = (combatState === CombatState.INACTIVE || combatState === CombatState.ENDED);
 
     if (this._el.startCombatBtn) {
       this._el.startCombatBtn.style.display = isInactive ? 'inline-block' : 'none';
-    }
-    if (this._el.endTurnBtn) {
-      this._el.endTurnBtn.style.display = isInactive ? 'none' : 'inline-block';
     }
     if (this._el.endCombatBtn) {
       this._el.endCombatBtn.style.display = isInactive ? 'none' : 'inline-block';
@@ -157,10 +90,31 @@ export class CombatPanel {
       this._el.turnOwner.textContent = isInactive ? 'No active combat' : 'Active encounter';
     }
 
-    this.bus.emit('character:updated', null);
   }
 
-  updateCurrentTurn(name, actions, movement, hasReaction, team = null, isPlayersTurn = false) {
+  updateCurrentTurn(payload = {}) {
+    const entity = payload?.entity || null;
+    const identity = entity?.getComponent?.('IdentityComponent') || null;
+    const combat = entity?.getComponent?.('CombatComponent') || null;
+    const actions = payload?.actions || entity?.getComponent?.('ActionsComponent') || null;
+    const movement = payload?.movement || entity?.getComponent?.('MovementComponent') || null;
+    const team = payload?.team || combat?.team || null;
+    const isPlayersTurn = typeof payload?.isPlayersTurn === 'boolean'
+      ? payload.isPlayersTurn
+      : team === 'player';
+    const hasReaction = typeof payload?.hasReaction === 'boolean'
+      ? payload.hasReaction
+      : (typeof actions?.hasReactionAvailable === 'function'
+        ? actions.hasReactionAvailable()
+        : Boolean(actions?.hasReaction));
+    const name = String(
+      payload?.name
+      || identity?.name
+      || entity?.name
+      || entity?.actorName
+      || 'Unknown combatant'
+    ).trim();
+
     if (this._el.currentTurn) {
       const turnLabel = isPlayersTurn ? 'Your turn' : (team ? `${team} turn` : 'Turn');
       const reactionBadge = hasReaction ? '<span class="pill pill-positive">Reaction ready</span>' : '<span class="pill pill-muted">Reaction spent</span>';
@@ -212,7 +166,7 @@ export class CombatPanel {
         this._el.actionInstruction.textContent = 'Watching enemy turn...';
       } else if (actions && actions.actionsRemaining > 0) {
         this._el.actionInstruction.hidden = false;
-        this._el.actionInstruction.textContent = 'Select a hostile target to attack or click a blue hex to navigate.';
+        this._el.actionInstruction.textContent = 'Select a hostile target to strike or click a blue hex to navigate.';
       } else if (movement && movement.movementRemaining > 0) {
         this._el.actionInstruction.hidden = false;
         this._el.actionInstruction.textContent = 'Navigate to a blue hex, then end turn.';
@@ -221,8 +175,6 @@ export class CombatPanel {
         this._el.actionInstruction.textContent = 'No actions left — end your turn.';
       }
     }
-
-    this.renderActionButtons(actions, movement, isPlayersTurn);
   }
 
   updateInitiativeTracker(initiativeOrder) {
@@ -230,10 +182,12 @@ export class CombatPanel {
 
     let html = '';
     initiativeOrder.forEach((data) => {
-      const combat = data.entity?.getComponent('CombatComponent');
-      const stats = data.entity?.getComponent('StatsComponent');
-      const actions = data.entity?.getComponent('ActionsComponent');
-      const team = combat?.team || 'neutral';
+      const entity = data?.entity || null;
+      const combat = entity?.getComponent?.('CombatComponent') || null;
+      const stats = entity?.getComponent?.('StatsComponent') || null;
+      const actions = entity?.getComponent?.('ActionsComponent') || null;
+      const role = String(data?.role || '').trim().toLowerCase();
+      const team = combat?.team || (role === 'player' ? 'player' : 'neutral');
       const teamLabels = { player: 'Player', enemy: 'Enemy', ally: 'Ally', neutral: 'NPC' };
       const teamLabel = teamLabels[team] || team;
 
@@ -266,12 +220,22 @@ export class CombatPanel {
         actionsHtml = `<div class="rail-card__actions">${pips}</div>`;
       }
 
-      const activeClass = data.isCurrent ? 'rail-card--active' : '';
-      const defeatedClass = data.isDefeated ? 'rail-card--defeated' : '';
-      html += `<div class="initiative-item rail-card ${activeClass} ${defeatedClass}" data-entity-id="${data.entityId}" role="button" tabindex="0" aria-label="${data.name}${data.isCurrent ? ' — active turn' : ''}">
+      const isCurrent = Boolean(data?.isCurrent);
+      const isDefeated = Boolean(data?.isDefeated);
+      const displayName = String(
+        data?.name
+        || entity?.getComponent?.('IdentityComponent')?.name
+        || entity?.name
+        || entity?.actorName
+        || 'Unknown combatant'
+      ).trim();
+      const entityId = data?.entityId || entity?.id || displayName;
+      const activeClass = isCurrent ? 'rail-card--active' : '';
+      const defeatedClass = isDefeated ? 'rail-card--defeated' : '';
+      html += `<div class="initiative-item rail-card ${activeClass} ${defeatedClass}" data-entity-id="${entityId}" role="button" tabindex="0" aria-label="${displayName}${isCurrent ? ' — active turn' : ''}">
           <div class="rail-card__header">
-            <span class="rail-card__init">${data.initiative}</span>
-            <span class="rail-card__name">${data.name}</span>
+            <span class="rail-card__init">${data?.initiative ?? '-'}</span>
+            <span class="rail-card__name">${displayName}</span>
             <span class="rail-card__team-badge rail-card__team--${team}">${teamLabel}</span>
           </div>
           ${hpHtml}

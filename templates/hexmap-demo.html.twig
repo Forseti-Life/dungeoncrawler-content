@@ -205,10 +205,9 @@
           <div class="hexmap-chat__body" id="hexmap-chat-body">
             <div class="hexmap-chat__session-tabs" id="chat-session-tabs">
               <button class="session-view-tab session-view-tab--active" data-view="room" title="Room dialogue &amp; NPC channels">{{ 'Room'|t }}</button>
-              <button class="session-view-tab" data-view="narrative" title="Your character's perception-filtered story">{{ 'My Story'|t }}</button>
               <button class="session-view-tab" data-view="party" title="Party-only huddle chat">{{ 'Party'|t }}</button>
-              <button class="session-view-tab" data-view="gm-private" title="Secret actions only the GM sees">{{ 'GM Secret'|t }}</button>
-              <button class="session-view-tab" data-view="system-log" title="Dice rolls, checks &amp; mechanical results">{{ 'Dice Log'|t }}</button>
+              <button class="session-view-tab" data-view="gm-private" title="Direct GM channel for questions, escalations, and tool-assisted resolution">{{ 'GM Secret'|t }}</button>
+              <button class="session-view-tab" data-view="system-log" title="System messages, dice rolls, checks &amp; mechanical results">{{ 'System'|t }}</button>
             </div>
             <div class="hexmap-chat__channels" id="chat-channel-tabs">
               <button class="chat-channel-tab chat-channel-tab--active" data-channel="room" title="Main room channel">{{ 'Room'|t }}</button>
@@ -224,23 +223,7 @@
               <input id="chat-input" type="text" placeholder="{{ 'Say something to the room...'|t }}" autocomplete="off" />
               <button id="chat-send" class="btn btn-primary" type="submit">{{ 'Send'|t }}</button>
             </form>
-            <div class="hexmap-chat__turn-status" id="chat-turn-status" hidden aria-live="polite" aria-atomic="true">
-              <span class="chat-turn-status__badge" id="chat-turn-role">{{ 'Player'|t }}</span>
-              <div class="chat-turn-status__content">
-                <div class="chat-turn-status__name" id="chat-turn-name">{{ 'You'|t }}</div>
-                <div class="chat-turn-status__meta" id="chat-turn-meta">{{ 'Player turn: write the next line or choose your next action.'|t }}</div>
-                <div class="chat-turn-status__rounds">
-                  <div class="chat-turn-status__round">
-                    <div class="chat-turn-status__round-label" id="chat-turn-current-round-label">{{ 'Current round order'|t }}</div>
-                    <div class="chat-turn-status__round-order" id="chat-turn-current-round-order">{{ 'Turn 1: Narrator'|t ~ "\n" ~ 'Turn 2: Game Master'|t ~ "\n" ~ 'Turn 3: NPC initiative order'|t }}</div>
-                  </div>
-                  <div class="chat-turn-status__round">
-                    <div class="chat-turn-status__round-label" id="chat-turn-next-round-label">{{ 'Next round order'|t }}</div>
-                    <div class="chat-turn-status__round-order" id="chat-turn-next-round-order">{{ 'Turn 1: Narrator'|t ~ "\n" ~ 'Turn 2: Game Master'|t ~ "\n" ~ 'Turn 3: NPC initiative order'|t }}</div>
-                  </div>
-                </div>
-              </div>
-            </div>
+
           </div>
         </div>
       </div>

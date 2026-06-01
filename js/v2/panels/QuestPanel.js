@@ -267,7 +267,14 @@ export class QuestPanel {
   }
 
   showQuestToast(message, type = 'info') {
-    this.bus.emit('chat:message-received', { speaker: 'Quest', message, type: 'system' });
+    this.bus.emit('chat:system-message', {
+      text: message,
+      speaker: 'Quest',
+      kind: 'system',
+      source: 'local-ui',
+      authority: 'local',
+      messageClass: 'local_ui_notice',
+    });
   }
 
 }

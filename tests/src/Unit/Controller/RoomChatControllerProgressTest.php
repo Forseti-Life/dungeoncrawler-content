@@ -56,6 +56,7 @@ class RoomChatControllerProgressTest extends UnitTestCase {
     $queued = $method->invoke($controller, 'queued_messages_loaded', 'req-2', [
       'queued_player_count' => 3,
     ]);
+    $npc_reactions = $method->invoke($controller, 'npc_reactions_generating', 'req-2b');
     $private_started = $method->invoke($controller, 'room_request_started', 'req-private', [
       'channel' => 'whisper:npc-1',
     ]);
@@ -72,6 +73,11 @@ class RoomChatControllerProgressTest extends UnitTestCase {
     $this->assertSame('reviewing-queue', $queued['phase']);
     $this->assertSame('Thinking about the 3 things you just said...', $queued['message']);
     $this->assertSame('req-2', $queued['client_request_id']);
+
+    $this->assertSame('npc-reactions', $npc_reactions['phase']);
+    $this->assertSame('Initiative Order', $npc_reactions['speaker']);
+    $this->assertSame('Initiative order is resolving nearby NPC turns...', $npc_reactions['message']);
+    $this->assertSame('req-2b', $npc_reactions['client_request_id']);
 
     $this->assertSame('reviewing-room', $private_started['phase']);
     $this->assertSame('Turn 1: Narrator is reviewing what you just said...', $private_started['message']);
