@@ -148,6 +148,7 @@ const executeDirectNavigateSource = extractMethodSource(source, 'async executeDi
 const handleActionRailDirectActionSource = extractMethodSource(source, 'handleActionRailDirectAction(actionKey, button = null) {', 'handleActionRailDirectAction');
 const applyPlayerAutomationRoomTransitionSource = extractFunctionExpressionSource(source, 'applyPlayerAutomationRoomTransition: function (events = []) {', 'applyPlayerAutomationRoomTransition');
 const prefetchConnectedRoomContextSource = extractMethodSource(source, 'prefetchConnectedRoomContext(limit = 2) {', 'prefetchConnectedRoomContext');
+const findLaunchPlayerEntitySource = extractFunctionExpressionSource(source, 'findLaunchPlayerEntity: function () {', 'findLaunchPlayerEntity');
 
 const factory = new Function(`
 ${getVisualRoomsSource}
@@ -186,6 +187,7 @@ ${executeDirectNavigateSource}
 ${handleActionRailDirectActionSource}
 ${applyPlayerAutomationRoomTransitionSource}
 ${prefetchConnectedRoomContextSource}
+${findLaunchPlayerEntitySource}
 return {
   getVisualRooms,
   getPresentationObjectDefinitions,
@@ -222,13 +224,51 @@ return {
   executeDirectNavigate,
   handleActionRailDirectAction,
   applyPlayerAutomationRoomTransition,
-  prefetchConnectedRoomContext
+  prefetchConnectedRoomContext,
+  findLaunchPlayerEntity
 };
 `);
 
 const methods = factory();
 
 console.log('\n=== Hexmap canonical visual-state bootstrap ===');
+
+{
+  const makeEntity = (label, payload, q, r) => ({
+    label,
+    dcStatePayload: payload,
+    dcCharacterId: payload?.state?.metadata?.campaign_character_id || 0,
+    getComponent(name) {
+      if (name === 'PositionComponent') {
+        return { q, r };
+      }
+      if (name === 'CombatComponent') {
+        return null;
+      }
+      return null;
+    },
+  });
+  const npc = makeEntity('Marta', {
+    entity_type: 'npc',
+    state: { metadata: { team: 'neutral', campaign_character_id: 415 } },
+  }, 3, 0);
+  const pc = makeEntity('Burasco', {
+    entity_type: 'player_character',
+    state: { metadata: { team: 'player', campaign_character_id: 417 } },
+  }, 0, 0);
+  const context = {
+    launchContext: { start_q: 0, start_r: 0 },
+    resolveLaunchCharacterStateId: () => 417,
+    entityManager: {
+      getEntitiesWith(...components) {
+        assert(components.length === 1 && components[0] === 'PositionComponent', 'Launch-player lookup does not require combat components');
+        return [npc, pc];
+      },
+    },
+  };
+
+  assert(methods.findLaunchPlayerEntity.call(context) === pc, 'Launch-player lookup finds social-room player entities without CombatComponent');
+}
 
 {
   const context = {

@@ -3968,7 +3968,7 @@ import { SpriteService } from './SpriteService.js';
       }
 
       if (actionKey === 'search') {
-        if (!context.actor || context.isActorTurn === false) {
+        if (!context.actorRef || context.isActorTurn === false) {
           return true;
         }
         if (context.encounterActive) {
@@ -6046,9 +6046,16 @@ import { SpriteService } from './SpriteService.js';
       const { actionMoveBtn, actionAttackBtn, actionInteractBtn, actionTalkBtn, endTurnBtn } = this.elements;
       const maxActions = actions ? actions.maxActions + (actions.actionBonus || 0) : null;
       const actionsRemaining = actions ? actions.actionsRemaining : 0;
+      const actionRailContext = this.getActionRailContext?.() || null;
+      const canSearchExplorationRoom = Boolean(
+        actionRailContext
+        && !actionRailContext.encounterActive
+        && actionRailContext.actorRef
+        && !actionRailContext.automationState?.active
+      );
       const canAct = !!(isPlayersTurn && actions && actions.canAct !== false && actionsRemaining > 0);
       const canMove = !!(isPlayersTurn && movement && Number.isFinite(movement.movementRemaining) && movement.movementRemaining > 0);
-      const canInteract = canAct;
+      const canInteract = canAct || canSearchExplorationRoom;
 
       const applyDisabledState = (button, disabled) => {
         if (!button) {
@@ -6084,7 +6091,7 @@ import { SpriteService } from './SpriteService.js';
 
       if (actionTalkBtn) {
         actionTalkBtn.textContent = 'Talk (Free)';
-        applyDisabledState(actionTalkBtn, !isPlayersTurn);
+        applyDisabledState(actionTalkBtn, !isPlayersTurn && !canSearchExplorationRoom);
       }
 
       if (endTurnBtn) {
@@ -17664,18 +17671,26 @@ import { SpriteService } from './SpriteService.js';
         return null;
       }
 
-      const entities = this.entityManager.getEntitiesWith('PositionComponent', 'CombatComponent');
+      const entities = this.entityManager.getEntitiesWith('PositionComponent');
       if (!Array.isArray(entities) || !entities.length) {
         return null;
       }
 
       const playerEntities = entities.filter((entity) => {
         const combat = entity.getComponent('CombatComponent');
-        if (!combat) {
-          return false;
+        if (combat) {
+          return combat?.isPlayerTeam ? combat.isPlayerTeam() : (combat?.team === Team.PLAYER || combat?.team === 'player');
         }
 
-        return combat?.isPlayerTeam ? combat.isPlayerTeam() : (combat?.team === Team.PLAYER || combat?.team === 'player');
+        const entityType = String(entity?.dcEntityType || entity?.dcStatePayload?.entity_type || '').toLowerCase();
+        const metadata = entity?.dcStatePayload?.state?.metadata || entity?.dcStatePayload?.metadata || {};
+        const metadataTeam = String(metadata.team || '').toLowerCase();
+        const launchCharacterId = Number(this.resolveLaunchCharacterStateId?.() || 0);
+        const campaignCharacterId = Number(metadata.campaign_character_id || metadata.character_id || entity?.dcCharacterId || 0);
+
+        return entityType === 'player_character'
+          || metadataTeam === 'player'
+          || (launchCharacterId > 0 && campaignCharacterId === launchCharacterId);
       });
 
       if (!playerEntities.length) {

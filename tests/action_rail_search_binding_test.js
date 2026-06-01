@@ -37,6 +37,11 @@ assert(
   'standalone #action-search button has a click binding'
 );
 assert(
+  hexmapSource.includes('const canSearchExplorationRoom = Boolean(')
+    && hexmapSource.includes('const canInteract = canAct || canSearchExplorationRoom;'),
+  'standalone Search remains enabled for active exploration-room actors without combat turns'
+);
+assert(
   actionRailPanelSource.includes('handleActionRailDirectAction(actionKey, button = null)')
     && actionRailPanelSource.includes("this.bus.emit('user:action-selected', { actionKey, button });"),
   'v2 action rail Search emits the clicked button to the action executor'

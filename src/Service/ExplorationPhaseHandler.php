@@ -2076,7 +2076,22 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
     }
 
     $sensory_result = $this->resolveRoomSensorySearch($dungeon_data, $total, $params, $search_dc);
+    $quest_discovery = NULL;
+    if (in_array($degree, ['critical_success', 'success'], TRUE)) {
+      $quest_discovery = $this->resolveQuestSearchCollectibleDiscovery($campaign_id, $actor_id, $params, $dungeon_data);
+      if ($quest_discovery) {
+        $discoveries[] = [
+          'instance_id' => $quest_discovery['item_instance_id'],
+          'name' => $quest_discovery['item_name'],
+          'quest_id' => $quest_discovery['quest_id'],
+          'objective_id' => $quest_discovery['objective_id'],
+        ];
+      }
+    }
     $narration = $this->buildSearchNarration($discoveries, $sensory_result);
+    if ($quest_discovery) {
+      $narration = trim($narration . ' ' . $quest_discovery['narration']);
+    }
 
     return [
       'searched'     => TRUE,
@@ -2088,10 +2103,466 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
       'sensory_target' => $sensory_result['target'] ?? NULL,
       'sensory_reveals' => $sensory_result['reveals'] ?? [],
       'sensory_status' => $sensory_result['status'] ?? 'unavailable',
+      'quest_discovery' => $quest_discovery,
       'hazard_events' => $hazard_events,
       'mutations'    => [],
       'narration' => $narration,
     ];
+  }
+
+  /**
+   * Award exactly one needed room collectible on a successful Search check.
+   */
+  protected function resolveQuestSearchCollectibleDiscovery(int $campaign_id, string $actor_id, array $params, array &$dungeon_data): ?array {
+    $room_id = trim((string) ($params['room_id'] ?? ($dungeon_data['active_room_id'] ?? '')));
+    $character_id = $this->resolveSearchCampaignCharacterId($campaign_id, $actor_id, $params, $dungeon_data);
+    if ($campaign_id <= 0 || $room_id === '' || $character_id <= 0) {
+      return NULL;
+    }
+
+    $quest_target = $this->findNeededSearchCollectibleQuest($campaign_id, $room_id, $character_id);
+    if (!$quest_target) {
+      return NULL;
+    }
+
+    $item_row = $this->findNextSearchCollectibleItem($campaign_id, $room_id, $quest_target);
+    if (!$item_row) {
+      return NULL;
+    }
+
+    $state = json_decode((string) ($item_row['state_data'] ?? '{}'), TRUE);
+    $state = is_array($state) ? $state : [];
+    $item_name = trim((string) ($state['name'] ?? $item_row['item_id'] ?? 'quest item'));
+    $item_instance_id = (string) $item_row['item_instance_id'];
+
+    $transaction = $this->database->startTransaction();
+    try {
+      $updated = $this->database->update('dc_campaign_item_instances')
+        ->fields([
+          'location_type' => 'carried',
+          'location_ref' => (string) $character_id,
+          'updated' => time(),
+        ])
+        ->condition('id', (int) $item_row['id'])
+        ->condition('campaign_id', $campaign_id)
+        ->condition('location_type', 'room')
+        ->condition('location_ref', $room_id)
+        ->execute();
+      if ((int) $updated !== 1) {
+        throw new \RuntimeException("Search collectible transfer failed for {$item_instance_id}.");
+      }
+
+      $progress_state = $this->recordSearchCollectibleProgress($campaign_id, $character_id, $quest_target);
+
+      return [
+        'item_instance_id' => $item_instance_id,
+        'item_id' => (string) ($item_row['item_id'] ?? ''),
+        'item_name' => $item_name,
+        'quest_id' => $quest_target['quest_id'],
+        'objective_id' => $quest_target['objective_id'],
+        'current' => $progress_state['current'],
+        'target' => $progress_state['target'],
+        'narration' => sprintf(
+          'You find %s (%d/%d for %s).',
+          $item_name,
+          $progress_state['current'],
+          $progress_state['target'],
+          $quest_target['quest_name']
+        ),
+      ];
+    }
+    catch (\Throwable $e) {
+      if (isset($transaction)) {
+        $transaction->rollBack();
+      }
+      throw $e;
+    }
+  }
+
+  /**
+   * Resolve the campaign-character row that owns Search item awards.
+   */
+  protected function resolveSearchCampaignCharacterId(int $campaign_id, string $actor_id, array $params, array $dungeon_data): int {
+    $candidate_ids = [];
+    if (!empty($params['character_id'])) {
+      $candidate_ids[] = (int) $params['character_id'];
+    }
+
+    foreach (($dungeon_data['entities'] ?? []) as $entity) {
+      if (!is_array($entity)) {
+        continue;
+      }
+      $entity_ids = [
+        (string) ($entity['instance_id'] ?? ''),
+        (string) ($entity['entity_instance_id'] ?? ''),
+        (string) ($entity['state']['metadata']['runtime_entity_id'] ?? ''),
+      ];
+      if (!in_array($actor_id, $entity_ids, TRUE)) {
+        continue;
+      }
+      $metadata = is_array($entity['state']['metadata'] ?? NULL) ? $entity['state']['metadata'] : [];
+      foreach (['campaign_character_id', 'character_id'] as $field) {
+        if (!empty($metadata[$field])) {
+          $candidate_ids[] = (int) $metadata[$field];
+        }
+      }
+    }
+
+    foreach (array_unique(array_filter($candidate_ids)) as $candidate_id) {
+      $exists = $this->database->select('dc_campaign_characters', 'cc')
+        ->condition('campaign_id', $campaign_id)
+        ->condition('id', $candidate_id)
+        ->countQuery()
+        ->execute()
+        ->fetchField();
+      if ((int) $exists > 0) {
+        return $candidate_id;
+      }
+    }
+
+    return 0;
+  }
+
+  /**
+   * Find a collect objective in this room that still needs a Search collectible.
+   */
+  protected function findNeededSearchCollectibleQuest(int $campaign_id, string $room_id, int $character_id): ?array {
+    $quests = $this->database->select('dc_campaign_quests', 'q')
+      ->fields('q')
+      ->condition('q.campaign_id', $campaign_id)
+      ->condition('q.status', ['active', 'lead', 'offered'], 'IN')
+      ->orderBy('q.created_at', 'ASC')
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+
+    foreach ($quests as $quest) {
+      $quest_id = trim((string) ($quest['quest_id'] ?? ''));
+      if ($quest_id === '') {
+        continue;
+      }
+      $progress = $this->loadSearchQuestProgress($campaign_id, $quest_id, $character_id);
+      $objective_states = $progress
+        ? json_decode((string) ($progress['objective_states'] ?? '[]'), TRUE)
+        : json_decode((string) ($quest['generated_objectives'] ?? '[]'), TRUE);
+      if (!is_array($objective_states)) {
+        continue;
+      }
+
+      $objective_ref = $this->findSearchCollectObjective($objective_states, $room_id);
+      if (!$objective_ref) {
+        continue;
+      }
+
+      $objective = $objective_ref['objective'];
+      $target = max(1, (int) ($objective['target_count'] ?? $objective['completion_criteria']['target_count'] ?? 1));
+      $current = max(
+        (int) ($objective['current'] ?? 0),
+        $this->countCharacterQuestCollectibles($campaign_id, $character_id, (string) ($quest['source_template_id'] ?? $quest_id))
+      );
+      if ($current >= $target) {
+        continue;
+      }
+
+      return [
+        'quest' => $quest,
+        'quest_id' => $quest_id,
+        'quest_name' => (string) ($quest['quest_name'] ?? $quest_id),
+        'source_template_id' => (string) ($quest['source_template_id'] ?? ''),
+        'objective_id' => (string) ($objective['objective_id'] ?? ''),
+        'objective_states' => $objective_states,
+        'current_phase' => (int) ($progress['current_phase'] ?? $objective_ref['phase'] ?? 1),
+        'target' => $target,
+        'current' => $current,
+        'progress_exists' => (bool) $progress,
+      ];
+    }
+
+    return NULL;
+  }
+
+  /**
+   * Load a character progress row for a search-collect quest.
+   */
+  protected function loadSearchQuestProgress(int $campaign_id, string $quest_id, int $character_id): ?array {
+    $row = $this->database->select('dc_campaign_quest_progress', 'qp')
+      ->fields('qp')
+      ->condition('campaign_id', $campaign_id)
+      ->condition('quest_id', $quest_id)
+      ->condition('character_id', $character_id)
+      ->condition('party_id', NULL, 'IS NULL')
+      ->execute()
+      ->fetchAssoc();
+    return is_array($row) ? $row : NULL;
+  }
+
+  /**
+   * Find a collect objective for the active room.
+   */
+  protected function findSearchCollectObjective(array $objective_states, string $room_id): ?array {
+    foreach ($objective_states as $phase) {
+      if (!is_array($phase)) {
+        continue;
+      }
+      foreach (($phase['objectives'] ?? []) as $objective) {
+        $match = $this->findSearchCollectObjectiveNode($objective, $room_id);
+        if ($match) {
+          return [
+            'phase' => (int) ($phase['phase'] ?? 1),
+            'objective' => $match,
+          ];
+        }
+      }
+    }
+    return NULL;
+  }
+
+  /**
+   * Recursively locate a collect objective in a room.
+   */
+  protected function findSearchCollectObjectiveNode($objective, string $room_id): ?array {
+    if (!is_array($objective)) {
+      return NULL;
+    }
+
+    $type = strtolower((string) ($objective['type'] ?? ''));
+    $location = trim((string) ($objective['location_id'] ?? $objective['location'] ?? ''));
+    if ($type === 'collect' && $location === $room_id && empty($objective['completed'])) {
+      return $objective;
+    }
+
+    foreach (['objectives', 'children', 'sub_objectives'] as $children_key) {
+      foreach (($objective[$children_key] ?? []) as $child) {
+        $match = $this->findSearchCollectObjectiveNode($child, $room_id);
+        if ($match) {
+          return $match;
+        }
+      }
+    }
+
+    return NULL;
+  }
+
+  /**
+   * Count already-carried collectibles for a quest association.
+   */
+  protected function countCharacterQuestCollectibles(int $campaign_id, int $character_id, string $quest_source): int {
+    $rows = $this->database->select('dc_campaign_item_instances', 'i')
+      ->fields('i', ['state_data', 'quantity'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('location_type', ['carried', 'inventory', 'equipped', 'worn', 'stashed'], 'IN')
+      ->condition('location_ref', (string) $character_id)
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+
+    $count = 0;
+    foreach ($rows as $row) {
+      $state = json_decode((string) ($row['state_data'] ?? '{}'), TRUE);
+      $state = is_array($state) ? $state : [];
+      if ($this->searchItemMatchesQuestSource($state, $quest_source)) {
+        $count += max(1, (int) ($row['quantity'] ?? 1));
+      }
+    }
+    return $count;
+  }
+
+  /**
+   * Find the next room item that matches the needed collect quest.
+   */
+  protected function findNextSearchCollectibleItem(int $campaign_id, string $room_id, array $quest_target): ?array {
+    $rows = $this->database->select('dc_campaign_item_instances', 'i')
+      ->fields('i')
+      ->condition('campaign_id', $campaign_id)
+      ->condition('location_type', 'room')
+      ->condition('location_ref', $room_id)
+      ->orderBy('id', 'ASC')
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+
+    $quest_source = (string) ($quest_target['source_template_id'] ?: $quest_target['quest_id']);
+    foreach ($rows as $row) {
+      $state = json_decode((string) ($row['state_data'] ?? '{}'), TRUE);
+      $state = is_array($state) ? $state : [];
+      if ($this->searchItemMatchesQuestSource($state, $quest_source)) {
+        return $row;
+      }
+    }
+
+    return NULL;
+  }
+
+  /**
+   * Determine whether an item belongs to a quest collect objective.
+   */
+  protected function searchItemMatchesQuestSource(array $item_state, string $quest_source): bool {
+    $quest_source = trim($quest_source);
+    if ($quest_source === '') {
+      return FALSE;
+    }
+    $candidates = [
+      (string) ($item_state['quest_association'] ?? ''),
+      (string) ($item_state['_spawn']['quest_association'] ?? ''),
+      (string) ($item_state['source_template_id'] ?? ''),
+    ];
+    foreach (($item_state['tags'] ?? []) as $tag) {
+      $candidates[] = (string) $tag;
+    }
+
+    return in_array($quest_source, array_map('trim', $candidates), TRUE);
+  }
+
+  /**
+   * Persist capped quest progress for the Search-awarded collectible.
+   */
+  protected function recordSearchCollectibleProgress(int $campaign_id, int $character_id, array $quest_target): array {
+    $quest = $quest_target['quest'];
+    $quest_id = $quest_target['quest_id'];
+    $objective_id = $quest_target['objective_id'];
+    $objective_states = $quest_target['objective_states'];
+    $target = max(1, (int) $quest_target['target']);
+    $next_current = min($target, ((int) $quest_target['current']) + 1);
+    $current_phase = max(1, (int) ($quest_target['current_phase'] ?? 1));
+
+    $this->applySearchCollectibleProgressToStates($objective_states, $objective_id, $next_current, $target);
+    if ($this->isSearchQuestPhaseComplete($objective_states, $current_phase) && $this->hasSearchQuestPhase($objective_states, $current_phase + 1)) {
+      $current_phase++;
+    }
+
+    $now = time();
+    if (!empty($quest_target['progress_exists'])) {
+      $this->database->update('dc_campaign_quest_progress')
+        ->fields([
+          'objective_states' => json_encode($objective_states),
+          'current_phase' => $current_phase,
+          'last_updated' => $now,
+        ])
+        ->condition('campaign_id', $campaign_id)
+        ->condition('quest_id', $quest_id)
+        ->condition('character_id', $character_id)
+        ->condition('party_id', NULL, 'IS NULL')
+        ->execute();
+    }
+    else {
+      $this->database->insert('dc_campaign_quest_progress')
+        ->fields([
+          'campaign_id' => $campaign_id,
+          'quest_id' => $quest_id,
+          'character_id' => $character_id,
+          'party_id' => NULL,
+          'objective_states' => json_encode($objective_states),
+          'current_phase' => $current_phase,
+          'started_at' => $now,
+          'last_updated' => $now,
+        ])
+        ->execute();
+    }
+
+    if (in_array(strtolower((string) ($quest['status'] ?? '')), ['lead', 'offered'], TRUE)) {
+      $this->database->update('dc_campaign_quests')
+        ->fields(['status' => 'active'])
+        ->condition('campaign_id', $campaign_id)
+        ->condition('quest_id', $quest_id)
+        ->execute();
+    }
+
+    return [
+      'current' => $next_current,
+      'target' => $target,
+    ];
+  }
+
+  /**
+   * Set collect progress in objective states without exceeding the target.
+   */
+  protected function applySearchCollectibleProgressToStates(array &$objective_states, string $objective_id, int $current, int $target): bool {
+    foreach ($objective_states as &$phase) {
+      if (!is_array($phase)) {
+        continue;
+      }
+      if (!is_array($phase['objectives'] ?? NULL)) {
+        continue;
+      }
+      foreach ($phase['objectives'] as &$objective) {
+        if ($this->applySearchCollectibleProgressToNode($objective, $objective_id, $current, $target)) {
+          return TRUE;
+        }
+      }
+    }
+    return FALSE;
+  }
+
+  /**
+   * Apply progress to one objective node or child.
+   */
+  protected function applySearchCollectibleProgressToNode(array &$objective, string $objective_id, int $current, int $target): bool {
+    if ((string) ($objective['objective_id'] ?? '') === $objective_id) {
+      $objective['current'] = $current;
+      $objective['target_count'] = $target;
+      $objective['completed'] = $current >= $target;
+      if (is_array($objective['completion_criteria'] ?? NULL)) {
+        $objective['completion_criteria']['target_count'] = $target;
+      }
+      return TRUE;
+    }
+
+    foreach (['objectives', 'children', 'sub_objectives'] as $children_key) {
+      if (!is_array($objective[$children_key] ?? NULL)) {
+        continue;
+      }
+      foreach ($objective[$children_key] as &$child) {
+        if (is_array($child) && $this->applySearchCollectibleProgressToNode($child, $objective_id, $current, $target)) {
+          return TRUE;
+        }
+      }
+    }
+
+    return FALSE;
+  }
+
+  /**
+   * Check whether all objectives in a phase are complete.
+   */
+  protected function isSearchQuestPhaseComplete(array $objective_states, int $phase_number): bool {
+    foreach ($objective_states as $phase) {
+      if ((int) ($phase['phase'] ?? 0) !== $phase_number) {
+        continue;
+      }
+      foreach (($phase['objectives'] ?? []) as $objective) {
+        if (!$this->isSearchQuestObjectiveComplete($objective)) {
+          return FALSE;
+        }
+      }
+      return TRUE;
+    }
+    return FALSE;
+  }
+
+  /**
+   * Determine whether a phase exists in objective states.
+   */
+  protected function hasSearchQuestPhase(array $objective_states, int $phase_number): bool {
+    foreach ($objective_states as $phase) {
+      if ((int) ($phase['phase'] ?? 0) === $phase_number) {
+        return TRUE;
+      }
+    }
+    return FALSE;
+  }
+
+  /**
+   * Recursively check objective completion.
+   */
+  protected function isSearchQuestObjectiveComplete($objective): bool {
+    if (!is_array($objective) || empty($objective['completed'])) {
+      return FALSE;
+    }
+    foreach (['objectives', 'children', 'sub_objectives'] as $children_key) {
+      foreach (($objective[$children_key] ?? []) as $child) {
+        if (!$this->isSearchQuestObjectiveComplete($child)) {
+          return FALSE;
+        }
+      }
+    }
+    return TRUE;
   }
 
   /**

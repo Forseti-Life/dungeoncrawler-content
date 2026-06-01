@@ -403,7 +403,7 @@ export class ActionRailPanel {
     }
 
     if (actionKey === 'search') {
-      if (!context.actor || context.isActorTurn === false) {
+      if (!context.actorRef || context.isActorTurn === false) {
         return true;
       }
       if (context.encounterActive) {
