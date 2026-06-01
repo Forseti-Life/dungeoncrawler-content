@@ -303,7 +303,7 @@ class QuestTouchpointService {
     $matches = [];
     $objective_id_hint = (string) ($touchpoint['objective_id'] ?? '');
     $item_ref = $this->normalizeToken((string) ($touchpoint['item_ref'] ?? $touchpoint['entity_ref'] ?? ''));
-    $npc_ref = $this->normalizeToken((string) ($touchpoint['npc_ref'] ?? $touchpoint['entity_ref'] ?? ''));
+    $npc_tokens = $this->buildTouchpointNpcTokens($touchpoint);
 
     foreach ($active_quests as $quest) {
       $quest_id = (string) ($quest['quest_id'] ?? '');
@@ -334,7 +334,7 @@ class QuestTouchpointService {
           $npc_aliases = $this->buildNpcObjectiveAliases($objective);
 
           $item_match = $item_ref === '' || $target_item === '' || str_contains($item_ref, $target_item) || str_contains($target_item, $item_ref);
-          $npc_match = $npc_ref === '' || $this->matchesNpcAlias($npc_ref, $target_npc, $npc_aliases);
+          $npc_match = $npc_tokens === [] || $this->matchesAnyNpcAlias($npc_tokens, $target_npc, $npc_aliases);
 
           if (!$item_match || !$npc_match) {
             continue;
@@ -456,8 +456,16 @@ class QuestTouchpointService {
       $this->normalizeToken((string) ($objective['objective_id'] ?? '')),
     ];
 
+    $target = $this->normalizeToken((string) ($objective['target'] ?? ''));
+    if ($target !== '') {
+      $aliases = array_merge($aliases, $this->expandNpcReferenceAliases($target));
+    }
+
     $description = trim((string) ($objective['description'] ?? ''));
     if ($description !== '' && preg_match('/speak to ([^.]+?)(?: and|\.|$)/i', $description, $matches) === 1) {
+      $aliases[] = $this->normalizeToken($matches[1]);
+    }
+    if ($description !== '' && preg_match('/(?:return|give|hand)\b.+?\bto\s+(?:the\s+)?([^.,]+?)(?:\s+in\b|\s+after\b|\s+and\b|\.|$)/i', $description, $matches) === 1) {
       $aliases[] = $this->normalizeToken($matches[1]);
     }
 
@@ -465,7 +473,58 @@ class QuestTouchpointService {
   }
 
   /**
+   * Build all NPC reference tokens from a touchpoint.
+   *
+   * @return array<int, string>
+   *   Normalized NPC reference tokens.
+   */
+  protected function buildTouchpointNpcTokens(array $touchpoint): array {
+    $tokens = [];
+    foreach (['npc_ref', 'entity_ref'] as $field) {
+      $token = $this->normalizeToken((string) ($touchpoint[$field] ?? ''));
+      if ($token === '') {
+        continue;
+      }
+      $tokens[] = $token;
+      $tokens = array_merge($tokens, $this->expandNpcReferenceAliases($token));
+    }
+    return array_values(array_unique(array_filter($tokens)));
+  }
+
+  /**
+   * Expand common NPC id/reference forms into comparable aliases.
+   *
+   * @return array<int, string>
+   *   Normalized aliases.
+   */
+  protected function expandNpcReferenceAliases(string $token): array {
+    $token = $this->normalizeToken($token);
+    if ($token === '') {
+      return [];
+    }
+    $aliases = [$token];
+    $without_npc = trim((string) preg_replace('/\bnpc\b/', ' ', $token));
+    $without_npc = $this->normalizeToken($without_npc);
+    if ($without_npc !== '') {
+      $aliases[] = $without_npc;
+    }
+    return array_values(array_unique(array_filter($aliases)));
+  }
+
+  /**
    * Determine whether a touchpoint NPC token matches any objective alias.
+   */
+  protected function matchesAnyNpcAlias(array $npc_tokens, string $target_npc, array $npc_aliases): bool {
+    foreach ($npc_tokens as $npc_token) {
+      if ($this->matchesNpcAlias($npc_token, $target_npc, $npc_aliases)) {
+        return TRUE;
+      }
+    }
+    return FALSE;
+  }
+
+  /**
+   * Determine whether one touchpoint NPC token matches any objective alias.
    */
   protected function matchesNpcAlias(string $npc_ref, string $target_npc, array $npc_aliases): bool {
     if ($target_npc === '' && $npc_aliases === []) {

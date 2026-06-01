@@ -87,4 +87,23 @@ class PlayerAgentEncounterPolicyTest extends UnitTestCase {
     $this->assertSame('end_turn', $decision['intent']['type']);
   }
 
+  /**
+   * @covers ::chooseAction
+   */
+  public function testChooseActionPrefersExplicitNoActionWhenAvailable(): void {
+    $decision = $this->policy->chooseAction(
+      ['actor_id' => 'pc-1'],
+      [
+        'game_state' => ['turn' => ['entity' => 'pc-1'], 'encounter_id' => NULL],
+        'available_actions' => ['talk', 'choose_not_to_act', 'end_turn'],
+        'hostile_targets' => [],
+      ],
+      []
+    );
+
+    $this->assertSame('intent', $decision['type']);
+    $this->assertSame('choose_not_to_act', $decision['intent']['type']);
+    $this->assertSame('Player agent found no configured legal action.', $decision['intent']['params']['reason']);
+  }
+
 }

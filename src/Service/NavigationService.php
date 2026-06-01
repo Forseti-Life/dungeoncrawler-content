@@ -135,7 +135,34 @@ class NavigationService {
       'requires_interaction' => $requires_interaction,
       'origin_hex' => $origin_hex,
       'target_hex' => $target_hex,
+      'travel_time_seconds' => $this->resolveTravelSeconds($connection),
     ];
+  }
+
+  /**
+   * Resolves travel time metadata from a connection.
+   */
+  protected function resolveTravelSeconds(array $connection): ?int {
+    foreach (['travel_time_seconds', 'duration_seconds', 'time_cost_seconds'] as $key) {
+      if (isset($connection[$key]) && is_numeric($connection[$key])) {
+        return max(0, (int) $connection[$key]);
+      }
+    }
+    foreach (['travel_time_minutes', 'duration_minutes', 'time_cost_minutes', 'travel_minutes'] as $key) {
+      if (isset($connection[$key]) && is_numeric($connection[$key])) {
+        return max(0, (int) $connection[$key]) * 60;
+      }
+    }
+    if (isset($connection['travel_time']) && is_array($connection['travel_time'])) {
+      if (isset($connection['travel_time']['seconds']) && is_numeric($connection['travel_time']['seconds'])) {
+        return max(0, (int) $connection['travel_time']['seconds']);
+      }
+      if (isset($connection['travel_time']['minutes']) && is_numeric($connection['travel_time']['minutes'])) {
+        return max(0, (int) $connection['travel_time']['minutes']) * 60;
+      }
+    }
+
+    return NULL;
   }
 
   /**

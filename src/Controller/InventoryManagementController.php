@@ -328,7 +328,7 @@ class InventoryManagementController extends ControllerBase {
    *
    * Request body:
    * {
-   *   "location": "equipped|worn|carried|stashed",
+   *   "location": "worn|carried|stashed",
    *   "campaignId": null
    * }
    *

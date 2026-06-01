@@ -681,6 +681,18 @@
       },
       "additionalProperties": false
     },
+    "gameplay_state": {
+      "type": "object",
+      "description": "Canonical gameplay flags for runtime behavior in this room.",
+      "properties": {
+        "safe_for_rest": {
+          "type": "boolean",
+          "default": false,
+          "description": "When true, the encounter framework exposes safe-room rest actions in this room."
+        }
+      },
+      "additionalProperties": false
+    },
     "ai_generation": {
       "type": "object",
       "description": "AI generation metadata. Used for procedural content creation.",

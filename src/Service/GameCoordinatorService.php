@@ -11,7 +11,7 @@ use Psr\Log\LoggerInterface;
  * Game Coordinator Service — the central orchestrator ("main()").
  *
  * This is the single entry point for all game actions. It manages:
- * - Game phase state machine (exploration / encounter / downtime)
+ * - Game phase state machine (encounter-only active runtime)
  * - Action validation and routing to the active phase handler
  * - Phase transitions (with onExit/onEnter lifecycle)
  * - Event logging for every action
@@ -20,7 +20,7 @@ use Psr\Log\LoggerInterface;
  *
  * Design principles:
  * 1. Server-authoritative: the server owns the game phase and all transitions.
- * 2. Phase-driven: delegates to the active PhaseHandler via strategy pattern.
+ * 2. Phase-driven: delegates to active PhaseHandlers via strategy pattern.
  * 3. Incremental: wraps existing services, does not rewrite them.
  * 4. Event-sourced: every action produces an event in the game log.
  */
@@ -33,12 +33,14 @@ class GameCoordinatorService {
   protected const ROOM_ENTRY_NARRATOR_SPEAKING_RATE = 0.85;
   protected const ROOM_ENTRY_NARRATOR_PITCH = -6.0;
   protected const ROOM_ENTRY_NARRATOR_VOLUME_GAIN_DB = 2.0;
+  protected const DEFAULT_ACTIVE_PHASE = 'encounter';
+  protected const DEPRECATED_PHASES = ['exploration'];
 
   /**
    * Default game state structure for new sessions.
    */
   const DEFAULT_GAME_STATE = [
-    'phase' => 'exploration',
+    'phase' => self::DEFAULT_ACTIVE_PHASE,
     'session_id' => NULL,
     'started_at' => NULL,
     'round' => NULL,
@@ -50,7 +52,6 @@ class GameCoordinatorService {
       'character_activities' => [],
       'previous_room' => NULL,
     ],
-    'downtime' => NULL,
     'timed_activities' => [],
     'state_version' => 1,
     'event_log_cursor' => 0,
@@ -63,9 +64,7 @@ class GameCoordinatorService {
    * @var array
    */
   const VALID_TRANSITIONS = [
-    'exploration' => ['encounter', 'downtime'],
-    'encounter' => ['exploration'],
-    'downtime' => ['exploration'],
+    'encounter' => [],
   ];
 
   /**
@@ -148,10 +147,9 @@ class GameCoordinatorService {
     $this->textToSpeechIntegration = $text_to_speech_integration;
     $this->fileUrlGenerator = $file_url_generator;
 
-    // Register phase handlers by their phase name.
-    $this->phaseHandlers['exploration'] = $exploration_handler;
+    // ExplorationPhaseHandler and DowntimePhaseHandler remain injected for
+    // code reuse only; the live runtime is encounter-only.
     $this->phaseHandlers['encounter'] = $encounter_handler;
-    $this->phaseHandlers['downtime'] = $downtime_handler;
   }
 
   // =========================================================================
@@ -196,7 +194,7 @@ class GameCoordinatorService {
     }
 
     $game_state = $this->ensureGameState($dungeon_data);
-    $phase = $game_state['phase'] ?? 'exploration';
+    $phase = $game_state['phase'] ?? self::DEFAULT_ACTIVE_PHASE;
 
     // 2. Optimistic concurrency check.
     $client_version = $intent['client_state_version'] ?? NULL;
@@ -241,7 +239,6 @@ class GameCoordinatorService {
     if (!empty($events_to_log)) {
       $logged_events = $this->eventLogger->logEvents($dungeon_data, $events_to_log);
     }
-
     // 7. Handle phase transitions.
     $phase_transition = $action_result['phase_transition'] ?? NULL;
     if ($phase_transition) {
@@ -264,7 +261,7 @@ class GameCoordinatorService {
     $this->persistDungeonData($campaign_id, $dungeon_data);
 
     // 10. Build response.
-    $current_phase = $game_state['phase'] ?? 'exploration';
+    $current_phase = $game_state['phase'] ?? self::DEFAULT_ACTIVE_PHASE;
     $current_handler = $this->getPhaseHandler($current_phase);
     $actor_id = $intent['actor'] ?? NULL;
     $action_contract = $this->buildActionContract($current_handler, $game_state, $dungeon_data, $actor_id);
@@ -341,7 +338,7 @@ class GameCoordinatorService {
       $dungeon_data['game_state'] = $game_state;
       $this->persistDungeonData($campaign_id, $dungeon_data);
     }
-    $phase = $game_state['phase'] ?? 'exploration';
+    $phase = $game_state['phase'] ?? self::DEFAULT_ACTIVE_PHASE;
     $handler = $this->getPhaseHandler($phase);
     $action_contract = $this->buildActionContract($handler, $game_state, $dungeon_data);
 
@@ -359,7 +356,6 @@ class GameCoordinatorService {
       'encounter_id' => $game_state['encounter_id'] ?? NULL,
       'round' => $game_state['round'] ?? NULL,
       'turn' => $game_state['turn'] ?? NULL,
-      'exploration' => $game_state['exploration'] ?? NULL,
       'events' => $initial_events,
     ];
   }
@@ -386,7 +382,7 @@ class GameCoordinatorService {
     }
 
     $game_state = $this->ensureGameState($dungeon_data);
-    $phase = $game_state['phase'] ?? 'exploration';
+    $phase = $game_state['phase'] ?? self::DEFAULT_ACTIVE_PHASE;
     $handler = $this->getPhaseHandler($phase);
 
     return $handler ? $handler->getAvailableActions($game_state, $dungeon_data, $actor_id) : [];
@@ -395,9 +391,9 @@ class GameCoordinatorService {
   /**
    * Manually transition to a new phase.
    *
-   * Used for explicit transitions like: start combat, enter downtime, return
-   * to exploration. Most transitions happen automatically (e.g., encounter
-   * triggered on room entry), but this endpoint allows manual transitions too.
+   * Used for explicit transitions when additional live phases are present.
+   * Room entry and combat escalation already route through the encounter
+   * framework automatically.
    *
    * @param int $campaign_id
    *   The campaign ID.
@@ -416,7 +412,14 @@ class GameCoordinatorService {
     }
 
     $game_state = $this->ensureGameState($dungeon_data);
-    $current_phase = $game_state['phase'] ?? 'exploration';
+    $current_phase = $game_state['phase'] ?? self::DEFAULT_ACTIVE_PHASE;
+
+    if (in_array($target_phase, self::DEPRECATED_PHASES, TRUE)) {
+      return $this->errorResponse(
+        "Phase '$target_phase' is deprecated and disabled. Active gameplay must remain in the encounter framework.",
+        $game_state
+      );
+    }
 
     // Validate the transition.
     $valid_targets = self::VALID_TRANSITIONS[$current_phase] ?? [];
@@ -455,6 +458,84 @@ class GameCoordinatorService {
       'available_actions' => $handler
         ? $handler->getAvailableActions($game_state, $dungeon_data)
         : [],
+      'action_contract' => $action_contract,
+      'state_version' => $game_state['state_version'],
+    ];
+  }
+
+  /**
+   * Escalates the active room-scene encounter into hostile combat.
+   *
+   * This keeps gameplay in the canonical encounter phase while layering the
+   * persisted combat engine onto the current room encounter framework.
+   */
+  public function startCombatEncounter(int $campaign_id, array $context = []): array {
+    $dungeon_data = $this->loadDungeonData($campaign_id);
+    if (!$dungeon_data) {
+      return $this->errorResponse('Campaign dungeon data not found.');
+    }
+
+    $game_state = $this->ensureGameState($dungeon_data);
+    $room_id = (string) (
+      $context['encounter_context']['room_id']
+      ?? $dungeon_data['active_room_id']
+      ?? $this->resolveStartupRoomId($dungeon_data)
+      ?? ''
+    );
+    if ($room_id === '') {
+      return $this->errorResponse('Combat initiation requires an active room.', $game_state);
+    }
+
+    $handler = $this->getPhaseHandler(self::DEFAULT_ACTIVE_PHASE);
+    if (!$handler instanceof EncounterPhaseHandler) {
+      return $this->errorResponse('Encounter handler unavailable.', $game_state);
+    }
+
+    if (!empty($game_state['encounter_id'])) {
+      return $this->errorResponse('Combat is already active.', $game_state);
+    }
+
+    $logged_events = [];
+    $needs_room_framework = ($game_state['phase'] ?? self::DEFAULT_ACTIVE_PHASE) !== self::DEFAULT_ACTIVE_PHASE
+      || (string) ($game_state['encounter_context']['room_id'] ?? '') !== $room_id
+      || empty($game_state['turn'])
+      || !is_array($game_state['initiative_order'] ?? NULL);
+
+    if ($needs_room_framework) {
+      $room_result = $handler->enterRoomFramework(NULL, $room_id, [], $game_state, $dungeon_data, $campaign_id);
+      if (!empty($room_result['error'])) {
+        return $this->errorResponse((string) $room_result['error'], $game_state);
+      }
+      if (!empty($room_result['events'])) {
+        $logged_events = array_merge(
+          $logged_events,
+          $this->eventLogger->logEvents($dungeon_data, $room_result['events'])
+        );
+      }
+    }
+
+    if (empty($game_state['encounter_id'])) {
+      $combat_events = $handler->onEnter($context, $game_state, $dungeon_data, $campaign_id);
+      if ($combat_events !== []) {
+        $logged_events = array_merge(
+          $logged_events,
+          $this->eventLogger->logEvents($dungeon_data, $combat_events)
+        );
+      }
+    }
+
+    $game_state['state_version'] = ($game_state['state_version'] ?? 0) + 1;
+    $dungeon_data['game_state'] = $game_state;
+    $this->persistDungeonData($campaign_id, $dungeon_data);
+
+    $action_contract = $this->buildActionContract($handler, $game_state, $dungeon_data);
+
+    return [
+      'success' => TRUE,
+      'game_state' => $this->buildClientGameState($game_state),
+      'phase' => self::DEFAULT_ACTIVE_PHASE,
+      'events' => $logged_events,
+      'available_actions' => $handler->getAvailableActions($game_state, $dungeon_data),
       'action_contract' => $action_contract,
       'state_version' => $game_state['state_version'],
     ];
@@ -662,6 +743,10 @@ class GameCoordinatorService {
     }
 
     $this->campaignTimeResolver->ensureTimeState($dungeon_data['game_state']);
+    $phase = (string) ($dungeon_data['game_state']['phase'] ?? self::DEFAULT_ACTIVE_PHASE);
+    if ($phase === '' || in_array($phase, self::DEPRECATED_PHASES, TRUE)) {
+      $dungeon_data['game_state']['phase'] = self::DEFAULT_ACTIVE_PHASE;
+    }
 
     return $dungeon_data['game_state'];
   }
@@ -687,21 +772,14 @@ class GameCoordinatorService {
       return [];
     }
 
-    $narration = $this->aiGmService->narrateRoomEntry($room_data, $dungeon_data, TRUE, $campaign_id);
-    $room_entered_data = [
-      'from_room' => NULL,
-      'to_room' => $room_id,
-    ];
-    $room_entry_audio = $this->buildRoomEntryNarrationAudio($room_data, $narration);
-    if ($room_entry_audio !== NULL) {
-      $room_entered_data += $room_entry_audio;
+    $handler = $this->getPhaseHandler(self::DEFAULT_ACTIVE_PHASE);
+    if ($handler instanceof EncounterPhaseHandler) {
+      $result = $handler->enterRoomFramework(NULL, $room_id, [], $game_state, $dungeon_data, $campaign_id);
+      $events = $result['events'] ?? [];
+      return $events !== [] ? $this->eventLogger->logEvents($dungeon_data, $events) : [];
     }
 
-    $game_state['exploration']['previous_room'] = $game_state['exploration']['previous_room'] ?? NULL;
-
-    return $this->eventLogger->logEvents($dungeon_data, [
-      GameEventLogger::buildEvent('room_entered', 'exploration', NULL, $room_entered_data, $narration),
-    ]);
+    return [];
   }
 
   /**
@@ -827,6 +905,9 @@ class GameCoordinatorService {
    * Gets the phase handler for a given phase name.
    */
   protected function getPhaseHandler(string $phase): ?PhaseHandlerInterface {
+    if (in_array($phase, self::DEPRECATED_PHASES, TRUE)) {
+      return NULL;
+    }
     return $this->phaseHandlers[$phase] ?? NULL;
   }
 
@@ -835,14 +916,13 @@ class GameCoordinatorService {
    */
   protected function buildClientGameState(array $game_state): array {
     return [
-      'phase' => $game_state['phase'] ?? 'exploration',
+      'phase' => $game_state['phase'] ?? self::DEFAULT_ACTIVE_PHASE,
       'session_id' => $game_state['session_id'] ?? NULL,
       'round' => $game_state['round'] ?? NULL,
       'turn' => $game_state['turn'] ?? NULL,
       'encounter_id' => $game_state['encounter_id'] ?? NULL,
+      'encounter_context' => $game_state['encounter_context'] ?? NULL,
       'initiative_order' => $game_state['initiative_order'] ?? NULL,
-      'exploration' => $game_state['exploration'] ?? NULL,
-      'downtime' => $game_state['downtime'] ?? NULL,
       'campaign_clock' => $game_state['campaign_clock'] ?? NULL,
       'game_time' => $game_state['game_time'] ?? NULL,
       'timed_activities' => $game_state['timed_activities'] ?? [],

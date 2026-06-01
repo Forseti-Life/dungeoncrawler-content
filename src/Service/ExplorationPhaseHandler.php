@@ -58,6 +58,10 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
   protected const ROOM_ENTRY_NARRATOR_SPEAKING_RATE = 0.85;
   protected const ROOM_ENTRY_NARRATOR_PITCH = -6.0;
   protected const ROOM_ENTRY_NARRATOR_VOLUME_GAIN_DB = 2.0;
+  protected const SEARCH_MODE_EXPLICIT = 'explicit';
+  protected const SEARCH_EXPLICIT_BONUS = 2;
+  protected const SEARCH_PASSIVE_BONUS = 0;
+  protected const SEARCH_PROFICIENCY_RANK = 0;
 
   /**
    * @var \Drupal\Core\Database\Connection
@@ -364,41 +368,13 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
         $narration = $result['narration'] ?? NULL;
         // Searching advances time by 10 minutes.
         $this->advanceExplorationTime($game_state, 10, $this->buildTimeEffectContext($actor_id, $params, 'search'));
-        $events[] = GameEventLogger::buildEvent('search', 'exploration', $actor_id, [
-          'roll' => $result['roll'] ?? NULL,
-          'dc' => $result['dc'] ?? NULL,
-          'degree' => $result['degree'] ?? NULL,
-          'discoveries' => $result['discoveries'] ?? [],
-        ], $narration);
-
-        // Queue search roll as mechanical event + search action for narration.
-        $actor_entity = $this->findEntityInDungeon($actor_id, $dungeon_data);
-        $this->queueNarrationEvent($campaign_id, $dungeon_data, [
-          'type' => 'skill_check_result',
-          'speaker' => 'System',
-          'speaker_type' => 'system',
-          'speaker_ref' => '',
-          'content' => sprintf('%s searches the area (Perception %d vs DC %d: %s).', $actor_entity['name'] ?? $actor_id, $result['total'] ?? 0, $result['dc'] ?? 15, $result['degree'] ?? 'unknown'),
-          'mechanical_data' => [
-            'skill' => 'perception',
-            'roll' => $result['roll'] ?? NULL,
-            'total' => $result['total'] ?? NULL,
-            'dc' => $result['dc'] ?? NULL,
-            'degree' => $result['degree'] ?? NULL,
-          ],
-          'visibility' => 'public',
-        ]);
-        // If discoveries were made, queue a narration event for them.
-        if (!empty($result['discoveries'])) {
-          $this->queueNarrationEvent($campaign_id, $dungeon_data, [
-            'type' => 'action',
-            'speaker' => $actor_entity['name'] ?? $actor_id,
-            'speaker_type' => 'player',
-            'speaker_ref' => $actor_id,
-            'content' => sprintf('%s discovers: %s', $actor_entity['name'] ?? $actor_id, implode(', ', array_map(fn($d) => $d['name'] ?? $d['id'] ?? 'something', $result['discoveries']))),
-            'visibility' => 'public',
-          ]);
+        $public_discoveries = $this->buildPublicSearchDiscoveries($result['discoveries'] ?? []);
+        if ($public_discoveries !== [] || (is_string($narration) && trim($narration) !== '')) {
+          $events[] = GameEventLogger::buildEvent('search', 'exploration', $actor_id, [
+            'discoveries' => $public_discoveries,
+          ], $narration);
         }
+        $result = $this->buildPublicSearchResult($result);
         break;
 
       case 'transition':
@@ -2025,9 +2001,8 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
    * Process a search action (Perception check to reveal hidden entities).
    */
   public function processSearch(string $actor_id, array $params, array &$game_state, array &$dungeon_data, int $campaign_id): array {
-    // Roll Perception check using server-authoritative dice.
-    $perception_bonus = (int) ($params['perception_bonus'] ?? 0);
-    $perception_rank = (int) ($params['perception_proficiency_rank'] ?? 1);
+    $perception_bonus = $this->resolveSearchPerceptionBonus($params);
+    $perception_rank = self::SEARCH_PROFICIENCY_RANK;
     $roll_result = $this->numberGenerationService->rollPathfinderDie(20);
     $total = $roll_result + $perception_bonus;
 
@@ -2089,9 +2064,6 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
       }
     }
     $narration = $this->buildSearchNarration($discoveries, $sensory_result);
-    if ($quest_discovery) {
-      $narration = trim($narration . ' ' . $quest_discovery['narration']);
-    }
 
     return [
       'searched'     => TRUE,
@@ -2162,13 +2134,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
         'objective_id' => $quest_target['objective_id'],
         'current' => $progress_state['current'],
         'target' => $progress_state['target'],
-        'narration' => sprintf(
-          'You find %s (%d/%d for %s).',
-          $item_name,
-          $progress_state['current'],
-          $progress_state['target'],
-          $quest_target['quest_name']
-        ),
+        'narration' => sprintf('You notice %s.', $item_name),
       ];
     }
     catch (\Throwable $e) {
@@ -3527,10 +3493,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
       $gameplay_state['revealed_sensory_details'] = [];
     }
 
-    $requested_tier = $this->normalizeSensoryTierKey($params['sense'] ?? $params['sensory_tier'] ?? NULL);
-    $target_tier = $requested_tier && isset($catalog[$requested_tier])
-      ? $requested_tier
-      : $this->resolveNextUnrevealedSensoryTier($catalog, $gameplay_state['revealed_sensory_details']);
+    $target_tier = $this->resolveNextUnrevealedSensoryTier($catalog, $gameplay_state['revealed_sensory_details']);
 
     if ($target_tier === NULL) {
       return [
@@ -3609,7 +3572,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
       $gameplay_state['revealed_sensory_details'] = [];
     }
 
-    $perception_bonus = (int) ($actor['stats']['perception'] ?? ($actor['state']['skills']['perception'] ?? 0));
+    $perception_bonus = self::SEARCH_PASSIVE_BONUS;
     $reveals = [];
     $revealed_from_cache = FALSE;
     $rolled_any = FALSE;
@@ -3784,29 +3747,57 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
 
     if (!empty($sensory_result['reveals'])) {
       $sensory_lines = array_map(
-        fn(array $reveal): string => sprintf('%s: %s', $reveal['label'] ?? 'Detail', $reveal['detail'] ?? ''),
+        fn(array $reveal): string => (string) ($reveal['detail'] ?? ''),
         array_filter($sensory_result['reveals'], fn(array $reveal): bool => trim((string) ($reveal['detail'] ?? '')) !== '')
       );
       if ($sensory_lines !== []) {
         $parts[] = implode(' ', $sensory_lines);
       }
     }
-    elseif (($sensory_result['status'] ?? '') === 'miss') {
-      $label = $sensory_result['target']['label'] ?? 'deeper detail';
-      $parts[] = sprintf('You search carefully, but %s yields no new clues.', strtolower((string) $label));
-    }
-    elseif (($sensory_result['status'] ?? '') === 'complete') {
-      $parts[] = 'You have already gleaned the room\'s obvious sensory details.';
-    }
-
     if ($discoveries !== []) {
-      $parts[] = 'You also uncover ' . $this->joinNaturalLanguageList(array_map(
-        fn(array $discovery): string => (string) ($discovery['name'] ?? $discovery['id'] ?? 'something hidden'),
-        $discoveries
-      )) . '.';
+      foreach ($discoveries as $discovery) {
+        $parts[] = 'You notice ' . (string) ($discovery['name'] ?? $discovery['id'] ?? 'something hidden') . '.';
+      }
     }
 
     return $parts !== [] ? implode(' ', $parts) : NULL;
+  }
+
+  /**
+   * Resolve the server-owned Search modifier.
+   */
+  protected function resolveSearchPerceptionBonus(array $params): int {
+    return ($params['search_mode'] ?? NULL) === self::SEARCH_MODE_EXPLICIT
+      ? self::SEARCH_EXPLICIT_BONUS
+      : self::SEARCH_PASSIVE_BONUS;
+  }
+
+  /**
+   * Strip secret Search mechanics from client-facing action responses.
+   */
+  protected function buildPublicSearchResult(array $result): array {
+    $public = ['searched' => TRUE];
+    $discoveries = $this->buildPublicSearchDiscoveries($result['discoveries'] ?? []);
+    if ($discoveries !== []) {
+      $public['discoveries'] = $discoveries;
+    }
+    return $public;
+  }
+
+  /**
+   * Build discovery payloads without roll/DC/degree/sense metadata.
+   */
+  protected function buildPublicSearchDiscoveries(array $discoveries): array {
+    return array_values(array_map(
+      static fn(array $discovery): array => array_filter([
+        'instance_id' => $discovery['instance_id'] ?? NULL,
+        'id' => $discovery['id'] ?? NULL,
+        'name' => $discovery['name'] ?? NULL,
+        'quest_id' => $discovery['quest_id'] ?? NULL,
+        'objective_id' => $discovery['objective_id'] ?? NULL,
+      ], static fn($value): bool => $value !== NULL && $value !== ''),
+      array_filter($discoveries, 'is_array')
+    ));
   }
 
   /**
@@ -3818,7 +3809,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
     }
 
     $lines = array_map(
-      static fn(array $reveal): string => sprintf('%s: %s', $reveal['label'] ?? 'Detail', $reveal['detail'] ?? ''),
+      static fn(array $reveal): string => (string) ($reveal['detail'] ?? ''),
       array_filter($sensory_result['reveals'], static fn(array $reveal): bool => trim((string) ($reveal['detail'] ?? '')) !== '')
     );
 
@@ -3826,7 +3817,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
       return NULL;
     }
 
-    return 'Your trained senses immediately catch more of the room: ' . implode(' ', $lines);
+    return implode(' ', $lines);
   }
 
   /**

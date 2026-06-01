@@ -44,18 +44,31 @@ export class HexFogOfWar {
     /** @type {PIXI.Graphics|null} Active fog overlay */
     this._fogOverlay = null;
     this._unsubs = [];
+    this._enabled = true;
+    this._selectedEntity = null;
   }
 
   init() {
     this._unsubs.push(
       this.bus.on('entity:selected', ({ entity } = {}) => {
+        this._selectedEntity = entity ?? null;
         this._refresh(entity ?? null);
       }),
       this.bus.on('entity:deselected', () => {
+        this._selectedEntity = null;
         this._clearFog();
       }),
       this.bus.on('room:changed', () => {
+        this._selectedEntity = null;
         this._clearFog();
+      }),
+      this.bus.on('canvas:fog-toggled', ({ enabled } = {}) => {
+        this._enabled = Boolean(enabled);
+        if (!this._enabled) {
+          this._clearFog();
+          return;
+        }
+        this._refresh(this._selectedEntity);
       })
     );
   }
@@ -80,6 +93,10 @@ export class HexFogOfWar {
     const fxContainer = this.hexCanvas?.fxContainer;
     const hexContainer = this.hexCanvas?.hexContainer;
     if (!fxContainer || !hexContainer || !window.PIXI) return;
+    if (!this._enabled) {
+      this._clearFog();
+      return;
+    }
 
     // Only show fog for player-team entities
     const combat = entity?.getComponent?.('CombatComponent');

@@ -99,6 +99,7 @@ export class ChatPanel {
     this.roomChatBusy = false;
     this.roomChatQueueDraining = false;
     this.roomChatDeferredMessages = [];
+    this._handleGameEvents = (event) => this.handleGameEvents(event);
   }
 
   init(dungeonData, stateManager) {
@@ -130,6 +131,9 @@ export class ChatPanel {
     const nullKeys = Object.entries(this._el).filter(([,v]) => !v).map(([k]) => k);
     console.log('[ChatPanel] init', { container: !!this.container, nullEl: nullKeys.length, nullKeys: nullKeys.join(',') || 'none' });
     this._subscribe();
+    if (typeof window !== 'undefined') {
+      window.addEventListener('dungeoncrawler:game-events', this._handleGameEvents);
+    }
     this.setupChatLog();
     this.setupChannelTabs();
     this.setupSessionViewTabs();
@@ -138,6 +142,9 @@ export class ChatPanel {
   destroy() {
     this._unsubs.forEach((fn) => fn());
     this._unsubs = [];
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('dungeoncrawler:game-events', this._handleGameEvents);
+    }
   }
 
   _subscribe() {
@@ -148,7 +155,7 @@ export class ChatPanel {
         if (line?.speaker && line?.message) this.appendChatLine(line.speaker, line.message, line.type || 'npc', line.options);
       }),
       this.bus.on('chat:system-message',    (d) => {
-        if (d?.text) this.appendChatLine('System', d.text, 'system');
+        if (d?.text) this.appendChatLine(d.speaker || 'System', d.text, d.kind || 'system');
       }),
       this.bus.on('chat:turn-status-changed', () => this.syncChatTurnStatus()),
       this.bus.on('session:view-data', (d) => {
@@ -389,107 +396,118 @@ export class ChatPanel {
       channelKey: options.channelKey,
       context: options.context,
     });
-    const response = await fetch(
-      `/api/campaign/${encodeURIComponent(campaignId)}/room/${encodeURIComponent(roomId)}/chat`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'X-Requested-With': 'XMLHttpRequest',
-        },
-        credentials: 'same-origin',
-        body: JSON.stringify({
-          speaker,
-          message,
-          type: 'player',
-          character_id: characterId,
-          channel: chatTarget.channelKey,
-          stream: shouldStream,
-          client_request_id: options.clientRequestId || '',
-          suppress_gm: Boolean(options.suppressGm),
-          continue_gm: Boolean(options.continueGm),
-        }),
-      }
-    );
-
-    if (!response.ok) {
-      const result = await response.json().catch(() => ({}));
-      throw new Error(result.error || `HTTP ${response.status}`);
-    }
-
-    const contentType = response.headers.get('content-type') || '';
-    if (contentType.includes('application/x-ndjson') && response.body?.getReader) {
-      return await this.consumeStreamedChatResponse(response, {
-        ...options,
-        target: chatTarget,
-      });
-    }
-
-    const result = await response.json();
-    if (!result.success) {
-      throw new Error(result.error || 'Unknown error');
-    }
-    if (Array.isArray(result.data?.turn_sequence)) {
-      this.rememberRoomTurnSequence(result.data.turn_sequence, chatTarget.context, chatTarget.channelKey);
-    }
-
-    const pending = options.pendingRequest || null;
-    if (pending) {
-      this.settlePendingChatRequest(pending, {
-        removePlayer: false,
-        removePlaceholder: !result.data?.gm_response,
-      });
-    } else {
-      this.appendChatLineToTarget(chatTarget, speaker, message, 'player');
-    }
-
-    if (result.data?.turn_logs?.length) {
-      for (const logMsg of result.data.turn_logs) {
-        this.appendChatLineToTarget(chatTarget, logMsg.speaker || 'System', logMsg.message || '', logMsg.type || 'system');
-      }
-    }
-
-    if (result.data?.gm_response) {
-      this.renderPendingGmResponse(pending, result.data.gm_response);
-    } else if (!options.suppressGm && !options.continueGm) {
-      await this.loadChatHistory({ force: true });
-    }
-
-    if (result.data?.npc_interjections?.length) {
-      for (const npcMsg of result.data.npc_interjections) {
-        this.appendChatLineToTarget(chatTarget, npcMsg.speaker, npcMsg.message, 'npc');
-      }
-    }
-
-    const questHexmap = this.stateManager?.hexmap || null;
-    let questJournalRefreshed = false;
-    if (result.data?.quest_updates?.length) {
-      await questHexmap?.applyQuestUpdates?.(result.data.quest_updates);
-      questJournalRefreshed = true;
-    }
-
-    if (!questJournalRefreshed && typeof questHexmap?.refreshQuestJournalFromApi === 'function') {
-      await questHexmap.refreshQuestJournalFromApi();
-    }
-
-    if (result.data?.navigation?.target_room_id) {
-      this.handleNavigationResult(result.data.navigation);
-    }
-
-    const pinnedRoomId = this.resolvePinnedChatRoomTarget(chatTarget?.context?.roomId, roomId);
-    if (pinnedRoomId) {
-      this.bus.emit('room:view-reload-requested', { roomId: pinnedRoomId, force: true, preserveExisting: true });
-    }
-
-    this.invalidateChatCaches({
-      room: true,
-      sessionViews: ['narrative', 'party', 'gm-private', 'system-log'],
+    const backendRequestId = options.clientRequestId || `chat-${Date.now()}`;
+    this.bus.emit('game:backend-request-start', {
+      requestId: backendRequestId,
+      label: 'Waiting for narrator response...',
+      source: 'chat',
     });
-    options.onPrimaryResponse?.(result);
-    this.logChatTimingSummary(result, pending);
-    this.prefetchSessionViews();
-    return result;
+
+    try {
+      const response = await fetch(
+        `/api/campaign/${encodeURIComponent(campaignId)}/room/${encodeURIComponent(roomId)}/chat`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest',
+          },
+          credentials: 'same-origin',
+          body: JSON.stringify({
+            speaker,
+            message,
+            type: 'player',
+            character_id: characterId,
+            channel: chatTarget.channelKey,
+            stream: shouldStream,
+            client_request_id: options.clientRequestId || '',
+            suppress_gm: Boolean(options.suppressGm),
+            continue_gm: Boolean(options.continueGm),
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        const result = await response.json().catch(() => ({}));
+        throw new Error(result.error || `HTTP ${response.status}`);
+      }
+
+      const contentType = response.headers.get('content-type') || '';
+      if (contentType.includes('application/x-ndjson') && response.body?.getReader) {
+        return await this.consumeStreamedChatResponse(response, {
+          ...options,
+          target: chatTarget,
+        });
+      }
+
+      const result = await response.json();
+      if (!result.success) {
+        throw new Error(result.error || 'Unknown error');
+      }
+      if (Array.isArray(result.data?.turn_sequence)) {
+        this.rememberRoomTurnSequence(result.data.turn_sequence, chatTarget.context, chatTarget.channelKey);
+      }
+
+      const pending = options.pendingRequest || null;
+      if (pending) {
+        this.settlePendingChatRequest(pending, {
+          removePlayer: false,
+          removePlaceholder: !result.data?.gm_response,
+        });
+      } else {
+        this.appendChatLineToTarget(chatTarget, speaker, message, 'player');
+      }
+
+      if (result.data?.turn_logs?.length) {
+        for (const logMsg of result.data.turn_logs) {
+          this.appendChatLineToTarget(chatTarget, logMsg.speaker || 'System', logMsg.message || '', logMsg.type || 'system');
+        }
+      }
+
+      if (result.data?.gm_response) {
+        this.renderPendingGmResponse(pending, result.data.gm_response);
+      } else if (!options.suppressGm && !options.continueGm) {
+        await this.loadChatHistory({ force: true });
+      }
+
+      if (result.data?.npc_interjections?.length) {
+        for (const npcMsg of result.data.npc_interjections) {
+          this.appendChatLineToTarget(chatTarget, npcMsg.speaker, npcMsg.message, 'npc');
+        }
+      }
+
+      const questHexmap = this.stateManager?.hexmap || null;
+      let questJournalRefreshed = false;
+      if (result.data?.quest_updates?.length) {
+        await questHexmap?.applyQuestUpdates?.(result.data.quest_updates);
+        questJournalRefreshed = true;
+      }
+
+      if (!questJournalRefreshed && typeof questHexmap?.refreshQuestJournalFromApi === 'function') {
+        await questHexmap.refreshQuestJournalFromApi();
+      }
+
+      if (result.data?.navigation?.target_room_id) {
+        this.handleNavigationResult(result.data.navigation);
+      }
+
+      const pinnedRoomId = this.resolvePinnedChatRoomTarget(chatTarget?.context?.roomId, roomId);
+      if (pinnedRoomId) {
+        this.bus.emit('room:view-reload-requested', { roomId: pinnedRoomId, force: true, preserveExisting: true });
+      }
+
+      this.invalidateChatCaches({
+        room: true,
+        sessionViews: ['narrative', 'party', 'gm-private', 'system-log'],
+      });
+      options.onPrimaryResponse?.(result);
+      this.logChatTimingSummary(result, pending);
+      this.prefetchSessionViews();
+      return result;
+    } finally {
+      this.bus.emit('game:backend-request-end', { requestId: backendRequestId, source: 'chat' });
+    }
   }
 
   setupChannelTabs() {
@@ -1218,13 +1236,14 @@ export class ChatPanel {
       return null;
     }
 
+    const displayMessage = this.formatEncounterChatMessage(speaker, message, type, options);
     const existingLine = options.replaceLine || (options.lineId ? this.findChatLineById(options.lineId) : null);
     if (!existingLine && !options.lineId) {
       const lastLine = log.lastElementChild;
       if (
         lastLine
         && lastLine.dataset?.speaker === (speaker || '')
-        && lastLine.dataset?.message === (message || '')
+        && lastLine.dataset?.message === (displayMessage || '')
         && lastLine.dataset?.type === (type || 'npc')
         && lastLine.dataset?.transient !== '1'
       ) {
@@ -1244,10 +1263,10 @@ export class ChatPanel {
     }
 
     const text = document.createElement('span');
-    text.textContent = message;
+    text.textContent = displayMessage;
     line.appendChild(text);
     line.dataset.speaker = speaker || '';
-    line.dataset.message = message || '';
+    line.dataset.message = displayMessage || '';
     line.dataset.type = type || 'npc';
     if (options.lineId) {
       line.dataset.lineId = options.lineId;
@@ -1280,6 +1299,172 @@ export class ChatPanel {
       this.syncCurrentChatViewState();
     }
     return line;
+  }
+
+  formatEncounterChatMessage(speaker, message, type = 'npc', options = {}) {
+    const rawMessage = String(message || '').trim();
+    if (!rawMessage || options.encounterPrefix === false || /^Round\s+\d+\s*:/i.test(rawMessage)) {
+      return message || '';
+    }
+    const normalizedType = String(type || '').toLowerCase();
+    if (normalizedType === 'system' && !options.encounterEvent) {
+      return message || '';
+    }
+    const context = this.resolveEncounterChatContext(speaker, options);
+    if (!context) {
+      return message || '';
+    }
+    return `Round ${context.round}: Actor ${context.actorName}: ${rawMessage}`;
+  }
+
+  resolveEncounterChatContext(speaker = '', options = {}) {
+    const hexmap = this.stateManager?.hexmap || null;
+    const snapshot = hexmap?.gameCoordinator?.phaseManager?.getSnapshot?.() || {};
+    const gameState = hexmap?.dungeonData?.game_state || this.dungeonData?.game_state || {};
+    const phase = String(snapshot.phase || gameState.phase || '').toLowerCase();
+    if (phase !== 'encounter' && !options.encounterEvent) {
+      return null;
+    }
+    const data = options.event?.data || {};
+    const round = Number(options.round ?? data.round ?? snapshot.round ?? gameState.round);
+    if (!Number.isFinite(round) || round <= 0) {
+      return null;
+    }
+    const actorId = String(options.actorId || options.event?.actor || data.entity_id || snapshot.turn?.entity || gameState.turn?.entity || '').trim();
+    const explicitSpeaker = String(speaker || '').trim();
+    const actorName = String(options.actorName || data.actor_name || data.actor || explicitSpeaker || this.resolveEncounterActorName(actorId) || 'Narrator').trim();
+    return {
+      round,
+      actorId,
+      actorName: actorName || 'Narrator',
+    };
+  }
+
+  resolveEncounterActorName(actorId = '') {
+    const id = String(actorId || '').trim();
+    if (!id) {
+      return '';
+    }
+    const hexmap = this.stateManager?.hexmap || null;
+    const entities = Array.isArray(hexmap?.dungeonData?.entities)
+      ? hexmap.dungeonData.entities
+      : (Array.isArray(this.dungeonData?.entities) ? this.dungeonData.entities : []);
+    const normalize = (value) => String(value || '').trim();
+    for (const entity of entities) {
+      const metadata = entity?.state?.metadata || {};
+      const keys = [
+        entity?.entity_instance_id,
+        entity?.instance_id,
+        entity?.id,
+        entity?.entity_id,
+        entity?.entity_ref?.content_id,
+        entity?.entity_ref?.id,
+        metadata.entity_ref,
+        metadata.entity_id,
+      ].map(normalize).filter(Boolean);
+      if (!keys.includes(id)) {
+        continue;
+      }
+      return normalize(metadata.display_name || metadata.name || entity?.display_name || entity?.name || entity?.entity_ref?.content_id || id);
+    }
+    const initiativeOrder = Array.isArray(hexmap?.dungeonData?.game_state?.initiative_order)
+      ? hexmap.dungeonData.game_state.initiative_order
+      : [];
+    const participant = initiativeOrder.find((entry) => normalize(entry?.entity_id) === id || normalize(entry?.participant_ref) === id);
+    return normalize(participant?.name || '');
+  }
+
+  handleGameEvents(event) {
+    const events = Array.isArray(event?.detail?.events) ? event.detail.events : [];
+    for (const gameEvent of events) {
+      const chatLine = this.buildEncounterEventChatLine(gameEvent);
+      if (!chatLine) {
+        continue;
+      }
+      this.appendChatLine(chatLine.speaker, chatLine.message, chatLine.type, {
+        lineId: chatLine.lineId,
+        encounterEvent: true,
+        event: gameEvent,
+        round: Number.isFinite(chatLine.round) ? chatLine.round : undefined,
+        actorId: chatLine.actorId,
+        actorName: chatLine.actorName,
+      });
+    }
+  }
+
+  buildEncounterEventChatLine(event = {}) {
+    const type = String(event.type || '').trim();
+    const data = event.data || {};
+    const round = Number(data.round);
+    const actorId = String(event.actor || data.entity_id || '').trim();
+    const actorName = this.resolveEncounterActorName(actorId)
+      || String(data.actor_name || data.actor || '').trim()
+      || this.extractActorNameFromNarration(event.narration)
+      || 'Narrator';
+    const lineId = event.id
+      ? `encounter-event-${event.id}`
+      : `encounter-event-${type}-${Number.isFinite(round) ? round : 'unknown'}-${actorId || 'narrator'}-${String(event.narration || '').slice(0, 32)}`;
+    if (type === 'round_start') {
+      return {
+        speaker: 'Narrator',
+        message: event.narration || `Round ${Number.isFinite(round) ? round : ''} begins.`.trim(),
+        type: 'gm',
+        lineId,
+        round,
+        actorId,
+        actorName: 'Narrator',
+      };
+    }
+    if (type === 'turn_start') {
+      return {
+        speaker: 'Narrator',
+        message: event.narration || `${actorName}'s turn begins.`,
+        type: 'gm',
+        lineId,
+        round,
+        actorId,
+        actorName,
+      };
+    }
+    if (type === 'choose_not_to_act' || type === 'npc_choose_not_to_act' || type === 'end_turn') {
+      return {
+        speaker: 'Narrator',
+        message: event.narration || `${actorName} ends their turn.`,
+        type: 'gm',
+        lineId,
+        round,
+        actorId,
+        actorName,
+      };
+    }
+    if (type === 'search' && typeof event.narration === 'string' && event.narration.trim()) {
+      return {
+        speaker: 'Narrator',
+        message: event.narration.trim(),
+        type: 'gm',
+        lineId,
+        round,
+        actorId,
+        actorName,
+      };
+    }
+    return null;
+  }
+
+  extractActorNameFromNarration(narration = '') {
+    const text = String(narration || '').trim();
+    if (text === '') {
+      return '';
+    }
+    const turnMatch = text.match(/^(.+?)'s turn begins\.$/i);
+    if (turnMatch?.[1]) {
+      return turnMatch[1].trim();
+    }
+    const endMatch = text.match(/^(.+?)\s+(?:ends their turn|chooses not to act|takes no action)\.?$/i);
+    if (endMatch?.[1]) {
+      return endMatch[1].trim();
+    }
+    return '';
   }
 
   findChatLineById(lineId) {
@@ -2431,6 +2616,7 @@ export class ChatPanel {
       const result = await this.fetchRoomChatHistory(options);
       if (result?.success && result.data?.messages) {
         this.renderRoomChatHistory(result);
+        await this.renderPersistedEncounterEventHistory();
         this.prefetchSessionViews();
         this.prefetchConnectedRoomContext();
       }
@@ -2450,6 +2636,7 @@ export class ChatPanel {
     if (!this.roomChatCache) {
       this.roomChatCache = new Map();
     }
+
     if (!this.roomChatInflight) {
       this.roomChatInflight = new Map();
     }
@@ -2509,6 +2696,33 @@ export class ChatPanel {
       if (this.roomChatInflight.get(cacheKey) === request) {
         this.roomChatInflight.delete(cacheKey);
       }
+    }
+  }
+
+  async renderPersistedEncounterEventHistory() {
+    const context = this.getChatContext();
+    if (!context.campaignId) {
+      return;
+    }
+    try {
+      const response = await fetch(`/api/game/${encodeURIComponent(context.campaignId)}/events?since=0`, {
+        method: 'GET',
+        headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+        credentials: 'same-origin',
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      const result = await response.json();
+      const events = Array.isArray(result?.events) ? result.events : [];
+      if (events.length === 0) {
+        return;
+      }
+      this.handleGameEvents({
+        detail: { events },
+      });
+    } catch (error) {
+      console.warn('[ChatPanel] Failed to render persisted encounter events:', error?.message || error);
     }
   }
 

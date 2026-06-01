@@ -123,10 +123,11 @@ class CampaignTimeResolverService {
       }
     }
 
-    $elapsed_minutes = $this->resolveElapsedMinutes($elapsed_effects);
-    if ($elapsed_minutes > 0) {
-      $this->applyCompatibilityCounters($game_state, $normalized_effects, $elapsed_minutes);
-      $this->campaignClockService->advanceClock($game_state, $elapsed_minutes);
+    $elapsed_seconds = $this->resolveElapsedSeconds($elapsed_effects);
+    $elapsed_minutes = intdiv($elapsed_seconds, 60);
+    if ($elapsed_seconds > 0) {
+      $this->applyCompatibilityCounters($game_state, $normalized_effects, $elapsed_seconds);
+      $this->campaignClockService->advanceClock($game_state, $elapsed_minutes, 0, NULL, $elapsed_seconds % 60);
       $this->campaignClockService->syncLegacyGameTime($game_state);
     }
 
@@ -134,6 +135,7 @@ class CampaignTimeResolverService {
 
     return [
       'elapsed_minutes' => $elapsed_minutes,
+      'elapsed_seconds' => $elapsed_seconds,
       'activities_created' => $created_activities,
       'activities_completed' => $completed,
     ];
@@ -145,7 +147,9 @@ class CampaignTimeResolverService {
   protected function normalizeEffect(array $effect, string $default_phase): array {
     $duration_minutes = max(0, (int) ($effect['duration_minutes'] ?? 0));
     $duration_days = max(0, (int) ($effect['duration_days'] ?? 0));
+    $duration_seconds = max(0, (int) ($effect['duration_seconds'] ?? 0));
     $total_minutes = $duration_minutes + ($duration_days * 1440);
+    $total_seconds = ($total_minutes * 60) + $duration_seconds;
 
     $actor_ids = $effect['actor_ids'] ?? [];
     if (!is_array($actor_ids)) {
@@ -162,6 +166,7 @@ class CampaignTimeResolverService {
       'action_type' => $effect['action_type'] ?? 'unknown',
       'actor_ids' => $actor_ids,
       'duration_minutes' => $total_minutes,
+      'duration_seconds' => $total_seconds,
       'concurrency_group' => (string) ($effect['concurrency_group'] ?? ''),
       'location_context' => is_array($effect['location_context'] ?? NULL) ? $effect['location_context'] : [],
       'advance_immediately' => !empty($effect['advance_immediately']),
@@ -172,9 +177,10 @@ class CampaignTimeResolverService {
    * Creates a stored activity record from a time effect.
    */
   protected function buildActivityRecord(array $effect, DateTimeImmutable $now): array {
-    $duration_minutes = (int) ($effect['duration_minutes'] ?? 0);
-    $end = $duration_minutes > 0 ? $now->modify('+' . $duration_minutes . ' minutes') : $now;
-    $is_completed = ($effect['mode'] ?? 'elapsed') === 'elapsed' || $duration_minutes === 0;
+    $duration_seconds = (int) ($effect['duration_seconds'] ?? (((int) ($effect['duration_minutes'] ?? 0)) * 60));
+    $duration_minutes = (int) floor($duration_seconds / 60);
+    $end = $duration_seconds > 0 ? $now->modify('+' . $duration_seconds . ' seconds') : $now;
+    $is_completed = ($effect['mode'] ?? 'elapsed') === 'elapsed' || $duration_seconds === 0;
 
     $record = [
       'activity_id' => uniqid('activity_', TRUE),
@@ -185,6 +191,7 @@ class CampaignTimeResolverService {
       'started_at' => $now->format('Y-m-d\TH:i:s\Z'),
       'ends_at' => $end->format('Y-m-d\TH:i:s\Z'),
       'duration_minutes' => $duration_minutes,
+      'duration_seconds' => $duration_seconds,
       'concurrency_group' => (string) ($effect['concurrency_group'] ?? ''),
       'location_context' => is_array($effect['location_context'] ?? NULL) ? $effect['location_context'] : [],
     ];
@@ -199,11 +206,11 @@ class CampaignTimeResolverService {
   /**
    * Resolves how much campaign time a batch of immediate effects should consume.
    */
-  protected function resolveElapsedMinutes(array $effects): int {
+  protected function resolveElapsedSeconds(array $effects): int {
     $lanes = [];
 
     foreach ($effects as $effect) {
-      $duration = (int) ($effect['duration_minutes'] ?? 0);
+      $duration = (int) ($effect['duration_seconds'] ?? (((int) ($effect['duration_minutes'] ?? 0)) * 60));
       if ($duration <= 0) {
         continue;
       }
@@ -214,14 +221,14 @@ class CampaignTimeResolverService {
 
       foreach ($lanes as &$lane) {
         if ($group !== '' && $lane['concurrency_group'] === $group) {
-          $lane['duration_minutes'] = max($lane['duration_minutes'], $duration);
+          $lane['duration_seconds'] = max($lane['duration_seconds'], $duration);
           $lane['actor_ids'] = array_values(array_unique(array_merge($lane['actor_ids'], $actor_ids)));
           $matched = TRUE;
           break;
         }
 
         if ($actor_ids !== [] && array_intersect($lane['actor_ids'], $actor_ids)) {
-          $lane['duration_minutes'] += $duration;
+          $lane['duration_seconds'] += $duration;
           $lane['actor_ids'] = array_values(array_unique(array_merge($lane['actor_ids'], $actor_ids)));
           $matched = TRUE;
           break;
@@ -233,14 +240,14 @@ class CampaignTimeResolverService {
         $lanes[] = [
           'concurrency_group' => $group,
           'actor_ids' => $actor_ids,
-          'duration_minutes' => $duration,
+          'duration_seconds' => $duration,
         ];
       }
     }
 
     $elapsed = 0;
     foreach ($lanes as $lane) {
-      $elapsed = max($elapsed, (int) ($lane['duration_minutes'] ?? 0));
+      $elapsed = max($elapsed, (int) ($lane['duration_seconds'] ?? 0));
     }
 
     return $elapsed;
@@ -249,7 +256,8 @@ class CampaignTimeResolverService {
   /**
    * Keeps legacy phase-local counters synchronized with resolved elapsed time.
    */
-  protected function applyCompatibilityCounters(array &$game_state, array $effects, int $elapsed_minutes): void {
+  protected function applyCompatibilityCounters(array &$game_state, array $effects, int $elapsed_seconds): void {
+    $elapsed_minutes = intdiv($elapsed_seconds, 60);
     $phases = array_values(array_unique(array_map(
       static fn (array $effect) => (string) ($effect['phase'] ?? 'exploration'),
       $effects

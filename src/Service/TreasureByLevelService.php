@@ -203,11 +203,11 @@ class TreasureByLevelService {
   }
 
   /**
-   * Validates whether trading is happening during downtime.
+   * Validates whether trading is happening inside the live encounter runtime.
    */
   public function validateTradePhase(string $phase): array {
     $normalized_phase = strtolower(trim($phase));
-    if ($normalized_phase === 'downtime') {
+    if ($normalized_phase === 'encounter' || $normalized_phase === '') {
       return [
         'success' => TRUE,
         'flagged' => FALSE,
@@ -222,14 +222,14 @@ class TreasureByLevelService {
       'flagged' => TRUE,
       'blocked' => FALSE,
       'gm_override_available' => TRUE,
-      'reason' => 'not_downtime',
+      'reason' => 'unsupported_phase',
     ];
   }
 
   /**
    * Computes the sell value for an item and enforces the PF2e sale rules.
    */
-  public function sellItem(string $item_type, float $price, ?float $requested_price = NULL, string $phase = 'downtime'): array {
+  public function sellItem(string $item_type, float $price, ?float $requested_price = NULL, string $phase = 'encounter'): array {
     $phase_result = $this->validateTradePhase($phase);
     if (!$phase_result['success']) {
       return $phase_result + [

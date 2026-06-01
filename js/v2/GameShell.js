@@ -25,7 +25,7 @@ import { HexCanvas } from './canvas/HexCanvas.js';
 import { HexTokenRenderer } from './canvas/HexTokenRenderer.js';
 import { HexFogOfWar } from './canvas/HexFogOfWar.js';
 import { HexInputHandler } from './canvas/HexInputHandler.js';
-import { EncounterSystem } from './systems/EncounterSystem.js';
+import { EncounterSystem } from './systems/EncounterSystem.js?v=20260601-v2-search-framework-2';
 import { NavigationSystem } from './systems/NavigationSystem.js';
 import { PlayerAutomation } from './systems/PlayerAutomation.js';
 import { QuestSystem } from './systems/QuestSystem.js';
@@ -33,15 +33,23 @@ import { PortraitPanel } from './panels/PortraitPanel.js';
 import { MerchantPanel } from './panels/MerchantPanel.js';
 import { CombatPanel } from './panels/CombatPanel.js';
 import { ActionRailPanel } from './panels/ActionRailPanel.js';
-import { ChatPanel } from './panels/ChatPanel.js';
+import { ChatPanel } from './panels/ChatPanel.js?v=20260601-v2-search-framework-3';
 import { QuestPanel } from './panels/QuestPanel.js';
 import { InventoryPanel } from './panels/InventoryPanel.js';
 import { CharacterPanel } from './panels/CharacterPanel.js';
 import { RoomViewPanel } from './panels/RoomViewPanel.js';
 import { PartyRailPanel } from './panels/PartyRailPanel.js';
 import { StatusPanel } from './panels/StatusPanel.js';
+import { SpriteService } from '../SpriteService.js';
 import {
   EntityManager,
+  PositionComponent,
+  RenderComponent,
+  IdentityComponent,
+  MovementComponent,
+  StatsComponent,
+  ActionsComponent,
+  CombatComponent,
   RenderSystem,
   MovementSystem,
   TurnManagementSystem,
@@ -84,6 +92,14 @@ export class GameShell {
       this.mapVisualState?.map_meta?.active_room_id ||
       this.launchContext?.room_id ||
       null;
+    this.characterData = this.launchCharacter;
+    this.spriteService = new SpriteService();
+    this._hexmapShim = null;
+    this._stateManagerShim = null;
+    this._domUnsubs = [];
+    this._busUnsubs = [];
+    this._inventoryRefreshSequence = 0;
+    this.reset();
 
     // Sub-module handles — populated in init()
     this.bus = null;
@@ -135,6 +151,8 @@ export class GameShell {
     this._initCanvas();
     this._initSystems();
     this._initPanels();
+    this._bindMapControls();
+    this._bindInteractionEvents();
 
     // Build flat quests array with objectives flattened from phases
     const allQuests = [
@@ -143,14 +161,33 @@ export class GameShell {
       ...(Array.isArray(this.questSummary?.leads)  ? this.questSummary.leads  : []),
     ].map((q) => ({ ...q, objectives: _flattenQuestObjectives(q) }));
 
+    const launchCharacterId = this.launchCharacter?.id ?? this.launchContext?.character_id ?? null;
+    const launchCampaignId = Number(
+      this.launchContext?.campaign_id
+      || this.launchCharacter?.campaignId
+      || this.launchCharacter?.campaign_id
+      || 0
+    ) || null;
+    const launchInventoryContext = {
+      characterId: launchCharacterId,
+      campaignId: launchCampaignId,
+      inventory: this.launchCharacter?.inventory ?? {
+        items: this.launchCharacter?.inventory?.items ?? [],
+        currency: this.launchCharacter?.currency ?? this.launchCharacter?.inventory?.currency ?? {},
+      },
+      equipment: Array.isArray(this.launchCharacter?.equipment) ? this.launchCharacter.equipment : [],
+      currency: this.launchCharacter?.currency ?? this.launchCharacter?.inventory?.currency ?? {},
+      abilities: this.launchCharacter?.abilities ?? this.launchCharacter?.data?.abilities ?? {},
+    };
+
+    this.currentCharacterInventoryContext = launchInventoryContext;
+
     this.bus.emit('game:init', {
       launchContext: this.launchContext,
       // Canonical keys panels expect
       character:     this.launchCharacter,
-      inventory:     {
-        items:    this.launchCharacter?.inventory?.items ?? [],
-        currency: this.launchCharacter?.currency ?? this.launchCharacter?.inventory?.currency ?? {},
-      },
+      inventory:     launchInventoryContext.inventory,
+      inventoryContext: launchInventoryContext,
       quests: allQuests,
       // Raw payloads for systems that need full context
       launchCharacter: this.launchCharacter,
@@ -159,7 +196,11 @@ export class GameShell {
       mapVisualState: this.mapVisualState,
       activeRoomId:  this.activeRoomId,
     });
+    if (launchInventoryContext.characterId) {
+      void this.refreshCharacterInventoryFromApi(launchInventoryContext);
+    }
     this._emitInitialRoomState();
+    this._syncActiveRoomEntities();
     this._initApiHandlers();
   }
 
@@ -259,15 +300,22 @@ export class GameShell {
     // resolve entity from ECS and emit entity:selected for CharacterPanel etc.
     this.bus.on('entity:select-request', ({ id } = {}) => {
       if (!id) {
+        this._setStateValue('selectedEntity', null);
         this.bus.emit('entity:deselected');
         return;
       }
       const entity = this.entityManager?.getEntity(id) ?? null;
       if (entity) {
+        this._setStateValue('selectedEntity', entity);
+        this.syncLaunchCharacterRuntimeFromEntity(entity);
         this.bus.emit('entity:selected', { entity });
       } else {
         console.warn('[GameShell] entity:select-request — entity not found in ECS:', id);
       }
+    });
+
+    this.bus.on('entity:deselected', () => {
+      this._setStateValue('selectedEntity', null);
     });
 
     // CharacterPanel requests inventory refresh from API
@@ -278,6 +326,16 @@ export class GameShell {
       }
     });
 
+    this.bus.on('inventory:changed', (ctx) => {
+      if (!ctx?.characterId) {
+        return;
+      }
+      this.currentCharacterInventoryContext = {
+        ...(this.currentCharacterInventoryContext || {}),
+        ...ctx,
+      };
+    });
+
     // Bridge: when NavigationSystem fires room:changed after a room transition,
     // relay occupants to room:occupants-changed and reload per-room data.
     // We mark our own internal room:changed emits with _source:'shell' to avoid loops.
@@ -286,6 +344,7 @@ export class GameShell {
       this._chatHistoryLoaded = false;
       this.activeRoomId = roomId;
       this._activeRoomData = this.mapVisualState?.topology?.rooms?.[roomId] ?? null;
+      this._setStateValue('activeRoomId', roomId);
       // Reset view state for new room
       this._clearRoomViewRetry();
       this._roomViewLastKey = null;
@@ -295,6 +354,8 @@ export class GameShell {
       this.bus.emit('room:changed', {
         roomId,
         roomName,
+        room: this._activeRoomData,
+        sceneImageUrl: this._activeRoomData?.image_url ?? null,
         connections: _buildRoomConnections(roomId, this.mapVisualState),
         _source: 'shell',
       });
@@ -303,9 +364,21 @@ export class GameShell {
         this._currentOccupants = occupants;
         this.bus.emit('room:occupants-changed', { roomId, roomName, occupants });
       }
+      this._syncActiveRoomEntities(roomId);
       // Pre-load chat history and scene image for the new room
       this._loadChatHistory();
       this._loadRoomView();
+    });
+
+    this.bus.on('combat:state-changed', ({ state } = {}) => {
+      const normalized = String(state || '').trim().toLowerCase();
+      const active = normalized === 'active' || normalized === 'in_progress';
+      this._setStateValue('combatActive', active);
+      if (!active) {
+        this._setStateValue('encounterId', null);
+        this._setStateValue('latestEncounterState', null);
+        this._setStateValue('serverCombatMode', false);
+      }
     });
 
     // Load chat history and room view on startup
@@ -380,11 +453,17 @@ export class GameShell {
     const charId     = this.launchCharacter?.id ?? this.launchContext?.character_id;
     const speaker    = this.launchCharacter?.name ?? 'Player';
     if (!campaignId || !roomId || !message.trim()) return;
+    const requestId = `chat-submit-${Date.now()}`;
 
     // Optimistic echo of the player's line
     this.bus.emit('chat:message-received', {
       line: { speaker, message: message.trim(), type: 'say', channel },
       channel,
+    });
+    this.bus.emit('game:backend-request-start', {
+      requestId,
+      label: 'Waiting for narrator response...',
+      source: 'chat-submit',
     });
 
     try {
@@ -459,6 +538,8 @@ export class GameShell {
       this._loadRoomView({ force: true, preserveExisting: true });
     } catch (_) {
       this.bus.emit('game:server-unavailable', { message: 'Server unreachable. Please check your connection.' });
+    } finally {
+      this.bus.emit('game:backend-request-end', { requestId, source: 'chat-submit' });
     }
   }
 
@@ -513,6 +594,7 @@ export class GameShell {
 
     this._roomViewLastKey = viewKey;
     const token = ++this._roomViewRequestToken;
+    const backendRequestId = `room-view-${viewKey}-${token}`;
     console.log('[GameShell] _loadRoomView', { campaignId, roomId, force, preserveExisting });
 
     // Show "Generating" immediately unless preserving existing gallery
@@ -524,6 +606,11 @@ export class GameShell {
     }
 
     const request = (async () => {
+      this.bus.emit('game:backend-request-start', {
+        requestId: backendRequestId,
+        label: 'Waiting for room view generation...',
+        source: 'room-view',
+      });
       const resp = await fetch(
         `/api/campaign/${encodeURIComponent(campaignId)}/room/${encodeURIComponent(roomId)}/view-image`,
         {
@@ -598,6 +685,7 @@ export class GameShell {
       });
     } finally {
       this._roomViewInflight.delete(viewKey);
+      this.bus.emit('game:backend-request-end', { requestId: backendRequestId, source: 'room-view' });
     }
   }
 
@@ -741,6 +829,97 @@ export class GameShell {
   }
 
   /**
+   * Hydrate ECS entities for the active room so the V2 canvas can render
+   * authored room artifacts and occupants on the map tab.
+   * @param {string|null} roomId
+   * @private
+   */
+  _syncActiveRoomEntities(roomId = null) {
+    if (!this.entityManager || !this.bus) {
+      return;
+    }
+
+    const activeRoomId = String(roomId || this.activeRoomId || '').trim();
+    if (!activeRoomId) {
+      this.entityManager.clear();
+      this.bus.emit('room:entities-changed', { roomId: null, entities: [] });
+      return;
+    }
+
+    const blueprints = _buildRenderableEntityBlueprints(
+      this.dungeonData,
+      activeRoomId,
+      this.launchCharacter,
+      this.mapVisualState,
+    );
+    _preloadSpriteUrls(
+      this.spriteService,
+      blueprints,
+      this.getPresentationObjectDefinitions(),
+      this.launchCharacter,
+    );
+
+    this.entityManager.clear();
+
+    blueprints.forEach((blueprint) => {
+      const entity = this.entityManager.createEntity();
+      entity.instanceId = blueprint.instanceId || null;
+      entity.placement = {
+        room_id: blueprint.roomId,
+        hex: { q: blueprint.q, r: blueprint.r },
+      };
+      entity.dcEntityRef = blueprint.entityRef || blueprint.instanceId || blueprint.contentId || null;
+      entity.dcContentId = blueprint.contentId || null;
+      entity.dcCharacterId = blueprint.characterId || null;
+      entity.dcStatePayload = blueprint.state || null;
+      entity.dcEntityPayload = blueprint.source || null;
+      entity.state = blueprint.state || null;
+
+      const position = new PositionComponent(blueprint.q, blueprint.r);
+      position.roomId = blueprint.roomId;
+      entity.addComponent('PositionComponent', position);
+      entity.addComponent(
+        'IdentityComponent',
+        new IdentityComponent(blueprint.name, blueprint.entityType, blueprint.description || ''),
+      );
+
+      const render = new RenderComponent(blueprint.render.spriteKey || null);
+      render.scale = Number.isFinite(blueprint.render.scale) ? blueprint.render.scale : 1;
+      render.orientation = blueprint.render.orientation || 'n';
+      render.objectCategory = blueprint.render.objectCategory || null;
+      render.objectColor = blueprint.render.objectColor || null;
+      render.visible = blueprint.hidden !== true;
+      entity.addComponent('RenderComponent', render);
+
+      const stats = new StatsComponent({
+        maxHp: blueprint.stats.maxHp,
+        currentHp: blueprint.stats.currentHp,
+        ac: blueprint.stats.ac,
+        perception: blueprint.stats.perception,
+        speed: blueprint.stats.speed,
+      });
+      entity.addComponent('StatsComponent', stats);
+
+      if (blueprint.combatCapable) {
+        entity.addComponent('MovementComponent', new MovementComponent(blueprint.stats.speed));
+        entity.addComponent('ActionsComponent', new ActionsComponent(blueprint.actionsPerTurn));
+        entity.addComponent('CombatComponent', new CombatComponent({
+          team: blueprint.team,
+          initiativeBonus: blueprint.initiativeBonus,
+          attackBonus: blueprint.attackBonus,
+        }));
+      }
+    });
+
+    this.entityManager.invalidateQueryCache();
+    this.bus.emit('entity:deselected');
+    this.bus.emit('room:entities-changed', {
+      roomId: activeRoomId,
+      entities: this.entityManager.getEntitiesWith('PositionComponent', 'RenderComponent'),
+    });
+  }
+
+  /**
    * Create canvas modules and wire them to the bus.
    * Phase 2 fills HexCanvas with real PIXI rendering; stubs safe for now.
    * @private
@@ -771,20 +950,114 @@ export class GameShell {
     this.canvas = { app: hexCanvas, tokens, fog, input };
   }
 
+  _bindMapControls() {
+    this._domUnsubs.forEach((fn) => fn());
+    this._domUnsubs = [];
+
+    const bindClick = (id, handler) => {
+      const element = document.getElementById(id);
+      if (!element) {
+        return;
+      }
+      element.addEventListener('click', handler);
+      this._domUnsubs.push(() => element.removeEventListener('click', handler));
+    };
+
+    bindClick('toggle-coordinates', () => {
+      const enabled = !Boolean(this._getStateValue('showCoordinates'));
+      this._setStateValue('showCoordinates', enabled);
+      this.bus?.emit('canvas:coordinates-toggled', { enabled });
+    });
+
+    bindClick('toggle-grid', () => {
+      const enabled = !Boolean(this._getStateValue('showGrid'));
+      this._setStateValue('showGrid', enabled);
+      this.bus?.emit('canvas:grid-toggled', { enabled });
+    });
+
+    bindClick('toggle-fog', () => {
+      const enabled = !Boolean(this._getStateValue('showFog'));
+      this._setStateValue('showFog', enabled);
+      this.bus?.emit('canvas:fog-toggled', { enabled });
+    });
+
+    bindClick('reset-view', () => {
+      this.bus?.emit('canvas:reset-view');
+    });
+  }
+
+  _bindInteractionEvents() {
+    this._busUnsubs.forEach((fn) => fn());
+    this._busUnsubs = [];
+
+    this._busUnsubs.push(
+      this.bus.on('hex:hovered', ({ q, r } = {}) => {
+        this._setStateValue('hoveredHex', Number.isFinite(Number(q)) && Number.isFinite(Number(r)) ? { q: Number(q), r: Number(r) } : null);
+        this.bus.emit('hex:details', this.getHexDetail(q, r));
+      }),
+
+      this.bus.on('hex:out', () => {
+        this._setStateValue('hoveredHex', null);
+      }),
+
+      this.bus.on('hex:clicked', ({ q, r, button = 0, entities = [] } = {}) => {
+        if (!Number.isFinite(Number(q)) || !Number.isFinite(Number(r))) {
+          return;
+        }
+
+        if (Number(button) === 2) {
+          this.deselectEntity();
+          return;
+        }
+
+        this.setSelectedHex(q, r, { emitDetails: false });
+        if (this.tryTransitionAtHex(q, r)) {
+          return;
+        }
+
+        const hexEntities = Array.isArray(entities) && entities.length ? entities : this.getEntitiesAtHex(q, r);
+        if (hexEntities.length === 1) {
+          this.selectEntity(hexEntities[0]);
+        } else if (hexEntities.length > 1) {
+          const selectedEntityId = this._getStateValue('selectedEntity')?.id || null;
+          const occupants = hexEntities.map((entity) => ({
+            entityId: entity.id,
+            name: _getEntityDisplayName(entity),
+            typeLabel: String(entity.getComponent?.('IdentityComponent')?.entityType || entity?.dcEntityType || 'entity'),
+            teamLabel: entity.getComponent?.('CombatComponent')?.team || null,
+            canSelect: true,
+            isSelected: selectedEntityId === entity.id,
+          }));
+          this.bus.emit('hex:contents', {
+            q: Number(q),
+            r: Number(r),
+            occupants,
+            onChoose: (entityId) => this.selectEntity(entityId),
+          });
+        } else {
+          this.deselectEntity();
+        }
+
+        this.bus.emit('hex:details', this.getHexDetail(q, r));
+      }),
+    );
+  }
+
   /**
    * Create game systems and wire them to the bus.
    * Phase 4–8 fill these in; stubs safe for now.
    * @private
    */
   _initSystems() {
+    const stateManager = this._buildStateManagerShim();
     this.systems.navigation = new NavigationSystem(this, this.bus);
-    this.systems.navigation.init();
+    this.systems.navigation.init(this.dungeonData, stateManager);
 
     this.systems.encounter = new EncounterSystem(this, this.bus);
-    this.systems.encounter.init();
+    this.systems.encounter.init(this.dungeonData, stateManager);
 
     this.systems.automation = new PlayerAutomation(this, this.bus);
-    this.systems.automation.init();
+    this.systems.automation.init(this.dungeonData, stateManager);
 
     this.systems.quest = new QuestSystem(this, this.bus);
     this.systems.quest.init();
@@ -797,11 +1070,49 @@ export class GameShell {
    * @private
    */
   _buildHexmapShim() {
+    if (this._hexmapShim) {
+      return this._hexmapShim;
+    }
+
     const shell = this;
-    return {
+    const resolveRuntimeCharacterId = () => Number(
+      shell.launchCharacter?.id
+      || shell.launchContext?.character_id
+      || 0
+    ) || null;
+    const resolveRuntimeInstanceId = () => {
+      const explicitInstanceId = String(
+        shell.launchCharacter?.instanceId
+        || shell.launchCharacter?.instance_id
+        || ''
+      ).trim();
+      if (explicitInstanceId) {
+        return explicitInstanceId;
+      }
+
+      const campaignId = Number(shell.launchContext?.campaign_id || 0) || null;
+      const canonicalCharacterId = Number(
+        shell.launchCharacter?.sheet_character_id
+        || shell.launchCharacter?.character_id
+        || shell.launchContext?.character_id
+        || 0
+      ) || null;
+      return campaignId && canonicalCharacterId ? `pc-${campaignId}-${canonicalCharacterId}` : null;
+    };
+    this._hexmapShim = {
       // Core resolution
-      resolveCampaignId:   () => shell.launchContext?.campaign_id ?? null,
-      resolveActiveRoomId: () => shell.activeRoomId,
+      resolveCampaignId:   () => shell.resolveCampaignId(),
+      resolveActiveRoomId: () => shell.resolveActiveRoomId(),
+      resolveLaunchCharacterStateId: resolveRuntimeCharacterId,
+      resolveLaunchCharacterRuntimeContext: () => shell.resolveLaunchCharacterRuntimeContext(),
+      findLaunchPlayerEntity: () => shell.findLaunchPlayerEntity(),
+      selectEntity: (entityOrId) => shell.selectEntity(entityOrId),
+      deselectEntity: () => shell.deselectEntity(),
+      setActiveRoom: (roomId) => shell.setActiveRoom(roomId),
+      updateLaunchLocationContext: (roomId, q, r) => shell.updateLaunchLocationContext(roomId, q, r),
+      persistLaunchLocationContext: (roomId, q, r, entityRef = null) => shell.persistLaunchLocationContext(roomId, q, r, entityRef),
+      loadCharacterFromApi: (characterId) => shell.loadCharacterFromApi(characterId),
+      syncLaunchCharacterRuntimeFromEntity: (entity) => shell.syncLaunchCharacterRuntimeFromEntity(entity),
       // Data refs (live values via getters for freshness)
       get dungeonData()    { return shell.dungeonData; },
       get launchContext()  { return shell.launchContext; },
@@ -809,33 +1120,85 @@ export class GameShell {
       get launchCharacter(){ return shell.launchCharacter; },
       get entityManager()  { return shell.entityManager; },
       get movementSystem() { return shell.movementSystem; },
+      get combatSystem()   { return shell.combatSystem; },
+      get turnManagementSystem() { return shell.turnManagementSystem; },
+      get gameCoordinator() { return shell.gameCoordinator; },
       // Occupant queries
-      getVisualOccupants:  () => shell._currentOccupants,
-      getVisualRooms:      () => [],
-      getActiveRoomData:   () => shell._activeRoomData ?? null,
-      buildActiveRoomOccupantSummary: () => '',
-      isVisualOccupantVisible: () => true,
-      getObjectDefinition: () => null,
-      spriteService: { getCachedUrl: () => null },
+      hasVisualOccupants:  () => shell.hasVisualOccupants(),
+      getVisualOccupants:  () => shell.getVisualOccupants(),
+      getVisualRooms:      () => shell.getVisualRooms(),
+      getPresentationObjectDefinitions: () => shell.getPresentationObjectDefinitions(),
+      getVisualConnections: () => shell.getVisualConnections(),
+      parseVisualHexId:    (hexId) => shell.parseVisualHexId(hexId),
+      getConnectionRoomId: (connection, side) => shell.getConnectionRoomId(connection, side),
+      getConnectionHex:    (connection, side) => shell.getConnectionHex(connection, side),
+      getActiveRoomData:   () => shell.getActiveRoomData(),
+      getActiveRoomHex:    (q, r) => shell.getActiveRoomHex(q, r),
+      buildActiveRoomOccupantSummary: () => shell.buildActiveRoomOccupantSummary(),
+      isVisualOccupantVisible: (occupant) => shell.isVisualOccupantVisible(occupant),
+      getObjectDefinition: (contentId) => shell.getObjectDefinition(contentId),
+      getObstacleMobilityAtHex: (q, r) => shell.getObstacleMobilityAtHex(q, r),
+      spriteService: shell.spriteService,
       // Entity interaction
-      selectEntity:        (id) => shell.bus.emit('entity:select-request', { id }),
       // Navigation / automation stubs
-      resolveNavigationCapabilities: () => ({}),
+      resolveNavigationCapabilities: (roomId) => shell.resolveNavigationCapabilities(roomId),
+      resolveNavigationCapabilityAtHex: (q, r) => shell.resolveNavigationCapabilityAtHex(q, r),
       getPlayerAutomationState:      () => null,
+      buildPlayerAutomationProfile:  () => ({ character_id: resolveRuntimeCharacterId() }),
       startPlayerAutomation:         () => {},
       stopPlayerAutomation:          () => {},
       // Combat
       startCombat:         () => shell.systems.encounter?.startCombat?.(),
       endCombat:           () => shell.systems.encounter?.endCombat?.(),
       endTurn:             () => shell.systems.encounter?.endCurrentTurn?.(),
-      getHostileTargets:   () => [],
-      hasLineOfSight:      () => false,
-      performCombatAction: () => {},
+      getEncounterServerState: () => shell.getEncounterServerState(),
+      getHostileTargets:   (actor) => shell.getHostileTargets(actor),
+      hasLineOfSight:      (fromQ, fromR, toQ, toR) => shell.hasLineOfSight(fromQ, fromR, toQ, toR),
+      performCombatAction: (options) => shell.performCombatAction(options),
       // Inner stateManager.get used by ActionRailPanel
       stateManager: {
-        get: (_key) => null,
+        get: (key) => shell._getStateValue(key),
+        set: (key, value) => shell._setStateValue(key, value),
       },
     };
+
+    return this._hexmapShim;
+  }
+
+  _buildStateManagerShim() {
+    if (this._stateManagerShim) {
+      return this._stateManagerShim;
+    }
+
+    const shell = this;
+    this._stateManagerShim = {
+      hexmap: this._buildHexmapShim(),
+      get(key) {
+        return shell._getStateValue(key);
+      },
+      set(key, value) {
+        return shell._setStateValue(key, value);
+      },
+    };
+
+    return this._stateManagerShim;
+  }
+
+  _getStateValue(key) {
+    switch (key) {
+      case 'activeRoomId':
+        return this.resolveActiveRoomId();
+      default:
+        return this.state?.[key] ?? null;
+    }
+  }
+
+  _setStateValue(key, value) {
+    if (!this.state || typeof this.state !== 'object') {
+      this.reset();
+    }
+    this.state[key] = value;
+    return value;
   }
 
   /**
@@ -852,9 +1215,8 @@ export class GameShell {
       if (!el) console.warn('[GameShell] panel container NOT FOUND:', sel);
       return el ?? c;
     };
-    const hexmap = this._buildHexmapShim();
-    // stateManager.get needed by ActionRailPanel (this.stateManager?.get?.('selectedEntity'))
-    const stateManager = { hexmap, get: (_key) => null };
+    const stateManager = this._buildStateManagerShim();
+    const hexmap = stateManager.hexmap;
 
     console.log('[GameShell] _initPanels start', { dungeonData: !!this.dungeonData, launchCharacter: !!this.launchCharacter });
 
@@ -898,6 +1260,10 @@ export class GameShell {
 
     Object.values(this.panels).forEach((p) => p?.destroy?.());
     Object.values(this.systems).forEach((s) => s?.destroy?.());
+    this._domUnsubs.forEach((fn) => fn());
+    this._domUnsubs = [];
+    this._busUnsubs.forEach((fn) => fn());
+    this._busUnsubs = [];
     this.canvas?.input?.destroy?.();
     this.canvas?.fog?.destroy?.();
     this.canvas?.tokens?.destroy?.();
@@ -1042,10 +1408,433 @@ export class GameShell {
   }
 
   // --- ported from hexmap.js ---
+  resolveCampaignId() {
+    return Number(this.launchContext?.campaign_id || 0) || null;
+  }
+
+  // --- ported from hexmap.js ---
+  resolveActiveRoomId() {
+    const visualRoomId = this.mapVisualState?.map_meta?.active_room_id
+      || Object.keys(this.mapVisualState?.topology?.rooms || {})[0]
+      || null;
+    return this.activeRoomId || this._getStateValue('activeRoomId') || visualRoomId || this.launchContext?.room_id || null;
+  }
+
+  // --- ported from hexmap.js ---
+  getVisualRooms() {
+    const rooms = this.mapVisualState?.topology?.rooms;
+    return rooms && typeof rooms === 'object' ? rooms : {};
+  }
+
+  // --- ported from hexmap.js ---
+  getPresentationObjectDefinitions() {
+    return _getPresentationObjectDefinitions(this.mapVisualState, this.dungeonData);
+  }
+
+  // --- ported from hexmap.js ---
+  hasVisualOccupants() {
+    return Array.isArray(this.mapVisualState?.occupants?.party)
+      || Array.isArray(this.mapVisualState?.occupants?.entities);
+  }
+
+  // --- ported from hexmap.js ---
+  getVisualOccupants() {
+    return _getVisualOccupants(this.mapVisualState);
+  }
+
+  // --- ported from hexmap.js ---
+  isVisualOccupantVisible(occupant) {
+    return _isVisualOccupantVisible(occupant);
+  }
+
+  // --- ported from hexmap.js ---
+  getVisualConnections() {
+    return Array.isArray(this.mapVisualState?.topology?.connections)
+      ? this.mapVisualState.topology.connections
+      : [];
+  }
+
+  // --- ported from hexmap.js ---
+  parseVisualHexId(hexId) {
+    return _parseVisualHexId(hexId);
+  }
+
+  // --- ported from hexmap.js ---
+  getConnectionRoomId(connection, side) {
+    return _getConnectionRoomId(connection, side);
+  }
+
+  // --- ported from hexmap.js ---
+  getConnectionHex(connection, side) {
+    return _getConnectionHex(connection, side);
+  }
+
+  // --- ported from hexmap.js ---
+  getActiveRoomData() {
+    return _getActiveRoomData(this.getVisualRooms(), this.resolveActiveRoomId());
+  }
+
+  // --- ported from hexmap.js ---
+  getActiveRoomHex(q, r) {
+    return _getActiveRoomHex(this.getActiveRoomData(), q, r);
+  }
+
+  // --- ported from hexmap.js ---
+  buildActiveRoomOccupantSummary() {
+    return _buildActiveRoomOccupantSummary(
+      this.resolveActiveRoomId(),
+      this.getVisualOccupants(),
+      (occupant) => this.isVisualOccupantVisible(occupant),
+    );
+  }
+
+  // --- ported from hexmap.js ---
+  getObjectDefinition(contentId) {
+    return _getObjectDefinition(contentId, this.mapVisualState, this.dungeonData);
+  }
+
+  // --- ported from hexmap.js ---
+  buildObstacleMobilityProfile(objectDefinition, metadata = {}, contentId = '') {
+    return _buildObstacleMobilityProfile(objectDefinition, metadata, contentId);
+  }
+
+  // --- ported from hexmap.js ---
+  getObstacleMobilityAtHex(q, r) {
+    return _getObstacleMobilityAtHex(
+      this.getActiveRoomData(),
+      this.getPresentationObjectDefinitions(),
+      q,
+      r,
+    );
+  }
+
+  // --- ported from hexmap.js ---
+  getAxialLine(fromQ, fromR, toQ, toR) {
+    return _getAxialLine(fromQ, fromR, toQ, toR, this.movementSystem);
+  }
+
+  // --- ported from hexmap.js ---
+  hasLineOfSight(fromQ, fromR, toQ, toR) {
+    return _hasLineOfSight(
+      fromQ,
+      fromR,
+      toQ,
+      toR,
+      (q, r) => this.getObstacleMobilityAtHex(q, r),
+      this.movementSystem,
+    );
+  }
+
+  // --- ported from hexmap.js ---
+  getHostileTargets(actor) {
+    return _getHostileTargets(actor, this.entityManager, this.movementSystem, (fromQ, fromR, toQ, toR) => this.hasLineOfSight(fromQ, fromR, toQ, toR));
+  }
+
+  // --- ported from hexmap.js ---
+  resolveNavigationCapabilities(roomId = null) {
+    return _resolveNavigationCapabilities(this.getVisualConnections(), roomId || this.resolveActiveRoomId());
+  }
+
+  // --- ported from hexmap.js ---
+  resolveNavigationCapabilityAtHex(q, r) {
+    return this.resolveNavigationCapabilities(this.resolveActiveRoomId()).find((capability) => {
+      const originHex = capability?.origin_hex;
+      return capability?.available
+        && originHex
+        && Number(originHex.q) === Number(q)
+        && Number(originHex.r) === Number(r);
+    }) || null;
+  }
+
+  // --- ported from hexmap.js ---
+  findLaunchPlayerEntity() {
+    return _findLaunchPlayerEntity(this.entityManager, this.launchContext, this.resolveLaunchCharacterStateId());
+  }
+
+  // --- ported from hexmap.js ---
+  resolveLaunchCharacterStateId() {
+    return Number(
+      this.launchCharacter?.id
+      || this.launchCharacter?.characterId
+      || this.launchCharacter?.character_id
+      || this.launchContext?.character_id
+      || 0,
+    ) || 0;
+  }
+
+  // --- ported from hexmap.js ---
+  resolveLaunchCharacterRuntimeContext() {
+    const selectedEntity = this._getStateValue('selectedEntity');
+    const selectedCharacterId = Number(selectedEntity?.dcCharacterId || selectedEntity?.dcStatePayload?.metadata?.character_id || 0);
+    const launchCharacterId = this.resolveLaunchCharacterStateId();
+    const selectedInstanceId = selectedEntity?.dcEntityRef || selectedEntity?.dcEntityInstanceId || null;
+    return {
+      campaignId: this.resolveCampaignId(),
+      characterId: selectedCharacterId || launchCharacterId || null,
+      instanceId: launchCharacterId > 0 && selectedCharacterId === launchCharacterId
+        ? selectedInstanceId
+        : (this.launchCharacter?.instanceId || this.launchCharacter?.instance_id || null),
+      roomId: this.resolveActiveRoomId(),
+    };
+  }
+
+  // --- ported from hexmap.js ---
+  syncLaunchCharacterRuntimeFromEntity(entity) {
+    if (!entity || !this.launchCharacter) {
+      return;
+    }
+
+    const launchCharacterId = this.resolveLaunchCharacterStateId();
+    const entityCharacterId = Number(entity?.dcCharacterId || entity?.dcStatePayload?.metadata?.character_id || 0);
+    if (launchCharacterId <= 0 || entityCharacterId !== launchCharacterId) {
+      return;
+    }
+
+    this.launchCharacter = {
+      ...this.launchCharacter,
+      instanceId: this.launchCharacter?.instanceId || entity?.dcEntityRef || null,
+      instance_id: this.launchCharacter?.instance_id || entity?.dcEntityRef || null,
+    };
+    this.characterData = this.launchCharacter;
+  }
+
+  // --- ported from hexmap.js ---
+  selectEntity(entityOrId) {
+    if (!entityOrId) {
+      this.deselectEntity();
+      return;
+    }
+
+    const entity = typeof entityOrId === 'object'
+      ? entityOrId
+      : (this.entityManager?.getEntity?.(entityOrId) || null);
+    if (!entity) {
+      return;
+    }
+
+    this._setStateValue('selectedEntity', entity);
+    this.syncLaunchCharacterRuntimeFromEntity(entity);
+    this.bus?.emit('entity:selected', { entity });
+  }
+
+  // --- ported from hexmap.js ---
+  setSelectedHex(q, r, options = {}) {
+    const nextHex = Number.isFinite(Number(q)) && Number.isFinite(Number(r))
+      ? { q: Number(q), r: Number(r) }
+      : null;
+    this._setStateValue('selectedHex', nextHex);
+    if (nextHex && options.emitDetails !== false) {
+      this.bus?.emit('hex:details', this.getHexDetail(nextHex.q, nextHex.r));
+    }
+  }
+
+  // --- ported from hexmap.js ---
+  getEntitiesAtHex(q, r) {
+    if (!this.entityManager?.getEntitiesWith) {
+      return [];
+    }
+
+    const activeRoomId = this.resolveActiveRoomId();
+    return this.entityManager.getEntitiesWith('PositionComponent').filter((entity) => {
+      const position = entity?.getComponent?.('PositionComponent');
+      return position
+        && Number(position.q) === Number(q)
+        && Number(position.r) === Number(r)
+        && String(position.roomId || position.room_id || activeRoomId) === String(activeRoomId);
+    });
+  }
+
+  // --- ported from hexmap.js ---
+  getHexDetail(q, r) {
+    const activeRoomHex = this.getActiveRoomHex(q, r);
+    const connection = this.resolveNavigationCapabilityAtHex(q, r);
+    const activeRoom = this.getActiveRoomData();
+    const entities = this.getEntitiesAtHex(q, r).map((entity) => _getEntityDisplayName(entity));
+    const objects = (Array.isArray(activeRoomHex?.objects) ? activeRoomHex.objects : []).map((object) =>
+      object?.label || object?.name || object?.object_id || object?.id || 'Object'
+    );
+    const passability = this.getObstacleMobilityAtHex(q, r)?.passable === false ? 'Blocked' : 'Passable';
+    const connectionLabel = connection
+      ? `${connection.type || 'passage'} -> ${connection.target_room_id || 'unknown'}${connection.available ? '' : ` (${connection.blocked_reason || 'unavailable'})`}`
+      : null;
+
+    return {
+      q: Number(q),
+      r: Number(r),
+      roomId: this.resolveActiveRoomId(),
+      roomName: activeRoom?.name || this.resolveActiveRoomId(),
+      terrain: activeRoomHex?.terrain || activeRoomHex?.terrain_type || null,
+      lighting: activeRoomHex?.lighting || activeRoom?.lighting || null,
+      elevationFt: Number.isFinite(Number(activeRoomHex?.elevation_ft)) ? Number(activeRoomHex.elevation_ft) : null,
+      passability,
+      entities,
+      objects,
+      connection: connectionLabel,
+    };
+  }
+
+  // --- ported from hexmap.js ---
+  tryTransitionAtHex(q, r) {
+    const capability = this.resolveNavigationCapabilityAtHex(q, r);
+    if (!capability?.available || !capability?.target_room_id) {
+      return false;
+    }
+
+    this.persistLaunchLocationContext(capability.target_room_id, capability.target_hex?.q ?? null, capability.target_hex?.r ?? null);
+    this.setActiveRoom(capability.target_room_id);
+    return true;
+  }
+
+  // --- ported from hexmap.js ---
+  deselectEntity() {
+    this._setStateValue('selectedEntity', null);
+    this.bus?.emit('entity:deselected');
+  }
+
+  // --- ported from hexmap.js ---
+  setActiveRoom(roomId) {
+    const normalizedRoomId = String(roomId || '').trim();
+    if (!normalizedRoomId) {
+      return;
+    }
+
+    const room = this.getVisualRooms()[normalizedRoomId] || null;
+    const occupants = this.getVisualOccupants().filter((occupant) => String(occupant?.room_id || '') === normalizedRoomId && this.isVisualOccupantVisible(occupant));
+    this.activeRoomId = normalizedRoomId;
+    this._activeRoomData = room;
+    this._setStateValue('activeRoomId', normalizedRoomId);
+    this._syncActiveRoomEntities(normalizedRoomId);
+    this.bus?.emit('room:changed', {
+      roomId: normalizedRoomId,
+      roomName: room?.name ?? normalizedRoomId,
+      room,
+      sceneImageUrl: room?.image_url ?? null,
+      connections: _buildRoomConnections(normalizedRoomId, this.mapVisualState),
+      occupants,
+    });
+    this.bus?.emit('room:occupants-changed', {
+      roomId: normalizedRoomId,
+      roomName: room?.name ?? normalizedRoomId,
+      occupants,
+    });
+  }
+
+  // --- ported from hexmap.js ---
+  persistLaunchLocationContext(roomId, q = null, r = null, entityRef = null) {
+    this.updateLaunchLocationContext(roomId, q, r);
+    if (entityRef) {
+      this.launchCharacter = {
+        ...this.launchCharacter,
+        instanceId: entityRef,
+        instance_id: entityRef,
+      };
+      this.characterData = this.launchCharacter;
+    }
+  }
+
+  // --- ported from hexmap.js ---
+  canUseServerCombatApi() {
+    return typeof fetch === 'function' && this.currentUserId > 0 && this.resolveCampaignId() !== null;
+  }
+
+  // --- ported from hexmap.js ---
+  notifyServerUnavailable() {
+    console.error('Unable to connect to server. Please try again.');
+  }
+
+  // --- ported from hexmap.js ---
+  cacheEncounterServerState(serverState = null) {
+    this._setStateValue('latestEncounterState', serverState && typeof serverState === 'object' && serverState.encounter_id ? serverState : null);
+  }
+
+  // --- ported from hexmap.js ---
+  getEncounterServerState() {
+    return this._getStateValue('latestEncounterState') || null;
+  }
+
+  // --- adapted from hexmap.js ---
+  async performCombatAction(options = {}) {
+    const encounterId = Number(this._getStateValue('encounterId') || 0) || null;
+    const actionType = String(options?.actionType || '').trim();
+    if (!encounterId || !actionType || !this.canUseServerCombatApi()) {
+      return null;
+    }
+
+    const actorEntity = this.entityManager?.getEntity?.(options.actorId) || null;
+    const actorRef = String(
+      actorEntity?.dcEntityRef
+      || actorEntity?.instanceId
+      || options.actorId
+      || '',
+    ).trim();
+    if (!actorRef) {
+      return null;
+    }
+
+    const response = await fetch('/api/combat/action', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'same-origin',
+      body: JSON.stringify({
+        encounterId,
+        actorId: actorRef,
+        actionType,
+        actionCost: Number(options?.actionCost || 0) || 0,
+        characterId: Number(options?.characterId || 0) || null,
+        targetId: options?.targetId ?? null,
+        targetHex: options?.targetHex ?? null,
+        destinationHex: options?.destinationHex ?? null,
+        interactionType: options?.interactionType ?? null,
+        message: options?.message ?? null,
+        skillName: options?.skillName ?? null,
+        skillModifier: Number.isFinite(Number(options?.skillModifier)) ? Number(options.skillModifier) : null,
+        featId: options?.featId ?? null,
+        featName: options?.featName ?? null,
+        spellId: options?.spellId ?? null,
+        spellName: options?.spellName ?? null,
+        spellLevel: Number.isFinite(Number(options?.spellLevel)) ? Number(options.spellLevel) : null,
+        isFocusSpell: options?.isFocusSpell === true,
+        item: options?.item ?? null,
+      }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data?.success !== true) {
+      this.notifyServerUnavailable();
+      return null;
+    }
+
+    if (data?.encounter_id) {
+      this._setStateValue('encounterId', data.encounter_id);
+    }
+    this._setStateValue('serverCombatMode', true);
+    this.cacheEncounterServerState(data);
+    this.turnManagementSystem?.hydrateFromServer?.(data);
+    return data;
+  }
+
+  // --- adapted from hexmap.js ---
+  loadCharacterFromApi(characterId) {
+    if (!characterId || !this.bus) {
+      return;
+    }
+
+    this.bus.emit('character:sheet-requested', { characterId });
+    if (Number(characterId) === this.resolveLaunchCharacterStateId()) {
+      void this.refreshCharacterInventoryFromApi(this.resolveLaunchCharacterRuntimeContext());
+    }
+  }
+
+  // --- ported from hexmap.js ---
   async refreshCharacterInventoryFromApi(context) {
     if (!context?.characterId || typeof fetch !== 'function') {
       return;
     }
+
+    const requestSequence = ++this._inventoryRefreshSequence;
 
     const params = new URLSearchParams();
     if (context.campaignId) {
@@ -1065,6 +1854,9 @@ export class GameShell {
       if (!response.ok || !result?.success || !result?.inventory) {
         throw new Error(result?.error || result?.message || 'Inventory refresh failed.');
       }
+      if (requestSequence !== this._inventoryRefreshSequence) {
+        return;
+      }
 
       const currentContext = this.currentCharacterInventoryContext;
       if (!currentContext || String(currentContext.characterId || '') !== String(context.characterId || '') || Number(currentContext.campaignId || 0) !== Number(context.campaignId || 0)) {
@@ -1079,9 +1871,11 @@ export class GameShell {
       };
       // Emit bus event so InventoryPanel and MerchantPanel react
       this.bus.emit('inventory:changed', {
+        ...this.currentCharacterInventoryContext,
         inventory: nextInventory,
-        currency: nextInventory.currency || {},
+        currency: nextInventory.currency || currentContext.currency || context.currency || {},
         characterId: context.characterId,
+        campaignId: context.campaignId || currentContext.campaignId || null,
       });
       if (this.activeGameShellTab === 'merchant') {
         this.panels.merchant.loadMerchantPanel(true);
@@ -1144,9 +1938,12 @@ export class GameShell {
       selectedEntity: null,
       selectedHex: null,
       hoveredHex: null,
+      activeRoomId: this.activeRoomId || this.launchContext?.room_id || null,
       movementRange: null,
       movementRangeOverlay: null,
       combatActive: false,
+      encounterId: null,
+      latestEncounterState: null,
       serverCombatMode: false,
       attackTarget: null,
       draggedObject: null,
@@ -1166,6 +1963,467 @@ export class GameShell {
 // ---------------------------------------------------------------------------
 // Module-level helpers
 // ---------------------------------------------------------------------------
+
+function _getPresentationObjectDefinitions(mapVisualState = {}, dungeonData = {}) {
+  const visualDefinitions = mapVisualState?.presentation?.object_definitions;
+  if (visualDefinitions && typeof visualDefinitions === 'object') {
+    return visualDefinitions;
+  }
+
+  const dungeonDefinitions = dungeonData?.object_definitions || dungeonData?.objectDefinitions;
+  return dungeonDefinitions && typeof dungeonDefinitions === 'object' ? dungeonDefinitions : {};
+}
+
+function _getVisualOccupants(mapVisualState = {}) {
+  return [
+    ...(Array.isArray(mapVisualState?.occupants?.party) ? mapVisualState.occupants.party : []),
+    ...(Array.isArray(mapVisualState?.occupants?.entities) ? mapVisualState.occupants.entities : []),
+  ];
+}
+
+function _getEntityDisplayName(entity = null) {
+  if (!entity || typeof entity !== 'object') {
+    return 'Unknown';
+  }
+
+  const identity = entity.getComponent?.('IdentityComponent');
+  if (identity?.name) {
+    return String(identity.name);
+  }
+
+  return String(
+    entity?.dcLabel
+    || entity?.dcName
+    || entity?.dcStatePayload?.label
+    || entity?.dcStatePayload?.display_name
+    || entity?.dcStatePayload?.name
+    || entity?.dcStatePayload?.metadata?.name
+    || entity?.dcEntityRef
+    || entity?.id
+    || 'Unknown'
+  );
+}
+
+function _isVisualOccupantVisible(occupant) {
+  if (!occupant) {
+    return false;
+  }
+
+  if (occupant.visible === true) {
+    return true;
+  }
+
+  if (occupant.visible === false) {
+    return false;
+  }
+
+  const hidden = occupant?.hidden === true || occupant?.state?.hidden === true;
+  const detected = occupant?.detected === true || occupant?.state?.detected === true;
+  return !(hidden && !detected);
+}
+
+function _parseVisualHexId(hexId) {
+  const normalized = String(hexId || '').trim();
+  if (!normalized) {
+    return null;
+  }
+
+  const segments = normalized.split(':');
+  if (segments.length < 3) {
+    return null;
+  }
+
+  const r = Number(segments.pop());
+  const q = Number(segments.pop());
+  const roomId = segments.join(':');
+  if (!roomId || !Number.isFinite(q) || !Number.isFinite(r)) {
+    return null;
+  }
+
+  return {
+    room_id: roomId,
+    q,
+    r,
+  };
+}
+
+function _getConnectionRoomId(connection, side) {
+  const key = side === 'to' ? 'to' : 'from';
+  return String(connection?.[`${key}_room_id`] || connection?.[`${key}_room`] || '').trim() || null;
+}
+
+function _getConnectionHex(connection, side) {
+  const key = side === 'to' ? 'to' : 'from';
+  return _parseVisualHexId(connection?.[`${key}_hex_id`]) || connection?.[`${key}_hex`] || null;
+}
+
+function _getActiveRoomData(rooms = {}, activeRoomId = null) {
+  const roomId = String(activeRoomId || '').trim();
+  if (!roomId) {
+    return null;
+  }
+  return rooms?.[roomId] || null;
+}
+
+function _getActiveRoomHex(room = null, q, r) {
+  if (!room || !Array.isArray(room.hexes)) {
+    return null;
+  }
+
+  return room.hexes.find((candidate) => Number(candidate?.q) === Number(q) && Number(candidate?.r) === Number(r)) || null;
+}
+
+function _buildActiveRoomOccupantSummary(roomId, occupants = [], isVisible = () => true) {
+  const normalizedRoomId = String(roomId || '').trim();
+  if (!normalizedRoomId) {
+    return '';
+  }
+
+  const groupedNames = { pc: [], npc: [], creature: [] };
+  const seen = new Set();
+  const pushGroupedName = (bucket, name) => {
+    if (!bucket || !name) {
+      return;
+    }
+    const dedupeKey = `${bucket}:${String(name).toLowerCase()}`;
+    if (seen.has(dedupeKey)) {
+      return;
+    }
+    seen.add(dedupeKey);
+    groupedNames[bucket].push(name);
+  };
+
+  occupants
+    .filter((occupant) => String(occupant?.room_id || '') === normalizedRoomId && isVisible(occupant))
+    .forEach((occupant) => {
+      const rawType = String(occupant?.occupant_type || '').toLowerCase();
+      let bucket = '';
+      if (rawType === 'player_character' || rawType === 'player' || rawType === 'pc') {
+        bucket = 'pc';
+      } else if (rawType === 'npc') {
+        bucket = 'npc';
+      } else if (rawType === 'creature') {
+        bucket = 'creature';
+      }
+
+      const name = String(occupant?.label || occupant?.content_id || '').trim();
+      pushGroupedName(bucket, name);
+    });
+
+  const parts = [];
+  if (groupedNames.pc.length) {
+    parts.push(`Party present: ${groupedNames.pc.join(', ')}`);
+  }
+  if (groupedNames.npc.length) {
+    parts.push(`NPCs present: ${groupedNames.npc.join(', ')}`);
+  }
+  if (groupedNames.creature.length) {
+    parts.push(`Other creatures present: ${groupedNames.creature.join(', ')}`);
+  }
+
+  return parts.join('. ');
+}
+
+function _getObjectDefinition(contentId, mapVisualState = {}, dungeonData = {}) {
+  if (!contentId) {
+    return null;
+  }
+
+  const definitions = _getPresentationObjectDefinitions(mapVisualState, dungeonData);
+  return definitions && typeof definitions === 'object' ? (definitions[contentId] || null) : null;
+}
+
+function _buildObstacleMobilityProfile(objectDefinition, metadata = {}, contentId = '') {
+  const definitionMovement = objectDefinition?.movement || {};
+  const normalizedContentId = String(contentId || '').toLowerCase();
+  const metadataBlocksMovement = (typeof metadata.blocks_movement === 'boolean') ? metadata.blocks_movement : null;
+  const definitionBlocksMovement = (typeof definitionMovement.blocks_movement === 'boolean')
+    ? definitionMovement.blocks_movement
+    : ((typeof objectDefinition?.blocks_movement === 'boolean') ? objectDefinition.blocks_movement : null);
+  const movable = (typeof metadata.movable === 'boolean') ? metadata.movable : Boolean(objectDefinition?.movable);
+  const passable = (typeof metadata.passable === 'boolean')
+    ? metadata.passable
+    : (metadataBlocksMovement !== null)
+      ? !metadataBlocksMovement
+      : (typeof definitionMovement.passable === 'boolean')
+        ? definitionMovement.passable
+        : (definitionBlocksMovement === true ? false : Boolean(definitionMovement.passable));
+  const stackable = (typeof metadata.stackable === 'boolean') ? metadata.stackable : Boolean(objectDefinition?.stackable);
+  const indicatorValues = [
+    metadata.fixture_type,
+    metadata.obstacle_type,
+    metadata.category,
+    metadata.type,
+    objectDefinition?.category,
+    objectDefinition?.type,
+    objectDefinition?.object_type,
+    normalizedContentId,
+  ]
+    .filter((value) => typeof value === 'string' && value.length)
+    .map((value) => value.toLowerCase());
+  const tagValues = [
+    ...(Array.isArray(objectDefinition?.tags) ? objectDefinition.tags : []),
+    ...(Array.isArray(objectDefinition?.traits) ? objectDefinition.traits : []),
+  ]
+    .filter((value) => typeof value === 'string' && value.length)
+    .map((value) => value.toLowerCase());
+  const isWall =
+    metadata.is_wall === true ||
+    indicatorValues.some((value) => value.includes('wall')) ||
+    tagValues.some((value) => value === 'wall' || value.includes('boundary_wall') || value.includes('perimeter_wall'));
+
+  return { movable, passable, stackable, isWall };
+}
+
+function _getObstacleMobilityAtHex(room = null, definitions = {}, q, r) {
+  const roomHex = _getActiveRoomHex(room, q, r);
+  const roomObjects = Array.isArray(roomHex?.objects) ? roomHex.objects : [];
+  const candidate = roomObjects.find((object) => {
+    const objectId = String(object?.object_id || '').trim();
+    const objectDefinition = definitions?.[objectId] || null;
+    const category = String(object?.category || objectDefinition?.category || '').toLowerCase();
+    const movement = objectDefinition?.movement || {};
+    if (typeof object?.blocks_movement === 'boolean' || typeof object?.passable === 'boolean') {
+      return object.blocks_movement === true || object.passable === false;
+    }
+    return movement.blocks_movement === true
+      || movement.passable === false
+      || ['obstacle', 'wall', 'barrier', 'barricade', 'door', 'collapsed'].some((token) => category.includes(token));
+  });
+  if (!candidate) {
+    return null;
+  }
+
+  const objectId = String(candidate?.object_id || '').trim();
+  return _buildObstacleMobilityProfile(definitions?.[objectId] || null, candidate || {}, objectId);
+}
+
+function _getAxialLine(fromQ, fromR, toQ, toR, movementSystem = null) {
+  const toCube = (q, r) => ({ x: q, z: r, y: -q - r });
+  const fromCube = toCube(fromQ, fromR);
+  const targetCube = toCube(toQ, toR);
+  const distance = movementSystem?.hexDistance
+    ? movementSystem.hexDistance(fromQ, fromR, toQ, toR)
+    : Math.max(Math.abs(fromQ - toQ), Math.abs(fromR - toR), Math.abs((fromQ + fromR) - (toQ + toR)));
+
+  const points = [];
+  for (let step = 0; step <= distance; step += 1) {
+    const t = distance === 0 ? 0 : step / distance;
+    const x = fromCube.x + (targetCube.x - fromCube.x) * t;
+    const y = fromCube.y + (targetCube.y - fromCube.y) * t;
+    const z = fromCube.z + (targetCube.z - fromCube.z) * t;
+
+    let rx = Math.round(x);
+    let ry = Math.round(y);
+    let rz = Math.round(z);
+    const dx = Math.abs(rx - x);
+    const dy = Math.abs(ry - y);
+    const dz = Math.abs(rz - z);
+
+    if (dx > dy && dx > dz) {
+      rx = -ry - rz;
+    } else if (dy > dz) {
+      ry = -rx - rz;
+    } else {
+      rz = -rx - ry;
+    }
+
+    points.push({ q: rx, r: rz });
+  }
+  return points;
+}
+
+function _hasLineOfSight(fromQ, fromR, toQ, toR, getObstacleMobilityAtHex, movementSystem = null) {
+  if (fromQ === toQ && fromR === toR) {
+    return true;
+  }
+
+  const line = _getAxialLine(fromQ, fromR, toQ, toR, movementSystem);
+  for (let i = 1; i < line.length - 1; i += 1) {
+    const { q, r } = line[i];
+    const obstacle = getObstacleMobilityAtHex(q, r);
+    if (obstacle && !obstacle.passable) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function _getHostileTargets(actor, entityManager, movementSystem = null, hasLineOfSight = () => true) {
+  const actorCombat = actor?.getComponent?.('CombatComponent');
+  const actorPos = actor?.getComponent?.('PositionComponent');
+  if (!actorCombat || !actorPos || !entityManager?.getEntitiesWith) {
+    return [];
+  }
+
+  const candidates = entityManager.getEntitiesWith('CombatComponent', 'StatsComponent', 'PositionComponent');
+  const hostileTargets = [];
+
+  candidates.forEach((candidate) => {
+    if (candidate.id === actor.id) {
+      return;
+    }
+
+    const targetCombat = candidate.getComponent('CombatComponent');
+    const targetStats = candidate.getComponent('StatsComponent');
+    const targetPos = candidate.getComponent('PositionComponent');
+    if (!targetCombat || !targetPos) {
+      return;
+    }
+
+    const alive = typeof targetStats?.isAlive === 'function'
+      ? targetStats.isAlive()
+      : Number(targetStats?.currentHp ?? 1) > 0;
+    if (!alive) {
+      return;
+    }
+
+    const actorTeam = String(actorCombat?.team || '').toLowerCase();
+    const targetTeam = String(targetCombat?.team || '').toLowerCase();
+    const hostile = typeof actorCombat?.isHostileTo === 'function'
+      ? actorCombat.isHostileTo(targetCombat)
+      : (actorTeam && targetTeam && actorTeam !== targetTeam);
+    if (!hostile) {
+      return;
+    }
+
+    const distance = movementSystem?.hexDistance
+      ? movementSystem.hexDistance(actorPos.q, actorPos.r, targetPos.q, targetPos.r)
+      : Math.max(Math.abs(actorPos.q - targetPos.q), Math.abs(actorPos.r - targetPos.r), Math.abs((actorPos.q + actorPos.r) - (targetPos.q + targetPos.r)));
+    if (!hasLineOfSight(actorPos.q, actorPos.r, targetPos.q, targetPos.r)) {
+      return;
+    }
+    hostileTargets.push({ target: candidate, distance });
+  });
+
+  hostileTargets.sort((left, right) => left.distance - right.distance);
+  return hostileTargets;
+}
+
+function _resolveNavigationCapabilities(rawConnections = [], roomId = null) {
+  const activeRoomId = String(roomId || '').trim();
+  if (!activeRoomId || !Array.isArray(rawConnections) || !rawConnections.length) {
+    return [];
+  }
+
+  return rawConnections
+    .filter((connection) => connection && typeof connection === 'object' && (_getConnectionRoomId(connection, 'from') === activeRoomId || _getConnectionRoomId(connection, 'to') === activeRoomId))
+    .map((connection) => {
+      const travelsForward = _getConnectionRoomId(connection, 'from') === activeRoomId;
+      const targetRoomId = String(travelsForward ? (_getConnectionRoomId(connection, 'to') || '') : (_getConnectionRoomId(connection, 'from') || ''));
+      const isDiscovered = Object.prototype.hasOwnProperty.call(connection, 'is_discovered')
+        ? Boolean(connection.is_discovered)
+        : true;
+      const isPassable = Object.prototype.hasOwnProperty.call(connection, 'is_passable')
+        ? Boolean(connection.is_passable)
+        : true;
+      const type = String(connection.type || 'passage');
+      const blockedReason = !targetRoomId
+        ? 'unresolved_destination'
+        : (!isDiscovered ? 'undiscovered' : (!isPassable ? 'blocked' : null));
+
+      return {
+        connection_id: String(connection.connection_id || `${_getConnectionRoomId(connection, 'from') || 'unknown'}__${_getConnectionRoomId(connection, 'to') || 'unknown'}`),
+        origin_room_id: activeRoomId,
+        target_room_id: targetRoomId,
+        type,
+        available: blockedReason === null,
+        blocked_reason: blockedReason,
+        is_discovered: isDiscovered,
+        is_passable: isPassable,
+        bidirectional: Object.prototype.hasOwnProperty.call(connection, 'bidirectional')
+          ? Boolean(connection.bidirectional)
+          : type !== 'one_way',
+        requires_interaction: !isPassable || ['door', 'locked_door', 'secret_door', 'trapped_door', 'barricade', 'collapsed', 'magical_barrier'].includes(type),
+        origin_hex: travelsForward ? (_getConnectionHex(connection, 'from') || null) : (_getConnectionHex(connection, 'to') || null),
+        target_hex: travelsForward ? (_getConnectionHex(connection, 'to') || null) : (_getConnectionHex(connection, 'from') || null),
+        connection,
+      };
+    });
+}
+
+function _findLaunchPlayerEntity(entityManager, launchContext = {}, launchCharacterId = 0) {
+  if (!entityManager?.getEntitiesWith) {
+    return null;
+  }
+
+  const entities = entityManager.getEntitiesWith('PositionComponent');
+  if (!Array.isArray(entities) || !entities.length) {
+    return null;
+  }
+
+  const playerEntities = entities.filter((entity) => {
+    const combat = entity.getComponent?.('CombatComponent');
+    if (combat) {
+      return typeof combat.isPlayerTeam === 'function'
+        ? combat.isPlayerTeam()
+        : String(combat?.team || '').toLowerCase() === 'player';
+    }
+
+    const entityType = String(entity?.dcEntityType || entity?.dcStatePayload?.entity_type || '').toLowerCase();
+    const metadata = entity?.dcStatePayload?.state?.metadata || entity?.dcStatePayload?.metadata || {};
+    const metadataTeam = String(metadata.team || '').toLowerCase();
+    const campaignCharacterId = Number(metadata.campaign_character_id || metadata.character_id || entity?.dcCharacterId || 0);
+
+    return entityType === 'player_character'
+      || metadataTeam === 'player'
+      || (launchCharacterId > 0 && campaignCharacterId === launchCharacterId);
+  });
+
+  if (!playerEntities.length) {
+    return null;
+  }
+
+  const startQ = Number.isFinite(Number(launchContext?.start_q)) ? Number(launchContext.start_q) : 0;
+  const startR = Number.isFinite(Number(launchContext?.start_r)) ? Number(launchContext.start_r) : 0;
+  const onStartHex = playerEntities.find((entity) => {
+    const pos = entity.getComponent?.('PositionComponent');
+    return pos && pos.q === startQ && pos.r === startR;
+  });
+
+  return onStartHex || playerEntities[0] || null;
+}
+
+function _preloadSpriteUrls(spriteService, blueprints = [], objectDefinitions = {}, launchCharacter = null) {
+  if (!spriteService?.preloadUrl) {
+    return;
+  }
+
+  blueprints.forEach((blueprint) => {
+    const spriteId = String(blueprint?.render?.spriteKey || '').trim();
+    if (!spriteId) {
+      return;
+    }
+
+    const definition = objectDefinitions?.[blueprint?.contentId] || {};
+    const url = String(
+      definition?.visual?.image_url
+      || definition?.visual?.portrait_url
+      || definition?.visual?.url
+      || '',
+    ).trim();
+    if (url) {
+      spriteService.preloadUrl(spriteId, url);
+    }
+  });
+
+  const portraitSpriteId = String(
+    launchCharacter?.portrait?.sprite_id
+    || launchCharacter?.portrait_sprite_id
+    || launchCharacter?.portraitSpriteId
+    || '',
+  ).trim();
+  const portraitUrl = String(
+    launchCharacter?.portrait?.url
+    || launchCharacter?.portrait_url
+    || launchCharacter?.portraitUrl
+    || '',
+  ).trim();
+  if (portraitSpriteId && portraitUrl) {
+    spriteService.preloadUrl(portraitSpriteId, portraitUrl);
+  }
+}
 
 /**
  * Flatten phase-based objectives from a quest entry (server shape) into a
@@ -1245,4 +2503,305 @@ function _buildRoomConnections(roomId, mapVisualState) {
   });
 
   return result;
+}
+
+function _buildRenderableEntityBlueprints(dungeonData = {}, activeRoomId = '', launchCharacter = {}, mapVisualState = {}) {
+  const roomId = String(activeRoomId || '').trim();
+  if (!roomId) {
+    return [];
+  }
+
+  const objectDefinitions = {
+    ...(_isPlainObject(mapVisualState?.presentation?.object_definitions) ? mapVisualState.presentation.object_definitions : {}),
+    ...(_isPlainObject(dungeonData?.object_definitions) ? dungeonData.object_definitions : {}),
+  };
+  const visualOccupants = _buildVisualOccupantIndex(mapVisualState);
+  const blueprints = [];
+  const seen = new Set();
+  const projectedEntitySignatures = new Set();
+  const launchCharacterId = Number(
+    launchCharacter?.id
+    || launchCharacter?.character_id
+    || 0,
+  ) || null;
+
+  const entities = Array.isArray(dungeonData?.entities) ? dungeonData.entities : [];
+  entities.forEach((entity) => {
+    const placement = _isPlainObject(entity?.placement) ? entity.placement : {};
+    const hex = _isPlainObject(placement?.hex) ? placement.hex : {};
+    const entityRoomId = String(placement?.room_id || '').trim();
+    const q = Number(hex?.q);
+    const r = Number(hex?.r);
+    if (entityRoomId !== roomId || !Number.isFinite(q) || !Number.isFinite(r)) {
+      return;
+    }
+
+    const metadata = _isPlainObject(entity?.state?.metadata) ? entity.state.metadata : {};
+    const rawType = String(entity?.entity_type || entity?.entityType || '').trim().toLowerCase();
+    const entityType = _normalizeRenderableEntityType(rawType, entity?.entity_ref?.content_type, metadata);
+    const contentId = String(entity?.entity_ref?.content_id || '').trim();
+    const definition = contentId ? (objectDefinitions[contentId] || {}) : {};
+    const instanceId = String(entity?.entity_instance_id || entity?.instance_id || entity?.id || '').trim()
+      || `payload-entity:${roomId}:${q}:${r}:${contentId || rawType || 'unknown'}`;
+    const visual = _resolveVisualOccupant(visualOccupants, instanceId, contentId, roomId, q, r);
+    const entityCharacterId = Number(metadata?.character_id || entity?.character_id || 0) || null;
+    const name = String(
+      metadata?.display_name
+      || metadata?.name
+      || entity?.display_name
+      || definition?.label
+      || contentId
+      || rawType
+      || 'entity',
+    ).trim();
+    const team = _normalizeRenderableEntityTeam(
+      metadata?.team
+      || visual?.presentation?.badge
+      || (entityCharacterId && launchCharacterId && entityCharacterId === launchCharacterId ? 'player' : ''),
+    );
+    const hidden = visual?.visible === false || entity?.state?.hidden === true;
+
+    const blueprint = {
+      key: _buildRenderableEntityKey(instanceId, contentId, q, r),
+      sourceKind: 'entity',
+      roomId,
+      q,
+      r,
+      instanceId,
+      entityRef: instanceId,
+      entityType,
+      contentId,
+      characterId: entityCharacterId,
+      name: name !== '' ? name : 'entity',
+      description: String(metadata?.description || definition?.description || '').trim(),
+      hidden,
+      combatCapable: entityType === 'player_character' || entityType === 'npc' || entityType === 'creature',
+      team,
+      actionsPerTurn: Number(metadata?.actions_per_turn || 3) || 3,
+      initiativeBonus: Number(metadata?.initiative_bonus || 0) || 0,
+      attackBonus: Number(metadata?.attack_bonus || 0) || 0,
+      stats: {
+        maxHp: Number(metadata?.stats?.maxHp ?? metadata?.stats?.max_hp ?? metadata?.max_hp ?? 10) || 10,
+        currentHp: Number(metadata?.stats?.currentHp ?? metadata?.stats?.current_hp ?? metadata?.hp ?? metadata?.max_hp ?? 10) || 10,
+        ac: Number(metadata?.stats?.ac ?? metadata?.armor_class ?? 10) || 10,
+        perception: Number(metadata?.stats?.perception ?? metadata?.perception ?? 0) || 0,
+        speed: Number(metadata?.movement_speed ?? metadata?.stats?.speed ?? 30) || 30,
+      },
+      render: {
+        spriteKey: String(
+          metadata?.sprite_id
+          || definition?.visual?.sprite_id
+          || visual?.presentation?.sprite_id
+          || '',
+        ).trim() || null,
+        scale: Number(metadata?.render_scale ?? (entityType === 'item' ? 0.55 : 1)) || (entityType === 'item' ? 0.55 : 1),
+        orientation: String(placement?.orientation || metadata?.orientation || definition?.visual?.orientation || 'n').trim().toLowerCase() || 'n',
+        objectCategory: String(definition?.category || metadata?.object_category || '').trim() || null,
+        objectColor: definition?.visual?.color || metadata?.object_color || visual?.presentation?.color || null,
+      },
+      state: _isPlainObject(entity?.state) ? entity.state : {},
+      source: entity,
+    };
+
+    if (!hidden && !seen.has(blueprint.key)) {
+      seen.add(blueprint.key);
+      if (contentId) {
+        projectedEntitySignatures.add(_buildRenderableProjectionKey(contentId, roomId, q, r));
+      }
+      blueprints.push(blueprint);
+    }
+  });
+
+  const activeRoom = mapVisualState?.topology?.rooms?.[roomId];
+  const roomHexes = Array.isArray(activeRoom?.hexes) ? activeRoom.hexes : [];
+  roomHexes.forEach((hex) => {
+    const q = Number(hex?.q);
+    const r = Number(hex?.r);
+    if (!Number.isFinite(q) || !Number.isFinite(r)) {
+      return;
+    }
+
+    const objects = Array.isArray(hex?.objects) ? hex.objects : [];
+    objects.forEach((object, objectIndex) => {
+      const contentId = String(object?.object_id || object?.id || '').trim();
+      if (!contentId) {
+        return;
+      }
+
+      const definition = objectDefinitions[contentId] || {};
+      const entityType = _normalizeRenderableEntityType('', object?.category, object);
+      const projectionKey = _buildRenderableProjectionKey(contentId, roomId, q, r);
+      if (projectedEntitySignatures.has(projectionKey)) {
+        return;
+      }
+
+      const instanceId = `room-object:${roomId}:${q}:${r}:${contentId}:${objectIndex}`;
+      const key = _buildRenderableEntityKey(instanceId, roomId, q, r);
+      if (seen.has(key)) {
+        return;
+      }
+
+      const blueprint = {
+        key,
+        sourceKind: 'hex-object',
+        roomId,
+        q,
+        r,
+        instanceId,
+        entityRef: contentId,
+        entityType,
+        contentId,
+        characterId: null,
+        name: String(object?.label || object?.name || definition?.label || contentId).trim() || contentId,
+        description: String(object?.description || definition?.description || '').trim(),
+        hidden: false,
+        combatCapable: false,
+        team: 'neutral',
+        actionsPerTurn: 0,
+        initiativeBonus: 0,
+        attackBonus: 0,
+        stats: {
+          maxHp: 10,
+          currentHp: 10,
+          ac: 10,
+          perception: 0,
+          speed: 0,
+        },
+        render: {
+          spriteKey: String(object?.visual?.sprite_id || definition?.visual?.sprite_id || '').trim() || null,
+          scale: Number(entityType === 'item' ? 0.55 : 0.95) || 1,
+          orientation: String(object?.orientation || definition?.visual?.orientation || 'n').trim().toLowerCase() || 'n',
+          objectCategory: String(object?.category || definition?.category || '').trim() || null,
+          objectColor: object?.visual?.color || definition?.visual?.color || null,
+        },
+        state: {
+          active: true,
+          metadata: {
+            passable: object?.passable,
+            movable: object?.movable,
+            collectible: object?.collectible,
+            blocks_movement: object?.blocks_movement,
+          },
+        },
+        source: object,
+      };
+
+      seen.add(key);
+      blueprints.push(blueprint);
+    });
+  });
+
+  return blueprints;
+}
+
+function _buildVisualOccupantIndex(mapVisualState = {}) {
+  const index = new Map();
+  const buckets = mapVisualState?.occupants || {};
+  const occupants = [
+    ...(Array.isArray(buckets.party) ? buckets.party : []),
+    ...(Array.isArray(buckets.entities) ? buckets.entities : []),
+  ];
+
+  occupants.forEach((occupant) => {
+    const occupantId = String(occupant?.occupant_id || '').trim();
+    const contentId = String(occupant?.content_id || '').trim();
+    const roomId = String(occupant?.room_id || '').trim();
+    const q = Number(occupant?.placement?.q);
+    const r = Number(occupant?.placement?.r);
+    if (occupantId) {
+      index.set(occupantId, occupant);
+    }
+    if (contentId && roomId && Number.isFinite(q) && Number.isFinite(r)) {
+      index.set(_buildRenderableProjectionKey(contentId, roomId, q, r), occupant);
+    }
+    if (contentId && roomId && !index.has(`${roomId}:${contentId}`)) {
+      index.set(`${roomId}:${contentId}`, occupant);
+    }
+  });
+
+  return index;
+}
+
+function _resolveVisualOccupant(visualOccupants, instanceId = '', contentId = '', roomId = '', q = 0, r = 0) {
+  if (!(visualOccupants instanceof Map)) {
+    return null;
+  }
+
+  const normalizedInstanceId = String(instanceId || '').trim();
+  if (normalizedInstanceId && visualOccupants.has(normalizedInstanceId)) {
+    return visualOccupants.get(normalizedInstanceId) || null;
+  }
+
+  const normalizedContentId = String(contentId || '').trim();
+  const normalizedRoomId = String(roomId || '').trim();
+  if (!normalizedContentId || !normalizedRoomId) {
+    return null;
+  }
+
+  const exactKey = _buildRenderableProjectionKey(normalizedContentId, normalizedRoomId, q, r);
+  if (visualOccupants.has(exactKey)) {
+    return visualOccupants.get(exactKey) || null;
+  }
+
+  const roomKey = `${normalizedRoomId}:${normalizedContentId}`;
+  if (visualOccupants.has(roomKey)) {
+    return visualOccupants.get(roomKey) || null;
+  }
+
+  return null;
+}
+
+function _normalizeRenderableEntityType(rawType = '', fallbackCategory = '', metadata = {}) {
+  const normalizedType = String(rawType || '').trim().toLowerCase();
+  if (normalizedType === 'player_character' || normalizedType === 'player' || normalizedType === 'pc') {
+    return 'player_character';
+  }
+  if (normalizedType === 'npc') {
+    return 'npc';
+  }
+  if (normalizedType === 'creature') {
+    return 'creature';
+  }
+  if (normalizedType === 'item' || normalizedType === 'treasure') {
+    return 'item';
+  }
+  if (normalizedType === 'obstacle' || normalizedType === 'trap' || normalizedType === 'hazard') {
+    return normalizedType;
+  }
+
+  const category = String(fallbackCategory || metadata?.category || metadata?.type || '').trim().toLowerCase();
+  if (
+    category.includes('item')
+    || category.includes('loot')
+    || category.includes('collect')
+    || category.includes('quest_item')
+    || metadata?.collectible === true
+  ) {
+    return 'item';
+  }
+
+  return 'obstacle';
+}
+
+function _normalizeRenderableEntityTeam(rawTeam = '') {
+  const normalized = String(rawTeam || '').trim().toLowerCase();
+  if (normalized === 'player' || normalized === 'ally' || normalized === 'enemy' || normalized === 'neutral') {
+    return normalized;
+  }
+  return 'neutral';
+}
+
+function _buildRenderableEntityKey(instanceId = '', roomId = '', q = 0, r = 0) {
+  const stableId = String(instanceId || '').trim() || 'entity';
+  const stableRoomId = String(roomId || '').trim() || 'room';
+  return `${stableRoomId}:${stableId}:${Number(q)}:${Number(r)}`;
+}
+
+function _buildRenderableProjectionKey(contentId = '', roomId = '', q = 0, r = 0) {
+  const stableContentId = String(contentId || '').trim();
+  const stableRoomId = String(roomId || '').trim() || 'room';
+  if (stableContentId === '') {
+    return '';
+  }
+  return `${stableRoomId}:${stableContentId}:${Number(q)}:${Number(r)}`;
 }

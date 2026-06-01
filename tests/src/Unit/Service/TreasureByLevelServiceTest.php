@@ -105,12 +105,12 @@ class TreasureByLevelServiceTest extends UnitTestCase {
   }
 
   /**
-   * Tests trading outside downtime is soft-flagged.
+   * Tests unsupported trade phases are soft-flagged.
    *
    * @covers ::validateTradePhase
    * @covers ::sellItem
    */
-  public function testTradingOutsideDowntimeIsFlagged(): void {
+  public function testUnsupportedTradePhaseIsFlagged(): void {
     $service = new TreasureByLevelService();
 
     $sale = $service->sellItem('standard', 100.0, NULL, 'exploration');
@@ -119,7 +119,7 @@ class TreasureByLevelServiceTest extends UnitTestCase {
     $this->assertFalse($sale['blocked']);
     $this->assertTrue($sale['flagged']);
     $this->assertTrue($sale['gm_override_available']);
-    $this->assertSame('not_downtime', $sale['reason']);
+    $this->assertSame('unsupported_phase', $sale['reason']);
   }
 
   /**

@@ -41,14 +41,15 @@ class ExplorationPhaseHandlerRoomPerceptionTest extends UnitTestCase {
       'type' => 'search',
       'actor' => 'pc-1',
       'params' => [
-        'perception_bonus' => 4,
+        'search_mode' => 'explicit',
       ],
     ], $game_state, $dungeon_data, 42);
 
     $this->assertTrue($response['success']);
-    $this->assertSame('revealed', $response['result']['sensory_status']);
-    $this->assertSame('smell', $response['result']['sensory_reveals'][0]['key']);
-    $this->assertStringContainsString('Smell:', (string) $response['narration']);
+    $this->assertSame(['searched' => TRUE], $response['result']);
+    $this->assertSearchMechanicsHidden($response);
+    $this->assertStringNotContainsString('Smell:', (string) $response['narration']);
+    $this->assertStringContainsString('A sour mildew smell rises from the soaked flagstones.', (string) $response['narration']);
     $this->assertSame(
       'A sour mildew smell rises from the soaked flagstones.',
       $dungeon_data['rooms'][0]['gameplay_state']['revealed_sensory_details']['smell']['detail']
@@ -73,7 +74,7 @@ class ExplorationPhaseHandlerRoomPerceptionTest extends UnitTestCase {
       'type' => 'search',
       'actor' => 'pc-1',
       'params' => [
-        'perception_bonus' => 12,
+        'search_mode' => 'explicit',
       ],
     ], $game_state, $dungeon_data, 42);
 
@@ -81,14 +82,46 @@ class ExplorationPhaseHandlerRoomPerceptionTest extends UnitTestCase {
       'type' => 'search',
       'actor' => 'pc-1',
       'params' => [
-        'perception_bonus' => 12,
+        'search_mode' => 'explicit',
       ],
     ], $game_state, $dungeon_data, 42);
 
-    $this->assertSame('smell', $first['result']['sensory_reveals'][0]['key']);
-    $this->assertSame('sound', $second['result']['sensory_reveals'][0]['key']);
+    $this->assertSearchMechanicsHidden($first);
+    $this->assertSearchMechanicsHidden($second);
+    $this->assertArrayHasKey('smell', $dungeon_data['rooms'][0]['gameplay_state']['revealed_sensory_details']);
     $this->assertArrayHasKey('sound', $dungeon_data['rooms'][0]['gameplay_state']['revealed_sensory_details']);
-    $this->assertStringContainsString('Sound:', (string) $second['narration']);
+    $this->assertStringNotContainsString('Sound:', (string) $second['narration']);
+    $this->assertStringContainsString('Soft dripping water and distant runoff echo through the room.', (string) $second['narration']);
+  }
+
+  /**
+   * @covers ::processIntent
+   */
+  public function testSearchIgnoresRequestedSenseAndUsesNextDiscoverableDetail(): void {
+    $roller = $this->createMock(NumberGenerationService::class);
+    $roller->expects($this->once())
+      ->method('rollPathfinderDie')
+      ->with(20)
+      ->willReturn(16);
+
+    $handler = $this->buildHandler($roller);
+    $game_state = $this->minimalGameState();
+    $dungeon_data = $this->buildDungeonData();
+
+    $response = $handler->processIntent([
+      'type' => 'search',
+      'actor' => 'pc-1',
+      'params' => [
+        'search_mode' => 'explicit',
+        'sensory_tier' => 'sound',
+      ],
+    ], $game_state, $dungeon_data, 42);
+
+    $this->assertTrue($response['success']);
+    $this->assertSearchMechanicsHidden($response);
+    $this->assertArrayHasKey('smell', $dungeon_data['rooms'][0]['gameplay_state']['revealed_sensory_details']);
+    $this->assertArrayNotHasKey('sound', $dungeon_data['rooms'][0]['gameplay_state']['revealed_sensory_details']);
+    $this->assertStringNotContainsString('Sound:', (string) $response['narration']);
   }
 
   /**
@@ -109,14 +142,15 @@ class ExplorationPhaseHandlerRoomPerceptionTest extends UnitTestCase {
       'type' => 'search',
       'actor' => 'pc-1',
       'params' => [
-        'perception_bonus' => 3,
+        'search_mode' => 'explicit',
       ],
     ], $game_state, $dungeon_data, 42);
 
     $this->assertTrue($response['success']);
-    $this->assertSame('miss', $response['result']['sensory_status']);
-    $this->assertSame([], $response['result']['sensory_reveals']);
-    $this->assertStringNotContainsString('A sour mildew smell rises from the soaked flagstones.', (string) $response['narration']);
+    $this->assertSame(['searched' => TRUE], $response['result']);
+    $this->assertSearchMechanicsHidden($response);
+    $this->assertSame([], $response['events']);
+    $this->assertNull($response['narration']);
     $this->assertSame([], $dungeon_data['rooms'][0]['gameplay_state']['revealed_sensory_details']);
   }
 
@@ -128,7 +162,7 @@ class ExplorationPhaseHandlerRoomPerceptionTest extends UnitTestCase {
     $roller->expects($this->exactly(2))
       ->method('rollPathfinderDie')
       ->with(20)
-      ->willReturnOnConsecutiveCalls(17, 4);
+      ->willReturnOnConsecutiveCalls(18, 4);
 
     $handler = $this->buildHandler($roller);
     $game_state = $this->minimalGameState();
@@ -170,10 +204,10 @@ class ExplorationPhaseHandlerRoomPerceptionTest extends UnitTestCase {
     $this->assertSame('secret_check', $response['result']['sensory_reveals'][1]['source']);
     $this->assertArrayNotHasKey('atmosphere_mood', $dungeon_data['rooms'][0]['gameplay_state']['revealed_sensory_details']);
     $this->assertArrayHasKey('sound', $dungeon_data['rooms'][0]['gameplay_state']['revealed_sensory_details']);
-    $this->assertStringContainsString('Your trained senses immediately catch more of the room:', (string) $response['narration']);
     $this->assertStringContainsString('You enter Flooded Storehouse.', (string) $response['narration']);
-    $this->assertStringContainsString('Smell:', (string) $response['narration']);
-    $this->assertStringContainsString('Sound:', (string) $response['narration']);
+    $this->assertStringNotContainsString('Smell:', (string) $response['narration']);
+    $this->assertStringNotContainsString('Sound:', (string) $response['narration']);
+    $this->assertStringContainsString('Soft dripping water and distant runoff echo through the room.', (string) $response['narration']);
   }
 
   /**
@@ -224,6 +258,10 @@ class ExplorationPhaseHandlerRoomPerceptionTest extends UnitTestCase {
     $game_state = $this->minimalGameState();
     $dungeon_data = $this->buildDungeonData();
     unset($dungeon_data['rooms'][0]['gameplay_state']['revealed_sensory_details']);
+    foreach ($dungeon_data['rooms'][0]['gameplay_state']['sensory_details'] as &$tier) {
+      $tier['dc'] = 10;
+    }
+    unset($tier);
     $dungeon_data['entities'][0]['stats']['perception'] = 50;
     $dungeon_data['active_room_id'] = 'room-0';
     $dungeon_data['rooms'][] = [
@@ -277,6 +315,17 @@ class ExplorationPhaseHandlerRoomPerceptionTest extends UnitTestCase {
   }
 
   /**
+   * Assert Search response/event payloads do not expose secret check mechanics.
+   */
+  private function assertSearchMechanicsHidden(array $response): void {
+    foreach (['roll', 'total', 'dc', 'degree', 'sensory_target', 'sensory_reveals', 'sensory_status', 'hazard_events'] as $field) {
+      $this->assertArrayNotHasKey($field, $response['result']);
+      $this->assertArrayNotHasKey($field, $response['events'][0]['data'] ?? []);
+    }
+    $this->assertArrayNotHasKey('mechanical_data', $response['events'][0] ?? []);
+  }
+
+  /**
    * Minimal exploration game state.
    */
   private function minimalGameState(): array {
@@ -314,7 +363,7 @@ class ExplorationPhaseHandlerRoomPerceptionTest extends UnitTestCase {
                 'text' => 'The stones feel slick with condensation and soft moss.',
               ],
               'sound' => [
-                'dc' => 25,
+                'dc' => 18,
                 'text' => 'Soft dripping water and distant runoff echo through the room.',
               ],
               'taste' => [

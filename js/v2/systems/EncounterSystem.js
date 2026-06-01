@@ -12,6 +12,8 @@ export class EncounterSystem {
     this.stateManager = null;
     this.dungeonData = null;
     this._unsubs = [];
+    this._lastAnnouncedRound = null;
+    this._lastAnnouncedActorKey = '';
   }
 
   init(dungeonData, stateManager) {
@@ -34,11 +36,48 @@ export class EncounterSystem {
         if (key === 'interact') this.executeDirectInteract(d?.button);
         if (key === 'search')   this.executeDirectSearch(d?.button);
         if (key === 'skill')    this.executeDirectSkill(d?.button);
+        if (['treat_wounds', 'refocus', 'repair', 'daily_preparations'].includes(key)) {
+          this.executeRestActivity(key, d?.button);
+        }
       }),
       this.bus.on('user:combat-start', () => this.startCombat()),
       this.bus.on('user:combat-end',   () => this.endCombat()),
-      this.bus.on('user:end-turn',     () => this.endCurrentTurn()),
+      this.bus.on('user:end-turn',     (d) => this.endCurrentTurn(d)),
+      this.bus.on('combat:round-changed', (d) => this.announceRoundChange(d)),
+      this.bus.on('combat:turn-changed',  (d) => this.announceTurnChange(d)),
     );
+  }
+
+  announceRoundChange(data = {}) {
+    const roundNumber = Number(data?.roundNumber || this.shell?.turnManagementSystem?.currentRound || 0);
+    if (!Number.isFinite(roundNumber) || roundNumber <= 0 || roundNumber === this._lastAnnouncedRound) {
+      return;
+    }
+
+    this._lastAnnouncedRound = roundNumber;
+    this._appendNarratorLine(`Round ${roundNumber} begins.`);
+  }
+
+  announceTurnChange(data = {}) {
+    const entity = data?.entity || null;
+    const turnIndex = Number(data?.turnIndex);
+    const totalTurns = Number(data?.totalTurns);
+    const actorName = this._resolveEntityName(entity || data);
+    const actorKey = [
+      this.shell?.turnManagementSystem?.currentRound || '',
+      Number.isFinite(turnIndex) ? turnIndex : '',
+      entity?.id || entity?.dcEntityRef || entity?.dcEntityInstanceId || actorName,
+    ].join(':');
+
+    if (!actorName || actorKey === this._lastAnnouncedActorKey) {
+      return;
+    }
+
+    this._lastAnnouncedActorKey = actorKey;
+    const turnLabel = Number.isFinite(turnIndex) && Number.isFinite(totalTurns) && totalTurns > 0
+      ? ` (${turnIndex + 1}/${totalTurns})`
+      : '';
+    this._appendNarratorLine(`Next actor: ${actorName}${turnLabel}.`);
   }
 
   buildActiveRoomNpcTurnOrder(roomId = null) {
@@ -148,46 +187,122 @@ export class EncounterSystem {
       const context = this._getActionRailContext();
       const hexmap = context.hexmap;
       const runtimeContext = context.runtimeContext || {};
-      const campaignId = runtimeContext.campaignId || null;
       const actorRef = context.actorRef || null;
-      const perceptionBonus = this._resolvePerceptionModifier(context.state || {});
-      if (!hexmap || !campaignId || !actorRef) {
+      const coordinator = hexmap?.gameCoordinator || null;
+      if (!hexmap || !coordinator?.api || !actorRef) {
         this._appendChatLine('System', 'Search requires an active campaign room and character.', 'system');
         return;
       }
 
-      const response = await fetch(`/api/game/${campaignId}/action`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'X-Requested-With': 'XMLHttpRequest',
-        },
-        credentials: 'include',
-        body: JSON.stringify({
-          type: 'search',
-          actor: actorRef,
-          params: {
-            character_id: context.characterId || null,
-            room_id: runtimeContext.roomId || hexmap.resolveActiveRoomId?.() || null,
-            perception_bonus: perceptionBonus,
-          },
-        }),
+      const data = await coordinator.api.sendAction('search', actorRef, {
+        search_mode: 'explicit',
+      }, {
+        stateVersion: coordinator.phaseManager?.stateVersion,
       });
-      const data = await response.json();
-      if (!response.ok || !data.success) {
-        this._appendChatLine('System', data.error || data.result?.error || 'Unable to search this room.', 'system');
+      if (!data?.success) {
+        this._appendChatLine('System', data?.error || data?.result?.error || 'Unable to search this room.', 'system');
         return;
       }
 
-      this._appendChatLine('System', `${context.actorLabel} searches the room.`, 'system');
-      if (typeof data.narration === 'string' && data.narration.trim()) {
-        this._appendChatLine('Game Master', data.narration.trim(), 'gm');
+      coordinator.applyAuthoritativeUpdate?.(data);
+      this.announceGameState(data?.game_state);
+      if (!Array.isArray(data.events) || data.events.length === 0) {
+        if (typeof data.narration === 'string' && data.narration.trim()) {
+          this._appendChatLine('Game Master', data.narration.trim(), 'gm');
+        }
       }
       hexmap.loadCharacterFromApi?.(context.characterId);
       this._refreshActionRail();
     } finally {
       this._endActionRailRequest(button);
+    }
+  }
+
+  async executeRestActivity(actionKey, button) {
+    if (!this._beginActionRailRequest(button)) {
+      return;
+    }
+
+    try {
+      const context = this._getActionRailContext();
+      const coordinator = context.hexmap?.gameCoordinator || null;
+      const actorRef = context.actorRef || null;
+      if (!coordinator?.api || !actorRef) {
+        this._appendChatLine('System', 'Rest actions require an active room character.', 'system');
+        return;
+      }
+
+      const params = {
+        target_id: button?.dataset?.targetId || actorRef,
+      };
+
+      const result = await coordinator.api.sendAction(actionKey, actorRef, params, {
+        stateVersion: coordinator.phaseManager?.stateVersion,
+      });
+      if (!result?.success) {
+        this._appendChatLine('System', result?.error || result?.result?.error || 'Unable to complete that rest activity.', 'system');
+        return;
+      }
+
+      coordinator.applyAuthoritativeUpdate?.(result);
+      this.announceGameState(result?.game_state);
+      if (!Array.isArray(result.events) || result.events.length === 0) {
+        if (typeof result.narration === 'string' && result.narration.trim()) {
+          this._appendChatLine('Game Master', result.narration.trim(), 'gm');
+        }
+      }
+      context.hexmap?.loadCharacterFromApi?.(context.characterId);
+      this._refreshActionRail();
+    } finally {
+      this._endActionRailRequest(button);
+    }
+  }
+
+  async endCurrentTurn(data = {}) {
+    const button = data?.button || null;
+    if (button && !this._beginActionRailRequest(button)) {
+      return;
+    }
+
+    try {
+      const context = this._getActionRailContext();
+      const actorRef = context.actorRef || null;
+      const coordinator = context.hexmap?.gameCoordinator || null;
+      if (!coordinator?.api || !actorRef) {
+        this._appendChatLine('System', 'End Turn requires an active encounter character.', 'system');
+        return;
+      }
+
+      const actionType = Array.isArray(context.availableActions) && context.availableActions.includes('choose_not_to_act')
+        ? 'choose_not_to_act'
+        : 'end_turn';
+      const result = await coordinator.api.sendAction(actionType, actorRef, {
+        character_id: context.characterId || null,
+        room_id: context.runtimeContext?.roomId || context.hexmap?.resolveActiveRoomId?.() || null,
+        reason: actionType === 'choose_not_to_act' ? 'Player chose not to use remaining actions.' : null,
+      }, {
+        stateVersion: coordinator.phaseManager?.stateVersion,
+      });
+      if (!result?.success) {
+        this._appendChatLine('System', result?.error || result?.result?.error || 'Unable to end the current turn.', 'system');
+        return;
+      }
+
+      coordinator.applyAuthoritativeUpdate?.(result);
+      this.announceGameState(result?.game_state);
+      if (!Array.isArray(result.events) || result.events.length === 0) {
+        this._appendChatLine('System', actionType === 'choose_not_to_act'
+          ? `${context.actorLabel} chooses not to use remaining actions.`
+          : `${context.actorLabel} ends their turn.`, 'system');
+        if (typeof result.narration === 'string' && result.narration.trim()) {
+          this._appendChatLine('Game Master', result.narration.trim(), 'gm');
+        }
+      }
+      this._refreshActionRail();
+    } finally {
+      if (button) {
+        this._endActionRailRequest(button);
+      }
     }
   }
 
@@ -476,18 +591,11 @@ export class EncounterSystem {
   }
 
   startCombat() {
-    const hexmap = this.stateManager?.hexmap;
-    hexmap?.startCombat?.();
+    this._appendChatLine('System', 'Encounter start is managed by room entry and server state.', 'system');
   }
 
   endCombat() {
-    const hexmap = this.stateManager?.hexmap;
-    hexmap?.endCombat?.();
-  }
-
-  endCurrentTurn() {
-    const hexmap = this.stateManager?.hexmap;
-    hexmap?.endTurn?.();
+    this._appendChatLine('System', 'Encounter end is managed by server state.', 'system');
   }
 
   // --- Proxy helpers (UIManager methods now live on panels/bus) ---
@@ -512,15 +620,76 @@ export class EncounterSystem {
     this.bus.emit('chat:system-message', { text: message, speaker, kind: type });
   }
 
+  _appendNarratorLine(message) {
+    this.bus.emit('chat:system-message', { text: message, speaker: 'Narrator', kind: 'system' });
+  }
+
+  _resolveEntityName(entity) {
+    return String(
+      entity?.getComponent?.('IdentityComponent')?.name
+      || entity?.name
+      || entity?.actorName
+      || entity?.entity_name
+      || entity?.label
+      || ''
+    ).trim();
+  }
+
+  announceGameState(gameState = null) {
+    if (!gameState || typeof gameState !== 'object') {
+      return;
+    }
+
+    const roundNumber = Number(gameState.round || 0);
+    if (Number.isFinite(roundNumber) && roundNumber > 0) {
+      this.announceRoundChange({ roundNumber });
+    }
+
+    const turn = gameState.turn && typeof gameState.turn === 'object' ? gameState.turn : {};
+    const initiativeOrder = Array.isArray(gameState.initiative_order) ? gameState.initiative_order : [];
+    const turnIndex = Number(turn.index);
+    const actorRef = String(turn.entity || '').trim();
+    const actor = initiativeOrder.find((entry) => String(entry?.entity_id || '') === actorRef)
+      || initiativeOrder[Number.isFinite(turnIndex) ? turnIndex : -1]
+      || null;
+    const actorName = String(
+      actor?.name
+      || actor?.display_name
+      || actor?.label
+      || actor?.entity_id
+      || actorRef
+      || ''
+    ).trim();
+
+    if (actorName) {
+      this.announceTurnChange({
+        actorName,
+        entity: { id: actorRef || actorName, name: actorName },
+        turnIndex,
+        totalTurns: initiativeOrder.length,
+      });
+    }
+  }
+
   _resolvePerceptionModifier(state = {}) {
     const skills = state?.data?.skills || state?.skills || {};
     if (Array.isArray(skills)) {
       const perception = skills.find((skill) => String(skill?.name || '').toLowerCase() === 'perception');
-      return Number(perception?.bonus ?? perception?.modifier ?? 0) || 0;
+      const skillModifier = Number(perception?.bonus ?? perception?.modifier);
+      if (Number.isFinite(skillModifier)) {
+        return skillModifier;
+      }
     }
-    const perception = skills?.perception || skills?.Perception || null;
+    const perception = skills?.perception || skills?.Perception || state?.data?.perception || state?.perception || null;
     if (perception && typeof perception === 'object') {
-      return Number(perception.bonus ?? perception.modifier ?? 0) || 0;
+      const perceptionModifier = Number(perception.bonus ?? perception.modifier ?? perception.value);
+      if (Number.isFinite(perceptionModifier)) {
+        return perceptionModifier;
+      }
+    }
+    const flatPerception = Number(perception);
+    if (Number.isFinite(flatPerception)) {
+      return flatPerception;
     }
     return 0;
   }

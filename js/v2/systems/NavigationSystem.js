@@ -104,17 +104,30 @@ export class NavigationSystem {
         return;
       }
 
-      let changed = false;
-      if (Number.isFinite(originQ) && Number.isFinite(originR)) {
-        changed = Boolean(hexmap.tryTransitionAtHex?.(originQ, originR));
-      } else if (hexmap?.getVisualRooms?.()?.[roomId]) {
-        changed = Boolean(hexmap.navigateToVisitedRoom?.(roomId));
-      }
-      if (!changed) {
-        this._appendChatLine('System', 'That destination is not navigable right now.', 'system');
+      const selectedEntity = hexmap.stateManager?.get('selectedEntity');
+      const actorId = selectedEntity?.dcEntityRef || selectedEntity?.id || null;
+      const coordinator = hexmap.gameCoordinator || null;
+      if (!coordinator?.api?.sendAction || !actorId) {
+        this._appendChatLine('System', 'Select an actor before navigating.', 'system');
         return;
       }
 
+      const params = {
+        target_room_id: roomId,
+      };
+      if (Number.isFinite(originQ) && Number.isFinite(originR)) {
+        params.target_hex = { q: originQ, r: originR };
+      }
+
+      const result = await coordinator.api.sendAction('transition', actorId, params, {
+        stateVersion: coordinator.phaseManager?.stateVersion,
+      });
+      if (!result?.success) {
+        this._appendChatLine('System', result?.error || 'That destination is not navigable right now.', 'system');
+        return;
+      }
+
+      coordinator.applyAuthoritativeUpdate?.(result);
       this._appendChatLine('System', `Navigating to ${roomName}.`, 'system');
       this._refreshActionRail();
     } finally {

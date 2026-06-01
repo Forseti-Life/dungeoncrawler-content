@@ -159,7 +159,7 @@ MERMAID,
     $build['diagrams']['startup_flow'] = $this->buildDiagramCard(
       'Launch and tavern startup',
       'How the run boots into the first room',
-      'The launch path starts before the player can move: route selection, state hydration, startup narration, and the first exploration-ready room view.',
+      'The launch path starts before the player can move: route selection, state hydration, startup narration, and the first encounter-ready room view.',
       <<<'MERMAID'
 flowchart LR
   A[/campaigns/{campaign_id}/tavernentrance/] --> B[Select character]
@@ -169,10 +169,10 @@ flowchart LR
   E --> F[GameCoordinatorService getFullState]
   F --> G[Ensure game_state and campaign_clock]
   G --> H[Bootstrap startup room_entered event if missing]
-  H --> I[Return initial events, actions, and phase]
+  H --> I[Return initial events, round, turn, actions, and phase]
   I --> J[GameCoordinator applies initial state]
   J --> K[Narration overlay and MP3 playback]
-  K --> L[Exploration begins in the tavern]
+  K --> L[Encounter begins in the tavern]
 MERMAID,
       [
         'Startup narration is delivered as a real room_entered event.',
@@ -182,33 +182,29 @@ MERMAID,
     );
 
     $build['diagrams']['exploration_flow'] = $this->buildDiagramCard(
-      'Exploration loop',
-      'Movement, investigation, and room-state updates',
-      'Exploration is the default runtime loop on the hexmap. Most non-combat actions stay here.',
+      'Encounter room loop',
+      'Movement, investigation, turn order, and room-state updates',
+      'Encounter is the default runtime loop on the hexmap. Room actions, movement, and conversation stay in this one framework.',
       <<<'MERMAID'
 flowchart TD
-  A[Exploration phase active] --> B[Player chooses an intent]
+  A[Encounter phase active] --> B[Current actor chooses an intent]
   B --> C{Intent type}
-  C -->|Move| D[Pathfind and move on the hexmap]
-  C -->|Search| E[Run exploration search]
-  C -->|Rest| F[Run exploration rest action]
+  C -->|Transition| D[Server validates connected room and moves party]
+  C -->|Search| E[Run encounter search]
+  C -->|End / choose not to act| F[Log explicit turn-ending decision]
   C -->|Talk| G[Open room chat or direct chat]
-  D --> H[Server updates game_state and event log]
+  D --> H[Server updates game_state, round/turn, and event log]
   E --> H
   F --> H
   G --> I[Chat reply and transcript update]
-  H --> J{Entered a new room?}
-  J -- Yes --> K[Emit room_entered narration and MP3]
-  J -- No --> L[Stay in current room loop]
-  I --> M[Exploration remains active]
+  H --> J{Next actor?}
+  J --> K[Emit round_start / turn_start as needed]
+  I --> M[Encounter remains active]
   K --> M
-  L --> M
-  M --> N{Encounter trigger?}
-  N -- No --> A
-  N -- Yes --> O[Transition into encounter]
+  M --> A
 MERMAID,
       [
-        'Movement, search, and rest stay in exploration unless a transition trigger is hit.',
+        'Movement, search, talk, and explicit end-turn/no-action choices stay in encounter.',
         'Room narration is first-visit gated and emitted through the event pipeline.',
         'Chat can update world context without forcing a phase change.',
       ]
@@ -237,12 +233,12 @@ flowchart TD
   L -- No --> N[Send final chat payload to UI]
   L -- Yes --> O[Per candidate NPC: LLM call npc_interjection_eval_single]
   O --> P{NPC should speak?}
-  P -- No --> Q[Skip NPC turn]
+  P -- No --> Q[Log NPC choose_not_to_act]
   P -- Yes --> R[LLM call: npc_room_dialogue]
   Q --> N
   R --> N
   M --> N
-  N --> S[UI updates transcript inside exploration]
+  N --> S[UI updates transcript inside encounter]
 MERMAID,
       [
         'Room channel GM narration uses operation `room_chat_gm_reply`, with optional `room_chat_gm_retry` if authoritative action validation fails.',

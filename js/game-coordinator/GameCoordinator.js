@@ -18,12 +18,11 @@
  *   if (this.gameCoordinator.handleHexClick(q, r)) return;
  */
 
-import { GameCoordinatorApi } from './GameCoordinatorApi.js';
+import { GameCoordinatorApi } from './GameCoordinatorApi.js?v=20260601-search-framework-2';
 import { PhaseManager } from './PhaseManager.js';
 import { NarrationOverlay } from './NarrationOverlay.js';
 import { ExplorationPhaseHandler } from './phases/ExplorationPhaseHandler.js';
 import { EncounterPhaseHandler } from './phases/EncounterPhaseHandler.js';
-import { DowntimePhaseHandler } from './phases/DowntimePhaseHandler.js';
 
 export class GameCoordinator {
   /**
@@ -40,9 +39,11 @@ export class GameCoordinator {
     /** @type {PhaseManager} */
     this.phaseManager = new PhaseManager();
 
-    // Phase handlers (strategy pattern, keyed by phase name).
-    /** @type {Object<string, ExplorationPhaseHandler|EncounterPhaseHandler|DowntimePhaseHandler>} */
+    // Phase handlers (strategy pattern, keyed by active phase name).
+    /** @type {Object<string, EncounterPhaseHandler>} */
     this.phaseHandlers = {};
+    /** @type {ExplorationPhaseHandler|null} retained for helper reuse only. */
+    this.deprecatedExplorationActions = null;
 
     // Event timeline state.
     /** @type {number} */
@@ -100,9 +101,8 @@ export class GameCoordinator {
       hexmap: this.hexmap,
     };
 
-    this.phaseHandlers.exploration = new ExplorationPhaseHandler(deps);
+    this.deprecatedExplorationActions = new ExplorationPhaseHandler(deps);
     this.phaseHandlers.encounter = new EncounterPhaseHandler(deps);
-    this.phaseHandlers.downtime = new DowntimePhaseHandler(deps);
 
     // Create narration overlay for AI GM narration.
     this.narrationOverlay = new NarrationOverlay();
@@ -115,7 +115,7 @@ export class GameCoordinator {
     try {
       const state = await this.api.getState();
       if (state?.success) {
-        this.phaseManager.applyServerState(state.game_state, state.available_actions, state.action_contract || null);
+        this.phaseManager.applyServerState(this._buildStatePayloadFromResponse(state), state.available_actions, state.action_contract || null);
         this.eventCursor = state.game_state?.event_log_cursor || 0;
         if (state.events?.length) {
           const latestBootstrapEventId = Math.max(...state.events.map((event) => Number(event?.id || 0)));
@@ -198,7 +198,7 @@ export class GameCoordinator {
    * @returns {Promise<object|null>}
    */
   async performSearch() {
-    const handler = this.phaseHandlers.exploration;
+    const handler = this.deprecatedExplorationActions;
     if (!handler || this.phaseManager.currentPhase !== 'encounter') {
       console.info('[GameCoordinator] Search only available in active room encounter mode.');
       return null;
@@ -213,14 +213,18 @@ export class GameCoordinator {
    * @returns {Promise<object|null>}
    */
   async performRest(restType = 'short') {
+    if (this.phaseManager.currentPhase !== 'encounter') {
+      return null;
+    }
     const entity = this.hexmap.stateManager?.get('selectedEntity');
-    if (this.phaseManager.currentPhase === 'downtime' && restType === 'long') {
-      return this.phaseHandlers.downtime?.performLongRest(entity);
+    const actorRef = entity?.dcEntityRef || entity?.dcEntityInstanceId || null;
+    if (!actorRef) {
+      return null;
     }
-    if (this.phaseManager.currentPhase === 'encounter') {
-      return this.phaseHandlers.exploration?.performRest(entity, restType);
-    }
-    return null;
+    const actionType = restType === 'long' ? 'daily_preparations' : 'refocus';
+    return this.api.sendAction(actionType, actorRef, {}, {
+      stateVersion: this.phaseManager?.stateVersion,
+    });
   }
 
   /**
@@ -252,7 +256,7 @@ export class GameCoordinator {
     try {
       const result = await this.api.transitionPhase(targetPhase, context);
       if (result?.success) {
-        this.phaseManager.applyServerState(result.game_state, result.available_actions, result.action_contract || null);
+        this.phaseManager.applyServerState(this._buildStatePayloadFromResponse(result), result.available_actions, result.action_contract || null);
         this._processNewEvents(result.events);
       }
       return result;
@@ -276,7 +280,7 @@ export class GameCoordinator {
     }
 
     if (result.game_state) {
-      this.phaseManager.applyServerState(result.game_state, result.available_actions || [], result.action_contract || null);
+      this.phaseManager.applyServerState(this._buildStatePayloadFromResponse(result), result.available_actions, result.action_contract || null);
       const cursor = Number(
         result.game_state?.event_log_cursor
         ?? result.event_log_cursor
@@ -291,6 +295,27 @@ export class GameCoordinator {
     if (Array.isArray(result.events) && result.events.length > 0) {
       this._processNewEvents(result.events);
     }
+  }
+
+  /**
+   * Merge top-level coordinator response fields into the projected game_state.
+   *
+   * @param {object} response
+   * @returns {object|null}
+   * @private
+   */
+  _buildStatePayloadFromResponse(response = {}) {
+    if (!response?.game_state || typeof response.game_state !== 'object') {
+      return null;
+    }
+    return {
+      ...response.game_state,
+      active_room_id: response.active_room_id ?? response.game_state.active_room_id,
+      encounter_id: response.encounter_id ?? response.game_state.encounter_id,
+      round: response.round ?? response.game_state.round,
+      turn: response.turn ?? response.game_state.turn,
+      legal_intents: response.legal_intents ?? response.game_state.legal_intents,
+    };
   }
 
   /**
@@ -311,7 +336,10 @@ export class GameCoordinator {
     if (isActiveEncounter) {
       const currentRound = Number(serverState.current_round);
       const projectedTurn = this._buildProjectedEncounterTurn(serverState);
-      const actionContract = this._buildEncounterActionContract(serverState, projectedTurn);
+      const availableActions = Array.isArray(serverState.available_actions)
+        ? serverState.available_actions
+        : this.phaseManager.availableActions;
+      const actionContract = serverState.action_contract || this.phaseManager.actionContract || null;
       this.phaseManager.applyServerState({
         phase: 'encounter',
         state_version: Number(serverState.version) || this.phaseManager.stateVersion || 0,
@@ -320,7 +348,7 @@ export class GameCoordinator {
         encounter_id: encounterId,
         initiative_order: Array.isArray(serverState.initiative_order) ? serverState.initiative_order : [],
         event_log_cursor: this.eventCursor || 0,
-      }, actionContract.available_actions || [], actionContract);
+      }, availableActions, actionContract);
       return;
     }
 
@@ -333,7 +361,7 @@ export class GameCoordinator {
         encounter_id: null,
         initiative_order: null,
         event_log_cursor: this.eventCursor || 0,
-      }, this._defaultRoomEncounterActions(), this._buildRoomEncounterActionContract());
+      }, this.phaseManager.availableActions || [], this.phaseManager.actionContract || null);
     }
   }
 
@@ -343,7 +371,7 @@ export class GameCoordinator {
 
   /**
    * Get the handler for the currently active phase.
-   * @returns {ExplorationPhaseHandler|EncounterPhaseHandler|DowntimePhaseHandler|null}
+   * @returns {ExplorationPhaseHandler|EncounterPhaseHandler|null}
    */
   getActiveHandler() {
     return this.phaseHandlers[this.phaseManager.currentPhase] || null;
@@ -384,102 +412,6 @@ export class GameCoordinator {
     };
   }
 
-  /**
-   * @param {object} serverState
-   * @param {object|null} projectedTurn
-   * @returns {string[]}
-   * @private
-   */
-  _deriveEncounterActions(serverState, projectedTurn) {
-    const currentParticipant = serverState.current_participant
-      || (Array.isArray(serverState.participants) ? serverState.participants[serverState.turn_index] : null)
-      || null;
-    const isPlayerTurn = currentParticipant?.team === 'player'
-      || currentParticipant?.type === 'player_character'
-      || currentParticipant?.is_player === true;
-    const actions = [];
-
-    if (isPlayerTurn) {
-      const actionsRemaining = Number(projectedTurn?.actions_remaining ?? 0);
-      if (actionsRemaining >= 1) {
-        actions.push('strike', 'stride', 'interact', 'search');
-      }
-      if (actionsRemaining >= 2) {
-        actions.push('cast_spell');
-      }
-      actions.push('talk', 'end_turn', 'delay');
-    }
-
-    if (Boolean(currentParticipant?.reaction_available)) {
-      actions.push('reaction');
-    }
-
-    return Array.from(new Set(actions));
-  }
-
-  /**
-   * Build a canonical encounter action contract for client consumers.
-   *
-   * @param {object} serverState
-   * @param {object|null} projectedTurn
-   * @returns {object}
-   * @private
-   */
-  _buildEncounterActionContract(serverState, projectedTurn) {
-    const availableActions = this._deriveEncounterActions(serverState, projectedTurn);
-    const definitions = {
-      strike: { label: 'Strike', cost: 1, category: 'offense', requires_turn: true, targeting: 'hostile_entity' },
-      stride: { label: 'Stride', cost: 1, category: 'movement', requires_turn: true, targeting: 'hex' },
-      interact: { label: 'Interact', cost: 1, category: 'utility', requires_turn: true, targeting: 'entity_or_object' },
-      search: { label: 'Search', cost: 1, category: 'perception', requires_turn: true, targeting: 'room' },
-      cast_spell: { label: 'Cast Spell', cost: 2, category: 'magic', requires_turn: true, targeting: 'contextual' },
-      talk: { label: 'Talk', cost: 0, category: 'conversation', requires_turn: true, targeting: 'entity_or_room' },
-      end_turn: { label: 'End Turn', cost: 0, category: 'turn', requires_turn: true, targeting: 'none' },
-      delay: { label: 'Delay', cost: 0, category: 'turn', requires_turn: true, targeting: 'none' },
-      reaction: { label: 'Reaction', cost: 'reaction', category: 'reaction', requires_turn: false, targeting: 'contextual' },
-    };
-
-    return {
-      phase: 'encounter',
-      actor_id: projectedTurn?.entity || null,
-      current_turn_entity: projectedTurn?.entity || null,
-      available_actions: availableActions,
-      actions: Object.entries(definitions).map(([id, definition]) => ({
-        id,
-        ...definition,
-        available: availableActions.includes(id),
-      })),
-    };
-  }
-
-  /**
-   * @returns {string[]}
-   * @private
-   */
-  _defaultRoomEncounterActions() {
-    return ['move', 'interact', 'talk', 'search', 'set_activity', 'rest', 'sense_direction', 'cover_tracks', 'track'];
-  }
-
-  /**
-   * Build the non-combat encounter action contract used for normal room entry.
-   *
-   * @returns {object}
-   * @private
-   */
-  _buildRoomEncounterActionContract() {
-    const availableActions = this._defaultRoomEncounterActions();
-    return {
-      phase: 'encounter',
-      actor_id: null,
-      current_turn_entity: null,
-      available_actions: availableActions,
-      actions: availableActions.map((id) => ({
-        id,
-        available: true,
-      })),
-    };
-  }
-
   // =========================================================================
   // Event Polling
   // =========================================================================
@@ -496,7 +428,7 @@ export class GameCoordinator {
         const result = await this.api.getEventsSince(this.eventCursor);
         if (result?.events?.length > 0) {
           this._processNewEvents(result.events);
-          this.eventCursor = result.latest_cursor || this.eventCursor;
+          this.eventCursor = result.latest_cursor || result.cursor || this.eventCursor;
         }
       } catch (err) {
         // Silently ignore polling errors — server may be temporarily unavailable.
@@ -537,6 +469,8 @@ export class GameCoordinator {
       this.eventLog = this.eventLog.slice(-200);
     }
 
+    this._logEncounterConsoleEvents(events);
+
     // Show narration overlay for GM narration events.
     this._showNarrations(events);
 
@@ -544,6 +478,47 @@ export class GameCoordinator {
     window.dispatchEvent(new CustomEvent('dungeoncrawler:game-events', {
       detail: { events, total: this.eventLog.length },
     }));
+  }
+
+  /**
+   * Mirror key encounter lifecycle events to the browser console.
+   *
+   * @param {Array} events
+   * @private
+   */
+  _logEncounterConsoleEvents(events) {
+    for (const event of events) {
+      const type = String(event?.type || '').trim();
+      const data = event?.data || {};
+
+      if (type === 'encounter_framework_started' || type === 'encounter_framework_resumed') {
+        console.info('[Encounter]', type, {
+          roomId: data.room_id ?? null,
+          participants: data.participants ?? null,
+          narration: event?.narration ?? null,
+        });
+        continue;
+      }
+
+      if (type === 'round_start') {
+        console.info('[Encounter] round_start', {
+          round: Number(data.round ?? 0),
+          roomId: data.room_id ?? null,
+          narration: event?.narration ?? null,
+        });
+        continue;
+      }
+
+      if (type === 'turn_start') {
+        console.info('[Encounter] turn_start', {
+          round: Number(data.round ?? 0),
+          actorId: event?.actor ?? data.entity_id ?? null,
+          actorName: data.actor_name ?? null,
+          roomId: data.room_id ?? null,
+          narration: event?.narration ?? null,
+        });
+      }
+    }
   }
 
   /**
@@ -664,10 +639,10 @@ export class GameCoordinator {
         console.log(`[GameCoordinator] Phase: ${data.from} → ${data.to}`);
         this._updatePhaseUI(data.to);
 
-        // Sync with existing hexmap state for backward compatibility.
+        // Sync legacy flags from authoritative encounter fields.
         if (data.to === 'encounter') {
           this.hexmap.stateManager?.set('serverCombatMode', true);
-          this.hexmap.stateManager?.set('combatActive', true);
+          this.hexmap.stateManager?.set('combatActive', Boolean(data.encounterId));
         } else {
           this.hexmap.stateManager?.set('serverCombatMode', false);
           this.hexmap.stateManager?.set('combatActive', false);
@@ -809,7 +784,6 @@ export class GameCoordinator {
     const names = {
       exploration: 'Encounter',
       encounter: 'Encounter',
-      downtime: 'Downtime',
     };
     return names[phase] || phase;
   }

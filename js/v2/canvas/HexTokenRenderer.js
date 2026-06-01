@@ -135,7 +135,7 @@ export class HexTokenRenderer {
       const pos = entity.getComponent?.('PositionComponent');
       const render = entity.getComponent?.('RenderComponent');
       const identity = entity.getComponent?.('IdentityComponent');
-      if (!pos || !render) continue;
+      if (!pos || !render || render.visible === false) continue;
 
       const token = this._buildTokenContainer(entity, pos, render, identity);
       token.zIndex = getZIndex(identity?.entityType ?? 'unknown', pos.q, pos.r);
@@ -180,12 +180,19 @@ export class HexTokenRenderer {
       sprite.scale.set((hexSize * 1.6 * scale) / Math.max(sprite.width, sprite.height));
       container.addChild(sprite);
     } else {
-      // Fallback: colored circle
+      // Fallback: colored primitive
       const g = new PIXI.Graphics();
-      const color = TYPE_COLORS[identity?.entityType] ?? 0xffffff;
-      const radius = hexSize * 0.38;
+      const color = parseHexColor(render.objectColor) ?? TYPE_COLORS[identity?.entityType] ?? 0xffffff;
+      const scale = Number.isFinite(render.scale) ? render.scale : 1;
+      const radius = hexSize * 0.38 * scale;
       g.beginFill(color, 0.85);
-      g.drawCircle(0, 0, radius);
+      if (identity?.entityType === 'obstacle' || render.objectCategory === 'obstacle') {
+        const side = radius * 2;
+        const cornerRadius = Math.max(4, radius * 0.22);
+        g.drawRoundedRect(-radius, -radius, side, side, cornerRadius);
+      } else {
+        g.drawCircle(0, 0, radius);
+      }
       g.endFill();
       container.addChild(g);
     }
@@ -253,4 +260,16 @@ export class HexTokenRenderer {
     ring.lineStyle(2, color, 0.9);
     ring.drawCircle(0, 0, radius);
   }
+}
+
+function parseHexColor(value) {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim();
+  if (/^#[0-9a-f]{6}$/i.test(normalized)) {
+    return Number.parseInt(normalized.slice(1), 16);
+  }
+  if (/^0x[0-9a-f]{6}$/i.test(normalized)) {
+    return Number.parseInt(normalized.slice(2), 16);
+  }
+  return null;
 }

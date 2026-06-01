@@ -6,7 +6,7 @@
  * for the client to react to phase changes without polling. The server
  * remains authoritative — this is a local projection.
  *
- * Phases: 'encounter' | 'downtime'
+ * Phases: 'encounter'
  *
  * Exploration is intentionally kept out of the live runtime path for now.
  * Server payloads that still report `exploration` are normalized to
@@ -19,14 +19,12 @@
  * Must match GameCoordinatorService::VALID_TRANSITIONS on the server.
  */
 const VALID_TRANSITIONS = {
-  exploration: ['encounter', 'downtime'],
-  encounter: ['downtime'],
-  downtime: ['encounter'],
+  encounter: [],
 };
 
 export class PhaseManager {
   constructor() {
-    /** @type {'encounter'|'downtime'} */
+    /** @type {'encounter'} */
     this.currentPhase = 'encounter';
 
     /** @type {number} */
@@ -41,6 +39,12 @@ export class PhaseManager {
     /** @type {number|null} */
     this.encounterId = null;
 
+    /** @type {object|null} */
+    this.encounterContext = null;
+
+    /** @type {string|null} */
+    this.activeRoomId = null;
+
     /** @type {Array|null} */
     this.initiativeOrder = null;
 
@@ -49,6 +53,9 @@ export class PhaseManager {
 
     /** @type {object|null} */
     this.actionContract = null;
+
+    /** @type {string[]} */
+    this.legalIntents = [];
 
     /** @type {number} */
     this.eventLogCursor = 0;
@@ -100,6 +107,8 @@ export class PhaseManager {
     this.round = mergedState.round;
     this.turn = mergedState.turn;
     this.encounterId = mergedState.encounter_id;
+    this.encounterContext = mergedState.encounter_context || null;
+    this.activeRoomId = mergedState.active_room_id || this.activeRoomId || null;
     this.initiativeOrder = mergedState.initiative_order;
     this.eventLogCursor = mergedState.event_log_cursor || 0;
 
@@ -108,6 +117,7 @@ export class PhaseManager {
       this._emit('actionsUpdate', this.availableActions);
     }
     this.actionContract = actionContract;
+    this.legalIntents = Array.isArray(mergedState.legal_intents) ? mergedState.legal_intents : this.legalIntents;
 
     // Emit phase change if phase actually changed.
     if (previousPhase !== this.currentPhase) {
@@ -180,7 +190,7 @@ export class PhaseManager {
    * @returns {boolean}
    */
   isInEncounter() {
-    return this.currentPhase === 'encounter' && this.encounterId != null;
+    return this.currentPhase === 'encounter';
   }
 
   /**
@@ -211,9 +221,12 @@ export class PhaseManager {
       round: this.round,
       turn: this.turn ? { ...this.turn } : null,
       encounterId: this.encounterId,
+      encounterContext: this.encounterContext ? { ...this.encounterContext } : null,
+      activeRoomId: this.activeRoomId,
       initiativeOrder: this.initiativeOrder ? [...this.initiativeOrder] : null,
       availableActions: [...this.availableActions],
       actionContract: this.actionContract,
+      legalIntents: [...this.legalIntents],
       eventLogCursor: this.eventLogCursor,
       campaignClock: this.serverState?.campaign_clock || null,
       gameTime: this.serverState?.game_time || null,
@@ -269,14 +282,10 @@ export class PhaseManager {
    * Normalize dormant exploration states to the live encounter runtime.
    *
    * @param {string|null|undefined} phase
-   * @returns {'encounter'|'downtime'}
+   * @returns {'encounter'}
    * @private
    */
   _normalizePhaseName(phase) {
-    const normalized = String(phase || '').trim().toLowerCase();
-    if (normalized === 'downtime') {
-      return 'downtime';
-    }
     return 'encounter';
   }
 }

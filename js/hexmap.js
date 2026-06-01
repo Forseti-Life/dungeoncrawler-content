@@ -7,7 +7,7 @@
 import { EntityManager, PositionComponent, RenderComponent, IdentityComponent, EntityType, RenderSystem, MovementComponent, StatsComponent, MovementSystem, MovementMode, ActionsComponent, ActionType, ActionCost, CombatComponent, Team, TurnManagementSystem, CombatState, CombatSystem, AttackResult } from './ecs/index.js';
 import combatApi from './hexmap-api.js';
 import { HexmapStateSync } from './HexmapStateSync.js';
-import { GameCoordinator } from './game-coordinator/GameCoordinator.js';
+import { GameCoordinator } from './game-coordinator/GameCoordinator.js?v=20260601-search-framework-2';
 import { ChatSessionApi } from './ChatSessionApi.js';
 import { SpriteService } from './SpriteService.js';
 
@@ -3915,7 +3915,7 @@ import { SpriteService } from './SpriteService.js';
       const formattedValue = hasValidDate
         ? new Intl.DateTimeFormat(undefined, {
           dateStyle: 'medium',
-          timeStyle: 'short',
+          timeStyle: 'medium',
           timeZone: timezone,
         }).format(parsedDate)
         : (fallbackValue || 'Unavailable');
@@ -5028,9 +5028,6 @@ import { SpriteService } from './SpriteService.js';
         const runtimeContext = context.runtimeContext || {};
         const campaignId = runtimeContext.campaignId || null;
         const actorRef = context.actorRef || null;
-        const perception = collectCharacterSkillEntries(context.state || {})
-          .find((skill) => String(skill.name || '').toLowerCase() === 'perception');
-        const perceptionBonus = Number(perception?.modifier ?? 0) || 0;
         if (!hexmap || !campaignId || !actorRef) {
           this.appendChatLine('System', 'Search requires an active campaign room and character.', 'system');
           return;
@@ -5048,9 +5045,7 @@ import { SpriteService } from './SpriteService.js';
             type: 'search',
             actor: actorRef,
             params: {
-              character_id: context.characterId || null,
-              room_id: runtimeContext.roomId || hexmap.resolveActiveRoomId?.() || null,
-              perception_bonus: perceptionBonus,
+              search_mode: 'explicit',
             },
           }),
         });
@@ -5060,7 +5055,6 @@ import { SpriteService } from './SpriteService.js';
           return;
         }
 
-        this.appendChatLine('System', `${context.actorLabel} searches the room.`, 'system');
         if (typeof data.narration === 'string' && data.narration.trim()) {
           this.appendChatLine('Game Master', data.narration.trim(), 'gm');
         }

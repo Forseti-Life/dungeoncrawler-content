@@ -249,7 +249,10 @@ class InventoryManagementServiceTest extends UnitTestCase {
       'name' => 'Backpack',
       'item_type' => 'adventuring_gear',
       'bulk' => 'L',
-      'hands' => '0',
+      'equippable' => TRUE,
+      'equip_slot' => 'worn',
+      'worn_slot' => 'worn',
+      'hand_slots_required' => 0,
       'container_stats' => [
         'capacity' => 4,
       ],
@@ -260,6 +263,31 @@ class InventoryManagementServiceTest extends UnitTestCase {
     $this->assertSame(0, $backpack['inventory_metadata']['hand_slots_required']);
     $this->assertTrue($backpack['inventory_metadata']['container']);
     $this->assertFalse($backpack['inventory_metadata']['consumable']);
+
+    $goggles = $service->exposeNormalizeIncomingItemData([
+      'id' => 'goggles-of-night',
+      'name' => 'Goggles of Night',
+      'item_type' => 'wondrous_item',
+      'bulk' => 'L',
+      'equippable' => TRUE,
+      'equip_slot' => 'worn',
+      'worn_slot' => 'eyes',
+      'hand_slots_required' => 0,
+    ]);
+    $this->assertTrue($goggles['inventory_metadata']['equippable']);
+    $this->assertSame('worn', $goggles['inventory_metadata']['equip_slot']);
+    $this->assertSame('eyes', $goggles['inventory_metadata']['worn_slot']);
+
+    $usageOnlyItem = $service->exposeNormalizeIncomingItemData([
+      'id' => 'legacy-usage-only-item',
+      'name' => 'Legacy Usage Only Item',
+      'item_type' => 'wondrous_item',
+      'bulk' => 'L',
+      'usage' => 'worn eyewear',
+    ]);
+    $this->assertFalse($usageOnlyItem['inventory_metadata']['equippable']);
+    $this->assertNull($usageOnlyItem['inventory_metadata']['equip_slot']);
+    $this->assertNull($usageOnlyItem['inventory_metadata']['worn_slot']);
   }
 
   /**
@@ -320,6 +348,17 @@ class InventoryManagementServiceTest extends UnitTestCase {
               'source' => 'character_creation',
             ]),
           ],
+          (object) [
+            'item_instance_id' => 'goggles-1',
+            'item_id' => 'goggles-of-night',
+            'quantity' => 1,
+            'location_type' => 'equipped',
+            'state_data' => json_encode([
+              'equippable' => TRUE,
+              'equip_slot' => 'worn',
+              'worn_slot' => 'eyes',
+            ]),
+          ],
         ],
       ],
       [
@@ -328,6 +367,13 @@ class InventoryManagementServiceTest extends UnitTestCase {
           'schema' => [
             'item_type' => 'armor',
             'bulk' => '1',
+          ],
+        ],
+        'goggles-of-night' => [
+          'name' => 'Goggles of Night',
+          'schema' => [
+            'item_type' => 'wondrous_item',
+            'bulk' => 'L',
           ],
         ],
       ]
@@ -340,6 +386,9 @@ class InventoryManagementServiceTest extends UnitTestCase {
     $this->assertSame('carried', $inventory['carried'][0]['location']);
     $this->assertSame('armor', $inventory['carried'][0]['inventory_metadata']['equip_slot']);
     $this->assertTrue($inventory['carried'][0]['inventory_metadata']['equippable']);
+    $this->assertCount(1, $inventory['worn']['accessories']);
+    $this->assertSame('Goggles of Night', $inventory['worn']['accessories'][0]['name']);
+    $this->assertSame('worn', $inventory['worn']['accessories'][0]['location']);
   }
 
   /**

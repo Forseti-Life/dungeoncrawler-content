@@ -61,11 +61,14 @@ export class InventoryPanel {
   _subscribe() {
     this._unsubs.push(
       this.bus.on('inventory:changed', (d) => {
-        this.currentCharacterInventoryContext = d;
-        this.renderInventoryPanel(d);
+        this.currentCharacterInventoryContext = {
+          ...(this.currentCharacterInventoryContext || {}),
+          ...(d || {}),
+        };
+        this.renderInventoryPanel(this.currentCharacterInventoryContext);
       }),
       this.bus.on('game:init', (d) => {
-        const ctx = d?.inventory ?? d?.inventoryContext ?? null;
+        const ctx = d?.inventoryContext ?? d?.inventory ?? null;
         if (ctx) {
           this.currentCharacterInventoryContext = ctx;
           this.renderInventoryPanel(ctx);
@@ -485,6 +488,7 @@ export class InventoryPanel {
             : `${itemName} moved back to carried inventory.`,
         },
       };
+      this.bus.emit('inventory:changed', this.currentCharacterInventoryContext);
       this.renderInventoryPanel(this.currentCharacterInventoryContext);
     } catch (error) {
       this.logInventoryActionTrace('failure', {

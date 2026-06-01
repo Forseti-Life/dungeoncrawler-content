@@ -18,13 +18,16 @@
  * Screen-space layers (50+) stay fixed.
  *
  * Fires bus events:
- *   hex:hovered         — { q, r }
- *   hex:out             — { q, r }
- *   hex:clicked         — { q, r, button }
+ *   canvas:hex-hovered  — { q, r }
+ *   canvas:hex-out      — { q, r }
+ *   canvas:hex-clicked  — { q, r, button }
  *   canvas:zoom-changed — { scale }
  *
  * Subscribes to bus events:
- *   room:changed  — regenerate hex grid for new room
+ *   room:changed               — regenerate hex grid for new room
+ *   canvas:coordinates-toggled — redraw grid labels
+ *   canvas:grid-toggled        — redraw grid lines
+ *   canvas:reset-view          — restore default camera transform
  */
 
 /* global PIXI */
@@ -51,6 +54,8 @@ export class HexCanvas {
       minZoom: config.minZoom ?? 0.5,
       maxZoom: config.maxZoom ?? 3.0,
       backgroundColor: config.backgroundColor ?? 0x1a1a2e,
+      showCoordinates: config.showCoordinates ?? false,
+      showGrid: config.showGrid ?? true,
     };
 
     /** @type {PIXI.Application|null} */
@@ -71,6 +76,8 @@ export class HexCanvas {
 
     /** @type {PIXI.Container|null} Banner container in HUD */
     this._roomBanner = null;
+    this.currentRoom = null;
+    this.currentRoomId = null;
 
     this._unsubs = [];
     this._wheelHandler = null;
@@ -95,12 +102,29 @@ export class HexCanvas {
     this.drawCompassRose();
 
     this._unsubs.push(
-      this.bus.on('room:changed', ({ room } = {}) => {
+      this.bus.on('room:changed', ({ roomId, room } = {}) => {
+        this.currentRoomId = roomId || room?.room_id || room?.id || null;
+        this.currentRoom = room || null;
         this.generateHexGrid();
         if (room?.name) {
           this.showRoomBanner(room.name, room.subtitle ?? null);
         }
-      })
+      }),
+      this.bus.on('canvas:coordinates-toggled', ({ enabled } = {}) => {
+        this.config.showCoordinates = Boolean(enabled);
+        this.generateHexGrid();
+      }),
+      this.bus.on('canvas:grid-toggled', ({ enabled } = {}) => {
+        this.config.showGrid = Boolean(enabled);
+        this.generateHexGrid();
+      }),
+      this.bus.on('canvas:reset-view', () => {
+        const centerX = this.app?.screen?.width ? this.app.screen.width / 2 : 0;
+        const centerY = this.app?.screen?.height ? this.app.screen.height / 2 : 0;
+        this.setWorldScale(1);
+        this.setWorldPosition(centerX, centerY);
+        this.bus.emit('canvas:zoom-changed', { scale: 1 });
+      }),
     );
   }
 
@@ -159,12 +183,27 @@ export class HexCanvas {
 
     this.hexContainer.removeChildren();
     this.gridContainer.removeChildren();
+    this.propsContainer?.removeChildren();
 
     const { hexSize, gridWidth, gridHeight } = this.config;
+    const roomHexes = _getRoomHexes(this.currentRoom);
 
-    for (let q = -Math.floor(gridWidth / 2); q < Math.ceil(gridWidth / 2); q++) {
-      for (let r = -Math.floor(gridHeight / 2); r < Math.ceil(gridHeight / 2); r++) {
-        this._createHex(q, r, hexSize);
+    if (roomHexes.length) {
+      roomHexes.forEach((roomHex) => {
+        this._createHex(
+          Number(roomHex.q),
+          Number(roomHex.r),
+          hexSize,
+          _resolveHexStyleForCanvas(_resolveRoomHexStyle(roomHex), this.config),
+          roomHex,
+        );
+      });
+      return;
+    }
+
+    for (let q = -Math.floor(gridWidth / 2); q < Math.ceil(gridWidth / 2); q += 1) {
+      for (let r = -Math.floor(gridHeight / 2); r < Math.ceil(gridHeight / 2); r += 1) {
+        this._createHex(q, r, hexSize, _resolveHexStyleForCanvas(DEFAULT_HEX_STYLE, this.config), null);
       }
     }
   }
@@ -468,28 +507,44 @@ export class HexCanvas {
    * @param {number} r
    * @param {number} size
    */
-  _createHex(q, r, size) {
+  _createHex(q, r, size, style = null, roomHex = null) {
     const hex = new PIXI.Graphics();
     const pos = this.axialToPixel(q, r, size);
+    const resolvedStyle = style || DEFAULT_HEX_STYLE;
 
-    hex.beginFill(0x2d3748);
-    hex.lineStyle(1, 0x4a5568, 1);
+    hex.beginFill(resolvedStyle.fillColor, resolvedStyle.fillAlpha);
+    hex.lineStyle(resolvedStyle.lineWidth, resolvedStyle.lineColor, resolvedStyle.lineAlpha);
     this._drawHexShape(hex, size);
     hex.endFill();
 
     hex.x = pos.x;
     hex.y = pos.y;
     hex.hexData = { q, r };
+    hex.roomHexData = roomHex;
     hex.interactive = true;
     hex.buttonMode = true;
 
-    hex.on('pointerover', () => this.bus.emit('hex:hovered', { q, r }));
-    hex.on('pointerout',  () => this.bus.emit('hex:out', { q, r }));
+    hex.on('pointerover', () => this.bus.emit('canvas:hex-hovered', { q, r }));
+    hex.on('pointerout',  () => this.bus.emit('canvas:hex-out', { q, r }));
     hex.on('pointerdown', (event) =>
-      this.bus.emit('hex:clicked', { q, r, button: event.data?.button ?? 0 })
+      this.bus.emit('canvas:hex-clicked', { q, r, button: event.data?.button ?? 0 })
     );
 
     this.hexContainer.addChild(hex);
+
+    if (resolvedStyle.showCoordinates) {
+      const label = new PIXI.Text(`${q},${r}`, {
+        fontFamily: 'Arial',
+        fontSize: 10,
+        fill: 0x718096,
+        align: 'center',
+      });
+      label.anchor.set(0.5);
+      label.x = pos.x;
+      label.y = pos.y;
+      this.gridContainer.addChild(label);
+      hex.hexCoordText = label;
+    }
   }
 
   /**
@@ -524,4 +579,110 @@ export class HexCanvas {
       this.interactionContainer,
     ].filter(Boolean);
   }
+}
+
+const DEFAULT_HEX_STYLE = {
+  fillColor: 0x2d3748,
+  fillAlpha: 1,
+  lineColor: 0x4a5568,
+  lineAlpha: 1,
+  lineWidth: 1,
+  showCoordinates: false,
+};
+
+function _getRoomHexes(room = null) {
+  return Array.isArray(room?.hexes)
+    ? room.hexes.filter((hex) => Number.isFinite(Number(hex?.q)) && Number.isFinite(Number(hex?.r)))
+    : [];
+}
+
+function _resolveRoomHexStyle(roomHex = {}) {
+  const objects = Array.isArray(roomHex?.objects) ? roomHex.objects : [];
+  const objectCategories = objects
+    .map((object) => String(object?.category || object?.type || object?.object_type || '').toLowerCase())
+    .filter(Boolean);
+  const terrain = String(roomHex?.terrain || roomHex?.terrain_type || '').toLowerCase();
+  const lighting = String(roomHex?.lighting || '').toLowerCase();
+  const blocked = objects.some((object) => object?.blocks_movement === true || object?.passable === false);
+  const isWall = blocked || objectCategories.some((category) => ['wall', 'barrier', 'barricade', 'collapsed'].some((token) => category.includes(token)));
+  const isDoor = objectCategories.some((category) => category.includes('door'));
+  const isWater = terrain.includes('water');
+  const isHazard = terrain.includes('lava') || terrain.includes('hazard') || objectCategories.some((category) => ['trap', 'hazard'].some((token) => category.includes(token)));
+
+  if (isWall) {
+    return {
+      fillColor: 0x1f2937,
+      fillAlpha: 0.95,
+      lineColor: 0x94a3b8,
+      lineAlpha: 1,
+      lineWidth: 2,
+      showCoordinates: false,
+    };
+  }
+
+  if (isDoor) {
+    return {
+      fillColor: 0x3f3f46,
+      fillAlpha: 0.95,
+      lineColor: 0xfbbf24,
+      lineAlpha: 1,
+      lineWidth: 2,
+      showCoordinates: false,
+    };
+  }
+
+  if (isHazard) {
+    return {
+      fillColor: 0x7f1d1d,
+      fillAlpha: 0.88,
+      lineColor: 0xf97316,
+      lineAlpha: 1,
+      lineWidth: 1.5,
+      showCoordinates: false,
+    };
+  }
+
+  if (isWater) {
+    return {
+      fillColor: 0x1d4ed8,
+      fillAlpha: 0.72,
+      lineColor: 0x93c5fd,
+      lineAlpha: 0.9,
+      lineWidth: 1,
+      showCoordinates: false,
+    };
+  }
+
+  if (lighting === 'dark') {
+    return {
+      fillColor: 0x1e293b,
+      fillAlpha: 0.9,
+      lineColor: 0x475569,
+      lineAlpha: 1,
+      lineWidth: 1,
+      showCoordinates: false,
+    };
+  }
+
+  if (objects.length > 0) {
+    return {
+      fillColor: 0x334155,
+      fillAlpha: 0.92,
+      lineColor: 0x64748b,
+      lineAlpha: 1,
+      lineWidth: 1,
+      showCoordinates: false,
+    };
+  }
+
+  return DEFAULT_HEX_STYLE;
+}
+
+function _resolveHexStyleForCanvas(style = DEFAULT_HEX_STYLE, config = {}) {
+  return {
+    ...style,
+    lineWidth: config.showGrid === false ? 0 : style.lineWidth,
+    lineAlpha: config.showGrid === false ? 0 : style.lineAlpha,
+    showCoordinates: Boolean(config.showCoordinates),
+  };
 }

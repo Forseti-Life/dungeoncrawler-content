@@ -150,53 +150,6 @@ final class CharacterEquipmentSlotHelper {
     if (is_string($explicit) && trim($explicit) !== '') {
       return self::normalizeWornSlotName($explicit);
     }
-
-    $usage = strtolower(trim((string) ($item['magic_stats']['usage'] ?? $item['usage'] ?? '')));
-    if ($usage === '') {
-      return NULL;
-    }
-
-    foreach ([
-      'headwear' => 'head',
-      'head' => 'head',
-      'eyes' => 'eyes',
-      'eyewear' => 'eyes',
-      'necklace' => 'neck',
-      'neck' => 'neck',
-        'cloak' => 'shoulders',
-        'shoulders' => 'shoulders',
-        'body' => 'body',
-        'torso' => 'body',
-        'chest' => 'chest',
-        'shirt' => 'chest',
-        'tabard' => 'chest',
-        'leggings' => 'body',
-        'legwear' => 'body',
-        'pants' => 'body',
-        'belt' => 'belt',
-        'wrists' => 'wrists',
-        'bracelet' => 'wrists',
-        'bracer' => 'wrists',
-        'hands' => 'hands',
-        'gloves' => 'hands',
-        'feet' => 'feet',
-      'boots' => 'feet',
-      'ring' => 'ring',
-      'collar' => 'neck',
-      'forelegs' => 'legs',
-      'hindlegs' => 'legs',
-      'paws' => 'legs',
-      'talons' => 'legs',
-      'wings' => 'wings',
-      'armor' => 'armor',
-      'shield' => 'shield',
-      'worn' => 'worn',
-    ] as $needle => $slot) {
-      if (str_contains($usage, $needle)) {
-        return $slot;
-      }
-    }
-
     return NULL;
   }
 
@@ -207,6 +160,9 @@ final class CharacterEquipmentSlotHelper {
     $inventory_metadata = is_array($item['inventory_metadata'] ?? NULL) ? $item['inventory_metadata'] : [];
     if (array_key_exists('hand_slots_required', $inventory_metadata)) {
       return max(0, min(2, (int) $inventory_metadata['hand_slots_required']));
+    }
+    if (array_key_exists('hand_slots_required', $item)) {
+      return max(0, min(2, (int) $item['hand_slots_required']));
     }
 
     return match ((string) ($item['hands'] ?? '')) {

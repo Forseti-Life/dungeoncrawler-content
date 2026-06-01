@@ -1,16 +1,15 @@
 <?php
 /**
  * @file
- * End-to-end-ish lifecycle test for exploration → encounter → exploration.
+ * End-to-end-ish lifecycle test for narrative action inside encounter runtime.
  *
  * This validates the server-side flow used by dialogue-triggered combat:
- *  1. Start in exploration.
+ *  1. Start in the encounter framework.
  *  2. Simulate a narrative attack declaration: "I attack Gribbles."
- *  3. Resolve combat initiation through RoomChatService's canonical action path.
+ *  3. Resolve combat initiation through the GM orchestration broker's canonical action path.
  *  4. Confirm encounter round 1 starts.
- *  5. Mark the enemy defeated.
- *  6. Confirm encounter end requests transition back to exploration.
- *  7. Apply the transition and verify narrative/exploration state resumes.
+ *  5. Confirm the deprecated exploration transition endpoint is disabled while
+ *     hostile combat remains active.
  *
  * Run with:
  *   drush php:script web/modules/custom/dungeoncrawler_content/tests/narrative_combat_flow_test.php
@@ -19,7 +18,7 @@
 use Drupal\dungeoncrawler_content\Service\CampaignInitializationService;
 use Drupal\dungeoncrawler_content\Service\EncounterPhaseHandler;
 use Drupal\dungeoncrawler_content\Service\GameCoordinatorService;
-use Drupal\dungeoncrawler_content\Service\RoomChatService;
+use Drupal\dungeoncrawler_content\Service\GmOrchestrationBrokerService;
 
 $GLOBALS['test_pass'] = 0;
 $GLOBALS['test_fail'] = 0;
@@ -104,12 +103,12 @@ echo "=== Narrative Combat Flow Test ===\n\n";
 
 /** @var CampaignInitializationService $init */
 $init = \Drupal::service('dungeoncrawler_content.campaign_initialization');
-/** @var RoomChatService $room_chat */
-$room_chat = \Drupal::service('dungeoncrawler_content.room_chat_service');
 /** @var GameCoordinatorService $game_coordinator */
 $game_coordinator = \Drupal::service('dungeoncrawler_content.game_coordinator');
 /** @var EncounterPhaseHandler $encounter_handler */
 $encounter_handler = \Drupal::service('dungeoncrawler_content.encounter_phase_handler');
+/** @var GmOrchestrationBrokerService $gm_orchestration_broker */
+$gm_orchestration_broker = \Drupal::service('dungeoncrawler_content.gm_orchestration_broker');
 $db = \Drupal::database();
 
 $test_uid = (int) \Drupal::currentUser()->id();
@@ -138,18 +137,13 @@ try {
     ->fetchField();
 
   $dungeon_data = json_decode($dungeon_data_raw ?: '{}', TRUE) ?: [];
-  $active_room_id = (string) ($dungeon_data['active_room_id'] ?? '');
+  $active_room_id = 'flow_test_room';
+  $dungeon_data['active_room_id'] = $active_room_id;
   $room_meta = find_room($dungeon_data, $active_room_id);
-
-  if ($active_room_id === '' && !empty($dungeon_data['rooms'][0]['room_id'])) {
-    $active_room_id = (string) $dungeon_data['rooms'][0]['room_id'];
-    $dungeon_data['active_room_id'] = $active_room_id;
-    $room_meta = find_room($dungeon_data, $active_room_id);
-  }
 
   if (!is_array($room_meta)) {
     $room_meta = [
-      'room_id' => $active_room_id !== '' ? $active_room_id : 'flow_test_room',
+      'room_id' => $active_room_id,
       'name' => 'Flow Test Room',
       'description' => 'A minimal room used for testing the narrative combat lifecycle.',
       'hexes' => [
@@ -159,15 +153,13 @@ try {
       'terrain' => [],
       'gameplay_state' => [],
     ];
-    $active_room_id = (string) $room_meta['room_id'];
-    $dungeon_data['active_room_id'] = $active_room_id;
     $dungeon_data['rooms'][] = $room_meta;
   }
 
   assert_true($active_room_id !== '', 'Active room exists');
   assert_true(is_array($room_meta), 'Active room metadata exists');
 
-  echo "--- Stage 1: Seed exploration scene ---\n";
+  echo "--- Stage 1: Seed encounter room scene ---\n";
 
   $hero = [
     'entity_instance_id' => '910001',
@@ -230,14 +222,17 @@ try {
   ];
 
   $dungeon_data['entities'] = [$hero, $enemy];
-  $dungeon_data['game_state']['phase'] = 'exploration';
+  $dungeon_data['game_state']['phase'] = 'encounter';
   $dungeon_data['game_state']['encounter_id'] = NULL;
   $dungeon_data['game_state']['round'] = NULL;
   $dungeon_data['game_state']['turn'] = NULL;
   $dungeon_data['game_state']['initiative_order'] = NULL;
   persist_dungeon_data($db, $campaign_id, $dungeon_data);
 
-  assert_equals('exploration', $dungeon_data['game_state']['phase'] ?? NULL, 'Initial phase is exploration');
+  $initial_state = $game_coordinator->getFullState($campaign_id);
+  assert_true(!empty($initial_state['success']), 'Initial room state loads');
+  assert_equals('encounter', $initial_state['game_state']['phase'] ?? NULL, 'Initial phase is encounter');
+  assert_true(empty($initial_state['game_state']['encounter_id']), 'No hostile combat is active before narrative attack');
 
   echo "\n--- Stage 2: Narrative attack declaration triggers encounter ---\n";
 
@@ -254,10 +249,10 @@ try {
     ],
   ];
 
-  $room_ref = new ReflectionClass($room_chat);
+  $room_ref = new ReflectionClass($gm_orchestration_broker);
   $combat_method = $room_ref->getMethod('handleCombatInitiationAction');
   $combat_method->setAccessible(TRUE);
-  $combat_result = $combat_method->invoke($room_chat, $campaign_id, $active_room_id, $room_meta, $dungeon_data, $action);
+  $combat_result = $combat_method->invoke($gm_orchestration_broker, $campaign_id, $active_room_id, $room_meta, $dungeon_data, $action);
 
   assert_true(!empty($combat_result['success']), 'Combat initiation from narrative action succeeds');
   assert_true(!empty($combat_result['transition']['success']), 'Game coordinator transition succeeds');
@@ -282,37 +277,10 @@ try {
 
   echo "  Narrative tested: \"{$narrative}\"\n";
 
-  echo "\n--- Stage 3: Combat resolves and requests return to exploration ---\n";
-
-  $db->update('combat_participants')
-    ->fields([
-      'hp' => 0,
-      'is_defeated' => 1,
-      'updated' => time(),
-    ])
-    ->condition('encounter_id', $encounter_id)
-    ->condition('entity_id', '910002')
-    ->execute();
-
-  foreach (($post_combat_data['game_state']['initiative_order'] ?? []) as &$combatant) {
-    if ((string) ($combatant['entity_id'] ?? '') === '910002') {
-      $combatant['hp'] = 0;
-      $combatant['is_defeated'] = TRUE;
-    }
-  }
-  unset($combatant);
-  persist_dungeon_data($db, $campaign_id, $post_combat_data);
-
-  $gribbles_row = $db->select('combat_participants', 'p')
-    ->fields('p', ['is_defeated', 'hp'])
-    ->condition('encounter_id', $encounter_id)
-    ->condition('entity_id', '910002')
-    ->execute()
-    ->fetchAssoc();
-  assert_true(!empty($gribbles_row) && (int) ($gribbles_row['is_defeated'] ?? 0) === 1, 'Resolved target is marked defeated before returning to exploration');
+  echo "\n--- Stage 3: Deprecated exploration transition remains rejected during combat ---\n";
 
   $return_result = $game_coordinator->transitionPhase($campaign_id, 'exploration', [
-    'reason' => 'All enemies have been defeated! Returning to narrative play.',
+    'reason' => 'Deprecated exploration transition should remain disabled.',
     'encounter_result' => [
       'encounter_id' => $encounter_id,
       'final_round' => $post_combat_data['game_state']['round'] ?? 1,
@@ -320,15 +288,9 @@ try {
     ],
   ]);
 
-  assert_true(!empty($return_result['success']), 'Transition back to exploration succeeds');
-  assert_equals('exploration', $return_result['game_state']['phase'] ?? NULL, 'Final phase is exploration');
-  assert_true(empty($return_result['game_state']['encounter_id']), 'Encounter id cleared after return to exploration');
-  assert_true(!empty($return_result['game_state']['last_encounter']), 'Last encounter summary retained');
-
-  echo "\n--- Stage 4: Narrative mode resumed ---\n";
-  $available = $return_result['available_actions'] ?? [];
-  assert_true(in_array('talk', $available, TRUE), 'Exploration actions restored (talk available)');
-  assert_true(in_array('move', $available, TRUE), 'Exploration actions restored (move available)');
+  assert_true(empty($return_result['success']), 'Transition back to exploration is rejected');
+  assert_equals('encounter', $return_result['game_state']['phase'] ?? NULL, 'Final phase remains encounter');
+  assert_true(!empty($return_result['game_state']['encounter_id']), 'Encounter id remains active after deprecated transition rejection');
 }
 catch (Throwable $e) {
   assert_true(FALSE, 'Unhandled exception: ' . $e->getMessage());

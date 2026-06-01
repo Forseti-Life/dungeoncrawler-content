@@ -117,7 +117,7 @@ class GameCoordinatorController extends ControllerBase {
   }
 
   /**
-   * Manually transition to a new game phase.
+   * Manually transition to a supported game phase.
    *
    * POST /api/game/{campaign_id}/transition
    *
@@ -125,7 +125,7 @@ class GameCoordinatorController extends ControllerBase {
    * {
    *   "target_phase": "encounter",
    *   "context": {
-   *     "encounter_context": { "enemies": [...], "room_id": "..." }
+   *     "reason": "Future scripted phase activation."
    *   }
    * }
    *

@@ -188,7 +188,7 @@ class GmOrchestrationBrokerService {
     }
 
     $combat = $action['details']['combat'] ?? [];
-    $result = $this->getGameCoordinator()->transitionPhase($campaign_id, 'encounter', [
+    $result = $this->getGameCoordinator()->startCombatEncounter($campaign_id, [
       'reason' => $combat['reason'] ?? 'Combat begins.',
       'encounter_context' => [
         'room_id' => $room_id,
@@ -220,7 +220,7 @@ class GmOrchestrationBrokerService {
    */
   public function validateCombatInitiationAction(string $room_id, array $dungeon_data, array $action): array {
     $game_state = $dungeon_data['game_state'] ?? [];
-    if (($game_state['phase'] ?? 'exploration') === 'encounter') {
+    if (!empty($game_state['encounter_id'])) {
       return [
         'valid' => FALSE,
         'errors' => ['Combat is already active.'],

@@ -114,6 +114,8 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
    */
   protected MagicItemService $magicItemService;
 
+  protected CharacterStateService $characterStateService;
+
   /**
    * @var \Drupal\dungeoncrawler_content\Service\SpellCatalogService
    */
@@ -125,6 +127,8 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
   protected RoomChatService $roomChatService;
 
   protected ?ExplorationPhaseHandler $explorationPhaseHandler;
+
+  protected ?NavigationService $navigationService;
 
   /**
    * Canonical client-facing encounter action definitions.
@@ -169,11 +173,25 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
       'label' => 'Talk',
       'cost' => 0,
       'category' => 'conversation',
-      'requires_turn' => TRUE,
+      'requires_turn' => FALSE,
       'targeting' => 'entity_or_room',
+    ],
+    'transition' => [
+      'label' => 'Move to connected room',
+      'cost' => 0,
+      'category' => 'navigation',
+      'requires_turn' => FALSE,
+      'targeting' => 'connected_room',
     ],
     'end_turn' => [
       'label' => 'End Turn',
+      'cost' => 0,
+      'category' => 'turn',
+      'requires_turn' => TRUE,
+      'targeting' => 'none',
+    ],
+    'choose_not_to_act' => [
+      'label' => 'Choose Not to Act',
       'cost' => 0,
       'category' => 'turn',
       'requires_turn' => TRUE,
@@ -200,7 +218,40 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
       'requires_turn' => TRUE,
       'targeting' => 'self',
     ],
+    'treat_wounds' => [
+      'label' => 'Treat Wounds',
+      'cost' => 0,
+      'category' => 'recovery',
+      'requires_turn' => TRUE,
+      'targeting' => 'ally_or_self',
+    ],
+    'refocus' => [
+      'label' => 'Refocus',
+      'cost' => 0,
+      'category' => 'recovery',
+      'requires_turn' => TRUE,
+      'targeting' => 'self',
+    ],
+    'repair' => [
+      'label' => 'Repair',
+      'cost' => 0,
+      'category' => 'recovery',
+      'requires_turn' => TRUE,
+      'targeting' => 'self',
+    ],
+    'daily_preparations' => [
+      'label' => 'Daily Preparations',
+      'cost' => 0,
+      'category' => 'recovery',
+      'requires_turn' => TRUE,
+      'targeting' => 'self',
+    ],
   ];
+
+  /**
+   * Default time for connected-room movement when connection metadata is absent.
+   */
+  protected const DEFAULT_ROOM_TRANSITION_SECONDS = 60;
 
   public function __construct(
     Connection $database,
@@ -222,9 +273,11 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
     ?MovementResolverService $movement_resolver = NULL,
     ?HazardService $hazard_service = NULL,
     ?MagicItemService $magic_item_service = NULL,
+    ?CharacterStateService $character_state_service = NULL,
     ?SpellCatalogService $spell_catalog = NULL,
     ?RoomChatService $room_chat_service = NULL,
-    ?ExplorationPhaseHandler $exploration_phase_handler = NULL
+    ?ExplorationPhaseHandler $exploration_phase_handler = NULL,
+    ?NavigationService $navigation_service = NULL
   ) {
     $this->database = $database;
     $this->logger = $logger_factory->get('dungeoncrawler');
@@ -245,9 +298,11 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
     $this->movementResolver = $movement_resolver;
     $this->hazardService = $hazard_service ?? new HazardService($number_generation_service);
     $this->magicItemService = $magic_item_service ?? new MagicItemService($number_generation_service);
+    $this->characterStateService = $character_state_service ?? \Drupal::service('dungeoncrawler_content.character_state');
     $this->spellCatalog = $spell_catalog ?? new SpellCatalogService();
     $this->roomChatService = $room_chat_service ?? \Drupal::service('dungeoncrawler_content.room_chat_service');
     $this->explorationPhaseHandler = $exploration_phase_handler;
+    $this->navigationService = $navigation_service;
   }
 
   /**
@@ -268,7 +323,9 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
       'interact',
       'search',
       'talk',
+      'transition',
       'end_turn',
+      'choose_not_to_act',
       'delay',
       'delay_reenter',
       'ready',
@@ -379,6 +436,10 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
       'activate_talisman',
       // dc-cr-spells-ch07: Declare metamagic before a cast_spell action.
       'declare_metamagic',
+      'treat_wounds',
+      'refocus',
+      'repair',
+      'daily_preparations',
     ];
   }
 
@@ -395,8 +456,70 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
       ];
     }
 
+    if ($type === 'transition') {
+      $target_room = $intent['params']['target_room_id'] ?? NULL;
+      if (!is_string($target_room) || trim($target_room) === '') {
+        return [
+          'valid' => FALSE,
+          'reason' => 'Room transition requires params.target_room_id.',
+        ];
+      }
+      if ($this->findRoomById($dungeon_data, trim($target_room)) === NULL) {
+        return [
+          'valid' => FALSE,
+          'reason' => "Room '$target_room' does not exist.",
+        ];
+      }
+      $connection = $this->resolveRoomTransitionCapability($dungeon_data, trim($target_room), $intent['params'] ?? []);
+      if ($connection === NULL) {
+        return [
+          'valid' => FALSE,
+          'reason' => "Room '$target_room' is not reachable from the active room.",
+        ];
+      }
+      if (empty($connection['available'])) {
+        return [
+          'valid' => FALSE,
+          'reason' => sprintf(
+            "Room '%s' is not available for transition: %s.",
+            $target_room,
+            (string) ($connection['blocked_reason'] ?? 'blocked')
+          ),
+        ];
+      }
+      return ['valid' => TRUE, 'reason' => NULL];
+    }
+
     $encounter_id = $game_state['encounter_id'] ?? NULL;
     if (!$encounter_id) {
+      $room_scene_actions = ['talk', 'search', 'interact', 'end_turn', 'choose_not_to_act', 'treat_wounds', 'refocus', 'repair', 'daily_preparations'];
+      if (!empty($game_state['encounter_context']['room_id']) && in_array($type, $room_scene_actions, TRUE)) {
+        $actor_id = $intent['actor'] ?? NULL;
+        $current_entity = $game_state['turn']['entity'] ?? NULL;
+        if ($actor_id && $current_entity && $actor_id !== $current_entity) {
+          return [
+            'valid' => FALSE,
+            'reason' => "It is not $actor_id's turn. Current turn: $current_entity.",
+          ];
+        }
+        if (in_array($type, ['search', 'interact'], TRUE)) {
+          $actions_remaining = $game_state['turn']['actions_remaining'] ?? 0;
+          $action_cost = $this->getActionCost($type, $intent['params'] ?? []);
+          if ($actions_remaining < $action_cost) {
+            return [
+              'valid' => FALSE,
+              'reason' => "Not enough actions remaining ($actions_remaining) for $type (costs $action_cost).",
+            ];
+          }
+        }
+        if ($this->isRestAction($type) && !$this->isSafeRestAvailable($game_state, $dungeon_data)) {
+          return [
+            'valid' => FALSE,
+            'reason' => 'Rest actions are only available in rooms flagged as safe for rest.',
+          ];
+        }
+        return ['valid' => TRUE, 'reason' => NULL];
+      }
       return [
         'valid' => FALSE,
         'reason' => 'No active encounter.',
@@ -449,6 +572,7 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
     $events = [];
     $phase_transition = NULL;
     $narration = NULL;
+    $time_effects = [];
 
     // dc-cr-spells-ch07: Metamagic state machine — if a metamagic was declared
     // this turn and the next action is NOT cast_spell, the metamagic is wasted.
@@ -458,6 +582,96 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
     }
 
     switch ($type) {
+
+      case 'transition':
+        $result = $this->enterRoomFramework($actor_id, (string) ($params['target_room_id'] ?? ''), $params, $game_state, $dungeon_data, $campaign_id);
+        if (!empty($result['error'])) {
+          return [
+            'success' => FALSE,
+            'result' => ['error' => $result['error']],
+            'mutations' => [],
+            'events' => [],
+            'phase_transition' => NULL,
+            'narration' => NULL,
+          ];
+        }
+        $mutations = $result['mutations'] ?? [];
+        $events = array_merge($events, $result['events'] ?? []);
+        $time_effects = array_merge($time_effects, $result['time_effects'] ?? []);
+        $narration = $result['narration'] ?? NULL;
+        break;
+
+      case 'treat_wounds':
+        $result = $this->processTreatWoundsRestAction($actor_id, $target_id, $params, $game_state, $dungeon_data, $campaign_id);
+        if (!empty($result['error'])) {
+          return [
+            'success' => FALSE,
+            'result' => ['error' => $result['error']],
+            'mutations' => [],
+            'events' => [],
+            'phase_transition' => NULL,
+            'narration' => NULL,
+          ];
+        }
+        $mutations = $result['mutations'] ?? [];
+        $events = array_merge($events, $result['events'] ?? []);
+        $time_effects = array_merge($time_effects, $result['time_effects'] ?? []);
+        $narration = $result['narration'] ?? NULL;
+        break;
+
+      case 'refocus':
+        $result = $this->processRefocusRestAction($actor_id, $params, $game_state, $dungeon_data, $campaign_id);
+        if (!empty($result['error'])) {
+          return [
+            'success' => FALSE,
+            'result' => ['error' => $result['error']],
+            'mutations' => [],
+            'events' => [],
+            'phase_transition' => NULL,
+            'narration' => NULL,
+          ];
+        }
+        $mutations = $result['mutations'] ?? [];
+        $events = array_merge($events, $result['events'] ?? []);
+        $time_effects = array_merge($time_effects, $result['time_effects'] ?? []);
+        $narration = $result['narration'] ?? NULL;
+        break;
+
+      case 'repair':
+        $result = $this->processRepairRestAction($actor_id, $params, $game_state, $dungeon_data, $campaign_id);
+        if (!empty($result['error'])) {
+          return [
+            'success' => FALSE,
+            'result' => ['error' => $result['error']],
+            'mutations' => [],
+            'events' => [],
+            'phase_transition' => NULL,
+            'narration' => NULL,
+          ];
+        }
+        $mutations = $result['mutations'] ?? [];
+        $events = array_merge($events, $result['events'] ?? []);
+        $time_effects = array_merge($time_effects, $result['time_effects'] ?? []);
+        $narration = $result['narration'] ?? NULL;
+        break;
+
+      case 'daily_preparations':
+        $result = $this->processDailyPreparationsRestAction($actor_id, $params, $game_state, $dungeon_data, $campaign_id);
+        if (!empty($result['error'])) {
+          return [
+            'success' => FALSE,
+            'result' => ['error' => $result['error']],
+            'mutations' => [],
+            'events' => [],
+            'phase_transition' => NULL,
+            'narration' => NULL,
+          ];
+        }
+        $mutations = $result['mutations'] ?? [];
+        $events = array_merge($events, $result['events'] ?? []);
+        $time_effects = array_merge($time_effects, $result['time_effects'] ?? []);
+        $narration = $result['narration'] ?? NULL;
+        break;
 
       case 'strike':
         $result = $this->processStrike($encounter_id, $actor_id, $target_id, $params, $game_state, $dungeon_data);
@@ -652,6 +866,15 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
       }
 
       case 'interact':
+        if (!$encounter_id) {
+          $result = ['interacted' => TRUE];
+          $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+          $events[] = GameEventLogger::buildEvent('interact', 'encounter', $actor_id, [
+            'target' => $target_id,
+            'round' => $game_state['round'] ?? NULL,
+          ]);
+          break;
+        }
         $result = $this->processInteract($encounter_id, $actor_id, $target_id, $params, $game_state, $dungeon_data, $campaign_id);
         $mutations = $result['mutations'] ?? [];
 
@@ -687,44 +910,40 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
         break;
 
       case 'end_turn':
+      case 'choose_not_to_act':
+        if ($type === 'choose_not_to_act') {
+          $params['reason'] = trim((string) ($params['reason'] ?? 'chooses not to act'));
+        }
         $result = $this->processEndTurn($encounter_id, $actor_id, $game_state, $dungeon_data, $campaign_id);
+        $time_effects = array_merge($time_effects, $this->buildRoundElapsedTimeEffects($result, $actor_id, $dungeon_data));
         $mutations = $result['mutations'] ?? [];
         $narration = $result['narration'] ?? NULL;
 
-        $events[] = GameEventLogger::buildEvent('end_turn', 'encounter', $actor_id, [
+        $events[] = GameEventLogger::buildEvent($type, 'encounter', $actor_id, [
           'round' => $game_state['round'] ?? NULL,
           'turn_index' => $game_state['turn']['index'] ?? NULL,
+          'actions_remaining' => $result['actions_remaining_before_end'] ?? NULL,
+          'reason' => $params['reason'] ?? NULL,
         ], $narration);
+        if ($actor_id && ($result['actions_remaining_before_end'] ?? 0) > 0) {
+          $this->queueNarrationEvent($campaign_id, $dungeon_data, [
+            'type' => 'choose_not_to_act',
+            'speaker' => 'Narrator',
+            'speaker_type' => 'gm',
+            'speaker_ref' => '',
+            'content' => sprintf('%s chooses not to use %d remaining action(s).', $this->resolveEntityName($actor_id, $game_state, $dungeon_data), (int) $result['actions_remaining_before_end']),
+            'visibility' => 'public',
+            'mechanical_data' => [
+              'actor_id' => $actor_id,
+              'actions_remaining' => (int) $result['actions_remaining_before_end'],
+              'reason' => $params['reason'] ?? NULL,
+            ],
+          ]);
+        }
 
         // End turn may trigger NPC auto-play, which generates additional events.
         if (!empty($result['npc_events'])) {
           $events = array_merge($events, $result['npc_events']);
-        }
-
-        // If round changed, add round event.
-        if (!empty($result['new_round'])) {
-          // AI GM narration for new round.
-          $round_narration = $this->aiGmService->narrateRoundStart(
-            (int) $result['new_round'],
-            $game_state,
-            $dungeon_data,
-            $campaign_id
-          );
-
-          $events[] = GameEventLogger::buildEvent('round_start', 'encounter', NULL, [
-            'round' => $result['new_round'],
-          ], $round_narration);
-
-          // Queue round start for perception-filtered narration.
-          $this->queueNarrationEvent($campaign_id, $dungeon_data, [
-            'type' => 'action',
-            'speaker' => 'GM',
-            'speaker_type' => 'gm',
-            'speaker_ref' => '',
-            'content' => sprintf('Round %d begins.', (int) $result['new_round']),
-            'visibility' => 'public',
-            'mechanical_data' => ['round' => (int) $result['new_round']],
-          ]);
         }
 
         break;
@@ -984,30 +1203,17 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
         $result = $this->explorationPhaseHandler->processSearch($actor_id, $params, $game_state, $dungeon_data, $campaign_id);
         $mutations = $result['mutations'] ?? [];
         $narration = $result['narration'] ?? NULL;
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
-        $events[] = GameEventLogger::buildEvent('search', 'encounter', $actor_id, [
-          'roll' => $result['roll'] ?? NULL,
-          'dc' => $result['dc'] ?? NULL,
-          'degree' => $result['degree'] ?? NULL,
-          'discoveries' => $result['discoveries'] ?? [],
-          'round' => $game_state['round'] ?? NULL,
-        ], $narration);
-        $actor_name = $this->resolveEntityName($actor_id, $game_state, $dungeon_data);
-        $this->queueNarrationEvent($campaign_id, $dungeon_data, [
-          'type' => 'skill_check_result',
-          'speaker' => 'System',
-          'speaker_type' => 'system',
-          'speaker_ref' => '',
-          'content' => sprintf('%s searches the area (Perception %d vs DC %d: %s).', $actor_name, $result['total'] ?? 0, $result['dc'] ?? 15, $result['degree'] ?? 'unknown'),
-          'mechanical_data' => [
-            'skill' => 'perception',
-            'roll' => $result['roll'] ?? NULL,
-            'total' => $result['total'] ?? NULL,
-            'dc' => $result['dc'] ?? NULL,
-            'degree' => $result['degree'] ?? NULL,
-          ],
-          'visibility' => 'public',
-        ]);
+        if (!empty($game_state['turn'])) {
+          $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+        }
+        $public_discoveries = $this->buildPublicSearchDiscoveries($result['discoveries'] ?? []);
+        if ($public_discoveries !== [] || (is_string($narration) && trim($narration) !== '')) {
+          $events[] = GameEventLogger::buildEvent('search', 'encounter', $actor_id, [
+            'discoveries' => $public_discoveries,
+            'round' => $game_state['round'] ?? NULL,
+          ], $narration);
+        }
+        $result = $this->buildPublicSearchResult($result);
         break;
 
       case 'sense_motive':
@@ -3160,11 +3366,18 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
       'game_state' => $game_state,
     ]);
 
+    if ($encounter_id && $this->isEncounterOver($encounter_id, $game_state)) {
+      $resolution = $this->resolveCombatEncounter($actor_id, $game_state, $dungeon_data, $campaign_id);
+      $events = array_merge($events, $resolution['events'] ?? []);
+      $result = array_merge($result, $resolution['result'] ?? []);
+    }
+
     // Check for auto-end-turn (actions depleted + no movement remaining).
     // Delay is intentional initiative exit — do NOT auto-end-turn for it.
-    $no_auto_end_types = ['end_turn', 'delay', 'delay_reenter', 'release', 'aid'];
+    $no_auto_end_types = ['end_turn', 'choose_not_to_act', 'delay', 'delay_reenter', 'release', 'aid'];
     if (!in_array($type, $no_auto_end_types, TRUE) && $this->shouldAutoEndTurn($game_state)) {
       $auto_end = $this->processEndTurn($encounter_id, $actor_id, $game_state, $dungeon_data, $campaign_id);
+      $time_effects = array_merge($time_effects, $this->buildRoundElapsedTimeEffects($auto_end, $actor_id, $dungeon_data));
       $events[] = GameEventLogger::buildEvent('auto_end_turn', 'encounter', $actor_id, [
         'round' => $game_state['round'] ?? NULL,
       ]);
@@ -3180,6 +3393,109 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
       'events' => $events,
       'phase_transition' => $phase_transition,
       'narration' => $narration,
+      'time_effects' => $time_effects,
+    ];
+  }
+
+  /**
+   * Resumes the noncombat room-scene framework after hostile combat ends.
+   */
+  protected function resolveCombatEncounter(?string $actor_id, array &$game_state, array &$dungeon_data, int $campaign_id): array {
+    $room_id = (string) ($game_state['encounter_context']['room_id'] ?? ($dungeon_data['active_room_id'] ?? ''));
+    $room = $room_id !== '' ? $this->findRoomById($dungeon_data, $room_id) : NULL;
+
+    if (!empty($game_state['encounter_id'])) {
+      $this->syncEncounterParticipantsToDungeonData((int) $game_state['encounter_id'], $dungeon_data);
+    }
+
+    $events = $this->onExit($game_state, $dungeon_data, $campaign_id);
+    if ($room_id !== '') {
+      $events = array_merge(
+        $events,
+        $this->startRoomSceneEncounter(
+          $actor_id,
+          $room_id,
+          $game_state,
+          $dungeon_data,
+          $campaign_id,
+          $room,
+          sprintf('Combat in %s has ended. The room encounter framework continues.', (string) ($room['name'] ?? $room_id))
+        )
+      );
+    }
+
+    return [
+      'events' => $events,
+      'result' => [
+        'encounter_resolved' => TRUE,
+        'room_id' => $room_id,
+        'last_encounter' => $game_state['last_encounter'] ?? NULL,
+      ],
+    ];
+  }
+
+  /**
+   * Enters a room and ensures an encounter-framework context is active.
+   */
+  public function enterRoomFramework(?string $actor_id, string $target_room_id, array $params, array &$game_state, array &$dungeon_data, int $campaign_id): array {
+    $target_room_id = trim($target_room_id);
+    if ($target_room_id === '') {
+      return ['error' => 'No target room specified.'];
+    }
+
+    $room = $this->findRoomById($dungeon_data, $target_room_id);
+    if ($room === NULL) {
+      return ['error' => "Room '$target_room_id' does not exist."];
+    }
+
+    $capability = NULL;
+    if (!empty($dungeon_data['active_room_id']) && (string) $dungeon_data['active_room_id'] !== $target_room_id) {
+      $capability = $this->resolveRoomTransitionCapability($dungeon_data, $target_room_id, $params);
+      if ($capability === NULL) {
+        return ['error' => "Room '$target_room_id' is not reachable from the active room."];
+      }
+      if (empty($capability['available'])) {
+        return ['error' => sprintf("Room '%s' is not available for transition: %s.", $target_room_id, (string) ($capability['blocked_reason'] ?? 'blocked'))];
+      }
+    }
+
+    $from_room = $dungeon_data['active_room_id'] ?? NULL;
+    $dungeon_data['active_room_id'] = $target_room_id;
+    $game_state['phase'] = 'encounter';
+    $game_state['exploration']['previous_room'] = $from_room;
+
+    $entry_hex = $params['entry_hex'] ?? ($params['target_hex'] ?? ['q' => 0, 'r' => 0]);
+    if ($actor_id) {
+      $this->moveEntityToRoom($dungeon_data, $actor_id, $target_room_id, is_array($entry_hex) ? $entry_hex : ['q' => 0, 'r' => 0]);
+    }
+
+    $events = [
+      GameEventLogger::buildEvent('room_entered', 'encounter', $actor_id, [
+        'from_room' => $from_room,
+        'to_room' => $target_room_id,
+      ], (string) ($room['description'] ?? $room['name'] ?? '')),
+    ];
+
+    $combat_context = $this->buildCombatEncounterContext($target_room_id, $dungeon_data, $game_state);
+    if (!empty($combat_context['should_trigger'])) {
+      $events = array_merge($events, $this->onEnter($combat_context, $game_state, $dungeon_data, $campaign_id));
+    }
+    else {
+      $events = array_merge(
+        $events,
+        $this->startRoomSceneEncounter($actor_id, $target_room_id, $game_state, $dungeon_data, $campaign_id, $room)
+      );
+    }
+
+    return [
+      'transitioned' => $from_room !== $target_room_id,
+      'from_room' => $from_room,
+      'to_room' => $target_room_id,
+      'events' => $events,
+      'time_effects' => $this->buildTransitionTimeEffects($actor_id, $from_room, $target_room_id, $capability, $params),
+      'mutations' => $actor_id ? [
+        ['entity' => $actor_id, 'field' => 'placement.room_id', 'to' => $target_room_id],
+      ] : [],
     ];
   }
 
@@ -3190,9 +3506,12 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
     $game_state['phase'] = 'encounter';
     $events = [];
 
-    // Create the encounter via CombatEngine.
     $encounter_context = $context['encounter_context'] ?? [];
     $room_id = $encounter_context['room_id'] ?? ($dungeon_data['active_room_id'] ?? NULL);
+    $game_state['encounter_context'] = $encounter_context + [
+      'room_id' => $room_id,
+      'started_at' => $game_state['encounter_context']['started_at'] ?? date('c'),
+    ];
     $enemies = $encounter_context['enemies'] ?? [];
 
     try {
@@ -3210,6 +3529,7 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
 
         $game_state['encounter_id'] = $encounter_id;
         $game_state['round'] = 1;
+        $events = array_merge($events, $this->buildRoundStartEvents(1, $game_state, $dungeon_data, $campaign_id, $room_id));
 
         // Set up the first turn.
         $initiative_order = $start_result['encounter']['participants'] ?? [];
@@ -3223,6 +3543,9 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
             'reaction_available' => TRUE,
             'delayed' => FALSE,
           ];
+          if (!empty($first['entity_id'])) {
+            $events = array_merge($events, $this->buildTurnStartEvents((string) $first['entity_id'], $game_state, $dungeon_data, $campaign_id, $room_id));
+          }
         }
 
         $game_state['initiative_order'] = $initiative_order;
@@ -3335,7 +3658,7 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
         $this->combatEngine->endEncounter(
           $encounter_id,
           'victory',
-          'phase transition to exploration'
+          'encounter framework cleanup'
         );
       }
       catch (\Exception $e) {
@@ -3393,7 +3716,29 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
    * {@inheritdoc}
    */
   public function getAvailableActions(array $game_state, array $dungeon_data, ?string $actor_id = NULL): array {
-    $actions = [];
+    $actions = ['transition'];
+    if (empty($game_state['encounter_id'])) {
+      $turn = $game_state['turn'] ?? [];
+      $current_entity = $turn['entity'] ?? NULL;
+      $actions_remaining = $turn['actions_remaining'] ?? 0;
+      $effective_actor_id = $actor_id ?? $current_entity;
+      if ($effective_actor_id && $current_entity && $effective_actor_id === $current_entity) {
+        $actions[] = 'talk';
+        if ($actions_remaining >= 1) {
+          $actions[] = 'search';
+          $actions[] = 'interact';
+        }
+        if ($this->isSafeRestAvailable($game_state, $dungeon_data)) {
+          $actions[] = 'treat_wounds';
+          $actions[] = 'refocus';
+          $actions[] = 'repair';
+          $actions[] = 'daily_preparations';
+        }
+        $actions[] = 'end_turn';
+        $actions[] = 'choose_not_to_act';
+      }
+      return $actions;
+    }
     $turn = $game_state['turn'] ?? [];
     $current_entity = $turn['entity'] ?? NULL;
     $actions_remaining = $turn['actions_remaining'] ?? 0;
@@ -3417,6 +3762,7 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
       }
       $actions[] = 'talk'; // Always free.
       $actions[] = 'end_turn';
+      $actions[] = 'choose_not_to_act';
       $actions[] = 'delay';
     }
 
@@ -4144,13 +4490,79 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
   }
 
   /**
+   * Builds and queues narrator-visible round-start chat events.
+   */
+  protected function buildRoundStartEvents(int $round, array $game_state, array $dungeon_data, int $campaign_id, ?string $room_id = NULL): array {
+    $round_narration = $this->aiGmService->narrateRoundStart($round, $game_state, $dungeon_data, $campaign_id);
+    $content = $round_narration ?: sprintf('Round %d begins.', $round);
+    $this->queueNarrationEvent($campaign_id, $dungeon_data, [
+      'type' => 'round_start',
+      'speaker' => 'Narrator',
+      'speaker_type' => 'gm',
+      'speaker_ref' => '',
+      'content' => $content,
+      'visibility' => 'public',
+      'mechanical_data' => ['round' => $round],
+    ], $room_id);
+
+    return [
+      GameEventLogger::buildEvent('round_start', 'encounter', NULL, [
+        'round' => $round,
+      ], $content),
+    ];
+  }
+
+  /**
+   * Builds and queues actor turn-start chat events.
+   */
+  protected function buildTurnStartEvents(string $entity_id, array $game_state, array $dungeon_data, int $campaign_id, ?string $room_id = NULL): array {
+    $actor_name = $this->resolveEntityName($entity_id, $game_state, $dungeon_data);
+    $round = $game_state['round'] ?? NULL;
+    $content = sprintf("%s's turn begins.", $actor_name);
+    $this->queueNarrationEvent($campaign_id, $dungeon_data, [
+      'type' => 'turn_start',
+      'speaker' => 'Narrator',
+      'speaker_type' => 'gm',
+      'speaker_ref' => '',
+      'content' => $content,
+      'visibility' => 'public',
+      'mechanical_data' => [
+        'round' => $round,
+        'entity_id' => $entity_id,
+      ],
+    ], $room_id);
+
+    return [
+      GameEventLogger::buildEvent('turn_start', 'encounter', $entity_id, [
+        'round' => $round,
+        'actions_available' => $game_state['turn']['actions_remaining'] ?? NULL,
+      ], $content),
+    ];
+  }
+
+  /**
    * Processes end-of-turn: advance to next combatant, auto-play NPCs.
    */
-  protected function processEndTurn(int $encounter_id, ?string $actor_id, array &$game_state, array &$dungeon_data, int $campaign_id): array {
+  protected function processEndTurn(?int $encounter_id, ?string $actor_id, array &$game_state, array &$dungeon_data, int $campaign_id): array {
     $initiative_order = $game_state['initiative_order'] ?? [];
+    if (empty($initiative_order)) {
+      return [
+        'turn_advanced' => FALSE,
+        'next_entity' => NULL,
+        'next_team' => NULL,
+        'round' => $game_state['round'] ?? NULL,
+        'new_round' => NULL,
+        'round_advances' => 0,
+        'npc_events' => [],
+        'mutations' => [],
+        'actions_remaining_before_end' => $game_state['turn']['actions_remaining'] ?? NULL,
+      ];
+    }
     $current_index = $game_state['turn']['index'] ?? 0;
+    $actions_remaining_before_end = $game_state['turn']['actions_remaining'] ?? NULL;
     $npc_events = [];
     $new_round = NULL;
+    $round_advances = 0;
 
     // Tick end-of-turn conditions for the current combatant.
     if ($encounter_id && $actor_id) {
@@ -4165,7 +4577,7 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
     // REQ 2222: Airborne entity that did NOT use a Fly action this turn begins falling.
     if ($actor_id) {
       try {
-        $enc_fly_check = $this->encounterStore->loadEncounter($encounter_id);
+        $enc_fly_check = $encounter_id ? $this->encounterStore->loadEncounter($encounter_id) : NULL;
         $ptcp_fly_check = $enc_fly_check ? $this->findEncounterParticipantByEntityId($enc_fly_check, $actor_id) : NULL;
         if ($ptcp_fly_check) {
           $entity_fly = !empty($ptcp_fly_check['entity_ref']) ? json_decode($ptcp_fly_check['entity_ref'], TRUE) : [];
@@ -4245,6 +4657,7 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
         $next_index = 0;
         $game_state['round'] = ($game_state['round'] ?? 1) + 1;
         $new_round = $game_state['round'];
+        $round_advances++;
         $wrapped = TRUE;
       }
 
@@ -4262,6 +4675,19 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
 
     $next_entity = $initiative_order[$next_index]['entity_id'] ?? NULL;
     $next_team = $initiative_order[$next_index]['team'] ?? 'enemy';
+    if (!$next_entity) {
+      return [
+        'turn_advanced' => FALSE,
+        'next_entity' => NULL,
+        'next_team' => NULL,
+        'round' => $game_state['round'],
+        'new_round' => $new_round,
+        'round_advances' => $round_advances,
+        'npc_events' => $npc_events,
+        'mutations' => [],
+        'actions_remaining_before_end' => $actions_remaining_before_end,
+      ];
+    }
 
     // Update game_state turn.
     $game_state['turn'] = [
@@ -4273,27 +4699,40 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
       'delayed' => FALSE,
     ];
 
-    // Update the encounter store.
-    try {
-      $this->encounterStore->updateEncounter($encounter_id, [
-        'turn_index' => $next_index,
-        'current_round' => $game_state['round'],
-      ]);
-    }
-    catch (\Exception $e) {
-      $this->logger->warning('Encounter store update failed: @error', ['@error' => $e->getMessage()]);
+    if ($encounter_id) {
+      try {
+        $this->encounterStore->updateEncounter($encounter_id, [
+          'turn_index' => $next_index,
+          'current_round' => $game_state['round'],
+        ]);
+      }
+      catch (\Exception $e) {
+        $this->logger->warning('Encounter store update failed: @error', ['@error' => $e->getMessage()]);
+      }
     }
 
-    // If next combatant is NPC/enemy, auto-play their turn.
+    if ($new_round) {
+      $npc_events = array_merge($npc_events, $this->buildRoundStartEvents((int) $new_round, $game_state, $dungeon_data, $campaign_id));
+    }
+    if ($next_entity) {
+      $npc_events = array_merge($npc_events, $this->buildTurnStartEvents((string) $next_entity, $game_state, $dungeon_data, $campaign_id));
+    }
+
+    // If next combatant is NPC/enemy, auto-play or explicitly pass their turn.
     if ($next_team !== 'player') {
-      $npc_result = $this->autoPlayNpcTurn($encounter_id, $next_entity, $game_state, $dungeon_data, $campaign_id);
-      $npc_events = $npc_result['events'] ?? [];
+      $npc_result = $encounter_id
+        ? $this->autoPlayNpcTurn($encounter_id, $next_entity, $game_state, $dungeon_data, $campaign_id)
+        : $this->passRoomActorTurn((string) $next_entity, $game_state, $dungeon_data, $campaign_id);
+      $npc_events = array_merge($npc_events, $npc_result['events'] ?? []);
 
-      // After NPC turn, recursively advance (NPC might be followed by another NPC).
-      $further = $this->processEndTurn($encounter_id, $next_entity, $game_state, $dungeon_data, $campaign_id);
-      $npc_events = array_merge($npc_events, $further['npc_events'] ?? []);
-      if (!$new_round && !empty($further['new_round'])) {
-        $new_round = $further['new_round'];
+      // After NPC turn, recursively advance until the next player actor.
+      if ($this->hasActivePlayerParticipant($game_state)) {
+        $further = $this->processEndTurn($encounter_id, $next_entity, $game_state, $dungeon_data, $campaign_id);
+        $npc_events = array_merge($npc_events, $further['npc_events'] ?? []);
+        if (!$new_round && !empty($further['new_round'])) {
+          $new_round = $further['new_round'];
+        }
+        $round_advances += (int) ($further['round_advances'] ?? 0);
       }
     }
 
@@ -4303,8 +4742,10 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
       'next_team' => $next_team,
       'round' => $game_state['round'],
       'new_round' => $new_round,
+      'round_advances' => $round_advances,
       'npc_events' => $npc_events,
       'mutations' => [],
+      'actions_remaining_before_end' => $actions_remaining_before_end,
     ];
   }
 
@@ -4436,10 +4877,73 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
           // Check for entity defeat after fallback strike.
           $this->checkEntityDefeated($target, $entity_id, $game_state, $events, $dungeon_data, $campaign_id);
         }
+        else {
+          $events[] = GameEventLogger::buildEvent('npc_choose_not_to_act', 'encounter', $entity_id, [
+            'round' => $game_state['round'] ?? NULL,
+            'reason' => 'No valid target available.',
+          ], 'The actor chooses not to act.');
+        }
         break;
     }
 
+    $events[] = GameEventLogger::buildEvent('npc_choose_not_to_act', 'encounter', $entity_id, [
+      'round' => $game_state['round'] ?? NULL,
+      'actions_remaining' => $game_state['turn']['actions_remaining'] ?? NULL,
+      'reason' => 'No further action selected.',
+    ], 'The actor chooses not to take any further actions.');
+    $this->queueNarrationEvent($campaign_id, $dungeon_data, [
+      'type' => 'choose_not_to_act',
+      'speaker' => 'Narrator',
+      'speaker_type' => 'gm',
+      'speaker_ref' => '',
+      'content' => sprintf('%s chooses not to take any further actions.', $this->resolveEntityName($entity_id, $game_state, $dungeon_data)),
+      'visibility' => 'public',
+      'mechanical_data' => [
+        'actor_id' => $entity_id,
+        'actions_remaining' => $game_state['turn']['actions_remaining'] ?? NULL,
+      ],
+    ]);
+
     return ['events' => $events];
+  }
+
+  /**
+   * Room-scene NPCs must still make an explicit turn decision.
+   */
+  protected function passRoomActorTurn(string $entity_id, array &$game_state, array &$dungeon_data, int $campaign_id): array {
+    $events = [
+      GameEventLogger::buildEvent('npc_choose_not_to_act', 'encounter', $entity_id, [
+        'round' => $game_state['round'] ?? NULL,
+        'actions_remaining' => $game_state['turn']['actions_remaining'] ?? NULL,
+        'reason' => 'No room-scene action selected.',
+      ], 'The actor chooses not to take any further actions.'),
+    ];
+    $this->queueNarrationEvent($campaign_id, $dungeon_data, [
+      'type' => 'choose_not_to_act',
+      'speaker' => 'Narrator',
+      'speaker_type' => 'gm',
+      'speaker_ref' => '',
+      'content' => sprintf('%s chooses not to take any further actions.', $this->resolveEntityName($entity_id, $game_state, $dungeon_data)),
+      'visibility' => 'public',
+      'mechanical_data' => [
+        'actor_id' => $entity_id,
+        'actions_remaining' => $game_state['turn']['actions_remaining'] ?? NULL,
+      ],
+    ]);
+
+    return ['events' => $events];
+  }
+
+  /**
+   * Whether the current turn order still has a non-defeated player actor.
+   */
+  protected function hasActivePlayerParticipant(array $game_state): bool {
+    foreach (($game_state['initiative_order'] ?? []) as $participant) {
+      if (($participant['team'] ?? '') === 'player' && empty($participant['is_defeated'])) {
+        return TRUE;
+      }
+    }
+    return FALSE;
   }
 
   /**
@@ -4916,6 +5420,120 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
   }
 
   /**
+   * Starts or resumes the room-scene encounter framework for a room.
+   */
+  protected function startRoomSceneEncounter(?string $actor_id, string $room_id, array &$game_state, array &$dungeon_data, int $campaign_id, ?array $room = NULL, ?string $narration = NULL): array {
+    $initiative_order = $this->buildRoomEncounterTurnOrder($dungeon_data, $room_id, $actor_id);
+    $game_state['phase'] = 'encounter';
+    $game_state['round'] = 1;
+    $game_state['initiative_order'] = $initiative_order;
+    if (!empty($initiative_order)) {
+      $first = $initiative_order[0];
+      $game_state['turn'] = [
+        'entity' => $first['entity_id'] ?? NULL,
+        'index' => 0,
+        'actions_remaining' => 3,
+        'attacks_this_turn' => 0,
+        'reaction_available' => TRUE,
+        'delayed' => FALSE,
+      ];
+    }
+    else {
+      $game_state['turn'] = NULL;
+    }
+    $game_state['encounter_context'] = [
+      'room_id' => $room_id,
+      'started_at' => $game_state['encounter_context']['started_at'] ?? date('c'),
+    ];
+    $game_state['encounter_id'] = NULL;
+
+    $event_type = $narration === NULL ? 'encounter_framework_started' : 'encounter_framework_resumed';
+    $events = [
+      GameEventLogger::buildEvent($event_type, 'encounter', $actor_id, [
+        'room_id' => $room_id,
+        'participants' => count($initiative_order),
+      ], $narration ?? sprintf('The scene in %s is active.', (string) (($room['name'] ?? NULL) ?: $room_id))),
+    ];
+    $events = array_merge($events, $this->buildRoundStartEvents(1, $game_state, $dungeon_data, $campaign_id, $room_id));
+    if (!empty($game_state['turn']['entity'])) {
+      $events = array_merge($events, $this->buildTurnStartEvents((string) $game_state['turn']['entity'], $game_state, $dungeon_data, $campaign_id, $room_id));
+    }
+
+    return $events;
+  }
+
+  /**
+   * Builds the room encounter turn order for every actor present in the room.
+   */
+  protected function buildRoomEncounterTurnOrder(array $dungeon_data, string $room_id, ?string $actor_id = NULL): array {
+    $participants = [];
+
+    foreach (($dungeon_data['entities'] ?? []) as $entity) {
+      if (!is_array($entity) || (string) ($entity['placement']['room_id'] ?? '') !== $room_id) {
+        continue;
+      }
+      $instance_id = (string) ($entity['entity_instance_id'] ?? ($entity['instance_id'] ?? ($entity['id'] ?? '')));
+      if ($instance_id === '') {
+        continue;
+      }
+      $current_hp = $entity['state']['hit_points']['current']
+        ?? $entity['state']['metadata']['stats']['currentHp']
+        ?? NULL;
+      if (!empty($entity['state']['is_defeated']) || (is_numeric($current_hp) && (int) $current_hp <= 0)) {
+        continue;
+      }
+      $content_type = (string) ($entity['entity_type'] ?? ($entity['entity_ref']['content_type'] ?? ''));
+      $raw_team = strtolower(trim((string) (
+        $entity['state']['metadata']['team']
+        ?? $entity['state']['team']
+        ?? ''
+      )));
+      $is_actor_type = in_array($content_type, ['player_character', 'npc', 'creature', 'character', 'monster', 'hazard'], TRUE);
+      $has_actor_team = in_array($raw_team, ['player', 'player_character', 'pc', 'npc', 'enemy', 'hostile', 'monster', 'ally', 'friendly', 'companion'], TRUE);
+      if (!$is_actor_type && !$has_actor_team) {
+        continue;
+      }
+      $team = $content_type === 'player_character' || in_array($raw_team, ['player', 'player_character', 'pc'], TRUE)
+        ? 'player'
+        : 'npc';
+      $participants[] = [
+        'entity_id' => $instance_id,
+        'team' => $team,
+        'name' => $entity['state']['metadata']['display_name'] ?? ($entity['entity_ref']['content_id'] ?? $instance_id),
+        'position_q' => $entity['placement']['hex']['q'] ?? 0,
+        'position_r' => $entity['placement']['hex']['r'] ?? 0,
+      ];
+    }
+
+    if ($actor_id && !array_filter($participants, static fn(array $participant): bool => (string) ($participant['entity_id'] ?? '') === $actor_id)) {
+      $participants[] = [
+        'entity_id' => $actor_id,
+        'team' => 'player',
+        'name' => $actor_id,
+        'position_q' => 0,
+        'position_r' => 0,
+      ];
+    }
+
+    usort($participants, static function (array $left, array $right) use ($actor_id): int {
+      if ($actor_id) {
+        if ((string) ($left['entity_id'] ?? '') === $actor_id) {
+          return -1;
+        }
+        if ((string) ($right['entity_id'] ?? '') === $actor_id) {
+          return 1;
+        }
+      }
+      if (($left['team'] ?? '') !== ($right['team'] ?? '')) {
+        return ($left['team'] ?? '') === 'player' ? -1 : 1;
+      }
+      return strcmp((string) ($left['name'] ?? ''), (string) ($right['name'] ?? ''));
+    });
+
+    return array_values($participants);
+  }
+
+  /**
    * Builds participant list from dungeon entities for encounter creation.
    */
   protected function buildParticipantList(array $dungeon_data, string $room_id, array $enemies = []): array {
@@ -4978,6 +5596,964 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
     }
 
     return $participants;
+  }
+
+  /**
+   * Syncs participant HP/defeat state back into dungeon entity runtime state.
+   */
+  protected function syncEncounterParticipantsToDungeonData(int $encounter_id, array &$dungeon_data): void {
+    $encounter = $this->encounterStore->loadEncounter($encounter_id);
+    if (empty($encounter['participants']) || empty($dungeon_data['entities'])) {
+      return;
+    }
+
+    $participant_by_entity = [];
+    foreach ((array) ($encounter['participants'] ?? []) as $participant) {
+      $entity_id = (string) ($participant['entity_id'] ?? '');
+      if ($entity_id !== '') {
+        $participant_by_entity[$entity_id] = $participant;
+      }
+    }
+
+    foreach ($dungeon_data['entities'] as &$entity) {
+      if (!is_array($entity)) {
+        continue;
+      }
+      $entity_id = (string) ($entity['entity_instance_id'] ?? ($entity['instance_id'] ?? ($entity['id'] ?? '')));
+      if ($entity_id === '' || empty($participant_by_entity[$entity_id])) {
+        continue;
+      }
+
+      $participant = $participant_by_entity[$entity_id];
+      $hp = isset($participant['hp']) ? (int) $participant['hp'] : NULL;
+      $max_hp = isset($participant['max_hp']) ? (int) $participant['max_hp'] : NULL;
+      $is_defeated = !empty($participant['is_defeated']);
+
+      if (!isset($entity['state']) || !is_array($entity['state'])) {
+        $entity['state'] = [];
+      }
+      if (!isset($entity['state']['hit_points']) || !is_array($entity['state']['hit_points'])) {
+        $entity['state']['hit_points'] = [];
+      }
+      if (!isset($entity['state']['metadata']) || !is_array($entity['state']['metadata'])) {
+        $entity['state']['metadata'] = [];
+      }
+      if (!isset($entity['state']['metadata']['stats']) || !is_array($entity['state']['metadata']['stats'])) {
+        $entity['state']['metadata']['stats'] = [];
+      }
+
+      if ($hp !== NULL) {
+        $entity['state']['hit_points']['current'] = $hp;
+        $entity['state']['metadata']['stats']['currentHp'] = $hp;
+      }
+      if ($max_hp !== NULL && $max_hp > 0) {
+        $entity['state']['hit_points']['max'] = $max_hp;
+        $entity['state']['metadata']['stats']['maxHp'] = $max_hp;
+      }
+      $entity['state']['is_defeated'] = $is_defeated;
+    }
+    unset($entity);
+  }
+
+  /**
+   * Finds a room by ID in the dungeon payload.
+   */
+  protected function findRoomById(array $dungeon_data, string $room_id): ?array {
+    if ($this->navigationService) {
+      return $this->navigationService->findRoomById($dungeon_data, $room_id);
+    }
+    foreach ((array) ($dungeon_data['rooms'] ?? []) as $room) {
+      if (is_array($room) && (string) ($room['room_id'] ?? '') === $room_id) {
+        return $room;
+      }
+    }
+    return NULL;
+  }
+
+  /**
+   * Resolves the requested transition through the existing navigation contract.
+   */
+  protected function resolveRoomTransitionCapability(array $dungeon_data, string $target_room_id, array $params): ?array {
+    $active_room_id = (string) ($dungeon_data['active_room_id'] ?? '');
+    if ($active_room_id === '') {
+      return [
+        'available' => TRUE,
+        'target_room_id' => $target_room_id,
+      ];
+    }
+
+    $capabilities = $this->navigationService
+      ? $this->navigationService->buildNavigationCapabilities($dungeon_data, $active_room_id)
+      : $this->buildFallbackNavigationCapabilities($dungeon_data, $active_room_id);
+    foreach ($capabilities as $capability) {
+      if ((string) ($capability['target_room_id'] ?? '') === $target_room_id) {
+        return $capability;
+      }
+    }
+
+    $connection_id = isset($params['connection_id']) ? (string) $params['connection_id'] : '';
+    if ($connection_id !== '') {
+      foreach ($capabilities as $capability) {
+        if ((string) ($capability['connection_id'] ?? '') === $connection_id) {
+          return $capability;
+        }
+      }
+    }
+
+    return NULL;
+  }
+
+  /**
+   * Builds elapsed-time effects for room movement.
+   */
+  protected function buildTransitionTimeEffects(?string $actor_id, mixed $from_room, string $target_room_id, ?array $capability, array $params): array {
+    $from_room_id = is_scalar($from_room) ? (string) $from_room : '';
+    if ($from_room_id === '' || $from_room_id === $target_room_id) {
+      return [];
+    }
+
+    $duration_seconds = $this->resolveTravelSeconds($capability ?? [], []);
+    if ($duration_seconds <= 0) {
+      return [];
+    }
+
+    return [[
+      'mode' => 'elapsed',
+      'phase' => 'encounter',
+      'action_type' => 'room_transition',
+      'actor_ids' => $actor_id ? [$actor_id] : [],
+      'duration_seconds' => $duration_seconds,
+      'concurrency_group' => 'party_travel',
+      'location_context' => [
+        'from_room_id' => $from_room_id,
+        'to_room_id' => $target_room_id,
+        'connection_id' => (string) ($capability['connection_id'] ?? ''),
+      ],
+      'advance_immediately' => TRUE,
+    ]];
+  }
+
+  /**
+   * Builds elapsed-time effects for completed encounter rounds.
+   */
+  protected function buildRoundElapsedTimeEffects(array $turn_result, ?string $actor_id, array $dungeon_data): array {
+    $round_advances = (int) ($turn_result['round_advances'] ?? 0);
+    if ($round_advances <= 0) {
+      return [];
+    }
+
+    return [[
+      'mode' => 'elapsed',
+      'phase' => 'encounter',
+      'action_type' => 'encounter_round',
+      'actor_ids' => $actor_id ? [$actor_id] : [],
+      'duration_seconds' => 6 * $round_advances,
+      'concurrency_group' => 'encounter_rounds',
+      'location_context' => [
+        'room_id' => (string) ($dungeon_data['active_room_id'] ?? ''),
+        'round_advances' => $round_advances,
+      ],
+      'advance_immediately' => TRUE,
+    ]];
+  }
+
+  protected function buildRestTimeEffects(string $action_type, ?string $actor_id, int $duration_seconds, array $dungeon_data): array {
+    if ($duration_seconds <= 0) {
+      return [];
+    }
+
+    return [[
+      'mode' => 'elapsed',
+      'phase' => 'encounter',
+      'action_type' => $action_type,
+      'actor_ids' => $actor_id ? [$actor_id] : [],
+      'duration_seconds' => $duration_seconds,
+      'concurrency_group' => 'rest_activity',
+      'location_context' => [
+        'room_id' => (string) ($dungeon_data['active_room_id'] ?? ''),
+      ],
+      'advance_immediately' => TRUE,
+    ]];
+  }
+
+  protected function isRestAction(string $type): bool {
+    return in_array($type, ['treat_wounds', 'refocus', 'repair', 'daily_preparations'], TRUE);
+  }
+
+  protected function isSafeRestAvailable(array $game_state, array $dungeon_data): bool {
+    if (!empty($game_state['encounter_id'])) {
+      return FALSE;
+    }
+    $room_id = (string) ($game_state['encounter_context']['room_id'] ?? $dungeon_data['active_room_id'] ?? '');
+    if ($room_id === '') {
+      return FALSE;
+    }
+    $room = $this->findRoomById($dungeon_data, $room_id);
+    if (!is_array($room)) {
+      return FALSE;
+    }
+    return !empty($room['gameplay_state']['safe_for_rest']);
+  }
+
+  protected function processTreatWoundsRestAction(?string $actor_id, ?string $target_id, array $params, array &$game_state, array &$dungeon_data, int $campaign_id): array {
+    if (!$actor_id) {
+      return ['error' => 'Treat Wounds requires an acting character.'];
+    }
+    $target_entity_id = $target_id ?: $actor_id;
+    $actor_index = $this->findDungeonEntityIndexByInstanceId($dungeon_data, $actor_id);
+    $target_index = $this->findDungeonEntityIndexByInstanceId($dungeon_data, $target_entity_id);
+    if ($actor_index === NULL || $target_index === NULL) {
+      return ['error' => 'Treat Wounds requires valid room participants.'];
+    }
+
+    $actor_character_state = $this->loadCanonicalCharacterState($actor_entity, $campaign_id);
+    $medicine_skill = $this->resolveCharacterSkillData($actor_character_state, 'medicine');
+    $rank = (int) ($medicine_skill['rank'] ?? 0);
+    if ($rank < 1) {
+      return ['error' => 'Treat Wounds requires Medicine training.'];
+    }
+    if (!$this->characterHasInventoryItem($actor_character_state, $actor_entity, ['healers_tools'], ['healer', 'tool'])) {
+      return ['error' => 'Treat Wounds requires healer\'s tools.'];
+    }
+
+    $actor_entity = &$dungeon_data['entities'][$actor_index];
+    $target_entity = &$dungeon_data['entities'][$target_index];
+    $now = $this->resolveCurrentCampaignTimestamp($game_state);
+    $last_treated_at = (string) ($target_entity['state']['rest_activity']['last_treat_wounds_at'] ?? '');
+    if ($last_treated_at !== '' && ($last_timestamp = strtotime($last_treated_at)) !== FALSE && ($now - $last_timestamp) < 3600) {
+      return ['error' => 'That target has already benefited from Treat Wounds within the last hour.'];
+    }
+
+    $medicine_bonus = (int) ($medicine_skill['bonus'] ?? 0);
+    $requested_dc = 15;
+    $roll = $this->numberGenerationService->rollPathfinderDie(20);
+    $total = $roll + $medicine_bonus;
+    $degree = $this->combatCalculator->calculateDegreeOfSuccess($total, $requested_dc, $roll);
+    $heal_amount = 0;
+    if ($degree === 'critical_failure') {
+      $heal_amount = -max(1, $this->rollSimpleDice('1d8'));
+    }
+    elseif ($degree === 'success') {
+      $heal_amount = max(1, $this->rollSimpleDice('2d8'));
+    }
+    elseif ($degree === 'critical_success') {
+      $heal_amount = max(1, $this->rollSimpleDice('4d8'));
+    }
+
+    $target_name = $this->resolveDungeonEntityName($target_entity);
+    $actor_name = $this->resolveDungeonEntityName($actor_entity);
+    $this->applyEntityHealing($target_entity, $heal_amount);
+    $canonical_state = $this->loadCanonicalCharacterState($target_entity, $campaign_id);
+    if (is_array($canonical_state)) {
+      $this->applyCanonicalHealing($canonical_state, $heal_amount);
+      $this->persistCanonicalCharacterState($target_entity, $campaign_id, $canonical_state);
+    }
+    $target_entity['state']['rest_activity']['last_treat_wounds_at'] = gmdate('c', $now);
+
+    $summary = $heal_amount >= 0
+      ? sprintf('%s treats %s\'s wounds for %d HP.', $actor_name, $target_name, $heal_amount)
+      : sprintf('%s botches the treatment and %s takes %d damage.', $actor_name, $target_name, abs($heal_amount));
+
+    return $this->finalizeRestActivity(
+      $actor_id,
+      'treat_wounds',
+      600,
+      $summary,
+      [
+        'target' => $target_entity_id,
+        'roll' => $roll,
+        'total' => $total,
+        'dc' => $requested_dc,
+        'degree' => $degree,
+        'healing' => $heal_amount,
+      ],
+      $game_state,
+      $dungeon_data,
+      $campaign_id
+    );
+  }
+
+  protected function processRefocusRestAction(?string $actor_id, array $params, array &$game_state, array &$dungeon_data, int $campaign_id): array {
+    if (!$actor_id) {
+      return ['error' => 'Refocus requires an acting character.'];
+    }
+    $actor_index = $this->findDungeonEntityIndexByInstanceId($dungeon_data, $actor_id);
+    if ($actor_index === NULL) {
+      return ['error' => 'Refocus requires an active room participant.'];
+    }
+
+    $actor_entity = &$dungeon_data['entities'][$actor_index];
+    $canonical_state = $this->loadCanonicalCharacterState($actor_entity, $campaign_id);
+    $focus_max = max(0, $this->resolveCharacterFocusPoints($canonical_state, $actor_entity, 'max'));
+    $focus_current = max(0, $this->resolveCharacterFocusPoints($canonical_state, $actor_entity, 'current'));
+    if ($focus_max <= 0) {
+      return ['error' => 'This character has no Focus Points to restore.'];
+    }
+    if ($focus_current >= $focus_max) {
+      return ['error' => 'Focus Points are already full.'];
+    }
+
+    $restored = min(1, $focus_max - $focus_current);
+    $this->writeEntityFocusPoints($actor_entity, $focus_current + $restored, $focus_max);
+    if (is_array($canonical_state)) {
+      $resources = $canonical_state['resources'] ?? [];
+      $resources['focusPoints']['max'] = $focus_max;
+      $resources['focusPoints']['current'] = min($focus_max, max(0, (int) ($resources['focusPoints']['current'] ?? $focus_current)) + $restored);
+      $canonical_state['resources'] = $resources;
+      $this->persistCanonicalCharacterState($actor_entity, $campaign_id, $canonical_state);
+    }
+
+    return $this->finalizeRestActivity(
+      $actor_id,
+      'refocus',
+      600,
+      sprintf('%s spends ten minutes refocusing and regains %d Focus Point.', $this->resolveDungeonEntityName($actor_entity), $restored),
+      [
+        'focus_restored' => $restored,
+        'focus_points_current' => $focus_current + $restored,
+        'focus_points_max' => $focus_max,
+      ],
+      $game_state,
+      $dungeon_data,
+      $campaign_id
+    );
+  }
+
+  protected function processRepairRestAction(?string $actor_id, array $params, array &$game_state, array &$dungeon_data, int $campaign_id): array {
+    if (!$actor_id) {
+      return ['error' => 'Repair requires an acting character.'];
+    }
+    $actor_index = $this->findDungeonEntityIndexByInstanceId($dungeon_data, $actor_id);
+    if ($actor_index === NULL) {
+      return ['error' => 'Repair requires an active room participant.'];
+    }
+
+    $actor_entity = &$dungeon_data['entities'][$actor_index];
+    $shield = $this->findHeldShield($actor_entity);
+    if (!$shield) {
+      return ['error' => 'Repair currently requires a held shield or damaged gear in hand.'];
+    }
+
+    $current_hp = (int) ($shield['hp_current'] ?? $shield['hp']['current'] ?? 0);
+    $max_hp = (int) ($shield['hp_max'] ?? $shield['hp']['max'] ?? 0);
+    if ($max_hp <= 0 || $current_hp >= $max_hp) {
+      return ['error' => 'There is no damaged shield or gear to repair.'];
+    }
+
+    $actor_character_state = $this->loadCanonicalCharacterState($actor_entity, $campaign_id);
+    $crafting_bonus = (int) (($this->resolveCharacterSkillData($actor_character_state, 'crafting'))['bonus'] ?? 0);
+    $roll = $this->numberGenerationService->rollPathfinderDie(20);
+    $total = $roll + $crafting_bonus;
+    $degree = $this->combatCalculator->calculateDegreeOfSuccess($total, 15, $roll);
+    $repaired_hp = match ($degree) {
+      'critical_success' => 10,
+      'success' => 5,
+      default => 0,
+    };
+    if ($repaired_hp <= 0) {
+      return $this->finalizeRestActivity(
+        $actor_id,
+        'repair',
+        600,
+        sprintf('%s spends ten minutes attempting repairs, but %s is still damaged.', $this->resolveDungeonEntityName($actor_entity), (string) ($shield['name'] ?? 'the item')),
+        [
+          'item_name' => (string) ($shield['name'] ?? 'shield'),
+          'repair_roll' => $roll,
+          'repair_total' => $total,
+          'repair_degree' => $degree,
+          'repaired_hp' => 0,
+        ],
+        $game_state,
+        $dungeon_data,
+        $campaign_id
+      );
+    }
+
+    $new_hp = min($max_hp, $current_hp + $repaired_hp);
+    if (isset($shield['hp']) && is_array($shield['hp'])) {
+      $shield['hp']['current'] = $new_hp;
+      $shield['hp']['max'] = $max_hp;
+    }
+    $shield['hp_current'] = $new_hp;
+    $shield['hp_max'] = $max_hp;
+    if (isset($shield['broken_threshold']) && $new_hp > (int) $shield['broken_threshold']) {
+      $shield['broken'] = FALSE;
+    }
+    $actor_entity = $this->updateHeldShield($actor_entity, $shield);
+
+    return $this->finalizeRestActivity(
+      $actor_id,
+      'repair',
+      600,
+      sprintf('%s spends ten minutes repairing %s for %d HP.', $this->resolveDungeonEntityName($actor_entity), (string) ($shield['name'] ?? 'their shield'), $repaired_hp),
+      [
+        'item_name' => (string) ($shield['name'] ?? 'shield'),
+        'repair_roll' => $roll,
+        'repair_total' => $total,
+        'repair_degree' => $degree,
+        'repaired_hp' => $repaired_hp,
+        'item_hp_current' => $new_hp,
+        'item_hp_max' => $max_hp,
+      ],
+      $game_state,
+      $dungeon_data,
+      $campaign_id
+    );
+  }
+
+  protected function processDailyPreparationsRestAction(?string $actor_id, array $params, array &$game_state, array &$dungeon_data, int $campaign_id): array {
+    if (!$actor_id) {
+      return ['error' => 'Daily Preparations require an acting character.'];
+    }
+    $actor_index = $this->findDungeonEntityIndexByInstanceId($dungeon_data, $actor_id);
+    if ($actor_index === NULL) {
+      return ['error' => 'Daily Preparations require an active room participant.'];
+    }
+
+    $actor_entity = &$dungeon_data['entities'][$actor_index];
+    $canonical_state = $this->loadCanonicalCharacterState($actor_entity, $campaign_id);
+    $level = max(1, $this->resolveCharacterLevel($canonical_state, $actor_entity));
+    $constitution_mod = $this->resolveCharacterConstitutionModifier($canonical_state, $actor_entity);
+    $hit_point_recovery = max(1, $constitution_mod * $level);
+    $this->applyEntityHealing($actor_entity, $hit_point_recovery);
+    $this->restoreEntitySpellSlots($actor_entity);
+    $entity_focus_max = $this->resolveCharacterFocusPoints($canonical_state, $actor_entity, 'max');
+    if ($entity_focus_max > 0) {
+      $this->writeEntityFocusPoints($actor_entity, $entity_focus_max, $entity_focus_max);
+    }
+    $condition_changes = $this->applyDailyPreparationConditionRecovery($actor_entity);
+
+    if (is_array($canonical_state)) {
+      $this->applyCanonicalHealing($canonical_state, $hit_point_recovery);
+      $this->restoreCanonicalSpellSlots($canonical_state);
+      $this->restoreCanonicalFocusPoints($canonical_state);
+      $this->applyCanonicalDailyPreparationConditionRecovery($canonical_state);
+      $this->persistCanonicalCharacterState($actor_entity, $campaign_id, $canonical_state);
+    }
+    $this->magicItemService->performDailyPreparations($actor_id, [], [], $game_state);
+
+    $summary = sprintf(
+      '%s completes daily preparations, recovering %d HP and resetting daily resources.',
+      $this->resolveDungeonEntityName($actor_entity),
+      $hit_point_recovery
+    );
+
+    return $this->finalizeRestActivity(
+      $actor_id,
+      'daily_preparations',
+      28800,
+      $summary,
+      [
+        'healing' => $hit_point_recovery,
+        'conditions' => $condition_changes,
+        'focus_points_restored' => $entity_focus_max,
+      ],
+      $game_state,
+      $dungeon_data,
+      $campaign_id
+    );
+  }
+
+  protected function finalizeRestActivity(?string $actor_id, string $action_type, int $duration_seconds, string $narration, array $event_context, array &$game_state, array &$dungeon_data, int $campaign_id): array {
+    $room_id = (string) ($game_state['encounter_context']['room_id'] ?? $dungeon_data['active_room_id'] ?? '');
+    $resume_events = $room_id !== ''
+      ? $this->startRoomSceneEncounter($actor_id, $room_id, $game_state, $dungeon_data, $campaign_id, NULL, 'The room scene resumes after the rest activity.')
+      : [];
+
+    return [
+      'events' => array_merge([
+        GameEventLogger::buildEvent($action_type, 'encounter', $actor_id, array_merge($event_context, [
+          'round' => $game_state['round'] ?? NULL,
+          'room_id' => $room_id,
+        ]), $narration),
+      ], $resume_events),
+      'mutations' => [],
+      'time_effects' => $this->buildRestTimeEffects($action_type, $actor_id, $duration_seconds, $dungeon_data),
+      'narration' => $narration,
+    ];
+  }
+
+  protected function findDungeonEntityIndexByInstanceId(array $dungeon_data, string $entity_id): ?int {
+    foreach (($dungeon_data['entities'] ?? []) as $index => $entity) {
+      $candidates = [
+        $entity['entity_instance_id'] ?? NULL,
+        $entity['instance_id'] ?? NULL,
+        $entity['id'] ?? NULL,
+      ];
+      foreach ($candidates as $candidate) {
+        if (is_scalar($candidate) && (string) $candidate === $entity_id) {
+          return $index;
+        }
+      }
+    }
+    return NULL;
+  }
+
+  protected function normalizeSkillRank(mixed $rank, mixed $proficiency): int {
+    if (is_numeric($rank)) {
+      return max(0, (int) $rank);
+    }
+    $normalized = strtolower(trim((string) ($proficiency ?? '')));
+    return match ($normalized) {
+      'trained' => 1,
+      'expert' => 2,
+      'master' => 3,
+      'legendary' => 4,
+      default => 0,
+    };
+  }
+
+  protected function toBool(mixed $value): bool {
+    if (is_bool($value)) {
+      return $value;
+    }
+    if (is_numeric($value)) {
+      return (int) $value !== 0;
+    }
+    return in_array(strtolower(trim((string) $value)), ['1', 'true', 'yes', 'on'], TRUE);
+  }
+
+  protected function resolveCurrentCampaignTimestamp(array $game_state): int {
+    $datetime = (string) ($game_state['campaign_clock']['datetime'] ?? $game_state['game_time']['datetime'] ?? '');
+    if ($datetime !== '' && ($timestamp = strtotime($datetime)) !== FALSE) {
+      return $timestamp;
+    }
+    return time();
+  }
+
+  protected function resolveDungeonEntityName(array $entity): string {
+    return (string) (
+      $entity['state']['metadata']['display_name']
+      ?? $entity['state']['metadata']['name']
+      ?? $entity['name']
+      ?? $entity['entity_ref']['name']
+      ?? $entity['entity_ref']['content_id']
+      ?? 'Unknown actor'
+    );
+  }
+
+  protected function rollSimpleDice(string $notation): int {
+    if (!preg_match('/^\s*(\d+)d(\d+)\s*$/i', $notation, $matches)) {
+      return 0;
+    }
+    $count = max(1, (int) $matches[1]);
+    $sides = max(1, (int) $matches[2]);
+    $total = 0;
+    for ($i = 0; $i < $count; $i++) {
+      $total += $this->numberGenerationService->rollPathfinderDie($sides);
+    }
+    return $total;
+  }
+
+  protected function applyEntityHealing(array &$entity, int $delta): void {
+    $current = (int) ($entity['state']['hit_points']['current'] ?? $entity['state']['hp_current'] ?? $entity['hit_points']['current'] ?? 0);
+    $max = (int) ($entity['state']['hit_points']['max'] ?? $entity['state']['hp_max'] ?? $entity['hit_points']['max'] ?? $current);
+    $next = max(0, min($max, $current + $delta));
+    $entity['state']['hit_points']['current'] = $next;
+    $entity['state']['hit_points']['max'] = $max;
+    $entity['state']['hp_current'] = $next;
+    $entity['state']['hp_max'] = $max;
+    $entity['hit_points']['current'] = $next;
+    $entity['hit_points']['max'] = $max;
+  }
+
+  protected function loadCanonicalCharacterState(array $entity, int $campaign_id): ?array {
+    $character_id = (string) ($entity['state']['metadata']['campaign_character_id'] ?? $entity['state']['metadata']['character_id'] ?? $entity['character_id'] ?? $entity['state']['character_id'] ?? $entity['entity_ref']['character_id'] ?? '');
+    $instance_id = (string) ($entity['state']['metadata']['runtime_entity_id'] ?? $entity['instance_id'] ?? $entity['entity_instance_id'] ?? '');
+    if ($character_id <= 0) {
+      return NULL;
+    }
+    return $this->characterStateService->getState($character_id, $campaign_id, $instance_id !== '' ? $instance_id : NULL) ?: NULL;
+  }
+
+  protected function persistCanonicalCharacterState(array $entity, int $campaign_id, array $character_state): void {
+    $character_id = (string) ($entity['state']['metadata']['campaign_character_id'] ?? $entity['state']['metadata']['character_id'] ?? $entity['character_id'] ?? $entity['state']['character_id'] ?? $entity['entity_ref']['character_id'] ?? '');
+    $instance_id = (string) ($entity['state']['metadata']['runtime_entity_id'] ?? $entity['instance_id'] ?? $entity['entity_instance_id'] ?? '');
+    if ($character_id === '' || $character_id === '0') {
+      return;
+    }
+    $this->characterStateService->setState($character_id, $character_state, NULL, $campaign_id, $instance_id !== '' ? $instance_id : NULL);
+  }
+
+  protected function resolveCharacterSkillData(?array $character_state, string $skill_name): array {
+    if (!is_array($character_state)) {
+      return ['bonus' => 0, 'rank' => 0, 'proficiency' => ''];
+    }
+    $normalized = strtolower(trim($skill_name));
+    $skills = $character_state['skills'] ?? [];
+    if (isset($skills[$normalized]) && is_array($skills[$normalized])) {
+      $entry = $skills[$normalized];
+    }
+    else {
+      $entry = [];
+      foreach ($skills as $candidate) {
+        if (!is_array($candidate)) {
+          continue;
+        }
+        $name = strtolower(trim((string) ($candidate['name'] ?? $candidate['id'] ?? '')));
+        if ($name === $normalized) {
+          $entry = $candidate;
+          break;
+        }
+      }
+    }
+
+    $proficiency = (string) ($entry['proficiency'] ?? $entry['rank_name'] ?? '');
+    return [
+      'bonus' => (int) ($entry['bonus'] ?? $entry['modifier'] ?? $entry['total'] ?? 0),
+      'rank' => $this->normalizeSkillRank($entry['rank'] ?? $entry['proficiency_rank'] ?? $entry['proficiencyRank'] ?? NULL, $proficiency),
+      'proficiency' => $proficiency,
+    ];
+  }
+
+  protected function characterHasInventoryItem(?array $character_state, array $entity, array $item_ids, array $name_fragments = []): bool {
+    $search_roots = [];
+    if (is_array($character_state)) {
+      $search_roots[] = $character_state['inventory'] ?? NULL;
+      $search_roots[] = $character_state['equipment'] ?? NULL;
+    }
+    $search_roots[] = $entity['inventory'] ?? NULL;
+    $search_roots[] = $entity['equipment'] ?? NULL;
+    $search_roots[] = $entity['state']['inventory'] ?? NULL;
+    $search_roots[] = $entity['state']['equipment'] ?? NULL;
+
+    foreach ($search_roots as $root) {
+      if ($this->arrayContainsItemToken($root, $item_ids, $name_fragments)) {
+        return TRUE;
+      }
+    }
+    return FALSE;
+  }
+
+  protected function arrayContainsItemToken(mixed $value, array $item_ids, array $name_fragments = []): bool {
+    if (is_array($value)) {
+      $item_id = strtolower(trim((string) ($value['item_id'] ?? $value['id'] ?? '')));
+      $name = strtolower(trim((string) ($value['name'] ?? '')));
+      if ($item_id !== '' && in_array($item_id, $item_ids, TRUE)) {
+        return TRUE;
+      }
+      if ($name !== '') {
+        $matched = TRUE;
+        foreach ($name_fragments as $fragment) {
+          if (!str_contains($name, strtolower($fragment))) {
+            $matched = FALSE;
+            break;
+          }
+        }
+        if ($matched && !empty($name_fragments)) {
+          return TRUE;
+        }
+      }
+      foreach ($value as $child) {
+        if ($this->arrayContainsItemToken($child, $item_ids, $name_fragments)) {
+          return TRUE;
+        }
+      }
+      return FALSE;
+    }
+    return FALSE;
+  }
+
+  protected function resolveCharacterFocusPoints(?array $character_state, array $entity, string $field): int {
+    if (is_array($character_state) && isset($character_state['resources']['focusPoints'][$field]) && is_numeric($character_state['resources']['focusPoints'][$field])) {
+      return max(0, (int) $character_state['resources']['focusPoints'][$field]);
+    }
+    return $this->readEntityFocusPoints($entity, $field);
+  }
+
+  protected function resolveCharacterLevel(?array $character_state, array $entity): int {
+    if (is_array($character_state) && isset($character_state['basicInfo']['level']) && is_numeric($character_state['basicInfo']['level'])) {
+      return max(1, (int) $character_state['basicInfo']['level']);
+    }
+    return max(1, (int) ($entity['state']['level'] ?? $entity['level'] ?? 1));
+  }
+
+  protected function resolveCharacterConstitutionModifier(?array $character_state, array $entity): int {
+    if (is_array($character_state)) {
+      if (isset($character_state['abilities']['constitution']['modifier']) && is_numeric($character_state['abilities']['constitution']['modifier'])) {
+        return (int) $character_state['abilities']['constitution']['modifier'];
+      }
+      if (isset($character_state['abilities']['constitution']) && is_numeric($character_state['abilities']['constitution'])) {
+        return (int) floor(((int) $character_state['abilities']['constitution'] - 10) / 2);
+      }
+      if (isset($character_state['abilityScores']['constitution']['modifier']) && is_numeric($character_state['abilityScores']['constitution']['modifier'])) {
+        return (int) $character_state['abilityScores']['constitution']['modifier'];
+      }
+    }
+    return (int) ($entity['state']['constitution_modifier'] ?? 0);
+  }
+
+  protected function applyCanonicalHealing(array &$character_state, int $delta): void {
+    $resources = $character_state['resources'] ?? [];
+    $current = (int) ($resources['hitPoints']['current'] ?? 0);
+    $max = (int) ($resources['hitPoints']['max'] ?? $current);
+    $resources['hitPoints']['current'] = max(0, min($max, $current + $delta));
+    $resources['hitPoints']['max'] = $max;
+    $character_state['resources'] = $resources;
+  }
+
+  protected function restoreCanonicalSpellSlots(array &$character_state): void {
+    if (empty($character_state['resources']['spellSlots']) || !is_array($character_state['resources']['spellSlots'])) {
+      return;
+    }
+    foreach ($character_state['resources']['spellSlots'] as &$slot_group) {
+      if (!is_array($slot_group)) {
+        continue;
+      }
+      if (array_key_exists('max', $slot_group)) {
+        $slot_group['current'] = (int) ($slot_group['max'] ?? $slot_group['current'] ?? 0);
+      }
+      else {
+        foreach ($slot_group as &$slot_row) {
+          if (is_array($slot_row) && array_key_exists('max', $slot_row)) {
+            $slot_row['current'] = (int) ($slot_row['max'] ?? $slot_row['current'] ?? 0);
+          }
+        }
+        unset($slot_row);
+      }
+    }
+    unset($slot_group);
+  }
+
+  protected function restoreCanonicalFocusPoints(array &$character_state): void {
+    if (!is_array($character_state['resources']['focusPoints'] ?? NULL)) {
+      return;
+    }
+    $max = (int) ($character_state['resources']['focusPoints']['max'] ?? 0);
+    $character_state['resources']['focusPoints']['current'] = $max;
+  }
+
+  protected function applyCanonicalDailyPreparationConditionRecovery(array &$character_state): void {
+    $conditions = $character_state['conditions'] ?? [];
+    foreach ($conditions as $index => $condition) {
+      if (is_array($condition)) {
+        $name = strtolower((string) ($condition['name'] ?? ''));
+        if ($name === 'doomed') {
+          $value = max(0, (int) ($condition['value'] ?? 1) - 1);
+          if ($value <= 0) {
+            unset($conditions[$index]);
+          }
+          else {
+            $conditions[$index]['value'] = $value;
+          }
+        }
+        if ($name === 'wounded') {
+          unset($conditions[$index]);
+        }
+      }
+      elseif (strtolower((string) $condition) === 'wounded') {
+        unset($conditions[$index]);
+      }
+    }
+    $character_state['conditions'] = array_values($conditions);
+  }
+
+  protected function readEntityFocusPoints(array $entity, string $field): int {
+    $candidates = [
+      $entity['state']['resources']['focusPoints'][$field] ?? NULL,
+      $entity['state']['focus_points'][$field] ?? NULL,
+      $field === 'current' ? ($entity['state']['focus_points'] ?? NULL) : NULL,
+      $entity['focus_points'][$field] ?? NULL,
+    ];
+    foreach ($candidates as $candidate) {
+      if (is_numeric($candidate)) {
+        return max(0, (int) $candidate);
+      }
+    }
+    return 0;
+  }
+
+  protected function writeEntityFocusPoints(array &$entity, int $current, int $max): void {
+    $entity['state']['resources']['focusPoints']['current'] = $current;
+    $entity['state']['resources']['focusPoints']['max'] = $max;
+    $entity['state']['focus_points']['current'] = $current;
+    $entity['state']['focus_points']['max'] = $max;
+    if (isset($entity['focus_points']) && !is_array($entity['focus_points'])) {
+      $entity['focus_points'] = $current;
+    }
+  }
+
+  protected function restoreEntitySpellSlots(array &$entity): void {
+    if (!empty($entity['state']['resources']['spellSlots']) && is_array($entity['state']['resources']['spellSlots'])) {
+      foreach ($entity['state']['resources']['spellSlots'] as &$slot_group) {
+        if (!is_array($slot_group)) {
+          continue;
+        }
+        if (array_key_exists('max', $slot_group)) {
+          $slot_group['current'] = (int) ($slot_group['max'] ?? $slot_group['current'] ?? 0);
+        }
+      }
+      unset($slot_group);
+    }
+    if (!empty($entity['state']['spell_slots']) && is_array($entity['state']['spell_slots'])) {
+      foreach ($entity['state']['spell_slots'] as &$slot_group) {
+        if (!is_array($slot_group)) {
+          continue;
+        }
+        if (array_key_exists('max', $slot_group)) {
+          $slot_group['current'] = (int) ($slot_group['max'] ?? $slot_group['current'] ?? 0);
+          if (array_key_exists('used', $slot_group)) {
+            $slot_group['used'] = 0;
+          }
+        }
+      }
+      unset($slot_group);
+    }
+  }
+
+  protected function applyDailyPreparationConditionRecovery(array &$entity): array {
+    $changes = [];
+    if (!isset($entity['state']['conditions']) || !is_array($entity['state']['conditions'])) {
+      return $changes;
+    }
+    foreach ($entity['state']['conditions'] as $key => $condition) {
+      if (is_array($condition)) {
+        $name = strtolower((string) ($condition['name'] ?? ''));
+        if ($name === 'doomed') {
+          $value = max(0, (int) ($condition['value'] ?? 1) - 1);
+          if ($value <= 0) {
+            unset($entity['state']['conditions'][$key]);
+            $changes[] = 'removed doomed';
+          }
+          else {
+            $entity['state']['conditions'][$key]['value'] = $value;
+            $changes[] = sprintf('reduced doomed to %d', $value);
+          }
+        }
+        if ($name === 'wounded') {
+          unset($entity['state']['conditions'][$key]);
+          $changes[] = 'removed wounded';
+        }
+      }
+      elseif (strtolower((string) $condition) === 'wounded') {
+        unset($entity['state']['conditions'][$key]);
+        $changes[] = 'removed wounded';
+      }
+    }
+    $entity['state']['conditions'] = array_values($entity['state']['conditions']);
+    return $changes;
+  }
+
+  /**
+   * Resolves travel duration from request or connection metadata.
+   */
+  protected function resolveTravelSeconds(array $capability, array $params): int {
+    foreach ([$params, $capability] as $source) {
+      foreach (['travel_time_seconds', 'duration_seconds', 'time_cost_seconds'] as $key) {
+        if (isset($source[$key]) && is_numeric($source[$key])) {
+          return max(0, (int) $source[$key]);
+        }
+      }
+      foreach (['travel_time_minutes', 'duration_minutes', 'time_cost_minutes', 'travel_minutes'] as $key) {
+        if (isset($source[$key]) && is_numeric($source[$key])) {
+          return max(0, (int) $source[$key]) * 60;
+        }
+      }
+      if (isset($source['travel_time']) && is_array($source['travel_time'])) {
+        $nested = $source['travel_time'];
+        if (isset($nested['seconds']) && is_numeric($nested['seconds'])) {
+          return max(0, (int) $nested['seconds']);
+        }
+        if (isset($nested['minutes']) && is_numeric($nested['minutes'])) {
+          return max(0, (int) $nested['minutes']) * 60;
+        }
+      }
+    }
+
+    return self::DEFAULT_ROOM_TRANSITION_SECONDS;
+  }
+
+  /**
+   * Fallback navigation capability builder for isolated tests.
+   */
+  protected function buildFallbackNavigationCapabilities(array $dungeon_data, string $room_id): array {
+    $connections = $dungeon_data['hex_map']['connections'] ?? ($dungeon_data['connections'] ?? []);
+    $capabilities = [];
+    foreach ((array) $connections as $connection) {
+      if (!is_array($connection)) {
+        continue;
+      }
+      $from_room = (string) ($connection['from_room'] ?? ($connection['from']['room_id'] ?? ''));
+      $to_room = (string) ($connection['to_room'] ?? ($connection['to']['room_id'] ?? ''));
+      if ($from_room !== $room_id && $to_room !== $room_id) {
+        continue;
+      }
+      $target_room_id = $from_room === $room_id ? $to_room : $from_room;
+      $is_discovered = array_key_exists('is_discovered', $connection) ? !empty($connection['is_discovered']) : TRUE;
+      $is_passable = array_key_exists('is_passable', $connection) ? !empty($connection['is_passable']) : TRUE;
+      $blocked_reason = !$is_discovered ? 'undiscovered' : (!$is_passable ? 'blocked' : NULL);
+      $capabilities[] = [
+        'connection_id' => (string) ($connection['connection_id'] ?? ($from_room . '__' . $to_room)),
+        'target_room_id' => $target_room_id,
+        'available' => $blocked_reason === NULL,
+        'blocked_reason' => $blocked_reason,
+        'travel_time_seconds' => $this->resolveTravelSeconds($connection, []),
+      ];
+    }
+    return $capabilities;
+  }
+
+  /**
+   * Moves an entity placement into a room.
+   */
+  protected function moveEntityToRoom(array &$dungeon_data, string $actor_id, string $room_id, array $hex): void {
+    foreach ($dungeon_data['entities'] ?? [] as &$entity) {
+      $entity_id = (string) ($entity['entity_instance_id'] ?? ($entity['instance_id'] ?? ($entity['id'] ?? '')));
+      if ($entity_id !== $actor_id) {
+        continue;
+      }
+      if (!isset($entity['placement']) || !is_array($entity['placement'])) {
+        $entity['placement'] = [];
+      }
+      $entity['placement']['room_id'] = $room_id;
+      $entity['placement']['hex'] = [
+        'q' => (int) ($hex['q'] ?? 0),
+        'r' => (int) ($hex['r'] ?? 0),
+      ];
+      break;
+    }
+    unset($entity);
+  }
+
+  /**
+   * Builds combat encounter context if the room has untriggered hostile content.
+   */
+  protected function buildCombatEncounterContext(string $room_id, array $dungeon_data, array $game_state): array {
+    foreach ((array) ($dungeon_data['rooms'] ?? []) as $room) {
+      if ((string) ($room['room_id'] ?? '') !== $room_id) {
+        continue;
+      }
+      $gameplay_state = is_array($room['gameplay_state'] ?? NULL) ? $room['gameplay_state'] : [];
+      $encounter_template = $gameplay_state['encounter_template'] ?? NULL;
+      if (!$encounter_template || !empty($gameplay_state['encounter_triggered'])) {
+        return ['should_trigger' => FALSE];
+      }
+      $hostile_entities = [];
+      foreach ((array) ($dungeon_data['entities'] ?? []) as $entity) {
+        if (!is_array($entity) || (string) ($entity['placement']['room_id'] ?? '') !== $room_id) {
+          continue;
+        }
+        $entity_type = (string) ($entity['entity_type'] ?? ($entity['entity_ref']['content_type'] ?? ''));
+        $team = strtolower((string) ($entity['state']['metadata']['team'] ?? ($entity['state']['team'] ?? '')));
+        if (in_array($team, ['enemy', 'hostile', 'monster'], TRUE) || $entity_type === 'creature') {
+          $hostile_entities[] = $entity;
+        }
+      }
+      if ($hostile_entities === []) {
+        return ['should_trigger' => FALSE];
+      }
+      return [
+        'should_trigger' => TRUE,
+        'reason' => $encounter_template['reason'] ?? 'Hostile creatures detected!',
+        'encounter_context' => [
+          'template' => $encounter_template,
+          'enemies' => $hostile_entities,
+          'room_id' => $room_id,
+        ],
+      ];
+    }
+
+    return ['should_trigger' => FALSE];
   }
 
   /**
@@ -5269,6 +6845,34 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
       $this->logger->warning('NarrationEngine queue failed: @err', ['@err' => $e->getMessage()]);
       return [];
     }
+  }
+
+  /**
+   * Strip secret Search mechanics from client-facing action responses.
+   */
+  protected function buildPublicSearchResult(array $result): array {
+    $public = ['searched' => TRUE];
+    $discoveries = $this->buildPublicSearchDiscoveries($result['discoveries'] ?? []);
+    if ($discoveries !== []) {
+      $public['discoveries'] = $discoveries;
+    }
+    return $public;
+  }
+
+  /**
+   * Build discovery payloads without roll/DC/degree/sense metadata.
+   */
+  protected function buildPublicSearchDiscoveries(array $discoveries): array {
+    return array_values(array_map(
+      static fn(array $discovery): array => array_filter([
+        'instance_id' => $discovery['instance_id'] ?? NULL,
+        'id' => $discovery['id'] ?? NULL,
+        'name' => $discovery['name'] ?? NULL,
+        'quest_id' => $discovery['quest_id'] ?? NULL,
+        'objective_id' => $discovery['objective_id'] ?? NULL,
+      ], static fn($value): bool => $value !== NULL && $value !== ''),
+      array_filter($discoveries, 'is_array')
+    ));
   }
 
   /**

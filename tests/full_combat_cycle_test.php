@@ -4,7 +4,8 @@
  * Full combat cycle test.
  *
  * Validates a complete loop:
- *   exploration -> dialogue-driven combat start -> player strike -> encounter end -> exploration
+ *   room-scene encounter -> dialogue-driven combat start -> player strike
+ *   -> hostile combat end -> room-scene encounter
  *
  * Run with:
  *   drush php:script web/modules/custom/dungeoncrawler_content/tests/full_combat_cycle_test.php
@@ -12,7 +13,6 @@
 
 use Drupal\dungeoncrawler_content\Service\CampaignInitializationService;
 use Drupal\dungeoncrawler_content\Service\GameCoordinatorService;
-use Drupal\dungeoncrawler_content\Service\RoomChatService;
 
 $GLOBALS['test_pass'] = 0;
 $GLOBALS['test_fail'] = 0;
@@ -96,8 +96,6 @@ echo "=== Full Combat Cycle Test ===\n\n";
 
 /** @var CampaignInitializationService $init */
 $init = \Drupal::service('dungeoncrawler_content.campaign_initialization');
-/** @var RoomChatService $room_chat */
-$room_chat = \Drupal::service('dungeoncrawler_content.room_chat_service');
 /** @var GameCoordinatorService $game_coordinator */
 $game_coordinator = \Drupal::service('dungeoncrawler_content.game_coordinator');
 $db = \Drupal::database();
@@ -122,14 +120,9 @@ try {
     ->fetchField();
   $dungeon_data = json_decode($dungeon_data_raw ?: '{}', TRUE) ?: [];
 
-  $room_id = (string) ($dungeon_data['active_room_id'] ?? '');
-  if ($room_id === '' && !empty($dungeon_data['rooms'][0]['room_id'])) {
-    $room_id = (string) $dungeon_data['rooms'][0]['room_id'];
-    $dungeon_data['active_room_id'] = $room_id;
-  }
-  if ($room_id === '') {
-    $room_id = 'full_cycle_room';
-    $dungeon_data['active_room_id'] = $room_id;
+  $room_id = 'full_cycle_room';
+  $dungeon_data['active_room_id'] = $room_id;
+  if (!find_cycle_room($dungeon_data, $room_id)) {
     $dungeon_data['rooms'][] = [
       'room_id' => $room_id,
       'name' => 'Full Cycle Room',
@@ -194,12 +187,17 @@ try {
     ],
   ];
 
-  $dungeon_data['game_state']['phase'] = 'exploration';
+  $dungeon_data['game_state']['phase'] = 'encounter';
   $dungeon_data['game_state']['encounter_id'] = NULL;
   $dungeon_data['game_state']['round'] = NULL;
   $dungeon_data['game_state']['turn'] = NULL;
   $dungeon_data['game_state']['initiative_order'] = NULL;
   persist_cycle_dungeon($db, $campaign_id, $dungeon_data);
+
+  $initial_state = $game_coordinator->getFullState($campaign_id);
+  assert_true(!empty($initial_state['success']), 'Initial room state loads');
+  assert_equals('encounter', $initial_state['game_state']['phase'] ?? NULL, 'Initial phase is encounter');
+  assert_true(empty($initial_state['game_state']['encounter_id']), 'Hostile combat is not yet active');
 
   echo "--- Stage 1: Narrative starts combat ---\n";
 
@@ -238,11 +236,10 @@ try {
 
   assert_true(!empty($strike_result['success']), 'Strike action succeeds');
   assert_true(!empty($strike_result['result']['strike']), 'Strike result is returned');
-  assert_true(!empty($strike_result['phase_transition']), 'Strike triggers encounter end transition');
-  assert_equals('encounter', $strike_result['phase_transition']['from'] ?? NULL, 'Transition starts from encounter');
-  assert_equals('exploration', $strike_result['phase_transition']['to'] ?? NULL, 'Transition returns to exploration');
-  assert_equals('exploration', $strike_result['game_state']['phase'] ?? NULL, 'Game state returns to exploration');
+  assert_true(!empty($strike_result['result']['encounter_resolved']), 'Strike resolves the hostile combat encounter');
+  assert_equals('encounter', $strike_result['game_state']['phase'] ?? NULL, 'Game state remains in encounter');
   assert_true(empty($strike_result['game_state']['encounter_id']), 'Encounter id is cleared after full combat cycle');
+  assert_equals(1, (int) ($strike_result['game_state']['round'] ?? 0), 'Room-scene encounter restarts at round 1');
   assert_true(!empty($strike_result['game_state']['last_encounter']), 'Last encounter summary retained after full cycle');
 
   $damage_row = $db->select('combat_damage_log', 'd')
@@ -264,8 +261,8 @@ try {
 
   echo "\n--- Stage 3: Narrative resumes ---\n";
   $available = $strike_result['available_actions'] ?? [];
-  assert_true(in_array('move', $available, TRUE), 'Exploration move action is available again');
-  assert_true(in_array('talk', $available, TRUE), 'Exploration talk action is available again');
+  assert_true(in_array('transition', $available, TRUE), 'Room-scene transition action is available again');
+  assert_true(in_array('talk', $available, TRUE), 'Room-scene talk action is available again');
 }
 catch (Throwable $e) {
   assert_true(FALSE, 'Unhandled exception: ' . $e->getMessage());

@@ -11,6 +11,64 @@ import { extractReadyWeapons, extractConsumableItems, collectCharacterSkillEntri
 import { escapeQuestHtml } from '../utils/quest-utils.js';
 import { escapeTooltipAttr, flattenTooltipBuckets, slugifyTooltipKey } from '../utils/dom-utils.js';
 
+function resolveSkillEntry(state, skillName) {
+  const target = String(skillName || '').trim().toLowerCase();
+  return collectCharacterSkillEntries(state).find((entry) => String(entry?.name || '').trim().toLowerCase() === target) || null;
+}
+
+function resolveSkillRank(proficiency) {
+  switch (String(proficiency || '').trim().toLowerCase()) {
+    case 'trained': return 1;
+    case 'expert': return 2;
+    case 'master': return 3;
+    case 'legendary': return 4;
+    default: return 0;
+  }
+}
+
+function collectInventoryCandidates(state) {
+  const inventory = state?.inventory || {};
+  const equipment = state?.equipment || {};
+  return [
+    ...(Array.isArray(inventory.items) ? inventory.items : []),
+    ...(Array.isArray(inventory.equipped) ? inventory.equipped : []),
+    ...(Array.isArray(inventory.carried) ? inventory.carried : []),
+    ...(Array.isArray(equipment.held) ? equipment.held : []),
+    ...(Array.isArray(equipment.worn) ? equipment.worn : []),
+  ];
+}
+
+function hasInventoryMatch(state, matcher) {
+  return collectInventoryCandidates(state).some((item) => {
+    const itemId = String(item?.item_id || item?.id || '').trim().toLowerCase();
+    const itemName = String(item?.name || '').trim().toLowerCase();
+    return matcher(itemId, itemName, item);
+  });
+}
+
+function resolveFocusPoints(state, field) {
+  const resources = state?.resources || {};
+  const focus = resources.focusPoints || state?.focusPoints || {};
+  const value = Number(focus?.[field]);
+  return Number.isFinite(value) ? value : 0;
+}
+
+function resolveCharacterLevel(state) {
+  const value = Number(state?.basicInfo?.level ?? state?.level ?? 1);
+  return Number.isFinite(value) && value > 0 ? value : 1;
+}
+
+function resolveConstitutionModifier(state) {
+  const candidates = [
+    state?.abilityScores?.constitution?.modifier,
+    state?.abilities?.constitution?.modifier,
+    state?.attributes?.constitution?.modifier,
+    state?.stats?.constitutionModifier,
+  ];
+  const value = Number(candidates.find((candidate) => Number.isFinite(Number(candidate))) ?? 0);
+  return Number.isFinite(value) ? value : 0;
+}
+
 export class ActionRailPanel {
   constructor(container, bus) {
     this.container = container;
@@ -30,6 +88,85 @@ export class ActionRailPanel {
     this.navigateLocationGroups = [];
     this.navigateLocationsCampaignId = null;
     this.navigateLocationsInflight = null;
+    this._actionRailRequestSequence = 0;
+  }
+
+  buildRestActionRailPanel(context) {
+    const medicine = resolveSkillEntry(context.state, 'medicine');
+    const crafting = resolveSkillEntry(context.state, 'crafting');
+    const focusCurrent = resolveFocusPoints(context.state, 'current');
+    const focusMax = resolveFocusPoints(context.state, 'max');
+    const hasHealersTools = hasInventoryMatch(
+      context.state,
+      (itemId, itemName) => itemId === 'healers_tools' || itemName.includes("healer")
+    );
+    const restEntries = [
+      {
+        key: 'treat_wounds',
+        title: 'Treat Wounds',
+        summary: buildActionRailEntrySummary([
+          '10 minutes',
+          medicine ? `${Number(medicine.modifier || 0) >= 0 ? '+' : ''}${Number(medicine.modifier || 0)} Medicine` : 'Medicine required',
+          hasHealersTools ? "Healer's tools ready" : "Needs healer's tools",
+        ]),
+        meta: 'Treat your own wounds during a safe room pause. Requires Medicine training.',
+        dataset: {
+          targetId: String(context.actorRef || ''),
+        },
+      },
+      {
+        key: 'refocus',
+        title: 'Refocus',
+        summary: buildActionRailEntrySummary([
+          '10 minutes',
+          focusMax > 0 ? `${focusCurrent}/${focusMax} Focus Points` : 'No Focus Points',
+        ]),
+        meta: 'Recover 1 Focus Point by meditating, praying, or centering yourself.',
+        dataset: {},
+      },
+      {
+        key: 'repair',
+        title: 'Repair',
+        summary: buildActionRailEntrySummary([
+          '10 minutes',
+          crafting ? `${Number(crafting.modifier || 0) >= 0 ? '+' : ''}${Number(crafting.modifier || 0)} Crafting` : 'Crafting check',
+          'Repairs held shield or gear',
+        ]),
+        meta: 'Patch up damaged equipment before pushing deeper into the dungeon.',
+        dataset: {},
+      },
+      {
+        key: 'daily_preparations',
+        title: 'Daily Preparations',
+        summary: buildActionRailEntrySummary([
+          '8 hours',
+          `Level ${resolveCharacterLevel(context.state)}`,
+          'Restore daily resources',
+        ]),
+        meta: 'Take a full overnight rest: restore spell slots, focus, and recover level-based HP.',
+        dataset: {},
+      },
+    ];
+
+    const entries = restEntries
+      .filter((entry) => this.isServerActionAvailable(context, entry.key))
+      .map((entry) => this.renderActionRailEntry({
+        execute: entry.key,
+        title: entry.title,
+        summary: entry.summary,
+        meta: entry.meta,
+        disabled: this.isActionRailExecutionDisabled(0, context, !this.isServerActionAvailable(context, entry.key)),
+        dataset: entry.dataset,
+        actionLabel: entry.title,
+      }));
+
+    return {
+      title: 'Rest actions',
+      chip: entries.length ? `${entries.length} safe-room actions` : 'Unavailable',
+      html: entries.length
+        ? entries.join('')
+        : `<div class="action-rail__empty"><p>Rest actions unlock only in rooms flagged as safe for rest.</p></div>`,
+    };
   }
 
   init(dungeonData, stateManager) {
@@ -252,10 +389,12 @@ export class ActionRailPanel {
   getActionRailContext() {
     const hexmap = this.stateManager?.hexmap || null;
     const selected = this.stateManager?.get?.('selectedEntity') || null;
+    const phaseSnapshot = hexmap?.gameCoordinator?.phaseManager?.getSnapshot?.() || {};
     const current = hexmap?.turnManagementSystem?.getCurrentTurnEntity?.() || null;
-    const encounterActive = Boolean(hexmap?.stateManager?.get?.('encounterId'));
+    const encounterActive = phaseSnapshot?.phase === 'encounter';
+    const hasServerTurn = Boolean(phaseSnapshot?.turn?.entity);
     const launchPlayer = hexmap?.findLaunchPlayerEntity?.() || null;
-    const actor = encounterActive
+    const actor = hasServerTurn
       ? (selected || current || launchPlayer || null)
       : (launchPlayer || selected || current || null);
     const state = hexmap?.launchCharacter || hexmap?.characterData || {};
@@ -263,17 +402,24 @@ export class ActionRailPanel {
     const actorName = basicInfo.name || state?.name || actor?.getComponent?.('IdentityComponent')?.name || 'No actor selected';
     const runtimeContext = hexmap?.resolveLaunchCharacterRuntimeContext?.() || {};
     const automationProfile = hexmap?.buildPlayerAutomationProfile?.() || {};
-    const phaseSnapshot = hexmap?.gameCoordinator?.phaseManager?.getSnapshot?.() || {};
     const automationState = hexmap?.getPlayerAutomationState?.() || {};
     const actions = actor?.getComponent?.('ActionsComponent') || null;
     const movement = actor?.getComponent?.('MovementComponent') || null;
-    const actionText = actions ? `${actions.actionsRemaining}/${actions.maxActions ?? actions.actionsRemaining} actions` : null;
+    const serverActionsRemaining = Number(phaseSnapshot?.turn?.actions_remaining);
+    const actionText = Number.isFinite(serverActionsRemaining)
+      ? `${serverActionsRemaining}/3 actions`
+      : (actions ? `${actions.actionsRemaining}/${actions.maxActions ?? actions.actionsRemaining} actions` : null);
     const movementText = movement && Number.isFinite(movement.movementRemaining)
       ? `${movement.movementRemaining} ft move`
       : null;
     const currentTurnLabel = current?.getComponent?.('IdentityComponent')?.name || actorName;
-    const isActorTurn = !encounterActive || !current || !actor || current.id === actor.id;
     const actorRef = actor?.dcEntityRef || actor?.dcEntityInstanceId || runtimeContext?.instanceId || null;
+    const serverTurnEntity = String(phaseSnapshot?.turn?.entity || '').trim();
+    const isActorTurn = !hasServerTurn
+      || !serverTurnEntity
+      || !actorRef
+      || serverTurnEntity === actorRef
+      || (!current || !actor || current.id === actor.id);
     const characterId = Number(
       state?.characterId
       || state?.id
@@ -282,8 +428,8 @@ export class ActionRailPanel {
       || 0
     ) || 0;
     const baseStatus = buildActionRailEntrySummary([
-      encounterActive ? 'Encounter active' : 'Exploration ready',
-      encounterActive ? (isActorTurn ? 'Active turn' : `${currentTurnLabel}'s turn`) : '',
+      encounterActive ? 'Encounter active' : 'Encounter unavailable',
+      hasServerTurn ? (isActorTurn ? 'Active turn' : `${currentTurnLabel}'s turn`) : '',
       actionText,
       movementText,
     ]) || 'Select your character to unlock direct actions.';
@@ -300,7 +446,10 @@ export class ActionRailPanel {
       campaignClock: phaseSnapshot?.campaignClock || null,
       timedActivities: Array.isArray(phaseSnapshot?.timedActivities) ? phaseSnapshot.timedActivities : [],
       encounterActive,
+      hasServerTurn,
       isActorTurn,
+      availableActions: Array.isArray(phaseSnapshot?.availableActions) ? phaseSnapshot.availableActions : [],
+      actionContract: phaseSnapshot?.actionContract || null,
       automationState,
       canAutomate: Boolean(
         runtimeContext?.campaignId
@@ -350,7 +499,7 @@ export class ActionRailPanel {
     const formattedValue = hasValidDate
       ? new Intl.DateTimeFormat(undefined, {
         dateStyle: 'medium',
-        timeStyle: 'short',
+        timeStyle: 'medium',
         timeZone: timezone,
       }).format(parsedDate)
       : (fallbackValue || 'Unavailable');
@@ -405,22 +554,34 @@ export class ActionRailPanel {
     }
 
     if (actionKey === 'end-turn') {
-      return !context.encounterActive;
+      return !this.isServerActionAvailable(context, 'end_turn') && !this.isServerActionAvailable(context, 'choose_not_to_act');
     }
 
     if (actionKey === 'search') {
-      if (!context.actorRef || context.isActorTurn === false) {
+      if (!context.actorRef || !this.isServerActionAvailable(context, 'search')) {
         return true;
       }
-      if (context.encounterActive) {
+      if (context.hasServerTurn) {
+        if (context.isActorTurn === false) {
+          return true;
+        }
         const remainingActions = getActionRailRemainingActions(context);
         return remainingActions !== null && remainingActions < 1;
       }
       return false;
     }
 
+    if (actionKey === 'navigate') {
+      return !context.actorRef || !this.isServerActionAvailable(context, 'transition');
+    }
+
     if (actionKey === 'attack') {
-      return !context.actor;
+      return !context.actor || !this.isServerActionAvailable(context, 'strike');
+    }
+
+    if (actionKey === 'rest') {
+      return !['treat_wounds', 'refocus', 'repair', 'daily_preparations']
+        .some((restAction) => this.isServerActionAvailable(context, restAction));
     }
 
     return false;
@@ -435,7 +596,7 @@ export class ActionRailPanel {
       return false;
     }
 
-    if (context.isActorTurn === false) {
+    if (context.hasServerTurn && context.isActorTurn === false) {
       return true;
     }
 
@@ -445,6 +606,24 @@ export class ActionRailPanel {
     }
 
     return getActionRailCost(actionCost, 1) > remainingActions;
+  }
+
+  isServerActionAvailable(context, actionId) {
+    const id = String(actionId || '').trim();
+    if (!id) {
+      return false;
+    }
+    if (Array.isArray(context?.availableActions) && context.availableActions.includes(id)) {
+      return true;
+    }
+    const actions = Array.isArray(context?.actionContract?.actions) ? context.actionContract.actions : [];
+    const action = actions.find((entry) => entry?.id === id);
+    return action ? action.available !== false : false;
+  }
+
+  getServerActionDefinition(context, actionId) {
+    const actions = Array.isArray(context?.actionContract?.actions) ? context.actionContract.actions : [];
+    return actions.find((entry) => entry?.id === actionId) || null;
   }
 
   async handleActionRailAutomationToggle() {
@@ -479,7 +658,7 @@ export class ActionRailPanel {
       return `<div class="action-rail__empty"><p>Select or load a character to enable direct action buttons.</p></div>`;
     }
 
-    return `<div class="action-rail__empty"><p>Choose Attack, Navigate, Search, Spells, Consumables, Skills, or Feats to open direct action buttons for ${escapeQuestHtml(context.actorLabel)}.</p></div>`;
+    return `<div class="action-rail__empty"><p>Choose Attack, Navigate, Search, Rest, Spells, Consumables, Skills, or Feats to open direct action buttons for ${escapeQuestHtml(context.actorLabel)}.</p></div>`;
   }
 
   buildActionRailPanel(category, context) {
@@ -487,6 +666,7 @@ export class ActionRailPanel {
       attack: () => this.buildAttackActionRailPanel(context),
       navigate: () => this.buildNavigateActionRailPanel(context),
       search: () => this.buildSearchActionRailPanel(context),
+      rest: () => this.buildRestActionRailPanel(context),
       spells: () => this.buildSpellActionRailPanel(context),
       consumables: () => this.buildConsumableActionRailPanel(context),
       skills: () => this.buildSkillActionRailPanel(context),
@@ -1207,7 +1387,7 @@ export class ActionRailPanel {
       return;
     }
     if (actionKey === 'end-turn') {
-      hexmap.endTurn?.();
+      this.bus.emit('user:end-turn', { button });
       return;
     }
     if (actionKey === 'search') {
@@ -1235,9 +1415,16 @@ export class ActionRailPanel {
     if (button.dataset.actionRailPending === '1') {
       return false;
     }
+    const requestId = `action-rail-${Date.now()}-${++this._actionRailRequestSequence}`;
     button.dataset.actionRailPending = '1';
+    button.dataset.backendRequestId = requestId;
     button.disabled = true;
     button.setAttribute('aria-busy', 'true');
+    this.bus.emit('game:backend-request-start', {
+      requestId,
+      label: this.buildActionRailRequestLabel(button),
+      source: 'action-rail',
+    });
     return true;
   }
 
@@ -1245,9 +1432,25 @@ export class ActionRailPanel {
     if (!(button instanceof HTMLButtonElement)) {
       return;
     }
+    const requestId = button.dataset.backendRequestId || '';
     delete button.dataset.actionRailPending;
+    delete button.dataset.backendRequestId;
     button.disabled = false;
     button.removeAttribute('aria-busy');
+    if (requestId) {
+      this.bus.emit('game:backend-request-end', { requestId, source: 'action-rail' });
+    }
+  }
+
+  buildActionRailRequestLabel(button) {
+    const label = String(
+      button.dataset.actionLabel
+      || button.dataset.actionRailExecute
+      || button.dataset.actionRailDirect
+      || button.textContent
+      || 'action'
+    ).trim();
+    return `Waiting for ${label || 'action'} response...`;
   }
 
   updateActionMode(mode, { canAct = false, canInteract = false, moveLeft = 0, isPlayersTurn = false } = {}) {

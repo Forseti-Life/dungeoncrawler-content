@@ -13,6 +13,9 @@ export class StatusPanel {
     this._el = {};
     this._lastServerMsgAt = 0;
     this._serverMsgCooldown = 3000;
+    this._backendRequests = new Map();
+    this._backendWaitTimer = null;
+    this._backendWaitThresholdMs = 7000;
   }
 
   init() {
@@ -22,22 +25,29 @@ export class StatusPanel {
     const id = (k) => document.getElementById(k);
     this._el = {
       unavailBanner: s('unavail-banner'),
+      backendWait:    s('backend-wait'),
       zoom:          s('zoom'),
       hexInfo:       s('hex-info'),
       fullscreen:    s('fullscreen'),
       zoomLevel:     id('zoom-level') || s('zoom'),
     };
+    this._el.backendWait = this._el.backendWait || this._ensureBackendWaitElement();
     const nullKeys = Object.entries(this._el).filter(([,v]) => !v).map(([k]) => k);
     console.log('[StatusPanel] init', { container: !!this.container, nullEl: nullKeys.length, nullKeys: nullKeys.join(',') || 'none' });
     this._bindDom();
     this._subscribe();
     if (this._el.unavailBanner) this._el.unavailBanner.hidden = true;
+    if (this._el.backendWait)    this._el.backendWait.hidden = true;
     if (this._el.hexInfo)       this._el.hexInfo.hidden = true;
   }
 
   destroy() {
     this._unsubs.forEach((fn) => fn());
     this._unsubs = [];
+    if (this._backendWaitTimer) {
+      window.clearTimeout(this._backendWaitTimer);
+      this._backendWaitTimer = null;
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -61,6 +71,8 @@ export class StatusPanel {
     this._unsubs.push(
       this.bus.on('game:server-unavailable', (d) => this.showServerUnavailable(d?.message)),
       this.bus.on('game:server-available',   () => { if (this._el.unavailBanner) this._el.unavailBanner.hidden = true; }),
+      this.bus.on('game:backend-request-start', (d) => this.showBackendWait(d)),
+      this.bus.on('game:backend-request-end',   (d) => this.hideBackendWait(d)),
       this.bus.on('hex:hovered',             (d) => this.updateHoveredHex(d?.q ?? null, d?.r ?? null)),
       this.bus.on('hex:out',                 () => this.updateHoveredHex(null, null)),
       this.bus.on('hex:clicked',             (d) => this.updateSelectedHex(d?.q ?? 0, d?.r ?? 0)),
@@ -68,6 +80,88 @@ export class StatusPanel {
       this.bus.on('hex:details',             (d) => this.updateHexDetails(d)),
       this.bus.on('hex:contents',            (d) => this.updateSelectedHexContents(d?.occupants ?? [], d?.q, d?.r, d?.onChoose ?? (() => {}))),
     );
+  }
+
+  _ensureBackendWaitElement() {
+    const anchor = this._el.unavailBanner || this.container?.querySelector('[data-status="unavail-banner"]') || null;
+    if (!this.container && !anchor?.parentNode) {
+      return null;
+    }
+
+    const element = document.createElement('div');
+    element.dataset.status = 'backend-wait';
+    element.className = 'backend-wait-banner';
+    element.setAttribute('role', 'status');
+    element.setAttribute('aria-live', 'polite');
+    element.hidden = true;
+    element.innerHTML = '<span class="backend-wait-banner__spinner" aria-hidden="true"></span><span data-backend-wait-label>Waiting for backend response...</span>';
+    if (anchor?.parentNode) {
+      anchor.parentNode.insertBefore(element, anchor.nextSibling);
+    } else {
+      this.container.prepend(element);
+    }
+    return element;
+  }
+
+  showBackendWait(data = {}) {
+    const requestId = String(data?.requestId || '').trim();
+    if (!requestId) {
+      return;
+    }
+
+    this._backendRequests.set(requestId, {
+      label: String(data?.label || 'Waiting for backend response...').trim() || 'Waiting for backend response...',
+      startedAt: Date.now(),
+    });
+    this._renderBackendWait();
+  }
+
+  hideBackendWait(data = {}) {
+    const requestId = String(data?.requestId || '').trim();
+    if (!requestId) {
+      return;
+    }
+
+    this._backendRequests.delete(requestId);
+    this._renderBackendWait();
+  }
+
+  _renderBackendWait() {
+    const element = this._el.backendWait;
+    if (!element) {
+      return;
+    }
+
+    if (this._backendWaitTimer) {
+      window.clearTimeout(this._backendWaitTimer);
+      this._backendWaitTimer = null;
+    }
+
+    const active = Array.from(this._backendRequests.values());
+    if (!active.length) {
+      element.hidden = true;
+      element.classList.remove('backend-wait-banner--slow');
+      return;
+    }
+
+    const oldest = active.reduce((carry, item) => (
+      !carry || item.startedAt < carry.startedAt ? item : carry
+    ), null);
+    const elapsed = Date.now() - oldest.startedAt;
+    const isSlow = elapsed >= this._backendWaitThresholdMs;
+    const label = element.querySelector('[data-backend-wait-label]') || element;
+    label.textContent = isSlow
+      ? `${oldest.label} Still waiting; the backend may be busy.`
+      : oldest.label;
+    element.hidden = false;
+    element.classList.toggle('backend-wait-banner--slow', isSlow);
+
+    if (!isSlow) {
+      this._backendWaitTimer = window.setTimeout(() => {
+        this._backendWaitTimer = null;
+        this._renderBackendWait();
+      }, Math.max(0, this._backendWaitThresholdMs - elapsed));
+    }
   }
 
   showServerUnavailable(message = 'Unable to connect to server. Please try again.') {

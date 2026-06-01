@@ -105,7 +105,7 @@ export class GameCoordinatorApi {
   /**
    * Manually trigger a phase transition.
    *
-   * @param {string} targetPhase - Target phase (exploration, encounter, downtime)
+   * @param {string} targetPhase - Target phase (currently encounter only)
    * @param {object} [context={}] - Transition context (e.g. encounter_context)
    * @returns {Promise<object>} { success, game_state, events }
    */
@@ -194,7 +194,7 @@ export class GameCoordinatorApi {
    * @param {number} [stateVersion]
    */
   async search(actor, stateVersion) {
-    return this.sendAction('search', actor, {}, { stateVersion });
+    return this.sendAction('search', actor, { search_mode: 'explicit' }, { stateVersion });
   }
 
   /**

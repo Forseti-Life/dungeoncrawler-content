@@ -230,6 +230,54 @@ class QuestTouchpointServiceTest extends UnitTestCase {
   }
 
   /**
+   * Entity refs complete NPC objectives even when speaker names are descriptive.
+   */
+  public function testIngestEventMatchesNpcEntityRefWhenSpeakerNameDiffersFromObjectiveTarget(): void {
+    $store = $this->createMock(KeyValueStoreInterface::class);
+    $store->expects($this->once())
+      ->method('get')
+      ->willReturn(NULL);
+    $store->expects($this->once())
+      ->method('set');
+
+    $factory = $this->createMock(KeyValueFactoryInterface::class);
+    $factory->method('get')->willReturn($store);
+
+    $quest_tracker = $this->createMock(QuestTrackerService::class);
+    $quest_tracker->expects($this->once())
+      ->method('getActiveQuests')
+      ->with(110, 429)
+      ->willReturn([$this->buildSpellbookReturnQuestRow()]);
+    $quest_tracker->expects($this->once())
+      ->method('updateObjectiveProgress')
+      ->with(110, 'collect_spellbooks_110_6a1ce5c3e390a', 'return_books', 1, 429)
+      ->willReturn(['success' => TRUE]);
+
+    $confirmation_service = $this->createMock(QuestConfirmationService::class);
+    $confirmation_service->expects($this->never())
+      ->method('createPending');
+
+    $time = $this->createMock(TimeInterface::class);
+    $time->method('getRequestTime')->willReturn(1700000000);
+
+    $service = new QuestTouchpointService($quest_tracker, $confirmation_service, $factory, $time);
+    $result = $service->ingestEvent(110, [
+      'character_id' => 429,
+      'touchpoint' => [
+        'objective_type' => 'interact',
+        'npc_ref' => 'Marta the Scholar',
+        'entity_ref' => 'npc_scholar_npc',
+        'room_id' => 'tavern_entrance',
+        'matching_mode' => 'direct_npc_dialogue',
+      ],
+    ]);
+
+    $this->assertTrue($result['success']);
+    $this->assertSame('APPLY_PROGRESS', $result['decision']);
+    $this->assertSame('return_books', $result['objective_id']);
+  }
+
+  /**
    * Receipt touchpoints override text-only room hints when both are present.
    */
   public function testIngestEventPrefersDeterministicReceiptTouchpoint(): void {
@@ -315,6 +363,52 @@ class QuestTouchpointServiceTest extends UnitTestCase {
               'npc_ref' => 'npc-guard',
               'description' => 'Speak to the Guard Captain.',
               'completed' => FALSE,
+            ],
+          ],
+        ],
+      ]),
+    ];
+  }
+
+  /**
+   * Build the spellbook return quest shape from campaign runtime data.
+   */
+  private function buildSpellbookReturnQuestRow(): array {
+    return [
+      'quest_id' => 'collect_spellbooks_110_6a1ce5c3e390a',
+      'quest_name' => 'Collect Lost Spellbooks',
+      'character_id' => 429,
+      'current_phase' => 2,
+      'objective_states' => json_encode([
+        [
+          'phase' => 1,
+          'objectives' => [
+            [
+              'objective_id' => 'collect_books',
+              'type' => 'collect',
+              'description' => 'Find and collect Spellbooks in The Gilded Tankard',
+              'completed' => TRUE,
+              'item' => 'Spellbooks',
+              'current' => 4,
+              'target_count' => 4,
+            ],
+          ],
+        ],
+        [
+          'phase' => 2,
+          'objectives' => [
+            [
+              'objective_id' => 'return_books',
+              'type' => 'interact',
+              'description' => 'Return the books to the scholar',
+              'completed' => FALSE,
+              'target' => 'scholar_npc',
+              'location_id' => 'tavern_entrance',
+              'completion_criteria' => [
+                'kind' => 'flag',
+                'metric' => 'completed',
+                'required_value' => TRUE,
+              ],
             ],
           ],
         ],

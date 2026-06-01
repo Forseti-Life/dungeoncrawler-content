@@ -60,7 +60,7 @@ class PlayerAgentRuntimeAdapter implements PlayerAgentRuntimeAdapterInterface {
       'success' => TRUE,
       'campaign_id' => $campaign_id,
       'actor_id' => $actor_id,
-      'phase' => (string) ($game_state['phase'] ?? 'exploration'),
+      'phase' => (string) ($game_state['phase'] ?? 'encounter'),
       'game_state' => $game_state,
       'state_version' => (int) ($state_payload['state_version'] ?? ($game_state['state_version'] ?? 1)),
       'event_cursor' => $next_cursor,
@@ -213,7 +213,7 @@ class PlayerAgentRuntimeAdapter implements PlayerAgentRuntimeAdapterInterface {
    *   Hostile target summaries.
    */
   protected function findHostileTargets(array $game_state, string $actor_id): array {
-    $phase = (string) ($game_state['phase'] ?? 'exploration');
+    $phase = (string) ($game_state['phase'] ?? 'encounter');
     if ($phase !== 'encounter') {
       return [];
     }

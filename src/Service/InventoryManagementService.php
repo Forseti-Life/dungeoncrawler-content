@@ -319,6 +319,7 @@ class InventoryManagementService {
   protected function normalizeCharacterInventoryLocationType(?string $location_type): string {
     return match (strtolower(trim((string) $location_type))) {
       '', 'character_inventory' => 'carried',
+      'equipped' => 'worn',
       default => strtolower(trim((string) $location_type)),
     };
   }
@@ -1494,7 +1495,8 @@ class InventoryManagementService {
     try {
       $this->validateOwner($owner_id, $owner_type);
 
-      $valid_locations = ['carried', 'equipped', 'worn', 'stashed', 'dropped'];
+      $new_location = $this->normalizeCharacterInventoryLocationType($new_location);
+      $valid_locations = ['carried', 'worn', 'stashed', 'dropped'];
       if (!in_array($new_location, $valid_locations)) {
         throw new \InvalidArgumentException("Invalid location: {$new_location}");
       }
@@ -1984,28 +1986,30 @@ class InventoryManagementService {
     $consumable = !empty($item['consumable_stats'])
       || in_array($item_type, ['consumable', 'potion', 'scroll', 'talisman'], TRUE);
 
-    $equip_slot = $metadata['equip_slot'] ?? NULL;
+    $equip_slot = $metadata['equip_slot'] ?? ($item['equip_slot'] ?? NULL);
     if ($equip_slot === NULL || $equip_slot === '') {
       $equip_slot = match (TRUE) {
         $item_type === 'weapon', $item_type === 'held_item', $item_type === 'wand' => 'held',
         $item_type === 'armor' => 'armor',
         $item_type === 'shield' => 'shield',
         $item_type === 'worn_item' => 'worn',
-        $container && in_array((string) ($item['hands'] ?? ''), ['0', '1+'], TRUE) => 'worn',
         default => NULL,
       };
     }
 
-    $equippable = array_key_exists('equippable', $metadata)
-      ? !empty($metadata['equippable'])
-      : $equip_slot !== NULL;
-    $stackable = array_key_exists('stackable', $metadata)
-      ? !empty($metadata['stackable'])
-      : ($consumable || in_array($item_type, ['material'], TRUE));
     $worn_slot = CharacterEquipmentSlotHelper::resolveWornSlot($item);
+    if ($worn_slot !== NULL && ($equip_slot === NULL || $equip_slot === '')) {
+      $equip_slot = 'worn';
+    }
     if ($worn_slot === NULL && $equip_slot === 'worn') {
       $worn_slot = 'worn';
     }
+    $equippable = array_key_exists('equippable', $metadata)
+      ? !empty($metadata['equippable'])
+      : (array_key_exists('equippable', $item) ? !empty($item['equippable']) : ($equip_slot !== NULL));
+    $stackable = array_key_exists('stackable', $metadata)
+      ? !empty($metadata['stackable'])
+      : ($consumable || in_array($item_type, ['material'], TRUE));
     $hand_slots_required = $equip_slot === 'held'
       ? max(1, CharacterEquipmentSlotHelper::deriveHandSlotsRequired($item))
       : 0;

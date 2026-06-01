@@ -26,13 +26,14 @@ class CampaignTimeResolverServiceTest extends UnitTestCase {
       CampaignClockService::STATE_KEY => [
         'datetime' => '2024-01-01T08:00:00Z',
         'date' => '2024-01-01',
-        'time' => '08:00',
+        'time' => '08:00:00',
         'timezone' => 'UTC',
         'year' => 2024,
         'month' => 1,
         'day' => 1,
         'hour' => 8,
         'minute' => 0,
+        'second' => 0,
         'weekday' => 'Monday',
         'season' => 'winter',
       ],
@@ -40,6 +41,7 @@ class CampaignTimeResolverServiceTest extends UnitTestCase {
         'day' => 1,
         'hour' => 8,
         'minute' => 0,
+        'second' => 0,
         'date' => '2024-01-01',
         'datetime' => '2024-01-01T08:00:00Z',
         'timezone' => 'UTC',
@@ -101,6 +103,29 @@ class CampaignTimeResolverServiceTest extends UnitTestCase {
     $this->assertSame(30, $result['elapsed_minutes']);
     $this->assertSame(30, $state['exploration']['time_elapsed_minutes']);
     $this->assertSame('2024-01-01T08:30:00Z', $state['campaign_clock']['datetime']);
+  }
+
+  /**
+   * @covers ::applyTimeEffects
+   */
+  public function testEncounterRoundCanAdvanceSixSeconds(): void {
+    $resolver = new CampaignTimeResolverService(new CampaignClockService());
+    $state = $this->makeState('encounter');
+
+    $result = $resolver->applyTimeEffects($state, [
+      [
+        'phase' => 'encounter',
+        'action_type' => 'encounter_round',
+        'actor_ids' => ['char-a'],
+        'duration_seconds' => 6,
+      ],
+    ]);
+
+    $this->assertSame(0, $result['elapsed_minutes']);
+    $this->assertSame(6, $result['elapsed_seconds']);
+    $this->assertSame('2024-01-01T08:00:06Z', $state['campaign_clock']['datetime']);
+    $this->assertSame(6, $state['campaign_clock']['second']);
+    $this->assertSame(6, $state['game_time']['second']);
   }
 
   /**

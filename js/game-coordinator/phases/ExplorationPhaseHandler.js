@@ -50,9 +50,15 @@ export class ExplorationPhaseHandler {
    * @returns {boolean} Whether the click was consumed
    */
   handleHexClick(q, r, selectedEntity, actionMode) {
-    // 1. Room transition check (always takes priority).
-    if (this.hexmap.tryTransitionAtHex(q, r)) {
-      this._notifyServer('room_transition', selectedEntity, { target_hex: { q, r } });
+    // 1. Room transition check (always takes priority). Active runtime is
+    // server-authoritative; do not locally switch rooms before server success.
+    const capability = this.hexmap.resolveNavigationCapabilityAtHex?.(q, r);
+    if (capability?.target_room_id) {
+      this._notifyServer('transition', selectedEntity, {
+        target_room_id: capability.target_room_id,
+        connection_id: capability.connection_id || null,
+        target_hex: { q, r },
+      });
       return true;
     }
 

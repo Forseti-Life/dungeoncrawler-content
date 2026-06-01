@@ -111,6 +111,9 @@ export class CharacterPanel {
           // Twig template sets style="display:none;" on non-default panels.
           p.style.display = '';
         });
+        if (tab.dataset.sidebarTab === 'inventory' && this.currentCharacterInventoryContext) {
+          this.bus.emit('character:inventory-refresh-requested', this.currentCharacterInventoryContext);
+        }
         console.log('[CharacterPanel] sidebar tab clicked', { target: targetId, panelVisible: !!document.getElementById(targetId) && !document.getElementById(targetId).classList.contains('dc-is-hidden') });
       };
       tab.addEventListener('click', handler);
@@ -187,6 +190,9 @@ export class CharacterPanel {
       // Clear inline style so CSS class controls visibility.
       p.style.display = '';
     });
+    if (tabId === 'inventory' && this.currentCharacterInventoryContext) {
+      this.bus.emit('character:inventory-refresh-requested', this.currentCharacterInventoryContext);
+    }
   }
 
   showEmbeddedCharacterSheet(characterId) {
@@ -194,8 +200,13 @@ export class CharacterPanel {
       return;
     }
     console.log('[CharacterPanel] showEmbeddedCharacterSheet', { characterId });
-    // Ensure the character sub-panel is visible (localStorage may have restored a different tab).
-    this._activateSidebarTab('character');
+    const activeSidebarTab = this.container
+      ?.closest('.game-layout__sidebar')
+      ?.querySelector('[data-sidebar-tab].sidebar-tab--active')
+      ?.dataset?.sidebarTab ?? null;
+    if (!activeSidebarTab) {
+      this._activateSidebarTab('character');
+    }
     if (this._el.characterSheetEmbedWrap) {
       this._el.characterSheetEmbedWrap.style.display = 'none';
     }
@@ -587,7 +598,6 @@ export class CharacterPanel {
       abilities: normalizedAbilities,
     };
     this.bus.emit('inventory:changed', this.currentCharacterInventoryContext);
-    this.bus.emit('character:inventory-refresh-requested', this.currentCharacterInventoryContext);
 
     // Update features & feats (with type badges)
     if (this._el.characterFeatures) {

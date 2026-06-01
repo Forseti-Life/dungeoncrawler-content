@@ -4,8 +4,9 @@
  * Multi-round combat cycle test.
  *
  * Validates a deeper encounter lifecycle:
- *   exploration -> dialogue-driven combat start -> player end_turn
- *   -> NPC auto-play -> round 2 -> player finishes encounter -> exploration
+ *   room-scene encounter -> dialogue-driven combat start -> player end_turn
+ *   -> NPC auto-play -> round 2 -> player finishes hostile combat
+ *   -> room-scene encounter resumes
  *
  * Run with:
  *   drush php:script web/modules/custom/dungeoncrawler_content/tests/multi_round_combat_cycle_test.php
@@ -13,7 +14,6 @@
 
 use Drupal\dungeoncrawler_content\Service\CampaignInitializationService;
 use Drupal\dungeoncrawler_content\Service\GameCoordinatorService;
-use Drupal\dungeoncrawler_content\Service\RoomChatService;
 
 $GLOBALS['test_pass'] = 0;
 $GLOBALS['test_fail'] = 0;
@@ -106,8 +106,6 @@ echo "=== Multi-Round Combat Cycle Test ===\n\n";
 
 /** @var CampaignInitializationService $init */
 $init = \Drupal::service('dungeoncrawler_content.campaign_initialization');
-/** @var RoomChatService $room_chat */
-$room_chat = \Drupal::service('dungeoncrawler_content.room_chat_service');
 /** @var GameCoordinatorService $game_coordinator */
 $game_coordinator = \Drupal::service('dungeoncrawler_content.game_coordinator');
 $db = \Drupal::database();
@@ -132,14 +130,9 @@ try {
     ->fetchField();
   $dungeon_data = json_decode($dungeon_data_raw ?: '{}', TRUE) ?: [];
 
-  $room_id = (string) ($dungeon_data['active_room_id'] ?? '');
-  if ($room_id === '' && !empty($dungeon_data['rooms'][0]['room_id'])) {
-    $room_id = (string) $dungeon_data['rooms'][0]['room_id'];
-    $dungeon_data['active_room_id'] = $room_id;
-  }
-  if ($room_id === '') {
-    $room_id = 'multi_round_cycle_room';
-    $dungeon_data['active_room_id'] = $room_id;
+  $room_id = 'multi_round_cycle_room';
+  $dungeon_data['active_room_id'] = $room_id;
+  if (!find_multi_round_room($dungeon_data, $room_id)) {
     $dungeon_data['rooms'][] = [
       'room_id' => $room_id,
       'name' => 'Multi Round Cycle Room',
@@ -206,12 +199,17 @@ try {
     ],
   ];
 
-  $dungeon_data['game_state']['phase'] = 'exploration';
+  $dungeon_data['game_state']['phase'] = 'encounter';
   $dungeon_data['game_state']['encounter_id'] = NULL;
   $dungeon_data['game_state']['round'] = NULL;
   $dungeon_data['game_state']['turn'] = NULL;
   $dungeon_data['game_state']['initiative_order'] = NULL;
   persist_multi_round_dungeon($db, $campaign_id, $dungeon_data);
+
+  $initial_state = $game_coordinator->getFullState($campaign_id);
+  assert_true(!empty($initial_state['success']), 'Initial room state loads');
+  assert_equals('encounter', $initial_state['game_state']['phase'] ?? NULL, 'Initial phase is encounter');
+  assert_true(empty($initial_state['game_state']['encounter_id']), 'Hostile combat is not yet active');
 
   echo "--- Stage 1: Narrative starts combat ---\n";
 
@@ -273,7 +271,7 @@ try {
     ->fetchCol();
   assert_true(count($damage_rows) >= 1, 'Damage log contains the NPC attack');
 
-  echo "\n--- Stage 3: Hero finishes the fight and exploration resumes ---\n";
+  echo "\n--- Stage 3: Hero finishes the fight and room-scene encounter resumes ---\n";
 
   $strike_result = $game_coordinator->processAction($campaign_id, [
     'type' => 'strike',
@@ -288,13 +286,13 @@ try {
 
   assert_true(!empty($strike_result['success']), 'Hero strike succeeds in round 2');
   assert_true(!empty($strike_result['result']['strike']), 'Hero strike result is returned');
-  assert_true(!empty($strike_result['phase_transition']), 'Hero strike ends the encounter');
-  assert_equals('encounter', $strike_result['phase_transition']['from'] ?? NULL, 'Encounter transition starts from encounter');
-  assert_equals('exploration', $strike_result['phase_transition']['to'] ?? NULL, 'Encounter transition returns to exploration');
-  assert_equals('exploration', $strike_result['game_state']['phase'] ?? NULL, 'Game state returns to exploration after round 2 victory');
+  assert_true(!empty($strike_result['result']['encounter_resolved']), 'Hero strike ends hostile combat');
+  assert_equals('encounter', $strike_result['game_state']['phase'] ?? NULL, 'Game state remains in encounter after round 2 victory');
   assert_true(empty($strike_result['game_state']['encounter_id']), 'Encounter id is cleared after multi-round cycle');
-  assert_true(in_array('move', $strike_result['available_actions'] ?? [], TRUE), 'Exploration move action is available again');
-  assert_true(in_array('talk', $strike_result['available_actions'] ?? [], TRUE), 'Exploration talk action is available again');
+  assert_equals(1, (int) ($strike_result['game_state']['round'] ?? 0), 'Room-scene encounter restarts at round 1 after combat');
+  $available_after = $strike_result['available_actions'] ?? [];
+  assert_true(in_array('transition', $available_after, TRUE), 'Room-scene transition action is available again');
+  assert_true(in_array('talk', $available_after, TRUE), 'Room-scene talk action is available again');
 }
 catch (Throwable $e) {
   assert_true(FALSE, 'Unhandled exception: ' . $e->getMessage());

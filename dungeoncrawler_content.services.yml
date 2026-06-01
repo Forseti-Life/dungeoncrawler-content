@@ -798,9 +798,11 @@ services:
       - '@dungeoncrawler_content.movement_resolver'
       - '@dungeoncrawler_content.hazard_service'
       - '@dungeoncrawler_content.magic_item_service'
+      - '@dungeoncrawler_content.character_state'
       - '@dungeoncrawler_content.spell_catalog'
       - '@dungeoncrawler_content.room_chat_service'
       - '@dungeoncrawler_content.exploration_phase_handler'
+      - '@dungeoncrawler_content.navigation_service'
 
   dungeoncrawler_content.crafting:
     class: Drupal\dungeoncrawler_content\Service\CraftingService

@@ -62,9 +62,9 @@ class CampaignClockService {
   }
 
   /**
-   * Advances the campaign clock by the given minutes and/or days.
+   * Advances the campaign clock by the given seconds, minutes, and/or days.
    */
-  public function advanceClock(array &$state, int $minutes = 0, int $days = 0, ?int $fallback_timestamp = NULL): array {
+  public function advanceClock(array &$state, int $minutes = 0, int $days = 0, ?int $fallback_timestamp = NULL, int $seconds = 0): array {
     $clock = $this->ensureClock($state, $fallback_timestamp);
     $date_time = $this->clockToDateTime($clock);
 
@@ -74,6 +74,10 @@ class CampaignClockService {
 
     if ($minutes !== 0) {
       $date_time = $date_time->modify(($minutes >= 0 ? '+' : '') . $minutes . ' minutes');
+    }
+
+    if ($seconds !== 0) {
+      $date_time = $date_time->modify(($seconds >= 0 ? '+' : '') . $seconds . ' seconds');
     }
 
     $normalized = $this->buildClockPayload($date_time);
@@ -90,6 +94,7 @@ class CampaignClockService {
       'day' => (int) ($clock['day'] ?? 1),
       'hour' => (int) ($clock['hour'] ?? 0),
       'minute' => (int) ($clock['minute'] ?? 0),
+      'second' => (int) ($clock['second'] ?? 0),
       'date' => (string) ($clock['date'] ?? ''),
       'datetime' => (string) ($clock['datetime'] ?? ''),
       'timezone' => (string) ($clock['timezone'] ?? self::TIMEZONE),
@@ -114,8 +119,9 @@ class CampaignClockService {
     $day = isset($clock['day']) ? max(1, min(31, (int) $clock['day'])) : 1;
     $hour = isset($clock['hour']) ? max(0, min(23, (int) $clock['hour'])) : 0;
     $minute = isset($clock['minute']) ? max(0, min(59, (int) $clock['minute'])) : 0;
+    $second = isset($clock['second']) ? max(0, min(59, (int) $clock['second'])) : 0;
 
-    $date_time = new DateTimeImmutable(sprintf('%04d-%02d-%02d %02d:%02d:00', $year, $month, $day, $hour, $minute), new DateTimeZone(self::TIMEZONE));
+    $date_time = new DateTimeImmutable(sprintf('%04d-%02d-%02d %02d:%02d:%02d', $year, $month, $day, $hour, $minute, $second), new DateTimeZone(self::TIMEZONE));
     return $this->buildClockPayload($date_time);
   }
 
@@ -135,13 +141,14 @@ class CampaignClockService {
     return [
       'datetime' => $date_time->format('Y-m-d\TH:i:s\Z'),
       'date' => $date_time->format('Y-m-d'),
-      'time' => $date_time->format('H:i'),
+      'time' => $date_time->format('H:i:s'),
       'timezone' => self::TIMEZONE,
       'year' => (int) $date_time->format('Y'),
       'month' => (int) $date_time->format('n'),
       'day' => (int) $date_time->format('j'),
       'hour' => (int) $date_time->format('G'),
       'minute' => (int) $date_time->format('i'),
+      'second' => (int) $date_time->format('s'),
       'weekday' => $date_time->format('l'),
       'season' => $this->resolveSeason((int) $date_time->format('n')),
     ];
@@ -157,8 +164,9 @@ class CampaignClockService {
     $day = (int) ($game_time['day'] ?? $fallback['day']);
     $hour = (int) ($game_time['hour'] ?? 0);
     $minute = (int) ($game_time['minute'] ?? 0);
+    $second = (int) ($game_time['second'] ?? 0);
 
-    $date_time = new DateTimeImmutable(sprintf('%04d-%02d-%02d %02d:%02d:00', $year, $month, $day, $hour, $minute), new DateTimeZone(self::TIMEZONE));
+    $date_time = new DateTimeImmutable(sprintf('%04d-%02d-%02d %02d:%02d:%02d', $year, $month, $day, $hour, $minute, max(0, min(59, $second))), new DateTimeZone(self::TIMEZONE));
     return $this->buildClockPayload($date_time);
   }
 

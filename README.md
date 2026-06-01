@@ -403,7 +403,9 @@ Calculates PF2e ability boosts, sources, and validation across the character cre
 **Service ID**: `dungeoncrawler_content.game_coordinator`  
 **Class**: `Drupal\dungeoncrawler_content\Service\GameCoordinatorService`
 
-The single entry point for all game actions. Manages the game phase state machine (exploration → encounter → downtime), validates and routes actions to active phase handlers, handles phase transitions with lifecycle hooks, event logging, dungeon data persistence, and optimistic concurrency.
+The single entry point for all game actions. Manages the active encounter runtime, validates and routes actions to active phase handlers, handles lifecycle transitions inside that encounter framework, persists dungeon data, and enforces optimistic concurrency. The exploration phase is deprecated and disabled for active runtime routing; `ExplorationPhaseHandler` remains in the codebase only as a reusable implementation source for future work. Room movement is the encounter action `transition` with `params.target_room_id`; every room encounter has round/turn state, narrator/chat logging records round starts, actor turn starts, and explicit end-turn or choose-not-to-act decisions, and safe-room rest now uses encounter actions gated by `room.gameplay_state.safe_for_rest`.
+
+Search and passive room perception checks are secret server-side checks. Passive checks use no modifiers; explicit Search is requested with `params.search_mode: "explicit"` and gets the standardized server-side `+2` bonus. The server does not accept character-supplied Perception modifiers or requested sense targets from the client. Failed checks stay silent in chat, and successful discovery narration uses plain language such as `You notice a spellbook on the shelf.` without roll totals, DCs, success degrees, or sensory labels like `Smell:`.
 
 - **Routes**: `POST /api/game/{campaign_id}/action`, `GET /api/game/{campaign_id}/state`, `POST /api/game/{campaign_id}/transition`, `GET /api/game/{campaign_id}/events`
 - **Response includes**: `narration` (AiGmService one-shot) + `session_narration` (NarrationEngine per-character scene beats)
@@ -451,9 +453,9 @@ Manages NPC personality profiles with 5 psychological axes, attitude tracking, i
 
 | Service ID | Class | Phase | Actions |
 |---|---|---|---|
-| `dungeoncrawler_content.exploration_phase_handler` | `ExplorationPhaseHandler` | Exploration | move, interact, talk, search, transition, set_activity, rest, cast_spell, open_door, open_passage |
-| `dungeoncrawler_content.encounter_phase_handler` | `EncounterPhaseHandler` | Encounter | strike, stride, cast_spell, interact, talk, end_turn, delay, ready, reaction |
-| `dungeoncrawler_content.downtime_phase_handler` | `DowntimePhaseHandler` | Downtime | long_rest (other activities stub) |
+| `dungeoncrawler_content.exploration_phase_handler` | `ExplorationPhaseHandler` | Deprecated / inactive | Retained for future reuse; not registered as an active runtime phase |
+| `dungeoncrawler_content.encounter_phase_handler` | `EncounterPhaseHandler` | Encounter | strike, stride, cast_spell, interact, talk, end_turn, delay, ready, reaction, treat_wounds, refocus, repair, daily_preparations |
+| `dungeoncrawler_content.downtime_phase_handler` | `DowntimePhaseHandler` | Dormant / inactive | Retained only as an implementation source while safe-room rest lives in encounter |
 
 ## File Structure
 
@@ -486,7 +488,7 @@ dungeoncrawler_content/
 │   ├── Form/                # Drupal forms (campaign, character, settings, image gen)
 │   └── Service/             # 75+ services — key subsystems:
 │       ├── GameCoordinatorService.php       # Central game loop orchestrator
-│       ├── ExplorationPhaseHandler.php      # Exploration phase actions
+│       ├── ExplorationPhaseHandler.php      # Deprecated/inactive; retained for future reuse
 │       ├── EncounterPhaseHandler.php        # Combat encounter actions
 │       ├── DowntimePhaseHandler.php         # Downtime phase actions
 │       ├── ChatSessionManager.php           # Hierarchical chat session tree
@@ -702,7 +704,7 @@ Indexes: `session_type` (session_id, message_type), `sender` (sender_type, sende
 ### Game Coordinator API Routes
 - `POST /api/game/{campaign_id}/action` - Submit game action (routed to active phase handler)
 - `GET /api/game/{campaign_id}/state` - Get current game state (phase, dungeon, encounters)
-- `POST /api/game/{campaign_id}/transition` - Request phase transition (exploration ↔ encounter ↔ downtime)
+- `POST /api/game/{campaign_id}/transition` - Request phase transition (currently no alternate live phases)
 - `GET /api/game/{campaign_id}/events` - Get event log for campaign
 
 ### Chat Session API Routes
@@ -1288,7 +1290,7 @@ Test results are visible in the GitHub Actions tab of each PR.
 - [ ] Inventory management system (equipment equip/unequip, encumbrance)
 - [ ] Spell and ability customization (focus spells, innate spells, signature spells)
 - [ ] Per-character narrative UI tab in chat panel
-- [ ] Full downtime activity system (crafting, earning income, retraining)
+- [ ] Expand safe-room encounter rest/support actions beyond Treat Wounds, Refocus, Repair, and Daily Preparations
 - [ ] Achievement system
 
 ## Support

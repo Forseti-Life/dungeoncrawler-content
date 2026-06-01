@@ -552,6 +552,9 @@
         "traps_disarmed": true,
         "visibility": "visible"
       },
+      "gameplay_state": {
+        "safe_for_rest": true
+      },
       "ai_generation": {
         "theme_tags": [
           "tavern",
@@ -599,6 +602,9 @@
         "looted": false,
         "traps_disarmed": false,
         "visibility": "hidden"
+      },
+      "gameplay_state": {
+        "safe_for_rest": false
       },
       "ai_generation": {
         "theme_tags": [

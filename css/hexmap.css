@@ -1154,6 +1154,49 @@
   height: 100%;
 }
 
+.backend-wait-banner {
+  position: fixed;
+  top: var(--space-4);
+  left: 50%;
+  z-index: 10000;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: min(520px, calc(100% - 32px));
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--overlay-accent-40);
+  border-radius: var(--radius-full);
+  background: var(--overlay-panel-95);
+  color: var(--text-bright);
+  box-shadow: var(--shadow-lg);
+  transform: translateX(-50%);
+}
+
+.backend-wait-banner[hidden] {
+  display: none;
+}
+
+.backend-wait-banner--slow {
+  border-color: var(--overlay-warning-40);
+  background: color-mix(in srgb, var(--warning) 20%, var(--overlay-panel-95));
+}
+
+.backend-wait-banner__spinner {
+  width: 0.85rem;
+  height: 0.85rem;
+  flex: 0 0 auto;
+  border: 2px solid var(--overlay-white-12);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: backend-wait-spin 0.8s linear infinite;
+}
+
+@keyframes backend-wait-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .hexmap-stage {
   position: relative;
   padding-bottom: 0; /* overlay footer upward into map */

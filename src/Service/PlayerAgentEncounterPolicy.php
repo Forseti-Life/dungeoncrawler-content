@@ -72,10 +72,24 @@ class PlayerAgentEncounterPolicy implements PlayerAgentPolicyInterface {
       ];
     }
 
+    if (in_array('choose_not_to_act', $available_actions, TRUE)) {
+      return [
+        'type' => 'intent',
+        'reason' => 'No configured legal action is available; explicitly choose not to act.',
+        'intent' => [
+          'type' => 'choose_not_to_act',
+          'actor' => $actor_id,
+          'params' => [
+            'reason' => 'Player agent found no configured legal action.',
+          ],
+        ],
+      ];
+    }
+
     if (in_array('end_turn', $available_actions, TRUE)) {
       return [
         'type' => 'intent',
-        'reason' => 'No configured legal attack is available; end the turn safely.',
+        'reason' => 'No configured legal action is available; end the turn explicitly.',
         'intent' => [
           'type' => 'end_turn',
           'actor' => $actor_id,
