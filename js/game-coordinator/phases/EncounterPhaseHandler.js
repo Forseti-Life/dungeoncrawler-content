@@ -332,11 +332,38 @@ export class EncounterPhaseHandler {
 
     // Build a server state shape that TurnManagementSystem expects.
     const gameState = result.game_state || {};
+    const turn = gameState.turn || {};
+    const initiativeOrder = Array.isArray(gameState.initiative_order) ? gameState.initiative_order : [];
+    const participants = initiativeOrder.map((entry, index) => {
+      const entityId = entry?.entity_id ?? entry?.entity ?? entry?.id ?? null;
+      const isCurrentTurn = Boolean(
+        entityId != null
+        && (
+          String(entityId) === String(turn.entity ?? '')
+          || index === Number(turn.index)
+        )
+      );
+      return {
+        ...entry,
+        entity_id: entityId,
+        actions_remaining: isCurrentTurn
+          ? Number(turn.actions_remaining ?? entry?.actions_remaining ?? 3)
+          : Number(entry?.actions_remaining ?? 0),
+        attacks_this_turn: isCurrentTurn
+          ? Number(turn.attacks_this_turn ?? entry?.attacks_this_turn ?? 0)
+          : Number(entry?.attacks_this_turn ?? 0),
+        reaction_available: isCurrentTurn
+          ? Boolean(turn.reaction_available ?? entry?.reaction_available)
+          : Boolean(entry?.reaction_available),
+      };
+    });
     const serverPayload = {
       encounter_id: gameState.encounter_id,
-      initiative_order: gameState.initiative_order || [],
+      status: gameState.phase === 'encounter' && gameState.encounter_id ? 'active' : 'ended',
+      initiative_order: initiativeOrder,
+      participants,
       current_round: gameState.round,
-      turn_index: gameState.turn?.index,
+      turn_index: turn.index,
     };
 
     this.hexmap.stateManager.set('serverCombatMode', true);

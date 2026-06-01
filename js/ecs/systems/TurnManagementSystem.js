@@ -573,6 +573,10 @@ export class TurnManagementSystem extends System {
     const previousRound = this.currentRound;
     const previousCombatState = this.combatState;
     const wasServerHydrated = this.serverHydrated;
+    const previousCurrentEntity = this.getCurrentTurnEntity();
+    const previousCurrentActions = previousCurrentEntity?.getComponent('ActionsComponent') || null;
+    const previousActionsRemaining = previousCurrentActions ? Number(previousCurrentActions.actionsRemaining) : null;
+    const previousAttacksMade = previousCurrentActions ? Number(previousCurrentActions.attacksMadeThisTurn) : null;
 
     const initiativeEntries = Array.isArray(serverState.initiative_order)
       ? serverState.initiative_order
@@ -657,15 +661,32 @@ export class TurnManagementSystem extends System {
 
     const orderChanged = previousOrder.length !== this.initiativeOrder.length
       || previousOrder.some((entityId, index) => entityId !== this.initiativeOrder[index]);
+    const currentEntity = this.getCurrentTurnEntity();
+    const currentActions = currentEntity?.getComponent('ActionsComponent') || null;
+    const currentActionsRemaining = currentActions ? Number(currentActions.actionsRemaining) : null;
+    const currentAttacksMade = currentActions ? Number(currentActions.attacksMadeThisTurn) : null;
+    const currentEntityUnchanged = Boolean(
+      previousCurrentEntity
+      && currentEntity
+      && previousCurrentEntity.id === currentEntity.id
+    );
+    const currentTurnResourcesChanged = Boolean(
+      currentEntityUnchanged
+      && currentActions
+      && (
+        previousActionsRemaining !== currentActionsRemaining
+        || previousAttacksMade !== currentAttacksMade
+      )
+    );
     const turnChanged = !wasServerHydrated
       || orderChanged
-      || previousTurnIndex !== this.currentTurnIndex;
+      || previousTurnIndex !== this.currentTurnIndex
+      || currentTurnResourcesChanged;
     const roundChanged = !wasServerHydrated
       || previousRound !== this.currentRound;
     const combatStateChanged = !wasServerHydrated
       || previousCombatState !== this.combatState;
 
-    const currentEntity = this.getCurrentTurnEntity();
     if (currentEntity && this.onTurnChangeCallback && turnChanged) {
       this.onTurnChangeCallback(currentEntity, this.currentTurnIndex, this.initiativeOrder.length);
     }

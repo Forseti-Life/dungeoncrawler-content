@@ -402,7 +402,7 @@ export class GameCoordinator {
     if (isPlayerTurn) {
       const actionsRemaining = Number(projectedTurn?.actions_remaining ?? 0);
       if (actionsRemaining >= 1) {
-        actions.push('strike', 'stride', 'interact');
+        actions.push('strike', 'stride', 'interact', 'search');
       }
       if (actionsRemaining >= 2) {
         actions.push('cast_spell');
@@ -431,6 +431,7 @@ export class GameCoordinator {
       strike: { label: 'Strike', cost: 1, category: 'offense', requires_turn: true, targeting: 'hostile_entity' },
       stride: { label: 'Stride', cost: 1, category: 'movement', requires_turn: true, targeting: 'hex' },
       interact: { label: 'Interact', cost: 1, category: 'utility', requires_turn: true, targeting: 'entity_or_object' },
+      search: { label: 'Search', cost: 1, category: 'perception', requires_turn: true, targeting: 'room' },
       cast_spell: { label: 'Cast Spell', cost: 2, category: 'magic', requires_turn: true, targeting: 'contextual' },
       talk: { label: 'Talk', cost: 0, category: 'conversation', requires_turn: true, targeting: 'entity_or_room' },
       end_turn: { label: 'End Turn', cost: 0, category: 'turn', requires_turn: true, targeting: 'none' },

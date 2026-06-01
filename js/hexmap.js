@@ -4994,6 +4994,8 @@ import { SpriteService } from './SpriteService.js';
         if (typeof data.narration === 'string' && data.narration.trim()) {
           this.appendChatLine('Game Master', data.narration.trim(), 'gm');
         }
+        hexmap.gameCoordinator?.applyAuthoritativeUpdate?.(data);
+        hexmap.gameCoordinator?.getActiveHandler?.()?._syncTurnManagement?.(data);
         hexmap.loadCharacterFromApi?.(context.characterId);
         this.refreshActionRail();
       } finally {
@@ -14468,6 +14470,35 @@ import { SpriteService } from './SpriteService.js';
       const currentTurn = this.turnManagementSystem?.getCurrentTurn?.();
       const currentActor = this.turnManagementSystem?.getCurrentTurnEntity?.();
       const currentActorName = currentActor?.getComponent?.('IdentityComponent')?.name || 'Current actor';
+      const actorRef = String(
+        currentActor?.dcEntityRef
+        || currentActor?.dcEntityInstanceId
+        || currentTurn?.entityId
+        || ''
+      ).trim();
+      const coordinator = this.gameCoordinator || null;
+
+      if (coordinator?.isActive?.() && actorRef !== '') {
+        try {
+          const result = await coordinator.api?.endTurn?.(actorRef, coordinator.phaseManager?.stateVersion);
+          if (!result?.success) {
+            this.uiManager?.appendChatLine('System', result?.error || 'Unable to end the current turn.', 'system');
+            return;
+          }
+
+          coordinator.applyAuthoritativeUpdate?.(result);
+          coordinator.getActiveHandler?.()?._syncTurnManagement?.(result);
+          this.syncSelectedToCurrentTurn?.();
+          this.uiManager?.appendChatLine('System', `${currentActorName} ends their turn.`, 'system');
+          this.uiManager?.refreshActionRail();
+          return result;
+        } catch (err) {
+          console.error('Coordinator turn end failed.', err);
+          this.notifyServerUnavailable();
+          return;
+        }
+      }
+
       const payload = {
         encounterId,
         participantId: currentTurn?.entityId
