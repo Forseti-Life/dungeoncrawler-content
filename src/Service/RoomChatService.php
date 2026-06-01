@@ -147,6 +147,9 @@ class RoomChatService {
 
     // Filter by channel.
     $chat = $this->channelManager->filterMessagesByChannel($chat, $channel);
+    if ($channel === 'room') {
+      $chat = $this->ensureRoomSceneNarratorIntro($chat, $room_entry);
+    }
 
     // For non-room channels, verify the character has access.
     if ($channel !== 'room' && $character_id !== NULL) {
@@ -175,6 +178,132 @@ class RoomChatService {
         'internal_log' => !empty($msg['internal_log']),
       ];
     }, $chat);
+  }
+
+  /**
+   * Ensure room chat opens with the same grounded scene shown in the room view.
+   */
+  protected function ensureRoomSceneNarratorIntro(array $chat, array $room_entry): array {
+    $description = trim((string) ($room_entry['description'] ?? ''));
+    if ($description === '') {
+      return $chat;
+    }
+
+    $intro_message = $this->buildRoomSceneNarratorIntro($room_entry);
+    if ($intro_message === '') {
+      return $chat;
+    }
+
+    foreach ($chat as $message) {
+      if (!is_array($message)) {
+        continue;
+      }
+      $existing = trim((string) ($message['message'] ?? ''));
+      if ($existing === '') {
+        continue;
+      }
+      if ($existing === $intro_message || str_contains($existing, $description)) {
+        return $chat;
+      }
+    }
+
+    array_unshift($chat, [
+      'speaker' => 'Narrator',
+      'message' => $intro_message,
+      'type' => 'gm',
+      'channel' => 'room',
+      'timestamp' => $this->resolveRoomSceneIntroTimestamp($chat),
+      'character_id' => NULL,
+      'user_id' => 0,
+      'scene_intro' => TRUE,
+    ]);
+
+    return $chat;
+  }
+
+  /**
+   * Build the deterministic narrator scene intro for a room.
+   */
+  protected function buildRoomSceneNarratorIntro(array $room_entry): string {
+    $description = trim((string) ($room_entry['description'] ?? ''));
+    if ($description === '') {
+      return '';
+    }
+
+    $name = trim((string) ($room_entry['name'] ?? $room_entry['room_id'] ?? 'Current room'));
+    $meta = $this->buildRoomSceneMetaLine($room_entry);
+    $parts = [$name !== '' ? $name : 'Current room'];
+    if ($meta !== '') {
+      $parts[] = $meta;
+    }
+    $parts[] = $description;
+
+    return implode("\n\n", $parts);
+  }
+
+  /**
+   * Place the synthetic room intro before the first persisted room message.
+   */
+  protected function resolveRoomSceneIntroTimestamp(array $chat): string {
+    foreach ($chat as $message) {
+      if (!is_array($message)) {
+        continue;
+      }
+      $timestamp = trim((string) ($message['timestamp'] ?? ''));
+      if ($timestamp === '') {
+        continue;
+      }
+      $unix = strtotime($timestamp);
+      if ($unix !== FALSE) {
+        return date('c', max(0, $unix - 1));
+      }
+    }
+
+    return date('c');
+  }
+
+  /**
+   * Build a compact room meta line matching the scene gallery presentation.
+   */
+  protected function buildRoomSceneMetaLine(array $room_entry): string {
+    $parts = [];
+    $room_type = $this->formatRoomSceneMetaValue($room_entry['room_type'] ?? '');
+    if ($room_type !== '' && $room_type !== 'unknown') {
+      $parts[] = $room_type;
+    }
+
+    $size = $this->formatRoomSceneMetaValue($room_entry['size_category'] ?? '');
+    if ($size !== '') {
+      $parts[] = $size;
+    }
+
+    $terrain = $this->formatRoomSceneMetaValue($room_entry['terrain'] ?? '');
+    if ($terrain !== '') {
+      $parts[] = $terrain;
+    }
+
+    $lighting = $this->formatRoomSceneMetaValue($room_entry['lighting'] ?? '');
+    if ($lighting !== '') {
+      $parts[] = 'lighting: ' . $lighting;
+    }
+
+    return implode(' • ', array_values(array_filter($parts)));
+  }
+
+  /**
+   * Normalize room scene metadata for player-facing text.
+   */
+  protected function formatRoomSceneMetaValue($value): string {
+    if (is_array($value)) {
+      if (isset($value['type']) || isset($value['level']) || isset($value['name'])) {
+        $value = $value['type'] ?? $value['level'] ?? $value['name'];
+      }
+      else {
+        $value = implode(', ', array_map([$this, 'formatRoomSceneMetaValue'], $value));
+      }
+    }
+
+    return trim(str_replace('_', ' ', (string) $value));
   }
 
   /**
