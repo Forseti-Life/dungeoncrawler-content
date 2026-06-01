@@ -3839,7 +3839,13 @@ import { SpriteService } from './SpriteService.js';
       const currentTurnLabel = current?.getComponent?.('IdentityComponent')?.name || actorName;
       const isActorTurn = !encounterActive || !current || !actor || current.id === actor.id;
       const actorRef = actor?.dcEntityRef || actor?.dcEntityInstanceId || runtimeContext?.instanceId || null;
-      const characterId = Number(state?.characterId || state?.id || 0) || 0;
+      const characterId = Number(
+        state?.characterId
+        || state?.id
+        || runtimeContext?.characterId
+        || hexmap?.launchContext?.character_id
+        || 0
+      ) || 0;
       const baseStatus = buildActionRailEntrySummary([
         encounterActive ? 'Encounter active' : 'Exploration ready',
         encounterActive ? (isActorTurn ? 'Active turn' : `${currentTurnLabel}'s turn`) : '',

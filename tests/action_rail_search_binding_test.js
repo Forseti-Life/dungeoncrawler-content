@@ -42,6 +42,11 @@ assert(
   'standalone Search remains enabled for active exploration-room actors without combat turns'
 );
 assert(
+  hexmapSource.includes('runtimeContext?.characterId')
+    && hexmapSource.includes('hexmap?.launchContext?.character_id'),
+  'action rail resolves character id from launch/runtime context before character-sheet hydration'
+);
+assert(
   actionRailPanelSource.includes('handleActionRailDirectAction(actionKey, button = null)')
     && actionRailPanelSource.includes("this.bus.emit('user:action-selected', { actionKey, button });"),
   'v2 action rail Search emits the clicked button to the action executor'
