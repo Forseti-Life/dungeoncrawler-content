@@ -659,11 +659,23 @@ class QuestTrackerService {
       return '';
     }
 
-    $quests = $character_id !== NULL && $character_id > 0
-      ? $this->getActiveQuests($campaign_id, $character_id)
-      : array_values(array_filter($this->getCampaignQuestTracking($campaign_id), function (array $quest): bool {
+    $quest_reference_detected = $this->hasQuestReferenceCue($normalized_text);
+    $status_review_detected = $this->hasQuestStatusReviewCue($normalized_text);
+    $include_completed_context = $quest_reference_detected && $status_review_detected;
+
+    if ($character_id !== NULL && $character_id > 0) {
+      $quests = $include_completed_context
+        ? $this->getCharacterQuestTracking($campaign_id, $character_id)
+        : $this->getActiveQuests($campaign_id, $character_id);
+    }
+    else {
+      $quests = array_values(array_filter($this->getCampaignQuestTracking($campaign_id), function (array $quest) use ($include_completed_context): bool {
+        if ($include_completed_context) {
+          return TRUE;
+        }
         return empty($quest['completed_at']) && (($quest['status'] ?? '') === 'active');
       }));
+    }
 
     if ($quests === []) {
       return '';
@@ -676,13 +688,15 @@ class QuestTrackerService {
       }
 
       $quest = $this->normalizeQuestPromptRow($quest);
-      $current_objectives = $this->getObjectivesForPhase($quest, (int) ($quest['current_phase'] ?? 1), TRUE);
+      $current_objectives = $this->getObjectivesForPhase($quest, (int) ($quest['current_phase'] ?? 1), !$include_completed_context);
       if ($current_objectives === []) {
         continue;
       }
 
       $quest['current_objectives'] = $current_objectives;
-      $quest['next_objectives'] = $this->getObjectivesForPhase($quest, ((int) ($quest['current_phase'] ?? 1)) + 1, FALSE);
+      $quest['next_objectives'] = empty($quest['completed_at'])
+        ? $this->getObjectivesForPhase($quest, ((int) ($quest['current_phase'] ?? 1)) + 1, FALSE)
+        : [];
       $quest['match_score'] = $this->scoreQuestAgainstPrompt($normalized_text, $quest);
       $quest_rows[] = $quest;
     }
@@ -691,7 +705,6 @@ class QuestTrackerService {
       return '';
     }
 
-    $quest_reference_detected = $this->hasQuestReferenceCue($normalized_text);
     $matched = array_values(array_filter($quest_rows, static fn(array $quest): bool => (int) ($quest['match_score'] ?? 0) >= 4));
 
     if ($matched === [] && !$quest_reference_detected) {
@@ -722,10 +735,12 @@ class QuestTrackerService {
       $quest_name = (string) ($quest['quest_name'] ?? $quest_id);
       $status = (string) ($quest['status'] ?? 'active');
       $current_phase = max(1, (int) ($quest['current_phase'] ?? 1));
-      $lines[] = "- {$quest_name} {quest_id: {$quest_id}} [status: {$status}, current_phase: {$current_phase}]";
+      $completion_note = !empty($quest['completed_at']) ? ', completed: yes' : '';
+      $lines[] = "- {$quest_name} {quest_id: {$quest_id}} [status: {$status}, current_phase: {$current_phase}{$completion_note}]";
 
       foreach (array_slice($quest['current_objectives'] ?? [], 0, 3) as $objective) {
-        $lines[] = '  Current objective: ' . $this->formatObjectiveForPrompt($objective);
+        $objective_label = !empty($objective['completed']) ? 'Completed objective' : 'Current objective';
+        $lines[] = '  ' . $objective_label . ': ' . $this->formatObjectiveForPrompt($objective);
       }
 
       foreach (array_slice($quest['next_objectives'] ?? [], 0, 2) as $objective) {
@@ -1749,6 +1764,34 @@ class QuestTrackerService {
       'jobs',
       'assignment',
       'assignments',
+    ] as $cue) {
+      if (preg_match('/\b' . preg_quote($cue, '/') . '\b/', $normalized_text)) {
+        return TRUE;
+      }
+    }
+
+    return FALSE;
+  }
+
+  /**
+   * Detect whether the player asks for status/progress/completion details.
+   */
+  protected function hasQuestStatusReviewCue(string $normalized_text): bool {
+    foreach ([
+      'journal',
+      'updated',
+      'update',
+      'complete',
+      'completed',
+      'completion',
+      'done',
+      'finished',
+      'progress',
+      'status',
+      'why',
+      'did',
+      'didnt',
+      'didn t',
     ] as $cue) {
       if (preg_match('/\b' . preg_quote($cue, '/') . '\b/', $normalized_text)) {
         return TRUE;

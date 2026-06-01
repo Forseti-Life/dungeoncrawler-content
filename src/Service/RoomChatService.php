@@ -148,6 +148,11 @@ class RoomChatService {
     // Filter by channel.
     $chat = $this->channelManager->filterMessagesByChannel($chat, $channel);
     if ($channel === 'room') {
+      $chat = array_values(array_filter($chat, static function ($message): bool {
+        return !is_array($message) || empty($message['internal_log']);
+      }));
+    }
+    if ($channel === 'room') {
       $chat = $this->ensureRoomSceneNarratorIntro($chat, $room_entry);
     }
 
@@ -4213,7 +4218,7 @@ class RoomChatService {
   }
 
   /**
-   * Build a player-visible system log message for the current turn order.
+   * Build an internal system log message for the current turn order.
    */
   protected function buildRoomTurnOrderLogMessage(array $turn_sequence, bool $gm_addressed): string {
     $speaker_names = array_map(static function (array $turn): string {
@@ -4233,7 +4238,7 @@ class RoomChatService {
   }
 
   /**
-   * Build a player-visible system log message for the active speaker.
+   * Build an internal system log message for the active speaker.
    */
   protected function buildRoomCurrentTurnLogMessage(string $speaker): string {
     $normalized_speaker = trim($speaker);
@@ -9186,7 +9191,10 @@ PROMPT;
    * @return array<int, string>
    */
   protected function extractQuestObjectiveDescriptions(array $quest): array {
-    $phases = json_decode((string) ($quest['generated_objectives'] ?? '[]'), TRUE);
+    $generated_objectives = $quest['generated_objectives'] ?? [];
+    $phases = is_array($generated_objectives)
+      ? $generated_objectives
+      : json_decode((string) $generated_objectives, TRUE);
     if (!is_array($phases)) {
       return [];
     }
