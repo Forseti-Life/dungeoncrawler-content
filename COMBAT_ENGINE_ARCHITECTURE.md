@@ -67,18 +67,20 @@ This document tracks the implementation status of the PF2e combat/encounter engi
 
 ## Controller & API Endpoint Status
 
-### CombatEncounterApiController — Primary Combat API (8/9 routed, working)
+### CombatEncounterApiController — Legacy Hexmap API (admin-only)
+
+Player-facing combat/encounter actions MUST use the coordinator endpoint: `/api/game/{campaign_id}/action`.
 
 | Method | Route | HTTP | Status |
 |---|---|---|---|
-| `currentState()` | `/api/combat/state` | GET | **Implemented** |
-| `start()` | `/api/combat/start` | POST | **Implemented** |
-| `endTurn()` | `/api/combat/end-turn` | POST | **Implemented** |
-| `end()` | `/api/combat/end` | POST | **Implemented** |
-| `attack()` | `/api/combat/attack` | POST | **Implemented** |
-| `action()` | `/api/combat/action` | POST | **Implemented** |
-| `get()` | `/api/combat/get` | POST | **Implemented** |
-| `set()` | `/api/combat/set` | POST | **Implemented** |
+| `currentState()` | `/api/combat/state` | GET | **Implemented (legacy)** |
+| `start()` | `/api/combat/start` | POST | **Implemented (legacy)** |
+| `endTurn()` | `/api/combat/end-turn` | POST | **Implemented (legacy)** |
+| `end()` | `/api/combat/end` | POST | **Implemented (legacy)** |
+| `attack()` | `/api/combat/attack` | POST | **Implemented (legacy)** |
+| `action()` | `/api/combat/action` | POST | **Implemented (legacy)** |
+| `get()` | `/api/combat/get` | POST | **Implemented (legacy)** |
+| `set()` | `/api/combat/set` | POST | **Implemented (legacy)** |
 
 ### CombatApiController — Encounter-Scoped CRUD (12/12 implemented)
 

@@ -88,7 +88,7 @@ These are the main APIs the GM can use to update **room/scene values in a campai
 | Room/scene concern | Update APIs |
 |---|---|
 | Entities placed in the room | `/api/campaign/{campaign_id}/entity/spawn`, `/move`, `DELETE /entity/{instance_id}` |
-| Encounter/combat state in the room | `/api/combat/start`, `/api/combat/action`, `/api/combat/attack`, `/api/combat/end-turn`, `/api/combat/{encounter_id}/participants...` |
+| Encounter/combat state in the room | **Primary:** `/api/game/{campaign_id}/action` (coordinator). **Legacy (admin-only):** `/api/combat/*` endpoints for testing/support. |
 | NPC state in the room | `/api/campaign/{campaign_id}/npcs`, `/api/campaign/{campaign_id}/npcs/{npc_id}`, `/social-check` |
 | Room conversation / player-visible chat | `/api/campaign/{campaign_id}/room/{room_id}/chat...` |
 | Room channels / side conversations | `/api/campaign/{campaign_id}/room/{room_id}/channels...` |

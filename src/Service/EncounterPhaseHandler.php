@@ -4107,8 +4107,8 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
 
       $weapon = is_array($params['weapon'] ?? NULL) ? $params['weapon'] : [];
       $weapon += [
-        'attack_bonus' => (int) ($params['attack_bonus'] ?? 100),
-        'damage_dice' => (string) ($params['damage_dice'] ?? '1d8+50'),
+        'attack_bonus' => (int) ($params['attack_bonus'] ?? 0),
+        'damage_dice' => (string) ($params['damage_dice'] ?? '1d8'),
         'damage_type' => (string) ($params['damage_type'] ?? 'physical'),
         'is_agile' => !empty($params['is_agile']),
       ];

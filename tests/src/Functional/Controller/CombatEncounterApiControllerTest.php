@@ -30,7 +30,7 @@ class CombatEncounterApiControllerTest extends BrowserTestBase {
    * Tests combat start API - positive case.
    */
   public function testCombatStartApiPositive(): void {
-    $user = $this->drupalCreateUser(['access dungeoncrawler characters']);
+    $user = $this->drupalCreateUser(['administer dungeoncrawler content', 'access dungeoncrawler characters']);
     $this->drupalLogin($user);
 
     // Create test combat encounter payload.
@@ -95,7 +95,7 @@ class CombatEncounterApiControllerTest extends BrowserTestBase {
    * Tests combat end turn API - positive case.
    */
   public function testCombatEndTurnApiPositive(): void {
-    $user = $this->drupalCreateUser(['access dungeoncrawler characters']);
+    $user = $this->drupalCreateUser(['administer dungeoncrawler content', 'access dungeoncrawler characters']);
     $this->drupalLogin($user);
 
     $this->getSession()->getDriver()->getClient()->request(
@@ -114,7 +114,7 @@ class CombatEncounterApiControllerTest extends BrowserTestBase {
    * Tests combat end API - positive case.
    */
   public function testCombatEndApiPositive(): void {
-    $user = $this->drupalCreateUser(['access dungeoncrawler characters']);
+    $user = $this->drupalCreateUser(['administer dungeoncrawler content', 'access dungeoncrawler characters']);
     $this->drupalLogin($user);
 
     $this->getSession()->getDriver()->getClient()->request(
@@ -133,7 +133,7 @@ class CombatEncounterApiControllerTest extends BrowserTestBase {
    * Tests combat attack API - positive case.
    */
   public function testCombatAttackApiPositive(): void {
-    $user = $this->drupalCreateUser(['access dungeoncrawler characters']);
+    $user = $this->drupalCreateUser(['administer dungeoncrawler content', 'access dungeoncrawler characters']);
     $this->drupalLogin($user);
 
     $this->getSession()->getDriver()->getClient()->request(
@@ -152,7 +152,7 @@ class CombatEncounterApiControllerTest extends BrowserTestBase {
    * Tests combat attack API with GET method - negative case.
    */
   public function testCombatAttackApiNegativeGetMethod(): void {
-    $user = $this->drupalCreateUser(['access dungeoncrawler characters']);
+    $user = $this->drupalCreateUser(['administer dungeoncrawler content', 'access dungeoncrawler characters']);
     $this->drupalLogin($user);
 
     $this->drupalGet('/api/combat/attack');
@@ -163,7 +163,7 @@ class CombatEncounterApiControllerTest extends BrowserTestBase {
    * Tests current-state polling auto-plays non-player turns.
    */
   public function testCurrentStateAutoPlaysNonPlayerTurns(): void {
-    $user = $this->drupalCreateUser(['access dungeoncrawler characters']);
+    $user = $this->drupalCreateUser(['administer dungeoncrawler content', 'access dungeoncrawler characters']);
     $this->drupalLogin($user);
 
     $start_payload = json_encode([
@@ -223,7 +223,7 @@ class CombatEncounterApiControllerTest extends BrowserTestBase {
    * Tests current-state polling keeps room encounters active until navigation.
    */
   public function testCurrentStateKeepsNeutralOnlyEncounterActive(): void {
-    $user = $this->drupalCreateUser(['access dungeoncrawler characters']);
+    $user = $this->drupalCreateUser(['administer dungeoncrawler content', 'access dungeoncrawler characters']);
     $this->drupalLogin($user);
 
     $start_payload = json_encode([

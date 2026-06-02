@@ -260,7 +260,7 @@ class ApiRoutesTest extends BrowserTestBase {
    * Tests combat end API route - positive case.
    */
   public function testCombatEndApiRoutePositive(): void {
-    $user = $this->drupalCreateUser(['access dungeoncrawler characters']);
+    $user = $this->drupalCreateUser(['administer dungeoncrawler content', 'access dungeoncrawler characters']);
     $this->drupalLogin($user);
 
     $this->getSession()->getDriver()->getClient()->request(
@@ -278,7 +278,7 @@ class ApiRoutesTest extends BrowserTestBase {
    * Tests combat attack API route - positive case.
    */
   public function testCombatAttackApiRoutePositive(): void {
-    $user = $this->drupalCreateUser(['access dungeoncrawler characters']);
+    $user = $this->drupalCreateUser(['administer dungeoncrawler content', 'access dungeoncrawler characters']);
     $this->drupalLogin($user);
 
     $this->getSession()->getDriver()->getClient()->request(
@@ -296,7 +296,7 @@ class ApiRoutesTest extends BrowserTestBase {
    * Tests combat generic action API route - positive case.
    */
   public function testCombatActionApiRoutePositive(): void {
-    $user = $this->drupalCreateUser(['access dungeoncrawler characters']);
+    $user = $this->drupalCreateUser(['administer dungeoncrawler content', 'access dungeoncrawler characters']);
     $this->drupalLogin($user);
 
     $this->getSession()->getDriver()->getClient()->request(
@@ -412,7 +412,7 @@ class ApiRoutesTest extends BrowserTestBase {
    * Tests combat end turn API - negative case (GET not allowed).
    */
   public function testCombatEndTurnGetNotAllowed(): void {
-    $user = $this->drupalCreateUser(['access dungeoncrawler characters']);
+    $user = $this->drupalCreateUser(['administer dungeoncrawler content', 'access dungeoncrawler characters']);
     $this->drupalLogin($user);
 
     $this->drupalGet('/api/combat/end-turn');
@@ -423,7 +423,7 @@ class ApiRoutesTest extends BrowserTestBase {
    * Tests combat end API - negative case (GET not allowed).
    */
   public function testCombatEndGetNotAllowed(): void {
-    $user = $this->drupalCreateUser(['access dungeoncrawler characters']);
+    $user = $this->drupalCreateUser(['administer dungeoncrawler content', 'access dungeoncrawler characters']);
     $this->drupalLogin($user);
 
     $this->drupalGet('/api/combat/end');
@@ -434,7 +434,7 @@ class ApiRoutesTest extends BrowserTestBase {
    * Tests combat attack API - negative case (GET not allowed).
    */
   public function testCombatAttackGetNotAllowed(): void {
-    $user = $this->drupalCreateUser(['access dungeoncrawler characters']);
+    $user = $this->drupalCreateUser(['administer dungeoncrawler content', 'access dungeoncrawler characters']);
     $this->drupalLogin($user);
 
     $this->drupalGet('/api/combat/attack');

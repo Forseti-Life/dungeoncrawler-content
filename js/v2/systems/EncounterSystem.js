@@ -325,40 +325,56 @@ export class EncounterSystem {
       const hexmap = context.hexmap;
       const targetId = Number(button.dataset.targetId || 0);
       const weaponId = String(button.dataset.weaponId || '').trim();
-      const weaponName = button.dataset.weaponName || 'weapon';
+      const weaponName = String(button.dataset.weaponName || 'weapon').trim();
 
-      if (!hexmap || !context.actor || !targetId) {
-        this._appendChatLine('System', 'Attack options require an active character and target.', 'system');
+      if (!hexmap || !context.actor || !context.actorRef || !targetId) {
+        this._appendChatLine('System', 'Attack options require an active encounter actor and target.', 'system');
         return;
       }
 
-      let target = hexmap.entityManager?.getEntity?.(targetId) || null;
+      const coordinator = hexmap?.gameCoordinator || null;
+      if (!coordinator?.api) {
+        this._appendChatLine('System', 'Attack options require an active coordinator session. Refresh the room.', 'system');
+        return;
+      }
+
+      if (!context.encounterActive) {
+        this._appendChatLine('System', 'Attacks can only be initiated while an encounter is active. Refresh the room to sync encounter state.', 'system');
+        return;
+      }
+
+      const target = hexmap.entityManager?.getEntity?.(targetId) || null;
       if (!target) {
         this._appendChatLine('System', 'That target is no longer available.', 'system');
         return;
       }
 
-      if (!context.encounterActive) {
-        const combatState = await hexmap.startCombat?.();
-        if (!combatState || !hexmap.stateManager?.get?.('encounterId')) {
-          this._appendChatLine('System', 'Unable to start combat for that attack.', 'system');
-          return;
-        }
-
-        target = hexmap.entityManager?.getEntity?.(targetId) || target;
-        const currentTurnEntity = hexmap.turnManagementSystem?.getCurrentTurnEntity?.() || null;
-        if (!currentTurnEntity || currentTurnEntity.id !== context.actor.id) {
-          const actingName = currentTurnEntity?.getComponent?.('IdentityComponent')?.name || 'another combatant';
-          this._appendChatLine('System', `Combat begins and initiative is rolled. It is ${actingName}'s turn.`, 'system');
-          this._refreshActionRail();
-          return;
-        }
+      const targetRef = String(target?.dcEntityRef || target?.dcEntityInstanceId || target?.dcEntityInstanceID || '').trim();
+      if (!targetRef) {
+        const targetName = this._resolveEntityName(target) || 'that target';
+        this._appendChatLine('System', `Unable to resolve a stable target reference for ${targetName}. Refresh the room.`, 'system');
+        return;
       }
 
-      await hexmap.performAttack?.(context.actor, target, {
-        weaponId,
-        weaponName,
+      const strikeParams = {
+        weapon: {
+          weapon_id: weaponId || null,
+          weapon_name: weaponName || null,
+        },
+      };
+
+      const result = await coordinator.api.sendAction('strike', context.actorRef, strikeParams, {
+        target: targetRef,
+        stateVersion: coordinator.phaseManager?.stateVersion,
       });
+
+      if (!result?.success) {
+        this._appendChatLine('System', result?.error || result?.result?.error || 'Unable to execute that strike.', 'system');
+        return;
+      }
+
+      coordinator.applyAuthoritativeUpdate?.(result);
+      this.announceGameState(result?.game_state);
       this._refreshActionRail();
     } finally {
       this._endActionRailRequest(button);

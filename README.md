@@ -1151,10 +1151,10 @@ Located in `tests/src/Functional/`
 All POST-only API endpoints verified to reject GET requests with 405:
 - `/api/character/save` (POST only)
 - `/api/character/{id}/update` (POST only)
-- `/api/combat/start` (POST only)
-- `/api/combat/end-turn` (POST only)
-- `/api/combat/end` (POST only)
-- `/api/combat/attack` (POST only)
+- `/api/combat/start` (POST only; legacy, admin-only)
+- `/api/combat/end-turn` (POST only; legacy, admin-only)
+- `/api/combat/end` (POST only; legacy, admin-only)
+- `/api/combat/attack` (POST only; legacy, admin-only)
 
 All GET-only API endpoints verified to reject POST requests with 405:
 - `/api/character/load/{id}` (GET only)

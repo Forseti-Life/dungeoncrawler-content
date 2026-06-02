@@ -1420,7 +1420,9 @@ dungeoncrawler_content.api.character_start_turn:
     _format: json
 
 # ------------------------------------------------------------------------------
-# Combat Encounter API Endpoints (Hexmap Integration)
+# Combat Encounter API Endpoints (Legacy Hexmap Integration)
+# NOTE: Player actions MUST use the coordinator API (/api/game/{campaign_id}/action).
+# These legacy endpoints are admin-only for testing and support.
 # ------------------------------------------------------------------------------
 
 dungeoncrawler_content.api.combat_state:
@@ -1429,7 +1431,7 @@ dungeoncrawler_content.api.combat_state:
     _controller: '\Drupal\dungeoncrawler_content\Controller\CombatEncounterApiController::currentState'
   methods: [GET]
   requirements:
-    _permission: 'access dungeoncrawler characters'
+    _permission: 'administer dungeoncrawler content'
   options:
     _format: json
 
@@ -1440,7 +1442,7 @@ dungeoncrawler_content.api.combat_start:
   methods: [POST]
   requirements:
     _csrf_request_header_mode: TRUE
-    _permission: 'access dungeoncrawler characters'
+    _permission: 'administer dungeoncrawler content'
   options:
     _format: json
 
@@ -1451,7 +1453,7 @@ dungeoncrawler_content.api.combat_end_turn:
   methods: [POST]
   requirements:
     _csrf_request_header_mode: TRUE
-    _permission: 'access dungeoncrawler characters'
+    _permission: 'administer dungeoncrawler content'
   options:
     _format: json
 
@@ -1462,7 +1464,7 @@ dungeoncrawler_content.api.combat_end:
   methods: [POST]
   requirements:
     _csrf_request_header_mode: TRUE
-    _permission: 'access dungeoncrawler characters'
+    _permission: 'administer dungeoncrawler content'
   options:
     _format: json
 
@@ -1473,7 +1475,7 @@ dungeoncrawler_content.api.combat_attack:
   methods: [POST]
   requirements:
     _csrf_request_header_mode: TRUE
-    _permission: 'access dungeoncrawler characters'
+    _permission: 'administer dungeoncrawler content'
   options:
     _format: json
 
@@ -1484,7 +1486,7 @@ dungeoncrawler_content.api.combat_action:
   methods: [POST]
   requirements:
     _csrf_request_header_mode: TRUE
-    _permission: 'access dungeoncrawler characters'
+    _permission: 'administer dungeoncrawler content'
   options:
     _format: json
 
@@ -1495,7 +1497,7 @@ dungeoncrawler_content.api.combat_navigate:
   methods: [POST]
   requirements:
     _csrf_request_header_mode: TRUE
-    _permission: 'access dungeoncrawler characters'
+    _permission: 'administer dungeoncrawler content'
   options:
     _format: json
 
@@ -1506,7 +1508,7 @@ dungeoncrawler_content.api.combat_get:
   methods: [POST]
   requirements:
     _csrf_request_header_mode: TRUE
-    _permission: 'access dungeoncrawler characters'
+    _permission: 'administer dungeoncrawler content'
   options:
     _format: json
 
@@ -1589,7 +1591,7 @@ dungeoncrawler_content.api.combat_set:
   methods: [POST]
   requirements:
     _csrf_request_header_mode: TRUE
-    _permission: 'access dungeoncrawler characters'
+    _permission: 'administer dungeoncrawler content'
   options:
     _format: json
 
@@ -2345,7 +2347,9 @@ dungeoncrawler_content.api.game_player_agent_step:
 # ------------------------------------------------------------------------------
 # Combat API Controller — Encounter-Scoped Endpoints
 # Provides per-encounter HP, condition, initiative, participant, log, and stats
-# management endpoints. All require 'access dungeoncrawler characters' permission.
+# management endpoints.
+# NOTE: These are GM/admin support endpoints. Player actions MUST use the
+# coordinator API (/api/game/{campaign_id}/action).
 # ------------------------------------------------------------------------------
 
 dungeoncrawler_content.api.combat_encounter_update_hp:
@@ -2355,7 +2359,7 @@ dungeoncrawler_content.api.combat_encounter_update_hp:
   methods: [POST]
   requirements:
     _csrf_request_header_mode: TRUE
-    _permission: 'access dungeoncrawler characters'
+    _permission: 'administer dungeoncrawler content'
     encounter_id: '\d+'
     participant_id: '\d+'
   options:
@@ -2368,7 +2372,7 @@ dungeoncrawler_content.api.combat_encounter_temp_hp:
   methods: [POST]
   requirements:
     _csrf_request_header_mode: TRUE
-    _permission: 'access dungeoncrawler characters'
+    _permission: 'administer dungeoncrawler content'
     encounter_id: '\d+'
     participant_id: '\d+'
   options:
@@ -2381,7 +2385,7 @@ dungeoncrawler_content.api.combat_encounter_apply_condition:
   methods: [POST]
   requirements:
     _csrf_request_header_mode: TRUE
-    _permission: 'access dungeoncrawler characters'
+    _permission: 'administer dungeoncrawler content'
     encounter_id: '\d+'
     participant_id: '\d+'
   options:
@@ -2394,7 +2398,7 @@ dungeoncrawler_content.api.combat_encounter_remove_condition:
   methods: [POST]
   requirements:
     _csrf_request_header_mode: TRUE
-    _permission: 'access dungeoncrawler characters'
+    _permission: 'administer dungeoncrawler content'
     encounter_id: '\d+'
     participant_id: '\d+'
     condition_id: '\d+'
@@ -2407,7 +2411,7 @@ dungeoncrawler_content.api.combat_encounter_list_conditions:
     _controller: '\Drupal\dungeoncrawler_content\Controller\CombatApiController::listConditions'
   methods: [GET]
   requirements:
-    _permission: 'access dungeoncrawler characters'
+    _permission: 'administer dungeoncrawler content'
     encounter_id: '\d+'
     participant_id: '\d+'
   options:
@@ -2419,7 +2423,7 @@ dungeoncrawler_content.api.combat_encounter_initiative:
     _controller: '\Drupal\dungeoncrawler_content\Controller\CombatApiController::getInitiative'
   methods: [GET]
   requirements:
-    _permission: 'access dungeoncrawler characters'
+    _permission: 'administer dungeoncrawler content'
     encounter_id: '\d+'
   options:
     _format: json
@@ -2431,7 +2435,7 @@ dungeoncrawler_content.api.combat_encounter_reroll_initiative:
   methods: [POST]
   requirements:
     _csrf_request_header_mode: TRUE
-    _permission: 'access dungeoncrawler characters'
+    _permission: 'administer dungeoncrawler content'
     encounter_id: '\d+'
   options:
     _format: json
@@ -2443,7 +2447,7 @@ dungeoncrawler_content.api.combat_encounter_add_participant:
   methods: [POST]
   requirements:
     _csrf_request_header_mode: TRUE
-    _permission: 'access dungeoncrawler characters'
+    _permission: 'administer dungeoncrawler content'
     encounter_id: '\d+'
   options:
     _format: json
@@ -2455,7 +2459,7 @@ dungeoncrawler_content.api.combat_encounter_remove_participant:
   methods: [POST]
   requirements:
     _csrf_request_header_mode: TRUE
-    _permission: 'access dungeoncrawler characters'
+    _permission: 'administer dungeoncrawler content'
     encounter_id: '\d+'
     participant_id: '\d+'
   options:
@@ -2468,7 +2472,7 @@ dungeoncrawler_content.api.combat_encounter_update_participant:
   methods: [POST]
   requirements:
     _csrf_request_header_mode: TRUE
-    _permission: 'access dungeoncrawler characters'
+    _permission: 'administer dungeoncrawler content'
     encounter_id: '\d+'
     participant_id: '\d+'
   options:
@@ -2480,7 +2484,7 @@ dungeoncrawler_content.api.combat_encounter_log:
     _controller: '\Drupal\dungeoncrawler_content\Controller\CombatApiController::getLog'
   methods: [GET]
   requirements:
-    _permission: 'access dungeoncrawler characters'
+    _permission: 'administer dungeoncrawler content'
     encounter_id: '\d+'
   options:
     _format: json
@@ -2491,7 +2495,7 @@ dungeoncrawler_content.api.combat_encounter_statistics:
     _controller: '\Drupal\dungeoncrawler_content\Controller\CombatApiController::getStatistics'
   methods: [GET]
   requirements:
-    _permission: 'access dungeoncrawler characters'
+    _permission: 'administer dungeoncrawler content'
     encounter_id: '\d+'
   options:
     _format: json
