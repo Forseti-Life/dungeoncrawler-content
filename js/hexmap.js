@@ -8257,10 +8257,47 @@ import { SpriteService } from './SpriteService.js';
         this.appendChatLineToTarget(chatTarget, speaker, message, 'player');
       }
 
+      const willReloadHistory = !result.data?.gm_response && !options.suppressGm && !options.continueGm;
+      const npcInterjections = Array.isArray(result.data?.npc_interjections) ? result.data.npc_interjections : [];
+
+      // Interleave NPC interjections directly after the matching harness "current speaker" log
+      // so the live chat window matches the logical turn order without requiring a refresh.
+      const pendingNpcBySpeaker = (!willReloadHistory && npcInterjections.length)
+        ? npcInterjections.reduce((map, npcMsg) => {
+          const key = String(npcMsg?.speaker || '').trim().toLowerCase();
+          if (!key) return map;
+          if (!map.has(key)) map.set(key, []);
+          map.get(key).push(npcMsg);
+          return map;
+        }, new Map())
+        : null;
+
       if (result.data?.turn_logs?.length) {
         for (const logMsg of result.data.turn_logs) {
           this.appendChatLineToTarget(chatTarget, logMsg.speaker || 'System', logMsg.message || '', logMsg.type || 'system');
+
+          if (pendingNpcBySpeaker) {
+            const raw = String(logMsg?.message || '');
+            const match = raw.match(/Room harness current speaker:\s*(.+?)\.\s*$/i);
+            const speakerKey = match?.[1] ? match[1].trim().toLowerCase() : '';
+            const batch = speakerKey ? pendingNpcBySpeaker.get(speakerKey) : null;
+            if (Array.isArray(batch) && batch.length) {
+              for (const npcMsg of batch) {
+                this.appendChatLineToTarget(chatTarget, npcMsg.speaker, npcMsg.message, 'npc');
+              }
+              pendingNpcBySpeaker.delete(speakerKey);
+            }
+          }
         }
+      }
+
+      if (pendingNpcBySpeaker && pendingNpcBySpeaker.size) {
+        for (const batch of pendingNpcBySpeaker.values()) {
+          for (const npcMsg of batch) {
+            this.appendChatLineToTarget(chatTarget, npcMsg.speaker, npcMsg.message, 'npc');
+          }
+        }
+        pendingNpcBySpeaker.clear();
       }
 
       // If the server returned a GM response, append it directly.
@@ -8271,9 +8308,9 @@ import { SpriteService } from './SpriteService.js';
         await this.loadChatHistory();
       }
 
-      // If any NPCs interjected, render their messages after the GM response.
-      if (result.data?.npc_interjections?.length) {
-        for (const npcMsg of result.data.npc_interjections) {
+      // If we reloaded history, we must append NPC interjections afterwards (otherwise they'd be wiped).
+      if (willReloadHistory && npcInterjections.length) {
+        for (const npcMsg of npcInterjections) {
           this.appendChatLineToTarget(chatTarget, npcMsg.speaker, npcMsg.message, 'npc');
         }
       }
