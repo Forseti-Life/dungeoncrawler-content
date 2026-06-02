@@ -1560,6 +1560,7 @@ export class ChatPanel {
       }
       this.appendChatLineToTarget({ view: 'room', channelKey: 'room' }, chatLine.speaker, chatLine.message, chatLine.type, {
         lineId: chatLine.lineId,
+        created: chatLine.created,
         encounterEvent: true,
         event: gameEvent,
         round: Number.isFinite(chatLine.round) ? chatLine.round : undefined,
@@ -1585,12 +1586,15 @@ export class ChatPanel {
     const lineId = event.id
       ? `encounter-event-${event.id}`
       : `encounter-event-${type}-${Number.isFinite(round) ? round : 'unknown'}-${actorId || 'narrator'}-${String(event.narration || '').slice(0, 32)}`;
+    const timestamp = String(event.timestamp || '').trim();
+    const created = timestamp !== '' ? Date.parse(timestamp) || 0 : 0;
     if (type === 'round_start') {
       return {
         speaker: 'Narrator',
         message: event.narration || `Round ${Number.isFinite(round) ? round : ''} begins.`.trim(),
         type: 'gm',
         lineId,
+        created,
         round,
         actorId,
         actorName: 'Narrator',
@@ -1606,6 +1610,7 @@ export class ChatPanel {
         message: event.narration || `${actorName}'s turn begins.`,
         type: 'gm',
         lineId,
+        created,
         round,
         actorId,
         actorName,
@@ -1621,6 +1626,7 @@ export class ChatPanel {
         message: event.narration || `${actorName} ends their turn.`,
         type: 'gm',
         lineId,
+        created,
         round,
         actorId,
         actorName,
@@ -1636,6 +1642,7 @@ export class ChatPanel {
         message: event.narration.trim(),
         type: 'gm',
         lineId,
+        created,
         round,
         actorId,
         actorName,
