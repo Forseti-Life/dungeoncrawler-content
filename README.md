@@ -736,13 +736,12 @@ Standard permissions for authenticated users to access and manage their own cont
 - **`access dungeoncrawler characters`** - View character lists, campaigns, and access game features. Required for basic gameplay and character management. Does not grant access to other users' characters.
 
 ### Hexmap Combat API Context
-- Server-authoritative combat endpoints (`/api/combat/*`) require authenticated gameplay context and `access dungeoncrawler characters` permission.
+- **Legacy notice:** combat endpoints under `/api/combat/*` are now **legacy + admin-only** (debug/testing only). Player gameplay mutations must go through the Game Coordinator (`POST /api/game/{campaign_id}/action`).
 - Hexmap client only auto-starts server combat when a valid `campaign_id` launch context is present.
 - Direct `/hexmap` demo access without campaign context remains available for map/UI exploration, but does not auto-initiate server combat encounters.
 - Hexmap action rail includes streamlined player actions (`Move`, `Attack`, `Interact`, `Talk`, `End Turn`) with disabled-state semantics synchronized to turn/action availability.
 - Interact mode supports adjacent object interactions (door-like obstacle opening, movable obstacle push/reposition, blocked room-connection opening) using 1-action economy rules.
-- `/api/combat/action` is backend-authoritative for non-attack actions: only `interact` and `talk` are accepted, with server-enforced costs (`interact=1`, `talk=0`) regardless of client payload.
-- Successful interact actions now persist canonical world mutations into campaign dungeon payload (`dc_campaign_dungeons.dungeon_data`) and return a `world_delta` consumed by the hexmap client.
+- Successful interact actions persist canonical world mutations into campaign dungeon payload (`dc_campaign_dungeons.dungeon_data`) and return a `world_delta` consumed by the hexmap client.
 - Fog-of-war can be toggled in the header controls; visibility uses player-centered vision range plus line-of-sight checks against impassable obstacles.
 - Read-only encounter AI recommendation preview endpoint (`POST /api/combat/recommendation-preview`) is admin-only and does not mutate encounter state.
 - NPC auto-play can use validated encounter AI recommendations only when `encounter_ai_npc_autoplay_enabled` is enabled in Dungeon Settings; default remains deterministic fallback behavior.
@@ -750,8 +749,8 @@ Standard permissions for authenticated users to access and manage their own cont
 
 ### Mechanics Review Notes (Phase 4: Deterministic Dungeon Targeting)
 - `Interact`/`Talk` are validated server-side for turn ownership and action economy; interact world changes are now persisted server-side and mirrored via `world_delta`.
-- **Phase 4 Complete (2026-02-19):** Encounter `map_id` linkage is now captured from `startCombat` API response and passed to all combat action payloads. The `/api/combat/action` handler uses deterministic `(campaign_id, dungeon_id=mapId)` compound key for dungeon-row mutations when available, with fallback to most-recent when `mapId` is unavailable.
-- Frontend captures `map_id` from `startCombat` response and stores in `stateManager`, ensuring all subsequent action payloads include the correct dungeon identifier.
+- **Phase 4 Complete (2026-02-19):** (Historical note) Encounter `map_id` linkage was captured from legacy `/api/combat/start` responses and passed to legacy `/api/combat/action` payloads for deterministic dungeon mutations.
+- Current architecture routes gameplay mutations through `POST /api/game/{campaign_id}/action`; `/api/combat/*` remains legacy/admin-only.
 - Deterministic targeting eliminates the prior constraint where multiple active dungeons per campaign could cause mutations to target the wrong row.
 - **`create dungeoncrawler characters`** - Create new characters in the character creation wizard. Includes access to character step forms and save operations.
 - **`edit own dungeoncrawler characters`** - Edit own characters. Access is further restricted by the `CharacterAccessCheck` service to ensure users can only modify their own characters.

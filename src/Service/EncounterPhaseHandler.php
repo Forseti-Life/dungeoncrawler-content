@@ -677,7 +677,7 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
         break;
 
       case 'strike':
-        $result = $this->processStrike($encounter_id, $actor_id, $target_id, $params, $game_state, $dungeon_data);
+        $result = $this->processStrike($encounter_id, $actor_id, $target_id, $params, $game_state, $dungeon_data, $campaign_id);
         $mutations = $result['mutations'] ?? [];
         $narration = $result['narration'] ?? NULL;
 
@@ -4089,9 +4089,228 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
   // =========================================================================
 
   /**
+   * Resolve and normalize weapon data for a strike.
+   *
+   * Preferred contract:
+   * - params.weapon.weapon_id (and optional weapon_name)
+   *
+   * When weapon_id is omitted, we attempt to default to the actor's first
+   * equipped weapon from canonical character state (when available).
+   */
+  protected function resolveStrikeWeapon(string $actor_id, array $params, array $dungeon_data, ?int $campaign_id): array {
+    $weapon_input = is_array($params['weapon'] ?? NULL) ? $params['weapon'] : [];
+
+    $weapon_id = trim((string) (
+      $weapon_input['weapon_id']
+      ?? $weapon_input['weaponId']
+      ?? $params['weapon_id']
+      ?? $params['weaponId']
+      ?? ''
+    ));
+    $weapon_name = trim((string) (
+      $weapon_input['weapon_name']
+      ?? $weapon_input['weaponName']
+      ?? $params['weapon_name']
+      ?? $params['weaponName']
+      ?? ''
+    ));
+
+    $canonical_state = NULL;
+
+    // Default weapon_id from canonical state when the caller didn't provide one.
+    if ($weapon_id === '' && $campaign_id && !empty($dungeon_data['entities']) && is_array($dungeon_data['entities'])) {
+      $idx = $this->findDungeonEntityIndexByInstanceId($dungeon_data, $actor_id);
+      if ($idx !== NULL && !empty($dungeon_data['entities'][$idx]) && is_array($dungeon_data['entities'][$idx])) {
+        $actor_entity = $dungeon_data['entities'][$idx];
+        $canonical_state = $this->loadCanonicalCharacterState($actor_entity, (int) $campaign_id);
+
+        $worn_weapons = $canonical_state['inventory']['worn']['weapons'] ?? NULL;
+        if (is_array($worn_weapons) && !empty($worn_weapons[0]) && is_array($worn_weapons[0])) {
+          $weapon_id = trim((string) (
+            $worn_weapons[0]['item_id']
+            ?? $worn_weapons[0]['id']
+            ?? $worn_weapons[0]['weapon_id']
+            ?? ''
+          ));
+        }
+      }
+    }
+
+    if ($weapon_id !== '') {
+      $weapon_def = EquipmentCatalogService::CATALOG[$weapon_id] ?? NULL;
+      if (!is_array($weapon_def) || (($weapon_def['type'] ?? '') !== 'weapon')) {
+        return ['error' => "Unknown weapon_id for strike: {$weapon_id}"];
+      }
+
+      if ($weapon_name === '') {
+        $weapon_name = (string) ($weapon_def['name'] ?? $weapon_id);
+      }
+
+      $weapon_stats = is_array($weapon_def['weapon_stats'] ?? NULL) ? $weapon_def['weapon_stats'] : [];
+      $traits = is_array($weapon_stats['traits'] ?? NULL) ? $weapon_stats['traits'] : [];
+
+      $is_thrown = FALSE;
+      foreach ($traits as $trait) {
+        $t = strtolower(trim((string) $trait));
+        if (str_starts_with($t, 'thrown-')) {
+          $is_thrown = TRUE;
+          break;
+        }
+      }
+
+      $is_ranged = $is_thrown || isset($weapon_stats['range']);
+
+      // If we haven't loaded canonical state yet, attempt it now for attack bonus.
+      if ($canonical_state === NULL && $campaign_id && !empty($dungeon_data['entities']) && is_array($dungeon_data['entities'])) {
+        $idx = $this->findDungeonEntityIndexByInstanceId($dungeon_data, $actor_id);
+        if ($idx !== NULL && !empty($dungeon_data['entities'][$idx]) && is_array($dungeon_data['entities'][$idx])) {
+          $canonical_state = $this->loadCanonicalCharacterState($dungeon_data['entities'][$idx], (int) $campaign_id);
+        }
+      }
+
+      $level = (int) (
+        $canonical_state['basicInfo']['level']
+        ?? $canonical_state['basic_info']['level']
+        ?? $canonical_state['level']
+        ?? 1
+      );
+
+      $ability_score = function (?array $state, string $ability): int {
+        if (!is_array($state)) {
+          return 10;
+        }
+        $abilities = $state['abilities'] ?? [];
+        $raw = $abilities[$ability] ?? $abilities[strtolower($ability)] ?? NULL;
+        if (is_numeric($raw)) {
+          return (int) $raw;
+        }
+        if (is_array($raw)) {
+          $candidate = $raw['score'] ?? $raw['value'] ?? $raw['total'] ?? NULL;
+          if (is_numeric($candidate)) {
+            return (int) $candidate;
+          }
+        }
+        return 10;
+      };
+
+      $ability_mod = function (int $score): int {
+        return (int) floor(((int) $score - 10) / 2);
+      };
+
+      $str_mod = $ability_mod($ability_score($canonical_state, 'strength'));
+      $dex_mod = $ability_mod($ability_score($canonical_state, 'dexterity'));
+      $attack_ability_mod = $is_ranged ? $dex_mod : $str_mod;
+
+      // Resolve weapon proficiency rank from class text + explicit weapon mentions.
+      $rank = 'untrained';
+      if (is_array($canonical_state)) {
+        $class_value = $canonical_state['class']
+          ?? $canonical_state['basicInfo']['class']
+          ?? $canonical_state['basic_info']['class']
+          ?? '';
+        if (is_array($class_value)) {
+          $class_value = $class_value['id'] ?? $class_value['machine_name'] ?? $class_value['name'] ?? '';
+        }
+        $class_id = strtolower(trim((string) $class_value));
+        $class_data = CharacterManager::CLASSES[$class_id] ?? [];
+        $weapons_text = strtolower(trim((string) ($class_data['weapons'] ?? '')));
+
+        $category = strtolower(trim((string) ($weapon_stats['category'] ?? '')));
+
+        $has = fn(string $needle) => $needle !== '' && str_contains($weapons_text, $needle);
+        $rank_for_category = function (string $cat) use ($has): string {
+          if ($cat === 'simple') {
+            if ($has('expert in simple and martial')) return 'expert';
+            if ($has('master in simple and martial')) return 'master';
+            if ($has('legendary in simple and martial')) return 'legendary';
+            if ($has('expert in simple weapons') || $has('expert in simple')) return 'expert';
+            if ($has('trained in simple weapons') || $has('trained in simple')) return 'trained';
+          }
+          if ($cat === 'martial') {
+            if ($has('expert in simple and martial')) return 'expert';
+            if ($has('master in simple and martial')) return 'master';
+            if ($has('legendary in simple and martial')) return 'legendary';
+            if ($has('expert in martial weapons') || $has('expert in martial')) return 'expert';
+            if ($has('trained in martial weapons') || $has('trained in martial')) return 'trained';
+          }
+          if ($cat === 'advanced') {
+            if ($has('expert in advanced weapons') || $has('expert in advanced')) return 'expert';
+            if ($has('trained in advanced weapons') || $has('trained in advanced')) return 'trained';
+          }
+          return 'untrained';
+        };
+
+        if (in_array($category, ['simple', 'martial', 'advanced'], TRUE)) {
+          $rank = $rank_for_category($category);
+        }
+
+        // Classes like Wizard/Rogue list specific weapons instead of categories.
+        if ($rank === 'untrained') {
+          $weapon_needle = strtolower($weapon_id);
+          $name_needle = strtolower($weapon_name);
+          if (($weapon_needle !== '' && str_contains($weapons_text, $weapon_needle))
+            || ($name_needle !== '' && str_contains($weapons_text, $name_needle))) {
+            $rank = 'trained';
+          }
+        }
+      }
+
+      $rank_bonus = match (strtolower($rank)) {
+        'trained' => 2,
+        'expert' => 4,
+        'master' => 6,
+        'legendary' => 8,
+        default => 0,
+      };
+
+      $attack_bonus = $attack_ability_mod + $rank_bonus + max(0, $level);
+
+      $damage_dice = (string) ($weapon_stats['damage_dice'] ?? '1d4');
+      $damage_type = (string) ($weapon_stats['damage_type'] ?? 'physical');
+
+      // PF2e: melee and thrown weapons add STR modifier to damage.
+      $damage_mod = (!$is_ranged || $is_thrown) ? $str_mod : 0;
+      if ($damage_mod !== 0) {
+        $sign = $damage_mod > 0 ? '+' : '';
+        $damage_dice .= $sign . (string) $damage_mod;
+      }
+
+      $is_agile = FALSE;
+      foreach ($traits as $trait) {
+        if (strtolower(trim((string) $trait)) === 'agile') {
+          $is_agile = TRUE;
+          break;
+        }
+      }
+
+      return [
+        'weapon_id' => $weapon_id,
+        'weapon_name' => $weapon_name,
+        'attack_bonus' => $attack_bonus,
+        'damage_dice' => $damage_dice,
+        'damage_type' => $damage_type,
+        'is_agile' => $is_agile,
+      ];
+    }
+
+    // Legacy fallback: accept a fully specified weapon object.
+    if (!empty($weapon_input)) {
+      $weapon = $weapon_input + [
+        'attack_bonus' => (int) ($params['attack_bonus'] ?? 0),
+        'damage_dice' => (string) ($params['damage_dice'] ?? '1d8'),
+        'damage_type' => (string) ($params['damage_type'] ?? 'physical'),
+        'is_agile' => !empty($params['is_agile']),
+      ];
+      return $weapon;
+    }
+
+    return ['error' => 'Strike requires params.weapon.weapon_id (preferred) or a fully specified params.weapon object.'];
+  }
+
+  /**
    * Processes a strike action via the existing combat system.
    */
-  protected function processStrike(int $encounter_id, string $actor_id, string $target_id, array $params, array &$game_state, array $dungeon_data = []): array {
+  protected function processStrike(int $encounter_id, string $actor_id, string $target_id, array $params, array &$game_state, array $dungeon_data = [], ?int $campaign_id = NULL): array {
     try {
       // Load encounter data.
       $encounter = $this->encounterStore->loadEncounter($encounter_id);
@@ -4105,13 +4324,11 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
         return ['error' => 'Attacker or target is not present in the encounter.'];
       }
 
-      $weapon = is_array($params['weapon'] ?? NULL) ? $params['weapon'] : [];
-      $weapon += [
-        'attack_bonus' => (int) ($params['attack_bonus'] ?? 0),
-        'damage_dice' => (string) ($params['damage_dice'] ?? '1d8'),
-        'damage_type' => (string) ($params['damage_type'] ?? 'physical'),
-        'is_agile' => !empty($params['is_agile']),
-      ];
+      $weapon = $this->resolveStrikeWeapon($actor_id, $params, $dungeon_data, $campaign_id);
+      if (!empty($weapon['error'])) {
+        return ['error' => $weapon['error']];
+      }
+
       // REQ 2230: AoO skip_map flag — do not count this attack toward MAP.
       if (!empty($params['skip_map'])) {
         $weapon['skip_map'] = TRUE;
@@ -4949,7 +5166,7 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
     switch ($action_type) {
       case 'strike':
         if ($target) {
-          $strike_result = $this->processStrike($encounter_id, $entity_id, $target, [], $game_state);
+          $strike_result = $this->processStrike($encounter_id, $entity_id, $target, [], $game_state, $dungeon_data, $campaign_id);
           $events[] = GameEventLogger::buildEvent('npc_strike', 'encounter', $entity_id, [
             'target' => $target,
             'roll' => $strike_result['roll'] ?? NULL,
@@ -4986,7 +5203,7 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
         // Unknown action — default to strike.
         $target = $target ?? $this->findFirstAlivePlayer($game_state);
         if ($target) {
-          $strike_result = $this->processStrike($encounter_id, $entity_id, $target, [], $game_state);
+          $strike_result = $this->processStrike($encounter_id, $entity_id, $target, [], $game_state, $dungeon_data, $campaign_id);
           $events[] = GameEventLogger::buildEvent('npc_strike', 'encounter', $entity_id, [
             'target' => $target,
             'roll' => $strike_result['roll'] ?? NULL,
