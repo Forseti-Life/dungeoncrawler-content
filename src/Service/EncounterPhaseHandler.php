@@ -323,6 +323,9 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
       'interact',
       'search',
       'talk',
+      'skill',
+      'feat',
+      'consume_item',
       'transition',
       'end_turn',
       'choose_not_to_act',
@@ -543,7 +546,7 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
     }
 
     // Validate action economy.
-    if (in_array($type, ['strike', 'stride', 'cast_spell', 'interact', 'search'])) {
+    if (in_array($type, ['strike', 'stride', 'cast_spell', 'interact', 'search', 'skill', 'feat', 'consume_item'], TRUE)) {
       $actions_remaining = $game_state['turn']['actions_remaining'] ?? 0;
       $action_cost = $this->getActionCost($type, $intent['params'] ?? []);
       if ($actions_remaining < $action_cost) {
@@ -849,6 +852,124 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
         ]);
 
         break;
+
+      case 'skill': {
+        $skill_name = trim((string) ($params['skill_name'] ?? $params['skill'] ?? 'Skill'));
+        $skill_bonus = NULL;
+        if (isset($params['skill_bonus'])) {
+          $skill_bonus = (int) $params['skill_bonus'];
+        }
+        elseif (isset($params['skill_modifier'])) {
+          $skill_bonus = (int) $params['skill_modifier'];
+        }
+
+        $action_cost = $this->getActionCost($type, $params);
+        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - $action_cost);
+
+        $actor_name = $this->resolveEntityName($actor_id, $game_state, $dungeon_data);
+        $result = [
+          'summary' => sprintf(
+            '%s uses %s%s.',
+            $actor_name,
+            $skill_name,
+            $skill_bonus !== NULL ? sprintf(' (%+d)', $skill_bonus) : ''
+          ),
+          'skill_name' => $skill_name,
+          'skill_bonus' => $skill_bonus,
+        ];
+
+        $events[] = GameEventLogger::buildEvent('skill', 'encounter', $actor_id, [
+          'skill_name' => $skill_name,
+          'skill_bonus' => $skill_bonus,
+          'action_cost' => $action_cost,
+          'round' => $game_state['round'] ?? NULL,
+        ]);
+        break;
+      }
+
+      case 'feat': {
+        $feat_name = trim((string) ($params['feat_name'] ?? $params['featName'] ?? 'Feat action'));
+        $feat_id = $params['feat_id'] ?? $params['featId'] ?? NULL;
+
+        $action_cost = $this->getActionCost($type, $params);
+        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - $action_cost);
+
+        $actor_name = $this->resolveEntityName($actor_id, $game_state, $dungeon_data);
+        $result = [
+          'summary' => sprintf('%s uses %s.', $actor_name, $feat_name),
+          'feat_name' => $feat_name,
+          'feat_id' => $feat_id,
+        ];
+
+        $events[] = GameEventLogger::buildEvent('feat', 'encounter', $actor_id, [
+          'feat_name' => $feat_name,
+          'feat_id' => $feat_id,
+          'action_cost' => $action_cost,
+          'round' => $game_state['round'] ?? NULL,
+        ]);
+        break;
+      }
+
+      case 'consume_item': {
+        $character_id_ci = $params['character_id'] ?? $params['characterId'] ?? NULL;
+        $item_ci = is_array($params['item'] ?? NULL) ? $params['item'] : [];
+        $item_name_ci = trim((string) ($item_ci['name'] ?? $item_ci['id'] ?? $item_ci['item_id'] ?? 'consumable'));
+        if (!$character_id_ci || $item_name_ci === '') {
+          return [
+            'success' => FALSE,
+            'result' => ['error' => 'consume_item requires params.character_id and params.item.'],
+            'mutations' => [],
+            'events' => [],
+            'phase_transition' => NULL,
+            'narration' => NULL,
+          ];
+        }
+
+        $action_cost = $this->getActionCost($type, $params);
+        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - $action_cost);
+
+        try {
+          $inventory_ci = $this->characterStateService->updateInventory(
+            (string) $character_id_ci,
+            'consume',
+            $item_ci,
+            $campaign_id > 0 ? $campaign_id : NULL,
+            $actor_id
+          );
+          $effects_ci = $this->characterStateService->applyConsumableEffects(
+            (string) $character_id_ci,
+            $item_ci,
+            $campaign_id > 0 ? $campaign_id : NULL,
+            $actor_id
+          );
+        }
+        catch (\InvalidArgumentException $exception) {
+          return [
+            'success' => FALSE,
+            'result' => ['error' => $exception->getMessage()],
+            'mutations' => [],
+            'events' => [],
+            'phase_transition' => NULL,
+            'narration' => NULL,
+          ];
+        }
+
+        $actor_name = $this->resolveEntityName($actor_id, $game_state, $dungeon_data);
+        $result = [
+          'summary' => sprintf('%s uses %s.', $actor_name, $item_name_ci),
+          'item_name' => $item_name_ci,
+          'effects' => $effects_ci,
+          'inventory' => $inventory_ci,
+        ];
+
+        $events[] = GameEventLogger::buildEvent('consume_item', 'encounter', $actor_id, [
+          'item_name' => $item_name_ci,
+          'effects' => $effects_ci,
+          'action_cost' => $action_cost,
+          'round' => $game_state['round'] ?? NULL,
+        ]);
+        break;
+      }
 
       // -----------------------------------------------------------------------
       // dc-cr-spells-ch07: Declare metamagic — free action before cast_spell.

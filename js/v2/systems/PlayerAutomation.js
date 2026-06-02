@@ -72,18 +72,30 @@ export class PlayerAutomation {
     const actionCost = getActionRailCost(button.dataset.actionCost, 1);
     const itemLabel = item.name || 'consumable';
 
-    if (context.encounterActive && context.actor) {
-      const response = await hexmap.performCombatAction({
-        actorId: context.actor.id,
-        actionType: 'consume_item',
-        actionCost,
-        characterId: context.characterId,
-        item,
-      });
-      if (response) {
-        this._appendChatLine('System', response.action_result?.summary || `${context.actorLabel} uses ${itemLabel}.`, 'system');
-        hexmap.loadCharacterFromApi(context.characterId);
+    if (context.encounterActive && context.actor && context.actorRef) {
+      const coordinator = hexmap?.gameCoordinator || null;
+      if (!coordinator?.api) {
+        this._appendChatLine('System', 'Consumable actions require an active coordinator session. Refresh the room.', 'system');
+        return;
       }
+
+      const result = await coordinator.api.sendAction('consume_item', context.actorRef, {
+        action_cost: actionCost,
+        character_id: context.characterId,
+        item,
+      }, {
+        stateVersion: coordinator.phaseManager?.stateVersion,
+      });
+
+      if (!result?.success) {
+        this._appendChatLine('System', result?.error || result?.result?.error || `Unable to use ${itemLabel}.`, 'system');
+        return;
+      }
+
+      coordinator.applyAuthoritativeUpdate?.(result);
+      this._appendChatLine('System', result?.result?.summary || `${context.actorLabel} uses ${itemLabel}.`, 'system');
+      hexmap.loadCharacterFromApi(context.characterId);
+      this._refreshActionRail?.();
       return;
     }
 
@@ -126,17 +138,29 @@ export class PlayerAutomation {
     const featName = button.dataset.featName || 'feat action';
     const actionCost = getActionRailCost(button.dataset.actionCost, 1);
 
-    if (context.encounterActive && context.actor && context.hexmap) {
-      const response = await context.hexmap.performCombatAction({
-        actorId: context.actor.id,
-        actionType: 'feat',
-        actionCost,
-        featId: button.dataset.featId || '',
-        featName,
-      });
-      if (response) {
-        this._appendChatLine('System', response.action_result?.summary || `${context.actorLabel} uses ${featName}.`, 'system');
+    if (context.encounterActive && context.actor && context.hexmap && context.actorRef) {
+      const coordinator = context.hexmap?.gameCoordinator || null;
+      if (!coordinator?.api) {
+        this._appendChatLine('System', 'Feat actions require an active coordinator session. Refresh the room.', 'system');
+        return;
       }
+
+      const result = await coordinator.api.sendAction('feat', context.actorRef, {
+        action_cost: actionCost,
+        feat_id: button.dataset.featId || '',
+        feat_name: featName,
+      }, {
+        stateVersion: coordinator.phaseManager?.stateVersion,
+      });
+
+      if (!result?.success) {
+        this._appendChatLine('System', result?.error || result?.result?.error || `Unable to use ${featName}.`, 'system');
+        return;
+      }
+
+      coordinator.applyAuthoritativeUpdate?.(result);
+      this._appendChatLine('System', result?.result?.summary || `${context.actorLabel} uses ${featName}.`, 'system');
+      this._refreshActionRail?.();
       return;
     }
 

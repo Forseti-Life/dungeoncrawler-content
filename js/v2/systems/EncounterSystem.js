@@ -437,17 +437,29 @@ export class EncounterSystem {
     const skillModifier = Number(button.dataset.skillModifier || 0);
     const label = `${skillName}${Number.isFinite(skillModifier) ? ` (${skillModifier >= 0 ? '+' : ''}${skillModifier})` : ''}`;
 
-    if (context.encounterActive && context.actor && context.hexmap) {
-      const response = await context.hexmap.performCombatAction({
-        actorId: context.actor.id,
-        actionType: 'skill',
-        actionCost: 1,
-        skillName,
-        skillModifier,
-      });
-      if (response) {
-        this._appendChatLine('System', response.action_result?.summary || `${context.actorLabel} uses ${label}.`, 'system');
+    if (context.encounterActive && context.actor && context.hexmap && context.actorRef) {
+      const coordinator = context.hexmap?.gameCoordinator || null;
+      if (!coordinator?.api) {
+        this._appendChatLine('System', 'Skill actions require an active coordinator session. Refresh the room.', 'system');
+        return;
       }
+
+      const result = await coordinator.api.sendAction('skill', context.actorRef, {
+        action_cost: 1,
+        skill_name: skillName,
+        skill_bonus: Number.isFinite(skillModifier) ? skillModifier : null,
+      }, {
+        stateVersion: coordinator.phaseManager?.stateVersion,
+      });
+
+      if (!result?.success) {
+        this._appendChatLine('System', result?.error || result?.result?.error || `Unable to use ${label}.`, 'system');
+        return;
+      }
+
+      coordinator.applyAuthoritativeUpdate?.(result);
+      this._appendChatLine('System', result?.result?.summary || `${context.actorLabel} uses ${label}.`, 'system');
+      this._refreshActionRail();
       return;
     }
 
@@ -507,21 +519,38 @@ export class EncounterSystem {
       actionCost: getActionRailCost(button.dataset.actionCost, 2),
     };
 
-    if (context.encounterActive && context.actor) {
-      const response = await hexmap.performCombatAction({
-        actorId: context.actor.id,
-        actionType: 'cast_spell',
-        actionCost: payload.actionCost,
-        characterId: context.characterId,
-        spellId: payload.spellId,
-        spellName: payload.spellName,
-        spellLevel: payload.spellLevel,
-        isFocusSpell: payload.isFocusSpell,
-      });
-      if (response) {
-        this._appendChatLine('System', response.action_result?.summary || `${context.actorLabel} casts ${spellName}.`, 'system');
-        hexmap.loadCharacterFromApi(context.characterId);
+    if (context.encounterActive && context.actor && context.actorRef) {
+      const coordinator = hexmap?.gameCoordinator || null;
+      if (!coordinator?.api) {
+        this._appendChatLine('System', 'Spell actions require an active coordinator session. Refresh the room.', 'system');
+        return;
       }
+
+      const result = await coordinator.api.sendAction('cast_spell', context.actorRef, {
+        action_cost: payload.actionCost,
+        spell_id: payload.spellId,
+        spell_name: payload.spellName,
+        spell_level: payload.spellLevel,
+        cast_at_level: payload.spellLevel,
+        is_focus_spell: payload.isFocusSpell,
+        is_cantrip: payload.spellLevel === 0,
+        character_id: context.characterId,
+      }, {
+        stateVersion: coordinator.phaseManager?.stateVersion,
+      });
+
+      if (!result?.success) {
+        this._appendChatLine('System', result?.error || result?.result?.error || `Unable to cast ${spellName}.`, 'system');
+        return;
+      }
+
+      coordinator.applyAuthoritativeUpdate?.(result);
+      this._appendChatLine('System', result?.result?.summary || `${context.actorLabel} casts ${spellName}.`, 'system');
+      if (typeof result.narration === 'string' && result.narration.trim()) {
+        this._appendChatLine('Game Master', result.narration.trim(), 'gm');
+      }
+      hexmap.loadCharacterFromApi(context.characterId);
+      this._refreshActionRail();
       return;
     }
 

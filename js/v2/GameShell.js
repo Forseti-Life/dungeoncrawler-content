@@ -2004,48 +2004,64 @@ export class GameShell {
       return null;
     }
 
-    const response = await fetch('/api/combat/action', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'X-Requested-With': 'XMLHttpRequest',
-      },
-      credentials: 'same-origin',
-      body: JSON.stringify({
-        encounterId,
-        actorId: actorRef,
-        actionType,
-        actionCost: Number(options?.actionCost || 0) || 0,
-        characterId: Number(options?.characterId || 0) || null,
-        targetId: options?.targetId ?? null,
-        targetHex: options?.targetHex ?? null,
-        destinationHex: options?.destinationHex ?? null,
-        interactionType: options?.interactionType ?? null,
-        message: options?.message ?? null,
-        skillName: options?.skillName ?? null,
-        skillModifier: Number.isFinite(Number(options?.skillModifier)) ? Number(options.skillModifier) : null,
-        featId: options?.featId ?? null,
-        featName: options?.featName ?? null,
-        spellId: options?.spellId ?? null,
-        spellName: options?.spellName ?? null,
-        spellLevel: Number.isFinite(Number(options?.spellLevel)) ? Number(options.spellLevel) : null,
-        isFocusSpell: options?.isFocusSpell === true,
-        item: options?.item ?? null,
-      }),
-    });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok || data?.success !== true) {
+    const coordinator = this.gameCoordinator || null;
+    const campaignId = this.resolveCampaignId();
+    if (!coordinator?.api || !campaignId) {
+      console.error('[GameShell] performCombatAction unavailable: coordinator not initialized', { actionType, campaignId });
+      return null;
+    }
+
+    const params = {
+      action_cost: Number(options?.actionCost || 0) || 0,
+      character_id: Number(options?.characterId || 0) || null,
+      target_hex: options?.targetHex ?? null,
+      destination_hex: options?.destinationHex ?? null,
+      interaction_type: options?.interactionType ?? null,
+      message: options?.message ?? null,
+      skill_name: options?.skillName ?? null,
+      skill_bonus: Number.isFinite(Number(options?.skillModifier)) ? Number(options.skillModifier) : null,
+      feat_id: options?.featId ?? null,
+      feat_name: options?.featName ?? null,
+      spell_id: options?.spellId ?? null,
+      spell_name: options?.spellName ?? null,
+      spell_level: Number.isFinite(Number(options?.spellLevel)) ? Number(options.spellLevel) : null,
+      is_focus_spell: options?.isFocusSpell === true,
+      item: options?.item ?? null,
+    };
+
+    let targetRef = null;
+    if (options?.targetId != null) {
+      const targetEntity = this.entityManager?.getEntity?.(options.targetId) || null;
+      targetRef = String(
+        targetEntity?.dcEntityRef
+        || targetEntity?.instanceId
+        || options.targetId
+        || ''
+      ).trim() || null;
+    }
+
+    let data = null;
+    try {
+      data = await coordinator.api.sendAction(actionType, actorRef, params, {
+        target: targetRef || undefined,
+        stateVersion: coordinator.phaseManager?.stateVersion,
+      });
+    } catch (err) {
+      console.error('[GameShell] performCombatAction coordinator call failed', err);
       this.notifyServerUnavailable();
       return null;
     }
 
-    if (data?.encounter_id) {
-      this._setStateValue('encounterId', data.encounter_id);
+    if (!data?.success) {
+      console.warn('[GameShell] performCombatAction rejected', { actionType, error: data?.error, result: data?.result });
+      return null;
+    }
+
+    coordinator.applyAuthoritativeUpdate?.(data);
+    if (data?.game_state?.encounter_id) {
+      this._setStateValue('encounterId', data.game_state.encounter_id);
     }
     this._setStateValue('serverCombatMode', true);
-    this.cacheEncounterServerState(data);
-    this.turnManagementSystem?.hydrateFromServer?.(data);
     return data;
   }
 
