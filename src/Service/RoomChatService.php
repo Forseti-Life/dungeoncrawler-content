@@ -191,6 +191,76 @@ class RoomChatService {
   }
 
   /**
+   * Persist the deterministic room scene intro into instantiated room chat.
+   *
+   * This is a write-time injection used by the encounter/navigation framework
+   * so the chat UI can render the room description from the authoritative room
+   * instance. We intentionally do NOT synthesize this at read time in
+   * getChatHistory().
+   *
+   * To avoid spam, this only injects when the room has no visible (non-internal)
+   * chat messages yet.
+   *
+   * @return array|null
+   *   The injected chat message, or NULL if nothing was injected.
+   */
+  public function injectRoomSceneNarratorIntroIfNeeded(array &$dungeon_data, string $room_id): ?array {
+    if (!isset($dungeon_data['rooms']) || !is_array($dungeon_data['rooms'])) {
+      return NULL;
+    }
+
+    $room_index = $this->findRoomIndex($dungeon_data['rooms'], $room_id);
+    if ($room_index === NULL) {
+      return NULL;
+    }
+
+    if (!isset($dungeon_data['rooms'][$room_index]['chat']) || !is_array($dungeon_data['rooms'][$room_index]['chat'])) {
+      $dungeon_data['rooms'][$room_index]['chat'] = [];
+    }
+
+    $chat = $dungeon_data['rooms'][$room_index]['chat'];
+    if ($this->roomChatHasVisibleMessages($chat)) {
+      return NULL;
+    }
+
+    $updated = $this->ensureRoomSceneNarratorIntro($chat, $dungeon_data['rooms'][$room_index]);
+    if ($updated === $chat) {
+      return NULL;
+    }
+
+    $dungeon_data['rooms'][$room_index]['chat'] = $updated;
+
+    $chat_count = count($dungeon_data['rooms'][$room_index]['chat']);
+    if ($chat_count > self::MAX_MESSAGES_PER_ROOM) {
+      $dungeon_data['rooms'][$room_index]['chat'] = array_slice(
+        $dungeon_data['rooms'][$room_index]['chat'],
+        $chat_count - self::MAX_MESSAGES_PER_ROOM
+      );
+    }
+
+    return $dungeon_data['rooms'][$room_index]['chat'][0] ?? NULL;
+  }
+
+  /**
+   * Returns TRUE when a room chat log already contains player-visible content.
+   */
+  protected function roomChatHasVisibleMessages(array $chat): bool {
+    foreach ($chat as $message) {
+      if (!is_array($message)) {
+        continue;
+      }
+      if (!empty($message['internal_log'])) {
+        continue;
+      }
+      $existing = trim((string) ($message['message'] ?? ''));
+      if ($existing !== '') {
+        return TRUE;
+      }
+    }
+    return FALSE;
+  }
+
+  /**
    * Ensure room chat opens with the same grounded scene shown in the room view.
    */
   protected function ensureRoomSceneNarratorIntro(array $chat, array $room_entry): array {

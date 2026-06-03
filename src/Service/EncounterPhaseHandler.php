@@ -3632,6 +3632,10 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
       );
     }
 
+    // Persist the room-scene intro into the instantiated room chat so the UI can
+    // render the authoritative room description on room entry.
+    $this->roomChatService->injectRoomSceneNarratorIntroIfNeeded($dungeon_data, $target_room_id);
+
     return [
       'transitioned' => $from_room !== $target_room_id,
       'from_room' => $from_room,
