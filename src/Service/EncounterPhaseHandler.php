@@ -1009,6 +1009,9 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
         break;
 
       case 'talk':
+        $turn_ctx = $this->captureEncounterTurnContext($game_state, $dungeon_data, $actor_id);
+        $params['_encounter_turn_ctx'] = $turn_ctx;
+
         $result = $this->processTalk($actor_id, $target_id, $params, $game_state, $dungeon_data, $campaign_id);
         if (!empty($result['error'])) {
           return [
@@ -1022,9 +1025,15 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
         }
         $mutations = $result['mutations'] ?? [];
         $narration = $result['narration'] ?? NULL;
+
+        // Talk consumes 1 action in encounter.
+        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+
         $events[] = GameEventLogger::buildEvent('talk', 'encounter', $actor_id, [
           'message' => $result['message'] ?? '',
-          'round' => $game_state['round'] ?? NULL,
+          'round' => $turn_ctx['round'] ?? ($game_state['round'] ?? NULL),
+          'turn_index' => $turn_ctx['turn_index_raw'] ?? ($game_state['turn']['index'] ?? NULL),
+          'actor_name' => $turn_ctx['actor_name'] ?? NULL,
           'gm_response_generated' => !empty($result['gm_response']),
           'state_diff_present' => !empty($result['state_diff']),
         ], $narration, $target_id);
@@ -1035,22 +1044,27 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
         if ($type === 'choose_not_to_act') {
           $params['reason'] = trim((string) ($params['reason'] ?? 'chooses not to act'));
         }
+
+        // Capture turn context before any turn/round advance.
+        $turn_ctx = $this->captureEncounterTurnContext($game_state, $dungeon_data, $actor_id);
+
         $result = $this->processEndTurn($encounter_id, $actor_id, $game_state, $dungeon_data, $campaign_id);
         $time_effects = array_merge($time_effects, $this->buildRoundElapsedTimeEffects($result, $actor_id, $dungeon_data));
         $mutations = $result['mutations'] ?? [];
         $narration = $result['narration'] ?? NULL;
         $resolved_room_id = $dungeon_data['active_room_id'] ?? ($game_state['encounter_context']['room_id'] ?? NULL);
-        $actor_name = $actor_id ? $this->resolveEntityName($actor_id, $game_state, $dungeon_data) : 'Narrator';
+        $actor_name = (string) ($turn_ctx['actor_name'] ?? ($actor_id ? $this->resolveEntityName($actor_id, $game_state, $dungeon_data) : 'Narrator'));
         $fallback_narration = $type === 'choose_not_to_act'
           ? sprintf('%s chooses not to act.', $actor_name)
           : sprintf('%s ends their turn.', $actor_name);
         $resolved_narration = (is_string($narration) && trim($narration) !== '') ? $narration : $fallback_narration;
+        $resolved_narration = $this->prefixEncounterChatLine($turn_ctx, $resolved_narration);
 
         $events[] = GameEventLogger::buildEvent($type, 'encounter', $actor_id, [
-          'round' => $game_state['round'] ?? NULL,
+          'round' => $turn_ctx['round'] ?? ($game_state['round'] ?? NULL),
           'room_id' => $resolved_room_id,
           'actor_name' => $actor_name,
-          'turn_index' => $game_state['turn']['index'] ?? NULL,
+          'turn_index' => $turn_ctx['turn_index_raw'] ?? NULL,
           'actions_remaining' => $result['actions_remaining_before_end'] ?? NULL,
           'reason' => $params['reason'] ?? NULL,
         ], $resolved_narration);
@@ -1060,7 +1074,7 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
             'speaker' => 'Narrator',
             'speaker_type' => 'gm',
             'speaker_ref' => '',
-            'content' => sprintf('%s chooses not to use %d remaining action(s).', $this->resolveEntityName($actor_id, $game_state, $dungeon_data), (int) $result['actions_remaining_before_end']),
+            'content' => $this->prefixEncounterChatLine($turn_ctx, sprintf('%s chooses not to use %d remaining action(s).', $actor_name, (int) $result['actions_remaining_before_end'])),
             'visibility' => 'public',
             'mechanical_data' => [
               'actor_id' => $actor_id,
@@ -3958,6 +3972,10 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
    * Process encounter talk through the room-chat pipeline.
    */
   protected function processTalk(?string $actor_id, ?string $target_id, array $params, array &$game_state, array &$dungeon_data, int $campaign_id): array {
+    $turn_ctx = is_array($params['_encounter_turn_ctx'] ?? NULL)
+      ? $params['_encounter_turn_ctx']
+      : $this->captureEncounterTurnContext($game_state, $dungeon_data, $actor_id);
+
     $message = trim((string) ($params['message'] ?? ''));
     $room_id = $dungeon_data['active_room_id'] ?? NULL;
     $character_id = $this->resolveActorCharacterId($actor_id, $dungeon_data, $params);
@@ -4002,6 +4020,8 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
       ];
     }
 
+    $message = $this->prefixEncounterChatLine($turn_ctx, $message);
+
     try {
       $chat_result = $this->roomChatService->postMessage(
         $campaign_id,
@@ -4018,6 +4038,7 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
           'objective_type' => (string) ($params['objective_type'] ?? ''),
           'objective_id' => (string) ($params['objective_id'] ?? ''),
           'entity_ref' => (string) ($target_id ?? ''),
+          '_encounter_prefix' => $this->buildEncounterChatPrefix($turn_ctx),
         ]
       );
 
@@ -4048,6 +4069,7 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
         'talked' => TRUE,
         'message' => $message,
         'gm_response' => $chat_response['gm_response'],
+
         'npc_interjections' => $chat_response['npc_interjections'],
         'quest_updates' => $chat_response['quest_updates'],
         'state_diff' => $chat_response['state_diff'],
@@ -4843,6 +4865,12 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
   protected function buildRoundStartEvents(int $round, array $game_state, array $dungeon_data, int $campaign_id, ?string $room_id = NULL): array {
     $round_narration = $this->aiGmService->narrateRoundStart($round, $game_state, $dungeon_data, $campaign_id);
     $content = $round_narration ?: sprintf('Round %d begins.', $round);
+
+    $content = $this->prefixEncounterChatLine(
+      $this->captureEncounterTurnContext($game_state, $dungeon_data, NULL, ['actor_name' => 'Narrator']),
+      $content
+    );
+
     $resolved_room_id = $room_id ?? ($dungeon_data['active_room_id'] ?? ($game_state['encounter_context']['room_id'] ?? NULL));
     $this->queueNarrationEvent($campaign_id, $dungeon_data, [
       'type' => 'round_start',
@@ -4878,6 +4906,10 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
     $total_turns = is_array($game_state['initiative_order'] ?? NULL) ? count($game_state['initiative_order']) : NULL;
     $actions_available = $game_state['turn']['actions_remaining'] ?? NULL;
     $content = sprintf("%s's turn begins.", $actor_name);
+    $content = $this->prefixEncounterChatLine(
+      $this->captureEncounterTurnContext($game_state, $dungeon_data, $entity_id, ['actor_name' => $actor_name]),
+      $content
+    );
     $this->queueNarrationEvent($campaign_id, $dungeon_data, [
       'type' => 'turn_start',
       'speaker' => 'Narrator',
@@ -7187,6 +7219,64 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
   }
 
   // =========================================================================
+  // Encounter chat prefixing.
+  // =========================================================================
+
+  protected function captureEncounterTurnContext(array $game_state, array $dungeon_data, ?string $actor_id, array $overrides = []): array {
+    $round = isset($game_state['round']) && is_numeric($game_state['round']) ? (int) $game_state['round'] : NULL;
+    $turn_index_raw = isset($game_state['turn']['index']) && is_numeric($game_state['turn']['index']) ? (int) $game_state['turn']['index'] : NULL;
+    $turn_index_human = $turn_index_raw !== NULL ? ($turn_index_raw + 1) : '?';
+
+    $effective_actor_id = is_string($actor_id) && trim($actor_id) !== '' ? trim($actor_id) : NULL;
+    $actor_name = $effective_actor_id !== NULL
+      ? $this->resolveEntityName($effective_actor_id, $game_state, $dungeon_data)
+      : 'Unknown';
+
+    $room_id = $dungeon_data['active_room_id'] ?? ($game_state['encounter_context']['room_id'] ?? NULL);
+
+    $ctx = [
+      'round' => $round,
+      'turn_index_raw' => $turn_index_raw,
+      'turn_index_human' => $turn_index_human,
+      'actor_id' => $effective_actor_id,
+      'actor_name' => $actor_name !== '' ? $actor_name : 'Unknown',
+      'room_id' => is_string($room_id) ? $room_id : NULL,
+    ];
+
+    foreach ($overrides as $k => $v) {
+      $ctx[$k] = $v;
+    }
+
+    if (!is_string($ctx['actor_name']) || trim((string) $ctx['actor_name']) === '') {
+      $ctx['actor_name'] = 'Unknown';
+    }
+
+    return $ctx;
+  }
+
+  protected function buildEncounterChatPrefix(array $turn_ctx): string {
+    $turn = $turn_ctx['turn_index_human'] ?? '?';
+    $round = $turn_ctx['round'] ?? '?';
+    $actor_name = $turn_ctx['actor_name'] ?? 'Unknown';
+    if (!is_string($actor_name) || trim($actor_name) === '') {
+      $actor_name = 'Unknown';
+    }
+    return sprintf('Turn %s: Round %s: Actor %s: ', (string) $turn, (string) $round, $actor_name);
+  }
+
+  protected function isEncounterChatLinePrefixed(string $content): bool {
+    return (bool) preg_match('/^Turn\s+(?:\d+|\?)\:\s+Round\s+(?:\d+|\?)\:\s+Actor\s+.*\:\s+/u', $content);
+  }
+
+  protected function prefixEncounterChatLine(array $turn_ctx, string $content): string {
+    $content = trim($content);
+    if ($content === '' || $this->isEncounterChatLinePrefixed($content)) {
+      return $content;
+    }
+    return $this->buildEncounterChatPrefix($turn_ctx) . $content;
+  }
+
+  // =========================================================================
   // NarrationEngine bridge.
   // =========================================================================
 
@@ -7208,6 +7298,26 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
   protected function queueNarrationEvent(int $campaign_id, array $dungeon_data, array $event, ?string $room_id = NULL): array {
     if (!$this->narrationEngine) {
       return [];
+    }
+
+    // Server-authoritative transcript: stamp Turn/Round/Actor prefix during encounter phase.
+    $game_state = is_array($dungeon_data['game_state'] ?? NULL) ? $dungeon_data['game_state'] : [];
+    if (($game_state['phase'] ?? '') === 'encounter' && isset($event['content']) && is_string($event['content'])) {
+      $prefix_actor_id = NULL;
+      if (isset($event['speaker_ref']) && is_string($event['speaker_ref']) && trim($event['speaker_ref']) !== '') {
+        $prefix_actor_id = trim($event['speaker_ref']);
+      }
+      elseif (isset($game_state['turn']['entity']) && is_string($game_state['turn']['entity']) && trim($game_state['turn']['entity']) !== '') {
+        $prefix_actor_id = trim($game_state['turn']['entity']);
+      }
+
+      $overrides = [];
+      if (($event['type'] ?? '') === 'round_start') {
+        $overrides['actor_name'] = 'Narrator';
+      }
+
+      $turn_ctx = $this->captureEncounterTurnContext($game_state, $dungeon_data, $prefix_actor_id, $overrides);
+      $event['content'] = $this->prefixEncounterChatLine($turn_ctx, $event['content']);
     }
 
     $dungeon_id = $dungeon_data['dungeon_id'] ?? $dungeon_data['id'] ?? 0;

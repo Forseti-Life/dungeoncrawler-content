@@ -198,12 +198,26 @@ class ChatSessionController extends ControllerBase {
         return new JsonResponse(['success' => FALSE, 'error' => 'speaker and message are required'], 400);
       }
 
+      $speaker_type = $payload['speaker_type'] ?? 'player';
+      $speaker_ref = (string) ($payload['speaker_ref'] ?? '');
+
+      // Prevent bypassing encounter action economy via direct session writes.
+      if ($speaker_type === 'player' && ($session['type'] ?? '') === 'room') {
+        $room_id = (string) (($session['metadata']['room_id'] ?? '') ?: ($payload['metadata']['room_id'] ?? ''));
+        if ($room_id !== '' && $this->chatService->isEncounterActiveForRoom($campaign_id, $room_id)) {
+          return new JsonResponse([
+            'success' => FALSE,
+            'error' => 'During encounter, room chat must be sent as the Talk encounter action.',
+          ], 409);
+        }
+      }
+
       $msg_id = $this->sessionManager->postMessage(
         $session_id,
         $campaign_id,
         $speaker,
-        $payload['speaker_type'] ?? 'player',
-        (string) ($payload['speaker_ref'] ?? ''),
+        $speaker_type,
+        $speaker_ref,
         $message,
         $payload['message_type'] ?? 'dialogue',
         $payload['visibility'] ?? 'public',

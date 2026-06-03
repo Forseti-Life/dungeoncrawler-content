@@ -630,6 +630,22 @@ class RoomChatService {
     if ($encounter_turn_error !== NULL) {
       throw new \InvalidArgumentException($encounter_turn_error, 409);
     }
+
+    $encounter_prefix = isset($quest_touchpoint_hint['_encounter_prefix']) && is_string($quest_touchpoint_hint['_encounter_prefix'])
+      ? trim($quest_touchpoint_hint['_encounter_prefix'])
+      : NULL;
+    if ($encounter_prefix === '') {
+      $encounter_prefix = NULL;
+    }
+
+    // During encounter phase, room chat must be governed by the encounter engine
+    // (i.e. invoked via EncounterPhaseHandler talk action) so action economy is enforced.
+    if (($dungeon_data['game_state']['phase'] ?? '') === 'encounter' && $type === 'player' && $channel === 'room' && $encounter_prefix === NULL) {
+      throw new \InvalidArgumentException('During encounter, room chat must be sent as the Talk encounter action.', 409);
+    }
+
+    $message = $this->prefixEncounterChatText($message, $encounter_prefix);
+
     $this->recordDebugStage('validate_encounter_turn', $stage_started_at, [
       'phase' => $dungeon_data['game_state']['phase'] ?? NULL,
       'channel' => $channel,
@@ -742,7 +758,7 @@ class RoomChatService {
           'channel' => $channel,
         ]);
         $stage_started_at = hrtime(true);
-        $gm_result = $this->generateGmReply($campaign_id, $room_id, $room_index, $dungeon_id, $dungeon_data, $character_id);
+        $gm_result = $this->generateGmReply($campaign_id, $room_id, $room_index, $dungeon_id, $dungeon_data, $character_id, $encounter_prefix);
         $this->recordDebugStage('generate_gm_reply', $stage_started_at, [
           'generated' => $gm_result !== NULL,
         ]);
@@ -778,7 +794,15 @@ class RoomChatService {
         else {
           $stage_started_at = hrtime(true);
           $npc_turn_result = $this->runRoomTurnHarness(
-            $campaign_id, $room_id, $room_index, $dungeon_id, $dungeon_data, $message, $gm_response['message'] ?? '', $char_data
+            $campaign_id,
+            $room_id,
+            $room_index,
+            $dungeon_id,
+            $dungeon_data,
+            $message,
+            (string) ($gm_response['message'] ?? ''),
+            $char_data,
+            $encounter_prefix
           );
           $turn_harness_result = $npc_turn_result;
           $npc_interjections = $npc_turn_result['messages'] ?? [];
@@ -921,7 +945,7 @@ class RoomChatService {
     ]);
 
     $stage_started_at = hrtime(true);
-    $dungeon_snapshot = $this->loadLatestDungeonSnapshot($campaign_id);
+    $dungeon_snapshot = $this->loadLatestDungeonSnapshot($campaign_id, $room_id);
     $dungeon_id = $dungeon_snapshot['dungeon_id'];
     $dungeon_data = $dungeon_snapshot['dungeon_data'];
     $this->recordDebugStage('load_dungeon_data', $stage_started_at, [
@@ -983,9 +1007,12 @@ class RoomChatService {
       'queued_player_count' => count($queued_player_messages),
       'channel' => $channel,
     ]);
+
+    $encounter_prefix = ($channel === 'room') ? $this->buildEncounterPrefixFromDungeonData($dungeon_data) : NULL;
+
     $stage_started_at = hrtime(true);
     $gm_result = $channel === 'room'
-      ? $this->generateGmReply($campaign_id, $room_id, $room_index, $dungeon_id, $dungeon_data, $character_id)
+      ? $this->generateGmReply($campaign_id, $room_id, $room_index, $dungeon_id, $dungeon_data, $character_id, $encounter_prefix)
       : $this->generateQueuedChannelReply($campaign_id, $room_id, $room_index, $dungeon_id, $dungeon_data, $character_id, $channel);
     $this->recordDebugStage('generate_gm_reply', $stage_started_at, [
       'generated' => $gm_result !== NULL,
@@ -1214,7 +1241,7 @@ class RoomChatService {
    * @return array|null
    *   ['message' => array, 'state_diff' => array|null], or NULL on failure.
    */
-  protected function generateGmReply(int $campaign_id, string $room_id, int|string $room_index, int|string $dungeon_id, array &$dungeon_data, ?int $character_id = NULL): ?array {
+  protected function generateGmReply(int $campaign_id, string $room_id, int|string $room_index, int|string $dungeon_id, array &$dungeon_data, ?int $character_id = NULL, ?string $encounter_prefix = NULL): ?array {
     $gm_started_at = hrtime(true);
     $chat = $dungeon_data['rooms'][$room_index]['chat'] ?? [];
     $is_room_entry = $this->isEffectiveRoomEntryTurn($chat);
@@ -1655,6 +1682,7 @@ class RoomChatService {
     );
 
     $visible_gm_narrative = $this->buildVisibleGmNarrative($narrative, $actions, $state_diff, $navigation_result);
+    $visible_gm_narrative = $this->prefixEncounterChatText($visible_gm_narrative, $encounter_prefix);
     $suppress_npc_interjections = !empty($checked_response['suppress_npc_interjections']);
     $gm_payload = $this->buildGmRoomResponsePayload($visible_gm_narrative, $actions, $dice_rolls, $suppress_npc_interjections);
     $gm_message = [
@@ -3500,6 +3528,21 @@ class RoomChatService {
   }
 
   /**
+   * Determine whether a room is currently in encounter phase.
+   */
+  public function isEncounterActiveForRoom(int $campaign_id, string $room_id): bool {
+    try {
+      $snapshot = $this->loadLatestDungeonSnapshot($campaign_id, $room_id);
+    }
+    catch (\InvalidArgumentException $e) {
+      return FALSE;
+    }
+
+    $dungeon_data = is_array($snapshot['dungeon_data'] ?? NULL) ? $snapshot['dungeon_data'] : [];
+    return (($dungeon_data['game_state']['phase'] ?? '') === 'encounter');
+  }
+
+  /**
    * Find a room entry by room_id in a rooms array (may be keyed or indexed).
    *
    * @param array $rooms
@@ -3602,7 +3645,8 @@ class RoomChatService {
     array &$dungeon_data,
     string $player_message,
     string $gm_narrative,
-    ?array $active_character_data = NULL
+    ?array $active_character_data = NULL,
+    ?string $encounter_prefix = NULL
   ): array {
     // Gather room NPCs with psychology profiles.
     $room_npcs = $this->gatherRoomNpcsWithProfiles($campaign_id, $room_id, $dungeon_data);
@@ -3651,7 +3695,7 @@ class RoomChatService {
         'turn_role' => 'system',
         'turn_name' => 'Turn Order',
         'turn_index' => 0,
-      ]);
+      ], $encounter_prefix);
     }
     $this->logger->info('Room turn order for room @room (turn @turn_key): @order', [
       '@room' => $room_id,
@@ -3681,7 +3725,7 @@ class RoomChatService {
       'turn_role' => 'narrator',
       'turn_name' => 'Narrator',
       'turn_index' => 1,
-    ]);
+    ], $encounter_prefix);
     $this->persistStructuredRoomTurnLog(
       $campaign_id,
       $dungeon_id,
@@ -3701,7 +3745,7 @@ class RoomChatService {
       'turn_role' => 'gm',
       'turn_name' => 'Game Master',
       'turn_index' => 2,
-    ]);
+    ], $encounter_prefix);
     $this->logger->info('Room turn current speaker in room @room (turn @turn_key): Game Master', [
       '@room' => $room_id,
       '@turn_key' => $turn_log_key,
@@ -3742,7 +3786,8 @@ class RoomChatService {
           'initiative_total' => isset($npc['initiative_total']) ? (int) $npc['initiative_total'] : NULL,
           'initiative_roll' => isset($npc['initiative_roll']) ? (int) $npc['initiative_roll'] : NULL,
           'initiative_modifier' => isset($npc['initiative_modifier']) ? (int) $npc['initiative_modifier'] : NULL,
-        ]
+        ],
+        $encounter_prefix
       );
       $this->logger->info('Room turn current speaker in room @room (turn @turn_key): @speaker', [
         '@room' => $room_id,
@@ -3760,7 +3805,8 @@ class RoomChatService {
         $room_npcs,
         $npc['entity_ref'],
         $npc['profile']['display_name'] ?? $npc['entity_ref'],
-        FALSE
+        FALSE,
+        $encounter_prefix
       );
 
         if (!empty($built_messages)) {
@@ -4248,10 +4294,10 @@ class RoomChatService {
   /**
    * Append an internal turn-log system message to room chat.
    */
-  protected function appendInternalRoomLogMessage(array &$dungeon_data, int|string $room_index, string $message, array $extra = []): array {
+  protected function appendInternalRoomLogMessage(array &$dungeon_data, int|string $room_index, string $message, array $extra = [], ?string $encounter_prefix = NULL): array {
     $system_message = [
       'speaker' => 'System',
-      'message' => $message,
+      'message' => $this->prefixEncounterChatText($message, $encounter_prefix),
       'type' => 'system',
       'channel' => 'room',
       'timestamp' => date('c'),
@@ -4575,7 +4621,8 @@ PROMPT;
     array $room_npcs,
     string $speaker_ref,
     string $speaker_name,
-    bool $feed_room_sessions = TRUE
+    bool $feed_room_sessions = TRUE,
+    ?string $encounter_prefix = NULL
   ): array {
     $dialogue_payload = $this->generateNpcRoomDialogue(
       $campaign_id, $room_id, $room_index, $dungeon_data,
@@ -4590,7 +4637,7 @@ PROMPT;
     $npc_dialogue = (string) $dialogue_payload['text'];
 
     // Build the NPC chat message.
-    $npc_message = $this->buildCharacterDialogueChatMessage($dialogue_payload);
+    $npc_message = $this->buildCharacterDialogueChatMessage($dialogue_payload, NULL, $encounter_prefix);
 
     // Persist the NPC interjection to dungeon_data chat.
     $dungeon_data['rooms'][$room_index]['chat'][] = $npc_message;
@@ -6515,10 +6562,13 @@ PROMPT;
   /**
    * Convert a canonical character dialogue payload into a persisted chat message.
    */
-  protected function buildCharacterDialogueChatMessage(array $dialogue_payload, ?int $character_id = NULL): array {
+  protected function buildCharacterDialogueChatMessage(array $dialogue_payload, ?int $character_id = NULL, ?string $encounter_prefix = NULL): array {
+    $message_text = (string) ($dialogue_payload['text'] ?? '');
+    $message_text = $this->prefixEncounterChatText($message_text, $encounter_prefix);
+
     $message = [
       'speaker' => (string) ($dialogue_payload['speaker_name'] ?? 'Unknown'),
-      'message' => (string) ($dialogue_payload['text'] ?? ''),
+      'message' => $message_text,
       'type' => 'npc',
       'channel' => (string) ($dialogue_payload['channel'] ?? 'room'),
       'timestamp' => date('c'),
@@ -10553,6 +10603,54 @@ PROMPT;
     }
 
     return NULL;
+  }
+
+  /**
+   * Build the canonical encounter transcript prefix from dungeon data.
+   */
+  protected function buildEncounterPrefixFromDungeonData(array $dungeon_data): ?string {
+    $game_state = is_array($dungeon_data['game_state'] ?? NULL) ? $dungeon_data['game_state'] : [];
+    if (($game_state['phase'] ?? '') !== 'encounter') {
+      return NULL;
+    }
+
+    $round = isset($game_state['round']) && is_numeric($game_state['round']) ? (int) $game_state['round'] : '?';
+    $turn_index_raw = isset($game_state['turn']['index']) && is_numeric($game_state['turn']['index']) ? (int) $game_state['turn']['index'] : NULL;
+    $turn_index_human = $turn_index_raw !== NULL ? ($turn_index_raw + 1) : '?';
+
+    $turn_entity_id = trim((string) ($game_state['turn']['entity'] ?? ''));
+    $active_entity = $turn_entity_id !== '' ? $this->findEncounterTurnEntity($turn_entity_id, $dungeon_data) : NULL;
+    $actor_name = trim((string) (
+      $active_entity['state']['metadata']['display_name']
+      ?? $active_entity['name']
+      ?? 'Unknown'
+    ));
+    if ($actor_name === '') {
+      $actor_name = 'Unknown';
+    }
+
+    return sprintf('Turn %s: Round %s: Actor %s: ', (string) $turn_index_human, (string) $round, $actor_name);
+  }
+
+  protected function isEncounterChatTextPrefixed(string $content): bool {
+    return (bool) preg_match('/^Turn\s+(?:\d+|\?)\:\s+Round\s+(?:\d+|\?)\:\s+Actor\s+.*\:\s+/u', $content);
+  }
+
+  protected function prefixEncounterChatText(string $content, ?string $encounter_prefix): string {
+    $content = trim($content);
+    if ($content === '' || $this->isEncounterChatTextPrefixed($content)) {
+      return $content;
+    }
+    if ($encounter_prefix === NULL || trim($encounter_prefix) === '') {
+      return $content;
+    }
+
+    $prefix = $encounter_prefix;
+    if (!str_ends_with($prefix, ' ')) {
+      $prefix .= ' ';
+    }
+
+    return $prefix . $content;
   }
 
   /**
