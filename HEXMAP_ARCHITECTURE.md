@@ -426,7 +426,7 @@ Encounter triggered
    - All combatants roll (Perception or Stealth)
    - Create encounter instance (encounter.schema)
    - Sort by initiative (ties: higher Perception wins)
-   - POST /api/combat/start
+   - (Legacy/admin-only) POST /api/combat/start — gameplay mutations should use the coordinator: POST /api/game/{campaign_id}/action
     ↓
 2. Combat Rounds (until victory/defeat/flee):
    
@@ -461,7 +461,7 @@ Encounter triggered
        ├─ Apply damage/conditions
        └─ Log action to encounter.action_log
      
-     POST /api/combat/action with:
+     (Legacy/admin-only) POST /api/combat/action with: (gameplay mutations should use POST /api/game/{campaign_id}/action intents)
        {
          "combatant_id": "...",
          "action_type": "strike",
@@ -475,7 +475,7 @@ Encounter triggered
    Round End:
      - Process end-of-round effects
      - Update combatant HP/conditions
-     - POST /api/combat/end-turn
+     - (Legacy/admin-only) POST /api/combat/end-turn — gameplay mutations should use POST /api/game/{campaign_id}/action
     ↓
 3. Combat End Conditions:
    
@@ -483,7 +483,7 @@ Encounter triggered
      - All enemies defeated/fled/surrendered
      - Award XP (encounter.xp_awarded)
      - Distribute loot
-     - POST /api/combat/end
+     - (Legacy/admin-only) POST /api/combat/end — gameplay mutations should use POST /api/game/{campaign_id}/action
    
    Defeat:
      - All PCs unconscious
