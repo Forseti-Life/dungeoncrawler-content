@@ -164,12 +164,26 @@ class MapVisualStateProjectorTest extends UnitTestCase {
     $this->assertNotNull($roomAHex00);
     $this->assertSame('room-a:0:0', $roomAHex00['hex_id']);
     $this->assertTrue($roomAHex00['is_visible']);
+    $this->assertSame('normal', $roomAHex00['lighting']);
 
     $this->assertNotNull($roomAFilledHex);
     $this->assertSame('floor', $roomAFilledHex['terrain_type']);
+    $this->assertSame('normal', $roomAFilledHex['lighting']);
     $this->assertFalse($result['topology']['rooms']['room-b']['state']['explored']);
     $this->assertSame('wood_floor', $result['topology']['rooms']['room-a']['terrain']['type']);
     $this->assertSame('dim_light', $result['topology']['rooms']['room-b']['lighting']);
+
+    $roomBHex00 = NULL;
+    foreach ($result['topology']['rooms']['room-b']['hexes'] as $candidate) {
+      if (!is_array($candidate)) {
+        continue;
+      }
+      if ((int) ($candidate['q'] ?? 0) === 1 && (int) ($candidate['r'] ?? 0) === 0) {
+        $roomBHex00 = $candidate;
+      }
+    }
+    $this->assertNotNull($roomBHex00);
+    $this->assertSame('dim_light', $roomBHex00['lighting']);
     $this->assertSame('room-a:0:0:table:0', $roomAHex00['objects'][0]['object_instance_id']);
     $this->assertSame('room-a:0:0', $roomAHex00['objects'][0]['placement']['hex_id']);
     $this->assertSame('n', $roomAHex00['objects'][0]['orientation']);

@@ -103,6 +103,8 @@ class MapVisualStateProjector {
         $entry_r = (int) $min_coord_r;
       }
 
+      $room_lighting = $this->normalizeLightingLevel($room['lighting'] ?? 'normal');
+
       foreach ($room_hexes as $hex) {
         if (!is_array($hex)) {
           continue;
@@ -122,6 +124,7 @@ class MapVisualStateProjector {
           'q' => $hex_q,
           'r' => $hex_r,
           'terrain_type' => $this->normalizeTileType($hex),
+          'lighting' => $room_lighting,
           'is_entry' => $entry_q !== NULL && $entry_r !== NULL && $hex_q === $entry_q && $hex_r === $entry_r,
           'is_visible' => $is_visible,
           'is_discovered' => $is_discovered,
@@ -148,6 +151,7 @@ class MapVisualStateProjector {
               'q' => $q,
               'r' => $r,
               'terrain_type' => 'floor',
+              'lighting' => $room_lighting,
               'is_entry' => $entry_q !== NULL && $entry_r !== NULL && $q === $entry_q && $r === $entry_r,
               'is_visible' => $is_visible,
               'is_discovered' => $is_discovered,
@@ -174,7 +178,7 @@ class MapVisualStateProjector {
         'description' => (string) ($room['description'] ?? ''),
         'room_type' => (string) ($room['room_type'] ?? 'unknown'),
         'size_category' => (string) ($room['size_category'] ?? 'medium'),
-        'lighting' => $this->normalizeLightingLevel($room['lighting'] ?? 'normal'),
+        'lighting' => $room_lighting,
         'terrain' => is_array($room['terrain'] ?? NULL) ? $room['terrain'] : [],
         'hexes' => $topology_hexes,
         'hex_bounds' => [
