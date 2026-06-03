@@ -28,6 +28,9 @@ class MapVisualStateProjector {
       $active_room_id = (string) array_key_first($rooms);
     }
 
+    $object_definitions = $this->normalizeObjectDefinitions($dungeon_payload);
+    $entity_hex_objects = $this->buildEntityHexObjectsIndex($dungeon_payload, $object_definitions);
+
     $topology_rooms = [];
     $visibility_room_states = [];
     $discovered_room_ids = [];
@@ -119,6 +122,9 @@ class MapVisualStateProjector {
           : in_array($hex_id, $visible_hex_ids, TRUE);
         $is_discovered = $room_state['explored'] || $is_visible || $room_id === $active_room_id;
 
+        $authored_objects = $this->normalizeHexObjects($hex, $room_id, $hex_q, $hex_r);
+        $derived_objects = $entity_hex_objects[$room_id]["{$hex_q}:{$hex_r}"] ?? [];
+
         $hex_index["{$hex_q}:{$hex_r}"] = [
           'hex_id' => $hex_id,
           'q' => $hex_q,
@@ -129,7 +135,7 @@ class MapVisualStateProjector {
           'is_entry' => $entry_q !== NULL && $entry_r !== NULL && $hex_q === $entry_q && $hex_r === $entry_r,
           'is_visible' => $is_visible,
           'is_discovered' => $is_discovered,
-          'objects' => $this->normalizeHexObjects($hex, $room_id, $hex_q, $hex_r),
+          'objects' => $this->mergeHexObjectLists($authored_objects, $derived_objects),
         ];
       }
 
@@ -147,6 +153,8 @@ class MapVisualStateProjector {
               : in_array($hex_id, $visible_hex_ids, TRUE);
             $is_discovered = $room_state['explored'] || $is_visible || $room_id === $active_room_id;
 
+            $derived_objects = $entity_hex_objects[$room_id]["{$q}:{$r}"] ?? [];
+
             $hex_index[$key] = [
               'hex_id' => $hex_id,
               'q' => $q,
@@ -157,7 +165,7 @@ class MapVisualStateProjector {
               'is_entry' => $entry_q !== NULL && $entry_r !== NULL && $q === $entry_q && $r === $entry_r,
               'is_visible' => $is_visible,
               'is_discovered' => $is_discovered,
-              'objects' => [],
+              'objects' => $this->mergeHexObjectLists([], $derived_objects),
             ];
           }
         }
@@ -211,7 +219,6 @@ class MapVisualStateProjector {
       }
     }
 
-    $object_definitions = $this->normalizeObjectDefinitions($dungeon_payload);
     $connections = $this->normalizeConnections($dungeon_payload, $topology_rooms);
     $topology_rooms = $this->attachRoomExits($topology_rooms, $connections);
     $occupants = $this->normalizeOccupants(
@@ -591,6 +598,110 @@ class MapVisualStateProjector {
     }
 
     return $objects;
+  }
+
+  /**
+   * Derive hex "objects" from entities (items/props) when room-authored objects are absent.
+   */
+  protected function buildEntityHexObjectsIndex(array $dungeon_payload, array $object_definitions): array {
+    $index = [];
+
+    foreach ((is_array($dungeon_payload['entities'] ?? NULL) ? $dungeon_payload['entities'] : []) as $entity) {
+      if (!is_array($entity)) {
+        continue;
+      }
+
+      $placement = is_array($entity['placement'] ?? NULL) ? $entity['placement'] : [];
+      $hex = is_array($placement['hex'] ?? NULL) ? $placement['hex'] : [];
+      $room_id = trim((string) ($placement['room_id'] ?? ''));
+      if ($room_id === '') {
+        continue;
+      }
+
+      $q = (int) ($hex['q'] ?? 0);
+      $r = (int) ($hex['r'] ?? 0);
+
+      $entity_type = strtolower(trim((string) ($entity['entity_type'] ?? 'unknown')));
+      if ($this->resolveVisualLayer($entity_type) !== 'props') {
+        continue;
+      }
+
+      $object_instance_id = trim((string) ($entity['entity_instance_id'] ?? $entity['instance_id'] ?? $entity['id'] ?? ''));
+      if ($object_instance_id === '') {
+        continue;
+      }
+
+      $content_id = trim((string) ($entity['entity_ref']['content_id'] ?? ''));
+      $definition = $content_id !== '' ? ($object_definitions[$content_id] ?? []) : [];
+      $metadata = is_array($entity['state']['metadata'] ?? NULL) ? $entity['state']['metadata'] : [];
+
+      $object_id = $content_id !== '' ? $content_id : $object_instance_id;
+      $hex_id = $this->deriveHexId($room_id, $q, $r);
+
+      $orientation = trim((string) ($placement['orientation'] ?? $metadata['orientation'] ?? $definition['visual']['orientation'] ?? 'n'));
+      if ($orientation === '') {
+        $orientation = 'n';
+      }
+      $orientation = strtolower($orientation);
+
+      $movement = is_array($definition['movement'] ?? NULL) ? $definition['movement'] : [];
+      $passable = array_key_exists('passable', $movement) ? (bool) $movement['passable'] : TRUE;
+      $blocks_movement = array_key_exists('blocks_movement', $movement) ? (bool) $movement['blocks_movement'] : (!$passable);
+
+      $visual = is_array($definition['visual'] ?? NULL) ? $definition['visual'] : [];
+      $sprite_id = (string) ($metadata['sprite_id'] ?? $visual['sprite_id'] ?? $object_id);
+
+      $index[$room_id]["{$q}:{$r}"][] = [
+        'object_id' => $object_id,
+        'object_instance_id' => $object_instance_id,
+        'label' => (string) ($metadata['display_name'] ?? $metadata['name'] ?? $definition['label'] ?? $object_id),
+        'category' => (string) ($definition['category'] ?? $entity_type ?: 'item'),
+        'description' => (string) ($metadata['description'] ?? ''),
+        'placement' => [
+          'room_id' => $room_id,
+          'hex_id' => $hex_id,
+          'q' => $q,
+          'r' => $r,
+        ],
+        'orientation' => $orientation,
+        'passable' => $passable,
+        'blocks_movement' => $blocks_movement,
+        'movable' => FALSE,
+        'collectible' => FALSE,
+        'visual' => [
+          'sprite_id' => $sprite_id,
+          'size' => (string) ($visual['size'] ?? 'medium'),
+          'color' => isset($visual['color']) ? (string) $visual['color'] : NULL,
+        ],
+      ];
+    }
+
+    return $index;
+  }
+
+  /**
+   * Merge object lists with stable de-duplication (by object_instance_id).
+   */
+  protected function mergeHexObjectLists(array $primary, array $secondary): array {
+    $out = [];
+    $seen = [];
+
+    foreach ([$primary, $secondary] as $list) {
+      foreach ($list as $object) {
+        if (!is_array($object)) {
+          continue;
+        }
+        $instance_id = trim((string) ($object['object_instance_id'] ?? ''));
+        $key = $instance_id !== '' ? $instance_id : json_encode($object);
+        if ($key === '' || isset($seen[$key])) {
+          continue;
+        }
+        $seen[$key] = TRUE;
+        $out[] = $object;
+      }
+    }
+
+    return $out;
   }
 
   /**
