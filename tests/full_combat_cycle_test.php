@@ -42,6 +42,15 @@ function assert_equals($expected, $actual, $label) {
   }
 }
 
+function has_logged_event_type(array $events, string $type): bool {
+  foreach ($events as $event) {
+    if (($event['type'] ?? '') === $type) {
+      return TRUE;
+    }
+  }
+  return FALSE;
+}
+
 function persist_cycle_dungeon($db, int $campaign_id, array $dungeon_data): void {
   $db->update('dc_campaign_dungeons')
     ->fields([
@@ -243,6 +252,8 @@ try {
   assert_true(empty($strike_result['game_state']['encounter_id']), 'Encounter id is cleared after full combat cycle');
   assert_equals(1, (int) ($strike_result['game_state']['round'] ?? 0), 'Room-scene encounter restarts at round 1');
   assert_true(!empty($strike_result['game_state']['last_encounter']), 'Last encounter summary retained after full cycle');
+  assert_true(has_logged_event_type($strike_result['events'] ?? [], 'round_start'), 'Round start event is logged after combat resolution');
+  assert_true(has_logged_event_type($strike_result['events'] ?? [], 'turn_start'), 'Turn start event is logged after combat resolution');
 
   $damage_row = $db->select('combat_damage_log', 'd')
     ->fields('d', ['amount', 'hp_after'])

@@ -253,6 +253,7 @@ try {
   assert_true(has_logged_event_type($end_turn_result['events'] ?? [], 'end_turn'), 'End turn event is logged');
   assert_true(has_logged_event_type($end_turn_result['events'] ?? [], 'npc_strike'), 'NPC strike event is logged');
   assert_true(has_logged_event_type($end_turn_result['events'] ?? [], 'round_start'), 'Round start event is logged');
+  assert_true(has_logged_event_type($end_turn_result['events'] ?? [], 'turn_start'), 'Turn start event is logged');
 
   $hero_row = $db->select('combat_participants', 'p')
     ->fields('p', ['hp', 'is_defeated'])
