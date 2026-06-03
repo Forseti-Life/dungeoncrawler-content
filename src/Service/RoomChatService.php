@@ -645,6 +645,12 @@ class RoomChatService {
       throw new \InvalidArgumentException('Room chat must be sent as the Talk encounter action.', 409);
     }
 
+    // Enforce the canonical encounter transcript prefix for non-player room lines
+    // during the encounter phase, so every persisted line includes turn/round/actor.
+    if ($channel === 'room' && $type !== 'player' && $encounter_prefix === NULL) {
+      $encounter_prefix = $this->buildEncounterPrefixForSpeaker($dungeon_data, $speaker);
+    }
+
     $message = $this->prefixEncounterChatText($message, $encounter_prefix);
 
     $this->recordDebugStage('validate_encounter_turn', $stage_started_at, [
@@ -4296,6 +4302,10 @@ class RoomChatService {
    * Append an internal turn-log system message to room chat.
    */
   protected function appendInternalRoomLogMessage(array &$dungeon_data, int|string $room_index, string $message, array $extra = [], ?string $encounter_prefix = NULL): array {
+    if ($encounter_prefix === NULL) {
+      $encounter_prefix = $this->buildEncounterPrefixForSpeaker($dungeon_data, 'System');
+    }
+
     $system_message = [
       'speaker' => 'System',
       'message' => $this->prefixEncounterChatText($message, $encounter_prefix),
@@ -10623,6 +10633,27 @@ PROMPT;
     }
 
     return NULL;
+  }
+
+  /**
+   * Build the canonical encounter transcript prefix for a specific speaker.
+   */
+  protected function buildEncounterPrefixForSpeaker(array $dungeon_data, string $speaker): ?string {
+    $game_state = is_array($dungeon_data['game_state'] ?? NULL) ? $dungeon_data['game_state'] : [];
+    if (($game_state['phase'] ?? '') !== 'encounter') {
+      return NULL;
+    }
+
+    $round = isset($game_state['round']) && is_numeric($game_state['round']) ? (int) $game_state['round'] : '?';
+    $turn_index_raw = isset($game_state['turn']['index']) && is_numeric($game_state['turn']['index']) ? (int) $game_state['turn']['index'] : NULL;
+    $turn_index_human = $turn_index_raw !== NULL ? ($turn_index_raw + 1) : '?';
+
+    $actor_name = trim((string) $speaker);
+    if ($actor_name === '') {
+      $actor_name = 'Unknown';
+    }
+
+    return sprintf('Turn %s: Round %s: Actor %s: ', (string) $turn_index_human, (string) $round, $actor_name);
   }
 
   /**

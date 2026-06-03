@@ -154,21 +154,21 @@ assert(!source.includes('removePlaceholder:'), 'dead removePlaceholder lifecycle
   updatePendingChatProgress.call(
     panel,
     pending,
-    'Initiative order is resolving nearby NPC turns...',
+    'Turn 1: Round 1: Actor Initiative Order: Resolving nearby NPC turns...',
     'npc-reactions',
     { speaker: 'Initiative Order', role: '' }
   );
   updatePendingChatProgress.call(
     panel,
     pending,
-    'Initiative order is resolving nearby NPC turns...',
+    'Turn 1: Round 1: Actor Initiative Order: Resolving nearby NPC turns...',
     'npc-reactions',
     { speaker: 'Initiative Order', role: '' }
   );
 
   assert(appended.length === 1, 'identical progress updates are not duplicated');
   assert(appended[0].speaker === 'Initiative Order', 'progress updates keep the server-provided Initiative Order speaker');
-  assert(appended[0].message === 'Initiative order is resolving nearby NPC turns...', 'progress updates use the stable initiative-order wording without Turn 3+');
+  assert(appended[0].message === 'Turn 1: Round 1: Actor Initiative Order: Resolving nearby NPC turns...', 'progress updates use the stable prefixed initiative-order wording');
   assert(appended[0].options.transient === false, 'progress updates are kept in chat instead of marked transient');
   assert(appended[0].options.lineId === 'chat-gm-progress-req-2', 'the first real progress update becomes the first transcript progress line');
   assert(pending.progressLineIds.length === 1, 'progress line history starts when a substantive progress update arrives');

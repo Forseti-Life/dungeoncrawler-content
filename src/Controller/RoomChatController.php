@@ -374,6 +374,8 @@ class RoomChatController extends ControllerBase {
     return $this->createStreamedTurnResponse(
       function (callable $emit) use ($campaign_id, $room_id, $speaker, $message, $type, $character_id, $channel, $client_request_id): void {
         $this->emitProgressUpdate($emit, $client_request_id, 'room_request_started', [
+          'campaign_id' => $campaign_id,
+          'room_id' => $room_id,
           'channel' => $channel,
         ]);
 
@@ -416,7 +418,11 @@ class RoomChatController extends ControllerBase {
             $channel,
             TRUE,
             FALSE,
-            $this->buildStreamProgressCallback($emit, $client_request_id)
+            $this->buildStreamProgressCallback($emit, $client_request_id, [
+              'campaign_id' => $campaign_id,
+              'room_id' => $room_id,
+              'channel' => $channel,
+            ])
           );
         }
 
@@ -483,7 +489,11 @@ class RoomChatController extends ControllerBase {
           $character_id,
           $channel,
           TRUE,
-          $this->buildStreamProgressCallback($emit, $client_request_id)
+          $this->buildStreamProgressCallback($emit, $client_request_id, [
+            'campaign_id' => $campaign_id,
+            'room_id' => $room_id,
+            'channel' => $channel,
+          ])
         );
 
         $this->emitStreamedTurnResult(
@@ -546,13 +556,16 @@ class RoomChatController extends ControllerBase {
   /**
    * Build a shared streaming progress callback.
    */
-  protected function buildStreamProgressCallback(callable $emit, string $client_request_id): callable {
-    return function (array $progress) use ($emit, $client_request_id): void {
+  protected function buildStreamProgressCallback(callable $emit, string $client_request_id, array $base_context = []): callable {
+    return function (array $progress) use ($emit, $client_request_id, $base_context): void {
+      $progress_context = is_array($progress['context'] ?? NULL) ? $progress['context'] : [];
+      $context = $base_context + $progress_context;
+
       $this->emitProgressUpdate(
         $emit,
         $client_request_id,
         (string) ($progress['stage'] ?? ''),
-        is_array($progress['context'] ?? NULL) ? $progress['context'] : []
+        $context
       );
     };
   }
@@ -594,6 +607,8 @@ class RoomChatController extends ControllerBase {
 
     if (!empty($result['npc_interjections_deferred']) && !empty($result['gm_response']['message'])) {
       $this->emitProgressUpdate($emit, $client_request_id, 'npc_reactions_generating', [
+        'campaign_id' => $campaign_id,
+        'room_id' => $room_id,
         'channel' => $channel,
       ]);
       $npc_turn_result = $this->chatService->completeDeferredNpcInterjections(
@@ -727,65 +742,75 @@ class RoomChatController extends ControllerBase {
    * Convert service/controller progress stages into UI-facing progress text.
    */
   protected function buildProgressEventData(string $stage, string $client_request_id, array $context = []): ?array {
+    $channel = (string) ($context['channel'] ?? 'room');
+    $campaign_id = isset($context['campaign_id']) ? (int) $context['campaign_id'] : 0;
+
+    $data = NULL;
     switch ($stage) {
       case 'room_request_started':
-        return [
-          'message' => !empty($context['channel']) && $context['channel'] !== 'room'
-            ? 'Turn 1: Narrator is reviewing what you just said...'
-            : 'Turn 1: Narrator is reviewing the room and what you just said...',
+        $data = [
+          'message' => $channel !== 'room'
+            ? 'Reviewing what you just said...'
+            : 'Reviewing the room and what you just said...',
           'phase' => 'reviewing-room',
           'speaker' => 'Narrator',
           'client_request_id' => $client_request_id,
         ];
+        break;
 
       case 'conversation_persisted':
-        return [
-          'message' => 'Turn 1: Narrator is updating conversation state...',
+        $data = [
+          'message' => 'Updating conversation state...',
           'phase' => 'updating-conversation',
           'speaker' => 'Narrator',
           'client_request_id' => $client_request_id,
         ];
+        break;
 
       case 'conversation_bridged':
-        return [
-          'message' => 'Turn 1: Narrator is syncing the scene context...',
+        $data = [
+          'message' => 'Syncing the scene context...',
           'phase' => 'syncing-context',
           'speaker' => 'Narrator',
           'client_request_id' => $client_request_id,
         ];
+        break;
 
       case 'npc_context_prepared':
-        return [
-          'message' => !empty($context['channel']) && $context['channel'] !== 'room'
-            ? 'Turn 1: Narrator is checking the active participants...'
-            : 'Turn 1: Narrator is checking who is active in the scene...',
+        $data = [
+          'message' => $channel !== 'room'
+            ? 'Checking the active participants...'
+            : 'Checking who is active in the scene...',
           'phase' => 'checking-reactions',
           'speaker' => 'Narrator',
           'client_request_id' => $client_request_id,
         ];
+        break;
 
       case 'gm_reply_generating':
-        return [
-          'message' => !empty($context['channel']) && $context['channel'] !== 'room'
-            ? 'Turn 1: Narrator is preparing the reply...'
-            : 'Turn 1: Narrator is preparing the scene...',
+        $data = [
+          'message' => $channel !== 'room'
+            ? 'Preparing the reply...'
+            : 'Preparing the scene...',
           'phase' => 'drafting-response',
           'speaker' => 'Narrator',
           'client_request_id' => $client_request_id,
         ];
+        break;
 
       case 'npc_reactions_generating':
-        return [
-          'message' => 'Initiative order is resolving nearby NPC turns...',
+        $data = [
+          'message' => 'Resolving nearby NPC turns...',
           'phase' => 'npc-reactions',
           'speaker' => 'Initiative Order',
           'client_request_id' => $client_request_id,
         ];
+        break;
 
       case 'queued_continuation_started':
       case 'queued_messages_loaded':
         $queued_count = max(1, (int) ($context['queued_player_count'] ?? 1));
-        return [
+        $data = [
           'message' => $queued_count === 1
             ? 'Thinking about what you just said...'
             : "Thinking about the {$queued_count} things you just said...",
@@ -793,9 +818,46 @@ class RoomChatController extends ControllerBase {
           'speaker' => 'System',
           'client_request_id' => $client_request_id,
         ];
+        break;
     }
 
-    return NULL;
+    if ($data === NULL) {
+      return NULL;
+    }
+
+    if ($campaign_id > 0) {
+      $data['message'] = $this->prefixEncounterProgressMessage(
+        $campaign_id,
+        (string) ($data['speaker'] ?? 'System'),
+        (string) ($data['message'] ?? '')
+      );
+    }
+
+    return $data;
+  }
+
+  protected function isEncounterPrefixedMessage(string $content): bool {
+    return (bool) preg_match('/^Turn\s+(?:\d+|\?)\:\s+Round\s+(?:\d+|\?)\:\s+Actor\s+.*\:\s+/u', $content);
+  }
+
+  protected function prefixEncounterProgressMessage(int $campaign_id, string $speaker, string $message): string {
+    $message = trim($message);
+    if ($message === '' || $this->isEncounterPrefixedMessage($message)) {
+      return $message;
+    }
+
+    $state = $this->coordinator->getFullState($campaign_id);
+    $round = is_array($state) ? ($state['round'] ?? ($state['game_state']['round'] ?? '?')) : '?';
+    $turn = is_array($state) ? ($state['turn'] ?? ($state['game_state']['turn'] ?? [])) : [];
+    $turn_index_raw = is_array($turn) && isset($turn['index']) && is_numeric($turn['index']) ? (int) $turn['index'] : NULL;
+    $turn_index_human = $turn_index_raw !== NULL ? ($turn_index_raw + 1) : '?';
+
+    $actor_name = trim($speaker);
+    if ($actor_name === '') {
+      $actor_name = 'Unknown';
+    }
+
+    return sprintf('Turn %s: Round %s: Actor %s: %s', (string) $turn_index_human, (string) $round, $actor_name, $message);
   }
 
   /**

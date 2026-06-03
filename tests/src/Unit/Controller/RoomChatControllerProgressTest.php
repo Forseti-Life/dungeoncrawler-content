@@ -53,40 +53,51 @@ class RoomChatControllerProgressTest extends UnitTestCase {
    * @covers ::buildProgressEventData
    */
   public function testBuildProgressEventDataMapsServiceStages(): void {
-    $controller = $this->createController($this->createMock(RoomChatService::class));
+
+    $coordinator = $this->createMock(GameCoordinatorService::class);
+    $coordinator->method('getFullState')->willReturn([
+      'success' => TRUE,
+      'round' => 1,
+      'turn' => ['index' => 0],
+      'game_state' => ['round' => 1, 'turn' => ['index' => 0]],
+    ]);
+
+    $controller = $this->createController($this->createMock(RoomChatService::class), NULL, $coordinator);
     $method = new \ReflectionMethod(RoomChatController::class, 'buildProgressEventData');
     $method->setAccessible(TRUE);
 
-    $started = $method->invoke($controller, 'room_request_started', 'req-0');
-    $persisted = $method->invoke($controller, 'conversation_persisted', 'req-1');
+    $started = $method->invoke($controller, 'room_request_started', 'req-0', ['campaign_id' => 63]);
+    $persisted = $method->invoke($controller, 'conversation_persisted', 'req-1', ['campaign_id' => 63]);
     $queued = $method->invoke($controller, 'queued_messages_loaded', 'req-2', [
+      'campaign_id' => 63,
       'queued_player_count' => 3,
     ]);
-    $npc_reactions = $method->invoke($controller, 'npc_reactions_generating', 'req-2b');
+    $npc_reactions = $method->invoke($controller, 'npc_reactions_generating', 'req-2b', ['campaign_id' => 63]);
     $private_started = $method->invoke($controller, 'room_request_started', 'req-private', [
+      'campaign_id' => 63,
       'channel' => 'whisper:npc-1',
     ]);
-    $unknown = $method->invoke($controller, 'unknown_stage', 'req-3');
+    $unknown = $method->invoke($controller, 'unknown_stage', 'req-3', ['campaign_id' => 63]);
 
     $this->assertSame('reviewing-room', $started['phase']);
-    $this->assertSame('Turn 1: Narrator is reviewing the room and what you just said...', $started['message']);
+    $this->assertSame('Turn 1: Round 1: Actor Narrator: Reviewing the room and what you just said...', $started['message']);
     $this->assertSame('req-0', $started['client_request_id']);
 
     $this->assertSame('updating-conversation', $persisted['phase']);
-    $this->assertSame('Turn 1: Narrator is updating conversation state...', $persisted['message']);
+    $this->assertSame('Turn 1: Round 1: Actor Narrator: Updating conversation state...', $persisted['message']);
     $this->assertSame('req-1', $persisted['client_request_id']);
 
     $this->assertSame('reviewing-queue', $queued['phase']);
-    $this->assertSame('Thinking about the 3 things you just said...', $queued['message']);
+    $this->assertSame('Turn 1: Round 1: Actor System: Thinking about the 3 things you just said...', $queued['message']);
     $this->assertSame('req-2', $queued['client_request_id']);
 
     $this->assertSame('npc-reactions', $npc_reactions['phase']);
     $this->assertSame('Initiative Order', $npc_reactions['speaker']);
-    $this->assertSame('Initiative order is resolving nearby NPC turns...', $npc_reactions['message']);
+    $this->assertSame('Turn 1: Round 1: Actor Initiative Order: Resolving nearby NPC turns...', $npc_reactions['message']);
     $this->assertSame('req-2b', $npc_reactions['client_request_id']);
 
     $this->assertSame('reviewing-room', $private_started['phase']);
-    $this->assertSame('Turn 1: Narrator is reviewing what you just said...', $private_started['message']);
+    $this->assertSame('Turn 1: Round 1: Actor Narrator: Reviewing what you just said...', $private_started['message']);
     $this->assertSame('req-private', $private_started['client_request_id']);
 
     $this->assertNull($unknown);

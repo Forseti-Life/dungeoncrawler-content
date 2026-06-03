@@ -16659,25 +16659,8 @@ import { SpriteService } from './SpriteService.js';
           this.showRoomBanner(room.name, subtitle || null);
         }
 
-        // Chat log messages
-        const meta = subtitle ? ` (${subtitle})` : '';
-        if (room.name) {
-          this.uiManager.appendChatLine('System', `📍 ${room.name}${meta}`, 'system');
-        }
-        if (room.description) {
-          this.uiManager.appendChatLine('System', room.description, 'system');
-        }
-        const occupantSummary = this.buildActiveRoomOccupantSummary();
-        if (occupantSummary) {
-          this.uiManager.appendChatLine('System', occupantSummary, 'system');
-        }
-
-        // Show active gameplay effects if any.
-        const effects = room.gameplay_state?.active_effects || [];
-        if (effects.length > 0) {
-          const effectNames = effects.map(e => e.name?.replace(/_/g, ' ') || 'unknown').join(', ');
-          this.uiManager.appendChatLine('System', `✨ Active effects: ${effectNames}`, 'system');
-        }
+        // Chat log messages are server-authoritative; do not inject local room
+        // description/system lines into the transcript.
       }
 
       this.renderDungeonStateInspector();
