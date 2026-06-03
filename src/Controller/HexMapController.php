@@ -2791,13 +2791,16 @@ class HexMapController extends ControllerBase {
       }
     }
 
+    $connections = is_array($decoded['hex_map']['connections'] ?? NULL) ? $decoded['hex_map']['connections'] : [];
+    $connections = $this->ensureRoomsHaveAtLeastOneExit($rooms, $connections, $active_room_id);
+
     $normalized_payload = [
       'schema_version' => (string) ($decoded['schema_version'] ?? '1.0.0'),
       'level_id' => (string) ($decoded['level_id'] ?? ''),
       'map_id' => (string) ($decoded['hex_map']['map_id'] ?? ''),
       'active_room_id' => $active_room_id,
       'rooms' => $rooms,
-      'connections' => is_array($decoded['hex_map']['connections'] ?? NULL) ? $decoded['hex_map']['connections'] : [],
+      'connections' => $connections,
       'entities' => array_values($entities),
       'object_definitions' => $object_definitions,
     ];
@@ -2811,6 +2814,93 @@ class HexMapController extends ControllerBase {
    * Orientation is used as a canonical "front" direction for object-facing
    * across definitions, room-authored objects, and placed entities.
    */
+  /**
+   * Enforce the invariant that every authored room has at least one exit.
+   *
+   * Exit data lives in hex_map.connections; if a dungeon is disconnected the v2
+   * navigation panel cannot function.
+   */
+  protected function ensureRoomsHaveAtLeastOneExit(array $rooms, array $connections, string $active_room_id): array {
+    $room_ids = array_values(array_filter(array_map('strval', array_keys($rooms))));
+    if ($room_ids === []) {
+      return $connections;
+    }
+
+    $adj = array_fill_keys($room_ids, 0);
+
+    foreach ($connections as $connection) {
+      if (!is_array($connection)) {
+        continue;
+      }
+
+      $from = '';
+      $to = '';
+
+      if (isset($connection['from']) && is_array($connection['from'])) {
+        $from = trim((string) ($connection['from']['room_id'] ?? $connection['from']['room'] ?? ''));
+      }
+      if ($from === '') {
+        $from = trim((string) ($connection['from_room_id'] ?? $connection['from_room'] ?? $connection['fromRoom'] ?? ''));
+      }
+
+      if (isset($connection['to']) && is_array($connection['to'])) {
+        $to = trim((string) ($connection['to']['room_id'] ?? $connection['to']['room'] ?? ''));
+      }
+      if ($to === '') {
+        $to = trim((string) ($connection['to_room_id'] ?? $connection['to_room'] ?? $connection['toRoom'] ?? ''));
+      }
+
+      if ($from !== '' && isset($adj[$from])) {
+        $adj[$from]++;
+      }
+      if ($to !== '' && isset($adj[$to])) {
+        $adj[$to]++;
+      }
+    }
+
+    $rooms_without_exits = [];
+    foreach ($adj as $room_id => $count) {
+      if ((int) $count <= 0) {
+        $rooms_without_exits[] = (string) $room_id;
+      }
+    }
+
+    if ($rooms_without_exits === []) {
+      return $connections;
+    }
+
+    if (count($room_ids) === 1 && count($connections) === 0) {
+      $room_id = $room_ids[0];
+      $hexes = is_array($rooms[$room_id]['hexes'] ?? NULL) ? $rooms[$room_id]['hexes'] : [];
+      $origin_hex = is_array($hexes[0] ?? NULL) ? $hexes[0] : ['q' => 0, 'r' => 0];
+      $q = (int) ($origin_hex['q'] ?? 0);
+      $r = (int) ($origin_hex['r'] ?? 0);
+
+      $this->getLogger('dungeoncrawler_hexmap')->warning('Hexmap injected self-exit for single-room dungeon payload: room_id=@room_id active_room_id=@active_room_id', [
+        '@room_id' => $room_id,
+        '@active_room_id' => $active_room_id,
+      ]);
+
+      $connections[] = [
+        'connection_id' => sprintf('%s:self-exit', $room_id),
+        'from_room' => $room_id,
+        'to_room' => $room_id,
+        'from_hex' => ['q' => $q, 'r' => $r],
+        'to_hex' => ['q' => $q, 'r' => $r],
+        'type' => 'open_passage',
+        'is_discovered' => TRUE,
+        'is_passable' => TRUE,
+      ];
+
+      return $connections;
+    }
+
+    throw new \InvalidArgumentException(sprintf(
+      'Invalid dungeon payload: rooms must have at least one exit; rooms without exits: %s',
+      implode(', ', $rooms_without_exits)
+    ));
+  }
+
   protected function ensurePayloadObjectOrientations(array $dungeon_payload): array {
     $default_orientation = self::DEFAULT_OBJECT_ORIENTATION;
 

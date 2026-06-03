@@ -388,7 +388,9 @@ class MapVisualStateProjector {
    */
   protected function normalizeConnections(array $dungeon_payload, array $rooms = []): array {
     $connections = [];
+    $idx = 0;
     foreach ((is_array($dungeon_payload['connections'] ?? NULL) ? $dungeon_payload['connections'] : []) as $connection) {
+      $idx++;
       if (!is_array($connection)) {
         continue;
       }
@@ -410,9 +412,27 @@ class MapVisualStateProjector {
       $to_q = (int) ($to_hex['q'] ?? 0);
       $to_r = (int) ($to_hex['r'] ?? 0);
 
+      $type = (string) ($connection['type'] ?? 'open_passage');
+
       $is_discovered = array_key_exists('is_discovered', $connection)
         ? (bool) $connection['is_discovered']
         : (array_key_exists('is_known', $connection) ? (bool) $connection['is_known'] : TRUE);
+
+      $connection_id = trim((string) ($connection['connection_id'] ?? $connection['id'] ?? ''));
+      if ($connection_id === '') {
+        $signature = [
+          'from_room_id' => $from_room_id,
+          'to_room_id' => $to_room_id,
+          'type' => $type,
+          'from_q' => $has_from_hex ? $from_q : NULL,
+          'from_r' => $has_from_hex ? $from_r : NULL,
+          'to_q' => $has_to_hex ? $to_q : NULL,
+          'to_r' => $has_to_hex ? $to_r : NULL,
+          'idx' => $idx,
+        ];
+        $hash = substr(sha1(json_encode($signature)), 0, 12);
+        $connection_id = sprintf('%s:%s:%s:%s', $from_room_id ?: 'unknown', $to_room_id ?: 'unknown', $type ?: 'open_passage', $hash);
+      }
 
       $normalized_from_hex_id = ($from_room_id !== '' && $has_from_hex)
         ? $this->deriveHexId($from_room_id, $from_q, $from_r, $from_hex)
@@ -422,7 +442,7 @@ class MapVisualStateProjector {
         : '';
 
       $connections[] = [
-        'connection_id' => (string) ($connection['connection_id'] ?? ''),
+        'connection_id' => $connection_id,
         'from_room_id' => $from_room_id,
         'to_room_id' => $to_room_id,
         'from_hex_id' => $normalized_from_hex_id,
@@ -439,7 +459,7 @@ class MapVisualStateProjector {
           'q' => $to_q,
           'r' => $to_r,
         ],
-        'type' => (string) ($connection['type'] ?? 'open_passage'),
+        'type' => $type,
         'is_discovered' => $is_discovered,
         'is_passable' => (bool) ($connection['is_passable'] ?? TRUE),
         'visibility_state' => $is_discovered ? 'visible' : 'hidden',
@@ -522,7 +542,8 @@ class MapVisualStateProjector {
       if (isset($rooms[$from_room_id]) && is_array($rooms[$from_room_id])) {
         $rooms[$from_room_id]['exits'][] = $exit_from;
       }
-      if (isset($rooms[$to_room_id]) && is_array($rooms[$to_room_id])) {
+      // Avoid duplicate exits for self-loop connections.
+      if ($to_room_id !== $from_room_id && isset($rooms[$to_room_id]) && is_array($rooms[$to_room_id])) {
         $rooms[$to_room_id]['exits'][] = $exit_to;
       }
     }
