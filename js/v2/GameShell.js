@@ -1556,10 +1556,9 @@ export class GameShell {
     }
 
     const room = this.getActiveRoomData();
-    const terrainValues = Array.isArray(room?.terrain)
-      ? room.terrain
-      : (room?.terrain?.type ? [room.terrain.type] : []);
-    const terrainType = terrainValues.map((value) => String(value || '').toLowerCase()).join(' ');
+    const terrainType = typeof room?.terrain?.type === 'string'
+      ? String(room.terrain.type).toLowerCase()
+      : '';
     if (terrainType.includes('wood') || terrainType.includes('tavern') || terrainType.includes('plank')) {
       return 'wooden_floor';
     }
@@ -1865,14 +1864,12 @@ export class GameShell {
     const inRoom = Boolean(activeRoomHex);
     const obstacleProfile = this.getObstacleMobilityAtHex(q, r);
     const terrainKey = this.resolveTerrainKey(obstacleProfile, inRoom);
-    const roomTerrainValues = Array.isArray(activeRoom?.terrain)
-      ? activeRoom.terrain
-      : (activeRoom?.terrain?.type ? [activeRoom.terrain.type] : []);
-    const roomTerrain = roomTerrainValues
-      .map((value) => String(value || '').trim())
-      .filter((value) => value && value !== 'unknown')
-      .join(', ');
-    const terrainLabel = roomTerrain ? `${terrainKey} (${roomTerrain})` : terrainKey;
+    const roomTerrain = typeof activeRoom?.terrain?.type === 'string'
+      ? String(activeRoom.terrain.type).trim()
+      : '';
+    const terrainLabel = roomTerrain && roomTerrain !== 'unknown'
+      ? `${terrainKey} (${roomTerrain})`
+      : terrainKey;
 
     return {
       q: Number(q),
@@ -1880,9 +1877,7 @@ export class GameShell {
       roomId: this.resolveActiveRoomId(),
       roomName: inRoom ? (activeRoom?.name || this.resolveActiveRoomId()) : `${activeRoom?.name || this.resolveActiveRoomId()} (outside footprint)`,
       terrain: terrainLabel,
-      lighting: typeof activeRoom?.lighting === 'string'
-        ? activeRoom.lighting
-        : (activeRoom?.lighting?.level || 'unknown'),
+      lighting: typeof activeRoom?.lighting === 'string' ? activeRoom.lighting : 'unknown',
       elevationFt: inRoom && Number.isFinite(Number(activeRoomHex?.elevation_ft)) ? Number(activeRoomHex.elevation_ft) : null,
       passability: this.describePassability(obstacleProfile, inRoom),
       entities: this.describeEntitiesAtHex(q, r),
@@ -2714,6 +2709,13 @@ function _mergeRoomMetadata(visualRoom = {}, apiRoom = {}, roomId = '') {
     }
   });
 
+  if (typeof merged.lighting !== 'string') {
+    delete merged.lighting;
+  }
+  if (!_isPlainObject(merged.terrain) || typeof merged.terrain.type !== 'string') {
+    delete merged.terrain;
+  }
+
   if (!_hasMeaningfulValue(merged.subtitle)) {
     merged.subtitle = _buildRoomSubtitle(merged);
   }
@@ -2726,16 +2728,9 @@ function _buildRoomSubtitle(room = {}) {
     return '';
   }
 
-  const terrainValues = Array.isArray(room?.terrain)
-    ? room.terrain
-    : (room?.terrain?.type ? [room.terrain.type] : []);
-  const terrainLabel = terrainValues
-    .map((value) => String(value || '').replace(/_/g, ' ').trim())
-    .filter(Boolean)
-    .join(', ');
-  const lightingValue = typeof room?.lighting === 'string'
-    ? room.lighting
-    : (room?.lighting?.level || '');
+  const terrainValue = typeof room?.terrain?.type === 'string' ? room.terrain.type : '';
+  const terrainLabel = String(terrainValue || '').replace(/_/g, ' ').trim();
+  const lightingValue = typeof room?.lighting === 'string' ? room.lighting : '';
   const lightingLabel = lightingValue && lightingValue !== 'normal'
     ? `Lighting: ${String(lightingValue).replace(/_/g, ' ')}`
     : '';
