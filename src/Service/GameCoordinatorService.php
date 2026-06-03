@@ -196,6 +196,19 @@ class GameCoordinatorService {
     $game_state = $this->ensureGameState($dungeon_data);
     $phase = $game_state['phase'] ?? self::DEFAULT_ACTIVE_PHASE;
 
+    // Bootstrap the initial room-entered encounter framework when needed.
+    // getFullState() already does this; processAction() must also do it so the
+    // first action cannot fail with "No active encounter".
+    $bootstrap_events = $this->bootstrapInitialRoomEntry($campaign_id, $dungeon_data, $game_state);
+    if ($bootstrap_events !== []) {
+      $game_state['event_log_cursor'] = max(array_map(
+        static fn (array $event): int => (int) ($event['id'] ?? 0),
+        $bootstrap_events
+      ));
+      $dungeon_data['game_state'] = $game_state;
+      $this->persistDungeonData($campaign_id, $dungeon_data);
+    }
+
     // 2. Optimistic concurrency check.
     $client_version = $intent['client_state_version'] ?? NULL;
     if ($client_version !== NULL && $client_version !== ($game_state['state_version'] ?? 0)) {
@@ -235,9 +248,12 @@ class GameCoordinatorService {
 
     // 6. Log events.
     $events_to_log = $action_result['events'] ?? [];
-    $logged_events = [];
+    $logged_events = $bootstrap_events ?? [];
     if (!empty($events_to_log)) {
-      $logged_events = $this->eventLogger->logEvents($dungeon_data, $events_to_log);
+      $logged_events = array_merge(
+        $logged_events,
+        $this->eventLogger->logEvents($dungeon_data, $events_to_log)
+      );
     }
     // 7. Handle phase transitions.
     $phase_transition = $action_result['phase_transition'] ?? NULL;
