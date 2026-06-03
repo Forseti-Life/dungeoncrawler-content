@@ -103,6 +103,7 @@ class MapVisualStateProjector {
 
     $object_definitions = $this->normalizeObjectDefinitions($dungeon_payload);
     $connections = $this->normalizeConnections($dungeon_payload, $topology_rooms);
+    $topology_rooms = $this->attachRoomExits($topology_rooms, $connections);
     $occupants = $this->normalizeOccupants(
       $dungeon_payload,
       $active_room_id,
