@@ -10482,6 +10482,10 @@ import { SpriteService } from './SpriteService.js';
       this.currentUserId = Number(settings?.user?.uid || 0);
 
       this.initPixiApp(container[0]);
+      // Screen-space HUD helpers (compass + legend) are safe to render immediately after Pixi init.
+      this.drawCompassRose();
+      this.showHexIndicatorLegend();
+
       this.initECS(); // Initialize ECS architecture
       this.generateHexGrid();
       this.setupControls();
@@ -10917,7 +10921,17 @@ import { SpriteService } from './SpriteService.js';
      * Draw compass rose in the bottom-right corner of the canvas (screen-space).
      */
     drawCompassRose: function () {
-      if (!this.hudContainer || !this.app) return;
+      if (!this.hudContainer || !this.app || !window.PIXI) return;
+
+      if (this._compassRose) {
+        this.hudContainer.removeChild(this._compassRose);
+        this._compassRose.destroy({ children: true });
+        this._compassRose = null;
+      }
+
+      const container = new PIXI.Container();
+      container.name = 'compassRose';
+      container.eventMode = 'none';
 
       const g = new PIXI.Graphics();
       const cx = this.app.screen.width - 50;
@@ -10972,21 +10986,164 @@ import { SpriteService } from './SpriteService.js';
         g.endFill();
       });
 
-      this.hudContainer.addChild(g);
+      container.addChild(g);
 
       // Cardinal labels
       const labelStyle = { fontFamily: 'Arial', fontSize: 11, fill: 0xe2e8f0, fontWeight: 'bold' };
       const labels = edgeDirections.map(({ key, angle }) => ({
         text: key,
         x: cx + Math.cos(angle) * (r + 11),
-        y: cy + Math.sin(angle) * (r + 11) - 6,
+        y: cy + Math.sin(angle) * (r + 11),
       }));
       labels.forEach(({ text, x, y }) => {
         const label = new PIXI.Text(text, labelStyle);
+        label.anchor?.set?.(0.5);
         label.x = x;
         label.y = y;
-        this.hudContainer.addChild(label);
+        container.addChild(label);
       });
+
+      this.hudContainer.addChild(container);
+      this._compassRose = container;
+    },
+
+    showHexIndicatorLegend: function () {
+      if (!this.hudContainer || !this.app || !window.PIXI) {
+        return;
+      }
+
+      if (this._hexLegendHud) {
+        this.hudContainer.removeChild(this._hexLegendHud);
+        this._hexLegendHud.destroy({ children: true });
+        this._hexLegendHud = null;
+      }
+
+      const container = new PIXI.Container();
+      container.name = 'hexLegend';
+      container.eventMode = 'none';
+
+      const width = 230;
+      const height = 128;
+      const x = 12;
+      const y = Math.max(12, this.app.screen.height - height - 12);
+      container.x = x;
+      container.y = y;
+
+      const bg = new PIXI.Graphics();
+      bg.beginFill(0x0b1020, 0.72);
+      bg.lineStyle(1, 0x334155, 0.75);
+      bg.drawRoundedRect(0, 0, width, height, 8);
+      bg.endFill();
+      container.addChild(bg);
+
+      const title = new PIXI.Text('Hex Indicators', {
+        fontFamily: 'Arial',
+        fontSize: 12,
+        fill: 0xe2e8f0,
+        fontWeight: 'bold',
+      });
+      title.x = 10;
+      title.y = 8;
+      container.addChild(title);
+
+      const lineStyle = {
+        fontFamily: 'Arial',
+        fontSize: 11,
+        fill: 0xcbd5e1,
+      };
+
+      const rows = [
+        { key: 'entry', label: 'Entry hex', draw: (g) => {
+          g.lineStyle(1, 0x0b1020, 0.75);
+          g.beginFill(0x22c55e, 0.95);
+          g.drawPolygon([0, -6, -6, 6, 6, 6]);
+          g.endFill();
+        }},
+        { key: 'not-visible', label: 'Not visible', draw: (g) => {
+          g.lineStyle(2, 0x94a3b8, 0.8);
+          g.drawCircle(0, 0, 6);
+        }},
+        { key: 'not-discovered', label: 'Not discovered', draw: (g, containerRow) => {
+          const disk = new PIXI.Graphics();
+          disk.beginFill(0x0b1020, 0.85);
+          disk.lineStyle(1, 0x94a3b8, 0.45);
+          disk.drawCircle(0, 0, 8);
+          disk.endFill();
+          containerRow.addChild(disk);
+
+          const t = new PIXI.Text('?', {
+            fontFamily: 'Arial',
+            fontSize: 12,
+            fill: 0xe2e8f0,
+            fontWeight: 'bold',
+          });
+          t.anchor?.set?.(0.5);
+          containerRow.addChild(t);
+        }},
+        { key: 'objects', label: 'Object count', draw: (g, containerRow) => {
+          const disk = new PIXI.Graphics();
+          disk.beginFill(0xa855f7, 0.95);
+          disk.lineStyle(1, 0x0b1020, 0.75);
+          disk.drawCircle(0, 0, 8);
+          disk.endFill();
+          containerRow.addChild(disk);
+
+          const t = new PIXI.Text('3', {
+            fontFamily: 'Arial',
+            fontSize: 11,
+            fill: 0x0b1020,
+            fontWeight: 'bold',
+          });
+          t.anchor?.set?.(0.5);
+          containerRow.addChild(t);
+        }},
+        { key: 'elevation', label: 'Elevation', draw: (g, containerRow) => {
+          const t = new PIXI.Text('+10ft', {
+            fontFamily: 'Arial',
+            fontSize: 11,
+            fill: 0xe2e8f0,
+            fontWeight: 'bold',
+          });
+          t.anchor?.set?.(0.5);
+          containerRow.addChild(t);
+        }},
+      ];
+
+      const startY = 30;
+      const rowH = 18;
+      rows.forEach((row, idx) => {
+        const rowContainer = new PIXI.Container();
+        rowContainer.eventMode = 'none';
+        rowContainer.x = 12;
+        rowContainer.y = startY + idx * rowH;
+
+        if (row.draw.length <= 1) {
+          const icon = new PIXI.Graphics();
+          icon.eventMode = 'none';
+          row.draw(icon);
+          rowContainer.addChild(icon);
+        } else {
+          const icon = new PIXI.Graphics();
+          icon.eventMode = 'none';
+          row.draw(icon, rowContainer);
+        }
+
+        rowContainer.children.forEach((child) => {
+          if (child && typeof child === 'object') {
+            child.x = 8;
+            child.y = 8;
+          }
+        });
+
+        const label = new PIXI.Text(row.label, lineStyle);
+        label.x = 28;
+        label.y = 0;
+        rowContainer.addChild(label);
+        container.addChild(rowContainer);
+      });
+
+      this.hudContainer.addChild(container);
+      this._hexLegendHud = container;
     },
 
     /**
@@ -16139,6 +16296,156 @@ import { SpriteService } from './SpriteService.js';
         }
         this.resetHexAppearance(hex);
       });
+
+      // Always-on per-hex glyphs (entry/visibility/discovery/objects/elevation).
+      this.renderHexAttributeIndicatorsForActiveRoom();
+    },
+
+    _ensureHexIndicatorLayer: function () {
+      if (!this.propsContainer || !window.PIXI) {
+        return null;
+      }
+
+      if (this._hexIndicatorLayer) {
+        return this._hexIndicatorLayer;
+      }
+
+      const layer = new PIXI.Container();
+      layer.name = 'hexIndicators';
+      layer.eventMode = 'none';
+      this.propsContainer.addChild(layer);
+      this._hexIndicatorLayer = layer;
+      return layer;
+    },
+
+    renderHexAttributeIndicatorsForActiveRoom: function () {
+      const layer = this._ensureHexIndicatorLayer?.();
+      if (!layer) {
+        return;
+      }
+
+      const room = this.getActiveRoomData?.();
+      if (!room || !Array.isArray(room.hexes)) {
+        layer.removeChildren();
+        return;
+      }
+
+      layer.removeChildren();
+
+      const size = Number(this.config?.hexSize || 0) || 30;
+      room.hexes.forEach((roomHex) => {
+        const q = Number(roomHex?.q);
+        const r = Number(roomHex?.r);
+        if (!Number.isFinite(q) || !Number.isFinite(r)) {
+          return;
+        }
+
+        const pos = this.axialToPixel(q, r, size);
+        this._renderHexAttributeIndicatorsAt(layer, pos, size, roomHex);
+      });
+    },
+
+    _renderHexAttributeIndicatorsAt: function (layer, pos, size, roomHex) {
+      if (!layer || !pos || !window.PIXI || !roomHex) {
+        return;
+      }
+
+      const isDiscovered = roomHex?.is_discovered !== false;
+      const isVisible = roomHex?.is_visible !== false;
+      const isEntry = roomHex?.is_entry === true;
+
+      const objects = Array.isArray(roomHex?.objects) ? roomHex.objects : [];
+      const objectCount = objects.length;
+
+      const elev = Number(roomHex?.elevation_ft);
+      const hasElevation = Number.isFinite(elev) && Math.abs(elev) >= 0.5;
+
+      const alpha = !isDiscovered ? 0.55 : (isVisible ? 0.95 : 0.7);
+
+      const root = new PIXI.Container();
+      root.name = 'hexIndicator';
+      root.x = pos.x;
+      root.y = pos.y;
+      root.eventMode = 'none';
+
+      if (!isDiscovered) {
+        const badge = new PIXI.Graphics();
+        badge.beginFill(0x0b1020, 0.8);
+        badge.lineStyle(1, 0x94a3b8, 0.35);
+        badge.drawCircle(0, 0, Math.max(10, size * 0.18));
+        badge.endFill();
+
+        const text = new PIXI.Text('?', {
+          fontFamily: 'Arial',
+          fontSize: Math.max(12, size * 0.22),
+          fill: 0xe2e8f0,
+          fontWeight: 'bold',
+        });
+        text.anchor?.set?.(0.5);
+
+        root.addChild(badge);
+        root.addChild(text);
+        layer.addChild(root);
+        return;
+      }
+
+      if (!isVisible) {
+        const g = new PIXI.Graphics();
+        g.lineStyle(2, 0x94a3b8, 0.55 * alpha);
+        g.drawCircle(-size * 0.48, -size * 0.48, Math.max(6, size * 0.11));
+        root.addChild(g);
+      }
+
+      if (isEntry) {
+        const g = new PIXI.Graphics();
+        g.lineStyle(1, 0x0b1020, 0.55 * alpha);
+        g.beginFill(0x22c55e, 0.9 * alpha);
+        const tipY = -size * 0.18;
+        const baseY = size * 0.14;
+        const halfW = size * 0.16;
+        g.drawPolygon([0, tipY, -halfW, baseY, halfW, baseY]);
+        g.endFill();
+        root.addChild(g);
+      }
+
+      if (objectCount > 0) {
+        const label = objectCount > 9 ? '9+' : String(objectCount);
+        const g = new PIXI.Graphics();
+        g.beginFill(0xa855f7, 0.9 * alpha);
+        g.lineStyle(1, 0x0b1020, 0.55 * alpha);
+        g.drawCircle(size * 0.48, -size * 0.48, Math.max(8, size * 0.13));
+        g.endFill();
+
+        const text = new PIXI.Text(label, {
+          fontFamily: 'Arial',
+          fontSize: Math.max(10, size * 0.18),
+          fill: 0x0b1020,
+          fontWeight: 'bold',
+        });
+        text.anchor?.set?.(0.5);
+        text.x = size * 0.48;
+        text.y = -size * 0.48;
+
+        root.addChild(g);
+        root.addChild(text);
+      }
+
+      if (hasElevation) {
+        const sign = elev > 0 ? '+' : '';
+        const text = new PIXI.Text(`${sign}${Math.round(elev)}ft`, {
+          fontFamily: 'Arial',
+          fontSize: Math.max(9, size * 0.16),
+          fill: 0xe2e8f0,
+          fontWeight: 'bold',
+        });
+        text.anchor?.set?.(0, 1);
+        text.x = -size * 0.58;
+        text.y = size * 0.58;
+        text.alpha = 0.95 * alpha;
+        root.addChild(text);
+      }
+
+      layer.addChild(root);
     },
 
     /**
