@@ -69,7 +69,8 @@ assert(
 );
 assert(
   actionRailPanelSource.includes('handleActionRailDirectAction(actionKey, button = null)')
-    && actionRailPanelSource.includes("this.bus.emit('user:action-selected', { actionKey, button });"),
+    && actionRailPanelSource.includes("this.bus.emit('user:action-selected', { actionKey:")
+    && actionRailPanelSource.includes(', button });'),
   'v2 action rail Search emits the clicked button to the action executor'
 );
 assert(
@@ -80,9 +81,9 @@ assert(
   'v2 hexmap shim exposes runtime actor context so exploration Search can unlock without ECS combat state'
 );
 assert(
-  hexmapV2Source.includes("./v2/GameShell.js?v=20260601-v2-canonical-contracts-2")
+  hexmapV2Source.includes("./v2/GameShell.js?v=20260603-v2-canonical-contracts-3")
     && gameShellSource.includes("./systems/EncounterSystem.js?v=20260601-v2-search-framework-2")
-    && gameShellSource.includes("./panels/ChatPanel.js?v=20260601-v2-search-framework-3"),
+    && gameShellSource.includes("./panels/ChatPanel.js?v=20260603-v2-chat-prefix-1"),
   'v2 entrypoint cache-busts GameShell imports when action-rail runtime contracts change'
 );
 assert(

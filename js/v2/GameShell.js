@@ -33,7 +33,7 @@ import { PortraitPanel } from './panels/PortraitPanel.js';
 import { MerchantPanel } from './panels/MerchantPanel.js';
 import { CombatPanel } from './panels/CombatPanel.js';
 import { ActionRailPanel } from './panels/ActionRailPanel.js';
-import { ChatPanel } from './panels/ChatPanel.js?v=20260601-v2-search-framework-3';
+import { ChatPanel } from './panels/ChatPanel.js?v=20260603-v2-chat-prefix-1';
 import { QuestPanel } from './panels/QuestPanel.js';
 import { InventoryPanel } from './panels/InventoryPanel.js';
 import { CharacterPanel } from './panels/CharacterPanel.js';
@@ -2755,25 +2755,25 @@ function _buildRoomSubtitle(room = {}) {
 function _buildRoomConnections(roomId, mapVisualState) {
   const topology = mapVisualState?.topology ?? {};
   const rooms = topology.rooms ?? {};
-  const allConnections = Array.isArray(topology.connections) ? topology.connections : [];
+  const room = rooms?.[roomId] ?? null;
+  const exits = Array.isArray(room?.exits) ? room.exits : [];
 
   const result = [];
   const seen = new Set();
 
-  allConnections.forEach((conn) => {
-    if (!conn.is_passable) return;
+  exits.forEach((exit) => {
+    if (!exit?.is_passable) return;
 
-    let targetRoomId = null;
-    if (conn.from_room_id === roomId) targetRoomId = conn.to_room_id;
-    else if (conn.to_room_id === roomId) targetRoomId = conn.from_room_id;
-    if (!targetRoomId || seen.has(conn.connection_id)) return;
+    const targetRoomId = String(exit?.target_room_id || '').trim();
+    const connectionId = String(exit?.connection_id || '').trim();
+    if (!targetRoomId || !connectionId || seen.has(connectionId)) return;
 
-    seen.add(conn.connection_id);
+    seen.add(connectionId);
     result.push({
-      connection_id: conn.connection_id,
+      connection_id: connectionId,
       room_id:       targetRoomId,
       room_name:     rooms[targetRoomId]?.name ?? targetRoomId,
-      type:          conn.type ?? 'open_passage',
+      type:          exit.type ?? 'open_passage',
     });
   });
 
