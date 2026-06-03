@@ -82,6 +82,12 @@ export class HexCanvas {
     this._unsubs = [];
     this._wheelHandler = null;
     this._leaveHandler = null;
+
+    // World-space hover inspector UI
+    this._hoverHexOutline = null;
+    this._hoverHexTooltip = null;
+    this._hoverHexTooltipBg = null;
+    this._hoverHexTooltipText = null;
   }
 
   // ---------------------------------------------------------------------------
@@ -184,6 +190,7 @@ export class HexCanvas {
     this.hexContainer.removeChildren();
     this.gridContainer.removeChildren();
     this.propsContainer?.removeChildren();
+    this._hideHexHoverInfo();
 
     const { hexSize, gridWidth, gridHeight } = this.config;
     const roomHexes = _getRoomHexes(this.currentRoom);
@@ -529,11 +536,21 @@ export class HexCanvas {
     hex.y = pos.y;
     hex.hexData = { q, r };
     hex.roomHexData = roomHex;
+
+    // PIXI v7 pointer contract: use eventMode for hit testing.
+    hex.eventMode = 'static';
+    hex.cursor = 'pointer';
     hex.interactive = true;
     hex.buttonMode = true;
 
-    hex.on('pointerover', () => this.bus.emit('canvas:hex-hovered', { q, r }));
-    hex.on('pointerout',  () => this.bus.emit('canvas:hex-out', { q, r }));
+    hex.on('pointerover', () => {
+      this._showHexHoverInfo(q, r, roomHex);
+      this.bus.emit('canvas:hex-hovered', { q, r });
+    });
+    hex.on('pointerout',  () => {
+      this._hideHexHoverInfo();
+      this.bus.emit('canvas:hex-out', { q, r });
+    });
     hex.on('pointerdown', (event) =>
       this.bus.emit('canvas:hex-clicked', { q, r, button: event.data?.button ?? 0 })
     );
@@ -552,6 +569,125 @@ export class HexCanvas {
       label.y = pos.y;
       this.gridContainer.addChild(label);
       hex.hexCoordText = label;
+    }
+  }
+
+  _ensureHexHoverUI() {
+    if (!window.PIXI || !this.uiContainer) {
+      return;
+    }
+
+    if (!this._hoverHexOutline) {
+      const outline = new PIXI.Graphics();
+      outline.name = 'hoverHexOutline';
+      outline.visible = false;
+      outline.eventMode = 'none';
+      this.uiContainer.addChild(outline);
+      this._hoverHexOutline = outline;
+    }
+
+    if (!this._hoverHexTooltip) {
+      const tooltip = new PIXI.Container();
+      tooltip.name = 'hoverHexTooltip';
+      tooltip.visible = false;
+      tooltip.eventMode = 'none';
+
+      const bg = new PIXI.Graphics();
+      bg.name = 'bg';
+      bg.eventMode = 'none';
+
+      const text = new PIXI.Text('', {
+        fontFamily: 'Arial',
+        fontSize: 12,
+        fill: 0xffffff,
+        align: 'left',
+      });
+      text.name = 'text';
+      text.eventMode = 'none';
+
+      tooltip.addChild(bg);
+      tooltip.addChild(text);
+      this.uiContainer.addChild(tooltip);
+
+      this._hoverHexTooltip = tooltip;
+      this._hoverHexTooltipBg = bg;
+      this._hoverHexTooltipText = text;
+    }
+  }
+
+  _showHexHoverInfo(q, r, roomHex = null) {
+    this._ensureHexHoverUI();
+
+    if (!this._hoverHexOutline || !this._hoverHexTooltip || !this._hoverHexTooltipBg || !this._hoverHexTooltipText) {
+      return;
+    }
+
+    const qNum = Number(q);
+    const rNum = Number(r);
+    if (!Number.isFinite(qNum) || !Number.isFinite(rNum)) {
+      this._hideHexHoverInfo();
+      return;
+    }
+
+    const hexSize = Number(this.config?.hexSize || 30);
+    const pos = this.axialToPixel(qNum, rNum, hexSize);
+
+    const outline = this._hoverHexOutline;
+    outline.clear();
+    outline.lineStyle(3, 0xfbbf24, 0.9);
+    this._drawHexShape(outline, hexSize);
+    outline.x = pos.x;
+    outline.y = pos.y;
+    outline.visible = true;
+
+    const fallbackHexId = this.currentRoomId ? `${this.currentRoomId}:${qNum}:${rNum}` : `${qNum}:${rNum}`;
+    const hexId = String(roomHex?.hex_id || fallbackHexId);
+    const terrainType = String(roomHex?.terrain_type || 'unknown');
+    const lighting = String(roomHex?.lighting || 'unknown');
+    const elevation = Number.isFinite(Number(roomHex?.elevation_ft)) ? Number(roomHex.elevation_ft) : 0;
+
+    const flags = [
+      roomHex?.is_entry === true ? 'entry' : null,
+      roomHex?.is_visible === true ? 'visible' : null,
+      roomHex?.is_discovered === true ? 'discovered' : null,
+    ].filter(Boolean).join(', ');
+
+    const objectCount = Array.isArray(roomHex?.objects) ? roomHex.objects.length : 0;
+
+    const text = this._hoverHexTooltipText;
+    text.text = [
+      `hex: ${hexId}`,
+      `q=${qNum} r=${rNum}${flags ? ` (${flags})` : ''}`,
+      `terrain=${terrainType} | light=${lighting} | elev_ft=${elevation}`,
+      `objects=${objectCount}`,
+    ].join('\n');
+    text.x = 10;
+    text.y = 8;
+
+    const bg = this._hoverHexTooltipBg;
+    const paddingX = 12;
+    const paddingY = 10;
+    const width = Math.max(140, text.width + paddingX * 2);
+    const height = Math.max(44, text.height + paddingY * 2);
+    bg.clear();
+    bg.beginFill(0x0b1020, 0.86);
+    bg.lineStyle(1, 0xffffff, 0.18);
+    bg.drawRoundedRect(0, 0, width, height, 8);
+    bg.endFill();
+
+    const tooltip = this._hoverHexTooltip;
+    tooltip.x = pos.x + hexSize * 0.65;
+    tooltip.y = pos.y - hexSize * 0.75;
+    tooltip.visible = true;
+  }
+
+  _hideHexHoverInfo() {
+    if (this._hoverHexOutline) {
+      this._hoverHexOutline.visible = false;
+      this._hoverHexOutline.clear();
+    }
+    if (this._hoverHexTooltip) {
+      this._hoverHexTooltip.visible = false;
     }
   }
 

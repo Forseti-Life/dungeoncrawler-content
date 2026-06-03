@@ -233,6 +233,13 @@ export class HexTokenRenderer {
       container.addChild(label);
     }
 
+    // Facing indicator (RenderComponent.orientation)
+    const facing = new PIXI.Graphics();
+    facing.name = 'facing';
+    facing.visible = false;
+    container.addChild(facing);
+    this._setFacingIndicator(container, render, hexSize);
+
     // Selection/turn ring (starts hidden)
     const ring = new PIXI.Graphics();
     ring.name = 'ring';
@@ -240,6 +247,48 @@ export class HexTokenRenderer {
     container.addChild(ring);
 
     return container;
+  }
+
+  _setFacingIndicator(container, render, hexSize) {
+    if (!container || !window.PIXI) {
+      return;
+    }
+
+    const facing = container.getChildByName?.('facing');
+    if (!facing) {
+      return;
+    }
+
+    const radians = orientationToRadians(render?.orientation);
+    if (!Number.isFinite(radians)) {
+      facing.visible = false;
+      facing.clear?.();
+      return;
+    }
+
+    const scale = Number.isFinite(Number(render?.scale)) ? Number(render.scale) : 1;
+    const radius = Number(hexSize) * 0.55 * scale;
+    const baseBack = Number(hexSize) * 0.18 * scale;
+    const halfWidth = Number(hexSize) * 0.14 * scale;
+
+    const tipX = Math.cos(radians) * radius;
+    const tipY = Math.sin(radians) * radius;
+    const baseCX = Math.cos(radians) * (radius - baseBack);
+    const baseCY = Math.sin(radians) * (radius - baseBack);
+    const perpX = -Math.sin(radians);
+    const perpY = Math.cos(radians);
+
+    const leftX = baseCX + perpX * halfWidth;
+    const leftY = baseCY + perpY * halfWidth;
+    const rightX = baseCX - perpX * halfWidth;
+    const rightY = baseCY - perpY * halfWidth;
+
+    facing.clear();
+    facing.lineStyle(1, 0x0b1020, 0.55);
+    facing.beginFill(0xffffff, 0.9);
+    facing.drawPolygon([tipX, tipY, leftX, leftY, rightX, rightY]);
+    facing.endFill();
+    facing.visible = true;
   }
 
   /**
@@ -644,12 +693,6 @@ export class HexTokenRenderer {
           this._spreadClearTimer = null;
         }
         this._spreadHoverAnchorKey = hexKey;
-        this.bus.emit('hex:hovered', {
-          q: Number(q),
-          r: Number(r),
-          entities: this._getEntitiesAtHex(q, r),
-          source: 'spread-target',
-        });
       });
 
       target.on('pointerout', () => {
@@ -710,6 +753,21 @@ export class HexTokenRenderer {
     this._clearSpreadInteractionTargets();
     this._spreadExpandedHexKey = null;
     this._spreadHoverAnchorKey = null;
+  }
+}
+
+function orientationToRadians(orientation) {
+  const token = String(orientation || '').trim().toLowerCase();
+  // Flat-top axial directions.
+  // n=up, then clockwise: ne, se, s, sw, nw
+  switch (token) {
+    case 'n': return -Math.PI / 2;
+    case 'ne': return -Math.PI / 6;
+    case 'se': return Math.PI / 6;
+    case 's': return Math.PI / 2;
+    case 'sw': return (Math.PI * 5) / 6;
+    case 'nw': return (-Math.PI * 5) / 6;
+    default: return NaN;
   }
 }
 
