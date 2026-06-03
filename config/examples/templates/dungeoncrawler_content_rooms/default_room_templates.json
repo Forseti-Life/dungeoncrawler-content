@@ -4,7 +4,7 @@
       "room_id": "tavern_entrance",
       "source_room_id": "tavern_entrance",
       "name": "The Gilded Tankard",
-      "description": "Starter tavern room with explicit HexMap V2 attribute examples (terrain, lighting, elevation, fog, and object categories).",
+      "description": "Starter tavern room (rectangular) with explicit HexMap V2 attribute examples (terrain, lighting, elevation, fog, and object categories).",
       "environment_tags": [
         "indoor",
         "tavern",
@@ -15,7 +15,197 @@
       "layout_data": {
         "hexes": [
           {
-            "q": -4,
+            "q": -3,
+            "r": -3,
+            "elevation_ft": 0,
+            "objects": [
+              {
+                "category": "wall",
+                "passable": false,
+                "blocks_movement": true,
+                "label": "Wall (Edge)",
+                "object_id": "wall_stone_flat"
+              }
+            ],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": -2,
+            "r": -3,
+            "elevation_ft": 0,
+            "objects": [
+              {
+                "category": "wall",
+                "passable": false,
+                "blocks_movement": true,
+                "label": "Wall (Edge)",
+                "object_id": "wall_stone_flat"
+              }
+            ],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": -1,
+            "r": -3,
+            "elevation_ft": 0,
+            "objects": [
+              {
+                "category": "wall",
+                "passable": false,
+                "blocks_movement": true,
+                "label": "Wall (Edge)",
+                "object_id": "wall_stone_flat"
+              }
+            ],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": 0,
+            "r": -3,
+            "elevation_ft": 0,
+            "objects": [
+              {
+                "category": "wall",
+                "passable": false,
+                "blocks_movement": true,
+                "label": "Wall (Edge)",
+                "object_id": "wall_stone_flat"
+              }
+            ],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": 1,
+            "r": -3,
+            "elevation_ft": 0,
+            "objects": [
+              {
+                "category": "door",
+                "passable": true,
+                "blocks_movement": false,
+                "label": "North Door (Example)",
+                "object_id": "wooden_tavern_door"
+              }
+            ],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": 2,
+            "r": -3,
+            "elevation_ft": 0,
+            "objects": [
+              {
+                "category": "wall",
+                "passable": false,
+                "blocks_movement": true,
+                "label": "Wall (Edge)",
+                "object_id": "wall_stone_flat"
+              }
+            ],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": 3,
+            "r": -3,
+            "elevation_ft": 0,
+            "objects": [
+              {
+                "category": "wall",
+                "passable": false,
+                "blocks_movement": true,
+                "label": "Wall (Edge)",
+                "object_id": "wall_stone_flat"
+              }
+            ],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": 4,
+            "r": -3,
+            "elevation_ft": 0,
+            "objects": [
+              {
+                "category": "wall",
+                "passable": false,
+                "blocks_movement": true,
+                "label": "Wall (Edge)",
+                "object_id": "wall_stone_flat"
+              }
+            ],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": 5,
+            "r": -3,
+            "elevation_ft": 0,
+            "objects": [
+              {
+                "category": "wall",
+                "passable": false,
+                "blocks_movement": true,
+                "label": "Wall (Edge)",
+                "object_id": "wall_stone_flat"
+              }
+            ],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": -3,
+            "r": -2,
+            "elevation_ft": 0,
+            "objects": [
+              {
+                "category": "wall",
+                "passable": false,
+                "blocks_movement": true,
+                "label": "Wall (Edge)",
+                "object_id": "wall_stone_flat"
+              }
+            ],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": -2,
             "r": -2,
             "elevation_ft": 0,
             "objects": [],
@@ -26,10 +216,199 @@
             "is_entry": false
           },
           {
+            "q": -1,
+            "r": -2,
+            "elevation_ft": 0,
+            "objects": [],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": 0,
+            "r": -2,
+            "elevation_ft": 0,
+            "objects": [],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": 1,
+            "r": -2,
+            "elevation_ft": 0,
+            "objects": [],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": 2,
+            "r": -2,
+            "elevation_ft": 0,
+            "objects": [],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": 3,
+            "r": -2,
+            "elevation_ft": 0,
+            "objects": [],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": 4,
+            "r": -2,
+            "elevation_ft": 0,
+            "objects": [],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": 5,
+            "r": -2,
+            "elevation_ft": 0,
+            "objects": [
+              {
+                "category": "wall",
+                "passable": false,
+                "blocks_movement": true,
+                "label": "Wall (Edge)",
+                "object_id": "wall_stone_flat"
+              }
+            ],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
             "q": -4,
             "r": -1,
             "elevation_ft": 0,
+            "objects": [
+              {
+                "category": "wall",
+                "passable": false,
+                "blocks_movement": true,
+                "label": "Wall (Edge)",
+                "object_id": "wall_stone_flat"
+              }
+            ],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": -3,
+            "r": -1,
+            "elevation_ft": 0,
             "objects": [],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": -2,
+            "r": -1,
+            "elevation_ft": 0,
+            "objects": [],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": -1,
+            "r": -1,
+            "elevation_ft": 0,
+            "objects": [],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": 0,
+            "r": -1,
+            "elevation_ft": 0,
+            "objects": [],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": 1,
+            "r": -1,
+            "elevation_ft": 0,
+            "objects": [],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": 2,
+            "r": -1,
+            "elevation_ft": 0,
+            "objects": [],
+            "terrain_type": "wooden_floor",
+            "lighting": "dim",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": 3,
+            "r": -1,
+            "elevation_ft": 0,
+            "objects": [],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": 4,
+            "r": -1,
+            "elevation_ft": 0,
+            "objects": [
+              {
+                "category": "wall",
+                "passable": false,
+                "blocks_movement": true,
+                "label": "Wall (Edge)",
+                "object_id": "wall_stone_flat"
+              }
+            ],
             "terrain_type": "wooden_floor",
             "lighting": "bright",
             "is_discovered": true,
@@ -45,7 +424,122 @@
                 "category": "wall",
                 "passable": false,
                 "blocks_movement": true,
-                "label": "Stone Wall (Example)",
+                "label": "Wall (Edge)",
+                "object_id": "wall_stone_flat"
+              }
+            ],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": -3,
+            "r": 0,
+            "elevation_ft": 0,
+            "objects": [],
+            "terrain_type": "water",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": -2,
+            "r": 0,
+            "elevation_ft": 0,
+            "objects": [],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": -1,
+            "r": 0,
+            "elevation_ft": -5,
+            "objects": [],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": 0,
+            "r": 0,
+            "elevation_ft": 0,
+            "objects": [],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": true
+          },
+          {
+            "q": 1,
+            "r": 0,
+            "elevation_ft": 5,
+            "objects": [],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": 2,
+            "r": 0,
+            "elevation_ft": 0,
+            "objects": [],
+            "terrain_type": "wooden_floor",
+            "lighting": "dark",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": 3,
+            "r": 0,
+            "elevation_ft": 0,
+            "objects": [],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": 4,
+            "r": 0,
+            "elevation_ft": 0,
+            "objects": [
+              {
+                "category": "wall",
+                "passable": false,
+                "blocks_movement": true,
+                "label": "Wall (Edge)",
+                "object_id": "wall_stone_flat"
+              }
+            ],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": -5,
+            "r": 1,
+            "elevation_ft": 0,
+            "objects": [
+              {
+                "category": "wall",
+                "passable": false,
+                "blocks_movement": true,
+                "label": "Wall (Edge)",
                 "object_id": "wall_stone_flat"
               }
             ],
@@ -63,7 +557,111 @@
             "terrain_type": "wooden_floor",
             "lighting": "bright",
             "is_discovered": true,
-            "is_visible": false,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": -3,
+            "r": 1,
+            "elevation_ft": 0,
+            "objects": [],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": -2,
+            "r": 1,
+            "elevation_ft": 0,
+            "objects": [],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": -1,
+            "r": 1,
+            "elevation_ft": 0,
+            "objects": [],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": 0,
+            "r": 1,
+            "elevation_ft": 0,
+            "objects": [],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": 1,
+            "r": 1,
+            "elevation_ft": 0,
+            "objects": [],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": 2,
+            "r": 1,
+            "elevation_ft": 0,
+            "objects": [],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": 3,
+            "r": 1,
+            "elevation_ft": 0,
+            "objects": [
+              {
+                "category": "wall",
+                "passable": false,
+                "blocks_movement": true,
+                "label": "Wall (Edge)",
+                "object_id": "wall_stone_flat"
+              }
+            ],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": -5,
+            "r": 2,
+            "elevation_ft": 0,
+            "objects": [
+              {
+                "category": "wall",
+                "passable": false,
+                "blocks_movement": true,
+                "label": "Wall (Edge)",
+                "object_id": "wall_stone_flat"
+              }
+            ],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
             "is_entry": false
           },
           {
@@ -73,50 +671,6 @@
             "objects": [],
             "terrain_type": "wooden_floor",
             "lighting": "bright",
-            "is_discovered": false,
-            "is_visible": true,
-            "is_entry": false
-          },
-          {
-            "q": -3,
-            "r": -2,
-            "elevation_ft": 0,
-            "objects": [],
-            "terrain_type": "wooden_floor",
-            "lighting": "bright",
-            "is_discovered": true,
-            "is_visible": true,
-            "is_entry": false
-          },
-          {
-            "q": -3,
-            "r": -1,
-            "elevation_ft": 0,
-            "objects": [],
-            "terrain_type": "wooden_floor",
-            "lighting": "bright",
-            "is_discovered": true,
-            "is_visible": true,
-            "is_entry": false
-          },
-          {
-            "q": -3,
-            "r": 0,
-            "elevation_ft": 0,
-            "objects": [],
-            "terrain_type": "wooden_floor",
-            "lighting": "bright",
-            "is_discovered": true,
-            "is_visible": true,
-            "is_entry": false
-          },
-          {
-            "q": -3,
-            "r": 1,
-            "elevation_ft": 0,
-            "objects": [],
-            "terrain_type": "wooden_floor",
-            "lighting": "bright",
             "is_discovered": true,
             "is_visible": true,
             "is_entry": false
@@ -124,50 +678,6 @@
           {
             "q": -3,
             "r": 2,
-            "elevation_ft": 0,
-            "objects": [],
-            "terrain_type": "wooden_floor",
-            "lighting": "bright",
-            "is_discovered": true,
-            "is_visible": true,
-            "is_entry": false
-          },
-          {
-            "q": -2,
-            "r": -2,
-            "elevation_ft": 0,
-            "objects": [],
-            "terrain_type": "wooden_floor",
-            "lighting": "bright",
-            "is_discovered": true,
-            "is_visible": true,
-            "is_entry": false
-          },
-          {
-            "q": -2,
-            "r": -1,
-            "elevation_ft": 0,
-            "objects": [],
-            "terrain_type": "wooden_floor",
-            "lighting": "bright",
-            "is_discovered": true,
-            "is_visible": true,
-            "is_entry": false
-          },
-          {
-            "q": -2,
-            "r": 0,
-            "elevation_ft": 0,
-            "objects": [],
-            "terrain_type": "wooden_floor",
-            "lighting": "bright",
-            "is_discovered": true,
-            "is_visible": true,
-            "is_entry": false
-          },
-          {
-            "q": -2,
-            "r": 1,
             "elevation_ft": 0,
             "objects": [
               {
@@ -197,50 +707,6 @@
           },
           {
             "q": -1,
-            "r": -2,
-            "elevation_ft": 0,
-            "objects": [],
-            "terrain_type": "wooden_floor",
-            "lighting": "bright",
-            "is_discovered": true,
-            "is_visible": true,
-            "is_entry": false
-          },
-          {
-            "q": -1,
-            "r": -1,
-            "elevation_ft": 0,
-            "objects": [],
-            "terrain_type": "wooden_floor",
-            "lighting": "bright",
-            "is_discovered": true,
-            "is_visible": true,
-            "is_entry": false
-          },
-          {
-            "q": -1,
-            "r": 0,
-            "elevation_ft": -5,
-            "objects": [],
-            "terrain_type": "wooden_floor",
-            "lighting": "bright",
-            "is_discovered": true,
-            "is_visible": true,
-            "is_entry": false
-          },
-          {
-            "q": -1,
-            "r": 1,
-            "elevation_ft": 0,
-            "objects": [],
-            "terrain_type": "wooden_floor",
-            "lighting": "bright",
-            "is_discovered": true,
-            "is_visible": true,
-            "is_entry": false
-          },
-          {
-            "q": -1,
             "r": 2,
             "elevation_ft": 0,
             "objects": [],
@@ -252,15 +718,277 @@
           },
           {
             "q": 0,
-            "r": -2,
+            "r": 2,
+            "elevation_ft": 0,
+            "objects": [],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": 1,
+            "r": 2,
+            "elevation_ft": 0,
+            "objects": [],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": 2,
+            "r": 2,
+            "elevation_ft": 0,
+            "objects": [],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": false,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": 3,
+            "r": 2,
             "elevation_ft": 0,
             "objects": [
               {
-                "category": "door",
-                "passable": true,
-                "blocks_movement": false,
-                "label": "North Door (Example)",
-                "object_id": "wooden_tavern_door"
+                "category": "wall",
+                "passable": false,
+                "blocks_movement": true,
+                "label": "Wall (Edge)",
+                "object_id": "wall_stone_flat"
+              }
+            ],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": -6,
+            "r": 3,
+            "elevation_ft": 0,
+            "objects": [
+              {
+                "category": "wall",
+                "passable": false,
+                "blocks_movement": true,
+                "label": "Wall (Edge)",
+                "object_id": "wall_stone_flat"
+              }
+            ],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": -5,
+            "r": 3,
+            "elevation_ft": 0,
+            "objects": [],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": -4,
+            "r": 3,
+            "elevation_ft": 0,
+            "objects": [],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": -3,
+            "r": 3,
+            "elevation_ft": 0,
+            "objects": [],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": -2,
+            "r": 3,
+            "elevation_ft": 0,
+            "objects": [],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": -1,
+            "r": 3,
+            "elevation_ft": 0,
+            "objects": [],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": 0,
+            "r": 3,
+            "elevation_ft": 0,
+            "objects": [],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": 1,
+            "r": 3,
+            "elevation_ft": 0,
+            "objects": [],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": false,
+            "is_entry": false
+          },
+          {
+            "q": 2,
+            "r": 3,
+            "elevation_ft": 0,
+            "objects": [
+              {
+                "category": "wall",
+                "passable": false,
+                "blocks_movement": true,
+                "label": "Wall (Edge)",
+                "object_id": "wall_stone_flat"
+              }
+            ],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": -6,
+            "r": 4,
+            "elevation_ft": 0,
+            "objects": [
+              {
+                "category": "wall",
+                "passable": false,
+                "blocks_movement": true,
+                "label": "Wall (Edge)",
+                "object_id": "wall_stone_flat"
+              }
+            ],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": -5,
+            "r": 4,
+            "elevation_ft": 0,
+            "objects": [
+              {
+                "category": "wall",
+                "passable": false,
+                "blocks_movement": true,
+                "label": "Wall (Edge)",
+                "object_id": "wall_stone_flat"
+              }
+            ],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": -4,
+            "r": 4,
+            "elevation_ft": 0,
+            "objects": [
+              {
+                "category": "wall",
+                "passable": false,
+                "blocks_movement": true,
+                "label": "Wall (Edge)",
+                "object_id": "wall_stone_flat"
+              }
+            ],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": -3,
+            "r": 4,
+            "elevation_ft": 0,
+            "objects": [
+              {
+                "category": "wall",
+                "passable": false,
+                "blocks_movement": true,
+                "label": "Wall (Edge)",
+                "object_id": "wall_stone_flat"
+              }
+            ],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": -2,
+            "r": 4,
+            "elevation_ft": 0,
+            "objects": [
+              {
+                "category": "wall",
+                "passable": false,
+                "blocks_movement": true,
+                "label": "Wall (Edge)",
+                "object_id": "wall_stone_flat"
+              }
+            ],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": -1,
+            "r": 4,
+            "elevation_ft": 0,
+            "objects": [
+              {
+                "category": "wall",
+                "passable": false,
+                "blocks_movement": true,
+                "label": "Wall (Edge)",
+                "object_id": "wall_stone_flat"
               }
             ],
             "terrain_type": "wooden_floor",
@@ -271,42 +999,17 @@
           },
           {
             "q": 0,
-            "r": -1,
+            "r": 4,
             "elevation_ft": 0,
-            "objects": [],
-            "terrain_type": "wooden_floor",
-            "lighting": "bright",
-            "is_discovered": true,
-            "is_visible": true,
-            "is_entry": false
-          },
-          {
-            "q": 0,
-            "r": 0,
-            "elevation_ft": 0,
-            "objects": [],
-            "terrain_type": "wooden_floor",
-            "lighting": "bright",
-            "is_discovered": true,
-            "is_visible": true,
-            "is_entry": true
-          },
-          {
-            "q": 0,
-            "r": 1,
-            "elevation_ft": 0,
-            "objects": [],
-            "terrain_type": "wooden_floor",
-            "lighting": "bright",
-            "is_discovered": true,
-            "is_visible": true,
-            "is_entry": false
-          },
-          {
-            "q": 0,
-            "r": 2,
-            "elevation_ft": 0,
-            "objects": [],
+            "objects": [
+              {
+                "category": "wall",
+                "passable": false,
+                "blocks_movement": true,
+                "label": "Wall (Edge)",
+                "object_id": "wall_stone_flat"
+              }
+            ],
             "terrain_type": "wooden_floor",
             "lighting": "bright",
             "is_discovered": true,
@@ -315,53 +1018,17 @@
           },
           {
             "q": 1,
-            "r": -2,
+            "r": 4,
             "elevation_ft": 0,
-            "objects": [],
-            "terrain_type": "wooden_floor",
-            "lighting": "bright",
-            "is_discovered": true,
-            "is_visible": true,
-            "is_entry": false
-          },
-          {
-            "q": 1,
-            "r": -1,
-            "elevation_ft": 0,
-            "objects": [],
-            "terrain_type": "wooden_floor",
-            "lighting": "bright",
-            "is_discovered": true,
-            "is_visible": true,
-            "is_entry": false
-          },
-          {
-            "q": 1,
-            "r": 0,
-            "elevation_ft": 5,
-            "objects": [],
-            "terrain_type": "wooden_floor",
-            "lighting": "bright",
-            "is_discovered": true,
-            "is_visible": true,
-            "is_entry": false
-          },
-          {
-            "q": 1,
-            "r": 1,
-            "elevation_ft": 0,
-            "objects": [],
-            "terrain_type": "wooden_floor",
-            "lighting": "bright",
-            "is_discovered": true,
-            "is_visible": true,
-            "is_entry": false
-          },
-          {
-            "q": 1,
-            "r": 2,
-            "elevation_ft": 0,
-            "objects": [],
+            "objects": [
+              {
+                "category": "wall",
+                "passable": false,
+                "blocks_movement": true,
+                "label": "Wall (Edge)",
+                "object_id": "wall_stone_flat"
+              }
+            ],
             "terrain_type": "wooden_floor",
             "lighting": "bright",
             "is_discovered": true,
@@ -370,460 +1037,17 @@
           },
           {
             "q": 2,
-            "r": -2,
+            "r": 4,
             "elevation_ft": 0,
-            "objects": [],
-            "terrain_type": "wooden_floor",
-            "lighting": "bright",
-            "is_discovered": true,
-            "is_visible": true,
-            "is_entry": false
-          },
-          {
-            "q": 2,
-            "r": -1,
-            "elevation_ft": 0,
-            "objects": [],
-            "terrain_type": "water",
-            "lighting": "bright",
-            "is_discovered": true,
-            "is_visible": true,
-            "is_entry": false
-          },
-          {
-            "q": 2,
-            "r": 0,
-            "elevation_ft": 0,
-            "objects": [],
-            "terrain_type": "wooden_floor",
-            "lighting": "bright",
-            "is_discovered": true,
-            "is_visible": true,
-            "is_entry": false
-          },
-          {
-            "q": 2,
-            "r": 1,
-            "elevation_ft": 0,
-            "objects": [],
-            "terrain_type": "wooden_floor",
-            "lighting": "bright",
-            "is_discovered": true,
-            "is_visible": true,
-            "is_entry": false
-          },
-          {
-            "q": 2,
-            "r": 2,
-            "elevation_ft": 0,
-            "objects": [],
-            "terrain_type": "wooden_floor",
-            "lighting": "bright",
-            "is_discovered": true,
-            "is_visible": true,
-            "is_entry": false
-          },
-          {
-            "q": 3,
-            "r": -2,
-            "elevation_ft": 0,
-            "objects": [],
-            "terrain_type": "wooden_floor",
-            "lighting": "bright",
-            "is_discovered": true,
-            "is_visible": true,
-            "is_entry": false
-          },
-          {
-            "q": 3,
-            "r": -1,
-            "elevation_ft": 0,
-            "objects": [],
-            "terrain_type": "wooden_floor",
-            "lighting": "dim",
-            "is_discovered": true,
-            "is_visible": true,
-            "is_entry": false
-          },
-          {
-            "q": 3,
-            "r": 0,
-            "elevation_ft": 0,
-            "objects": [],
-            "terrain_type": "wooden_floor",
-            "lighting": "dark",
-            "is_discovered": true,
-            "is_visible": true,
-            "is_entry": false
-          },
-          {
-            "q": 3,
-            "r": 1,
-            "elevation_ft": 0,
-            "objects": [],
-            "terrain_type": "wooden_floor",
-            "lighting": "bright",
-            "is_discovered": true,
-            "is_visible": true,
-            "is_entry": false
-          },
-          {
-            "q": 3,
-            "r": 2,
-            "elevation_ft": 0,
-            "objects": [],
-            "terrain_type": "wooden_floor",
-            "lighting": "bright",
-            "is_discovered": true,
-            "is_visible": true,
-            "is_entry": false
-          },
-          {
-            "q": 4,
-            "r": -2,
-            "elevation_ft": 0,
-            "objects": [],
-            "terrain_type": "wooden_floor",
-            "lighting": "bright",
-            "is_discovered": true,
-            "is_visible": true,
-            "is_entry": false
-          },
-          {
-            "q": 4,
-            "r": -1,
-            "elevation_ft": 0,
-            "objects": [],
-            "terrain_type": "wooden_floor",
-            "lighting": "bright",
-            "is_discovered": true,
-            "is_visible": true,
-            "is_entry": false
-          },
-          {
-            "q": 4,
-            "r": 0,
-            "elevation_ft": 0,
-            "objects": [],
-            "terrain_type": "wooden_floor",
-            "lighting": "bright",
-            "is_discovered": true,
-            "is_visible": true,
-            "is_entry": false
-          },
-          {
-            "q": 4,
-            "r": 1,
-            "elevation_ft": 0,
-            "objects": [],
-            "terrain_type": "wooden_floor",
-            "lighting": "bright",
-            "is_discovered": true,
-            "is_visible": true,
-            "is_entry": false
-          },
-          {
-            "q": 4,
-            "r": 2,
-            "elevation_ft": 0,
-            "objects": [],
-            "terrain_type": "wooden_floor",
-            "lighting": "bright",
-            "is_discovered": true,
-            "is_visible": true,
-            "is_entry": false
-          },
-          {
-            "q": -5,
-            "r": -2,
-            "elevation_ft": 0,
-            "objects": [],
-            "terrain_type": "wooden_floor",
-            "lighting": "bright",
-            "is_discovered": true,
-            "is_visible": true,
-            "is_entry": false
-          },
-          {
-            "q": -5,
-            "r": -1,
-            "elevation_ft": 0,
-            "objects": [],
-            "terrain_type": "wooden_floor",
-            "lighting": "bright",
-            "is_discovered": true,
-            "is_visible": true,
-            "is_entry": false
-          },
-          {
-            "q": -5,
-            "r": 0,
-            "elevation_ft": 0,
-            "objects": [],
-            "terrain_type": "wooden_floor",
-            "lighting": "bright",
-            "is_discovered": true,
-            "is_visible": true,
-            "is_entry": false
-          },
-          {
-            "q": -5,
-            "r": 1,
-            "elevation_ft": 0,
-            "objects": [],
-            "terrain_type": "wooden_floor",
-            "lighting": "bright",
-            "is_discovered": true,
-            "is_visible": true,
-            "is_entry": false
-          },
-          {
-            "q": -5,
-            "r": 2,
-            "elevation_ft": 0,
-            "objects": [],
-            "terrain_type": "wooden_floor",
-            "lighting": "bright",
-            "is_discovered": true,
-            "is_visible": true,
-            "is_entry": false
-          },
-          {
-            "q": 5,
-            "r": -2,
-            "elevation_ft": 0,
-            "objects": [],
-            "terrain_type": "wooden_floor",
-            "lighting": "bright",
-            "is_discovered": true,
-            "is_visible": true,
-            "is_entry": false
-          },
-          {
-            "q": 5,
-            "r": -1,
-            "elevation_ft": 0,
-            "objects": [],
-            "terrain_type": "wooden_floor",
-            "lighting": "bright",
-            "is_discovered": true,
-            "is_visible": true,
-            "is_entry": false
-          },
-          {
-            "q": 5,
-            "r": 1,
-            "elevation_ft": 0,
-            "objects": [],
-            "terrain_type": "wooden_floor",
-            "lighting": "bright",
-            "is_discovered": true,
-            "is_visible": true,
-            "is_entry": false
-          },
-          {
-            "q": 5,
-            "r": 2,
-            "elevation_ft": 0,
-            "objects": [],
-            "terrain_type": "wooden_floor",
-            "lighting": "bright",
-            "is_discovered": true,
-            "is_visible": true,
-            "is_entry": false
-          },
-          {
-            "q": -4,
-            "r": -3,
-            "elevation_ft": 0,
-            "objects": [],
-            "terrain_type": "wooden_floor",
-            "lighting": "bright",
-            "is_discovered": true,
-            "is_visible": true,
-            "is_entry": false
-          },
-          {
-            "q": -4,
-            "r": 3,
-            "elevation_ft": 0,
-            "objects": [],
-            "terrain_type": "wooden_floor",
-            "lighting": "bright",
-            "is_discovered": true,
-            "is_visible": true,
-            "is_entry": false
-          },
-          {
-            "q": -3,
-            "r": -3,
-            "elevation_ft": 0,
-            "objects": [],
-            "terrain_type": "wooden_floor",
-            "lighting": "bright",
-            "is_discovered": true,
-            "is_visible": true,
-            "is_entry": false
-          },
-          {
-            "q": -3,
-            "r": 3,
-            "elevation_ft": 0,
-            "objects": [],
-            "terrain_type": "wooden_floor",
-            "lighting": "bright",
-            "is_discovered": true,
-            "is_visible": true,
-            "is_entry": false
-          },
-          {
-            "q": -2,
-            "r": -3,
-            "elevation_ft": 0,
-            "objects": [],
-            "terrain_type": "wooden_floor",
-            "lighting": "bright",
-            "is_discovered": true,
-            "is_visible": true,
-            "is_entry": false
-          },
-          {
-            "q": -2,
-            "r": 3,
-            "elevation_ft": 0,
-            "objects": [],
-            "terrain_type": "wooden_floor",
-            "lighting": "bright",
-            "is_discovered": true,
-            "is_visible": true,
-            "is_entry": false
-          },
-          {
-            "q": -1,
-            "r": -3,
-            "elevation_ft": 0,
-            "objects": [],
-            "terrain_type": "wooden_floor",
-            "lighting": "bright",
-            "is_discovered": true,
-            "is_visible": true,
-            "is_entry": false
-          },
-          {
-            "q": -1,
-            "r": 3,
-            "elevation_ft": 0,
-            "objects": [],
-            "terrain_type": "wooden_floor",
-            "lighting": "bright",
-            "is_discovered": true,
-            "is_visible": true,
-            "is_entry": false
-          },
-          {
-            "q": 0,
-            "r": -3,
-            "elevation_ft": 0,
-            "objects": [],
-            "terrain_type": "wooden_floor",
-            "lighting": "bright",
-            "is_discovered": true,
-            "is_visible": true,
-            "is_entry": false
-          },
-          {
-            "q": 0,
-            "r": 3,
-            "elevation_ft": 0,
-            "objects": [],
-            "terrain_type": "wooden_floor",
-            "lighting": "bright",
-            "is_discovered": true,
-            "is_visible": true,
-            "is_entry": false
-          },
-          {
-            "q": 1,
-            "r": -3,
-            "elevation_ft": 0,
-            "objects": [],
-            "terrain_type": "wooden_floor",
-            "lighting": "bright",
-            "is_discovered": true,
-            "is_visible": true,
-            "is_entry": false
-          },
-          {
-            "q": 1,
-            "r": 3,
-            "elevation_ft": 0,
-            "objects": [],
-            "terrain_type": "wooden_floor",
-            "lighting": "bright",
-            "is_discovered": true,
-            "is_visible": true,
-            "is_entry": false
-          },
-          {
-            "q": 2,
-            "r": -3,
-            "elevation_ft": 0,
-            "objects": [],
-            "terrain_type": "wooden_floor",
-            "lighting": "bright",
-            "is_discovered": true,
-            "is_visible": true,
-            "is_entry": false
-          },
-          {
-            "q": 2,
-            "r": 3,
-            "elevation_ft": 0,
-            "objects": [],
-            "terrain_type": "wooden_floor",
-            "lighting": "bright",
-            "is_discovered": true,
-            "is_visible": true,
-            "is_entry": false
-          },
-          {
-            "q": 3,
-            "r": -3,
-            "elevation_ft": 0,
-            "objects": [],
-            "terrain_type": "wooden_floor",
-            "lighting": "bright",
-            "is_discovered": true,
-            "is_visible": true,
-            "is_entry": false
-          },
-          {
-            "q": 3,
-            "r": 3,
-            "elevation_ft": 0,
-            "objects": [],
-            "terrain_type": "wooden_floor",
-            "lighting": "bright",
-            "is_discovered": true,
-            "is_visible": true,
-            "is_entry": false
-          },
-          {
-            "q": 4,
-            "r": -3,
-            "elevation_ft": 0,
-            "objects": [],
-            "terrain_type": "wooden_floor",
-            "lighting": "bright",
-            "is_discovered": true,
-            "is_visible": true,
-            "is_entry": false
-          },
-          {
-            "q": 4,
-            "r": 3,
-            "elevation_ft": 0,
-            "objects": [],
+            "objects": [
+              {
+                "category": "wall",
+                "passable": false,
+                "blocks_movement": true,
+                "label": "Wall (Edge)",
+                "object_id": "wall_stone_flat"
+              }
+            ],
             "terrain_type": "wooden_floor",
             "lighting": "bright",
             "is_discovered": true,
@@ -840,53 +1064,11 @@
         ],
         "exit_points": [
           {
-            "q": 0,
-            "r": -2,
+            "q": 1,
+            "r": -3,
             "label": "Exit Door (Example)"
           }
-        ],
-        "terrain": {
-          "type": "wooden_floor",
-          "difficult_terrain": false,
-          "greater_difficult_terrain": false,
-          "hazardous_terrain": null,
-          "ceiling_height_ft": 10
-        },
-        "lighting": {
-          "level": "bright_light",
-          "light_sources": [
-            {
-              "type": "lantern",
-              "hex": {
-                "q": 0,
-                "r": 0
-              },
-              "bright_radius_ft": 20,
-              "dim_radius_ft": 20,
-              "permanent": true
-            },
-            {
-              "type": "lantern",
-              "hex": {
-                "q": -1,
-                "r": 1
-              },
-              "bright_radius_ft": 15,
-              "dim_radius_ft": 15,
-              "permanent": true
-            },
-            {
-              "type": "lantern",
-              "hex": {
-                "q": 1,
-                "r": 1
-              },
-              "bright_radius_ft": 15,
-              "dim_radius_ft": 15,
-              "permanent": true
-            }
-          ]
-        }
+        ]
       },
       "contents_data": {
         "npcs": [
