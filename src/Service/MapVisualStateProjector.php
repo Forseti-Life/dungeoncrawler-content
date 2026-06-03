@@ -45,7 +45,11 @@ class MapVisualStateProjector {
 
       $room_state = $this->normalizeRoomState($room, $room_id, $active_room_id);
       $visible_hex_ids = $room_state['visible_hex_ids'];
-      $topology_hexes = [];
+      $hex_index = [];
+      $min_q = NULL;
+      $max_q = NULL;
+      $min_r = NULL;
+      $max_r = NULL;
 
       foreach ((is_array($room['hexes'] ?? NULL) ? $room['hexes'] : []) as $hex) {
         if (!is_array($hex)) {
@@ -54,17 +58,22 @@ class MapVisualStateProjector {
 
         $hex_q = (int) ($hex['q'] ?? 0);
         $hex_r = (int) ($hex['r'] ?? 0);
+        $min_q = $min_q === NULL ? $hex_q : min($min_q, $hex_q);
+        $max_q = $max_q === NULL ? $hex_q : max($max_q, $hex_q);
+        $min_r = $min_r === NULL ? $hex_r : min($min_r, $hex_r);
+        $max_r = $max_r === NULL ? $hex_r : max($max_r, $hex_r);
+
         $hex_id = $this->deriveHexId($room_id, $hex_q, $hex_r, $hex);
         $is_visible = $visible_hex_ids === []
           ? $room_id === $active_room_id
           : in_array($hex_id, $visible_hex_ids, TRUE);
         $is_discovered = $room_state['explored'] || $is_visible || $room_id === $active_room_id;
 
-        $topology_hexes[] = [
+        $hex_index["{$hex_q}:{$hex_r}"] = [
           'hex_id' => $hex_id,
           'q' => $hex_q,
           'r' => $hex_r,
-          'tile_type' => $this->normalizeTileType($hex),
+          'terrain_type' => $this->normalizeTileType($hex),
           'is_entry' => !empty($hex['is_entry']) || !empty($hex['entry']) || ($hex_q === 0 && $hex_r === 0),
           'is_visible' => $is_visible,
           'is_discovered' => $is_discovered,
@@ -72,15 +81,62 @@ class MapVisualStateProjector {
         ];
       }
 
+      if ($min_q !== NULL && $max_q !== NULL && $min_r !== NULL && $max_r !== NULL) {
+        for ($q = (int) $min_q; $q <= (int) $max_q; $q++) {
+          for ($r = (int) $min_r; $r <= (int) $max_r; $r++) {
+            $key = "{$q}:{$r}";
+            if (isset($hex_index[$key])) {
+              continue;
+            }
+
+            $hex_id = $this->deriveHexId($room_id, $q, $r);
+            $is_visible = $visible_hex_ids === []
+              ? $room_id === $active_room_id
+              : in_array($hex_id, $visible_hex_ids, TRUE);
+            $is_discovered = $room_state['explored'] || $is_visible || $room_id === $active_room_id;
+
+            $hex_index[$key] = [
+              'hex_id' => $hex_id,
+              'q' => $q,
+              'r' => $r,
+              'terrain_type' => 'floor',
+              'is_entry' => ($q === 0 && $r === 0),
+              'is_visible' => $is_visible,
+              'is_discovered' => $is_discovered,
+              'objects' => [],
+            ];
+          }
+        }
+      }
+
+      $topology_hexes = array_values($hex_index);
+      usort($topology_hexes, static function (array $a, array $b): int {
+        $qa = (int) ($a['q'] ?? 0);
+        $qb = (int) ($b['q'] ?? 0);
+        if ($qa !== $qb) {
+          return $qa <=> $qb;
+        }
+        return ((int) ($a['r'] ?? 0)) <=> ((int) ($b['r'] ?? 0));
+      });
+
       $topology_rooms[$room_id] = [
         'room_id' => $room_id,
         'name' => (string) ($room['name'] ?? $room_id),
+        'subtitle' => (string) ($room['subtitle'] ?? ''),
         'description' => (string) ($room['description'] ?? ''),
         'room_type' => (string) ($room['room_type'] ?? 'unknown'),
         'size_category' => (string) ($room['size_category'] ?? 'medium'),
         'lighting' => $this->normalizeLightingLevel($room['lighting'] ?? 'normal'),
         'terrain' => is_array($room['terrain'] ?? NULL) ? $room['terrain'] : [],
         'hexes' => $topology_hexes,
+        'hex_bounds' => [
+          'has_hexes' => $topology_hexes !== [],
+          'hex_count' => count($topology_hexes),
+          'min_q' => $min_q === NULL ? 0 : (int) $min_q,
+          'max_q' => $max_q === NULL ? 0 : (int) $max_q,
+          'min_r' => $min_r === NULL ? 0 : (int) $min_r,
+          'max_r' => $max_r === NULL ? 0 : (int) $max_r,
+        ],
         'interactables' => $this->normalizeRoomInteractables($room),
         'state' => [
           'explored' => $room_state['explored'],
@@ -431,6 +487,8 @@ class MapVisualStateProjector {
    */
   protected function normalizeHexObjects(array $hex, string $room_id, int $hex_q, int $hex_r): array {
     $objects = [];
+    $hex_id = $this->deriveHexId($room_id, $hex_q, $hex_r, $hex);
+
     foreach ((is_array($hex['objects'] ?? NULL) ? $hex['objects'] : []) as $object_index => $object) {
       if (!is_array($object)) {
         continue;
@@ -447,17 +505,29 @@ class MapVisualStateProjector {
       }
 
       $visual = is_array($object['visual'] ?? NULL) ? $object['visual'] : [];
+
+      $passable = array_key_exists('passable', $object) ? (bool) $object['passable'] : TRUE;
+      $blocks_movement = array_key_exists('blocks_movement', $object)
+        ? (bool) $object['blocks_movement']
+        : (!$passable);
+
       $objects[] = [
         'object_id' => $object_id,
         'object_instance_id' => $object_instance_id,
         'label' => (string) ($object['label'] ?? $object['name'] ?? $object_id),
         'category' => (string) ($object['category'] ?? $object['type'] ?? 'decor'),
         'description' => (string) ($object['description'] ?? ''),
+        'placement' => [
+          'room_id' => $room_id,
+          'hex_id' => $hex_id,
+          'q' => $hex_q,
+          'r' => $hex_r,
+        ],
         'orientation' => (string) ($object['orientation'] ?? $visual['orientation'] ?? 'n'),
-        'passable' => array_key_exists('passable', $object) ? (bool) $object['passable'] : NULL,
-        'blocks_movement' => array_key_exists('blocks_movement', $object) ? (bool) $object['blocks_movement'] : NULL,
-        'movable' => array_key_exists('movable', $object) ? (bool) $object['movable'] : NULL,
-        'collectible' => array_key_exists('collectible', $object) ? (bool) $object['collectible'] : NULL,
+        'passable' => $passable,
+        'blocks_movement' => $blocks_movement,
+        'movable' => array_key_exists('movable', $object) ? (bool) $object['movable'] : FALSE,
+        'collectible' => array_key_exists('collectible', $object) ? (bool) $object['collectible'] : FALSE,
         'visual' => [
           'sprite_id' => (string) ($visual['sprite_id'] ?? $object_id),
           'size' => (string) ($visual['size'] ?? 'medium'),
@@ -744,12 +814,12 @@ class MapVisualStateProjector {
         if (!is_array($hex)) {
           continue;
         }
-        $tile_type = trim((string) ($hex['tile_type'] ?? ''));
-        if ($tile_type === '' || isset($terrain_types[$tile_type])) {
+        $terrain_type = trim((string) ($hex['terrain_type'] ?? ''));
+        if ($terrain_type === '' || isset($terrain_types[$terrain_type])) {
           continue;
         }
-        $terrain_types[$tile_type] = [
-          'label' => $this->formatLegendLabel($tile_type),
+        $terrain_types[$terrain_type] = [
+          'label' => $this->formatLegendLabel($terrain_type),
         ];
       }
     }

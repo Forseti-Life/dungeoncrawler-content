@@ -28,6 +28,7 @@ class MapVisualStateProjectorTest extends UnitTestCase {
         'room-a' => [
           'room_id' => 'room-a',
           'name' => 'Room A',
+          'subtitle' => 'Downstairs',
           'description' => 'First room',
           'lighting' => 'normal',
           'room_type' => 'tavern',
@@ -35,7 +36,7 @@ class MapVisualStateProjectorTest extends UnitTestCase {
           'terrain' => ['type' => 'wood_floor', 'difficult_terrain' => FALSE],
           'gameplay_state' => [
             'explored' => TRUE,
-            'visible_hex_ids' => ['room-a:0:0'],
+            'visible_hex_ids' => ['room-a:0:0', 'room-a:2:-1'],
           ],
           'hexes' => [
             [
@@ -51,6 +52,11 @@ class MapVisualStateProjectorTest extends UnitTestCase {
                   'collectible' => FALSE,
                 ],
               ],
+            ],
+            [
+              'q' => 2,
+              'r' => -1,
+              'objects' => [],
             ],
           ],
           'interactables' => [
@@ -133,16 +139,43 @@ class MapVisualStateProjectorTest extends UnitTestCase {
     $this->assertSame('1.0.0', $result['schema_version']);
     $this->assertSame(94, $result['map_meta']['campaign_id']);
     $this->assertSame('room-a', $result['map_meta']['active_room_id']);
-    $this->assertSame('room-a:0:0', $result['topology']['rooms']['room-a']['hexes'][0]['hex_id']);
-    $this->assertTrue($result['topology']['rooms']['room-a']['hexes'][0]['is_visible']);
+    $this->assertSame('Downstairs', $result['topology']['rooms']['room-a']['subtitle']);
+    $this->assertTrue($result['topology']['rooms']['room-a']['hex_bounds']['has_hexes']);
+    $this->assertSame(6, $result['topology']['rooms']['room-a']['hex_bounds']['hex_count']);
+    $this->assertSame(0, $result['topology']['rooms']['room-a']['hex_bounds']['min_q']);
+    $this->assertSame(2, $result['topology']['rooms']['room-a']['hex_bounds']['max_q']);
+    $this->assertSame(-1, $result['topology']['rooms']['room-a']['hex_bounds']['min_r']);
+    $this->assertSame(0, $result['topology']['rooms']['room-a']['hex_bounds']['max_r']);
+
+    $roomAHex00 = NULL;
+    $roomAFilledHex = NULL;
+    foreach ($result['topology']['rooms']['room-a']['hexes'] as $candidate) {
+      if (!is_array($candidate)) {
+        continue;
+      }
+      if ((int) ($candidate['q'] ?? 0) === 0 && (int) ($candidate['r'] ?? 0) === 0) {
+        $roomAHex00 = $candidate;
+      }
+      if ((int) ($candidate['q'] ?? 0) === 1 && (int) ($candidate['r'] ?? 0) === -1) {
+        $roomAFilledHex = $candidate;
+      }
+    }
+
+    $this->assertNotNull($roomAHex00);
+    $this->assertSame('room-a:0:0', $roomAHex00['hex_id']);
+    $this->assertTrue($roomAHex00['is_visible']);
+
+    $this->assertNotNull($roomAFilledHex);
+    $this->assertSame('floor', $roomAFilledHex['terrain_type']);
     $this->assertFalse($result['topology']['rooms']['room-b']['state']['explored']);
     $this->assertSame('wood_floor', $result['topology']['rooms']['room-a']['terrain']['type']);
     $this->assertSame('dim_light', $result['topology']['rooms']['room-b']['lighting']);
-    $this->assertSame('room-a:0:0:table:0', $result['topology']['rooms']['room-a']['hexes'][0]['objects'][0]['object_instance_id']);
-    $this->assertSame('n', $result['topology']['rooms']['room-a']['hexes'][0]['objects'][0]['orientation']);
-    $this->assertTrue($result['topology']['rooms']['room-a']['hexes'][0]['objects'][0]['blocks_movement']);
-    $this->assertFalse($result['topology']['rooms']['room-a']['hexes'][0]['objects'][0]['passable']);
-    $this->assertTrue($result['topology']['rooms']['room-a']['hexes'][0]['objects'][0]['movable']);
+    $this->assertSame('room-a:0:0:table:0', $roomAHex00['objects'][0]['object_instance_id']);
+    $this->assertSame('room-a:0:0', $roomAHex00['objects'][0]['placement']['hex_id']);
+    $this->assertSame('n', $roomAHex00['objects'][0]['orientation']);
+    $this->assertTrue($roomAHex00['objects'][0]['blocks_movement']);
+    $this->assertFalse($roomAHex00['objects'][0]['passable']);
+    $this->assertTrue($roomAHex00['objects'][0]['movable']);
     $this->assertSame('Rune Lever', $result['topology']['rooms']['room-a']['interactables'][0]['label']);
     $this->assertSame(['Inspect', 'Pull'], $result['topology']['rooms']['room-a']['interactables'][0]['options']);
     $this->assertSame(['q' => 0, 'r' => 0], $result['topology']['rooms']['room-a']['interactables'][0]['position']);
