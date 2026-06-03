@@ -3216,8 +3216,26 @@ class RoomChatService {
     }
 
     try {
-      $dungeon_snapshot = $this->loadLatestDungeonSnapshot($campaign_id, $room_id);
-      $room_session = $this->ensureCanonicalRoomSession($campaign_id, $dungeon_id, $room_id, $dungeon_snapshot['dungeon_data'] ?? []);
+      // Prefer canonical room session resolution via dungeon_data when available,
+      // but allow direct invocation (e.g., integration tests) where the campaign
+      // may not yet have any dungeon rows.
+      $room_session = [];
+      try {
+        $dungeon_snapshot = $this->loadLatestDungeonSnapshot($campaign_id, $room_id);
+        $room_session = $this->ensureCanonicalRoomSession(
+          $campaign_id,
+          $dungeon_id,
+          $room_id,
+          $dungeon_snapshot['dungeon_data'] ?? []
+        );
+      }
+      catch (\InvalidArgumentException $e) {
+        $room_session = $this->chatSessionManager->ensureRoomSession($campaign_id, $dungeon_id, $room_id);
+      }
+
+      if ($room_session === []) {
+        return;
+      }
 
       // Post the GM narrative to the room session.
       $this->chatSessionManager->postMessage(
@@ -3240,6 +3258,11 @@ class RoomChatService {
       if (!empty($actions) || !empty($dice_rolls)) {
         $sys_key = $this->chatSessionManager->systemLogSessionKey($campaign_id);
         $sys_session = $this->chatSessionManager->loadSession($sys_key);
+        if (!$sys_session) {
+          // Ensure system log exists (tests may have only created the campaign root).
+          $this->chatSessionManager->ensureCampaignSessions($campaign_id);
+          $sys_session = $this->chatSessionManager->loadSession($sys_key);
+        }
         if ($sys_session) {
           $mechanical_summary = [];
           foreach ($actions as $a) {
