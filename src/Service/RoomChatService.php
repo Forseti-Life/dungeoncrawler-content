@@ -147,14 +147,9 @@ class RoomChatService {
 
     // Filter by channel.
     $chat = $this->channelManager->filterMessagesByChannel($chat, $channel);
-    if ($channel === 'room') {
-      $chat = array_values(array_filter($chat, static function ($message): bool {
-        return !is_array($message) || empty($message['internal_log']);
-      }));
-    }
-    if ($channel === 'room') {
-      $chat = $this->ensureRoomSceneNarratorIntro($chat, $room_entry);
-    }
+
+    // Room chat must remain server-authoritative during encounters.
+    // Do not inject derived narrator intro text at read time.
 
     // For non-room channels, verify the character has access.
     if ($channel !== 'room' && $character_id !== NULL) {
@@ -170,11 +165,21 @@ class RoomChatService {
       }
     }
 
-    // Ensure messages are properly structured
-    return array_map(function($msg) {
+    // Ensure messages are properly structured.
+    return array_map(function ($msg) use ($dungeon_data, $channel) {
+      $speaker = (string) ($msg['speaker'] ?? 'Unknown');
+      $message = (string) ($msg['message'] ?? '');
+
+      if ($channel === 'room') {
+        $message = $this->prefixEncounterChatText(
+          $message,
+          $this->buildEncounterPrefixForSpeaker($dungeon_data, $speaker)
+        );
+      }
+
       return [
-        'speaker' => $msg['speaker'] ?? 'Unknown',
-        'message' => $msg['message'] ?? '',
+        'speaker' => $speaker !== '' ? $speaker : 'Unknown',
+        'message' => $message,
         'type' => $msg['type'] ?? 'npc',
         'channel' => $msg['channel'] ?? 'room',
         'timestamp' => $msg['timestamp'] ?? date('c'),
@@ -3659,6 +3664,11 @@ class RoomChatService {
     $room_npcs = $this->gatherRoomNpcsWithProfiles($campaign_id, $room_id, $dungeon_data);
     $turn_log_key = uniqid('room_turn_', TRUE);
 
+    // Always derive per-speaker encounter prefixes inside this harness.
+    // Caller-provided prefixes typically reflect the active player and would
+    // incorrectly label System/NPC turn-log lines.
+    $encounter_prefix = NULL;
+
     $turn_plan = $this->buildNpcTurnPlan($room_npcs, $player_message, $gm_narrative, $dungeon_data, $room_id, $turn_log_key);
     $directly_addressed_npc = $turn_plan['directly_addressed_npc'];
     $gm_addressed = !empty($turn_plan['gm_addressed']);
@@ -3852,6 +3862,43 @@ class RoomChatService {
         );
       }
     }
+
+    $player_label = trim((string) (
+      $active_character_data['name']
+      ?? $active_character_data['character_name']
+      ?? $active_character_data['label']
+      ?? $active_character_data['display_name']
+      ?? ''
+    ));
+    if ($player_label === '') {
+      $player_label = 'Player';
+    }
+
+    $this->persistStructuredRoomTurnLog(
+      $campaign_id,
+      $dungeon_id,
+      $room_id,
+      $turn_log_key,
+      $turn_log_sequence++,
+      'current_turn',
+      $active_character_data['character_id'] ?? NULL,
+      $player_label,
+      [
+        'speaker_role' => 'player',
+        'player_message' => $player_message,
+        'gm_narrative' => $gm_narrative,
+      ]
+    );
+    $turn_logs[] = $this->appendInternalRoomLogMessage(
+      $dungeon_data,
+      $room_index,
+      $this->buildRoomCurrentTurnLogMessage($player_label),
+      [
+        'turn_role' => 'player',
+        'turn_name' => $player_label,
+        'turn_index' => $turn_log_sequence,
+      ]
+    );
 
     if (empty($messages)) {
       $this->feedRoomChatToNpcSessions(
@@ -4648,6 +4695,7 @@ PROMPT;
     $npc_dialogue = (string) $dialogue_payload['text'];
 
     // Build the NPC chat message.
+    $encounter_prefix = $this->buildEncounterPrefixForSpeaker($dungeon_data, $speaker_name);
     $npc_message = $this->buildCharacterDialogueChatMessage($dialogue_payload, NULL, $encounter_prefix);
 
     // Persist the NPC interjection to dungeon_data chat.

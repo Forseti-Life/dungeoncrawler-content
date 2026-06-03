@@ -1127,8 +1127,15 @@ export class ChatPanel {
               if (pending) {
                 const playerLine = this.isChatTargetVisible(pending.target) ? this.findChatLineById(pending.playerLineId) : null;
                 if (playerLine) {
-                  playerLine.classList.remove('chat-line--pending');
-                  playerLine.dataset.transient = '0';
+                  this.appendChatLine(event.data.speaker || 'You', event.data.message || '', event.data.type || 'player', {
+                    replaceLine: playerLine,
+                    lineId: pending.playerLineId,
+                    pending: false,
+                    transient: false,
+                    source: 'room-stream',
+                    authority: 'authoritative',
+                    messageClass: 'authoritative_transcript',
+                  });
                 }
               } else {
                 this.appendChatLineToTarget(chatTarget, event.data.speaker || 'You', event.data.message || '', event.data.type || 'player', {
@@ -1718,8 +1725,14 @@ export class ChatPanel {
     const playerLineId = `chat-player-${requestId}`;
     const gmProgressLineId = `chat-gm-progress-${requestId}`;
     const gmResponseLineId = `chat-gm-${requestId}`;
+    const encounterPrefixRegex = /^Turn\s+(?:\d+|\?):\s+Round\s+(?:\d+|\?):\s+Actor\s+.*:\s+/u;
+    const trimmedPlayerMessage = String(message || '').trim();
+    const pendingPlayerMessage = encounterPrefixRegex.test(trimmedPlayerMessage)
+      ? message
+      : `Turn ?: Round ?: Actor ${speaker}: ${trimmedPlayerMessage}`;
+
     if (includePlayer) {
-      this.appendChatLineToTarget(target, speaker, message, 'player', {
+      this.appendChatLineToTarget(target, speaker, pendingPlayerMessage, 'player', {
         lineId: playerLineId,
         pending: true,
         source: 'local-ui',

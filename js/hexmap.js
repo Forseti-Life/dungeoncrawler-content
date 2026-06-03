@@ -8400,8 +8400,12 @@ import { SpriteService } from './SpriteService.js';
                 if (pending) {
                   const playerLine = this.isChatTargetVisible(pending.target) ? this.findChatLineById(pending.playerLineId) : null;
                   if (playerLine) {
-                    playerLine.classList.remove('chat-line--pending');
-                    playerLine.dataset.transient = '0';
+                    this.appendChatLine(event.data.speaker || 'You', event.data.message || '', event.data.type || 'player', {
+                      replaceLine: playerLine,
+                      lineId: pending.playerLineId,
+                      pending: false,
+                      transient: false,
+                    });
                   }
                 } else {
                   this.appendChatLineToTarget(chatTarget, event.data.speaker || 'You', event.data.message || '', event.data.type || 'player');
@@ -8911,14 +8915,25 @@ import { SpriteService } from './SpriteService.js';
       const playerLineId = `chat-player-${requestId}`;
       const gmProgressLineId = `chat-gm-progress-${requestId}`;
       const gmResponseLineId = `chat-gm-${requestId}`;
+      const encounterPrefixRegex = /^Turn\s+(?:\d+|\?):\s+Round\s+(?:\d+|\?):\s+Actor\s+.*:\s+/u;
+      const trimmedPlayerMessage = String(message || '').trim();
+      const pendingPlayerMessage = encounterPrefixRegex.test(trimmedPlayerMessage)
+        ? message
+        : `Turn ?: Round ?: Actor ${speaker}: ${trimmedPlayerMessage}`;
+
+      const trimmedPlaceholderText = String(placeholderText || '').trim();
+      const pendingPlaceholderText = encounterPrefixRegex.test(trimmedPlaceholderText)
+        ? placeholderText
+        : `Turn ?: Round ?: Actor ${placeholderSpeaker}: ${trimmedPlaceholderText || '...'}`;
+
       if (includePlayer) {
-        this.appendChatLineToTarget(target, speaker, message, 'player', {
+        this.appendChatLineToTarget(target, speaker, pendingPlayerMessage, 'player', {
           lineId: playerLineId,
           pending: true,
         });
       }
       if (includePlaceholder) {
-        this.appendChatLineToTarget(target, placeholderSpeaker, placeholderText, placeholderType, {
+        this.appendChatLineToTarget(target, placeholderSpeaker, pendingPlaceholderText, placeholderType, {
           lineId: gmProgressLineId,
           pending: true,
           transient: true,
