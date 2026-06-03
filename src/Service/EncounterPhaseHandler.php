@@ -7300,9 +7300,9 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
       return [];
     }
 
-    // Server-authoritative transcript: stamp Turn/Round/Actor prefix during encounter phase.
+    // Server-authoritative transcript: stamp Turn/Round/Actor prefix.
     $game_state = is_array($dungeon_data['game_state'] ?? NULL) ? $dungeon_data['game_state'] : [];
-    if (($game_state['phase'] ?? '') === 'encounter' && isset($event['content']) && is_string($event['content'])) {
+    if (isset($event['content']) && is_string($event['content'])) {
       $prefix_actor_id = NULL;
       if (isset($event['speaker_ref']) && is_string($event['speaker_ref']) && trim($event['speaker_ref']) !== '') {
         $prefix_actor_id = trim($event['speaker_ref']);

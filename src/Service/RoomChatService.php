@@ -638,10 +638,11 @@ class RoomChatService {
       $encounter_prefix = NULL;
     }
 
-    // During encounter phase, room chat must be governed by the encounter engine
-    // (i.e. invoked via EncounterPhaseHandler talk action) so action economy is enforced.
-    if (($dungeon_data['game_state']['phase'] ?? '') === 'encounter' && $type === 'player' && $channel === 'room' && $encounter_prefix === NULL) {
-      throw new \InvalidArgumentException('During encounter, room chat must be sent as the Talk encounter action.', 409);
+    // Room chat is governed by the encounter engine (EncounterPhaseHandler).
+    // Player room messages must be posted via the Talk action so the turn/action
+    // framework remains authoritative.
+    if ($type === 'player' && $channel === 'room' && $encounter_prefix === NULL) {
+      throw new \InvalidArgumentException('Room chat must be sent as the Talk encounter action.', 409);
     }
 
     $message = $this->prefixEncounterChatText($message, $encounter_prefix);
@@ -10610,9 +10611,6 @@ PROMPT;
    */
   protected function buildEncounterPrefixFromDungeonData(array $dungeon_data): ?string {
     $game_state = is_array($dungeon_data['game_state'] ?? NULL) ? $dungeon_data['game_state'] : [];
-    if (($game_state['phase'] ?? '') !== 'encounter') {
-      return NULL;
-    }
 
     $round = isset($game_state['round']) && is_numeric($game_state['round']) ? (int) $game_state['round'] : '?';
     $turn_index_raw = isset($game_state['turn']['index']) && is_numeric($game_state['turn']['index']) ? (int) $game_state['turn']['index'] : NULL;
