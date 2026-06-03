@@ -301,12 +301,16 @@ export class HexCanvas {
     });
     root.addChild(g);
 
-    // Cardinal labels
+    // Cardinal labels (centred on a constant radius so all are equidistant)
     const labelStyle = { fontFamily: 'Arial', fontSize: 11, fill: 0xe2e8f0, fontWeight: 'bold' };
+    const labelRadius = r + 14;
     edgeDirections.forEach(({ key, angle }) => {
       const label = new PIXI.Text(key, labelStyle);
-      label.x = cx + Math.cos(angle) * (r + 11);
-      label.y = cy + Math.sin(angle) * (r + 11) - 6;
+      if (label.anchor && typeof label.anchor.set === 'function') {
+        label.anchor.set(0.5);
+      }
+      label.x = cx + Math.cos(angle) * labelRadius;
+      label.y = cy + Math.sin(angle) * labelRadius;
       root.addChild(label);
     });
 
