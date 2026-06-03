@@ -439,15 +439,28 @@ class MapVisualStateProjector {
           }
         }
       }
+      $orientation = trim((string) ($placement['orientation'] ?? $metadata['orientation'] ?? $definition['visual']['orientation'] ?? 'n'));
+      if ($orientation === '') {
+        $orientation = 'n';
+      }
+      $orientation = strtolower($orientation);
+
+      $character_id = (int) ($metadata['character_id'] ?? $entity['character_id'] ?? 0);
+      if ($character_id <= 0) {
+        $character_id = NULL;
+      }
+
       $occupant = [
         'occupant_id' => $occupant_id,
         'occupant_type' => (string) ($entity['entity_type'] ?? 'unknown'),
         'content_id' => $content_id,
+        'character_id' => $character_id,
         'room_id' => $room_id,
         'hex_id' => $hex_id,
         'placement' => [
           'q' => $q,
           'r' => $r,
+          'orientation' => $orientation,
         ],
         'label' => (string) ($metadata['display_name'] ?? $metadata['name'] ?? $content_id ?: $occupant_id),
         'visible' => $visible,

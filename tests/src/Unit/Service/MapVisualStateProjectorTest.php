@@ -98,12 +98,14 @@ class MapVisualStateProjectorTest extends UnitTestCase {
           'placement' => [
             'room_id' => 'room-a',
             'hex' => ['q' => 0, 'r' => 0],
+            'orientation' => 'sw',
           ],
           'state' => [
             'active' => TRUE,
             'metadata' => [
               'display_name' => 'Hero',
               'team' => 'player',
+              'character_id' => 365,
               'portrait_url' => 'https://example.com/hero.png',
             ],
           ],
@@ -145,7 +147,9 @@ class MapVisualStateProjectorTest extends UnitTestCase {
     $this->assertSame('room-a', $result['topology']['connections'][0]['from_room_id']);
     $this->assertSame('room-a:0:0', $result['topology']['connections'][0]['from_hex_id']);
     $this->assertSame('pc-1', $result['occupants']['party'][0]['occupant_id']);
+    $this->assertSame(365, $result['occupants']['party'][0]['character_id']);
     $this->assertSame('room-a:0:0', $result['occupants']['party'][0]['hex_id']);
+    $this->assertSame('sw', $result['occupants']['party'][0]['placement']['orientation']);
     $this->assertArrayNotHasKey('destroyed', $result['occupants']['party'][0]['state']);
     $this->assertSame('props', $result['presentation']['object_definitions']['table']['visual']['layer']);
     $this->assertTrue($result['presentation']['object_definitions']['table']['movement']['passable']);
