@@ -1480,7 +1480,8 @@ export class ChatPanel {
 
   formatEncounterChatMessage(speaker, message, type = 'npc', options = {}) {
     const rawMessage = String(message || '').trim();
-    if (!rawMessage || options.encounterPrefix === false || /^Round\s+\d+\s*:/i.test(rawMessage)) {
+    const alreadyPrefixed = /^Turn\s+\d+\s*:\s*Round\s+\d+\s*:\s*Actor\s+.+?:/i.test(rawMessage);
+    if (!rawMessage || options.encounterPrefix === false || alreadyPrefixed) {
       return message || '';
     }
     const normalizedType = String(type || '').toLowerCase();
@@ -1491,7 +1492,7 @@ export class ChatPanel {
     if (!context) {
       return message || '';
     }
-    return `Round ${context.round}: Actor ${context.actorName}: ${rawMessage}`;
+    return `Turn ${context.turn}: Round ${context.round}: Actor ${context.actorName}: ${rawMessage}`;
   }
 
   resolveEncounterChatContext(speaker = '', options = {}) {
@@ -1510,8 +1511,20 @@ export class ChatPanel {
     const actorId = String(options.actorId || options.event?.actor || data.entity_id || snapshot.turn?.entity || gameState.turn?.entity || '').trim();
     const explicitSpeaker = String(speaker || '').trim();
     const actorName = String(options.actorName || data.actor_name || data.actor || explicitSpeaker || this.resolveEncounterActorName(actorId) || 'Narrator').trim();
+
+    const turnIndex = Number(options.turnIndex ?? data.turn_index ?? snapshot.turn?.index ?? gameState.turn?.index);
+    const turn = Number.isFinite(turnIndex) && turnIndex >= 0 ? turnIndex + 1 : 1;
+    const totalTurns = Number(
+      options.totalTurns
+      ?? data.total_turns
+      ?? (Array.isArray(gameState.initiative_order) ? gameState.initiative_order.length : NaN)
+    );
+
     return {
       round,
+      turn,
+      turnIndex: Number.isFinite(turnIndex) ? turnIndex : null,
+      totalTurns: Number.isFinite(totalTurns) ? totalTurns : null,
       actorId,
       actorName: actorName || 'Narrator',
     };
