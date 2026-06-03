@@ -56,6 +56,7 @@ export class HexCanvas {
       backgroundColor: config.backgroundColor ?? 0x1a1a2e,
       showCoordinates: config.showCoordinates ?? false,
       showGrid: config.showGrid ?? true,
+      showHexIndicators: config.showHexIndicators ?? true,
     };
 
     /** @type {PIXI.Application|null} */
@@ -556,6 +557,7 @@ export class HexCanvas {
     );
 
     this.hexContainer.addChild(hex);
+    this._renderHexAttributeIndicators(pos, size, roomHex);
 
     if (resolvedStyle.showCoordinates) {
       const label = new PIXI.Text(`${q},${r}`, {
@@ -570,6 +572,112 @@ export class HexCanvas {
       this.gridContainer.addChild(label);
       hex.hexCoordText = label;
     }
+  }
+
+  _renderHexAttributeIndicators(pos, size, roomHex = null) {
+    if (!this.propsContainer || !window.PIXI || !this.config.showHexIndicators) {
+      return;
+    }
+    if (!roomHex) {
+      return;
+    }
+
+    const isDiscovered = roomHex?.is_discovered !== false;
+    const isVisible = roomHex?.is_visible !== false;
+    const isEntry = roomHex?.is_entry === true;
+
+    const objects = Array.isArray(roomHex?.objects) ? roomHex.objects : [];
+    const objectCount = objects.length;
+
+    const elev = Number(roomHex?.elevation_ft);
+    const hasElevation = Number.isFinite(elev) && Math.abs(elev) >= 0.5;
+
+    const alpha = !isDiscovered ? 0.55 : (isVisible ? 0.95 : 0.7);
+
+    const root = new PIXI.Container();
+    root.x = pos.x;
+    root.y = pos.y;
+    root.eventMode = 'none';
+
+    if (!isDiscovered) {
+      const badge = new PIXI.Graphics();
+      badge.beginFill(0x0b1020, 0.8);
+      badge.lineStyle(1, 0x94a3b8, 0.35);
+      badge.drawCircle(0, 0, Math.max(10, size * 0.18));
+      badge.endFill();
+
+      const text = new PIXI.Text('?', {
+        fontFamily: 'Arial',
+        fontSize: Math.max(12, size * 0.22),
+        fill: 0xe2e8f0,
+        fontWeight: 'bold',
+      });
+      text.anchor?.set?.(0.5);
+
+      root.addChild(badge);
+      root.addChild(text);
+
+      this.propsContainer.addChild(root);
+      return;
+    }
+
+    if (!isVisible) {
+      const g = new PIXI.Graphics();
+      g.lineStyle(2, 0x94a3b8, 0.55 * alpha);
+      g.drawCircle(-size * 0.48, -size * 0.48, Math.max(6, size * 0.11));
+      root.addChild(g);
+    }
+
+    if (isEntry) {
+      const g = new PIXI.Graphics();
+      g.lineStyle(1, 0x0b1020, 0.55 * alpha);
+      g.beginFill(0x22c55e, 0.9 * alpha);
+      const tipY = -size * 0.18;
+      const baseY = size * 0.14;
+      const halfW = size * 0.16;
+      g.drawPolygon([0, tipY, -halfW, baseY, halfW, baseY]);
+      g.endFill();
+      root.addChild(g);
+    }
+
+    if (objectCount > 0) {
+      const label = objectCount > 9 ? '9+' : String(objectCount);
+      const g = new PIXI.Graphics();
+      g.beginFill(0xa855f7, 0.9 * alpha);
+      g.lineStyle(1, 0x0b1020, 0.55 * alpha);
+      g.drawCircle(size * 0.48, -size * 0.48, Math.max(8, size * 0.13));
+      g.endFill();
+
+      const text = new PIXI.Text(label, {
+        fontFamily: 'Arial',
+        fontSize: Math.max(10, size * 0.18),
+        fill: 0x0b1020,
+        fontWeight: 'bold',
+      });
+      text.anchor?.set?.(0.5);
+      text.x = size * 0.48;
+      text.y = -size * 0.48;
+
+      root.addChild(g);
+      root.addChild(text);
+    }
+
+    if (hasElevation) {
+      const sign = elev > 0 ? '+' : '';
+      const text = new PIXI.Text(`${sign}${Math.round(elev)}ft`, {
+        fontFamily: 'Arial',
+        fontSize: Math.max(9, size * 0.16),
+        fill: 0xe2e8f0,
+        fontWeight: 'bold',
+      });
+      text.anchor?.set?.(0, 1);
+      text.x = -size * 0.58;
+      text.y = size * 0.58;
+      text.alpha = 0.95 * alpha;
+      root.addChild(text);
+    }
+
+    this.propsContainer.addChild(root);
   }
 
   _ensureHexHoverUI() {
@@ -753,8 +861,10 @@ function _resolveRoomHexStyle(roomHex = {}) {
   const isWater = terrain.includes('water');
   const isHazard = terrain.includes('lava') || terrain.includes('hazard') || objectCategories.some((category) => ['trap', 'hazard'].some((token) => category.includes(token)));
 
+  let style = DEFAULT_HEX_STYLE;
+
   if (isWall) {
-    return {
+    style = {
       fillColor: 0x1f2937,
       fillAlpha: 0.95,
       lineColor: 0x94a3b8,
@@ -762,10 +872,8 @@ function _resolveRoomHexStyle(roomHex = {}) {
       lineWidth: 2,
       showCoordinates: false,
     };
-  }
-
-  if (isDoor) {
-    return {
+  } else if (isDoor) {
+    style = {
       fillColor: 0x3f3f46,
       fillAlpha: 0.95,
       lineColor: 0xfbbf24,
@@ -773,10 +881,8 @@ function _resolveRoomHexStyle(roomHex = {}) {
       lineWidth: 2,
       showCoordinates: false,
     };
-  }
-
-  if (isHazard) {
-    return {
+  } else if (isHazard) {
+    style = {
       fillColor: 0x7f1d1d,
       fillAlpha: 0.88,
       lineColor: 0xf97316,
@@ -784,10 +890,8 @@ function _resolveRoomHexStyle(roomHex = {}) {
       lineWidth: 1.5,
       showCoordinates: false,
     };
-  }
-
-  if (isWater) {
-    return {
+  } else if (isWater) {
+    style = {
       fillColor: 0x1d4ed8,
       fillAlpha: 0.72,
       lineColor: 0x93c5fd,
@@ -795,10 +899,8 @@ function _resolveRoomHexStyle(roomHex = {}) {
       lineWidth: 1,
       showCoordinates: false,
     };
-  }
-
-  if (lighting === 'dark') {
-    return {
+  } else if (lighting === 'dark') {
+    style = {
       fillColor: 0x1e293b,
       fillAlpha: 0.9,
       lineColor: 0x475569,
@@ -806,10 +908,17 @@ function _resolveRoomHexStyle(roomHex = {}) {
       lineWidth: 1,
       showCoordinates: false,
     };
-  }
-
-  if (objects.length > 0) {
-    return {
+  } else if (lighting === 'dim') {
+    style = {
+      fillColor: 0x24324a,
+      fillAlpha: 0.92,
+      lineColor: 0x64748b,
+      lineAlpha: 1,
+      lineWidth: 1,
+      showCoordinates: false,
+    };
+  } else if (objects.length > 0) {
+    style = {
       fillColor: 0x334155,
       fillAlpha: 0.92,
       lineColor: 0x64748b,
@@ -819,7 +928,30 @@ function _resolveRoomHexStyle(roomHex = {}) {
     };
   }
 
-  return DEFAULT_HEX_STYLE;
+  const isDiscovered = roomHex?.is_discovered !== false;
+  const isVisible = roomHex?.is_visible !== false;
+
+  if (!isDiscovered) {
+    return {
+      fillColor: 0x0b1020,
+      fillAlpha: 0.98,
+      lineColor: 0x0b1020,
+      lineAlpha: 0.7,
+      lineWidth: Math.max(0.5, style.lineWidth ?? 1),
+      showCoordinates: false,
+    };
+  }
+
+  if (!isVisible) {
+    return {
+      ...style,
+      fillAlpha: Math.min(style.fillAlpha ?? 1, 0.55),
+      lineAlpha: Math.min(style.lineAlpha ?? 1, 0.55),
+      lineColor: 0x334155,
+    };
+  }
+
+  return style;
 }
 
 function _resolveHexStyleForCanvas(style = DEFAULT_HEX_STYLE, config = {}) {

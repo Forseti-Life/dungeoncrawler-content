@@ -171,15 +171,93 @@
 }
 
 .legend-swatch {
-  display: inline-block;
-  width: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
   height: 18px;
   margin-right: 6px;
-  color: var(--bs-light);
+  color: var(--text-bright);
   font-size: 10px;
   line-height: 14px;
   text-align: center;
+  border-radius: 6px;
+  background: var(--overlay-white-04);
+  border: 1px solid var(--overlay-white-12);
 }
+
+.hexmap-legend {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-lg);
+  background: var(--overlay-panel-95);
+  border: 1px solid var(--overlay-white-12);
+  color: var(--text);
+  box-shadow: var(--shadow-md);
+  max-width: 280px;
+}
+
+.hexmap-legend__title {
+  font-size: var(--text-sm);
+  font-weight: 800;
+  margin-bottom: var(--space-2);
+  letter-spacing: 0.02em;
+}
+
+.hexmap-legend__items {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px;
+  font-size: var(--text-xs);
+  font-weight: 650;
+}
+
+.hexmap-legend__item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.legend-swatch--entry {
+  background: color-mix(in srgb, var(--success) 40%, var(--panel));
+  border-color: color-mix(in srgb, var(--success) 70%, black);
+  color: var(--text-bright);
+}
+
+.legend-swatch--not-visible {
+  background: color-mix(in srgb, var(--gray-500) 18%, var(--panel));
+  border-color: color-mix(in srgb, var(--gray-400) 30%, var(--panel));
+}
+
+.legend-swatch--undiscovered {
+  background: color-mix(in srgb, black 65%, var(--panel));
+  border-color: color-mix(in srgb, var(--gray-400) 30%, var(--panel));
+}
+
+.legend-swatch--objects {
+  background: color-mix(in srgb, rebeccapurple 40%, var(--panel));
+  border-color: color-mix(in srgb, rebeccapurple 70%, black);
+}
+
+.legend-swatch--elevation {
+  background: color-mix(in srgb, var(--accent-strong) 18%, var(--panel));
+  border-color: color-mix(in srgb, var(--accent-strong) 45%, var(--panel));
+}
+
+.legend-swatch--lighting {
+  background: color-mix(in srgb, var(--warning) 20%, var(--panel));
+  border-color: color-mix(in srgb, var(--warning) 38%, var(--panel));
+}
+
+.legend-swatch--terrain {
+  background: color-mix(in srgb, var(--primary) 20%, var(--panel));
+  border-color: color-mix(in srgb, var(--primary) 45%, var(--panel));
+}
+
+.legend-swatch--coords {
+  background: color-mix(in srgb, var(--gray-500) 12%, var(--panel));
+  border-color: color-mix(in srgb, var(--gray-400) 30%, var(--panel));
+}
+
 
 .legend-swatch--fixed {
   background: var(--legend-fixed-bg);

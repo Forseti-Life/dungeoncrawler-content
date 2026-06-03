@@ -107,6 +107,20 @@
       <div class="hexmap-hud-overlays">
         <span data-status="zoom" class="hexmap-hud__zoom" hidden></span>
         <span data-status="hex-info" class="hexmap-hud__hex-info" hidden></span>
+
+        <div class="hexmap-legend" data-status="hex-legend">
+          <div class="hexmap-legend__title">{{ 'Hex Legend'|t }}</div>
+          <div class="hexmap-legend__items">
+            <div class="hexmap-legend__item"><span class="legend-swatch legend-swatch--entry">▲</span> {{ 'Entry (is_entry)'|t }}</div>
+            <div class="hexmap-legend__item"><span class="legend-swatch legend-swatch--not-visible">○</span> {{ 'Not visible (is_visible=false)'|t }}</div>
+            <div class="hexmap-legend__item"><span class="legend-swatch legend-swatch--undiscovered">?</span> {{ 'Undiscovered (is_discovered=false)'|t }}</div>
+            <div class="hexmap-legend__item"><span class="legend-swatch legend-swatch--objects">3</span> {{ 'Objects count (objects.length)'|t }}</div>
+            <div class="hexmap-legend__item"><span class="legend-swatch legend-swatch--elevation">+5</span> {{ 'Elevation (elevation_ft)'|t }}</div>
+            <div class="hexmap-legend__item"><span class="legend-swatch legend-swatch--lighting">D</span> {{ 'Lighting (lighting=dark/dim)'|t }}</div>
+            <div class="hexmap-legend__item"><span class="legend-swatch legend-swatch--terrain">T</span> {{ 'Terrain style (terrain_type)'|t }}</div>
+            <div class="hexmap-legend__item"><span class="legend-swatch legend-swatch--coords">q,r</span> {{ 'Coordinates (toggle)'|t }}</div>
+          </div>
+        </div>
       </div>
 
       {# Game Coordinator — AI GM Narration Overlay #}
