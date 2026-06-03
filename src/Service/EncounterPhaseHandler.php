@@ -4090,9 +4090,13 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
     }
     catch (\Throwable $e) {
       $this->logger->error('Encounter talk failed: @error', ['@error' => $e->getMessage()]);
+      $error_message = $e instanceof \InvalidArgumentException
+        ? $e->getMessage()
+        : 'Chat service error.';
+
       return [
         'talked' => FALSE,
-        'error' => 'Chat service error.',
+        'error' => $error_message,
         'mutations' => [],
       ];
     }

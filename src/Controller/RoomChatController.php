@@ -104,7 +104,12 @@ class RoomChatController extends ControllerBase {
 
     $action_response = $this->coordinator->processAction($campaign_id, $intent);
     if (empty($action_response['success'])) {
-      throw new \InvalidArgumentException((string) ($action_response['error'] ?? 'Talk failed.'), 409);
+      $error = (string) (
+        $action_response['error']
+        ?? ($action_response['result']['error'] ?? NULL)
+        ?? 'Talk failed.'
+      );
+      throw new \InvalidArgumentException($error, 409);
     }
 
     $talk_result = is_array($action_response['result'] ?? NULL) ? $action_response['result'] : [];

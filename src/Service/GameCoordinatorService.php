@@ -304,10 +304,16 @@ class GameCoordinatorService {
       }
     }
 
+    $success = $action_result['success'] ?? TRUE;
+    $result_payload = $action_result['result'] ?? [];
+    $error_message = $action_result['error']
+      ?? (is_array($result_payload) ? ($result_payload['error'] ?? NULL) : NULL)
+      ?? NULL;
+
     return [
-      'success' => $action_result['success'] ?? TRUE,
+      'success' => $success,
       'game_state' => $this->buildClientGameState($game_state),
-      'result' => $action_result['result'] ?? [],
+      'result' => $result_payload,
       'mutations' => $action_result['mutations'] ?? [],
       'events' => $logged_events,
       'phase_transition' => $phase_transition,
@@ -319,7 +325,7 @@ class GameCoordinatorService {
       'action_contract' => $action_contract,
       'state_version' => $game_state['state_version'],
       'time_effects' => $time_effects,
-      'error' => NULL,
+      'error' => $success ? NULL : (is_string($error_message) ? trim($error_message) : NULL),
     ];
   }
 
