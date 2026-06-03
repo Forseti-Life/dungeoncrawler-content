@@ -963,6 +963,7 @@ export class ChatPanel {
   renderRoomChatHistory(result) {
     if (!result?.success || !result.data?.messages) {
       console.warn('[ChatPanel] renderRoomChatHistory: bad result', { success: result?.success, hasMessages: !!result?.data?.messages });
+      this._roomHistoryHasEncounterTranscript = false;
       return;
     }
 
@@ -983,6 +984,10 @@ export class ChatPanel {
         view: 'room',
       };
     });
+
+    const encounterPrefixRegex = /^Round\s+(?:\d+|\?)\s*:\s*Turn\s+(?:\d+|\?)\s*:\s*Actor\s+.+?:/i;
+    this._roomHistoryHasEncounterTranscript = incoming.some((line) => encounterPrefixRegex.test(String(line?.message || '').trim()));
+
     const merged = this.rememberChatLines('room', incoming, {
       context,
       channelKey: this.activeChannel,
@@ -2689,7 +2694,9 @@ export class ChatPanel {
       const result = await this.fetchRoomChatHistory(options);
       if (result?.success && result.data?.messages) {
         this.renderRoomChatHistory(result);
-        await this.renderPersistedEncounterEventHistory();
+        if ((this.activeChannel || 'room') === 'room') {
+          await this.renderPersistedEncounterEventHistory();
+        }
         this.prefetchSessionViews();
         this.prefetchConnectedRoomContext();
       }
@@ -2791,6 +2798,59 @@ export class ChatPanel {
       if (events.length === 0) {
         return;
       }
+
+      // If the server-provided room history already contains encounter-prefixed transcript
+      // lines, avoid appending the encounter-event transcript again (double-render risk).
+      if (this._roomHistoryHasEncounterTranscript) {
+        const characterData = this.stateManager?.hexmap?.characterData || {};
+        const activeCharacterName = String(characterData?.name || '').trim();
+        const normalizeName = (value) => String(value || '').trim().toLowerCase();
+
+        if (!activeCharacterName) {
+          return;
+        }
+
+        for (const gameEvent of events) {
+          if (String(gameEvent?.type || '').trim().toLowerCase() !== 'turn_start') {
+            continue;
+          }
+
+          const chatLine = this.buildEncounterEventChatLine(gameEvent);
+          if (!chatLine || normalizeName(chatLine.actorName) !== normalizeName(activeCharacterName)) {
+            continue;
+          }
+
+          const rawRound = Number(gameEvent?.data?.round);
+          const fallbackRound = Number.isFinite(rawRound) ? rawRound : (Number.isFinite(chatLine.round) ? chatLine.round : NaN);
+          const promptLineId = gameEvent.id
+            ? `turn-prompt-${gameEvent.id}`
+            : `turn-prompt-${Number.isFinite(fallbackRound) ? fallbackRound : 'unknown'}-${normalizeName(activeCharacterName)}`;
+
+          this.appendChatLineToTarget(
+            { view: 'room', channelKey: this.activeChannel || 'room', context: this.getChatContext() },
+            'System',
+            `It's your turn, ${activeCharacterName}.`,
+            'system',
+            {
+              lineId: promptLineId,
+              source: 'encounter-event',
+              authority: 'authoritative',
+              messageClass: 'authoritative_transcript',
+              encounterEvent: true,
+              event: gameEvent,
+              round: Number.isFinite(fallbackRound) ? fallbackRound : undefined,
+              actorName: 'System',
+              turn_prompt: true,
+              turn_role: 'player',
+              turn_name: activeCharacterName,
+              eventId: String(gameEvent.id || ''),
+            }
+          );
+        }
+
+        return;
+      }
+
       this.handleGameEvents({
         detail: { events },
       });
