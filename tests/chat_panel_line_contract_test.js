@@ -154,6 +154,27 @@ console.log('\n=== ChatPanel canonical line contract ===');
 
 {
   const panel = {
+    activeSessionView: 'room',
+    activeChannel: 'room',
+    resolveChatChannelKey,
+  };
+  const normalized = normalizeChatLineRecord.call(panel, {
+    speaker: 'System',
+    message: 'Round 0: Turn 1: Actor System: Current turn: Burasco.',
+    type: 'system',
+    transient: true,
+    turn_prompt: true,
+    internal_log: true,
+  });
+
+  assert(normalized.turnPrompt === true, 'turn prompts preserve turn_prompt metadata');
+  assert(normalized.transient === false, 'turn prompts are never treated as transient');
+  assert(normalized.persistent === true, 'turn prompts are always persistent by default');
+  assert(normalized.internalLog === true, 'turn prompts preserve internal_log metadata');
+}
+
+{
+  const panel = {
     resolveChatChannelKey,
     normalizeChatLineRecord,
     activeSessionView: 'room',

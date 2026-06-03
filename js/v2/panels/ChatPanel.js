@@ -794,12 +794,16 @@ export class ChatPanel {
       || (normalizedSource.startsWith('local') ? 'local' : 'authoritative');
     const normalizedMessageClass = String(line.messageClass || '').trim()
       || (normalizedAuthority === 'authoritative' ? 'authoritative_transcript' : 'local_ui_notice');
+
+    const turnPrompt = Boolean(line.turnPrompt || line.turn_prompt);
+    const transient = Boolean(line.transient) && !turnPrompt;
+
     return {
       speaker: String(line.speaker || ''),
       message: String(line.message || ''),
       type: String(line.type || 'npc'),
-      transient: Boolean(line.transient),
-      persistent: typeof line.persistent === 'boolean' ? line.persistent : !Boolean(line.transient),
+      transient,
+      persistent: typeof line.persistent === 'boolean' ? line.persistent : !transient,
       lineId: String(line.lineId || ''),
       messageId: Number.isFinite(Number(line.messageId)) ? Number(line.messageId) : null,
       sourceMessageId: Number.isFinite(Number(line.sourceMessageId)) ? Number(line.sourceMessageId) : null,
@@ -811,6 +815,14 @@ export class ChatPanel {
       view: normalizedView,
       requestId: String(line.requestId || ''),
       eventId: String(line.eventId || ''),
+      internalLog: Boolean(line.internalLog || line.internal_log),
+      turnPrompt,
+      turnRole: String(line.turnRole || line.turn_role || ''),
+      turnName: String(line.turnName || line.turn_name || ''),
+      turnIndex: Number.isFinite(Number(line.turnIndex ?? line.turn_index)) ? Number(line.turnIndex ?? line.turn_index) : null,
+      initiativeTotal: Number.isFinite(Number(line.initiativeTotal ?? line.initiative_total)) ? Number(line.initiativeTotal ?? line.initiative_total) : null,
+      initiativeRoll: Number.isFinite(Number(line.initiativeRoll ?? line.initiative_roll)) ? Number(line.initiativeRoll ?? line.initiative_roll) : null,
+      initiativeModifier: Number.isFinite(Number(line.initiativeModifier ?? line.initiative_modifier)) ? Number(line.initiativeModifier ?? line.initiative_modifier) : null,
     };
   }
 
@@ -1386,6 +1398,7 @@ export class ChatPanel {
     line.innerHTML = '';
     line.className = `chat-line chat-line--${lineRecord.type}`;
     line.classList.toggle('chat-line--pending', Boolean(options.pending));
+    line.classList.toggle('chat-line--turn-prompt', Boolean(lineRecord.turnPrompt));
 
     if (lineRecord.speaker) {
       const name = document.createElement('span');
@@ -1425,6 +1438,7 @@ export class ChatPanel {
     line.dataset.source = lineRecord.source;
     line.dataset.authority = lineRecord.authority;
     line.dataset.messageClass = lineRecord.messageClass;
+    line.dataset.turnPrompt = lineRecord.turnPrompt ? '1' : '0';
     line.dataset.channel = lineRecord.channel;
     line.dataset.view = lineRecord.view;
     if (lineRecord.requestId) {
@@ -1451,7 +1465,7 @@ export class ChatPanel {
 
   formatEncounterChatMessage(speaker, message, type = 'npc', options = {}) {
     const rawMessage = String(message || '').trim();
-    const alreadyPrefixed = /^Turn\s+\d+\s*:\s*Round\s+\d+\s*:\s*Actor\s+.+?:/i.test(rawMessage);
+    const alreadyPrefixed = /^Round\s+(?:\d+|\?)\s*:\s*Turn\s+(?:\d+|\?)\s*:\s*Actor\s+.+?:/i.test(rawMessage);
     if (!rawMessage || options.encounterPrefix === false || alreadyPrefixed) {
       return message || '';
     }
@@ -1459,7 +1473,7 @@ export class ChatPanel {
     if (!context) {
       return message || '';
     }
-    return `Turn ${context.turn}: Round ${context.round}: Actor ${context.actorName}: ${rawMessage}`;
+    return `Round ${context.round}: Turn ${context.turn}: Actor ${context.actorName}: ${rawMessage}`;
   }
 
   resolveEncounterChatContext(speaker = '', options = {}) {
@@ -1473,7 +1487,7 @@ export class ChatPanel {
     const data = options.event?.data || {};
 
     const rawRound = Number(options.round ?? data.round ?? snapshot.round ?? gameState.round);
-    const round = Number.isFinite(rawRound) && rawRound > 0 ? rawRound : '?';
+    const round = Number.isFinite(rawRound) && rawRound > 0 ? Math.max(0, rawRound - 1) : '?';
 
     const actorId = String(options.actorId || options.event?.actor || data.entity_id || snapshot.turn?.entity || gameState.turn?.entity || '').trim();
     const explicitSpeaker = String(speaker || '').trim();
