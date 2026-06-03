@@ -103,7 +103,7 @@ export class HexCanvas {
 
     this._unsubs.push(
       this.bus.on('room:changed', ({ roomId, room } = {}) => {
-        this.currentRoomId = roomId || room?.room_id || room?.id || null;
+        this.currentRoomId = roomId || room?.room_id || null;
         this.currentRoom = room || null;
         this.generateHexGrid();
         if (room?.name) {

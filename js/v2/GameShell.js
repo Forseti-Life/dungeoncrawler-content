@@ -580,7 +580,7 @@ export class GameShell {
     const preserveExisting = Boolean(options.preserveExisting);
     const viewKey        = `${campaignId}:${roomId}`;
     const visualRoom     = this.mapVisualState?.topology?.rooms?.[roomId] ?? {};
-    const payloadRoomBase = { ...visualRoom, id: roomId };
+    const payloadRoomBase = { ...visualRoom, room_id: visualRoom?.room_id || roomId };
 
     // Dedup: skip if same key already loaded unless forced
     if (!force && this._roomViewLastKey === viewKey && this._roomViewHasContent) {
@@ -2705,7 +2705,6 @@ function _mergeRoomMetadata(visualRoom = {}, apiRoom = {}, roomId = '') {
   const merged = {
     ...(_isPlainObject(visualRoom) ? visualRoom : {}),
     ...(_isPlainObject(apiRoom) ? apiRoom : {}),
-    id: roomId,
     room_id: apiRoom.room_id || visualRoom.room_id || roomId,
   };
 
@@ -2715,7 +2714,10 @@ function _mergeRoomMetadata(visualRoom = {}, apiRoom = {}, roomId = '') {
     }
   });
 
-  merged.subtitle = _buildRoomSubtitle(merged);
+  if (!_hasMeaningfulValue(merged.subtitle)) {
+    merged.subtitle = _buildRoomSubtitle(merged);
+  }
+
   return merged;
 }
 
@@ -2924,7 +2926,8 @@ function _buildRenderableEntityBlueprints(dungeonData = {}, activeRoomId = '', l
         return;
       }
 
-      const instanceId = `room-object:${roomId}:${q}:${r}:${contentId}:${objectIndex}`;
+      const instanceId = String(object?.object_instance_id || '').trim()
+        || `room-object:${roomId}:${q}:${r}:${contentId}:${objectIndex}`;
       const key = _buildRenderableEntityKey(instanceId, roomId, q, r);
       if (seen.has(key)) {
         return;

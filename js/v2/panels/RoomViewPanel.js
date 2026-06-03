@@ -194,7 +194,7 @@ export class RoomViewPanel {
   }
 
   updateRoomViewPanel(room, state = {}, _source = 'unknown') {
-    console.log('[RoomViewPanel] updateRoomViewPanel', { source: _source, roomId: room?.id, roomName: room?.name, entries: state?.entries?.length ?? 0, statusLabel: state?.statusLabel ?? 'none' });
+    console.log('[RoomViewPanel] updateRoomViewPanel', { source: _source, roomId: room?.room_id, roomName: room?.name, entries: state?.entries?.length ?? 0, statusLabel: state?.statusLabel ?? 'none' });
     const {
       statusLabel = 'Idle',
       placeholderText = 'Room transition imagery will appear here.',
