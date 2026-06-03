@@ -224,6 +224,14 @@ class RoomChatController extends ControllerBase {
       $character_id = isset($payload['character_id']) ? (int) $payload['character_id'] : null;
       $channel = $payload['channel'] ?? 'room';
       $client_request_id = (string) ($payload['client_request_id'] ?? '');
+
+      // Room transcript lines are encounter-governed: clients cannot inject NPC/system
+      // lines into the room channel. Player room chat must route via the canonical
+      // encounter Talk action.
+      if ($channel === 'room' && $type !== 'player') {
+        throw new \InvalidArgumentException('Only player messages may be posted to the room channel.', 400);
+      }
+
       $is_player_turn = $type === 'player';
 
       // stream: use NDJSON streaming for player turns so the client can render
