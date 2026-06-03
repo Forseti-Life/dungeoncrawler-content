@@ -423,7 +423,11 @@ export class HexCanvas {
       resolution: window.devicePixelRatio || 1,
       autoDensity: true,
     });
-    this.container.appendChild(this.app.view);
+    if (this.container.firstChild) {
+      this.container.insertBefore(this.app.view, this.container.firstChild);
+    } else {
+      this.container.appendChild(this.app.view);
+    }
     this.app.stage.interactive = true;
     this.app.stage.hitArea = this.app.screen;
   }
