@@ -3904,7 +3904,7 @@ class RoomChatService {
         'gm_narrative' => $gm_narrative,
       ]
     );
-    $turn_logs[] = $this->appendInternalRoomLogMessage(
+    $turn_logs[] = $this->appendRoomSystemMessage(
       $dungeon_data,
       $room_index,
       $this->buildRoomCurrentTurnLogMessage($player_label),
@@ -3912,7 +3912,6 @@ class RoomChatService {
         'turn_role' => 'player',
         'turn_name' => $player_label,
         'turn_index' => $harness_turn_index,
-        'internal_log' => FALSE,
         'turn_prompt' => TRUE,
       ]
     );
@@ -4366,6 +4365,11 @@ class RoomChatService {
   /**
    * Append an internal turn-log system message to room chat.
    */
+  protected function appendRoomSystemMessage(array &$dungeon_data, int|string $room_index, string $message, array $extra = [], ?string $encounter_prefix = NULL): array {
+    $extra['internal_log'] = FALSE;
+    return $this->appendInternalRoomLogMessage($dungeon_data, $room_index, $message, $extra, $encounter_prefix);
+  }
+
   protected function appendInternalRoomLogMessage(array &$dungeon_data, int|string $room_index, string $message, array $extra = [], ?string $encounter_prefix = NULL): array {
     $internal_log = array_key_exists('internal_log', $extra) ? (bool) $extra['internal_log'] : TRUE;
 
