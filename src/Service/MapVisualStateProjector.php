@@ -68,7 +68,7 @@ class MapVisualStateProjector {
           'is_entry' => !empty($hex['is_entry']) || !empty($hex['entry']) || ($hex_q === 0 && $hex_r === 0),
           'is_visible' => $is_visible,
           'is_discovered' => $is_discovered,
-          'objects' => $this->normalizeHexObjects($hex),
+          'objects' => $this->normalizeHexObjects($hex, $room_id, $hex_q, $hex_r),
         ];
       }
 
@@ -315,9 +315,9 @@ class MapVisualStateProjector {
   /**
    * Normalize room-hex objects for visual use.
    */
-  protected function normalizeHexObjects(array $hex): array {
+  protected function normalizeHexObjects(array $hex, string $room_id, int $hex_q, int $hex_r): array {
     $objects = [];
-    foreach ((is_array($hex['objects'] ?? NULL) ? $hex['objects'] : []) as $object) {
+    foreach ((is_array($hex['objects'] ?? NULL) ? $hex['objects'] : []) as $object_index => $object) {
       if (!is_array($object)) {
         continue;
       }
@@ -327,9 +327,15 @@ class MapVisualStateProjector {
         continue;
       }
 
+      $object_instance_id = trim((string) ($object['object_instance_id'] ?? $object['instance_id'] ?? ''));
+      if ($object_instance_id === '') {
+        $object_instance_id = sprintf('%s:%d:%d:%s:%d', $room_id, $hex_q, $hex_r, $object_id, (int) $object_index);
+      }
+
       $visual = is_array($object['visual'] ?? NULL) ? $object['visual'] : [];
       $objects[] = [
         'object_id' => $object_id,
+        'object_instance_id' => $object_instance_id,
         'label' => (string) ($object['label'] ?? $object['name'] ?? $object_id),
         'category' => (string) ($object['category'] ?? $object['type'] ?? 'decor'),
         'description' => (string) ($object['description'] ?? ''),

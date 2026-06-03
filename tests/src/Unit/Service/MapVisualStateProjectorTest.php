@@ -138,6 +138,8 @@ class MapVisualStateProjectorTest extends UnitTestCase {
     $this->assertFalse($result['topology']['rooms']['room-b']['state']['explored']);
     $this->assertSame('wood_floor', $result['topology']['rooms']['room-a']['terrain']['type']);
     $this->assertSame('dim_light', $result['topology']['rooms']['room-b']['lighting']);
+    $this->assertSame('room-a:0:0:table:0', $result['topology']['rooms']['room-a']['hexes'][0]['objects'][0]['object_instance_id']);
+    $this->assertSame('n', $result['topology']['rooms']['room-a']['hexes'][0]['objects'][0]['orientation']);
     $this->assertTrue($result['topology']['rooms']['room-a']['hexes'][0]['objects'][0]['blocks_movement']);
     $this->assertFalse($result['topology']['rooms']['room-a']['hexes'][0]['objects'][0]['passable']);
     $this->assertTrue($result['topology']['rooms']['room-a']['hexes'][0]['objects'][0]['movable']);
