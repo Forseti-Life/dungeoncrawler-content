@@ -296,12 +296,31 @@ class MapVisualStateProjector {
         ? (bool) $connection['is_discovered']
         : (array_key_exists('is_known', $connection) ? (bool) $connection['is_known'] : TRUE);
 
+      $normalized_from_hex_id = ($from_room_id !== '' && $has_from_hex)
+        ? $this->deriveHexId($from_room_id, $from_q, $from_r, $from_hex)
+        : '';
+      $normalized_to_hex_id = ($to_room_id !== '' && $has_to_hex)
+        ? $this->deriveHexId($to_room_id, $to_q, $to_r, $to_hex)
+        : '';
+
       $connections[] = [
         'connection_id' => (string) ($connection['connection_id'] ?? ''),
         'from_room_id' => $from_room_id,
         'to_room_id' => $to_room_id,
-        'from_hex_id' => ($from_room_id !== '' && $has_from_hex) ? $this->deriveHexId($from_room_id, $from_q, $from_r, $from_hex) : '',
-        'to_hex_id' => ($to_room_id !== '' && $has_to_hex) ? $this->deriveHexId($to_room_id, $to_q, $to_r, $to_hex) : '',
+        'from_hex_id' => $normalized_from_hex_id,
+        'to_hex_id' => $normalized_to_hex_id,
+        'from' => [
+          'room_id' => $from_room_id,
+          'hex_id' => $normalized_from_hex_id,
+          'q' => $from_q,
+          'r' => $from_r,
+        ],
+        'to' => [
+          'room_id' => $to_room_id,
+          'hex_id' => $normalized_to_hex_id,
+          'q' => $to_q,
+          'r' => $to_r,
+        ],
         'type' => (string) ($connection['type'] ?? 'open_passage'),
         'is_discovered' => $is_discovered,
         'is_passable' => (bool) ($connection['is_passable'] ?? TRUE),
@@ -310,6 +329,100 @@ class MapVisualStateProjector {
     }
 
     return $connections;
+  }
+
+  /**
+   * Attach per-room exits derived from normalized connections.
+   */
+  protected function attachRoomExits(array $rooms, array $connections): array {
+    foreach ($rooms as $room_id => &$room) {
+      if (!is_array($room)) {
+        $room = [];
+      }
+      $room['exits'] = [];
+    }
+    unset($room);
+
+    foreach ($connections as $connection) {
+      if (!is_array($connection)) {
+        continue;
+      }
+
+      $connection_id = trim((string) ($connection['connection_id'] ?? ''));
+      $from_room_id = trim((string) ($connection['from_room_id'] ?? ''));
+      $to_room_id = trim((string) ($connection['to_room_id'] ?? ''));
+      if ($connection_id === '' || $from_room_id === '' || $to_room_id === '') {
+        continue;
+      }
+
+      $type = (string) ($connection['type'] ?? 'open_passage');
+      $is_passable = (bool) ($connection['is_passable'] ?? TRUE);
+      $is_discovered = (bool) ($connection['is_discovered'] ?? TRUE);
+      $visibility_state = (string) ($connection['visibility_state'] ?? ($is_discovered ? 'visible' : 'hidden'));
+
+      $from = is_array($connection['from'] ?? NULL) ? $connection['from'] : [];
+      $to = is_array($connection['to'] ?? NULL) ? $connection['to'] : [];
+
+      $exit_from = [
+        'connection_id' => $connection_id,
+        'type' => $type,
+        'target_room_id' => $to_room_id,
+        'origin_hex' => [
+          'hex_id' => (string) ($from['hex_id'] ?? $connection['from_hex_id'] ?? ''),
+          'q' => (int) ($from['q'] ?? 0),
+          'r' => (int) ($from['r'] ?? 0),
+        ],
+        'target_hex' => [
+          'hex_id' => (string) ($to['hex_id'] ?? $connection['to_hex_id'] ?? ''),
+          'q' => (int) ($to['q'] ?? 0),
+          'r' => (int) ($to['r'] ?? 0),
+        ],
+        'is_passable' => $is_passable,
+        'is_discovered' => $is_discovered,
+        'visibility_state' => $visibility_state,
+      ];
+
+      $exit_to = [
+        'connection_id' => $connection_id,
+        'type' => $type,
+        'target_room_id' => $from_room_id,
+        'origin_hex' => [
+          'hex_id' => (string) ($to['hex_id'] ?? $connection['to_hex_id'] ?? ''),
+          'q' => (int) ($to['q'] ?? 0),
+          'r' => (int) ($to['r'] ?? 0),
+        ],
+        'target_hex' => [
+          'hex_id' => (string) ($from['hex_id'] ?? $connection['from_hex_id'] ?? ''),
+          'q' => (int) ($from['q'] ?? 0),
+          'r' => (int) ($from['r'] ?? 0),
+        ],
+        'is_passable' => $is_passable,
+        'is_discovered' => $is_discovered,
+        'visibility_state' => $visibility_state,
+      ];
+
+      if (isset($rooms[$from_room_id]) && is_array($rooms[$from_room_id])) {
+        $rooms[$from_room_id]['exits'][] = $exit_from;
+      }
+      if (isset($rooms[$to_room_id]) && is_array($rooms[$to_room_id])) {
+        $rooms[$to_room_id]['exits'][] = $exit_to;
+      }
+    }
+
+    foreach ($rooms as &$room) {
+      if (!is_array($room)) {
+        continue;
+      }
+      $room['exits'] = is_array($room['exits'] ?? NULL) ? $room['exits'] : [];
+      usort($room['exits'], static function (array $a, array $b): int {
+        $key_a = (string) ($a['connection_id'] ?? '') . ':' . (string) ($a['target_room_id'] ?? '');
+        $key_b = (string) ($b['connection_id'] ?? '') . ':' . (string) ($b['target_room_id'] ?? '');
+        return $key_a <=> $key_b;
+      });
+    }
+    unset($room);
+
+    return $rooms;
   }
 
   /**
