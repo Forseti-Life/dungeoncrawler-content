@@ -206,6 +206,49 @@ class MapVisualStateProjectorTest extends UnitTestCase {
   }
 
   /**
+   * Verifies authored entry hex controls is_entry and grid origin.
+   */
+  public function testProjectUsesAuthoredEntryHexForOrigin(): void {
+    $projector = new MapVisualStateProjector();
+
+    $result = $projector->project([
+      'active_room_id' => 'room-a',
+      'rooms' => [
+        'room-a' => [
+          'room_id' => 'room-a',
+          'hexes' => [
+            ['q' => 0, 'r' => 0],
+            ['q' => 3, 'r' => -2, 'is_entry' => TRUE],
+            ['q' => 4, 'r' => -2],
+          ],
+        ],
+      ],
+    ], [], []);
+
+    $this->assertSame(3, $result['map_meta']['hex_grid']['origin']['q']);
+    $this->assertSame(-2, $result['map_meta']['hex_grid']['origin']['r']);
+
+    $hex00 = NULL;
+    $hexEntry = NULL;
+    foreach ($result['topology']['rooms']['room-a']['hexes'] as $hex) {
+      if (!is_array($hex)) {
+        continue;
+      }
+      if ((int) ($hex['q'] ?? 0) === 0 && (int) ($hex['r'] ?? 0) === 0) {
+        $hex00 = $hex;
+      }
+      if ((int) ($hex['q'] ?? 0) === 3 && (int) ($hex['r'] ?? 0) === -2) {
+        $hexEntry = $hex;
+      }
+    }
+
+    $this->assertNotNull($hex00);
+    $this->assertNotNull($hexEntry);
+    $this->assertFalse((bool) ($hex00['is_entry'] ?? FALSE));
+    $this->assertTrue((bool) ($hexEntry['is_entry'] ?? FALSE));
+  }
+
+  /**
    * Verifies missing connection endpoint hexes do not project fake origin ids.
    */
   public function testProjectLeavesConnectionHexIdsBlankWhenEndpointsAreMissing(): void {

@@ -51,7 +51,18 @@ class MapVisualStateProjector {
       $min_r = NULL;
       $max_r = NULL;
 
-      foreach ((is_array($room['hexes'] ?? NULL) ? $room['hexes'] : []) as $hex) {
+      $room_hexes = (is_array($room['hexes'] ?? NULL) ? $room['hexes'] : []);
+
+      // Entry hex rules:
+      // 1) If the room authors an entry hex (is_entry/entry), use ONLY that.
+      // 2) Else default to (0,0) if it's inside the derived room bounds.
+      // 3) Else default to the lexicographically-first authored hex coordinate.
+      $authored_entry_q = NULL;
+      $authored_entry_r = NULL;
+      $min_coord_q = NULL;
+      $min_coord_r = NULL;
+
+      foreach ($room_hexes as $hex) {
         if (!is_array($hex)) {
           continue;
         }
@@ -62,6 +73,43 @@ class MapVisualStateProjector {
         $max_q = $max_q === NULL ? $hex_q : max($max_q, $hex_q);
         $min_r = $min_r === NULL ? $hex_r : min($min_r, $hex_r);
         $max_r = $max_r === NULL ? $hex_r : max($max_r, $hex_r);
+
+        if ($min_coord_q === NULL || $hex_q < $min_coord_q || ($hex_q === $min_coord_q && $hex_r < (int) $min_coord_r)) {
+          $min_coord_q = $hex_q;
+          $min_coord_r = $hex_r;
+        }
+
+        if (!empty($hex['is_entry']) || !empty($hex['entry'])) {
+          if ($authored_entry_q === NULL || $hex_q < $authored_entry_q || ($hex_q === $authored_entry_q && $hex_r < (int) $authored_entry_r)) {
+            $authored_entry_q = $hex_q;
+            $authored_entry_r = $hex_r;
+          }
+        }
+      }
+
+      $entry_q = NULL;
+      $entry_r = NULL;
+      if ($authored_entry_q !== NULL && $authored_entry_r !== NULL) {
+        $entry_q = (int) $authored_entry_q;
+        $entry_r = (int) $authored_entry_r;
+      }
+      elseif ($min_q !== NULL && $max_q !== NULL && $min_r !== NULL && $max_r !== NULL
+        && 0 >= (int) $min_q && 0 <= (int) $max_q && 0 >= (int) $min_r && 0 <= (int) $max_r) {
+        $entry_q = 0;
+        $entry_r = 0;
+      }
+      elseif ($min_coord_q !== NULL && $min_coord_r !== NULL) {
+        $entry_q = (int) $min_coord_q;
+        $entry_r = (int) $min_coord_r;
+      }
+
+      foreach ($room_hexes as $hex) {
+        if (!is_array($hex)) {
+          continue;
+        }
+
+        $hex_q = (int) ($hex['q'] ?? 0);
+        $hex_r = (int) ($hex['r'] ?? 0);
 
         $hex_id = $this->deriveHexId($room_id, $hex_q, $hex_r, $hex);
         $is_visible = $visible_hex_ids === []
@@ -74,7 +122,7 @@ class MapVisualStateProjector {
           'q' => $hex_q,
           'r' => $hex_r,
           'terrain_type' => $this->normalizeTileType($hex),
-          'is_entry' => !empty($hex['is_entry']) || !empty($hex['entry']) || ($hex_q === 0 && $hex_r === 0),
+          'is_entry' => $entry_q !== NULL && $entry_r !== NULL && $hex_q === $entry_q && $hex_r === $entry_r,
           'is_visible' => $is_visible,
           'is_discovered' => $is_discovered,
           'objects' => $this->normalizeHexObjects($hex, $room_id, $hex_q, $hex_r),
@@ -100,7 +148,7 @@ class MapVisualStateProjector {
               'q' => $q,
               'r' => $r,
               'terrain_type' => 'floor',
-              'is_entry' => ($q === 0 && $r === 0),
+              'is_entry' => $entry_q !== NULL && $entry_r !== NULL && $q === $entry_q && $r === $entry_r,
               'is_visible' => $is_visible,
               'is_discovered' => $is_discovered,
               'objects' => [],
@@ -694,9 +742,27 @@ class MapVisualStateProjector {
   protected function buildHexGrid(array $dungeon_payload, array $rooms, string $active_room_id): array {
     $origin = ['q' => 0, 'r' => 0];
     $candidate_room = $rooms[$active_room_id] ?? reset($rooms) ?: NULL;
-    if (is_array($candidate_room) && !empty($candidate_room['hexes'][0]) && is_array($candidate_room['hexes'][0])) {
-      $origin['q'] = (int) ($candidate_room['hexes'][0]['q'] ?? 0);
-      $origin['r'] = (int) ($candidate_room['hexes'][0]['r'] ?? 0);
+
+    if (is_array($candidate_room) && !empty($candidate_room['hexes']) && is_array($candidate_room['hexes'])) {
+      $origin_hex = NULL;
+      foreach ($candidate_room['hexes'] as $hex) {
+        if (!is_array($hex)) {
+          continue;
+        }
+        if (!empty($hex['is_entry'])) {
+          $origin_hex = $hex;
+          break;
+        }
+      }
+
+      if ($origin_hex === NULL && !empty($candidate_room['hexes'][0]) && is_array($candidate_room['hexes'][0])) {
+        $origin_hex = $candidate_room['hexes'][0];
+      }
+
+      if (is_array($origin_hex)) {
+        $origin['q'] = (int) ($origin_hex['q'] ?? 0);
+        $origin['r'] = (int) ($origin_hex['r'] ?? 0);
+      }
     }
 
     return [
