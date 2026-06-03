@@ -1484,10 +1484,6 @@ export class ChatPanel {
     if (!rawMessage || options.encounterPrefix === false || alreadyPrefixed) {
       return message || '';
     }
-    const normalizedType = String(type || '').toLowerCase();
-    if (normalizedType === 'system' && !options.encounterEvent) {
-      return message || '';
-    }
     const context = this.resolveEncounterChatContext(speaker, options);
     if (!context) {
       return message || '';
@@ -1504,16 +1500,16 @@ export class ChatPanel {
       return null;
     }
     const data = options.event?.data || {};
-    const round = Number(options.round ?? data.round ?? snapshot.round ?? gameState.round);
-    if (!Number.isFinite(round) || round <= 0) {
-      return null;
-    }
+
+    const rawRound = Number(options.round ?? data.round ?? snapshot.round ?? gameState.round);
+    const round = Number.isFinite(rawRound) && rawRound > 0 ? rawRound : '?';
+
     const actorId = String(options.actorId || options.event?.actor || data.entity_id || snapshot.turn?.entity || gameState.turn?.entity || '').trim();
     const explicitSpeaker = String(speaker || '').trim();
     const actorName = String(options.actorName || data.actor_name || data.actor || explicitSpeaker || this.resolveEncounterActorName(actorId) || 'Narrator').trim();
 
     const turnIndex = Number(options.turnIndex ?? data.turn_index ?? snapshot.turn?.index ?? gameState.turn?.index);
-    const turn = Number.isFinite(turnIndex) && turnIndex >= 0 ? turnIndex + 1 : 1;
+    const turn = Number.isFinite(turnIndex) && turnIndex >= 0 ? turnIndex + 1 : '?';
     const totalTurns = Number(
       options.totalTurns
       ?? data.total_turns
