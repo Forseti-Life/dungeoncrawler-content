@@ -716,10 +716,10 @@ class MapVisualStateProjector {
   }
 
   /**
-   * Normalize tile type from current room hex fields.
+   * Normalize terrain type from current room hex fields.
    */
   protected function normalizeTileType(array $hex): string {
-    $value = (string) ($hex['tile_type'] ?? $hex['terrain_type'] ?? $hex['type'] ?? 'floor');
+    $value = (string) ($hex['terrain_type'] ?? 'floor');
     return $value !== '' ? $value : 'floor';
   }
 

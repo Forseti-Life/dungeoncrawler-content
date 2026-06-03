@@ -93,7 +93,7 @@ class HexMapControllerTest extends BrowserTestBase {
               'name' => 'Schema Room',
               'description' => 'A room for schema validation.',
               'hexes' => [
-                ['q' => 0, 'r' => 0, 'tile_type' => 'floor', 'objects' => []],
+                ['q' => 0, 'r' => 0, 'terrain_type' => 'floor', 'objects' => []],
               ],
             ],
           ],
@@ -171,7 +171,7 @@ class HexMapControllerTest extends BrowserTestBase {
               'name' => 'Visual Room',
               'description' => 'A room for visual state validation.',
               'hexes' => [
-                ['q' => 0, 'r' => 0, 'tile_type' => 'floor', 'objects' => []],
+                ['q' => 0, 'r' => 0, 'terrain_type' => 'floor', 'objects' => []],
               ],
             ],
           ],

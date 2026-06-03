@@ -73,8 +73,8 @@ class CampaignControllerTest extends BrowserTestBase {
         'environment_tags' => json_encode(['indoor', 'tavern', 'safe', 'starting_area']),
         'layout_data' => json_encode([
           'hexes' => [
-            ['q' => 0, 'r' => 0, 'tile_type' => 'floor'],
-            ['q' => 1, 'r' => 0, 'tile_type' => 'floor'],
+          ['q' => 0, 'r' => 0, 'terrain_type' => 'floor'],
+          ['q' => 1, 'r' => 0, 'terrain_type' => 'floor'],
           ],
           'entry_points' => [],
           'exit_points' => [],
