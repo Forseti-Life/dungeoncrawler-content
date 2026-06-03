@@ -25,6 +25,7 @@ const path = require('path');
 // Load modules
 function loadClass(relPath, className) {
   let src = fs.readFileSync(path.resolve(__dirname, relPath), 'utf8');
+  src = src.replace(/^import[\s\S]*?;\s*$/gm, '');
   src = src.replace(/^export\s+/gm, '');
   return new Function(src + `\nreturn { ${className} };`)()[className];
 }

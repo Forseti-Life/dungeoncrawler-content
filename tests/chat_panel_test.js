@@ -24,6 +24,7 @@ const path = require('path');
 
 function loadClass(relPath, className) {
   let src = fs.readFileSync(path.resolve(__dirname, relPath), 'utf8');
+  src = src.replace(/^import[\s\S]*?;\s*$/gm, '');
   // Remove export keyword for node eval
   src = src.replace(/^export\s+/gm, '');
   return new Function(src + `\nreturn { ${className} };`)()[className];

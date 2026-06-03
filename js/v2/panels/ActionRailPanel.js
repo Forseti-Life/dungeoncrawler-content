@@ -172,7 +172,7 @@ export class ActionRailPanel {
   init(dungeonData, stateManager) {
     this.dungeonData = dungeonData || {};
     this.stateManager = stateManager || {};
-    const id = (k) => document.getElementById(k);
+    const id = (k) => (typeof document !== 'undefined' ? document.getElementById(k) : null);
     this._el = {
       actionRail:                 id('hexmap-action-rail'),
       actionRailActorName:        id('action-rail-actor-name'),
@@ -189,8 +189,6 @@ export class ActionRailPanel {
       actionRailPanelBody:        id('action-rail-panel-body'),
       actionInstruction:          id('action-instruction'),
     };
-    const nullKeys = Object.entries(this._el).filter(([,v]) => !v).map(([k]) => k);
-    console.log('[ActionRailPanel] init', { container: !!this.container, nullEl: nullKeys.length, nullKeys: nullKeys.join(',') || 'none' });
     this._subscribe();
     this.setupActionRail();
   }
@@ -224,7 +222,7 @@ export class ActionRailPanel {
     const automationToggle = this._el.actionRailAutomationToggle;
     this.updateActionRailClocks();
     if (!this.actionRailRealClockTimer) {
-      this.actionRailRealClockTimer = window.setInterval(() => {
+      this.actionRailRealClockTimer = setInterval(() => {
         this.updateActionRailClocks();
       }, 1000);
     }

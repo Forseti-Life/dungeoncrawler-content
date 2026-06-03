@@ -22,7 +22,7 @@ export class StatusPanel {
     // Elements matching v2 template data-status attributes
     const s = (k) => this.container?.querySelector(`[data-status="${k}"]`) || null;
     // Elements matching original hexmap.js IDs (graceful degradation if absent)
-    const id = (k) => document.getElementById(k);
+    const id = (k) => (typeof document !== 'undefined' ? document.getElementById(k) : null);
     this._el = {
       unavailBanner: s('unavail-banner'),
       backendWait:    s('backend-wait'),

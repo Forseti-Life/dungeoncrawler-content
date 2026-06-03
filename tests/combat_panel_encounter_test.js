@@ -24,22 +24,26 @@ const path = require('path');
 
 function loadModule(relPath) {
   let src = fs.readFileSync(path.resolve(__dirname, relPath), 'utf8');
+  src = src.replace(/^import[\s\S]*?;\s*$/gm, '');
   src = src.replace(/^export\s+/gm, '');
   return new Function(src + '\nreturn { ' + src.match(/^class (\w+)/m)?.[1] + ' };')();
 }
 
 // Load CombatPanel
 let src = fs.readFileSync(path.resolve(__dirname, '../js/v2/panels/CombatPanel.js'), 'utf8');
+src = src.replace(/^import[\s\S]*?;\s*$/gm, '');
 src = src.replace(/^export\s+/gm, '');
 const { CombatPanel } = new Function(src + '\nreturn { CombatPanel };')();
 
 // Load EncounterSystem
 let esSrc = fs.readFileSync(path.resolve(__dirname, '../js/v2/systems/EncounterSystem.js'), 'utf8');
+esSrc = esSrc.replace(/^import[\s\S]*?;\s*$/gm, '');
 esSrc = esSrc.replace(/^export\s+/gm, '');
 const { EncounterSystem } = new Function(esSrc + '\nreturn { EncounterSystem };')();
 
 // Load GameEventBus
 let busSrc = fs.readFileSync(path.resolve(__dirname, '../js/v2/GameEventBus.js'), 'utf8');
+busSrc = busSrc.replace(/^import[\s\S]*?;\s*$/gm, '');
 busSrc = busSrc.replace(/^export\s+/gm, '');
 const { GameEventBus } = new Function(busSrc + '\nreturn { GameEventBus };')();
 
