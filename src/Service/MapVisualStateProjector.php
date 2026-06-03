@@ -107,14 +107,17 @@ class MapVisualStateProjector {
       }
 
       $room_lighting = $this->normalizeLightingLevel($room['lighting'] ?? 'normal');
-
+ 
       foreach ($room_hexes as $hex) {
         if (!is_array($hex)) {
           continue;
         }
-
+ 
         $hex_q = (int) ($hex['q'] ?? 0);
         $hex_r = (int) ($hex['r'] ?? 0);
+        $hex_lighting = array_key_exists('lighting', $hex)
+          ? $this->normalizeLightingLevel($hex['lighting'])
+          : $room_lighting;
 
         $hex_id = $this->deriveHexId($room_id, $hex_q, $hex_r, $hex);
         $is_visible = $visible_hex_ids === []
@@ -130,7 +133,7 @@ class MapVisualStateProjector {
           'q' => $hex_q,
           'r' => $hex_r,
           'terrain_type' => $this->normalizeTileType($hex),
-          'lighting' => $room_lighting,
+          'lighting' => $hex_lighting,
           'elevation_ft' => is_numeric($hex['elevation_ft'] ?? NULL) ? (float) $hex['elevation_ft'] : 0.0,
           'is_entry' => $entry_q !== NULL && $entry_r !== NULL && $hex_q === $entry_q && $hex_r === $entry_r,
           'is_visible' => $is_visible,
