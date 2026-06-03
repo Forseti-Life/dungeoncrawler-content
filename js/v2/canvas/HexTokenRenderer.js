@@ -355,6 +355,161 @@ export class HexTokenRenderer {
     });
   }
 
+  _showHexInspection(q, r, entities = []) {
+    if (!window.PIXI) {
+      return;
+    }
+
+    const qNum = Number(q);
+    const rNum = Number(r);
+    if (!Number.isFinite(qNum) || !Number.isFinite(rNum)) {
+      this._clearHexInspectionState();
+      return;
+    }
+
+    if (this._inspectionClearTimer) {
+      window.clearTimeout(this._inspectionClearTimer);
+      this._inspectionClearTimer = null;
+    }
+
+    const nextKey = `${qNum}:${rNum}`;
+    if (this._inspectionHexKey !== nextKey) {
+      this._clearHexInspectionState();
+      this._inspectionHexKey = nextKey;
+    }
+
+    const inspectedEntities = Array.isArray(entities) && entities.length
+      ? entities
+      : this._getEntitiesAtHex(qNum, rNum);
+
+    this._inspectionEntityIds = inspectedEntities
+      .map((entity) => entity?.id)
+      .filter((id) => id != null);
+
+    inspectedEntities.forEach((entity) => this._renderEntityInspectionBadges(entity));
+  }
+
+  _scheduleInspectionClear(q, r) {
+    if (this._inspectionClearTimer) {
+      window.clearTimeout(this._inspectionClearTimer);
+    }
+
+    const targetKey = Number.isFinite(Number(q)) && Number.isFinite(Number(r))
+      ? `${Number(q)}:${Number(r)}`
+      : this._inspectionHexKey;
+
+    this._inspectionClearTimer = window.setTimeout(() => {
+      this._inspectionClearTimer = null;
+
+      if (!targetKey) {
+        return;
+      }
+      if (this._spreadHoverAnchorKey === targetKey) {
+        return;
+      }
+      if (this._inspectionHexKey !== targetKey) {
+        return;
+      }
+
+      this._clearHexInspectionState();
+    }, 120);
+  }
+
+  _clearHexInspectionState() {
+    if (this._inspectionClearTimer) {
+      window.clearTimeout(this._inspectionClearTimer);
+      this._inspectionClearTimer = null;
+    }
+
+    (Array.isArray(this._inspectionEntityIds) ? this._inspectionEntityIds : []).forEach((entityId) => {
+      const token = this._tokens.get(entityId);
+      const badges = token?.getChildByName?.('attrBadges');
+      if (!badges) {
+        return;
+      }
+
+      badges.visible = false;
+      const removed = badges.removeChildren?.() || [];
+      removed.forEach((child) => child?.destroy?.({ children: true }));
+    });
+
+    this._inspectionEntityIds = [];
+    this._inspectionHexKey = null;
+  }
+
+  _renderEntityInspectionBadges(entity) {
+    const token = this._tokens.get(entity?.id);
+    if (!token || !window.PIXI) {
+      return;
+    }
+
+    const meta = entity?.dcStatePayload?.state?.metadata || entity?.dcStatePayload?.metadata || {};
+    const passable = typeof meta.passable === 'boolean' ? meta.passable : null;
+    const blocksMovement = typeof meta.blocks_movement === 'boolean' ? meta.blocks_movement : null;
+    const movable = typeof meta.movable === 'boolean' ? meta.movable : null;
+    const collectible = typeof meta.collectible === 'boolean' ? meta.collectible : null;
+    const stackable = typeof meta.stackable === 'boolean' ? meta.stackable : null;
+
+    const show = passable !== null || blocksMovement !== null || movable !== null || collectible !== null || stackable !== null;
+
+    let badges = token.getChildByName?.('attrBadges') || null;
+    if (!badges && show) {
+      badges = new PIXI.Container();
+      badges.name = 'attrBadges';
+      token.addChild(badges);
+    }
+
+    if (!badges) {
+      return;
+    }
+
+    const removed = badges.removeChildren?.() || [];
+    removed.forEach((child) => child?.destroy?.({ children: true }));
+
+    badges.visible = Boolean(show);
+    if (!show) {
+      return;
+    }
+
+    const hexSize = Number(this.hexCanvas?.config?.hexSize || 30);
+    const radius = Math.max(6, hexSize * 0.12);
+    const spacing = Math.max(2, radius * 0.4);
+
+    badges.x = -hexSize * 0.55;
+    badges.y = -hexSize * 0.55;
+
+    const entries = [
+      { label: 'P', value: passable, trueColor: 0x22c55e, falseColor: 0xef4444 },
+      { label: 'B', value: blocksMovement, trueColor: 0xef4444, falseColor: 0x22c55e },
+      { label: 'M', value: movable, trueColor: 0xfbbf24, falseColor: 0x64748b },
+      { label: 'C', value: collectible, trueColor: 0x38bdf8, falseColor: 0x64748b },
+      { label: 'S', value: stackable, trueColor: 0xa855f7, falseColor: 0x64748b },
+    ].filter((entry) => typeof entry.value === 'boolean');
+
+    entries.forEach((entry, index) => {
+      const g = new PIXI.Graphics();
+      const color = entry.value ? entry.trueColor : entry.falseColor;
+      g.beginFill(color, 0.9);
+      g.drawCircle(0, 0, radius);
+      g.endFill();
+      g.x = index * (radius * 2 + spacing);
+      g.y = 0;
+
+      const text = new PIXI.Text(entry.label, {
+        fontFamily: 'Arial',
+        fontSize: Math.max(8, radius * 1.2),
+        fill: 0x0b1020,
+        align: 'center',
+      });
+      text.anchor.set(0.5);
+      text.x = g.x;
+      text.y = 0;
+
+      badges.addChild(g);
+      badges.addChild(text);
+    });
+  }
+
   _handleCrowdedHexHover(q, r, entities = []) {
     if (!Number.isFinite(Number(q)) || !Number.isFinite(Number(r))) {
       this._clearCrowdedHexHoverState();
@@ -489,6 +644,12 @@ export class HexTokenRenderer {
           this._spreadClearTimer = null;
         }
         this._spreadHoverAnchorKey = hexKey;
+        this.bus.emit('hex:hovered', {
+          q: Number(q),
+          r: Number(r),
+          entities: this._getEntitiesAtHex(q, r),
+          source: 'spread-target',
+        });
       });
 
       target.on('pointerout', () => {

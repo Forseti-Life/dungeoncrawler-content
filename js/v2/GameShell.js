@@ -2968,6 +2968,7 @@ function _buildRenderableEntityBlueprints(dungeonData = {}, activeRoomId = '', l
             movable: object?.movable,
             collectible: object?.collectible,
             blocks_movement: object?.blocks_movement,
+            stackable: typeof object?.stackable === 'boolean' ? object.stackable : Boolean(definition?.stackable),
           },
         },
         source: object,
