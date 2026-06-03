@@ -3,6 +3,7 @@
 namespace Drupal\Tests\dungeoncrawler_content\Unit\Controller;
 
 use Drupal\dungeoncrawler_content\Controller\RoomChatController;
+use Drupal\dungeoncrawler_content\Service\GameCoordinatorService;
 use Drupal\dungeoncrawler_content\Service\RoomChatService;
 use Drupal\Tests\UnitTestCase;
 use Psr\Log\LoggerInterface;
@@ -18,7 +19,11 @@ use Symfony\Component\HttpFoundation\Request;
 class RoomChatControllerSuggestionTest extends UnitTestCase {
 
   protected function createController(RoomChatService $chat_service): RoomChatController {
-    return new RoomChatController($chat_service, $this->createMock(LoggerInterface::class));
+    return new RoomChatController(
+      $chat_service,
+      $this->createMock(GameCoordinatorService::class),
+      $this->createMock(LoggerInterface::class)
+    );
   }
 
   /**

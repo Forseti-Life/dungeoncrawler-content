@@ -4,6 +4,7 @@ namespace Drupal\Tests\dungeoncrawler_content\Unit\Controller;
 
 use Drupal\Core\DependencyInjection\ContainerBuilder;
 use Drupal\dungeoncrawler_content\Controller\RoomChatController;
+use Drupal\dungeoncrawler_content\Service\GameCoordinatorService;
 use Drupal\dungeoncrawler_content\Service\RoomChatService;
 use Drupal\Tests\UnitTestCase;
 use Psr\Log\LoggerInterface;
@@ -18,8 +19,12 @@ use Symfony\Component\HttpFoundation\Request;
  */
 class RoomChatControllerProgressTest extends UnitTestCase {
 
-  protected function createController(RoomChatService $chat_service, ?LoggerInterface $logger = NULL): RoomChatController {
-    return new RoomChatController($chat_service, $logger ?: $this->createMock(LoggerInterface::class));
+  protected function createController(RoomChatService $chat_service, ?LoggerInterface $logger = NULL, ?GameCoordinatorService $coordinator = NULL): RoomChatController {
+    return new RoomChatController(
+      $chat_service,
+      $coordinator ?: $this->createMock(GameCoordinatorService::class),
+      $logger ?: $this->createMock(LoggerInterface::class)
+    );
   }
 
   /**
@@ -36,6 +41,7 @@ class RoomChatControllerProgressTest extends UnitTestCase {
 
     $container = new ContainerBuilder();
     $container->set('dungeoncrawler_content.room_chat_service', $chat_service);
+    $container->set('dungeoncrawler_content.game_coordinator', $this->createMock(GameCoordinatorService::class));
     $container->set('logger.factory', $logger_factory);
 
     $controller = RoomChatController::create($container);
@@ -97,7 +103,7 @@ class RoomChatControllerProgressTest extends UnitTestCase {
       ->willReturn(TRUE);
     $chat_service->expects($this->once())
       ->method('postMessage')
-      ->with(63, 'room-1', 'Burasco', 'Who answers?', 'player', 218, 'room', FALSE, FALSE)
+      ->with(63, 'room-1', 'Burasco', 'Who answers?', 'player', 218, 'whisper:npc-1', FALSE, FALSE)
       ->willReturn([
         'message' => ['speaker' => 'Burasco', 'message' => 'Who answers?'],
         'turn_log_key' => 'room_turn_abc',
@@ -119,7 +125,7 @@ class RoomChatControllerProgressTest extends UnitTestCase {
         'message' => 'Who answers?',
         'type' => 'player',
         'character_id' => 218,
-        'channel' => 'room',
+        'channel' => 'whisper:npc-1',
       ])
     );
 

@@ -829,15 +829,17 @@ class CampaignInitializationService {
 
           // Post a welcome message into the room session so the room
           // tab has something to show besides an empty state.
+          $seed_message = $room_name
+            ? "You arrive at {$room_name}. The adventure begins..."
+            : 'You enter the room. The adventure begins...';
+
           $this->chatSessionManager->postMessage(
             (int) $room_session['id'],
             $campaign_id,
             'Game Master',
             'gm',
             '',
-            $room_name
-              ? "You arrive at {$room_name}. The adventure begins..."
-              : 'You enter the room. The adventure begins...',
+            $this->prefixInitialEncounterNarration('Game Master', $seed_message),
             'narrative',
             'all',
             ['event' => 'room_enter', 'room_id' => $room_id],
@@ -919,16 +921,18 @@ class CampaignInitializationService {
       }
 
       $room['chat'] = is_array($room['chat'] ?? NULL) ? $room['chat'] : [];
+      $seed_message = $this->prefixInitialEncounterNarration('Game Master', "You arrive at {$room_name}. The adventure begins...");
+
       foreach ($room['chat'] as $message) {
         if (($message['speaker'] ?? '') === 'Game Master'
-          && ($message['message'] ?? '') === "You arrive at {$room_name}. The adventure begins...") {
+          && ($message['message'] ?? '') === $seed_message) {
           return;
         }
       }
 
       $room['chat'][] = [
         'speaker' => 'Game Master',
-        'message' => "You arrive at {$room_name}. The adventure begins...",
+        'message' => $seed_message,
         'type' => 'gm',
         'channel' => 'room',
         'timestamp' => date('c', $now),
@@ -946,6 +950,20 @@ class CampaignInitializationService {
         ->execute();
       return;
     }
+  }
+
+  private function prefixInitialEncounterNarration(string $speaker, string $message): string {
+    $message = trim($message);
+    if ($message === '') {
+      return $message;
+    }
+
+    if ((bool) preg_match('/^Turn\s+(?:\d+|\?)\:\s+Round\s+(?:\d+|\?)\:\s+Actor\s+.*\:\s+/u', $message)) {
+      return $message;
+    }
+
+    $speaker = trim($speaker) !== '' ? trim($speaker) : 'Narrator';
+    return sprintf('Turn 1: Round 1: Actor %s: %s', $speaker, $message);
   }
 
 }

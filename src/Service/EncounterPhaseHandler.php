@@ -171,9 +171,9 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
     ],
     'talk' => [
       'label' => 'Talk',
-      'cost' => 0,
+      'cost' => 1,
       'category' => 'conversation',
-      'requires_turn' => FALSE,
+      'requires_turn' => TRUE,
       'targeting' => 'entity_or_room',
     ],
     'transition' => [
@@ -3868,8 +3868,8 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
       $actions_remaining = $turn['actions_remaining'] ?? 0;
       $effective_actor_id = $actor_id ?? $current_entity;
       if ($effective_actor_id && $current_entity && $effective_actor_id === $current_entity) {
-        $actions[] = 'talk';
         if ($actions_remaining >= 1) {
+          $actions[] = 'talk';
           $actions[] = 'search';
           $actions[] = 'interact';
         }
@@ -3898,6 +3898,7 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
         $actions[] = 'stride';
         $actions[] = 'interact';
         $actions[] = 'search';
+        $actions[] = 'talk';
         if ($actor_heritage === 'chameleon') {
           $actions[] = 'minor_color_shift';
         }
@@ -3905,7 +3906,6 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
       if ($actions_remaining >= 2) {
         $actions[] = 'cast_spell';
       }
-      $actions[] = 'talk'; // Always free.
       $actions[] = 'end_turn';
       $actions[] = 'choose_not_to_act';
       $actions[] = 'delay';
@@ -4021,6 +4021,9 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
     }
 
     $message = $this->prefixEncounterChatLine($turn_ctx, $message);
+ 
+    $defer_npc_interjections = !empty($params['defer_npc_interjections']);
+    $suppress_gm = !empty($params['suppress_gm']);
 
     try {
       $chat_result = $this->roomChatService->postMessage(
@@ -4031,8 +4034,8 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
         'player',
         $character_id,
         'room',
-        FALSE,
-        FALSE,
+        $defer_npc_interjections,
+        $suppress_gm,
         NULL,
         [
           'objective_type' => (string) ($params['objective_type'] ?? ''),
@@ -4068,13 +4071,18 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
       return [
         'talked' => TRUE,
         'message' => $message,
+        'chat_message' => $chat_result['message'] ?? NULL,
         'gm_response' => $chat_response['gm_response'],
+        'gm_deferred' => !empty($chat_result['gm_deferred']),
 
         'npc_interjections' => $chat_response['npc_interjections'],
         'quest_updates' => $chat_response['quest_updates'],
         'state_diff' => $chat_response['state_diff'],
         'combat_transition' => $chat_response['combat_transition'],
         'canonical_actions' => $chat_response['canonical_actions'],
+        'npc_interjections_deferred' => !empty($chat_result['npc_interjections_deferred']),
+        'turn_log_key' => array_key_exists('turn_log_key', $chat_result) ? $chat_result['turn_log_key'] : NULL,
+        'turn_logs' => array_values(array_filter($chat_result['turn_logs'] ?? [], 'is_array')),
         'chat_response' => $chat_response,
         'narration' => $chat_result['gm_response']['message'] ?? ($chat_result['gm_response']['text'] ?? NULL),
         'mutations' => $chat_result['mutations'] ?? [],

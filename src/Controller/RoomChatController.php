@@ -3,6 +3,7 @@
 namespace Drupal\dungeoncrawler_content\Controller;
 
 use Drupal\Core\Controller\ControllerBase;
+use Drupal\dungeoncrawler_content\Service\GameCoordinatorService;
 use Drupal\dungeoncrawler_content\Service\RoomChatService;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\DependencyInjection\ContainerInterface;
@@ -13,21 +14,25 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
  * API controller for room chat messages.
- * 
+ *
  * Provides REST endpoints for reading and posting chat messages in dungeon rooms.
- * All business logic is handled by RoomChatService.
+ * Player room chat is governed by the encounter engine and must flow through the
+ * canonical talk action.
  */
 class RoomChatController extends ControllerBase {
 
   protected RoomChatService $chatService;
+
+  protected GameCoordinatorService $coordinator;
 
   protected LoggerInterface $logger;
 
   /**
    * Constructor.
    */
-  public function __construct(RoomChatService $chat_service, LoggerInterface $logger) {
+  public function __construct(RoomChatService $chat_service, GameCoordinatorService $coordinator, LoggerInterface $logger) {
     $this->chatService = $chat_service;
+    $this->coordinator = $coordinator;
     $this->logger = $logger;
   }
 
@@ -37,6 +42,7 @@ class RoomChatController extends ControllerBase {
   public static function create(ContainerInterface $container) {
     return new static(
       $container->get('dungeoncrawler_content.room_chat_service'),
+      $container->get('dungeoncrawler_content.game_coordinator'),
       $container->get('logger.factory')->get('dungeoncrawler_chat')
     );
   }
@@ -53,6 +59,61 @@ class RoomChatController extends ControllerBase {
       'success' => TRUE,
       'data' => $data,
     ]);
+  }
+
+  protected function isPlayerRoomChat(string $type, string $channel): bool {
+    return $type === 'player' && $channel === 'room';
+  }
+
+  /**
+   * Route player room chat through the canonical encounter talk action.
+   */
+  protected function postPlayerRoomChatViaEncounterTalk(
+    int $campaign_id,
+    string $requested_room_id,
+    ?int $character_id,
+    string $message,
+    bool $defer_npc_interjections = FALSE,
+    bool $suppress_gm = FALSE
+  ): array {
+    if ($character_id === NULL || $character_id <= 0) {
+      throw new \InvalidArgumentException('character_id is required for player room chat.', 400);
+    }
+
+    $actor_id = $this->coordinator->resolveActorIdForCharacterId($campaign_id, $character_id);
+    if (!$actor_id) {
+      throw new \InvalidArgumentException('Unable to resolve encounter actor for character.', 409);
+    }
+
+    $active_room_id = $this->coordinator->getActiveRoomId($campaign_id, $actor_id);
+    if ($active_room_id !== NULL && $active_room_id !== '' && $active_room_id !== $requested_room_id) {
+      throw new \InvalidArgumentException('Cannot post room chat: requested room does not match active room.', 409);
+    }
+
+    $intent = [
+      'type' => 'talk',
+      'actor' => $actor_id,
+      'target' => NULL,
+      'params' => [
+        'message' => $message,
+        'character_id' => $character_id,
+        'defer_npc_interjections' => $defer_npc_interjections,
+        'suppress_gm' => $suppress_gm,
+      ],
+    ];
+
+    $action_response = $this->coordinator->processAction($campaign_id, $intent);
+    if (empty($action_response['success'])) {
+      throw new \InvalidArgumentException((string) ($action_response['error'] ?? 'Talk failed.'), 409);
+    }
+
+    $talk_result = is_array($action_response['result'] ?? NULL) ? $action_response['result'] : [];
+    if (isset($talk_result['chat_message']) && is_array($talk_result['chat_message'])) {
+      $talk_result['message'] = $talk_result['chat_message'];
+      unset($talk_result['chat_message']);
+    }
+
+    return $talk_result;
   }
 
   /**
@@ -195,17 +256,29 @@ class RoomChatController extends ControllerBase {
         return $this->buildSuccessDataResponse($result, $client_request_id);
       }
 
-      $result = $this->chatService->postMessage(
-        $campaign_id,
-        $room_id,
-        $speaker,
-        $message,
-        $type,
-        $character_id,
-        $channel,
-        FALSE,
-        $suppress_gm
-      );
+      if ($this->isPlayerRoomChat($type, $channel)) {
+        $result = $this->postPlayerRoomChatViaEncounterTalk(
+          $campaign_id,
+          $room_id,
+          $character_id,
+          $message,
+          FALSE,
+          $suppress_gm
+        );
+      }
+      else {
+        $result = $this->chatService->postMessage(
+          $campaign_id,
+          $room_id,
+          $speaker,
+          $message,
+          $type,
+          $character_id,
+          $channel,
+          FALSE,
+          $suppress_gm
+        );
+      }
 
       return $this->buildSuccessDataResponse($result, $client_request_id);
     }
@@ -295,40 +368,72 @@ class RoomChatController extends ControllerBase {
   ): StreamedResponse {
     return $this->createStreamedTurnResponse(
       function (callable $emit) use ($campaign_id, $room_id, $speaker, $message, $type, $character_id, $channel, $client_request_id): void {
-        $emit([
-          'type' => 'player_ack',
-          'data' => [
-            'speaker' => $speaker,
-            'message' => $message,
-            'type' => $type,
-            'channel' => $channel,
-            'client_request_id' => $client_request_id,
-          ],
-        ]);
-
         $this->emitProgressUpdate($emit, $client_request_id, 'room_request_started', [
           'channel' => $channel,
         ]);
 
-        $result = $this->chatService->postMessage(
-          $campaign_id,
-          $room_id,
-          $speaker,
-          $message,
-          $type,
-          $character_id,
-          $channel,
-          TRUE,
-          FALSE,
-          $this->buildStreamProgressCallback($emit, $client_request_id)
-        );
+        $posted_message = NULL;
+        $player_message_for_followup = $message;
+
+        if ($this->isPlayerRoomChat($type, $channel)) {
+          $result = $this->postPlayerRoomChatViaEncounterTalk(
+            $campaign_id,
+            $room_id,
+            $character_id,
+            $message,
+            TRUE,
+            FALSE
+          );
+          $posted_message = is_array($result['message'] ?? NULL) ? $result['message'] : NULL;
+          if (is_array($posted_message) && isset($posted_message['message']) && is_string($posted_message['message'])) {
+            $player_message_for_followup = $posted_message['message'];
+          }
+        }
+        else {
+          $emit([
+            'type' => 'player_ack',
+            'data' => [
+              'speaker' => $speaker,
+              'message' => $message,
+              'type' => $type,
+              'channel' => $channel,
+              'client_request_id' => $client_request_id,
+            ],
+          ]);
+
+          $result = $this->chatService->postMessage(
+            $campaign_id,
+            $room_id,
+            $speaker,
+            $message,
+            $type,
+            $character_id,
+            $channel,
+            TRUE,
+            FALSE,
+            $this->buildStreamProgressCallback($emit, $client_request_id)
+          );
+        }
+
+        if ($posted_message !== NULL) {
+          $emit([
+            'type' => 'player_ack',
+            'data' => [
+              'speaker' => (string) ($posted_message['speaker'] ?? $speaker),
+              'message' => (string) ($posted_message['message'] ?? $message),
+              'type' => (string) ($posted_message['type'] ?? $type),
+              'channel' => (string) ($posted_message['channel'] ?? $channel),
+              'client_request_id' => $client_request_id,
+            ],
+          ]);
+        }
 
         $this->emitStreamedTurnResult(
           $emit,
           $result,
           $campaign_id,
           $room_id,
-          $message,
+          $player_message_for_followup,
           $character_id,
           $channel,
           $client_request_id

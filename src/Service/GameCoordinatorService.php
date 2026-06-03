@@ -389,6 +389,63 @@ class GameCoordinatorService {
   }
 
   /**
+   * Resolve the runtime actor entity ID for a campaign character.
+   */
+  public function resolveActorIdForCharacterId(int $campaign_id, int $character_id): ?string {
+    if ($character_id <= 0) {
+      return NULL;
+    }
+
+    $dungeon_data = $this->loadDungeonData($campaign_id);
+    if (!$dungeon_data || empty($dungeon_data['entities']) || !is_array($dungeon_data['entities'])) {
+      return NULL;
+    }
+
+    foreach ($dungeon_data['entities'] as $entity) {
+      if (!is_array($entity)) {
+        continue;
+      }
+
+      $candidate_character_id = (string) (
+        $entity['state']['metadata']['campaign_character_id']
+        ?? $entity['state']['metadata']['character_id']
+        ?? $entity['character_id']
+        ?? $entity['state']['character_id']
+        ?? ($entity['entity_ref']['character_id'] ?? NULL)
+        ?? ($entity['entity_ref']['content_id'] ?? NULL)
+        ?? ''
+      );
+      if ($candidate_character_id === '' || (int) $candidate_character_id !== $character_id) {
+        continue;
+      }
+
+      $instance_id = (string) (
+        $entity['state']['metadata']['runtime_entity_id']
+        ?? $entity['entity_instance_id']
+        ?? $entity['instance_id']
+        ?? $entity['id']
+        ?? ''
+      );
+      $instance_id = trim($instance_id);
+      if ($instance_id !== '') {
+        return $instance_id;
+      }
+    }
+
+    return NULL;
+  }
+
+  public function getActiveRoomId(int $campaign_id, ?string $actor_id = NULL): ?string {
+    $dungeon_data = $this->loadDungeonData($campaign_id, $actor_id);
+    if (!$dungeon_data) {
+      return NULL;
+    }
+
+    $room_id = trim((string) ($dungeon_data['active_room_id'] ?? ''));
+    return $room_id !== '' ? $room_id : NULL;
+  }
+
+  /**
    * Manually transition to a new phase.
    *
    * Used for explicit transitions when additional live phases are present.
