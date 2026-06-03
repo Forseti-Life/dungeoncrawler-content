@@ -520,6 +520,7 @@ export class ChatPanel {
       if (result.data?.turn_logs?.length) {
         for (const logMsg of result.data.turn_logs) {
           this.appendChatLineToTarget(chatTarget, logMsg.speaker || 'System', logMsg.message || '', logMsg.type || 'system', {
+            ...logMsg,
             source: 'room-response',
             authority: 'authoritative',
             messageClass: 'authoritative_transcript',
@@ -1174,6 +1175,7 @@ export class ChatPanel {
               releasePrimary(event.data);
             } else if (event.type === 'system_message' && event.data) {
               this.appendChatLineToTarget(chatTarget, event.data.speaker || 'System', event.data.message || '', event.data.type || 'system', {
+                ...event.data,
                 source: 'room-stream',
                 authority: 'authoritative',
                 messageClass: 'authoritative_transcript',
@@ -1547,6 +1549,10 @@ export class ChatPanel {
 
   handleGameEvents(event) {
     const events = Array.isArray(event?.detail?.events) ? event.detail.events : [];
+    const characterData = this.stateManager?.hexmap?.characterData || {};
+    const activeCharacterName = String(characterData?.name || '').trim();
+    const normalizeName = (value) => String(value || '').trim().toLowerCase();
+
     for (const gameEvent of events) {
       const chatLine = this.buildEncounterEventChatLine(gameEvent);
       if (!chatLine) {
@@ -1565,6 +1571,40 @@ export class ChatPanel {
         messageClass: chatLine.messageClass,
         eventId: chatLine.eventId,
       });
+
+      if (
+        gameEvent
+        && String(gameEvent.type || '').trim().toLowerCase() === 'turn_start'
+        && activeCharacterName
+        && normalizeName(chatLine.actorName) === normalizeName(activeCharacterName)
+      ) {
+        const rawRound = Number(gameEvent?.data?.round);
+        const fallbackRound = Number.isFinite(rawRound) ? rawRound : (Number.isFinite(chatLine.round) ? chatLine.round : NaN);
+        const promptLineId = gameEvent.id
+          ? `turn-prompt-${gameEvent.id}`
+          : `turn-prompt-${Number.isFinite(fallbackRound) ? fallbackRound : 'unknown'}-${normalizeName(activeCharacterName)}`;
+
+        this.appendChatLineToTarget(
+          { view: 'room', channelKey: this.activeChannel || 'room', context: this.getChatContext() },
+          'System',
+          `It's your turn, ${activeCharacterName}.`,
+          'system',
+          {
+            lineId: promptLineId,
+            source: 'encounter-event',
+            authority: 'authoritative',
+            messageClass: 'authoritative_transcript',
+            encounterEvent: true,
+            event: gameEvent,
+            round: Number.isFinite(fallbackRound) ? fallbackRound : undefined,
+            actorName: 'System',
+            turn_prompt: true,
+            turn_role: 'player',
+            turn_name: activeCharacterName,
+            eventId: String(gameEvent.id || ''),
+          }
+        );
+      }
     }
   }
 

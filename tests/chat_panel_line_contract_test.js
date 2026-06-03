@@ -100,6 +100,11 @@ const renderSessionViewDataSource = toFunction(
   '  renderSessionViewData(view, data) {',
   'function renderSessionViewData(view, data) {'
 );
+const handleGameEventsSource = toFunction(
+  source,
+  '  handleGameEvents(event) {',
+  'function handleGameEvents(event) {'
+);
 
 const factory = new Function(`
 ${resolveChatChannelKeySource}
@@ -109,6 +114,7 @@ ${buildEncounterEventChatLineSource}
 ${renderChatLineRecordsSource}
 ${renderRoomChatHistorySource}
 ${renderSessionViewDataSource}
+${handleGameEventsSource}
 return {
   resolveChatChannelKey,
   normalizeChatLineRecord,
@@ -117,6 +123,7 @@ return {
   renderChatLineRecords,
   renderRoomChatHistory,
   renderSessionViewData,
+  handleGameEvents,
 };
 `);
 
@@ -128,6 +135,7 @@ const {
   renderChatLineRecords,
   renderRoomChatHistory,
   renderSessionViewData,
+  handleGameEvents,
 } = factory();
 
 console.log('\n=== ChatPanel canonical line contract ===');
@@ -218,6 +226,53 @@ console.log('\n=== ChatPanel canonical line contract ===');
   assert(chatLine.authority === 'authoritative', 'encounter chat lines are authoritative');
   assert(chatLine.messageClass === 'authoritative_transcript', 'encounter chat lines are categorized as authoritative transcript');
   assert(chatLine.eventId === '42', 'encounter chat lines preserve the originating event id');
+}
+
+{
+  const appended = [];
+  const panel = {
+    stateManager: {
+      hexmap: {
+        characterData: { name: 'Burasco' },
+      },
+    },
+    activeChannel: 'room',
+    getChatContext() {
+      return { campaignId: 1, roomId: 'room-1', characterId: 7 };
+    },
+    buildEncounterEventChatLine(event) {
+      const actorName = String(event?.data?.actor_name || '').trim() || 'Narrator';
+      return {
+        speaker: 'Narrator',
+        message: `${actorName}'s turn begins.`,
+        type: 'gm',
+        lineId: `encounter-event-${event.id}`,
+        created: 0,
+        round: event?.data?.round,
+        actorId: 'actor-1',
+        actorName,
+        source: 'encounter-event',
+        authority: 'authoritative',
+        messageClass: 'authoritative_transcript',
+        eventId: String(event.id || ''),
+      };
+    },
+    appendChatLineToTarget(target, speaker, message, type, options = {}) {
+      appended.push({ target, speaker, message, type, options });
+    },
+  };
+
+  handleGameEvents.call(panel, {
+    detail: {
+      events: [
+        { id: 5, type: 'turn_start', data: { round: 1, actor_name: 'Burasco' } },
+      ],
+    },
+  });
+
+  assert(appended.length === 2, 'turn_start emits a transcript line plus a player turn prompt');
+  assert(appended[1].speaker === 'System', 'player turn prompt uses the System speaker');
+  assert(appended[1].options.turn_prompt === true, 'player turn prompt carries turn_prompt metadata');
 }
 
 {
