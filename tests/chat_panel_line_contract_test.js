@@ -315,6 +315,74 @@ console.log('\n=== ChatPanel canonical line contract ===');
 }
 
 {
+  const appended = [];
+  const panel = {
+    _el: { chatLog: { innerHTML: '' } },
+    activeSessionView: 'room',
+    activeChannel: 'room',
+    resolveChatChannelKey,
+    normalizeChatLineRecord,
+    normalizeChatLineRecords,
+    appendChatLine(speaker, message) {
+      appended.push({ speaker, message });
+    },
+    rememberChatLines() {},
+  };
+
+  renderChatLineRecords.call(panel, [
+    {
+      speaker: 'B',
+      message: 'second',
+      type: 'gm',
+      lineId: 'encounter-event-2',
+      created: 1000,
+      source: 'encounter-event',
+      authority: 'authoritative',
+      messageClass: 'authoritative_transcript',
+      eventId: '2',
+    },
+    {
+      speaker: 'A',
+      message: 'first',
+      type: 'gm',
+      lineId: 'encounter-event-1',
+      created: 1000,
+      source: 'encounter-event',
+      authority: 'authoritative',
+      messageClass: 'authoritative_transcript',
+      eventId: '1',
+    },
+    {
+      speaker: 'C',
+      message: 'earlier',
+      type: 'gm',
+      lineId: 'encounter-event-3',
+      created: 900,
+      source: 'encounter-event',
+      authority: 'authoritative',
+      messageClass: 'authoritative_transcript',
+      eventId: '3',
+    },
+    {
+      speaker: 'Local',
+      message: 'no timestamp',
+      type: 'system',
+      lineId: 'local-1',
+      created: 0,
+      source: 'local-ui',
+      authority: 'local',
+      messageClass: 'local_ui_notice',
+    },
+  ], 'room', {
+    context: { roomId: 'room-1' },
+    channelKey: 'room',
+  });
+
+  const order = appended.map((line) => line.speaker).join(',');
+  assert(order === 'C,A,B,Local', 'renderChatLineRecords sorts by (created,eventId) with stable handling for missing timestamps');
+}
+
+{
   let remembered = null;
   let rendered = null;
   let summary = null;

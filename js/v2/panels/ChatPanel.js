@@ -2186,7 +2186,57 @@ export class ChatPanel {
       view,
       channel: options.channelKey || (view === 'room' ? this.activeChannel : view),
     });
-    normalizedLines.forEach((line) => {
+
+    const sortedLines = normalizedLines
+      .map((line, index) => ({ ...line, __sortIndex: index }))
+      .sort((a, b) => {
+        const aCreated = Number(a.created) || 0;
+        const bCreated = Number(b.created) || 0;
+        const aHasCreated = aCreated > 0;
+        const bHasCreated = bCreated > 0;
+
+        if (aHasCreated !== bHasCreated) {
+          return aHasCreated ? -1 : 1;
+        }
+        if (aHasCreated && bHasCreated && aCreated !== bCreated) {
+          return aCreated - bCreated;
+        }
+        if (!aHasCreated && !bHasCreated) {
+          return a.__sortIndex - b.__sortIndex;
+        }
+
+        const numeric = (value) => {
+          const n = Number(value);
+          return Number.isFinite(n) ? n : null;
+        };
+
+        const aEventId = numeric(a.eventId);
+        const bEventId = numeric(b.eventId);
+        if (aEventId !== null || bEventId !== null) {
+          if (aEventId === null) return 1;
+          if (bEventId === null) return -1;
+          if (aEventId !== bEventId) return aEventId - bEventId;
+        }
+
+        const aMessageId = numeric(a.messageId);
+        const bMessageId = numeric(b.messageId);
+        if (aMessageId !== null || bMessageId !== null) {
+          if (aMessageId === null) return 1;
+          if (bMessageId === null) return -1;
+          if (aMessageId !== bMessageId) return aMessageId - bMessageId;
+        }
+
+        const aLineId = String(a.lineId || '');
+        const bLineId = String(b.lineId || '');
+        if (aLineId !== bLineId) {
+          return aLineId.localeCompare(bLineId);
+        }
+
+        return a.__sortIndex - b.__sortIndex;
+      })
+      .map(({ __sortIndex, ...line }) => line);
+
+    sortedLines.forEach((line) => {
       this.appendChatLine(line.speaker, line.message, line.type, {
         lineId: line.lineId,
         transient: line.transient,
@@ -2205,7 +2255,7 @@ export class ChatPanel {
       });
     });
 
-    this.rememberChatLines(view, normalizedLines, {
+    this.rememberChatLines(view, sortedLines, {
       context: options.context,
       channelKey: options.channelKey,
       replace: true,
