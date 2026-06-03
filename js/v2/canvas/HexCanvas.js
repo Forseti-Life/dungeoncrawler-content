@@ -605,7 +605,7 @@ function _resolveRoomHexStyle(roomHex = {}) {
   const objectCategories = objects
     .map((object) => String(object?.category || object?.type || object?.object_type || '').toLowerCase())
     .filter(Boolean);
-  const terrain = String(roomHex?.terrain || roomHex?.terrain_type || '').toLowerCase();
+  const terrain = String(roomHex?.terrain_type || '').toLowerCase();
   const lighting = String(roomHex?.lighting || '').toLowerCase();
   const blocked = objects.some((object) => object?.blocks_movement === true || object?.passable === false);
   const isWall = blocked || objectCategories.some((category) => ['wall', 'barrier', 'barricade', 'collapsed'].some((token) => category.includes(token)));
