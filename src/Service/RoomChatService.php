@@ -3785,8 +3785,8 @@ class RoomChatService {
       $current_speaker = (string) ($npc['profile']['display_name'] ?? $npc['entity_ref'] ?? 'Unknown');
       $current_turn_index = $harness_turn_index++;
 
-      $encounter_prefix = (($game_state['phase'] ?? '') === 'encounter')
-        ? sprintf('Round %s: Turn %s: Actor %s: ', (string) $round_display, (string) $current_turn_index, trim($current_speaker) !== '' ? trim($current_speaker) : 'Unknown')
+      $npc_encounter_prefix = (($game_state['phase'] ?? '') === 'encounter')
+        ? $this->formatEncounterTranscriptPrefix($round_display, $current_turn_index, $current_speaker)
         : NULL;
 
       $this->persistStructuredRoomTurnLog(
@@ -3838,7 +3838,7 @@ class RoomChatService {
         $npc['entity_ref'],
         $npc['profile']['display_name'] ?? $npc['entity_ref'],
         FALSE,
-        $encounter_prefix
+        $npc_encounter_prefix
       );
 
         if (!empty($built_messages)) {
@@ -4376,7 +4376,7 @@ class RoomChatService {
       if (($game_state['phase'] ?? '') === 'encounter' && $turn_index_human !== NULL) {
         $round_raw = $game_state['round'] ?? 1;
         $round_display = is_numeric($round_raw) ? max(0, ((int) $round_raw) - 1) : '?';
-        $encounter_prefix = sprintf('Round %s: Turn %s: Actor System: ', (string) $round_display, (string) $turn_index_human);
+        $encounter_prefix = $this->formatEncounterTranscriptPrefix($round_display, $turn_index_human, 'System');
       }
       else {
         $encounter_prefix = $this->buildEncounterPrefixForSpeaker($dungeon_data, 'System');
@@ -10716,6 +10716,18 @@ PROMPT;
   }
 
   /**
+   * Format the canonical encounter transcript prefix.
+   */
+  protected function formatEncounterTranscriptPrefix(int|string $round_display, int|string $turn_display, string $actor_name): string {
+    $actor_name = trim($actor_name);
+    if ($actor_name === '') {
+      $actor_name = 'Unknown';
+    }
+
+    return sprintf('Round %s: Turn %s: Actor %s: ', (string) $round_display, (string) $turn_display, $actor_name);
+  }
+
+  /**
    * Build the canonical encounter transcript prefix for a specific speaker.
    */
   protected function buildEncounterPrefixForSpeaker(array $dungeon_data, string $speaker): ?string {
@@ -10731,12 +10743,7 @@ PROMPT;
     $turn_index_human = $turn_index_raw !== NULL ? ($turn_index_raw + 1) : 1;
     $turn_display = is_numeric($turn_index_human) ? (int) $turn_index_human : '?';
 
-    $actor_name = trim((string) $speaker);
-    if ($actor_name === '') {
-      $actor_name = 'Unknown';
-    }
-
-    return sprintf('Round %s: Turn %s: Actor %s: ', (string) $round_display, (string) $turn_display, $actor_name);
+    return $this->formatEncounterTranscriptPrefix($round_display, $turn_display, (string) $speaker);
   }
 
   /**
@@ -10754,16 +10761,13 @@ PROMPT;
 
     $turn_entity_id = trim((string) ($game_state['turn']['entity'] ?? ''));
     $active_entity = $turn_entity_id !== '' ? $this->findEncounterTurnEntity($turn_entity_id, $dungeon_data) : NULL;
-    $actor_name = trim((string) (
+    $actor_name = (string) (
       $active_entity['state']['metadata']['display_name']
       ?? $active_entity['name']
       ?? 'Unknown'
-    ));
-    if ($actor_name === '') {
-      $actor_name = 'Unknown';
-    }
+    );
 
-    return sprintf('Round %s: Turn %s: Actor %s: ', (string) $round_display, (string) $turn_display, $actor_name);
+    return $this->formatEncounterTranscriptPrefix($round_display, $turn_display, $actor_name);
   }
 
   protected function isEncounterChatTextPrefixed(string $content): bool {
