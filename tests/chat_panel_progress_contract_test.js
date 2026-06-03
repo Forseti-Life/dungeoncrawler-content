@@ -68,19 +68,13 @@ const renderPendingGmResponseSource = extractMethodSource(source, '  renderPendi
   .replace('  renderPendingGmResponse(pending, response) {', 'function renderPendingGmResponse(pending, response) {');
 const settlePendingChatRequestSource = extractMethodSource(source, '  settlePendingChatRequest(pending, options = {}) {')
   .replace('  settlePendingChatRequest(pending, options = {}) {', 'function settlePendingChatRequest(pending, options = {}) {');
-const getPendingTurnDescriptorSource = extractMethodSource(source, '  getPendingTurnDescriptor(pending) {')
-  .replace('  getPendingTurnDescriptor(pending) {', 'function getPendingTurnDescriptor(pending) {');
-const buildPendingTurnMetaSource = extractMethodSource(source, '  buildPendingTurnMeta(pending, descriptor) {')
-  .replace('  buildPendingTurnMeta(pending, descriptor) {', 'function buildPendingTurnMeta(pending, descriptor) {');
 
 const factory = new Function(`
 ${buildPendingChatRequestSource}
 ${updatePendingChatProgressSource}
 ${renderPendingGmResponseSource}
 ${settlePendingChatRequestSource}
-${getPendingTurnDescriptorSource}
-${buildPendingTurnMetaSource}
-return { buildPendingChatRequest, updatePendingChatProgress, renderPendingGmResponse, settlePendingChatRequest, getPendingTurnDescriptor, buildPendingTurnMeta };
+return { buildPendingChatRequest, updatePendingChatProgress, renderPendingGmResponse, settlePendingChatRequest };
 `);
 
 const {
@@ -88,8 +82,6 @@ const {
   updatePendingChatProgress,
   renderPendingGmResponse,
   settlePendingChatRequest,
-  getPendingTurnDescriptor,
-  buildPendingTurnMeta,
 } = factory();
 
 console.log('\n=== ChatPanel progress chat contract ===');
@@ -182,21 +174,6 @@ assert(!source.includes('removePlaceholder:'), 'dead removePlaceholder lifecycle
   assert(pending.progressLineIds.length === 1, 'progress line history starts when a substantive progress update arrives');
 }
 
-{
-  const pending = {
-    target: { view: 'room' },
-    placeholderType: 'npc',
-    progressSpeaker: 'Initiative Order',
-    progressRole: 'Initiative Order',
-    progressPhase: 'npc-reactions',
-  };
-  const descriptor = getPendingTurnDescriptor(pending);
-  const meta = buildPendingTurnMeta(pending, descriptor);
-
-  assert(descriptor.role === 'Initiative Order', 'initiative-order progress gets its own pending turn descriptor');
-  assert(descriptor.name === 'Initiative Order', 'initiative-order progress keeps the initiative-order label in turn status');
-  assert(meta === 'Initiative order is resolving nearby NPC turns...', 'initiative-order turn status copy matches the transcript wording');
-}
 
 {
   const appended = [];

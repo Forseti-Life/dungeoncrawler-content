@@ -1039,13 +1039,21 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
         $time_effects = array_merge($time_effects, $this->buildRoundElapsedTimeEffects($result, $actor_id, $dungeon_data));
         $mutations = $result['mutations'] ?? [];
         $narration = $result['narration'] ?? NULL;
+        $resolved_room_id = $dungeon_data['active_room_id'] ?? ($game_state['encounter_context']['room_id'] ?? NULL);
+        $actor_name = $actor_id ? $this->resolveEntityName($actor_id, $game_state, $dungeon_data) : 'Narrator';
+        $fallback_narration = $type === 'choose_not_to_act'
+          ? sprintf('%s chooses not to act.', $actor_name)
+          : sprintf('%s ends their turn.', $actor_name);
+        $resolved_narration = (is_string($narration) && trim($narration) !== '') ? $narration : $fallback_narration;
 
         $events[] = GameEventLogger::buildEvent($type, 'encounter', $actor_id, [
           'round' => $game_state['round'] ?? NULL,
+          'room_id' => $resolved_room_id,
+          'actor_name' => $actor_name,
           'turn_index' => $game_state['turn']['index'] ?? NULL,
           'actions_remaining' => $result['actions_remaining_before_end'] ?? NULL,
           'reason' => $params['reason'] ?? NULL,
-        ], $narration);
+        ], $resolved_narration);
         if ($actor_id && ($result['actions_remaining_before_end'] ?? 0) > 0) {
           $this->queueNarrationEvent($campaign_id, $dungeon_data, [
             'type' => 'choose_not_to_act',
@@ -1056,10 +1064,12 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
             'visibility' => 'public',
             'mechanical_data' => [
               'actor_id' => $actor_id,
+              'actor_name' => $actor_name,
+              'room_id' => $resolved_room_id,
               'actions_remaining' => (int) $result['actions_remaining_before_end'],
               'reason' => $params['reason'] ?? NULL,
             ],
-          ]);
+          ], $resolved_room_id);
         }
 
         // End turn may trigger NPC auto-play, which generates additional events.
@@ -4833,6 +4843,7 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
   protected function buildRoundStartEvents(int $round, array $game_state, array $dungeon_data, int $campaign_id, ?string $room_id = NULL): array {
     $round_narration = $this->aiGmService->narrateRoundStart($round, $game_state, $dungeon_data, $campaign_id);
     $content = $round_narration ?: sprintf('Round %d begins.', $round);
+    $resolved_room_id = $room_id ?? ($dungeon_data['active_room_id'] ?? ($game_state['encounter_context']['room_id'] ?? NULL));
     $this->queueNarrationEvent($campaign_id, $dungeon_data, [
       'type' => 'round_start',
       'speaker' => 'Narrator',
@@ -4840,12 +4851,18 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
       'speaker_ref' => '',
       'content' => $content,
       'visibility' => 'public',
-      'mechanical_data' => ['round' => $round],
-    ], $room_id);
+      'mechanical_data' => [
+        'round' => $round,
+        'room_id' => $resolved_room_id,
+        'actor_name' => 'Narrator',
+      ],
+    ], $resolved_room_id);
 
     return [
       GameEventLogger::buildEvent('round_start', 'encounter', NULL, [
         'round' => $round,
+        'room_id' => $resolved_room_id,
+        'actor_name' => 'Narrator',
       ], $content),
     ];
   }
@@ -4856,6 +4873,10 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
   protected function buildTurnStartEvents(string $entity_id, array $game_state, array $dungeon_data, int $campaign_id, ?string $room_id = NULL): array {
     $actor_name = $this->resolveEntityName($entity_id, $game_state, $dungeon_data);
     $round = $game_state['round'] ?? NULL;
+    $resolved_room_id = $room_id ?? ($dungeon_data['active_room_id'] ?? ($game_state['encounter_context']['room_id'] ?? NULL));
+    $turn_index = $game_state['turn']['index'] ?? NULL;
+    $total_turns = is_array($game_state['initiative_order'] ?? NULL) ? count($game_state['initiative_order']) : NULL;
+    $actions_available = $game_state['turn']['actions_remaining'] ?? NULL;
     $content = sprintf("%s's turn begins.", $actor_name);
     $this->queueNarrationEvent($campaign_id, $dungeon_data, [
       'type' => 'turn_start',
@@ -4866,14 +4887,23 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
       'visibility' => 'public',
       'mechanical_data' => [
         'round' => $round,
+        'room_id' => $resolved_room_id,
         'entity_id' => $entity_id,
+        'actor_name' => $actor_name,
+        'turn_index' => $turn_index,
+        'total_turns' => $total_turns,
+        'actions_available' => $actions_available,
       ],
-    ], $room_id);
+    ], $resolved_room_id);
 
     return [
       GameEventLogger::buildEvent('turn_start', 'encounter', $entity_id, [
         'round' => $round,
-        'actions_available' => $game_state['turn']['actions_remaining'] ?? NULL,
+        'room_id' => $resolved_room_id,
+        'actor_name' => $actor_name,
+        'turn_index' => $turn_index,
+        'total_turns' => $total_turns,
+        'actions_available' => $actions_available,
       ], $content),
     ];
   }
@@ -5218,29 +5248,37 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
         else {
           $events[] = GameEventLogger::buildEvent('npc_choose_not_to_act', 'encounter', $entity_id, [
             'round' => $game_state['round'] ?? NULL,
+            'room_id' => $dungeon_data['active_room_id'] ?? ($game_state['encounter_context']['room_id'] ?? NULL),
+            'actor_name' => $this->resolveEntityName($entity_id, $game_state, $dungeon_data),
             'reason' => 'No valid target available.',
-          ], 'The actor chooses not to act.');
+          ], sprintf('%s chooses not to act.', $this->resolveEntityName($entity_id, $game_state, $dungeon_data)));
         }
         break;
     }
 
+    $resolved_room_id = $dungeon_data['active_room_id'] ?? ($game_state['encounter_context']['room_id'] ?? NULL);
+    $actor_name = $this->resolveEntityName($entity_id, $game_state, $dungeon_data);
     $events[] = GameEventLogger::buildEvent('npc_choose_not_to_act', 'encounter', $entity_id, [
       'round' => $game_state['round'] ?? NULL,
+      'room_id' => $resolved_room_id,
+      'actor_name' => $actor_name,
       'actions_remaining' => $game_state['turn']['actions_remaining'] ?? NULL,
       'reason' => 'No further action selected.',
-    ], 'The actor chooses not to take any further actions.');
+    ], sprintf('%s chooses not to take any further actions.', $actor_name));
     $this->queueNarrationEvent($campaign_id, $dungeon_data, [
       'type' => 'choose_not_to_act',
       'speaker' => 'Narrator',
       'speaker_type' => 'gm',
       'speaker_ref' => '',
-      'content' => sprintf('%s chooses not to take any further actions.', $this->resolveEntityName($entity_id, $game_state, $dungeon_data)),
+      'content' => sprintf('%s chooses not to take any further actions.', $actor_name),
       'visibility' => 'public',
       'mechanical_data' => [
         'actor_id' => $entity_id,
+        'actor_name' => $actor_name,
+        'room_id' => $resolved_room_id,
         'actions_remaining' => $game_state['turn']['actions_remaining'] ?? NULL,
       ],
-    ]);
+    ], $resolved_room_id);
 
     return ['events' => $events];
   }
@@ -5249,25 +5287,31 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
    * Room-scene NPCs must still make an explicit turn decision.
    */
   protected function passRoomActorTurn(string $entity_id, array &$game_state, array &$dungeon_data, int $campaign_id): array {
+    $resolved_room_id = $dungeon_data['active_room_id'] ?? ($game_state['encounter_context']['room_id'] ?? NULL);
+    $actor_name = $this->resolveEntityName($entity_id, $game_state, $dungeon_data);
     $events = [
       GameEventLogger::buildEvent('npc_choose_not_to_act', 'encounter', $entity_id, [
         'round' => $game_state['round'] ?? NULL,
+        'room_id' => $resolved_room_id,
+        'actor_name' => $actor_name,
         'actions_remaining' => $game_state['turn']['actions_remaining'] ?? NULL,
         'reason' => 'No room-scene action selected.',
-      ], 'The actor chooses not to take any further actions.'),
+      ], sprintf('%s chooses not to take any further actions.', $actor_name)),
     ];
     $this->queueNarrationEvent($campaign_id, $dungeon_data, [
       'type' => 'choose_not_to_act',
       'speaker' => 'Narrator',
       'speaker_type' => 'gm',
       'speaker_ref' => '',
-      'content' => sprintf('%s chooses not to take any further actions.', $this->resolveEntityName($entity_id, $game_state, $dungeon_data)),
+      'content' => sprintf('%s chooses not to take any further actions.', $actor_name),
       'visibility' => 'public',
       'mechanical_data' => [
         'actor_id' => $entity_id,
+        'actor_name' => $actor_name,
+        'room_id' => $resolved_room_id,
         'actions_remaining' => $game_state['turn']['actions_remaining'] ?? NULL,
       ],
-    ]);
+    ], $resolved_room_id);
 
     return ['events' => $events];
   }

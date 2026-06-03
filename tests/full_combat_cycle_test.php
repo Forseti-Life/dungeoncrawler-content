@@ -228,9 +228,11 @@ try {
     'actor' => $hero_id,
     'target' => $enemy_id,
     'params' => [
-      'attack_bonus' => 100,
-      'damage_dice' => '1d8+50',
-      'damage_type' => 'slashing',
+      'weapon' => [
+        'attack_bonus' => 100,
+        'damage_dice' => '1d8+50',
+        'damage_type' => 'slashing',
+      ],
     ],
   ]);
 
@@ -281,4 +283,8 @@ if (!empty($GLOBALS['test_errors'])) {
   foreach ($GLOBALS['test_errors'] as $error) {
     echo " - {$error}\n";
   }
+}
+
+if ($GLOBALS['test_fail'] > 0) {
+  throw new \Exception('Test failures: ' . $GLOBALS['test_fail']);
 }

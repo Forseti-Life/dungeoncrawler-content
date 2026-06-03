@@ -65,6 +65,11 @@ function toFunction(source, methodSignature, functionSignature) {
 const sourcePath = path.resolve(__dirname, '../js/v2/panels/ChatPanel.js');
 const source = fs.readFileSync(sourcePath, 'utf8');
 
+const resolveChatChannelKeySource = toFunction(
+  source,
+  '  resolveChatChannelKey(view = this.activeSessionView, channelKey = null) {',
+  'function resolveChatChannelKey(view = this.activeSessionView, channelKey = null) {'
+);
 const normalizeChatLineRecordSource = toFunction(
   source,
   '  normalizeChatLineRecord(line = {}) {',
@@ -97,6 +102,7 @@ const renderSessionViewDataSource = toFunction(
 );
 
 const factory = new Function(`
+${resolveChatChannelKeySource}
 ${normalizeChatLineRecordSource}
 ${normalizeChatLineRecordsSource}
 ${buildEncounterEventChatLineSource}
@@ -104,6 +110,7 @@ ${renderChatLineRecordsSource}
 ${renderRoomChatHistorySource}
 ${renderSessionViewDataSource}
 return {
+  resolveChatChannelKey,
   normalizeChatLineRecord,
   normalizeChatLineRecords,
   buildEncounterEventChatLine,
@@ -114,6 +121,7 @@ return {
 `);
 
 const {
+  resolveChatChannelKey,
   normalizeChatLineRecord,
   normalizeChatLineRecords,
   buildEncounterEventChatLine,
@@ -128,6 +136,7 @@ console.log('\n=== ChatPanel canonical line contract ===');
   const panel = {
     activeSessionView: 'room',
     activeChannel: 'room',
+    resolveChatChannelKey,
   };
   const normalized = normalizeChatLineRecord.call(panel, {
     speaker: 'System',
@@ -145,6 +154,7 @@ console.log('\n=== ChatPanel canonical line contract ===');
 
 {
   const panel = {
+    resolveChatChannelKey,
     normalizeChatLineRecord,
     activeSessionView: 'room',
     activeChannel: 'room',
@@ -196,6 +206,7 @@ console.log('\n=== ChatPanel canonical line contract ===');
     _el: { chatLog: { innerHTML: '' } },
     activeSessionView: 'room',
     activeChannel: 'room',
+    resolveChatChannelKey,
     normalizeChatLineRecord,
     normalizeChatLineRecords,
     appendChatLine(speaker, message, type, options) {

@@ -1579,8 +1579,8 @@ export class ChatPanel {
     const data = event.data || {};
     const round = Number(data.round);
     const actorId = String(event.actor || data.entity_id || '').trim();
-    const actorName = this.resolveEncounterActorName(actorId)
-      || String(data.actor_name || data.actor || '').trim()
+    const actorName = String(data.actor_name || data.actor || '').trim()
+      || this.resolveEncounterActorName(actorId)
       || this.extractActorNameFromNarration(event.narration)
       || 'Narrator';
     const lineId = event.id
