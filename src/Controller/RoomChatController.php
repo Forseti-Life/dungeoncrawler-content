@@ -845,7 +845,7 @@ class RoomChatController extends ControllerBase {
   }
 
   protected function isEncounterPrefixedMessage(string $content): bool {
-    return (bool) preg_match('/^Turn\s+(?:\d+|\?)\:\s+Round\s+(?:\d+|\?)\:\s+Actor\s+.*\:\s+/u', $content);
+    return (bool) preg_match('/^Round\s+(?:\d+|\?)\:\s+Turn\s+(?:\d+|\?)\:\s+Actor\s+.*\:\s+/u', $content);
   }
 
   protected function prefixEncounterProgressMessage(int $campaign_id, string $speaker, string $message): string {
@@ -855,17 +855,21 @@ class RoomChatController extends ControllerBase {
     }
 
     $state = $this->coordinator->getFullState($campaign_id);
-    $round = is_array($state) ? ($state['round'] ?? ($state['game_state']['round'] ?? '?')) : '?';
+
+    $round_raw = is_array($state) ? ($state['round'] ?? ($state['game_state']['round'] ?? 1)) : 1;
+    $round_display = is_numeric($round_raw) ? max(0, ((int) $round_raw) - 1) : '?';
+
     $turn = is_array($state) ? ($state['turn'] ?? ($state['game_state']['turn'] ?? [])) : [];
     $turn_index_raw = is_array($turn) && isset($turn['index']) && is_numeric($turn['index']) ? (int) $turn['index'] : NULL;
-    $turn_index_human = $turn_index_raw !== NULL ? ($turn_index_raw + 1) : '?';
+    $turn_index_human = $turn_index_raw !== NULL ? ($turn_index_raw + 1) : 1;
+    $turn_display = is_numeric($turn_index_human) ? (int) $turn_index_human : '?';
 
     $actor_name = trim($speaker);
     if ($actor_name === '') {
       $actor_name = 'Unknown';
     }
 
-    return sprintf('Turn %s: Round %s: Actor %s: %s', (string) $turn_index_human, (string) $round, $actor_name, $message);
+    return sprintf('Round %s: Turn %s: Actor %s: %s', (string) $round_display, (string) $turn_display, $actor_name, $message);
   }
 
   /**

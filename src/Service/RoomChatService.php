@@ -1694,7 +1694,8 @@ class RoomChatService {
     );
 
     $visible_gm_narrative = $this->buildVisibleGmNarrative($narrative, $actions, $state_diff, $navigation_result);
-    $visible_gm_narrative = $this->prefixEncounterChatText($visible_gm_narrative, $encounter_prefix);
+    $gm_encounter_prefix = $this->buildEncounterPrefixForSpeaker($dungeon_data, 'Game Master');
+    $visible_gm_narrative = $this->prefixEncounterChatText($visible_gm_narrative, $gm_encounter_prefix);
     $suppress_npc_interjections = !empty($checked_response['suppress_npc_interjections']);
     $gm_payload = $this->buildGmRoomResponsePayload($visible_gm_narrative, $actions, $dice_rolls, $suppress_npc_interjections);
     $gm_message = [
@@ -3770,10 +3771,24 @@ class RoomChatService {
 
     $messages = [];
     $spoken_refs = [];
+
+    $game_state = is_array($dungeon_data['game_state'] ?? NULL) ? $dungeon_data['game_state'] : [];
+    $round_raw = $game_state['round'] ?? 1;
+    $round_display = is_numeric($round_raw) ? max(0, ((int) $round_raw) - 1) : '?';
+
+    // Structured logs have a dense sequence counter; chat/UX turn indices are
+    // the stable speaker order within the harness.
     $turn_log_sequence = 3;
+    $harness_turn_index = 3;
+
     foreach ($ordered_npcs as $npc) {
       $current_speaker = (string) ($npc['profile']['display_name'] ?? $npc['entity_ref'] ?? 'Unknown');
-      $current_turn_index = $turn_log_sequence;
+      $current_turn_index = $harness_turn_index++;
+
+      $encounter_prefix = (($game_state['phase'] ?? '') === 'encounter')
+        ? sprintf('Round %s: Turn %s: Actor %s: ', (string) $round_display, (string) $current_turn_index, trim($current_speaker) !== '' ? trim($current_speaker) : 'Unknown')
+        : NULL;
+
       $this->persistStructuredRoomTurnLog(
         $campaign_id,
         $dungeon_id,
@@ -3804,7 +3819,7 @@ class RoomChatService {
           'initiative_roll' => isset($npc['initiative_roll']) ? (int) $npc['initiative_roll'] : NULL,
           'initiative_modifier' => isset($npc['initiative_modifier']) ? (int) $npc['initiative_modifier'] : NULL,
         ],
-        $encounter_prefix
+        NULL
       );
       $this->logger->info('Room turn current speaker in room @room (turn @turn_key): @speaker', [
         '@room' => $room_id,
@@ -3896,9 +3911,12 @@ class RoomChatService {
       [
         'turn_role' => 'player',
         'turn_name' => $player_label,
-        'turn_index' => $turn_log_sequence,
+        'turn_index' => $harness_turn_index,
+        'internal_log' => FALSE,
+        'turn_prompt' => TRUE,
       ]
     );
+    $harness_turn_index++;
 
     if (empty($messages)) {
       $this->feedRoomChatToNpcSessions(
@@ -4349,8 +4367,20 @@ class RoomChatService {
    * Append an internal turn-log system message to room chat.
    */
   protected function appendInternalRoomLogMessage(array &$dungeon_data, int|string $room_index, string $message, array $extra = [], ?string $encounter_prefix = NULL): array {
+    $internal_log = array_key_exists('internal_log', $extra) ? (bool) $extra['internal_log'] : TRUE;
+
     if ($encounter_prefix === NULL) {
-      $encounter_prefix = $this->buildEncounterPrefixForSpeaker($dungeon_data, 'System');
+      $turn_index_human = array_key_exists('turn_index', $extra) && is_numeric($extra['turn_index']) ? (int) $extra['turn_index'] : NULL;
+      $game_state = is_array($dungeon_data['game_state'] ?? NULL) ? $dungeon_data['game_state'] : [];
+
+      if (($game_state['phase'] ?? '') === 'encounter' && $turn_index_human !== NULL) {
+        $round_raw = $game_state['round'] ?? 1;
+        $round_display = is_numeric($round_raw) ? max(0, ((int) $round_raw) - 1) : '?';
+        $encounter_prefix = sprintf('Round %s: Turn %s: Actor System: ', (string) $round_display, (string) $turn_index_human);
+      }
+      else {
+        $encounter_prefix = $this->buildEncounterPrefixForSpeaker($dungeon_data, 'System');
+      }
     }
 
     $system_message = [
@@ -4361,9 +4391,9 @@ class RoomChatService {
       'timestamp' => date('c'),
       'character_id' => NULL,
       'user_id' => 0,
-      'internal_log' => TRUE,
+      'internal_log' => $internal_log,
     ];
-    foreach (['turn_role', 'turn_name', 'turn_index', 'initiative_total', 'initiative_roll', 'initiative_modifier'] as $field) {
+    foreach (['turn_role', 'turn_name', 'turn_index', 'initiative_total', 'initiative_roll', 'initiative_modifier', 'turn_prompt'] as $field) {
       if (array_key_exists($field, $extra)) {
         $system_message[$field] = $extra[$field];
       }
@@ -4695,7 +4725,9 @@ PROMPT;
     $npc_dialogue = (string) $dialogue_payload['text'];
 
     // Build the NPC chat message.
-    $encounter_prefix = $this->buildEncounterPrefixForSpeaker($dungeon_data, $speaker_name);
+    if ($encounter_prefix === NULL) {
+      $encounter_prefix = $this->buildEncounterPrefixForSpeaker($dungeon_data, $speaker_name);
+    }
     $npc_message = $this->buildCharacterDialogueChatMessage($dialogue_payload, NULL, $encounter_prefix);
 
     // Persist the NPC interjection to dungeon_data chat.
@@ -10692,16 +10724,19 @@ PROMPT;
       return NULL;
     }
 
-    $round = isset($game_state['round']) && is_numeric($game_state['round']) ? (int) $game_state['round'] : '?';
+    $round_raw = $game_state['round'] ?? 1;
+    $round_display = is_numeric($round_raw) ? max(0, ((int) $round_raw) - 1) : '?';
+
     $turn_index_raw = isset($game_state['turn']['index']) && is_numeric($game_state['turn']['index']) ? (int) $game_state['turn']['index'] : NULL;
-    $turn_index_human = $turn_index_raw !== NULL ? ($turn_index_raw + 1) : '?';
+    $turn_index_human = $turn_index_raw !== NULL ? ($turn_index_raw + 1) : 1;
+    $turn_display = is_numeric($turn_index_human) ? (int) $turn_index_human : '?';
 
     $actor_name = trim((string) $speaker);
     if ($actor_name === '') {
       $actor_name = 'Unknown';
     }
 
-    return sprintf('Turn %s: Round %s: Actor %s: ', (string) $turn_index_human, (string) $round, $actor_name);
+    return sprintf('Round %s: Turn %s: Actor %s: ', (string) $round_display, (string) $turn_display, $actor_name);
   }
 
   /**
@@ -10710,9 +10745,12 @@ PROMPT;
   protected function buildEncounterPrefixFromDungeonData(array $dungeon_data): ?string {
     $game_state = is_array($dungeon_data['game_state'] ?? NULL) ? $dungeon_data['game_state'] : [];
 
-    $round = isset($game_state['round']) && is_numeric($game_state['round']) ? (int) $game_state['round'] : '?';
+    $round_raw = $game_state['round'] ?? 1;
+    $round_display = is_numeric($round_raw) ? max(0, ((int) $round_raw) - 1) : '?';
+
     $turn_index_raw = isset($game_state['turn']['index']) && is_numeric($game_state['turn']['index']) ? (int) $game_state['turn']['index'] : NULL;
-    $turn_index_human = $turn_index_raw !== NULL ? ($turn_index_raw + 1) : '?';
+    $turn_index_human = $turn_index_raw !== NULL ? ($turn_index_raw + 1) : 1;
+    $turn_display = is_numeric($turn_index_human) ? (int) $turn_index_human : '?';
 
     $turn_entity_id = trim((string) ($game_state['turn']['entity'] ?? ''));
     $active_entity = $turn_entity_id !== '' ? $this->findEncounterTurnEntity($turn_entity_id, $dungeon_data) : NULL;
@@ -10725,11 +10763,11 @@ PROMPT;
       $actor_name = 'Unknown';
     }
 
-    return sprintf('Turn %s: Round %s: Actor %s: ', (string) $turn_index_human, (string) $round, $actor_name);
+    return sprintf('Round %s: Turn %s: Actor %s: ', (string) $round_display, (string) $turn_display, $actor_name);
   }
 
   protected function isEncounterChatTextPrefixed(string $content): bool {
-    return (bool) preg_match('/^Turn\s+(?:\d+|\?)\:\s+Round\s+(?:\d+|\?)\:\s+Actor\s+.*\:\s+/u', $content);
+    return (bool) preg_match('/^Round\s+(?:\d+|\?)\:\s+Turn\s+(?:\d+|\?)\:\s+Actor\s+.*\:\s+/u', $content);
   }
 
   protected function prefixEncounterChatText(string $content, ?string $encounter_prefix): string {

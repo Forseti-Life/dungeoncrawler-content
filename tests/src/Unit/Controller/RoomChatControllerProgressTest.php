@@ -80,24 +80,24 @@ class RoomChatControllerProgressTest extends UnitTestCase {
     $unknown = $method->invoke($controller, 'unknown_stage', 'req-3', ['campaign_id' => 63]);
 
     $this->assertSame('reviewing-room', $started['phase']);
-    $this->assertSame('Turn 1: Round 1: Actor Narrator: Reviewing the room and what you just said...', $started['message']);
+    $this->assertSame('Round 0: Turn 1: Actor Narrator: Reviewing the room and what you just said...', $started['message']);
     $this->assertSame('req-0', $started['client_request_id']);
 
     $this->assertSame('updating-conversation', $persisted['phase']);
-    $this->assertSame('Turn 1: Round 1: Actor Narrator: Updating conversation state...', $persisted['message']);
+    $this->assertSame('Round 0: Turn 1: Actor Narrator: Updating conversation state...', $persisted['message']);
     $this->assertSame('req-1', $persisted['client_request_id']);
 
     $this->assertSame('reviewing-queue', $queued['phase']);
-    $this->assertSame('Turn 1: Round 1: Actor System: Thinking about the 3 things you just said...', $queued['message']);
+    $this->assertSame('Round 0: Turn 1: Actor System: Thinking about the 3 things you just said...', $queued['message']);
     $this->assertSame('req-2', $queued['client_request_id']);
 
     $this->assertSame('npc-reactions', $npc_reactions['phase']);
     $this->assertSame('Initiative Order', $npc_reactions['speaker']);
-    $this->assertSame('Turn 1: Round 1: Actor Initiative Order: Resolving nearby NPC turns...', $npc_reactions['message']);
+    $this->assertSame('Round 0: Turn 1: Actor Initiative Order: Resolving nearby NPC turns...', $npc_reactions['message']);
     $this->assertSame('req-2b', $npc_reactions['client_request_id']);
 
     $this->assertSame('reviewing-room', $private_started['phase']);
-    $this->assertSame('Turn 1: Round 1: Actor Narrator: Reviewing what you just said...', $private_started['message']);
+    $this->assertSame('Round 0: Turn 1: Actor Narrator: Reviewing what you just said...', $private_started['message']);
     $this->assertSame('req-private', $private_started['client_request_id']);
 
     $this->assertNull($unknown);

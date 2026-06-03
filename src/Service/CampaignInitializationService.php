@@ -958,12 +958,12 @@ class CampaignInitializationService {
       return $message;
     }
 
-    if ((bool) preg_match('/^Turn\s+(?:\d+|\?)\:\s+Round\s+(?:\d+|\?)\:\s+Actor\s+.*\:\s+/u', $message)) {
+    if ((bool) preg_match('/^Round\s+(?:\d+|\?)\:\s+Turn\s+(?:\d+|\?)\:\s+Actor\s+.*\:\s+/u', $message)) {
       return $message;
     }
 
     $speaker = trim($speaker) !== '' ? trim($speaker) : 'Narrator';
-    return sprintf('Turn 1: Round 1: Actor %s: %s', $speaker, $message);
+    return sprintf('Round 0: Turn 1: Actor %s: %s', $speaker, $message);
   }
 
 }
