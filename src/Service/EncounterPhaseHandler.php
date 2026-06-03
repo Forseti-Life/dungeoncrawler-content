@@ -7271,18 +7271,18 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
     $round = $turn_ctx['round'] ?? 1;
 
     $turn_display = is_numeric($turn) ? (int) $turn : '?';
-    $round_display = is_numeric($round) ? max(0, ((int) $round) - 1) : '?';
+    $round_display = \Drupal\dungeoncrawler_content\Service\EncounterTranscriptPrefix::displayRound($round);
 
     $actor_name = $turn_ctx['actor_name'] ?? 'Unknown';
     if (!is_string($actor_name) || trim($actor_name) === '') {
       $actor_name = 'Unknown';
     }
 
-    return sprintf('Round %s: Turn %s: Actor %s: ', (string) $round_display, (string) $turn_display, $actor_name);
+    return \Drupal\dungeoncrawler_content\Service\EncounterTranscriptPrefix::formatPrefix($round_display, $turn_display, $actor_name);
   }
 
   protected function isEncounterChatLinePrefixed(string $content): bool {
-    return (bool) preg_match('/^Round\s+(?:\d+|\?)\:\s+Turn\s+(?:\d+|\?)\:\s+Actor\s+.*\:\s+/u', $content);
+    return \Drupal\dungeoncrawler_content\Service\EncounterTranscriptPrefix::isPrefixed($content);
   }
 
   protected function prefixEncounterChatLine(array $turn_ctx, string $content): string {

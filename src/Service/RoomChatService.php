@@ -10719,12 +10719,7 @@ PROMPT;
    * Format the canonical encounter transcript prefix.
    */
   protected function formatEncounterTranscriptPrefix(int|string $round_display, int|string $turn_display, string $actor_name): string {
-    $actor_name = trim($actor_name);
-    if ($actor_name === '') {
-      $actor_name = 'Unknown';
-    }
-
-    return sprintf('Round %s: Turn %s: Actor %s: ', (string) $round_display, (string) $turn_display, $actor_name);
+    return \Drupal\dungeoncrawler_content\Service\EncounterTranscriptPrefix::formatPrefix($round_display, $turn_display, $actor_name);
   }
 
   /**
@@ -10771,7 +10766,7 @@ PROMPT;
   }
 
   protected function isEncounterChatTextPrefixed(string $content): bool {
-    return (bool) preg_match('/^Round\s+(?:\d+|\?)\:\s+Turn\s+(?:\d+|\?)\:\s+Actor\s+.*\:\s+/u', $content);
+    return \Drupal\dungeoncrawler_content\Service\EncounterTranscriptPrefix::isPrefixed($content);
   }
 
   protected function prefixEncounterChatText(string $content, ?string $encounter_prefix): string {

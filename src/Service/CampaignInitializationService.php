@@ -958,12 +958,12 @@ class CampaignInitializationService {
       return $message;
     }
 
-    if ((bool) preg_match('/^Round\s+(?:\d+|\?)\:\s+Turn\s+(?:\d+|\?)\:\s+Actor\s+.*\:\s+/u', $message)) {
+    if (\Drupal\dungeoncrawler_content\Service\EncounterTranscriptPrefix::isPrefixed($message)) {
       return $message;
     }
 
     $speaker = trim($speaker) !== '' ? trim($speaker) : 'Narrator';
-    return sprintf('Round 0: Turn 1: Actor %s: %s', $speaker, $message);
+    return \Drupal\dungeoncrawler_content\Service\EncounterTranscriptPrefix::formatPrefix(0, 1, $speaker) . $message;
   }
 
 }
