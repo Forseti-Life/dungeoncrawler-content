@@ -4,7 +4,7 @@
       "room_id": "tavern_entrance",
       "source_room_id": "tavern_entrance",
       "name": "The Gilded Tankard",
-      "description": "Starter tavern room (rectangular) with explicit HexMap V2 attribute examples (terrain, lighting, elevation, fog, and object categories).",
+      "description": "Starter tavern room (rectangular) with boundary walls/exits and explicit HexMap V2 attribute examples.",
       "environment_tags": [
         "indoor",
         "tavern",
@@ -15,7 +15,83 @@
       "layout_data": {
         "hexes": [
           {
-            "q": 1,
+            "q": -4,
+            "r": -3,
+            "elevation_ft": 0,
+            "objects": [
+              {
+                "category": "wall",
+                "passable": false,
+                "blocks_movement": true,
+                "label": "Wall (Boundary)",
+                "object_id": "wall_stone_flat"
+              }
+            ],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": -3,
+            "r": -3,
+            "elevation_ft": 0,
+            "objects": [
+              {
+                "category": "wall",
+                "passable": false,
+                "blocks_movement": true,
+                "label": "Wall (Boundary)",
+                "object_id": "wall_stone_flat"
+              }
+            ],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": -2,
+            "r": -3,
+            "elevation_ft": 0,
+            "objects": [
+              {
+                "category": "wall",
+                "passable": false,
+                "blocks_movement": true,
+                "label": "Wall (Boundary)",
+                "object_id": "wall_stone_flat"
+              }
+            ],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": -1,
+            "r": -3,
+            "elevation_ft": 0,
+            "objects": [
+              {
+                "category": "wall",
+                "passable": false,
+                "blocks_movement": true,
+                "label": "Wall (Boundary)",
+                "object_id": "wall_stone_flat"
+              }
+            ],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": 0,
             "r": -3,
             "elevation_ft": 0,
             "objects": [
@@ -27,6 +103,112 @@
                 "object_id": "wooden_tavern_door"
               }
             ],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": 1,
+            "r": -3,
+            "elevation_ft": 0,
+            "objects": [
+              {
+                "category": "wall",
+                "passable": false,
+                "blocks_movement": true,
+                "label": "Wall (Boundary)",
+                "object_id": "wall_stone_flat"
+              }
+            ],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": 2,
+            "r": -3,
+            "elevation_ft": 0,
+            "objects": [
+              {
+                "category": "wall",
+                "passable": false,
+                "blocks_movement": true,
+                "label": "Wall (Boundary)",
+                "object_id": "wall_stone_flat"
+              }
+            ],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": 3,
+            "r": -3,
+            "elevation_ft": 0,
+            "objects": [
+              {
+                "category": "wall",
+                "passable": false,
+                "blocks_movement": true,
+                "label": "Wall (Boundary)",
+                "object_id": "wall_stone_flat"
+              }
+            ],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": 4,
+            "r": -3,
+            "elevation_ft": 0,
+            "objects": [
+              {
+                "category": "wall",
+                "passable": false,
+                "blocks_movement": true,
+                "label": "Wall (Boundary)",
+                "object_id": "wall_stone_flat"
+              }
+            ],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": -4,
+            "r": -2,
+            "elevation_ft": 0,
+            "objects": [
+              {
+                "category": "wall",
+                "passable": false,
+                "blocks_movement": true,
+                "label": "Wall (Boundary)",
+                "object_id": "wall_stone_flat"
+              }
+            ],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": -3,
+            "r": -2,
+            "elevation_ft": 0,
+            "objects": [],
             "terrain_type": "wooden_floor",
             "lighting": "bright",
             "is_discovered": true,
@@ -103,7 +285,34 @@
             "q": 4,
             "r": -2,
             "elevation_ft": 0,
-            "objects": [],
+            "objects": [
+              {
+                "category": "wall",
+                "passable": false,
+                "blocks_movement": true,
+                "label": "Wall (Boundary)",
+                "object_id": "wall_stone_flat"
+              }
+            ],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": -4,
+            "r": -1,
+            "elevation_ft": 0,
+            "objects": [
+              {
+                "category": "wall",
+                "passable": false,
+                "blocks_movement": true,
+                "label": "Wall (Boundary)",
+                "object_id": "wall_stone_flat"
+              }
+            ],
             "terrain_type": "wooden_floor",
             "lighting": "bright",
             "is_discovered": true,
@@ -188,6 +397,44 @@
             "is_entry": false
           },
           {
+            "q": 4,
+            "r": -1,
+            "elevation_ft": 0,
+            "objects": [
+              {
+                "category": "wall",
+                "passable": false,
+                "blocks_movement": true,
+                "label": "Wall (Boundary)",
+                "object_id": "wall_stone_flat"
+              }
+            ],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": -4,
+            "r": 0,
+            "elevation_ft": 0,
+            "objects": [
+              {
+                "category": "wall",
+                "passable": false,
+                "blocks_movement": true,
+                "label": "Wall (Boundary)",
+                "object_id": "wall_stone_flat"
+              }
+            ],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
             "q": -3,
             "r": 0,
             "elevation_ft": 0,
@@ -265,10 +512,37 @@
             "is_entry": false
           },
           {
+            "q": 4,
+            "r": 0,
+            "elevation_ft": 0,
+            "objects": [
+              {
+                "category": "wall",
+                "passable": false,
+                "blocks_movement": true,
+                "label": "Wall (Boundary)",
+                "object_id": "wall_stone_flat"
+              }
+            ],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
             "q": -4,
             "r": 1,
             "elevation_ft": 0,
-            "objects": [],
+            "objects": [
+              {
+                "category": "wall",
+                "passable": false,
+                "blocks_movement": true,
+                "label": "Wall (Boundary)",
+                "object_id": "wall_stone_flat"
+              }
+            ],
             "terrain_type": "wooden_floor",
             "lighting": "bright",
             "is_discovered": true,
@@ -289,72 +563,6 @@
           {
             "q": -2,
             "r": 1,
-            "elevation_ft": 0,
-            "objects": [],
-            "terrain_type": "wooden_floor",
-            "lighting": "bright",
-            "is_discovered": true,
-            "is_visible": true,
-            "is_entry": false
-          },
-          {
-            "q": -1,
-            "r": 1,
-            "elevation_ft": 0,
-            "objects": [],
-            "terrain_type": "wooden_floor",
-            "lighting": "bright",
-            "is_discovered": true,
-            "is_visible": true,
-            "is_entry": false
-          },
-          {
-            "q": 0,
-            "r": 1,
-            "elevation_ft": 0,
-            "objects": [],
-            "terrain_type": "wooden_floor",
-            "lighting": "bright",
-            "is_discovered": true,
-            "is_visible": true,
-            "is_entry": false
-          },
-          {
-            "q": 1,
-            "r": 1,
-            "elevation_ft": 0,
-            "objects": [],
-            "terrain_type": "wooden_floor",
-            "lighting": "bright",
-            "is_discovered": true,
-            "is_visible": true,
-            "is_entry": false
-          },
-          {
-            "q": 2,
-            "r": 1,
-            "elevation_ft": 0,
-            "objects": [],
-            "terrain_type": "wooden_floor",
-            "lighting": "bright",
-            "is_discovered": true,
-            "is_visible": true,
-            "is_entry": false
-          },
-          {
-            "q": -4,
-            "r": 2,
-            "elevation_ft": 0,
-            "objects": [],
-            "terrain_type": "wooden_floor",
-            "lighting": "bright",
-            "is_discovered": true,
-            "is_visible": true,
-            "is_entry": false
-          },
-          {
-            "q": -3,
-            "r": 2,
             "elevation_ft": 0,
             "objects": [
               {
@@ -372,6 +580,110 @@
             "is_entry": false
           },
           {
+            "q": -1,
+            "r": 1,
+            "elevation_ft": 0,
+            "objects": [],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": 0,
+            "r": 1,
+            "elevation_ft": 0,
+            "objects": [],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": 1,
+            "r": 1,
+            "elevation_ft": 0,
+            "objects": [],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": 2,
+            "r": 1,
+            "elevation_ft": 0,
+            "objects": [],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": 3,
+            "r": 1,
+            "elevation_ft": 0,
+            "objects": [],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": 4,
+            "r": 1,
+            "elevation_ft": 0,
+            "objects": [
+              {
+                "category": "wall",
+                "passable": false,
+                "blocks_movement": true,
+                "label": "Wall (Boundary)",
+                "object_id": "wall_stone_flat"
+              }
+            ],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": -4,
+            "r": 2,
+            "elevation_ft": 0,
+            "objects": [
+              {
+                "category": "wall",
+                "passable": false,
+                "blocks_movement": true,
+                "label": "Wall (Boundary)",
+                "object_id": "wall_stone_flat"
+              }
+            ],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": -3,
+            "r": 2,
+            "elevation_ft": 0,
+            "objects": [],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
             "q": -2,
             "r": 2,
             "elevation_ft": 0,
@@ -422,15 +734,34 @@
             "objects": [],
             "terrain_type": "wooden_floor",
             "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": 3,
+            "r": 2,
+            "elevation_ft": 0,
+            "objects": [],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
             "is_discovered": false,
             "is_visible": true,
             "is_entry": false
           },
           {
-            "q": -5,
-            "r": 3,
+            "q": 4,
+            "r": 2,
             "elevation_ft": 0,
-            "objects": [],
+            "objects": [
+              {
+                "category": "wall",
+                "passable": false,
+                "blocks_movement": true,
+                "label": "Wall (Boundary)",
+                "object_id": "wall_stone_flat"
+              }
+            ],
             "terrain_type": "wooden_floor",
             "lighting": "bright",
             "is_discovered": true,
@@ -441,7 +772,15 @@
             "q": -4,
             "r": 3,
             "elevation_ft": 0,
-            "objects": [],
+            "objects": [
+              {
+                "category": "wall",
+                "passable": false,
+                "blocks_movement": true,
+                "label": "Wall (Boundary)",
+                "object_id": "wall_stone_flat"
+              }
+            ],
             "terrain_type": "wooden_floor",
             "lighting": "bright",
             "is_discovered": true,
@@ -500,7 +839,219 @@
             "terrain_type": "wooden_floor",
             "lighting": "bright",
             "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": 2,
+            "r": 3,
+            "elevation_ft": 0,
+            "objects": [],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": 3,
+            "r": 3,
+            "elevation_ft": 0,
+            "objects": [],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
             "is_visible": false,
+            "is_entry": false
+          },
+          {
+            "q": 4,
+            "r": 3,
+            "elevation_ft": 0,
+            "objects": [
+              {
+                "category": "wall",
+                "passable": false,
+                "blocks_movement": true,
+                "label": "Wall (Boundary)",
+                "object_id": "wall_stone_flat"
+              }
+            ],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": -4,
+            "r": 4,
+            "elevation_ft": 0,
+            "objects": [
+              {
+                "category": "wall",
+                "passable": false,
+                "blocks_movement": true,
+                "label": "Wall (Boundary)",
+                "object_id": "wall_stone_flat"
+              }
+            ],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": -3,
+            "r": 4,
+            "elevation_ft": 0,
+            "objects": [
+              {
+                "category": "wall",
+                "passable": false,
+                "blocks_movement": true,
+                "label": "Wall (Boundary)",
+                "object_id": "wall_stone_flat"
+              }
+            ],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": -2,
+            "r": 4,
+            "elevation_ft": 0,
+            "objects": [
+              {
+                "category": "wall",
+                "passable": false,
+                "blocks_movement": true,
+                "label": "Wall (Boundary)",
+                "object_id": "wall_stone_flat"
+              }
+            ],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": -1,
+            "r": 4,
+            "elevation_ft": 0,
+            "objects": [
+              {
+                "category": "wall",
+                "passable": false,
+                "blocks_movement": true,
+                "label": "Wall (Boundary)",
+                "object_id": "wall_stone_flat"
+              }
+            ],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": 0,
+            "r": 4,
+            "elevation_ft": 0,
+            "objects": [
+              {
+                "category": "wall",
+                "passable": false,
+                "blocks_movement": true,
+                "label": "Wall (Boundary)",
+                "object_id": "wall_stone_flat"
+              }
+            ],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": 1,
+            "r": 4,
+            "elevation_ft": 0,
+            "objects": [
+              {
+                "category": "wall",
+                "passable": false,
+                "blocks_movement": true,
+                "label": "Wall (Boundary)",
+                "object_id": "wall_stone_flat"
+              }
+            ],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": 2,
+            "r": 4,
+            "elevation_ft": 0,
+            "objects": [
+              {
+                "category": "wall",
+                "passable": false,
+                "blocks_movement": true,
+                "label": "Wall (Boundary)",
+                "object_id": "wall_stone_flat"
+              }
+            ],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": 3,
+            "r": 4,
+            "elevation_ft": 0,
+            "objects": [
+              {
+                "category": "wall",
+                "passable": false,
+                "blocks_movement": true,
+                "label": "Wall (Boundary)",
+                "object_id": "wall_stone_flat"
+              }
+            ],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": 4,
+            "r": 4,
+            "elevation_ft": 0,
+            "objects": [
+              {
+                "category": "wall",
+                "passable": false,
+                "blocks_movement": true,
+                "label": "Wall (Boundary)",
+                "object_id": "wall_stone_flat"
+              }
+            ],
+            "terrain_type": "wooden_floor",
+            "lighting": "bright",
+            "is_discovered": true,
+            "is_visible": true,
             "is_entry": false
           }
         ],
@@ -513,7 +1064,7 @@
         ],
         "exit_points": [
           {
-            "q": 1,
+            "q": 0,
             "r": -3,
             "label": "Exit Door (Example)"
           }
