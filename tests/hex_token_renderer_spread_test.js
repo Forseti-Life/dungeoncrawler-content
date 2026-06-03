@@ -205,6 +205,7 @@ console.log('\n=== HexTokenRenderer crowded-hex spread ===');
     _clearSpreadInteractionTargets: clearSpreadInteractionTargets,
     _refreshSpreadInteractionTargets: refreshSpreadInteractionTargets,
     _setEntitySpreadForHex: setEntitySpreadForHex,
+    _applyStackingVisibilityForHex() {},
     _clearCrowdedHexHoverState: clearCrowdedHexHoverState,
   };
 

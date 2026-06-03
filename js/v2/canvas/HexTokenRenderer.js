@@ -158,6 +158,8 @@ export class HexTokenRenderer {
 
     objectContainer.sortableChildren = true;
     objectContainer.sortChildren?.();
+
+    this._applyStackingVisibility();
   }
 
   /**
@@ -255,6 +257,9 @@ export class HexTokenRenderer {
     token._baseY = y;
     token.x = x;
     token.y = y;
+
+    this._applyStackingVisibility();
+
     if (this._spreadExpandedHexKey === `${Number(pos.q)}:${Number(pos.r)}`) {
       this._setEntitySpreadForHex(pos.q, pos.r, true);
     }
@@ -285,6 +290,69 @@ export class HexTokenRenderer {
     const color = isActiveTurn ? 0xfbbf24 : 0x60a5fa; // gold for active turn, blue for selection
     ring.lineStyle(2, color, 0.9);
     ring.drawCircle(0, 0, radius);
+  }
+
+  _applyStackingVisibility() {
+    const occupied = new Set();
+    this._tokens.forEach((token) => {
+      const position = token?.dcEntity?.getComponent?.('PositionComponent');
+      if (!position) return;
+      occupied.add(`${Number(position.q)}:${Number(position.r)}`);
+    });
+
+    occupied.forEach((hexKey) => {
+      const [q, r] = hexKey.split(':').map((value) => Number(value));
+      this._applyStackingVisibilityForHex(q, r);
+    });
+  }
+
+  _applyStackingVisibilityForHex(q, r) {
+    const hexKey = `${Number(q)}:${Number(r)}`;
+    const entities = this._getEntitiesAtHex(q, r);
+
+    if (entities.length <= 1) {
+      entities.forEach((entity) => {
+        const token = this._tokens.get(entity.id);
+        if (token) token.visible = true;
+      });
+      return;
+    }
+
+    if (this._spreadExpandedHexKey === hexKey) {
+      entities.forEach((entity) => {
+        const token = this._tokens.get(entity.id);
+        if (token) token.visible = true;
+      });
+      return;
+    }
+
+    const sorted = entities.slice().sort((a, b) => {
+      const resolveRank = (entity) => {
+        const identityType = entity?.getComponent?.('IdentityComponent')?.entityType ?? entity?.dcEntityType ?? null;
+        const objectCategory = entity?.getComponent?.('RenderComponent')?.objectCategory ?? null;
+        const type = String(identityType || objectCategory || '').trim().toLowerCase();
+        if (type === 'player_character' || type === 'npc' || type === 'creature' || type === 'character') return 3;
+        if (type === 'item') return 2;
+        if (type === 'obstacle' || type === 'terrain') return 1;
+        return 0;
+      };
+
+      const rankA = resolveRank(a);
+      const rankB = resolveRank(b);
+      if (rankA !== rankB) return rankB - rankA;
+
+      const idA = String(a?.id ?? '');
+      const idB = String(b?.id ?? '');
+      if (idA < idB) return -1;
+      if (idA > idB) return 1;
+      return 0;
+    });
+
+    const topId = sorted[0]?.id ?? null;
+    entities.forEach((entity) => {
+      const token = this._tokens.get(entity.id);
+      if (token) token.visible = entity.id === topId;
+    });
   }
 
   _handleCrowdedHexHover(q, r, entities = []) {
@@ -328,6 +396,7 @@ export class HexTokenRenderer {
       return;
     }
 
+    const hexKey = `${Number(q)}:${Number(r)}`;
     const spreadRadius = Number(this.hexCanvas?.config?.hexSize || 30);
     if (!active || entities.length <= 1) {
       entities.forEach((entity) => {
@@ -338,10 +407,11 @@ export class HexTokenRenderer {
         token.x = Number(token._baseX || 0);
         token.y = Number(token._baseY || 0);
       });
-      if (this._spreadExpandedHexKey === `${Number(q)}:${Number(r)}`) {
+      if (this._spreadExpandedHexKey === hexKey) {
         this._spreadExpandedHexKey = null;
       }
       this._clearSpreadInteractionTargets();
+      this._applyStackingVisibilityForHex(q, r);
       return;
     }
 
@@ -353,9 +423,11 @@ export class HexTokenRenderer {
       const angle = ((Math.PI * 2) / entities.length) * index - (Math.PI / 2);
       token.x = Number(token._baseX || 0) + Math.cos(angle) * spreadRadius;
       token.y = Number(token._baseY || 0) + Math.sin(angle) * spreadRadius;
+      token.visible = true;
     });
 
-    this._spreadExpandedHexKey = `${Number(q)}:${Number(r)}`;
+    this._spreadExpandedHexKey = hexKey;
+    this._applyStackingVisibilityForHex(q, r);
     this._refreshSpreadInteractionTargets(q, r);
   }
 

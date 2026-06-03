@@ -51,12 +51,18 @@ function loadHexInputHandler() {
   return new Function(`${source}\nreturn HexInputHandler;`)();
 }
 
-function makeEntity(id, q, r) {
+function makeEntity(id, q, r, entityType = null) {
   return {
     id,
     getComponent(name) {
       if (name === 'PositionComponent') {
         return { q, r };
+      }
+      if (name === 'IdentityComponent') {
+        return entityType ? { entityType } : null;
+      }
+      if (name === 'RenderComponent') {
+        return entityType ? { objectCategory: entityType } : null;
       }
       return null;
     },
@@ -69,12 +75,12 @@ console.log('\n=== Hexmap V2 input handler ===');
 
 {
   const bus = new TestBus();
-  const entity = makeEntity('player-1', 2, 3);
+  const entity = makeEntity('player-1', 2, 3, 'player_character');
   const hexCanvas = {
     objectContainer: {
       children: [
         { dcEntity: entity },
-        { dcEntity: makeEntity('npc-off-hex', 9, 9) },
+        { dcEntity: makeEntity('npc-off-hex', 9, 9, 'npc') },
       ],
     },
   };
@@ -93,6 +99,34 @@ console.log('\n=== Hexmap V2 input handler ===');
   assert(Array.isArray(hovered?.payload?.entities) && hovered.payload.entities.length === 1, 'enriches hover events with entities at the target hex');
   assert(clicked?.payload?.entities?.[0] === entity && clicked?.payload?.button === 0, 'enriches click events with entity payloads and preserves button information');
   assert(out?.payload?.q === 2 && out?.payload?.r === 3, 're-emits hex-out events for higher-level consumers');
+}
+
+{
+  const bus = new TestBus();
+  const pc = makeEntity('pc-1', 5, 6, 'player_character');
+  const item = makeEntity('item-1', 5, 6, 'item');
+  const obstacle = makeEntity('rock-1', 5, 6, 'obstacle');
+  const hexCanvas = {
+    objectContainer: {
+      children: [
+        { dcEntity: item },
+        { dcEntity: obstacle },
+        { dcEntity: pc },
+      ],
+    },
+  };
+
+  const handler = new HexInputHandler(hexCanvas, bus);
+  handler.init();
+
+  bus.emit('canvas:hex-hovered', { q: 5, r: 6 });
+  bus.emit('canvas:hex-clicked', { q: 5, r: 6, button: 0 });
+
+  const hovered = bus.events.find((event) => event.name === 'hex:hovered');
+  const clicked = bus.events.find((event) => event.name === 'hex:clicked');
+
+  assert(hovered?.payload?.entities?.length === 3, 'hover payload preserves full stacked entity list');
+  assert(clicked?.payload?.entities?.length === 1 && clicked.payload.entities[0] === pc, 'click payload selects only the top (character) entity');
 }
 
 console.log(`\nPassed: ${passed}`);
