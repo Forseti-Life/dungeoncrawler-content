@@ -143,13 +143,15 @@ class CampaignInitializationService {
         $campaign_name,
         $dungeon_id,
         $starter_runtime_room_id,
-        (string) ($starter_room['name'] ?? 'The Gilded Tankard')
+        (string) ($starter_room['name'] ?? 'The Gilded Tankard'),
+        (string) ($starter_room['description'] ?? '')
       );
       $this->seedStarterRoomChatHistory(
         $campaign_id,
         $dungeon_id,
         $starter_runtime_room_id,
         (string) ($starter_room['name'] ?? 'The Gilded Tankard'),
+        (string) ($starter_room['description'] ?? ''),
         $now
       );
 
@@ -777,13 +779,16 @@ class CampaignInitializationService {
    *   Starter room ID (e.g. 'tavern_entrance').
    * @param string $room_name
    *   Human-readable room name.
+   * @param string $room_description
+   *   Authoritative room description text.
    */
   private function bootstrapChatSessions(
     int $campaign_id,
     string $campaign_name,
     string $dungeon_id = '',
     string $room_id = '',
-    string $room_name = ''
+    string $room_name = '',
+    string $room_description = ''
   ): void {
     if (!$this->chatSessionManager) {
       $this->logger->notice('ChatSessionManager not available; skipping chat session bootstrap for campaign {id}', [
@@ -829,9 +834,7 @@ class CampaignInitializationService {
 
           // Post a welcome message into the room session so the room
           // tab has something to show besides an empty state.
-          $seed_message = $room_name
-            ? "You arrive at {$room_name}. The adventure begins..."
-            : 'You enter the room. The adventure begins...';
+          $seed_message = $this->buildStarterRoomIntroMessage($room_name, $room_description);
 
           $this->chatSessionManager->postMessage(
             (int) $room_session['id'],
@@ -888,6 +891,7 @@ class CampaignInitializationService {
     string $dungeon_id,
     string $room_id,
     string $room_name,
+    string $room_description,
     int $now
   ): void {
     if ($room_id === '') {
@@ -921,7 +925,12 @@ class CampaignInitializationService {
       }
 
       $room['chat'] = is_array($room['chat'] ?? NULL) ? $room['chat'] : [];
-      $seed_message = $this->prefixInitialEncounterNarration('Game Master', "You arrive at {$room_name}. The adventure begins...");
+      $resolved_room_name = trim((string) ($room['name'] ?? $room_name));
+      $resolved_room_description = trim((string) ($room['description'] ?? $room_description));
+      $seed_message = $this->prefixInitialEncounterNarration(
+        'Game Master',
+        $this->buildStarterRoomIntroMessage($resolved_room_name, $resolved_room_description)
+      );
 
       foreach ($room['chat'] as $message) {
         if (($message['speaker'] ?? '') === 'Game Master'
@@ -964,6 +973,25 @@ class CampaignInitializationService {
 
     $speaker = trim($speaker) !== '' ? trim($speaker) : 'Narrator';
     return \Drupal\dungeoncrawler_content\Service\EncounterTranscriptPrefix::formatPrefix(0, 1, $speaker) . $message;
+  }
+
+  /**
+   * Build the starter room opener text for GM narration.
+   */
+  private function buildStarterRoomIntroMessage(string $room_name, string $room_description): string {
+    $room_name = trim($room_name);
+    $room_description = trim($room_description);
+
+    if ($room_description !== '') {
+      if ($room_name !== '' && stripos($room_description, $room_name) === FALSE) {
+        return $room_name . "\n\n" . $room_description;
+      }
+      return $room_description;
+    }
+
+    return $room_name !== ''
+      ? "You arrive at {$room_name}. The adventure begins..."
+      : 'You enter the room. The adventure begins...';
   }
 
 }
