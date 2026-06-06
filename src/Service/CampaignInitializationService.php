@@ -136,7 +136,8 @@ class CampaignInitializationService {
       // 5. Bootstrap hierarchical chat sessions for the campaign.
       //    Include the starter dungeon and tavern room so they get
       //    dedicated sessions from the very start.
-      $starter_runtime_room_id = (string) ($starter_room['runtime_room_id'] ?? $starter_room['room_id'] ?? 'tavern_entrance');
+      $starter_room_ids = $this->resolveStarterRoomIdentifiers($starter_room);
+      $starter_runtime_room_id = $starter_room_ids['runtime_room_id'];
 
       $this->bootstrapChatSessions(
         $campaign_id,
@@ -435,14 +436,9 @@ class CampaignInitializationService {
    *   TRUE on success.
    */
   private function loadTavernEntranceRoom(int $campaign_id, int $now, array $starter_room): bool {
-    $source_room_id = (string) ($starter_room['room_id'] ?? 'tavern_entrance');
-    if ($source_room_id === '') {
-      $source_room_id = 'tavern_entrance';
-    }
-    $runtime_room_id = (string) ($starter_room['runtime_room_id'] ?? $source_room_id);
-    if ($runtime_room_id === '') {
-      $runtime_room_id = $source_room_id;
-    }
+    $room_ids = $this->resolveStarterRoomIdentifiers($starter_room);
+    $source_room_id = $room_ids['source_room_id'];
+    $runtime_room_id = $room_ids['runtime_room_id'];
     $room_name = (string) ($starter_room['name'] ?? 'The Gilded Tankard');
     $room_description = (string) ($starter_room['description'] ?? '');
     if ($room_description === '') {
@@ -611,6 +607,28 @@ class CampaignInitializationService {
     }
 
     return TRUE;
+  }
+
+  /**
+   * Resolve canonical source/runtime identifiers for starter room persistence.
+   *
+   * @return array{source_room_id:string,runtime_room_id:string}
+   *   Normalized starter room identifiers.
+   */
+  private function resolveStarterRoomIdentifiers(array $starter_room): array {
+    $source_room_id = trim((string) ($starter_room['room_id'] ?? 'tavern_entrance'));
+    if ($source_room_id === '') {
+      $source_room_id = 'tavern_entrance';
+    }
+    $runtime_room_id = trim((string) ($starter_room['runtime_room_id'] ?? $source_room_id));
+    if ($runtime_room_id === '') {
+      $runtime_room_id = $source_room_id;
+    }
+
+    return [
+      'source_room_id' => $source_room_id,
+      'runtime_room_id' => $runtime_room_id,
+    ];
   }
 
   /**
