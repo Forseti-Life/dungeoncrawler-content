@@ -582,16 +582,25 @@ class QuestGeneratorService {
   /**
    * Build and validate a canonical quest summary payload.
    */
-  public function buildQuestSummaryPayload(?string $location_id, array $active = [], array $offers = [], array $leads = [], int $campaign_id = 0): array {
+  public function buildQuestSummaryPayload(
+    ?string $location_id,
+    array $active = [],
+    array $offers = [],
+    array $leads = [],
+    int $campaign_id = 0,
+    array $completed = []
+  ): array {
     $active_entries = array_values(array_map([$this, 'buildQuestSummaryEntry'], $active));
     $offer_entries = array_values(array_map([$this, 'buildQuestSummaryEntry'], $offers));
     $lead_entries = array_values(array_map([$this, 'buildQuestSummaryEntry'], $leads));
+    $completed_entries = array_values(array_map([$this, 'buildQuestSummaryEntry'], $completed));
     $payload = [
       'schema_version' => self::QUEST_SUMMARY_SCHEMA_VERSION,
       'location_id' => $location_id !== NULL && trim($location_id) !== '' ? trim($location_id) : 'campaign',
       'active' => $active_entries,
       'offers' => $offer_entries,
       'leads' => $lead_entries,
+      'completed' => $completed_entries,
       'management_tree' => $campaign_id > 0
         ? $this->buildQuestManagementTree($campaign_id, $active_entries, array_merge($offer_entries, $lead_entries), $location_id)
         : [],
@@ -599,6 +608,7 @@ class QuestGeneratorService {
         'active' => count($active),
         'offers' => count($offers),
         'leads' => count($leads),
+        'completed' => count($completed),
       ],
     ];
 
@@ -1090,7 +1100,7 @@ class QuestGeneratorService {
       ];
     }
 
-    return $objectives;
+    return $this->applyDefaultObjectiveDependencies($objectives);
   }
 
   /**
@@ -1103,8 +1113,11 @@ class QuestGeneratorService {
       'description' => $this->resolveVariables((string) ($objective_schema['description'] ?? $objective_schema['objective_id'] ?? 'Objective'), $variables),
       'completed' => !empty($objective_schema['completed']),
     ];
-    if (isset($objective_schema['next_step'])) {
-      $generated_obj['next_step'] = $this->resolveVariables((string) $objective_schema['next_step'], $variables);
+    if (isset($objective_schema['next_step']) && trim((string) $objective_schema['next_step']) !== '') {
+      $generated_obj['next_step'] = trim($this->resolveVariables((string) $objective_schema['next_step'], $variables));
+    }
+    if (array_key_exists('depends_on', $objective_schema)) {
+      $generated_obj['depends_on'] = $this->normalizeObjectiveDependencies($objective_schema['depends_on'], $generated_obj['objective_id']);
     }
 
     switch ($generated_obj['type']) {
@@ -1211,7 +1224,36 @@ class QuestGeneratorService {
     if (($generated_obj['completion_criteria']['kind'] ?? '') === 'count' && isset($generated_obj['target_count'])) {
       $generated_obj['completion_criteria']['target_count'] = max(1, (int) $generated_obj['target_count']);
     }
+    if (trim((string) ($generated_obj['next_step'] ?? '')) === '') {
+      $generated_obj['next_step'] = $this->deriveGeneratedObjectiveNextStep($generated_obj);
+    }
+    $generated_obj['depends_on'] = $this->normalizeObjectiveDependencies($generated_obj['depends_on'] ?? [], $generated_obj['objective_id']);
+
     return $generated_obj;
+  }
+
+  /**
+   * Build a concrete player action for one generated objective.
+   */
+  protected function deriveGeneratedObjectiveNextStep(array $objective): string {
+    $type = strtolower(trim((string) ($objective['type'] ?? 'objective')));
+    $description = trim((string) ($objective['description'] ?? 'this objective'));
+    $target = trim((string) ($objective['target'] ?? ''));
+    $item = trim((string) ($objective['item'] ?? ''));
+    $location = trim((string) ($objective['location'] ?? $objective['location_id'] ?? ''));
+    $destination = trim((string) ($objective['destination'] ?? $objective['destination_id'] ?? ''));
+    $count = max(1, (int) ($objective['target_count'] ?? $objective['completion_criteria']['target_count'] ?? 1));
+
+    return match ($type) {
+      'collect' => 'Search' . ($location !== '' ? " {$location}" : ' the room') . " and collect {$count} " . ($item !== '' ? $item : 'required items') . '.',
+      'kill' => 'Engage and defeat ' . $count . ' ' . ($target !== '' ? $target : 'hostile targets') . '.',
+      'explore' => 'Travel to and reveal ' . ($location !== '' ? $location : 'the target location') . '.',
+      'investigate' => 'Investigate ' . ($target !== '' ? $target : ($location !== '' ? $location : 'the active lead')) . ' and record what you find.',
+      'escort' => 'Protect ' . ($target !== '' ? $target : 'the escort target') . ' and reach ' . ($destination !== '' ? $destination : 'the destination') . '.',
+      'interact' => 'Speak with or interact with ' . ($target !== '' ? $target : $description) . '.',
+      'composite' => 'Complete the nested objectives listed under this step.',
+      default => "Complete this objective: {$description}.",
+    };
   }
 
   /**
@@ -1272,6 +1314,7 @@ class QuestGeneratorService {
    */
   protected function buildEscortRuntimeObjectives(string $parent_objective_id, array $path_encounters, string $escort_target, string $destination): array {
     $children = [];
+    $previous_child_objective_id = '';
 
     foreach ($path_encounters as $index => $encounter) {
       if (!is_array($encounter)) {
@@ -1284,11 +1327,16 @@ class QuestGeneratorService {
         continue;
       }
 
+      $child_objective_id = $parent_objective_id . '_runtime_' . $sequence;
+      $depends_on = $previous_child_objective_id !== '' ? [$previous_child_objective_id] : [$parent_objective_id];
+
       $children[] = [
-        'objective_id' => $parent_objective_id . '_runtime_' . $sequence,
+        'objective_id' => $child_objective_id,
         'type' => 'interact',
         'target' => $encounter_id,
         'description' => trim((string) ($encounter['description'] ?? ('Handle escort encounter ' . $sequence))),
+        'next_step' => 'Handle escort encounter ' . $sequence . ' on the route to ' . ($destination !== '' ? $destination : 'the destination') . '.',
+        'depends_on' => $depends_on,
         'completed' => !empty($encounter['resolved']),
         'hidden' => $sequence > 1,
         'encounter_id' => $encounter_id,
@@ -1301,6 +1349,7 @@ class QuestGeneratorService {
           'description' => trim((string) ($encounter['description'] ?? 'Resolve this escort encounter.')),
         ],
       ];
+      $previous_child_objective_id = $child_objective_id;
     }
 
     $arrival_description = $escort_target !== '' && $destination !== ''
@@ -1311,6 +1360,8 @@ class QuestGeneratorService {
       'type' => 'explore',
       'location' => $destination,
       'description' => $arrival_description,
+      'next_step' => 'Travel with the escort target to ' . ($destination !== '' ? $destination : 'the destination') . '.',
+      'depends_on' => $previous_child_objective_id !== '' ? [$previous_child_objective_id] : [$parent_objective_id],
       'completed' => FALSE,
       'hidden' => $path_encounters !== [],
       'escort_arrival' => TRUE,
@@ -1473,7 +1524,114 @@ class QuestGeneratorService {
       ];
     }
 
-    return $normalized;
+    return $this->applyDefaultObjectiveDependencies($normalized);
+  }
+
+  /**
+   * Ensure every objective exposes explicit dependencies as a completion chain.
+   */
+  protected function applyDefaultObjectiveDependencies(array $phases): array {
+    $previous_phase_objective_ids = [];
+
+    foreach ($phases as $phase_index => &$phase) {
+      if (!is_array($phase)) {
+        continue;
+      }
+
+      $phase['objectives'] = is_array($phase['objectives'] ?? NULL) ? $phase['objectives'] : [];
+      $phase_objective_ids = [];
+
+      foreach ($phase['objectives'] as &$objective) {
+        if (!is_array($objective)) {
+          continue;
+        }
+
+        $objective_id = trim((string) ($objective['objective_id'] ?? ''));
+        if ($objective_id === '') {
+          continue;
+        }
+        $phase_objective_ids[] = $objective_id;
+
+        $existing_dependencies = $this->normalizeObjectiveDependencies($objective['depends_on'] ?? [], $objective_id);
+        if ($existing_dependencies === [] && $previous_phase_objective_ids !== []) {
+          $existing_dependencies = array_values($previous_phase_objective_ids);
+        }
+        $objective['depends_on'] = $existing_dependencies;
+        $this->applyChildObjectiveDependencies($objective);
+      }
+    unset($objective);
+
+      $previous_phase_objective_ids = array_values(array_unique(array_filter($phase_objective_ids, static fn(string $id): bool => $id !== '')));
+      $phases[$phase_index] = $phase;
+    }
+    unset($phase);
+
+    return $phases;
+  }
+
+  /**
+   * Apply explicit dependency chaining inside one objective subtree.
+   */
+  protected function applyChildObjectiveDependencies(array &$objective): void {
+    $objective_id = trim((string) ($objective['objective_id'] ?? ''));
+    $children = is_array($objective['children'] ?? NULL) ? $objective['children'] : [];
+    if ($children === []) {
+      return;
+    }
+
+    $previous_child_id = '';
+    foreach ($children as &$child) {
+      if (!is_array($child)) {
+        continue;
+      }
+      $child_id = trim((string) ($child['objective_id'] ?? ''));
+      if ($child_id === '') {
+        continue;
+      }
+
+      $existing_dependencies = $this->normalizeObjectiveDependencies($child['depends_on'] ?? [], $child_id);
+      if ($existing_dependencies === []) {
+        if ($previous_child_id !== '') {
+          $existing_dependencies = [$previous_child_id];
+        }
+        elseif ($objective_id !== '') {
+          $existing_dependencies = [$objective_id];
+        }
+      }
+      $child['depends_on'] = $existing_dependencies;
+      $this->applyChildObjectiveDependencies($child);
+      $previous_child_id = $child_id;
+    }
+    unset($child);
+
+    $objective['children'] = $children;
+  }
+
+  /**
+   * Normalize objective dependency identifiers into a strict string list.
+   */
+  protected function normalizeObjectiveDependencies(mixed $depends_on, ?string $self_objective_id = NULL): array {
+    $candidates = [];
+    if (is_array($depends_on)) {
+      $candidates = $depends_on;
+    }
+    elseif (is_string($depends_on) && trim($depends_on) !== '') {
+      $candidates = [$depends_on];
+    }
+
+    $normalized = [];
+    foreach ($candidates as $candidate) {
+      $dependency_id = trim((string) $candidate);
+      if ($dependency_id === '') {
+        continue;
+      }
+      if ($self_objective_id !== NULL && $dependency_id === $self_objective_id) {
+        continue;
+      }
+      $normalized[$dependency_id] = TRUE;
+    }
+
+    return array_keys($normalized);
   }
 
   /**
@@ -1524,6 +1682,10 @@ class QuestGeneratorService {
     if (($normalized['completion_criteria']['kind'] ?? '') === 'count' && !isset($normalized['target_count'])) {
       $normalized['target_count'] = max(1, (int) ($normalized['completion_criteria']['target_count'] ?? 1));
     }
+    if (trim((string) ($normalized['next_step'] ?? '')) === '') {
+      $normalized['next_step'] = $this->deriveSummaryObjectiveNextStep($normalized, []);
+    }
+    $normalized['depends_on'] = $this->normalizeObjectiveDependencies($objective['depends_on'] ?? [], $normalized['objective_id']);
 
     return $normalized;
   }
@@ -2149,8 +2311,9 @@ class QuestGeneratorService {
       $objective_for_next_step['target'] = $resolved_target;
     }
 
+    $objective_id = trim((string) ($objective['objective_id'] ?? 'objective'));
     $entry = [
-      'objective_id' => trim((string) ($objective['objective_id'] ?? 'objective')),
+      'objective_id' => $objective_id,
       'phase' => $phase_number,
       'type' => trim((string) ($objective['type'] ?? 'objective')) ?: 'objective',
       'description' => $description,
@@ -2163,6 +2326,7 @@ class QuestGeneratorService {
       'location' => $location,
       'completion_criteria' => $this->normalizeObjectiveCompletionCriteria($objective['completion_criteria'] ?? [], $objective),
       'next_step' => $this->deriveObjectiveNextStep($objective_for_next_step, $location, $completed, $children),
+      'depends_on' => $this->normalizeObjectiveDependencies($objective['depends_on'] ?? [], $objective_id),
       'access' => $access,
     ];
 

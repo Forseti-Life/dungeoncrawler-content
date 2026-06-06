@@ -72,6 +72,15 @@ export function normalizeQuestObjectivePayload(objective) {
   if (objective.completion_criteria && typeof objective.completion_criteria === 'object') {
     normalized.completion_criteria = normalizeQuestCompletionCriteriaPayload(objective.completion_criteria);
   }
+  if (Array.isArray(objective.depends_on)) {
+    normalized.depends_on = objective.depends_on
+      .map((dependencyId) => String(dependencyId || '').trim())
+      .filter((dependencyId) => dependencyId);
+  } else if (objective.depends_on != null && String(objective.depends_on).trim()) {
+    normalized.depends_on = [String(objective.depends_on).trim()];
+  } else {
+    normalized.depends_on = [];
+  }
   if (Array.isArray(objective.children)) {
     normalized.children = objective.children
       .map(normalizeQuestObjectivePayload)
@@ -187,6 +196,9 @@ export function normalizeQuestSummaryPayload(payload) {
   const leads = (Array.isArray(source.leads) ? source.leads : [])
     .map(normalizeQuestEntryPayload)
     .filter(Boolean);
+  const completed = (Array.isArray(source.completed) ? source.completed : [])
+    .map(normalizeQuestEntryPayload)
+    .filter(Boolean);
   const managementTree = (Array.isArray(source.management_tree) ? source.management_tree : [])
     .map(normalizeQuestManagementNpcPayload)
     .filter(Boolean);
@@ -197,11 +209,13 @@ export function normalizeQuestSummaryPayload(payload) {
     active,
     offers,
     leads,
+    completed,
     management_tree: managementTree,
     counts: {
       active: active.length,
       offers: offers.length,
       leads: leads.length,
+      completed: completed.length,
     },
   };
 }
@@ -285,6 +299,15 @@ export function normalizeQuestManagementObjectivePayload(objective) {
   });
   if (objective.completion_criteria && typeof objective.completion_criteria === 'object') {
     normalized.completion_criteria = normalizeQuestCompletionCriteriaPayload(objective.completion_criteria);
+  }
+  if (Array.isArray(objective.depends_on)) {
+    normalized.depends_on = objective.depends_on
+      .map((dependencyId) => String(dependencyId || '').trim())
+      .filter((dependencyId) => dependencyId);
+  } else if (objective.depends_on != null && String(objective.depends_on).trim()) {
+    normalized.depends_on = [String(objective.depends_on).trim()];
+  } else {
+    normalized.depends_on = [];
   }
   normalized.children = (Array.isArray(objective.children) ? objective.children : [])
     .map(normalizeQuestManagementObjectivePayload)

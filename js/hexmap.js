@@ -88,6 +88,15 @@ import { SpriteService } from './SpriteService.js';
     if (objective.completion_criteria && typeof objective.completion_criteria === 'object') {
       normalized.completion_criteria = normalizeQuestCompletionCriteriaPayload(objective.completion_criteria);
     }
+    if (Array.isArray(objective.depends_on)) {
+      normalized.depends_on = objective.depends_on
+        .map((dependencyId) => String(dependencyId || '').trim())
+        .filter((dependencyId) => dependencyId);
+    } else if (objective.depends_on != null && String(objective.depends_on).trim()) {
+      normalized.depends_on = [String(objective.depends_on).trim()];
+    } else {
+      normalized.depends_on = [];
+    }
     if (Array.isArray(objective.children)) {
       normalized.children = objective.children
         .map(normalizeQuestObjectivePayload)
@@ -306,6 +315,15 @@ import { SpriteService } from './SpriteService.js';
     });
     if (objective.completion_criteria && typeof objective.completion_criteria === 'object') {
       normalized.completion_criteria = normalizeQuestCompletionCriteriaPayload(objective.completion_criteria);
+    }
+    if (Array.isArray(objective.depends_on)) {
+      normalized.depends_on = objective.depends_on
+        .map((dependencyId) => String(dependencyId || '').trim())
+        .filter((dependencyId) => dependencyId);
+    } else if (objective.depends_on != null && String(objective.depends_on).trim()) {
+      normalized.depends_on = [String(objective.depends_on).trim()];
+    } else {
+      normalized.depends_on = [];
     }
     normalized.children = (Array.isArray(objective.children) ? objective.children : [])
       .map(normalizeQuestManagementObjectivePayload)

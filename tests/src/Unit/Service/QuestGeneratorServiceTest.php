@@ -93,7 +93,7 @@ class QuestGeneratorServiceTest extends UnitTestCase {
     $this->assertSame('Find the Missing Teacher', $entry['quest_name']);
     $this->assertSame('active', $entry['status']);
     $this->assertSame(1, $entry['current_phase']);
-    $this->assertSame($entry['generated_objectives'], $entry['objective_states']);
+    $this->assertEquals($entry['generated_objectives'], $entry['objective_states']);
     $this->assertSame('tavern_entrance', $entry['location_id']);
     $this->assertSame('threshold-of-knowledge', $entry['storyline']['storyline_id']);
     $this->assertSame('all_children', $entry['generated_objectives'][0]['objectives'][0]['completion_criteria']['kind']);
@@ -101,6 +101,11 @@ class QuestGeneratorServiceTest extends UnitTestCase {
     $this->assertSame(
       'Investigate Magaambya Campus until the clue or lead is recorded.',
       $entry['generated_objectives'][0]['objectives'][0]['next_step']
+    );
+    $this->assertSame([], $entry['generated_objectives'][0]['objectives'][0]['depends_on']);
+    $this->assertSame(
+      ['identify_last_known_location'],
+      $entry['generated_objectives'][0]['objectives'][0]['children'][0]['depends_on']
     );
   }
 
@@ -243,6 +248,7 @@ class QuestGeneratorServiceTest extends UnitTestCase {
     $this->assertSame('tavern_entrance', $objective['location_id']);
     $this->assertSame('Find and collect Spellbooks in The Gilded Tankard', $objective['description']);
     $this->assertSame('Search The Gilded Tankard and pick up each Spellbooks quest item.', $objective['next_step']);
+    $this->assertSame([], $objective['depends_on']);
     $this->assertSame(4, $objective['target_count']);
     $this->assertSame(4, $objective['completion_criteria']['target_count']);
     $this->assertSame('Collect 4 Spellbooks in The Gilded Tankard.', $objective['completion_criteria']['description']);
@@ -546,10 +552,12 @@ class QuestGeneratorServiceTest extends UnitTestCase {
     $this->assertCount(0, $payload['active']);
     $this->assertCount(1, $payload['offers']);
     $this->assertCount(1, $payload['leads']);
+    $this->assertCount(0, $payload['completed']);
     $this->assertSame([], $payload['management_tree']);
     $this->assertSame(0, $payload['counts']['active']);
     $this->assertSame(1, $payload['counts']['offers']);
     $this->assertSame(1, $payload['counts']['leads']);
+    $this->assertSame(0, $payload['counts']['completed']);
     $this->assertArrayNotHasKey('available', $payload);
     $this->assertSame('Enter the Vault', $payload['offers'][0]['quest_name']);
     $this->assertSame('Find the Missing Teacher', $payload['leads'][0]['quest_name']);

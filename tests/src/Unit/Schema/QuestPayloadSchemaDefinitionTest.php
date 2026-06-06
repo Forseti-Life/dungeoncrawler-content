@@ -15,7 +15,7 @@ class QuestPayloadSchemaDefinitionTest extends UnitTestCase {
   /**
    * Verifies the hexmap quest summary schema is explicit and versioned.
    */
-  public function testQuestSummarySchemaRequiresVersionedActiveOfferAndLeadBuckets(): void {
+  public function testQuestSummarySchemaRequiresVersionedActiveOfferLeadAndCompletedBuckets(): void {
     $schema_path = dirname(__DIR__, 4) . '/config/schemas/quest_summary.schema.json';
     $schema = json_decode((string) file_get_contents($schema_path), TRUE);
     $properties = $schema['properties'] ?? [];
@@ -26,18 +26,23 @@ class QuestPayloadSchemaDefinitionTest extends UnitTestCase {
     $this->assertContains('active', $schema['required'] ?? []);
     $this->assertContains('offers', $schema['required'] ?? []);
     $this->assertContains('leads', $schema['required'] ?? []);
+    $this->assertContains('completed', $schema['required'] ?? []);
     $this->assertContains('counts', $schema['required'] ?? []);
     $this->assertContains('management_tree', array_keys($properties));
     $this->assertArrayHasKey('active', $properties);
     $this->assertArrayHasKey('offers', $properties);
     $this->assertArrayHasKey('leads', $properties);
+    $this->assertArrayHasKey('completed', $properties);
     $this->assertArrayNotHasKey('available', $properties);
     $this->assertArrayHasKey('active', $count_properties);
     $this->assertArrayHasKey('offers', $count_properties);
     $this->assertArrayHasKey('leads', $count_properties);
+    $this->assertArrayHasKey('completed', $count_properties);
     $this->assertArrayNotHasKey('available', $count_properties);
     $this->assertArrayHasKey('questObjective', $schema['definitions'] ?? []);
     $this->assertArrayHasKey('questObjectiveCompletionCriteria', $schema['definitions'] ?? []);
+    $this->assertContains('next_step', $schema['definitions']['questObjective']['required'] ?? []);
+    $this->assertContains('depends_on', $schema['definitions']['questObjective']['required'] ?? []);
     $this->assertContains('completion_criteria', $schema['definitions']['questObjective']['required'] ?? []);
     $this->assertFalse($schema['additionalProperties'] ?? TRUE);
   }

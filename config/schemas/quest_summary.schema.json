@@ -11,6 +11,7 @@
     "active",
     "offers",
     "leads",
+    "completed",
     "counts"
   ],
   "definitions": {
@@ -29,12 +30,17 @@
     "questObjective": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["objective_id", "type", "description", "completed", "completion_criteria"],
+      "required": ["objective_id", "type", "description", "next_step", "depends_on", "completed", "completion_criteria"],
       "properties": {
         "objective_id": { "type": "string", "minLength": 1, "maxLength": 160 },
         "type": { "type": "string", "minLength": 1, "maxLength": 64 },
         "description": { "type": "string", "minLength": 1, "maxLength": 1000 },
         "next_step": { "type": "string", "maxLength": 1000 },
+        "depends_on": {
+          "type": "array",
+          "maxItems": 50,
+          "items": { "type": "string", "minLength": 1, "maxLength": 160 }
+        },
         "completed": { "type": "boolean" },
         "current": { "type": "integer", "minimum": 0, "maximum": 9999 },
         "target_count": { "type": "integer", "minimum": 0, "maximum": 9999 },
@@ -149,7 +155,7 @@
     "managementObjective": {
       "type": "object",
       "additionalProperties": true,
-      "required": ["objective_id", "type", "description", "completed", "location", "next_step", "access", "completion_criteria"],
+      "required": ["objective_id", "type", "description", "completed", "location", "next_step", "depends_on", "access", "completion_criteria"],
       "properties": {
         "objective_id": { "type": "string", "minLength": 1, "maxLength": 255 },
         "phase": { "type": "integer", "minimum": 1, "maximum": 50 },
@@ -163,6 +169,11 @@
         "target": { "type": ["string", "null"], "maxLength": 255 },
         "location": { "$ref": "#/definitions/managementLocation" },
         "next_step": { "type": "string", "maxLength": 1000 },
+        "depends_on": {
+          "type": "array",
+          "maxItems": 50,
+          "items": { "type": "string", "minLength": 1, "maxLength": 255 }
+        },
         "access": { "$ref": "#/definitions/managementAccess" },
         "completion_criteria": { "$ref": "#/definitions/questObjectiveCompletionCriteria" },
         "children": {
@@ -191,6 +202,10 @@
       "items": { "$ref": "#/definitions/questEntry" }
     },
     "leads": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/questEntry" }
+    },
+    "completed": {
       "type": "array",
       "items": { "$ref": "#/definitions/questEntry" }
     },
@@ -251,11 +266,12 @@
     "counts": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["active", "offers", "leads"],
+      "required": ["active", "offers", "leads", "completed"],
       "properties": {
         "active": { "type": "integer", "minimum": 0, "maximum": 9999 },
         "offers": { "type": "integer", "minimum": 0, "maximum": 9999 },
-        "leads": { "type": "integer", "minimum": 0, "maximum": 9999 }
+        "leads": { "type": "integer", "minimum": 0, "maximum": 9999 },
+        "completed": { "type": "integer", "minimum": 0, "maximum": 9999 }
       }
     }
   }
