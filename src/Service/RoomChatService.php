@@ -3649,12 +3649,12 @@ class RoomChatService {
   }
 
   /**
-   * Find a room entry by room_id in a rooms array (may be keyed or indexed).
+   * Find a room entry by runtime id or canonical source id.
    *
    * @param array $rooms
    *   The rooms array from dungeon_data.
    * @param string $room_id
-   *   The room UUID to find.
+   *   The room identifier to find.
    *
    * @return array
    *   The room entry, or empty array if not found.
@@ -3665,9 +3665,9 @@ class RoomChatService {
       return $rooms[$room_id];
     }
 
-    // Numeric/sequential array — search by room_id field.
+    // Numeric/sequential array — search by canonical room identifiers.
     foreach ($rooms as $room) {
-      if (is_array($room) && ($room['room_id'] ?? '') === $room_id) {
+      if (is_array($room) && $this->roomIdentifierMatches($room, $room_id)) {
         return $room;
       }
     }
@@ -10902,12 +10902,12 @@ PROMPT;
   }
 
   /**
-   * Find the array index for a room by room_id.
+   * Find the array index for a room by runtime id or canonical source id.
    *
    * @param array $rooms
    *   The rooms array from dungeon_data.
    * @param string $room_id
-   *   The room UUID to find.
+   *   The room identifier to find.
    *
    * @return int|string|null
    *   The array key, or NULL if not found.
@@ -10918,14 +10918,23 @@ PROMPT;
       return $room_id;
     }
 
-    // Numeric/sequential array — search by room_id field.
+    // Numeric/sequential array — search by canonical room identifiers.
     foreach ($rooms as $key => $room) {
-      if (is_array($room) && ($room['room_id'] ?? '') === $room_id) {
+      if (is_array($room) && $this->roomIdentifierMatches($room, $room_id)) {
         return $key;
       }
     }
 
     return NULL;
+  }
+
+  /**
+   * Determine whether a room entry matches a runtime or source room identifier.
+   */
+  protected function roomIdentifierMatches(array $room, string $room_id): bool {
+    $candidate_room_id = trim((string) ($room['room_id'] ?? $room['id'] ?? ''));
+    $candidate_source_room_id = trim((string) ($room['source_room_id'] ?? ''));
+    return $candidate_room_id === $room_id || ($candidate_source_room_id !== '' && $candidate_source_room_id === $room_id);
   }
 
 }

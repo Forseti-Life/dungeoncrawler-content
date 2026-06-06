@@ -289,6 +289,7 @@ class CampaignInitializationService {
       'hexes' => is_array($layout_data['hexes'] ?? NULL) ? $layout_data['hexes'] : [],
       'entry_points' => is_array($layout_data['entry_points'] ?? NULL) ? $layout_data['entry_points'] : [],
       'exit_points' => is_array($layout_data['exit_points'] ?? NULL) ? $layout_data['exit_points'] : [],
+      'exits' => is_array($layout_data['exits'] ?? NULL) ? $layout_data['exits'] : [],
       'terrain' => is_array($layout_data['terrain'] ?? NULL) ? $layout_data['terrain'] : [],
       'lighting' => is_array($layout_data['lighting'] ?? NULL) ? $layout_data['lighting'] : [],
     ];
@@ -350,9 +351,9 @@ class CampaignInitializationService {
   /**
    * Load the canonical starter-room asset used for new campaigns.
    *
-   * The tavern room slug remains `tavern_entrance` for compatibility with
-   * dc_campaign_rooms, while runtime surfaces (chat, hexmap, room view) use the
-   * authored room UUID from the dungeon seed when available.
+   * Runtime surfaces (chat, hexmap, room view) use the authored runtime room id
+   * from the dungeon seed when available, while `source_room_id` retains the
+   * canonical asset-library slug (for example `tavern_entrance`).
    *
    * @return array|null
    *   Starter room data, or NULL if unavailable.
@@ -434,8 +435,14 @@ class CampaignInitializationService {
    *   TRUE on success.
    */
   private function loadTavernEntranceRoom(int $campaign_id, int $now, array $starter_room): bool {
-    $room_id = (string) ($starter_room['room_id'] ?? 'tavern_entrance');
-    $source_room_id = $room_id !== '' ? $room_id : 'tavern_entrance';
+    $source_room_id = (string) ($starter_room['room_id'] ?? 'tavern_entrance');
+    if ($source_room_id === '') {
+      $source_room_id = 'tavern_entrance';
+    }
+    $runtime_room_id = (string) ($starter_room['runtime_room_id'] ?? $source_room_id);
+    if ($runtime_room_id === '') {
+      $runtime_room_id = $source_room_id;
+    }
     $room_name = (string) ($starter_room['name'] ?? 'The Gilded Tankard');
     $room_description = (string) ($starter_room['description'] ?? '');
     if ($room_description === '') {
@@ -456,7 +463,7 @@ class CampaignInitializationService {
     $this->database->insert('dc_campaign_rooms')
       ->fields([
         'campaign_id' => $campaign_id,
-        'room_id' => $room_id,
+        'room_id' => $runtime_room_id,
         'name' => $room_name,
         'description' => $room_description,
         'environment_tags' => json_encode($starter_room['environment_tags'] ?? ['indoor', 'tavern', 'safe', 'starting_area']),
@@ -472,7 +479,7 @@ class CampaignInitializationService {
     $this->database->insert('dc_campaign_room_states')
       ->fields([
         'campaign_id' => $campaign_id,
-        'room_id' => $room_id,
+        'room_id' => $runtime_room_id,
         'is_cleared' => 0,
         'fog_state' => json_encode([
           'visibility' => 'initial',
@@ -517,7 +524,7 @@ class CampaignInitializationService {
         'tags' => ['collectible', 'tavern'],
         '_spawn' => [
           'source' => 'campaign_initialization',
-          'room_id' => $room_id,
+          'room_id' => $runtime_room_id,
           'content_id' => $item['content_id'],
         ],
       ];
@@ -528,7 +535,7 @@ class CampaignInitializationService {
           'item_instance_id' => sprintf('room_item_%d_%s', $campaign_id, $item['content_id']),
           'item_id' => $item['content_id'],
           'location_type' => 'room',
-          'location_ref' => $room_id,
+          'location_ref' => $runtime_room_id,
           'quantity' => 1,
           'state_data' => json_encode($item_state),
           'created' => $now,
@@ -562,12 +569,12 @@ class CampaignInitializationService {
           'experience_points' => 0,
           'position_q' => $npc['position']['q'],
           'position_r' => $npc['position']['r'],
-          'last_room_id' => $room_id,
+          'last_room_id' => $runtime_room_id,
           'instance_id' => $instance_id,
           'type' => 'npc',
           'state_data' => json_encode($state_data),
           'location_type' => 'room',
-          'location_ref' => $room_id,
+          'location_ref' => $runtime_room_id,
           'is_active' => 1,
           'uid' => 0,
           'role' => 'npc',

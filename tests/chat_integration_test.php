@@ -315,9 +315,44 @@ assert_true(in_array('Dwarven', $chars[0]['languages']), 'PC knows Dwarven');
 assert_true(in_array('Elven', $chars[1]['languages']), 'Top-level runtime PC languages preserved');
 
 // ---------------------------------------------------------------------------
-// Test 9: ChatSessionController — listSessions builds tree.
+// Test 9: Room lookup honors runtime + source room identifiers.
 // ---------------------------------------------------------------------------
-echo "\n--- Test 9: ChatSessionController tree building ---\n";
+echo "\n--- Test 9: Room identifier alias resolution ---\n";
+
+$find_room_method = $ref->getMethod('findRoomByRoomId');
+$find_room_method->setAccessible(TRUE);
+$find_index_method = $ref->getMethod('findRoomIndex');
+$find_index_method->setAccessible(TRUE);
+
+$alias_rooms = [
+  [
+    'room_id' => 'runtime-room-uuid-1',
+    'source_room_id' => 'tavern_entrance',
+    'name' => 'The Gilded Tankard',
+    'chat' => [
+      [
+        'speaker' => 'Game Master',
+        'message' => 'Round 0: Turn 1: Actor Game Master: The Gilded Tankard',
+        'type' => 'gm',
+        'channel' => 'room',
+      ],
+    ],
+  ],
+];
+
+$alias_room = $find_room_method->invoke($room_chat, $alias_rooms, 'tavern_entrance');
+assert_true(($alias_room['room_id'] ?? '') === 'runtime-room-uuid-1', 'Source room id resolves to runtime room entry');
+assert_true(($alias_room['name'] ?? '') === 'The Gilded Tankard', 'Resolved room entry preserves canonical room payload');
+
+$runtime_index = $find_index_method->invoke($room_chat, $alias_rooms, 'runtime-room-uuid-1');
+$source_index = $find_index_method->invoke($room_chat, $alias_rooms, 'tavern_entrance');
+assert_true($runtime_index === 0, 'findRoomIndex resolves runtime room id');
+assert_true($source_index === 0, 'findRoomIndex resolves source room id alias');
+
+// ---------------------------------------------------------------------------
+// Test 10: ChatSessionController — listSessions builds tree.
+// ---------------------------------------------------------------------------
+echo "\n--- Test 10: ChatSessionController tree building ---\n";
 
 /** @var \Drupal\dungeoncrawler_content\Controller\ChatSessionController $controller */
 $controller = \Drupal::classResolver(\Drupal\dungeoncrawler_content\Controller\ChatSessionController::class);
@@ -353,9 +388,9 @@ if ($dungeon_child) {
 }
 
 // ---------------------------------------------------------------------------
-// Test 10: Message formatting.
+// Test 11: Message formatting.
 // ---------------------------------------------------------------------------
-echo "\n--- Test 10: Message formatting ---\n";
+echo "\n--- Test 11: Message formatting ---\n";
 
 $format_method = $ctrl_ref->getMethod('formatMessages');
 $format_method->setAccessible(TRUE);
