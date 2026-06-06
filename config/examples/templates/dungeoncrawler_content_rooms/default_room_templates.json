@@ -4,7 +4,7 @@
       "room_id": "tavern_entrance",
       "source_room_id": "tavern_entrance",
       "name": "The Gilded Tankard",
-      "description": "Starter tavern room (rectangular) with boundary walls/exits and explicit HexMap V2 attribute examples.",
+      "description": "The Gilded Tankard is quiet and nearly empty, with no patrons beyond Eldric, Marta the Scholar, and Gribbles Rindsworth. Warm candlelight washes over rough-hewn wooden floors and a polished bar lined with bottles and tankards. Eldric, the broad-shouldered barkeep, stands behind the bar polishing a mug while keeping a steady eye on the room. Marta the Scholar works at a table buried in spellbooks, loose notes, and a crystal-bound codex. Gribbles Rindsworth lounges nearby with a tankard in hand, his sharp goblin eyes tracking every conversation from a seat close to Marta. Iron sconces and a stone fireplace cast steady amber light across the otherwise empty tavern.",
       "environment_tags": [
         "indoor",
         "tavern",

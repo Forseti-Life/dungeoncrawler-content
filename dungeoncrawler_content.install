@@ -8122,6 +8122,64 @@ function dungeoncrawler_content_update_10075() {
 }
 
 /**
+ * Repair starter tavern library description leaked from internal template text.
+ */
+function dungeoncrawler_content_update_10077() {
+  $database = \Drupal::database();
+  $schema_handler = $database->schema();
+
+  if (!$schema_handler->tableExists('dungeoncrawler_content_rooms')) {
+    return t('dungeoncrawler_content_rooms table is missing; no starter tavern repair applied.');
+  }
+
+  $module_path = \Drupal::service('extension.list.module')->getPath('dungeoncrawler_content');
+  $starter_file = DRUPAL_ROOT . '/' . $module_path . '/tavern_entrance_room.json';
+
+  $canonical_description = '';
+  if (is_file($starter_file)) {
+    $payload = json_decode((string) file_get_contents($starter_file), TRUE);
+    if (is_array($payload)) {
+      $canonical_description = trim((string) ($payload['description'] ?? ''));
+    }
+  }
+  if ($canonical_description === '') {
+    $canonical_description = 'The Gilded Tankard is quiet and nearly empty, with no patrons beyond Eldric, Marta the Scholar, and Gribbles Rindsworth.';
+  }
+
+  $query = $database->select('dungeoncrawler_content_rooms', 'r')
+    ->fields('r', ['id', 'description'])
+    ->condition('source_room_id', 'tavern_entrance');
+
+  $rows = $query->execute()->fetchAll(\PDO::FETCH_ASSOC);
+  if ($rows === []) {
+    return t('No tavern_entrance source-room rows found; no starter tavern repair needed.');
+  }
+
+  $legacy_phrase = 'explicit HexMap V2 attribute examples';
+  $updated = 0;
+  foreach ($rows as $row) {
+    $description = trim((string) ($row['description'] ?? ''));
+    if ($description === $canonical_description) {
+      continue;
+    }
+    if ($description !== '' && !str_contains($description, $legacy_phrase)) {
+      continue;
+    }
+
+    $database->update('dungeoncrawler_content_rooms')
+      ->fields([
+        'description' => $canonical_description,
+        'updated' => \Drupal::time()->getRequestTime(),
+      ])
+      ->condition('id', (int) $row['id'])
+      ->execute();
+    $updated++;
+  }
+
+  return t('Starter tavern description repair complete. Updated @updated row(s).', ['@updated' => $updated]);
+}
+
+/**
  * Recursively replace string values within nested arrays.
  *
  * @param mixed $value
