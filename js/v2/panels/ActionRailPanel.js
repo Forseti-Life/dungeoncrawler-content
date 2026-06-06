@@ -1,7 +1,7 @@
 /**
  * @file panels/ActionRailPanel.js
  *
- * 3-action economy UI — category-driven action rail with a single direct end-turn action.
+ * 3-action economy UI — tab-driven action rail categories.
  * Methods ported verbatim from hexmap.js UIManager.
  */
 
@@ -81,7 +81,7 @@ export class ActionRailPanel {
     // Timer for real-world clock updates (separate naming to match usage)
     this.actionRailRealClockTimer = null;
     // UI state
-    this.activeActionRailCategory = null;
+    this.activeActionRailCategory = 'navigate';
     this.actionRailDescriptionsCollapsed = false;
     this.actionRailFilters = {};
     this.actionRailAutomationTogglePending = false;
@@ -241,25 +241,57 @@ export class ActionRailPanel {
     categories.dataset.bound = 'true';
     categories.addEventListener('click', (event) => {
       const button = event.target instanceof HTMLElement
-        ? event.target.closest('[data-action-rail-category], [data-action-rail-direct]')
+        ? event.target.closest('[data-action-rail-category]')
         : null;
       if (!(button instanceof HTMLButtonElement) || button.disabled) {
         return;
       }
 
-      const directAction = button.dataset.actionRailDirect || '';
       const category = button.dataset.actionRailCategory || '';
-      if (directAction) {
-        this.activeActionRailCategory = null;
-        this.handleActionRailDirectAction(directAction, button);
-        this.refreshActionRail();
+      if (!category) {
         return;
       }
 
-      if (category) {
-        this.activeActionRailCategory = this.activeActionRailCategory === category ? null : category;
-        this.refreshActionRail();
+      this.activeActionRailCategory = category;
+      this.refreshActionRail();
+    });
+    categories.addEventListener('keydown', (event) => {
+      const target = event.target instanceof HTMLElement
+        ? event.target.closest('[data-action-rail-category]')
+        : null;
+      if (!(target instanceof HTMLButtonElement)) {
+        return;
       }
+
+      const buttons = Array.from(categories.querySelectorAll('[data-action-rail-category]'))
+        .filter((button) => button instanceof HTMLButtonElement);
+      const index = buttons.indexOf(target);
+      if (index < 0 || buttons.length === 0) {
+        return;
+      }
+
+      let nextIndex = index;
+      if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
+        nextIndex = (index + 1) % buttons.length;
+      } else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
+        nextIndex = (index - 1 + buttons.length) % buttons.length;
+      } else if (event.key === 'Home') {
+        nextIndex = 0;
+      } else if (event.key === 'End') {
+        nextIndex = buttons.length - 1;
+      } else {
+        return;
+      }
+
+      event.preventDefault();
+      const nextButton = buttons[nextIndex];
+      const nextCategory = nextButton?.dataset?.actionRailCategory || '';
+      if (!nextCategory) {
+        return;
+      }
+      nextButton.focus();
+      this.activeActionRailCategory = nextCategory;
+      this.refreshActionRail();
     });
 
     if (panelBody) {
@@ -341,39 +373,20 @@ export class ActionRailPanel {
     }
     this.updateActionRailClocks(context);
 
-    categories.querySelectorAll('[data-action-rail-category], [data-action-rail-direct]').forEach((button) => {
+    categories.querySelectorAll('[data-action-rail-category]').forEach((button) => {
       const nextButton = /** @type {HTMLButtonElement} */ (button);
       const category = nextButton.dataset.actionRailCategory || '';
-      const directAction = nextButton.dataset.actionRailDirect || '';
-      const disabled = this.isActionRailButtonDisabled(category || directAction, context);
-      nextButton.disabled = disabled;
-      nextButton.setAttribute('aria-disabled', disabled ? 'true' : 'false');
-      nextButton.classList.toggle('action-rail__category--active', Boolean(category) && this.activeActionRailCategory === category);
+      const isActive = Boolean(category) && this.activeActionRailCategory === category;
+      nextButton.disabled = false;
+      nextButton.setAttribute('aria-disabled', 'false');
+      nextButton.setAttribute('role', 'tab');
+      nextButton.setAttribute('aria-selected', isActive ? 'true' : 'false');
+      nextButton.tabIndex = isActive ? 0 : -1;
+      nextButton.classList.toggle('action-rail__category--active', isActive);
     });
 
     if (!this.activeActionRailCategory) {
-      if (panelTitle) {
-        panelTitle.textContent = 'Quick actions';
-      }
-      if (panelChip) {
-        panelChip.textContent = context.encounterActive ? 'Encounter' : 'Categories';
-      }
-      panelBody.innerHTML = this.renderActionRailEmptyState(context);
-      maybeWakeAutomation();
-      return;
-    }
-
-    if (this.isActionRailButtonDisabled(this.activeActionRailCategory, context)) {
-      this.activeActionRailCategory = null;
-      if (panelTitle) {
-        panelTitle.textContent = 'Quick actions';
-      }
-      if (panelChip) {
-        panelChip.textContent = context.encounterActive ? 'Encounter' : 'Categories';
-      }
-      panelBody.innerHTML = this.renderActionRailEmptyState(context);
-      maybeWakeAutomation();
-      return;
+      this.activeActionRailCategory = 'navigate';
     }
 
     const panel = this.buildActionRailPanel(this.activeActionRailCategory, context);
@@ -553,45 +566,6 @@ export class ActionRailPanel {
     }
   }
 
-  isActionRailButtonDisabled(actionKey, context) {
-    if (context.automationState?.active) {
-      return true;
-    }
-
-    if (!context.characterId) {
-      return true;
-    }
-
-    if (actionKey === 'end-turn') {
-      return !this.isServerActionAvailable(context, 'end_turn') && !this.isServerActionAvailable(context, 'choose_not_to_act');
-    }
-
-    if (actionKey === 'search') {
-      if (!context.actorRef || !this.isServerActionAvailable(context, 'search')) {
-        return true;
-      }
-      if (context.hasServerTurn) {
-        if (context.isActorTurn === false) {
-          return true;
-        }
-        const remainingActions = getActionRailRemainingActions(context);
-        return remainingActions !== null && remainingActions < 1;
-      }
-      return false;
-    }
-
-    if (actionKey === 'navigate') {
-      return !context.actorRef || !this.isServerActionAvailable(context, 'transition');
-    }
-
-    if (actionKey === 'rest') {
-      return !['treat_wounds', 'refocus', 'repair', 'daily_preparations']
-        .some((restAction) => this.isServerActionAvailable(context, restAction));
-    }
-
-    return false;
-  }
-
   isActionRailExecutionDisabled(actionCost, context, disabled = false) {
     if (disabled) {
       return true;
@@ -624,6 +598,16 @@ export class ActionRailPanel {
     const actions = Array.isArray(context?.actionContract?.actions) ? context.actionContract.actions : [];
     const action = actions.find((entry) => entry?.id === id);
     return action ? action.available !== false : false;
+  }
+
+  resolveTurnActionKey(context) {
+    if (this.isServerActionAvailable(context, 'choose_not_to_act')) {
+      return 'choose_not_to_act';
+    }
+    if (this.isServerActionAvailable(context, 'end_turn')) {
+      return 'end_turn';
+    }
+    return '';
   }
 
   getServerActionDefinition(context, actionId) {
@@ -660,14 +644,15 @@ export class ActionRailPanel {
 
   renderActionRailEmptyState(context) {
     if (!context.characterId) {
-      return `<div class="action-rail__empty"><p>Select or load a character to enable direct action buttons.</p></div>`;
+      return `<div class="action-rail__empty"><p>Select or load a character to enable action tabs.</p></div>`;
     }
 
-    return `<div class="action-rail__empty"><p>Choose Navigate, Search, Rest, Spells, Consumables, Skills, or Feats to open direct player actions for ${escapeQuestHtml(context.actorLabel)}.</p></div>`;
+    return `<div class="action-rail__empty"><p>Choose a tab to open player actions for ${escapeQuestHtml(context.actorLabel)}.</p></div>`;
   }
 
   buildActionRailPanel(category, context) {
     const builders = {
+      turn: () => this.buildTurnActionRailPanel(context),
       navigate: () => this.buildNavigateActionRailPanel(context),
       search: () => this.buildSearchActionRailPanel(context),
       rest: () => this.buildRestActionRailPanel(context),
@@ -685,6 +670,33 @@ export class ActionRailPanel {
       };
     }
     return builder();
+  }
+
+  buildTurnActionRailPanel(context) {
+    const turnActionKey = this.resolveTurnActionKey(context);
+    const hasTurnAction = turnActionKey !== '';
+    const actionLabel = turnActionKey === 'choose_not_to_act' ? 'Choose not to act' : 'End turn';
+    const disabled = this.isActionRailExecutionDisabled(0, context, !context.actorRef || !hasTurnAction);
+    const statusSummary = context.encounterActive ? 'Encounter turn control' : 'No active encounter turn';
+    const entries = [this.renderActionRailEntry({
+      execute: turnActionKey || 'end_turn',
+      title: actionLabel,
+      summary: buildActionRailEntrySummary([statusSummary]),
+      meta: hasTurnAction
+        ? 'Advance to the next actor in initiative order.'
+        : 'Turn controls unlock when the server marks a turn action as available.',
+      disabled,
+      dataset: {
+        actionType: turnActionKey || 'end_turn',
+      },
+      actionLabel,
+    })];
+
+    return {
+      title: 'Turn actions',
+      chip: hasTurnAction ? 'Ready' : 'Unavailable',
+      html: entries.join(''),
+    };
   }
 
   syncActionRailPanelState() {
@@ -790,15 +802,15 @@ export class ActionRailPanel {
     const campaignId = Number(context.runtimeContext?.campaignId || context.hexmap?.resolveCampaignId?.() || 0);
     this.ensureNavigateLocationGroups(campaignId);
 
-    const routeGroups = this.collectNavigateLocationGroups(context);
-    const visitedGroups = this.collectVisitedNavigateLocationGroups(context, campaignId);
-    const groups = [...routeGroups, ...visitedGroups];
+    const exitGroups = this.collectNavigateExitGroups(context);
+    const visitedGroups = this.collectVisitedNavigateLocationGroups(context, campaignId, exitGroups);
+    const groups = [...exitGroups, ...visitedGroups];
 
     if (!groups.length) {
       return {
         title: 'Navigate',
         chip: this.navigateLocationsInflight ? 'Loading' : 'No routes',
-        html: `<div class="action-rail__empty"><p>${this.navigateLocationsInflight ? 'Loading previously visited dungeons and rooms...' : 'No known routes or visited destinations are available from the current campaign state yet.'}</p></div>`,
+        html: `<div class="action-rail__empty"><p>${this.navigateLocationsInflight ? 'Loading previously visited dungeons and rooms...' : 'No room exits or accessible known destinations are available from the current campaign state yet.'}</p></div>`,
       };
     }
 
@@ -834,117 +846,72 @@ export class ActionRailPanel {
     };
   }
 
-  collectNavigateLocationGroups(context) {
+  collectNavigateExitGroups(context) {
     const hexmap = context.hexmap;
-    const dungeonData = hexmap?.dungeonData || {};
     const visualRooms = typeof hexmap?.getVisualRooms === 'function' ? hexmap.getVisualRooms() : {};
     const rooms = visualRooms && typeof visualRooms === 'object' ? visualRooms : {};
-    const activeRoomId = hexmap?.resolveActiveRoomId?.() || null;
-    const visitOrder = new Map();
-    const history = Array.isArray(dungeonData?.location_history) ? dungeonData.location_history : [];
+    const activeRoomId = String(hexmap?.resolveActiveRoomId?.() || '').trim();
     const capabilitiesRaw = typeof hexmap?.resolveNavigationCapabilities === 'function'
       ? hexmap.resolveNavigationCapabilities(activeRoomId)
       : [];
     const capabilities = Array.isArray(capabilitiesRaw) ? capabilitiesRaw : [];
-    const capabilityByRoomId = new Map();
-
-    capabilities.forEach((capability) => {
-      const targetRoomId = String(capability?.target_room_id || '').trim();
-      if (!targetRoomId) {
-        return;
-      }
-
-      const existing = capabilityByRoomId.get(targetRoomId);
-      if (!existing || (!existing.available && capability?.available)) {
-        capabilityByRoomId.set(targetRoomId, capability);
-      }
-    });
-
-    history.forEach((entry, index) => {
+    const history = Array.isArray(hexmap?.dungeonData?.location_history) ? hexmap.dungeonData.location_history : [];
+    const latestHistoryByRoomId = new Map();
+    history.forEach((entry) => {
       const roomId = String(entry?.room_id || '').trim();
       if (roomId) {
-        visitOrder.set(roomId, index);
+        latestHistoryByRoomId.set(roomId, entry);
       }
     });
+    const currentMapId = String(hexmap?.dungeonData?.map_id || hexmap?.launchContext?.map_id || this.stateManager?.get?.('mapId') || '').trim();
+    const currentDungeonLevelId = String(hexmap?.dungeonData?.level_id || hexmap?.launchContext?.dungeon_level_id || '').trim();
 
-    Object.entries(rooms).forEach(([roomId, room]) => {
-      if (room?.state?.explored) {
-        visitOrder.set(String(roomId), Math.max(visitOrder.get(String(roomId)) ?? -1, history.length));
-      }
-    });
-
-    const sections = [
-      { key: 'explored-navigable', title: 'Explored navigable', locations: [] },
-      { key: 'explored-blocked', title: 'Explored not navigable', locations: [] },
-      { key: 'unexplored-navigable', title: 'Unexplored navigable', locations: [] },
-      { key: 'unexplored-blocked', title: 'Unexplored not navigable', locations: [] },
-    ];
-
-    const destinations = Object.entries(rooms)
-      .map(([roomId, room]) => {
-        const normalizedRoomId = String(roomId || '').trim();
-        if (!normalizedRoomId || normalizedRoomId === activeRoomId) {
+    const exits = capabilities
+      .map((capability) => {
+        if (!capability?.available) {
           return null;
         }
-
-        const capability = capabilityByRoomId.get(normalizedRoomId) || null;
-        const lastHistoryEntry = [...history].reverse().find((entry) => String(entry?.room_id || '') === normalizedRoomId) || null;
-        const explored = visitOrder.has(normalizedRoomId);
-        const navigable = Boolean(capability?.available);
-        const blockedReason = String(capability?.blocked_reason || '').trim();
-        const roomName = String(room?.name || lastHistoryEntry?.room_name || normalizedRoomId);
-        const statusLabel = [
-          explored ? 'Explored' : 'Unexplored',
-          navigable ? 'Navigable' : 'Not navigable',
-        ].join(' · ');
-        const lastVisitedLabel = explored
-          ? (lastHistoryEntry?.timestamp ? `Seen ${lastHistoryEntry.timestamp}` : 'Visited by party')
-          : 'Not yet explored';
-        const metaParts = [
-          room?.description || room?.short_description || '',
-          !navigable && blockedReason === 'blocked' ? 'Route is currently blocked.' : '',
-          !navigable && blockedReason === 'undiscovered' ? 'Route has not been discovered yet.' : '',
-          !navigable && !blockedReason && !capability ? 'No direct route from the current room.' : '',
-        ].filter(Boolean);
-
+        const targetRoomId = String(capability?.target_room_id || '').trim();
+        if (!targetRoomId || targetRoomId === activeRoomId) {
+          return null;
+        }
+        const room = rooms[targetRoomId] || null;
+        const historyEntry = latestHistoryByRoomId.get(targetRoomId) || null;
         return {
-          roomId: normalizedRoomId,
-          roomName,
-          statusLabel,
-          lastVisitedLabel,
-          meta: metaParts.join(' '),
-          order: Number(visitOrder.get(normalizedRoomId) ?? -1),
-          explored,
-          navigable,
+          roomId: targetRoomId,
+          roomName: String(room?.name || historyEntry?.room_name || targetRoomId),
+          statusLabel: 'Exit',
+          lastVisitedLabel: historyEntry?.timestamp ? `Seen ${historyEntry.timestamp}` : 'Linked from current room',
+          meta: [
+            room?.description || room?.short_description || '',
+            capability?.type ? `Connection: ${String(capability.type).replace(/_/g, ' ')}` : '',
+          ].filter(Boolean).join(' '),
+          navigable: true,
           connectionId: String(capability?.connection_id || ''),
           originQ: capability?.origin_hex?.q ?? '',
           originR: capability?.origin_hex?.r ?? '',
+          mapId: currentMapId,
+          dungeonLevelId: currentDungeonLevelId,
         };
       })
       .filter(Boolean)
-      .sort((a, b) => {
-        if (b.order !== a.order) {
-          return b.order - a.order;
-        }
-        return a.roomName.localeCompare(b.roomName);
-      });
+      .sort((a, b) => a.roomName.localeCompare(b.roomName));
 
-    destinations.forEach((destination) => {
-      const key = `${destination.explored ? 'explored' : 'unexplored'}-${destination.navigable ? 'navigable' : 'blocked'}`;
-      const section = sections.find((candidate) => candidate.key === key);
-      if (section) {
-        section.locations.push(destination);
-      }
-    });
-
-    if (!destinations.length) {
+    if (!exits.length) {
       return [];
     }
 
-    return sections.filter((section) => section.locations.length > 0);
+    return [{
+      key: 'room-exits',
+      title: 'Room exits',
+      dungeonName: 'Room exits',
+      mapId: currentMapId,
+      dungeonLevelId: currentDungeonLevelId,
+      locations: exits,
+    }];
   }
 
-  collectVisitedNavigateLocationGroups(context, campaignId) {
+  collectVisitedNavigateLocationGroups(context, campaignId, exitGroups = []) {
     if (!campaignId || this.navigateLocationsCampaignId !== campaignId || !Array.isArray(this.navigateLocationGroups)) {
       return [];
     }
@@ -954,11 +921,12 @@ export class ActionRailPanel {
     const currentMapId = String(hexmap?.dungeonData?.map_id || hexmap?.launchContext?.map_id || this.stateManager?.get?.('mapId') || '').trim();
     const directRouteKeys = new Set();
 
-    this.collectNavigateLocationGroups(context).forEach((group) => {
+    exitGroups.forEach((group) => {
       (Array.isArray(group.locations) ? group.locations : []).forEach((location) => {
         const roomId = String(location?.roomId || '').trim();
         if (roomId) {
-          directRouteKeys.add(`${currentMapId}:${roomId}`);
+          const routeMapId = String(location?.mapId || currentMapId || '').trim();
+          directRouteKeys.add(`${routeMapId}:${roomId}`);
         }
       });
     });
@@ -982,8 +950,8 @@ export class ActionRailPanel {
             if (!location.roomId) {
               return false;
             }
-            const sameMap = !mapId || !currentMapId || mapId === currentMapId;
-            if (sameMap && location.roomId === activeRoomId) {
+            const sameMap = Boolean(mapId && currentMapId && mapId === currentMapId);
+            if (sameMap) {
               return false;
             }
             return !directRouteKeys.has(`${mapId || currentMapId}:${location.roomId}`);
@@ -991,7 +959,7 @@ export class ActionRailPanel {
 
         return {
           ...group,
-          title: String(group?.dungeonName || group?.title || group?.dungeonId || 'Visited destinations'),
+          title: `Known destinations — ${String(group?.dungeonName || group?.title || group?.dungeonId || 'Visited destinations')}`,
           dungeonName: String(group?.dungeonName || group?.title || group?.dungeonId || 'Visited destinations'),
           mapId,
           dungeonLevelId,
@@ -1056,9 +1024,10 @@ export class ActionRailPanel {
 
   buildSearchActionRailPanel(context) {
     const searchAvailable = this.isServerActionAvailable(context, 'search');
+    const hasActor = Boolean(context.actorRef);
     const disabled = context.encounterActive
-      ? (this.isActionRailExecutionDisabled(1, context) || !searchAvailable)
-      : (!context.actorRef || !searchAvailable);
+      ? this.isActionRailExecutionDisabled(1, context, !searchAvailable)
+      : !hasActor;
     const entries = [this.renderActionRailEntry({
       execute: 'search',
       title: 'Search the room',
@@ -1266,26 +1235,23 @@ export class ActionRailPanel {
     </article>`;
   }
 
-  handleActionRailDirectAction(actionKey, button = null) {
-    const context = this.getActionRailContext();
-    const hexmap = context.hexmap;
-    if (!hexmap) {
-      return;
-    }
-    if (actionKey === 'end-turn') {
-      this.bus.emit('user:end-turn', { button });
-      return;
-    }
-
-    this.bus.emit('chat:system-message', { text: 'That action is not available right now.', speaker: 'System', kind: 'system' });
-  }
-
   handleActionRailPanelAction(button) {
     const actionType = button.dataset.actionRailExecute || '';
-    // Emit user:action-selected — EncounterSystem / NavigationSystem / PlayerAutomation handle it
-    if (actionType) {
-      this.bus.emit('user:action-selected', { actionKey: actionType, button });
+    if (!actionType) {
+      return;
     }
+
+    if (actionType === 'navigate') {
+      this.bus.emit('user:navigate', { button });
+      return;
+    }
+
+    if (actionType === 'end_turn' || actionType === 'choose_not_to_act') {
+      this.bus.emit('user:end-turn', { button, actionType });
+      return;
+    }
+
+    this.bus.emit('user:action-selected', { actionKey: actionType, button });
   }
 
   beginActionRailRequest(button) {

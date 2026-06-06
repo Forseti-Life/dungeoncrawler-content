@@ -203,6 +203,9 @@ import { SpriteService } from './SpriteService.js';
     const leads = (Array.isArray(source.leads) ? source.leads : [])
       .map(normalizeQuestEntryPayload)
       .filter(Boolean);
+    const completed = (Array.isArray(source.completed) ? source.completed : [])
+      .map(normalizeQuestEntryPayload)
+      .filter(Boolean);
     const managementTree = (Array.isArray(source.management_tree) ? source.management_tree : [])
       .map(normalizeQuestManagementNpcPayload)
       .filter(Boolean);
@@ -213,11 +216,13 @@ import { SpriteService } from './SpriteService.js';
       active,
       offers,
       leads,
+      completed,
       management_tree: managementTree,
       counts: {
         active: active.length,
         offers: offers.length,
         leads: leads.length,
+        completed: completed.length,
       },
     };
   }
@@ -10107,30 +10112,32 @@ import { SpriteService } from './SpriteService.js';
       const activeQuests = Array.isArray(summary.active) ? summary.active : [];
       const offeredQuests = Array.isArray(summary.offers) ? summary.offers : [];
       const leadQuests = Array.isArray(summary.leads) ? summary.leads : [];
+      const completedQuests = Array.isArray(summary.completed) ? summary.completed : [];
       const managementTree = Array.isArray(summary.management_tree) ? summary.management_tree : [];
       console.warn('Quest journal debug: rendering quest journal', {
         activeCount: activeQuests.length,
         offerCount: offeredQuests.length,
         leadCount: leadQuests.length,
+        completedCount: completedQuests.length,
         managementTreeCount: managementTree.length,
         activeQuestIds: activeQuests.map((quest) => quest?.quest_id || quest?.quest_key || quest?.id || resolveQuestTitle(quest)),
       });
 
-      if (managementTree.length > 0 && activeQuests.length === 0 && offeredQuests.length === 0 && leadQuests.length === 0) {
+      if (managementTree.length > 0 && activeQuests.length === 0 && offeredQuests.length === 0 && leadQuests.length === 0 && completedQuests.length === 0) {
         if (count) count.textContent = String(managementTree.length);
         list.innerHTML = managementTree.map(renderQuestManagementNpcHtml).join('');
         this.updateQuestJournalControlState();
         return;
       }
 
-      if (activeQuests.length === 0 && offeredQuests.length === 0 && leadQuests.length === 0) {
-        list.innerHTML = '<li class="quest-empty">No active quests, offers, or leads</li>';
+      if (activeQuests.length === 0 && offeredQuests.length === 0 && leadQuests.length === 0 && completedQuests.length === 0) {
+        list.innerHTML = '<li class="quest-empty">No active, available, or completed quests</li>';
         if (count) count.textContent = '0';
         this.updateQuestJournalControlState();
         return;
       }
 
-      if (count) count.textContent = String(activeQuests.length + offeredQuests.length + leadQuests.length);
+      if (count) count.textContent = String(activeQuests.length + offeredQuests.length + leadQuests.length + completedQuests.length);
 
       const activeHtml = activeQuests.map(quest => {
         const title = resolveQuestTitle(quest);
@@ -10189,11 +10196,28 @@ import { SpriteService } from './SpriteService.js';
         title: resolveQuestTitle(quest),
         titlePrefix: '🧭',
         metaLines: ['Status: Lead'],
-        bodyHtml: `<ul class="quest-objectives">${this.renderQuestSummaryPreviewLines(quest, 'Quest lead discovered. Follow up with the relevant contact to unlock it.')}</ul>`,
+        bodyHtml: `<ul class="quest-objectives">${this.renderQuestSummaryPreviewLines(quest, this.buildQuestLeadFallbackLine(quest))}</ul>`,
       })).join('');
 
-      list.innerHTML = `${activeHtml}${offerHtml}${leadHtml}`;
+      const completedHtml = completedQuests.map((quest) => renderQuestTreeNodeHtml({
+        itemClass: 'quest-entry quest-entry--quest',
+        title: resolveQuestTitle(quest),
+        titlePrefix: '✅',
+        metaLines: ['Status: Completed'],
+        bodyHtml: `<ul class="quest-objectives">${this.renderQuestSummaryPreviewLines(quest, 'Quest complete. Review outcomes and rewards in your journal.')}</ul>`,
+      })).join('');
+
+      const availableSectionHtml = offerHtml || leadHtml
+        ? `${this.renderQuestSectionLabelHtml('Available Quests')}${offerHtml}${leadHtml}`
+        : '';
+      const completedSectionHtml = `${this.renderQuestSectionLabelHtml('Completed Quests')}${completedHtml || '<li class="quest-empty">No completed quests yet</li>'}`;
+
+      list.innerHTML = `${activeHtml}${availableSectionHtml}${completedSectionHtml}`;
       this.updateQuestJournalControlState();
+    }
+
+    renderQuestSectionLabelHtml(label) {
+      return `<li class="quest-section-heading" role="presentation">${label}</li>`;
     }
 
     renderQuestSummaryPreviewLines(quest, fallbackLine) {
@@ -10212,6 +10236,42 @@ import { SpriteService } from './SpriteService.js';
         return description ? `<li class="quest-objective">⬜ ${description}${progress}${details}</li>` : '';
       }).filter(Boolean);
       return lines.length > 0 ? lines.join('') : `<li class="quest-objective">${fallbackLine}</li>`;
+    }
+
+    buildQuestLeadFallbackLine(quest) {
+      const defaultLine = 'Quest lead discovered. Follow up with the relevant contact to unlock it.';
+      const phases = extractQuestPhases(quest);
+      const allObjectives = (Array.isArray(phases) ? phases : [])
+        .flatMap((phase) => flattenQuestObjectives(phase.objectives || []));
+
+      const objectiveNextStep = allObjectives
+        .map((objective) => String(objective?.next_step || '').trim())
+        .find((line) => line);
+      if (objectiveNextStep) {
+        return `Lead: ${objectiveNextStep}`;
+      }
+
+      const objectiveDescription = allObjectives
+        .map((objective) => String(objective?.description || objective?.objective_id || '').trim())
+        .find((line) => line);
+      if (objectiveDescription) {
+        return `Lead: ${objectiveDescription}`;
+      }
+
+      const variables = quest?.quest_data?.variables && typeof quest.quest_data.variables === 'object'
+        ? quest.quest_data.variables
+        : {};
+      const roomName = String(variables.room_name || '').trim();
+      const itemName = String(variables.item_name || '').trim();
+      const targetCount = Number(variables.target_count || 0);
+      const countText = Number.isFinite(targetCount) && targetCount > 0 ? `${targetCount} ` : '';
+      if (roomName && itemName) {
+        return `Lead: Search ${roomName} for ${countText}${itemName}, then report back to the quest giver.`;
+      }
+      if (roomName) {
+        return `Lead: Go to ${roomName} and ask the quest contact for details.`;
+      }
+      return defaultLine;
     }
 
     renderObjectiveGuidanceLines(objective) {
@@ -15548,7 +15608,7 @@ import { SpriteService } from './SpriteService.js';
 
         const selected = self.stateManager.get('selectedEntity');
         const current = self.turnManagementSystem?.getCurrentTurnEntity?.();
-        const actor = selected || current;
+        const actor = selected || current || self.findLaunchPlayerEntity?.();
         if (!actor) {
           console.warn('No actor available to move');
           return;
@@ -15590,7 +15650,7 @@ import { SpriteService } from './SpriteService.js';
 
         const selected = self.stateManager.get('selectedEntity');
         const current = self.turnManagementSystem?.getCurrentTurnEntity?.();
-        const actor = selected || current;
+        const actor = selected || current || self.findLaunchPlayerEntity?.();
         if (!actor) {
           console.warn('No actor available to attack');
           return;
@@ -16999,8 +17059,7 @@ import { SpriteService } from './SpriteService.js';
       if (this.uiManager) {
         this.uiManager.renderQuestJournal(this.questData);
       }
-      this.refreshQuestConfirmations();
-      console.log('Quest data initialized:', { active: (this.questData.active || []).length, offers: (this.questData.offers || []).length, leads: (this.questData.leads || []).length, management_tree: (this.questData.management_tree || []).length });
+      console.log('Quest data initialized:', { active: (this.questData.active || []).length, offers: (this.questData.offers || []).length, leads: (this.questData.leads || []).length, completed: (this.questData.completed || []).length, management_tree: (this.questData.management_tree || []).length });
     },
 
     /**
@@ -17063,10 +17122,16 @@ import { SpriteService } from './SpriteService.js';
           const activeQuests = tracking.filter((quest) => ['active', 'ready_for_turn_in'].includes(String(quest?.status || '').trim().toLowerCase()));
           const offeredQuests = tracking.filter((quest) => String(quest?.status || '').trim().toLowerCase() === 'offered');
           const leadQuests = tracking.filter((quest) => String(quest?.status || '').trim().toLowerCase() === 'lead');
+          const completedQuests = tracking.filter((quest) => {
+            const status = String(quest?.status || '').trim().toLowerCase();
+            const completedAt = Number(quest?.completed_at || 0);
+            return status === 'completed' || completedAt > 0;
+          });
           this.questData = this.questData || {};
           this.questData.active = activeQuests;
           this.questData.offers = offeredQuests;
           this.questData.leads = leadQuests;
+          this.questData.completed = completedQuests;
           this.questData.management_tree = [];
         }
 
@@ -17076,6 +17141,7 @@ import { SpriteService } from './SpriteService.js';
           endpoint,
           trackingCount: Array.isArray(payload.tracking) ? payload.tracking.length : 0,
           activeCount: Array.isArray(this.questData?.active) ? this.questData.active.length : 0,
+          completedCount: Array.isArray(this.questData?.completed) ? this.questData.completed.length : 0,
           managementTreeCount: Array.isArray(this.questData?.management_tree) ? this.questData.management_tree.length : 0,
           activeQuestIds: Array.isArray(this.questData?.active)
             ? this.questData.active.map((quest) => quest?.quest_id || quest?.quest_key || quest?.id || resolveQuestTitle(quest))
