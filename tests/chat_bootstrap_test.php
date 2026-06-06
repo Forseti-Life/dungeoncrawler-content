@@ -144,7 +144,7 @@ if ($campaign_id > 0) {
 }
 
 // ============================================================================
-echo "\n--- Test 2: Room session has initial welcome message ---\n";
+echo "\n--- Test 2: Room session has canonical initial welcome message ---\n";
 // ============================================================================
 if ($campaign_id > 0 && isset($room_session)) {
   $messages = $sessionManager->getMessages((int) $room_session['id'], 10);
@@ -154,7 +154,12 @@ if ($campaign_id > 0 && isset($room_session)) {
     $first_msg = $messages[0];
     assert_equals('Game Master', $first_msg['speaker'] ?? '', 'Welcome message speaker is Game Master');
     assert_equals('narrative', $first_msg['message_type'] ?? '', 'Welcome message type is narrative');
-    assert_contains('Tavern Entrance', $first_msg['message'] ?? '', 'Welcome message mentions Tavern Entrance');
+    $welcome_message = (string) ($first_msg['message'] ?? '');
+    assert_contains('The Gilded Tankard', $welcome_message, 'Welcome message mentions The Gilded Tankard');
+    assert_true(
+      !str_contains($welcome_message, 'explicit HexMap V2 attribute examples'),
+      'Welcome message does not contain internal template placeholder text'
+    );
   }
 }
 
@@ -204,7 +209,7 @@ if ($campaign_id > 0) {
 }
 
 // ============================================================================
-echo "\n--- Test 6: Seed dungeon_data has no stale chat ---\n";
+echo "\n--- Test 6: Seed dungeon_data has canonical starter scene intro ---\n";
 // ============================================================================
 if ($campaign_id > 0) {
   $dungeon_data_raw = $db->select('dc_campaign_dungeons', 'd')
@@ -216,14 +221,27 @@ if ($campaign_id > 0) {
     ->fetchField();
 
   $dungeon_data = json_decode($dungeon_data_raw ?: '{}', TRUE);
-  $has_stale_chat = FALSE;
+  $has_starter_intro = FALSE;
+  $has_internal_placeholder = FALSE;
   foreach (($dungeon_data['rooms'] ?? []) as $room) {
-    if (!empty($room['chat'])) {
-      $has_stale_chat = TRUE;
-      break;
+    foreach (($room['chat'] ?? []) as $message) {
+      if (!is_array($message)) {
+        continue;
+      }
+      $text = (string) ($message['message'] ?? '');
+      if (trim($text) === '') {
+        continue;
+      }
+      if (str_contains($text, 'The Gilded Tankard')) {
+        $has_starter_intro = TRUE;
+      }
+      if (str_contains($text, 'explicit HexMap V2 attribute examples')) {
+        $has_internal_placeholder = TRUE;
+      }
     }
   }
-  assert_true(!$has_stale_chat, 'Seed dungeon_data has no stale pre-populated chat messages');
+  assert_true($has_starter_intro, 'Seed dungeon_data includes starter scene intro chat');
+  assert_true(!$has_internal_placeholder, 'Seed dungeon_data excludes internal template placeholder text');
 }
 
 // ============================================================================

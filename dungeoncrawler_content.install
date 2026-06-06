@@ -8147,8 +8147,11 @@ function dungeoncrawler_content_update_10077() {
   }
 
   $query = $database->select('dungeoncrawler_content_rooms', 'r')
-    ->fields('r', ['id', 'description'])
-    ->condition('source_room_id', 'tavern_entrance');
+    ->fields('r', ['id', 'description']);
+  $or = $query->orConditionGroup()
+    ->condition('source_room_id', 'tavern_entrance')
+    ->condition('room_id', 'tavern_entrance');
+  $query->condition($or);
 
   $rows = $query->execute()->fetchAll(\PDO::FETCH_ASSOC);
   if ($rows === []) {
