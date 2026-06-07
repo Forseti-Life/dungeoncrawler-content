@@ -99,6 +99,15 @@ assert(
   'v2 hexmap shim exposes runtime actor context so exploration Search can unlock without ECS combat state'
 );
 assert(
+  gameShellSource.includes("import { GameCoordinator } from '../game-coordinator/GameCoordinator.js?v=")
+    && gameShellSource.includes('this._initGameCoordinator();')
+    && gameShellSource.includes('_initGameCoordinator() {')
+    && gameShellSource.includes('this.gameCoordinator = new GameCoordinator(campaignId, hexmapShim);')
+    && gameShellSource.includes('this.gameCoordinator.init()')
+    && gameShellSource.includes('this.gameCoordinator?.destroy?.();'),
+  'v2 shell initializes and tears down GameCoordinator so action-rail Search can dispatch coordinator actions'
+);
+assert(
   gameShellSource.includes('applyQuestUpdates: (questUpdates = []) => shell.applyQuestUpdates(questUpdates),')
     && gameShellSource.includes('refreshQuestJournalFromApi: () => shell.refreshQuestJournalFromApi(),')
     && gameShellSource.includes('async refreshQuestJournalFromApi() {')

@@ -43,6 +43,7 @@ import { StatusPanel } from './panels/StatusPanel.js';
 import { normalizeInventoryState } from './utils/inventory-utils.js';
 import { normalizeQuestSummaryPayload } from './utils/quest-utils.js';
 import { SpriteService } from '../SpriteService.js';
+import { GameCoordinator } from '../game-coordinator/GameCoordinator.js?v=20260607-v2-search-coordinator-init-1';
 import {
   EntityManager,
   PositionComponent,
@@ -114,6 +115,9 @@ export class GameShell {
 
     /** @type {{ portrait: PortraitPanel, merchant: MerchantPanel, combat: CombatPanel, actionRail: ActionRailPanel, chat: ChatPanel, quest: QuestPanel, inventory: InventoryPanel, character: CharacterPanel, roomView: RoomViewPanel, partyRail: PartyRailPanel, status: StatusPanel }} */
     this.panels = {};
+
+    /** @type {GameCoordinator|null} */
+    this.gameCoordinator = null;
 
     // ECS — populated in _initECS()
     this.entityManager = null;
@@ -333,6 +337,27 @@ export class GameShell {
     this._emitInitialRoomState();
     this._syncActiveRoomEntities();
     this._initApiHandlers();
+    this._initGameCoordinator();
+  }
+
+  _initGameCoordinator() {
+    const campaignId = Number(this.resolveCampaignId?.() || this.launchContext?.campaign_id || 0) || 0;
+    if (campaignId <= 0 || !this.canUseServerCombatApi()) {
+      this.gameCoordinator = null;
+      return;
+    }
+
+    const hexmapShim = this._buildHexmapShim();
+    this.gameCoordinator = new GameCoordinator(campaignId, hexmapShim);
+    this.gameCoordinator.init()
+      .then(() => {
+        this.panels?.actionRail?.refreshActionRail?.();
+      })
+      .catch((error) => {
+        console.warn('GameCoordinator init failed; coordinator-driven action dispatch disabled:', error?.message || error);
+        this.gameCoordinator = null;
+        this.panels?.actionRail?.refreshActionRail?.();
+      });
   }
 
   /**
@@ -1432,6 +1457,8 @@ export class GameShell {
     this.canvas?.fog?.destroy?.();
     this.canvas?.tokens?.destroy?.();
     this.canvas?.app?.destroy?.();
+    this.gameCoordinator?.destroy?.();
+    this.gameCoordinator = null;
     this.bus?.destroy?.();
 
     this._currentOccupants = [];
