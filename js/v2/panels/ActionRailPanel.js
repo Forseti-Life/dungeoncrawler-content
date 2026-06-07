@@ -10,6 +10,12 @@ import { normalizeSpellcastingData, collectSpellRankGroups, normalizeDisplayedSp
 import { extractConsumableItems, collectCharacterSkillEntries, buildActionRailEntrySummary } from '../utils/inventory-utils.js';
 import { escapeQuestHtml } from '../utils/quest-utils.js';
 import { escapeTooltipAttr, flattenTooltipBuckets, slugifyTooltipKey } from '../utils/dom-utils.js';
+import {
+  getActionRailDirectRoute,
+  getServerActionIdForExecute,
+  isActionRailSelectableAction,
+  resolveActionRailCategory,
+} from '../contracts/action-rail-contract.js';
 
 function resolveSkillEntry(state, skillName) {
   const target = String(skillName || '').trim().toLowerCase();
@@ -252,7 +258,7 @@ export class ActionRailPanel {
         return;
       }
 
-      this.activeActionRailCategory = category;
+      this.activeActionRailCategory = resolveActionRailCategory(category, this.activeActionRailCategory);
       this.refreshActionRail();
     });
     categories.addEventListener('keydown', (event) => {
@@ -290,7 +296,7 @@ export class ActionRailPanel {
         return;
       }
       nextButton.focus();
-      this.activeActionRailCategory = nextCategory;
+      this.activeActionRailCategory = resolveActionRailCategory(nextCategory, this.activeActionRailCategory);
       this.refreshActionRail();
     });
 
@@ -385,9 +391,7 @@ export class ActionRailPanel {
       nextButton.classList.toggle('action-rail__category--active', isActive);
     });
 
-    if (!this.activeActionRailCategory) {
-      this.activeActionRailCategory = 'navigate';
-    }
+    this.activeActionRailCategory = resolveActionRailCategory(this.activeActionRailCategory, 'navigate');
 
     const panel = this.buildActionRailPanel(this.activeActionRailCategory, context);
     if (panelTitle) {
@@ -601,10 +605,10 @@ export class ActionRailPanel {
   }
 
   resolveTurnActionKey(context) {
-    if (this.isServerActionAvailable(context, 'choose_not_to_act')) {
+    if (this.isServerActionAvailable(context, getServerActionIdForExecute('choose_not_to_act'))) {
       return 'choose_not_to_act';
     }
-    if (this.isServerActionAvailable(context, 'end_turn')) {
+    if (this.isServerActionAvailable(context, getServerActionIdForExecute('end_turn'))) {
       return 'end_turn';
     }
     return '';
@@ -651,6 +655,7 @@ export class ActionRailPanel {
   }
 
   buildActionRailPanel(category, context) {
+    const resolvedCategory = resolveActionRailCategory(category, 'navigate');
     const builders = {
       turn: () => this.buildTurnActionRailPanel(context),
       navigate: () => this.buildNavigateActionRailPanel(context),
@@ -661,7 +666,7 @@ export class ActionRailPanel {
       skills: () => this.buildSkillActionRailPanel(context),
       feats: () => this.buildFeatActionRailPanel(context),
     };
-    const builder = builders[category];
+    const builder = builders[resolvedCategory];
     if (!builder) {
       return {
         title: 'Quick actions',
@@ -704,7 +709,7 @@ export class ActionRailPanel {
     if (!panelBody || !this.activeActionRailCategory) {
       return;
     }
-    const category = this.activeActionRailCategory;
+    const category = resolveActionRailCategory(this.activeActionRailCategory, 'navigate');
     const entries = Array.from(panelBody.querySelectorAll('.action-rail__entry'));
     const groups = Array.from(panelBody.querySelectorAll('.action-rail__group'));
     const standaloneEntries = entries.filter((entry) => !entry.closest('.action-rail__group'));
@@ -1023,7 +1028,7 @@ export class ActionRailPanel {
   }
 
   buildSearchActionRailPanel(context) {
-    const searchAvailable = this.isServerActionAvailable(context, 'search');
+    const searchAvailable = this.isServerActionAvailable(context, getServerActionIdForExecute('search'));
     const hasActor = Boolean(context.actorRef);
     const disabled = context.encounterActive
       ? this.isActionRailExecutionDisabled(1, context, !searchAvailable)
@@ -1051,7 +1056,7 @@ export class ActionRailPanel {
     const rankGroups = collectSpellRankGroups(spells);
     const runtimeSlots = normalizeDisplayedSpellSlots(context.state?.resources?.spellSlots, spells.slots);
     const entries = [];
-    const spellActionAvailable = !context.encounterActive || this.isServerActionAvailable(context, 'cast_spell');
+    const spellActionAvailable = !context.encounterActive || this.isServerActionAvailable(context, getServerActionIdForExecute('spell'));
 
     rankGroups.forEach(({ rank, label, spells: rankSpells }) => {
       rankSpells.forEach((spell) => {
@@ -1099,7 +1104,7 @@ export class ActionRailPanel {
 
   buildConsumableActionRailPanel(context) {
     const items = extractConsumableItems(context.state?.inventory || {}, context.state?.equipment || []);
-    const consumeActionAvailable = !context.encounterActive || this.isServerActionAvailable(context, 'consume_item');
+    const consumeActionAvailable = !context.encounterActive || this.isServerActionAvailable(context, getServerActionIdForExecute('consumable'));
     const entries = items.map((item) => {
       const itemId = item.id || item.item_id || item.name || '';
       const quantity = Number(item.quantity || 1);
@@ -1133,7 +1138,7 @@ export class ActionRailPanel {
   buildSkillActionRailPanel(context) {
     const skills = collectCharacterSkillEntries(context.state)
       .sort((a, b) => Number(b.modifier || 0) - Number(a.modifier || 0));
-    const skillActionAvailable = !context.encounterActive || this.isServerActionAvailable(context, 'skill');
+    const skillActionAvailable = !context.encounterActive || this.isServerActionAvailable(context, getServerActionIdForExecute('skill'));
     const entries = skills.map((skill) => {
       const modifier = Number(skill.modifier || 0);
       return this.renderActionRailEntry({
@@ -1166,7 +1171,7 @@ export class ActionRailPanel {
 
   buildFeatActionRailPanel(context) {
     const features = context.state?.features || {};
-    const featActionAvailable = !context.encounterActive || this.isServerActionAvailable(context, 'feat');
+    const featActionAvailable = !context.encounterActive || this.isServerActionAvailable(context, getServerActionIdForExecute('feat'));
     const featActions = flattenTooltipBuckets(context.state?.actions?.availableActions?.feat || features?.featEffects?.available_actions || {});
     const fallbackFeats = [
       ...(Array.isArray(features.ancestryFeatures) ? features.ancestryFeatures : []),
@@ -1240,22 +1245,23 @@ export class ActionRailPanel {
   }
 
   handleActionRailPanelAction(button) {
-    const actionType = button.dataset.actionRailExecute || '';
+    const actionType = String(button.dataset.actionRailExecute || '').trim();
     if (!actionType) {
       return;
     }
 
-    if (actionType === 'navigate') {
-      this.bus.emit('user:navigate', { button });
+    const directRoute = getActionRailDirectRoute(actionType, button);
+    if (directRoute?.event) {
+      this.bus.emit(directRoute.event, directRoute.payload || {});
       return;
     }
 
-    if (actionType === 'end_turn' || actionType === 'choose_not_to_act') {
-      this.bus.emit('user:end-turn', { button, actionType });
+    if (isActionRailSelectableAction(actionType)) {
+      this.bus.emit('user:action-selected', { actionKey: actionType, button });
       return;
     }
 
-    this.bus.emit('user:action-selected', { actionKey: actionType, button });
+    console.warn('[ActionRailPanel] Unsupported panel action:', actionType);
   }
 
   beginActionRailRequest(button) {

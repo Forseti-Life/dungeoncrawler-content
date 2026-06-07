@@ -7,18 +7,7 @@
 
 import { getActionRailCost } from '../utils/action-utils.js';
 import { extractConsumableItems } from '../utils/inventory-utils.js';
-
-const ACTION_SELECTION_HANDLERS = Object.freeze({
-  attack: 'executeDirectAttack',
-  spell: 'executeDirectSpell',
-  interact: 'executeDirectInteract',
-  search: 'executeDirectSearch',
-  skill: 'executeDirectSkill',
-  feat: 'executeDirectFeat',
-  consumable: 'executeDirectConsumable',
-});
-
-const REST_ACTIVITY_ACTION_KEYS = new Set(['treat_wounds', 'refocus', 'repair', 'daily_preparations']);
+import { ACTION_SELECTION_HANDLERS, isRestActivityActionKey } from '../contracts/action-rail-contract.js';
 
 export class EncounterSystem {
   constructor(shell, bus) {
@@ -52,7 +41,7 @@ export class EncounterSystem {
           return;
         }
 
-        if (REST_ACTIVITY_ACTION_KEYS.has(key)) {
+        if (isRestActivityActionKey(key)) {
           this.executeRestActivity(key, d?.button);
         }
       }),
