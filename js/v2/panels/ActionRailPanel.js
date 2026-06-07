@@ -8,7 +8,7 @@
 import { getActionRailCost, formatActionRailCost, getActionRailRemainingActions } from '../utils/action-utils.js';
 import { normalizeSpellcastingData, collectSpellRankGroups, normalizeDisplayedSpellSlots } from '../utils/spell-utils.js';
 import { extractConsumableItems, collectCharacterSkillEntries, buildActionRailEntrySummary } from '../utils/inventory-utils.js';
-import { escapeQuestHtml } from '../utils/quest-utils.js?v=20260607-quest-summary-const-2';
+import { escapeQuestHtml } from '../utils/quest-utils.js';
 import { escapeTooltipAttr, flattenTooltipBuckets, slugifyTooltipKey } from '../utils/dom-utils.js';
 
 function resolveSkillEntry(state, skillName) {
@@ -89,8 +89,6 @@ export class ActionRailPanel {
     this.navigateLocationsCampaignId = null;
     this.navigateLocationsInflight = null;
     this._actionRailRequestSequence = 0;
-    this._domListenerDisposers = [];
-    this._actionRailDomBound = false;
   }
 
   buildRestActionRailPanel(context) {
@@ -198,95 +196,8 @@ export class ActionRailPanel {
   destroy() {
     this._unsubs.forEach((fn) => fn());
     this._unsubs = [];
-    this.teardownActionRailDomListeners();
-    this._actionRailDomBound = false;
     if (this._actionRailRealtimeTimer) clearInterval(this._actionRailRealtimeTimer);
     if (this.actionRailRealClockTimer) clearInterval(this.actionRailRealClockTimer);
-  }
-
-  bindActionRailDomListener(target, type, handler) {
-    if (!target || typeof target.addEventListener !== 'function' || typeof target.removeEventListener !== 'function') {
-      return;
-    }
-    target.addEventListener(type, handler);
-    this._domListenerDisposers.push(() => {
-      target.removeEventListener(type, handler);
-    });
-  }
-
-  teardownActionRailDomListeners() {
-    this._domListenerDisposers.forEach((dispose) => {
-      try {
-        dispose();
-      } catch (error) {
-        console.warn('[ActionRailPanel] Failed to remove DOM listener:', error);
-      }
-    });
-    this._domListenerDisposers = [];
-  }
-
-  getActionRailCategoryButtons() {
-    const categories = this._el.actionRailCategories;
-    if (!categories) {
-      return [];
-    }
-    return Array.from(categories.querySelectorAll('[data-action-rail-category]'))
-      .filter((button) => button instanceof HTMLButtonElement);
-  }
-
-  resolveActionRailCategory(category = '') {
-    const requested = String(category || '').trim();
-    const available = this.getActionRailCategoryButtons()
-      .map((button) => String(button.dataset.actionRailCategory || '').trim())
-      .filter(Boolean);
-    if (requested && available.includes(requested)) {
-      return requested;
-    }
-    if (available.includes('navigate')) {
-      return 'navigate';
-    }
-    return available[0] || 'navigate';
-  }
-
-  setActiveActionRailCategory(category, { refresh = true, focus = false } = {}) {
-    const nextCategory = this.resolveActionRailCategory(category);
-    const changed = this.activeActionRailCategory !== nextCategory;
-    this.activeActionRailCategory = nextCategory;
-    if (focus) {
-      const nextButton = this.getActionRailCategoryButtons()
-        .find((button) => button.dataset.actionRailCategory === nextCategory);
-      nextButton?.focus?.();
-    }
-    if (changed && refresh) {
-      this.refreshActionRail();
-    }
-    return changed;
-  }
-
-  getActionRailDirectRoute(actionType, button) {
-    if (actionType === 'navigate') {
-      return { event: 'user:navigate', payload: { button } };
-    }
-    if (actionType === 'end_turn' || actionType === 'choose_not_to_act') {
-      return { event: 'user:end-turn', payload: { button, actionType } };
-    }
-    return null;
-  }
-
-  isActionRailSelectableAction(actionType) {
-    return [
-      'attack',
-      'spell',
-      'interact',
-      'search',
-      'skill',
-      'consumable',
-      'feat',
-      'treat_wounds',
-      'refocus',
-      'repair',
-      'daily_preparations',
-    ].includes(actionType);
   }
 
   _subscribe() {
@@ -315,18 +226,20 @@ export class ActionRailPanel {
         this.updateActionRailClocks();
       }, 1000);
     }
-    if (!categories || this._actionRailDomBound) {
+    if (!categories || categories.dataset.bound === 'true') {
       this.refreshActionRail();
       return;
     }
 
-    if (automationToggle) {
-      this.bindActionRailDomListener(automationToggle, 'click', () => {
+    if (automationToggle && automationToggle.dataset.bound !== 'true') {
+      automationToggle.dataset.bound = 'true';
+      automationToggle.addEventListener('click', () => {
         this.handleActionRailAutomationToggle();
       });
     }
 
-    this.bindActionRailDomListener(categories, 'click', (event) => {
+    categories.dataset.bound = 'true';
+    categories.addEventListener('click', (event) => {
       const button = event.target instanceof HTMLElement
         ? event.target.closest('[data-action-rail-category]')
         : null;
@@ -338,9 +251,11 @@ export class ActionRailPanel {
       if (!category) {
         return;
       }
-      this.setActiveActionRailCategory(category);
+
+      this.activeActionRailCategory = category;
+      this.refreshActionRail();
     });
-    this.bindActionRailDomListener(categories, 'keydown', (event) => {
+    categories.addEventListener('keydown', (event) => {
       const target = event.target instanceof HTMLElement
         ? event.target.closest('[data-action-rail-category]')
         : null;
@@ -348,7 +263,8 @@ export class ActionRailPanel {
         return;
       }
 
-      const buttons = this.getActionRailCategoryButtons();
+      const buttons = Array.from(categories.querySelectorAll('[data-action-rail-category]'))
+        .filter((button) => button instanceof HTMLButtonElement);
       const index = buttons.indexOf(target);
       if (index < 0 || buttons.length === 0) {
         return;
@@ -373,11 +289,13 @@ export class ActionRailPanel {
       if (!nextCategory) {
         return;
       }
-      this.setActiveActionRailCategory(nextCategory, { focus: true });
+      nextButton.focus();
+      this.activeActionRailCategory = nextCategory;
+      this.refreshActionRail();
     });
 
     if (panelBody) {
-      this.bindActionRailDomListener(panelBody, 'click', (event) => {
+      panelBody.addEventListener('click', (event) => {
         const toggle = event.target instanceof HTMLElement
           ? event.target.closest('[data-action-rail-toggle-descriptions]')
           : null;
@@ -394,7 +312,7 @@ export class ActionRailPanel {
         }
         this.handleActionRailPanelAction(button);
       });
-      this.bindActionRailDomListener(panelBody, 'input', (event) => {
+      panelBody.addEventListener('input', (event) => {
         const input = event.target instanceof HTMLElement
           ? event.target.closest('[data-action-rail-filter]')
           : null;
@@ -407,7 +325,6 @@ export class ActionRailPanel {
       });
     }
 
-    this._actionRailDomBound = true;
     this.refreshActionRail();
   }
 
@@ -456,13 +373,10 @@ export class ActionRailPanel {
     }
     this.updateActionRailClocks(context);
 
-    const categoryButtons = this.getActionRailCategoryButtons();
-    const activeCategory = this.resolveActionRailCategory(this.activeActionRailCategory);
-    this.activeActionRailCategory = activeCategory;
-
-    categoryButtons.forEach((nextButton) => {
+    categories.querySelectorAll('[data-action-rail-category]').forEach((button) => {
+      const nextButton = /** @type {HTMLButtonElement} */ (button);
       const category = nextButton.dataset.actionRailCategory || '';
-      const isActive = Boolean(category) && activeCategory === category;
+      const isActive = Boolean(category) && this.activeActionRailCategory === category;
       nextButton.disabled = false;
       nextButton.setAttribute('aria-disabled', 'false');
       nextButton.setAttribute('role', 'tab');
@@ -471,7 +385,11 @@ export class ActionRailPanel {
       nextButton.classList.toggle('action-rail__category--active', isActive);
     });
 
-    const panel = this.buildActionRailPanel(activeCategory, context);
+    if (!this.activeActionRailCategory) {
+      this.activeActionRailCategory = 'navigate';
+    }
+
+    const panel = this.buildActionRailPanel(this.activeActionRailCategory, context);
     if (panelTitle) {
       panelTitle.textContent = panel.title;
     }
@@ -516,39 +434,13 @@ export class ActionRailPanel {
       ? `${movement.movementRemaining} ft move`
       : null;
     const currentTurnLabel = current?.getComponent?.('IdentityComponent')?.name || actorName;
-    const contractActorRef = String(phaseSnapshot?.actionContract?.actor_id || '').trim();
-    const serverTurnEntity = String(
-      phaseSnapshot?.turn?.entity
-      || phaseSnapshot?.actionContract?.current_turn_entity
-      || ''
-    ).trim();
-    const directActorRef = String(
-      actor?.dcEntityRef
-      || actor?.dcEntityInstanceId
-      || runtimeContext?.instanceId
-      || ''
-    ).trim();
-    const availableActions = Array.isArray(phaseSnapshot?.availableActions) ? phaseSnapshot.availableActions : [];
-    const hasTurnScopedAction = availableActions.some((entry) => [
-      'end_turn',
-      'choose_not_to_act',
-      'strike',
-      'stride',
-      'cast_spell',
-      'interact',
-      'search',
-      'skill',
-      'feat',
-      'consume_item',
-      'talk',
-    ].includes(String(entry || '').trim()));
-    const actorRef = directActorRef
-      || contractActorRef
-      || ((hasServerTurn && hasTurnScopedAction && serverTurnEntity) ? serverTurnEntity : '')
-      || null;
+    const actorRef = actor?.dcEntityRef || actor?.dcEntityInstanceId || runtimeContext?.instanceId || null;
+    const serverTurnEntity = String(phaseSnapshot?.turn?.entity || '').trim();
     const isActorTurn = !hasServerTurn
       || !serverTurnEntity
-      || (Boolean(actorRef) && serverTurnEntity === actorRef);
+      || !actorRef
+      || serverTurnEntity === actorRef
+      || (!current || !actor || current.id === actor.id);
     const characterId = Number(
       state?.characterId
       || state?.id
@@ -578,7 +470,7 @@ export class ActionRailPanel {
       hasServerTurn,
       isActorTurn,
       selectedEntity: selected,
-      availableActions,
+      availableActions: Array.isArray(phaseSnapshot?.availableActions) ? phaseSnapshot.availableActions : [],
       actionContract: phaseSnapshot?.actionContract || null,
       automationState,
       canAutomate: Boolean(
@@ -1349,18 +1241,17 @@ export class ActionRailPanel {
       return;
     }
 
-    const directRoute = this.getActionRailDirectRoute(actionType, button);
-    if (directRoute) {
-      this.bus.emit(directRoute.event, directRoute.payload);
+    if (actionType === 'navigate') {
+      this.bus.emit('user:navigate', { button });
       return;
     }
 
-    if (this.isActionRailSelectableAction(actionType)) {
-      this.bus.emit('user:action-selected', { actionKey: actionType, button });
+    if (actionType === 'end_turn' || actionType === 'choose_not_to_act') {
+      this.bus.emit('user:end-turn', { button, actionType });
       return;
     }
 
-    console.warn('[ActionRailPanel] Unsupported panel action:', actionType);
+    this.bus.emit('user:action-selected', { actionKey: actionType, button });
   }
 
   beginActionRailRequest(button) {

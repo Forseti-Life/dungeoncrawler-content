@@ -17,7 +17,7 @@ import {
   mergeObjectiveProgress,
   renderQuestTreeNodeHtml,
   resolveQuestTitle,
-} from '../utils/quest-utils.js?v=20260607-quest-summary-const-2';
+} from '../utils/quest-utils.js';
 
 export class QuestPanel {
   constructor(container, bus) {

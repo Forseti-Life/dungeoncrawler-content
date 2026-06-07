@@ -5,7 +5,7 @@
  * Methods ported verbatim from hexmap.js UIManager.
  */
 
-import { escapeQuestHtml } from '../utils/quest-utils.js?v=20260607-quest-summary-const-2';
+import { escapeQuestHtml } from '../utils/quest-utils.js';
 import { escapeTooltipAttr } from '../utils/dom-utils.js';
 import { collectInventoryItems, normalizeInventoryState } from '../utils/inventory-utils.js';
 
