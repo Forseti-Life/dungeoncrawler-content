@@ -4189,27 +4189,61 @@ import { SpriteService } from './SpriteService.js';
       const hexmap = this.stateManager?.hexmap || null;
       const selected = this.stateManager?.get?.('selectedEntity') || null;
       const current = hexmap?.turnManagementSystem?.getCurrentTurnEntity?.() || null;
-      const encounterActive = Boolean(hexmap?.stateManager?.get?.('encounterId'));
+      const phaseSnapshot = hexmap?.gameCoordinator?.phaseManager?.getSnapshot?.() || {};
+      const encounterActive = phaseSnapshot?.phase === 'encounter'
+        || Boolean(hexmap?.stateManager?.get?.('encounterId'));
+      const hasServerTurn = Boolean(phaseSnapshot?.turn?.entity);
       const launchPlayer = hexmap?.findLaunchPlayerEntity?.() || null;
-      const actor = encounterActive
-        ? (selected || current || launchPlayer || null)
-        : (launchPlayer || selected || current || null);
+      const actor = launchPlayer || (!hasServerTurn ? (selected || current || null) : null);
       const state = hexmap?.launchCharacter || hexmap?.characterData || {};
       const basicInfo = state?.basicInfo || {};
       const actorName = basicInfo.name || state?.name || actor?.getComponent?.('IdentityComponent')?.name || 'No actor selected';
       const runtimeContext = hexmap?.resolveLaunchCharacterRuntimeContext?.() || {};
       const automationProfile = hexmap?.buildPlayerAutomationProfile?.() || {};
-      const phaseSnapshot = hexmap?.gameCoordinator?.phaseManager?.getSnapshot?.() || {};
       const automationState = hexmap?.getPlayerAutomationState?.() || {};
       const actions = actor?.getComponent?.('ActionsComponent') || null;
       const movement = actor?.getComponent?.('MovementComponent') || null;
-      const actionText = actions ? `${actions.actionsRemaining}/${actions.maxActions ?? actions.actionsRemaining} actions` : null;
+      const serverActionsRemaining = Number(phaseSnapshot?.turn?.actions_remaining);
+      const actionText = Number.isFinite(serverActionsRemaining)
+        ? `${serverActionsRemaining}/3 actions`
+        : (actions ? `${actions.actionsRemaining}/${actions.maxActions ?? actions.actionsRemaining} actions` : null);
       const movementText = movement && Number.isFinite(movement.movementRemaining)
         ? `${movement.movementRemaining} ft move`
         : null;
       const currentTurnLabel = current?.getComponent?.('IdentityComponent')?.name || actorName;
-      const isActorTurn = !encounterActive || !current || !actor || current.id === actor.id;
-      const actorRef = actor?.dcEntityRef || actor?.dcEntityInstanceId || runtimeContext?.instanceId || null;
+      const contractActorRef = String(phaseSnapshot?.actionContract?.actor_id || '').trim();
+      const serverTurnEntity = String(
+        phaseSnapshot?.turn?.entity
+        || phaseSnapshot?.actionContract?.current_turn_entity
+        || ''
+      ).trim();
+      const directActorRef = String(
+        actor?.dcEntityRef
+        || actor?.dcEntityInstanceId
+        || runtimeContext?.instanceId
+        || ''
+      ).trim();
+      const availableActions = Array.isArray(phaseSnapshot?.availableActions) ? phaseSnapshot.availableActions : [];
+      const hasTurnScopedAction = availableActions.some((entry) => [
+        'end_turn',
+        'choose_not_to_act',
+        'strike',
+        'stride',
+        'cast_spell',
+        'interact',
+        'search',
+        'skill',
+        'feat',
+        'consume_item',
+        'talk',
+      ].includes(String(entry || '').trim()));
+      const actorRef = directActorRef
+        || contractActorRef
+        || ((hasServerTurn && hasTurnScopedAction && serverTurnEntity) ? serverTurnEntity : '')
+        || null;
+      const isActorTurn = !hasServerTurn
+        || !serverTurnEntity
+        || (Boolean(actorRef) && serverTurnEntity === actorRef);
       const characterId = Number(
         state?.characterId
         || state?.id
@@ -4219,7 +4253,7 @@ import { SpriteService } from './SpriteService.js';
       ) || 0;
       const baseStatus = buildActionRailEntrySummary([
         encounterActive ? 'Encounter active' : 'Exploration ready',
-        encounterActive ? (isActorTurn ? 'Active turn' : `${currentTurnLabel}'s turn`) : '',
+        hasServerTurn ? (isActorTurn ? 'Active turn' : `${currentTurnLabel}'s turn`) : '',
         actionText,
         movementText,
       ]) || 'Select your character to unlock direct actions.';
@@ -4236,7 +4270,11 @@ import { SpriteService } from './SpriteService.js';
         campaignClock: phaseSnapshot?.campaignClock || null,
         timedActivities: Array.isArray(phaseSnapshot?.timedActivities) ? phaseSnapshot.timedActivities : [],
         encounterActive,
+        hasServerTurn,
         isActorTurn,
+        selectedEntity: selected,
+        availableActions,
+        actionContract: phaseSnapshot?.actionContract || null,
         automationState,
         canAutomate: Boolean(
           runtimeContext?.campaignId
@@ -18501,9 +18539,10 @@ import { SpriteService } from './SpriteService.js';
       const launchCharacterId = this.resolveLaunchCharacterStateId();
       const selectedInstanceId = selectedEntity?.dcEntityRef || selectedEntity?.dcEntityInstanceId || null;
       return {
-        campaignId: Number(this.launchContext?.campaign_id || 0) || null,
+        campaignId: this.resolveCampaignId(),
         characterId: selectedCharacterId || launchCharacterId || null,
         instanceId: launchCharacterId > 0 && selectedCharacterId === launchCharacterId ? selectedInstanceId : (this.launchCharacter?.instanceId || null),
+        roomId: this.resolveActiveRoomId(),
       };
     }
 

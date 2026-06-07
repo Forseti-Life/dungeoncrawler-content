@@ -68,6 +68,12 @@ assert(
   'action rail resolves character id from launch/runtime context before character-sheet hydration'
 );
 assert(
+  hexmapSource.includes('resolveLaunchCharacterRuntimeContext: function ()')
+    && hexmapSource.includes('campaignId: this.resolveCampaignId()')
+    && hexmapSource.includes('roomId: this.resolveActiveRoomId(),'),
+  'legacy runtime context resolves campaign/room ids from canonical fallback sources'
+);
+assert(
   actionRailPanelSource.includes("const contractActorRef = String(phaseSnapshot?.actionContract?.actor_id || '').trim();")
     && actionRailPanelSource.includes('const hasTurnScopedAction = availableActions.some((entry) => [')
     && actionRailPanelSource.includes("|| ((hasServerTurn && hasTurnScopedAction && serverTurnEntity) ? serverTurnEntity : '')")
