@@ -563,11 +563,11 @@ body.dc-sheet__portrait-viewer-open {
 }
 
 .dc-character-list--campaigns {
-  background-image: url("/themes/custom/dungeoncrawler/build/assets/images/site/campaigns/page-background.png");
+  background-image: url("/themes/custom/dungeoncrawler/build/assets/images/dungeon-crawler-hero.png");
 }
 
 .dc-character-list--roster {
-  background-image: url("/themes/custom/dungeoncrawler/build/assets/images/site/characters/page-background.png");
+  background-image: url("/themes/custom/dungeoncrawler/build/assets/images/dungeon-crawler-hero.png");
 }
 
 .dc-sheet__status-dead {
