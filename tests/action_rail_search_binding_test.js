@@ -46,15 +46,15 @@ assert(
 );
 assert(
   hexmapSource.includes("search_mode: 'explicit'")
-    && hexmapSource.includes("params: {\n              search_mode: 'explicit',\n            }")
+    && hexmapSource.includes('character_id: characterId')
     && hexmapSource.includes('runtimeContext.campaignId || hexmap?.resolveCampaignId?.() || null')
     && hexmapSource.includes('|| phaseSnapshot?.actionContract?.actor_id')
     && hexmapSource.includes('|| phaseSnapshot?.turn?.entity')
-    && hexmapSource.includes('await fetch(`/api/game/${campaignId}/state`')
+    && !hexmapSource.includes('await fetch(`/api/game/${campaignId}/state`')
     && !hexmapSource.includes('explicit_search: true')
     && !hexmapSource.includes('perception_bonus: perceptionBonus')
     && !hexmapSource.includes('searches the room.'),
-  'legacy explicit Search uses only the standardized search_mode contract without silent-failure chat'
+  'legacy explicit Search sends standardized search params without client state fallback fetches'
 );
 assert(
   hexmapSource.includes("const actionSearchBtn = document.getElementById('action-search');")
@@ -116,14 +116,15 @@ assert(
 );
 assert(
   encounterSystemSource.includes("search_mode: 'explicit'")
-    && encounterSystemSource.includes("coordinator.api.sendAction('search', actorRef, {\n        search_mode: 'explicit',\n      }")
+    && encounterSystemSource.includes('character_id: characterId')
+    && encounterSystemSource.includes("coordinator.api.sendAction('search', actorRef, {")
     && encounterSystemSource.includes('|| phaseSnapshot?.actionContract?.actor_id')
     && encounterSystemSource.includes('|| phaseSnapshot?.turn?.entity')
-    && encounterSystemSource.includes('await coordinator.api.getState()')
+    && !encounterSystemSource.includes('await coordinator.api.getState()')
     && !encounterSystemSource.includes('explicit_search: true')
     && !encounterSystemSource.includes('perception_bonus: perceptionBonus')
     && !encounterSystemSource.includes('searches the room.'),
-  'v2 explicit Search uses only the standardized search_mode contract without leaking silent failures'
+  'v2 explicit Search sends standardized search params without client state fallback fetches'
 );
 assert(
   coordinatorApiSource.includes("return this.sendAction('search', actor, { search_mode: 'explicit' }, { stateVersion });")

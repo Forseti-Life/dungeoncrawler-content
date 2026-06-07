@@ -198,27 +198,20 @@ export class EncounterSystem {
         || phaseSnapshot?.actionContract?.actor_id
         || phaseSnapshot?.turn?.entity
         || ''
-      ).trim() || null;
+      ).trim();
       const coordinator = hexmap?.gameCoordinator || null;
-      if (!actorRef && coordinator?.api) {
-        try {
-          const fallbackState = await coordinator.api.getState();
-          actorRef = String(
-            fallbackState?.game_state?.turn?.entity
-            || fallbackState?.action_contract?.actor_id
-            || ''
-          ).trim() || null;
-        } catch (error) {
-          console.warn('[EncounterSystem] Search state fallback failed', error);
-        }
-      }
-      if (!hexmap || !coordinator?.api || !actorRef) {
-        this._appendChatLine('System', 'Search requires an active campaign room and character.', 'system');
+      if (!hexmap || !coordinator?.api) {
+        this._appendChatLine('System', 'Search requires an active campaign room.', 'system');
         return;
       }
 
+      const characterId = Number.parseInt(
+        String(context.characterId || runtimeContext.characterId || ''),
+        10
+      );
       const data = await coordinator.api.sendAction('search', actorRef, {
         search_mode: 'explicit',
+        ...(Number.isFinite(characterId) && characterId > 0 ? { character_id: characterId } : {}),
       }, {
         stateVersion: coordinator.phaseManager?.stateVersion,
       });

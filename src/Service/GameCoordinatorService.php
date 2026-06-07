@@ -185,7 +185,21 @@ class GameCoordinatorService {
    *   - error: string|null
    */
   public function processAction(int $campaign_id, array $intent): array {
-    $actor_id = (string) ($intent['actor'] ?? '');
+    $actor_id = trim((string) ($intent['actor'] ?? ''));
+    if ($actor_id === '') {
+      $character_hint = (int) (
+        $intent['params']['character_id']
+        ?? $intent['character_id']
+        ?? 0
+      );
+      if ($character_hint > 0) {
+        $resolved_actor_id = $this->resolveActorIdForCharacterId($campaign_id, $character_hint);
+        if (is_string($resolved_actor_id) && trim($resolved_actor_id) !== '') {
+          $actor_id = trim($resolved_actor_id);
+          $intent['actor'] = $actor_id;
+        }
+      }
+    }
 
     // 1. Load dungeon data and game state.
     $dungeon_data = $this->loadDungeonData($campaign_id, $actor_id !== '' ? $actor_id : NULL);
@@ -216,6 +230,14 @@ class GameCoordinatorService {
         'State version mismatch. Expected ' . ($game_state['state_version'] ?? 0) . ', got ' . $client_version . '. Refresh state.',
         $game_state
       );
+    }
+
+    if ($actor_id === '') {
+      $turn_actor_id = trim((string) ($game_state['turn']['entity'] ?? ''));
+      if ($turn_actor_id !== '') {
+        $actor_id = $turn_actor_id;
+        $intent['actor'] = $turn_actor_id;
+      }
     }
 
     // 3. Get the active phase handler.

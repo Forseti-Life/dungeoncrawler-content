@@ -5444,30 +5444,16 @@ import { SpriteService } from './SpriteService.js';
           || phaseSnapshot?.actionContract?.actor_id
           || phaseSnapshot?.turn?.entity
           || ''
-        ).trim() || null;
-        if (!actorRef && campaignId) {
-          try {
-            const stateResponse = await fetch(`/api/game/${campaignId}/state`, {
-              method: 'GET',
-              headers: {
-                Accept: 'application/json',
-              },
-              credentials: 'include',
-            });
-            const stateData = await stateResponse.json();
-            actorRef = String(
-              stateData?.game_state?.turn?.entity
-              || stateData?.action_contract?.actor_id
-              || ''
-            ).trim() || null;
-          } catch (error) {
-            console.warn('[ActionRail] Search state fallback failed', error);
-          }
-        }
-        if (!hexmap || !campaignId || !actorRef) {
-          this.appendChatLine('System', 'Search requires an active campaign room and character.', 'system');
+        ).trim();
+        if (!hexmap || !campaignId) {
+          this.appendChatLine('System', 'Search requires an active campaign room.', 'system');
           return;
         }
+
+        const characterId = Number.parseInt(
+          String(context.characterId || runtimeContext.characterId || ''),
+          10
+        );
 
         const response = await fetch(`/api/game/${campaignId}/action`, {
           method: 'POST',
@@ -5482,6 +5468,7 @@ import { SpriteService } from './SpriteService.js';
             actor: actorRef,
             params: {
               search_mode: 'explicit',
+              ...(Number.isFinite(characterId) && characterId > 0 ? { character_id: characterId } : {}),
             },
           }),
         });
