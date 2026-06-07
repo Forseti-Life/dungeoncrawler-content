@@ -15,7 +15,7 @@ import {
   getActionRailDirectRoute,
   getServerActionIdForExecute,
   isActionRailSelectableAction,
-  resolveActionRailCategory,
+  resolveActionRailCategory as resolveContractActionRailCategory,
 } from '../contracts/action-rail-contract.js';
 
 function resolveSkillEntry(state, skillName) {
@@ -96,6 +96,7 @@ export class ActionRailPanel {
     this.navigateLocationsCampaignId = null;
     this.navigateLocationsInflight = null;
     this._actionRailRequestSequence = 0;
+    this._domListeners = [];
   }
 
   buildRestActionRailPanel(context) {
@@ -203,6 +204,7 @@ export class ActionRailPanel {
   destroy() {
     this._unsubs.forEach((fn) => fn());
     this._unsubs = [];
+    this.teardownActionRailDomListeners();
     if (this._actionRailRealtimeTimer) clearInterval(this._actionRailRealtimeTimer);
     if (this.actionRailRealClockTimer) clearInterval(this.actionRailRealClockTimer);
   }
@@ -233,20 +235,19 @@ export class ActionRailPanel {
         this.updateActionRailClocks();
       }, 1000);
     }
-    if (!categories || categories.dataset.bound === 'true') {
+    if (!categories) {
       this.refreshActionRail();
       return;
     }
+    this.teardownActionRailDomListeners();
 
-    if (automationToggle && automationToggle.dataset.bound !== 'true') {
-      automationToggle.dataset.bound = 'true';
-      automationToggle.addEventListener('click', () => {
+    if (automationToggle) {
+      this.bindActionRailDomListener(automationToggle, 'click', () => {
         this.handleActionRailAutomationToggle();
       });
     }
 
-    categories.dataset.bound = 'true';
-    categories.addEventListener('click', (event) => {
+    this.bindActionRailDomListener(categories, 'click', (event) => {
       const button = event.target instanceof HTMLElement
         ? event.target.closest('[data-action-rail-category]')
         : null;
@@ -259,10 +260,9 @@ export class ActionRailPanel {
         return;
       }
 
-      this.activeActionRailCategory = resolveActionRailCategory(category, this.activeActionRailCategory);
-      this.refreshActionRail();
+      this.setActiveActionRailCategory(category, { refresh: true });
     });
-    categories.addEventListener('keydown', (event) => {
+    this.bindActionRailDomListener(categories, 'keydown', (event) => {
       const target = event.target instanceof HTMLElement
         ? event.target.closest('[data-action-rail-category]')
         : null;
@@ -296,13 +296,11 @@ export class ActionRailPanel {
       if (!nextCategory) {
         return;
       }
-      nextButton.focus();
-      this.activeActionRailCategory = resolveActionRailCategory(nextCategory, this.activeActionRailCategory);
-      this.refreshActionRail();
+      this.setActiveActionRailCategory(nextCategory, { refresh: true, focus: true });
     });
 
     if (panelBody) {
-      panelBody.addEventListener('click', (event) => {
+      this.bindActionRailDomListener(panelBody, 'click', (event) => {
         const toggle = event.target instanceof HTMLElement
           ? event.target.closest('[data-action-rail-toggle-descriptions]')
           : null;
@@ -319,7 +317,7 @@ export class ActionRailPanel {
         }
         this.handleActionRailPanelAction(button);
       });
-      panelBody.addEventListener('input', (event) => {
+      this.bindActionRailDomListener(panelBody, 'input', (event) => {
         const input = event.target instanceof HTMLElement
           ? event.target.closest('[data-action-rail-filter]')
           : null;
@@ -333,6 +331,42 @@ export class ActionRailPanel {
     }
 
     this.refreshActionRail();
+  }
+
+  bindActionRailDomListener(target, type, handler, options = undefined) {
+    if (!target || typeof target.addEventListener !== 'function') {
+      return;
+    }
+    target.addEventListener(type, handler, options);
+    this._domListeners.push(() => {
+      target.removeEventListener(type, handler, options);
+    });
+  }
+
+  teardownActionRailDomListeners() {
+    this._domListeners.forEach((unbind) => unbind());
+    this._domListeners = [];
+  }
+
+  resolveActionRailCategory(category = '') {
+    return resolveContractActionRailCategory(category, 'navigate');
+  }
+
+  setActiveActionRailCategory(category, { refresh = true, focus = false } = {}) {
+    const resolvedCategory = this.resolveActionRailCategory(category);
+    this.activeActionRailCategory = resolvedCategory;
+
+    if (focus) {
+      const categories = this._el.actionRailCategories;
+      const nextButton = categories?.querySelector?.(`[data-action-rail-category="${resolvedCategory}"]`);
+      if (nextButton instanceof HTMLButtonElement) {
+        nextButton.focus();
+      }
+    }
+
+    if (refresh) {
+      this.refreshActionRail();
+    }
   }
 
   refreshActionRail() {
@@ -392,7 +426,7 @@ export class ActionRailPanel {
       nextButton.classList.toggle('action-rail__category--active', isActive);
     });
 
-    this.activeActionRailCategory = resolveActionRailCategory(this.activeActionRailCategory, 'navigate');
+    this.activeActionRailCategory = this.resolveActionRailCategory(this.activeActionRailCategory);
 
     const panel = this.buildActionRailPanel(this.activeActionRailCategory, context);
     if (panelTitle) {
@@ -656,7 +690,7 @@ export class ActionRailPanel {
   }
 
   buildActionRailPanel(category, context) {
-    const resolvedCategory = resolveActionRailCategory(category, 'navigate');
+    const resolvedCategory = this.resolveActionRailCategory(category);
     const builders = {
       turn: () => this.buildTurnActionRailPanel(context),
       navigate: () => this.buildNavigateActionRailPanel(context),
@@ -710,7 +744,7 @@ export class ActionRailPanel {
     if (!panelBody || !this.activeActionRailCategory) {
       return;
     }
-    const category = resolveActionRailCategory(this.activeActionRailCategory, 'navigate');
+    const category = this.resolveActionRailCategory(this.activeActionRailCategory);
     const entries = Array.from(panelBody.querySelectorAll('.action-rail__entry'));
     const groups = Array.from(panelBody.querySelectorAll('.action-rail__group'));
     const standaloneEntries = entries.filter((entry) => !entry.closest('.action-rail__group'));
