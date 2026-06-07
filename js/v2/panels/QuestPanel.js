@@ -178,7 +178,7 @@ export class QuestPanel {
       let nextStep = '';
       const objectiveRows = [];
       for (const phase of phases) {
-        const objectives = flattenQuestObjectives(phase.objectives || []);
+        const objectives = flattenQuestObjectives(phase.objectives || [], { includeCompleted: true });
         objectives.forEach(obj => {
           const merged = mergeObjectiveProgress(obj, objectiveIndex);
           if (merged.hidden && !merged.revealed && !merged.completed) {
