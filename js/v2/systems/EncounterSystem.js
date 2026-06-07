@@ -209,11 +209,9 @@ export class EncounterSystem {
         String(context.characterId || runtimeContext.characterId || ''),
         10
       );
-      const data = await coordinator.api.sendAction('search', actorRef, {
+      const data = await this._sendCoordinatorActionWithResync(coordinator, 'search', actorRef, {
         search_mode: 'explicit',
         ...(Number.isFinite(characterId) && characterId > 0 ? { character_id: characterId } : {}),
-      }, {
-        stateVersion: coordinator.phaseManager?.stateVersion,
       });
       if (!data?.success) {
         this._appendChatLine('System', data?.error || data?.result?.error || 'Unable to search this room.', 'system');
@@ -252,9 +250,7 @@ export class EncounterSystem {
         target_id: button?.dataset?.targetId || actorRef,
       };
 
-      const result = await coordinator.api.sendAction(actionKey, actorRef, params, {
-        stateVersion: coordinator.phaseManager?.stateVersion,
-      });
+      const result = await this._sendCoordinatorActionWithResync(coordinator, actionKey, actorRef, params);
       if (!result?.success) {
         this._appendChatLine('System', result?.error || result?.result?.error || 'Unable to complete that rest activity.', 'system');
         return;
@@ -300,12 +296,10 @@ export class EncounterSystem {
       if (!actionType) {
         actionType = availableActions.includes('choose_not_to_act') ? 'choose_not_to_act' : 'end_turn';
       }
-      const result = await coordinator.api.sendAction(actionType, actorRef, {
+      const result = await this._sendCoordinatorActionWithResync(coordinator, actionType, actorRef, {
         character_id: context.characterId || null,
         room_id: context.runtimeContext?.roomId || context.hexmap?.resolveActiveRoomId?.() || null,
         reason: actionType === 'choose_not_to_act' ? 'Player chose not to use remaining actions.' : null,
-      }, {
-        stateVersion: coordinator.phaseManager?.stateVersion,
       });
       if (!result?.success) {
         this._appendChatLine('System', result?.error || result?.result?.error || 'Unable to end the current turn.', 'system');
@@ -384,9 +378,8 @@ export class EncounterSystem {
         },
       };
 
-      const result = await coordinator.api.sendAction('strike', context.actorRef, strikeParams, {
+      const result = await this._sendCoordinatorActionWithResync(coordinator, 'strike', context.actorRef, strikeParams, {
         target: targetRef,
-        stateVersion: coordinator.phaseManager?.stateVersion,
       });
 
       if (!result?.success) {
@@ -481,12 +474,10 @@ export class EncounterSystem {
         return;
       }
 
-      const result = await coordinator.api.sendAction('skill', context.actorRef, {
+      const result = await this._sendCoordinatorActionWithResync(coordinator, 'skill', context.actorRef, {
         action_cost: 1,
         skill_name: skillName,
         skill_bonus: Number.isFinite(skillModifier) ? skillModifier : null,
-      }, {
-        stateVersion: coordinator.phaseManager?.stateVersion,
       });
 
       if (!result?.success) {
@@ -563,7 +554,7 @@ export class EncounterSystem {
         return;
       }
 
-      const result = await coordinator.api.sendAction('cast_spell', context.actorRef, {
+      const result = await this._sendCoordinatorActionWithResync(coordinator, 'cast_spell', context.actorRef, {
         action_cost: payload.actionCost,
         spell_id: payload.spellId,
         spell_name: payload.spellName,
@@ -572,8 +563,6 @@ export class EncounterSystem {
         is_focus_spell: payload.isFocusSpell,
         is_cantrip: payload.spellLevel === 0,
         character_id: context.characterId,
-      }, {
-        stateVersion: coordinator.phaseManager?.stateVersion,
       });
 
       if (!result?.success) {
@@ -674,6 +663,54 @@ export class EncounterSystem {
   }
 
   // --- Proxy helpers (UIManager methods now live on panels/bus) ---
+
+  async _sendCoordinatorActionWithResync(coordinator, type, actorRef, params = {}, options = {}) {
+    if (!coordinator?.api) {
+      return { success: false, error: 'Coordinator API unavailable.' };
+    }
+
+    const sendWithCurrentStateVersion = () => coordinator.api.sendAction(type, actorRef, params, {
+      ...options,
+      stateVersion: coordinator.phaseManager?.stateVersion,
+    });
+
+    try {
+      return await sendWithCurrentStateVersion();
+    } catch (error) {
+      const fallbackResult = this._toCoordinatorFailureResult(error);
+      const status = Number(error?.status || 0);
+      const payload = error?.payload && typeof error.payload === 'object' ? error.payload : null;
+      const mismatchError = String(payload?.error || '').toLowerCase().includes('state version mismatch');
+
+      if (status !== 422 || !mismatchError || !payload?.game_state) {
+        return fallbackResult;
+      }
+
+      coordinator.applyAuthoritativeUpdate?.(payload);
+      this.announceGameState(payload.game_state);
+
+      try {
+        return await sendWithCurrentStateVersion();
+      } catch (retryError) {
+        return this._toCoordinatorFailureResult(retryError);
+      }
+    }
+  }
+
+  _toCoordinatorFailureResult(error) {
+    const payload = error?.payload && typeof error.payload === 'object' ? error.payload : null;
+    if (payload) {
+      return {
+        ...payload,
+        success: false,
+        error: String(payload.error || error?.message || 'Request failed.'),
+      };
+    }
+    return {
+      success: false,
+      error: String(error?.message || 'Request failed.'),
+    };
+  }
 
   _beginActionRailRequest(button) {
     return this.shell.panels.actionRail?.beginActionRailRequest(button) ?? false;

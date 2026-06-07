@@ -46,12 +46,30 @@ async function postJson(url, body) {
     credentials: 'include',
     body: JSON.stringify(body || {}),
   });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`POST ${url} failed ${res.status}: ${text}`);
-  }
   const ct = res.headers.get('content-type') || '';
-  return ct.includes('application/json') ? res.json() : {};
+  const raw = await res.text();
+  let parsed = null;
+  if (ct.includes('application/json') && raw) {
+    try {
+      parsed = JSON.parse(raw);
+    } catch (_err) {
+      parsed = null;
+    }
+  }
+
+  if (!res.ok) {
+    const detail = (parsed && typeof parsed === 'object')
+      ? JSON.stringify(parsed)
+      : raw;
+    const err = new Error(`POST ${url} failed ${res.status}: ${detail}`);
+    err.status = res.status;
+    if (parsed && typeof parsed === 'object') {
+      err.payload = parsed;
+    }
+    throw err;
+  }
+
+  return ct.includes('application/json') && parsed && typeof parsed === 'object' ? parsed : {};
 }
 
 export class GameCoordinatorApi {
