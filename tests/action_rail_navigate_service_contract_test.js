@@ -23,6 +23,7 @@ function assert(condition, message) {
 }
 
 const serviceSource = fs.readFileSync(path.resolve(__dirname, '../js/v2/services/navigate-location-service.js'), 'utf8');
+const navigatePanelServiceSource = fs.readFileSync(path.resolve(__dirname, '../js/v2/services/action-rail-navigate-panel-service.js'), 'utf8');
 const panelSource = fs.readFileSync(path.resolve(__dirname, '../js/v2/panels/ActionRailPanel.js'), 'utf8');
 const navigationSystemSource = fs.readFileSync(path.resolve(__dirname, '../js/v2/systems/NavigationSystem.js'), 'utf8');
 
@@ -36,10 +37,17 @@ assert(
 );
 
 assert(
-  panelSource.includes("import { fetchVisitedNavigateLocationGroups } from '../services/navigate-location-service.js';")
-    && panelSource.includes('this.navigateLocationsInflight = fetchVisitedNavigateLocationGroups(campaignId)')
-    && !panelSource.includes('fetch(`/api/campaign/${campaignId}/visited-locations`'),
-  'ActionRailPanel uses shared navigate-location service instead of duplicating API fetch logic'
+  navigatePanelServiceSource.includes("import { fetchVisitedNavigateLocationGroups } from './navigate-location-service.js';")
+    && navigatePanelServiceSource.includes('panel.navigateLocationsInflight = fetchVisitedNavigateLocationGroups(campaignId)')
+    && !navigatePanelServiceSource.includes('fetch(`/api/campaign/${campaignId}/visited-locations`'),
+  'navigate panel service owns visited-location preload behavior via shared navigate-location API service'
+);
+
+assert(
+  panelSource.includes("import { buildNavigateActionRailPanel } from '../services/action-rail-navigate-panel-service.js';")
+    && panelSource.includes('navigate: () => buildNavigateActionRailPanel(this, context),')
+    && !panelSource.includes('this.navigateLocationsInflight = fetchVisitedNavigateLocationGroups(campaignId)'),
+  'ActionRailPanel delegates navigate category rendering/preload to the dedicated navigate panel service'
 );
 
 assert(
