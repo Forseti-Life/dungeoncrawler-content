@@ -5439,12 +5439,31 @@ import { SpriteService } from './SpriteService.js';
           || hexmap?.gameCoordinator?.phaseManager?.getSnapshot?.()
           || {};
         const campaignId = runtimeContext.campaignId || hexmap?.resolveCampaignId?.() || null;
-        const actorRef = String(
+        let actorRef = String(
           context.actorRef
           || phaseSnapshot?.actionContract?.actor_id
           || phaseSnapshot?.turn?.entity
           || ''
         ).trim() || null;
+        if (!actorRef && campaignId) {
+          try {
+            const stateResponse = await fetch(`/api/game/${campaignId}/state`, {
+              method: 'GET',
+              headers: {
+                Accept: 'application/json',
+              },
+              credentials: 'include',
+            });
+            const stateData = await stateResponse.json();
+            actorRef = String(
+              stateData?.game_state?.turn?.entity
+              || stateData?.action_contract?.actor_id
+              || ''
+            ).trim() || null;
+          } catch (error) {
+            console.warn('[ActionRail] Search state fallback failed', error);
+          }
+        }
         if (!hexmap || !campaignId || !actorRef) {
           this.appendChatLine('System', 'Search requires an active campaign room and character.', 'system');
           return;

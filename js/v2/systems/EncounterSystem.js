@@ -193,13 +193,25 @@ export class EncounterSystem {
       const phaseSnapshot = context.phaseSnapshot
         || hexmap?.gameCoordinator?.phaseManager?.getSnapshot?.()
         || {};
-      const actorRef = String(
+      let actorRef = String(
         context.actorRef
         || phaseSnapshot?.actionContract?.actor_id
         || phaseSnapshot?.turn?.entity
         || ''
       ).trim() || null;
       const coordinator = hexmap?.gameCoordinator || null;
+      if (!actorRef && coordinator?.api) {
+        try {
+          const fallbackState = await coordinator.api.getState();
+          actorRef = String(
+            fallbackState?.game_state?.turn?.entity
+            || fallbackState?.action_contract?.actor_id
+            || ''
+          ).trim() || null;
+        } catch (error) {
+          console.warn('[EncounterSystem] Search state fallback failed', error);
+        }
+      }
       if (!hexmap || !coordinator?.api || !actorRef) {
         this._appendChatLine('System', 'Search requires an active campaign room and character.', 'system');
         return;

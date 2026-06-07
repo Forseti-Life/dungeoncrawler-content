@@ -50,6 +50,7 @@ assert(
     && hexmapSource.includes('runtimeContext.campaignId || hexmap?.resolveCampaignId?.() || null')
     && hexmapSource.includes('|| phaseSnapshot?.actionContract?.actor_id')
     && hexmapSource.includes('|| phaseSnapshot?.turn?.entity')
+    && hexmapSource.includes('await fetch(`/api/game/${campaignId}/state`')
     && !hexmapSource.includes('explicit_search: true')
     && !hexmapSource.includes('perception_bonus: perceptionBonus')
     && !hexmapSource.includes('searches the room.'),
@@ -118,6 +119,7 @@ assert(
     && encounterSystemSource.includes("coordinator.api.sendAction('search', actorRef, {\n        search_mode: 'explicit',\n      }")
     && encounterSystemSource.includes('|| phaseSnapshot?.actionContract?.actor_id')
     && encounterSystemSource.includes('|| phaseSnapshot?.turn?.entity')
+    && encounterSystemSource.includes('await coordinator.api.getState()')
     && !encounterSystemSource.includes('explicit_search: true')
     && !encounterSystemSource.includes('perception_bonus: perceptionBonus')
     && !encounterSystemSource.includes('searches the room.'),
