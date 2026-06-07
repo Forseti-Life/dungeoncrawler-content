@@ -157,7 +157,7 @@ character-step-8:
 
 # Hex Map with PixiJS + ECS
 hexmap:
-  version: 20260603-hex-indicators-legacy-1
+  version: 20260607-search-actor-contract-1
   js:
     # PixiJS CDN (version locked for stability)
     https://cdn.jsdelivr.net/npm/pixi.js@7.3.2/dist/pixi.min.js: { type: external, minified: true }
@@ -184,7 +184,7 @@ hexmap:
     js/ecs/index.js: { attributes: { type: module } }
     # Main hexmap (loads ECS as module)
     js/SpriteService.js: { attributes: { type: module } }
-    js/hexmap.js: { attributes: { type: module } }
+    js/hexmap-entry.js: { attributes: { type: module } }
   css:
     theme:
       css/hexmap.css: {}
@@ -197,7 +197,7 @@ hexmap:
 # All js/v2/** modules are imported inside hexmap-v2.js (ES module imports);
 # only the entry point is listed here.
 hexmap-v2:
-  version: 20260603-v2-canonical-contracts-3
+  version: 20260607-v2-search-actor-contract-1
   js:
     # PixiJS CDN (version locked — same as hexmap library)
     https://cdn.jsdelivr.net/npm/pixi.js@7.3.2/dist/pixi.min.js: { type: external, minified: true }

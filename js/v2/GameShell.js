@@ -25,15 +25,15 @@ import { HexCanvas } from './canvas/HexCanvas.js';
 import { HexTokenRenderer } from './canvas/HexTokenRenderer.js';
 import { HexFogOfWar } from './canvas/HexFogOfWar.js';
 import { HexInputHandler } from './canvas/HexInputHandler.js';
-import { EncounterSystem } from './systems/EncounterSystem.js?v=20260601-v2-search-framework-2';
+import { EncounterSystem } from './systems/EncounterSystem.js?v=20260607-v2-search-actor-contract-1';
 import { NavigationSystem } from './systems/NavigationSystem.js';
 import { PlayerAutomation } from './systems/PlayerAutomation.js';
 import { QuestSystem } from './systems/QuestSystem.js';
 import { PortraitPanel } from './panels/PortraitPanel.js';
 import { MerchantPanel } from './panels/MerchantPanel.js';
 import { CombatPanel } from './panels/CombatPanel.js';
-import { ActionRailPanel } from './panels/ActionRailPanel.js';
-import { ChatPanel } from './panels/ChatPanel.js?v=20260603-v2-chat-prefix-1';
+import { ActionRailPanel } from './panels/ActionRailPanel.js?v=20260606-v2-action-tabs-3';
+import { ChatPanel } from './panels/ChatPanel.js?v=20260606-v2-prefix-actions-1';
 import { QuestPanel } from './panels/QuestPanel.js';
 import { InventoryPanel } from './panels/InventoryPanel.js';
 import { CharacterPanel } from './panels/CharacterPanel.js';
@@ -41,6 +41,7 @@ import { RoomViewPanel } from './panels/RoomViewPanel.js';
 import { PartyRailPanel } from './panels/PartyRailPanel.js';
 import { StatusPanel } from './panels/StatusPanel.js';
 import { normalizeInventoryState } from './utils/inventory-utils.js';
+import { normalizeQuestSummaryPayload } from './utils/quest-utils.js';
 import { SpriteService } from '../SpriteService.js';
 import {
   EntityManager,
@@ -140,6 +141,135 @@ export class GameShell {
     this._chatHistoryLoaded = false;
     /** @type {string} currently active tab id */
     this.activeGameShellTab = 'map';
+  }
+
+  /**
+   * Refresh quest journal state from the server and emit the canonical summary.
+   *
+   * @returns {Promise<boolean>}
+   *   TRUE when refreshed successfully; otherwise FALSE.
+   */
+  async refreshQuestJournalFromApi() {
+    const campaignId = this.resolveCampaignId();
+    if (!campaignId || typeof fetch !== 'function') {
+      return false;
+    }
+
+    const characterId = Number(this.launchContext?.character_id || 0);
+    const endpoint = characterId > 0
+      ? `/api/campaign/${campaignId}/character/${characterId}/quest-journal`
+      : `/api/campaign/${campaignId}/quest-journal`;
+
+    try {
+      const response = await fetch(endpoint, {
+        method: 'GET',
+        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+        credentials: 'same-origin',
+      });
+      if (!response.ok) {
+        return false;
+      }
+
+      const payload = await response.json().catch(() => null);
+      if (!payload?.success) {
+        return false;
+      }
+
+      if (payload.quest_summary && typeof payload.quest_summary === 'object') {
+        this.questSummary = normalizeQuestSummaryPayload(payload.quest_summary);
+      } else {
+        const tracking = Array.isArray(payload.tracking) ? payload.tracking : [];
+        const active = [];
+        const offers = [];
+        const leads = [];
+        const completed = [];
+        tracking.forEach((row) => {
+          const status = String(row?.status || '').trim().toLowerCase();
+          const completedAt = Number(row?.completed_at || 0);
+          if (status === 'completed' || completedAt > 0) {
+            completed.push(row);
+          } else if (status === 'offered') {
+            offers.push(row);
+          } else if (status === 'lead') {
+            leads.push(row);
+          } else {
+            active.push(row);
+          }
+        });
+        this.questSummary = normalizeQuestSummaryPayload({
+          schema_version: 'quest-summary-v2',
+          location_id: this.resolveActiveRoomId() || '',
+          active,
+          offers,
+          leads,
+          completed,
+          management_tree: [],
+        });
+      }
+
+      this.bus?.emit('quest:progress-updated', { questSummary: this.questSummary });
+      return true;
+    } catch (error) {
+      console.warn('[GameShell] refreshQuestJournalFromApi failed', { campaignId, error });
+      return false;
+    }
+  }
+
+  /**
+   * Apply quest updates from authoritative chat payloads.
+   * First refreshes from quest-journal API; falls back to local merge if needed.
+   *
+   * @param {Array} questUpdates
+   * @returns {Promise<boolean>}
+   */
+  async applyQuestUpdates(questUpdates = []) {
+    if (!Array.isArray(questUpdates) || questUpdates.length === 0) {
+      return false;
+    }
+
+    const refreshed = await this.refreshQuestJournalFromApi();
+    if (refreshed) {
+      return true;
+    }
+
+    if (!this.questSummary || typeof this.questSummary !== 'object') {
+      this.questSummary = { active: [], offers: [], leads: [], completed: [] };
+    }
+    ['active', 'offers', 'leads', 'completed'].forEach((bucket) => {
+      if (!Array.isArray(this.questSummary?.[bucket])) {
+        this.questSummary[bucket] = [];
+      }
+    });
+
+    questUpdates.forEach((q) => {
+      if (!q || typeof q !== 'object') {
+        return;
+      }
+
+      const questKey = String(q.quest_id || q.quest_key || q.id || '').trim();
+      if (!questKey) {
+        return;
+      }
+
+      const status = String(q.status || 'active').trim().toLowerCase();
+      const completedAt = Number(q?.completed_at || 0);
+      const targetBucket = status === 'completed' || completedAt > 0
+        ? 'completed'
+        : (status === 'offered'
+        ? 'offers'
+        : (status === 'lead' ? 'leads' : 'active'));
+      const updated = { ...q, objectives: _flattenQuestObjectives(q) };
+
+      ['active', 'offers', 'leads', 'completed'].forEach((bucket) => {
+        this.questSummary[bucket] = this.questSummary[bucket].filter(
+          (entry) => String(entry?.quest_id || entry?.quest_key || entry?.id || '').trim() !== questKey
+        );
+      });
+      this.questSummary[targetBucket].push(updated);
+    });
+
+    this.bus?.emit('quest:progress-updated', { questSummary: this.questSummary });
+    return true;
   }
 
   /**
@@ -457,11 +587,6 @@ export class GameShell {
     if (!campaignId || !roomId || !message.trim()) return;
     const requestId = `chat-submit-${Date.now()}`;
 
-    // Optimistic echo of the player's line
-    this.bus.emit('chat:message-received', {
-      line: { speaker, message: message.trim(), type: 'say', channel },
-      channel,
-    });
     this.bus.emit('game:backend-request-start', {
       requestId,
       label: 'Waiting for narrator response...',
@@ -497,15 +622,29 @@ export class GameShell {
       if (!result?.success) return;
 
       this.bus.emit('game:server-available');
-      // Emit non-player response lines (GM narration, NPC replies, system)
-      (result.data?.messages ?? []).forEach((msg) => {
-        const type = msg.type ?? 'npc';
-        if (type === 'player') return;
+
+      // Render the server-authoritative player message (no local fabrication).
+      const primary = result.data?.message;
+      if (primary?.speaker && primary?.message) {
         this.bus.emit('chat:message-received', {
           line: {
-            speaker: msg.speaker ?? 'GM',
-            message: msg.message ?? '',
-            type,
+            speaker: primary.speaker,
+            message: primary.message,
+            type: primary.type ?? 'player',
+            channel: primary.channel ?? channel,
+          },
+          channel: primary.channel ?? channel,
+        });
+      }
+
+      // Render any additional server-provided lines (GM narration, NPC replies, system)
+      (result.data?.messages ?? []).forEach((msg) => {
+        if (!msg?.speaker || !msg?.message) return;
+        this.bus.emit('chat:message-received', {
+          line: {
+            speaker: msg.speaker,
+            message: msg.message,
+            type: msg.type ?? 'npc',
             channel: msg.channel ?? channel,
           },
           channel: msg.channel ?? channel,
@@ -515,22 +654,7 @@ export class GameShell {
       // Relay any quest progress updates — merge into local summary and emit full summary
       const questUpdates = result.data?.quest_updates ?? [];
       if (questUpdates.length > 0) {
-        if (!this.questSummary) this.questSummary = { active: [], offers: [], leads: [] };
-        questUpdates.forEach((q) => {
-          const updated = { ...q, objectives: _flattenQuestObjectives(q) };
-          const questKey = q.quest_id ?? q.quest_key ?? q.id ?? null;
-          ['active', 'offers', 'leads'].forEach((bucket) => {
-            if (!Array.isArray(this.questSummary[bucket])) this.questSummary[bucket] = [];
-            if (questKey) {
-              const idx = this.questSummary[bucket].findIndex(
-                (x) => (x?.quest_id ?? x?.quest_key ?? x?.id) === questKey
-              );
-              if (idx >= 0) this.questSummary[bucket][idx] = updated;
-              else if (bucket === 'active') this.questSummary[bucket].push(updated);
-            }
-          });
-        });
-        this.bus.emit('quest:progress-updated', { questSummary: this.questSummary });
+        await this.applyQuestUpdates(questUpdates);
       }
 
       // Notify ChatPanel the turn is complete
@@ -1193,6 +1317,8 @@ export class GameShell {
       getHostileTargets:   (actor) => shell.getHostileTargets(actor),
       hasLineOfSight:      (fromQ, fromR, toQ, toR) => shell.hasLineOfSight(fromQ, fromR, toQ, toR),
       performCombatAction: (options) => shell.performCombatAction(options),
+      applyQuestUpdates: (questUpdates = []) => shell.applyQuestUpdates(questUpdates),
+      refreshQuestJournalFromApi: () => shell.refreshQuestJournalFromApi(),
       // Inner stateManager.get used by ActionRailPanel
       stateManager: {
         get: (key) => shell._getStateValue(key),

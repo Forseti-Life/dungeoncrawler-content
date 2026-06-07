@@ -15,7 +15,7 @@
  * During Phase 10 parallel testing it runs alongside the old hexmap library.
  */
 
-import { GameShell } from './v2/GameShell.js?v=20260603-v2-canonical-contracts-3';
+import { GameShell } from './v2/GameShell.js?v=20260607-v2-search-actor-contract-1';
 
 (function (Drupal, drupalSettings, once) {
   'use strict';
