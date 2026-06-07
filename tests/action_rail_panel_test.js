@@ -24,15 +24,18 @@ function assert(condition, message) {
 
 const panelSource = fs.readFileSync(path.resolve(__dirname, '../js/v2/panels/ActionRailPanel.js'), 'utf8');
 const contractSource = fs.readFileSync(path.resolve(__dirname, '../js/v2/contracts/action-rail-contract.js'), 'utf8');
+const contextServiceSource = fs.readFileSync(path.resolve(__dirname, '../js/v2/services/action-rail-context-service.js'), 'utf8');
 
 console.log('\n=== ActionRailPanel architecture contracts ===');
 
 assert(
-  panelSource.includes('getActionRailContext() {')
-    && panelSource.includes('const phaseSnapshot = hexmap?.gameCoordinator?.phaseManager?.getSnapshot?.() || {};')
-    && panelSource.includes('availableActions: Array.isArray(phaseSnapshot?.availableActions) ? phaseSnapshot.availableActions : [],')
-    && panelSource.includes('actionContract: phaseSnapshot?.actionContract || null,'),
-  'ActionRailPanel context is coordinator-driven and carries canonical availability contract data'
+  panelSource.includes("import { buildActionRailContext } from '../services/action-rail-context-service.js';")
+    && panelSource.includes('getActionRailContext() {')
+    && panelSource.includes('return buildActionRailContext(this.stateManager);')
+    && contextServiceSource.includes('const phaseSnapshot = hexmap?.gameCoordinator?.phaseManager?.getSnapshot?.() || {};')
+    && contextServiceSource.includes('availableActions: Array.isArray(phaseSnapshot?.availableActions) ? phaseSnapshot.availableActions : [],')
+    && contextServiceSource.includes('actionContract: phaseSnapshot?.actionContract || null,'),
+  'ActionRailPanel delegates coordinator-driven context assembly to shared context service'
 );
 
 assert(
