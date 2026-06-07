@@ -1051,6 +1051,7 @@ export class ActionRailPanel {
     const rankGroups = collectSpellRankGroups(spells);
     const runtimeSlots = normalizeDisplayedSpellSlots(context.state?.resources?.spellSlots, spells.slots);
     const entries = [];
+    const spellActionAvailable = !context.encounterActive || this.isServerActionAvailable(context, 'cast_spell');
 
     rankGroups.forEach(({ rank, label, spells: rankSpells }) => {
       rankSpells.forEach((spell) => {
@@ -1075,7 +1076,7 @@ export class ActionRailPanel {
             formatActionRailCost(actionCost),
           ]),
           meta: typeof spell === 'object' ? (spell.description || spell.desc || '') : '',
-          disabled: this.isActionRailExecutionDisabled(actionCost, context, disabled),
+          disabled: this.isActionRailExecutionDisabled(actionCost, context, disabled || !spellActionAvailable),
           dataset: {
             spellId,
             spellName,
@@ -1098,6 +1099,7 @@ export class ActionRailPanel {
 
   buildConsumableActionRailPanel(context) {
     const items = extractConsumableItems(context.state?.inventory || {}, context.state?.equipment || []);
+    const consumeActionAvailable = !context.encounterActive || this.isServerActionAvailable(context, 'consume_item');
     const entries = items.map((item) => {
       const itemId = item.id || item.item_id || item.name || '';
       const quantity = Number(item.quantity || 1);
@@ -1111,7 +1113,7 @@ export class ActionRailPanel {
           formatActionRailCost(actionCost),
         ]),
         meta: item.consumable_stats?.effect || item.effect || item.description || item.desc || '',
-        disabled: this.isActionRailExecutionDisabled(actionCost, context),
+        disabled: this.isActionRailExecutionDisabled(actionCost, context, !consumeActionAvailable),
         dataset: {
           itemId: String(itemId),
           actionCost: String(actionCost),
@@ -1131,6 +1133,7 @@ export class ActionRailPanel {
   buildSkillActionRailPanel(context) {
     const skills = collectCharacterSkillEntries(context.state)
       .sort((a, b) => Number(b.modifier || 0) - Number(a.modifier || 0));
+    const skillActionAvailable = !context.encounterActive || this.isServerActionAvailable(context, 'skill');
     const entries = skills.map((skill) => {
       const modifier = Number(skill.modifier || 0);
       return this.renderActionRailEntry({
@@ -1144,7 +1147,7 @@ export class ActionRailPanel {
         meta: context.encounterActive
           ? 'Resolve this skill directly without using chat.'
           : 'Logs the declared skill action directly in the shell.',
-        disabled: this.isActionRailExecutionDisabled(1, context),
+        disabled: this.isActionRailExecutionDisabled(1, context, !skillActionAvailable),
         dataset: {
           skillName: String(skill.name || ''),
           skillModifier: String(modifier),
@@ -1163,6 +1166,7 @@ export class ActionRailPanel {
 
   buildFeatActionRailPanel(context) {
     const features = context.state?.features || {};
+    const featActionAvailable = !context.encounterActive || this.isServerActionAvailable(context, 'feat');
     const featActions = flattenTooltipBuckets(context.state?.actions?.availableActions?.feat || features?.featEffects?.available_actions || {});
     const fallbackFeats = [
       ...(Array.isArray(features.ancestryFeatures) ? features.ancestryFeatures : []),
@@ -1205,7 +1209,7 @@ export class ActionRailPanel {
       title: entry.title,
       summary: entry.summary,
       meta: entry.meta,
-      disabled: this.isActionRailExecutionDisabled(entry.dataset.actionCost, context),
+      disabled: this.isActionRailExecutionDisabled(entry.dataset.actionCost, context, !featActionAvailable),
       dataset: entry.dataset,
     }));
 
