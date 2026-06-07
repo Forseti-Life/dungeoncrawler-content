@@ -9,6 +9,7 @@ use Drupal\dungeoncrawler_content\Service\AiGmService;
 use Drupal\dungeoncrawler_content\Service\CharacterStateService;
 use Drupal\dungeoncrawler_content\Service\DungeonStateService;
 use Drupal\dungeoncrawler_content\Service\ExplorationPhaseHandler;
+use Drupal\dungeoncrawler_content\Service\NarrationEngine;
 use Drupal\dungeoncrawler_content\Service\NumberGenerationService;
 use Drupal\dungeoncrawler_content\Service\RoomChatService;
 use Drupal\Tests\UnitTestCase;
@@ -54,6 +55,38 @@ class ExplorationPhaseHandlerRoomPerceptionTest extends UnitTestCase {
       'A sour mildew smell rises from the soaked flagstones.',
       $dungeon_data['rooms'][0]['gameplay_state']['revealed_sensory_details']['smell']['detail']
     );
+  }
+
+  /**
+   * @covers ::processIntent
+   */
+  public function testExplicitSearchActionUsesPlusOneBonus(): void {
+    $roller = $this->createMock(NumberGenerationService::class);
+    $roller->expects($this->once())
+      ->method('rollPathfinderDie')
+      ->with(20)
+      ->willReturn(14);
+
+    $handler = $this->buildHandler($roller);
+    $game_state = $this->minimalGameState();
+    $dungeon_data = $this->buildDungeonData();
+    $dungeon_data['rooms'][0]['gameplay_state']['search_dc'] = 16;
+    $dungeon_data['rooms'][0]['gameplay_state']['sensory_details']['smell']['dc'] = 16;
+    $dungeon_data['entities'][0]['stats']['perception'] = 0;
+
+    $response = $handler->processIntent([
+      'type' => 'search',
+      'actor' => 'pc-1',
+      'params' => [
+        'search_mode' => 'explicit',
+      ],
+    ], $game_state, $dungeon_data, 42);
+
+    $this->assertTrue($response['success']);
+    $this->assertSame(['searched' => TRUE], $response['result']);
+    $this->assertSearchMechanicsHidden($response);
+    $this->assertSame('You search the area carefully but do not uncover anything new.', $response['narration']);
+    $this->assertSame([], $dungeon_data['rooms'][0]['gameplay_state']['revealed_sensory_details']);
   }
 
   /**
@@ -149,9 +182,81 @@ class ExplorationPhaseHandlerRoomPerceptionTest extends UnitTestCase {
     $this->assertTrue($response['success']);
     $this->assertSame(['searched' => TRUE], $response['result']);
     $this->assertSearchMechanicsHidden($response);
-    $this->assertSame([], $response['events']);
-    $this->assertNull($response['narration']);
+    $this->assertCount(1, $response['events']);
+    $this->assertSame('search', (string) ($response['events'][0]['type'] ?? ''));
+    $this->assertSame([], $response['events'][0]['data']['discoveries'] ?? []);
+    $this->assertSame('You search the area carefully but do not uncover anything new.', $response['narration']);
     $this->assertSame([], $dungeon_data['rooms'][0]['gameplay_state']['revealed_sensory_details']);
+  }
+
+  /**
+   * @covers ::processIntent
+   */
+  public function testSearchUsesActorPerceptionModifier(): void {
+    $roller = $this->createMock(NumberGenerationService::class);
+    $roller->expects($this->once())
+      ->method('rollPathfinderDie')
+      ->with(20)
+      ->willReturn(12);
+
+    $handler = $this->buildHandler($roller);
+    $game_state = $this->minimalGameState();
+    $dungeon_data = $this->buildDungeonData();
+    $dungeon_data['entities'][0]['stats']['perception'] = 4;
+
+    $response = $handler->processIntent([
+      'type' => 'search',
+      'actor' => 'pc-1',
+      'params' => [
+        'search_mode' => 'explicit',
+      ],
+    ], $game_state, $dungeon_data, 42);
+
+    $this->assertTrue($response['success']);
+    $this->assertSearchMechanicsHidden($response);
+    $this->assertStringContainsString('A sour mildew smell rises from the soaked flagstones.', (string) $response['narration']);
+    $this->assertArrayHasKey('smell', $dungeon_data['rooms'][0]['gameplay_state']['revealed_sensory_details']);
+  }
+
+  /**
+   * @covers ::processIntent
+   */
+  public function testRoomEntryAutoSearchUsesActorPerceptionModifier(): void {
+    $roller = $this->createMock(NumberGenerationService::class);
+    $roller->expects($this->exactly(2))
+      ->method('rollPathfinderDie')
+      ->with(20)
+      ->willReturnOnConsecutiveCalls(9, 1);
+
+    $handler = $this->buildHandler($roller);
+    $game_state = $this->minimalGameState();
+    $dungeon_data = $this->buildDungeonData();
+    unset($dungeon_data['rooms'][0]['gameplay_state']['revealed_sensory_details']);
+    $dungeon_data['entities'][0]['stats']['perception'] = 6;
+    $dungeon_data['active_room_id'] = 'room-0';
+    $dungeon_data['rooms'][] = [
+      'room_id' => 'room-0',
+      'name' => 'Hallway',
+      'description' => 'A blank corridor.',
+      'room_type' => 'corridor',
+      'lighting' => ['level' => 'bright_light'],
+      'terrain' => ['type' => 'stone_floor'],
+      'gameplay_state' => [],
+    ];
+
+    $response = $handler->processIntent([
+      'type' => 'transition',
+      'actor' => 'pc-1',
+      'params' => [
+        'target_room_id' => 'room-1',
+        'entry_hex' => ['q' => 0, 'r' => 0],
+      ],
+    ], $game_state, $dungeon_data, 42);
+
+    $this->assertTrue($response['success']);
+    $this->assertCount(1, $response['result']['sensory_reveals']);
+    $this->assertSame('smell', $response['result']['sensory_reveals'][0]['key']);
+    $this->assertSame('secret_check', $response['result']['sensory_reveals'][0]['source']);
   }
 
   /**
@@ -289,9 +394,101 @@ class ExplorationPhaseHandlerRoomPerceptionTest extends UnitTestCase {
   }
 
   /**
+   * @covers ::processIntent
+   */
+  public function testExplicitSearchQueuesPerceptionMechanicalEvent(): void {
+    $roller = $this->createMock(NumberGenerationService::class);
+    $roller->expects($this->once())
+      ->method('rollPathfinderDie')
+      ->with(20)
+      ->willReturn(14);
+
+    $narration_engine = $this->createMock(NarrationEngine::class);
+    $narration_engine->expects($this->once())
+      ->method('queueRoomEvent')
+      ->with(
+        42,
+        $this->anything(),
+        'room-1',
+        $this->callback(function (array $event): bool {
+          $this->assertSame('skill_check_result', $event['type'] ?? NULL);
+          $this->assertStringContainsString('Search via Perception', (string) ($event['content'] ?? ''));
+          $this->assertStringContainsString('(19 vs DC 15: success)', (string) ($event['content'] ?? ''));
+          $this->assertSame('search', $event['mechanical_data']['action'] ?? NULL);
+          $this->assertSame('perception', $event['mechanical_data']['skill'] ?? NULL);
+          $this->assertSame('explicit', $event['mechanical_data']['check_mode'] ?? NULL);
+          return TRUE;
+        }),
+        $this->isType('array')
+      )
+      ->willReturn([]);
+
+    $handler = $this->buildHandler($roller, $narration_engine);
+    $game_state = $this->minimalGameState();
+    $dungeon_data = $this->buildDungeonData();
+
+    $response = $handler->processIntent([
+      'type' => 'search',
+      'actor' => 'pc-1',
+      'params' => [
+        'search_mode' => 'explicit',
+      ],
+    ], $game_state, $dungeon_data, 42);
+
+    $this->assertTrue($response['success']);
+  }
+
+  /**
+   * @covers ::processIntent
+   */
+  public function testMoveAutoSearchQueuesPerceptionMechanicalEvent(): void {
+    $roller = $this->createMock(NumberGenerationService::class);
+    $roller->expects($this->once())
+      ->method('rollPathfinderDie')
+      ->with(20)
+      ->willReturn(14);
+
+    $narration_engine = $this->createMock(NarrationEngine::class);
+    $narration_engine->expects($this->once())
+      ->method('queueRoomEvent')
+      ->with(
+        42,
+        $this->anything(),
+        'room-1',
+        $this->callback(function (array $event): bool {
+          $this->assertSame('skill_check_result', $event['type'] ?? NULL);
+          $this->assertStringContainsString('Automatic Search via Perception', (string) ($event['content'] ?? ''));
+          $this->assertStringContainsString('(18 vs DC 15: success)', (string) ($event['content'] ?? ''));
+          $this->assertSame('search', $event['mechanical_data']['action'] ?? NULL);
+          $this->assertSame('perception', $event['mechanical_data']['skill'] ?? NULL);
+          $this->assertSame('automatic', $event['mechanical_data']['check_mode'] ?? NULL);
+          return TRUE;
+        }),
+        $this->isType('array')
+      )
+      ->willReturn([]);
+
+    $handler = $this->buildHandler($roller, $narration_engine);
+    $game_state = $this->minimalGameState();
+    $game_state['exploration']['character_activities'] = ['pc-1' => 'search'];
+    $dungeon_data = $this->buildDungeonData();
+    $dungeon_data['rooms'][0]['lighting'] = 'bright';
+
+    $response = $handler->processIntent([
+      'type' => 'move',
+      'actor' => 'pc-1',
+      'params' => [
+        'to_hex' => ['q' => 1, 'r' => 0],
+      ],
+    ], $game_state, $dungeon_data, 42);
+
+    $this->assertTrue($response['success']);
+  }
+
+  /**
    * Builds a handler with the provided dice roller.
    */
-  private function buildHandler(NumberGenerationService $roller): ExplorationPhaseHandler {
+  private function buildHandler(NumberGenerationService $roller, ?NarrationEngine $narration_engine = NULL): ExplorationPhaseHandler {
     $update = $this->createMock(Update::class);
     $update->method('fields')->willReturnSelf();
     $update->method('condition')->willReturnSelf();
@@ -310,7 +507,8 @@ class ExplorationPhaseHandlerRoomPerceptionTest extends UnitTestCase {
       $this->createMock(DungeonStateService::class),
       $this->createMock(CharacterStateService::class),
       $roller,
-      $this->createMock(AiGmService::class)
+      $this->createMock(AiGmService::class),
+      $narration_engine
     );
   }
 

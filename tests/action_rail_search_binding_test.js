@@ -68,10 +68,18 @@ assert(
   'action rail resolves character id from launch/runtime context before character-sheet hydration'
 );
 assert(
-  actionRailPanelSource.includes('handleActionRailDirectAction(actionKey, button = null)')
+  actionRailPanelSource.includes("const contractActorRef = String(phaseSnapshot?.actionContract?.actor_id || '').trim();")
+    && actionRailPanelSource.includes('const hasTurnScopedAction = availableActions.some((entry) => [')
+    && actionRailPanelSource.includes("|| ((hasServerTurn && hasTurnScopedAction && serverTurnEntity) ? serverTurnEntity : '')")
+    && actionRailPanelSource.includes('|| (Boolean(actorRef) && serverTurnEntity === actorRef);')
+    && !actionRailPanelSource.includes('|| !actorRef'),
+  'v2 action rail resolves actorRef from canonical contract/turn context and does not mark missing actorRef as active turn'
+);
+assert(
+  actionRailPanelSource.includes('handleActionRailPanelAction(button)')
     && actionRailPanelSource.includes("this.bus.emit('user:action-selected', { actionKey:")
     && actionRailPanelSource.includes(', button });'),
-  'v2 action rail Search emits the clicked button to the action executor'
+  'v2 action rail emits action-selected with the clicked button for Search and other category actions'
 );
 assert(
   gameShellSource.includes('resolveLaunchCharacterRuntimeContext: () => shell.resolveLaunchCharacterRuntimeContext(),')
@@ -81,9 +89,19 @@ assert(
   'v2 hexmap shim exposes runtime actor context so exploration Search can unlock without ECS combat state'
 );
 assert(
-  hexmapV2Source.includes("./v2/GameShell.js?v=20260603-v2-canonical-contracts-3")
-    && gameShellSource.includes("./systems/EncounterSystem.js?v=20260601-v2-search-framework-2")
-    && gameShellSource.includes("./panels/ChatPanel.js?v=20260603-v2-chat-prefix-1"),
+  gameShellSource.includes('applyQuestUpdates: (questUpdates = []) => shell.applyQuestUpdates(questUpdates),')
+    && gameShellSource.includes('refreshQuestJournalFromApi: () => shell.refreshQuestJournalFromApi(),')
+    && gameShellSource.includes('async refreshQuestJournalFromApi() {')
+    && gameShellSource.includes('async applyQuestUpdates(questUpdates = []) {')
+    && gameShellSource.includes('await this.applyQuestUpdates(questUpdates);')
+    && chatPanelSource.includes('await questHexmap?.applyQuestUpdates?.(result.data.quest_updates);')
+    && chatPanelSource.includes('await questHexmap.refreshQuestJournalFromApi();'),
+  'v2 quest tab refresh flows through hexmap shim quest-journal methods for authoritative updates'
+);
+assert(
+  hexmapV2Source.includes("./v2/GameShell.js?v=")
+    && /\.\/systems\/EncounterSystem\.js\?v=/.test(gameShellSource)
+    && /\.\/panels\/ChatPanel\.js\?v=/.test(gameShellSource),
   'v2 entrypoint cache-busts GameShell imports when action-rail runtime contracts change'
 );
 assert(
@@ -101,13 +119,16 @@ assert(
 );
 assert(
   explorationPhaseSource.includes('protected const SEARCH_MODE_EXPLICIT')
-    && explorationPhaseSource.includes('protected const SEARCH_EXPLICIT_BONUS = 2;')
-    && explorationPhaseSource.includes('protected function resolveSearchPerceptionBonus(array $params): int')
-    && explorationPhaseSource.includes('$perception_rank = self::SEARCH_PROFICIENCY_RANK;')
+    && explorationPhaseSource.includes('protected const SEARCH_MODE_AUTOMATIC')
+    && explorationPhaseSource.includes('protected const SEARCH_EXPLICIT_BONUS = 1;')
+    && explorationPhaseSource.includes('protected function resolveSearchPerceptionBonus(array $params, ?array $actor = NULL): int')
+    && explorationPhaseSource.includes('protected function resolveEntityPerceptionBonus(array $actor): int')
+    && explorationPhaseSource.includes('$perception_rank = $this->resolveSearchPerceptionRank($params, $actor);')
     && explorationPhaseSource.includes('You notice ')
+    && explorationPhaseSource.includes('You search the area carefully but do not uncover anything new.')
     && !explorationPhaseSource.includes('yields no new clues')
     && !explorationPhaseSource.includes('trained senses immediately catch'),
-  'server Search framework uses no passive modifiers, explicit +2, generic discovery narration, and silent misses'
+  'server Search framework uses actor Perception with explicit-search bonus and always returns explicit search feedback'
 );
 assert(
   encounterPhaseSource.includes('$public_discoveries !== [] || (is_string($narration) && trim($narration) !== \'\')')
@@ -122,7 +143,14 @@ assert(
 assert(
   chatPanelSource.includes("if (type === 'search' && typeof event.narration === 'string' && event.narration.trim())")
     && chatPanelSource.includes('message: event.narration.trim()'),
-  'v2 chat renders successful Search discovery events while silent misses remain hidden'
+  'v2 chat renders Search narration events, including explicit no-discovery feedback'
+);
+assert(
+  chatPanelSource.includes("window.addEventListener('dungeoncrawler:game-events', onGameEvents)")
+    && chatPanelSource.includes("window.removeEventListener('dungeoncrawler:game-events', onGameEvents)")
+    && chatPanelSource.includes('this._encounterTranscriptRoomKey')
+    && chatPanelSource.includes('this.renderPersistedEncounterEventHistory();'),
+  'v2 chat consumes authoritative encounter event stream and seeds persisted transcript once per room'
 );
 assert(
   encounterSystemSource.includes("this.bus.on('combat:round-changed', (d) => this.announceRoundChange(d))")
@@ -148,11 +176,14 @@ assert(
   'v2 action rail and chat requests emit backend wait lifecycle events'
 );
 assert(
-  actionRailPanelSource.includes("this.bus.emit('user:end-turn', { button })")
+  actionRailPanelSource.includes('getActionRailDirectRoute(actionType, button)')
+    && actionRailPanelSource.includes("return { event: 'user:end-turn', payload: { button, actionType } };")
+    && actionRailPanelSource.includes('const directRoute = this.getActionRailDirectRoute(actionType, button);')
     && encounterSystemSource.includes("this.bus.on('user:end-turn',     (d) => this.endCurrentTurn(d))")
-    && encounterSystemSource.includes(": 'end_turn'")
+    && encounterSystemSource.includes("const requestedActionType = String(data?.actionType || '').trim().toLowerCase();")
+    && encounterSystemSource.includes("actionType = availableActions.includes('choose_not_to_act') ? 'choose_not_to_act' : 'end_turn';")
     && encounterSystemSource.includes('async endCurrentTurn(data = {})'),
-  'v2 End Turn uses the server game-action API instead of the legacy shim recursion path'
+  'v2 End Turn uses the server game-action API and honors explicit turn action types from the action rail'
 );
 
 console.log('\n===================================');

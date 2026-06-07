@@ -59,7 +59,8 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
   protected const ROOM_ENTRY_NARRATOR_PITCH = -6.0;
   protected const ROOM_ENTRY_NARRATOR_VOLUME_GAIN_DB = 2.0;
   protected const SEARCH_MODE_EXPLICIT = 'explicit';
-  protected const SEARCH_EXPLICIT_BONUS = 2;
+  protected const SEARCH_MODE_AUTOMATIC = 'automatic';
+  protected const SEARCH_EXPLICIT_BONUS = 1;
   protected const SEARCH_PASSIVE_BONUS = 0;
   protected const SEARCH_PROFICIENCY_RANK = 0;
 
@@ -319,6 +320,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
     $events = [];
     $phase_transition = NULL;
     $narration = NULL;
+    $mechanical_result = NULL;
 
     switch ($type) {
 
@@ -364,6 +366,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
 
       case 'search':
         $result = $this->processSearch($actor_id, $params, $game_state, $dungeon_data, $campaign_id);
+        $mechanical_result = $result;
         $mutations = $result['mutations'] ?? [];
         $narration = $result['narration'] ?? NULL;
         // Searching advances time by 10 minutes.
@@ -1583,7 +1586,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
       'type' => $type,
       'actor_id' => $actor_id,
       'params' => $params,
-      'result' => $result,
+      'result' => is_array($mechanical_result) ? $mechanical_result : $result,
     ]);
 
     return [
@@ -1732,7 +1735,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
 
     // AC-002: While Searching, each hex moved (≈ 10 ft) triggers a Perception check.
     if ($activity === 'search') {
-      $perception_bonus = $entity['stats']['perception'] ?? ($entity['state']['skills']['perception'] ?? 0);
+      $perception_bonus = $this->resolveEntityPerceptionBonus($entity);
       $roll = $this->numberGenerationService->rollPathfinderDie(20);
       $total = $roll + (int) $perception_bonus;
       $room = $this->getActiveRoom($dungeon_data);
@@ -1778,7 +1781,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
     // REQ 2374: Auto-secret Perception vs stealth_dc for non-min-prof hazards on movement.
     // REQ 2377: Passive hazards trigger if undetected on entry.
     $is_searching = ($activity === 'search');
-    $perception_bonus_hz = (int) ($entity['stats']['perception'] ?? ($entity['state']['skills']['perception'] ?? 0));
+    $perception_bonus_hz = $this->resolveEntityPerceptionBonus($entity);
     $perception_rank_hz = 1; // Default Trained; caller should pass actual rank in params.
     if (isset($params['perception_proficiency_rank'])) {
       $perception_rank_hz = (int) $params['perception_proficiency_rank'];
@@ -1845,7 +1848,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
     // Active search → rolls Perception vs detection_dc; passive → auto-fails expert+ snares.
     $snare_location = $params['location_id'] ?? ($game_state['current_location_id'] ?? NULL);
     if ($snare_location !== NULL && !empty($game_state['snares'][$snare_location])) {
-      $perception_bonus_sn = (int) ($entity['stats']['perception'] ?? ($entity['state']['skills']['perception'] ?? 0));
+      $perception_bonus_sn = $this->resolveEntityPerceptionBonus($entity);
       $perception_rank_sn  = (int) ($params['perception_proficiency_rank'] ?? 1);
       $is_searching_sn     = ($activity === 'search');
       $snare_detections    = $this->magicItemService->detectSnareAtHex(
@@ -2001,8 +2004,13 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
    * Process a search action (Perception check to reveal hidden entities).
    */
   public function processSearch(string $actor_id, array $params, array &$game_state, array &$dungeon_data, int $campaign_id): array {
-    $perception_bonus = $this->resolveSearchPerceptionBonus($params);
-    $perception_rank = self::SEARCH_PROFICIENCY_RANK;
+    $requested_mode = strtolower(trim((string) ($params['search_mode'] ?? self::SEARCH_MODE_EXPLICIT)));
+    if ($requested_mode === '') {
+      $requested_mode = self::SEARCH_MODE_EXPLICIT;
+    }
+    $actor = $this->findEntityInDungeon($actor_id, $dungeon_data);
+    $perception_bonus = $this->resolveSearchPerceptionBonus($params, $actor);
+    $perception_rank = $this->resolveSearchPerceptionRank($params, $actor);
     $roll_result = $this->numberGenerationService->rollPathfinderDie(20);
     $total = $roll_result + $perception_bonus;
 
@@ -2064,6 +2072,9 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
       }
     }
     $narration = $this->buildSearchNarration($discoveries, $sensory_result);
+    if ($requested_mode === self::SEARCH_MODE_EXPLICIT && (!is_string($narration) || trim($narration) === '')) {
+      $narration = 'You search the area carefully but do not uncover anything new.';
+    }
 
     return [
       'searched'     => TRUE,
@@ -3572,7 +3583,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
       $gameplay_state['revealed_sensory_details'] = [];
     }
 
-    $perception_bonus = self::SEARCH_PASSIVE_BONUS;
+    $perception_bonus = $this->resolveSearchPerceptionBonus([], is_array($actor) ? $actor : NULL);
     $reveals = [];
     $revealed_from_cache = FALSE;
     $rolled_any = FALSE;
@@ -3766,10 +3777,63 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
   /**
    * Resolve the server-owned Search modifier.
    */
-  protected function resolveSearchPerceptionBonus(array $params): int {
-    return ($params['search_mode'] ?? NULL) === self::SEARCH_MODE_EXPLICIT
+  protected function resolveSearchPerceptionBonus(array $params, ?array $actor = NULL): int {
+    $activity_bonus = ($params['search_mode'] ?? NULL) === self::SEARCH_MODE_EXPLICIT
       ? self::SEARCH_EXPLICIT_BONUS
       : self::SEARCH_PASSIVE_BONUS;
+    return $this->resolveEntityPerceptionBonus($actor ?? []) + $activity_bonus;
+  }
+
+  /**
+   * Resolve the actor's Perception proficiency rank used for search detection gates.
+   */
+  protected function resolveSearchPerceptionRank(array $params, ?array $actor = NULL): int {
+    if (isset($params['perception_proficiency_rank'])) {
+      return (int) $params['perception_proficiency_rank'];
+    }
+    if (isset($params['perception_rank'])) {
+      return (int) $params['perception_rank'];
+    }
+    if (isset($params['proficiency_rank'])) {
+      return (int) $params['proficiency_rank'];
+    }
+    if (is_array($actor)) {
+      if (isset($actor['state']['skills']['perception']['rank'])) {
+        return (int) $actor['state']['skills']['perception']['rank'];
+      }
+      if (isset($actor['stats']['skills']['perception']['rank'])) {
+        return (int) $actor['stats']['skills']['perception']['rank'];
+      }
+    }
+
+    return self::SEARCH_PROFICIENCY_RANK;
+  }
+
+  /**
+   * Resolve a canonical Perception modifier from runtime actor payloads.
+   */
+  protected function resolveEntityPerceptionBonus(array $actor): int {
+    $candidates = [
+      $actor['stats']['perception'] ?? NULL,
+      $actor['state']['skills']['perception'] ?? NULL,
+      $actor['stats']['skills']['perception'] ?? NULL,
+    ];
+
+    foreach ($candidates as $candidate) {
+      if (is_numeric($candidate)) {
+        return (int) $candidate;
+      }
+      if (!is_array($candidate)) {
+        continue;
+      }
+      foreach (['modifier', 'bonus', 'total', 'value'] as $key) {
+        if (isset($candidate[$key]) && is_numeric($candidate[$key])) {
+          return (int) $candidate[$key];
+        }
+      }
+    }
+
+    return 0;
   }
 
   /**
@@ -4240,17 +4304,32 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
     $params = is_array($context['params'] ?? NULL) ? $context['params'] : [];
     $result = is_array($context['result'] ?? NULL) ? $context['result'] : [];
 
-    if (!$this->narrationEngine || in_array($type, ['search', 'attack_hazard'], TRUE)) {
+    if (!$this->narrationEngine || $type === 'attack_hazard') {
       return;
     }
 
-    $dc = isset($result['dc']) && is_numeric($result['dc']) ? (int) $result['dc'] : NULL;
-    $total = NULL;
-    if (isset($result['total']) && is_numeric($result['total'])) {
-      $total = (int) $result['total'];
+    $check_result = $result;
+    $logged_action = $type;
+    $check_mode = 'explicit';
+
+    // While moving with Search activity, the roll is nested under search_on_move.
+    if ($type === 'move' && is_array($result['search_on_move'] ?? NULL)) {
+      $check_result = $result['search_on_move'];
+      $logged_action = 'search';
+      $check_mode = 'automatic';
     }
-    elseif (isset($result['roll']) && is_numeric($result['roll'])) {
-      $total = (int) $result['roll'];
+    elseif ($type === 'search') {
+      $requested_mode = strtolower(trim((string) ($params['search_mode'] ?? 'explicit')));
+      $check_mode = $requested_mode !== '' ? $requested_mode : 'explicit';
+    }
+
+    $dc = isset($check_result['dc']) && is_numeric($check_result['dc']) ? (int) $check_result['dc'] : NULL;
+    $total = NULL;
+    if (isset($check_result['total']) && is_numeric($check_result['total'])) {
+      $total = (int) $check_result['total'];
+    }
+    elseif (isset($check_result['roll']) && is_numeric($check_result['roll'])) {
+      $total = (int) $check_result['roll'];
     }
 
     if ($dc === NULL || $total === NULL) {
@@ -4259,17 +4338,29 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
 
     $actor_entity = $this->findEntityInDungeon($actor_id, $dungeon_data);
     $actor_name = $actor_entity['name'] ?? $actor_id;
-    $degree = isset($result['degree']) && is_string($result['degree']) ? $result['degree'] : 'resolved';
-    $action_label = ucwords(str_replace('_', ' ', $type));
-    $skill_name = $this->resolveMechanicalSkillName($type, $params, $result);
-    $detail_label = $skill_name
-      ? sprintf('%s via %s', $action_label, ucwords(str_replace('_', ' ', $skill_name)))
-      : $action_label;
+    $degree = isset($check_result['degree']) && is_string($check_result['degree']) ? $check_result['degree'] : 'resolved';
+    $skill_name = $this->resolveMechanicalSkillName($logged_action, $params, $check_result);
+    if ($skill_name === NULL && $logged_action === 'search') {
+      $skill_name = 'perception';
+    }
+
+    if ($logged_action === 'search') {
+      $detail_label = $check_mode === 'automatic'
+        ? 'Automatic Search via Perception'
+        : 'Search via Perception';
+    }
+    else {
+      $action_label = ucwords(str_replace('_', ' ', $logged_action));
+      $detail_label = $skill_name
+        ? sprintf('%s via %s', $action_label, ucwords(str_replace('_', ' ', $skill_name)))
+        : $action_label;
+    }
 
     $metadata = [
-      'action' => $type,
+      'action' => $logged_action,
       'skill' => $skill_name,
-      'roll' => isset($result['d20']) && is_numeric($result['d20']) ? (int) $result['d20'] : NULL,
+      'check_mode' => $check_mode,
+      'roll' => isset($check_result['d20']) && is_numeric($check_result['d20']) ? (int) $check_result['d20'] : (isset($check_result['roll']) && is_numeric($check_result['roll']) ? (int) $check_result['roll'] : NULL),
       'total' => $total,
       'dc' => $dc,
       'degree' => $degree,
@@ -4299,6 +4390,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
     }
 
     return match ($type) {
+      'search' => 'perception',
       'squeeze' => 'acrobatics',
       'borrow_arcane_spell' => 'arcana',
       'impersonate', 'lie' => 'deception',
