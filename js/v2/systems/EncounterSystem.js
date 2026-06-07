@@ -31,14 +31,29 @@ export class EncounterSystem {
     this._unsubs.push(
       this.bus.on('user:action-selected', (d) => {
         const key = d?.actionKey;
-        if (key === 'attack')   this.executeDirectAttack(d?.button);
-        if (key === 'spell')    this.executeDirectSpell(d?.button);
-        if (key === 'interact') this.executeDirectInteract(d?.button);
-        if (key === 'search')   this.executeDirectSearch(d?.button);
-        if (key === 'skill')    this.executeDirectSkill(d?.button);
-        if (key === 'feat')     this.executeDirectFeat(d?.button);
-        if (['treat_wounds', 'refocus', 'repair', 'daily_preparations'].includes(key)) {
-          this.executeRestActivity(key, d?.button);
+        switch (key) {
+          case 'attack':
+            this.executeDirectAttack(d?.button);
+            return;
+          case 'spell':
+            this.executeDirectSpell(d?.button);
+            return;
+          case 'interact':
+            this.executeDirectInteract(d?.button);
+            return;
+          case 'search':
+            this.executeDirectSearch(d?.button);
+            return;
+          case 'skill':
+            this.executeDirectSkill(d?.button);
+            return;
+          case 'feat':
+            this.executeDirectFeat(d?.button);
+            return;
+          default:
+            if (['treat_wounds', 'refocus', 'repair', 'daily_preparations'].includes(key)) {
+              this.executeRestActivity(key, d?.button);
+            }
         }
       }),
       this.bus.on('user:combat-start', () => this.startCombat()),
@@ -657,6 +672,12 @@ export class EncounterSystem {
     const context = this._getActionRailContext();
     const featName = button.dataset.featName || 'feat action';
     const actionCost = getActionRailCost(button.dataset.actionCost, 1);
+    const characterId = Number(context.characterId || 0) || 0;
+
+    if (!characterId) {
+      this._appendChatLine('System', 'Feat actions require an active character.', 'system');
+      return;
+    }
 
     if (context.encounterActive && context.actor && context.actorRef) {
       const coordinator = context.hexmap?.gameCoordinator || null;
@@ -669,7 +690,7 @@ export class EncounterSystem {
         action_cost: actionCost,
         feat_id: button.dataset.featId || '',
         feat_name: featName,
-        character_id: context.characterId || null,
+        character_id: characterId,
       });
       if (!result?.success) {
         this._appendChatLine('System', result?.error || result?.result?.error || `Unable to use ${featName}.`, 'system');
@@ -683,7 +704,7 @@ export class EncounterSystem {
     }
 
     const runtimeContext = context.runtimeContext || {};
-    const response = await fetch(`/api/character/${context.characterId}/actions`, {
+    const response = await fetch(`/api/character/${characterId}/actions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

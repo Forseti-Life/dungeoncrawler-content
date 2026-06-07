@@ -37,7 +37,7 @@ assert(
 );
 
 assert(
-  encounterSystemSource.includes("if (key === 'feat')")
+  encounterSystemSource.includes("case 'feat':")
     && encounterSystemSource.includes('this.executeDirectFeat(d?.button);')
     && encounterSystemSource.includes('async executeDirectFeat(button) {')
     && encounterSystemSource.includes("_sendCoordinatorActionWithResync(coordinator, 'feat', context.actorRef, {")
@@ -68,4 +68,3 @@ if (failed > 0) {
   process.exit(1);
 }
 console.log('ALL TESTS PASSED');
-
