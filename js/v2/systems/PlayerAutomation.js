@@ -26,13 +26,7 @@ export class PlayerAutomation {
   }
 
   _subscribe() {
-    this._unsubs.push(
-      this.bus.on('user:action-selected', (d) => {
-        const key = d?.actionKey;
-        if (key === 'consumable') this.executeDirectConsumable(d?.button);
-        if (key === 'feat')       this.executeDirectFeat(d?.button);
-      }),
-    );
+    // Action rail direct executions are owned by EncounterSystem.
   }
 
   applyInitialSectionState(footer, sections) {

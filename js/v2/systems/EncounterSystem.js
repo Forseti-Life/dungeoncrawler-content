@@ -1,9 +1,12 @@
 /**
  * @file systems/EncounterSystem.js
  *
- * Combat participant resolution, attack/spell/skill/search execution.
+ * Combat participant resolution, attack/spell/skill/search/consumable/feat execution.
  * Methods ported verbatim from hexmap.js UIManager.
  */
+
+import { getActionRailCost } from '../utils/action-utils.js';
+import { extractConsumableItems } from '../utils/inventory-utils.js';
 
 export class EncounterSystem {
   constructor(shell, bus) {
@@ -49,6 +52,9 @@ export class EncounterSystem {
             return;
           case 'feat':
             this.executeDirectFeat(d?.button);
+            return;
+          case 'consumable':
+            this.executeDirectConsumable(d?.button);
             return;
           default:
             if (['treat_wounds', 'refocus', 'repair', 'daily_preparations'].includes(key)) {
@@ -734,6 +740,79 @@ export class EncounterSystem {
 
     this._appendChatLine('System', data.action?.summary || `${context.actorLabel} uses ${featName}.`, 'system');
     context.hexmap?.loadCharacterFromApi(context.characterId);
+    } finally {
+      this._endActionRailRequest(button);
+    }
+  }
+
+  async executeDirectConsumable(button) {
+    if (!this._beginActionRailRequest(button)) {
+      return;
+    }
+
+    try {
+    const context = this._getActionRailContext();
+    const hexmap = context.hexmap;
+    const characterId = Number(context.characterId || 0) || 0;
+    const items = extractConsumableItems(context.state?.inventory || {}, context.state?.equipment || []);
+    const item = items.find((entry) => String(entry.id || entry.item_id || entry.name || '') === String(button.dataset.itemId || ''));
+
+    if (!hexmap || !characterId || !item) {
+      this._appendChatLine('System', 'Consumable action requires an active character and valid inventory item.', 'system');
+      return;
+    }
+
+    const actionCost = getActionRailCost(button.dataset.actionCost, 1);
+    const itemLabel = item.name || 'consumable';
+
+    if (context.encounterActive && context.actor && context.actorRef) {
+      const coordinator = hexmap?.gameCoordinator || null;
+      if (!coordinator?.api) {
+        this._appendChatLine('System', 'Consumable actions require an active coordinator session. Refresh the room.', 'system');
+        return;
+      }
+
+      const result = await this._sendCoordinatorActionWithResync(coordinator, 'consume_item', context.actorRef, {
+        action_cost: actionCost,
+        character_id: characterId,
+        item,
+      });
+      if (!result?.success) {
+        this._appendChatLine('System', result?.error || result?.result?.error || `Unable to use ${itemLabel}.`, 'system');
+        return;
+      }
+
+      coordinator.applyAuthoritativeUpdate?.(result);
+      this._appendChatLine('System', result?.result?.summary || `${context.actorLabel} uses ${itemLabel}.`, 'system');
+      hexmap.loadCharacterFromApi(characterId);
+      this._refreshActionRail();
+      return;
+    }
+
+    const runtimeContext = context.runtimeContext || {};
+    const response = await fetch(`/api/character/${characterId}/inventory`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify({
+        action: 'consume',
+        item,
+        campaignId: runtimeContext.campaignId || null,
+        instanceId: runtimeContext.instanceId || null,
+      }),
+    });
+    const data = await response.json();
+    if (!response.ok || !data.success) {
+      this._appendChatLine('System', data.error || `Unable to use ${itemLabel}.`, 'system');
+      return;
+    }
+
+    this._appendChatLine('System', data.actionSummary || `${context.actorLabel} uses ${itemLabel}.`, 'system');
+    hexmap.loadCharacterFromApi(characterId);
     } finally {
       this._endActionRailRequest(button);
     }
