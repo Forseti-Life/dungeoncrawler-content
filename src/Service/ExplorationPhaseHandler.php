@@ -2060,7 +2060,10 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
 
     $sensory_result = $this->resolveRoomSensorySearch($dungeon_data, $total, $params, $search_dc);
     $quest_discovery = NULL;
-    if (in_array($degree, ['critical_success', 'success'], TRUE)) {
+    if (
+      $requested_mode === self::SEARCH_MODE_EXPLICIT
+      && in_array($degree, ['critical_success', 'success'], TRUE)
+    ) {
       $quest_discovery = $this->resolveQuestSearchCollectibleDiscovery($campaign_id, $actor_id, $params, $dungeon_data);
       if ($quest_discovery) {
         $discoveries[] = [
@@ -2233,15 +2236,13 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
 
       $objective = $objective_ref['objective'];
       $target = max(1, (int) ($objective['target_count'] ?? $objective['completion_criteria']['target_count'] ?? 1));
+      $quest_source = (string) ($quest['source_template_id'] ?? $quest_id);
       $current = max(
         (int) ($objective['current'] ?? 0),
-        $this->countCharacterQuestCollectibles($campaign_id, $character_id, (string) ($quest['source_template_id'] ?? $quest_id))
+        $this->countCampaignQuestCollectibles($campaign_id, $quest_source)
       );
-      if ($current >= $target) {
-        continue;
-      }
 
-      return [
+      $quest_target = [
         'quest' => $quest,
         'quest_id' => $quest_id,
         'quest_name' => (string) ($quest['quest_name'] ?? $quest_id),
@@ -2253,6 +2254,15 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
         'current' => $current,
         'progress_exists' => (bool) $progress,
       ];
+
+      if ($current >= $target) {
+        if ((int) ($objective['current'] ?? 0) < $current || !$progress) {
+          $this->syncSearchCollectibleProgress($campaign_id, $character_id, $quest_target, $current);
+        }
+        continue;
+      }
+
+      return $quest_target;
     }
 
     return NULL;
@@ -2385,6 +2395,28 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
   }
 
   /**
+   * Count carried collectibles for a quest association across the campaign.
+   */
+  protected function countCampaignQuestCollectibles(int $campaign_id, string $quest_source): int {
+    $rows = $this->database->select('dc_campaign_item_instances', 'i')
+      ->fields('i', ['state_data', 'quantity'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('location_type', ['carried', 'inventory', 'equipped', 'worn', 'stashed'], 'IN')
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+
+    $count = 0;
+    foreach ($rows as $row) {
+      $state = json_decode((string) ($row['state_data'] ?? '{}'), TRUE);
+      $state = is_array($state) ? $state : [];
+      if ($this->searchItemMatchesQuestSource($state, $quest_source)) {
+        $count += max(1, (int) ($row['quantity'] ?? 1));
+      }
+    }
+    return $count;
+  }
+
+  /**
    * Find the next room item that matches the needed collect quest.
    */
   protected function findNextSearchCollectibleItem(int $campaign_id, string $room_id, array $quest_target): ?array {
@@ -2434,15 +2466,29 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
    * Persist capped quest progress for the Search-awarded collectible.
    */
   protected function recordSearchCollectibleProgress(int $campaign_id, int $character_id, array $quest_target): array {
+    $target = max(1, (int) $quest_target['target']);
+    $next_current = min($target, ((int) $quest_target['current']) + 1);
+    $this->syncSearchCollectibleProgress($campaign_id, $character_id, $quest_target, $next_current);
+
+    return [
+      'current' => $next_current,
+      'target' => $target,
+    ];
+  }
+
+  /**
+   * Persist quest collect progress with a resolved current value.
+   */
+  protected function syncSearchCollectibleProgress(int $campaign_id, int $character_id, array $quest_target, int $resolved_current): void {
     $quest = $quest_target['quest'];
     $quest_id = $quest_target['quest_id'];
     $objective_id = $quest_target['objective_id'];
     $objective_states = $quest_target['objective_states'];
     $target = max(1, (int) $quest_target['target']);
-    $next_current = min($target, ((int) $quest_target['current']) + 1);
+    $current = min($target, max(0, $resolved_current));
     $current_phase = max(1, (int) ($quest_target['current_phase'] ?? 1));
 
-    $this->applySearchCollectibleProgressToStates($objective_states, $objective_id, $next_current, $target);
+    $this->applySearchCollectibleProgressToStates($objective_states, $objective_id, $current, $target);
     if ($this->isSearchQuestPhaseComplete($objective_states, $current_phase) && $this->hasSearchQuestPhase($objective_states, $current_phase + 1)) {
       $current_phase++;
     }
@@ -2483,11 +2529,6 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
         ->condition('quest_id', $quest_id)
         ->execute();
     }
-
-    return [
-      'current' => $next_current,
-      'target' => $target,
-    ];
   }
 
   /**

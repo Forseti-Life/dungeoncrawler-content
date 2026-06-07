@@ -8264,9 +8264,13 @@ function dungeoncrawler_content_update_10078() {
       continue;
     }
 
-    $fields = [
-      'updated_at' => \Drupal::time()->getRequestTime(),
-    ];
+    $fields = [];
+    if ($schema_handler->fieldExists('dc_campaign_quests', 'updated_at')) {
+      $fields['updated_at'] = \Drupal::time()->getRequestTime();
+    }
+    elseif ($schema_handler->fieldExists('dc_campaign_quests', 'updated')) {
+      $fields['updated'] = \Drupal::time()->getRequestTime();
+    }
     if ($location_changed) {
       $fields['location_id'] = $runtime_location_id;
     }
@@ -8285,6 +8289,348 @@ function dungeoncrawler_content_update_10078() {
   }
 
   return t('collect_spellbooks room-id realignment complete. Updated @updated quest row(s).', ['@updated' => $updated]);
+}
+
+/**
+ * Reconcile collect_spellbooks progress from carried inventory totals.
+ */
+function dungeoncrawler_content_update_10079() {
+  $database = \Drupal::database();
+  $schema_handler = $database->schema();
+
+  if (
+    !$schema_handler->tableExists('dc_campaign_quests')
+    || !$schema_handler->tableExists('dc_campaign_quest_progress')
+    || !$schema_handler->tableExists('dc_campaign_item_instances')
+  ) {
+    return t('Quest/progress/item tables are missing; no spellbook progress reconciliation applied.');
+  }
+
+  $quests = $database->select('dc_campaign_quests', 'q')
+    ->fields('q', ['id', 'campaign_id', 'quest_id', 'source_template_id', 'generated_objectives'])
+    ->condition('source_template_id', 'collect_spellbooks')
+    ->execute()
+    ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+
+  $updated_quests = 0;
+  $updated_progress_rows = 0;
+
+  foreach ($quests as $quest) {
+    $campaign_id = (int) ($quest['campaign_id'] ?? 0);
+    $quest_id = trim((string) ($quest['quest_id'] ?? ''));
+    $quest_source = trim((string) ($quest['source_template_id'] ?? $quest_id));
+    if ($campaign_id <= 0 || $quest_id === '' || $quest_source === '') {
+      continue;
+    }
+
+    $inventory_rows = $database->select('dc_campaign_item_instances', 'i')
+      ->fields('i', ['state_data', 'quantity'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('location_type', ['carried', 'inventory', 'equipped', 'worn', 'stashed'], 'IN')
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+
+    $collected_total = 0;
+    foreach ($inventory_rows as $item_row) {
+      $state = json_decode((string) ($item_row['state_data'] ?? '{}'), TRUE);
+      $state = is_array($state) ? $state : [];
+      if (dungeoncrawler_content_item_matches_quest_source($state, $quest_source)) {
+        $collected_total += max(1, (int) ($item_row['quantity'] ?? 1));
+      }
+    }
+
+    $generated = json_decode((string) ($quest['generated_objectives'] ?? '[]'), TRUE);
+    $generated = is_array($generated) ? $generated : [];
+    $target_count = dungeoncrawler_content_collect_target_count($generated, 'collect_books');
+    if ($target_count <= 0) {
+      continue;
+    }
+    $resolved_current = min($target_count, max(0, $collected_total));
+
+    $rewritten_generated = $generated;
+    $generated_changed = dungeoncrawler_content_apply_collect_progress($rewritten_generated, 'collect_books', $resolved_current, $target_count);
+    if ($generated_changed) {
+      $quest_fields = [
+        'generated_objectives' => json_encode($rewritten_generated),
+      ];
+      if ($schema_handler->fieldExists('dc_campaign_quests', 'updated_at')) {
+        $quest_fields['updated_at'] = \Drupal::time()->getRequestTime();
+      }
+      elseif ($schema_handler->fieldExists('dc_campaign_quests', 'updated')) {
+        $quest_fields['updated'] = \Drupal::time()->getRequestTime();
+      }
+
+      $database->update('dc_campaign_quests')
+        ->fields($quest_fields)
+        ->condition('id', (int) $quest['id'])
+        ->execute();
+      $updated_quests++;
+    }
+
+    $progress_rows = $database->select('dc_campaign_quest_progress', 'qp')
+      ->fields('qp', ['id', 'objective_states', 'current_phase'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('quest_id', $quest_id)
+      ->condition('party_id', NULL, 'IS NULL')
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+
+    foreach ($progress_rows as $progress_row) {
+      $states = json_decode((string) ($progress_row['objective_states'] ?? '[]'), TRUE);
+      $states = is_array($states) ? $states : [];
+      $rewritten_states = $states;
+      $states_changed = dungeoncrawler_content_apply_collect_progress($rewritten_states, 'collect_books', $resolved_current, $target_count);
+      if (!$states_changed) {
+        continue;
+      }
+      $database->update('dc_campaign_quest_progress')
+        ->fields([
+          'objective_states' => json_encode($rewritten_states),
+          'last_updated' => \Drupal::time()->getRequestTime(),
+        ])
+        ->condition('id', (int) $progress_row['id'])
+        ->execute();
+      $updated_progress_rows++;
+    }
+  }
+
+  return t(
+    'collect_spellbooks progress reconciliation complete. Updated @quests quest row(s) and @progress progress row(s).',
+    ['@quests' => $updated_quests, '@progress' => $updated_progress_rows]
+  );
+}
+
+/**
+ * Advance collect_spellbooks progress rows to phase 2 when phase 1 is complete.
+ */
+function dungeoncrawler_content_update_10080() {
+  $database = \Drupal::database();
+  $schema_handler = $database->schema();
+
+  if (
+    !$schema_handler->tableExists('dc_campaign_quest_progress')
+    || !$schema_handler->tableExists('dc_campaign_quests')
+  ) {
+    return t('Quest/progress tables are missing; no phase-advance reconciliation applied.');
+  }
+
+  $rows = $database->select('dc_campaign_quest_progress', 'qp')
+    ->fields('qp', ['id', 'campaign_id', 'quest_id', 'current_phase', 'objective_states'])
+    ->execute()
+    ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+
+  $updated = 0;
+  foreach ($rows as $row) {
+    $campaign_id = (int) ($row['campaign_id'] ?? 0);
+    $quest_id = trim((string) ($row['quest_id'] ?? ''));
+    if ($campaign_id <= 0 || $quest_id === '') {
+      continue;
+    }
+
+    $is_collect_spellbooks = (bool) $database->select('dc_campaign_quests', 'q')
+      ->condition('campaign_id', $campaign_id)
+      ->condition('quest_id', $quest_id)
+      ->condition('source_template_id', 'collect_spellbooks')
+      ->countQuery()
+      ->execute()
+      ->fetchField();
+    if (!$is_collect_spellbooks) {
+      continue;
+    }
+
+    $states = json_decode((string) ($row['objective_states'] ?? '[]'), TRUE);
+    $states = is_array($states) ? $states : [];
+    if (
+      !dungeoncrawler_content_is_phase_complete($states, 1)
+      || !dungeoncrawler_content_has_phase($states, 2)
+      || (int) ($row['current_phase'] ?? 1) >= 2
+    ) {
+      continue;
+    }
+
+    $database->update('dc_campaign_quest_progress')
+      ->fields([
+        'current_phase' => 2,
+        'last_updated' => \Drupal::time()->getRequestTime(),
+      ])
+      ->condition('id', (int) $row['id'])
+      ->execute();
+    $updated++;
+  }
+
+  return t('collect_spellbooks phase-advance reconciliation complete. Updated @updated progress row(s).', ['@updated' => $updated]);
+}
+
+/**
+ * Determine whether an item state belongs to a quest source.
+ */
+function dungeoncrawler_content_item_matches_quest_source(array $item_state, string $quest_source): bool {
+  $quest_source = trim($quest_source);
+  if ($quest_source === '') {
+    return FALSE;
+  }
+
+  $candidates = [
+    (string) ($item_state['quest_association'] ?? ''),
+    (string) ($item_state['_spawn']['quest_association'] ?? ''),
+    (string) ($item_state['source_template_id'] ?? ''),
+  ];
+  foreach ((array) ($item_state['tags'] ?? []) as $tag) {
+    $candidates[] = (string) $tag;
+  }
+
+  return in_array($quest_source, array_map('trim', $candidates), TRUE);
+}
+
+/**
+ * Determine whether a quest objective phase exists.
+ */
+function dungeoncrawler_content_has_phase(array $objective_phases, int $phase_number): bool {
+  foreach ($objective_phases as $phase) {
+    if ((int) ($phase['phase'] ?? 0) === $phase_number) {
+      return TRUE;
+    }
+  }
+  return FALSE;
+}
+
+/**
+ * Determine whether every objective in a phase is complete.
+ */
+function dungeoncrawler_content_is_phase_complete(array $objective_phases, int $phase_number): bool {
+  foreach ($objective_phases as $phase) {
+    if ((int) ($phase['phase'] ?? 0) !== $phase_number) {
+      continue;
+    }
+    foreach ((array) ($phase['objectives'] ?? []) as $objective) {
+      if (!dungeoncrawler_content_is_objective_complete($objective)) {
+        return FALSE;
+      }
+    }
+    return TRUE;
+  }
+  return FALSE;
+}
+
+/**
+ * Recursively determine whether an objective and descendants are complete.
+ */
+function dungeoncrawler_content_is_objective_complete($objective): bool {
+  if (!is_array($objective) || empty($objective['completed'])) {
+    return FALSE;
+  }
+  foreach (['objectives', 'children', 'sub_objectives'] as $children_key) {
+    foreach ((array) ($objective[$children_key] ?? []) as $child) {
+      if (!dungeoncrawler_content_is_objective_complete($child)) {
+        return FALSE;
+      }
+    }
+  }
+  return TRUE;
+}
+
+/**
+ * Resolve collect objective target count from objective phases.
+ */
+function dungeoncrawler_content_collect_target_count(array $objective_phases, string $objective_id): int {
+  foreach ($objective_phases as $phase) {
+    if (!is_array($phase)) {
+      continue;
+    }
+    foreach ((array) ($phase['objectives'] ?? []) as $objective) {
+      $target = dungeoncrawler_content_collect_target_count_from_node($objective, $objective_id);
+      if ($target > 0) {
+        return $target;
+      }
+    }
+  }
+  return 0;
+}
+
+/**
+ * Resolve collect target count recursively from one objective node.
+ */
+function dungeoncrawler_content_collect_target_count_from_node($objective, string $objective_id): int {
+  if (!is_array($objective)) {
+    return 0;
+  }
+  if ((string) ($objective['objective_id'] ?? '') === $objective_id) {
+    return max(1, (int) ($objective['target_count'] ?? $objective['completion_criteria']['target_count'] ?? 1));
+  }
+  foreach (['objectives', 'children', 'sub_objectives'] as $children_key) {
+    foreach ((array) ($objective[$children_key] ?? []) as $child) {
+      $target = dungeoncrawler_content_collect_target_count_from_node($child, $objective_id);
+      if ($target > 0) {
+        return $target;
+      }
+    }
+  }
+  return 0;
+}
+
+/**
+ * Apply collect progress recursively to an objective phase payload.
+ */
+function dungeoncrawler_content_apply_collect_progress(array &$objective_phases, string $objective_id, int $current, int $target): bool {
+  $changed = FALSE;
+  foreach ($objective_phases as &$phase) {
+    if (!is_array($phase)) {
+      continue;
+    }
+    if (!is_array($phase['objectives'] ?? NULL)) {
+      continue;
+    }
+    foreach ($phase['objectives'] as &$objective) {
+      if (dungeoncrawler_content_apply_collect_progress_to_node($objective, $objective_id, $current, $target)) {
+        $changed = TRUE;
+      }
+    }
+  }
+  unset($phase);
+  return $changed;
+}
+
+/**
+ * Apply collect progress recursively to one objective node.
+ */
+function dungeoncrawler_content_apply_collect_progress_to_node(array &$objective, string $objective_id, int $current, int $target): bool {
+  $changed = FALSE;
+  if ((string) ($objective['objective_id'] ?? '') === $objective_id) {
+    $resolved_current = min($target, max(0, $current));
+    if ((int) ($objective['current'] ?? -1) !== $resolved_current) {
+      $objective['current'] = $resolved_current;
+      $changed = TRUE;
+    }
+    if ((int) ($objective['target_count'] ?? -1) !== $target) {
+      $objective['target_count'] = $target;
+      $changed = TRUE;
+    }
+    $completed = $resolved_current >= $target;
+    if ((bool) ($objective['completed'] ?? FALSE) !== $completed) {
+      $objective['completed'] = $completed;
+      $changed = TRUE;
+    }
+    if (is_array($objective['completion_criteria'] ?? NULL)) {
+      if ((int) ($objective['completion_criteria']['target_count'] ?? -1) !== $target) {
+        $objective['completion_criteria']['target_count'] = $target;
+        $changed = TRUE;
+      }
+    }
+    return $changed;
+  }
+
+  foreach (['objectives', 'children', 'sub_objectives'] as $children_key) {
+    if (!is_array($objective[$children_key] ?? NULL)) {
+      continue;
+    }
+    foreach ($objective[$children_key] as &$child) {
+      if (is_array($child) && dungeoncrawler_content_apply_collect_progress_to_node($child, $objective_id, $current, $target)) {
+        $changed = TRUE;
+      }
+    }
+  }
+
+  return $changed;
 }
 
 /**
