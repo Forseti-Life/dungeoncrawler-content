@@ -32,7 +32,7 @@ import { QuestSystem } from './systems/QuestSystem.js';
 import { PortraitPanel } from './panels/PortraitPanel.js';
 import { MerchantPanel } from './panels/MerchantPanel.js';
 import { CombatPanel } from './panels/CombatPanel.js';
-import { ActionRailPanel } from './panels/ActionRailPanel.js?v=20260607-v2-action-lifecycle-2';
+import { ActionRailPanel } from './panels/ActionRailPanel.js?v=20260607-v2-action-context-service-2';
 import { ChatPanel } from './panels/ChatPanel.js?v=20260607-v2-chat-wait-indicator-1';
 import { QuestPanel } from './panels/QuestPanel.js?v=20260607-v2-quest-tab-contract-refresh-2';
 import { InventoryPanel } from './panels/InventoryPanel.js';
