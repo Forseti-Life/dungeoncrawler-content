@@ -43,10 +43,10 @@ assert(
 );
 
 assert(
-  navigationSystemSource.includes("import { fetchVisitedNavigateLocationGroups } from '../services/navigate-location-service.js';")
-    && navigationSystemSource.includes('this.navigateLocationsInflight = fetchVisitedNavigateLocationGroups(campaignId)')
-    && !navigationSystemSource.includes('fetch(`/api/campaign/${campaignId}/visited-locations`'),
-  'NavigationSystem uses shared navigate-location service instead of duplicating API fetch logic'
+  !navigationSystemSource.includes("import { fetchVisitedNavigateLocationGroups } from '../services/navigate-location-service.js';")
+    && !navigationSystemSource.includes('ensureNavigateLocationGroups(')
+    && navigationSystemSource.includes("this.bus.on('user:navigate', (d) => this.executeDirectNavigate(d?.button))"),
+  'NavigationSystem owns only navigate execution; visited-location preloading stays in ActionRailPanel'
 );
 
 console.log('\n=============================================');
