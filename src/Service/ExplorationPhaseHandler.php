@@ -2129,7 +2129,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
         ->condition('id', (int) $item_row['id'])
         ->condition('campaign_id', $campaign_id)
         ->condition('location_type', 'room')
-        ->condition('location_ref', $room_id)
+        ->condition('location_ref', (string) ($item_row['location_ref'] ?? $room_id))
         ->execute();
       if ((int) $updated !== 1) {
         throw new \RuntimeException("Search collectible transfer failed for {$item_instance_id}.");
@@ -2204,6 +2204,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
    * Find a collect objective in this room that still needs a Search collectible.
    */
   protected function findNeededSearchCollectibleQuest(int $campaign_id, string $room_id, int $character_id): ?array {
+    $objective_room_ids = $this->resolveSearchObjectiveRoomIds($campaign_id, $room_id);
     $quests = $this->database->select('dc_campaign_quests', 'q')
       ->fields('q')
       ->condition('q.campaign_id', $campaign_id)
@@ -2225,7 +2226,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
         continue;
       }
 
-      $objective_ref = $this->findSearchCollectObjective($objective_states, $room_id);
+      $objective_ref = $this->findSearchCollectObjective($objective_states, $objective_room_ids);
       if (!$objective_ref) {
         continue;
       }
@@ -2273,15 +2274,52 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
   }
 
   /**
+   * Resolve the set of canonical room IDs that represent one room.
+   */
+  protected function resolveSearchObjectiveRoomIds(int $campaign_id, string $room_id): array {
+    $normalized_room_id = trim($room_id);
+    if ($normalized_room_id === '') {
+      return [];
+    }
+
+    $room_ids = [$normalized_room_id];
+    if (!$this->database->schema()->tableExists('dc_campaign_rooms')) {
+      return $room_ids;
+    }
+
+    $query = $this->database->select('dc_campaign_rooms', 'r')
+      ->fields('r', ['room_id', 'source_room_id'])
+      ->condition('campaign_id', $campaign_id);
+    $or = $query->orConditionGroup()
+      ->condition('room_id', $normalized_room_id)
+      ->condition('source_room_id', $normalized_room_id);
+    $rows = $query
+      ->condition($or)
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+
+    foreach ($rows as $row) {
+      foreach (['room_id', 'source_room_id'] as $field) {
+        $candidate = trim((string) ($row[$field] ?? ''));
+        if ($candidate !== '') {
+          $room_ids[] = $candidate;
+        }
+      }
+    }
+
+    return array_values(array_unique($room_ids));
+  }
+
+  /**
    * Find a collect objective for the active room.
    */
-  protected function findSearchCollectObjective(array $objective_states, string $room_id): ?array {
+  protected function findSearchCollectObjective(array $objective_states, array $room_ids): ?array {
     foreach ($objective_states as $phase) {
       if (!is_array($phase)) {
         continue;
       }
       foreach (($phase['objectives'] ?? []) as $objective) {
-        $match = $this->findSearchCollectObjectiveNode($objective, $room_id);
+        $match = $this->findSearchCollectObjectiveNode($objective, $room_ids);
         if ($match) {
           return [
             'phase' => (int) ($phase['phase'] ?? 1),
@@ -2296,20 +2334,24 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
   /**
    * Recursively locate a collect objective in a room.
    */
-  protected function findSearchCollectObjectiveNode($objective, string $room_id): ?array {
+  protected function findSearchCollectObjectiveNode($objective, array $room_ids): ?array {
     if (!is_array($objective)) {
       return NULL;
     }
 
     $type = strtolower((string) ($objective['type'] ?? ''));
     $location = trim((string) ($objective['location_id'] ?? $objective['location'] ?? ''));
-    if ($type === 'collect' && $location === $room_id && empty($objective['completed'])) {
+    if (
+      $type === 'collect'
+      && in_array($location, $room_ids, TRUE)
+      && empty($objective['completed'])
+    ) {
       return $objective;
     }
 
     foreach (['objectives', 'children', 'sub_objectives'] as $children_key) {
       foreach (($objective[$children_key] ?? []) as $child) {
-        $match = $this->findSearchCollectObjectiveNode($child, $room_id);
+        $match = $this->findSearchCollectObjectiveNode($child, $room_ids);
         if ($match) {
           return $match;
         }
@@ -2346,11 +2388,12 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
    * Find the next room item that matches the needed collect quest.
    */
   protected function findNextSearchCollectibleItem(int $campaign_id, string $room_id, array $quest_target): ?array {
+    $room_ids = $this->resolveSearchObjectiveRoomIds($campaign_id, $room_id);
     $rows = $this->database->select('dc_campaign_item_instances', 'i')
       ->fields('i')
       ->condition('campaign_id', $campaign_id)
       ->condition('location_type', 'room')
-      ->condition('location_ref', $room_id)
+      ->condition('location_ref', $room_ids, 'IN')
       ->orderBy('id', 'ASC')
       ->execute()
       ->fetchAll(\PDO::FETCH_ASSOC) ?: [];

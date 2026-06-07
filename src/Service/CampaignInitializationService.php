@@ -131,13 +131,13 @@ class CampaignInitializationService {
         return 0;
       }
 
-      $this->seedStarterQuests($campaign_id, $difficulty, $now);
+      $starter_room_ids = $this->resolveStarterRoomIdentifiers($starter_room);
+      $starter_runtime_room_id = $starter_room_ids['runtime_room_id'];
+      $this->seedStarterQuests($campaign_id, $difficulty, $now, $starter_runtime_room_id);
 
       // 5. Bootstrap hierarchical chat sessions for the campaign.
       //    Include the starter dungeon and tavern room so they get
       //    dedicated sessions from the very start.
-      $starter_room_ids = $this->resolveStarterRoomIdentifiers($starter_room);
-      $starter_runtime_room_id = $starter_room_ids['runtime_room_id'];
 
       $this->bootstrapChatSessions(
         $campaign_id,
@@ -634,7 +634,7 @@ class CampaignInitializationService {
   /**
    * Seed starter quest templates and create initial campaign quests.
    */
-  private function seedStarterQuests(int $campaign_id, string $difficulty, int $now): void {
+  private function seedStarterQuests(int $campaign_id, string $difficulty, int $now, string $starter_runtime_room_id): void {
     if (!$this->database->schema()->tableExists('dungeoncrawler_content_quest_templates')
       || !$this->database->schema()->tableExists('dc_campaign_quests')) {
       return;
@@ -678,7 +678,7 @@ class CampaignInitializationService {
       $context = array_merge([
         'party_level' => 1,
         'difficulty' => $quest_difficulty,
-        'location' => 'tavern_entrance',
+        'location' => trim($starter_runtime_room_id) !== '' ? trim($starter_runtime_room_id) : 'tavern_entrance',
         'location_tags' => ['tavern', 'starting_area'],
       ], $overrides);
 

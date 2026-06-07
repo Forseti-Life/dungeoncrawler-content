@@ -8183,6 +8183,111 @@ function dungeoncrawler_content_update_10077() {
 }
 
 /**
+ * Realign collect_spellbooks quest locations to runtime room IDs.
+ */
+function dungeoncrawler_content_update_10078() {
+  $database = \Drupal::database();
+  $schema_handler = $database->schema();
+
+  if (
+    !$schema_handler->tableExists('dc_campaign_quests')
+    || !$schema_handler->tableExists('dc_campaign_rooms')
+  ) {
+    return t('Quest or campaign room tables are missing; no location realignment applied.');
+  }
+
+  $rows = $database->select('dc_campaign_quests', 'q')
+    ->fields('q', ['id', 'campaign_id', 'location_id', 'generated_objectives', 'quest_data'])
+    ->condition('source_template_id', 'collect_spellbooks')
+    ->execute()
+    ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+
+  $updated = 0;
+  foreach ($rows as $row) {
+    $campaign_id = (int) ($row['campaign_id'] ?? 0);
+    $source_location_id = trim((string) ($row['location_id'] ?? ''));
+    if ($campaign_id <= 0 || $source_location_id === '') {
+      continue;
+    }
+
+    $room_query = $database->select('dc_campaign_rooms', 'r')
+      ->fields('r', ['room_id', 'source_room_id'])
+      ->condition('campaign_id', $campaign_id);
+    $room_or = $room_query->orConditionGroup()
+      ->condition('room_id', $source_location_id)
+      ->condition('source_room_id', $source_location_id);
+    $room_rows = $room_query
+      ->condition($room_or)
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+    if ($room_rows === []) {
+      continue;
+    }
+
+    $runtime_location_id = '';
+    foreach ($room_rows as $room_row) {
+      $room_id = trim((string) ($room_row['room_id'] ?? ''));
+      $source_room_id = trim((string) ($room_row['source_room_id'] ?? ''));
+      if ($source_room_id === $source_location_id && $room_id !== '' && $room_id !== $source_location_id) {
+        $runtime_location_id = $room_id;
+        break;
+      }
+      if ($runtime_location_id === '' && $room_id !== '') {
+        $runtime_location_id = $room_id;
+      }
+    }
+
+    if ($runtime_location_id === '') {
+      continue;
+    }
+
+    $replacements = $runtime_location_id !== $source_location_id
+      ? [$source_location_id => $runtime_location_id]
+      : [];
+
+    $generated_objectives = json_decode((string) ($row['generated_objectives'] ?? '[]'), TRUE);
+    $generated_objectives = is_array($generated_objectives) ? $generated_objectives : [];
+    $rewritten_objectives = $replacements !== []
+      ? dungeoncrawler_content_recursive_replace($generated_objectives, $replacements)
+      : $generated_objectives;
+
+    $quest_data = json_decode((string) ($row['quest_data'] ?? '{}'), TRUE);
+    $quest_data = is_array($quest_data) ? $quest_data : [];
+    $rewritten_quest_data = $replacements !== []
+      ? dungeoncrawler_content_recursive_replace($quest_data, $replacements)
+      : $quest_data;
+
+    $location_changed = $runtime_location_id !== $source_location_id;
+    $objectives_changed = $rewritten_objectives !== $generated_objectives;
+    $quest_data_changed = $rewritten_quest_data !== $quest_data;
+    if (!$location_changed && !$objectives_changed && !$quest_data_changed) {
+      continue;
+    }
+
+    $fields = [
+      'updated_at' => \Drupal::time()->getRequestTime(),
+    ];
+    if ($location_changed) {
+      $fields['location_id'] = $runtime_location_id;
+    }
+    if ($objectives_changed) {
+      $fields['generated_objectives'] = json_encode($rewritten_objectives);
+    }
+    if ($quest_data_changed) {
+      $fields['quest_data'] = json_encode($rewritten_quest_data);
+    }
+
+    $database->update('dc_campaign_quests')
+      ->fields($fields)
+      ->condition('id', (int) $row['id'])
+      ->execute();
+    $updated++;
+  }
+
+  return t('collect_spellbooks room-id realignment complete. Updated @updated quest row(s).', ['@updated' => $updated]);
+}
+
+/**
  * Recursively replace string values within nested arrays.
  *
  * @param mixed $value
