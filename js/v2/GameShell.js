@@ -90,7 +90,7 @@ export class GameShell {
     /** Quest summary payload for initial QuestPanel render */
     this.questSummary = rawSettings.hexmapQuestSummary || {};
 
-    this.currentUserId = Number(rawSettings.userId || 0);
+    this.currentUserId = Number(rawSettings.userId || rawSettings.user?.uid || 0);
     this.activeRoomId =
       this.mapVisualState?.map_meta?.active_room_id ||
       this.launchContext?.room_id ||

@@ -119,9 +119,11 @@ assert(
 );
 assert(
   hexmapV2Source.includes("./v2/GameShell.js?v=")
+    && hexmapV2Source.includes('userId: Number(settings?.user?.uid || settings?.dungeoncrawlerContent?.userId || 0)')
     && /\.\/systems\/EncounterSystem\.js\?v=/.test(gameShellSource)
-    && /\.\/panels\/ChatPanel\.js\?v=/.test(gameShellSource),
-  'v2 entrypoint cache-busts GameShell imports when action-rail runtime contracts change'
+    && /\.\/panels\/ChatPanel\.js\?v=/.test(gameShellSource)
+    && gameShellSource.includes('this.currentUserId = Number(rawSettings.userId || rawSettings.user?.uid || 0);'),
+  'v2 entrypoint cache-busts imports and forwards authenticated user id so coordinator gating stays accurate'
 );
 assert(
   encounterSystemSource.includes("search_mode: 'explicit'")

@@ -15,7 +15,7 @@
  * During Phase 10 parallel testing it runs alongside the old hexmap library.
  */
 
-import { GameShell } from './v2/GameShell.js?v=20260607-v2-search-coordinator-init-1';
+import { GameShell } from './v2/GameShell.js?v=20260607-v2-search-coordinator-init-2';
 
 (function (Drupal, drupalSettings, once) {
   'use strict';
@@ -28,7 +28,11 @@ import { GameShell } from './v2/GameShell.js?v=20260607-v2-search-coordinator-in
       const [wrapper] = once('hexmap-v2', '[data-hexmap-v2]', context);
       if (!wrapper) return;
 
-      activeShell = new GameShell(wrapper, settings?.dungeoncrawlerContent ?? {});
+      const shellSettings = {
+        ...(settings?.dungeoncrawlerContent ?? {}),
+        userId: Number(settings?.user?.uid || settings?.dungeoncrawlerContent?.userId || 0),
+      };
+      activeShell = new GameShell(wrapper, shellSettings);
       activeShell.init();
     },
 
