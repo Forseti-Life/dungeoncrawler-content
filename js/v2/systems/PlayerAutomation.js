@@ -1,7 +1,7 @@
 /**
  * @file systems/PlayerAutomation.js
  *
- * Automated player turn sequencing, consumable/feat execution.
+ * Automated player turn sequencing and deferred room messaging.
  * Methods ported verbatim from hexmap.js UIManager.
  */
 
@@ -46,152 +46,6 @@ export class PlayerAutomation {
     }
 
     footer.dataset.initialStateApplied = 'true';
-  }
-
-  async executeDirectConsumable(button) {
-    if (!this._beginActionRailRequest(button)) {
-      return;
-    }
-
-    try {
-    const context = this._getActionRailContext();
-    const hexmap = context.hexmap;
-    const items = extractConsumableItems(context.state?.inventory || {}, context.state?.equipment || []);
-    const item = items.find((entry) => String(entry.id || entry.item_id || entry.name || '') === String(button.dataset.itemId || ''));
-
-    if (!hexmap || !context.characterId || !item) {
-      return;
-    }
-
-    const actionCost = getActionRailCost(button.dataset.actionCost, 1);
-    const itemLabel = item.name || 'consumable';
-
-    if (context.encounterActive && context.actor && context.actorRef) {
-      const coordinator = hexmap?.gameCoordinator || null;
-      if (!coordinator?.api) {
-        this._appendChatLine('System', 'Consumable actions require an active coordinator session. Refresh the room.', 'system');
-        return;
-      }
-
-      const result = await coordinator.api.sendAction('consume_item', context.actorRef, {
-        action_cost: actionCost,
-        character_id: context.characterId,
-        item,
-      }, {
-        stateVersion: coordinator.phaseManager?.stateVersion,
-      });
-
-      if (!result?.success) {
-        this._appendChatLine('System', result?.error || result?.result?.error || `Unable to use ${itemLabel}.`, 'system');
-        return;
-      }
-
-      coordinator.applyAuthoritativeUpdate?.(result);
-      this._appendChatLine('System', result?.result?.summary || `${context.actorLabel} uses ${itemLabel}.`, 'system');
-      hexmap.loadCharacterFromApi(context.characterId);
-      this._refreshActionRail?.();
-      return;
-    }
-
-    const runtimeContext = context.runtimeContext || {};
-    const response = await fetch(`/api/character/${context.characterId}/inventory`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'X-Requested-With': 'XMLHttpRequest',
-      },
-      credentials: 'include',
-      body: JSON.stringify({
-        action: 'consume',
-        item,
-        campaignId: runtimeContext.campaignId || null,
-        instanceId: runtimeContext.instanceId || null,
-      }),
-    });
-    const data = await response.json();
-    if (!response.ok || !data.success) {
-      this._appendChatLine('System', data.error || `Unable to use ${itemLabel}.`, 'system');
-      return;
-    }
-
-    this._appendChatLine('System', data.actionSummary || `${context.actorLabel} uses ${itemLabel}.`, 'system');
-    hexmap.loadCharacterFromApi(context.characterId);
-    } finally {
-      this._endActionRailRequest(button);
-    }
-  }
-
-  async executeDirectFeat(button) {
-    if (!this._beginActionRailRequest(button)) {
-      return;
-    }
-
-    try {
-    const context = this._getActionRailContext();
-    const featName = button.dataset.featName || 'feat action';
-    const actionCost = getActionRailCost(button.dataset.actionCost, 1);
-
-    if (context.encounterActive && context.actor && context.hexmap && context.actorRef) {
-      const coordinator = context.hexmap?.gameCoordinator || null;
-      if (!coordinator?.api) {
-        this._appendChatLine('System', 'Feat actions require an active coordinator session. Refresh the room.', 'system');
-        return;
-      }
-
-      const result = await coordinator.api.sendAction('feat', context.actorRef, {
-        action_cost: actionCost,
-        feat_id: button.dataset.featId || '',
-        feat_name: featName,
-      }, {
-        stateVersion: coordinator.phaseManager?.stateVersion,
-      });
-
-      if (!result?.success) {
-        this._appendChatLine('System', result?.error || result?.result?.error || `Unable to use ${featName}.`, 'system');
-        return;
-      }
-
-      coordinator.applyAuthoritativeUpdate?.(result);
-      this._appendChatLine('System', result?.result?.summary || `${context.actorLabel} uses ${featName}.`, 'system');
-      this._refreshActionRail?.();
-      return;
-    }
-
-    const runtimeContext = context.runtimeContext || {};
-    const response = await fetch(`/api/character/${context.characterId}/actions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'X-Requested-With': 'XMLHttpRequest',
-      },
-      credentials: 'include',
-      body: JSON.stringify({
-        actionType: 'feat',
-        actionName: featName,
-        summary: `${context.actorLabel} uses ${featName}.`,
-        source: 'action_rail',
-        payload: {
-          featId: button.dataset.featId || '',
-          featName,
-          actionCost,
-        },
-        campaignId: runtimeContext.campaignId || null,
-        instanceId: runtimeContext.instanceId || null,
-      }),
-    });
-    const data = await response.json();
-    if (!response.ok || !data.success) {
-      this._appendChatLine('System', data.error || `Unable to use ${featName}.`, 'system');
-      return;
-    }
-
-    this._appendChatLine('System', data.action?.summary || `${context.actorLabel} uses ${featName}.`, 'system');
-    context.hexmap?.loadCharacterFromApi(context.characterId);
-    } finally {
-      this._endActionRailRequest(button);
-    }
   }
 
   async flushDeferredRoomMessages(campaignId, roomId, characterId = null) {
@@ -253,22 +107,6 @@ export class PlayerAutomation {
   }
 
   // --- Proxy helpers (UIManager methods now live on panels/bus) ---
-
-  _beginActionRailRequest(button) {
-    return this.shell.panels.actionRail?.beginActionRailRequest(button) ?? false;
-  }
-
-  _endActionRailRequest(button) {
-    this.shell.panels.actionRail?.endActionRailRequest(button);
-  }
-
-  _getActionRailContext() {
-    return this.shell.panels.actionRail?.getActionRailContext() ?? {};
-  }
-
-  _refreshActionRail() {
-    this.shell.panels.actionRail?.refreshActionRail?.();
-  }
 
   _appendChatLine(speaker, message, type = 'system') {
     this.bus.emit('chat:system-message', {

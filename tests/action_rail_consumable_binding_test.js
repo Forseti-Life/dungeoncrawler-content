@@ -37,8 +37,9 @@ assert(
 );
 
 assert(
-  encounterSystemSource.includes("case 'consumable':")
-    && encounterSystemSource.includes('this.executeDirectConsumable(d?.button);')
+  encounterSystemSource.includes("consumable: 'executeDirectConsumable'")
+    && encounterSystemSource.includes('const handlerName = ACTION_SELECTION_HANDLERS[key] ||')
+    && encounterSystemSource.includes('this[handlerName](d?.button);')
     && encounterSystemSource.includes('async executeDirectConsumable(button) {')
     && encounterSystemSource.includes('extractConsumableItems(')
     && encounterSystemSource.includes("_sendCoordinatorActionWithResync(coordinator, 'consume_item', context.actorRef, {")
