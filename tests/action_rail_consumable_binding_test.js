@@ -23,6 +23,7 @@ function assert(condition, message) {
 }
 
 const actionRailPanelSource = fs.readFileSync(path.resolve(__dirname, '../js/v2/panels/ActionRailPanel.js'), 'utf8');
+const actionRailContractSource = fs.readFileSync(path.resolve(__dirname, '../js/v2/contracts/action-rail-contract.js'), 'utf8');
 const encounterSystemSource = fs.readFileSync(path.resolve(__dirname, '../js/v2/systems/EncounterSystem.js'), 'utf8');
 const encounterPhaseSource = fs.readFileSync(path.resolve(__dirname, '../src/Service/EncounterPhaseHandler.php'), 'utf8');
 
@@ -30,14 +31,16 @@ console.log('\n=== Action rail Consumable bindings ===');
 
 assert(
   actionRailPanelSource.includes("execute: 'consumable'")
-    && actionRailPanelSource.includes("const actionType = button.dataset.actionRailExecute || '';")
+    && actionRailPanelSource.includes("const actionType = String(button.dataset.actionRailExecute || '').trim();")
+    && actionRailPanelSource.includes('if (isActionRailSelectableAction(actionType)) {')
     && actionRailPanelSource.includes("this.bus.emit('user:action-selected', { actionKey: actionType, button });")
-    && actionRailPanelSource.includes("'consumable',"),
+    && actionRailContractSource.includes("'consumable',"),
   'action rail emits consumable entries through the canonical action-selected bus contract'
 );
 
 assert(
-  encounterSystemSource.includes("consumable: 'executeDirectConsumable'")
+  actionRailContractSource.includes("consumable: 'executeDirectConsumable'")
+    && encounterSystemSource.includes("import { ACTION_SELECTION_HANDLERS, isRestActivityActionKey } from '../contracts/action-rail-contract.js';")
     && encounterSystemSource.includes('const handlerName = ACTION_SELECTION_HANDLERS[key] ||')
     && encounterSystemSource.includes('this[handlerName](d?.button);')
     && encounterSystemSource.includes('async executeDirectConsumable(button) {')

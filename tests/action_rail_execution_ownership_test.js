@@ -24,17 +24,19 @@ function assert(condition, message) {
 
 const encounterSystemSource = fs.readFileSync(path.resolve(__dirname, '../js/v2/systems/EncounterSystem.js'), 'utf8');
 const playerAutomationSource = fs.readFileSync(path.resolve(__dirname, '../js/v2/systems/PlayerAutomation.js'), 'utf8');
+const actionRailContractSource = fs.readFileSync(path.resolve(__dirname, '../js/v2/contracts/action-rail-contract.js'), 'utf8');
 
 console.log('\n=== Action rail execution ownership ===');
 
 assert(
-  encounterSystemSource.includes('const ACTION_SELECTION_HANDLERS = Object.freeze({')
-    && encounterSystemSource.includes("skill: 'executeDirectSkill'")
-    && encounterSystemSource.includes("feat: 'executeDirectFeat'")
-    && encounterSystemSource.includes("consumable: 'executeDirectConsumable'")
+  actionRailContractSource.includes('export const ACTION_SELECTION_HANDLERS = Object.freeze({')
+    && actionRailContractSource.includes("skill: 'executeDirectSkill'")
+    && actionRailContractSource.includes("feat: 'executeDirectFeat'")
+    && actionRailContractSource.includes("consumable: 'executeDirectConsumable'")
+    && encounterSystemSource.includes("import { ACTION_SELECTION_HANDLERS, isRestActivityActionKey } from '../contracts/action-rail-contract.js';")
     && encounterSystemSource.includes('const handlerName = ACTION_SELECTION_HANDLERS[key] ||')
     && encounterSystemSource.includes('this[handlerName](d?.button);'),
-  'EncounterSystem owns direct action execution dispatch through a canonical handler map'
+  'EncounterSystem owns direct action execution dispatch through shared contract mapping'
 );
 
 assert(
