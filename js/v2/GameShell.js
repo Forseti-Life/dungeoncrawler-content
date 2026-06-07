@@ -41,7 +41,7 @@ import { RoomViewPanel } from './panels/RoomViewPanel.js';
 import { PartyRailPanel } from './panels/PartyRailPanel.js';
 import { StatusPanel } from './panels/StatusPanel.js';
 import { normalizeInventoryState } from './utils/inventory-utils.js';
-import { normalizeQuestSummaryPayload } from './utils/quest-utils.js';
+import { normalizeQuestSummaryPayload } from './utils/quest-utils.js?v=20260607-quest-summary-const-4';
 import { SpriteService } from '../SpriteService.js';
 import { GameCoordinator } from '../game-coordinator/GameCoordinator.js?v=20260607-v2-search-coordinator-init-1';
 import {
