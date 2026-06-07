@@ -197,7 +197,7 @@ hexmap:
 # All js/v2/** modules are imported inside hexmap-v2.js (ES module imports);
 # only the entry point is listed here.
 hexmap-v2:
-  version: 20260607-v2-action-navigate-panel-service-1
+  version: 20260607-v2-action-navigate-panel-service-2
   js:
     # PixiJS CDN (version locked — same as hexmap library)
     https://cdn.jsdelivr.net/npm/pixi.js@7.3.2/dist/pixi.min.js: { type: external, minified: true }

@@ -32,16 +32,16 @@ import { QuestSystem } from './systems/QuestSystem.js';
 import { PortraitPanel } from './panels/PortraitPanel.js';
 import { MerchantPanel } from './panels/MerchantPanel.js';
 import { CombatPanel } from './panels/CombatPanel.js';
-import { ActionRailPanel } from './panels/ActionRailPanel.js?v=20260607-v2-action-navigate-panel-service-1';
-import { ChatPanel } from './panels/ChatPanel.js?v=20260606-v2-prefix-actions-1';
-import { QuestPanel } from './panels/QuestPanel.js';
+import { ActionRailPanel } from './panels/ActionRailPanel.js?v=20260607-v2-action-navigate-panel-service-2';
+import { ChatPanel } from './panels/ChatPanel.js?v=20260607-v2-chat-wait-indicator-1';
+import { QuestPanel } from './panels/QuestPanel.js?v=20260607-v2-quest-objective-checkmark-1';
 import { InventoryPanel } from './panels/InventoryPanel.js';
 import { CharacterPanel } from './panels/CharacterPanel.js';
 import { RoomViewPanel } from './panels/RoomViewPanel.js';
 import { PartyRailPanel } from './panels/PartyRailPanel.js';
 import { StatusPanel } from './panels/StatusPanel.js';
 import { normalizeInventoryState } from './utils/inventory-utils.js';
-import { normalizeQuestSummaryPayload } from './utils/quest-utils.js';
+import { normalizeQuestSummaryPayload } from './utils/quest-utils.js?v=20260607-quest-summary-const-4';
 import { SpriteService } from '../SpriteService.js';
 import { GameCoordinator } from '../game-coordinator/GameCoordinator.js?v=20260607-v2-search-coordinator-init-1';
 import {
@@ -482,6 +482,11 @@ export class GameShell {
       }
     });
 
+    // Character/quest UI requests canonical quest journal refresh.
+    this.bus.on('quest:refresh-requested', () => {
+      void this.refreshQuestJournalFromApi();
+    });
+
     this.bus.on('inventory:changed', (ctx) => {
       if (!ctx?.characterId) {
         return;
@@ -560,6 +565,7 @@ export class GameShell {
       const charId = this.launchCharacter?.id ?? this.launchContext?.character_id ?? null;
       console.log('[GameShell] character tab → sheet-requested', { charId });
       if (charId) this.bus.emit('character:sheet-requested', { characterId: charId });
+      void this.refreshQuestJournalFromApi();
     }
   }
 

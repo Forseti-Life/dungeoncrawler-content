@@ -114,6 +114,9 @@ export class CharacterPanel {
         if (tab.dataset.sidebarTab === 'inventory' && this.currentCharacterInventoryContext) {
           this.bus.emit('character:inventory-refresh-requested', this.currentCharacterInventoryContext);
         }
+        if (tab.dataset.sidebarTab === 'quests') {
+          this.bus.emit('quest:refresh-requested', { source: 'character-sidebar-tab' });
+        }
         console.log('[CharacterPanel] sidebar tab clicked', { target: targetId, panelVisible: !!document.getElementById(targetId) && !document.getElementById(targetId).classList.contains('dc-is-hidden') });
       };
       tab.addEventListener('click', handler);
@@ -192,6 +195,9 @@ export class CharacterPanel {
     });
     if (tabId === 'inventory' && this.currentCharacterInventoryContext) {
       this.bus.emit('character:inventory-refresh-requested', this.currentCharacterInventoryContext);
+    }
+    if (tabId === 'quests') {
+      this.bus.emit('quest:refresh-requested', { source: 'character-sidebar-programmatic' });
     }
   }
 
