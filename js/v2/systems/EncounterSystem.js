@@ -190,7 +190,15 @@ export class EncounterSystem {
       const context = this._getActionRailContext();
       const hexmap = context.hexmap;
       const runtimeContext = context.runtimeContext || {};
-      const actorRef = context.actorRef || null;
+      const phaseSnapshot = context.phaseSnapshot
+        || hexmap?.gameCoordinator?.phaseManager?.getSnapshot?.()
+        || {};
+      const actorRef = String(
+        context.actorRef
+        || phaseSnapshot?.actionContract?.actor_id
+        || phaseSnapshot?.turn?.entity
+        || ''
+      ).trim() || null;
       const coordinator = hexmap?.gameCoordinator || null;
       if (!hexmap || !coordinator?.api || !actorRef) {
         this._appendChatLine('System', 'Search requires an active campaign room and character.', 'system');
@@ -276,9 +284,17 @@ export class EncounterSystem {
         return;
       }
 
-      const actionType = Array.isArray(context.availableActions) && context.availableActions.includes('choose_not_to_act')
-        ? 'choose_not_to_act'
-        : 'end_turn';
+      const availableActions = Array.isArray(context.availableActions) ? context.availableActions : [];
+      const requestedActionType = String(data?.actionType || '').trim().toLowerCase();
+      let actionType = (requestedActionType === 'choose_not_to_act' || requestedActionType === 'end_turn')
+        ? requestedActionType
+        : '';
+      if (actionType && availableActions.length > 0 && !availableActions.includes(actionType)) {
+        actionType = '';
+      }
+      if (!actionType) {
+        actionType = availableActions.includes('choose_not_to_act') ? 'choose_not_to_act' : 'end_turn';
+      }
       const result = await coordinator.api.sendAction(actionType, actorRef, {
         character_id: context.characterId || null,
         room_id: context.runtimeContext?.roomId || context.hexmap?.resolveActiveRoomId?.() || null,

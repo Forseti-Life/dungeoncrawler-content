@@ -47,6 +47,9 @@ assert(
 assert(
   hexmapSource.includes("search_mode: 'explicit'")
     && hexmapSource.includes("params: {\n              search_mode: 'explicit',\n            }")
+    && hexmapSource.includes('runtimeContext.campaignId || hexmap?.resolveCampaignId?.() || null')
+    && hexmapSource.includes('|| phaseSnapshot?.actionContract?.actor_id')
+    && hexmapSource.includes('|| phaseSnapshot?.turn?.entity')
     && !hexmapSource.includes('explicit_search: true')
     && !hexmapSource.includes('perception_bonus: perceptionBonus')
     && !hexmapSource.includes('searches the room.'),
@@ -113,6 +116,8 @@ assert(
 assert(
   encounterSystemSource.includes("search_mode: 'explicit'")
     && encounterSystemSource.includes("coordinator.api.sendAction('search', actorRef, {\n        search_mode: 'explicit',\n      }")
+    && encounterSystemSource.includes('|| phaseSnapshot?.actionContract?.actor_id')
+    && encounterSystemSource.includes('|| phaseSnapshot?.turn?.entity')
     && !encounterSystemSource.includes('explicit_search: true')
     && !encounterSystemSource.includes('perception_bonus: perceptionBonus')
     && !encounterSystemSource.includes('searches the room.'),

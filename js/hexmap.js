@@ -5435,8 +5435,16 @@ import { SpriteService } from './SpriteService.js';
         const context = this.getActionRailContext();
         const hexmap = context.hexmap;
         const runtimeContext = context.runtimeContext || {};
-        const campaignId = runtimeContext.campaignId || null;
-        const actorRef = context.actorRef || null;
+        const phaseSnapshot = context.phaseSnapshot
+          || hexmap?.gameCoordinator?.phaseManager?.getSnapshot?.()
+          || {};
+        const campaignId = runtimeContext.campaignId || hexmap?.resolveCampaignId?.() || null;
+        const actorRef = String(
+          context.actorRef
+          || phaseSnapshot?.actionContract?.actor_id
+          || phaseSnapshot?.turn?.entity
+          || ''
+        ).trim() || null;
         if (!hexmap || !campaignId || !actorRef) {
           this.appendChatLine('System', 'Search requires an active campaign room and character.', 'system');
           return;
