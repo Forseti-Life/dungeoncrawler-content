@@ -53,6 +53,11 @@ class QuestTrackerService {
   protected ObjectiveTypeService $objectiveTypeService;
 
   /**
+   * Optional chat-session manager for narrator quest updates.
+   */
+  protected ?ChatSessionManager $chatSessionManager;
+
+  /**
    * Constructs a QuestTrackerService object.
    *
    * @param \Drupal\Core\Database\Connection $database
@@ -67,13 +72,22 @@ class QuestTrackerService {
     LoggerChannelFactoryInterface $logger_factory,
     TimeInterface $time,
     ?StorylineManagerService $storyline_manager = NULL,
-    ?ObjectiveTypeService $objective_type_service = NULL
+    ?ObjectiveTypeService $objective_type_service = NULL,
+    ?ChatSessionManager $chat_session_manager = NULL
   ) {
     $this->database = $database;
     $this->logger = $logger_factory->get('dungeoncrawler_content');
     $this->time = $time;
     $this->storylineManager = $storyline_manager;
     $this->objectiveTypeService = $objective_type_service ?? new ObjectiveTypeService();
+    $this->chatSessionManager = $chat_session_manager;
+    if (
+      $this->chatSessionManager === NULL
+      && \Drupal::hasService('dungeoncrawler_content.chat_session_manager')
+    ) {
+      $candidate = \Drupal::service('dungeoncrawler_content.chat_session_manager');
+      $this->chatSessionManager = $candidate instanceof ChatSessionManager ? $candidate : NULL;
+    }
   }
 
   /**
@@ -206,6 +220,7 @@ class QuestTrackerService {
       $current_phase = (int) $progress_record['current_phase'];
       $progress_character_id = !empty($progress_record['character_id']) ? (int) $progress_record['character_id'] : $character_id;
       $progress_party_id = !empty($progress_record['party_id']) ? (int) $progress_record['party_id'] : NULL;
+      $quest = $this->loadCampaignQuest($campaign_id, $quest_id);
 
       ['updated' => $updated, 'objective_completed' => $objective_completed] = $this->applyObjectiveUpdate(
         $objective_states,
@@ -241,6 +256,9 @@ class QuestTrackerService {
           "Objective completed: $objective_id",
           $character_id
         );
+        if (!empty($quest)) {
+          $this->postQuestObjectiveCompletionNarratorNote($campaign_id, $quest, $objective_id, $progress_character_id);
+        }
       }
 
       $quest_complete = $this->isQuestCompleted($objective_states);
@@ -330,6 +348,9 @@ class QuestTrackerService {
         "Quest completed with outcome: $outcome",
         $character_id
       );
+      if (!$already_completed) {
+        $this->postQuestCompletionNarratorNote($campaign_id, $quest, $character_id);
+      }
 
       $this->logger->info('Completed quest @quest with outcome @outcome', [
         '@quest' => $quest_id,
@@ -354,6 +375,184 @@ class QuestTrackerService {
       $this->logger->error('Failed to complete quest: @error', ['@error' => $e->getMessage()]);
       return ['success' => FALSE, 'error' => $e->getMessage()];
     }
+  }
+
+  /**
+   * Post a narrator note when an objective is completed.
+   */
+  protected function postQuestObjectiveCompletionNarratorNote(int $campaign_id, array $quest, string $objective_id, ?int $character_id): void {
+    $quest_name = trim((string) ($quest['quest_name'] ?? $quest['name'] ?? $quest['quest_id'] ?? 'Quest'));
+    $objective_label = $this->resolveQuestObjectiveNarrationLabel($quest, $objective_id);
+    $message = $objective_label !== ''
+      ? sprintf('Objective completed for %s: %s.', $quest_name, $objective_label)
+      : sprintf('Objective completed for %s.', $quest_name);
+
+    $this->postQuestNarratorNote($campaign_id, $quest, $message, [
+      'event' => 'quest_objective_completed',
+      'quest_id' => (string) ($quest['quest_id'] ?? ''),
+      'objective_id' => $objective_id,
+      'character_id' => $character_id,
+    ]);
+  }
+
+  /**
+   * Post a narrator note when a quest is completed.
+   */
+  protected function postQuestCompletionNarratorNote(int $campaign_id, array $quest, ?int $character_id): void {
+    $quest_name = trim((string) ($quest['quest_name'] ?? $quest['name'] ?? $quest['quest_id'] ?? 'Quest'));
+    $this->postQuestNarratorNote($campaign_id, $quest, sprintf('Quest completed: %s.', $quest_name), [
+      'event' => 'quest_completed',
+      'quest_id' => (string) ($quest['quest_id'] ?? ''),
+      'character_id' => $character_id,
+    ]);
+  }
+
+  /**
+   * Post a narrator quest note to room chat (with system-log fallback).
+   */
+  protected function postQuestNarratorNote(int $campaign_id, array $quest, string $message, array $metadata = []): void {
+    if (!$this->chatSessionManager || $campaign_id <= 0 || trim($message) === '') {
+      return;
+    }
+
+    try {
+      [$dungeon_id, $room_id, $room_name] = $this->resolveQuestNarrationContext($campaign_id, $quest);
+      if ($dungeon_id !== '' && $room_id !== '') {
+        $room_session = $this->chatSessionManager->ensureRoomSession($campaign_id, $dungeon_id, $room_id, $room_name);
+        $this->chatSessionManager->postMessage(
+          (int) ($room_session['id'] ?? 0),
+          $campaign_id,
+          'Narrator',
+          'gm',
+          '',
+          $message,
+          'system',
+          'public',
+          $metadata
+        );
+        return;
+      }
+
+      $this->chatSessionManager->ensureCampaignSessions($campaign_id);
+      $system_log = $this->chatSessionManager->loadSession($this->chatSessionManager->systemLogSessionKey($campaign_id));
+      if (!empty($system_log['id'])) {
+        $this->chatSessionManager->postMessage(
+          (int) $system_log['id'],
+          $campaign_id,
+          'Narrator',
+          'gm',
+          '',
+          $message,
+          'system',
+          'public',
+          $metadata
+        );
+      }
+    }
+    catch (\Throwable $e) {
+      $this->logger->warning('Failed to post quest narrator note: @error', ['@error' => $e->getMessage()]);
+    }
+  }
+
+  /**
+   * Resolve dungeon+room context for quest narrator notes.
+   *
+   * @return array{0:string,1:string,2:string}
+   */
+  protected function resolveQuestNarrationContext(int $campaign_id, array $quest): array {
+    $room_id = trim((string) ($quest['location_id'] ?? ''));
+    $room_name = '';
+    if ($room_id !== '') {
+      $room_row = $this->database->select('dc_campaign_rooms', 'r')
+        ->fields('r', ['name'])
+        ->condition('campaign_id', $campaign_id)
+        ->condition('room_id', $room_id)
+        ->range(0, 1)
+        ->execute()
+        ->fetchAssoc();
+      if (is_array($room_row)) {
+        $room_name = trim((string) ($room_row['name'] ?? ''));
+      }
+    }
+
+    $dungeon_row = $this->database->select('dc_campaign_dungeons', 'd')
+      ->fields('d', ['dungeon_id', 'dungeon_data'])
+      ->condition('campaign_id', $campaign_id)
+      ->orderBy('id', 'DESC')
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    $dungeon_id = is_array($dungeon_row) ? trim((string) ($dungeon_row['dungeon_id'] ?? '')) : '';
+
+    if ($room_id === '' && is_array($dungeon_row)) {
+      $dungeon_data = json_decode((string) ($dungeon_row['dungeon_data'] ?? '{}'), TRUE);
+      if (is_array($dungeon_data)) {
+        $room_id = trim((string) ($dungeon_data['active_room_id'] ?? ''));
+      }
+    }
+
+    if ($room_name === '' && $room_id !== '') {
+      $room_row = $this->database->select('dc_campaign_rooms', 'r')
+        ->fields('r', ['name'])
+        ->condition('campaign_id', $campaign_id)
+        ->condition('room_id', $room_id)
+        ->range(0, 1)
+        ->execute()
+        ->fetchAssoc();
+      if (is_array($room_row)) {
+        $room_name = trim((string) ($room_row['name'] ?? ''));
+      }
+    }
+
+    return [$dungeon_id, $room_id, $room_name];
+  }
+
+  /**
+   * Resolve a display label for a quest objective.
+   */
+  protected function resolveQuestObjectiveNarrationLabel(array $quest, string $objective_id): string {
+    $objective_id = trim($objective_id);
+    if ($objective_id === '') {
+      return '';
+    }
+
+    $phases = json_decode((string) ($quest['objective_states'] ?? $quest['generated_objectives'] ?? '[]'), TRUE);
+    if (!is_array($phases)) {
+      return $objective_id;
+    }
+
+    foreach ($phases as $phase) {
+      if (!is_array($phase)) {
+        continue;
+      }
+      $label = $this->findObjectiveNarrationLabelInNodes((array) ($phase['objectives'] ?? []), $objective_id);
+      if ($label !== '') {
+        return $label;
+      }
+    }
+
+    return $objective_id;
+  }
+
+  /**
+   * Recursively find the best narration label for an objective.
+   */
+  protected function findObjectiveNarrationLabelInNodes(array $nodes, string $objective_id): string {
+    foreach ($nodes as $node) {
+      if (!is_array($node)) {
+        continue;
+      }
+      if ((string) ($node['objective_id'] ?? '') === $objective_id) {
+        return trim((string) ($node['description'] ?? $objective_id));
+      }
+      foreach (['objectives', 'children', 'sub_objectives'] as $children_key) {
+        $label = $this->findObjectiveNarrationLabelInNodes((array) ($node[$children_key] ?? []), $objective_id);
+        if ($label !== '') {
+          return $label;
+        }
+      }
+    }
+    return '';
   }
 
   /**

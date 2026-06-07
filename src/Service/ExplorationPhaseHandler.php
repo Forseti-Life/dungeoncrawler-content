@@ -2060,10 +2060,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
 
     $sensory_result = $this->resolveRoomSensorySearch($dungeon_data, $total, $params, $search_dc);
     $quest_discovery = NULL;
-    if (
-      $requested_mode === self::SEARCH_MODE_EXPLICIT
-      && in_array($degree, ['critical_success', 'success'], TRUE)
-    ) {
+    if (in_array($degree, ['critical_success', 'success'], TRUE)) {
       $quest_discovery = $this->resolveQuestSearchCollectibleDiscovery($campaign_id, $actor_id, $params, $dungeon_data);
       if ($quest_discovery) {
         $discoveries[] = [
