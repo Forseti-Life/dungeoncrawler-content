@@ -47,10 +47,11 @@ assert(
 
 assert(
   actionRailPanelSource.includes("from '../contracts/action-rail-contract.js';")
+    && actionRailPanelSource.includes('resolveActionRailCategory as resolveContractActionRailCategory')
     && actionRailPanelSource.includes('const directRoute = getActionRailDirectRoute(actionType, button);')
     && actionRailPanelSource.includes('if (isActionRailSelectableAction(actionType)) {')
     && actionRailPanelSource.includes("console.warn('[ActionRailPanel] Unsupported panel action:', actionType);")
-    && actionRailPanelSource.includes('resolveActionRailCategory(this.activeActionRailCategory, \'navigate\')'),
+    && actionRailPanelSource.includes('this.resolveActionRailCategory(this.activeActionRailCategory)'),
   'ActionRailPanel consumes shared contract helpers for category resolution and action routing'
 );
 
