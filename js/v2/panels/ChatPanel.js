@@ -1830,6 +1830,7 @@ export class ChatPanel {
       lastProgressSignature: includePlaceholder ? `${placeholderSpeaker}::${placeholderText}` : '',
     };
     this.pendingChatRequests.set(requestId, pending);
+    this.syncPendingChatIndicator?.();
     return pending;
   }
 
@@ -1862,6 +1863,24 @@ export class ChatPanel {
     }
 
     this.pendingChatRequests.delete(pending.requestId);
+    this.syncPendingChatIndicator?.();
+  }
+
+  syncPendingChatIndicator() {
+    const log = this._el?.chatLog || null;
+    if (!log) {
+      return;
+    }
+
+    const hasVisiblePending = Array.from(this.pendingChatRequests.values()).some((pending) => (
+      pending && this.isChatTargetVisible(pending.target)
+    ));
+
+    if (hasVisiblePending) {
+      log.dataset.chatPending = '1';
+    } else {
+      delete log.dataset.chatPending;
+    }
   }
 
   updatePendingChatProgress(pending, text, phase = '', actor = {}) {
@@ -2320,6 +2339,7 @@ export class ChatPanel {
         this.loadSessionViewMessages('room', { channelKey });
       }
     }
+    this.syncPendingChatIndicator?.();
   }
 
   handleNavigationResult(nav) {
@@ -2629,6 +2649,7 @@ export class ChatPanel {
     if (sendBtn) sendBtn.disabled = isReadOnly;
 
     this.loadSessionViewMessages(view);
+    this.syncPendingChatIndicator?.();
   }
 
   renderSessionViewData(view, data) {
