@@ -10,9 +10,11 @@ use Drupal\dungeoncrawler_content\Service\AiGmService;
 use Drupal\dungeoncrawler_content\Service\CombatCalculator;
 use Drupal\dungeoncrawler_content\Service\CombatEncounterStore;
 use Drupal\dungeoncrawler_content\Service\CombatEngine;
+use Drupal\dungeoncrawler_content\Service\CharacterStateService;
 use Drupal\dungeoncrawler_content\Service\ConditionManager;
 use Drupal\dungeoncrawler_content\Service\EncounterAiIntegrationService;
 use Drupal\dungeoncrawler_content\Service\EncounterPhaseHandler;
+use Drupal\dungeoncrawler_content\Service\ExplorationPhaseHandler;
 use Drupal\dungeoncrawler_content\Service\HPManager;
 use Drupal\dungeoncrawler_content\Service\NpcPsychologyService;
 use Drupal\dungeoncrawler_content\Service\NumberGenerationService;
@@ -130,6 +132,31 @@ class EncounterPhaseHandlerTest extends UnitTestCase {
   }
 
   /**
+   * Room-scene actions require complete round/turn/initiative context.
+   *
+   * @covers ::validateIntent
+   */
+  public function testValidateIntentRejectsRoomSceneActionWithIncompleteContext(): void {
+    $handler = $this->buildHandler();
+    $validation = $handler->validateIntent([
+      'type' => 'talk',
+      'actor' => 'char-001',
+      'params' => ['message' => 'Hello'],
+    ], [
+      'encounter_id' => NULL,
+      'encounter_context' => ['room_id' => 'room-a'],
+      'turn' => ['entity' => 'char-001'],
+      // Missing round + initiative_order on purpose.
+    ], []);
+
+    $this->assertFalse($validation['valid']);
+    $this->assertSame(
+      'Encounter room-scene context is incomplete (missing round/turn/initiative).',
+      $validation['reason']
+    );
+  }
+
+  /**
    * Encounter talk delegates to RoomChatService and returns an explicit contract.
    *
    * @covers ::processIntent
@@ -142,19 +169,20 @@ class EncounterPhaseHandlerTest extends UnitTestCase {
       ->with(
         42,
         'room-a',
-        'Hero',
-        'Guide, Hold the doorway.',
+        $this->callback(static fn($speaker): bool => is_string($speaker) && trim($speaker) !== ''),
+        $this->callback(static fn($message): bool => is_string($message) && str_contains($message, 'Guide, Hold the doorway.')),
         'player',
         99,
         'room',
-        FALSE,
+        TRUE,
         FALSE,
         NULL,
-        [
-          'objective_type' => '',
-          'objective_id' => '',
-          'entity_ref' => 'npc-guide',
-        ]
+        $this->callback(static function (array $metadata): bool {
+          return ($metadata['objective_type'] ?? '') === ''
+            && ($metadata['objective_id'] ?? '') === ''
+            && ($metadata['entity_ref'] ?? '') === 'npc-guide'
+            && is_string($metadata['_encounter_prefix'] ?? NULL);
+        })
       )
       ->willReturn([
         'gm_response' => ['message' => 'The guide nods and braces the door.'],
@@ -167,6 +195,7 @@ class EncounterPhaseHandlerTest extends UnitTestCase {
     $handler = $this->buildHandler($room_chat);
     $game_state = [
       'encounter_id' => 42,
+      'phase' => 'encounter',
       'round' => 2,
       'turn' => [
         'entity' => 'char-001',
@@ -201,7 +230,7 @@ class EncounterPhaseHandlerTest extends UnitTestCase {
     ], $game_state, $dungeon_data, 42);
 
     $this->assertTrue($response['success']);
-    $this->assertSame('Guide, Hold the doorway.', $response['result']['message']);
+    $this->assertStringContainsString('Guide, Hold the doorway.', (string) ($response['result']['message'] ?? ''));
     $this->assertSame('The guide nods and braces the door.', $response['result']['gm_response']['message']);
     $this->assertSame(1, $response['result']['state_diff']['situational']['attack_bonus']);
     $this->assertSame('The guide nods and braces the door.', $response['result']['chat_response']['gm_response']['message']);
@@ -212,6 +241,469 @@ class EncounterPhaseHandlerTest extends UnitTestCase {
     $this->assertSame('encounter', $contract['phase']);
     $this->assertContains('talk', $contract['available_actions']);
     $this->assertTrue((bool) array_values(array_filter($contract['actions'], static fn(array $action): bool => $action['id'] === 'talk'))[0]['available']);
+  }
+
+  /**
+   * Room-scene talk spends exactly one action and keeps turn advancement explicit.
+   *
+   * @covers ::processIntent
+   */
+  public function testProcessIntentTalkSpendsSingleActionWithoutAutoEndTurn(): void {
+    $room_chat = $this->createMock(RoomChatService::class);
+    $room_chat->expects($this->once())
+      ->method('postMessage')
+      ->willReturn([
+        'gm_response' => ['message' => 'Eldric nods.'],
+        'npc_interjections' => [],
+        'state_diff' => [],
+        'canonical_actions' => [],
+        'mutations' => [],
+      ]);
+
+    $handler = $this->buildHandler($room_chat);
+    $game_state = [
+      'encounter_id' => NULL,
+      'phase' => 'encounter',
+      'round' => 1,
+      'encounter_context' => ['room_id' => 'room-a'],
+      'turn' => [
+        'entity' => 'pc-1',
+        'index' => 0,
+        'actions_remaining' => 3,
+        'reaction_available' => TRUE,
+      ],
+      'initiative_order' => [
+        ['entity_id' => 'pc-1', 'team' => 'player', 'name' => 'Hero'],
+        ['entity_id' => 'npc-1', 'team' => 'npc', 'name' => 'Eldric'],
+      ],
+    ];
+    $dungeon_data = [
+      'active_room_id' => 'room-a',
+      'entities' => [
+        [
+          'entity_instance_id' => 'pc-1',
+          'entity_type' => 'player_character',
+          'entity_ref' => ['content_id' => 501],
+          'placement' => ['room_id' => 'room-a', 'hex' => ['q' => 0, 'r' => 0]],
+          'state' => ['metadata' => ['display_name' => 'Hero']],
+        ],
+        [
+          'entity_instance_id' => 'npc-1',
+          'entity_type' => 'npc',
+          'entity_ref' => ['content_id' => 'eldric'],
+          'placement' => ['room_id' => 'room-a', 'hex' => ['q' => 1, 'r' => 0]],
+          'state' => ['metadata' => ['display_name' => 'Eldric']],
+        ],
+      ],
+    ];
+
+    $response = $handler->processIntent([
+      'type' => 'talk',
+      'actor' => 'pc-1',
+      'target' => 'npc-1',
+      'params' => ['message' => 'Any work for me?'],
+    ], $game_state, $dungeon_data, 42);
+
+    $this->assertTrue($response['success']);
+    $this->assertSame(1, $game_state['round']);
+    $this->assertSame('pc-1', $game_state['turn']['entity']);
+    $this->assertSame(0, $game_state['turn']['index']);
+    $this->assertSame(2, $game_state['turn']['actions_remaining']);
+    $event_types = array_map(static fn(array $event): string => (string) ($event['type'] ?? ''), $response['events']);
+    $this->assertNotContains('auto_end_turn', $event_types);
+  }
+
+  /**
+   * End turn triggers automatic search at the next actor's turn start.
+   *
+   * @covers ::processIntent
+   */
+  public function testProcessIntentEndTurnTriggersTurnStartSearch(): void {
+    $exploration = $this->createMock(ExplorationPhaseHandler::class);
+    $exploration->expects($this->once())
+      ->method('processSearch')
+      ->with(
+        'pc-2',
+        $this->callback(static fn(array $params): bool => ($params['search_mode'] ?? '') === 'automatic'
+          && ($params['trigger'] ?? '') === 'turn_start'
+          && ($params['room_id'] ?? '') === 'room-a'),
+        $this->isType('array'),
+        $this->isType('array'),
+        42
+      )
+      ->willReturn([
+        'searched' => TRUE,
+        'roll' => 12,
+        'total' => 16,
+        'dc' => 15,
+        'degree' => 'success',
+        'discoveries' => [],
+        'mutations' => [],
+        'narration' => NULL,
+      ]);
+
+    $handler = $this->buildHandler(NULL, $exploration);
+    $game_state = [
+      'encounter_id' => NULL,
+      'phase' => 'encounter',
+      'round' => 1,
+      'encounter_context' => ['room_id' => 'room-a'],
+      'turn' => [
+        'entity' => 'pc-1',
+        'index' => 0,
+        'actions_remaining' => 0,
+        'reaction_available' => TRUE,
+      ],
+      'initiative_order' => [
+        ['entity_id' => 'pc-1', 'team' => 'player', 'name' => 'Hero'],
+        ['entity_id' => 'pc-2', 'team' => 'player', 'name' => 'Scout'],
+      ],
+    ];
+    $dungeon_data = [
+      'active_room_id' => 'room-a',
+      'entities' => [
+        [
+          'entity_instance_id' => 'pc-1',
+          'entity_type' => 'player_character',
+          'placement' => ['room_id' => 'room-a', 'hex' => ['q' => 0, 'r' => 0]],
+          'state' => ['metadata' => ['display_name' => 'Hero']],
+        ],
+        [
+          'entity_instance_id' => 'pc-2',
+          'entity_type' => 'player_character',
+          'placement' => ['room_id' => 'room-a', 'hex' => ['q' => 1, 'r' => 0]],
+          'state' => ['metadata' => ['display_name' => 'Scout']],
+        ],
+      ],
+    ];
+
+    $response = $handler->processIntent([
+      'type' => 'end_turn',
+      'actor' => 'pc-1',
+    ], $game_state, $dungeon_data, 42);
+
+    $this->assertTrue($response['success']);
+    $this->assertSame('pc-2', $game_state['turn']['entity']);
+    $event_types = array_map(static fn(array $event): string => (string) ($event['type'] ?? ''), $response['events']);
+    $this->assertContains('turn_start', $event_types);
+  }
+
+  /**
+   * Encounter casting spends focus from canonical state and mirrors projection.
+   *
+   * @covers ::processCastSpell
+   */
+  public function testProcessCastSpellConsumesCanonicalFocusPointsAndSyncsProjection(): void {
+    $encounter_store = $this->createMock(CombatEncounterStore::class);
+    $encounter_store->expects($this->exactly(2))
+      ->method('loadEncounter')
+      ->with(42)
+      ->willReturn([
+        'participants' => [
+          [
+            'id' => 17,
+            'entity_id' => 'pc-1',
+            'entity_ref' => json_encode([
+              'focus_points' => 2,
+              'state' => ['focus_points' => ['current' => 2, 'max' => 2]],
+            ]),
+          ],
+        ],
+      ]);
+    $encounter_store->expects($this->once())
+      ->method('updateParticipant')
+      ->with(
+        17,
+        $this->callback(function (array $fields): bool {
+          $entity_ref = json_decode((string) ($fields['entity_ref'] ?? ''), TRUE);
+          return is_array($entity_ref)
+            && (int) ($entity_ref['focus_points'] ?? -1) === 1
+            && (int) ($entity_ref['state']['resources']['focusPoints']['current'] ?? -1) === 1
+            && (int) ($entity_ref['state']['resources']['focusPoints']['max'] ?? -1) === 2;
+        })
+      );
+
+    $character_state = $this->createMock(CharacterStateService::class);
+    $character_state->expects($this->once())
+      ->method('castSpell')
+      ->with('745', 'focus-blast', 0, TRUE, 42, 'pc-1')
+      ->willReturn(['level' => 'focus', 'remaining' => 1]);
+    $character_state->expects($this->once())
+      ->method('getState')
+      ->with('745', 42, 'pc-1')
+      ->willReturn([
+        'resources' => [
+          'focusPoints' => ['current' => 2, 'max' => 2],
+          'spellSlots' => ['1' => ['current' => 2, 'max' => 2]],
+        ],
+      ]);
+
+    $handler = $this->buildHandler(NULL, NULL, $encounter_store, $character_state);
+    $game_state = [];
+    $dungeon_data = [
+      'entities' => [
+        [
+          'entity_instance_id' => 'pc-1',
+          'state' => [
+            'metadata' => [
+              'campaign_character_id' => '745',
+              'runtime_entity_id' => 'pc-1',
+            ],
+          ],
+        ],
+      ],
+    ];
+    $params = [
+      'spell_name' => 'Focus Blast',
+      'spell_id' => 'focus-blast',
+      'is_focus_spell' => TRUE,
+      'spell_level' => 1,
+    ];
+
+    $result = $this->invokeProcessCastSpell($handler, 42, 'pc-1', NULL, $params, $game_state, $dungeon_data, 42);
+
+    $this->assertTrue($result['cast']);
+    $this->assertSame(1, $result['focus_points_remaining']);
+    $this->assertSame(1, (int) ($dungeon_data['entities'][0]['state']['resources']['focusPoints']['current'] ?? -1));
+  }
+
+  /**
+   * Encounter casting spends spell slots from canonical state and mirrors projection.
+   *
+   * @covers ::processCastSpell
+   */
+  public function testProcessCastSpellConsumesCanonicalSpellSlotsAndSyncsProjection(): void {
+    $encounter_store = $this->createMock(CombatEncounterStore::class);
+    $encounter_store->expects($this->exactly(2))
+      ->method('loadEncounter')
+      ->with(42)
+      ->willReturn([
+        'participants' => [
+          [
+            'id' => 19,
+            'entity_id' => 'pc-1',
+            'entity_ref' => json_encode([
+              'casting_type' => 'spontaneous',
+              'spell_slots' => [
+                '3' => ['max' => 2, 'used' => 0],
+              ],
+            ]),
+          ],
+        ],
+      ]);
+    $encounter_store->expects($this->once())
+      ->method('updateParticipant')
+      ->with(
+        19,
+        $this->callback(function (array $fields): bool {
+          $entity_ref = json_decode((string) ($fields['entity_ref'] ?? ''), TRUE);
+          return is_array($entity_ref)
+            && (int) ($entity_ref['spell_slots']['3']['max'] ?? -1) === 2
+            && (int) ($entity_ref['spell_slots']['3']['current'] ?? -1) === 1
+            && (int) ($entity_ref['spell_slots']['3']['used'] ?? -1) === 1;
+        })
+      );
+
+    $character_state = $this->createMock(CharacterStateService::class);
+    $character_state->expects($this->once())
+      ->method('castSpell')
+      ->with('745', 'fireball', 3, FALSE, 42, 'pc-1')
+      ->willReturn(['level' => 3, 'remaining' => 1]);
+    $character_state->expects($this->once())
+      ->method('getState')
+      ->with('745', 42, 'pc-1')
+      ->willReturn([
+        'resources' => [
+          'spellSlots' => ['3' => ['current' => 2, 'max' => 2]],
+          'focusPoints' => ['current' => 1, 'max' => 1],
+        ],
+      ]);
+
+    $handler = $this->buildHandler(NULL, NULL, $encounter_store, $character_state);
+    $game_state = [];
+    $dungeon_data = [
+      'entities' => [
+        [
+          'entity_instance_id' => 'pc-1',
+          'state' => [
+            'metadata' => [
+              'campaign_character_id' => '745',
+              'runtime_entity_id' => 'pc-1',
+            ],
+          ],
+        ],
+      ],
+    ];
+    $params = [
+      'spell_name' => 'Fireball',
+      'spell_id' => 'fireball',
+      'spell_level' => 3,
+      'cast_at_level' => 3,
+      'is_focus_spell' => FALSE,
+    ];
+
+    $result = $this->invokeProcessCastSpell($handler, 42, 'pc-1', NULL, $params, $game_state, $dungeon_data, 42);
+
+    $this->assertTrue($result['cast']);
+    $this->assertSame(1, $result['slots_remaining']);
+    $this->assertSame(1, (int) ($dungeon_data['entities'][0]['state']['spell_slots']['3']['used'] ?? -1));
+  }
+
+  /**
+   * Canonical slot authority must win when participant projection is stale.
+   *
+   * @covers ::processCastSpell
+   */
+  public function testProcessCastSpellUsesCanonicalSlotsWhenParticipantProjectionIsStale(): void {
+    $encounter_store = $this->createMock(CombatEncounterStore::class);
+    $encounter_store->expects($this->exactly(2))
+      ->method('loadEncounter')
+      ->with(42)
+      ->willReturn([
+        'participants' => [
+          [
+            'id' => 29,
+            'entity_id' => 'pc-1',
+            'entity_ref' => json_encode([
+              'casting_type' => 'spontaneous',
+              'spell_slots' => [
+                '3' => ['max' => 0, 'used' => 0],
+              ],
+            ]),
+          ],
+        ],
+      ]);
+    $encounter_store->expects($this->once())
+      ->method('updateParticipant')
+      ->with(
+        29,
+        $this->callback(function (array $fields): bool {
+          $entity_ref = json_decode((string) ($fields['entity_ref'] ?? ''), TRUE);
+          return is_array($entity_ref)
+            && (int) ($entity_ref['spell_slots']['3']['max'] ?? -1) === 2
+            && (int) ($entity_ref['spell_slots']['3']['current'] ?? -1) === 1
+            && (int) ($entity_ref['spell_slots']['3']['used'] ?? -1) === 1;
+        })
+      );
+
+    $character_state = $this->createMock(CharacterStateService::class);
+    $character_state->expects($this->once())
+      ->method('castSpell')
+      ->with('745', 'fireball', 3, FALSE, 42, 'pc-1')
+      ->willReturn(['level' => 3, 'remaining' => 1]);
+    $character_state->expects($this->once())
+      ->method('getState')
+      ->with('745', 42, 'pc-1')
+      ->willReturn([
+        'resources' => [
+          'spellSlots' => ['3' => ['current' => 2, 'max' => 2]],
+          'focusPoints' => ['current' => 1, 'max' => 1],
+        ],
+      ]);
+
+    $handler = $this->buildHandler(NULL, NULL, $encounter_store, $character_state);
+    $game_state = [];
+    $dungeon_data = [
+      'entities' => [
+        [
+          'entity_instance_id' => 'pc-1',
+          'state' => [
+            'metadata' => [
+              'campaign_character_id' => '745',
+              'runtime_entity_id' => 'pc-1',
+            ],
+          ],
+        ],
+      ],
+    ];
+    $params = [
+      'spell_name' => 'Fireball',
+      'spell_id' => 'fireball',
+      'spell_level' => 3,
+      'cast_at_level' => 3,
+      'is_focus_spell' => FALSE,
+    ];
+
+    $result = $this->invokeProcessCastSpell($handler, 42, 'pc-1', NULL, $params, $game_state, $dungeon_data, 42);
+
+    $this->assertTrue($result['cast']);
+    $this->assertSame(1, $result['slots_remaining']);
+    $this->assertSame(1, (int) ($dungeon_data['entities'][0]['state']['spell_slots']['3']['used'] ?? -1));
+  }
+
+  /**
+   * Participant canonical identity can drive casts even when dungeon entity is missing.
+   *
+   * @covers ::processCastSpell
+   */
+  public function testProcessCastSpellUsesParticipantCanonicalIdentityWithoutDungeonEntity(): void {
+    $encounter_store = $this->createMock(CombatEncounterStore::class);
+    $encounter_store->expects($this->exactly(2))
+      ->method('loadEncounter')
+      ->with(42)
+      ->willReturn([
+        'participants' => [
+          [
+            'id' => 31,
+            'entity_id' => 'pc-1',
+            'entity_ref' => json_encode([
+              'state' => [
+                'metadata' => [
+                  'campaign_character_id' => '745',
+                  'runtime_entity_id' => 'pc-1',
+                ],
+              ],
+              'casting_type' => 'spontaneous',
+              'spell_slots' => [
+                '3' => ['max' => 0, 'used' => 0],
+              ],
+            ]),
+          ],
+        ],
+      ]);
+    $encounter_store->expects($this->once())
+      ->method('updateParticipant')
+      ->with(
+        31,
+        $this->callback(function (array $fields): bool {
+          $entity_ref = json_decode((string) ($fields['entity_ref'] ?? ''), TRUE);
+          return is_array($entity_ref)
+            && (int) ($entity_ref['spell_slots']['3']['max'] ?? -1) === 2
+            && (int) ($entity_ref['spell_slots']['3']['current'] ?? -1) === 1
+            && (int) ($entity_ref['spell_slots']['3']['used'] ?? -1) === 1;
+        })
+      );
+
+    $character_state = $this->createMock(CharacterStateService::class);
+    $character_state->expects($this->once())
+      ->method('getState')
+      ->with('745', 42, 'pc-1')
+      ->willReturn([
+        'resources' => [
+          'spellSlots' => ['3' => ['current' => 2, 'max' => 2]],
+          'focusPoints' => ['current' => 1, 'max' => 1],
+        ],
+      ]);
+    $character_state->expects($this->once())
+      ->method('castSpell')
+      ->with('745', 'fireball', 3, FALSE, 42, 'pc-1')
+      ->willReturn(['level' => 3, 'remaining' => 1]);
+
+    $handler = $this->buildHandler(NULL, NULL, $encounter_store, $character_state);
+    $game_state = [];
+    $dungeon_data = ['entities' => []];
+    $params = [
+      'spell_name' => 'Fireball',
+      'spell_id' => 'fireball',
+      'spell_level' => 3,
+      'cast_at_level' => 3,
+      'is_focus_spell' => FALSE,
+    ];
+
+    $result = $this->invokeProcessCastSpell($handler, 42, 'pc-1', NULL, $params, $game_state, $dungeon_data, 42);
+
+    $this->assertTrue($result['cast']);
+    $this->assertSame(1, $result['slots_remaining']);
   }
 
   /**
@@ -361,7 +853,12 @@ class EncounterPhaseHandlerTest extends UnitTestCase {
   /**
    * Builds an EncounterPhaseHandler with lightweight mocks.
    */
-  private function buildHandler(?RoomChatService $room_chat = NULL): EncounterPhaseHandler {
+  private function buildHandler(
+    ?RoomChatService $room_chat = NULL,
+    ?ExplorationPhaseHandler $exploration = NULL,
+    ?CombatEncounterStore $encounter_store = NULL,
+    ?CharacterStateService $character_state = NULL
+  ): EncounterPhaseHandler {
     $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
     $logger_factory->method('get')->willReturn($this->createMock(LoggerInterface::class));
 
@@ -370,7 +867,7 @@ class EncounterPhaseHandlerTest extends UnitTestCase {
       $logger_factory,
       $this->createMock(CombatEngine::class),
       $this->createMock(ActionProcessor::class),
-      $this->createMock(CombatEncounterStore::class),
+      $encounter_store ?? $this->createMock(CombatEncounterStore::class),
       $this->createMock(HPManager::class),
       $this->createMock(ConditionManager::class),
       $this->createMock(CombatCalculator::class),
@@ -385,9 +882,30 @@ class EncounterPhaseHandlerTest extends UnitTestCase {
       NULL,
       NULL,
       NULL,
+      $character_state ?? $this->createMock(CharacterStateService::class),
       NULL,
-      $room_chat ?? $this->createMock(RoomChatService::class)
+      $room_chat ?? $this->createMock(RoomChatService::class),
+      $exploration
     );
+  }
+
+  /**
+   * Invoke protected spellcast processor with by-reference state payloads.
+   */
+  private function invokeProcessCastSpell(
+    EncounterPhaseHandler $handler,
+    int $encounter_id,
+    string $actor_id,
+    ?string $target_id,
+    array $params,
+    array &$game_state,
+    array &$dungeon_data,
+    int $campaign_id
+  ): array {
+    $method = new \ReflectionMethod(EncounterPhaseHandler::class, 'processCastSpell');
+    $method->setAccessible(TRUE);
+    $args = [$encounter_id, $actor_id, $target_id, $params, &$game_state, &$dungeon_data, $campaign_id];
+    return $method->invokeArgs($handler, $args);
   }
 
   /**
@@ -417,6 +935,7 @@ class EncounterPhaseHandlerTest extends UnitTestCase {
       NULL,
       NULL,
       NULL,
+      $this->createMock(CharacterStateService::class),
       NULL,
       $this->createMock(RoomChatService::class)
     ) extends EncounterPhaseHandler {
@@ -443,7 +962,7 @@ class EncounterPhaseHandlerTest extends UnitTestCase {
         return FALSE;
       }
 
-      protected function processEndTurn(int $encounter_id, ?string $actor_id, array &$game_state, array &$dungeon_data, int $campaign_id): array {
+      protected function processEndTurn(?int $encounter_id, ?string $actor_id, array &$game_state, array &$dungeon_data, int $campaign_id): array {
         $this->processEndTurnArgs = [$encounter_id, $actor_id, $campaign_id];
         $game_state['turn'] = [
           'entity' => 'pc-1',
@@ -494,6 +1013,7 @@ class EncounterPhaseHandlerTest extends UnitTestCase {
       NULL,
       NULL,
       NULL,
+      $this->createMock(CharacterStateService::class),
       NULL,
       $this->createMock(RoomChatService::class)
     ) extends EncounterPhaseHandler {

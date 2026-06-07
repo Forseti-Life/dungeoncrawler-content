@@ -17,7 +17,7 @@ use Symfony\Component\EventDispatcher\EventDispatcherInterface;
  *
  * Also handles NPC auto-play by delegating to EncounterAiIntegrationService.
  */
-class EncounterPhaseHandler implements PhaseHandlerInterface {
+class EncounterPhaseHandler implements EncounterMasterInterface {
 
   /**
    * @var \Drupal\Core\Database\Connection
@@ -497,6 +497,18 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
     if (!$encounter_id) {
       $room_scene_actions = ['talk', 'search', 'interact', 'end_turn', 'choose_not_to_act', 'treat_wounds', 'refocus', 'repair', 'daily_preparations'];
       if (!empty($game_state['encounter_context']['room_id']) && in_array($type, $room_scene_actions, TRUE)) {
+        if (
+          empty($game_state['turn']['entity']) ||
+          empty($game_state['round']) ||
+          !is_array($game_state['initiative_order'] ?? NULL) ||
+          $game_state['initiative_order'] === []
+        ) {
+          return [
+            'valid' => FALSE,
+            'reason' => 'Encounter room-scene context is incomplete (missing round/turn/initiative).',
+          ];
+        }
+
         $actor_id = $intent['actor'] ?? NULL;
         $current_entity = $game_state['turn']['entity'] ?? NULL;
         if ($actor_id && $current_entity && $actor_id !== $current_entity) {
@@ -575,6 +587,7 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
     $events = [];
     $phase_transition = NULL;
     $narration = NULL;
+    $mechanical_result = NULL;
     $time_effects = [];
 
     // dc-cr-spells-ch07: Metamagic state machine — if a metamagic was declared
@@ -729,7 +742,7 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
           'type' => 'action',
           'speaker' => $attacker_name,
           'speaker_type' => 'player',
-          'speaker_ref' => $actor_id,
+          'speaker_ref' => '',
           'content' => $strike_desc,
           'visibility' => 'public',
           'mechanical_data' => [
@@ -764,7 +777,7 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
             'type' => 'damage_applied',
             'speaker' => 'System',
             'speaker_type' => 'system',
-            'speaker_ref' => '',
+            'speaker_ref' => $actor_id,
             'content' => sprintf('%s takes %d damage.', $target_name, $damage_val),
             'mechanical_data' => [
               'target' => $target_id,
@@ -954,6 +967,13 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
           ];
         }
 
+        if (
+          !empty($effects_ci['focus_points'])
+          || !empty($effects_ci['spell_slots'])
+        ) {
+          $this->syncCanonicalSpellcastingProjectionForActor($encounter_id, $actor_id, $campaign_id, $dungeon_data);
+        }
+
         $actor_name = $this->resolveEntityName($actor_id, $game_state, $dungeon_data);
         $result = [
           'summary' => sprintf('%s uses %s.', $actor_name, $item_name_ci),
@@ -1026,7 +1046,7 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
         $mutations = $result['mutations'] ?? [];
         $narration = $result['narration'] ?? NULL;
 
-        // Talk consumes 1 action in encounter.
+        // Talk consumes exactly 1 action in encounter.
         $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
 
         $events[] = GameEventLogger::buildEvent('talk', 'encounter', $actor_id, [
@@ -1346,6 +1366,7 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
           ];
         }
         $result = $this->explorationPhaseHandler->processSearch($actor_id, $params, $game_state, $dungeon_data, $campaign_id);
+        $mechanical_result = $result;
         $mutations = $result['mutations'] ?? [];
         $narration = $result['narration'] ?? NULL;
         if (!empty($game_state['turn'])) {
@@ -3507,7 +3528,7 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
       'actor_id' => $actor_id,
       'target_id' => $target_id,
       'params' => $params,
-      'result' => $result,
+      'result' => is_array($mechanical_result) ? $mechanical_result : $result,
       'game_state' => $game_state,
     ]);
 
@@ -3530,6 +3551,10 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
         $events = array_merge($events, $auto_end['npc_events']);
       }
     }
+
+    // Keep combat_participants action economy in sync with the authoritative
+    // encounter turn state used by the game coordinator.
+    $this->syncEncounterParticipantTurnResources($encounter_id, $game_state);
 
     return [
       'success' => TRUE,
@@ -3694,6 +3719,7 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
           ];
           if (!empty($first['entity_id'])) {
             $events = array_merge($events, $this->buildTurnStartEvents((string) $first['entity_id'], $game_state, $dungeon_data, $campaign_id, $room_id));
+            $events = array_merge($events, $this->buildTurnStartSearchEvents((string) $first['entity_id'], $game_state, $dungeon_data, $campaign_id));
           }
         }
 
@@ -4026,7 +4052,10 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
 
     $message = $this->prefixEncounterChatLine($turn_ctx, $message);
  
-    $defer_npc_interjections = !empty($params['defer_npc_interjections']);
+    $is_encounter_turn = (($game_state['phase'] ?? NULL) === 'encounter');
+    // EncounterPhaseHandler owns turn order. Prevent room-chat harness from injecting
+    // out-of-turn NPC turns during an actor's talk action.
+    $defer_npc_interjections = $is_encounter_turn ? TRUE : !empty($params['defer_npc_interjections']);
     $suppress_gm = !empty($params['suppress_gm']);
 
     try {
@@ -4440,6 +4469,44 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
   }
 
   /**
+   * Persist active-turn action economy to combat_participants.
+   */
+  protected function syncEncounterParticipantTurnResources(?int $encounter_id, array $game_state): void {
+    if (!$encounter_id || !is_array($game_state['turn'] ?? NULL)) {
+      return;
+    }
+
+    $entity_id = trim((string) ($game_state['turn']['entity'] ?? ''));
+    if ($entity_id === '') {
+      return;
+    }
+
+    $encounter = $this->encounterStore->loadEncounter($encounter_id);
+    if (!$encounter) {
+      return;
+    }
+
+    $participant = $this->findEncounterParticipantByEntityId($encounter, $entity_id);
+    $participant_id = (int) ($participant['id'] ?? 0);
+    if ($participant_id <= 0) {
+      return;
+    }
+
+    $fields = [
+      'actions_remaining' => max(0, (int) ($game_state['turn']['actions_remaining'] ?? 0)),
+      'attacks_this_turn' => max(0, (int) ($game_state['turn']['attacks_this_turn'] ?? 0)),
+      'reaction_available' => !empty($game_state['turn']['reaction_available']) ? 1 : 0,
+    ];
+
+    try {
+      $this->encounterStore->updateParticipant($participant_id, $fields);
+    }
+    catch (\Throwable $e) {
+      $this->logger->warning('Encounter participant action sync failed: @error', ['@error' => $e->getMessage()]);
+    }
+  }
+
+  /**
    * Applies NPC attitude adjustments to social check DCs when available.
    */
   protected function applyNpcAttitudeToSocialDc(int $base_dc, array $params, ?string $target_id, int $campaign_id): array {
@@ -4658,6 +4725,7 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
    */
   protected function processCastSpell(int $encounter_id, string $actor_id, ?string $target_id, array $params, array &$game_state, array &$dungeon_data, int $campaign_id): array {
     $spell_name = $params['spell_name'] ?? 'unknown';
+    $spell_id = (string) ($params['spell_id'] ?? '');
     $spell_level = (int) ($params['spell_level'] ?? 0);
     $cast_at_level = (int) ($params['cast_at_level'] ?? $spell_level);
     $is_cantrip = !empty($params['is_cantrip']);
@@ -4672,10 +4740,43 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
       return ['cast' => FALSE, 'error' => 'Caster not found.', 'mutations' => [], 'narration' => NULL];
     }
     $edata_cs = !empty($ptcp_cs['entity_ref']) ? json_decode($ptcp_cs['entity_ref'], TRUE) : [];
+    $participant_id = (int) ($ptcp_cs['id'] ?? 0);
+
+    $actor_entity_index = $this->findDungeonEntityIndexByInstanceId($dungeon_data, $actor_id);
+    $has_actor_entity = $actor_entity_index !== NULL
+      && isset($dungeon_data['entities'][$actor_entity_index])
+      && is_array($dungeon_data['entities'][$actor_entity_index]);
+    $canonical_state = NULL;
+    $canonical_identity = ['character_id' => '', 'instance_id' => NULL];
+    if ($has_actor_entity) {
+      $actor_entity = $dungeon_data['entities'][$actor_entity_index];
+      $canonical_state = $this->loadCanonicalCharacterState($actor_entity, (int) $campaign_id);
+      $canonical_identity = $this->resolveCanonicalCharacterIdentity($actor_entity);
+    }
+    if ((string) ($canonical_identity['character_id'] ?? '') === '') {
+      $canonical_identity = $this->resolveCanonicalCharacterIdentityFromParticipantEntityRef($edata_cs, $actor_id);
+    }
+    $canonical_character_id = (string) ($canonical_identity['character_id'] ?? '');
+    $canonical_instance_id = is_string($canonical_identity['instance_id'] ?? NULL) ? $canonical_identity['instance_id'] : NULL;
+    $has_canonical_sheet = $canonical_character_id !== '' && ctype_digit($canonical_character_id) && (int) $canonical_character_id > 0;
+    if (!is_array($canonical_state) && $has_canonical_sheet) {
+      try {
+        $canonical_state = $this->characterStateService->getState(
+          $canonical_character_id,
+          $campaign_id > 0 ? $campaign_id : NULL,
+          $canonical_instance_id
+        );
+      }
+      catch (\InvalidArgumentException $exception) {
+        $canonical_state = NULL;
+      }
+    }
 
     // AC-002: Tradition validation (only if both tradition values are present).
-    $char_tradition = $edata_cs['spellcasting_tradition'] ?? NULL;
-    if ($spell_tradition && $char_tradition && $spell_tradition !== $char_tradition) {
+    $char_tradition = $canonical_state['spells']['tradition']
+      ?? $edata_cs['spellcasting_tradition']
+      ?? NULL;
+    if ($spell_tradition && $char_tradition && strtolower((string) $spell_tradition) !== strtolower((string) $char_tradition)) {
       return ['cast' => FALSE, 'error' => "Spell tradition '{$spell_tradition}' does not match character tradition '{$char_tradition}'.", 'mutations' => [], 'narration' => NULL];
     }
 
@@ -4729,13 +4830,7 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
 
     // AC-006: Cantrips never expend slots; effective level = highest castable spell level.
     if ($is_cantrip) {
-      $slots_cs = $edata_cs['spell_slots'] ?? [];
-      $effective_level = 1;
-      if (!empty($slots_cs)) {
-        $effective_level = max(array_keys(array_filter($slots_cs, function ($s) {
-          return (int) ($s['max'] ?? 0) > 0;
-        })) ?: [1]);
-      }
+      $effective_level = $this->resolveEffectiveCantripLevel($canonical_state, $edata_cs);
       return [
         'cast' => TRUE,
         'spell' => $spell_name,
@@ -4750,22 +4845,68 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
 
     // AC-007: Focus spells consume 1 Focus Point, not a spell slot.
     if ($is_focus_spell) {
-      $fp_cs = (int) ($edata_cs['focus_points'] ?? $edata_cs['state']['focus_points'] ?? 0);
-      if ($fp_cs < 1) {
-        return ['cast' => FALSE, 'error' => 'No Focus Points remaining.', 'mutations' => [], 'narration' => NULL];
+      $focus_remaining = NULL;
+      $canonical_consumed = FALSE;
+
+      if ($has_canonical_sheet) {
+        try {
+          $consume_result = $this->characterStateService->castSpell(
+            $canonical_character_id,
+            $spell_id !== '' ? $spell_id : (string) $spell_name,
+            0,
+            TRUE,
+            $campaign_id > 0 ? $campaign_id : NULL,
+            $canonical_instance_id
+          );
+          $focus_remaining = isset($consume_result['remaining']) ? max(0, (int) $consume_result['remaining']) : NULL;
+          if (!is_array($canonical_state)) {
+            $canonical_state = $this->characterStateService->getState(
+              $canonical_character_id,
+              $campaign_id > 0 ? $campaign_id : NULL,
+              $canonical_instance_id
+            );
+          }
+          if (is_array($canonical_state)) {
+            $this->applyCanonicalStateAfterSpellConsume($canonical_state, TRUE, 0, max(0, (int) ($focus_remaining ?? 0)));
+            $this->syncCanonicalSpellcastingProjectionForActor($encounter_id, $actor_id, $campaign_id, $dungeon_data, $canonical_state);
+          }
+          $canonical_consumed = TRUE;
+        }
+        catch (\InvalidArgumentException $exception) {
+          return [
+            'cast' => FALSE,
+            'error' => $this->normalizeSpellResourceErrorMessage($exception->getMessage(), TRUE, 0),
+            'mutations' => [],
+            'narration' => NULL,
+          ];
+        }
       }
-      if (isset($edata_cs['focus_points'])) {
+
+      if (!$canonical_consumed) {
+        $fp_cs = $this->resolveParticipantFocusPointCurrent($edata_cs);
+        if ($fp_cs < 1) {
+          return ['cast' => FALSE, 'error' => 'No Focus Points remaining.', 'mutations' => [], 'narration' => NULL];
+        }
         $edata_cs['focus_points'] = $fp_cs - 1;
+        if (!isset($edata_cs['state']) || !is_array($edata_cs['state'])) {
+          $edata_cs['state'] = [];
+        }
+        if (!isset($edata_cs['state']['focus_points']) || !is_array($edata_cs['state']['focus_points'])) {
+          $edata_cs['state']['focus_points'] = [];
+        }
+        $edata_cs['state']['focus_points']['current'] = $fp_cs - 1;
+        if (!isset($edata_cs['state']['focus_points']['max']) || !is_numeric($edata_cs['state']['focus_points']['max'])) {
+          $edata_cs['state']['focus_points']['max'] = max($fp_cs, 0);
+        }
+        $this->persistEncounterParticipantEntityRef($participant_id, $edata_cs);
+        $focus_remaining = $fp_cs - 1;
       }
-      else {
-        $edata_cs['state']['focus_points'] = $fp_cs - 1;
-      }
-      $this->encounterStore->updateParticipant((int) $ptcp_cs['id'], ['entity_ref' => json_encode($edata_cs)]);
+
       return [
         'cast' => TRUE,
         'spell' => $spell_name,
         'is_focus_spell' => TRUE,
-        'focus_points_remaining' => $fp_cs - 1,
+        'focus_points_remaining' => max(0, (int) ($focus_remaining ?? 0)),
         'spell_dc' => $spell_dc,
         'attack_result' => $attack_result,
         'narration' => NULL,
@@ -4785,22 +4926,71 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
     }
     $slot_data_cs = $edata_cs['spell_slots'][$slot_key] ?? ['max' => 0, 'used' => 0];
     $slots_avail = max(0, (int) ($slot_data_cs['max'] ?? 0) - (int) ($slot_data_cs['used'] ?? 0));
-    if ($slots_avail < 1) {
+    if (!$has_canonical_sheet && $slots_avail < 1) {
       return ['cast' => FALSE, 'error' => "No level-{$slot_level} spell slots remaining.", 'mutations' => [], 'narration' => NULL];
     }
 
     // AC-003: Prepared casters must have the spell prepared in that slot level.
-    $casting_type = $edata_cs['casting_type'] ?? 'spontaneous';
+    $casting_type = strtolower((string) (
+      $canonical_state['casting_type']
+      ?? $canonical_state['spells']['casting_type']
+      ?? $edata_cs['casting_type']
+      ?? 'spontaneous'
+    ));
     if ($casting_type === 'prepared') {
-      $prepared_cs = $edata_cs['prepared_spells'][$slot_key] ?? [];
-      if (!in_array($spell_name, $prepared_cs, TRUE)) {
+      $prepared_cs = $canonical_state['prepared_spells'][$slot_key]
+        ?? $canonical_state['state']['prepared_spells'][$slot_key]
+        ?? $canonical_state['spells']['prepared_spells'][$slot_key]
+        ?? $edata_cs['prepared_spells'][$slot_key]
+        ?? [];
+      if (!$this->preparedSpellListContainsSpell($prepared_cs, (string) $spell_name, $spell_id)) {
         return ['cast' => FALSE, 'error' => "'{$spell_name}' is not prepared in a level-{$slot_level} slot.", 'mutations' => [], 'narration' => NULL];
       }
     }
 
-    // Deduct slot.
-    $edata_cs['spell_slots'][$slot_key]['used'] = (int) ($slot_data_cs['used'] ?? 0) + 1;
-    $this->encounterStore->updateParticipant((int) $ptcp_cs['id'], ['entity_ref' => json_encode($edata_cs)]);
+    $slots_remaining = NULL;
+    $canonical_consumed = FALSE;
+
+    if ($has_canonical_sheet) {
+      try {
+        $consume_result = $this->characterStateService->castSpell(
+          $canonical_character_id,
+          $spell_id !== '' ? $spell_id : (string) $spell_name,
+          $slot_level,
+          FALSE,
+          $campaign_id > 0 ? $campaign_id : NULL,
+          $canonical_instance_id
+        );
+        $slots_remaining = isset($consume_result['remaining']) ? max(0, (int) $consume_result['remaining']) : NULL;
+        if (!is_array($canonical_state)) {
+          $canonical_state = $this->characterStateService->getState(
+            $canonical_character_id,
+            $campaign_id > 0 ? $campaign_id : NULL,
+            $canonical_instance_id
+          );
+        }
+        if (is_array($canonical_state)) {
+          $this->applyCanonicalStateAfterSpellConsume($canonical_state, FALSE, $slot_level, max(0, (int) ($slots_remaining ?? 0)));
+          $this->syncCanonicalSpellcastingProjectionForActor($encounter_id, $actor_id, $campaign_id, $dungeon_data, $canonical_state);
+        }
+        $canonical_consumed = TRUE;
+      }
+      catch (\InvalidArgumentException $exception) {
+        return [
+          'cast' => FALSE,
+          'error' => $this->normalizeSpellResourceErrorMessage($exception->getMessage(), FALSE, $slot_level),
+          'mutations' => [],
+          'narration' => NULL,
+        ];
+      }
+    }
+
+    if (!$canonical_consumed) {
+      // Deduct slot from participant projection when no canonical character sheet is available.
+      $edata_cs['spell_slots'][$slot_key]['used'] = (int) ($slot_data_cs['used'] ?? 0) + 1;
+      $this->persistEncounterParticipantEntityRef($participant_id, $edata_cs);
+      $slots_remaining = $slots_avail - 1;
+    }
 
     // dc-cr-spells-ch07: Incapacitation trait — downgrade degree of success when
     // target's level exceeds half the caster's level (PF2e Core ch07).
@@ -4835,7 +5025,7 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
       'spell_level' => $spell_level,
       'cast_at_level' => $slot_level,
       'heightened' => $slot_level > $spell_level,
-      'slots_remaining' => $slots_avail - 1,
+      'slots_remaining' => max(0, (int) ($slots_remaining ?? ($slots_avail - 1))),
       'spell_dc' => $spell_dc,
       'spell_attack_modifier' => $spell_attack_mod,
       'attack_result' => $attack_result,
@@ -4930,7 +5120,7 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
       'type' => 'turn_start',
       'speaker' => 'Narrator',
       'speaker_type' => 'gm',
-      'speaker_ref' => '',
+      'speaker_ref' => $entity_id,
       'content' => $content,
       'visibility' => 'public',
       'mechanical_data' => [
@@ -4953,6 +5143,51 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
         'total_turns' => $total_turns,
         'actions_available' => $actions_available,
       ], $content),
+    ];
+  }
+
+  /**
+   * Runs automatic Search at the start of an actor turn.
+   */
+  protected function buildTurnStartSearchEvents(string $entity_id, array &$game_state, array &$dungeon_data, int $campaign_id): array {
+    if (!$this->explorationPhaseHandler) {
+      return [];
+    }
+
+    $room_id = (string) ($dungeon_data['active_room_id'] ?? ($game_state['encounter_context']['room_id'] ?? ''));
+    $params = [
+      'search_mode' => 'automatic',
+      'trigger' => 'turn_start',
+    ];
+    if ($room_id !== '') {
+      $params['room_id'] = $room_id;
+    }
+
+    $result = $this->explorationPhaseHandler->processSearch($entity_id, $params, $game_state, $dungeon_data, $campaign_id);
+
+    $this->maybeQueueMechanicalSystemLogEntry([
+      'campaign_id' => $campaign_id,
+      'dungeon_data' => $dungeon_data,
+      'type' => 'search',
+      'actor_id' => $entity_id,
+      'target_id' => NULL,
+      'params' => $params,
+      'result' => $result,
+      'game_state' => $game_state,
+    ]);
+
+    $discoveries = $this->buildPublicSearchDiscoveries($result['discoveries'] ?? []);
+    $narration = $result['narration'] ?? NULL;
+    if ($discoveries === [] && (!is_string($narration) || trim($narration) === '')) {
+      return [];
+    }
+
+    return [
+      GameEventLogger::buildEvent('search', 'encounter', $entity_id, [
+        'discoveries' => $discoveries,
+        'round' => $game_state['round'] ?? NULL,
+        'trigger' => 'turn_start',
+      ], $narration),
     ];
   }
 
@@ -5132,6 +5367,7 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
     }
     if ($next_entity) {
       $npc_events = array_merge($npc_events, $this->buildTurnStartEvents((string) $next_entity, $game_state, $dungeon_data, $campaign_id));
+      $npc_events = array_merge($npc_events, $this->buildTurnStartSearchEvents((string) $next_entity, $game_state, $dungeon_data, $campaign_id));
     }
 
     // If next combatant is NPC/enemy, auto-play or explicitly pass their turn.
@@ -5317,7 +5553,7 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
       'type' => 'choose_not_to_act',
       'speaker' => 'Narrator',
       'speaker_type' => 'gm',
-      'speaker_ref' => '',
+      'speaker_ref' => $entity_id,
       'content' => sprintf('%s chooses not to take any further actions.', $actor_name),
       'visibility' => 'public',
       'mechanical_data' => [
@@ -5350,7 +5586,7 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
       'type' => 'choose_not_to_act',
       'speaker' => 'Narrator',
       'speaker_type' => 'gm',
-      'speaker_ref' => '',
+      'speaker_ref' => $entity_id,
       'content' => sprintf('%s chooses not to take any further actions.', $actor_name),
       'visibility' => 'public',
       'mechanical_data' => [
@@ -5887,6 +6123,7 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
     $events = array_merge($events, $this->buildRoundStartEvents(1, $game_state, $dungeon_data, $campaign_id, $room_id));
     if (!empty($game_state['turn']['entity'])) {
       $events = array_merge($events, $this->buildTurnStartEvents((string) $game_state['turn']['entity'], $game_state, $dungeon_data, $campaign_id, $room_id));
+      $events = array_merge($events, $this->buildTurnStartSearchEvents((string) $game_state['turn']['entity'], $game_state, $dungeon_data, $campaign_id));
     }
 
     return $events;
@@ -6588,21 +6825,77 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
   }
 
   protected function loadCanonicalCharacterState(array $entity, int $campaign_id): ?array {
-    $character_id = (string) ($entity['state']['metadata']['campaign_character_id'] ?? $entity['state']['metadata']['character_id'] ?? $entity['character_id'] ?? $entity['state']['character_id'] ?? $entity['entity_ref']['character_id'] ?? '');
-    $instance_id = (string) ($entity['state']['metadata']['runtime_entity_id'] ?? $entity['instance_id'] ?? $entity['entity_instance_id'] ?? '');
-    if ($character_id <= 0) {
+    $identity = $this->resolveCanonicalCharacterIdentity($entity);
+    $character_id = (string) ($identity['character_id'] ?? '');
+    $instance_id = is_string($identity['instance_id'] ?? NULL) ? $identity['instance_id'] : NULL;
+    if (!ctype_digit($character_id) || (int) $character_id <= 0) {
       return NULL;
     }
-    return $this->characterStateService->getState($character_id, $campaign_id, $instance_id !== '' ? $instance_id : NULL) ?: NULL;
+    return $this->characterStateService->getState($character_id, $campaign_id, $instance_id) ?: NULL;
   }
 
   protected function persistCanonicalCharacterState(array $entity, int $campaign_id, array $character_state): void {
-    $character_id = (string) ($entity['state']['metadata']['campaign_character_id'] ?? $entity['state']['metadata']['character_id'] ?? $entity['character_id'] ?? $entity['state']['character_id'] ?? $entity['entity_ref']['character_id'] ?? '');
-    $instance_id = (string) ($entity['state']['metadata']['runtime_entity_id'] ?? $entity['instance_id'] ?? $entity['entity_instance_id'] ?? '');
-    if ($character_id === '' || $character_id === '0') {
+    $identity = $this->resolveCanonicalCharacterIdentity($entity);
+    $character_id = (string) ($identity['character_id'] ?? '');
+    $instance_id = is_string($identity['instance_id'] ?? NULL) ? $identity['instance_id'] : NULL;
+    if (!ctype_digit($character_id) || (int) $character_id <= 0) {
       return;
     }
-    $this->characterStateService->setState($character_id, $character_state, NULL, $campaign_id, $instance_id !== '' ? $instance_id : NULL);
+    $this->characterStateService->setState($character_id, $character_state, NULL, $campaign_id, $instance_id);
+  }
+
+  /**
+   * Resolve canonical character identity from runtime entity payload.
+   *
+   * @return array{character_id: string, instance_id: ?string}
+   */
+  protected function resolveCanonicalCharacterIdentity(array $entity): array {
+    $character_id = (string) (
+      $entity['state']['metadata']['campaign_character_id']
+      ?? $entity['state']['metadata']['character_id']
+      ?? $entity['character_id']
+      ?? $entity['state']['character_id']
+      ?? $entity['entity_ref']['character_id']
+      ?? ''
+    );
+    $instance_id = trim((string) (
+      $entity['state']['metadata']['runtime_entity_id']
+      ?? $entity['instance_id']
+      ?? $entity['entity_instance_id']
+      ?? ''
+    ));
+
+    return [
+      'character_id' => $character_id,
+      'instance_id' => $instance_id !== '' ? $instance_id : NULL,
+    ];
+  }
+
+  /**
+   * Resolve canonical character identity from participant entity_ref payload.
+   *
+   * @return array{character_id: string, instance_id: ?string}
+   */
+  protected function resolveCanonicalCharacterIdentityFromParticipantEntityRef(array $entity_ref, string $fallback_instance_id = ''): array {
+    $character_id = (string) (
+      $entity_ref['state']['metadata']['campaign_character_id']
+      ?? $entity_ref['state']['metadata']['character_id']
+      ?? $entity_ref['character_id']
+      ?? $entity_ref['state']['character_id']
+      ?? $entity_ref['entity_ref']['character_id']
+      ?? ''
+    );
+    $instance_id = trim((string) (
+      $entity_ref['state']['metadata']['runtime_entity_id']
+      ?? $entity_ref['instance_id']
+      ?? $entity_ref['entity_instance_id']
+      ?? $fallback_instance_id
+    ));
+
+    return [
+      'character_id' => $character_id,
+      'instance_id' => $instance_id !== '' ? $instance_id : NULL,
+    ];
   }
 
   protected function resolveCharacterSkillData(?array $character_state, string $skill_name): array {
@@ -6682,6 +6975,347 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
       return FALSE;
     }
     return FALSE;
+  }
+
+  protected function preparedSpellListContainsSpell(array $prepared_list, string $spell_name, string $spell_id = ''): bool {
+    $needle_name = $this->normalizeSpellToken($spell_name);
+    $needle_id = $this->normalizeSpellToken($spell_id);
+
+    foreach ($prepared_list as $prepared_spell) {
+      if (!is_scalar($prepared_spell)) {
+        continue;
+      }
+      $candidate = $this->normalizeSpellToken((string) $prepared_spell);
+      if ($candidate === '') {
+        continue;
+      }
+      if ($needle_name !== '' && $candidate === $needle_name) {
+        return TRUE;
+      }
+      if ($needle_id !== '' && $candidate === $needle_id) {
+        return TRUE;
+      }
+    }
+
+    return FALSE;
+  }
+
+  protected function normalizeSpellToken(string $value): string {
+    $normalized = strtolower(trim($value));
+    if ($normalized === '') {
+      return '';
+    }
+    $normalized = str_replace(['_', ' '], '-', $normalized);
+    $normalized = preg_replace('/-+/', '-', $normalized) ?? $normalized;
+    return trim($normalized, '-');
+  }
+
+  protected function applyCanonicalStateAfterSpellConsume(array &$canonical_state, bool $is_focus_spell, int $slot_level, int $remaining): void {
+    if (!isset($canonical_state['resources']) || !is_array($canonical_state['resources'])) {
+      $canonical_state['resources'] = [];
+    }
+    $remaining = max(0, $remaining);
+
+    if ($is_focus_spell) {
+      if (!isset($canonical_state['resources']['focusPoints']) || !is_array($canonical_state['resources']['focusPoints'])) {
+        $canonical_state['resources']['focusPoints'] = ['current' => $remaining, 'max' => $remaining];
+        return;
+      }
+      $max = max($remaining, (int) ($canonical_state['resources']['focusPoints']['max'] ?? 0));
+      $canonical_state['resources']['focusPoints']['max'] = $max;
+      $canonical_state['resources']['focusPoints']['current'] = min($remaining, $max);
+      return;
+    }
+
+    $slot_key = (string) max(1, $slot_level);
+    if (!isset($canonical_state['resources']['spellSlots']) || !is_array($canonical_state['resources']['spellSlots'])) {
+      $canonical_state['resources']['spellSlots'] = [];
+    }
+    if (!isset($canonical_state['resources']['spellSlots'][$slot_key]) || !is_array($canonical_state['resources']['spellSlots'][$slot_key])) {
+      $canonical_state['resources']['spellSlots'][$slot_key] = ['current' => $remaining, 'max' => $remaining];
+      return;
+    }
+
+    $max = max($remaining, (int) ($canonical_state['resources']['spellSlots'][$slot_key]['max'] ?? 0));
+    $canonical_state['resources']['spellSlots'][$slot_key]['max'] = $max;
+    $canonical_state['resources']['spellSlots'][$slot_key]['current'] = min($remaining, $max);
+  }
+
+  protected function syncCanonicalSpellcastingProjectionForActor(?int $encounter_id, string $actor_id, int $campaign_id, array &$dungeon_data, ?array $canonical_state = NULL): void {
+    $actor_entity_index = $this->findDungeonEntityIndexByInstanceId($dungeon_data, $actor_id);
+    $has_actor_entity = $actor_entity_index !== NULL
+      && isset($dungeon_data['entities'][$actor_entity_index])
+      && is_array($dungeon_data['entities'][$actor_entity_index]);
+    $canonical_identity = ['character_id' => '', 'instance_id' => NULL];
+    if ($has_actor_entity) {
+      $canonical_identity = $this->resolveCanonicalCharacterIdentity($dungeon_data['entities'][$actor_entity_index]);
+    }
+
+    $encounter = NULL;
+    $participant = NULL;
+    if ($encounter_id) {
+      $encounter = $this->encounterStore->loadEncounter((int) $encounter_id);
+      if (is_array($encounter)) {
+        $participant = $this->findEncounterParticipantByEntityId($encounter, $actor_id);
+        if (
+          (string) ($canonical_identity['character_id'] ?? '') === ''
+          && is_array($participant)
+        ) {
+          $participant_entity_ref = !empty($participant['entity_ref']) ? json_decode((string) $participant['entity_ref'], TRUE) : [];
+          if (is_array($participant_entity_ref)) {
+            $canonical_identity = $this->resolveCanonicalCharacterIdentityFromParticipantEntityRef($participant_entity_ref, $actor_id);
+          }
+        }
+      }
+    }
+
+    if (!is_array($canonical_state)) {
+      $character_id = (string) ($canonical_identity['character_id'] ?? '');
+      $instance_id = is_string($canonical_identity['instance_id'] ?? NULL) ? $canonical_identity['instance_id'] : NULL;
+      if (!ctype_digit($character_id) || (int) $character_id <= 0) {
+        return;
+      }
+      try {
+        $canonical_state = $this->characterStateService->getState(
+          $character_id,
+          $campaign_id > 0 ? $campaign_id : NULL,
+          $instance_id
+        );
+      }
+      catch (\InvalidArgumentException $exception) {
+        $this->logger->warning('Spellcasting projection sync skipped: @error', ['@error' => $exception->getMessage()]);
+        return;
+      }
+      if (!is_array($canonical_state)) {
+        return;
+      }
+    }
+
+    if ($has_actor_entity) {
+      $this->applyCanonicalSpellcastingResourcesToDungeonEntity($dungeon_data['entities'][$actor_entity_index], $canonical_state);
+    }
+
+    if (!$encounter_id) {
+      return;
+    }
+
+    if (!is_array($participant)) {
+      if (!is_array($encounter)) {
+        $encounter = $this->encounterStore->loadEncounter((int) $encounter_id);
+      }
+      if (is_array($encounter)) {
+        $participant = $this->findEncounterParticipantByEntityId($encounter, $actor_id);
+      }
+    }
+    if (!$participant) {
+      return;
+    }
+
+    $participant_id = (int) ($participant['id'] ?? 0);
+    if ($participant_id <= 0) {
+      return;
+    }
+    $participant_entity_ref = !empty($participant['entity_ref']) ? json_decode((string) $participant['entity_ref'], TRUE) : [];
+    if (!is_array($participant_entity_ref)) {
+      $participant_entity_ref = [];
+    }
+    $this->applyCanonicalSpellcastingResourcesToParticipantEntityRef($participant_entity_ref, $canonical_state);
+    $this->persistEncounterParticipantEntityRef($participant_id, $participant_entity_ref);
+  }
+
+  protected function normalizeSpellSlotRankKey(string $slot_key): ?string {
+    $normalized = strtolower(trim($slot_key));
+    return match ($normalized) {
+      '1', '1st', 'first' => '1',
+      '2', '2nd', 'second' => '2',
+      '3', '3rd', 'third' => '3',
+      '4', '4th', 'fourth' => '4',
+      '5', '5th', 'fifth' => '5',
+      '6', '6th', 'sixth' => '6',
+      '7', '7th', 'seventh' => '7',
+      '8', '8th', 'eighth' => '8',
+      '9', '9th', 'ninth' => '9',
+      '10', '10th', 'tenth' => '10',
+      default => NULL,
+    };
+  }
+
+  protected function resolveEffectiveCantripLevel(?array $canonical_state, array $participant_entity_ref): int {
+    $levels = [];
+
+    $canonical_slots = is_array($canonical_state['resources']['spellSlots'] ?? NULL)
+      ? $canonical_state['resources']['spellSlots']
+      : [];
+    foreach ($canonical_slots as $rank_key => $slot_state) {
+      if (!is_array($slot_state)) {
+        continue;
+      }
+      $normalized_rank = $this->normalizeSpellSlotRankKey((string) $rank_key);
+      if ($normalized_rank === NULL) {
+        continue;
+      }
+      $max = (int) ($slot_state['max'] ?? $slot_state['current'] ?? 0);
+      if ($max > 0) {
+        $levels[] = (int) $normalized_rank;
+      }
+    }
+
+    if ($levels === []) {
+      $participant_slots = is_array($participant_entity_ref['spell_slots'] ?? NULL)
+        ? $participant_entity_ref['spell_slots']
+        : [];
+      foreach ($participant_slots as $rank_key => $slot_state) {
+        if (!is_array($slot_state)) {
+          continue;
+        }
+        $normalized_rank = $this->normalizeSpellSlotRankKey((string) $rank_key);
+        if ($normalized_rank === NULL) {
+          continue;
+        }
+        $max = (int) ($slot_state['max'] ?? 0);
+        if ($max > 0) {
+          $levels[] = (int) $normalized_rank;
+        }
+      }
+    }
+
+    return $levels !== [] ? max($levels) : 1;
+  }
+
+  protected function resolveParticipantFocusPointCurrent(array $participant_entity_ref): int {
+    $candidates = [
+      $participant_entity_ref['focus_points'] ?? NULL,
+      $participant_entity_ref['state']['focus_points']['current'] ?? NULL,
+      $participant_entity_ref['state']['resources']['focusPoints']['current'] ?? NULL,
+    ];
+    foreach ($candidates as $candidate) {
+      if (is_numeric($candidate)) {
+        return max(0, (int) $candidate);
+      }
+    }
+    return 0;
+  }
+
+  protected function applyCanonicalSpellcastingResourcesToDungeonEntity(array &$entity, array $character_state): void {
+    $resources = is_array($character_state['resources'] ?? NULL) ? $character_state['resources'] : [];
+    if (!isset($entity['state']) || !is_array($entity['state'])) {
+      $entity['state'] = [];
+    }
+
+    $spell_slots = is_array($resources['spellSlots'] ?? NULL) ? $resources['spellSlots'] : [];
+    if ($spell_slots !== []) {
+      if (!isset($entity['state']['resources']) || !is_array($entity['state']['resources'])) {
+        $entity['state']['resources'] = [];
+      }
+      $entity['state']['resources']['spellSlots'] = $spell_slots;
+      $entity['state']['spell_slots'] = $this->buildLegacySpellSlotProjection($spell_slots);
+    }
+
+    if (is_array($resources['focusPoints'] ?? NULL)) {
+      $focus_max = max(0, (int) ($resources['focusPoints']['max'] ?? 0));
+      $focus_current = max(0, min((int) ($resources['focusPoints']['current'] ?? $focus_max), $focus_max));
+      $this->writeEntityFocusPoints($entity, $focus_current, $focus_max);
+    }
+  }
+
+  protected function applyCanonicalSpellcastingResourcesToParticipantEntityRef(array &$entity_ref, array $character_state): void {
+    $resources = is_array($character_state['resources'] ?? NULL) ? $character_state['resources'] : [];
+    if (!isset($entity_ref['state']) || !is_array($entity_ref['state'])) {
+      $entity_ref['state'] = [];
+    }
+    if (!isset($entity_ref['state']['resources']) || !is_array($entity_ref['state']['resources'])) {
+      $entity_ref['state']['resources'] = [];
+    }
+
+    $spell_slots = is_array($resources['spellSlots'] ?? NULL) ? $resources['spellSlots'] : [];
+    if ($spell_slots !== []) {
+      $legacy_projection = $this->buildLegacySpellSlotProjection($spell_slots);
+      $entity_ref['state']['resources']['spellSlots'] = $spell_slots;
+      $entity_ref['state']['spell_slots'] = $legacy_projection;
+      $entity_ref['spell_slots'] = $legacy_projection;
+    }
+
+    if (is_array($resources['focusPoints'] ?? NULL)) {
+      $focus_max = max(0, (int) ($resources['focusPoints']['max'] ?? 0));
+      $focus_current = max(0, min((int) ($resources['focusPoints']['current'] ?? $focus_max), $focus_max));
+      $entity_ref['state']['resources']['focusPoints'] = [
+        'current' => $focus_current,
+        'max' => $focus_max,
+      ];
+      $entity_ref['state']['focus_points'] = [
+        'current' => $focus_current,
+        'max' => $focus_max,
+      ];
+      $entity_ref['focus_points'] = $focus_current;
+    }
+  }
+
+  protected function buildLegacySpellSlotProjection(array $spell_slots): array {
+    $projection = [];
+    $append_projection = function (string $rank_key, array $slot_state) use (&$projection): void {
+      $normalized_rank = $this->normalizeSpellSlotRankKey($rank_key);
+      if ($normalized_rank === NULL) {
+        return;
+      }
+      $max = max(0, (int) ($slot_state['max'] ?? 0));
+      $current = max(0, min((int) ($slot_state['current'] ?? $max), $max));
+      $projection[$normalized_rank] = [
+        'max' => $max,
+        'current' => $current,
+        'used' => max(0, $max - $current),
+      ];
+    };
+
+    foreach ($spell_slots as $rank_key => $slot_state) {
+      if (!is_array($slot_state)) {
+        continue;
+      }
+      if (array_key_exists('max', $slot_state) || array_key_exists('current', $slot_state)) {
+        $append_projection((string) $rank_key, $slot_state);
+        continue;
+      }
+      foreach ($slot_state as $nested_rank_key => $nested_slot_state) {
+        if (is_array($nested_slot_state)) {
+          $append_projection((string) $nested_rank_key, $nested_slot_state);
+        }
+      }
+    }
+
+    if ($projection !== []) {
+      ksort($projection, SORT_NATURAL);
+    }
+    return $projection;
+  }
+
+  protected function persistEncounterParticipantEntityRef(int $participant_id, array $entity_ref): void {
+    if ($participant_id <= 0) {
+      return;
+    }
+    try {
+      $this->encounterStore->updateParticipant($participant_id, ['entity_ref' => json_encode($entity_ref)]);
+    }
+    catch (\Throwable $e) {
+      $this->logger->warning('Encounter participant spell resource sync failed: @error', ['@error' => $e->getMessage()]);
+    }
+  }
+
+  protected function normalizeSpellResourceErrorMessage(string $message, bool $is_focus_spell, int $slot_level): string {
+    $normalized = strtolower(trim($message));
+    if (str_contains($normalized, 'focus point')) {
+      return 'No Focus Points remaining.';
+    }
+    if (str_contains($normalized, 'spell slot')) {
+      return sprintf('No level-%d spell slots remaining.', max(1, $slot_level));
+    }
+
+    $trimmed = trim($message);
+    if ($trimmed !== '') {
+      return str_ends_with($trimmed, '.') ? $trimmed : $trimmed . '.';
+    }
+
+    return $is_focus_spell
+      ? 'No Focus Points remaining.'
+      : sprintf('No level-%d spell slots remaining.', max(1, $slot_level));
   }
 
   protected function resolveCharacterFocusPoints(?array $character_state, array $entity, string $field): int {
@@ -7249,6 +7883,14 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
       : 'Unknown';
 
     $room_id = $dungeon_data['active_room_id'] ?? ($game_state['encounter_context']['room_id'] ?? NULL);
+    $turn_entity_id = trim((string) ($game_state['turn']['entity'] ?? ''));
+    $actions_total = is_numeric($game_state['turn']['actions_total'] ?? NULL) ? max(0, (int) $game_state['turn']['actions_total']) : 3;
+    $active_actions_remaining = is_numeric($game_state['turn']['actions_remaining'] ?? NULL)
+      ? max(0, (int) $game_state['turn']['actions_remaining'])
+      : $actions_total;
+    $actions_remaining = ($effective_actor_id !== NULL && $turn_entity_id !== '' && $effective_actor_id === $turn_entity_id)
+      ? $active_actions_remaining
+      : $actions_total;
 
     $ctx = [
       'round' => $round,
@@ -7257,6 +7899,8 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
       'actor_id' => $effective_actor_id,
       'actor_name' => $actor_name !== '' ? $actor_name : 'Unknown',
       'room_id' => is_string($room_id) ? $room_id : NULL,
+      'actions_remaining' => $actions_remaining,
+      'actions_total' => $actions_total,
     ];
 
     foreach ($overrides as $k => $v) {
@@ -7266,6 +7910,10 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
     if (!is_string($ctx['actor_name']) || trim((string) $ctx['actor_name']) === '') {
       $ctx['actor_name'] = 'Unknown';
     }
+    $ctx['actions_total'] = is_numeric($ctx['actions_total'] ?? NULL) ? max(0, (int) $ctx['actions_total']) : 3;
+    $ctx['actions_remaining'] = is_numeric($ctx['actions_remaining'] ?? NULL)
+      ? max(0, (int) $ctx['actions_remaining'])
+      : $ctx['actions_total'];
 
     return $ctx;
   }
@@ -7282,7 +7930,16 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
       $actor_name = 'Unknown';
     }
 
-    return \Drupal\dungeoncrawler_content\Service\EncounterTranscriptPrefix::formatPrefix($round_display, $turn_display, $actor_name);
+    $actions_remaining = $turn_ctx['actions_remaining'] ?? NULL;
+    $actions_total = $turn_ctx['actions_total'] ?? NULL;
+
+    return \Drupal\dungeoncrawler_content\Service\EncounterTranscriptPrefix::formatPrefix(
+      $round_display,
+      $turn_display,
+      $actor_name,
+      $actions_remaining,
+      $actions_total
+    );
   }
 
   protected function isEncounterChatLinePrefixed(string $content): bool {
@@ -7410,6 +8067,13 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
       return;
     }
 
+    $logged_action = $type;
+    $check_mode = 'explicit';
+    if ($type === 'search') {
+      $requested_mode = strtolower(trim((string) ($params['search_mode'] ?? 'explicit')));
+      $check_mode = $requested_mode !== '' ? $requested_mode : 'explicit';
+    }
+
     $dc = isset($result['dc']) && is_numeric($result['dc']) ? (int) $result['dc'] : NULL;
     $total = NULL;
     if (isset($result['total']) && is_numeric($result['total'])) {
@@ -7425,16 +8089,28 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
 
     $actor_name = $this->resolveEntityName($actor_id, $game_state, $dungeon_data);
     $degree = isset($result['degree']) && is_string($result['degree']) ? $result['degree'] : 'resolved';
-    $action_label = ucwords(str_replace('_', ' ', $type));
-    $skill_name = $this->resolveMechanicalSkillName($type, $params, $result);
-    $detail_label = $skill_name
-      ? sprintf('%s via %s', $action_label, ucwords(str_replace('_', ' ', $skill_name)))
-      : $action_label;
+    $skill_name = $this->resolveMechanicalSkillName($logged_action, $params, $result);
+    if ($skill_name === NULL && $logged_action === 'search') {
+      $skill_name = 'perception';
+    }
+
+    if ($logged_action === 'search') {
+      $detail_label = $check_mode === 'automatic'
+        ? 'Automatic Search via Perception'
+        : 'Search via Perception';
+    }
+    else {
+      $action_label = ucwords(str_replace('_', ' ', $logged_action));
+      $detail_label = $skill_name
+        ? sprintf('%s via %s', $action_label, ucwords(str_replace('_', ' ', $skill_name)))
+        : $action_label;
+    }
 
     $metadata = [
-      'action' => $type,
+      'action' => $logged_action,
       'skill' => $skill_name,
-      'roll' => isset($result['d20']) && is_numeric($result['d20']) ? (int) $result['d20'] : NULL,
+      'check_mode' => $check_mode,
+      'roll' => isset($result['d20']) && is_numeric($result['d20']) ? (int) $result['d20'] : (isset($result['roll']) && is_numeric($result['roll']) ? (int) $result['roll'] : NULL),
       'total' => $total,
       'dc' => $dc,
       'degree' => $degree,
@@ -7446,7 +8122,7 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
       'type' => 'skill_check_result',
       'speaker' => 'System',
       'speaker_type' => 'system',
-      'speaker_ref' => '',
+      'speaker_ref' => $actor_id,
       'content' => sprintf('%s resolves %s (%d vs DC %d: %s).', $actor_name, $detail_label, $total, $dc, $degree),
       'mechanical_data' => $metadata,
       'visibility' => 'public',
@@ -7465,6 +8141,7 @@ class EncounterPhaseHandler implements PhaseHandlerInterface {
     }
 
     return match ($type) {
+      'search' => 'perception',
       'hide', 'create_a_diversion', 'lie', 'feint' => 'deception',
       'recall_knowledge' => 'recall_knowledge',
       'trip', 'grapple', 'shove', 'reposition', 'disarm' => 'athletics',
