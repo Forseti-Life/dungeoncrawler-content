@@ -5,8 +5,6 @@
  * Methods ported verbatim from hexmap.js UIManager.
  */
 
-import { fetchVisitedNavigateLocationGroups } from '../services/navigate-location-service.js';
-
 export class NavigationSystem {
   constructor(shell, bus) {
     this.shell = shell;
@@ -32,30 +30,6 @@ export class NavigationSystem {
       this.bus.on('user:navigate', (d) => this.executeDirectNavigate(d?.button)),
       this.bus.on('user:navigate-dungeon', (d) => this.navigateToDungeonContext(d?.dungeonSwitch)),
     );
-  }
-
-  ensureNavigateLocationGroups(campaignId) {
-    if (!campaignId || (this.navigateLocationsCampaignId === campaignId && Array.isArray(this.navigateLocationGroups) && this.navigateLocationGroups.length)) {
-      return;
-    }
-    if (this.navigateLocationsInflight) {
-      return;
-    }
-
-    this.navigateLocationsInflight = fetchVisitedNavigateLocationGroups(campaignId)
-      .then((groups) => {
-        this.navigateLocationsCampaignId = campaignId;
-        this.navigateLocationGroups = groups;
-      })
-      .catch((error) => {
-        console.warn('Failed to load campaign visited locations:', error);
-      })
-      .finally(() => {
-        this.navigateLocationsInflight = null;
-        if (this.activeActionRailCategory === 'navigate') {
-          this._refreshActionRail();
-        }
-      });
   }
 
   async executeDirectNavigate(button) {

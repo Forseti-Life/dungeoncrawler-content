@@ -26,7 +26,7 @@ import { HexTokenRenderer } from './canvas/HexTokenRenderer.js';
 import { HexFogOfWar } from './canvas/HexFogOfWar.js';
 import { HexInputHandler } from './canvas/HexInputHandler.js';
 import { EncounterSystem } from './systems/EncounterSystem.js?v=20260607-v2-action-contract-module-1';
-import { NavigationSystem } from './systems/NavigationSystem.js';
+import { NavigationSystem } from './systems/NavigationSystem.js?v=20260607-v2-action-bus-flow-1';
 import { PlayerAutomation } from './systems/PlayerAutomation.js';
 import { QuestSystem } from './systems/QuestSystem.js';
 import { PortraitPanel } from './panels/PortraitPanel.js';
