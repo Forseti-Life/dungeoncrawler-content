@@ -4,6 +4,8 @@
  * Quest data normalization and rendering helpers ported verbatim from hexmap.js.
  */
 
+export const QUEST_SUMMARY_SCHEMA_VERSION = 'quest-summary-v2';
+
 export function resolveQuestTitle(quest) {
   if (!quest || typeof quest !== 'object') {
     return 'Unknown Quest';
