@@ -18,7 +18,7 @@
  *   if (this.gameCoordinator.handleHexClick(q, r)) return;
  */
 
-import { GameCoordinatorApi } from './GameCoordinatorApi.js?v=20260601-search-framework-2';
+import { GameCoordinatorApi } from './GameCoordinatorApi.js?v=20260607-search-framework-3';
 import { PhaseManager } from './PhaseManager.js';
 import { NarrationOverlay } from './NarrationOverlay.js';
 import { ExplorationPhaseHandler } from './phases/ExplorationPhaseHandler.js';
@@ -352,7 +352,11 @@ export class GameCoordinator {
       return;
     }
 
-    if (this.phaseManager.currentPhase === 'encounter') {
+    // Keep room-scene encounter state (encounter_id = null) authoritative to
+    // /api/game; only clear coordinator combat projection when we were actually
+    // tracking a persisted combat encounter.
+    const hadPersistedCombatEncounter = Number(this.phaseManager.encounterId || 0) > 0;
+    if (this.phaseManager.currentPhase === 'encounter' && hadPersistedCombatEncounter) {
       this.phaseManager.applyServerState({
         phase: 'encounter',
         state_version: Number(serverState.version) || this.phaseManager.stateVersion || 0,

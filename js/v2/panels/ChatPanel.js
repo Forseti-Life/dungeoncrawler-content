@@ -7,7 +7,7 @@
  */
 
 import { ChatSessionApi } from '../../ChatSessionApi.js';
-import { escapeQuestHtml } from '../utils/quest-utils.js';
+import { escapeQuestHtml } from '../utils/quest-utils.js?v=20260607-quest-summary-const-2';
 
 // --- parseGm* helpers (module-level in original hexmap.js, used internally) ---
 
@@ -97,7 +97,7 @@ export class ChatPanel {
     this.roomChatBusy = false;
     this.roomChatQueueDraining = false;
     this.roomChatDeferredMessages = [];
-    this._handleGameEvents = (event) => this.handleGameEvents(event);
+    this._encounterTranscriptRoomKey = '';
   }
 
   init(dungeonData, stateManager) {
@@ -121,9 +121,6 @@ export class ChatPanel {
     const nullKeys = Object.entries(this._el).filter(([,v]) => !v).map(([k]) => k);
     console.log('[ChatPanel] init', { container: !!this.container, nullEl: nullKeys.length, nullKeys: nullKeys.join(',') || 'none' });
     this._subscribe();
-    if (typeof window !== 'undefined') {
-      window.addEventListener('dungeoncrawler:game-events', this._handleGameEvents);
-    }
     this.setupChatLog();
     this.setupChannelTabs();
     this.setupSessionViewTabs();
@@ -132,9 +129,6 @@ export class ChatPanel {
   destroy() {
     this._unsubs.forEach((fn) => fn());
     this._unsubs = [];
-    if (typeof window !== 'undefined') {
-      window.removeEventListener('dungeoncrawler:game-events', this._handleGameEvents);
-    }
   }
 
   _subscribe() {
@@ -146,6 +140,12 @@ export class ChatPanel {
         if (d?.view && d?.data) this.renderSessionViewData(d.view, d.data);
       }),
     );
+
+    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+      const onGameEvents = (event) => this.handleGameEvents(event);
+      window.addEventListener('dungeoncrawler:game-events', onGameEvents);
+      this._unsubs.push(() => window.removeEventListener('dungeoncrawler:game-events', onGameEvents));
+    }
   }
 
   handleBusChatMessageReceived(payload = {}) {
@@ -968,6 +968,7 @@ export class ChatPanel {
     }
 
     const context = this.getChatContext();
+    const historyChannelKey = this.resolveChatChannelKey('room', result?.data?.channel || this.activeChannel || 'room');
     const incoming = result.data.messages.map((msg, index) => {
       const timestamp = String(msg.timestamp || '').trim();
       const created = timestamp !== '' ? Date.parse(timestamp) || 0 : 0;
@@ -980,22 +981,27 @@ export class ChatPanel {
         source: 'room-history',
         authority: 'authoritative',
         messageClass: 'authoritative_transcript',
-        channel: this.activeChannel,
+        channel: historyChannelKey,
         view: 'room',
       };
     });
 
-    const encounterPrefixRegex = /^Round\s+(?:\d+|\?)\s*:\s*Turn\s+(?:\d+|\?)\s*:\s*Actor\s+.+?:/i;
+    const encounterPrefixRegex = /^Round\s+(?:\d+|\?)\s*:\s*Turn\s+(?:\d+|\?)\s*:\s*Actor\s+.+?:\s*(?:Actions\s+(?:\d+|\?)\/(?:\d+|\?)\s*:\s*)?/i;
     this._roomHistoryHasEncounterTranscript = incoming.some((line) => encounterPrefixRegex.test(String(line?.message || '').trim()));
 
     const merged = this.rememberChatLines('room', incoming, {
       context,
-      channelKey: this.activeChannel,
+      channelKey: historyChannelKey,
     });
+    const shouldRenderVisibleRoomHistory = this.activeSessionView === 'room'
+      && historyChannelKey === (this.activeChannel || 'room');
+    if (!shouldRenderVisibleRoomHistory) {
+      return;
+    }
     console.log('[ChatPanel] renderRoomChatHistory:render', { incoming: incoming.length, merged: merged.length });
     this.renderChatLineRecords(merged, 'room', {
       context,
-      channelKey: this.activeChannel,
+      channelKey: historyChannelKey,
     });
 
     this.updateChatSummary(merged, {
@@ -1004,6 +1010,13 @@ export class ChatPanel {
 
 
     this.scrollChatToBottom({ defer: true });
+
+    const encounterTranscriptRoomKey = `${context.campaignId || ''}:${context.roomId || ''}`;
+    if (encounterTranscriptRoomKey !== this._encounterTranscriptRoomKey) {
+      this._encounterTranscriptRoomKey = encounterTranscriptRoomKey;
+      this.renderPersistedEncounterEventHistory();
+    }
+
     const pinnedRoomId = this.resolvePinnedChatRoomTarget(context.roomId);
     if (pinnedRoomId) {
       this.bus.emit('room:view-reload-requested', { roomId: pinnedRoomId, force: true });
@@ -1472,7 +1485,7 @@ export class ChatPanel {
 
   formatEncounterChatMessage(speaker, message, type = 'npc', options = {}) {
     const rawMessage = String(message || '').trim();
-    const alreadyPrefixed = /^Round\s+(?:\d+|\?)\s*:\s*Turn\s+(?:\d+|\?)\s*:\s*Actor\s+.+?:/i.test(rawMessage);
+    const alreadyPrefixed = /^Round\s+(?:\d+|\?)\s*:\s*Turn\s+(?:\d+|\?)\s*:\s*Actor\s+.+?:\s*(?:Actions\s+(?:\d+|\?)\/(?:\d+|\?)\s*:\s*)?/i.test(rawMessage);
     if (!rawMessage || options.encounterPrefix === false || alreadyPrefixed) {
       return message || '';
     }
@@ -1480,7 +1493,7 @@ export class ChatPanel {
     if (!context) {
       return message || '';
     }
-    return `Round ${context.round}: Turn ${context.turn}: Actor ${context.actorName}: ${rawMessage}`;
+    return `Round ${context.round}: Turn ${context.turn}: Actor ${context.actorName}: Actions ${context.actionsRemaining}/${context.actionsTotal}: ${rawMessage}`;
   }
 
   resolveEncounterChatContext(speaker = '', options = {}) {
@@ -1502,6 +1515,14 @@ export class ChatPanel {
 
     const turnIndex = Number(options.turnIndex ?? data.turn_index ?? snapshot.turn?.index ?? gameState.turn?.index);
     const turn = Number.isFinite(turnIndex) && turnIndex >= 0 ? turnIndex + 1 : '?';
+    const rawActionsTotal = Number(options.actionsTotal ?? data.actions_total ?? snapshot.turn?.actions_total ?? gameState.turn?.actions_total ?? 3);
+    const actionsTotal = Number.isFinite(rawActionsTotal) && rawActionsTotal >= 0
+      ? Math.floor(rawActionsTotal)
+      : 3;
+    const rawActionsRemaining = Number(options.actionsRemaining ?? data.actions_remaining ?? data.actions_available ?? snapshot.turn?.actions_remaining ?? gameState.turn?.actions_remaining);
+    const actionsRemaining = Number.isFinite(rawActionsRemaining) && rawActionsRemaining >= 0
+      ? Math.floor(rawActionsRemaining)
+      : actionsTotal;
     const totalTurns = Number(
       options.totalTurns
       ?? data.total_turns
@@ -1515,6 +1536,8 @@ export class ChatPanel {
       totalTurns: Number.isFinite(totalTurns) ? totalTurns : null,
       actorId,
       actorName: actorName || 'Narrator',
+      actionsRemaining,
+      actionsTotal,
     };
   }
 
@@ -1557,8 +1580,25 @@ export class ChatPanel {
     const characterData = this.stateManager?.hexmap?.characterData || {};
     const activeCharacterName = String(characterData?.name || '').trim();
     const normalizeName = (value) => String(value || '').trim().toLowerCase();
+    const activeRoomId = String(
+      this.stateManager?.hexmap?.resolveActiveRoomId?.()
+      || this.getChatContext?.()?.roomId
+      || ''
+    ).trim();
+    const resolveEventRoomId = (gameEvent = {}) => String(
+      this.resolveEncounterEventRoomId?.(gameEvent)
+      || gameEvent?.data?.room_id
+      || gameEvent?.data?.roomId
+      || gameEvent?.data?.encounter_context?.room_id
+      || gameEvent?.data?.context?.room_id
+      || ''
+    ).trim();
 
     for (const gameEvent of events) {
+      const eventRoomId = resolveEventRoomId(gameEvent);
+      if (activeRoomId && eventRoomId && eventRoomId !== activeRoomId) {
+        continue;
+      }
       const chatLine = this.buildEncounterEventChatLine(gameEvent);
       if (!chatLine) {
         continue;
@@ -1583,34 +1623,44 @@ export class ChatPanel {
         && activeCharacterName
         && normalizeName(chatLine.actorName) === normalizeName(activeCharacterName)
       ) {
-        const rawRound = Number(gameEvent?.data?.round);
-        const fallbackRound = Number.isFinite(rawRound) ? rawRound : (Number.isFinite(chatLine.round) ? chatLine.round : NaN);
-        const promptLineId = gameEvent.id
-          ? `turn-prompt-${gameEvent.id}`
-          : `turn-prompt-${Number.isFinite(fallbackRound) ? fallbackRound : 'unknown'}-${normalizeName(activeCharacterName)}`;
-
-        this.appendChatLineToTarget(
-          { view: 'room', channelKey: this.activeChannel || 'room', context: this.getChatContext() },
-          'System',
-          `It's your turn, ${activeCharacterName}.`,
-          'system',
-          {
-            lineId: promptLineId,
-            source: 'encounter-event',
-            authority: 'authoritative',
-            messageClass: 'authoritative_transcript',
-            encounterEvent: true,
-            event: gameEvent,
-            round: Number.isFinite(fallbackRound) ? fallbackRound : undefined,
-            actorName: 'System',
-            turn_prompt: true,
-            turn_role: 'player',
-            turn_name: activeCharacterName,
-            eventId: String(gameEvent.id || ''),
-          }
-        );
+        this.appendPlayerTurnPromptFromEvent(gameEvent, chatLine, activeCharacterName);
       }
     }
+  }
+
+  appendPlayerTurnPromptFromEvent(gameEvent = {}, chatLine = {}, activeCharacterName = '') {
+    const normalizedName = String(activeCharacterName || '').trim();
+    if (normalizedName === '') {
+      return;
+    }
+
+    const normalizeName = (value) => String(value || '').trim().toLowerCase();
+    const rawRound = Number(gameEvent?.data?.round);
+    const fallbackRound = Number.isFinite(rawRound) ? rawRound : (Number.isFinite(chatLine?.round) ? chatLine.round : NaN);
+    const promptLineId = gameEvent?.id
+      ? `turn-prompt-${gameEvent.id}`
+      : `turn-prompt-${Number.isFinite(fallbackRound) ? fallbackRound : 'unknown'}-${normalizeName(normalizedName)}`;
+
+    this.appendChatLineToTarget(
+      { view: 'room', channelKey: 'room', context: this.getChatContext() },
+      'System',
+      `It's your turn, ${normalizedName}.`,
+      'system',
+      {
+        lineId: promptLineId,
+        source: 'encounter-event',
+        authority: 'authoritative',
+        messageClass: 'authoritative_transcript',
+        encounterEvent: true,
+        event: gameEvent,
+        round: Number.isFinite(fallbackRound) ? fallbackRound : undefined,
+        actorName: 'System',
+        turn_prompt: true,
+        turn_role: 'player',
+        turn_name: normalizedName,
+        eventId: String(gameEvent?.id || ''),
+      }
+    );
   }
 
   buildEncounterEventChatLine(event = {}) {
@@ -1692,6 +1742,17 @@ export class ChatPanel {
       };
     }
     return null;
+  }
+
+  resolveEncounterEventRoomId(event = {}) {
+    const data = event?.data || {};
+    return String(
+      data.room_id
+      || data.roomId
+      || data.encounter_context?.room_id
+      || data.context?.room_id
+      || ''
+    ).trim();
   }
 
   extractActorNameFromNarration(narration = '') {
@@ -1784,11 +1845,11 @@ export class ChatPanel {
     const playerLineId = `chat-player-${requestId}`;
     const gmProgressLineId = `chat-gm-progress-${requestId}`;
     const gmResponseLineId = `chat-gm-${requestId}`;
-    const encounterPrefixRegex = /^Turn\s+(?:\d+|\?):\s+Round\s+(?:\d+|\?):\s+Actor\s+.*:\s+/u;
+    const encounterPrefixRegex = /^Round\s+(?:\d+|\?)\s*:\s*Turn\s+(?:\d+|\?)\s*:\s*Actor\s+.*\s*:\s*(?:Actions\s+(?:\d+|\?)\/(?:\d+|\?)\s*:\s*)?/u;
     const trimmedPlayerMessage = String(message || '').trim();
     const pendingPlayerMessage = encounterPrefixRegex.test(trimmedPlayerMessage)
       ? message
-      : `Turn ?: Round ?: Actor ${speaker}: ${trimmedPlayerMessage}`;
+      : `Round ?: Turn ?: Actor ${speaker}: Actions ?/3: ${trimmedPlayerMessage}`;
 
     if (includePlayer) {
       this.appendChatLineToTarget(target, speaker, pendingPlayerMessage, 'player', {
@@ -2729,8 +2790,13 @@ export class ChatPanel {
       return;
     }
 
-    // Emit request; GameShell handles the fetch and emits session:view-data back
-    this.bus.emit('user:session-view-requested', { view, options });
+    try {
+      const data = await this.fetchSessionViewData(view, options);
+      this.renderSessionViewData(view, data || { messages: [] });
+    } catch (error) {
+      console.error(`Failed to load ${view} session view:`, error);
+      this.renderSessionViewData(view, { messages: [] });
+    }
   }
 
   async loadChatHistory(options = {}) {
@@ -2744,9 +2810,6 @@ export class ChatPanel {
       const result = await this.fetchRoomChatHistory(options);
       if (result?.success && result.data?.messages) {
         this.renderRoomChatHistory(result);
-        if ((this.activeChannel || 'room') === 'room') {
-          await this.renderPersistedEncounterEventHistory();
-        }
         this.prefetchSessionViews();
         this.prefetchConnectedRoomContext();
       }
@@ -2860,8 +2923,13 @@ export class ChatPanel {
           return;
         }
 
+        let latestMatchingTurnStart = null;
         for (const gameEvent of events) {
           if (String(gameEvent?.type || '').trim().toLowerCase() !== 'turn_start') {
+            continue;
+          }
+          const eventRoomId = this.resolveEncounterEventRoomId(gameEvent);
+          if (context.roomId && eventRoomId && String(eventRoomId) !== String(context.roomId)) {
             continue;
           }
 
@@ -2869,32 +2937,14 @@ export class ChatPanel {
           if (!chatLine || normalizeName(chatLine.actorName) !== normalizeName(activeCharacterName)) {
             continue;
           }
+          latestMatchingTurnStart = { gameEvent, chatLine };
+        }
 
-          const rawRound = Number(gameEvent?.data?.round);
-          const fallbackRound = Number.isFinite(rawRound) ? rawRound : (Number.isFinite(chatLine.round) ? chatLine.round : NaN);
-          const promptLineId = gameEvent.id
-            ? `turn-prompt-${gameEvent.id}`
-            : `turn-prompt-${Number.isFinite(fallbackRound) ? fallbackRound : 'unknown'}-${normalizeName(activeCharacterName)}`;
-
-          this.appendChatLineToTarget(
-            { view: 'room', channelKey: this.activeChannel || 'room', context: this.getChatContext() },
-            'System',
-            `It's your turn, ${activeCharacterName}.`,
-            'system',
-            {
-              lineId: promptLineId,
-              source: 'encounter-event',
-              authority: 'authoritative',
-              messageClass: 'authoritative_transcript',
-              encounterEvent: true,
-              event: gameEvent,
-              round: Number.isFinite(fallbackRound) ? fallbackRound : undefined,
-              actorName: 'System',
-              turn_prompt: true,
-              turn_role: 'player',
-              turn_name: activeCharacterName,
-              eventId: String(gameEvent.id || ''),
-            }
+        if (latestMatchingTurnStart) {
+          this.appendPlayerTurnPromptFromEvent(
+            latestMatchingTurnStart.gameEvent,
+            latestMatchingTurnStart.chatLine,
+            activeCharacterName
           );
         }
 
@@ -2909,37 +2959,52 @@ export class ChatPanel {
     }
   }
 
+  buildSessionViewRenderTarget(view, context = null) {
+    return this.buildChatRenderTarget({
+      view,
+      channelKey: view,
+      context: context || this.getChatContext(),
+    });
+  }
+
+  appendSessionViewLine(view, target, speaker, message, type = 'npc', options = {}) {
+    return this.appendChatLineToTarget(target, speaker, message, type, {
+      ...options,
+      channel: view,
+      view,
+    });
+  }
+
   async postSessionViewMessage(speaker, message, characterId) {
     const api = this.ensureChatSessionApi();
     if (!api) return;
+    const view = String(this.activeSessionView || 'room').trim() || 'room';
+    const context = this.getChatContext();
+    const target = this.buildSessionViewRenderTarget(view, context);
 
     try {
-      switch (this.activeSessionView) {
+      switch (view) {
         case 'party': {
-          const partyLine = this.appendChatLine(speaker, message, 'player', {
+          const partyLine = this.appendSessionViewLine(view, target, speaker, message, 'player', {
             source: 'session-local:party',
             authority: 'local',
             messageClass: 'local_ui_notice',
-            channel: 'party',
-            view: 'party',
           });
           const partyResult = await api.postPartyChat(speaker, message, String(characterId || ''));
           if (partyLine && partyResult?.message_id) {
             partyLine.dataset.messageId = String(partyResult.message_id);
-            this.syncCurrentChatViewState('party');
+            this.syncCurrentChatViewState(view);
           }
-          this.invalidateChatCaches({ sessionViews: ['party'] });
+          this.invalidateChatCaches({ sessionViews: [view] });
           break;
         }
 
         case 'gm-private': {
           if (!characterId) {
-            this.appendChatLine('System', 'No character selected.', 'system', {
+            this.appendSessionViewLine(view, target, 'System', 'No character selected.', 'system', {
               source: 'local-ui',
               authority: 'local',
               messageClass: 'local_ui_notice',
-              channel: 'gm-private',
-              view: 'gm-private',
             });
             return;
           }
@@ -2948,21 +3013,17 @@ export class ChatPanel {
             const originRoomId = this.stateManager?.hexmap?.resolveActiveRoomId?.() || null;
             const dungeonData = this.stateManager?.hexmap?.dungeonData || {};
             if (!originRoomId || !dungeonData?.level_id || !dungeonData?.map_id) {
-              this.appendChatLine('System', 'Missing dungeon context for procedural room generation.', 'system', {
+              this.appendSessionViewLine(view, target, 'System', 'Missing dungeon context for procedural room generation.', 'system', {
                 source: 'local-ui',
                 authority: 'local',
                 messageClass: 'local_ui_notice',
-                channel: 'gm-private',
-                view: 'gm-private',
               });
               return;
             }
-            this.appendChatLine(speaker, message, 'secret', {
+            this.appendSessionViewLine(view, target, speaker, message, 'secret', {
               source: 'session-local:gm-private',
               authority: 'local',
               messageClass: 'local_ui_notice',
-              channel: 'gm-private',
-              view: 'gm-private',
             });
             const roomResult = await api.requestRoomGeneration({
               origin_room_id: originRoomId,
@@ -2975,12 +3036,10 @@ export class ChatPanel {
               gm_private_message: message,
             });
             if (roomResult?.message) {
-              this.appendChatLine('Game Master', roomResult.message, 'gm', {
+              this.appendSessionViewLine(view, target, 'Game Master', roomResult.message, 'gm', {
                 source: 'session-action',
                 authority: 'authoritative',
                 messageClass: 'authoritative_transcript',
-                channel: 'gm-private',
-                view: 'gm-private',
               });
             }
             if (roomResult?.navigation?.target_room_id) {
@@ -2994,21 +3053,17 @@ export class ChatPanel {
           if (requestedQuests) {
             const roomId = this.stateManager?.hexmap?.resolveActiveRoomId?.() || null;
             if (!roomId) {
-              this.appendChatLine('System', 'No active room available for quest generation.', 'system', {
+              this.appendSessionViewLine(view, target, 'System', 'No active room available for quest generation.', 'system', {
                 source: 'local-ui',
                 authority: 'local',
                 messageClass: 'local_ui_notice',
-                channel: 'gm-private',
-                view: 'gm-private',
               });
               return;
             }
-            this.appendChatLine(speaker, message, 'secret', {
+            this.appendSessionViewLine(view, target, speaker, message, 'secret', {
               source: 'session-local:gm-private',
               authority: 'local',
               messageClass: 'local_ui_notice',
-              channel: 'gm-private',
-              view: 'gm-private',
             });
             const questResult = await api.requestLocationQuests({
               room_id: roomId,
@@ -3018,12 +3073,10 @@ export class ChatPanel {
               gm_private_message: message,
             });
             if (questResult?.message) {
-              this.appendChatLine('Game Master', questResult.message, 'gm', {
+              this.appendSessionViewLine(view, target, 'Game Master', questResult.message, 'gm', {
                 source: 'session-action',
                 authority: 'authoritative',
                 messageClass: 'authoritative_transcript',
-                channel: 'gm-private',
-                view: 'gm-private',
               });
             }
             await this.stateManager?.hexmap?.refreshQuestJournalFromApi?.();
@@ -3033,12 +3086,10 @@ export class ChatPanel {
 
           const requestedDungeon = parseGmDungeonRequest(message);
           if (requestedDungeon) {
-            this.appendChatLine(speaker, message, 'secret', {
+            this.appendSessionViewLine(view, target, speaker, message, 'secret', {
               source: 'session-local:gm-private',
               authority: 'local',
               messageClass: 'local_ui_notice',
-              channel: 'gm-private',
-              view: 'gm-private',
             });
             const dungeonResult = await api.generateDungeon({
               location_x: requestedDungeon.locationX,
@@ -3050,12 +3101,10 @@ export class ChatPanel {
               gm_private_message: message,
             });
             const dungeonName = dungeonResult?.name || dungeonResult?.data?.name || dungeonResult?.dungeon_id || 'new dungeon';
-            this.appendChatLine('Game Master', `Generated dungeon site: ${dungeonName}.`, 'gm', {
+            this.appendSessionViewLine(view, target, 'Game Master', `Generated dungeon site: ${dungeonName}.`, 'gm', {
               source: 'session-action',
               authority: 'authoritative',
               messageClass: 'authoritative_transcript',
-              channel: 'gm-private',
-              view: 'gm-private',
             });
             this.invalidateChatCaches({ sessionViews: ['gm-private', 'system-log'] });
             break;
@@ -3065,21 +3114,17 @@ export class ChatPanel {
           if (requestedDestination) {
             const originRoomId = this.stateManager?.hexmap?.resolveActiveRoomId?.() || null;
             if (!originRoomId) {
-              this.appendChatLine('System', 'No active room available for location generation.', 'system', {
+              this.appendSessionViewLine(view, target, 'System', 'No active room available for location generation.', 'system', {
                 source: 'local-ui',
                 authority: 'local',
                 messageClass: 'local_ui_notice',
-                channel: 'gm-private',
-                view: 'gm-private',
               });
               return;
             }
-            this.appendChatLine(speaker, message, 'secret', {
+            this.appendSessionViewLine(view, target, speaker, message, 'secret', {
               source: 'session-local:gm-private',
               authority: 'local',
               messageClass: 'local_ui_notice',
-              channel: 'gm-private',
-              view: 'gm-private',
             });
             const locationResult = await api.requestLocationGeneration({
               destination: requestedDestination,
@@ -3089,12 +3134,10 @@ export class ChatPanel {
               gm_private_message: message,
             });
             if (locationResult?.message) {
-              this.appendChatLine('Game Master', locationResult.message, 'gm', {
+              this.appendSessionViewLine(view, target, 'Game Master', locationResult.message, 'gm', {
                 source: 'session-action',
                 authority: 'authoritative',
                 messageClass: 'authoritative_transcript',
-                channel: 'gm-private',
-                view: 'gm-private',
               });
             }
             if (locationResult?.navigation?.target_room_id) {
@@ -3104,19 +3147,17 @@ export class ChatPanel {
             break;
           }
 
-          const gmPrivateLine = this.appendChatLine(speaker, message, 'secret', {
+          const gmPrivateLine = this.appendSessionViewLine(view, target, speaker, message, 'secret', {
             source: 'session-local:gm-private',
             authority: 'local',
             messageClass: 'local_ui_notice',
-            channel: 'gm-private',
-            view: 'gm-private',
           });
           const gmPrivateResult = await api.postGmPrivate(characterId, speaker, message);
           if (gmPrivateLine && gmPrivateResult?.message_id) {
             gmPrivateLine.dataset.messageId = String(gmPrivateResult.message_id);
-            this.syncCurrentChatViewState('gm-private');
+            this.syncCurrentChatViewState(view);
           }
-          this.invalidateChatCaches({ sessionViews: ['gm-private'] });
+          this.invalidateChatCaches({ sessionViews: [view] });
           break;
         }
 
@@ -3124,13 +3165,11 @@ export class ChatPanel {
           return;
       }
     } catch (err) {
-      console.error(`Failed to post to ${this.activeSessionView}:`, err);
-      this.appendChatLine('System', `Failed to send: ${err.message}`, 'system', {
+      console.error(`Failed to post to ${view}:`, err);
+      this.appendSessionViewLine(view, target, 'System', `Failed to send: ${err.message}`, 'system', {
         source: 'local-ui',
         authority: 'local',
         messageClass: 'local_ui_notice',
-        channel: this.activeSessionView,
-        view: this.activeSessionView,
       });
     }
 

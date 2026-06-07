@@ -40,8 +40,8 @@ assert(
   'legacy action rail Search direct action executes the shared search handler'
 );
 assert(
-  hexmapSource.includes("./game-coordinator/GameCoordinator.js?v=20260601-search-framework-2")
-    && fs.readFileSync(path.resolve(__dirname, '../js/game-coordinator/GameCoordinator.js'), 'utf8').includes("./GameCoordinatorApi.js?v=20260601-search-framework-2"),
+  hexmapSource.includes("./game-coordinator/GameCoordinator.js?v=20260607-search-framework-3")
+    && fs.readFileSync(path.resolve(__dirname, '../js/game-coordinator/GameCoordinator.js'), 'utf8').includes("./GameCoordinatorApi.js?v=20260607-search-framework-3"),
   'legacy nested coordinator imports are cache-busted when Search contracts change'
 );
 assert(
@@ -128,7 +128,7 @@ assert(
 assert(
   encounterSystemSource.includes("search_mode: 'explicit'")
     && encounterSystemSource.includes('character_id: characterId')
-    && encounterSystemSource.includes("coordinator.api.sendAction('search', actorRef, {")
+    && encounterSystemSource.includes("this._sendCoordinatorActionWithResync(coordinator, 'search', actorRef, {")
     && encounterSystemSource.includes('|| phaseSnapshot?.actionContract?.actor_id')
     && encounterSystemSource.includes('|| phaseSnapshot?.turn?.entity')
     && !encounterSystemSource.includes('await coordinator.api.getState()')

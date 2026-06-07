@@ -7,7 +7,7 @@
 
 import { collectCharacterSkillEntries, normalizeInventoryState } from '../utils/inventory-utils.js';
 import { normalizeSpellcastingData, collectSpellRankGroups, normalizeDisplayedSpellSlots, formatSpellRankLabel } from '../utils/spell-utils.js';
-import { escapeQuestHtml } from '../utils/quest-utils.js';
+import { escapeQuestHtml } from '../utils/quest-utils.js?v=20260607-quest-summary-const-2';
 import { escapeTooltipAttr, flattenTooltipBuckets, formatTooltipActionCost, slugifyTooltipKey, tooltipSourceMatches, uniqueTooltipStrings } from '../utils/dom-utils.js';
 
 export class CharacterPanel {
