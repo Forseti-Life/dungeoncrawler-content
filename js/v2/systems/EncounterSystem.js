@@ -8,6 +8,18 @@
 import { getActionRailCost } from '../utils/action-utils.js';
 import { extractConsumableItems } from '../utils/inventory-utils.js';
 
+const ACTION_SELECTION_HANDLERS = Object.freeze({
+  attack: 'executeDirectAttack',
+  spell: 'executeDirectSpell',
+  interact: 'executeDirectInteract',
+  search: 'executeDirectSearch',
+  skill: 'executeDirectSkill',
+  feat: 'executeDirectFeat',
+  consumable: 'executeDirectConsumable',
+});
+
+const REST_ACTIVITY_ACTION_KEYS = new Set(['treat_wounds', 'refocus', 'repair', 'daily_preparations']);
+
 export class EncounterSystem {
   constructor(shell, bus) {
     this.shell = shell;
@@ -34,32 +46,14 @@ export class EncounterSystem {
     this._unsubs.push(
       this.bus.on('user:action-selected', (d) => {
         const key = d?.actionKey;
-        switch (key) {
-          case 'attack':
-            this.executeDirectAttack(d?.button);
-            return;
-          case 'spell':
-            this.executeDirectSpell(d?.button);
-            return;
-          case 'interact':
-            this.executeDirectInteract(d?.button);
-            return;
-          case 'search':
-            this.executeDirectSearch(d?.button);
-            return;
-          case 'skill':
-            this.executeDirectSkill(d?.button);
-            return;
-          case 'feat':
-            this.executeDirectFeat(d?.button);
-            return;
-          case 'consumable':
-            this.executeDirectConsumable(d?.button);
-            return;
-          default:
-            if (['treat_wounds', 'refocus', 'repair', 'daily_preparations'].includes(key)) {
-              this.executeRestActivity(key, d?.button);
-            }
+        const handlerName = ACTION_SELECTION_HANDLERS[key] || '';
+        if (handlerName && typeof this[handlerName] === 'function') {
+          this[handlerName](d?.button);
+          return;
+        }
+
+        if (REST_ACTIVITY_ACTION_KEYS.has(key)) {
+          this.executeRestActivity(key, d?.button);
         }
       }),
       this.bus.on('user:combat-start', () => this.startCombat()),
@@ -485,9 +479,21 @@ export class EncounterSystem {
 
     try {
     const context = this._getActionRailContext();
-    const skillName = String(button.dataset.skillName || '').replace(/_/g, ' ');
+    const characterId = Number(context.characterId || 0) || 0;
+    const skillName = String(button.dataset.skillName || '').replace(/_/g, ' ').trim();
     const skillModifier = Number(button.dataset.skillModifier || 0);
-    const label = `${skillName}${Number.isFinite(skillModifier) ? ` (${skillModifier >= 0 ? '+' : ''}${skillModifier})` : ''}`;
+    const labelBase = skillName || 'skill action';
+    const label = `${labelBase}${Number.isFinite(skillModifier) ? ` (${skillModifier >= 0 ? '+' : ''}${skillModifier})` : ''}`;
+
+    if (!characterId) {
+      this._appendChatLine('System', 'Skill actions require an active character.', 'system');
+      return;
+    }
+
+    if (!skillName) {
+      this._appendChatLine('System', 'Skill action is missing a canonical skill name.', 'system');
+      return;
+    }
 
     if (context.encounterActive && context.actor && context.hexmap && context.actorRef) {
       const coordinator = context.hexmap?.gameCoordinator || null;
@@ -514,7 +520,7 @@ export class EncounterSystem {
     }
 
     const runtimeContext = context.runtimeContext || {};
-    const response = await fetch(`/api/character/${context.characterId}/actions`, {
+    const response = await fetch(`/api/character/${characterId}/actions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -542,7 +548,7 @@ export class EncounterSystem {
     }
 
     this._appendChatLine('System', data.action?.summary || `${context.actorLabel} uses ${label}.`, 'system');
-    context.hexmap?.loadCharacterFromApi(context.characterId);
+    context.hexmap?.loadCharacterFromApi(characterId);
     } finally {
       this._endActionRailRequest(button);
     }

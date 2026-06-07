@@ -37,8 +37,9 @@ assert(
 );
 
 assert(
-  encounterSystemSource.includes("case 'feat':")
-    && encounterSystemSource.includes('this.executeDirectFeat(d?.button);')
+  encounterSystemSource.includes("feat: 'executeDirectFeat'")
+    && encounterSystemSource.includes('const handlerName = ACTION_SELECTION_HANDLERS[key] ||')
+    && encounterSystemSource.includes('this[handlerName](d?.button);')
     && encounterSystemSource.includes('async executeDirectFeat(button) {')
     && encounterSystemSource.includes("_sendCoordinatorActionWithResync(coordinator, 'feat', context.actorRef, {")
     && encounterSystemSource.includes("feat_id: button.dataset.featId || ''")
