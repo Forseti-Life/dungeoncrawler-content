@@ -36,6 +36,7 @@ export class EncounterSystem {
         if (key === 'interact') this.executeDirectInteract(d?.button);
         if (key === 'search')   this.executeDirectSearch(d?.button);
         if (key === 'skill')    this.executeDirectSkill(d?.button);
+        if (key === 'feat')     this.executeDirectFeat(d?.button);
         if (['treat_wounds', 'refocus', 'repair', 'daily_preparations'].includes(key)) {
           this.executeRestActivity(key, d?.button);
         }
@@ -642,6 +643,76 @@ export class EncounterSystem {
 
     this._appendChatLine('System', `${context.actorLabel} casts ${spellName}.`, 'system');
     hexmap.loadCharacterFromApi(context.characterId);
+    } finally {
+      this._endActionRailRequest(button);
+    }
+  }
+
+  async executeDirectFeat(button) {
+    if (!this._beginActionRailRequest(button)) {
+      return;
+    }
+
+    try {
+    const context = this._getActionRailContext();
+    const featName = button.dataset.featName || 'feat action';
+    const actionCost = getActionRailCost(button.dataset.actionCost, 1);
+
+    if (context.encounterActive && context.actor && context.actorRef) {
+      const coordinator = context.hexmap?.gameCoordinator || null;
+      if (!coordinator?.api) {
+        this._appendChatLine('System', 'Feat actions require an active coordinator session. Refresh the room.', 'system');
+        return;
+      }
+
+      const result = await this._sendCoordinatorActionWithResync(coordinator, 'feat', context.actorRef, {
+        action_cost: actionCost,
+        feat_id: button.dataset.featId || '',
+        feat_name: featName,
+        character_id: context.characterId || null,
+      });
+      if (!result?.success) {
+        this._appendChatLine('System', result?.error || result?.result?.error || `Unable to use ${featName}.`, 'system');
+        return;
+      }
+
+      coordinator.applyAuthoritativeUpdate?.(result);
+      this._appendChatLine('System', result?.result?.summary || `${context.actorLabel} uses ${featName}.`, 'system');
+      this._refreshActionRail();
+      return;
+    }
+
+    const runtimeContext = context.runtimeContext || {};
+    const response = await fetch(`/api/character/${context.characterId}/actions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify({
+        actionType: 'feat',
+        actionName: featName,
+        summary: `${context.actorLabel} uses ${featName}.`,
+        source: 'action_rail',
+        payload: {
+          featId: button.dataset.featId || '',
+          featName,
+          actionCost,
+        },
+        campaignId: runtimeContext.campaignId || null,
+        instanceId: runtimeContext.instanceId || null,
+      }),
+    });
+    const data = await response.json();
+    if (!response.ok || !data.success) {
+      this._appendChatLine('System', data.error || `Unable to use ${featName}.`, 'system');
+      return;
+    }
+
+    this._appendChatLine('System', data.action?.summary || `${context.actorLabel} uses ${featName}.`, 'system');
+    context.hexmap?.loadCharacterFromApi(context.characterId);
     } finally {
       this._endActionRailRequest(button);
     }
