@@ -3141,6 +3141,39 @@ import { SpriteService } from './SpriteService.js';
         .join(' ');
     }
 
+    buildMerchantPanelSummaryText(merchant = null, selectedMerchantEntry = null) {
+      const fallbackText = 'Choose a merchant in the active room to browse stock and sell inventory.';
+      const summary = String(merchant?.summary || merchant?.role || selectedMerchantEntry?.summary || '').trim();
+      const merchantClass = this.resolveMerchantClassLabel(merchant, selectedMerchantEntry);
+      if (!merchantClass) {
+        return summary || fallbackText;
+      }
+
+      if (!summary) {
+        return `Merchant class: ${merchantClass}`;
+      }
+
+      return summary.toLowerCase() === merchantClass.toLowerCase()
+        ? `Merchant class: ${merchantClass}`
+        : `${summary} · Merchant class: ${merchantClass}`;
+    }
+
+    resolveMerchantClassLabel(merchant = null, selectedMerchantEntry = null) {
+      const directLabel = String(merchant?.profile_label || '').trim();
+      if (directLabel) {
+        return directLabel;
+      }
+
+      const profileKey = String(merchant?.profile || '').trim();
+      if (profileKey) {
+        return profileKey
+          .replace(/[_-]+/g, ' ')
+          .replace(/\b\w/g, (char) => char.toUpperCase());
+      }
+
+      return String(merchant?.role || selectedMerchantEntry?.summary || '').trim();
+    }
+
     buildMerchantItemMetaHtml(item = {}, options = {}) {
       const {
         quantityLabel = '',
@@ -3523,7 +3556,7 @@ import { SpriteService } from './SpriteService.js';
         this.elements.merchantPanelName.textContent = merchant?.name || selectedMerchantEntry?.name || 'No merchant selected';
       }
       if (this.elements.merchantPanelSummary) {
-        this.elements.merchantPanelSummary.textContent = merchant?.summary || merchant?.role || selectedMerchantEntry?.summary || 'Choose a merchant in the active room to browse stock and sell inventory.';
+        this.elements.merchantPanelSummary.textContent = this.buildMerchantPanelSummaryText(merchant, selectedMerchantEntry);
       }
       if (this.elements.merchantPanelPortraitWrap && this.elements.merchantPanelPortrait) {
         const merchantPortraitUrl = String(merchant?.portrait_url || merchant?.portrait || selectedMerchantEntry?.portraitUrl || '').trim();

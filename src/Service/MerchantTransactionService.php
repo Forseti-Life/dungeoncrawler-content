@@ -477,6 +477,7 @@ class MerchantTransactionService {
       'role' => trim((string) ($metadata['role'] ?? $metadata['occupation'] ?? $profile['label'] ?? 'Merchant')),
       'summary' => $summary,
       'profile' => $profile['key'],
+      'profile_label' => (string) ($profile['label'] ?? ''),
       'stock_mode' => $profile['stock_mode'],
     ];
   }

@@ -70,6 +70,7 @@ class MerchantTransactionServiceTest extends UnitTestCase {
     $this->assertSame('tavern_keeper', $summary['entity_ref']);
     $this->assertSame('npc_tavern_keeper', $summary['merchant_ref']);
     $this->assertSame('Eldric', $summary['name']);
+    $this->assertSame('Travel provisions', $summary['profile_label']);
   }
 
   /**

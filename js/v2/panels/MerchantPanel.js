@@ -442,6 +442,39 @@ export class MerchantPanel {
       .join(' ');
   }
 
+  buildMerchantPanelSummaryText(merchant = null, selectedMerchantEntry = null) {
+    const fallbackText = 'Choose a merchant in the active room to browse stock and sell inventory.';
+    const summary = String(merchant?.summary || merchant?.role || selectedMerchantEntry?.summary || '').trim();
+    const merchantClass = this.resolveMerchantClassLabel(merchant, selectedMerchantEntry);
+    if (!merchantClass) {
+      return summary || fallbackText;
+    }
+
+    if (!summary) {
+      return `Merchant class: ${merchantClass}`;
+    }
+
+    return summary.toLowerCase() === merchantClass.toLowerCase()
+      ? `Merchant class: ${merchantClass}`
+      : `${summary} · Merchant class: ${merchantClass}`;
+  }
+
+  resolveMerchantClassLabel(merchant = null, selectedMerchantEntry = null) {
+    const directLabel = String(merchant?.profile_label || '').trim();
+    if (directLabel) {
+      return directLabel;
+    }
+
+    const profileKey = String(merchant?.profile || '').trim();
+    if (profileKey) {
+      return profileKey
+        .replace(/[_-]+/g, ' ')
+        .replace(/\b\w/g, (char) => char.toUpperCase());
+    }
+
+    return String(merchant?.role || selectedMerchantEntry?.summary || '').trim();
+  }
+
   normalizeMerchantSearchValue(value = '') {
     return String(value || '')
       .trim()
@@ -707,6 +740,8 @@ export class MerchantPanel {
         name: selectedMerchantEntry?.name || occupant?.label || existingContext?.merchant?.name || 'Merchant',
         summary: selectedMerchantEntry?.summary || presentation.role || existingContext?.merchant?.summary || '',
         role: presentation.role || existingContext?.merchant?.role || selectedMerchantEntry?.summary || 'Merchant',
+        profile: presentation.merchant_profile || existingContext?.merchant?.profile || '',
+        profile_label: presentation.merchant_profile_label || existingContext?.merchant?.profile_label || '',
         portrait_url: selectedMerchantEntry?.portraitUrl || presentation.portrait_url || existingContext?.merchant?.portrait_url || '',
       },
       stock: hasMerchantStock ? (Array.isArray(presentation.stock) ? presentation.stock : []) : (existingContext?.stock || []),
@@ -789,7 +824,7 @@ export class MerchantPanel {
       this._el.merchantPanelName.textContent = merchant?.name || selectedMerchantEntry?.name || 'No merchant selected';
     }
     if (this._el.merchantPanelSummary) {
-      this._el.merchantPanelSummary.textContent = merchant?.summary || merchant?.role || selectedMerchantEntry?.summary || 'Choose a merchant in the active room to browse stock and sell inventory.';
+      this._el.merchantPanelSummary.textContent = this.buildMerchantPanelSummaryText(merchant, selectedMerchantEntry);
     }
     if (this._el.merchantPanelPortraitWrap && this._el.merchantPanelPortrait) {
       const merchantPortraitUrl = String(merchant?.portrait_url || merchant?.portrait || selectedMerchantEntry?.portraitUrl || '').trim();
