@@ -75,6 +75,7 @@ class QuestTrackerController extends ControllerBase {
     $active = [];
     $offers = [];
     $leads = [];
+    $completed = [];
 
     foreach ($rows as $row) {
       if (!is_array($row)) {
@@ -82,6 +83,10 @@ class QuestTrackerController extends ControllerBase {
       }
 
       $status = strtolower(trim((string) ($row['status'] ?? '')));
+      if (!empty($row['completed_at']) || $status === 'completed') {
+        $completed[] = $row;
+        continue;
+      }
       if (in_array($status, ['active', 'ready_for_turn_in'], TRUE)) {
         $active[] = $row;
         continue;
@@ -99,6 +104,7 @@ class QuestTrackerController extends ControllerBase {
       'active' => $active,
       'offers' => $offers,
       'leads' => $leads,
+      'completed' => $completed,
     ];
   }
 
@@ -307,9 +313,18 @@ class QuestTrackerController extends ControllerBase {
   public function completeQuest(int $campaign_id, string $quest_id, Request $request): JsonResponse {
     try {
       $payload = json_decode($request->getContent(), TRUE);
-      $character_id = !empty($payload['character_id']) ? (int) $payload['character_id'] : NULL;
-      if ($character_id === NULL && !empty($payload['entity_id'])) {
-        $character_id = (int) $payload['entity_id'];
+      $character_id = NULL;
+      if (isset($payload['character_id']) && is_numeric($payload['character_id'])) {
+        $candidate = (int) $payload['character_id'];
+        if ($candidate > 0) {
+          $character_id = $candidate;
+        }
+      }
+      if ($character_id === NULL && isset($payload['entity_id']) && is_numeric($payload['entity_id'])) {
+        $candidate = (int) $payload['entity_id'];
+        if ($candidate > 0) {
+          $character_id = $candidate;
+        }
       }
 
       if ($character_id === NULL) {
@@ -344,6 +359,8 @@ class QuestTrackerController extends ControllerBase {
         'message' => 'Quest completed',
         'quest_id' => $quest_id,
         'outcome' => $outcome,
+        'rewards' => is_array($result['rewards'] ?? NULL) ? $result['rewards'] : [],
+        'rewards_applied' => is_array($result['rewards_applied'] ?? NULL) ? $result['rewards_applied'] : [],
       ]);
     }
     catch (\Exception $e) {
@@ -381,8 +398,8 @@ class QuestTrackerController extends ControllerBase {
       $log = $quest_tracker->getCharacterQuestLog($campaign_id, (int) $character_id);
       $journal_tracking = array_map([$this, 'normalizeQuestJournalTrackingEntry'], $tracking);
       $journal_log = array_map([$this, 'normalizeQuestJournalLogEntry'], $log);
-      ['active' => $active, 'offers' => $offers, 'leads' => $leads] = $this->partitionQuestRowsForSummary($tracking);
-      $quest_summary = $this->questGenerator->buildQuestSummaryPayload('campaign', $active, $offers, $leads, $campaign_id);
+      ['active' => $active, 'offers' => $offers, 'leads' => $leads, 'completed' => $completed] = $this->partitionQuestRowsForSummary($tracking);
+      $quest_summary = $this->questGenerator->buildQuestSummaryPayload('campaign', $active, $offers, $leads, $campaign_id, $completed);
 
       $this->logger->info('Quest journal payload built: campaign={campaign_id} character={character_id} tracking={tracking} active_summary={active_summary}', [
         'campaign_id' => $campaign_id,
@@ -452,7 +469,8 @@ class QuestTrackerController extends ControllerBase {
           $this->partitionQuestRowsForSummary($tracking)['active'],
           $this->partitionQuestRowsForSummary($tracking)['offers'],
           $this->partitionQuestRowsForSummary($tracking)['leads'],
-          $campaign_id
+          $campaign_id,
+          $this->partitionQuestRowsForSummary($tracking)['completed']
         ),
         'counts' => [
           'tracking' => count($campaign_tracking),

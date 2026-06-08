@@ -17784,42 +17784,22 @@ import { SpriteService } from './SpriteService.js';
               const completeRes = await fetch(`/api/campaign/${campaignId}/quests/${questId}/complete`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-                body: JSON.stringify({ entity_id: npcRef, outcome: 'success' }),
+                body: JSON.stringify({ character_id: this.launchContext?.character_id, outcome: 'success' }),
               });
 
               if (completeRes.ok) {
                 const completeResult = await completeRes.json();
                 console.info('Quest completed:', completeResult);
-
-                // Claim rewards.
-                const rewardRes = await fetch(`/api/campaign/${campaignId}/quests/${questId}/rewards/claim`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-                  body: JSON.stringify({ character_id: this.launchContext?.character_id }),
-                });
-
-                if (rewardRes.ok) {
-                  const rewardResult = await rewardRes.json();
-                  const rewards = quest.generated_rewards || {};
-                  const xp = rewards.xp || 0;
-                  const gold = rewards.gold || 0;
-                  const rewardParts = [];
-                  if (xp > 0) rewardParts.push(`${xp} XP`);
-                  if (gold > 0) rewardParts.push(`${gold} gold`);
-                  this.uiManager.showQuestToast(
-                    `Quest complete: ${resolveQuestTitle(quest)}! Rewards: ${rewardParts.join(', ') || 'none'}`,
-                    'success'
-                  );
-
-                  // Grant XP to character.
-                  if (xp > 0 && this.launchContext?.character_id) {
-                    await fetch(`/api/character/${this.launchContext.character_id}/experience`, {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-                      body: JSON.stringify({ xp_amount: xp, source: `quest:${questId}` }),
-                    }).catch(err => console.warn('XP grant failed:', err));
-                  }
-                }
+                const rewards = completeResult?.rewards || quest.generated_rewards || {};
+                const xp = Number(rewards.xp ?? rewards.experience_points ?? 0);
+                const gold = Number(rewards.gold ?? rewards.gp ?? 0);
+                const rewardParts = [];
+                if (xp > 0) rewardParts.push(`${Math.round(xp)} XP`);
+                if (gold > 0) rewardParts.push(`${Math.round(gold)} gold`);
+                this.uiManager.showQuestToast(
+                  `Quest complete: ${resolveQuestTitle(quest)}! Rewards: ${rewardParts.join(', ') || 'none'}`,
+                  'success'
+                );
 
                 // Remove completed quest from local active list.
                 this.questData.active = (this.questData.active || []).filter(q => (q.quest_id || q.id) !== questId);

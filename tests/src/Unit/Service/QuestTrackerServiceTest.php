@@ -6,6 +6,8 @@ use Drupal\Component\Datetime\TimeInterface;
 use Drupal\Core\Database\Connection;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Drupal\dungeoncrawler_content\Service\ChatSessionManager;
+use Drupal\dungeoncrawler_content\Service\CharacterStateService;
+use Drupal\dungeoncrawler_content\Service\InventoryManagementService;
 use Drupal\dungeoncrawler_content\Service\QuestTrackerService;
 use Drupal\Tests\UnitTestCase;
 use Psr\Log\LoggerInterface;
@@ -540,6 +542,95 @@ class QuestTrackerServiceTest extends UnitTestCase {
     ], 812);
 
     $this->assertSame([], $service->legacyNotes);
+  }
+
+  /**
+   * Verifies quest rewards persist into campaign character state and inventory.
+   */
+  public function testApplyQuestRewardsPersistsCampaignCharacterState(): void {
+    $logger = $this->createMock(LoggerInterface::class);
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($logger);
+
+    $character_state = $this->createMock(CharacterStateService::class);
+    $character_state->expects($this->once())
+      ->method('gainExperience')
+      ->with('901', 120, 222, 'inst-1');
+    $character_state->expects($this->once())
+      ->method('getState')
+      ->with('901', 222, 'inst-1')
+      ->willReturn([
+        'basicInfo' => ['experiencePoints' => 340, 'gold' => 5],
+        'inventory' => ['currency' => ['cp' => 0, 'sp' => 0, 'gp' => 5, 'pp' => 0]],
+      ]);
+    $character_state->expects($this->once())
+      ->method('setState')
+      ->with(
+        '901',
+        $this->callback(function (array $state): bool {
+          return (int) ($state['inventory']['currency']['gp'] ?? 0) === 35
+            && (int) ($state['gold'] ?? 0) === 35
+            && (int) ($state['basicInfo']['gold'] ?? 0) === 35;
+        }),
+        NULL,
+        222,
+        'inst-1'
+      )
+      ->willReturn([]);
+
+    $inventory_service = $this->createMock(InventoryManagementService::class);
+    $inventory_service->expects($this->once())
+      ->method('addItemToInventory')
+      ->with(
+        '901',
+        'character',
+        $this->callback(function (array $item): bool {
+          return ($item['id'] ?? '') === 'quest_reward_bundle'
+            && ($item['item_type'] ?? '') === 'treasure';
+        }),
+        'carried',
+        2,
+        222
+      )
+      ->willReturn(['success' => TRUE]);
+
+    $service = new class(
+      $this->createMock(Connection::class),
+      $logger_factory,
+      $this->createMock(TimeInterface::class),
+      NULL,
+      NULL,
+      NULL,
+      $character_state,
+      $inventory_service
+    ) extends QuestTrackerService {
+      protected function resolveQuestRewardCharacterTarget(int $campaign_id, int $character_id): ?array {
+        return [
+          'row_id' => 901,
+          'campaign_id' => $campaign_id,
+          'instance_id' => 'inst-1',
+        ];
+      }
+
+      public function applyRewardsForTest(int $campaign_id, ?int $character_id, array $rewards): array {
+        return $this->applyQuestRewards($campaign_id, $character_id, $rewards);
+      }
+    };
+
+    $applied = $service->applyRewardsForTest(222, 816, [
+      'xp' => 120,
+      'gold' => 30,
+      'items' => [[
+        'item_id' => 'quest_reward_bundle',
+        'quantity' => 2,
+      ]],
+    ]);
+
+    $this->assertSame(120, (int) ($applied['xp'] ?? 0));
+    $this->assertSame(30, (int) ($applied['gold'] ?? 0));
+    $this->assertCount(1, $applied['items'] ?? []);
+    $this->assertSame('quest_reward_bundle', $applied['items'][0]['item_id'] ?? '');
+    $this->assertSame(2, (int) ($applied['items'][0]['quantity'] ?? 0));
   }
 
 }

@@ -60,6 +60,16 @@ class QuestTrackerService {
   protected ?ChatSessionManager $chatSessionManager;
 
   /**
+   * Character-state service for canonical campaign instance persistence.
+   */
+  protected ?CharacterStateService $characterStateService;
+
+  /**
+   * Inventory management service for reward item grants.
+   */
+  protected ?InventoryManagementService $inventoryManagementService;
+
+  /**
    * Constructs a QuestTrackerService object.
    *
    * @param \Drupal\Core\Database\Connection $database
@@ -75,7 +85,9 @@ class QuestTrackerService {
     TimeInterface $time,
     ?StorylineManagerService $storyline_manager = NULL,
     ?ObjectiveTypeService $objective_type_service = NULL,
-    ?ChatSessionManager $chat_session_manager = NULL
+    ?ChatSessionManager $chat_session_manager = NULL,
+    ?CharacterStateService $character_state_service = NULL,
+    ?InventoryManagementService $inventory_management_service = NULL
   ) {
     $this->database = $database;
     $this->logger = $logger_factory->get('dungeoncrawler_content');
@@ -83,12 +95,28 @@ class QuestTrackerService {
     $this->storylineManager = $storyline_manager;
     $this->objectiveTypeService = $objective_type_service ?? new ObjectiveTypeService();
     $this->chatSessionManager = $chat_session_manager;
+    $this->characterStateService = $character_state_service;
+    $this->inventoryManagementService = $inventory_management_service;
     if (
       $this->chatSessionManager === NULL
       && \Drupal::hasService('dungeoncrawler_content.chat_session_manager')
     ) {
       $candidate = \Drupal::service('dungeoncrawler_content.chat_session_manager');
       $this->chatSessionManager = $candidate instanceof ChatSessionManager ? $candidate : NULL;
+    }
+    if (
+      $this->characterStateService === NULL
+      && \Drupal::hasService('dungeoncrawler_content.character_state')
+    ) {
+      $candidate = \Drupal::service('dungeoncrawler_content.character_state');
+      $this->characterStateService = $candidate instanceof CharacterStateService ? $candidate : NULL;
+    }
+    if (
+      $this->inventoryManagementService === NULL
+      && \Drupal::hasService('dungeoncrawler_content.inventory_management')
+    ) {
+      $candidate = \Drupal::service('dungeoncrawler_content.inventory_management');
+      $this->inventoryManagementService = $candidate instanceof InventoryManagementService ? $candidate : NULL;
     }
   }
 
@@ -783,7 +811,7 @@ class QuestTrackerService {
    * @param array<string, mixed> $rewards
    *   Normalized generated reward payload.
    *
-   * @return array<string, int>
+   * @return array<string, mixed>
    *   Reward amounts that were persisted.
    */
   protected function applyQuestRewards(int $campaign_id, ?int $character_id, array $rewards): array {
@@ -791,28 +819,259 @@ class QuestTrackerService {
       return [];
     }
 
+    $reward_target = $this->resolveQuestRewardCharacterTarget($campaign_id, $character_id);
+    if ($reward_target === NULL) {
+      throw new \RuntimeException(sprintf(
+        'Unable to resolve campaign character reward target (campaign_id=%d, character_id=%d).',
+        $campaign_id,
+        $character_id
+      ));
+    }
+
+    $applied = [];
+
     $xp = max(0, (int) ($rewards['xp'] ?? $rewards['experience_points'] ?? 0));
+    if ($xp > 0) {
+      $this->applyQuestXpReward($reward_target, $xp);
+      $applied['xp'] = $xp;
+    }
+
+    $gold = max(0, (int) ($rewards['gold'] ?? $rewards['gp'] ?? 0));
+    if ($gold > 0) {
+      $this->applyQuestGoldReward($reward_target, $gold);
+      $applied['gold'] = $gold;
+    }
+
+    $normalized_items = $this->normalizeQuestRewardItems($rewards['items'] ?? []);
+    if ($normalized_items !== []) {
+      $applied_items = $this->applyQuestItemRewards($reward_target, $normalized_items);
+      if ($applied_items !== []) {
+        $applied['items'] = $applied_items;
+      }
+    }
+
+    return $applied;
+  }
+
+  /**
+   * Resolve the authoritative campaign character row that receives quest rewards.
+   *
+   * @return array<string, mixed>|null
+   *   Reward target metadata (row id + campaign scope), or NULL when missing.
+   */
+  protected function resolveQuestRewardCharacterTarget(int $campaign_id, int $character_id): ?array {
+    $query = $this->database->select('dc_campaign_characters', 'c')
+      ->fields('c', ['id', 'campaign_id', 'character_id', 'instance_id', 'type'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('type', 'pc');
+
+    $identity_group = $query->orConditionGroup()
+      ->condition('id', $character_id)
+      ->condition('character_id', $character_id);
+    $query->condition($identity_group);
+
+    $row = $query
+      ->orderBy('updated', 'DESC')
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+
+    if (!$row) {
+      return NULL;
+    }
+
+    return [
+      'row_id' => (int) ($row['id'] ?? 0),
+      'state_character_id' => (int) ($row['character_id'] ?? 0) > 0
+        ? (int) $row['character_id']
+        : (int) ($row['id'] ?? 0),
+      'campaign_id' => (int) ($row['campaign_id'] ?? $campaign_id),
+      'instance_id' => (string) ($row['instance_id'] ?? ''),
+    ];
+  }
+
+  /**
+   * Persist quest XP rewards into canonical campaign character state.
+   *
+   * @param array<string, mixed> $target
+   *   Reward target metadata.
+   */
+  protected function applyQuestXpReward(array $target, int $xp): void {
     if ($xp <= 0) {
+      return;
+    }
+    if (!$this->characterStateService) {
+      throw new \RuntimeException('CharacterStateService is required to apply XP quest rewards.');
+    }
+
+    $this->characterStateService->gainExperience(
+      (string) ($target['state_character_id'] ?? $target['row_id'] ?? 0),
+      $xp,
+      (int) ($target['campaign_id'] ?? 0),
+      (string) ($target['instance_id'] ?? '')
+    );
+  }
+
+  /**
+   * Persist quest gold rewards into canonical campaign character state.
+   *
+   * @param array<string, mixed> $target
+   *   Reward target metadata.
+   */
+  protected function applyQuestGoldReward(array $target, int $gold): void {
+    if ($gold <= 0) {
+      return;
+    }
+    if (!$this->characterStateService) {
+      throw new \RuntimeException('CharacterStateService is required to apply gold quest rewards.');
+    }
+
+    $character_id = (string) ($target['state_character_id'] ?? $target['row_id'] ?? 0);
+    $campaign_id = (int) ($target['campaign_id'] ?? 0);
+    $instance_id = (string) ($target['instance_id'] ?? '');
+
+    $state = $this->characterStateService->getState($character_id, $campaign_id, $instance_id);
+    $inventory = is_array($state['inventory'] ?? NULL) ? $state['inventory'] : [];
+    $raw_currency = is_array($inventory['currency'] ?? NULL)
+      ? $inventory['currency']
+      : (is_array($state['currency'] ?? NULL) ? $state['currency'] : []);
+
+    $currency = CharacterManager::normalizeCurrencyDenominations(
+      $raw_currency,
+      isset($state['gold']) ? (float) $state['gold'] : NULL
+    );
+    $currency['gp'] = (int) ($currency['gp'] ?? 0) + $gold;
+
+    $state['inventory'] = $inventory;
+    $state['inventory']['currency'] = $currency;
+    $state['currency'] = $currency;
+    $state['gold'] = (int) ($currency['gp'] ?? 0);
+    if (!isset($state['basicInfo']) || !is_array($state['basicInfo'])) {
+      $state['basicInfo'] = [];
+    }
+    $state['basicInfo']['gold'] = (int) ($currency['gp'] ?? 0);
+
+    $this->characterStateService->setState($character_id, $state, NULL, $campaign_id, $instance_id);
+  }
+
+  /**
+   * Normalize generated item rewards into inventory-grantable tuples.
+   *
+   * @param mixed $raw_items
+   *   Reward item contract payload.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Normalized entries with item_id + quantity + source payload.
+   */
+  protected function normalizeQuestRewardItems(mixed $raw_items): array {
+    $items = $raw_items;
+    if (is_array($items) && !array_is_list($items)) {
+      $items = [$items];
+    }
+    if (!is_array($items)) {
       return [];
     }
 
-    $updated = $this->database->update('dc_campaign_characters')
-      ->expression('experience_points', 'experience_points + :xp', [':xp' => $xp])
-      ->condition('campaign_id', $campaign_id)
-      ->condition('character_id', $character_id)
-      ->condition('type', 'pc')
-      ->execute();
+    $normalized = [];
+    foreach ($items as $item) {
+      if (is_string($item) && trim($item) !== '') {
+        $normalized[] = [
+          'item_id' => trim($item),
+          'quantity' => 1,
+          'source' => ['item_id' => trim($item)],
+        ];
+        continue;
+      }
 
-    if ((int) $updated <= 0) {
-      $updated = $this->database->update('dc_campaign_characters')
-        ->expression('experience_points', 'experience_points + :xp', [':xp' => $xp])
-        ->condition('campaign_id', $campaign_id)
-        ->condition('id', $character_id)
-        ->condition('type', 'pc')
-        ->execute();
+      if (!is_array($item)) {
+        continue;
+      }
+
+      $item_id = trim((string) ($item['item_id'] ?? $item['id'] ?? ''));
+      if ($item_id === '') {
+        continue;
+      }
+
+      $normalized[] = [
+        'item_id' => $item_id,
+        'quantity' => max(1, (int) ($item['quantity'] ?? $item['count'] ?? 1)),
+        'source' => $item,
+      ];
     }
 
-    return (int) $updated > 0 ? ['xp' => $xp] : [];
+    return $normalized;
+  }
+
+  /**
+   * Persist normalized quest item rewards into campaign inventory state.
+   *
+   * @param array<string, mixed> $target
+   *   Reward target metadata.
+   * @param array<int, array<string, mixed>> $items
+   *   Normalized reward items.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Applied item grants.
+   */
+  protected function applyQuestItemRewards(array $target, array $items): array {
+    if ($items === []) {
+      return [];
+    }
+    if (!$this->inventoryManagementService) {
+      throw new \RuntimeException('InventoryManagementService is required to apply item quest rewards.');
+    }
+
+    $granted = [];
+    $owner_id = (string) ($target['row_id'] ?? 0);
+    $campaign_id = (int) ($target['campaign_id'] ?? 0);
+
+    foreach ($items as $item_reward) {
+      if (!is_array($item_reward)) {
+        continue;
+      }
+
+      $item_id = trim((string) ($item_reward['item_id'] ?? ''));
+      if ($item_id === '') {
+        continue;
+      }
+      $quantity = max(1, (int) ($item_reward['quantity'] ?? 1));
+      $source = is_array($item_reward['source'] ?? NULL) ? $item_reward['source'] : [];
+
+      $item_name = trim((string) ($source['name'] ?? $source['item_name'] ?? ''));
+      if ($item_name === '') {
+        $item_name = $this->humanizeQuestReference($item_id);
+      }
+      $item_type = trim((string) ($source['item_type'] ?? $source['type'] ?? 'treasure'));
+      if ($item_type === '') {
+        $item_type = 'treasure';
+      }
+
+      $inventory_item = [
+        'id' => $item_id,
+        'name' => $item_name !== '' ? $item_name : 'Quest Reward',
+        'item_type' => $item_type,
+        'type' => $item_type,
+      ];
+      if (!empty($source['description'])) {
+        $inventory_item['description'] = (string) $source['description'];
+      }
+
+      $this->inventoryManagementService->addItemToInventory(
+        $owner_id,
+        'character',
+        $inventory_item,
+        'carried',
+        $quantity,
+        $campaign_id
+      );
+
+      $granted[] = [
+        'item_id' => $item_id,
+        'quantity' => $quantity,
+      ];
+    }
+
+    return $granted;
   }
 
   /**

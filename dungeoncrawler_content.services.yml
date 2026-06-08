@@ -684,6 +684,9 @@ services:
       - '@datetime.time'
       - '@dungeoncrawler_content.storyline_manager'
       - '@dungeoncrawler_content.objective_type'
+      - '@?dungeoncrawler_content.chat_session_manager'
+      - '@dungeoncrawler_content.character_state'
+      - '@dungeoncrawler_content.inventory_management'
 
   dungeoncrawler_content.quest_reward:
     class: Drupal\dungeoncrawler_content\Service\QuestRewardService
@@ -804,6 +807,9 @@ services:
       - '@dungeoncrawler_content.exploration_phase_handler'
       - '@dungeoncrawler_content.navigation_service'
 
+  dungeoncrawler_content.encounter_master:
+    alias: dungeoncrawler_content.encounter_phase_handler
+
   dungeoncrawler_content.crafting:
     class: Drupal\dungeoncrawler_content\Service\CraftingService
     arguments:
@@ -832,7 +838,7 @@ services:
       - '@logger.factory'
       - '@dungeoncrawler_content.game_event_logger'
       - '@dungeoncrawler_content.exploration_phase_handler'
-      - '@dungeoncrawler_content.encounter_phase_handler'
+      - '@dungeoncrawler_content.encounter_master'
       - '@dungeoncrawler_content.downtime_phase_handler'
       - '@dungeoncrawler_content.ai_gm'
       - '@dungeoncrawler_content.campaign_time_resolver'
