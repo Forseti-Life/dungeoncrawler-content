@@ -358,6 +358,30 @@ class QuestTrackerService {
 
     $already_completed = !empty($progress_record['completed_at'])
       || strtolower((string) ($quest['status'] ?? '')) === 'completed';
+    $progress_character_id = !empty($progress_record['character_id'])
+      ? (int) $progress_record['character_id']
+      : $character_id;
+    // Validate reward contract and canonical reward target before mutating quest state.
+    $rewards = $this->assertQuestRewardContract(
+      json_decode((string) ($quest['generated_rewards'] ?? ''), TRUE),
+      $quest_id
+    );
+    $reward_target = $this->resolveQuestRewardCharacterTarget($campaign_id, $character_id);
+    if ($reward_target === NULL) {
+      throw new \RuntimeException(sprintf(
+        'Unable to resolve campaign character reward target (campaign_id=%d, character_id=%d).',
+        $campaign_id,
+        $character_id
+      ));
+    }
+    $reward_claim_character_id = (int) ($reward_target['row_id'] ?? 0);
+    if ($reward_claim_character_id <= 0) {
+      throw new \RuntimeException(sprintf(
+        'Resolved reward target is missing a valid row id (campaign_id=%d, character_id=%d).',
+        $campaign_id,
+        $character_id
+      ));
+    }
 
     // Update requested scope progress record.
     $this->database->update('dc_campaign_quest_progress')
@@ -367,7 +391,7 @@ class QuestTrackerService {
       ])
       ->condition('campaign_id', $campaign_id)
       ->condition('quest_id', $quest_id)
-      ->condition('character_id', $character_id)
+      ->condition('character_id', $progress_character_id)
       ->execute();
 
     // Update quest status
@@ -377,18 +401,12 @@ class QuestTrackerService {
       ->condition('quest_id', $quest_id)
       ->execute();
 
-    // Load quest rewards.
-    $rewards = $this->assertQuestRewardContract(
-      json_decode((string) ($quest['generated_rewards'] ?? ''), TRUE),
-      $quest_id
-    );
-
     $rewards_applied = [];
     $reward_transaction = $this->database->startTransaction();
-    $reward_claim_started = $this->beginQuestRewardGrant($campaign_id, $quest_id, $character_id);
+    $reward_claim_started = $this->beginQuestRewardGrant($campaign_id, $quest_id, $reward_claim_character_id);
     if ($reward_claim_started) {
-      $rewards_applied = $this->applyQuestRewards($campaign_id, $character_id, $rewards);
-      $this->finalizeQuestRewardGrant($campaign_id, $quest_id, $character_id, $rewards_applied);
+      $rewards_applied = $this->applyQuestRewardsToTarget($reward_target, $rewards);
+      $this->finalizeQuestRewardGrant($campaign_id, $quest_id, $reward_claim_character_id, $rewards_applied);
     }
     unset($reward_transaction);
 
@@ -832,6 +850,26 @@ class QuestTrackerService {
       ));
     }
 
+    return $this->applyQuestRewardsToTarget($reward_target, $rewards);
+  }
+
+  /**
+   * Apply canonical quest rewards to a resolved campaign-runtime target row.
+   *
+   * @param array<string, mixed> $reward_target
+   *   Canonical runtime target metadata.
+   * @param array<string, mixed> $rewards
+   *   Canonical quest rewards payload.
+   *
+   * @return array<string, mixed>
+   *   Reward amounts that were persisted.
+   */
+  protected function applyQuestRewardsToTarget(array $reward_target, array $rewards): array {
+    $row_id = (int) ($reward_target['row_id'] ?? 0);
+    if ($row_id <= 0) {
+      throw new \RuntimeException('Quest reward target is missing canonical row_id.');
+    }
+
     $applied = [];
 
     $xp = (int) $rewards['xp'];
@@ -864,25 +902,50 @@ class QuestTrackerService {
    *   Reward target metadata (row id + campaign scope), or NULL when missing.
    */
   protected function resolveQuestRewardCharacterTarget(int $campaign_id, int $character_id): ?array {
-    $query = $this->database->select('dc_campaign_characters', 'c')
+    $runtime_row = $this->database->select('dc_campaign_characters', 'c')
       ->fields('c', ['id', 'campaign_id', 'instance_id', 'type'])
       ->condition('campaign_id', $campaign_id)
       ->condition('type', 'pc')
       ->condition('id', $character_id);
 
-    $row = $query
+    $row = $runtime_row
       ->range(0, 1)
       ->execute()
       ->fetchAssoc();
 
-    if (!$row) {
-      return NULL;
+    if ($row) {
+      return [
+        'row_id' => (int) ($row['id'] ?? 0),
+        'campaign_id' => (int) ($row['campaign_id'] ?? $campaign_id),
+        'instance_id' => (string) ($row['instance_id'] ?? ''),
+      ];
     }
 
+    $source_rows = $this->database->select('dc_campaign_characters', 'c')
+      ->fields('c', ['id', 'campaign_id', 'instance_id'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('type', 'pc')
+      ->condition('character_id', $character_id)
+      ->range(0, 2)
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC);
+    if (!is_array($source_rows) || $source_rows === []) {
+      return NULL;
+    }
+    if (count($source_rows) !== 1) {
+      throw new \RuntimeException(sprintf(
+        'Ambiguous campaign character reward target (campaign_id=%d, character_id=%d, matches=%d).',
+        $campaign_id,
+        $character_id,
+        count($source_rows)
+      ));
+    }
+
+    $source = $source_rows[0];
     return [
-      'row_id' => (int) ($row['id'] ?? 0),
-      'campaign_id' => (int) ($row['campaign_id'] ?? $campaign_id),
-      'instance_id' => (string) ($row['instance_id'] ?? ''),
+      'row_id' => (int) ($source['id'] ?? 0),
+      'campaign_id' => (int) ($source['campaign_id'] ?? $campaign_id),
+      'instance_id' => (string) ($source['instance_id'] ?? ''),
     ];
   }
 
