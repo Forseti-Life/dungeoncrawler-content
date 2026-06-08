@@ -571,7 +571,7 @@ class ChatSessionController extends ControllerBase {
 
       $limit = min((int) ($request->query->get('limit', 100)), 200);
       $before_id = (int) $request->query->get('before_id', 0);
-      $messages = $this->sessionManager->getMessages((int) $session['id'], $limit, $before_id);
+      $messages = $this->collectSystemLogMessages((int) $session['id'], $limit, $before_id);
 
       return new JsonResponse([
         'success' => TRUE,
@@ -647,6 +647,68 @@ class ChatSessionController extends ControllerBase {
   // =========================================================================
   // Helpers.
   // =========================================================================
+
+  /**
+   * Collect only system/mechanical log entries for the system-log view.
+   */
+  protected function collectSystemLogMessages(int $session_id, int $limit, int $before_id = 0): array {
+    $messages = [];
+    $cursor = $before_id;
+    $batch_size = min(200, max(50, $limit * 3));
+    $guard = 0;
+
+    while (count($messages) < $limit && $guard < 20) {
+      $batch = $this->sessionManager->getMessages($session_id, $batch_size, $cursor);
+      if (empty($batch)) {
+        break;
+      }
+
+      foreach ($batch as $message) {
+        if (!$this->isSystemLogMessage($message)) {
+          continue;
+        }
+        $messages[] = $message;
+        if (count($messages) >= $limit) {
+          break;
+        }
+      }
+
+      $last = end($batch);
+      $next_cursor = (int) ($last['id'] ?? 0);
+      if ($next_cursor <= 0 || $next_cursor === $cursor || count($batch) < $batch_size) {
+        break;
+      }
+
+      $cursor = $next_cursor;
+      $guard++;
+    }
+
+    return array_slice($messages, 0, $limit);
+  }
+
+  /**
+   * Determine whether a message belongs in the system log channel.
+   */
+  protected function isSystemLogMessage(array $message): bool {
+    $message_type = strtolower(trim((string) ($message['message_type'] ?? '')));
+    $speaker_type = strtolower(trim((string) ($message['speaker_type'] ?? '')));
+    $metadata = is_array($message['metadata'] ?? NULL) ? $message['metadata'] : [];
+
+    if (in_array($message_type, ['system', 'mechanical', 'dice_roll', 'check', 'roll'], TRUE)) {
+      return TRUE;
+    }
+    if ($speaker_type === 'system' && $message_type !== 'dialogue' && $message_type !== 'narrative') {
+      return TRUE;
+    }
+    if (!empty($metadata['dice_rolls']) && is_array($metadata['dice_rolls'])) {
+      return TRUE;
+    }
+
+    return is_numeric($metadata['roll'] ?? NULL)
+      || is_numeric($metadata['total'] ?? NULL)
+      || is_numeric($metadata['dc'] ?? NULL)
+      || is_string($metadata['check'] ?? NULL);
+  }
 
   /**
    * Build a recursive session tree from a root session.

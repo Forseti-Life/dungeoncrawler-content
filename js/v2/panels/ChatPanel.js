@@ -2654,9 +2654,34 @@ export class ChatPanel {
 
   renderSessionViewData(view, data) {
     const context = this.getChatContext();
+    const incomingMessages = Array.isArray(data?.messages) ? data.messages : [];
+    const isSystemLogMessage = (msg = {}) => {
+      const messageType = String(msg.message_type || msg.type || '').trim().toLowerCase();
+      const speakerType = String(msg.speaker_type || '').trim().toLowerCase();
+      const metadata = msg?.metadata && typeof msg.metadata === 'object' ? msg.metadata : {};
+      const diceRolls = Array.isArray(metadata.dice_rolls) ? metadata.dice_rolls : [];
 
-    if (data && data.messages && data.messages.length > 0) {
-      const incoming = data.messages.map((msg) => ({
+      if (['system', 'mechanical', 'dice_roll', 'dice', 'check', 'roll'].includes(messageType)) {
+        return true;
+      }
+      if (speakerType === 'system' && messageType !== 'dialogue' && messageType !== 'narrative') {
+        return true;
+      }
+      if (diceRolls.length > 0) {
+        return true;
+      }
+
+      return Number.isFinite(Number(metadata.roll))
+        || Number.isFinite(Number(metadata.total))
+        || Number.isFinite(Number(metadata.dc))
+        || typeof metadata.check === 'string';
+    };
+    const scopedMessages = view === 'system-log'
+      ? incomingMessages.filter((msg) => isSystemLogMessage(msg))
+      : incomingMessages;
+
+    if (scopedMessages.length > 0) {
+      const incoming = scopedMessages.map((msg) => ({
         speaker: msg.speaker,
         message: msg.message,
         type: this.resolveSessionLineType(msg, view),
@@ -2669,7 +2694,10 @@ export class ChatPanel {
         channel: view,
         view,
       }));
-      const merged = this.rememberChatLines(view, incoming, { context });
+      const merged = this.rememberChatLines(view, incoming, {
+        context,
+        replace: view === 'system-log',
+      });
       this.renderChatLineRecords(merged, view, { context });
       this.updateChatSummary(merged, {
         emptyText: 'Quick summary: No messages in this view yet.',
@@ -2680,6 +2708,9 @@ export class ChatPanel {
         'gm-private': 'No GM messages yet. Messages here go straight to the GM, and the GM should answer here while using tools to resolve issues.',
         'system-log': 'No system messages yet.',
       };
+      if (view === 'system-log') {
+        this.rememberChatLines(view, [], { context, replace: true });
+      }
       const remembered = this.getRememberedChatLines(view, { context });
       if (remembered.length > 0) {
         this.renderChatLineRecords(remembered, view, { context });

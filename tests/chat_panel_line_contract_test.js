@@ -105,6 +105,15 @@ const handleGameEventsSource = toFunction(
   '  handleGameEvents(event) {',
   'function handleGameEvents(event) {'
 );
+const postSessionViewMessageSource = extractMethodSource(
+  source,
+  '  async postSessionViewMessage(speaker, message, characterId) {'
+);
+const loadSessionViewMessagesSource = toFunction(
+  source,
+  '  async loadSessionViewMessages(view, options = {}) {',
+  'async function loadSessionViewMessages(view, options = {}) {'
+);
 
 const factory = new Function(`
 ${resolveChatChannelKeySource}
@@ -115,6 +124,7 @@ ${renderChatLineRecordsSource}
 ${renderRoomChatHistorySource}
 ${renderSessionViewDataSource}
 ${handleGameEventsSource}
+${loadSessionViewMessagesSource}
 return {
   resolveChatChannelKey,
   normalizeChatLineRecord,
@@ -124,6 +134,7 @@ return {
   renderRoomChatHistory,
   renderSessionViewData,
   handleGameEvents,
+  loadSessionViewMessages,
 };
 `);
 
@@ -136,6 +147,7 @@ const {
   renderRoomChatHistory,
   renderSessionViewData,
   handleGameEvents,
+  loadSessionViewMessages,
 } = factory();
 
 console.log('\n=== ChatPanel canonical line contract ===');
@@ -168,7 +180,7 @@ console.log('\n=== ChatPanel canonical line contract ===');
   };
   const normalized = normalizeChatLineRecord.call(panel, {
     speaker: 'System',
-    message: 'Round 0: Turn 1: Actor System: Current turn: Burasco.',
+    message: 'Round 0: Turn 1: Actor System: Actions 3/3: Current turn: Burasco.',
     type: 'system',
     transient: true,
     turn_prompt: true,
@@ -273,6 +285,56 @@ console.log('\n=== ChatPanel canonical line contract ===');
   assert(appended.length === 2, 'turn_start emits a transcript line plus a player turn prompt');
   assert(appended[1].speaker === 'System', 'player turn prompt uses the System speaker');
   assert(appended[1].options.turn_prompt === true, 'player turn prompt carries turn_prompt metadata');
+  assert(appended[1].target?.channelKey === 'room', 'player turn prompt is always routed to the room channel');
+}
+
+{
+  const appended = [];
+  const panel = {
+    stateManager: {
+      hexmap: {
+        characterData: { name: 'Burasco' },
+        resolveActiveRoomId() {
+          return 'room-1';
+        },
+      },
+    },
+    activeChannel: 'room',
+    getChatContext() {
+      return { campaignId: 1, roomId: 'room-1', characterId: 7 };
+    },
+    buildEncounterEventChatLine(event) {
+      const actorName = String(event?.data?.actor_name || '').trim() || 'Narrator';
+      return {
+        speaker: 'Narrator',
+        message: `${actorName}'s turn begins.`,
+        type: 'gm',
+        lineId: `encounter-event-${event.id}`,
+        created: 0,
+        round: event?.data?.round,
+        actorId: 'actor-1',
+        actorName,
+        source: 'encounter-event',
+        authority: 'authoritative',
+        messageClass: 'authoritative_transcript',
+        eventId: String(event.id || ''),
+      };
+    },
+    appendChatLineToTarget(target, speaker, message, type, options = {}) {
+      appended.push({ target, speaker, message, type, options });
+    },
+  };
+
+  handleGameEvents.call(panel, {
+    detail: {
+      events: [
+        { id: 9, type: 'turn_start', data: { round: 1, room_id: 'room-2', actor_name: 'Burasco' } },
+        { id: 10, type: 'turn_start', data: { round: 1, room_id: 'room-1', actor_name: 'Burasco' } },
+      ],
+    },
+  });
+
+  assert(appended.length === 4, 'encounter transcript rendering appends all authoritative turn_start events provided');
 }
 
 {
@@ -386,10 +448,14 @@ console.log('\n=== ChatPanel canonical line contract ===');
   let remembered = null;
   let rendered = null;
   let summary = null;
+  let persistedEncounterHistoryCalls = 0;
+  let context = { campaignId: 22, roomId: 'room-9' };
   const panel = {
+    activeSessionView: 'room',
     activeChannel: 'room',
+    resolveChatChannelKey,
     getChatContext() {
-      return { roomId: 'room-9' };
+      return context;
     },
     rememberRoomTurnSequence() {},
     rememberChatLines(view, lines) {
@@ -401,6 +467,9 @@ console.log('\n=== ChatPanel canonical line contract ===');
     },
     updateChatSummary(lines) {
       summary = lines;
+    },
+    renderPersistedEncounterEventHistory() {
+      persistedEncounterHistoryCalls += 1;
     },
     scrollChatToBottom() {},
     syncChatTurnStatus() {},
@@ -429,12 +498,88 @@ console.log('\n=== ChatPanel canonical line contract ===');
   assert(remembered?.lines[0]?.messageClass === 'authoritative_transcript', 'room history lines are tagged as authoritative transcript');
   assert(rendered?.lines[0]?.channel === 'room' && rendered?.lines[0]?.view === 'room', 'room history lines preserve the room view/channel metadata');
   assert(Array.isArray(summary) && summary.length === 1, 'room history summary still operates on the normalized lines');
+  assert(persistedEncounterHistoryCalls === 0, 'room history rendering does not trigger persisted encounter transcript fetches directly');
+
+  renderRoomChatHistory.call(panel, {
+    success: true,
+    data: {
+      messages: [{
+        speaker: 'Guide',
+        message: 'Still here.',
+        type: 'npc',
+        timestamp: '2026-06-01T12:00:05Z',
+      }],
+      turn_sequence: [],
+    },
+  });
+  assert(persistedEncounterHistoryCalls === 0, 'repeat room history render keeps persisted encounter fetch count unchanged');
+
+  context = { campaignId: 22, roomId: 'room-10' };
+  renderRoomChatHistory.call(panel, {
+    success: true,
+    data: {
+      messages: [{
+        speaker: 'Guide',
+        message: 'Welcome next room.',
+        type: 'npc',
+        timestamp: '2026-06-01T12:00:10Z',
+      }],
+      turn_sequence: [],
+    },
+  });
+  assert(persistedEncounterHistoryCalls === 0, 'room context changes do not trigger persisted encounter transcript fetches from this renderer');
+}
+
+{
+  let remembered = null;
+  let rendered = false;
+  const panel = {
+    activeSessionView: 'room',
+    activeChannel: 'room',
+    resolveChatChannelKey,
+    getChatContext() {
+      return { campaignId: 77, roomId: 'room-a' };
+    },
+    rememberChatLines(view, lines, options) {
+      remembered = { view, lines, options };
+      return lines;
+    },
+    renderChatLineRecords() {
+      rendered = true;
+    },
+    updateChatSummary() {},
+    renderPersistedEncounterEventHistory() {},
+    scrollChatToBottom() {},
+    syncChatTurnStatus() {},
+    resolvePinnedChatRoomTarget() {
+      return null;
+    },
+    bus: { emit() {} },
+  };
+
+  renderRoomChatHistory.call(panel, {
+    success: true,
+    data: {
+      channel: 'whisper:npc-1',
+      messages: [{
+        speaker: 'Scout',
+        message: 'Keep quiet.',
+        type: 'npc',
+        timestamp: '2026-06-01T12:00:00Z',
+      }],
+      turn_sequence: [],
+    },
+  });
+
+  assert(remembered?.options?.channelKey === 'room', 'room history remembers entries using the currently active room channel key');
+  assert(rendered === true, 'room history rendering refreshes the visible transcript for the active room view');
 }
 
 {
   let remembered = null;
   let rendered = null;
   const panel = {
+    resolveChatChannelKey,
     getChatContext() {
       return { campaignId: 17, roomId: 'room-4' };
     },
@@ -473,6 +618,80 @@ console.log('\n=== ChatPanel canonical line contract ===');
   assert(remembered?.lines[0]?.messageClass === 'authoritative_transcript', 'session view messages are tagged as authoritative transcript');
   assert(rendered?.lines[0]?.channel === 'party' && rendered?.lines[0]?.view === 'party', 'session view messages preserve canonical view/channel metadata');
 }
+
+{
+  let remembered = null;
+  let rendered = null;
+  const panel = {
+    resolveChatChannelKey,
+    getChatContext() {
+      return { campaignId: 17, roomId: 'room-4' };
+    },
+    resolveSessionLineType(msg) {
+      return msg.type || 'player';
+    },
+    rememberChatLines(view, lines, options = {}) {
+      remembered = { view, lines, options };
+      return lines;
+    },
+    renderChatLineRecords(lines, view) {
+      rendered = { lines, view };
+    },
+    updateChatSummary() {},
+    getRememberedChatLines() {
+      return [];
+    },
+    appendChatLine() {},
+    scrollChatToBottom() {},
+  };
+
+  renderSessionViewData.call(panel, 'system-log', {
+    messages: [
+      {
+        id: 71,
+        speaker: 'Aria',
+        speaker_type: 'player',
+        message: 'I open the chest.',
+        message_type: 'dialogue',
+        type: 'player',
+        created: 100,
+      },
+      {
+        id: 72,
+        speaker: 'System',
+        speaker_type: 'system',
+        message: 'Perception check: d20 + 4 = 18',
+        message_type: 'mechanical',
+        type: 'system',
+        metadata: { dice_rolls: [{ total: 18 }] },
+        created: 101,
+      },
+    ],
+  });
+
+  assert(remembered?.view === 'system-log', 'system view remembers messages under system-log');
+  assert(remembered?.options?.replace === true, 'system view replaces cached records on fresh payloads');
+  assert((remembered?.lines?.length || 0) === 1, 'system view filters out non-system dialogue lines');
+  assert(remembered?.lines?.[0]?.speaker === 'System', 'system view retains only system/mechanical content');
+  assert(rendered?.lines?.length === 1 && rendered?.view === 'system-log', 'system view renders only the filtered system/mechanical lines');
+}
+
+assert(
+  source.includes("this.bus.emit('user:session-view-requested', { view, options });"),
+  'session view loading emits a scoped session-view request on the event bus'
+);
+assert(
+  source.includes("const isReadOnly = view === 'system-log';"),
+  'system-log view is enforced as read-only in the chat input controls'
+);
+assert(
+  postSessionViewMessageSource.includes("case 'system-log':"),
+  'session post flow explicitly handles system-log as a non-postable view'
+);
+assert(
+  postSessionViewMessageSource.includes('this.prefetchSessionViews();'),
+  'session post flow refreshes sibling session views after writes'
+);
 
 console.log(`\nPassed: ${passed}`);
 if (failed > 0) {
