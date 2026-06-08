@@ -754,7 +754,9 @@ class MerchantTransactionService {
     if (($definition['price_gp'] ?? NULL) === NULL) {
       return NULL;
     }
-    if (!$this->merchantProfileAllowsCatalogItem($profile, $definition)) {
+    $profile_allowed = $this->merchantProfileAllowsCatalogItem($profile, $definition);
+    $explicit_query_match = $this->isExplicitMerchantCatalogQueryMatch($definition, $item_query);
+    if (!$profile_allowed && !$explicit_query_match) {
       return NULL;
     }
 
@@ -776,6 +778,45 @@ class MerchantTransactionService {
       'catalog_item' => $definition,
       'search_result' => TRUE,
     ];
+  }
+
+  /**
+   * Determine whether a definition is an explicit direct match for the query.
+   */
+  protected function isExplicitMerchantCatalogQueryMatch(array $definition, string $item_query): bool {
+    $query_key = $this->normalizeMerchantSearchToken($item_query);
+    if ($query_key === '') {
+      return FALSE;
+    }
+
+    $name_key = $this->normalizeMerchantSearchToken((string) ($definition['name'] ?? ''));
+    $id_key = $this->normalizeMerchantSearchToken((string) ($definition['id'] ?? $definition['item_id'] ?? ''));
+    if ($name_key === '' && $id_key === '') {
+      return FALSE;
+    }
+
+    if ($query_key === $name_key || $query_key === $id_key) {
+      return TRUE;
+    }
+
+    $compact_query = str_replace(' ', '', $query_key);
+    if ($compact_query === '') {
+      return FALSE;
+    }
+
+    return $compact_query === str_replace(' ', '', $name_key)
+      || $compact_query === str_replace(' ', '', $id_key);
+  }
+
+  /**
+   * Normalize merchant search text for query/name/id comparisons.
+   */
+  protected function normalizeMerchantSearchToken(string $value): string {
+    $normalized = strtolower(trim($value));
+    $normalized = preg_replace('/[^a-z0-9\s\-_]+/u', ' ', $normalized) ?? '';
+    $normalized = preg_replace('/[\-_]+/u', ' ', $normalized) ?? '';
+    $normalized = preg_replace('/\s+/u', ' ', $normalized) ?? '';
+    return trim($normalized);
   }
 
   /**
@@ -830,7 +871,7 @@ class MerchantTransactionService {
       'innkeeper' => [
         'key' => 'innkeeper',
         'label' => 'Travel provisions',
-        'types' => ['gear', 'consumable', 'weapon'],
+        'types' => ['gear', 'consumable'],
         'item_ids' => [],
         'price_modifier' => 1.0,
         'stock_mode' => 'catalog_profile',

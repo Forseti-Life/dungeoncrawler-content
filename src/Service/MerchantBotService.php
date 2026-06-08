@@ -527,6 +527,9 @@ class MerchantBotService {
     foreach ($hits as $hit) {
       $source = is_array($hit['_source'] ?? NULL) ? $hit['_source'] : [];
       $name = (string) ($source['name'] ?? '');
+      if (!$this->candidateMatchesQueryTokens($query_key, $name)) {
+        continue;
+      }
       $score = $this->scoreLocalItemCandidate($query_key, $name, '');
       if (!empty($source['price_raw'])) {
         $score += 5;
@@ -611,6 +614,39 @@ class MerchantBotService {
     }
 
     return FALSE;
+  }
+
+  /**
+   * Require multi-token queries to match each token in candidate names.
+   */
+  protected function candidateMatchesQueryTokens(string $query_key, string $candidate_name): bool {
+    if ($query_key === '') {
+      return FALSE;
+    }
+
+    $candidate_key = $this->normalizeLookupKey($candidate_name);
+    if ($candidate_key === '') {
+      return FALSE;
+    }
+
+    $compact_query = str_replace(' ', '', $query_key);
+    $compact_candidate = str_replace(' ', '', $candidate_key);
+    if ($compact_query !== '' && $compact_query === $compact_candidate) {
+      return TRUE;
+    }
+
+    $query_tokens = preg_split('/\s+/u', $query_key, -1, \PREG_SPLIT_NO_EMPTY) ?: [];
+    if (count($query_tokens) <= 1) {
+      return TRUE;
+    }
+
+    foreach ($query_tokens as $token) {
+      if (!str_contains($candidate_key, $token) && !str_contains($compact_candidate, $token)) {
+        return FALSE;
+      }
+    }
+
+    return TRUE;
   }
 
   /**

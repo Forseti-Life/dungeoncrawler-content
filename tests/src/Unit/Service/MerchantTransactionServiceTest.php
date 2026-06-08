@@ -45,6 +45,7 @@ class MerchantTransactionServiceTest extends UnitTestCase {
     ]);
 
     $this->assertSame('innkeeper', $profile['key']);
+    $this->assertSame(['gear', 'consumable'], $profile['types']);
   }
 
   /**
@@ -224,6 +225,38 @@ class MerchantTransactionServiceTest extends UnitTestCase {
     $this->assertSame('Shortsword', $item['name']);
     $this->assertSame('weapon', $item['type']);
     $this->assertSame(90, $item['price_cp']);
+  }
+
+  /**
+   * Verifies profile restrictions still apply when the query is not explicit.
+   */
+  public function testResolveMerchantCatalogSearchItemRejectsNonExplicitInnkeeperWeaponLookup(): void {
+    $merchant_bot_service = $this->createMock(MerchantBotService::class);
+    $merchant_bot_service->expects($this->once())
+      ->method('lookupItem')
+      ->with('sword')
+      ->willReturn([
+        'id' => 'longsword',
+        'name' => 'Longsword',
+        'type' => 'weapon',
+        'item_type' => 'weapon',
+        'price_gp' => 1.0,
+        'source' => 'local',
+      ]);
+
+    $service = $this->buildService($merchant_bot_service);
+    $item = $service->exposeResolveMerchantCatalogSearchItem([
+      'instance_id' => 'npc_tavern_keeper',
+      'decoded_state' => [
+        'content_id' => 'tavern_keeper',
+        'metadata' => [
+          'role' => 'Innkeeper',
+        ],
+      ],
+      'decoded_character' => [],
+    ], 'sword');
+
+    $this->assertNull($item);
   }
 
   /**

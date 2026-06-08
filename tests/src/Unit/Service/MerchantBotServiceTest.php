@@ -155,6 +155,15 @@ class MerchantBotServiceTest extends UnitTestCase {
             ],
             [
               '_source' => [
+                'name' => 'Short Sword +1',
+                'category' => 'equipment',
+                'item_category' => 'weapon',
+                'price_raw' => '30 gp',
+                'level' => 6,
+              ],
+            ],
+            [
+              '_source' => [
                 'name' => 'Skyrider Sword',
                 'category' => 'equipment',
                 'item_category' => 'weapon',
@@ -189,7 +198,7 @@ class MerchantBotServiceTest extends UnitTestCase {
     $this->assertCount(2, $matches);
     $this->assertSame('Shortsword', $matches[0]['name']);
     $this->assertSame('local', $matches[0]['source']);
-    $this->assertSame('Skyrider Sword', $matches[1]['name']);
+    $this->assertSame('Short Sword +1', $matches[1]['name']);
     $this->assertSame('aon', $matches[1]['source']);
   }
 
