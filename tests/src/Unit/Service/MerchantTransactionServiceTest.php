@@ -71,6 +71,37 @@ class MerchantTransactionServiceTest extends UnitTestCase {
     $this->assertSame('npc_tavern_keeper', $summary['merchant_ref']);
     $this->assertSame('Eldric', $summary['name']);
     $this->assertSame('Travel provisions', $summary['profile_label']);
+    $this->assertSame('Gear, Consumable', $summary['wares_label']);
+    $this->assertSame(['gear', 'consumable'], $summary['wares_types']);
+  }
+
+  /**
+   * Verifies merchant panel context is lazy and does not preload stock rows.
+   */
+  public function testGetMerchantPanelContextReturnsEmptyStockUntilSearch(): void {
+    $service = $this->buildService();
+    $service->merchantOverride = [
+      'id' => '325',
+      'instance_id' => 'npc_tavern_keeper',
+      'decoded_state' => [
+        'content_id' => 'tavern_keeper',
+        'metadata' => [
+          'display_name' => 'Eldric',
+          'role' => 'Innkeeper',
+        ],
+        'merchant' => [
+          'stock' => [
+            ['item_id' => 'club', 'quantity' => 2],
+          ],
+        ],
+      ],
+      'decoded_character' => [],
+    ];
+
+    $context = $service->getMerchantPanelContext(22, 'room-tavern', 'merchant-1');
+
+    $this->assertIsArray($context['stock']);
+    $this->assertSame([], $context['stock']);
   }
 
   /**
@@ -323,6 +354,106 @@ class MerchantTransactionServiceTest extends UnitTestCase {
     $this->assertTrue($result['success']);
     $this->assertSame('completed_purchase', $result['status']);
     $this->assertStringContainsString('Canteen', $result['message']);
+  }
+
+  /**
+   * Verifies panel purchases can resolve explicit merchant stock when context is lazy.
+   */
+  public function testExecutePanelTransactionPurchasesExplicitMerchantStockWithoutPreload(): void {
+    $merchant_bot_service = $this->createMock(MerchantBotService::class);
+    $merchant_bot_service->expects($this->never())
+      ->method('lookupItem');
+
+    $inventory_management = $this->createMock(InventoryManagementService::class);
+    $inventory_management->expects($this->once())
+      ->method('purchaseItem')
+      ->with('17', $this->callback(static function (array $item): bool {
+        return ($item['id'] ?? '') === 'club'
+          && (string) ($item['name'] ?? '') !== '';
+      }), 'downtime', 1, 22)
+      ->willReturn(['success' => TRUE]);
+
+    $service = new MerchantTransactionServiceTestDouble(
+      $this->createMock(Connection::class),
+      $merchant_bot_service,
+      $inventory_management,
+    );
+    $service->merchantOverride = [
+      'instance_id' => 'npc_tavern_keeper',
+      'decoded_state' => [
+        'content_id' => 'tavern_keeper',
+        'metadata' => [
+          'display_name' => 'Eldric',
+          'role' => 'Innkeeper',
+        ],
+        'merchant' => [
+          'stock' => [
+            ['item_id' => 'club', 'quantity' => 2],
+          ],
+        ],
+      ],
+      'decoded_character' => [],
+    ];
+    $service->contextOverride = [
+      'merchant' => [
+        'merchant_ref' => 'merchant-1',
+        'name' => 'Eldric',
+      ],
+      'stock' => [],
+      'player' => [
+        'character_id' => 17,
+      ],
+    ];
+
+    $result = $service->executePanelTransaction(22, 'room-tavern', 'merchant-1', [
+      'action' => 'buy',
+      'item_id' => 'club',
+      'character_id' => 17,
+    ]);
+
+    $this->assertTrue($result['success']);
+    $this->assertSame('completed_purchase', $result['status']);
+    $this->assertStringContainsString('Club', $result['message']);
+  }
+
+  /**
+   * Verifies explicit merchant stock appears in search results.
+   */
+  public function testSearchMerchantCatalogReturnsExplicitStockMatches(): void {
+    $merchant_bot_service = $this->createMock(MerchantBotService::class);
+    $merchant_bot_service->expects($this->once())
+      ->method('searchCatalogMatches')
+      ->with('club', 12)
+      ->willReturn([]);
+
+    $service = new MerchantTransactionServiceTestDouble(
+      $this->createMock(Connection::class),
+      $merchant_bot_service,
+      $this->createMock(InventoryManagementService::class),
+    );
+    $service->merchantOverride = [
+      'instance_id' => 'npc_tavern_keeper',
+      'decoded_state' => [
+        'content_id' => 'tavern_keeper',
+        'metadata' => [
+          'display_name' => 'Eldric',
+          'role' => 'Innkeeper',
+        ],
+        'merchant' => [
+          'stock' => [
+            ['item_id' => 'club', 'quantity' => 2],
+          ],
+        ],
+      ],
+      'decoded_character' => [],
+    ];
+
+    $items = $service->searchMerchantCatalog(22, 'room-tavern', 'merchant-1', 'club');
+
+    $this->assertNotEmpty($items);
+    $this->assertSame('club', $items[0]['item_id']);
+    $this->assertSame('merchant stock', $items[0]['source']);
+    $this->assertTrue($items[0]['search_result']);
   }
 
   /**

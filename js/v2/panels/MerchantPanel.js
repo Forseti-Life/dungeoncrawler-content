@@ -446,17 +446,30 @@ export class MerchantPanel {
     const fallbackText = 'Choose a merchant in the active room to browse stock and sell inventory.';
     const summary = String(merchant?.summary || merchant?.role || selectedMerchantEntry?.summary || '').trim();
     const merchantClass = this.resolveMerchantClassLabel(merchant, selectedMerchantEntry);
-    if (!merchantClass) {
+    const waresLabel = this.resolveMerchantWaresLabel(merchant);
+    if (!merchantClass && !waresLabel) {
+      return summary || fallbackText;
+    }
+
+    const detailParts = [];
+    if (merchantClass) {
+      detailParts.push(`Merchant class: ${merchantClass}`);
+    }
+    if (waresLabel) {
+      detailParts.push(`Wares: ${waresLabel}`);
+    }
+    const detailText = detailParts.join(' · ');
+    if (!detailText) {
       return summary || fallbackText;
     }
 
     if (!summary) {
-      return `Merchant class: ${merchantClass}`;
+      return detailText;
     }
 
-    return summary.toLowerCase() === merchantClass.toLowerCase()
-      ? `Merchant class: ${merchantClass}`
-      : `${summary} · Merchant class: ${merchantClass}`;
+    return summary.toLowerCase() === detailText.toLowerCase()
+      ? detailText
+      : `${summary} · ${detailText}`;
   }
 
   resolveMerchantClassLabel(merchant = null, selectedMerchantEntry = null) {
@@ -473,6 +486,23 @@ export class MerchantPanel {
     }
 
     return String(merchant?.role || selectedMerchantEntry?.summary || '').trim();
+  }
+
+  resolveMerchantWaresLabel(merchant = null) {
+    const directLabel = String(merchant?.wares_label || '').trim();
+    if (directLabel) {
+      return directLabel;
+    }
+
+    if (Array.isArray(merchant?.wares_types) && merchant.wares_types.length > 0) {
+      return merchant.wares_types
+        .map((value) => String(value || '').trim())
+        .filter(Boolean)
+        .map((value) => value.replace(/[_-]+/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase()))
+        .join(', ');
+    }
+
+    return '';
   }
 
   normalizeMerchantSearchValue(value = '') {
@@ -738,10 +768,14 @@ export class MerchantPanel {
         ...(existingContext?.merchant || {}),
         merchant_ref: this.currentMerchantRef,
         name: selectedMerchantEntry?.name || occupant?.label || existingContext?.merchant?.name || 'Merchant',
-        summary: selectedMerchantEntry?.summary || presentation.role || existingContext?.merchant?.summary || '',
+        summary: presentation.merchant_summary || selectedMerchantEntry?.summary || presentation.role || existingContext?.merchant?.summary || '',
         role: presentation.role || existingContext?.merchant?.role || selectedMerchantEntry?.summary || 'Merchant',
         profile: presentation.merchant_profile || existingContext?.merchant?.profile || '',
         profile_label: presentation.merchant_profile_label || existingContext?.merchant?.profile_label || '',
+        wares_label: presentation.merchant_wares_label || existingContext?.merchant?.wares_label || '',
+        wares_types: Array.isArray(presentation.merchant_wares_types)
+          ? presentation.merchant_wares_types
+          : (Array.isArray(existingContext?.merchant?.wares_types) ? existingContext.merchant.wares_types : []),
         portrait_url: selectedMerchantEntry?.portraitUrl || presentation.portrait_url || existingContext?.merchant?.portrait_url || '',
       },
       stock: hasMerchantStock ? (Array.isArray(presentation.stock) ? presentation.stock : []) : (existingContext?.stock || []),

@@ -21,7 +21,7 @@
 | Quest generation/progress/rewards/objectives | Generation pipeline | `src/Service/Quest*`, `src/Controller/QuestTrackerController.php` |
 | NPC behavior, institution modeling, relationship state | NPC and institutions | `src/Service/Npc*`, `src/Service/Institution*`, `src/Service/RelationshipManagerService.php` |
 | Encounter AI, narrator output, GM orchestration | AI and narration integration | `src/Service/EncounterAiIntegrationService.php`, `src/Service/NarrationEngine.php` |
-| Merchant inventory, buying/selling, prices, vendor behavior | Merchant and economy integration | `src/Service/MerchantBotService.php`, `src/Service/MerchantTransactionService.php`, `src/Controller/MerchantApiController.php` |
+| Merchant inventory, buying/selling, prices, vendor behavior | Merchant and economy integration (search-driven wares discovery) | `src/Service/MerchantBotService.php`, `src/Service/MerchantTransactionService.php`, `src/Controller/MerchantApiController.php` |
 | Portrait/image generation, terrain images, TTS | Media generation | `src/Service/*Image*`, `src/Service/TextToSpeechIntegrationService.php` |
 | Room chat logs, session hierarchy, turn logs | Chat and turn logging | `src/Controller/RoomChatController.php`, `src/Service/RoomChatService.php`, `src/Service/GameEventLogger.php` |
 | Route/endpoint/form permission behavior | HTTP/API surface | `dungeoncrawler_content.routing.yml`, `src/Controller/`, `src/Form/` |
@@ -39,7 +39,7 @@
 | Generation pipeline | Generate dungeons, rooms, maps, quests, storylines, and seeded content contracts | `src/Service/DungeonGenerationEngine.php`, `src/Service/RoomGeneratorService.php`, `src/Service/MapGeneratorService.php`, `src/Service/Quest*Service.php`, `src/Service/Storyline*Service.php` |
 | NPC and institutions | Manage NPC behavior and institution/relationship social-model state | `src/Service/Npc*Service.php`, `src/Service/Institution*Service.php`, `src/Service/RelationshipManagerService.php` |
 | AI and narration integration | Bridge encounter state into AI providers and narration/GM orchestration services | `src/Service/EncounterAiIntegrationService.php`, `src/Service/AiConversationEncounterAiProvider.php`, `src/Service/NarrationEngine.php`, `src/Service/GmOrchestrationBrokerService.php` |
-| Merchant and economy integration | Manage merchant behavior, inventory offers, and transaction execution/contracts | `src/Service/MerchantBotService.php`, `src/Service/MerchantTransactionService.php`, `src/Controller/MerchantApiController.php` |
+| Merchant and economy integration | Manage merchant behavior and transaction execution with search-driven wares discovery (no full stock preload) | `src/Service/MerchantBotService.php`, `src/Service/MerchantTransactionService.php`, `src/Controller/MerchantApiController.php` |
 | Media generation | Handle portrait/terrain generation plus generated-image persistence and TTS integration | `src/Service/GeminiImageGenerationService.php`, `src/Service/VertexImageGenerationService.php`, `src/Service/GeneratedImageRepository.php`, `src/Service/TextToSpeechIntegrationService.php` |
 | Chat and turn logging | Persist chat sessions, room chat events, and explicit round/turn logging contracts | `src/Controller/RoomChatController.php`, `src/Service/ChatSessionManager.php`, `src/Service/RoomChatService.php`, `src/Service/GameEventLogger.php` |
 

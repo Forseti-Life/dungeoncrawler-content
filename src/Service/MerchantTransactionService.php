@@ -56,12 +56,11 @@ class MerchantTransactionService {
     ?int $character_id = NULL
   ): array {
     $merchant = $this->loadMerchantNpc($campaign_id, $room_id, $merchant_ref);
-    $stock = $this->buildMerchantStock($merchant);
     $player = $this->buildPlayerTradeContext($character_id, $campaign_id);
 
     return [
       'merchant' => $this->buildMerchantSummary($merchant),
-      'stock' => $stock,
+      'stock' => [],
       'player' => $player,
     ];
   }
@@ -76,7 +75,32 @@ class MerchantTransactionService {
     string $item_query
   ): array {
     $merchant = $this->loadMerchantNpc($campaign_id, $room_id, $merchant_ref);
-    return $this->resolveMerchantCatalogSearchItems($merchant, $item_query);
+    $results = [];
+    $seen_item_ids = [];
+
+    foreach ($this->resolveMerchantExplicitSearchItems($merchant, $item_query) as $result) {
+      $item_id = (string) ($result['item_id'] ?? '');
+      if ($item_id !== '' && isset($seen_item_ids[$item_id])) {
+        continue;
+      }
+      if ($item_id !== '') {
+        $seen_item_ids[$item_id] = TRUE;
+      }
+      $results[] = $result;
+    }
+
+    foreach ($this->resolveMerchantCatalogSearchItems($merchant, $item_query) as $result) {
+      $item_id = (string) ($result['item_id'] ?? '');
+      if ($item_id !== '' && isset($seen_item_ids[$item_id])) {
+        continue;
+      }
+      if ($item_id !== '') {
+        $seen_item_ids[$item_id] = TRUE;
+      }
+      $results[] = $result;
+    }
+
+    return $results;
   }
 
   /**
@@ -113,7 +137,7 @@ class MerchantTransactionService {
       $merchant = NULL;
       if ($stock_item === NULL) {
         $merchant = $this->loadMerchantNpc($campaign_id, $room_id, $merchant_ref);
-        $stock_item = $this->resolveMerchantCatalogSearchItem($merchant, $item_id);
+        $stock_item = $this->resolveMerchantSearchItem($merchant, $item_id);
       }
       if ($stock_item === NULL) {
         return [
@@ -291,7 +315,7 @@ class MerchantTransactionService {
       $merchant = NULL;
       if ($stock_item === NULL) {
         $merchant = $this->loadMerchantNpc($campaign_id, $room_id, $merchant_ref);
-        $stock_item = $this->resolveMerchantCatalogSearchItem($merchant, (string) ($item['id'] ?? ''));
+        $stock_item = $this->resolveMerchantSearchItem($merchant, (string) ($item['id'] ?? ''));
       }
       if ($stock_item === NULL) {
         return [
@@ -478,8 +502,37 @@ class MerchantTransactionService {
       'summary' => $summary,
       'profile' => $profile['key'],
       'profile_label' => (string) ($profile['label'] ?? ''),
+      'wares_types' => array_values(is_array($profile['types'] ?? NULL) ? $profile['types'] : []),
+      'wares_label' => $this->buildMerchantWaresLabel($profile),
       'stock_mode' => $profile['stock_mode'],
     ];
+  }
+
+  /**
+   * Build a player-facing wares focus label for merchant summaries.
+   */
+  protected function buildMerchantWaresLabel(array $profile): string {
+    if (($profile['stock_mode'] ?? '') === 'catalog_all') {
+      return 'Any item on request';
+    }
+
+    $types = array_values(array_filter(
+      array_map(
+        static fn($type): string => trim((string) $type),
+        is_array($profile['types'] ?? NULL) ? $profile['types'] : []
+      ),
+      static fn(string $type): bool => $type !== ''
+    ));
+    if ($types === []) {
+      return 'General goods';
+    }
+
+    $labels = array_map(static function (string $type): string {
+      $normalized = str_replace(['_', '-'], ' ', $type);
+      return ucwords($normalized);
+    }, $types);
+
+    return implode(', ', $labels);
   }
 
   /**
@@ -746,6 +799,135 @@ class MerchantTransactionService {
     }
 
     return $results;
+  }
+
+  /**
+   * Resolve explicit merchant stock entries that match the search query.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Matching explicit-stock entries in ranked order.
+   */
+  protected function resolveMerchantExplicitSearchItems(array $merchant, string $item_query): array {
+    $item_query = trim($item_query);
+    if ($item_query === '') {
+      return [];
+    }
+
+    $state = $merchant['decoded_state'] ?? [];
+    $character = $merchant['decoded_character'] ?? [];
+    $profile = $this->resolveMerchantProfile($merchant);
+    $explicit = $this->extractExplicitStockEntries($state, $character);
+    if ($explicit === []) {
+      return [];
+    }
+
+    $results = [];
+    $seen = [];
+    foreach ($explicit as $entry) {
+      $normalized = $this->normalizeStockEntry($entry, $profile);
+      if ($normalized === NULL) {
+        continue;
+      }
+      if (!$this->merchantStockItemMatchesQuery($normalized, $item_query)) {
+        continue;
+      }
+
+      $item_id = (string) ($normalized['item_id'] ?? '');
+      if ($item_id !== '' && isset($seen[$item_id])) {
+        continue;
+      }
+      if ($item_id !== '') {
+        $seen[$item_id] = TRUE;
+      }
+
+      $normalized['source'] = 'merchant stock';
+      $normalized['search_result'] = TRUE;
+      $results[] = $normalized;
+    }
+
+    usort($results, static function (array $left, array $right): int {
+      return [$left['price_cp'] ?? 0, $left['name']] <=> [$right['price_cp'] ?? 0, $right['name']];
+    });
+
+    return $results;
+  }
+
+  /**
+   * Resolve a purchasable merchant item by explicit stock first, then catalog.
+   */
+  protected function resolveMerchantSearchItem(array $merchant, string $item_query): ?array {
+    $explicit = $this->resolveExplicitMerchantStockItem($merchant, $item_query);
+    if ($explicit !== NULL) {
+      return $explicit;
+    }
+
+    return $this->resolveMerchantCatalogSearchItem($merchant, $item_query);
+  }
+
+  /**
+   * Resolve a direct explicit-stock match for a merchant item query.
+   */
+  protected function resolveExplicitMerchantStockItem(array $merchant, string $item_query): ?array {
+    $item_query = trim($item_query);
+    if ($item_query === '') {
+      return NULL;
+    }
+
+    $state = $merchant['decoded_state'] ?? [];
+    $character = $merchant['decoded_character'] ?? [];
+    $profile = $this->resolveMerchantProfile($merchant);
+    $query_key = $this->normalizeMerchantSearchToken($item_query);
+    $query_compact = str_replace(' ', '', $query_key);
+
+    foreach ($this->extractExplicitStockEntries($state, $character) as $entry) {
+      $normalized = $this->normalizeStockEntry($entry, $profile);
+      if ($normalized === NULL) {
+        continue;
+      }
+
+      $item_id_key = $this->normalizeMerchantSearchToken((string) ($normalized['item_id'] ?? ''));
+      $name_key = $this->normalizeMerchantSearchToken((string) ($normalized['name'] ?? ''));
+      if ($query_key !== '' && ($query_key === $item_id_key || $query_key === $name_key)) {
+        return $normalized;
+      }
+
+      $item_id_compact = str_replace(' ', '', $item_id_key);
+      $name_compact = str_replace(' ', '', $name_key);
+      if ($query_compact !== '' && ($query_compact === $item_id_compact || $query_compact === $name_compact)) {
+        return $normalized;
+      }
+    }
+
+    return NULL;
+  }
+
+  /**
+   * Determine whether an explicit stock entry is discoverable by the query.
+   */
+  protected function merchantStockItemMatchesQuery(array $item, string $item_query): bool {
+    $query_key = $this->normalizeMerchantSearchToken($item_query);
+    if ($query_key === '') {
+      return TRUE;
+    }
+
+    $search_text = $this->normalizeMerchantSearchToken(implode(' ', array_filter([
+      (string) ($item['item_id'] ?? ''),
+      (string) ($item['name'] ?? ''),
+      (string) ($item['type'] ?? ''),
+      (string) ($item['subtype'] ?? ''),
+      (string) ($item['description'] ?? ''),
+    ], static fn(string $value): bool => $value !== '')));
+    if ($search_text !== '' && str_contains($search_text, $query_key)) {
+      return TRUE;
+    }
+
+    $query_compact = str_replace(' ', '', $query_key);
+    if ($query_compact === '') {
+      return TRUE;
+    }
+
+    $search_compact = str_replace(' ', '', $search_text);
+    return $search_compact !== '' && str_contains($search_compact, $query_compact);
   }
 
   /**

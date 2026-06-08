@@ -3145,17 +3145,30 @@ import { SpriteService } from './SpriteService.js';
       const fallbackText = 'Choose a merchant in the active room to browse stock and sell inventory.';
       const summary = String(merchant?.summary || merchant?.role || selectedMerchantEntry?.summary || '').trim();
       const merchantClass = this.resolveMerchantClassLabel(merchant, selectedMerchantEntry);
-      if (!merchantClass) {
+      const waresLabel = this.resolveMerchantWaresLabel(merchant);
+      if (!merchantClass && !waresLabel) {
+        return summary || fallbackText;
+      }
+
+      const detailParts = [];
+      if (merchantClass) {
+        detailParts.push(`Merchant class: ${merchantClass}`);
+      }
+      if (waresLabel) {
+        detailParts.push(`Wares: ${waresLabel}`);
+      }
+      const detailText = detailParts.join(' · ');
+      if (!detailText) {
         return summary || fallbackText;
       }
 
       if (!summary) {
-        return `Merchant class: ${merchantClass}`;
+        return detailText;
       }
 
-      return summary.toLowerCase() === merchantClass.toLowerCase()
-        ? `Merchant class: ${merchantClass}`
-        : `${summary} · Merchant class: ${merchantClass}`;
+      return summary.toLowerCase() === detailText.toLowerCase()
+        ? detailText
+        : `${summary} · ${detailText}`;
     }
 
     resolveMerchantClassLabel(merchant = null, selectedMerchantEntry = null) {
@@ -3172,6 +3185,23 @@ import { SpriteService } from './SpriteService.js';
       }
 
       return String(merchant?.role || selectedMerchantEntry?.summary || '').trim();
+    }
+
+    resolveMerchantWaresLabel(merchant = null) {
+      const directLabel = String(merchant?.wares_label || '').trim();
+      if (directLabel) {
+        return directLabel;
+      }
+
+      if (Array.isArray(merchant?.wares_types) && merchant.wares_types.length > 0) {
+        return merchant.wares_types
+          .map((value) => String(value || '').trim())
+          .filter(Boolean)
+          .map((value) => value.replace(/[_-]+/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase()))
+          .join(', ');
+      }
+
+      return '';
     }
 
     buildMerchantItemMetaHtml(item = {}, options = {}) {

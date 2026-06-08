@@ -864,8 +864,8 @@ export class GameShell {
   }
 
   /**
-   * Fetch stock for all merchant occupants in the current room and
-   * re-emit room:occupants-changed with stock injected into presentation.
+   * Fetch merchant context metadata for all merchant occupants in the room and
+   * re-emit room:occupants-changed with normalized merchant presentation fields.
    * @private
    */
   async _loadMerchantStock() {
@@ -921,6 +921,12 @@ export class GameShell {
             ...updatedOccupants[idx],
             presentation: {
               ...updatedOccupants[idx].presentation,
+              role: ctx.merchant?.role ?? updatedOccupants[idx].presentation?.role ?? '',
+              merchant_summary: ctx.merchant?.summary ?? '',
+              merchant_profile: ctx.merchant?.profile ?? '',
+              merchant_profile_label: ctx.merchant?.profile_label ?? '',
+              merchant_wares_label: ctx.merchant?.wares_label ?? '',
+              merchant_wares_types: Array.isArray(ctx.merchant?.wares_types) ? ctx.merchant.wares_types : [],
               stock:           Array.isArray(ctx.stock) ? ctx.stock : [],
               player_currency: ctx.player?.currency ?? ctx.player_currency ?? {},
             },
