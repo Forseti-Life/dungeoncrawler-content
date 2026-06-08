@@ -42,6 +42,7 @@ class NpcPsychologyService {
     'empathy'    => 5,  // 0=callous, 10=deeply compassionate
     'discipline' => 5,  // 0=chaotic/impulsive, 10=rigidly disciplined
     'cunning'    => 5,  // 0=simple/direct, 10=scheming/manipulative
+    'motivation' => 5,  // 0=apathetic, 10=highly driven by goals/rewards
   ];
 
   /**
@@ -53,6 +54,14 @@ class NpcPsychologyService {
    * Maximum character sheet context length (chars) to avoid prompt bloat.
    */
   const MAX_CONTEXT_LENGTH = 2000;
+
+  /**
+   * Baseline goals every actor should always carry.
+   */
+  const DEFAULT_GOALS = [
+    'Gain XP',
+    'Gain Treasure',
+  ];
 
   protected Connection $database;
   protected LoggerInterface $logger;
@@ -150,6 +159,7 @@ class NpcPsychologyService {
     $motivations = $seed_data['motivations'] ?? $this->generateMotivations($creature_type, $role);
     $fears = $seed_data['fears'] ?? $this->generateFears($creature_type, $role);
     $bonds = $seed_data['bonds'] ?? '';
+    $goals = $this->normalizeGoals($seed_data['goals'] ?? [], $motivations);
 
     // Stats snapshot.
     $stats = $seed_data['stats'] ?? [];
@@ -170,6 +180,7 @@ class NpcPsychologyService {
       'equipment' => $seed_data['equipment'] ?? [],
       'languages' => $seed_data['languages'] ?? ['Common'],
       'senses' => $seed_data['senses'] ?? [],
+      'goals' => $goals,
     ];
 
     $now = time();
@@ -351,6 +362,9 @@ class NpcPsychologyService {
     // Update motivations if AI suggested a change.
     if (!empty($entry['motivation_update'])) {
       $updates['motivations'] = $entry['motivation_update'];
+      $sheet = is_array($profile['character_sheet'] ?? NULL) ? $profile['character_sheet'] : [];
+      $sheet['goals'] = $this->normalizeGoals($sheet['goals'] ?? [], $entry['motivation_update']);
+      $updates['character_sheet'] = $sheet;
     }
 
     $this->updateProfile($campaign_id, $entity_ref, $updates);
@@ -701,6 +715,10 @@ class NpcPsychologyService {
     if (!empty($profile['motivations'])) {
       $parts[] = "Motivations: {$profile['motivations']}";
     }
+    $goals = $this->normalizeGoals($sheet['goals'] ?? [], (string) ($profile['motivations'] ?? ''));
+    if (!empty($goals)) {
+      $parts[] = "Goals: " . implode(', ', $goals);
+    }
     if (!empty($profile['fears'])) {
       $parts[] = "Fears: {$profile['fears']}";
     }
@@ -963,25 +981,30 @@ class NpcPsychologyService {
       $axes['boldness'] = rand(2, 5);
       $axes['cunning'] = rand(6, 9);
       $axes['discipline'] = rand(1, 4);
+      $axes['motivation'] = rand(6, 9);
     }
     elseif (str_contains($type_lower, 'hobgoblin')) {
       $axes['boldness'] = rand(5, 8);
       $axes['discipline'] = rand(7, 10);
       $axes['cunning'] = rand(4, 7);
+      $axes['motivation'] = rand(6, 9);
     }
     elseif (str_contains($type_lower, 'skeleton') || str_contains($type_lower, 'zombie')) {
       $axes['empathy'] = rand(0, 2);
       $axes['discipline'] = rand(7, 10);
       $axes['cunning'] = rand(0, 3);
+      $axes['motivation'] = rand(3, 7);
     }
     elseif (str_contains($type_lower, 'dragon')) {
       $axes['boldness'] = rand(7, 10);
       $axes['cunning'] = rand(7, 10);
       $axes['empathy'] = rand(1, 5);
+      $axes['motivation'] = rand(8, 10);
     }
     elseif (str_contains($type_lower, 'guard') || str_contains($type_lower, 'soldier')) {
       $axes['discipline'] = rand(6, 9);
       $axes['boldness'] = rand(4, 7);
+      $axes['motivation'] = rand(5, 8);
     }
     else {
       // Random variation for generic creatures.
@@ -994,14 +1017,17 @@ class NpcPsychologyService {
     if ($role === 'merchant') {
       $axes['cunning'] = max($axes['cunning'], rand(5, 8));
       $axes['honesty'] = rand(3, 7);
+      $axes['motivation'] = max($axes['motivation'], rand(6, 9));
     }
     elseif ($role === 'villain') {
       $axes['cunning'] = max($axes['cunning'], rand(7, 10));
       $axes['empathy'] = min($axes['empathy'], rand(1, 4));
+      $axes['motivation'] = max($axes['motivation'], rand(7, 10));
     }
     elseif ($role === 'ally') {
       $axes['empathy'] = max($axes['empathy'], rand(5, 8));
       $axes['honesty'] = max($axes['honesty'], rand(5, 8));
+      $axes['motivation'] = max($axes['motivation'], rand(5, 8));
     }
 
     return $axes;
@@ -1042,6 +1068,12 @@ class NpcPsychologyService {
     elseif ($cunning >= 6) $traits[] = 'clever';
     elseif ($cunning <= 2) $traits[] = 'simple-minded';
     elseif ($cunning <= 4) $traits[] = 'straightforward';
+
+    $motivation = $axes['motivation'] ?? 5;
+    if ($motivation >= 8) $traits[] = 'ambitious';
+    elseif ($motivation >= 6) $traits[] = 'driven';
+    elseif ($motivation <= 2) $traits[] = 'apathetic';
+    elseif ($motivation <= 4) $traits[] = 'complacent';
 
     return implode(', ', $traits);
   }
@@ -1120,6 +1152,7 @@ class NpcPsychologyService {
       'empathy' => $val > 6 ? 'compassionate' : 'callous/indifferent',
       'discipline' => $val > 6 ? 'disciplined/methodical' : 'impulsive/chaotic',
       'cunning' => $val > 6 ? 'cunning/strategic' : 'simple/straightforward',
+      'motivation' => $val > 6 ? 'highly motivated/reward-seeking' : 'low-drive/passive',
     ];
 
     return $labels[$axis] ?? NULL;
@@ -1130,10 +1163,80 @@ class NpcPsychologyService {
    */
   protected function hydrateProfile(array $row): array {
     $row['character_sheet'] = json_decode($row['character_sheet'] ?? '{}', TRUE) ?: [];
-    $row['personality_axes'] = json_decode($row['personality_axes'] ?? '{}', TRUE) ?: self::PERSONALITY_AXES;
+    $row['personality_axes'] = $this->normalizePersonalityAxes(json_decode($row['personality_axes'] ?? '{}', TRUE) ?: []);
+    $row['character_sheet']['goals'] = $this->normalizeGoals(
+      $row['character_sheet']['goals'] ?? [],
+      (string) ($row['motivations'] ?? '')
+    );
     $row['inner_monologue'] = json_decode($row['inner_monologue'] ?? '[]', TRUE) ?: [];
     $row['attitude_history'] = json_decode($row['attitude_history'] ?? '[]', TRUE) ?: [];
     return $row;
+  }
+
+  /**
+   * Ensure all expected personality axes exist.
+   */
+  protected function normalizePersonalityAxes(array $axes): array {
+    $normalized = self::PERSONALITY_AXES;
+    foreach (self::PERSONALITY_AXES as $axis => $default) {
+      if (array_key_exists($axis, $axes) && is_numeric($axes[$axis])) {
+        $normalized[$axis] = max(0, min(10, (int) $axes[$axis]));
+      }
+      else {
+        $normalized[$axis] = $default;
+      }
+    }
+    return $normalized;
+  }
+
+  /**
+   * Normalize goals into an ordered unique list with required defaults.
+   */
+  protected function normalizeGoals(array|string|null $goals, string $motivations = ''): array {
+    $items = [];
+    if (is_array($goals)) {
+      $items = $goals;
+    }
+    elseif (is_string($goals) && trim($goals) !== '') {
+      $items = preg_split('/[;\n\r]+/', $goals) ?: [];
+    }
+
+    $combined = [];
+    foreach ($items as $goal) {
+      if (!is_string($goal)) {
+        continue;
+      }
+      $trimmed = trim($goal);
+      if ($trimmed !== '') {
+        $combined[] = $trimmed;
+      }
+    }
+
+    if (trim($motivations) !== '') {
+      $motivation_items = preg_split('/[;\n\r]+/', $motivations) ?: [];
+      foreach ($motivation_items as $motivation) {
+        $trimmed = trim((string) $motivation);
+        if ($trimmed !== '') {
+          $combined[] = $trimmed;
+        }
+      }
+    }
+
+    foreach (self::DEFAULT_GOALS as $goal) {
+      $combined[] = $goal;
+    }
+
+    $seen = [];
+    $normalized = [];
+    foreach ($combined as $goal) {
+      $key = strtolower($goal);
+      if (isset($seen[$key])) {
+        continue;
+      }
+      $seen[$key] = TRUE;
+      $normalized[] = $goal;
+    }
+    return $normalized;
   }
 
 }

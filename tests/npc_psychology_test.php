@@ -90,8 +90,13 @@ $axes = $profile['personality_axes'];
 assert_true(is_array($axes), 'Personality axes is array');
 assert_true(isset($axes['boldness']), 'Has boldness axis');
 assert_true(isset($axes['cunning']), 'Has cunning axis');
+assert_true(isset($axes['motivation']), 'Has motivation axis');
 assert_true($axes['cunning'] >= 6, 'Goblin has high cunning');
 assert_true($axes['discipline'] <= 5, 'Goblin has low discipline');
+assert_true($axes['motivation'] >= 0 && $axes['motivation'] <= 10, 'Motivation axis in range');
+assert_true(is_array($profile['character_sheet']['goals'] ?? NULL), 'Sheet: goals array exists');
+assert_true(in_array('Gain XP', $profile['character_sheet']['goals'], TRUE), 'Sheet: includes Gain XP goal');
+assert_true(in_array('Gain Treasure', $profile['character_sheet']['goals'], TRUE), 'Sheet: includes Gain Treasure goal');
 
 echo "\n";
 
@@ -224,6 +229,7 @@ assert_true(str_contains($context, 'CHARACTER SHEET'), 'Context includes CHARACT
 assert_true(str_contains($context, 'PERSONALITY & PSYCHOLOGY'), 'Context includes PSYCHOLOGY header');
 assert_true(str_contains($context, 'Attitude toward party'), 'Context includes attitude');
 assert_true(str_contains($context, 'Motivations'), 'Context includes motivations');
+assert_true(str_contains($context, 'Goals:'), 'Context includes goals');
 assert_true(str_contains($context, 'AC: 15'), 'Context includes AC stat');
 assert_true(str_contains($context, 'Darkvision'), 'Context includes senses');
 assert_true(str_contains($context, 'Goblin Scuttle'), 'Context includes abilities');

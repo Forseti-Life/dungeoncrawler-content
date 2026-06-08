@@ -192,6 +192,7 @@ class AiConversationEncounterAiProviderTest extends UnitTestCase {
       'attitude' => 'hostile',
       'motivations' => 'Protect the relic',
       'personality_axes' => ['cunning' => 8, 'discipline' => 7],
+      'goals' => ['Gain XP', 'Gain Treasure', 'Protect the relic'],
     ];
     $context['npc_psychology'] = "=== NPC COMBAT PERSONALITY ===\nFighting motivation: Protect the relic";
 
@@ -208,6 +209,7 @@ class AiConversationEncounterAiProviderTest extends UnitTestCase {
           }
           $encounter = is_array($payload['encounter'] ?? NULL) ? $payload['encounter'] : [];
           return ($encounter['current_actor_profile']['motivations'] ?? '') === 'Protect the relic'
+            && ($encounter['current_actor_profile']['goals'][0] ?? '') === 'Gain XP'
             && ($encounter['npc_psychology'] ?? '') === "=== NPC COMBAT PERSONALITY ===\nFighting motivation: Protect the relic";
         }),
         'dungeoncrawler_content',

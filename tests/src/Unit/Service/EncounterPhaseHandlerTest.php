@@ -862,7 +862,7 @@ class EncounterPhaseHandlerTest extends UnitTestCase {
       [42, 'npc_friendly', [
         'display_name' => 'Friendly Scout',
         'attitude' => 'friendly',
-        'personality_axes' => ['boldness' => 5, 'empathy' => 8, 'discipline' => 5, 'cunning' => 4],
+        'personality_axes' => ['boldness' => 5, 'empathy' => 8, 'discipline' => 5, 'cunning' => 4, 'motivation' => 6],
         'motivations' => 'Protect the camp',
         'fears' => '',
       ]],
@@ -911,7 +911,7 @@ class EncounterPhaseHandlerTest extends UnitTestCase {
       [77, 'npc_coward', [
         'display_name' => 'Shaken Raider',
         'attitude' => 'unfriendly',
-        'personality_axes' => ['boldness' => 4, 'empathy' => 3, 'discipline' => 3, 'cunning' => 5],
+        'personality_axes' => ['boldness' => 4, 'empathy' => 3, 'discipline' => 3, 'cunning' => 5, 'motivation' => 6],
         'motivations' => 'Survive and escape this fight',
         'fears' => 'Getting caught in conflict',
       ]],
@@ -957,7 +957,7 @@ class EncounterPhaseHandlerTest extends UnitTestCase {
       [13, 'npc_hunter', [
         'display_name' => 'Hunter',
         'attitude' => 'hostile',
-        'personality_axes' => ['boldness' => 6, 'empathy' => 2, 'discipline' => 7, 'cunning' => 8],
+        'personality_axes' => ['boldness' => 6, 'empathy' => 2, 'discipline' => 7, 'cunning' => 8, 'motivation' => 7],
         'motivations' => 'Win quickly',
         'fears' => '',
       ]],
@@ -1002,6 +1002,55 @@ class EncounterPhaseHandlerTest extends UnitTestCase {
   }
 
   /**
+   * Treasure-oriented goals should bias non-adjacent actors toward interact.
+   *
+   * @covers ::chooseFallbackAction
+   */
+  public function testChooseFallbackActionUsesTreasureGoalWhenNotAdjacent(): void {
+    $psychology = $this->createMock(NpcPsychologyService::class);
+    $psychology->method('loadProfile')->willReturnMap([
+      [19, 'npc_looter', [
+        'display_name' => 'Looter',
+        'attitude' => 'hostile',
+        'character_sheet' => [
+          'goals' => ['Gain Treasure', 'Grab valuables and leave'],
+        ],
+        'personality_axes' => ['boldness' => 5, 'empathy' => 3, 'discipline' => 4, 'cunning' => 5, 'motivation' => 7],
+        'motivations' => 'Get rich',
+        'fears' => '',
+      ]],
+    ]);
+
+    $handler = $this->buildHandler(NULL, NULL, NULL, NULL, $psychology);
+    $game_state = [
+      'campaign_id' => 19,
+      'initiative_order' => [
+        [
+          'entity_id' => 'npc-1',
+          'entity_ref' => 'npc_looter',
+          'team' => 'enemy',
+          'hp' => 16,
+          'max_hp' => 16,
+          'position_q' => 0,
+          'position_r' => 0,
+        ],
+        [
+          'entity_id' => 'pc-1',
+          'team' => 'player',
+          'is_defeated' => FALSE,
+          'hp' => 22,
+          'max_hp' => 22,
+          'position_q' => 3,
+          'position_r' => 0,
+        ],
+      ],
+    ];
+
+    $action = $this->invokeChooseFallbackAction($handler, 'npc-1', $game_state, 19);
+    $this->assertSame('interact', $action);
+  }
+
+  /**
    * NPC context should include structured psychology profile for AI decisions.
    *
    * @covers ::buildNpcContext
@@ -1013,10 +1062,13 @@ class EncounterPhaseHandlerTest extends UnitTestCase {
         'display_name' => 'Profiled NPC',
         'attitude' => 'indifferent',
         'personality_traits' => 'cautious and calculating',
-        'personality_axes' => ['boldness' => 4, 'empathy' => 5, 'discipline' => 7, 'cunning' => 8],
+        'personality_axes' => ['boldness' => 4, 'empathy' => 5, 'discipline' => 7, 'cunning' => 8, 'motivation' => 7],
         'motivations' => 'Protect the relic',
         'fears' => 'Losing control',
         'bonds' => 'Temple wardens',
+        'character_sheet' => [
+          'goals' => ['Protect the relic', 'Gain XP', 'Gain Treasure'],
+        ],
         'inner_monologue' => [
           [
             'thought' => 'If they touch the relic, I strike.',
@@ -1060,8 +1112,11 @@ class EncounterPhaseHandlerTest extends UnitTestCase {
 
     $context = $this->invokeBuildNpcContext($handler, 'npc-1', $game_state, []);
     $this->assertSame('Protect the relic', $context['current_actor_profile']['motivations']);
+    $this->assertTrue(in_array('Gain XP', $context['current_actor_profile']['goals'], TRUE));
+    $this->assertTrue(in_array('Gain Treasure', $context['current_actor_profile']['goals'], TRUE));
     $this->assertSame('determined', $context['current_actor_profile']['latest_thought']['emotion']);
     $this->assertStringContainsString('Fighting motivation: Protect the relic', (string) $context['npc_psychology']);
+    $this->assertStringContainsString('Goals: Protect the relic, Gain XP, Gain Treasure', (string) $context['npc_psychology']);
   }
 
   /**

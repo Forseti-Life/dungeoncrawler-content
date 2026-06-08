@@ -5634,6 +5634,19 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
     $npc_r = (int) ($npc['position_r'] ?? 0);
     $hp_ratio = $this->hpRatio($npc);
     $profile = $this->loadCombatantPsychologyProfile($entity_id, $game_state, $campaign_id);
+    $goals = $this->resolveActorGoals($profile);
+    $has_adjacent_player = FALSE;
+    foreach (($game_state['initiative_order'] ?? []) as $combatant) {
+      if (($combatant['team'] ?? '') !== 'player' || !empty($combatant['is_defeated'])) {
+        continue;
+      }
+      $pq = (int) ($combatant['position_q'] ?? 0);
+      $pr = (int) ($combatant['position_r'] ?? 0);
+      if ($this->hexDistance($npc_q, $npc_r, $pq, $pr) <= 1) {
+        $has_adjacent_player = TRUE;
+        break;
+      }
+    }
 
     if ($profile) {
       $axes = is_array($profile['personality_axes'] ?? NULL) ? $profile['personality_axes'] : [];
@@ -5659,6 +5672,14 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
           }
         }
       }
+    }
+
+    // Goals should influence actor choice when they can act in-room.
+    if ($has_adjacent_player && $this->actorHasGoal($goals, 'gain xp')) {
+      return 'strike';
+    }
+    if (!$has_adjacent_player && $this->actorHasGoal($goals, 'gain treasure')) {
+      return 'interact';
     }
 
     // Check if any alive player is adjacent (distance = 1 hex).
@@ -7862,7 +7883,17 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
     $campaign_id = (int) ($game_state['campaign_id'] ?? 0);
     $profile = $this->loadCombatantPsychologyProfile($entity_id, $game_state, $campaign_id);
     if (!$profile) {
-      return [];
+      return [
+        'display_name' => $this->resolveEntityName($entity_id, $game_state, []),
+        'attitude' => 'indifferent',
+        'personality_traits' => '',
+        'personality_axes' => NpcPsychologyService::PERSONALITY_AXES,
+        'motivations' => '',
+        'fears' => '',
+        'bonds' => '',
+        'goals' => $this->resolveActorGoals(NULL),
+        'latest_thought' => NULL,
+      ];
     }
 
     $latest_thought = NULL;
@@ -7886,6 +7917,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
       'motivations' => (string) ($profile['motivations'] ?? ''),
       'fears' => (string) ($profile['fears'] ?? ''),
       'bonds' => (string) ($profile['bonds'] ?? ''),
+      'goals' => $this->resolveActorGoals($profile),
       'latest_thought' => $latest_thought,
     ];
   }
@@ -7928,6 +7960,10 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
     }
     if (!empty($profile['motivations'])) {
       $parts[] = "Fighting motivation: {$profile['motivations']}";
+    }
+    $goals = $this->resolveActorGoals($profile);
+    if (!empty($goals)) {
+      $parts[] = "Goals: " . implode(', ', $goals);
     }
 
     // Translate personality axes into combat behavioral hints.
@@ -8001,6 +8037,67 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
       $profile = $this->psychologyService->loadProfile($campaign_id, $entity_id);
     }
     return $profile ?: NULL;
+  }
+
+  /**
+   * Resolve actor goals list, always including XP and treasure goals.
+   */
+  protected function resolveActorGoals(?array $profile): array {
+    $goals = [];
+    if (is_array($profile)) {
+      $sheet = is_array($profile['character_sheet'] ?? NULL) ? $profile['character_sheet'] : [];
+      if (is_array($sheet['goals'] ?? NULL)) {
+        foreach ($sheet['goals'] as $goal) {
+          if (is_string($goal) && trim($goal) !== '') {
+            $goals[] = trim($goal);
+          }
+        }
+      }
+      $motivations = trim((string) ($profile['motivations'] ?? ''));
+      if ($motivations !== '') {
+        $motivation_goals = preg_split('/[;\n\r]+/', $motivations) ?: [];
+        foreach ($motivation_goals as $motivation_goal) {
+          $trimmed = trim((string) $motivation_goal);
+          if ($trimmed !== '') {
+            $goals[] = $trimmed;
+          }
+        }
+      }
+    }
+
+    $goals[] = 'Gain XP';
+    $goals[] = 'Gain Treasure';
+
+    $seen = [];
+    $normalized = [];
+    foreach ($goals as $goal) {
+      $key = strtolower($goal);
+      if (isset($seen[$key])) {
+        continue;
+      }
+      $seen[$key] = TRUE;
+      $normalized[] = $goal;
+    }
+    return $normalized;
+  }
+
+  /**
+   * Case-insensitive goal matching helper.
+   */
+  protected function actorHasGoal(array $goals, string $needle): bool {
+    $needle = strtolower(trim($needle));
+    if ($needle === '') {
+      return FALSE;
+    }
+    foreach ($goals as $goal) {
+      if (!is_string($goal)) {
+        continue;
+      }
+      if (str_contains(strtolower($goal), $needle)) {
+        return TRUE;
+      }
+    }
+    return FALSE;
   }
 
   /**
