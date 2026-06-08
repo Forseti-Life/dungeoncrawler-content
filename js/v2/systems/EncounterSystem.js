@@ -18,6 +18,7 @@ export class EncounterSystem {
     this._unsubs = [];
     this._lastAnnouncedRound = null;
     this._lastAnnouncedActorKey = '';
+    this._actionRailPendingRequests = new Map();
   }
 
   init(dungeonData, stateManager) {
@@ -879,11 +880,117 @@ export class EncounterSystem {
   }
 
   _beginActionRailRequest(button) {
-    return this.shell.panels.actionRail?.beginActionRailRequest(button) ?? false;
+    const started = this.shell.panels.actionRail?.beginActionRailRequest(button) ?? false;
+    if (!started) {
+      return false;
+    }
+    this._beginActionRailPendingChatRequest(button);
+    return true;
   }
 
   _endActionRailRequest(button) {
+    this._settleActionRailPendingChatRequest(button);
     this.shell.panels.actionRail?.endActionRailRequest(button);
+  }
+
+  _beginActionRailPendingChatRequest(button) {
+    const requestId = String(button?.dataset?.backendRequestId || '').trim();
+    if (!requestId || this._actionRailPendingRequests.has(requestId)) {
+      return;
+    }
+
+    const chatPanel = this.shell?.panels?.chat || null;
+    if (!chatPanel || typeof chatPanel.buildPendingChatRequest !== 'function') {
+      return;
+    }
+
+    const context = this._getActionRailContext();
+    const runtimeContext = context?.runtimeContext || {};
+    const roomId = String(runtimeContext.roomId || context?.hexmap?.resolveActiveRoomId?.() || '').trim();
+    if (!roomId) {
+      return;
+    }
+    const campaignId = Number(runtimeContext.campaignId || context?.hexmap?.resolveCampaignId?.() || 0) || null;
+    const characterId = Number(context?.characterId || runtimeContext.characterId || 0) || null;
+    const actorLabel = String(context?.actorLabel || context?.actor?.name || 'Actor').trim() || 'Actor';
+    const pendingMessage = this._buildActionRailPendingMessage(button);
+    const target = chatPanel.buildChatRenderTarget?.({
+      view: 'room',
+      channelKey: 'room',
+      context: {
+        campaignId,
+        roomId,
+        characterId,
+      },
+    }) || {
+      view: 'room',
+      channelKey: 'room',
+      context: { campaignId, roomId, characterId },
+    };
+
+    const pending = chatPanel.buildPendingChatRequest(requestId, actorLabel, pendingMessage, roomId, {
+      includePlayer: true,
+      includePlaceholder: false,
+      target,
+    });
+    if (pending) {
+      this._actionRailPendingRequests.set(requestId, pending);
+    }
+  }
+
+  _settleActionRailPendingChatRequest(button) {
+    const requestId = String(button?.dataset?.backendRequestId || '').trim();
+    if (!requestId) {
+      return;
+    }
+
+    const chatPanel = this.shell?.panels?.chat || null;
+    const pending = this._actionRailPendingRequests.get(requestId)
+      || chatPanel?.pendingChatRequests?.get?.(requestId)
+      || null;
+
+    if (!pending) {
+      this._actionRailPendingRequests.delete(requestId);
+      return;
+    }
+
+    chatPanel?.settlePendingChatRequest?.(pending, {
+      removePlayer: true,
+    });
+    this._actionRailPendingRequests.delete(requestId);
+  }
+
+  _buildActionRailPendingMessage(button) {
+    const actionType = String(
+      button?.dataset?.actionRailExecute
+      || button?.dataset?.actionRailDirect
+      || ''
+    ).trim().toLowerCase();
+    const actionLabel = String(
+      button?.dataset?.actionLabel
+      || button?.dataset?.actionName
+      || button?.textContent
+      || actionType
+      || 'action'
+    ).replace(/\s+/g, ' ').trim();
+
+    const actionDescriptions = {
+      attack: 'Attack action',
+      search: 'Search action',
+      strike: 'Strike action',
+      interact: 'Interact action',
+      skill: 'Skill action',
+      spell: 'Spell action',
+      cast_spell: 'Cast Spell action',
+      feat: 'Feat action',
+      consumable: 'Consumable action',
+      consume_item: 'Use Item action',
+      end_turn: 'End Turn action',
+      choose_not_to_act: 'Choose Not To Act action',
+    };
+    const baseLabel = actionDescriptions[actionType]
+      || (actionLabel ? `${actionLabel} action` : 'Action');
+    return `${baseLabel} in progress. Waiting for server response...`;
   }
 
   _getActionRailContext() {
