@@ -111,61 +111,42 @@ export class QuestSystem {
     const baseSummary = this.shell?.questSummary && typeof this.shell.questSummary === 'object'
       ? this.shell.questSummary
       : null;
-    const summary = baseSummary
-      ? {
-          ...baseSummary,
-          active: Array.isArray(baseSummary.active) ? [...baseSummary.active] : [],
-          offers: Array.isArray(baseSummary.offers) ? [...baseSummary.offers] : [],
-          leads: Array.isArray(baseSummary.leads) ? [...baseSummary.leads] : [],
-          completed: Array.isArray(baseSummary.completed) ? [...baseSummary.completed] : [],
-          management_tree: Array.isArray(baseSummary.management_tree) ? baseSummary.management_tree : [],
-          location_id: String(baseSummary.location_id || this.shell?.resolveActiveRoomId?.() || ''),
-          schema_version: String(baseSummary.schema_version || 'quest-summary-v2'),
-        }
-      : this._buildSummaryFromQuestMap();
-
-    if (!overrideQuest || !overrideQuest.quest_id) {
-      return summary;
-    }
-
-    const questKey = String(overrideQuest.quest_id);
-    ['active', 'offers', 'leads', 'completed'].forEach((bucket) => {
-      summary[bucket] = (Array.isArray(summary[bucket]) ? summary[bucket] : []).filter(
-        (entry) => String(entry?.quest_id || '') !== questKey
-      );
-    });
-    const bucket = this._resolveSummaryBucket(overrideQuest?.status);
-    summary[bucket].push(overrideQuest);
-    summary.counts = {
-      active: summary.active.length,
-      offers: summary.offers.length,
-      leads: summary.leads.length,
-      completed: summary.completed.length,
-    };
-    return summary;
-  }
-
-  _buildSummaryFromQuestMap() {
     const summary = {
-      schema_version: 'quest-summary-v2',
-      location_id: String(this.shell?.resolveActiveRoomId?.() || ''),
+      ...(baseSummary || {}),
+      schema_version: String(baseSummary?.schema_version || 'quest-summary-v2'),
+      location_id: String(baseSummary?.location_id || this.shell?.resolveActiveRoomId?.() || ''),
+      management_tree: Array.isArray(baseSummary?.management_tree) ? baseSummary.management_tree : [],
       active: [],
       offers: [],
       leads: [],
       completed: [],
-      management_tree: [],
-      counts: {
-        active: 0,
-        offers: 0,
-        leads: 0,
-        completed: 0,
-      },
     };
 
-    [...this._quests.values()].forEach((quest) => {
+    const questIndex = new Map();
+    ['active', 'offers', 'leads', 'completed'].forEach((bucket) => {
+      const bucketQuests = Array.isArray(baseSummary?.[bucket]) ? baseSummary[bucket] : [];
+      bucketQuests.forEach((quest) => {
+        if (!quest || !quest.quest_id) {
+          return;
+        }
+        questIndex.set(String(quest.quest_id), quest);
+      });
+    });
+    this._quests.forEach((quest, questId) => {
+      if (!quest || !questId) {
+        return;
+      }
+      questIndex.set(String(questId), quest);
+    });
+    if (overrideQuest?.quest_id) {
+      questIndex.set(String(overrideQuest.quest_id), overrideQuest);
+    }
+
+    questIndex.forEach((quest) => {
       const bucket = this._resolveSummaryBucket(quest?.status);
       summary[bucket].push(quest);
     });
+
     summary.counts = {
       active: summary.active.length,
       offers: summary.offers.length,
