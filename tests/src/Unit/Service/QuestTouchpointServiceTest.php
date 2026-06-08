@@ -230,6 +230,62 @@ class QuestTouchpointServiceTest extends UnitTestCase {
   }
 
   /**
+   * Offered quests are auto-started before applying a matching touchpoint.
+   */
+  public function testIngestEventStartsOfferedQuestBeforeApplyingProgress(): void {
+    $store = $this->createMock(KeyValueStoreInterface::class);
+    $store->expects($this->once())
+      ->method('get')
+      ->willReturn(NULL);
+    $store->expects($this->once())
+      ->method('set');
+
+    $factory = $this->createMock(KeyValueFactoryInterface::class);
+    $factory->method('get')->willReturn($store);
+
+    $quest_tracker = $this->createMock(QuestTrackerService::class);
+    $quest_tracker->expects($this->once())
+      ->method('getActiveQuests')
+      ->with(85, 99)
+      ->willReturn([]);
+    $quest_tracker->expects($this->once())
+      ->method('getOfferQuests')
+      ->with(85, 'crossroads', 99)
+      ->willReturn([$this->buildOfferedQuestRow()]);
+    $quest_tracker->expects($this->once())
+      ->method('startQuest')
+      ->with(85, 'rescue_merchant_offered', 99)
+      ->willReturn(TRUE);
+    $quest_tracker->expects($this->once())
+      ->method('updateObjectiveProgress')
+      ->with(85, 'rescue_merchant_offered', 'escort_to_safety_runtime_1', 1, 99)
+      ->willReturn(['success' => TRUE]);
+
+    $confirmation_service = $this->createMock(QuestConfirmationService::class);
+    $confirmation_service->expects($this->never())
+      ->method('createPending');
+
+    $time = $this->createMock(TimeInterface::class);
+    $time->method('getRequestTime')->willReturn(1700000000);
+
+    $service = new QuestTouchpointService($quest_tracker, $confirmation_service, $factory, $time);
+    $result = $service->ingestEvent(85, [
+      'character_id' => 99,
+      'touchpoint' => [
+        'objective_type' => 'interact',
+        'npc_ref' => 'Guard Captain',
+        'entity_ref' => 'npc-guard',
+        'room_id' => 'crossroads',
+        'matching_mode' => 'direct_npc_dialogue',
+      ],
+    ]);
+
+    $this->assertTrue($result['success']);
+    $this->assertSame('APPLY_PROGRESS', $result['decision']);
+    $this->assertSame('rescue_merchant_offered', $result['quest_id']);
+  }
+
+  /**
    * Entity refs complete NPC objectives even when speaker names are descriptive.
    */
   public function testIngestEventMatchesNpcEntityRefWhenSpeakerNameDiffersFromObjectiveTarget(): void {
@@ -413,6 +469,34 @@ class QuestTouchpointServiceTest extends UnitTestCase {
           ],
         ],
       ]),
+    ];
+  }
+
+  /**
+   * Build an offered quest row that can be matched and then started.
+   */
+  private function buildOfferedQuestRow(): array {
+    return [
+      'quest_id' => 'rescue_merchant_offered',
+      'quest_name' => 'Rescue the Merchant',
+      'character_id' => 0,
+      'current_phase' => 1,
+      'generated_objectives' => json_encode([
+        [
+          'phase' => 1,
+          'objectives' => [
+            [
+              'objective_id' => 'escort_to_safety_runtime_1',
+              'type' => 'interact',
+              'target' => 'Guard Captain',
+              'npc_ref' => 'npc-guard',
+              'description' => 'Speak to the Guard Captain.',
+              'completed' => FALSE,
+            ],
+          ],
+        ],
+      ]),
+      'objective_states' => '[]',
     ];
   }
 

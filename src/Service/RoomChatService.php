@@ -165,8 +165,12 @@ class RoomChatService {
       }
     }
 
-    // Ensure messages are properly structured.
-    return array_map(function ($msg) use ($dungeon_data, $channel) {
+    // Ensure messages are properly structured with explicit sequence ordering.
+    $normalized_messages = [];
+    foreach (array_values($chat) as $index => $msg) {
+      if (!is_array($msg)) {
+        continue;
+      }
       $speaker = (string) ($msg['speaker'] ?? 'Unknown');
       $message = (string) ($msg['message'] ?? '');
 
@@ -177,17 +181,20 @@ class RoomChatService {
         );
       }
 
-      return [
+      $normalized_messages[] = [
         'speaker' => $speaker !== '' ? $speaker : 'Unknown',
         'message' => $message,
         'type' => $msg['type'] ?? 'npc',
         'channel' => $msg['channel'] ?? 'room',
         'timestamp' => $msg['timestamp'] ?? date('c'),
+        'sequence_index' => $index + 1,
         'character_id' => $msg['character_id'] ?? null,
         'user_id' => $msg['user_id'] ?? null,
         'internal_log' => !empty($msg['internal_log']),
       ];
-    }, $chat);
+    }
+
+    return $normalized_messages;
   }
 
   /**
@@ -720,8 +727,15 @@ class RoomChatService {
       throw new \InvalidArgumentException('Room chat must be sent as the Talk encounter action.', 409);
     }
 
-    // Enforce the canonical encounter transcript prefix for non-player room lines
-    // during the encounter phase, so every persisted line includes turn/round/actor.
+    // Enforce canonical room-turn transcript prefixes during encounter room chat.
+    if ($channel === 'room' && $type === 'player') {
+      $canonical_player_prefix = $this->buildEncounterPrefixForSpeaker($dungeon_data, $speaker);
+      if (is_string($canonical_player_prefix) && trim($canonical_player_prefix) !== '') {
+        $encounter_prefix = $canonical_player_prefix;
+      }
+    }
+
+    // Non-player room lines also receive canonical turn-loop prefixes.
     if ($channel === 'room' && $type !== 'player' && $encounter_prefix === NULL) {
       $encounter_prefix = $this->buildEncounterPrefixForSpeaker($dungeon_data, $speaker);
     }
@@ -920,7 +934,8 @@ class RoomChatService {
       $dungeon_data,
       $gm_response,
       $npc_interjections,
-      $quest_touchpoint_hint
+      $quest_touchpoint_hint,
+      $message
     );
     if (
       $defer_npc_interjections
@@ -935,7 +950,8 @@ class RoomChatService {
         $dungeon_data,
         $gm_response,
         $turn_harness_result['messages'],
-        $quest_touchpoint_hint
+        $quest_touchpoint_hint,
+        $message
       );
       if ($deferred_quest_updates !== []) {
         $quest_updates = array_values(array_merge($quest_updates, $deferred_quest_updates));
@@ -1133,7 +1149,9 @@ class RoomChatService {
       $character_id,
       $dungeon_data,
       is_array($gm_response) ? $gm_response : NULL,
-      []
+      [],
+      [],
+      (string) $queued_player_summary
     );
     $this->logger->info('Queued room continuation quest handoff: campaign={campaign_id} room={room_id} character={character_id} quest_update_count={quest_update_count} quest_ids={quest_ids} gm_present={gm_present}', [
       'campaign_id' => $campaign_id,
@@ -1209,7 +1227,9 @@ class RoomChatService {
       $character_id ?? 0,
       $dungeon_data,
       ['message' => $gm_narrative],
-      $deferred_messages
+      $deferred_messages,
+      [],
+      $player_message
     );
     $this->logger->info('Deferred NPC completion quest handoff: campaign={campaign_id} room={room_id} character={character_id} deferred_message_count={deferred_message_count} deferred_quest_update_count={deferred_quest_update_count} deferred_quest_ids={deferred_quest_ids}', [
       'campaign_id' => $campaign_id,
@@ -3768,6 +3788,13 @@ class RoomChatService {
     $gm_addressed = !empty($turn_plan['gm_addressed']);
     $stage_started_at = hrtime(true);
     $ordered_npcs = $turn_plan['ordered_npcs'];
+    $speaking_npc_ref_map = [];
+    foreach (($turn_plan['speaking_npc_refs'] ?? []) as $speaking_ref) {
+      $normalized_ref = trim((string) $speaking_ref);
+      if ($normalized_ref !== '') {
+        $speaking_npc_ref_map[$normalized_ref] = TRUE;
+      }
+    }
     $this->recordDebugStage('npc.candidate_filter', $stage_started_at, [
       'room_npc_count' => count($room_npcs),
       'candidate_count' => count($ordered_npcs),
@@ -3876,6 +3903,8 @@ class RoomChatService {
 
     foreach ($ordered_npcs as $npc) {
       $current_speaker = (string) ($npc['profile']['display_name'] ?? $npc['entity_ref'] ?? 'Unknown');
+      $current_speaker_ref = (string) ($npc['entity_ref'] ?? '');
+      $speaker_can_interject = isset($speaking_npc_ref_map[$current_speaker_ref]);
       $current_turn_index = $harness_turn_index++;
 
       $npc_encounter_prefix = (($game_state['phase'] ?? '') === 'encounter')
@@ -3893,6 +3922,7 @@ class RoomChatService {
         $current_speaker,
         [
           'speaker_role' => 'npc',
+          'can_interject' => $speaker_can_interject,
           'player_message' => $player_message,
           'gm_narrative' => $gm_narrative,
           'initiative_total' => isset($npc['initiative_total']) ? (int) $npc['initiative_total'] : NULL,
@@ -3919,24 +3949,27 @@ class RoomChatService {
         '@turn_key' => $turn_log_key,
         '@speaker' => $current_speaker,
       ]);
-      $built_messages = $this->buildNpcInterjectionMessage(
-        $campaign_id,
-        $room_id,
-        $room_index,
-        $dungeon_id,
-        $dungeon_data,
-        $player_message,
-        $gm_narrative,
-        $room_npcs,
-        $npc['entity_ref'],
-        $npc['profile']['display_name'] ?? $npc['entity_ref'],
-        FALSE,
-        $npc_encounter_prefix
-      );
+      $built_messages = [];
+      if ($speaker_can_interject) {
+        $built_messages = $this->buildNpcInterjectionMessage(
+          $campaign_id,
+          $room_id,
+          $room_index,
+          $dungeon_id,
+          $dungeon_data,
+          $player_message,
+          $gm_narrative,
+          $room_npcs,
+          $current_speaker_ref,
+          $npc['profile']['display_name'] ?? $current_speaker_ref,
+          FALSE,
+          $npc_encounter_prefix
+        );
+      }
 
         if (!empty($built_messages)) {
           $messages = array_merge($messages, $built_messages);
-          $spoken_refs[] = $npc['entity_ref'];
+          $spoken_refs[] = $current_speaker_ref;
         $this->persistStructuredRoomTurnLog(
           $campaign_id,
           $dungeon_id,
@@ -3950,6 +3983,7 @@ class RoomChatService {
               'spoke' => TRUE,
               'message_count' => count($built_messages),
             'message_preview' => (string) (($built_messages[0]['message'] ?? '')),
+            'can_interject' => TRUE,
           ]
         );
       }
@@ -3966,6 +4000,7 @@ class RoomChatService {
             [
               'spoke' => FALSE,
               'message_count' => 0,
+             'can_interject' => $speaker_can_interject,
           ]
         );
       }
@@ -4094,23 +4129,28 @@ class RoomChatService {
       }
     }
 
+    $ordered_npcs = $this->buildRoomNpcInitiativeOrder($room_npcs, $dungeon_data, $room_id, $turn_seed);
     if ($gm_addressed) {
-      $ordered_npcs = [];
+      $speaking_npcs = [];
       $plan_source = 'gm_addressed';
     }
     elseif ($directly_addressed_npc !== NULL) {
-      $ordered_npcs = [$directly_addressed_npc];
+      $speaking_npcs = [$directly_addressed_npc];
       $plan_source = 'direct_address';
     }
     elseif ($active_conversation_npc !== NULL) {
-      $ordered_npcs = [$active_conversation_npc];
+      $speaking_npcs = [$active_conversation_npc];
       $plan_source = 'active_conversation';
     }
     else {
-      $ordered_npcs = $this->buildRoomNpcInitiativeOrder($room_npcs, $dungeon_data, $room_id, $turn_seed);
-      $ordered_npcs = $this->filterAmbientNpcInterjectionOrder($ordered_npcs, $player_message, $gm_narrative, $room_id, $turn_seed);
+      $speaking_npcs = $this->filterAmbientNpcInterjectionOrder($ordered_npcs, $player_message, $gm_narrative, $room_id, $turn_seed);
       $plan_source = 'initiative_order';
     }
+
+    $speaking_npc_refs = array_values(array_filter(array_map(
+      static fn(array $npc): string => (string) ($npc['entity_ref'] ?? ''),
+      $speaking_npcs
+    )));
 
     $turn_plan_meta = [
       'source' => $plan_source,
@@ -4121,6 +4161,8 @@ class RoomChatService {
       'gm_addressed' => $gm_addressed,
       'ordered_npc_count' => count($ordered_npcs),
       'ordered_npcs' => array_values(array_map(static fn(array $npc): string => (string) ($npc['entity_ref'] ?? ''), $ordered_npcs)),
+      'speaking_npc_count' => count($speaking_npc_refs),
+      'speaking_npc_refs' => $speaking_npc_refs,
       'player_message' => $this->truncateContextBlock($player_message, 140, 0.85),
       'gm_narrative' => $this->truncateContextBlock($gm_narrative, 140, 0.85),
     ];
@@ -4139,6 +4181,7 @@ class RoomChatService {
       'active_conversation_npc' => $active_conversation_npc,
       'gm_addressed' => $gm_addressed,
       'ordered_npcs' => $ordered_npcs,
+      'speaking_npc_refs' => $speaking_npc_refs,
     ];
   }
 
@@ -7071,14 +7114,14 @@ PROMPT;
         return $brokered_leads;
       }
 
-      $generated_bootstrap = $this->buildGeneratedStorylineLeadDialogue($campaign_id, $entity_ref, $display_name, $player_message, $normalized, $room_id, $character_id);
-      if ($generated_bootstrap !== NULL) {
-        return $generated_bootstrap;
-      }
-
       $available_quest_offer = $this->buildAvailableQuestgiverQuestDialogue($campaign_id, $entity_ref, $display_name, $room_id, $dungeon_data);
       if ($available_quest_offer !== NULL) {
         return $available_quest_offer;
+      }
+
+      $generated_bootstrap = $this->buildGeneratedStorylineLeadDialogue($campaign_id, $entity_ref, $display_name, $player_message, $normalized, $room_id, $character_id);
+      if ($generated_bootstrap !== NULL) {
+        return $generated_bootstrap;
       }
 
       $alternate_lead_redirect = $this->buildAlternateQuestLeadRedirectDialogue($campaign_id, $entity_ref, $display_name, $player_message, $room_id, $dungeon_data);
@@ -7645,7 +7688,7 @@ PROMPT;
   }
 
   /**
-   * Offer an existing campaign quest from the active questgiver when bootstrap fails.
+   * Offer an existing campaign quest from the active questgiver before bootstrap.
    */
   protected function buildAvailableQuestgiverQuestDialogue(
     int $campaign_id,
@@ -8825,7 +8868,8 @@ PROMPT;
     array $dungeon_data,
     ?array $gm_response,
     array $npc_interjections,
-    array $quest_touchpoint_hint = []
+    array $quest_touchpoint_hint = [],
+    string $player_message = ''
   ): array {
     if (!$this->questTracker || $campaign_id <= 0 || $room_id === '' || !$character_id) {
       return [];
@@ -8862,6 +8906,10 @@ PROMPT;
     }
 
     $combined_text = trim(implode("\n", array_filter($message_chunks)));
+    $player_message = trim($player_message);
+    if ($player_message !== '') {
+      $combined_text = trim($combined_text !== '' ? ($combined_text . "\n" . $player_message) : $player_message);
+    }
     if ($combined_text === '') {
       return [];
     }
@@ -8877,8 +8925,9 @@ PROMPT;
       5
     );
     $updates = [];
+    $status_signal_text = $player_message !== '' ? $player_message : $combined_text;
     foreach ($matches as $quest) {
-      $update = $this->surfaceMentionedQuestForDialogue($campaign_id, $quest, $combined_text, 'available_quest');
+      $update = $this->surfaceMentionedQuestForDialogue($campaign_id, $quest, $combined_text, 'available_quest', '', $status_signal_text);
       if ($update !== NULL) {
         $updates[] = $update;
       }
@@ -9511,7 +9560,8 @@ PROMPT;
     array $quest,
     string $dialogue_text,
     string $source,
-    string $storyline_id = ''
+    string $storyline_id = '',
+    string $status_signal_text = ''
   ): ?array {
     $quest_id = trim((string) ($quest['quest_id'] ?? ''));
     if ($campaign_id <= 0 || $quest_id === '') {
@@ -9519,7 +9569,9 @@ PROMPT;
     }
 
     $current_status = strtolower(trim((string) ($quest['status'] ?? 'lead')));
-    $surfaced_status = $this->resolveSurfacedQuestStatus($current_status, $dialogue_text);
+    $status_signal_text = trim($status_signal_text) !== '' ? $status_signal_text : $dialogue_text;
+    $promote_from_player_signal = $current_status === 'lead' && $this->looksLikeQuestActivationRequest($status_signal_text);
+    $surfaced_status = $this->resolveSurfacedQuestStatus($current_status, $dialogue_text, $promote_from_player_signal);
     if ($surfaced_status === '') {
       return NULL;
     }
@@ -9550,10 +9602,14 @@ PROMPT;
   /**
    * Resolve the surfaced quest state from NPC dialogue.
    */
-  protected function resolveSurfacedQuestStatus(string $current_status, string $dialogue_text): string {
+  protected function resolveSurfacedQuestStatus(string $current_status, string $dialogue_text, bool $promote_from_player_signal = FALSE): string {
     $normalized = strtolower(trim($current_status));
-    if (in_array($normalized, ['active', 'ready_for_turn_in', 'completed', 'failed', 'expired', 'rejected'], TRUE)) {
+    if (in_array($normalized, ['active', 'offered', 'ready_for_turn_in', 'completed', 'failed', 'expired', 'rejected'], TRUE)) {
       return $normalized;
+    }
+
+    if ($normalized === 'lead' && $promote_from_player_signal) {
+      return 'offered';
     }
 
     if ($this->looksLikeExplicitQuestOffer($dialogue_text)) {
@@ -9588,6 +9644,48 @@ PROMPT;
       'recover the',
     ] as $needle) {
       if (str_contains($normalized, $needle)) {
+        return TRUE;
+      }
+    }
+
+    return FALSE;
+  }
+
+  /**
+   * Detect a player request to actively work on a referenced lead quest now.
+   */
+  protected function looksLikeQuestActivationRequest(string $text): bool {
+    $normalized = strtolower($this->normalizeQuestLeadMatchText($text));
+    if ($normalized === '') {
+      return FALSE;
+    }
+
+    $progress_cues = [
+      'how do i',
+      'how can i',
+      'what do i do',
+      'where do i',
+      'where can i',
+      'how do we',
+      'how can we',
+      'how do i complete',
+      'how do i search',
+      'how do i find',
+      'how do i get',
+    ];
+    $has_progress_cue = FALSE;
+    foreach ($progress_cues as $cue) {
+      if (str_contains($normalized, $cue)) {
+        $has_progress_cue = TRUE;
+        break;
+      }
+    }
+    if (!$has_progress_cue) {
+      return FALSE;
+    }
+
+    foreach (['quest', 'objective', 'lead', 'mission', 'search', 'find', 'collect', 'recover', 'get'] as $anchor) {
+      if (str_contains($normalized, $anchor)) {
         return TRUE;
       }
     }
@@ -10815,8 +10913,20 @@ PROMPT;
   /**
    * Format the canonical encounter transcript prefix.
    */
-  protected function formatEncounterTranscriptPrefix(int|string $round_display, int|string $turn_display, string $actor_name): string {
-    return \Drupal\dungeoncrawler_content\Service\EncounterTranscriptPrefix::formatPrefix($round_display, $turn_display, $actor_name);
+  protected function formatEncounterTranscriptPrefix(
+    int|string $round_display,
+    int|string $turn_display,
+    string $actor_name,
+    int|string|null $actions_remaining = NULL,
+    int|string|null $actions_total = NULL
+  ): string {
+    return \Drupal\dungeoncrawler_content\Service\EncounterTranscriptPrefix::formatPrefix(
+      $round_display,
+      $turn_display,
+      $actor_name,
+      $actions_remaining,
+      $actions_total
+    );
   }
 
   /**
@@ -10835,7 +10945,24 @@ PROMPT;
     $turn_index_human = $turn_index_raw !== NULL ? ($turn_index_raw + 1) : 1;
     $turn_display = is_numeric($turn_index_human) ? (int) $turn_index_human : '?';
 
-    return $this->formatEncounterTranscriptPrefix($round_display, $turn_display, (string) $speaker);
+    ['remaining' => $actions_remaining, 'total' => $actions_total] = $this->resolveEncounterPrefixActionStateForSpeaker($dungeon_data, (string) $speaker);
+
+    return $this->formatEncounterTranscriptPrefix($round_display, $turn_display, (string) $speaker, $actions_remaining, $actions_total);
+  }
+
+  /**
+   * Build the canonical encounter transcript prefix for a campaign speaker using
+   * the latest persisted dungeon snapshot (including room turn-cycle state).
+   */
+  public function buildEncounterPrefixForCampaignSpeaker(int $campaign_id, string $speaker, ?string $room_id = NULL): ?string {
+    try {
+      $snapshot = $this->loadLatestDungeonSnapshot($campaign_id, $room_id);
+      $dungeon_data = is_array($snapshot['dungeon_data'] ?? NULL) ? $snapshot['dungeon_data'] : [];
+      return $this->buildEncounterPrefixForSpeaker($dungeon_data, $speaker);
+    }
+    catch (\Throwable $e) {
+      return NULL;
+    }
   }
 
   /**
@@ -10859,7 +10986,52 @@ PROMPT;
       ?? 'Unknown'
     );
 
-    return $this->formatEncounterTranscriptPrefix($round_display, $turn_display, $actor_name);
+    $actions_total = is_numeric($game_state['turn']['actions_total'] ?? NULL) ? max(0, (int) $game_state['turn']['actions_total']) : 3;
+    $actions_remaining = is_numeric($game_state['turn']['actions_remaining'] ?? NULL)
+      ? max(0, (int) $game_state['turn']['actions_remaining'])
+      : $actions_total;
+
+    return $this->formatEncounterTranscriptPrefix($round_display, $turn_display, $actor_name, $actions_remaining, $actions_total);
+  }
+
+  /**
+   * Resolve action counters for canonical transcript prefixes.
+   */
+  protected function resolveEncounterPrefixActionStateForSpeaker(array $dungeon_data, string $speaker): array {
+    $game_state = is_array($dungeon_data['game_state'] ?? NULL) ? $dungeon_data['game_state'] : [];
+    $actions_total = is_numeric($game_state['turn']['actions_total'] ?? NULL) ? max(0, (int) $game_state['turn']['actions_total']) : 3;
+    $active_remaining = is_numeric($game_state['turn']['actions_remaining'] ?? NULL)
+      ? max(0, (int) $game_state['turn']['actions_remaining'])
+      : $actions_total;
+
+    $speaker_normalized = strtolower(trim($speaker));
+    if ($speaker_normalized === '') {
+      return ['remaining' => $actions_total, 'total' => $actions_total];
+    }
+
+    $turn_entity_id = trim((string) ($game_state['turn']['entity'] ?? ''));
+    $active_actor_names = [];
+    if ($turn_entity_id !== '') {
+      $active_entity = $this->findEncounterTurnEntity($turn_entity_id, $dungeon_data);
+      if (is_array($active_entity)) {
+        $active_actor_names[] = strtolower(trim((string) ($active_entity['state']['metadata']['display_name'] ?? '')));
+        $active_actor_names[] = strtolower(trim((string) ($active_entity['name'] ?? '')));
+      }
+      foreach (($game_state['initiative_order'] ?? []) as $entry) {
+        if (!is_array($entry) || (string) ($entry['entity_id'] ?? '') !== $turn_entity_id) {
+          continue;
+        }
+        $active_actor_names[] = strtolower(trim((string) ($entry['name'] ?? '')));
+      }
+    }
+
+    foreach ($active_actor_names as $candidate) {
+      if ($candidate !== '' && $candidate === $speaker_normalized) {
+        return ['remaining' => $active_remaining, 'total' => $actions_total];
+      }
+    }
+
+    return ['remaining' => $actions_total, 'total' => $actions_total];
   }
 
   protected function isEncounterChatTextPrefixed(string $content): bool {

@@ -83,6 +83,20 @@ class QuestTouchpointService {
 
     $active_quests = $this->questTracker->getActiveQuests($campaign_id, $character_id);
     $candidates = $this->findObjectiveCandidates($active_quests, $touchpoint, $objective_type);
+    if ($candidates === []) {
+      $room_id = trim((string) ($touchpoint['room_id'] ?? $touchpoint['location_id'] ?? ''));
+      if ($room_id !== '') {
+        $offered_quests = $this->questTracker->getOfferQuests($campaign_id, $room_id, $character_id);
+        $offered_candidates = $this->findObjectiveCandidates($offered_quests, $touchpoint, $objective_type);
+        if ($offered_candidates !== []) {
+          foreach ($offered_candidates as &$candidate) {
+            $candidate['requires_start'] = TRUE;
+          }
+          unset($candidate);
+          $candidates = $offered_candidates;
+        }
+      }
+    }
 
     if (empty($candidates)) {
       return [
@@ -132,13 +146,28 @@ class QuestTouchpointService {
 
     $match = $candidates[0];
     $amount = max(1, (int) ($touchpoint['quantity'] ?? $touchpoint['amount'] ?? 1));
+    $progress_character_id = (int) ($match['progress_character_id'] ?? 0);
+    if ($progress_character_id <= 0) {
+      $progress_character_id = $character_id;
+    }
+
+    if (!empty($match['requires_start'])) {
+      $started = $this->questTracker->startQuest($campaign_id, (string) $match['quest_id'], $character_id);
+      if (!$started) {
+        return [
+          'success' => FALSE,
+          'decision' => 'NO_ACTION',
+          'error' => 'Failed to start offered quest before applying touchpoint progress',
+        ];
+      }
+    }
 
     $result = $this->questTracker->updateObjectiveProgress(
       $campaign_id,
       (string) $match['quest_id'],
       (string) $match['objective_id'],
       $amount,
-      (int) ($match['progress_character_id'] ?? $character_id)
+      $progress_character_id
     );
 
     if (empty($result['success'])) {

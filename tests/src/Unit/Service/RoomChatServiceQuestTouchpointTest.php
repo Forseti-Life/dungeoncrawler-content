@@ -167,6 +167,129 @@ class RoomChatServiceQuestTouchpointTest extends UnitTestCase {
   }
 
   /**
+   * Player quest wording is included in dialogue matching even when NPC reply is generic.
+   *
+   * @covers ::activateMentionedAvailableQuests
+   */
+  public function testActivateMentionedAvailableQuestsIncludesPlayerMessageInQuestMatching(): void {
+    $quest_tracker = $this->createMock(\Drupal\dungeoncrawler_content\Service\QuestTrackerService::class);
+    $quest_tracker->expects($this->once())
+      ->method('findMentionedAvailableQuests')
+      ->with(200, 'tavern_entrance', 735, 'I have a quest that says there are four spellbooks in this tavern.', 2, 5)
+      ->willReturn([]);
+
+    $service = new class extends RoomChatService {
+      public function __construct() {}
+
+      public function exposedActivateMentionedAvailableQuests(
+        int $campaign_id,
+        string $room_id,
+        ?int $character_id,
+        array $dungeon_data,
+        ?array $gm_response,
+        array $npc_interjections,
+        array $quest_touchpoint_hint = [],
+        string $player_message = ''
+      ): array {
+        return $this->activateMentionedAvailableQuests(
+          $campaign_id,
+          $room_id,
+          $character_id,
+          $dungeon_data,
+          $gm_response,
+          $npc_interjections,
+          $quest_touchpoint_hint,
+          $player_message
+        );
+      }
+
+      protected function resolveRoomSlugForQuery(int $campaign_id, string $room_id, array $dungeon_data): ?string {
+        return $room_id;
+      }
+
+      protected function activateMentionedBrokeredStorylineQuests(
+        int $campaign_id,
+        string $room_id,
+        string $location_id,
+        int $character_id,
+        string $combined_text,
+        array $message_entries = []
+      ): array {
+        return [];
+      }
+
+      protected function looksLikeQuestOrLeadRequest(string $text): bool {
+        return FALSE;
+      }
+    };
+
+    $this->setProtectedProperty($service, 'questTracker', $quest_tracker);
+    $this->setProtectedProperty($service, 'logger', $this->createMock(LoggerInterface::class));
+
+    $result = $service->exposedActivateMentionedAvailableQuests(
+      200,
+      'tavern_entrance',
+      735,
+      ['rooms' => [['room_id' => 'tavern_entrance', 'name' => 'The Gilded Tankard']]],
+      NULL,
+      [],
+      [],
+      'I have a quest that says there are four spellbooks in this tavern.'
+    );
+
+    $this->assertSame([], $result);
+  }
+
+  /**
+   * Explicit player "how do I complete this quest" requests promote leads to offers.
+   *
+   * @covers ::resolveSurfacedQuestStatus
+   */
+  public function testResolveSurfacedQuestStatusPromotesLeadOnActivationRequest(): void {
+    $service = new class extends RoomChatService {
+      public function __construct() {}
+
+      public function exposedResolveSurfacedQuestStatus(string $current_status, string $dialogue_text, bool $promote = FALSE): string {
+        return $this->resolveSurfacedQuestStatus($current_status, $dialogue_text, $promote);
+      }
+    };
+
+    $promoted = $service->exposedResolveSurfacedQuestStatus(
+      'lead',
+      'I have a quest that says there are four spellbooks here. How do I search for them and complete it?',
+      TRUE
+    );
+    $this->assertSame('offered', $promoted);
+
+    $unchanged = $service->exposedResolveSurfacedQuestStatus(
+      'lead',
+      'The tavern is noisy tonight.'
+    );
+    $this->assertSame('lead', $unchanged);
+  }
+
+  /**
+   * Offered quests stay offered unless explicitly activated elsewhere.
+   *
+   * @covers ::resolveSurfacedQuestStatus
+   */
+  public function testResolveSurfacedQuestStatusPreservesOfferedState(): void {
+    $service = new class extends RoomChatService {
+      public function __construct() {}
+
+      public function exposedResolveSurfacedQuestStatus(string $current_status, string $dialogue_text, bool $promote = FALSE): string {
+        return $this->resolveSurfacedQuestStatus($current_status, $dialogue_text, $promote);
+      }
+    };
+
+    $status = $service->exposedResolveSurfacedQuestStatus(
+      'offered',
+      'I heard a rumor but I am not accepting anything yet.'
+    );
+    $this->assertSame('offered', $status);
+  }
+
+  /**
    * Current-room lead quests are included in GM questbook context.
    *
    * @covers ::buildRoomQuestbookPromptContext
