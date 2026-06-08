@@ -25,6 +25,7 @@ function assert(condition, message) {
 const questSystemSource = fs.readFileSync(path.resolve(__dirname, '../js/v2/systems/QuestSystem.js'), 'utf8');
 const actionRailPanelSource = fs.readFileSync(path.resolve(__dirname, '../js/v2/panels/ActionRailPanel.js'), 'utf8');
 const hexmapSource = fs.readFileSync(path.resolve(__dirname, '../js/hexmap.js'), 'utf8');
+const gameShellSource = fs.readFileSync(path.resolve(__dirname, '../js/v2/GameShell.js'), 'utf8');
 
 console.log('\n=== Quest journal and action-bar contracts ===');
 
@@ -44,6 +45,16 @@ assert(
   actionRailPanelSource.includes('this.actionRailDescriptionsCollapsed = true;')
     && hexmapSource.includes('this.actionRailDescriptionsCollapsed = true;'),
   'Action-bar descriptions default to hidden in v2 and monolith UI paths'
+);
+
+assert(
+  questSystemSource.includes('return String(quest.quest_id || quest.quest_key || quest.id || \'\').trim();'),
+  'QuestSystem resolves quest identity using quest_id/quest_key/id fallback'
+);
+
+assert(
+  gameShellSource.includes("import { QuestSystem } from './systems/QuestSystem.js?v=20260608-v2-quest-summary-merge-2';"),
+  'GameShell uses a cache-busted QuestSystem import so refactors load immediately'
 );
 
 console.log('\n=============================================');

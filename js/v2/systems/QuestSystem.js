@@ -59,7 +59,13 @@ export class QuestSystem {
   _onGameInit({ dungeonData } = {}) {
     const quests = dungeonData?.quests ?? this.shell.dungeonData?.quests ?? [];
     this._quests.clear();
-    quests.forEach((q) => this._quests.set(q.quest_id, q));
+    quests.forEach((q) => {
+      const questKey = this._resolveQuestIdentityKey(q);
+      if (!questKey) {
+        return;
+      }
+      this._quests.set(questKey, q);
+    });
     // Seed QuestPanel with initial quest list
     this.bus.emit('game:init-quests', { quests: [...this._quests.values()] });
     this._emitQuestProgressUpdated();
@@ -86,9 +92,10 @@ export class QuestSystem {
    * @param {object} quest
    */
   updateQuest(quest) {
-    if (!quest?.quest_id) return;
-    const existing = this._quests.get(quest.quest_id);
-    this._quests.set(quest.quest_id, quest);
+    const questKey = this._resolveQuestIdentityKey(quest);
+    if (!questKey) return;
+    const existing = this._quests.get(questKey);
+    this._quests.set(questKey, quest);
 
     if (quest.status === 'completed' && existing?.status !== 'completed') {
       this.bus.emit('quest:completed', {
@@ -126,10 +133,11 @@ export class QuestSystem {
     ['active', 'offers', 'leads', 'completed'].forEach((bucket) => {
       const bucketQuests = Array.isArray(baseSummary?.[bucket]) ? baseSummary[bucket] : [];
       bucketQuests.forEach((quest) => {
-        if (!quest || !quest.quest_id) {
+        const questKey = this._resolveQuestIdentityKey(quest);
+        if (!quest || !questKey) {
           return;
         }
-        questIndex.set(String(quest.quest_id), quest);
+        questIndex.set(questKey, quest);
       });
     });
     this._quests.forEach((quest, questId) => {
@@ -138,8 +146,9 @@ export class QuestSystem {
       }
       questIndex.set(String(questId), quest);
     });
-    if (overrideQuest?.quest_id) {
-      questIndex.set(String(overrideQuest.quest_id), overrideQuest);
+    const overrideQuestKey = this._resolveQuestIdentityKey(overrideQuest);
+    if (overrideQuest && overrideQuestKey) {
+      questIndex.set(overrideQuestKey, overrideQuest);
     }
 
     questIndex.forEach((quest) => {
@@ -158,15 +167,22 @@ export class QuestSystem {
 
   _resolveSummaryBucket(status) {
     const normalized = String(status || '').trim().toLowerCase();
-    if (normalized === 'completed') {
+    if (normalized === 'completed' || normalized === 'complete') {
       return 'completed';
     }
-    if (normalized === 'offered') {
+    if (normalized === 'offered' || normalized === 'offer') {
       return 'offers';
     }
-    if (normalized === 'lead') {
+    if (normalized === 'lead' || normalized === 'leads') {
       return 'leads';
     }
     return 'active';
+  }
+
+  _resolveQuestIdentityKey(quest) {
+    if (!quest || typeof quest !== 'object') {
+      return '';
+    }
+    return String(quest.quest_id || quest.quest_key || quest.id || '').trim();
   }
 }

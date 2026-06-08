@@ -28,7 +28,7 @@ import { HexInputHandler } from './canvas/HexInputHandler.js';
 import { EncounterSystem } from './systems/EncounterSystem.js?v=20260608-v2-chat-persistence-dev-1';
 import { NavigationSystem } from './systems/NavigationSystem.js?v=20260607-v2-action-bus-flow-1';
 import { PlayerAutomation } from './systems/PlayerAutomation.js?v=20260608-v2-chat-persistence-dev-1';
-import { QuestSystem } from './systems/QuestSystem.js';
+import { QuestSystem } from './systems/QuestSystem.js?v=20260608-v2-quest-summary-merge-2';
 import { PortraitPanel } from './panels/PortraitPanel.js';
 import { MerchantPanel } from './panels/MerchantPanel.js';
 import { CombatPanel } from './panels/CombatPanel.js';
@@ -1949,6 +1949,7 @@ export class GameShell {
         ? selectedInstanceId
         : (this.launchCharacter?.instanceId || this.launchCharacter?.instance_id || null),
       roomId: this.resolveActiveRoomId(),
+      questSummary: this.questSummary && typeof this.questSummary === 'object' ? this.questSummary : {},
     };
   }
 
