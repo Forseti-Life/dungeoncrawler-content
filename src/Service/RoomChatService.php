@@ -173,12 +173,8 @@ class RoomChatService {
       }
       $speaker = (string) ($msg['speaker'] ?? 'Unknown');
       $message = (string) ($msg['message'] ?? '');
-
       if ($channel === 'room') {
-        $message = $this->prefixEncounterChatText(
-          $message,
-          $this->buildEncounterPrefixForSpeaker($dungeon_data, $speaker)
-        );
+        $message = $this->normalizeLegacyTurnOrderPrefix($message);
       }
 
       $normalized_messages[] = [
@@ -3833,7 +3829,7 @@ class RoomChatService {
       $turn_logs[] = $this->appendInternalRoomLogMessage($dungeon_data, $room_index, $turn_order_log, [
         'turn_role' => 'system',
         'turn_name' => 'Turn Order',
-        'turn_index' => 0,
+        'turn_index' => 1,
       ], $encounter_prefix);
     }
     $this->logger->info('Room turn order for room @room (turn @turn_key): @order', [
@@ -11037,6 +11033,25 @@ PROMPT;
 
   protected function isEncounterChatTextPrefixed(string $content): bool {
     return \Drupal\dungeoncrawler_content\Service\EncounterTranscriptPrefix::isPrefixed($content);
+  }
+
+  /**
+   * Normalize legacy turn-order transcript lines that used Turn 0.
+   */
+  protected function normalizeLegacyTurnOrderPrefix(string $content): string {
+    $content = trim($content);
+    if ($content === '' || stripos($content, 'Turn order:') === FALSE) {
+      return $content;
+    }
+
+    $updated = preg_replace(
+      '/^Round\s+([0-9\?]+):\s+Turn\s+0:\s+Actor\s+System:\s+Actions\s+([0-9\?]+\/[0-9\?]+):\s+Turn order:/u',
+      'Round $1: Turn 1: Actor System: Actions $2: Turn order:',
+      $content,
+      1
+    );
+
+    return is_string($updated) ? $updated : $content;
   }
 
   protected function prefixEncounterChatText(string $content, ?string $encounter_prefix): string {
