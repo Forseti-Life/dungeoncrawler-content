@@ -467,44 +467,19 @@ class QuestTrackerServiceTest extends UnitTestCase {
   }
 
   /**
-   * Verifies quest-completion notes fall back to system log when room context is missing.
+   * Verifies quest-completion notes fail fast when room context is missing.
    */
-  public function testQuestCompletionNarratorNoteFallsBackToSystemLogWithoutRoomContext(): void {
+  public function testQuestCompletionNarratorNoteFailsWithoutRoomContext(): void {
     $logger = $this->createMock(LoggerInterface::class);
     $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
     $logger_factory->method('get')->willReturn($logger);
 
     $chat_session_manager = $this->createMock(ChatSessionManager::class);
-    $chat_session_manager->expects($this->once())
-      ->method('ensureCampaignSessions')
-      ->with(305);
-    $chat_session_manager->expects($this->once())
-      ->method('systemLogSessionKey')
-      ->with(305)
-      ->willReturn('campaign.305.system_log');
-    $chat_session_manager->expects($this->once())
-      ->method('loadSession')
-      ->with('campaign.305.system_log')
-      ->willReturn(['id' => 44]);
-    $chat_session_manager->expects($this->once())
-      ->method('postMessage')
-      ->with(
-        44,
-        305,
-        'Narrator',
-        'gm',
-        '',
-        'Quest completed: Hollow Promise. All goals accomplished.',
-        'system',
-        'public',
-        $this->callback(function (array $metadata): bool {
-          return ($metadata['event'] ?? '') === 'quest_completed'
-            && ($metadata['message_class'] ?? '') === 'quest_completion';
-        })
-      )
-      ->willReturn(1);
-    $chat_session_manager->expects($this->never())
-      ->method('ensureRoomSession');
+    $chat_session_manager->expects($this->never())->method('ensureCampaignSessions');
+    $chat_session_manager->expects($this->never())->method('systemLogSessionKey');
+    $chat_session_manager->expects($this->never())->method('loadSession');
+    $chat_session_manager->expects($this->never())->method('postMessage');
+    $chat_session_manager->expects($this->never())->method('ensureRoomSession');
 
     $service = new class(
       $this->createMock(Connection::class),
@@ -536,12 +511,12 @@ class QuestTrackerServiceTest extends UnitTestCase {
       }
     };
 
+    $this->expectException(\RuntimeException::class);
+    $this->expectExceptionMessage('requires resolved dungeon_id and room_id context');
     $service->emitQuestCompletionNarratorNote(305, [
       'quest_id' => 'hollow_promise',
       'quest_name' => 'Hollow Promise',
     ], 812);
-
-    $this->assertSame([], $service->legacyNotes);
   }
 
   /**

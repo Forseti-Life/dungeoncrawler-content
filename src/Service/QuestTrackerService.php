@@ -341,90 +341,88 @@ class QuestTrackerService {
     ?int $character_id = NULL,
     string $outcome = 'success'
   ): array {
-    try {
-      if ($character_id === NULL || $character_id <= 0) {
-        throw new \InvalidArgumentException('Quest completion requires a positive character_id.');
-      }
-      $now = $this->time->getRequestTime();
-      $progress_record = $this->loadProgress($campaign_id, $quest_id, $character_id);
-      $quest = $this->loadCampaignQuest($campaign_id, $quest_id);
-      if (!is_array($quest)) {
-        throw new \RuntimeException(sprintf(
-          'Quest not found for completion (campaign_id=%d, quest_id=%s).',
-          $campaign_id,
-          $quest_id
-        ));
-      }
-      $already_completed = !empty($progress_record['completed_at'])
-        || strtolower((string) ($quest['status'] ?? '')) === 'completed';
-      $rewards_already_granted = $this->hasRecordedQuestRewardGrant($campaign_id, $quest_id, $character_id);
+    if ($character_id === NULL || $character_id <= 0) {
+      throw new \InvalidArgumentException('Quest completion requires a positive character_id.');
+    }
 
-      // Update requested scope progress record.
-      $this->database->update('dc_campaign_quest_progress')
-        ->fields([
-          'completed_at' => $now,
-          'outcome' => $outcome,
-        ])
-        ->condition('campaign_id', $campaign_id)
-        ->condition('quest_id', $quest_id)
-        ->condition('character_id', $character_id, is_null($character_id) ? 'IS NULL' : '=')
-        ->execute();
-
-      // Update quest status
-      $this->database->update('dc_campaign_quests')
-        ->fields(['status' => 'completed'])
-        ->condition('campaign_id', $campaign_id)
-        ->condition('quest_id', $quest_id)
-        ->execute();
-
-      // Load quest rewards.
-      $rewards = $this->assertQuestRewardContract(
-        json_decode((string) ($quest['generated_rewards'] ?? ''), TRUE),
-        $quest_id
-      );
-      $rewards_applied = !$rewards_already_granted
-        ? $this->applyQuestRewards($campaign_id, $character_id, $rewards)
-        : [];
-      if (!$rewards_already_granted) {
-        $this->recordQuestRewardGrant($campaign_id, $quest_id, $character_id, $rewards_applied);
-      }
-
-      // Log completion
-      $this->logQuestEvent(
+    $now = $this->time->getRequestTime();
+    $progress_record = $this->loadProgress($campaign_id, $quest_id, $character_id);
+    $quest = $this->loadCampaignQuest($campaign_id, $quest_id);
+    if (!is_array($quest)) {
+      throw new \RuntimeException(sprintf(
+        'Quest not found for completion (campaign_id=%d, quest_id=%s).',
         $campaign_id,
-        $quest_id,
-        'completed',
-        ['outcome' => $outcome, 'rewards' => $rewards, 'rewards_applied' => $rewards_applied],
-        "Quest completed with outcome: $outcome",
-        $character_id
-      );
-      if (!$already_completed) {
-        $this->postQuestCompletionNarratorNote($campaign_id, $quest, $character_id);
-      }
+        $quest_id
+      ));
+    }
 
-      $this->logger->info('Completed quest @quest with outcome @outcome', [
-        '@quest' => $quest_id,
-        '@outcome' => $outcome,
-      ]);
+    $already_completed = !empty($progress_record['completed_at'])
+      || strtolower((string) ($quest['status'] ?? '')) === 'completed';
 
-      $this->notifyStorylineManager($campaign_id, $quest_id, 'quest_completed', $character_id, [
-        'outcome' => $outcome,
-        'status' => 'completed',
-      ]);
-
-      return [
-        'success' => TRUE,
-        'quest_id' => $quest_id,
-        'outcome' => $outcome,
-        'rewards' => $rewards,
-        'rewards_applied' => $rewards_applied,
+    // Update requested scope progress record.
+    $this->database->update('dc_campaign_quest_progress')
+      ->fields([
         'completed_at' => $now,
-      ];
+        'outcome' => $outcome,
+      ])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('quest_id', $quest_id)
+      ->condition('character_id', $character_id)
+      ->execute();
+
+    // Update quest status
+    $this->database->update('dc_campaign_quests')
+      ->fields(['status' => 'completed'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('quest_id', $quest_id)
+      ->execute();
+
+    // Load quest rewards.
+    $rewards = $this->assertQuestRewardContract(
+      json_decode((string) ($quest['generated_rewards'] ?? ''), TRUE),
+      $quest_id
+    );
+
+    $rewards_applied = [];
+    $reward_transaction = $this->database->startTransaction();
+    $reward_claim_started = $this->beginQuestRewardGrant($campaign_id, $quest_id, $character_id);
+    if ($reward_claim_started) {
+      $rewards_applied = $this->applyQuestRewards($campaign_id, $character_id, $rewards);
+      $this->finalizeQuestRewardGrant($campaign_id, $quest_id, $character_id, $rewards_applied);
     }
-    catch (\Exception $e) {
-      $this->logger->error('Failed to complete quest: @error', ['@error' => $e->getMessage()]);
-      return ['success' => FALSE, 'error' => $e->getMessage()];
+    unset($reward_transaction);
+
+    // Log completion
+    $this->logQuestEvent(
+      $campaign_id,
+      $quest_id,
+      'completed',
+      ['outcome' => $outcome, 'rewards' => $rewards, 'rewards_applied' => $rewards_applied],
+      "Quest completed with outcome: $outcome",
+      $character_id
+    );
+    if (!$already_completed) {
+      $this->postQuestCompletionNarratorNote($campaign_id, $quest, $character_id);
     }
+
+    $this->logger->info('Completed quest @quest with outcome @outcome', [
+      '@quest' => $quest_id,
+      '@outcome' => $outcome,
+    ]);
+
+    $this->notifyStorylineManager($campaign_id, $quest_id, 'quest_completed', $character_id, [
+      'outcome' => $outcome,
+      'status' => 'completed',
+    ]);
+
+    return [
+      'success' => TRUE,
+      'quest_id' => $quest_id,
+      'outcome' => $outcome,
+      'rewards' => $rewards,
+      'rewards_applied' => $rewards_applied,
+      'completed_at' => $now,
+    ];
   }
 
   /**
@@ -471,57 +469,45 @@ class QuestTrackerService {
   }
 
   /**
-   * Post a narrator quest note to room chat (with system-log fallback).
+   * Post a narrator quest note to the deterministic room chat path.
    */
   protected function postQuestNarratorNote(int $campaign_id, array $quest, string $message, array $metadata = []): void {
-    if ($campaign_id <= 0 || trim($message) === '') {
-      return;
+    if ($campaign_id <= 0) {
+      throw new \InvalidArgumentException('Quest narrator note requires a valid campaign_id.');
+    }
+    if (trim($message) === '') {
+      throw new \InvalidArgumentException('Quest narrator note requires a non-empty message.');
+    }
+    if (!$this->chatSessionManager) {
+      throw new \RuntimeException('ChatSessionManager is required to post quest narrator notes.');
     }
 
-    try {
-      $room_note_posted = FALSE;
-      [$dungeon_id, $room_id, $room_name] = $this->resolveQuestNarrationContext($campaign_id, $quest);
-      if ($dungeon_id !== '' && $room_id !== '') {
-        $room_note_posted = $this->appendQuestNarratorNoteToLegacyRoomChat($campaign_id, $dungeon_id, $room_id, $message, $metadata);
-
-        if ($this->chatSessionManager) {
-          $room_session = $this->chatSessionManager->ensureRoomSession($campaign_id, $dungeon_id, $room_id, $room_name);
-          $this->chatSessionManager->postMessage(
-            (int) ($room_session['id'] ?? 0),
-            $campaign_id,
-            'Narrator',
-            'gm',
-            '',
-            $message,
-            'system',
-            'public',
-            $metadata
-          );
-          $room_note_posted = TRUE;
-        }
-      }
-
-      if (!$room_note_posted && $this->chatSessionManager) {
-        $this->chatSessionManager->ensureCampaignSessions($campaign_id);
-        $system_log = $this->chatSessionManager->loadSession($this->chatSessionManager->systemLogSessionKey($campaign_id));
-        if (!empty($system_log['id'])) {
-          $this->chatSessionManager->postMessage(
-            (int) $system_log['id'],
-            $campaign_id,
-            'Narrator',
-            'gm',
-            '',
-            $message,
-            'system',
-            'public',
-            $metadata
-          );
-        }
-      }
+    [$dungeon_id, $room_id, $room_name] = $this->resolveQuestNarrationContext($campaign_id, $quest);
+    if ($dungeon_id === '' || $room_id === '') {
+      throw new \RuntimeException('Quest narrator note requires resolved dungeon_id and room_id context.');
     }
-    catch (\Throwable $e) {
-      $this->logger->warning('Failed to post quest narrator note: @error', ['@error' => $e->getMessage()]);
+
+    $legacy_appended = $this->appendQuestNarratorNoteToLegacyRoomChat($campaign_id, $dungeon_id, $room_id, $message, $metadata);
+    if (!$legacy_appended) {
+      throw new \RuntimeException('Failed to append quest narrator note to legacy room chat transcript.');
     }
+
+    $room_session = $this->chatSessionManager->ensureRoomSession($campaign_id, $dungeon_id, $room_id, $room_name);
+    $session_id = (int) ($room_session['id'] ?? 0);
+    if ($session_id <= 0) {
+      throw new \RuntimeException('Failed to resolve room chat session for quest narrator note.');
+    }
+    $this->chatSessionManager->postMessage(
+      $session_id,
+      $campaign_id,
+      'Narrator',
+      'gm',
+      '',
+      $message,
+      'system',
+      'public',
+      $metadata
+    );
   }
 
   /**
@@ -1128,33 +1114,14 @@ class QuestTrackerService {
   }
 
   /**
-   * Check whether rewards were already granted for a quest completion.
-   */
-  protected function hasRecordedQuestRewardGrant(int $campaign_id, string $quest_id, ?int $character_id): bool {
-    if ($campaign_id <= 0 || trim($quest_id) === '' || $character_id === NULL || $character_id <= 0) {
-      throw new \InvalidArgumentException('Reward grant lookup requires campaign_id, quest_id, and character_id.');
-    }
-
-    $count = $this->database->select('dc_campaign_quest_rewards_claimed', 'r')
-      ->condition('campaign_id', $campaign_id)
-      ->condition('quest_id', $quest_id)
-      ->condition('character_id', $character_id)
-      ->countQuery()
-      ->execute()
-      ->fetchField();
-
-    return ((int) $count) > 0;
-  }
-
-  /**
-   * Persist an idempotency marker for quest reward grants.
+   * Start an atomic quest reward claim for this quest+character scope.
    *
-   * @param array<string, mixed> $reward_data
-   *   Rewards that were applied for this grant record.
+   * @return bool
+   *   TRUE when this request owns reward application, FALSE when already claimed.
    */
-  protected function recordQuestRewardGrant(int $campaign_id, string $quest_id, ?int $character_id, array $reward_data): void {
+  protected function beginQuestRewardGrant(int $campaign_id, string $quest_id, ?int $character_id): bool {
     if ($campaign_id <= 0 || trim($quest_id) === '' || $character_id === NULL || $character_id <= 0) {
-      throw new \InvalidArgumentException('Reward grant recording requires campaign_id, quest_id, and character_id.');
+      throw new \InvalidArgumentException('Reward claim start requires campaign_id, quest_id, and character_id.');
     }
 
     try {
@@ -1163,13 +1130,44 @@ class QuestTrackerService {
           'campaign_id' => $campaign_id,
           'quest_id' => $quest_id,
           'character_id' => $character_id,
-          'reward_data' => json_encode($reward_data, JSON_UNESCAPED_UNICODE),
+          'reward_data' => json_encode(['status' => 'pending'], JSON_UNESCAPED_UNICODE),
           'claimed_at' => $this->time->getRequestTime(),
         ])
         ->execute();
+      return TRUE;
     }
     catch (IntegrityConstraintViolationException) {
-      // Reward grant is already recorded for this quest+character scope.
+      return FALSE;
+    }
+  }
+
+  /**
+   * Finalize an active quest reward claim record.
+   *
+   * @param array<string, mixed> $reward_data
+   *   Applied reward payload.
+   */
+  protected function finalizeQuestRewardGrant(int $campaign_id, string $quest_id, ?int $character_id, array $reward_data): void {
+    if ($campaign_id <= 0 || trim($quest_id) === '' || $character_id === NULL || $character_id <= 0) {
+      throw new \InvalidArgumentException('Reward claim finalize requires campaign_id, quest_id, and character_id.');
+    }
+
+    $updated = (int) $this->database->update('dc_campaign_quest_rewards_claimed')
+      ->fields([
+        'reward_data' => json_encode($reward_data, JSON_UNESCAPED_UNICODE),
+        'claimed_at' => $this->time->getRequestTime(),
+      ])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('quest_id', $quest_id)
+      ->condition('character_id', $character_id)
+      ->execute();
+    if ($updated !== 1) {
+      throw new \RuntimeException(sprintf(
+        'Failed to finalize reward claim row (campaign_id=%d, quest_id=%s, character_id=%d).',
+        $campaign_id,
+        $quest_id,
+        $character_id
+      ));
     }
   }
 

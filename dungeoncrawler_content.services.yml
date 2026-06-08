@@ -684,7 +684,7 @@ services:
       - '@datetime.time'
       - '@dungeoncrawler_content.storyline_manager'
       - '@dungeoncrawler_content.objective_type'
-      - '@?dungeoncrawler_content.chat_session_manager'
+      - '@dungeoncrawler_content.chat_session_manager'
       - '@dungeoncrawler_content.character_state'
       - '@dungeoncrawler_content.inventory_management'
 

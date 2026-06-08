@@ -346,11 +346,8 @@ class QuestTrackerController extends ControllerBase {
         $outcome
       );
 
-      if (empty($result)) {
-        return new JsonResponse([
-          'success' => FALSE,
-          'error' => 'Failed to complete quest',
-        ], 500);
+      if (!is_array($result) || empty($result['success'])) {
+        throw new \RuntimeException((string) ($result['error'] ?? 'Failed to complete quest'));
       }
 
       $this->postQuestCompletionDialog($campaign_id, $quest_id, $character_id);
@@ -368,7 +365,7 @@ class QuestTrackerController extends ControllerBase {
       $this->logger->error('Failed to complete quest: @error', ['@error' => $e->getMessage()]);
       return new JsonResponse([
         'success' => FALSE,
-        'error' => 'Internal server error',
+        'error' => $e->getMessage(),
       ], 500);
     }
   }

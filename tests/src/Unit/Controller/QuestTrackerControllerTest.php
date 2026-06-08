@@ -310,4 +310,54 @@ class QuestTrackerControllerTest extends UnitTestCase {
     $this->assertSame(15, $data['rewards_applied']['gold']);
   }
 
+  /**
+   * @covers ::completeQuest
+   */
+  public function testCompleteQuestFailsWhenQuestTrackerReportsFailure(): void {
+    $logger = $this->createMock(LoggerInterface::class);
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($logger);
+
+    $quest_tracker = $this->createMock(QuestTrackerService::class);
+    $quest_tracker->expects($this->once())
+      ->method('completeQuest')
+      ->with(85, 'quest_alpha', 816, 'success')
+      ->willReturn([
+        'success' => FALSE,
+        'error' => 'Deterministic contract failure',
+      ]);
+
+    $container = new ContainerBuilder();
+    $container->set('dungeoncrawler_content.quest_tracker', $quest_tracker);
+    \Drupal::setContainer($container);
+
+    $controller = new class(
+      $this->createMock(Connection::class),
+      $logger_factory,
+      $this->createMock(RoomChatService::class),
+      $this->createMock(QuestGeneratorService::class),
+      $quest_tracker
+    ) extends QuestTrackerController {
+      protected function postQuestCompletionDialog(int $campaign_id, string $quest_id, int $character_id): void {}
+    };
+
+    $response = $controller->completeQuest(85, 'quest_alpha', Request::create(
+      '/api/campaign/85/quests/quest_alpha/complete',
+      'POST',
+      [],
+      [],
+      [],
+      [],
+      json_encode([
+        'character_id' => 816,
+        'outcome' => 'success',
+      ])
+    ));
+    $data = json_decode($response->getContent(), TRUE);
+
+    $this->assertSame(500, $response->getStatusCode());
+    $this->assertFalse($data['success']);
+    $this->assertSame('Deterministic contract failure', $data['error']);
+  }
+
 }
