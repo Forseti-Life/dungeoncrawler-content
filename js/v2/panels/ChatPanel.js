@@ -571,7 +571,8 @@ export class ChatPanel {
             campaignId: questHexmap?.resolveCampaignId?.() || Number(questHexmap?.launchContext?.campaign_id || 0) || null,
           });
         }
-        questHexmap?.loadCharacterFromApi?.(completedCharacterId);
+        await questHexmap?.loadCharacterFromApi?.(completedCharacterId);
+        await questHexmap?.refreshQuestJournalFromApi?.();
       }
 
       if (result.data?.navigation?.target_room_id) {
@@ -1292,7 +1293,8 @@ export class ChatPanel {
                     campaignId: questCampaignId,
                   });
                 }
-                questHexmap?.loadCharacterFromApi?.(completedCharacterId);
+                await questHexmap?.loadCharacterFromApi?.(completedCharacterId);
+                await questHexmap?.refreshQuestJournalFromApi?.();
               }
               this.settlePendingChatRequest(pending, {
                 removePlayer: false,

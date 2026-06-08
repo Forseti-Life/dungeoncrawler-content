@@ -17850,7 +17850,8 @@ import { SpriteService } from './SpriteService.js';
                       campaignId,
                     });
                   }
-                  this.loadCharacterFromApi(completedCharacterId);
+                  await this.loadCharacterFromApi(completedCharacterId);
+                  await this.refreshQuestJournalFromApi();
                 }
               }
             } catch (error) {
@@ -18917,7 +18918,7 @@ import { SpriteService } from './SpriteService.js';
      */
     loadCharacterFromApi: function (characterId) {
       if (!characterId || !this.uiManager) {
-        return;
+        return Promise.resolve(null);
       }
 
       const runtimeContext = this.resolveLaunchCharacterRuntimeContext();
@@ -18930,7 +18931,7 @@ import { SpriteService } from './SpriteService.js';
       }
       const url = `/api/character/${characterId}/state${query.toString() ? `?${query.toString()}` : ''}`;
       
-      fetch(url)
+      return fetch(url)
         .then(response => {
           if (!response.ok) {
             throw new Error(`HTTP ${response.status}`);
@@ -18952,6 +18953,7 @@ import { SpriteService } from './SpriteService.js';
         })
         .catch(error => {
           console.log('Character API load optional; demo continues:', error);
+          return null;
         });
     }
   };
