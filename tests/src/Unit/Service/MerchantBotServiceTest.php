@@ -134,4 +134,63 @@ class MerchantBotServiceTest extends UnitTestCase {
     $this->assertSame('Raft', $service->persistedMatches[0]['name']);
   }
 
+  /**
+   * @covers ::searchCatalogMatches
+   */
+  public function testSearchCatalogMatchesPrependsLocalMatchAndDedupesAon(): void {
+    $http_client = $this->createMock(ClientInterface::class);
+    $http_client->expects($this->once())
+      ->method('request')
+      ->willReturn(new Response(200, [], json_encode([
+        'hits' => [
+          'hits' => [
+            [
+              '_source' => [
+                'name' => 'Shortsword',
+                'category' => 'weapon',
+                'item_category' => 'weapon',
+                'price_raw' => '9 sp',
+                'level' => 0,
+              ],
+            ],
+            [
+              '_source' => [
+                'name' => 'Skyrider Sword',
+                'category' => 'equipment',
+                'item_category' => 'weapon',
+                'price_raw' => '30 gp',
+                'level' => 6,
+              ],
+            ],
+          ],
+        ],
+      ])));
+
+    $service = new class($this->createMock(Connection::class), NULL, $http_client) extends MerchantBotService {
+      protected function lookupLocalItem(string $item_query): ?array {
+        return [
+          'id' => 'shortsword',
+          'name' => 'Shortsword',
+          'type' => 'weapon',
+          'item_type' => 'weapon',
+          'price_gp' => 0.9,
+          'bulk' => 'L',
+          'level' => 0,
+          'source' => 'local',
+        ];
+      }
+
+      protected function persistCatalogItemMatches(array $matches): void {
+      }
+    };
+
+    $matches = $service->searchCatalogMatches('short sword', 5);
+
+    $this->assertCount(2, $matches);
+    $this->assertSame('Shortsword', $matches[0]['name']);
+    $this->assertSame('local', $matches[0]['source']);
+    $this->assertSame('Skyrider Sword', $matches[1]['name']);
+    $this->assertSame('aon', $matches[1]['source']);
+  }
+
 }

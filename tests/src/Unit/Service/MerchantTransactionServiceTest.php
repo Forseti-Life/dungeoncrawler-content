@@ -187,6 +187,46 @@ class MerchantTransactionServiceTest extends UnitTestCase {
   }
 
   /**
+   * Verifies innkeeper profile search can source baseline weapon requests.
+   */
+  public function testResolveMerchantCatalogSearchItemAllowsInnkeeperWeaponLookup(): void {
+    $merchant_bot_service = $this->createMock(MerchantBotService::class);
+    $merchant_bot_service->expects($this->once())
+      ->method('lookupItem')
+      ->with('short sword')
+      ->willReturn([
+        'id' => 'shortsword',
+        'name' => 'Shortsword',
+        'type' => 'weapon',
+        'item_type' => 'weapon',
+        'subtype' => 'sword',
+        'price_gp' => 0.9,
+        'bulk' => 'L',
+        'level' => 0,
+        'description' => 'A basic martial shortsword.',
+        'source' => 'local',
+      ]);
+
+    $service = $this->buildService($merchant_bot_service);
+    $item = $service->exposeResolveMerchantCatalogSearchItem([
+      'instance_id' => 'npc_tavern_keeper',
+      'decoded_state' => [
+        'content_id' => 'tavern_keeper',
+        'metadata' => [
+          'role' => 'Innkeeper',
+        ],
+      ],
+      'decoded_character' => [],
+    ], 'short sword');
+
+    $this->assertNotNull($item);
+    $this->assertSame('shortsword', $item['item_id']);
+    $this->assertSame('Shortsword', $item['name']);
+    $this->assertSame('weapon', $item['type']);
+    $this->assertSame(90, $item['price_cp']);
+  }
+
+  /**
    * Verifies panel purchases can fall through to wider catalog search matches.
    */
   public function testExecutePanelTransactionPurchasesFallbackSearchResult(): void {

@@ -830,7 +830,7 @@ class MerchantTransactionService {
       'innkeeper' => [
         'key' => 'innkeeper',
         'label' => 'Travel provisions',
-        'types' => ['gear', 'consumable'],
+        'types' => ['gear', 'consumable', 'weapon'],
         'item_ids' => [],
         'price_modifier' => 1.0,
         'stock_mode' => 'catalog_profile',

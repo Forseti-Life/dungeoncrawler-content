@@ -220,14 +220,14 @@ export class MerchantPanel {
     const merchant = context?.merchant || null;
     const roomId = this.currentMerchantRoomId || null;
     const merchantRef = this.currentMerchantRef || null;
-    const filterText = String(this.currentMerchantFilterText || '').trim().toLowerCase();
+    const filterText = this.normalizeMerchantSearchValue(this.currentMerchantFilterText || '');
     const stock = Array.isArray(context?.stock) ? context.stock : [];
     const filteredStock = filterText
-      ? stock.filter((item) => this.buildMerchantItemSearchText(item).includes(filterText))
+      ? stock.filter((item) => this.itemMatchesMerchantSearch(item, filterText))
       : stock;
     const sellableInventory = Array.isArray(context?.player?.sellable_inventory) ? context.player.sellable_inventory : [];
     const filteredSellableInventory = filterText
-      ? sellableInventory.filter((item) => this.buildMerchantItemSearchText(item).includes(filterText))
+      ? sellableInventory.filter((item) => this.itemMatchesMerchantSearch(item, filterText))
       : sellableInventory;
 
     if (!merchant || !roomId || !merchantRef || !filterText || filteredStock.length > 0 || filteredSellableInventory.length > 0 || typeof fetch !== 'function') {
@@ -437,9 +437,37 @@ export class MerchantPanel {
       catalogItem?.type,
       catalogItem?.subtype,
     ]
-      .map((value) => String(value || '').trim().toLowerCase())
+      .map((value) => this.normalizeMerchantSearchValue(value))
       .filter(Boolean)
       .join(' ');
+  }
+
+  normalizeMerchantSearchValue(value = '') {
+    return String(value || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[_-]+/g, ' ')
+      .replace(/\s+/g, ' ');
+  }
+
+  itemMatchesMerchantSearch(item = {}, query = '') {
+    const normalizedQuery = this.normalizeMerchantSearchValue(query);
+    if (!normalizedQuery) {
+      return true;
+    }
+
+    const searchText = this.buildMerchantItemSearchText(item);
+    if (searchText.includes(normalizedQuery)) {
+      return true;
+    }
+
+    const compactQuery = normalizedQuery.replace(/\s+/g, '');
+    if (!compactQuery) {
+      return true;
+    }
+
+    const compactSearchText = searchText.replace(/\s+/g, '');
+    return compactSearchText.includes(compactQuery);
   }
 
   buildMerchantItemMetaHtml(item = {}, options = {}) {
@@ -712,12 +740,12 @@ export class MerchantPanel {
     const player = context?.player || {};
     const stock = Array.isArray(context?.stock) ? context.stock : [];
     const sellableInventory = Array.isArray(player?.sellable_inventory) ? player.sellable_inventory : [];
-    const filterText = String(this.currentMerchantFilterText || '').trim().toLowerCase();
+    const filterText = this.normalizeMerchantSearchValue(this.currentMerchantFilterText || '');
     const filteredStock = filterText
-      ? stock.filter((item) => this.buildMerchantItemSearchText(item).includes(filterText))
+      ? stock.filter((item) => this.itemMatchesMerchantSearch(item, filterText))
       : stock;
     const filteredSellableInventory = filterText
-      ? sellableInventory.filter((item) => this.buildMerchantItemSearchText(item).includes(filterText))
+      ? sellableInventory.filter((item) => this.itemMatchesMerchantSearch(item, filterText))
       : sellableInventory;
     const searchState = this.currentMerchantCatalogSearch || {};
     const hasContext = Boolean(context && merchant);

@@ -321,8 +321,44 @@ class MerchantBotService {
     if ($item_query === '') {
       return [];
     }
+    $limit = max(1, $limit);
+    $matches = [];
+    $seen_ids = [];
+    $seen_names = [];
+    $local_match = $this->lookupLocalItem($item_query);
+    if (is_array($local_match)) {
+      $local_id = strtolower(trim((string) ($local_match['id'] ?? '')));
+      $local_name = strtolower(trim((string) ($local_match['name'] ?? '')));
+      if ($local_id !== '') {
+        $seen_ids[$local_id] = TRUE;
+      }
+      if ($local_name !== '') {
+        $seen_names[$local_name] = TRUE;
+      }
+      $matches[] = $local_match;
+    }
 
-    return $this->lookupAonItems($item_query, $limit);
+    foreach ($this->lookupAonItems($item_query, $limit) as $candidate) {
+      $candidate_id = strtolower(trim((string) ($candidate['id'] ?? '')));
+      $candidate_name = strtolower(trim((string) ($candidate['name'] ?? '')));
+      if (($candidate_id !== '' && isset($seen_ids[$candidate_id])) || ($candidate_name !== '' && isset($seen_names[$candidate_name]))) {
+        continue;
+      }
+
+      if ($candidate_id !== '') {
+        $seen_ids[$candidate_id] = TRUE;
+      }
+      if ($candidate_name !== '') {
+        $seen_names[$candidate_name] = TRUE;
+      }
+      $matches[] = $candidate;
+
+      if (count($matches) >= $limit) {
+        break;
+      }
+    }
+
+    return array_slice($matches, 0, $limit);
   }
 
   /**
@@ -478,7 +514,7 @@ class MerchantBotService {
         '@item' => $item_query,
         '@error' => $e->getMessage(),
       ]);
-      return NULL;
+      return [];
     }
 
     $hits = $decoded['hits']['hits'] ?? [];
