@@ -17,6 +17,7 @@ import {
   mergeObjectiveProgress,
   renderQuestTreeNodeHtml,
   resolveQuestTitle,
+  escapeQuestHtml,
 } from '../utils/quest-utils.js?v=20260607-quest-summary-const-4';
 
 export class QuestPanel {
@@ -208,7 +209,7 @@ export class QuestPanel {
         title,
         titlePrefix: '📜',
         metaLines: [`Status: ${status}`, nextStep ? `Next: ${nextStep}` : 'Next: Review quest completion.'],
-        bodyHtml: `<ul class="quest-objectives">${objectiveHtml}</ul>`,
+        bodyHtml: `<ul class="quest-objectives">${this.renderQuestRewardLine(quest)}${objectiveHtml}</ul>`,
       });
     }).join('');
 
@@ -251,11 +252,13 @@ export class QuestPanel {
   }
 
   renderQuestSummaryPreviewLines(quest, fallbackLine) {
+    const rewardLine = this.renderQuestRewardLine(quest);
     const phases = extractQuestPhases(quest);
     const objectives = (Array.isArray(phases) ? phases : [])
       .flatMap((phase) => flattenQuestObjectives(phase.objectives || []))
       .filter((objective) => !objective?.hidden || objective?.revealed || objective?.completed);
-    const lines = objectives.slice(0, 3).map((objective) => {
+    const lines = [rewardLine];
+    const objectiveLines = objectives.slice(0, 3).map((objective) => {
       const description = String(objective?.description || objective?.objective_id || '').trim();
       const current = Number.isFinite(Number(objective?.current)) ? Number(objective.current) : 0;
       const target = Number.isFinite(Number(objective?.target_count)) ? Number(objective.target_count) : 0;
@@ -265,7 +268,12 @@ export class QuestPanel {
       const details = this.renderObjectiveGuidanceLines(objective);
       return description ? `<li class="quest-objective">⬜ ${description}${progress}${details}</li>` : '';
     }).filter(Boolean);
-    return lines.length > 0 ? lines.join('') : `<li class="quest-objective">${fallbackLine}</li>`;
+    if (objectiveLines.length > 0) {
+      lines.push(...objectiveLines);
+    } else {
+      lines.push(`<li class="quest-objective">${fallbackLine}</li>`);
+    }
+    return lines.join('');
   }
 
   buildQuestLeadFallbackLine(quest) {
@@ -319,6 +327,66 @@ export class QuestPanel {
     return details.length > 0
       ? `<div class="quest-objective__details">${details.map(line => `<div class="quest-objective__detail">${line}</div>`).join('')}</div>`
       : '';
+  }
+
+  renderQuestRewardLine(quest) {
+    const rewards = quest?.generated_rewards;
+    if (!rewards || typeof rewards !== 'object' || Array.isArray(rewards)) {
+      return '<li class="quest-objective quest-objective--reward">🎁 Rewards: Contract missing.</li>';
+    }
+
+    const xp = Math.max(0, Number(rewards.xp ?? rewards.experience_points ?? 0));
+    const gold = Math.max(0, Number(rewards.gold ?? rewards.gp ?? 0));
+    const itemSummary = this.formatQuestRewardItems(rewards.items);
+
+    return `<li class="quest-objective quest-objective--reward">🎁 Rewards: XP ${Math.round(xp)} · Gold ${Math.round(gold)} · Items ${escapeQuestHtml(itemSummary)}</li>`;
+  }
+
+  formatQuestRewardItems(items) {
+    if (!Array.isArray(items) || items.length === 0) {
+      return 'none';
+    }
+
+    const labels = items
+      .map((item) => this.formatQuestRewardItemLabel(item))
+      .filter((label) => label);
+    if (labels.length === 0) {
+      return 'none';
+    }
+    if (labels.length <= 2) {
+      return labels.join(', ');
+    }
+    return `${labels.slice(0, 2).join(', ')}, +${labels.length - 2} more`;
+  }
+
+  formatQuestRewardItemLabel(item) {
+    if (typeof item === 'string' && item.trim() !== '') {
+      return this.humanizeQuestRewardItemId(item.trim());
+    }
+    if (!item || typeof item !== 'object') {
+      return '';
+    }
+
+    const quantity = Math.max(1, Number(item.quantity ?? item.count ?? 1));
+    const itemId = String(item.item_id || item.id || '').trim();
+    if (!itemId) {
+      return '';
+    }
+    const itemName = this.humanizeQuestRewardItemId(itemId);
+    return quantity > 1 ? `${quantity}x ${itemName}` : itemName;
+  }
+
+  humanizeQuestRewardItemId(itemId) {
+    const rawId = String(itemId || '').trim();
+    if (!rawId) {
+      return 'Unknown item';
+    }
+    const normalized = rawId.startsWith('loot_table:')
+      ? rawId.slice('loot_table:'.length)
+      : rawId;
+    return normalized
+      .replace(/[_-]+/g, ' ')
+      .replace(/\b\w/g, (char) => char.toUpperCase());
   }
 
   showQuestToast(message, type = 'info') {

@@ -15,7 +15,7 @@
  * During Phase 10 parallel testing it runs alongside the old hexmap library.
  */
 
-import { GameShell } from './v2/GameShell.js?v=20260607-v2-action-navigate-panel-service-2';
+import { GameShell } from './v2/GameShell.js?v=20260608-v2-quest-reward-visibility-1';
 
 (function (Drupal, drupalSettings, once) {
   'use strict';

@@ -2345,6 +2345,16 @@
   color: var(--text-muted, #94a3b8);
 }
 
+.hexmap-quest-journal__list .quest-objective--reward {
+  margin-bottom: 8px;
+  padding: 6px 8px;
+  border: 1px solid rgba(96, 165, 250, 0.35);
+  border-radius: 6px;
+  background: rgba(96, 165, 250, 0.08);
+  color: var(--text-heading, #e2e8f0);
+  font-weight: 600;
+}
+
 .hexmap-quest-journal__list .quest-objective .quest-tree-node__summary,
 .hexmap-quest-journal__list .quest-objective .quest-tree-node__content {
   padding-left: 10px;
