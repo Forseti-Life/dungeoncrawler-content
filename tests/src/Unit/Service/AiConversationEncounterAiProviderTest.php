@@ -8,6 +8,7 @@ use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Drupal\Core\Logger\LoggerChannelInterface;
 use Drupal\Tests\UnitTestCase;
 use Drupal\ai_conversation\Service\AIApiService;
+use Drupal\dungeoncrawler_content\Service\AiSessionManager;
 use Drupal\dungeoncrawler_content\Service\AiConversationEncounterAiProvider;
 use Drupal\dungeoncrawler_content\Service\StubEncounterAiProvider;
 
@@ -29,6 +30,8 @@ class AiConversationEncounterAiProviderTest extends UnitTestCase {
 
   protected StubEncounterAiProvider $fallbackProvider;
 
+  protected AiSessionManager $sessionManager;
+
   protected AiConversationEncounterAiProvider $provider;
 
   protected function setUp(): void {
@@ -38,6 +41,7 @@ class AiConversationEncounterAiProviderTest extends UnitTestCase {
     $this->loggerFactory = $this->createMock(LoggerChannelFactoryInterface::class);
     $this->configFactory = $this->createMock(ConfigFactoryInterface::class);
     $this->fallbackProvider = new StubEncounterAiProvider();
+    $this->sessionManager = $this->createMock(AiSessionManager::class);
 
     $config = $this->createMock(ImmutableConfig::class);
     $config->method('get')->willReturnMap([
@@ -49,12 +53,15 @@ class AiConversationEncounterAiProviderTest extends UnitTestCase {
 
     $logger = $this->createMock(LoggerChannelInterface::class);
     $this->loggerFactory->method('get')->willReturn($logger);
+    $this->sessionManager->method('npcSessionKey')->willReturn('campaign.22.npc.npc-1');
+    $this->sessionManager->method('buildSessionContext')->willReturn('');
 
     $this->provider = new AiConversationEncounterAiProvider(
       $this->aiApiService,
       $this->loggerFactory,
       $this->configFactory,
-      $this->fallbackProvider
+      $this->fallbackProvider,
+      $this->sessionManager
     );
   }
 
@@ -174,6 +181,60 @@ class AiConversationEncounterAiProviderTest extends UnitTestCase {
     $this->assertFalse($recommendation['fallback_used']);
     $this->assertSame('strike', $recommendation['recommended_action']['type']);
     $this->assertSame('pc-1', $recommendation['recommended_action']['target_instance_id']);
+  }
+
+  /**
+   * @covers ::recommendNpcAction
+   */
+  public function testRecommendNpcActionInjectsPsychologyContextIntoPrompt(): void {
+    $context = $this->buildEncounterContext();
+    $context['current_actor_profile'] = [
+      'attitude' => 'hostile',
+      'motivations' => 'Protect the relic',
+      'personality_axes' => ['cunning' => 8, 'discipline' => 7],
+    ];
+    $context['npc_psychology'] = "=== NPC COMBAT PERSONALITY ===\nFighting motivation: Protect the relic";
+
+    $this->aiApiService->expects($this->once())
+      ->method('invokeModelDirect')
+      ->with(
+        $this->callback(static function ($prompt): bool {
+          if (!is_string($prompt)) {
+            return FALSE;
+          }
+          $payload = json_decode($prompt, TRUE);
+          if (!is_array($payload)) {
+            return FALSE;
+          }
+          $encounter = is_array($payload['encounter'] ?? NULL) ? $payload['encounter'] : [];
+          return ($encounter['current_actor_profile']['motivations'] ?? '') === 'Protect the relic'
+            && ($encounter['npc_psychology'] ?? '') === "=== NPC COMBAT PERSONALITY ===\nFighting motivation: Protect the relic";
+        }),
+        'dungeoncrawler_content',
+        'encounter_npc_recommendation',
+        $this->anything(),
+        $this->anything()
+      )
+      ->willReturn([
+        'success' => TRUE,
+        'response' => json_encode([
+          'version' => 'v1',
+          'actor_instance_id' => 'npc-1',
+          'recommended_action' => [
+            'type' => 'strike',
+            'target_instance_id' => 'pc-1',
+            'action_cost' => 1,
+            'parameters' => [],
+          ],
+          'alternatives' => [],
+          'rationale' => 'Use motivation-aligned pressure.',
+          'confidence' => 0.74,
+        ]),
+      ]);
+
+    $recommendation = $this->provider->recommendNpcAction($context);
+    $this->assertFalse($recommendation['fallback_used']);
+    $this->assertSame('Use motivation-aligned pressure.', $recommendation['rationale']);
   }
 
   /**

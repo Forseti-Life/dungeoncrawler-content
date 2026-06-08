@@ -200,6 +200,7 @@ class AiConversationEncounterAiProvider implements EncounterAiProviderInterface 
     $visible_references = is_array($context['visible_references'] ?? NULL) ? $context['visible_references'] : [];
     $line_of_sight = is_array($context['line_of_sight'] ?? NULL) ? $context['line_of_sight'] : [];
     $conversation_options = is_array($context['conversation_options'] ?? NULL) ? $context['conversation_options'] : [];
+    $npc_psychology = trim((string) ($context['npc_psychology'] ?? ''));
 
     return json_encode([
       'task' => 'Choose a single legal tactical action for the active NPC combatant.',
@@ -218,6 +219,7 @@ class AiConversationEncounterAiProvider implements EncounterAiProviderInterface 
         'turn_index' => (int) ($context['turn_index'] ?? 0),
         'current_actor' => $current_actor,
         'current_actor_profile' => $current_actor_profile,
+        'npc_psychology' => $npc_psychology !== '' ? $npc_psychology : NULL,
         'visible_references' => $visible_references,
         'line_of_sight' => $line_of_sight,
         'conversation_options' => $conversation_options,
@@ -275,7 +277,7 @@ class AiConversationEncounterAiProvider implements EncounterAiProviderInterface 
    * Build system prompt for recommendation requests.
    */
   private function buildRecommendationSystemPrompt(): string {
-    return 'You are a tactical combat assistant. Return valid JSON only with no markdown fences or extra prose.';
+    return 'You are a tactical combat assistant. Use current_actor_profile and npc_psychology when provided so recommendations respect motivations, fears, attitude, and behavior tendencies. Return valid JSON only with no markdown fences or extra prose.';
   }
 
   /**

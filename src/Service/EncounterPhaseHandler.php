@@ -5470,10 +5470,8 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
 
     // Fallback: choose a sensible action without AI.
     if ($action_type === NULL) {
-      $action_type = $this->chooseFallbackAction($entity_id, $game_state);
-      $target = ($action_type === 'strike')
-        ? $this->findNearestAlivePlayer($entity_id, $game_state)
-        : NULL;
+      $action_type = $this->chooseFallbackAction($entity_id, $game_state, $campaign_id);
+      $target = $this->chooseFallbackTarget($entity_id, $game_state, $campaign_id, $action_type);
     }
 
     // Execute the chosen action.
@@ -5511,6 +5509,10 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
         $events[] = GameEventLogger::buildEvent('npc_talk', 'encounter', $entity_id, [
           'message' => $narration ?? 'The creature snarls at you.',
         ], $narration);
+        break;
+
+      case 'end_turn':
+        // Intentional no-op: explicit "choose not to act further" is emitted below.
         break;
 
       default:
@@ -5617,14 +5619,47 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
    *
    * Basic tactical heuristic: if adjacent to player → strike; otherwise → stride.
    */
-  protected function chooseFallbackAction(string $entity_id, array $game_state): string {
+  protected function chooseFallbackAction(string $entity_id, array $game_state, int $campaign_id = 0): string {
     $npc = $this->findCombatant($entity_id, $game_state);
     if (!$npc) {
-      return 'strike';
+      return 'end_turn';
+    }
+
+    $nearest_player = $this->findNearestAlivePlayer($entity_id, $game_state);
+    if ($nearest_player === NULL) {
+      return 'end_turn';
     }
 
     $npc_q = (int) ($npc['position_q'] ?? 0);
     $npc_r = (int) ($npc['position_r'] ?? 0);
+    $hp_ratio = $this->hpRatio($npc);
+    $profile = $this->loadCombatantPsychologyProfile($entity_id, $game_state, $campaign_id);
+
+    if ($profile) {
+      $axes = is_array($profile['personality_axes'] ?? NULL) ? $profile['personality_axes'] : [];
+      $boldness = (int) ($axes['boldness'] ?? 5);
+      $empathy = (int) ($axes['empathy'] ?? 5);
+      $attitude = (string) ($profile['attitude'] ?? 'indifferent');
+
+      // Wounded/self-preservation NPCs bias toward movement over direct engagement.
+      if (($boldness <= 3 || $this->motivationSignalsSelfPreservation($profile)) && $hp_ratio <= 0.35) {
+        return 'stride';
+      }
+
+      // Friendly empathetic NPCs adjacent to PCs try to de-escalate first.
+      if (in_array($attitude, ['friendly', 'helpful'], TRUE) && $empathy >= 7) {
+        foreach (($game_state['initiative_order'] ?? []) as $combatant) {
+          if (($combatant['team'] ?? '') !== 'player' || !empty($combatant['is_defeated'])) {
+            continue;
+          }
+          $pq = (int) ($combatant['position_q'] ?? 0);
+          $pr = (int) ($combatant['position_r'] ?? 0);
+          if ($this->hexDistance($npc_q, $npc_r, $pq, $pr) <= 1) {
+            return 'talk';
+          }
+        }
+      }
+    }
 
     // Check if any alive player is adjacent (distance = 1 hex).
     foreach (($game_state['initiative_order'] ?? []) as $combatant) {
@@ -5641,6 +5676,84 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
     }
 
     return 'stride';
+  }
+
+  /**
+   * Choose a fallback target aligned to NPC psychology and tactical state.
+   */
+  protected function chooseFallbackTarget(string $entity_id, array $game_state, int $campaign_id, string $action_type): ?string {
+    if (!in_array($action_type, ['strike', 'talk'], TRUE)) {
+      return NULL;
+    }
+
+    $nearest = $this->findNearestAlivePlayer($entity_id, $game_state);
+    if ($nearest === NULL) {
+      return NULL;
+    }
+
+    $profile = $this->loadCombatantPsychologyProfile($entity_id, $game_state, $campaign_id);
+    if (!$profile) {
+      return $nearest;
+    }
+
+    $axes = is_array($profile['personality_axes'] ?? NULL) ? $profile['personality_axes'] : [];
+    $cunning = (int) ($axes['cunning'] ?? 5);
+    $discipline = (int) ($axes['discipline'] ?? 5);
+    if ($cunning < 7 && $discipline < 7) {
+      return $nearest;
+    }
+
+    $npc = $this->findCombatant($entity_id, $game_state);
+    if (!$npc) {
+      return $nearest;
+    }
+    $npc_q = (int) ($npc['position_q'] ?? 0);
+    $npc_r = (int) ($npc['position_r'] ?? 0);
+
+    $best_target = NULL;
+    $best_ratio = 2.0;
+    $best_distance = PHP_INT_MAX;
+    foreach (($game_state['initiative_order'] ?? []) as $combatant) {
+      if (($combatant['team'] ?? '') !== 'player' || !empty($combatant['is_defeated'])) {
+        continue;
+      }
+
+      $pq = (int) ($combatant['position_q'] ?? 0);
+      $pr = (int) ($combatant['position_r'] ?? 0);
+      $distance = $this->hexDistance($npc_q, $npc_r, $pq, $pr);
+
+      if ($action_type === 'strike' && $distance > 1) {
+        continue;
+      }
+
+      $ratio = $this->hpRatio($combatant);
+      if ($ratio < $best_ratio || ($ratio === $best_ratio && $distance < $best_distance)) {
+        $best_ratio = $ratio;
+        $best_distance = $distance;
+        $best_target = $combatant['entity_id'] ?? NULL;
+      }
+    }
+
+    return $best_target ?? $nearest;
+  }
+
+  /**
+   * Returns true when profile text signals a self-preservation motivation.
+   */
+  protected function motivationSignalsSelfPreservation(array $profile): bool {
+    $motivation_text = strtolower(trim((string) ($profile['motivations'] ?? '')));
+    $fear_text = strtolower(trim((string) ($profile['fears'] ?? '')));
+    $haystack = trim($motivation_text . ' ' . $fear_text);
+    if ($haystack === '') {
+      return FALSE;
+    }
+
+    foreach (['survive', 'survival', 'escape', 'retreat', 'avoid conflict', 'stay alive'] as $needle) {
+      if (str_contains($haystack, $needle)) {
+        return TRUE;
+      }
+    }
+    return FALSE;
   }
 
   /**
@@ -7730,6 +7843,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
         'position_r' => (int) ($npc['position_r'] ?? 0),
         'actions_remaining' => (int) ($game_state['turn']['actions_remaining'] ?? 3),
       ] : ['entity_id' => $entity_id, 'entity_ref' => $entity_id],
+      'current_actor_profile' => $this->buildNpcDecisionProfile($entity_id, $game_state),
       'participants' => $initiative_order,
       'allies' => $allies,
       'threats' => $enemies,
@@ -7738,6 +7852,41 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
       ],
       // NPC personality/psychology context for AI decision-making.
       'npc_psychology' => $this->buildNpcPsychologyContext($entity_id, $game_state),
+    ];
+  }
+
+  /**
+   * Build structured profile fields to steer NPC action recommendation.
+   */
+  protected function buildNpcDecisionProfile(string $entity_id, array $game_state): array {
+    $campaign_id = (int) ($game_state['campaign_id'] ?? 0);
+    $profile = $this->loadCombatantPsychologyProfile($entity_id, $game_state, $campaign_id);
+    if (!$profile) {
+      return [];
+    }
+
+    $latest_thought = NULL;
+    $monologue = $profile['inner_monologue'] ?? [];
+    if (!empty($monologue) && is_array($monologue)) {
+      $last = end($monologue);
+      if (is_array($last)) {
+        $latest_thought = [
+          'thought' => (string) ($last['thought'] ?? ''),
+          'emotion' => (string) ($last['emotion'] ?? ''),
+          'event_type' => (string) ($last['event_type'] ?? ''),
+        ];
+      }
+    }
+
+    return [
+      'display_name' => (string) ($profile['display_name'] ?? $entity_id),
+      'attitude' => (string) ($profile['attitude'] ?? 'indifferent'),
+      'personality_traits' => (string) ($profile['personality_traits'] ?? ''),
+      'personality_axes' => is_array($profile['personality_axes'] ?? NULL) ? $profile['personality_axes'] : [],
+      'motivations' => (string) ($profile['motivations'] ?? ''),
+      'fears' => (string) ($profile['fears'] ?? ''),
+      'bonds' => (string) ($profile['bonds'] ?? ''),
+      'latest_thought' => $latest_thought,
     ];
   }
 
@@ -7764,22 +7913,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
       return '';
     }
 
-    // entity_id might be "entity_creature_2_1", entity_ref is the content_id like "goblin_warrior_1"
-    // Try to find the entity's content_id from the initiative_order or use entity_id directly.
-    $entity_ref = $entity_id;
-    foreach ($game_state['initiative_order'] ?? [] as $combatant) {
-      if (($combatant['entity_id'] ?? '') === $entity_id) {
-        $entity_ref = $combatant['entity_ref'] ?? $combatant['entity_id'] ?? $entity_id;
-        break;
-      }
-    }
-
-    $profile = $this->psychologyService->loadProfile($campaign_id, $entity_ref);
-    if (!$profile && $entity_ref !== $entity_id) {
-      // Fall back to entity_id as ref.
-      $profile = $this->psychologyService->loadProfile($campaign_id, $entity_id);
-    }
-
+    $profile = $this->loadCombatantPsychologyProfile($entity_id, $game_state, (int) $campaign_id);
     if (!$profile) {
       return '';
     }
@@ -7839,6 +7973,34 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
     }
 
     return implode("\n", $parts);
+  }
+
+  /**
+   * Resolve combatant entity_ref from initiative context.
+   */
+  protected function resolveCombatantEntityRef(string $entity_id, array $game_state): string {
+    foreach (($game_state['initiative_order'] ?? []) as $combatant) {
+      if (($combatant['entity_id'] ?? '') === $entity_id) {
+        return (string) ($combatant['entity_ref'] ?? $combatant['entity_id'] ?? $entity_id);
+      }
+    }
+    return $entity_id;
+  }
+
+  /**
+   * Load psychology profile for a combatant using entity_ref first, then entity_id.
+   */
+  protected function loadCombatantPsychologyProfile(string $entity_id, array $game_state, int $campaign_id): ?array {
+    if ($campaign_id <= 0) {
+      return NULL;
+    }
+
+    $entity_ref = $this->resolveCombatantEntityRef($entity_id, $game_state);
+    $profile = $this->psychologyService->loadProfile($campaign_id, $entity_ref);
+    if (!$profile && $entity_ref !== $entity_id) {
+      $profile = $this->psychologyService->loadProfile($campaign_id, $entity_id);
+    }
+    return $profile ?: NULL;
   }
 
   /**
