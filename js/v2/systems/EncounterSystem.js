@@ -30,6 +30,7 @@ export class EncounterSystem {
   destroy() {
     this._unsubs.forEach((fn) => fn());
     this._unsubs = [];
+    this._actionRailPendingRequests.clear();
   }
 
   _subscribe() {
