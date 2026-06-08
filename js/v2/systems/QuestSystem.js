@@ -11,8 +11,8 @@
  * objective progress, and item collection outcomes.
  *
  * Fires bus events:
- *   quest:progress-updated  — { quest }   relay from ECS / server state
- *   quest:completed         — { quest }   quest marked complete by server
+ *   quest:progress-updated  — { questSummary } canonical summary snapshot
+ *   quest:completed         — { quest, questSummary, message } quest marked complete
  *   quest:item-collected    — { itemName } collectible entity removed
  *
  * Responds to bus events:
@@ -62,14 +62,12 @@ export class QuestSystem {
     quests.forEach((q) => this._quests.set(q.quest_id, q));
     // Seed QuestPanel with initial quest list
     this.bus.emit('game:init-quests', { quests: [...this._quests.values()] });
+    this._emitQuestProgressUpdated();
   }
 
   _broadcastCurrentQuests() {
-    // Re-emit current quest state so QuestPanel can refresh after room transition
-    const quests = [...this._quests.values()];
-    quests.forEach((quest) => {
-      this.bus.emit('quest:progress-updated', { quest });
-    });
+    // Re-emit current quest summary so QuestPanel can refresh after room transition.
+    this._emitQuestProgressUpdated();
   }
 
   _onEntityInteracted({ entity } = {}) {
@@ -93,10 +91,101 @@ export class QuestSystem {
     this._quests.set(quest.quest_id, quest);
 
     if (quest.status === 'completed' && existing?.status !== 'completed') {
-      this.bus.emit('quest:completed', { quest });
+      this.bus.emit('quest:completed', {
+        quest,
+        message: `Quest completed: ${quest?.quest_name || quest?.title || quest.quest_id}`,
+        questSummary: this._buildQuestSummarySnapshot(quest),
+      });
     } else {
-      this.bus.emit('quest:progress-updated', { quest });
+      this._emitQuestProgressUpdated(quest);
     }
   }
-}
 
+  _emitQuestProgressUpdated(overrideQuest = null) {
+    this.bus.emit('quest:progress-updated', {
+      questSummary: this._buildQuestSummarySnapshot(overrideQuest),
+    });
+  }
+
+  _buildQuestSummarySnapshot(overrideQuest = null) {
+    const baseSummary = this.shell?.questSummary && typeof this.shell.questSummary === 'object'
+      ? this.shell.questSummary
+      : null;
+    const summary = baseSummary
+      ? {
+          ...baseSummary,
+          active: Array.isArray(baseSummary.active) ? [...baseSummary.active] : [],
+          offers: Array.isArray(baseSummary.offers) ? [...baseSummary.offers] : [],
+          leads: Array.isArray(baseSummary.leads) ? [...baseSummary.leads] : [],
+          completed: Array.isArray(baseSummary.completed) ? [...baseSummary.completed] : [],
+          management_tree: Array.isArray(baseSummary.management_tree) ? baseSummary.management_tree : [],
+          location_id: String(baseSummary.location_id || this.shell?.resolveActiveRoomId?.() || ''),
+          schema_version: String(baseSummary.schema_version || 'quest-summary-v2'),
+        }
+      : this._buildSummaryFromQuestMap();
+
+    if (!overrideQuest || !overrideQuest.quest_id) {
+      return summary;
+    }
+
+    const questKey = String(overrideQuest.quest_id);
+    ['active', 'offers', 'leads', 'completed'].forEach((bucket) => {
+      summary[bucket] = (Array.isArray(summary[bucket]) ? summary[bucket] : []).filter(
+        (entry) => String(entry?.quest_id || '') !== questKey
+      );
+    });
+    const bucket = this._resolveSummaryBucket(overrideQuest?.status);
+    summary[bucket].push(overrideQuest);
+    summary.counts = {
+      active: summary.active.length,
+      offers: summary.offers.length,
+      leads: summary.leads.length,
+      completed: summary.completed.length,
+    };
+    return summary;
+  }
+
+  _buildSummaryFromQuestMap() {
+    const summary = {
+      schema_version: 'quest-summary-v2',
+      location_id: String(this.shell?.resolveActiveRoomId?.() || ''),
+      active: [],
+      offers: [],
+      leads: [],
+      completed: [],
+      management_tree: [],
+      counts: {
+        active: 0,
+        offers: 0,
+        leads: 0,
+        completed: 0,
+      },
+    };
+
+    [...this._quests.values()].forEach((quest) => {
+      const bucket = this._resolveSummaryBucket(quest?.status);
+      summary[bucket].push(quest);
+    });
+    summary.counts = {
+      active: summary.active.length,
+      offers: summary.offers.length,
+      leads: summary.leads.length,
+      completed: summary.completed.length,
+    };
+    return summary;
+  }
+
+  _resolveSummaryBucket(status) {
+    const normalized = String(status || '').trim().toLowerCase();
+    if (normalized === 'completed') {
+      return 'completed';
+    }
+    if (normalized === 'offered') {
+      return 'offers';
+    }
+    if (normalized === 'lead') {
+      return 'leads';
+    }
+    return 'active';
+  }
+}

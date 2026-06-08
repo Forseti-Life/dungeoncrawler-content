@@ -90,7 +90,7 @@ export class ActionRailPanel {
     this.actionRailRealClockTimer = null;
     // UI state
     this.activeActionRailCategory = 'navigate';
-    this.actionRailDescriptionsCollapsed = false;
+    this.actionRailDescriptionsCollapsed = true;
     this.actionRailFilters = {};
     this.actionRailAutomationTogglePending = false;
     this.navigateLocationGroups = [];

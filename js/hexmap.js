@@ -2220,7 +2220,7 @@ import { SpriteService } from './SpriteService.js';
       this.chatViewStateCache = new Map();
       this.activeActionRailCategory = null;
       this.actionRailFilters = {};
-      this.actionRailDescriptionsCollapsed = false;
+      this.actionRailDescriptionsCollapsed = true;
       this.activeGameShellTab = 'map';
       this.navigateLocationGroups = [];
       this.navigateLocationsCampaignId = null;
@@ -4773,7 +4773,8 @@ import { SpriteService } from './SpriteService.js';
 
       const routeGroups = this.collectNavigateLocationGroups(context);
       const visitedGroups = this.collectVisitedNavigateLocationGroups(context, campaignId);
-      const groups = [...routeGroups, ...visitedGroups];
+      const questTargetGroups = this.collectQuestTargetNavigateLocationGroups(context, routeGroups, visitedGroups);
+      const groups = [...routeGroups, ...questTargetGroups, ...visitedGroups];
 
       if (!groups.length) {
         return {
@@ -4979,6 +4980,228 @@ import { SpriteService } from './SpriteService.js';
           };
         })
         .filter((group) => Array.isArray(group.locations) && group.locations.length > 0);
+    }
+
+    collectQuestTargetNavigateLocationGroups(context, routeGroups = [], visitedGroups = []) {
+      const hexmap = context.hexmap;
+      const activeRoomId = String(hexmap?.resolveActiveRoomId?.() || '').trim();
+      const visualRooms = typeof hexmap?.getVisualRooms === 'function' ? hexmap.getVisualRooms() : {};
+      const rooms = visualRooms && typeof visualRooms === 'object' ? visualRooms : {};
+      const currentMapId = String(hexmap?.dungeonData?.map_id || hexmap?.launchContext?.map_id || this.stateManager?.get?.('mapId') || '').trim();
+      const currentDungeonLevelId = String(hexmap?.dungeonData?.level_id || hexmap?.launchContext?.dungeon_level_id || '').trim();
+      const rawQuestData = this.resolveQuestSummaryForNavigation(context);
+
+      const routeIndex = new Map();
+      [...routeGroups, ...visitedGroups].forEach((group) => {
+        (Array.isArray(group?.locations) ? group.locations : []).forEach((location) => {
+          const roomId = String(location?.roomId || '').trim();
+          if (!roomId) {
+            return;
+          }
+          const existing = routeIndex.get(roomId);
+          const existingNavigable = existing && existing.navigable !== false;
+          const candidateNavigable = location?.navigable !== false;
+          if (!existing || (!existingNavigable && candidateNavigable)) {
+            routeIndex.set(roomId, location);
+          }
+        });
+      });
+
+      const targets = [];
+      const seen = new Set();
+      const pushTarget = (candidate) => {
+        const roomId = String(candidate?.roomId || '').trim();
+        if (!roomId || roomId === activeRoomId) {
+          return;
+        }
+
+        const targetLabel = String(candidate?.targetLabel || candidate?.locationLabel || roomId).trim() || roomId;
+        const key = `${roomId}|${String(candidate?.kindLabel || '').trim().toLowerCase()}|${targetLabel.toLowerCase()}`;
+        if (seen.has(key)) {
+          return;
+        }
+        seen.add(key);
+
+        const base = routeIndex.get(roomId) || null;
+        const room = rooms[roomId] || null;
+        const nextStep = String(candidate?.nextStep || '').trim();
+        const locationLabel = String(candidate?.locationLabel || '').trim();
+        const kindLabel = String(candidate?.kindLabel || 'Target').trim();
+        const sortRank = Number.isFinite(Number(candidate?.sortRank)) ? Number(candidate.sortRank) : 4;
+        const mapId = String(base?.mapId || currentMapId || '').trim();
+        const dungeonLevelId = String(base?.dungeonLevelId || currentDungeonLevelId || '').trim();
+        const navigable = base ? base.navigable !== false : Boolean(room);
+
+        const metaParts = [
+          nextStep ? `Next: ${nextStep}` : '',
+          room?.description || room?.short_description || '',
+          base?.meta || '',
+          !navigable ? 'No known route from the current room yet.' : '',
+        ].filter(Boolean);
+
+        targets.push({
+          roomId,
+          roomName: targetLabel,
+          statusLabel: [kindLabel, locationLabel && locationLabel !== targetLabel ? locationLabel : ''].filter(Boolean).join(' · '),
+          lastVisitedLabel: base?.lastVisitedLabel || 'Quest destination',
+          meta: metaParts.join(' '),
+          navigable,
+          disabled: !navigable,
+          connectionId: String(base?.connectionId || ''),
+          originQ: base?.originQ ?? '',
+          originR: base?.originR ?? '',
+          mapId,
+          dungeonLevelId,
+          sortRank,
+        });
+      };
+
+      const walkObjectiveTargets = (objectives = [], quest = null) => {
+        (Array.isArray(objectives) ? objectives : []).forEach((objective) => {
+          if (!objective || typeof objective !== 'object') {
+            return;
+          }
+          if (objective.completed) {
+            walkObjectiveTargets(objective.children || [], quest);
+            return;
+          }
+          const roomId = String(
+            objective.location_id
+            || objective.destination_id
+            || objective.location?.id
+            || objective.destination?.id
+            || quest?.location_id
+            || ''
+          ).trim();
+          const locationLabel = String(
+            objective.location?.label
+            || objective.location
+            || objective.destination?.label
+            || objective.destination
+            || ''
+          ).trim();
+          const targetLabel = String(objective.target || objective.item || objective.description || quest?.quest_name || '').trim();
+          if (roomId) {
+            pushTarget({
+              roomId,
+              targetLabel: targetLabel || locationLabel || roomId,
+              locationLabel,
+              nextStep: objective.next_step || '',
+              kindLabel: 'Task target',
+              sortRank: Number(objective?.access?.sort_rank ?? 1),
+            });
+          }
+          walkObjectiveTargets(objective.children || [], quest);
+        });
+      };
+
+      const managementTree = Array.isArray(rawQuestData?.management_tree) ? rawQuestData.management_tree : [];
+      managementTree.forEach((npc) => {
+        if (!npc || typeof npc !== 'object') {
+          return;
+        }
+        const storylineRows = Array.isArray(npc.storylines) ? npc.storylines : [];
+        storylineRows.forEach((storyline) => {
+          if (!storyline || typeof storyline !== 'object') {
+            return;
+          }
+          const storylineLocation = storyline.location && typeof storyline.location === 'object' ? storyline.location : {};
+          const storylineRoomId = String(storylineLocation.id || '').trim();
+          if (storylineRoomId) {
+            pushTarget({
+              roomId: storylineRoomId,
+              targetLabel: String(storyline.name || storyline.storyline_id || storylineRoomId).trim(),
+              locationLabel: String(storylineLocation.label || '').trim(),
+              nextStep: storyline.next_step || '',
+              kindLabel: 'Storyline target',
+              sortRank: Number(storyline?.access?.sort_rank ?? 1),
+            });
+          }
+
+          const quests = Array.isArray(storyline.quests) ? storyline.quests : [];
+          quests.forEach((quest) => {
+            if (!quest || typeof quest !== 'object') {
+              return;
+            }
+            const questLocation = quest.location && typeof quest.location === 'object' ? quest.location : {};
+            const questRoomId = String(questLocation.id || quest.location_id || '').trim();
+            if (questRoomId) {
+              pushTarget({
+                roomId: questRoomId,
+                targetLabel: String(quest.quest_name || quest.title || quest.quest_id || questRoomId).trim(),
+                locationLabel: String(questLocation.label || '').trim(),
+                nextStep: quest.next_step || '',
+                kindLabel: 'Quest target',
+                sortRank: Number(quest?.access?.sort_rank ?? 1),
+              });
+            }
+            walkObjectiveTargets(quest.objectives || [], quest);
+          });
+        });
+      });
+
+      if (!targets.length) {
+        ['active', 'offers', 'leads'].forEach((bucket) => {
+          const quests = Array.isArray(rawQuestData?.[bucket]) ? rawQuestData[bucket] : [];
+          quests.forEach((quest) => {
+            if (!quest || typeof quest !== 'object') {
+              return;
+            }
+            const questRoomId = String(quest.location_id || '').trim();
+            if (questRoomId) {
+              pushTarget({
+                roomId: questRoomId,
+                targetLabel: String(quest.quest_name || quest.title || quest.quest_id || questRoomId).trim(),
+                locationLabel: '',
+                nextStep: quest.next_step || '',
+                kindLabel: 'Quest target',
+                sortRank: 1,
+              });
+            }
+            const phases = Array.isArray(quest.generated_objectives) && quest.generated_objectives.length
+              ? quest.generated_objectives
+              : (Array.isArray(quest.objective_states) ? quest.objective_states : []);
+            phases.forEach((phase) => walkObjectiveTargets(phase?.objectives || [], quest));
+          });
+        });
+      }
+
+      const locations = targets
+        .sort((left, right) => {
+          if (left.sortRank !== right.sortRank) {
+            return left.sortRank - right.sortRank;
+          }
+          return left.roomName.localeCompare(right.roomName);
+        })
+        .map(({ sortRank, ...location }) => location);
+
+      if (!locations.length) {
+        return [];
+      }
+
+      return [{
+        key: 'quest-target-destinations',
+        title: 'Quest destinations',
+        dungeonName: 'Quest destinations',
+        mapId: currentMapId,
+        dungeonLevelId: currentDungeonLevelId,
+        locations,
+      }];
+    }
+
+    resolveQuestSummaryForNavigation(context = {}) {
+      const hexmap = context?.hexmap || null;
+      const runtimeQuestSummary = context?.runtimeContext?.questSummary;
+      if (runtimeQuestSummary && typeof runtimeQuestSummary === 'object') {
+        return runtimeQuestSummary;
+      }
+      if (hexmap?.questData && typeof hexmap.questData === 'object') {
+        return hexmap.questData;
+      }
+      if (hexmap?.questSummary && typeof hexmap.questSummary === 'object') {
+        return hexmap.questSummary;
+      }
+      return {};
     }
 
     buildSearchActionRailPanel(context) {
