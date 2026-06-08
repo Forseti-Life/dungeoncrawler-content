@@ -169,7 +169,8 @@ console.log('\n=== ChatPanel canonical line contract ===');
   assert(normalized.authority === 'local', 'default normalized lines are marked local-authority');
   assert(normalized.messageClass === 'local_ui_notice', 'default normalized lines use the local notice category');
   assert(normalized.channel === 'room' && normalized.view === 'room', 'default normalized lines inherit the active room view/channel');
-  assert(normalized.persistent === false, 'transient normalized lines are not marked persistent');
+  assert(normalized.transient === false, 'development mode disables temporary/transient chat lines');
+  assert(normalized.persistent === true, 'development mode keeps normalized chat lines persistent');
 }
 
 {

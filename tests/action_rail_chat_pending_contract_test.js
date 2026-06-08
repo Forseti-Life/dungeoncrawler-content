@@ -174,7 +174,7 @@ console.log('\n=== Action rail chat pending contract ===');
 
   _endActionRailRequest.call(system, button);
   assert(calls.settle.length === 1, 'ending an action rail request settles the chat pending request');
-  assert(calls.settle[0].options.removePlayer === true, 'settled action pending request removes temporary player wait line');
+  assert(calls.settle[0].options.removePlayer === false, 'settled action pending request preserves the player wait line in transcript history');
   assert(!system._actionRailPendingRequests.has('req-1'), 'tracked pending request is cleared after settlement');
   assert(actionRailPanel.ended === true, 'action rail request lifecycle still closes backend wait state');
 }
@@ -218,4 +218,3 @@ console.log(`Failed: ${failed}`);
 if (failed > 0) {
   process.exit(1);
 }
-

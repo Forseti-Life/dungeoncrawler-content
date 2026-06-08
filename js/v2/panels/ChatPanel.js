@@ -92,6 +92,8 @@ export class ChatPanel {
     this.sessionViewCache = new Map();
     this.roomChatInflight = new Map();
     this.sessionViewInflight = new Map();
+    // Development default: keep all transcript lines and disable temporary/removal flows.
+    this.disableTemporaryChatLines = true;
     this.chatCacheTtlMs = 15000;
     this.chatSessionApi = null;
     this.roomChatBusy = false;
@@ -797,7 +799,9 @@ export class ChatPanel {
       || (normalizedAuthority === 'authoritative' ? 'authoritative_transcript' : 'local_ui_notice');
 
     const turnPrompt = Boolean(line.turnPrompt || line.turn_prompt);
-    const transient = Boolean(line.transient) && !turnPrompt;
+    const transient = (this.disableTemporaryChatLines !== false)
+      ? false
+      : (Boolean(line.transient) && !turnPrompt);
 
     return {
       speaker: String(line.speaker || ''),
@@ -1719,6 +1723,9 @@ export class ChatPanel {
   }
 
   removeChatLineById(lineId) {
+    if (this.disableTemporaryChatLines !== false) {
+      return;
+    }
     const line = this.findChatLineById(lineId);
     if (!line) {
       return;
@@ -1729,6 +1736,9 @@ export class ChatPanel {
   }
 
   removeRememberedChatLineById(target, lineId) {
+    if (this.disableTemporaryChatLines !== false) {
+      return;
+    }
     if (!lineId) {
       return;
     }
@@ -1751,7 +1761,14 @@ export class ChatPanel {
 
   updateQueuedChatStatus(count = 0) {
     if (count <= 0) {
-      this.removeChatLineById('chat-gm-queue-status');
+      this.appendChatLine('System', 'Queued room messages delivered.', 'system', {
+        lineId: 'chat-gm-queue-status',
+        pending: false,
+        transient: false,
+        source: 'local-ui',
+        authority: 'local',
+        messageClass: 'local_ui_notice',
+      });
       return;
     }
     const label = count === 1
@@ -1760,7 +1777,7 @@ export class ChatPanel {
     this.appendChatLine('System', label, 'system', {
       lineId: 'chat-gm-queue-status',
       pending: true,
-      transient: true,
+      transient: false,
       source: 'local-ui',
       authority: 'local',
       messageClass: 'local_ui_notice',
@@ -1838,7 +1855,8 @@ export class ChatPanel {
     if (!pending) {
       return;
     }
-    if (options.removePlayer) {
+    const canRemoveLines = this.disableTemporaryChatLines === false;
+    if (options.removePlayer && canRemoveLines) {
       if (this.isChatTargetVisible(pending.target)) {
         this.removeChatLineById(pending.playerLineId);
       } else {

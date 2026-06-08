@@ -956,7 +956,7 @@ export class EncounterSystem {
     }
 
     chatPanel?.settlePendingChatRequest?.(pending, {
-      removePlayer: true,
+      removePlayer: false,
     });
     this._actionRailPendingRequests.delete(requestId);
   }

@@ -93,8 +93,8 @@ export class PlayerAutomation {
     } catch (error) {
       console.error('Failed to send queued room turn:', error);
       this._settlePendingChatRequest(pendingRequest, {
-        removePlayer: true,
-        removePlaceholder: true,
+        removePlayer: false,
+        removePlaceholder: false,
       });
       this._appendChatLine('System', `Failed to send queued turn: ${error.message}`, 'system');
     } finally {
