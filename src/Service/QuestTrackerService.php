@@ -235,6 +235,7 @@ class QuestTrackerService {
 
       // Check if phase is complete
       $phase_complete = $this->isPhaseComplete($objective_states, $current_phase);
+      $quest_complete = $this->isQuestCompleted($objective_states);
 
       // Save updated progress for the caller scope.
       $this->saveProgressRecord(
@@ -257,11 +258,12 @@ class QuestTrackerService {
           $character_id
         );
         if (!empty($quest)) {
-          $this->postQuestObjectiveCompletionNarratorNote($campaign_id, $quest, $objective_id, $progress_character_id);
+          $next_step = $quest_complete
+            ? ''
+            : $this->resolveNextObjectiveNarrationLabel($objective_states, $current_phase);
+          $this->postQuestObjectiveCompletionNarratorNote($campaign_id, $quest, $objective_id, $progress_character_id, $next_step);
         }
       }
-
-      $quest_complete = $this->isQuestCompleted($objective_states);
 
       if ($phase_complete) {
         if ($quest_complete) {
@@ -380,18 +382,29 @@ class QuestTrackerService {
   /**
    * Post a narrator note when an objective is completed.
    */
-  protected function postQuestObjectiveCompletionNarratorNote(int $campaign_id, array $quest, string $objective_id, ?int $character_id): void {
+  protected function postQuestObjectiveCompletionNarratorNote(
+    int $campaign_id,
+    array $quest,
+    string $objective_id,
+    ?int $character_id,
+    string $next_step = ''
+  ): void {
     $quest_name = trim((string) ($quest['quest_name'] ?? $quest['name'] ?? $quest['quest_id'] ?? 'Quest'));
     $objective_label = $this->resolveQuestObjectiveNarrationLabel($quest, $objective_id);
     $message = $objective_label !== ''
       ? sprintf('Objective completed for %s: %s.', $quest_name, $objective_label)
       : sprintf('Objective completed for %s.', $quest_name);
+    $next_step = trim($next_step);
+    if ($next_step !== '') {
+      $message .= ' Next step: ' . $this->normalizeQuestNarratorSentence($next_step);
+    }
 
     $this->postQuestNarratorNote($campaign_id, $quest, $message, [
       'event' => 'quest_objective_completed',
       'quest_id' => (string) ($quest['quest_id'] ?? ''),
       'objective_id' => $objective_id,
       'character_id' => $character_id,
+      'next_step' => $next_step,
     ]);
   }
 
@@ -400,7 +413,7 @@ class QuestTrackerService {
    */
   protected function postQuestCompletionNarratorNote(int $campaign_id, array $quest, ?int $character_id): void {
     $quest_name = trim((string) ($quest['quest_name'] ?? $quest['name'] ?? $quest['quest_id'] ?? 'Quest'));
-    $this->postQuestNarratorNote($campaign_id, $quest, sprintf('Quest completed: %s.', $quest_name), [
+    $this->postQuestNarratorNote($campaign_id, $quest, sprintf('Quest completed: %s. All goals accomplished.', $quest_name), [
       'event' => 'quest_completed',
       'quest_id' => (string) ($quest['quest_id'] ?? ''),
       'character_id' => $character_id,
@@ -532,6 +545,83 @@ class QuestTrackerService {
     }
 
     return $objective_id;
+  }
+
+  /**
+   * Resolve the next objective narration label for a quest progress snapshot.
+   */
+  protected function resolveNextObjectiveNarrationLabel(array $objective_states, int $current_phase): string {
+    if (!is_array($objective_states) || $objective_states === []) {
+      return '';
+    }
+
+    $phase_rows = array_values(array_filter($objective_states, static fn($row): bool => is_array($row)));
+    usort($phase_rows, static function (array $left, array $right): int {
+      return ((int) ($left['phase'] ?? 0)) <=> ((int) ($right['phase'] ?? 0));
+    });
+
+    $min_phase = max(1, $current_phase);
+    foreach ($phase_rows as $phase_row) {
+      $phase = (int) ($phase_row['phase'] ?? 0);
+      if ($phase < $min_phase) {
+        continue;
+      }
+
+      $objectives = $this->collectObjectivesForDisplay((array) ($phase_row['objectives'] ?? []), TRUE);
+      foreach ($objectives as $objective) {
+        if (!is_array($objective)) {
+          continue;
+        }
+        $label = $this->resolveObjectiveNarrationLabelFromState($objective);
+        if ($label !== '') {
+          return $label;
+        }
+      }
+    }
+
+    return '';
+  }
+
+  /**
+   * Resolve a readable narration label for an objective state node.
+   */
+  protected function resolveObjectiveNarrationLabelFromState(array $objective): string {
+    $description = trim((string) ($objective['description'] ?? ''));
+    if ($description === '') {
+      return trim((string) ($objective['objective_id'] ?? ''));
+    }
+
+    foreach ([
+      'item' => 'item_label',
+      'target' => 'target_label',
+      'location' => 'location_label',
+      'destination' => 'destination_label',
+    ] as $field => $label_field) {
+      $value = trim((string) ($objective[$field] ?? ''));
+      if ($value === '') {
+        continue;
+      }
+      $label = trim((string) ($objective[$label_field] ?? $this->humanizeQuestReference($value)));
+      if ($label !== '' && $label !== $value) {
+        $description = str_replace($value, $label, $description);
+      }
+    }
+
+    return trim($description);
+  }
+
+  /**
+   * Ensure narrator note fragments end with terminal punctuation.
+   */
+  protected function normalizeQuestNarratorSentence(string $text): string {
+    $trimmed = trim($text);
+    if ($trimmed === '') {
+      return '';
+    }
+    if (preg_match('/[.!?]$/', $trimmed)) {
+      return $trimmed;
+    }
+    return $trimmed . '.';
   }
 
   /**

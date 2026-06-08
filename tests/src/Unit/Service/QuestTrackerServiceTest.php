@@ -219,6 +219,56 @@ class QuestTrackerServiceTest extends UnitTestCase {
   }
 
   /**
+   * Verifies objective completion resolves a concrete next-step label.
+   */
+  public function testNextStepLabelUsesNextIncompleteObjective(): void {
+    $logger = $this->createMock(LoggerInterface::class);
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($logger);
+
+    $service = new class(
+      $this->createMock(Connection::class),
+      $logger_factory,
+      $this->createMock(TimeInterface::class)
+    ) extends QuestTrackerService {
+      public function initializeStates(array $objectives): array {
+        return $this->initializeObjectiveStates($objectives);
+      }
+
+      public function applyUpdate(array &$states, int $phase, string $objective_id, int $progress): array {
+        return $this->applyObjectiveUpdate($states, $phase, $objective_id, $progress);
+      }
+
+      public function nextStepLabel(array $states, int $phase): string {
+        return $this->resolveNextObjectiveNarrationLabel($states, $phase);
+      }
+    };
+
+    $states = $service->initializeStates([
+      [
+        'phase' => 1,
+        'objectives' => [
+          [
+            'objective_id' => 'speak_to_eldric',
+            'type' => 'interact',
+            'description' => 'Speak to Eldric.',
+            'completed' => FALSE,
+          ],
+          [
+            'objective_id' => 'speak_to_marta',
+            'type' => 'interact',
+            'description' => 'Talk to Marta.',
+            'completed' => FALSE,
+          ],
+        ],
+      ],
+    ]);
+
+    $service->applyUpdate($states, 1, 'speak_to_eldric', 1);
+    $this->assertSame('Talk to Marta.', $service->nextStepLabel($states, 1));
+  }
+
+  /**
    * Verifies hidden escort runtime steps reveal sequentially and sync metadata.
    */
   public function testEscortRuntimeStepsRevealSequentially(): void {
