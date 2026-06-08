@@ -61,8 +61,9 @@ class QuestTrackerControllerTest extends UnitTestCase {
         'active' => [],
         'offers' => $offers,
         'leads' => $leads,
+        'completed' => [],
         'management_tree' => [],
-        'counts' => ['active' => 0, 'offers' => 1, 'leads' => 1],
+        'counts' => ['active' => 0, 'offers' => 1, 'leads' => 1, 'completed' => 0],
       ]);
 
     $controller = new QuestTrackerController(
@@ -87,6 +88,7 @@ class QuestTrackerControllerTest extends UnitTestCase {
     $this->assertSame('quest-summary-v2', $data['quest_summary']['schema_version']);
     $this->assertSame(1, $data['quest_summary']['counts']['offers']);
     $this->assertSame(1, $data['quest_summary']['counts']['leads']);
+    $this->assertSame(0, $data['quest_summary']['counts']['completed']);
     $this->assertArrayNotHasKey('available', $data['quest_summary']);
   }
 
@@ -114,8 +116,9 @@ class QuestTrackerControllerTest extends UnitTestCase {
         'active' => [],
         'offers' => [],
         'leads' => [],
+        'completed' => [],
         'management_tree' => [],
-        'counts' => ['active' => 0, 'offers' => 0, 'leads' => 0],
+        'counts' => ['active' => 0, 'offers' => 0, 'leads' => 0, 'completed' => 0],
       ]);
 
     $controller = new QuestTrackerController(
@@ -218,6 +221,93 @@ class QuestTrackerControllerTest extends UnitTestCase {
     $this->assertSame(200, $response->getStatusCode());
     $this->assertTrue($data['success']);
     $this->assertSame('APPLY_PROGRESS', $data['apply_result']['decision']);
+  }
+
+  /**
+   * @covers ::completeQuest
+   */
+  public function testCompleteQuestRejectsEntityIdCompatibilityPayload(): void {
+    $logger = $this->createMock(LoggerInterface::class);
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($logger);
+
+    $controller = new QuestTrackerController(
+      $this->createMock(Connection::class),
+      $logger_factory,
+      $this->createMock(RoomChatService::class),
+      $this->createMock(QuestGeneratorService::class),
+      $this->createMock(QuestTrackerService::class)
+    );
+
+    $response = $controller->completeQuest(85, 'quest_alpha', Request::create(
+      '/api/campaign/85/quests/quest_alpha/complete',
+      'POST',
+      [],
+      [],
+      [],
+      [],
+      json_encode([
+        'entity_id' => 321,
+        'outcome' => 'success',
+      ])
+    ));
+    $data = json_decode($response->getContent(), TRUE);
+
+    $this->assertSame(400, $response->getStatusCode());
+    $this->assertFalse($data['success']);
+    $this->assertSame('Missing required field: character_id', $data['error']);
+  }
+
+  /**
+   * @covers ::completeQuest
+   */
+  public function testCompleteQuestUsesCanonicalCharacterIdContract(): void {
+    $logger = $this->createMock(LoggerInterface::class);
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($logger);
+
+    $quest_tracker = $this->createMock(QuestTrackerService::class);
+    $quest_tracker->expects($this->once())
+      ->method('completeQuest')
+      ->with(85, 'quest_alpha', 816, 'success')
+      ->willReturn([
+        'success' => TRUE,
+        'rewards' => ['xp' => 100, 'gold' => 15, 'items' => []],
+        'rewards_applied' => ['xp' => 100, 'gold' => 15],
+      ]);
+
+    $container = new ContainerBuilder();
+    $container->set('dungeoncrawler_content.quest_tracker', $quest_tracker);
+    \Drupal::setContainer($container);
+
+    $controller = new class(
+      $this->createMock(Connection::class),
+      $logger_factory,
+      $this->createMock(RoomChatService::class),
+      $this->createMock(QuestGeneratorService::class),
+      $quest_tracker
+    ) extends QuestTrackerController {
+      protected function postQuestCompletionDialog(int $campaign_id, string $quest_id, int $character_id): void {}
+    };
+
+    $response = $controller->completeQuest(85, 'quest_alpha', Request::create(
+      '/api/campaign/85/quests/quest_alpha/complete',
+      'POST',
+      [],
+      [],
+      [],
+      [],
+      json_encode([
+        'character_id' => 816,
+        'outcome' => 'success',
+      ])
+    ));
+    $data = json_decode($response->getContent(), TRUE);
+
+    $this->assertSame(200, $response->getStatusCode());
+    $this->assertTrue($data['success']);
+    $this->assertSame(100, $data['rewards_applied']['xp']);
+    $this->assertSame(15, $data['rewards_applied']['gold']);
   }
 
 }

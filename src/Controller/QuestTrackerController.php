@@ -313,15 +313,16 @@ class QuestTrackerController extends ControllerBase {
   public function completeQuest(int $campaign_id, string $quest_id, Request $request): JsonResponse {
     try {
       $payload = json_decode($request->getContent(), TRUE);
+      if (!is_array($payload)) {
+        return new JsonResponse([
+          'success' => FALSE,
+          'error' => 'Invalid JSON payload',
+        ], 400);
+      }
+
       $character_id = NULL;
       if (isset($payload['character_id']) && is_numeric($payload['character_id'])) {
         $candidate = (int) $payload['character_id'];
-        if ($candidate > 0) {
-          $character_id = $candidate;
-        }
-      }
-      if ($character_id === NULL && isset($payload['entity_id']) && is_numeric($payload['entity_id'])) {
-        $candidate = (int) $payload['entity_id'];
         if ($candidate > 0) {
           $character_id = $candidate;
         }

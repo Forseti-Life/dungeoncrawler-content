@@ -342,9 +342,19 @@ class QuestTrackerService {
     string $outcome = 'success'
   ): array {
     try {
+      if ($character_id === NULL || $character_id <= 0) {
+        throw new \InvalidArgumentException('Quest completion requires a positive character_id.');
+      }
       $now = $this->time->getRequestTime();
-      $progress_record = $character_id !== NULL ? $this->loadProgress($campaign_id, $quest_id, $character_id) : NULL;
+      $progress_record = $this->loadProgress($campaign_id, $quest_id, $character_id);
       $quest = $this->loadCampaignQuest($campaign_id, $quest_id);
+      if (!is_array($quest)) {
+        throw new \RuntimeException(sprintf(
+          'Quest not found for completion (campaign_id=%d, quest_id=%s).',
+          $campaign_id,
+          $quest_id
+        ));
+      }
       $already_completed = !empty($progress_record['completed_at'])
         || strtolower((string) ($quest['status'] ?? '')) === 'completed';
       $rewards_already_granted = $this->hasRecordedQuestRewardGrant($campaign_id, $quest_id, $character_id);
@@ -368,9 +378,12 @@ class QuestTrackerService {
         ->execute();
 
       // Load quest rewards.
-      $rewards = json_decode($quest['generated_rewards'] ?? '{}', TRUE);
+      $rewards = $this->assertQuestRewardContract(
+        json_decode((string) ($quest['generated_rewards'] ?? ''), TRUE),
+        $quest_id
+      );
       $rewards_applied = !$rewards_already_granted
-        ? $this->applyQuestRewards($campaign_id, $character_id, is_array($rewards) ? $rewards : [])
+        ? $this->applyQuestRewards($campaign_id, $character_id, $rewards)
         : [];
       if (!$rewards_already_granted) {
         $this->recordQuestRewardGrant($campaign_id, $quest_id, $character_id, $rewards_applied);
@@ -821,7 +834,7 @@ class QuestTrackerService {
    */
   protected function applyQuestRewards(int $campaign_id, ?int $character_id, array $rewards): array {
     if ($campaign_id <= 0 || $character_id === NULL || $character_id <= 0) {
-      return [];
+      throw new \InvalidArgumentException('Quest reward application requires a valid campaign_id and character_id.');
     }
 
     $reward_target = $this->resolveQuestRewardCharacterTarget($campaign_id, $character_id);
@@ -835,13 +848,13 @@ class QuestTrackerService {
 
     $applied = [];
 
-    $xp = max(0, (int) ($rewards['xp'] ?? $rewards['experience_points'] ?? 0));
+    $xp = (int) $rewards['xp'];
     if ($xp > 0) {
       $this->applyQuestXpReward($reward_target, $xp);
       $applied['xp'] = $xp;
     }
 
-    $gold = max(0, (int) ($rewards['gold'] ?? $rewards['gp'] ?? 0));
+    $gold = (int) $rewards['gold'];
     if ($gold > 0) {
       $this->applyQuestGoldReward($reward_target, $gold);
       $applied['gold'] = $gold;
@@ -866,17 +879,12 @@ class QuestTrackerService {
    */
   protected function resolveQuestRewardCharacterTarget(int $campaign_id, int $character_id): ?array {
     $query = $this->database->select('dc_campaign_characters', 'c')
-      ->fields('c', ['id', 'campaign_id', 'character_id', 'instance_id', 'type'])
+      ->fields('c', ['id', 'campaign_id', 'instance_id', 'type'])
       ->condition('campaign_id', $campaign_id)
-      ->condition('type', 'pc');
-
-    $identity_group = $query->orConditionGroup()
-      ->condition('id', $character_id)
-      ->condition('character_id', $character_id);
-    $query->condition($identity_group);
+      ->condition('type', 'pc')
+      ->condition('id', $character_id);
 
     $row = $query
-      ->orderBy('updated', 'DESC')
       ->range(0, 1)
       ->execute()
       ->fetchAssoc();
@@ -887,9 +895,6 @@ class QuestTrackerService {
 
     return [
       'row_id' => (int) ($row['id'] ?? 0),
-      'state_character_id' => (int) ($row['character_id'] ?? 0) > 0
-        ? (int) $row['character_id']
-        : (int) ($row['id'] ?? 0),
       'campaign_id' => (int) ($row['campaign_id'] ?? $campaign_id),
       'instance_id' => (string) ($row['instance_id'] ?? ''),
     ];
@@ -910,7 +915,7 @@ class QuestTrackerService {
     }
 
     $this->characterStateService->gainExperience(
-      (string) ($target['state_character_id'] ?? $target['row_id'] ?? 0),
+      (string) ($target['row_id'] ?? 0),
       $xp,
       (int) ($target['campaign_id'] ?? 0),
       (string) ($target['instance_id'] ?? '')
@@ -931,7 +936,7 @@ class QuestTrackerService {
       throw new \RuntimeException('CharacterStateService is required to apply gold quest rewards.');
     }
 
-    $character_id = (string) ($target['state_character_id'] ?? $target['row_id'] ?? 0);
+    $character_id = (string) ($target['row_id'] ?? 0);
     $campaign_id = (int) ($target['campaign_id'] ?? 0);
     $instance_id = (string) ($target['instance_id'] ?? '');
 
@@ -969,42 +974,85 @@ class QuestTrackerService {
    *   Normalized entries with item_id + quantity + source payload.
    */
   protected function normalizeQuestRewardItems(mixed $raw_items): array {
-    $items = $raw_items;
-    if (is_array($items) && !array_is_list($items)) {
-      $items = [$items];
-    }
-    if (!is_array($items)) {
-      return [];
+    if (!is_array($raw_items) || !array_is_list($raw_items)) {
+      throw new \RuntimeException('Quest reward contract violation: items must be a list.');
     }
 
+    $items = $raw_items;
     $normalized = [];
     foreach ($items as $item) {
-      if (is_string($item) && trim($item) !== '') {
-        $normalized[] = [
-          'item_id' => trim($item),
-          'quantity' => 1,
-          'source' => ['item_id' => trim($item)],
-        ];
-        continue;
-      }
-
       if (!is_array($item)) {
-        continue;
+        throw new \RuntimeException('Quest reward contract violation: every reward item must be an object.');
       }
 
-      $item_id = trim((string) ($item['item_id'] ?? $item['id'] ?? ''));
+      $item_id = trim((string) ($item['item_id'] ?? ''));
       if ($item_id === '') {
-        continue;
+        throw new \RuntimeException('Quest reward contract violation: reward item is missing item_id.');
+      }
+
+      $quantity = $item['quantity'] ?? 1;
+      if (!is_int($quantity) || $quantity < 1) {
+        throw new \RuntimeException(sprintf(
+          'Quest reward contract violation: item %s has invalid quantity.',
+          $item_id
+        ));
       }
 
       $normalized[] = [
         'item_id' => $item_id,
-        'quantity' => max(1, (int) ($item['quantity'] ?? $item['count'] ?? 1)),
+        'quantity' => $quantity,
         'source' => $item,
       ];
     }
 
     return $normalized;
+  }
+
+  /**
+   * Validate and normalize the canonical quest reward contract shape.
+   *
+   * @return array{xp:int,gold:int,items:array<int,array<string,mixed>>}
+   */
+  protected function assertQuestRewardContract(mixed $decoded_rewards, string $quest_id): array {
+    if (!is_array($decoded_rewards)) {
+      throw new \RuntimeException(sprintf(
+        'Quest reward contract violation for %s: generated_rewards must decode to an object.',
+        $quest_id
+      ));
+    }
+
+    foreach (['xp', 'gold', 'items'] as $required_key) {
+      if (!array_key_exists($required_key, $decoded_rewards)) {
+        throw new \RuntimeException(sprintf(
+          'Quest reward contract violation for %s: missing required key "%s".',
+          $quest_id,
+          $required_key
+        ));
+      }
+    }
+
+    $xp = $decoded_rewards['xp'];
+    $gold = $decoded_rewards['gold'];
+    if (!is_int($xp) || $xp < 0) {
+      throw new \RuntimeException(sprintf(
+        'Quest reward contract violation for %s: xp must be a non-negative integer.',
+        $quest_id
+      ));
+    }
+    if (!is_int($gold) || $gold < 0) {
+      throw new \RuntimeException(sprintf(
+        'Quest reward contract violation for %s: gold must be a non-negative integer.',
+        $quest_id
+      ));
+    }
+
+    $items = $this->normalizeQuestRewardItems($decoded_rewards['items']);
+
+    return [
+      'xp' => $xp,
+      'gold' => $gold,
+      'items' => $items,
+    ];
   }
 
   /**
@@ -1084,7 +1132,7 @@ class QuestTrackerService {
    */
   protected function hasRecordedQuestRewardGrant(int $campaign_id, string $quest_id, ?int $character_id): bool {
     if ($campaign_id <= 0 || trim($quest_id) === '' || $character_id === NULL || $character_id <= 0) {
-      return FALSE;
+      throw new \InvalidArgumentException('Reward grant lookup requires campaign_id, quest_id, and character_id.');
     }
 
     $count = $this->database->select('dc_campaign_quest_rewards_claimed', 'r')
@@ -1106,7 +1154,7 @@ class QuestTrackerService {
    */
   protected function recordQuestRewardGrant(int $campaign_id, string $quest_id, ?int $character_id, array $reward_data): void {
     if ($campaign_id <= 0 || trim($quest_id) === '' || $character_id === NULL || $character_id <= 0) {
-      return;
+      throw new \InvalidArgumentException('Reward grant recording requires campaign_id, quest_id, and character_id.');
     }
 
     try {

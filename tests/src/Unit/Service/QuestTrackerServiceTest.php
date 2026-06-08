@@ -633,4 +633,37 @@ class QuestTrackerServiceTest extends UnitTestCase {
     $this->assertSame(2, (int) ($applied['items'][0]['quantity'] ?? 0));
   }
 
+  /**
+   * Verifies quest reward application fails fast on non-canonical reward keys.
+   */
+  public function testApplyQuestRewardsRejectsNonCanonicalRewardShape(): void {
+    $logger = $this->createMock(LoggerInterface::class);
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($logger);
+
+    $service = new class(
+      $this->createMock(Connection::class),
+      $logger_factory,
+      $this->createMock(TimeInterface::class),
+      NULL,
+      NULL,
+      NULL,
+      $this->createMock(CharacterStateService::class),
+      $this->createMock(InventoryManagementService::class)
+    ) extends QuestTrackerService {
+      public function assertRewardsForTest(mixed $rewards, string $quest_id): array {
+        return $this->assertQuestRewardContract($rewards, $quest_id);
+      }
+    };
+
+    $this->expectException(\RuntimeException::class);
+    $this->expectExceptionMessage('missing required key "xp"');
+
+    $service->assertRewardsForTest([
+      'experience_points' => 50,
+      'gp' => 5,
+      'items' => [],
+    ], 'quest_alpha');
+  }
+
 }
