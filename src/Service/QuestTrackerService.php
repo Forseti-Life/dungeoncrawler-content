@@ -19,6 +19,8 @@ use Psr\Log\LoggerInterface;
  */
 class QuestTrackerService {
 
+  const ROOM_CHAT_MESSAGE_LIMIT = 500;
+
   /**
    * The database connection.
    *
@@ -401,6 +403,7 @@ class QuestTrackerService {
 
     $this->postQuestNarratorNote($campaign_id, $quest, $message, [
       'event' => 'quest_objective_completed',
+      'message_class' => 'quest_objective_completion',
       'quest_id' => (string) ($quest['quest_id'] ?? ''),
       'objective_id' => $objective_id,
       'character_id' => $character_id,
@@ -415,6 +418,7 @@ class QuestTrackerService {
     $quest_name = trim((string) ($quest['quest_name'] ?? $quest['name'] ?? $quest['quest_id'] ?? 'Quest'));
     $this->postQuestNarratorNote($campaign_id, $quest, sprintf('Quest completed: %s. All goals accomplished.', $quest_name), [
       'event' => 'quest_completed',
+      'message_class' => 'quest_completion',
       'quest_id' => (string) ($quest['quest_id'] ?? ''),
       'character_id' => $character_id,
     ]);
@@ -424,47 +428,175 @@ class QuestTrackerService {
    * Post a narrator quest note to room chat (with system-log fallback).
    */
   protected function postQuestNarratorNote(int $campaign_id, array $quest, string $message, array $metadata = []): void {
-    if (!$this->chatSessionManager || $campaign_id <= 0 || trim($message) === '') {
+    if ($campaign_id <= 0 || trim($message) === '') {
       return;
     }
 
     try {
+      $room_note_posted = FALSE;
       [$dungeon_id, $room_id, $room_name] = $this->resolveQuestNarrationContext($campaign_id, $quest);
       if ($dungeon_id !== '' && $room_id !== '') {
-        $room_session = $this->chatSessionManager->ensureRoomSession($campaign_id, $dungeon_id, $room_id, $room_name);
-        $this->chatSessionManager->postMessage(
-          (int) ($room_session['id'] ?? 0),
-          $campaign_id,
-          'Narrator',
-          'gm',
-          '',
-          $message,
-          'system',
-          'public',
-          $metadata
-        );
-        return;
+        $room_note_posted = $this->appendQuestNarratorNoteToLegacyRoomChat($campaign_id, $dungeon_id, $room_id, $message, $metadata);
+
+        if ($this->chatSessionManager) {
+          $room_session = $this->chatSessionManager->ensureRoomSession($campaign_id, $dungeon_id, $room_id, $room_name);
+          $this->chatSessionManager->postMessage(
+            (int) ($room_session['id'] ?? 0),
+            $campaign_id,
+            'Narrator',
+            'gm',
+            '',
+            $message,
+            'system',
+            'public',
+            $metadata
+          );
+          $room_note_posted = TRUE;
+        }
       }
 
-      $this->chatSessionManager->ensureCampaignSessions($campaign_id);
-      $system_log = $this->chatSessionManager->loadSession($this->chatSessionManager->systemLogSessionKey($campaign_id));
-      if (!empty($system_log['id'])) {
-        $this->chatSessionManager->postMessage(
-          (int) $system_log['id'],
-          $campaign_id,
-          'Narrator',
-          'gm',
-          '',
-          $message,
-          'system',
-          'public',
-          $metadata
-        );
+      if (!$room_note_posted && $this->chatSessionManager) {
+        $this->chatSessionManager->ensureCampaignSessions($campaign_id);
+        $system_log = $this->chatSessionManager->loadSession($this->chatSessionManager->systemLogSessionKey($campaign_id));
+        if (!empty($system_log['id'])) {
+          $this->chatSessionManager->postMessage(
+            (int) $system_log['id'],
+            $campaign_id,
+            'Narrator',
+            'gm',
+            '',
+            $message,
+            'system',
+            'public',
+            $metadata
+          );
+        }
       }
     }
     catch (\Throwable $e) {
       $this->logger->warning('Failed to post quest narrator note: @error', ['@error' => $e->getMessage()]);
     }
+  }
+
+  /**
+   * Append narrator quest notes to the legacy room-chat transcript used by hexmap.
+   */
+  protected function appendQuestNarratorNoteToLegacyRoomChat(
+    int $campaign_id,
+    string $dungeon_id,
+    string $room_id,
+    string $message,
+    array $metadata = []
+  ): bool {
+    $dungeon_row = $this->database->select('dc_campaign_dungeons', 'd')
+      ->fields('d', ['id', 'dungeon_data'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('dungeon_id', $dungeon_id)
+      ->orderBy('id', 'DESC')
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+
+    if (!is_array($dungeon_row)) {
+      $dungeon_row = $this->database->select('dc_campaign_dungeons', 'd')
+        ->fields('d', ['id', 'dungeon_data'])
+        ->condition('campaign_id', $campaign_id)
+        ->orderBy('id', 'DESC')
+        ->range(0, 1)
+        ->execute()
+        ->fetchAssoc();
+    }
+
+    if (!is_array($dungeon_row) || empty($dungeon_row['id'])) {
+      return FALSE;
+    }
+
+    $dungeon_data = json_decode((string) ($dungeon_row['dungeon_data'] ?? '{}'), TRUE);
+    if (!is_array($dungeon_data)) {
+      return FALSE;
+    }
+
+    $rooms = is_array($dungeon_data['rooms'] ?? NULL) ? $dungeon_data['rooms'] : [];
+    $room_index = $this->findQuestNarrationRoomIndex($rooms, $room_id);
+    if ($room_index === NULL) {
+      $active_room_id = trim((string) ($dungeon_data['active_room_id'] ?? ''));
+      if ($active_room_id !== '') {
+        $room_index = $this->findQuestNarrationRoomIndex($rooms, $active_room_id);
+      }
+    }
+
+    if ($room_index === NULL || !is_array($rooms[$room_index] ?? NULL)) {
+      return FALSE;
+    }
+
+    if (!isset($rooms[$room_index]['chat']) || !is_array($rooms[$room_index]['chat'])) {
+      $rooms[$room_index]['chat'] = [];
+    }
+
+    $entry = [
+      'speaker' => 'Narrator',
+      'message' => trim($message),
+      'type' => 'gm',
+      'channel' => 'room',
+      'timestamp' => date('c'),
+      'character_id' => NULL,
+      'user_id' => 0,
+      'internal_log' => FALSE,
+    ];
+    $message_class = trim((string) ($metadata['message_class'] ?? ''));
+    if ($message_class !== '') {
+      $entry['message_class'] = $message_class;
+    }
+    if ($metadata !== []) {
+      $entry['quest_event'] = $metadata;
+    }
+
+    $rooms[$room_index]['chat'][] = $entry;
+    $chat_count = count($rooms[$room_index]['chat']);
+    if ($chat_count > self::ROOM_CHAT_MESSAGE_LIMIT) {
+      $rooms[$room_index]['chat'] = array_slice(
+        $rooms[$room_index]['chat'],
+        $chat_count - self::ROOM_CHAT_MESSAGE_LIMIT
+      );
+    }
+
+    $dungeon_data['rooms'] = $rooms;
+    $updated = (int) $this->database->update('dc_campaign_dungeons')
+      ->fields([
+        'dungeon_data' => json_encode($dungeon_data),
+        'updated' => $this->time->getRequestTime(),
+      ])
+      ->condition('id', (int) $dungeon_row['id'])
+      ->condition('campaign_id', $campaign_id)
+      ->execute();
+
+    return $updated > 0;
+  }
+
+  /**
+   * Find room key by runtime room id or canonical source room id.
+   */
+  protected function findQuestNarrationRoomIndex(array $rooms, string $room_id): int|string|null {
+    if ($room_id === '') {
+      return NULL;
+    }
+
+    if (isset($rooms[$room_id]) && is_array($rooms[$room_id])) {
+      return $room_id;
+    }
+
+    foreach ($rooms as $key => $room) {
+      if (!is_array($room)) {
+        continue;
+      }
+      $candidate_room_id = trim((string) ($room['room_id'] ?? $room['id'] ?? ''));
+      $candidate_source_room_id = trim((string) ($room['source_room_id'] ?? ''));
+      if ($candidate_room_id === $room_id || ($candidate_source_room_id !== '' && $candidate_source_room_id === $room_id)) {
+        return $key;
+      }
+    }
+
+    return NULL;
   }
 
   /**

@@ -446,6 +446,64 @@ console.log('\n=== ChatPanel canonical line contract ===');
 }
 
 {
+  const appended = [];
+  const panel = {
+    _el: { chatLog: { innerHTML: '' } },
+    activeSessionView: 'room',
+    activeChannel: 'room',
+    resolveChatChannelKey,
+    normalizeChatLineRecord,
+    normalizeChatLineRecords,
+    appendChatLine(speaker, message) {
+      appended.push({ speaker, message });
+    },
+    rememberChatLines() {},
+  };
+
+  renderChatLineRecords.call(panel, [
+    {
+      speaker: 'T10',
+      message: 'turn ten',
+      type: 'system',
+      lineId: '2026-06-01T12:00:00Z:10',
+      sourceMessageId: 10,
+      created: 1000,
+      source: 'room-history',
+      authority: 'authoritative',
+      messageClass: 'authoritative_transcript',
+    },
+    {
+      speaker: 'T2',
+      message: 'turn two',
+      type: 'system',
+      lineId: '2026-06-01T12:00:00Z:2',
+      sourceMessageId: 2,
+      created: 1000,
+      source: 'room-history',
+      authority: 'authoritative',
+      messageClass: 'authoritative_transcript',
+    },
+    {
+      speaker: 'T1',
+      message: 'turn one',
+      type: 'system',
+      lineId: '2026-06-01T12:00:00Z:1',
+      sourceMessageId: 1,
+      created: 1000,
+      source: 'room-history',
+      authority: 'authoritative',
+      messageClass: 'authoritative_transcript',
+    },
+  ], 'room', {
+    context: { roomId: 'room-1' },
+    channelKey: 'room',
+  });
+
+  const order = appended.map((line) => line.speaker).join(',');
+  assert(order === 'T1,T2,T10', 'renderChatLineRecords uses numeric sourceMessageId tie-breaker for same-second room history lines');
+}
+
+{
   let remembered = null;
   let rendered = null;
   let summary = null;
@@ -487,7 +545,9 @@ console.log('\n=== ChatPanel canonical line contract ===');
         speaker: 'Guide',
         message: 'Stay close.',
         type: 'npc',
+        message_class: 'quest_objective_completion',
         timestamp: '2026-06-01T12:00:00Z',
+        sequence_index: 1,
       }],
       turn_sequence: [],
     },
@@ -495,8 +555,9 @@ console.log('\n=== ChatPanel canonical line contract ===');
 
   assert(remembered?.view === 'room', 'room history is remembered in the room view');
   assert(remembered?.lines[0]?.source === 'room-history', 'room history lines are tagged with the room-history source');
+  assert(remembered?.lines[0]?.sourceMessageId === 1, 'room history lines expose sourceMessageId ordering metadata');
   assert(remembered?.lines[0]?.authority === 'authoritative', 'room history lines are authoritative');
-  assert(remembered?.lines[0]?.messageClass === 'authoritative_transcript', 'room history lines are tagged as authoritative transcript');
+  assert(remembered?.lines[0]?.messageClass === 'quest_objective_completion', 'room history lines preserve server-provided message classes');
   assert(rendered?.lines[0]?.channel === 'room' && rendered?.lines[0]?.view === 'room', 'room history lines preserve the room view/channel metadata');
   assert(Array.isArray(summary) && summary.length === 1, 'room history summary still operates on the normalized lines');
   assert(persistedEncounterHistoryCalls === 0, 'room history rendering does not trigger persisted encounter transcript fetches directly');
@@ -509,6 +570,7 @@ console.log('\n=== ChatPanel canonical line contract ===');
         message: 'Still here.',
         type: 'npc',
         timestamp: '2026-06-01T12:00:05Z',
+        sequence_index: 1,
       }],
       turn_sequence: [],
     },
@@ -524,11 +586,56 @@ console.log('\n=== ChatPanel canonical line contract ===');
         message: 'Welcome next room.',
         type: 'npc',
         timestamp: '2026-06-01T12:00:10Z',
+        sequence_index: 1,
       }],
       turn_sequence: [],
     },
   });
   assert(persistedEncounterHistoryCalls === 0, 'room context changes do not trigger persisted encounter transcript fetches from this renderer');
+}
+
+{
+  const panel = {
+    activeSessionView: 'room',
+    activeChannel: 'room',
+    resolveChatChannelKey,
+    getChatContext() {
+      return { campaignId: 33, roomId: 'room-contract' };
+    },
+    rememberRoomTurnSequence() {},
+    rememberChatLines() {
+      return [];
+    },
+    renderChatLineRecords() {},
+    updateChatSummary() {},
+    renderPersistedEncounterEventHistory() {},
+    scrollChatToBottom() {},
+    syncChatTurnStatus() {},
+    resolvePinnedChatRoomTarget() {
+      return null;
+    },
+    bus: { emit() {} },
+  };
+
+  let contractFailed = false;
+  try {
+    renderRoomChatHistory.call(panel, {
+      success: true,
+      data: {
+        messages: [{
+          speaker: 'Guide',
+          message: 'Missing sequence metadata.',
+          type: 'npc',
+          timestamp: '2026-06-01T12:00:00Z',
+        }],
+        turn_sequence: [],
+      },
+    });
+  } catch (error) {
+    contractFailed = /sequence_index/.test(String(error?.message || ''));
+  }
+
+  assert(contractFailed, 'room history rendering fails fast when sequence_index is missing');
 }
 
 {
@@ -567,6 +674,7 @@ console.log('\n=== ChatPanel canonical line contract ===');
         message: 'Keep quiet.',
         type: 'npc',
         timestamp: '2026-06-01T12:00:00Z',
+        sequence_index: 1,
       }],
       turn_sequence: [],
     },
@@ -609,6 +717,7 @@ console.log('\n=== ChatPanel canonical line contract ===');
       speaker: 'Scout',
       message: 'I hear footsteps.',
       type: 'player',
+      metadata: { message_class: 'quest_completion' },
       created: 123,
     }],
   });
@@ -616,7 +725,7 @@ console.log('\n=== ChatPanel canonical line contract ===');
   assert(remembered?.view === 'party', 'session view messages are remembered under their session view');
   assert(remembered?.lines[0]?.source === 'session-view:party', 'session view messages are tagged with the session-view source');
   assert(remembered?.lines[0]?.authority === 'authoritative', 'session view messages are authoritative');
-  assert(remembered?.lines[0]?.messageClass === 'authoritative_transcript', 'session view messages are tagged as authoritative transcript');
+  assert(remembered?.lines[0]?.messageClass === 'quest_completion', 'session view messages preserve server-provided message classes');
   assert(rendered?.lines[0]?.channel === 'party' && rendered?.lines[0]?.view === 'party', 'session view messages preserve canonical view/channel metadata');
 }
 

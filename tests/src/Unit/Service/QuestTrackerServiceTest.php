@@ -5,6 +5,7 @@ namespace Drupal\Tests\dungeoncrawler_content\Unit\Service;
 use Drupal\Component\Datetime\TimeInterface;
 use Drupal\Core\Database\Connection;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
+use Drupal\dungeoncrawler_content\Service\ChatSessionManager;
 use Drupal\dungeoncrawler_content\Service\QuestTrackerService;
 use Drupal\Tests\UnitTestCase;
 use Psr\Log\LoggerInterface;
@@ -364,6 +365,181 @@ class QuestTrackerServiceTest extends UnitTestCase {
     $escort = $states[0]['objectives'][0];
     $this->assertTrue($escort['arrived']);
     $this->assertTrue($escort['completed']);
+  }
+
+  /**
+   * Verifies objective completion notes write to room chat and session chat.
+   */
+  public function testObjectiveCompletionNarratorNoteWritesRoomAndSessionChat(): void {
+    $logger = $this->createMock(LoggerInterface::class);
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($logger);
+
+    $chat_session_manager = $this->createMock(ChatSessionManager::class);
+    $chat_session_manager->expects($this->once())
+      ->method('ensureRoomSession')
+      ->with(221, '77', 'tavern_entrance', 'Tavern Entrance')
+      ->willReturn(['id' => 901]);
+    $chat_session_manager->expects($this->once())
+      ->method('postMessage')
+      ->with(
+        901,
+        221,
+        'Narrator',
+        'gm',
+        '',
+        $this->stringContains('Objective completed for The Missing Spellbooks'),
+        'system',
+        'public',
+        $this->callback(function (array $metadata): bool {
+          return ($metadata['event'] ?? '') === 'quest_objective_completed'
+            && ($metadata['message_class'] ?? '') === 'quest_objective_completion';
+        })
+      )
+      ->willReturn(1);
+    $chat_session_manager->expects($this->never())
+      ->method('ensureCampaignSessions');
+
+    $service = new class(
+      $this->createMock(Connection::class),
+      $logger_factory,
+      $this->createMock(TimeInterface::class),
+      NULL,
+      NULL,
+      $chat_session_manager
+    ) extends QuestTrackerService {
+      public array $legacyNotes = [];
+
+      protected function resolveQuestNarrationContext(int $campaign_id, array $quest): array {
+        return ['77', 'tavern_entrance', 'Tavern Entrance'];
+      }
+
+      protected function appendQuestNarratorNoteToLegacyRoomChat(
+        int $campaign_id,
+        string $dungeon_id,
+        string $room_id,
+        string $message,
+        array $metadata = []
+      ): bool {
+        $this->legacyNotes[] = [
+          'campaign_id' => $campaign_id,
+          'dungeon_id' => $dungeon_id,
+          'room_id' => $room_id,
+          'message' => $message,
+          'metadata' => $metadata,
+        ];
+        return TRUE;
+      }
+
+      public function emitObjectiveNarratorNote(int $campaign_id, array $quest, string $objective_id, ?int $character_id, string $next_step): void {
+        $this->postQuestObjectiveCompletionNarratorNote($campaign_id, $quest, $objective_id, $character_id, $next_step);
+      }
+    };
+
+    $quest = [
+      'quest_id' => 'missing_spellbooks',
+      'quest_name' => 'The Missing Spellbooks',
+      'generated_objectives' => json_encode([
+        [
+          'phase' => 1,
+          'objectives' => [
+            [
+              'objective_id' => 'collect_books',
+              'description' => 'Collect all missing spellbooks',
+              'completed' => TRUE,
+            ],
+          ],
+        ],
+      ]),
+    ];
+
+    $service->emitObjectiveNarratorNote(221, $quest, 'collect_books', 812, 'Return to Archivist Myra');
+
+    $this->assertCount(1, $service->legacyNotes);
+    $this->assertSame(221, $service->legacyNotes[0]['campaign_id']);
+    $this->assertSame('77', $service->legacyNotes[0]['dungeon_id']);
+    $this->assertSame('tavern_entrance', $service->legacyNotes[0]['room_id']);
+    $this->assertStringContainsString('Objective completed for The Missing Spellbooks', $service->legacyNotes[0]['message']);
+    $this->assertStringContainsString('Next step: Return to Archivist Myra.', $service->legacyNotes[0]['message']);
+    $this->assertSame('quest_objective_completion', $service->legacyNotes[0]['metadata']['message_class'] ?? '');
+  }
+
+  /**
+   * Verifies quest-completion notes fall back to system log when room context is missing.
+   */
+  public function testQuestCompletionNarratorNoteFallsBackToSystemLogWithoutRoomContext(): void {
+    $logger = $this->createMock(LoggerInterface::class);
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($logger);
+
+    $chat_session_manager = $this->createMock(ChatSessionManager::class);
+    $chat_session_manager->expects($this->once())
+      ->method('ensureCampaignSessions')
+      ->with(305);
+    $chat_session_manager->expects($this->once())
+      ->method('systemLogSessionKey')
+      ->with(305)
+      ->willReturn('campaign.305.system_log');
+    $chat_session_manager->expects($this->once())
+      ->method('loadSession')
+      ->with('campaign.305.system_log')
+      ->willReturn(['id' => 44]);
+    $chat_session_manager->expects($this->once())
+      ->method('postMessage')
+      ->with(
+        44,
+        305,
+        'Narrator',
+        'gm',
+        '',
+        'Quest completed: Hollow Promise. All goals accomplished.',
+        'system',
+        'public',
+        $this->callback(function (array $metadata): bool {
+          return ($metadata['event'] ?? '') === 'quest_completed'
+            && ($metadata['message_class'] ?? '') === 'quest_completion';
+        })
+      )
+      ->willReturn(1);
+    $chat_session_manager->expects($this->never())
+      ->method('ensureRoomSession');
+
+    $service = new class(
+      $this->createMock(Connection::class),
+      $logger_factory,
+      $this->createMock(TimeInterface::class),
+      NULL,
+      NULL,
+      $chat_session_manager
+    ) extends QuestTrackerService {
+      public array $legacyNotes = [];
+
+      protected function resolveQuestNarrationContext(int $campaign_id, array $quest): array {
+        return ['', '', ''];
+      }
+
+      protected function appendQuestNarratorNoteToLegacyRoomChat(
+        int $campaign_id,
+        string $dungeon_id,
+        string $room_id,
+        string $message,
+        array $metadata = []
+      ): bool {
+        $this->legacyNotes[] = $message;
+        return TRUE;
+      }
+
+      public function emitQuestCompletionNarratorNote(int $campaign_id, array $quest, ?int $character_id): void {
+        $this->postQuestCompletionNarratorNote($campaign_id, $quest, $character_id);
+      }
+    };
+
+    $service->emitQuestCompletionNarratorNote(305, [
+      'quest_id' => 'hollow_promise',
+      'quest_name' => 'Hollow Promise',
+    ], 812);
+
+    $this->assertSame([], $service->legacyNotes);
   }
 
 }

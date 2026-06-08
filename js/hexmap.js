@@ -8015,6 +8015,7 @@ import { SpriteService } from './SpriteService.js';
         messageId: Number.isFinite(Number(line.messageId)) ? Number(line.messageId) : null,
         sourceMessageId: Number.isFinite(Number(line.sourceMessageId)) ? Number(line.sourceMessageId) : null,
         created: Number.isFinite(Number(line.created)) ? Number(line.created) : 0,
+        messageClass: String(line.messageClass || '').trim(),
       };
     }
 
@@ -8055,6 +8056,7 @@ import { SpriteService } from './SpriteService.js';
         messageId: next.messageId || base.messageId,
         sourceMessageId: next.sourceMessageId || base.sourceMessageId,
         created: next.created || base.created || 0,
+        messageClass: next.messageClass || base.messageClass,
       };
     }
 
@@ -8134,6 +8136,7 @@ import { SpriteService } from './SpriteService.js';
           messageId: line.messageId,
           sourceMessageId: line.sourceMessageId,
           created: line.created,
+          messageClass: line.messageClass,
           suppressRemember: true,
         });
       });
@@ -8240,6 +8243,7 @@ import { SpriteService } from './SpriteService.js';
           type: msg.type,
           lineId: timestamp !== '' ? `${timestamp}:${index}` : `room-history:${index}:${msg.speaker || ''}:${msg.type || ''}`,
           created,
+          messageClass: String(msg.message_class || '').trim(),
         };
       });
       const merged = this.rememberChatLines('room', incoming, {
@@ -8877,6 +8881,7 @@ import { SpriteService } from './SpriteService.js';
         messageId: Number.isFinite(Number(options.messageId)) ? Number(options.messageId) : null,
         sourceMessageId: Number.isFinite(Number(options.sourceMessageId)) ? Number(options.sourceMessageId) : null,
         created: Number.isFinite(Number(options.created)) ? Number(options.created) : 0,
+        messageClass: String(options.messageClass || '').trim(),
       };
 
       let line = null;
@@ -8895,6 +8900,15 @@ import { SpriteService } from './SpriteService.js';
       }
 
       return line;
+    }
+
+    resolveMessageClassCssToken(messageClass = '') {
+      return String(messageClass || '')
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]+/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '');
     }
 
     appendChatLine(speaker, message, type = 'npc', options = {}) {
@@ -8920,6 +8934,10 @@ import { SpriteService } from './SpriteService.js';
       line.innerHTML = '';
       line.className = `chat-line chat-line--${type}`;
       line.classList.toggle('chat-line--pending', Boolean(options.pending));
+      const messageClassToken = this.resolveMessageClassCssToken(options.messageClass);
+      if (messageClassToken !== '') {
+        line.classList.add(`chat-line--message-class-${messageClassToken}`);
+      }
 
       if (speaker) {
         const name = document.createElement('span');
@@ -8953,6 +8971,11 @@ import { SpriteService } from './SpriteService.js';
         line.dataset.created = String(options.created);
       } else {
         delete line.dataset.created;
+      }
+      if (options.messageClass) {
+        line.dataset.messageClass = String(options.messageClass);
+      } else {
+        delete line.dataset.messageClass;
       }
       line.dataset.transient = options.transient ? '1' : '0';
 
@@ -9676,6 +9699,7 @@ import { SpriteService } from './SpriteService.js';
           messageId: line.dataset.messageId || null,
           sourceMessageId: line.dataset.sourceMessageId || null,
           created: line.dataset.created || 0,
+          messageClass: line.dataset.messageClass || '',
         }))
         .filter((line) => !line.transient);
     }
@@ -9832,6 +9856,7 @@ import { SpriteService } from './SpriteService.js';
           messageId: msg.id || null,
           sourceMessageId: msg.source_message_id || null,
           created: msg.created || 0,
+          messageClass: String(msg?.metadata?.message_class || '').trim(),
         }));
         const merged = this.rememberChatLines(view, incoming, { context });
         this.renderChatLineRecords(merged, view, { context });

@@ -975,15 +975,20 @@ export class ChatPanel {
     const incoming = result.data.messages.map((msg, index) => {
       const timestamp = String(msg.timestamp || '').trim();
       const created = timestamp !== '' ? Date.parse(timestamp) || 0 : 0;
+      const sequenceIndex = Number(msg.sequence_index);
+      if (!Number.isInteger(sequenceIndex) || sequenceIndex <= 0) {
+        throw new Error(`room-chat-history-v1 contract violation: missing valid sequence_index at message ${index}`);
+      }
       return {
         speaker: msg.speaker,
         message: msg.message,
         type: msg.type,
         lineId: timestamp !== '' ? `${timestamp}:${index}` : `room-history:${index}:${msg.speaker || ''}:${msg.type || ''}`,
+        sourceMessageId: sequenceIndex,
         created,
         source: 'room-history',
         authority: 'authoritative',
-        messageClass: 'authoritative_transcript',
+        messageClass: String(msg.message_class || '').trim() || 'authoritative_transcript',
         channel: this.activeChannel,
         view: 'room',
       };
@@ -1379,6 +1384,15 @@ export class ChatPanel {
     return line;
   }
 
+  resolveMessageClassCssToken(messageClass = '') {
+    return String(messageClass || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '');
+  }
+
   appendChatLine(speaker, message, type = 'npc', options = {}) {
     const log = this._el.chatLog;
     if (!log) {
@@ -1410,6 +1424,10 @@ export class ChatPanel {
     line.className = `chat-line chat-line--${lineRecord.type}`;
     line.classList.toggle('chat-line--pending', Boolean(options.pending));
     line.classList.toggle('chat-line--turn-prompt', Boolean(lineRecord.turnPrompt));
+    const messageClassToken = this.resolveMessageClassCssToken(lineRecord.messageClass);
+    if (messageClassToken !== '') {
+      line.classList.add(`chat-line--message-class-${messageClassToken}`);
+    }
 
     if (lineRecord.speaker) {
       const name = document.createElement('span');
@@ -2263,6 +2281,14 @@ export class ChatPanel {
           if (aMessageId !== bMessageId) return aMessageId - bMessageId;
         }
 
+        const aSourceMessageId = numeric(a.sourceMessageId);
+        const bSourceMessageId = numeric(b.sourceMessageId);
+        if (aSourceMessageId !== null || bSourceMessageId !== null) {
+          if (aSourceMessageId === null) return 1;
+          if (bSourceMessageId === null) return -1;
+          if (aSourceMessageId !== bSourceMessageId) return aSourceMessageId - bSourceMessageId;
+        }
+
         const aLineId = String(a.lineId || '');
         const bLineId = String(b.lineId || '');
         if (aLineId !== bLineId) {
@@ -2708,7 +2734,7 @@ export class ChatPanel {
         created: msg.created || 0,
         source: `session-view:${view}`,
         authority: 'authoritative',
-        messageClass: 'authoritative_transcript',
+        messageClass: String(msg?.metadata?.message_class || '').trim() || 'authoritative_transcript',
         channel: view,
         view,
       }));

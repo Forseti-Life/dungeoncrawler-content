@@ -185,6 +185,7 @@ class RoomChatService {
         'speaker' => $speaker !== '' ? $speaker : 'Unknown',
         'message' => $message,
         'type' => $msg['type'] ?? 'npc',
+        'message_class' => trim((string) ($msg['message_class'] ?? '')),
         'channel' => $msg['channel'] ?? 'room',
         'timestamp' => $msg['timestamp'] ?? date('c'),
         'sequence_index' => $index + 1,
