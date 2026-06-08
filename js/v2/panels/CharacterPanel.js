@@ -26,6 +26,24 @@ export class CharacterPanel {
     this.stateManager = stateManager || {};
     const id = (k) => document.getElementById(k);
     const s = (k) => this.container?.querySelector(`[data-char="${k}"]`) || null;
+    const abilityBindingIds = {
+      characterStr: 'char-str',
+      characterStrMod: 'char-str-mod',
+      characterDex: 'char-dex',
+      characterDexMod: 'char-dex-mod',
+      characterCon: 'char-con',
+      characterConMod: 'char-con-mod',
+      characterInt: 'char-int',
+      characterIntMod: 'char-int-mod',
+      characterWis: 'char-wis',
+      characterWisMod: 'char-wis-mod',
+      characterCha: 'char-cha',
+      characterChaMod: 'char-cha-mod',
+    };
+    const abilityElements = Object.fromEntries(
+      Object.entries(abilityBindingIds).map(([key, domId]) => [key, id(domId)])
+    );
+
     this._el = {
       // Entity info sub-panel (inline NPC/creature details)
       entityInfoPanel:         id('char-entity-info'),
@@ -65,18 +83,7 @@ export class CharacterPanel {
       characterSpeed:          id('char-speed'),
       characterPerception:     id('char-perception'),
       characterXp:             id('char-xp'),
-      characterStr:            id('char-str'),
-      characterStrMod:         id('char-str-mod'),
-      characterDex:            id('char-dex'),
-      characterDexMod:         id('char-dex-mod'),
-      characterCon:            id('char-con'),
-      characterConMod:         id('char-con-mod'),
-      characterInt:            id('char-int'),
-      characterIntMod:         id('char-int-mod'),
-      characterWis:            id('char-wis'),
-      characterWisMod:         id('char-wis-mod'),
-      characterCha:            id('char-cha'),
-      characterChaMod:         id('char-cha-mod'),
+      ...abilityElements,
       characterFort:           id('char-fort'),
       characterRef:            id('char-ref'),
       characterWill:           id('char-will'),
