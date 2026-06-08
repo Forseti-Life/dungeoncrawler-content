@@ -10326,19 +10326,25 @@ import { SpriteService } from './SpriteService.js';
     renderQuestSummaryPreviewLines(quest, fallbackLine) {
       const rewardLine = this.renderQuestRewardLine(quest);
       const phases = extractQuestPhases(quest);
+      const objectiveIndex = buildObjectiveStateIndex(quest);
       const objectives = (Array.isArray(phases) ? phases : [])
         .flatMap((phase) => flattenQuestObjectives(phase.objectives || []))
         .filter((objective) => !objective?.hidden || objective?.revealed || objective?.completed);
       const lines = [rewardLine];
       const objectiveLines = objectives.slice(0, 3).map((objective) => {
-        const description = String(objective?.description || objective?.objective_id || '').trim();
-        const current = Number.isFinite(Number(objective?.current)) ? Number(objective.current) : 0;
-        const target = Number.isFinite(Number(objective?.target_count)) ? Number(objective.target_count) : 0;
-        const progress = String(objective?.type || '').toLowerCase() === 'collect' && target > 0
+        const merged = mergeObjectiveProgress(objective, objectiveIndex);
+        const description = String(merged?.description || merged?.objective_id || '').trim();
+        const current = Number.isFinite(Number(merged?.current)) ? Number(merged.current) : 0;
+        const target = Number.isFinite(Number(merged?.target_count)) ? Number(merged.target_count) : 0;
+        const completed = Boolean(merged?.completed);
+        const icon = completed ? '✅' : '⬜';
+        const progress = String(merged?.type || '').toLowerCase() === 'collect' && target > 0
           ? ` (${current}/${target})`
           : '';
-        const details = this.renderObjectiveGuidanceLines(objective);
-        return description ? `<li class="quest-objective">⬜ ${description}${progress}${details}</li>` : '';
+        const details = this.renderObjectiveGuidanceLines(merged);
+        return description
+          ? `<li class="quest-objective ${completed ? 'quest-objective--done' : ''}">${icon} ${description}${progress}${details}</li>`
+          : '';
       }).filter(Boolean);
       if (objectiveLines.length > 0) {
         lines.push(...objectiveLines);
