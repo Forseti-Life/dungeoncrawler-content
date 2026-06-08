@@ -557,6 +557,23 @@ export class ChatPanel {
         await questHexmap.refreshQuestJournalFromApi();
       }
 
+      const completedCharacterId = Number(
+        questHexmap?.launchContext?.character_id
+        || questHexmap?.launchCharacter?.id
+        || questHexmap?.characterData?.id
+        || 0
+      ) || null;
+      if (completedCharacterId) {
+        const inventoryContext = this.stateManager?.hexmap?.uiManager?.currentCharacterInventoryContext;
+        if (inventoryContext && String(inventoryContext.characterId || '') === String(completedCharacterId)) {
+          await this.stateManager?.hexmap?.uiManager?.refreshCharacterInventoryFromApi?.({
+            ...inventoryContext,
+            campaignId: questHexmap?.resolveCampaignId?.() || Number(questHexmap?.launchContext?.campaign_id || 0) || null,
+          });
+        }
+        questHexmap?.loadCharacterFromApi?.(completedCharacterId);
+      }
+
       if (result.data?.navigation?.target_room_id) {
         this.handleNavigationResult(result.data.navigation);
       }
@@ -1260,6 +1277,22 @@ export class ChatPanel {
                   campaignId: questCampaignId,
                   characterId: questCharacterId,
                 });
+              }
+              const completedCharacterId = Number(
+                questHexmap?.launchContext?.character_id
+                || questHexmap?.launchCharacter?.id
+                || questHexmap?.characterData?.id
+                || 0
+              ) || null;
+              if (completedCharacterId) {
+                const inventoryContext = this.stateManager?.hexmap?.uiManager?.currentCharacterInventoryContext;
+                if (inventoryContext && String(inventoryContext.characterId || '') === String(completedCharacterId)) {
+                  await this.stateManager?.hexmap?.uiManager?.refreshCharacterInventoryFromApi?.({
+                    ...inventoryContext,
+                    campaignId: questCampaignId,
+                  });
+                }
+                questHexmap?.loadCharacterFromApi?.(completedCharacterId);
               }
               this.settlePendingChatRequest(pending, {
                 removePlayer: false,

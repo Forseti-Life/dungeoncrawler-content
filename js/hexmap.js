@@ -17834,6 +17834,24 @@ import { SpriteService } from './SpriteService.js';
                 // Remove completed quest from local active list.
                 this.questData.active = (this.questData.active || []).filter(q => (q.quest_id || q.id) !== questId);
                 await this.refreshQuestJournalFromApi();
+
+                const completedCharacterId = Number(
+                  this.launchContext?.character_id
+                  || this.launchCharacter?.id
+                  || this.characterData?.id
+                  || 0
+                ) || null;
+
+                if (completedCharacterId) {
+                  const inventoryContext = this.uiManager?.currentCharacterInventoryContext;
+                  if (inventoryContext && String(inventoryContext.characterId || '') === String(completedCharacterId)) {
+                    await this.uiManager.refreshCharacterInventoryFromApi({
+                      ...inventoryContext,
+                      campaignId,
+                    });
+                  }
+                  this.loadCharacterFromApi(completedCharacterId);
+                }
               }
             } catch (error) {
               console.error('Quest completion failed:', error);
