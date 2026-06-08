@@ -135,7 +135,9 @@ class NpcPsychologyService {
         return NULL;
       }
 
-      return $this->hydrateProfile($row);
+      $profile = $this->hydrateProfile($row);
+      $this->repairStoredProfileStructure($campaign_id, $entity_ref, $row, $profile);
+      return $profile;
     }
     catch (\Exception $e) {
       $this->logger->error('Failed to load NPC psychology: @err', ['@err' => $e->getMessage()]);
@@ -886,7 +888,17 @@ class NpcPsychologyService {
         ->execute()
         ->fetchAll(\PDO::FETCH_ASSOC);
 
-      return array_map([$this, 'hydrateProfile'], $rows);
+      $profiles = [];
+      foreach ($rows as $row) {
+        $profile = $this->hydrateProfile($row);
+        $entity_ref = trim((string) ($row['entity_ref'] ?? ''));
+        if ($entity_ref !== '') {
+          $this->repairStoredProfileStructure($campaign_id, $entity_ref, $row, $profile);
+        }
+        $profiles[] = $profile;
+      }
+
+      return $profiles;
     }
     catch (\Exception $e) {
       return [];
@@ -1171,6 +1183,40 @@ class NpcPsychologyService {
     $row['inner_monologue'] = json_decode($row['inner_monologue'] ?? '[]', TRUE) ?: [];
     $row['attitude_history'] = json_decode($row['attitude_history'] ?? '[]', TRUE) ?: [];
     return $row;
+  }
+
+  /**
+   * Persist normalized profile fields when legacy rows miss required structure.
+   */
+  protected function repairStoredProfileStructure(int $campaign_id, string $entity_ref, array $raw_row, array $profile): void {
+    $raw_personality_axes = json_decode((string) ($raw_row['personality_axes'] ?? '{}'), TRUE);
+    if (!is_array($raw_personality_axes)) {
+      $raw_personality_axes = [];
+    }
+    $raw_character_sheet = json_decode((string) ($raw_row['character_sheet'] ?? '{}'), TRUE);
+    if (!is_array($raw_character_sheet)) {
+      $raw_character_sheet = [];
+    }
+
+    $normalized_personality_axes = is_array($profile['personality_axes'] ?? NULL) ? $profile['personality_axes'] : [];
+    $normalized_character_sheet = is_array($profile['character_sheet'] ?? NULL) ? $profile['character_sheet'] : [];
+    $normalized_goals = $normalized_character_sheet['goals'] ?? [];
+    $raw_goals = $raw_character_sheet['goals'] ?? NULL;
+
+    $updates = [];
+    if ($raw_personality_axes !== $normalized_personality_axes) {
+      $updates['personality_axes'] = $normalized_personality_axes;
+    }
+    if (!is_array($raw_goals) || $raw_goals !== $normalized_goals) {
+      $raw_character_sheet['goals'] = $normalized_goals;
+      $updates['character_sheet'] = $raw_character_sheet;
+    }
+
+    if ($updates !== [] && !$this->updateProfile($campaign_id, $entity_ref, $updates)) {
+      $this->logger->warning('Failed to persist normalized NPC psychology contract for @ref.', [
+        '@ref' => $entity_ref,
+      ]);
+    }
   }
 
   /**

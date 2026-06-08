@@ -376,6 +376,36 @@ class CharacterManagerCanonicalizationTest extends UnitTestCase {
   }
 
   /**
+   * @covers ::canonicalizeCharacterData
+   */
+  public function testCanonicalizeCharacterDataNormalizesActorGoalsAndActionEconomy(): void {
+    $canonical = $this->manager->canonicalizeCharacterData([
+      'name' => 'Legacy Contact',
+      'ancestry' => 'Human',
+      'class' => 'npc',
+      'level' => 1,
+      'motivations' => 'Keep watch; Gather rumors',
+      'goals' => 'Protect the tavern',
+      'actions' => [
+        'three_action_economy' => [
+          'actions_remaining' => 2,
+          'reaction_available' => 0,
+        ],
+        'available_actions' => [
+          'feat' => ['at_will' => []],
+        ],
+      ],
+    ]);
+
+    $this->assertSame(2, $canonical['actions']['threeActionEconomy']['actionsRemaining'] ?? NULL);
+    $this->assertFalse((bool) ($canonical['actions']['threeActionEconomy']['reactionAvailable'] ?? TRUE));
+    $this->assertArrayHasKey('feat', $canonical['actions']['availableActions'] ?? []);
+    $this->assertContains('Gain XP', $canonical['goals'] ?? []);
+    $this->assertContains('Gain Treasure', $canonical['goals'] ?? []);
+    $this->assertContains('Protect the tavern', $canonical['goals'] ?? []);
+  }
+
+  /**
    * @covers ::completeCharacterData
    */
   public function testCompleteCharacterDataFillsNarrativeFieldsAndLegacyMirrors(): void {
@@ -415,6 +445,9 @@ class CharacterManagerCanonicalizationTest extends UnitTestCase {
     $this->assertSame('Power Attack', $completed['feats'][0]['name'] ?? NULL);
     $this->assertArrayNotHasKey('description', $completed['feats'][0] ?? []);
     $this->assertNotEmpty($completed['wizard']['portrait_prompt'] ?? '');
+    $this->assertSame(['Gain XP', 'Gain Treasure'], $completed['goals'] ?? NULL);
+    $this->assertSame(3, $completed['actions']['threeActionEconomy']['actionsRemaining'] ?? NULL);
+    $this->assertTrue((bool) ($completed['actions']['threeActionEconomy']['reactionAvailable'] ?? FALSE));
   }
 
   private function buildWriteQueryMock(array &$captured_fields): object {

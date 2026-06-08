@@ -133,6 +133,19 @@
   "appearance": "Small goblin with oversized ears that perk up at the word 'cheese'. Wears a distinctive hat made from aged cheese wrappers. His studded leather armor features tiny brass buttons shaped like cheese wheels. Always carries himself with unwarranted confidence and gesticulates wildly when speaking. Bright, intelligent eyes constantly dart about, assessing threats and opportunities.",
   "personality": "Silly and whimsical but genuinely confident. Talks fast and gesticulates wildly. Unshakably loyal once bribed with snacks. Refers to himself in third person when excited. Has an intelligence network of rats, led by 'Eduardo'. Deep and abiding fear of spiders. Considers cheese a spiritual experience.",
   "backstory": "Gribbles grew up in the undercity, scavenging and developing an improbably refined palate for cheese. He built a small intelligence network of rats led by his most trusted associate, Eduardo, who tipped him off about a Legendary Cheese aged in the Fungal Pantry deep within the dungeon. Gribbles' cousin Blemish was flattened by a trap and now serves as a bookmark — he's fine with it, mostly. Gribbles is on a sacred quest to find the cheese, and he'll partner with any adventurer willing to share a pickle and tolerate his enthusiasm.",
+  "motivations": "Find the Legendary Cheese in the Fungal Pantry; Keep Eduardo's intelligence network fed and loyal",
+  "goals": [
+    "Gain XP",
+    "Gain Treasure",
+    "Find the Legendary Cheese in the Fungal Pantry"
+  ],
+  "actions": {
+    "threeActionEconomy": {
+      "actionsRemaining": 3,
+      "reactionAvailable": true
+    },
+    "availableActions": {}
+  },
   "_npc_extended": {
     "role": "Companion / Guide",
     "disposition": "Friendly (after snack bribe)",

@@ -113,6 +113,65 @@ assert_true(is_array($loaded['attitude_history']), 'Attitude history is array');
 echo "\n";
 
 // ============================================================================
+echo "--- Test 2b: loadProfile repairs legacy motivation/goals structure ---\n";
+// ============================================================================
+$now = time();
+$db->insert('dc_npc_psychology')
+  ->fields([
+    'campaign_id' => $test_campaign_id,
+    'entity_ref' => 'legacy_contact_1',
+    'display_name' => 'Legacy Contact',
+    'character_sheet' => json_encode([
+      'display_name' => 'Legacy Contact',
+      'creature_type' => 'human_contact',
+      'level' => 1,
+      'role' => 'neutral',
+      'stats' => ['maxHp' => 10, 'currentHp' => 10, 'ac' => 12, 'perception' => 4],
+      'abilities' => [],
+      'equipment' => [],
+      'languages' => ['Common'],
+      'senses' => [],
+    ]),
+    'attitude' => 'indifferent',
+    'personality_axes' => json_encode([
+      'boldness' => 5,
+      'honesty' => 5,
+      'empathy' => 5,
+      'discipline' => 5,
+      'cunning' => 5,
+    ]),
+    'personality_traits' => 'watchful',
+    'motivations' => 'Keep watch; Gather rumors',
+    'fears' => 'Being exposed',
+    'bonds' => 'Local regulars',
+    'inner_monologue' => json_encode([]),
+    'attitude_history' => json_encode([]),
+    'created' => $now,
+    'updated' => $now,
+  ])
+  ->execute();
+
+$legacy = $service->loadProfile($test_campaign_id, 'legacy_contact_1');
+assert_true($legacy !== NULL, 'Legacy profile loaded');
+assert_true(isset($legacy['personality_axes']['motivation']), 'Legacy profile now has motivation axis');
+assert_true(in_array('Gain XP', $legacy['character_sheet']['goals'] ?? [], TRUE), 'Legacy profile now has Gain XP goal');
+assert_true(in_array('Gain Treasure', $legacy['character_sheet']['goals'] ?? [], TRUE), 'Legacy profile now has Gain Treasure goal');
+
+$legacy_row = $db->select('dc_npc_psychology', 'p')
+  ->fields('p', ['personality_axes', 'character_sheet'])
+  ->condition('campaign_id', $test_campaign_id)
+  ->condition('entity_ref', 'legacy_contact_1')
+  ->execute()
+  ->fetchAssoc();
+$persisted_axes = json_decode((string) ($legacy_row['personality_axes'] ?? '{}'), TRUE) ?: [];
+$persisted_sheet = json_decode((string) ($legacy_row['character_sheet'] ?? '{}'), TRUE) ?: [];
+assert_true(isset($persisted_axes['motivation']), 'Legacy motivation axis persisted to storage');
+assert_true(in_array('Gain XP', $persisted_sheet['goals'] ?? [], TRUE), 'Legacy goals persisted to storage (Gain XP)');
+assert_true(in_array('Gain Treasure', $persisted_sheet['goals'] ?? [], TRUE), 'Legacy goals persisted to storage (Gain Treasure)');
+
+echo "\n";
+
+// ============================================================================
 echo "--- Test 3: getOrCreateProfile returns existing ---\n";
 // ============================================================================
 $existing = $service->getOrCreateProfile($test_campaign_id, 'goblin_guard_1', [

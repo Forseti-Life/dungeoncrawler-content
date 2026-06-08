@@ -27,6 +27,7 @@ class CharacterManager {
   ];
 
   private const QUICKPLAY_PROFILE_VERSION = 3;
+  private const DEFAULT_ACTOR_GOALS = ['Gain XP', 'Gain Treasure'];
 
   protected Connection $database;
   protected AccountProxyInterface $currentUser;
@@ -10545,6 +10546,7 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
     $scalar_fields = [
       'concept',
       'roleplay_style',
+      'motivations',
       'heritage',
       'class_key_ability',
       'class_feat',
@@ -10572,6 +10574,7 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
     $array_fields = [
       'wizard',
       'quickplay_prefab',
+      'goals',
       'ancestry_boosts',
       'background_boosts',
       'cantrips',
@@ -10710,6 +10713,10 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
       $canonical['backstory'] ?? '',
       $this->buildCompletionBackstory($canonical['name'], $class_id, $background_name, $is_npc),
     ]);
+    $canonical['goals'] = self::normalizeActorGoals(
+      $canonical['goals'] ?? [],
+      (string) ($canonical['motivations'] ?? '')
+    );
     $canonical['deity'] = $this->firstNonEmptyString([
       $canonical['deity'] ?? '',
       !$is_npc ? $this->selectQuickPlayDeity($class_id, (string) $canonical['alignment']) : 'None',
@@ -10886,6 +10893,8 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
     $wizard['gender'] = (string) ($canonical['gender'] ?? '');
     $wizard['appearance'] = (string) ($canonical['appearance'] ?? '');
     $wizard['personality'] = (string) ($canonical['personality'] ?? '');
+    $wizard['goals'] = is_array($canonical['goals'] ?? NULL) ? $canonical['goals'] : [];
+    $wizard['motivations'] = (string) ($canonical['motivations'] ?? '');
     $wizard['roleplay_style'] = (string) ($canonical['roleplay_style'] ?? 'balanced');
     $wizard['backstory'] = (string) ($canonical['backstory'] ?? '');
     $wizard['portrait_generate'] = !empty($canonical['portrait_generate']) ? 1 : 0;
@@ -11556,6 +11565,12 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
       $character_data['resources'] = $normalized_spellcasting['resources'];
     }
 
+    $character_data['actions'] = self::normalizeCharacterActions($character_data['actions'] ?? NULL);
+    $character_data['goals'] = self::normalizeActorGoals(
+      $character_data['goals'] ?? [],
+      (string) ($character_data['motivations'] ?? '')
+    );
+
     return $character_data;
   }
 
@@ -12003,6 +12018,11 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
     $canonical['position'] = is_array($characterData['position'] ?? NULL)
       ? $characterData['position']
       : (is_array($canonical['position'] ?? NULL) ? $canonical['position'] : ['q' => 0, 'r' => 0, 'room_id' => '']);
+    $canonical['actions'] = self::normalizeCharacterActions($canonical['actions'] ?? ($characterData['actions'] ?? NULL));
+    $canonical['goals'] = self::normalizeActorGoals(
+      $characterData['goals'] ?? ($canonical['goals'] ?? []),
+      (string) ($characterData['motivations'] ?? ($canonical['motivations'] ?? ''))
+    );
     $canonical = $this->preserveStructuredAffiliationFields($canonical, $characterData, $wizard);
 
     return $this->synchronizeLegacyCharacterMirrors($canonical);
@@ -12041,6 +12061,87 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
     }
 
     return $default;
+  }
+
+  /**
+   * Normalize actor goals into a deduplicated ordered list with required defaults.
+   */
+  private static function normalizeActorGoals(array|string|null $goals, string $motivations = ''): array {
+    $items = [];
+    if (is_array($goals)) {
+      $items = $goals;
+    }
+    elseif (is_string($goals) && trim($goals) !== '') {
+      $items = preg_split('/[;\n\r]+/', $goals) ?: [];
+    }
+
+    $combined = [];
+    foreach ($items as $goal) {
+      if (!is_string($goal)) {
+        continue;
+      }
+      $trimmed = trim($goal);
+      if ($trimmed !== '') {
+        $combined[] = $trimmed;
+      }
+    }
+
+    if (trim($motivations) !== '') {
+      $motivated_items = preg_split('/[;\n\r]+/', $motivations) ?: [];
+      foreach ($motivated_items as $motivated_item) {
+        $trimmed = trim((string) $motivated_item);
+        if ($trimmed !== '') {
+          $combined[] = $trimmed;
+        }
+      }
+    }
+
+    foreach (self::DEFAULT_ACTOR_GOALS as $default_goal) {
+      $combined[] = $default_goal;
+    }
+
+    $seen = [];
+    $normalized = [];
+    foreach ($combined as $goal) {
+      $key = strtolower($goal);
+      if (isset($seen[$key])) {
+        continue;
+      }
+      $seen[$key] = TRUE;
+      $normalized[] = $goal;
+    }
+
+    return $normalized;
+  }
+
+  /**
+   * Normalize action-economy payload to the canonical actor action shape.
+   */
+  private static function normalizeCharacterActions(mixed $actions): array {
+    $payload = is_array($actions) ? $actions : [];
+    $three_action = is_array($payload['threeActionEconomy'] ?? NULL)
+      ? $payload['threeActionEconomy']
+      : (is_array($payload['three_action_economy'] ?? NULL) ? $payload['three_action_economy'] : []);
+
+    $actions_remaining = $three_action['actionsRemaining'] ?? $three_action['actions_remaining'] ?? 3;
+    if (!is_numeric($actions_remaining)) {
+      $actions_remaining = 3;
+    }
+    $actions_remaining = max(0, min(3, (int) $actions_remaining));
+
+    $reaction_available = $three_action['reactionAvailable'] ?? $three_action['reaction_available'] ?? TRUE;
+    $available_actions = $payload['availableActions'] ?? $payload['available_actions'] ?? [];
+    if (!is_array($available_actions)) {
+      $available_actions = [];
+    }
+
+    return [
+      'threeActionEconomy' => [
+        'actionsRemaining' => $actions_remaining,
+        'reactionAvailable' => (bool) $reaction_available,
+      ],
+      'availableActions' => $available_actions,
+    ];
   }
 
   /**
@@ -12643,13 +12744,8 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
         'will' => $will,
       ],
       'conditions' => is_array($data['conditions'] ?? NULL) ? $data['conditions'] : [],
-      'actions' => is_array($data['actions'] ?? NULL) ? $data['actions'] : [
-        'threeActionEconomy' => [
-          'actionsRemaining' => 3,
-          'reactionAvailable' => TRUE,
-        ],
-        'availableActions' => [],
-      ],
+      'actions' => self::normalizeCharacterActions($data['actions'] ?? NULL),
+      'goals' => self::normalizeActorGoals($data['goals'] ?? [], (string) ($data['motivations'] ?? '')),
       'spells' => $spells,
       'skills' => $skills,
       'inventory' => $inventory,
