@@ -3,6 +3,7 @@
 namespace Drupal\dungeoncrawler_content\Service;
 
 use Drupal\Core\Database\Connection;
+use Drupal\Core\Database\IntegrityConstraintViolationException;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Drupal\Component\Datetime\TimeInterface;
 use Psr\Log\LoggerInterface;
@@ -346,6 +347,7 @@ class QuestTrackerService {
       $quest = $this->loadCampaignQuest($campaign_id, $quest_id);
       $already_completed = !empty($progress_record['completed_at'])
         || strtolower((string) ($quest['status'] ?? '')) === 'completed';
+      $rewards_already_granted = $this->hasRecordedQuestRewardGrant($campaign_id, $quest_id, $character_id);
 
       // Update requested scope progress record.
       $this->database->update('dc_campaign_quest_progress')
@@ -367,9 +369,12 @@ class QuestTrackerService {
 
       // Load quest rewards.
       $rewards = json_decode($quest['generated_rewards'] ?? '{}', TRUE);
-      $rewards_applied = !$already_completed
+      $rewards_applied = !$rewards_already_granted
         ? $this->applyQuestRewards($campaign_id, $character_id, is_array($rewards) ? $rewards : [])
         : [];
+      if (!$rewards_already_granted) {
+        $this->recordQuestRewardGrant($campaign_id, $quest_id, $character_id, $rewards_applied);
+      }
 
       // Log completion
       $this->logQuestEvent(
@@ -1072,6 +1077,52 @@ class QuestTrackerService {
     }
 
     return $granted;
+  }
+
+  /**
+   * Check whether rewards were already granted for a quest completion.
+   */
+  protected function hasRecordedQuestRewardGrant(int $campaign_id, string $quest_id, ?int $character_id): bool {
+    if ($campaign_id <= 0 || trim($quest_id) === '' || $character_id === NULL || $character_id <= 0) {
+      return FALSE;
+    }
+
+    $count = $this->database->select('dc_campaign_quest_rewards_claimed', 'r')
+      ->condition('campaign_id', $campaign_id)
+      ->condition('quest_id', $quest_id)
+      ->condition('character_id', $character_id)
+      ->countQuery()
+      ->execute()
+      ->fetchField();
+
+    return ((int) $count) > 0;
+  }
+
+  /**
+   * Persist an idempotency marker for quest reward grants.
+   *
+   * @param array<string, mixed> $reward_data
+   *   Rewards that were applied for this grant record.
+   */
+  protected function recordQuestRewardGrant(int $campaign_id, string $quest_id, ?int $character_id, array $reward_data): void {
+    if ($campaign_id <= 0 || trim($quest_id) === '' || $character_id === NULL || $character_id <= 0) {
+      return;
+    }
+
+    try {
+      $this->database->insert('dc_campaign_quest_rewards_claimed')
+        ->fields([
+          'campaign_id' => $campaign_id,
+          'quest_id' => $quest_id,
+          'character_id' => $character_id,
+          'reward_data' => json_encode($reward_data, JSON_UNESCAPED_UNICODE),
+          'claimed_at' => $this->time->getRequestTime(),
+        ])
+        ->execute();
+    }
+    catch (IntegrityConstraintViolationException) {
+      // Reward grant is already recorded for this quest+character scope.
+    }
   }
 
   /**
