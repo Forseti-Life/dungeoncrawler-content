@@ -91,8 +91,6 @@ class AiConversationEncounterAiProviderTest extends UnitTestCase {
         ],
         'alternatives' => [],
         'rationale' => 'Close threat in reach.',
-        'decision_reason' => 'Close threat in reach.',
-        'decision_basis' => ['intent' => 'aggressive_engage'],
         'confidence' => 0.81,
       ]),
     ]);
@@ -105,8 +103,6 @@ class AiConversationEncounterAiProviderTest extends UnitTestCase {
     $this->assertSame('strike', $recommendation['recommended_action']['type']);
     $this->assertSame('pc-1', $recommendation['recommended_action']['target_instance_id']);
     $this->assertSame('Close threat in reach.', $recommendation['rationale']);
-    $this->assertSame('Close threat in reach.', $recommendation['decision_reason']);
-    $this->assertSame('aggressive_engage', $recommendation['decision_basis']['intent']);
     $this->assertSame(1, $recommendation['request_attempts']);
   }
 
@@ -198,10 +194,6 @@ class AiConversationEncounterAiProviderTest extends UnitTestCase {
       'personality_axes' => ['cunning' => 8, 'discipline' => 7],
       'goals' => ['Gain XP', 'Gain Treasure', 'Protect the relic'],
     ];
-    $context['current_actor_tactical_intent'] = [
-      'intent' => 'finish_weakest',
-      'decision_reason' => 'High cunning/discipline with adjacent enemies favors weakest-target pressure.',
-    ];
     $context['npc_psychology'] = "=== NPC COMBAT PERSONALITY ===\nFighting motivation: Protect the relic";
 
     $this->aiApiService->expects($this->once())
@@ -218,7 +210,6 @@ class AiConversationEncounterAiProviderTest extends UnitTestCase {
           $encounter = is_array($payload['encounter'] ?? NULL) ? $payload['encounter'] : [];
           return ($encounter['current_actor_profile']['motivations'] ?? '') === 'Protect the relic'
             && ($encounter['current_actor_profile']['goals'][0] ?? '') === 'Gain XP'
-            && ($encounter['current_actor_tactical_intent']['intent'] ?? '') === 'finish_weakest'
             && ($encounter['npc_psychology'] ?? '') === "=== NPC COMBAT PERSONALITY ===\nFighting motivation: Protect the relic";
         }),
         'dungeoncrawler_content',

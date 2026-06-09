@@ -2869,6 +2869,57 @@ class HexMapController extends ControllerBase {
       return $connections;
     }
 
+    // Backfill room-id linkage when legacy payloads provide connection geometry
+    // but omit explicit from/to room identifiers.
+    if (count($room_ids) === 2 && count($connections) > 0) {
+      $from_room_id = in_array($active_room_id, $room_ids, TRUE) ? $active_room_id : $room_ids[0];
+      $to_room_id = $room_ids[0] === $from_room_id ? $room_ids[1] : $room_ids[0];
+
+      foreach ($connections as &$connection) {
+        if (!is_array($connection)) {
+          continue;
+        }
+
+        $from_has_room = FALSE;
+        if (isset($connection['from']) && is_array($connection['from'])) {
+          $from_has_room = trim((string) ($connection['from']['room_id'] ?? $connection['from']['room'] ?? '')) !== '';
+        }
+        if (!$from_has_room) {
+          $from_has_room = trim((string) ($connection['from_room_id'] ?? $connection['from_room'] ?? $connection['fromRoom'] ?? '')) !== '';
+        }
+
+        $to_has_room = FALSE;
+        if (isset($connection['to']) && is_array($connection['to'])) {
+          $to_has_room = trim((string) ($connection['to']['room_id'] ?? $connection['to']['room'] ?? '')) !== '';
+        }
+        if (!$to_has_room) {
+          $to_has_room = trim((string) ($connection['to_room_id'] ?? $connection['to_room'] ?? $connection['toRoom'] ?? '')) !== '';
+        }
+
+        if (!$from_has_room) {
+          $connection['from'] = is_array($connection['from'] ?? NULL) ? $connection['from'] : [];
+          $connection['from']['room_id'] = $from_room_id;
+          $connection['from_room'] = $from_room_id;
+          $connection['from_room_id'] = $from_room_id;
+        }
+        if (!$to_has_room) {
+          $connection['to'] = is_array($connection['to'] ?? NULL) ? $connection['to'] : [];
+          $connection['to']['room_id'] = $to_room_id;
+          $connection['to_room'] = $to_room_id;
+          $connection['to_room_id'] = $to_room_id;
+        }
+      }
+      unset($connection);
+
+      $this->getLogger('dungeoncrawler_hexmap')->warning('Hexmap inferred missing connection room linkage for two-room payload: from_room_id=@from_room_id to_room_id=@to_room_id active_room_id=@active_room_id', [
+        '@from_room_id' => $from_room_id,
+        '@to_room_id' => $to_room_id,
+        '@active_room_id' => $active_room_id,
+      ]);
+
+      return $connections;
+    }
+
     if (count($room_ids) === 1 && count($connections) === 0) {
       $room_id = $room_ids[0];
       $hexes = is_array($rooms[$room_id]['hexes'] ?? NULL) ? $rooms[$room_id]['hexes'] : [];
