@@ -36,6 +36,11 @@ class StubEncounterAiProvider implements EncounterAiProviderInterface {
       ],
       'alternatives' => [],
       'rationale' => $rationale,
+      'decision_reason' => $rationale,
+      'decision_basis' => [
+        'selection_source' => 'stub_deterministic',
+        'target_available' => $target !== NULL,
+      ],
       'confidence' => $target !== NULL ? 0.6 : 0.4,
     ];
   }
