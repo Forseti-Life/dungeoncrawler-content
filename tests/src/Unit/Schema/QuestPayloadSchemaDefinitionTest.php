@@ -110,6 +110,7 @@ class QuestPayloadSchemaDefinitionTest extends UnitTestCase {
     $this->assertContains('turn_sequence', $schema['required'] ?? []);
     $this->assertContains('turn_logs', $schema['required'] ?? []);
     $this->assertContains('messages', $schema['required'] ?? []);
+    $this->assertContains('turn_prompt', array_keys($schema['properties']['turn_logs']['items']['properties'] ?? []));
     $this->assertFalse($schema['additionalProperties'] ?? TRUE);
   }
 

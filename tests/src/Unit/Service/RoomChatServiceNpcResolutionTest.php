@@ -728,6 +728,7 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
           'initiative_total' => 17,
           'initiative_roll' => 12,
           'initiative_modifier' => 5,
+          'turn_prompt' => TRUE,
         ],
       ],
       'messages' => [
@@ -770,6 +771,7 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
     $this->assertSame('scholar_npc', $harnessPayload['directly_addressed_npc']);
     $this->assertCount(1, $harnessPayload['npc_turns']);
     $this->assertCount(3, $harnessPayload['turn_sequence']);
+    $this->assertTrue(!empty($harnessPayload['turn_logs'][0]['turn_prompt']));
     $this->assertCount(1, $harnessPayload['messages']);
 
     $roomChatPayload = $service->publicBuildRoomChatResponsePayload([

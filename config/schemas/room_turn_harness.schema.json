@@ -120,7 +120,8 @@
           "turn_index": { "type": "integer", "minimum": 0 },
           "initiative_total": { "type": ["integer", "null"] },
           "initiative_roll": { "type": ["integer", "null"] },
-          "initiative_modifier": { "type": ["integer", "null"] }
+          "initiative_modifier": { "type": ["integer", "null"] },
+          "turn_prompt": { "type": "boolean" }
         }
       }
     },
