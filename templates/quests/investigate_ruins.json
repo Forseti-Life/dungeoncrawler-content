@@ -91,7 +91,7 @@
       "randomize": true
     },
     "items": {
-      "loot_table": "ancient_treasure",
+      "loot_table": "gmg_story_treasures",
       "count": 1
     },
     "reputation": {

@@ -105,7 +105,7 @@
       "randomize": true
     },
     "items": {
-      "loot_table": "rescue_reward",
+      "loot_table": "gmg_balanced_party_cache",
       "count": 1
     },
     "reputation": {

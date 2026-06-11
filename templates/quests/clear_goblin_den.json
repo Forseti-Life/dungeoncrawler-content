@@ -58,7 +58,7 @@
       "randomize": true
     },
     "items": {
-      "loot_table": "goblin_bounty",
+      "loot_table": "core_weapon_progression",
       "count": 1
     }
   },

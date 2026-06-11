@@ -64,7 +64,7 @@
         "randomize": true
       },
       "items": {
-        "loot_table": "tavern_beginner_reward",
+        "loot_table": "core_starter_adventure",
         "count": 1
       }
     },
@@ -143,7 +143,7 @@
         "randomize": true
       },
       "items": {
-        "loot_table": "tavern_maintenance_reward",
+        "loot_table": "core_field_support",
         "count": 1
       }
     },
@@ -224,7 +224,7 @@
         "randomize": true
       },
       "items": {
-        "loot_table": "tavern_knowledge_reward",
+        "loot_table": "core_ruin_scavengers",
         "count": 1
       }
     },
@@ -297,7 +297,7 @@
         "randomize": true
       },
       "items": {
-        "loot_table": "goblin_bounty",
+        "loot_table": "core_weapon_progression",
         "count": 1
       }
     },
@@ -363,6 +363,10 @@
         "base": 12,
         "per_level": 6,
         "randomize": true
+      },
+      "items": {
+        "loot_table": "phb_field_supplies",
+        "count": 1
       }
     },
     "prerequisites": {
@@ -438,7 +442,7 @@
         "randomize": true
       },
       "items": {
-        "loot_table": "alchemy_reward",
+        "loot_table": "core_alchemical_response",
         "count": 2
       }
     },
@@ -514,7 +518,7 @@
         "randomize": true
       },
       "items": {
-        "loot_table": "tavern_beginner_reward",
+        "loot_table": "core_starter_adventure",
         "count": 1
       }
     },
@@ -620,7 +624,7 @@
         "randomize": true
       },
       "items": {
-        "loot_table": "ancient_treasure",
+        "loot_table": "gmg_story_treasures",
         "count": 1
       },
       "reputation": {
@@ -748,7 +752,7 @@
         "randomize": true
       },
       "items": {
-        "loot_table": "rescue_reward",
+        "loot_table": "gmg_balanced_party_cache",
         "count": 1
       },
       "reputation": {

@@ -63,7 +63,7 @@
       "randomize": true
     },
     "items": {
-      "loot_table": "tavern_beginner_reward",
+      "loot_table": "core_starter_adventure",
       "count": 1
     }
   },

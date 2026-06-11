@@ -62,7 +62,7 @@
       "randomize": true
     },
     "items": {
-      "loot_table": "alchemy_reward",
+      "loot_table": "core_alchemical_response",
       "count": 2
     }
   },

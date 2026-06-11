@@ -64,7 +64,7 @@
       "randomize": true
     },
     "items": {
-      "loot_table": "tavern_maintenance_reward",
+      "loot_table": "core_field_support",
       "count": 1
     }
   },

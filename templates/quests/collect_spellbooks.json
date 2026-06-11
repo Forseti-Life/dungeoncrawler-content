@@ -66,7 +66,7 @@
       "randomize": true
     },
     "items": {
-      "loot_table": "tavern_knowledge_reward",
+      "loot_table": "core_ruin_scavengers",
       "count": 1
     }
   },

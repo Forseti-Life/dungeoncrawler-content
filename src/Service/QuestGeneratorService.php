@@ -1462,11 +1462,10 @@ class QuestGeneratorService {
       $rewards['gold'] = $gold;
     }
 
-    // Items (TODO: Integrate with loot tables)
-    if (isset($rewards_schema['items'])) {
-      $rewards['items'] = [];
-      // Placeholder for loot table integration
-    }
+    // Items
+    $rewards['items'] = isset($rewards_schema['items'])
+      ? $this->buildScaledRewardItems($rewards_schema['items'])
+      : [];
 
     // Reputation
     if (isset($rewards_schema['reputation'])) {
@@ -1474,6 +1473,171 @@ class QuestGeneratorService {
     }
 
     return $rewards;
+  }
+
+  /**
+   * Build concrete quest reward items from reward schema.
+   *
+   * @param mixed $items_schema
+   *   Item reward schema segment.
+   *
+   * @return array<int, array{item_id:string,quantity:int}>
+   *   Concrete reward items with canonical ids and quantities.
+   */
+  protected function buildScaledRewardItems(mixed $items_schema): array {
+    if (is_array($items_schema) && array_is_list($items_schema)) {
+      $normalized = [];
+      foreach ($items_schema as $entry) {
+        if (is_string($entry) && trim($entry) !== '') {
+          $normalized[] = ['item_id' => trim($entry), 'quantity' => 1];
+          continue;
+        }
+        if (!is_array($entry)) {
+          throw new \RuntimeException('Quest reward items schema list entries must be strings or objects.');
+        }
+        $item_id = trim((string) ($entry['item_id'] ?? $entry['id'] ?? ''));
+        if ($item_id === '') {
+          throw new \RuntimeException('Quest reward item schema entry is missing item_id.');
+        }
+        $normalized[] = [
+          'item_id' => $item_id,
+          'quantity' => $this->resolveQuestRewardQuantity($entry['quantity'] ?? $entry['count'] ?? 1),
+        ];
+      }
+      return $normalized;
+    }
+
+    if (!is_array($items_schema)) {
+      throw new \RuntimeException('Quest reward items schema must be an object or list.');
+    }
+
+    $direct_item_id = trim((string) ($items_schema['item_id'] ?? $items_schema['id'] ?? ''));
+    if ($direct_item_id !== '') {
+      return [[
+        'item_id' => $direct_item_id,
+        'quantity' => $this->resolveQuestRewardQuantity($items_schema['quantity'] ?? $items_schema['count'] ?? 1),
+      ]];
+    }
+
+    $loot_table_id = trim((string) ($items_schema['loot_table'] ?? ''));
+    if ($loot_table_id === '') {
+      throw new \RuntimeException('Quest reward items schema must define either item_id or loot_table.');
+    }
+
+    $roll_count = $this->resolveQuestRewardQuantity($items_schema['count'] ?? 1);
+    $entries = $this->loadQuestRewardLootTableEntries($loot_table_id);
+    if ($entries === []) {
+      throw new \RuntimeException(sprintf('Quest reward loot table "%s" has no entries.', $loot_table_id));
+    }
+
+    $rolled_by_item = [];
+    for ($i = 0; $i < $roll_count; $i++) {
+      $entry = $this->selectWeightedQuestRewardLootEntry($entries);
+      if (!is_array($entry)) {
+        continue;
+      }
+      $item_id = trim((string) ($entry['item_id'] ?? ''));
+      if ($item_id === '') {
+        throw new \RuntimeException(sprintf(
+          'Quest reward loot table "%s" contains an entry without item_id.',
+          $loot_table_id
+        ));
+      }
+      $quantity = $this->resolveQuestRewardQuantity($entry['quantity'] ?? 1);
+      if (!isset($rolled_by_item[$item_id])) {
+        $rolled_by_item[$item_id] = [
+          'item_id' => $item_id,
+          'quantity' => 0,
+        ];
+      }
+      $rolled_by_item[$item_id]['quantity'] += $quantity;
+    }
+
+    return array_values($rolled_by_item);
+  }
+
+  /**
+   * Resolve one weighted loot entry from a table entry list.
+   *
+   * @param array<int, array<string, mixed>> $entries
+   *   Loot table entries.
+   *
+   * @return array<string, mixed>|null
+   *   Selected entry or NULL.
+   */
+  protected function selectWeightedQuestRewardLootEntry(array $entries): ?array {
+    if ($entries === []) {
+      return NULL;
+    }
+
+    $total_weight = 0;
+    foreach ($entries as $entry) {
+      $total_weight += max(1, (int) ($entry['weight'] ?? 1));
+    }
+    if ($total_weight <= 0) {
+      return $entries[0] ?? NULL;
+    }
+
+    $roll = $this->numberGeneration->rollRange(1, $total_weight);
+    $cursor = 0;
+    foreach ($entries as $entry) {
+      $cursor += max(1, (int) ($entry['weight'] ?? 1));
+      if ($roll <= $cursor) {
+        return is_array($entry) ? $entry : NULL;
+      }
+    }
+
+    $last = end($entries);
+    return is_array($last) ? $last : NULL;
+  }
+
+  /**
+   * Load quest reward loot table entries from the template content library.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Loot table entry rows.
+   */
+  protected function loadQuestRewardLootTableEntries(string $loot_table_id): array {
+    $row = $this->database->select('dungeoncrawler_content_loot_tables', 'l')
+      ->fields('l', ['entries'])
+      ->condition('table_id', $loot_table_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    if (!$row) {
+      throw new \RuntimeException(sprintf(
+        'Quest reward loot table "%s" was not found in dungeoncrawler_content_loot_tables.',
+        $loot_table_id
+      ));
+    }
+
+    $entries = json_decode((string) ($row['entries'] ?? '[]'), TRUE);
+    if (!is_array($entries) || !array_is_list($entries)) {
+      throw new \RuntimeException(sprintf(
+        'Quest reward loot table "%s" has invalid entries JSON.',
+        $loot_table_id
+      ));
+    }
+
+    return $entries;
+  }
+
+  /**
+   * Resolve integer item quantity from scalar or range schema value.
+   */
+  protected function resolveQuestRewardQuantity(mixed $raw_quantity): int {
+    if (is_int($raw_quantity)) {
+      return max(1, $raw_quantity);
+    }
+    if (is_numeric($raw_quantity)) {
+      return max(1, (int) $raw_quantity);
+    }
+    if (is_string($raw_quantity) && preg_match('/^\s*(\d+)\s*-\s*(\d+)\s*$/', $raw_quantity, $matches)) {
+      $min = max(1, (int) $matches[1]);
+      $max = max($min, (int) $matches[2]);
+      return $this->numberGeneration->rollRange($min, $max);
+    }
+    return 1;
   }
 
   /**
