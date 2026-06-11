@@ -389,6 +389,93 @@ class EncounterPhaseHandlerTest extends UnitTestCase {
   }
 
   /**
+   * Room-scene turn order is initiative-driven (roll + perception), not actor insertion order.
+   *
+   * @covers ::buildRoomEncounterTurnOrder
+   */
+  public function testBuildRoomEncounterTurnOrderUsesInitiativeRollAndPerception(): void {
+    $number_generation = $this->createMock(NumberGenerationService::class);
+    $number_generation->expects($this->exactly(3))
+      ->method('rollPathfinderDie')
+      ->with(20)
+      ->willReturnOnConsecutiveCalls(5, 18, 10);
+
+    $handler = $this->buildHandler(NULL, NULL, NULL, NULL, NULL, $number_generation);
+    $dungeon_data = [
+      'entities' => [
+        [
+          'entity_instance_id' => 'pc-1',
+          'entity_type' => 'player_character',
+          'placement' => ['room_id' => 'room-a', 'hex' => ['q' => 0, 'r' => 0]],
+          'state' => [
+            'metadata' => [
+              'display_name' => 'Hero',
+              'stats' => ['perception' => 4],
+            ],
+          ],
+        ],
+        [
+          'entity_instance_id' => 'npc-1',
+          'entity_type' => 'npc',
+          'placement' => ['room_id' => 'room-a', 'hex' => ['q' => 1, 'r' => 0]],
+          'state' => [
+            'metadata' => [
+              'display_name' => 'Bandit Captain',
+              'stats' => ['perception' => 1],
+            ],
+          ],
+        ],
+        [
+          'entity_instance_id' => 'npc-2',
+          'entity_type' => 'npc',
+          'placement' => ['room_id' => 'room-a', 'hex' => ['q' => 2, 'r' => 0]],
+          'state' => [
+            'metadata' => [
+              'display_name' => 'Scout',
+              'stats' => ['perception' => 2],
+            ],
+          ],
+        ],
+      ],
+    ];
+
+    $initiative = $this->invokeBuildRoomEncounterTurnOrder($handler, $dungeon_data, 'room-a', 'pc-1');
+
+    $this->assertSame(['npc-1', 'npc-2', 'pc-1'], array_column($initiative, 'entity_id'));
+    $this->assertSame(18, (int) $initiative[0]['initiative_roll']);
+    $this->assertSame(19, (int) $initiative[0]['initiative_total']);
+    $this->assertSame(10, (int) $initiative[1]['initiative_roll']);
+    $this->assertSame(12, (int) $initiative[1]['initiative_total']);
+    $this->assertSame(5, (int) $initiative[2]['initiative_roll']);
+    $this->assertSame(9, (int) $initiative[2]['initiative_total']);
+  }
+
+  /**
+   * Round-start narration is explicitly emitted as narrator turn 0.
+   *
+   * @covers ::buildRoundStartEvents
+   */
+  public function testBuildRoundStartEventsUsesNarratorTurnZeroPrefix(): void {
+    $handler = $this->buildHandler();
+    $game_state = [
+      'round' => 1,
+      'turn' => [
+        'entity' => 'pc-1',
+        'index' => 0,
+        'actions_remaining' => 3,
+      ],
+      'encounter_context' => ['room_id' => 'room-a'],
+    ];
+    $dungeon_data = ['active_room_id' => 'room-a'];
+
+    $events = $this->invokeBuildRoundStartEvents($handler, 1, $game_state, $dungeon_data, 42, 'room-a');
+
+    $this->assertCount(1, $events);
+    $this->assertSame('round_start', $events[0]['type'] ?? NULL);
+    $this->assertStringContainsString('Turn 0: Actor Narrator:', (string) ($events[0]['narration'] ?? ''));
+  }
+
+  /**
    * Encounter casting spends focus from canonical state and mirrors projection.
    *
    * @covers ::processCastSpell
@@ -1456,7 +1543,8 @@ class EncounterPhaseHandlerTest extends UnitTestCase {
     ?ExplorationPhaseHandler $exploration = NULL,
     ?CombatEncounterStore $encounter_store = NULL,
     ?CharacterStateService $character_state = NULL,
-    ?NpcPsychologyService $psychology_service = NULL
+    ?NpcPsychologyService $psychology_service = NULL,
+    ?NumberGenerationService $number_generation_service = NULL
   ): EncounterPhaseHandler {
     $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
     $logger_factory->method('get')->willReturn($this->createMock(LoggerInterface::class));
@@ -1481,7 +1569,7 @@ class EncounterPhaseHandlerTest extends UnitTestCase {
       $this->createMock(HPManager::class),
       $this->createMock(ConditionManager::class),
       $this->createMock(CombatCalculator::class),
-      $this->createMock(NumberGenerationService::class),
+      $number_generation_service ?? $this->createMock(NumberGenerationService::class),
       $this->createMock(EncounterAiIntegrationService::class),
       $this->createMock(RulesEngine::class),
       $this->createMock(EventDispatcherInterface::class),
@@ -1497,6 +1585,36 @@ class EncounterPhaseHandlerTest extends UnitTestCase {
       $room_chat ?? $this->createMock(RoomChatService::class),
       $exploration
     );
+  }
+
+  /**
+   * Invoke protected room-scene initiative builder.
+   */
+  private function invokeBuildRoomEncounterTurnOrder(
+    EncounterPhaseHandler $handler,
+    array $dungeon_data,
+    string $room_id,
+    ?string $actor_id = NULL
+  ): array {
+    $method = new \ReflectionMethod(EncounterPhaseHandler::class, 'buildRoomEncounterTurnOrder');
+    $method->setAccessible(TRUE);
+    return $method->invoke($handler, $dungeon_data, $room_id, $actor_id);
+  }
+
+  /**
+   * Invoke protected round-start event builder.
+   */
+  private function invokeBuildRoundStartEvents(
+    EncounterPhaseHandler $handler,
+    int $round,
+    array $game_state,
+    array $dungeon_data,
+    int $campaign_id,
+    ?string $room_id = NULL
+  ): array {
+    $method = new \ReflectionMethod(EncounterPhaseHandler::class, 'buildRoundStartEvents');
+    $method->setAccessible(TRUE);
+    return $method->invoke($handler, $round, $game_state, $dungeon_data, $campaign_id, $room_id);
   }
 
   /**

@@ -5073,7 +5073,12 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
     $content = $round_narration ?: sprintf('Round %d begins.', $round);
 
     $content = $this->prefixEncounterChatLine(
-      $this->captureEncounterTurnContext($game_state, $dungeon_data, NULL, ['actor_name' => 'Narrator']),
+      $this->captureEncounterTurnContext($game_state, $dungeon_data, NULL, [
+        'actor_name' => 'Narrator',
+        // Narrator round banner is canonical turn slot 0; actor turns start at 1.
+        'turn_index_raw' => -1,
+        'turn_index_human' => 0,
+      ]),
       $content
     );
 
@@ -5097,6 +5102,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
         'round' => $round,
         'room_id' => $resolved_room_id,
         'actor_name' => 'Narrator',
+        'turn_index' => -1,
       ], $content),
     ];
   }
@@ -6474,10 +6480,20 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
       $team = $content_type === 'player_character' || in_array($raw_team, ['player', 'player_character', 'pc'], TRUE)
         ? 'player'
         : 'npc';
+      $perception = $this->resolveEntityPerceptionModifier($entity);
+      $initiative_roll = (int) $this->numberGenerationService->rollPathfinderDie(20);
+      if ($initiative_roll <= 0) {
+        $initiative_roll = 1;
+      }
+      $initiative_total = $initiative_roll + $perception;
       $participants[] = [
         'entity_id' => $instance_id,
         'team' => $team,
         'name' => $entity['state']['metadata']['display_name'] ?? ($entity['entity_ref']['content_id'] ?? $instance_id),
+        'perception' => $perception,
+        'initiative_roll' => $initiative_roll,
+        'initiative_total' => $initiative_total,
+        'initiative' => $initiative_total,
         'position_q' => $entity['placement']['hex']['q'] ?? 0,
         'position_r' => $entity['placement']['hex']['r'] ?? 0,
       ];
@@ -6488,27 +6504,51 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
         'entity_id' => $actor_id,
         'team' => 'player',
         'name' => $actor_id,
+        'perception' => 0,
+        'initiative_roll' => 1,
+        'initiative_total' => 1,
+        'initiative' => 1,
         'position_q' => 0,
         'position_r' => 0,
       ];
     }
 
-    usort($participants, static function (array $left, array $right) use ($actor_id): int {
-      if ($actor_id) {
-        if ((string) ($left['entity_id'] ?? '') === $actor_id) {
-          return -1;
-        }
-        if ((string) ($right['entity_id'] ?? '') === $actor_id) {
-          return 1;
-        }
+    usort($participants, static function (array $left, array $right): int {
+      $initiative_diff = (int) ($right['initiative_total'] ?? $right['initiative'] ?? 0) - (int) ($left['initiative_total'] ?? $left['initiative'] ?? 0);
+      if ($initiative_diff !== 0) {
+        return $initiative_diff;
       }
+
+      $perception_diff = (int) ($right['perception'] ?? 0) - (int) ($left['perception'] ?? 0);
+      if ($perception_diff !== 0) {
+        return $perception_diff;
+      }
+
       if (($left['team'] ?? '') !== ($right['team'] ?? '')) {
         return ($left['team'] ?? '') === 'player' ? -1 : 1;
       }
-      return strcmp((string) ($left['name'] ?? ''), (string) ($right['name'] ?? ''));
+
+      return strcmp((string) ($left['entity_id'] ?? ''), (string) ($right['entity_id'] ?? ''));
     });
 
     return array_values($participants);
+  }
+
+  /**
+   * Resolve perception modifier from entity runtime state.
+   */
+  protected function resolveEntityPerceptionModifier(array $entity): int {
+    $stats = is_array($entity['state']['metadata']['stats'] ?? NULL) ? $entity['state']['metadata']['stats'] : [];
+    if (isset($stats['perception']) && is_numeric($stats['perception'])) {
+      return (int) $stats['perception'];
+    }
+    if (isset($entity['state']['perception']) && is_numeric($entity['state']['perception'])) {
+      return (int) $entity['state']['perception'];
+    }
+    if (isset($entity['perception']) && is_numeric($entity['perception'])) {
+      return (int) $entity['perception'];
+    }
+    return 0;
   }
 
   /**
