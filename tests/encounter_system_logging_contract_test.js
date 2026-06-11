@@ -142,10 +142,20 @@ const { _resolveEntityName, announceRoundChange, announceTurnChange, endCurrentT
         phaseManager: { stateVersion: 7 },
       };
 
+      const coordinatorCalls = [];
       const system = {
         bus,
         _beginActionRailRequest() { return true; },
         _endActionRailRequest() {},
+        async _sendCoordinatorActionWithResync(resyncCoordinator, type, actorRef, params) {
+          coordinatorCalls.push({ resyncCoordinator, type, actorRef, params });
+          return resyncCoordinator.api.sendAction({
+            type,
+            actor_ref: actorRef,
+            params,
+            client_state_version: resyncCoordinator.phaseManager?.stateVersion || 0,
+          });
+        },
         _getActionRailContext() {
           return {
             actorRef: 'hero-1',
@@ -165,6 +175,8 @@ const { _resolveEntityName, announceRoundChange, announceTurnChange, endCurrentT
 
       await endCurrentTurn.call(system, {});
 
+      assert(coordinatorCalls.length === 1, 'end-turn requests coordinator actions through the resync helper');
+      assert(coordinatorCalls[0].type === 'end_turn', 'end-turn defaults to the end_turn action when choose_not_to_act is unavailable');
       assert(bus.events.filter((event) => event.name === 'chat:system-message').length === 0, 'end-turn without authoritative events does not fabricate client chat lines');
       assert(infoLogs.some((entry) => entry[0] === '[EncounterFlow] turn_action_ack'), 'end-turn acknowledgements are traced in the console');
       assert(warnLogs.some((entry) => entry[0] === '[EncounterFlow] missing authoritative turn events'), 'missing authoritative turn events are surfaced as console warnings');
