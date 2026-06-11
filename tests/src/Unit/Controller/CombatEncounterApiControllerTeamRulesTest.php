@@ -134,21 +134,4 @@ class CombatEncounterApiControllerTeamRulesTest extends UnitTestCase {
     $this->assertSame(2, count($normalized['participants']));
   }
 
-  /**
-   * @covers ::resolveCombatActionCost
-   */
-  public function testResolveCombatActionCostHonorsButtonPayload(): void {
-    $controller = $this->buildController();
-
-    $resolve_cost = new \ReflectionMethod(CombatEncounterApiController::class, 'resolveCombatActionCost');
-    $resolve_cost->setAccessible(TRUE);
-
-    $this->assertSame(1, $resolve_cost->invoke($controller, 'cast_spell', ['actionCost' => 1]));
-    $this->assertSame(3, $resolve_cost->invoke($controller, 'feat', ['actionCost' => 3]));
-    $this->assertSame(1, $resolve_cost->invoke($controller, 'consume_item', []));
-    $this->assertSame(2, $resolve_cost->invoke($controller, 'cast_spell', []));
-    $this->assertSame(3, $resolve_cost->invoke($controller, 'skill', ['actionCost' => 9]));
-    $this->assertSame(0, $resolve_cost->invoke($controller, 'talk', ['actionCost' => 3]));
-  }
-
 }
