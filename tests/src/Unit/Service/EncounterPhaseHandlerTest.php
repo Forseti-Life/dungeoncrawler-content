@@ -1117,6 +1117,236 @@ class EncounterPhaseHandlerTest extends UnitTestCase {
     $this->assertSame('determined', $context['current_actor_profile']['latest_thought']['emotion']);
     $this->assertStringContainsString('Fighting motivation: Protect the relic', (string) $context['npc_psychology']);
     $this->assertStringContainsString('Goals: Protect the relic, Gain XP, Gain Treasure', (string) $context['npc_psychology']);
+    $this->assertSame('finish_weakest', $context['current_actor_tactical_intent']['intent'] ?? NULL);
+  }
+
+  /**
+   * Tactical intent contracts should keep de-escalation intent across all actions.
+   *
+   * @covers ::buildNpcTacticalIntentContract
+   * @covers ::buildNpcTurnPlan
+   */
+  public function testBuildNpcTurnPlanKeepsDeescalationIntentAcrossThreeActions(): void {
+    $psychology = $this->createMock(NpcPsychologyService::class);
+    $psychology->method('loadProfile')->willReturnMap([
+      [42, 'npc_friendly', [
+        'display_name' => 'Friendly Scout',
+        'attitude' => 'friendly',
+        'personality_axes' => ['boldness' => 5, 'empathy' => 8, 'discipline' => 5, 'cunning' => 4, 'motivation' => 6],
+        'motivations' => 'Protect the camp',
+        'fears' => '',
+      ]],
+    ]);
+
+    $handler = $this->buildHandler(NULL, NULL, NULL, NULL, $psychology);
+    $game_state = [
+      'campaign_id' => 42,
+      'turn' => ['actions_remaining' => 3],
+      'initiative_order' => [
+        [
+          'entity_id' => 'npc-1',
+          'entity_ref' => 'npc_friendly',
+          'team' => 'enemy',
+          'hp' => 18,
+          'max_hp' => 20,
+          'position_q' => 0,
+          'position_r' => 0,
+        ],
+        [
+          'entity_id' => 'pc-1',
+          'team' => 'player',
+          'is_defeated' => FALSE,
+          'hp' => 24,
+          'max_hp' => 24,
+          'position_q' => 1,
+          'position_r' => 0,
+        ],
+      ],
+    ];
+
+    $plan = $this->invokeBuildNpcTurnPlan($handler, 'npc-1', $game_state, 42);
+    $this->assertSame('deescalate', $plan['intent_contract']['intent'] ?? NULL);
+    $this->assertCount(3, $plan['steps']);
+    $this->assertSame('talk', $plan['steps'][0]['action_type'] ?? NULL);
+    $this->assertSame('deescalate', $plan['steps'][0]['decision_basis']['intent'] ?? NULL);
+    $this->assertSame('deescalate', $plan['steps'][1]['decision_basis']['intent'] ?? NULL);
+    $this->assertSame('deescalate', $plan['steps'][2]['decision_basis']['intent'] ?? NULL);
+  }
+
+  /**
+   * Self-preservation plans should remain retreat/reposition focused across turn actions.
+   *
+   * @covers ::buildNpcTacticalIntentContract
+   * @covers ::buildNpcTurnPlan
+   */
+  public function testBuildNpcTurnPlanKeepsSelfPreservationAcrossThreeActions(): void {
+    $psychology = $this->createMock(NpcPsychologyService::class);
+    $psychology->method('loadProfile')->willReturnMap([
+      [77, 'npc_coward', [
+        'display_name' => 'Shaken Raider',
+        'attitude' => 'unfriendly',
+        'personality_axes' => ['boldness' => 4, 'empathy' => 3, 'discipline' => 3, 'cunning' => 5, 'motivation' => 6],
+        'motivations' => 'Survive and escape this fight',
+        'fears' => 'Getting caught in conflict',
+      ]],
+    ]);
+
+    $handler = $this->buildHandler(NULL, NULL, NULL, NULL, $psychology);
+    $game_state = [
+      'campaign_id' => 77,
+      'turn' => ['actions_remaining' => 3],
+      'initiative_order' => [
+        [
+          'entity_id' => 'npc-1',
+          'entity_ref' => 'npc_coward',
+          'team' => 'enemy',
+          'hp' => 3,
+          'max_hp' => 20,
+          'position_q' => 0,
+          'position_r' => 0,
+        ],
+        [
+          'entity_id' => 'pc-1',
+          'team' => 'player',
+          'is_defeated' => FALSE,
+          'hp' => 24,
+          'max_hp' => 24,
+          'position_q' => 1,
+          'position_r' => 0,
+        ],
+      ],
+    ];
+
+    $plan = $this->invokeBuildNpcTurnPlan($handler, 'npc-1', $game_state, 77);
+    $this->assertSame('self_preserve', $plan['intent_contract']['intent'] ?? NULL);
+    $this->assertCount(3, $plan['steps']);
+    $this->assertSame('stride', $plan['steps'][0]['action_type'] ?? NULL);
+    $this->assertSame('stride', $plan['steps'][1]['action_type'] ?? NULL);
+    $this->assertSame('self_preserve', $plan['steps'][2]['decision_basis']['intent'] ?? NULL);
+  }
+
+  /**
+   * High-cunning plans should keep weakest-target prioritization consistent.
+   *
+   * @covers ::buildNpcTacticalIntentContract
+   * @covers ::buildNpcTurnPlan
+   */
+  public function testBuildNpcTurnPlanKeepsWeakestTargetContinuityWhenCunningHigh(): void {
+    $psychology = $this->createMock(NpcPsychologyService::class);
+    $psychology->method('loadProfile')->willReturnMap([
+      [13, 'npc_hunter', [
+        'display_name' => 'Hunter',
+        'attitude' => 'hostile',
+        'personality_axes' => ['boldness' => 6, 'empathy' => 2, 'discipline' => 7, 'cunning' => 8, 'motivation' => 7],
+        'motivations' => 'Win quickly',
+        'fears' => '',
+      ]],
+    ]);
+
+    $handler = $this->buildHandler(NULL, NULL, NULL, NULL, $psychology);
+    $game_state = [
+      'campaign_id' => 13,
+      'turn' => ['actions_remaining' => 3],
+      'initiative_order' => [
+        [
+          'entity_id' => 'npc-1',
+          'entity_ref' => 'npc_hunter',
+          'team' => 'enemy',
+          'hp' => 18,
+          'max_hp' => 18,
+          'position_q' => 0,
+          'position_r' => 0,
+        ],
+        [
+          'entity_id' => 'pc-strong',
+          'team' => 'player',
+          'is_defeated' => FALSE,
+          'hp' => 22,
+          'max_hp' => 24,
+          'position_q' => 1,
+          'position_r' => 0,
+        ],
+        [
+          'entity_id' => 'pc-weak',
+          'team' => 'player',
+          'is_defeated' => FALSE,
+          'hp' => 4,
+          'max_hp' => 20,
+          'position_q' => 0,
+          'position_r' => 1,
+        ],
+      ],
+    ];
+
+    $plan = $this->invokeBuildNpcTurnPlan($handler, 'npc-1', $game_state, 13);
+    $this->assertSame('finish_weakest', $plan['intent_contract']['intent'] ?? NULL);
+    $this->assertCount(3, $plan['steps']);
+    $this->assertSame('pc-weak', $plan['steps'][0]['target'] ?? NULL);
+    $this->assertSame('pc-weak', $plan['steps'][1]['target'] ?? NULL);
+  }
+
+  /**
+   * NPC encounter outputs should include decision metadata for observability.
+   *
+   * @covers ::autoPlayNpcTurn
+   */
+  public function testAutoPlayNpcTurnAddsDecisionMetadataToEvents(): void {
+    $psychology = $this->createMock(NpcPsychologyService::class);
+    $psychology->method('loadProfile')->willReturnMap([
+      [42, 'npc_friendly', [
+        'display_name' => 'Friendly Scout',
+        'attitude' => 'friendly',
+        'personality_axes' => ['boldness' => 5, 'empathy' => 8, 'discipline' => 5, 'cunning' => 4, 'motivation' => 6],
+        'motivations' => 'Protect the camp',
+        'fears' => '',
+      ]],
+    ]);
+
+    $handler = $this->buildHandler(NULL, NULL, NULL, NULL, $psychology);
+    $game_state = [
+      'campaign_id' => 42,
+      'round' => 2,
+      'turn' => ['entity' => 'npc-1', 'actions_remaining' => 3],
+      'encounter_context' => ['room_id' => 'room-a'],
+      'initiative_order' => [
+        [
+          'entity_id' => 'npc-1',
+          'entity_ref' => 'npc_friendly',
+          'name' => 'Friendly Scout',
+          'team' => 'enemy',
+          'hp' => 18,
+          'max_hp' => 20,
+          'position_q' => 0,
+          'position_r' => 0,
+        ],
+        [
+          'entity_id' => 'pc-1',
+          'name' => 'Hero',
+          'team' => 'player',
+          'is_defeated' => FALSE,
+          'hp' => 24,
+          'max_hp' => 24,
+          'position_q' => 1,
+          'position_r' => 0,
+        ],
+      ],
+    ];
+    $dungeon_data = ['active_room_id' => 'room-a'];
+
+    $result = $this->invokeAutoPlayNpcTurn($handler, 99, 'npc-1', $game_state, $dungeon_data, 42);
+    $events = $result['events'] ?? [];
+
+    $this->assertNotEmpty($events);
+    $first = $events[0] ?? [];
+    $payload = is_array($first['data'] ?? NULL) ? $first['data'] : [];
+    $this->assertNotSame('', trim((string) ($payload['decision_reason'] ?? '')));
+    $this->assertTrue(is_array($payload['decision_basis'] ?? NULL));
+
+    $last = $events[count($events) - 1] ?? [];
+    $last_payload = is_array($last['data'] ?? NULL) ? $last['data'] : [];
+    $this->assertSame('npc_choose_not_to_act', $last['type'] ?? NULL);
+    $this->assertNotSame('', trim((string) ($last_payload['decision_reason'] ?? '')));
+    $this->assertTrue(is_array($last_payload['decision_basis'] ?? NULL));
   }
 
   /**
@@ -1131,6 +1361,17 @@ class EncounterPhaseHandlerTest extends UnitTestCase {
   ): EncounterPhaseHandler {
     $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
     $logger_factory->method('get')->willReturn($this->createMock(LoggerInterface::class));
+    $config = $this->createMock(\Drupal\Core\Config\ImmutableConfig::class);
+    $config->method('get')->willReturnMap([
+      ['encounter_ai_npc_autoplay_enabled', FALSE],
+      ['encounter_ai_retry_attempts', 1],
+      ['encounter_ai_recommendation_max_tokens', 800],
+      ['encounter_ai_narration_max_tokens', 500],
+    ]);
+    $config_factory = $this->createMock(ConfigFactoryInterface::class);
+    $config_factory->method('get')
+      ->with('dungeoncrawler_content.settings')
+      ->willReturn($config);
 
     return new EncounterPhaseHandler(
       $this->createMock(Connection::class),
@@ -1146,7 +1387,7 @@ class EncounterPhaseHandlerTest extends UnitTestCase {
       $this->createMock(RulesEngine::class),
       $this->createMock(EventDispatcherInterface::class),
       $this->createMock(AiGmService::class),
-      $this->createMock(ConfigFactoryInterface::class),
+      $config_factory,
       $psychology_service ?? $this->createMock(NpcPsychologyService::class),
       NULL,
       NULL,
@@ -1224,6 +1465,54 @@ class EncounterPhaseHandlerTest extends UnitTestCase {
     $method->setAccessible(TRUE);
     $context = $method->invoke($handler, $entity_id, $game_state, $dungeon_data);
     return is_array($context) ? $context : [];
+  }
+
+  /**
+   * Invoke protected NPC intent contract builder.
+   */
+  private function invokeBuildNpcTacticalIntentContract(
+    EncounterPhaseHandler $handler,
+    string $entity_id,
+    array $game_state,
+    int $campaign_id
+  ): array {
+    $method = new \ReflectionMethod(EncounterPhaseHandler::class, 'buildNpcTacticalIntentContract');
+    $method->setAccessible(TRUE);
+    $contract = $method->invoke($handler, $entity_id, $game_state, $campaign_id);
+    return is_array($contract) ? $contract : [];
+  }
+
+  /**
+   * Invoke protected NPC turn-plan builder.
+   */
+  private function invokeBuildNpcTurnPlan(
+    EncounterPhaseHandler $handler,
+    string $entity_id,
+    array $game_state,
+    int $campaign_id
+  ): array {
+    $method = new \ReflectionMethod(EncounterPhaseHandler::class, 'buildNpcTurnPlan');
+    $method->setAccessible(TRUE);
+    $plan = $method->invoke($handler, $entity_id, $game_state, $campaign_id, NULL);
+    return is_array($plan) ? $plan : [];
+  }
+
+  /**
+   * Invoke protected NPC autoplay handler.
+   */
+  private function invokeAutoPlayNpcTurn(
+    EncounterPhaseHandler $handler,
+    int $encounter_id,
+    string $entity_id,
+    array &$game_state,
+    array &$dungeon_data,
+    int $campaign_id
+  ): array {
+    $method = new \ReflectionMethod(EncounterPhaseHandler::class, 'autoPlayNpcTurn');
+    $method->setAccessible(TRUE);
+    $args = [$encounter_id, $entity_id, &$game_state, &$dungeon_data, $campaign_id];
+    $result = $method->invokeArgs($handler, $args);
+    return is_array($result) ? $result : [];
   }
 
   /**

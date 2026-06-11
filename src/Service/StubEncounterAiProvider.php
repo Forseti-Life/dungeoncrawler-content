@@ -21,6 +21,9 @@ class StubEncounterAiProvider implements EncounterAiProviderInterface {
     $rationale = $target !== NULL
       ? 'Selected first available alive player target for deterministic preview.'
       : 'No valid player target available; fallback to end turn.';
+    $decision_reason = $target !== NULL
+      ? 'Deterministic fallback focuses first alive player target.'
+      : 'No valid player target available.';
 
     return [
       'version' => 'v1',
@@ -36,6 +39,12 @@ class StubEncounterAiProvider implements EncounterAiProviderInterface {
       ],
       'alternatives' => [],
       'rationale' => $rationale,
+      'decision_reason' => $decision_reason,
+      'decision_basis' => [
+        'intent' => $target !== NULL ? 'aggressive_engage' : 'no_targets',
+        'target_selection' => $target !== NULL ? 'first_alive_player' : 'none',
+        'deterministic' => TRUE,
+      ],
       'confidence' => $target !== NULL ? 0.6 : 0.4,
     ];
   }

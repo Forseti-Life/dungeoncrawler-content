@@ -201,6 +201,9 @@ class AiConversationEncounterAiProvider implements EncounterAiProviderInterface 
     $line_of_sight = is_array($context['line_of_sight'] ?? NULL) ? $context['line_of_sight'] : [];
     $conversation_options = is_array($context['conversation_options'] ?? NULL) ? $context['conversation_options'] : [];
     $npc_psychology = trim((string) ($context['npc_psychology'] ?? ''));
+    $current_actor_tactical_intent = is_array($context['current_actor_tactical_intent'] ?? NULL)
+      ? $context['current_actor_tactical_intent']
+      : [];
 
     return json_encode([
       'task' => 'Choose a single legal tactical action for the active NPC combatant.',
@@ -219,6 +222,7 @@ class AiConversationEncounterAiProvider implements EncounterAiProviderInterface 
         'turn_index' => (int) ($context['turn_index'] ?? 0),
         'current_actor' => $current_actor,
         'current_actor_profile' => $current_actor_profile,
+        'current_actor_tactical_intent' => $current_actor_tactical_intent,
         'npc_psychology' => $npc_psychology !== '' ? $npc_psychology : NULL,
         'visible_references' => $visible_references,
         'line_of_sight' => $line_of_sight,
@@ -239,6 +243,8 @@ class AiConversationEncounterAiProvider implements EncounterAiProviderInterface 
         ],
         'alternatives' => 'array',
         'rationale' => 'string',
+        'decision_reason' => 'string',
+        'decision_basis' => 'object',
         'confidence' => 'number_between_0_and_1',
       ],
     ], JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT) ?: '{}';
@@ -277,7 +283,7 @@ class AiConversationEncounterAiProvider implements EncounterAiProviderInterface 
    * Build system prompt for recommendation requests.
    */
   private function buildRecommendationSystemPrompt(): string {
-    return 'You are a tactical combat assistant. Use current_actor_profile and npc_psychology when provided so recommendations respect motivations, fears, attitude, and behavior tendencies. Return valid JSON only with no markdown fences or extra prose.';
+    return 'You are a tactical combat assistant. Use current_actor_profile, current_actor_tactical_intent, and npc_psychology when provided so recommendations respect motivations, fears, attitude, behavior tendencies, and intent continuity. Return valid JSON only with no markdown fences or extra prose.';
   }
 
   /**
@@ -484,6 +490,17 @@ class AiConversationEncounterAiProvider implements EncounterAiProviderInterface 
     $parameters = is_array($recommended_action['parameters'] ?? NULL) ? $recommended_action['parameters'] : [];
     $alternatives = is_array($payload['alternatives'] ?? NULL) ? $payload['alternatives'] : [];
     $actor_instance_id = trim((string) ($payload['actor_instance_id'] ?? $current_actor['entity_ref'] ?? ''));
+    $decision_reason = trim((string) ($payload['decision_reason'] ?? ''));
+    if ($decision_reason === '') {
+      $decision_reason = (string) ($payload['rationale'] ?? 'Selected by ai_conversation tactical provider.');
+    }
+    $decision_basis = is_array($payload['decision_basis'] ?? NULL) ? $payload['decision_basis'] : [];
+    if ($decision_basis === []) {
+      $decision_basis = [
+        'source' => 'ai_conversation',
+        'confidence' => $confidence,
+      ];
+    }
 
     if ($actor_instance_id === '') {
       return NULL;
@@ -501,6 +518,8 @@ class AiConversationEncounterAiProvider implements EncounterAiProviderInterface 
       ],
       'alternatives' => $alternatives,
       'rationale' => (string) ($payload['rationale'] ?? 'Selected by ai_conversation tactical provider.'),
+      'decision_reason' => $decision_reason,
+      'decision_basis' => $decision_basis,
       'confidence' => $confidence,
       'fallback_used' => FALSE,
     ];

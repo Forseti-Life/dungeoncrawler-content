@@ -169,6 +169,26 @@ Supported:
 - Google Vertex AI
 - (Extensible for others)
 
+### NPC Motivation → Tactical Intent Contract (Encounter autoplayer)
+
+Authoritative server implementation lives in:
+- `src/Service/EncounterPhaseHandler.php`
+  - `buildNpcTacticalIntentContract(...)`
+  - `buildNpcTurnPlan(...)`
+  - `resolveNpcIntentActionType(...)`
+
+Contract shape:
+- `intent`: canonical behavior mode (`deescalate`, `self_preserve`, `finish_weakest`, `treasure_seek`, `aggressive_engage`, `no_targets`)
+- `action_sequence`: deterministic per-action sequence used for remaining turn actions
+- `target_strategy`: deterministic targeting mode (`nearest`, `weakest_adjacent`, `none`)
+- `decision_reason`: concise machine-readable reason for the selected intent
+- `decision_basis`: supporting tactical/psychology evidence (attitude, axes, hp ratio, goals, adjacency/target state)
+
+Execution guarantees:
+- NPC turns use one intent contract for action 1/2/3 so behavior does not drift mid-turn.
+- Encounter outputs expose `decision_reason` and `decision_basis` on `npc_strike`, `npc_stride`, `npc_interact`, `npc_talk`, and `npc_choose_not_to_act`.
+- AI recommendation prompts include `current_actor_tactical_intent`; optional AI first-step seeds are accepted only when compatible with the same server intent contract.
+
 Configure via environment variables:
 
 ```bash

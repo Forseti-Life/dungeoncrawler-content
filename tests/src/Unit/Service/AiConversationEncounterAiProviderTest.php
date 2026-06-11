@@ -103,6 +103,8 @@ class AiConversationEncounterAiProviderTest extends UnitTestCase {
     $this->assertSame('strike', $recommendation['recommended_action']['type']);
     $this->assertSame('pc-1', $recommendation['recommended_action']['target_instance_id']);
     $this->assertSame('Close threat in reach.', $recommendation['rationale']);
+    $this->assertSame('Close threat in reach.', $recommendation['decision_reason']);
+    $this->assertTrue(is_array($recommendation['decision_basis']));
     $this->assertSame(1, $recommendation['request_attempts']);
   }
 
@@ -124,6 +126,8 @@ class AiConversationEncounterAiProviderTest extends UnitTestCase {
     $this->assertSame('strike', $recommendation['recommended_action']['type']);
     $this->assertSame('pc-1', $recommendation['recommended_action']['target_instance_id']);
     $this->assertStringContainsString('Transport failure', (string) $recommendation['fallback_reason']);
+    $this->assertNotSame('', trim((string) ($recommendation['decision_reason'] ?? '')));
+    $this->assertTrue(is_array($recommendation['decision_basis'] ?? NULL));
     $this->assertSame(2, $recommendation['request_attempts']);
   }
 
@@ -194,6 +198,11 @@ class AiConversationEncounterAiProviderTest extends UnitTestCase {
       'personality_axes' => ['cunning' => 8, 'discipline' => 7],
       'goals' => ['Gain XP', 'Gain Treasure', 'Protect the relic'],
     ];
+    $context['current_actor_tactical_intent'] = [
+      'intent' => 'finish_weakest',
+      'target_strategy' => 'weakest_adjacent',
+      'decision_reason' => 'High cunning/discipline profile prioritizes focused pressure on weak targets.',
+    ];
     $context['npc_psychology'] = "=== NPC COMBAT PERSONALITY ===\nFighting motivation: Protect the relic";
 
     $this->aiApiService->expects($this->once())
@@ -210,6 +219,7 @@ class AiConversationEncounterAiProviderTest extends UnitTestCase {
           $encounter = is_array($payload['encounter'] ?? NULL) ? $payload['encounter'] : [];
           return ($encounter['current_actor_profile']['motivations'] ?? '') === 'Protect the relic'
             && ($encounter['current_actor_profile']['goals'][0] ?? '') === 'Gain XP'
+            && ($encounter['current_actor_tactical_intent']['intent'] ?? '') === 'finish_weakest'
             && ($encounter['npc_psychology'] ?? '') === "=== NPC COMBAT PERSONALITY ===\nFighting motivation: Protect the relic";
         }),
         'dungeoncrawler_content',
@@ -237,6 +247,8 @@ class AiConversationEncounterAiProviderTest extends UnitTestCase {
     $recommendation = $this->provider->recommendNpcAction($context);
     $this->assertFalse($recommendation['fallback_used']);
     $this->assertSame('Use motivation-aligned pressure.', $recommendation['rationale']);
+    $this->assertSame('Use motivation-aligned pressure.', $recommendation['decision_reason']);
+    $this->assertTrue(is_array($recommendation['decision_basis']));
   }
 
   /**

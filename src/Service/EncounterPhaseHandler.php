@@ -5437,10 +5437,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
     // Check config flag — if AI autoplay disabled, always use fallback.
     $ai_enabled = (bool) $this->configFactory->get('dungeoncrawler_content.settings')
       ->get('encounter_ai_npc_autoplay_enabled');
-
-    $action_type = NULL;
-    $target = NULL;
-    $narration = NULL;
+    $ai_seed_action = NULL;
 
     if ($ai_enabled) {
       try {
@@ -5452,9 +5449,14 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
           $valid = $result['validation']['valid'] ?? FALSE;
 
           if ($valid) {
-            $action_type = $action['type'] ?? NULL;
-            $target = $action['target_instance_id'] ?? ($action['target'] ?? NULL);
-            $narration = $rec['narration'] ?? NULL;
+            $ai_seed_action = [
+              'type' => is_string($action['type'] ?? NULL) ? $action['type'] : '',
+              'target_instance_id' => $action['target_instance_id'] ?? ($action['target'] ?? NULL),
+              'narration' => is_string($rec['narration'] ?? NULL) ? $rec['narration'] : NULL,
+              'rationale' => is_string($rec['rationale'] ?? NULL) ? $rec['rationale'] : '',
+              'decision_reason' => is_string($rec['decision_reason'] ?? NULL) ? $rec['decision_reason'] : '',
+              'decision_basis' => is_array($rec['decision_basis'] ?? NULL) ? $rec['decision_basis'] : [],
+            ];
           }
           else {
             $this->logger->info('NPC AI recommendation invalid, using fallback. Errors: @errors', [
@@ -5468,88 +5470,97 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
       }
     }
 
-    // Fallback: choose a sensible action without AI.
-    if ($action_type === NULL) {
-      $action_type = $this->chooseFallbackAction($entity_id, $game_state, $campaign_id);
-      $target = $this->chooseFallbackTarget($entity_id, $game_state, $campaign_id, $action_type);
-    }
+    $turn_plan = $this->buildNpcTurnPlan($entity_id, $game_state, $campaign_id, $ai_seed_action);
+    $intent_contract = is_array($turn_plan['intent_contract'] ?? NULL) ? $turn_plan['intent_contract'] : [];
+    $plan_steps = is_array($turn_plan['steps'] ?? NULL) ? $turn_plan['steps'] : [];
 
-    // Execute the chosen action.
-    switch ($action_type) {
-      case 'strike':
-        if ($target) {
-          $strike_result = $this->processStrike($encounter_id, $entity_id, $target, [], $game_state, $dungeon_data, $campaign_id);
-          $events[] = GameEventLogger::buildEvent('npc_strike', 'encounter', $entity_id, [
+    foreach ($plan_steps as $plan_step) {
+      $action_type = (string) ($plan_step['action_type'] ?? '');
+      if ($action_type === '') {
+        continue;
+      }
+      $target = is_scalar($plan_step['target'] ?? NULL) ? trim((string) $plan_step['target']) : '';
+      $target = $target !== '' ? $target : NULL;
+      $narration = is_string($plan_step['narration'] ?? NULL) ? $plan_step['narration'] : NULL;
+      $decision_reason = (string) ($plan_step['decision_reason'] ?? ($intent_contract['decision_reason'] ?? 'Intent-driven action.'));
+      $decision_basis = is_array($plan_step['decision_basis'] ?? NULL) ? $plan_step['decision_basis'] : [];
+      $decision_basis += [
+        'intent' => (string) ($intent_contract['intent'] ?? 'unknown'),
+      ];
+
+      switch ($action_type) {
+        case 'strike':
+          if ($target) {
+            $strike_result = $this->processStrike($encounter_id, $entity_id, $target, [], $game_state, $dungeon_data, $campaign_id);
+            $events[] = GameEventLogger::buildEvent('npc_strike', 'encounter', $entity_id, [
+              'target' => $target,
+              'roll' => $strike_result['roll'] ?? NULL,
+              'degree' => $strike_result['degree'] ?? NULL,
+              'damage' => $strike_result['damage'] ?? NULL,
+              'decision_reason' => $decision_reason,
+              'decision_basis' => $decision_basis,
+            ], $narration, $target);
+            $this->checkEntityDefeated($target, $entity_id, $game_state, $events, $dungeon_data, $campaign_id);
+          }
+          break;
+
+        case 'stride':
+          $nearest = $this->findNearestAlivePlayer($entity_id, $game_state);
+          $events[] = GameEventLogger::buildEvent('npc_stride', 'encounter', $entity_id, [
+            'toward' => $nearest,
+            'decision_reason' => $decision_reason,
+            'decision_basis' => $decision_basis,
+          ], $narration);
+          break;
+
+        case 'interact':
+          $events[] = GameEventLogger::buildEvent('npc_interact', 'encounter', $entity_id, [
+            'interaction' => 'raise_shield',
+            'decision_reason' => $decision_reason,
+            'decision_basis' => $decision_basis,
+          ], $narration);
+          break;
+
+        case 'talk':
+          $events[] = GameEventLogger::buildEvent('npc_talk', 'encounter', $entity_id, [
+            'message' => $narration ?? 'The creature snarls at you.',
             'target' => $target,
-            'roll' => $strike_result['roll'] ?? NULL,
-            'degree' => $strike_result['degree'] ?? NULL,
-            'damage' => $strike_result['damage'] ?? NULL,
-          ], $narration, $target);
+            'decision_reason' => $decision_reason,
+            'decision_basis' => $decision_basis,
+          ], $narration);
+          break;
 
-          // Check for entity defeat after strike.
-          $this->checkEntityDefeated($target, $entity_id, $game_state, $events, $dungeon_data, $campaign_id);
-        }
+        default:
+          break;
+      }
+
+      $game_state['turn']['actions_remaining'] = max(0, (int) ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+      if (($game_state['turn']['actions_remaining'] ?? 0) <= 0) {
         break;
-
-      case 'stride':
-        // Move toward the nearest player.
-        $nearest = $this->findNearestAlivePlayer($entity_id, $game_state);
-        $events[] = GameEventLogger::buildEvent('npc_stride', 'encounter', $entity_id, [
-          'toward' => $nearest,
-        ], $narration);
-        break;
-
-      case 'interact':
-        $events[] = GameEventLogger::buildEvent('npc_interact', 'encounter', $entity_id, [
-          'interaction' => 'raise_shield',
-        ], $narration);
-        break;
-
-      case 'talk':
-        $events[] = GameEventLogger::buildEvent('npc_talk', 'encounter', $entity_id, [
-          'message' => $narration ?? 'The creature snarls at you.',
-        ], $narration);
-        break;
-
-      case 'end_turn':
-        // Intentional no-op: explicit "choose not to act further" is emitted below.
-        break;
-
-      default:
-        // Unknown action — default to strike.
-        $target = $target ?? $this->findFirstAlivePlayer($game_state);
-        if ($target) {
-          $strike_result = $this->processStrike($encounter_id, $entity_id, $target, [], $game_state, $dungeon_data, $campaign_id);
-          $events[] = GameEventLogger::buildEvent('npc_strike', 'encounter', $entity_id, [
-            'target' => $target,
-            'roll' => $strike_result['roll'] ?? NULL,
-            'degree' => $strike_result['degree'] ?? NULL,
-            'damage' => $strike_result['damage'] ?? NULL,
-            'fallback' => TRUE,
-          ], NULL, $target);
-
-          // Check for entity defeat after fallback strike.
-          $this->checkEntityDefeated($target, $entity_id, $game_state, $events, $dungeon_data, $campaign_id);
-        }
-        else {
-          $events[] = GameEventLogger::buildEvent('npc_choose_not_to_act', 'encounter', $entity_id, [
-            'round' => $game_state['round'] ?? NULL,
-            'room_id' => $dungeon_data['active_room_id'] ?? ($game_state['encounter_context']['room_id'] ?? NULL),
-            'actor_name' => $this->resolveEntityName($entity_id, $game_state, $dungeon_data),
-            'reason' => 'No valid target available.',
-          ], sprintf('%s chooses not to act.', $this->resolveEntityName($entity_id, $game_state, $dungeon_data)));
-        }
-        break;
+      }
     }
 
     $resolved_room_id = $dungeon_data['active_room_id'] ?? ($game_state['encounter_context']['room_id'] ?? NULL);
     $actor_name = $this->resolveEntityName($entity_id, $game_state, $dungeon_data);
+    $game_state['turn']['actions_remaining'] = 0;
+    $terminal_decision_reason = is_string($intent_contract['decision_reason'] ?? NULL)
+      ? $intent_contract['decision_reason']
+      : 'No further action selected.';
+    $terminal_decision_basis = is_array($intent_contract['decision_basis'] ?? NULL)
+      ? $intent_contract['decision_basis']
+      : [];
+    $terminal_decision_basis += [
+      'intent' => (string) ($intent_contract['intent'] ?? 'unknown'),
+      'executed_steps' => count($plan_steps),
+    ];
     $events[] = GameEventLogger::buildEvent('npc_choose_not_to_act', 'encounter', $entity_id, [
       'round' => $game_state['round'] ?? NULL,
       'room_id' => $resolved_room_id,
       'actor_name' => $actor_name,
       'actions_remaining' => $game_state['turn']['actions_remaining'] ?? NULL,
       'reason' => 'No further action selected.',
+      'decision_reason' => $terminal_decision_reason,
+      'decision_basis' => $terminal_decision_basis,
     ], sprintf('%s chooses not to take any further actions.', $actor_name));
     $this->queueNarrationEvent($campaign_id, $dungeon_data, [
       'type' => 'choose_not_to_act',
@@ -5563,6 +5574,8 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
         'actor_name' => $actor_name,
         'room_id' => $resolved_room_id,
         'actions_remaining' => $game_state['turn']['actions_remaining'] ?? NULL,
+        'decision_reason' => $terminal_decision_reason,
+        'decision_basis' => $terminal_decision_basis,
       ],
     ], $resolved_room_id);
 
@@ -5575,13 +5588,21 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
   protected function passRoomActorTurn(string $entity_id, array &$game_state, array &$dungeon_data, int $campaign_id): array {
     $resolved_room_id = $dungeon_data['active_room_id'] ?? ($game_state['encounter_context']['room_id'] ?? NULL);
     $actor_name = $this->resolveEntityName($entity_id, $game_state, $dungeon_data);
+    $decision_reason = 'No room-scene action selected.';
+    $decision_basis = [
+      'intent' => 'room_scene_pass',
+      'round' => $game_state['round'] ?? NULL,
+      'actions_remaining' => $game_state['turn']['actions_remaining'] ?? NULL,
+    ];
     $events = [
       GameEventLogger::buildEvent('npc_choose_not_to_act', 'encounter', $entity_id, [
         'round' => $game_state['round'] ?? NULL,
         'room_id' => $resolved_room_id,
         'actor_name' => $actor_name,
         'actions_remaining' => $game_state['turn']['actions_remaining'] ?? NULL,
-        'reason' => 'No room-scene action selected.',
+        'reason' => $decision_reason,
+        'decision_reason' => $decision_reason,
+        'decision_basis' => $decision_basis,
       ], sprintf('%s chooses not to take any further actions.', $actor_name)),
     ];
     $this->queueNarrationEvent($campaign_id, $dungeon_data, [
@@ -5596,10 +5617,212 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
         'actor_name' => $actor_name,
         'room_id' => $resolved_room_id,
         'actions_remaining' => $game_state['turn']['actions_remaining'] ?? NULL,
+        'decision_reason' => $decision_reason,
+        'decision_basis' => $decision_basis,
       ],
     ], $resolved_room_id);
 
     return ['events' => $events];
+  }
+
+  /**
+   * Build canonical NPC tactical intent contract from psychology + tactical state.
+   *
+   * The returned envelope is deterministic and reused across all actions in an
+   * NPC turn so intent continuity stays stable from action 1/2/3.
+   */
+  protected function buildNpcTacticalIntentContract(string $entity_id, array $game_state, int $campaign_id): array {
+    $npc = $this->findCombatant($entity_id, $game_state);
+    $profile = $this->loadCombatantPsychologyProfile($entity_id, $game_state, $campaign_id);
+    $axes = is_array($profile['personality_axes'] ?? NULL) ? $profile['personality_axes'] : [];
+    $goals = $this->resolveActorGoals($profile);
+    $attitude = strtolower((string) ($profile['attitude'] ?? 'indifferent'));
+    $boldness = (int) ($axes['boldness'] ?? 5);
+    $empathy = (int) ($axes['empathy'] ?? 5);
+    $discipline = (int) ($axes['discipline'] ?? 5);
+    $cunning = (int) ($axes['cunning'] ?? 5);
+    $hp_ratio = $this->hpRatio($npc ?? []);
+    $nearest_player = $this->findNearestAlivePlayer($entity_id, $game_state);
+
+    $has_adjacent_player = FALSE;
+    if ($npc) {
+      $npc_q = (int) ($npc['position_q'] ?? 0);
+      $npc_r = (int) ($npc['position_r'] ?? 0);
+      foreach (($game_state['initiative_order'] ?? []) as $combatant) {
+        if (($combatant['team'] ?? '') !== 'player' || !empty($combatant['is_defeated'])) {
+          continue;
+        }
+        $pq = (int) ($combatant['position_q'] ?? 0);
+        $pr = (int) ($combatant['position_r'] ?? 0);
+        if ($this->hexDistance($npc_q, $npc_r, $pq, $pr) <= 1) {
+          $has_adjacent_player = TRUE;
+          break;
+        }
+      }
+    }
+
+    $intent = 'aggressive_engage';
+    $action_sequence = $has_adjacent_player
+      ? ['strike', 'strike', 'strike']
+      : ['stride', 'strike', 'strike'];
+    $target_strategy = 'nearest';
+    $decision_reason = 'Default aggressive engagement: close distance and pressure the nearest threat.';
+
+    if ($nearest_player === NULL) {
+      $intent = 'no_targets';
+      $action_sequence = ['end_turn'];
+      $target_strategy = 'none';
+      $decision_reason = 'No valid player target is available.';
+    }
+    elseif (($boldness <= 4 || $this->motivationSignalsSelfPreservation($profile ?? [])) && $hp_ratio <= 0.35) {
+      $intent = 'self_preserve';
+      $action_sequence = ['stride', 'stride', 'interact'];
+      $target_strategy = 'nearest';
+      $decision_reason = 'Wounded or survival-motivated profile favors retreat/reposition over direct engagement.';
+    }
+    elseif (in_array($attitude, ['friendly', 'helpful'], TRUE) && $empathy >= 7 && $has_adjacent_player) {
+      $intent = 'deescalate';
+      $action_sequence = ['talk', 'stride', 'talk'];
+      $target_strategy = 'nearest';
+      $decision_reason = 'Friendly and empathetic profile attempts de-escalation before violence.';
+    }
+    elseif ($cunning >= 7 || $discipline >= 7) {
+      $intent = 'finish_weakest';
+      $action_sequence = ['strike', 'strike', 'stride'];
+      $target_strategy = 'weakest_adjacent';
+      $decision_reason = 'High cunning/discipline profile prioritizes focused pressure on weak targets.';
+    }
+    elseif (!$has_adjacent_player && $this->actorHasGoal($goals, 'gain treasure')) {
+      $intent = 'treasure_seek';
+      $action_sequence = ['interact', 'stride', 'interact'];
+      $target_strategy = 'none';
+      $decision_reason = 'Treasure-oriented goals bias this actor toward interact-driven objective play.';
+    }
+
+    return [
+      'intent' => $intent,
+      'action_sequence' => $action_sequence,
+      'target_strategy' => $target_strategy,
+      'decision_reason' => $decision_reason,
+      'decision_basis' => [
+        'attitude' => $attitude,
+        'axes' => [
+          'boldness' => $boldness,
+          'empathy' => $empathy,
+          'discipline' => $discipline,
+          'cunning' => $cunning,
+        ],
+        'hp_ratio' => $hp_ratio,
+        'goals' => $goals,
+        'has_adjacent_player' => $has_adjacent_player,
+        'nearest_player' => $nearest_player,
+      ],
+    ];
+  }
+
+  /**
+   * Build deterministic per-action NPC plan for the remaining turn economy.
+   */
+  protected function buildNpcTurnPlan(string $entity_id, array $game_state, int $campaign_id, ?array $ai_seed_action = NULL): array {
+    $intent_contract = $this->buildNpcTacticalIntentContract($entity_id, $game_state, $campaign_id);
+    $actions_remaining = max(0, (int) ($game_state['turn']['actions_remaining'] ?? 0));
+    $steps = [];
+
+    for ($step_index = 0; $step_index < $actions_remaining; $step_index++) {
+      $action_type = $this->resolveNpcIntentActionType($intent_contract, $step_index, $game_state);
+      $target = $this->resolveNpcIntentTarget($entity_id, $game_state, $campaign_id, $action_type, $intent_contract);
+      $decision_reason = (string) ($intent_contract['decision_reason'] ?? 'Intent-driven fallback action.');
+      $decision_basis = [
+        'intent' => (string) ($intent_contract['intent'] ?? 'unknown'),
+        'plan_step' => $step_index + 1,
+        'target_strategy' => (string) ($intent_contract['target_strategy'] ?? 'nearest'),
+      ] + (is_array($intent_contract['decision_basis'] ?? NULL) ? $intent_contract['decision_basis'] : []);
+      $narration = NULL;
+
+      if ($step_index === 0 && is_array($ai_seed_action) && $this->isAiSeedActionCompatibleWithIntent($ai_seed_action, $intent_contract)) {
+        $action_type = (string) ($ai_seed_action['type'] ?? $action_type);
+        $seed_target = $ai_seed_action['target_instance_id'] ?? NULL;
+        if (is_scalar($seed_target) && trim((string) $seed_target) !== '') {
+          $target = trim((string) $seed_target);
+        }
+        $seed_reason = trim((string) ($ai_seed_action['decision_reason'] ?? $ai_seed_action['rationale'] ?? ''));
+        if ($seed_reason !== '') {
+          $decision_reason = $seed_reason;
+        }
+        $decision_basis = [
+          'intent' => (string) ($intent_contract['intent'] ?? 'unknown'),
+          'plan_step' => 1,
+          'target_strategy' => (string) ($intent_contract['target_strategy'] ?? 'nearest'),
+          'ai_seeded' => TRUE,
+        ] + (is_array($ai_seed_action['decision_basis'] ?? NULL) ? $ai_seed_action['decision_basis'] : []) + (is_array($intent_contract['decision_basis'] ?? NULL) ? $intent_contract['decision_basis'] : []);
+        $narration = isset($ai_seed_action['narration']) && is_string($ai_seed_action['narration'])
+          ? $ai_seed_action['narration']
+          : NULL;
+      }
+
+      if ($action_type === 'end_turn') {
+        break;
+      }
+
+      $steps[] = [
+        'action_type' => $action_type,
+        'target' => $target,
+        'narration' => $narration,
+        'decision_reason' => $decision_reason,
+        'decision_basis' => $decision_basis,
+      ];
+    }
+
+    return [
+      'intent_contract' => $intent_contract,
+      'steps' => $steps,
+    ];
+  }
+
+  /**
+   * Resolve deterministic action type for a specific plan step.
+   */
+  protected function resolveNpcIntentActionType(array $intent_contract, int $step_index, array $game_state): string {
+    $sequence = is_array($intent_contract['action_sequence'] ?? NULL) ? $intent_contract['action_sequence'] : [];
+    if ($sequence === []) {
+      return 'end_turn';
+    }
+
+    $resolved = $sequence[$step_index] ?? end($sequence);
+    return is_string($resolved) && $resolved !== '' ? $resolved : 'end_turn';
+  }
+
+  /**
+   * Resolve deterministic target for an intent step.
+   */
+  protected function resolveNpcIntentTarget(string $entity_id, array $game_state, int $campaign_id, string $action_type, array $intent_contract): ?string {
+    if (!in_array($action_type, ['strike', 'talk'], TRUE)) {
+      return NULL;
+    }
+
+    $target_strategy = (string) ($intent_contract['target_strategy'] ?? 'nearest');
+    if ($target_strategy === 'weakest_adjacent') {
+      return $this->chooseFallbackTarget($entity_id, $game_state, $campaign_id, $action_type);
+    }
+
+    return $this->findNearestAlivePlayer($entity_id, $game_state);
+  }
+
+  /**
+   * Check whether AI-seeded first action is compatible with intent contract.
+   */
+  protected function isAiSeedActionCompatibleWithIntent(array $ai_seed_action, array $intent_contract): bool {
+    $action_type = trim((string) ($ai_seed_action['type'] ?? ''));
+    if ($action_type === '') {
+      return FALSE;
+    }
+
+    $sequence = is_array($intent_contract['action_sequence'] ?? NULL) ? $intent_contract['action_sequence'] : [];
+    if ($sequence === []) {
+      return FALSE;
+    }
+
+    return in_array($action_type, $sequence, TRUE);
   }
 
   /**
@@ -5620,83 +5843,8 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
    * Basic tactical heuristic: if adjacent to player → strike; otherwise → stride.
    */
   protected function chooseFallbackAction(string $entity_id, array $game_state, int $campaign_id = 0): string {
-    $npc = $this->findCombatant($entity_id, $game_state);
-    if (!$npc) {
-      return 'end_turn';
-    }
-
-    $nearest_player = $this->findNearestAlivePlayer($entity_id, $game_state);
-    if ($nearest_player === NULL) {
-      return 'end_turn';
-    }
-
-    $npc_q = (int) ($npc['position_q'] ?? 0);
-    $npc_r = (int) ($npc['position_r'] ?? 0);
-    $hp_ratio = $this->hpRatio($npc);
-    $profile = $this->loadCombatantPsychologyProfile($entity_id, $game_state, $campaign_id);
-    $goals = $this->resolveActorGoals($profile);
-    $has_adjacent_player = FALSE;
-    foreach (($game_state['initiative_order'] ?? []) as $combatant) {
-      if (($combatant['team'] ?? '') !== 'player' || !empty($combatant['is_defeated'])) {
-        continue;
-      }
-      $pq = (int) ($combatant['position_q'] ?? 0);
-      $pr = (int) ($combatant['position_r'] ?? 0);
-      if ($this->hexDistance($npc_q, $npc_r, $pq, $pr) <= 1) {
-        $has_adjacent_player = TRUE;
-        break;
-      }
-    }
-
-    if ($profile) {
-      $axes = is_array($profile['personality_axes'] ?? NULL) ? $profile['personality_axes'] : [];
-      $boldness = (int) ($axes['boldness'] ?? 5);
-      $empathy = (int) ($axes['empathy'] ?? 5);
-      $attitude = (string) ($profile['attitude'] ?? 'indifferent');
-
-      // Wounded/self-preservation NPCs bias toward movement over direct engagement.
-      if (($boldness <= 3 || $this->motivationSignalsSelfPreservation($profile)) && $hp_ratio <= 0.35) {
-        return 'stride';
-      }
-
-      // Friendly empathetic NPCs adjacent to PCs try to de-escalate first.
-      if (in_array($attitude, ['friendly', 'helpful'], TRUE) && $empathy >= 7) {
-        foreach (($game_state['initiative_order'] ?? []) as $combatant) {
-          if (($combatant['team'] ?? '') !== 'player' || !empty($combatant['is_defeated'])) {
-            continue;
-          }
-          $pq = (int) ($combatant['position_q'] ?? 0);
-          $pr = (int) ($combatant['position_r'] ?? 0);
-          if ($this->hexDistance($npc_q, $npc_r, $pq, $pr) <= 1) {
-            return 'talk';
-          }
-        }
-      }
-    }
-
-    // Goals should influence actor choice when they can act in-room.
-    if ($has_adjacent_player && $this->actorHasGoal($goals, 'gain xp')) {
-      return 'strike';
-    }
-    if (!$has_adjacent_player && $this->actorHasGoal($goals, 'gain treasure')) {
-      return 'interact';
-    }
-
-    // Check if any alive player is adjacent (distance = 1 hex).
-    foreach (($game_state['initiative_order'] ?? []) as $combatant) {
-      if (($combatant['team'] ?? '') !== 'player' || !empty($combatant['is_defeated'])) {
-        continue;
-      }
-      $pq = (int) ($combatant['position_q'] ?? 0);
-      $pr = (int) ($combatant['position_r'] ?? 0);
-      $dist = $this->hexDistance($npc_q, $npc_r, $pq, $pr);
-
-      if ($dist <= 1) {
-        return 'strike';
-      }
-    }
-
-    return 'stride';
+    $intent_contract = $this->buildNpcTacticalIntentContract($entity_id, $game_state, $campaign_id);
+    return $this->resolveNpcIntentActionType($intent_contract, 0, $game_state);
   }
 
   /**
@@ -7873,6 +8021,11 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
       ],
       // NPC personality/psychology context for AI decision-making.
       'npc_psychology' => $this->buildNpcPsychologyContext($entity_id, $game_state),
+      'current_actor_tactical_intent' => $this->buildNpcTacticalIntentContract(
+        $entity_id,
+        $game_state,
+        (int) ($game_state['campaign_id'] ?? 0)
+      ),
     ];
   }
 
