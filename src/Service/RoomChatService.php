@@ -3837,7 +3837,7 @@ class RoomChatService {
         'turn_role' => 'system',
         'turn_name' => 'Turn Order',
         'turn_index' => 1,
-      ], $encounter_prefix);
+      ], $encounter_prefix, FALSE);
     }
     $this->logger->info('Room turn order for room @room (turn @turn_key): @order', [
       '@room' => $room_id,
@@ -3867,7 +3867,7 @@ class RoomChatService {
       'turn_role' => 'narrator',
       'turn_name' => 'Narrator',
       'turn_index' => 1,
-    ], $encounter_prefix);
+    ], $encounter_prefix, FALSE);
     $this->persistStructuredRoomTurnLog(
       $campaign_id,
       $dungeon_id,
@@ -3887,7 +3887,7 @@ class RoomChatService {
       'turn_role' => 'gm',
       'turn_name' => 'Game Master',
       'turn_index' => 2,
-    ], $encounter_prefix);
+    ], $encounter_prefix, FALSE);
     $this->logger->info('Room turn current speaker in room @room (turn @turn_key): Game Master', [
       '@room' => $room_id,
       '@turn_key' => $turn_log_key,
@@ -3897,8 +3897,6 @@ class RoomChatService {
     $spoken_refs = [];
 
     $game_state = is_array($dungeon_data['game_state'] ?? NULL) ? $dungeon_data['game_state'] : [];
-    $round_raw = $game_state['round'] ?? 1;
-    $round_display = is_numeric($round_raw) ? max(0, ((int) $round_raw) - 1) : '?';
 
     // Structured logs have a dense sequence counter; chat/UX turn indices are
     // the stable speaker order within the harness.
@@ -3912,7 +3910,7 @@ class RoomChatService {
       $current_turn_index = $harness_turn_index++;
 
       $npc_encounter_prefix = (($game_state['phase'] ?? '') === 'encounter')
-        ? $this->formatEncounterTranscriptPrefix($round_display, $current_turn_index, $current_speaker)
+        ? $this->buildEncounterPrefixForSpeaker($dungeon_data, $current_speaker)
         : NULL;
 
       $this->persistStructuredRoomTurnLog(
@@ -3946,7 +3944,8 @@ class RoomChatService {
           'initiative_roll' => isset($npc['initiative_roll']) ? (int) $npc['initiative_roll'] : NULL,
           'initiative_modifier' => isset($npc['initiative_modifier']) ? (int) $npc['initiative_modifier'] : NULL,
         ],
-        NULL
+        NULL,
+        FALSE
       );
       $this->logger->info('Room turn current speaker in room @room (turn @turn_key): @speaker', [
         '@room' => $room_id,
@@ -4045,7 +4044,9 @@ class RoomChatService {
         'turn_name' => $player_label,
         'turn_index' => $harness_turn_index,
         'turn_prompt' => TRUE,
-      ]
+      ],
+      NULL,
+      FALSE
     );
     $harness_turn_index++;
 
@@ -4505,12 +4506,12 @@ class RoomChatService {
   /**
    * Append an internal turn-log system message to room chat.
    */
-  protected function appendRoomSystemMessage(array &$dungeon_data, int|string $room_index, string $message, array $extra = [], ?string $encounter_prefix = NULL): array {
+  protected function appendRoomSystemMessage(array &$dungeon_data, int|string $room_index, string $message, array $extra = [], ?string $encounter_prefix = NULL, bool $persist_to_chat = TRUE): array {
     $extra['internal_log'] = FALSE;
-    return $this->appendInternalRoomLogMessage($dungeon_data, $room_index, $message, $extra, $encounter_prefix);
+    return $this->appendInternalRoomLogMessage($dungeon_data, $room_index, $message, $extra, $encounter_prefix, $persist_to_chat);
   }
 
-  protected function appendInternalRoomLogMessage(array &$dungeon_data, int|string $room_index, string $message, array $extra = [], ?string $encounter_prefix = NULL): array {
+  protected function appendInternalRoomLogMessage(array &$dungeon_data, int|string $room_index, string $message, array $extra = [], ?string $encounter_prefix = NULL, bool $persist_to_chat = TRUE): array {
     $internal_log = array_key_exists('internal_log', $extra) ? (bool) $extra['internal_log'] : TRUE;
 
     if ($encounter_prefix === NULL) {
@@ -4542,14 +4543,16 @@ class RoomChatService {
         $system_message[$field] = $extra[$field];
       }
     }
-    $dungeon_data['rooms'][$room_index]['chat'][] = $system_message;
+    if ($persist_to_chat) {
+      $dungeon_data['rooms'][$room_index]['chat'][] = $system_message;
 
-    $chat_count = count($dungeon_data['rooms'][$room_index]['chat']);
-    if ($chat_count > self::MAX_MESSAGES_PER_ROOM) {
-      $dungeon_data['rooms'][$room_index]['chat'] = array_slice(
-        $dungeon_data['rooms'][$room_index]['chat'],
-        $chat_count - self::MAX_MESSAGES_PER_ROOM
-      );
+      $chat_count = count($dungeon_data['rooms'][$room_index]['chat']);
+      if ($chat_count > self::MAX_MESSAGES_PER_ROOM) {
+        $dungeon_data['rooms'][$room_index]['chat'] = array_slice(
+          $dungeon_data['rooms'][$room_index]['chat'],
+          $chat_count - self::MAX_MESSAGES_PER_ROOM
+        );
+      }
     }
 
     return $system_message;
