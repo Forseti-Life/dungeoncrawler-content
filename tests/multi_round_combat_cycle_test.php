@@ -209,7 +209,8 @@ try {
   $initial_state = $game_coordinator->getFullState($campaign_id);
   assert_true(!empty($initial_state['success']), 'Initial room state loads');
   assert_equals('encounter', $initial_state['game_state']['phase'] ?? NULL, 'Initial phase is encounter');
-  assert_true(empty($initial_state['game_state']['encounter_id']), 'Hostile combat is not yet active');
+  assert_true((int) ($initial_state['game_state']['encounter_id'] ?? 0) > 0, 'Canonical room-scene encounter is active before hostility');
+  assert_equals('room_scene', $initial_state['game_state']['encounter_context']['mode'] ?? NULL, 'Initial encounter mode is room_scene');
 
   echo "--- Stage 1: Narrative starts combat ---\n";
 
@@ -283,7 +284,9 @@ try {
   assert_true(!empty($strike_result['result']['strike']), 'Hero strike result is returned');
   assert_true(!empty($strike_result['result']['encounter_resolved']), 'Hero strike ends hostile combat');
   assert_equals('encounter', $strike_result['game_state']['phase'] ?? NULL, 'Game state remains in encounter after round 2 victory');
-  assert_true(empty($strike_result['game_state']['encounter_id']), 'Encounter id is cleared after multi-round cycle');
+  assert_true((int) ($strike_result['game_state']['encounter_id'] ?? 0) > 0, 'Room-scene canonical encounter is re-established after multi-round cycle');
+  assert_true((int) ($strike_result['game_state']['encounter_id'] ?? 0) !== $encounter_id, 'Post-combat room-scene encounter gets a new encounter id');
+  assert_equals('room_scene', $strike_result['game_state']['encounter_context']['mode'] ?? NULL, 'Post-combat encounter mode returns to room_scene');
   assert_equals(1, (int) ($strike_result['game_state']['round'] ?? 0), 'Room-scene encounter restarts at round 1 after combat');
   $available_after = $strike_result['available_actions'] ?? [];
   assert_true(in_array('transition', $available_after, TRUE), 'Room-scene transition action is available again');

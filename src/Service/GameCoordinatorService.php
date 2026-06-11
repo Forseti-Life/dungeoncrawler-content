@@ -592,17 +592,31 @@ class GameCoordinatorService {
       return $this->errorResponse('Encounter handler unavailable.', $game_state);
     }
 
+    $logged_events = [];
+    $encounter_mode = strtolower(trim((string) ($game_state['encounter_context']['mode'] ?? '')));
+    $force_hostile_start = FALSE;
     if (!empty($game_state['encounter_id'])) {
-      return $this->errorResponse('Combat is already active.', $game_state);
+      if ($encounter_mode === 'room_scene') {
+        $exit_events = $handler->onExit($game_state, $dungeon_data, $campaign_id);
+        if ($exit_events !== []) {
+          $logged_events = array_merge(
+            $logged_events,
+            $this->eventLogger->logEvents($dungeon_data, $exit_events)
+          );
+        }
+        $force_hostile_start = TRUE;
+      }
+      else {
+        return $this->errorResponse('Combat is already active.', $game_state);
+      }
     }
 
-    $logged_events = [];
     $needs_room_framework = ($game_state['phase'] ?? self::DEFAULT_ACTIVE_PHASE) !== self::DEFAULT_ACTIVE_PHASE
       || (string) ($game_state['encounter_context']['room_id'] ?? '') !== $room_id
       || empty($game_state['turn'])
       || !is_array($game_state['initiative_order'] ?? NULL);
 
-    if ($needs_room_framework) {
+    if ($needs_room_framework && !$force_hostile_start) {
       $room_result = $handler->enterRoomFramework(NULL, $room_id, [], $game_state, $dungeon_data, $campaign_id);
       if (!empty($room_result['error'])) {
         return $this->errorResponse((string) $room_result['error'], $game_state);
@@ -615,7 +629,7 @@ class GameCoordinatorService {
       }
     }
 
-    if (empty($game_state['encounter_id'])) {
+    if (empty($game_state['encounter_id']) || $force_hostile_start) {
       $combat_events = $handler->onEnter($context, $game_state, $dungeon_data, $campaign_id);
       if ($combat_events !== []) {
         $logged_events = array_merge(

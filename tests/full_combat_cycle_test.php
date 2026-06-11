@@ -206,7 +206,8 @@ try {
   $initial_state = $game_coordinator->getFullState($campaign_id);
   assert_true(!empty($initial_state['success']), 'Initial room state loads');
   assert_equals('encounter', $initial_state['game_state']['phase'] ?? NULL, 'Initial phase is encounter');
-  assert_true(empty($initial_state['game_state']['encounter_id']), 'Hostile combat is not yet active');
+  assert_true((int) ($initial_state['game_state']['encounter_id'] ?? 0) > 0, 'Canonical room-scene encounter is active before hostility');
+  assert_equals('room_scene', $initial_state['game_state']['encounter_context']['mode'] ?? NULL, 'Initial encounter mode is room_scene');
 
   echo "--- Stage 1: Narrative starts combat ---\n";
 
@@ -249,7 +250,9 @@ try {
   assert_true(!empty($strike_result['result']['strike']), 'Strike result is returned');
   assert_true(!empty($strike_result['result']['encounter_resolved']), 'Strike resolves the hostile combat encounter');
   assert_equals('encounter', $strike_result['game_state']['phase'] ?? NULL, 'Game state remains in encounter');
-  assert_true(empty($strike_result['game_state']['encounter_id']), 'Encounter id is cleared after full combat cycle');
+  assert_true((int) ($strike_result['game_state']['encounter_id'] ?? 0) > 0, 'Room-scene canonical encounter is re-established after full combat cycle');
+  assert_true((int) ($strike_result['game_state']['encounter_id'] ?? 0) !== (int) ($combat_state['encounter_id'] ?? 0), 'Post-combat room-scene encounter gets a new encounter id');
+  assert_equals('room_scene', $strike_result['game_state']['encounter_context']['mode'] ?? NULL, 'Post-combat encounter mode returns to room_scene');
   assert_equals(1, (int) ($strike_result['game_state']['round'] ?? 0), 'Room-scene encounter restarts at round 1');
   assert_true(!empty($strike_result['game_state']['last_encounter']), 'Last encounter summary retained after full cycle');
   assert_true(has_logged_event_type($strike_result['events'] ?? [], 'round_start'), 'Round start event is logged after combat resolution');

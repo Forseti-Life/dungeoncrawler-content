@@ -493,59 +493,70 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
       return ['valid' => TRUE, 'reason' => NULL];
     }
 
-    $encounter_id = $game_state['encounter_id'] ?? NULL;
-    if (!$encounter_id) {
+    $encounter_id = isset($game_state['encounter_id']) && is_numeric($game_state['encounter_id'])
+      ? (int) $game_state['encounter_id']
+      : 0;
+    $canonical_turn = $encounter_id > 0 ? $this->loadCanonicalTurnState($encounter_id) : NULL;
+    $current_entity = (string) ($canonical_turn['entity_id'] ?? ($game_state['turn']['entity'] ?? ''));
+    $actions_remaining = isset($canonical_turn['actions_remaining']) && is_numeric($canonical_turn['actions_remaining'])
+      ? (int) $canonical_turn['actions_remaining']
+      : (int) ($game_state['turn']['actions_remaining'] ?? 0);
+    if ($this->isRoomSceneMode($game_state)) {
       $room_scene_actions = ['talk', 'search', 'interact', 'end_turn', 'choose_not_to_act', 'treat_wounds', 'refocus', 'repair', 'daily_preparations'];
-      if (!empty($game_state['encounter_context']['room_id']) && in_array($type, $room_scene_actions, TRUE)) {
-        if (
-          empty($game_state['turn']['entity']) ||
-          empty($game_state['round']) ||
-          !is_array($game_state['initiative_order'] ?? NULL) ||
-          $game_state['initiative_order'] === []
-        ) {
-          return [
-            'valid' => FALSE,
-            'reason' => 'Encounter room-scene context is incomplete (missing round/turn/initiative).',
-          ];
-        }
-
-        $actor_id = $intent['actor'] ?? NULL;
-        $current_entity = $game_state['turn']['entity'] ?? NULL;
-        if ($actor_id && $current_entity && $actor_id !== $current_entity) {
-          return [
-            'valid' => FALSE,
-            'reason' => "It is not $actor_id's turn. Current turn: $current_entity.",
-          ];
-        }
-        if (in_array($type, ['search', 'interact'], TRUE)) {
-          $actions_remaining = $game_state['turn']['actions_remaining'] ?? 0;
-          $action_cost = $this->getActionCost($type, $intent['params'] ?? []);
-          if ($actions_remaining < $action_cost) {
-            return [
-              'valid' => FALSE,
-              'reason' => "Not enough actions remaining ($actions_remaining) for $type (costs $action_cost).",
-            ];
-          }
-        }
-        if ($this->isRestAction($type) && !$this->isSafeRestAvailable($game_state, $dungeon_data)) {
-          return [
-            'valid' => FALSE,
-            'reason' => 'Rest actions are only available in rooms flagged as safe for rest.',
-          ];
-        }
-        return ['valid' => TRUE, 'reason' => NULL];
+      if (!in_array($type, $room_scene_actions, TRUE)) {
+        return [
+          'valid' => FALSE,
+          'reason' => "Action '$type' is not legal during room-scene encounter.",
+        ];
       }
+      if (
+        $current_entity === '' ||
+        empty($game_state['round']) ||
+        !is_array($game_state['initiative_order'] ?? NULL) ||
+        $game_state['initiative_order'] === []
+      ) {
+        return [
+          'valid' => FALSE,
+          'reason' => 'Encounter room-scene context is incomplete (missing round/turn/initiative).',
+        ];
+      }
+
+      $actor_id = $intent['actor'] ?? NULL;
+      if ($actor_id && $current_entity && $actor_id !== $current_entity) {
+        return [
+          'valid' => FALSE,
+          'reason' => "It is not $actor_id's turn. Current turn: $current_entity.",
+        ];
+      }
+      if (in_array($type, ['search', 'interact'], TRUE)) {
+        $action_cost = $this->getActionCost($type, $intent['params'] ?? []);
+        if ($actions_remaining < $action_cost) {
+          return [
+            'valid' => FALSE,
+            'reason' => "Not enough actions remaining ($actions_remaining) for $type (costs $action_cost).",
+          ];
+        }
+      }
+      if ($this->isRestAction($type) && !$this->isSafeRestAvailable($game_state, $dungeon_data)) {
+        return [
+          'valid' => FALSE,
+          'reason' => 'Rest actions are only available in rooms flagged as safe for rest.',
+        ];
+      }
+
+      return ['valid' => TRUE, 'reason' => NULL];
+    }
+
+    if (!$encounter_id) {
       return [
         'valid' => FALSE,
-        'reason' => 'No active encounter.',
+        'reason' => 'No active canonical encounter.',
       ];
     }
 
     // Validate it's the actor's turn (except for reactions).
     if (!in_array($type, ['reaction'], TRUE)) {
       $actor_id = $intent['actor'] ?? NULL;
-      $current_turn = $game_state['turn'] ?? [];
-      $current_entity = $current_turn['entity'] ?? NULL;
 
       if ($actor_id && $current_entity && $actor_id !== $current_entity) {
         return [
@@ -559,7 +570,6 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
 
     // Validate action economy.
     if (in_array($type, ['strike', 'stride', 'cast_spell', 'interact', 'search', 'skill', 'feat', 'consume_item'], TRUE)) {
-      $actions_remaining = $game_state['turn']['actions_remaining'] ?? 0;
       $action_cost = $this->getActionCost($type, $intent['params'] ?? []);
       if ($actions_remaining < $action_cost) {
         return [
@@ -580,7 +590,16 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
     $actor_id = $intent['actor'] ?? NULL;
     $target_id = $intent['target'] ?? NULL;
     $params = $intent['params'] ?? [];
-    $encounter_id = $game_state['encounter_id'] ?? NULL;
+    $encounter_id = isset($game_state['encounter_id']) && is_numeric($game_state['encounter_id'])
+      ? (int) $game_state['encounter_id']
+      : NULL;
+
+    if ($encounter_id) {
+      $canonical_turn = $this->loadCanonicalTurnState((int) $encounter_id);
+      if ($canonical_turn !== NULL) {
+        $this->syncGameStateWithCanonicalTurn($game_state, $canonical_turn);
+      }
+    }
 
     $result = [];
     $mutations = [];
@@ -1007,7 +1026,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
       }
 
       case 'interact':
-        if (!$encounter_id) {
+        if (!$encounter_id || $this->isRoomSceneMode($game_state)) {
           $result = ['interacted' => TRUE];
           $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
           $events[] = GameEventLogger::buildEvent('interact', 'encounter', $actor_id, [
@@ -3639,12 +3658,16 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
       $this->moveEntityToRoom($dungeon_data, $actor_id, $target_room_id, is_array($entry_hex) ? $entry_hex : ['q' => 0, 'r' => 0]);
     }
 
-    $events = [
-      GameEventLogger::buildEvent('room_entered', 'encounter', $actor_id, [
-        'from_room' => $from_room,
-        'to_room' => $target_room_id,
-      ], (string) ($room['description'] ?? $room['name'] ?? '')),
-    ];
+    $events = [];
+    if (!empty($game_state['encounter_id']) && $from_room !== NULL && (string) $from_room !== $target_room_id) {
+      $events = array_merge($events, $this->onExit($game_state, $dungeon_data, $campaign_id));
+    }
+
+    $events[] = GameEventLogger::buildEvent('room_entered', 'encounter', $actor_id, [
+      'from_room' => $from_room,
+      'to_room' => $target_room_id,
+    ], (string) ($room['description'] ?? $room['name'] ?? ''));
+    $events = array_values($events);
 
     $combat_context = $this->buildCombatEncounterContext($target_room_id, $dungeon_data, $game_state);
     if (!empty($combat_context['should_trigger'])) {
@@ -3684,6 +3707,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
     $room_id = $encounter_context['room_id'] ?? ($dungeon_data['active_room_id'] ?? NULL);
     $game_state['encounter_context'] = $encounter_context + [
       'room_id' => $room_id,
+      'mode' => 'hostile_combat',
       'started_at' => $game_state['encounter_context']['started_at'] ?? date('c'),
     ];
     $enemies = $encounter_context['enemies'] ?? [];
@@ -3892,7 +3916,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
    */
   public function getAvailableActions(array $game_state, array $dungeon_data, ?string $actor_id = NULL): array {
     $actions = ['transition'];
-    if (empty($game_state['encounter_id'])) {
+    if ($this->isRoomSceneMode($game_state)) {
       $turn = $game_state['turn'] ?? [];
       $current_entity = $turn['entity'] ?? NULL;
       $actions_remaining = $turn['actions_remaining'] ?? 0;
@@ -3974,6 +3998,20 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
       'available_actions' => $available_actions,
       'actions' => $actions,
     ];
+  }
+
+  /**
+   * Determine whether the current encounter context is room-scene mode.
+   */
+  protected function isRoomSceneMode(array $game_state): bool {
+    $mode = strtolower(trim((string) ($game_state['encounter_context']['mode'] ?? '')));
+    if ($mode === 'room_scene') {
+      return TRUE;
+    }
+
+    return $mode === ''
+      && empty($game_state['encounter_id'])
+      && !empty($game_state['encounter_context']['room_id']);
   }
 
   /**
@@ -4504,6 +4542,68 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
     catch (\Throwable $e) {
       $this->logger->warning('Encounter participant action sync failed: @error', ['@error' => $e->getMessage()]);
     }
+  }
+
+  /**
+   * Load canonical round/turn state from the encounter store.
+   */
+  protected function loadCanonicalTurnState(int $encounter_id): ?array {
+    if ($encounter_id <= 0) {
+      return NULL;
+    }
+
+    $encounter = $this->encounterStore->loadEncounter($encounter_id);
+    $participants = is_array($encounter['participants'] ?? NULL) ? array_values($encounter['participants']) : [];
+    if ($participants === []) {
+      return NULL;
+    }
+
+    $turn_index = (int) ($encounter['turn_index'] ?? 0);
+    if ($turn_index < 0 || $turn_index >= count($participants)) {
+      $turn_index = 0;
+    }
+
+    $active = $participants[$turn_index] ?? NULL;
+    if (!is_array($active)) {
+      return NULL;
+    }
+
+    return [
+      'encounter_id' => $encounter_id,
+      'round' => max(1, (int) ($encounter['current_round'] ?? 1)),
+      'turn_index' => $turn_index,
+      'entity_id' => (string) ($active['entity_id'] ?? ''),
+      'actions_remaining' => max(0, (int) ($active['actions_remaining'] ?? 3)),
+      'attacks_this_turn' => max(0, (int) ($active['attacks_this_turn'] ?? 0)),
+      'reaction_available' => !empty($active['reaction_available']),
+      'participants' => $participants,
+    ];
+  }
+
+  /**
+   * Project canonical encounter state into game_state.
+   */
+  protected function syncGameStateWithCanonicalTurn(array &$game_state, array $canonical_turn): void {
+    $entity_id = trim((string) ($canonical_turn['entity_id'] ?? ''));
+    if ($entity_id === '') {
+      return;
+    }
+
+    $game_state['encounter_id'] = (int) ($canonical_turn['encounter_id'] ?? ($game_state['encounter_id'] ?? 0));
+    $game_state['round'] = max(1, (int) ($canonical_turn['round'] ?? ($game_state['round'] ?? 1)));
+    if (is_array($canonical_turn['participants'] ?? NULL)) {
+      $game_state['initiative_order'] = array_values($canonical_turn['participants']);
+    }
+
+    $existing_turn = is_array($game_state['turn'] ?? NULL) ? $game_state['turn'] : [];
+    $game_state['turn'] = [
+      'entity' => $entity_id,
+      'index' => (int) ($canonical_turn['turn_index'] ?? 0),
+      'actions_remaining' => max(0, (int) ($canonical_turn['actions_remaining'] ?? 3)),
+      'attacks_this_turn' => max(0, (int) ($canonical_turn['attacks_this_turn'] ?? 0)),
+      'reaction_available' => !empty($canonical_turn['reaction_available']),
+      'delayed' => !empty($existing_turn['delayed']),
+    ];
   }
 
   /**
@@ -5378,7 +5478,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
 
     // If next combatant is NPC/enemy, auto-play or explicitly pass their turn.
     if ($next_team !== 'player') {
-      $npc_result = $encounter_id
+      $npc_result = ($encounter_id && !$this->isRoomSceneMode($game_state))
         ? $this->autoPlayNpcTurn($encounter_id, $next_entity, $game_state, $dungeon_data, $campaign_id)
         : $this->passRoomActorTurn((string) $next_entity, $game_state, $dungeon_data, $campaign_id);
       $npc_events = array_merge($npc_events, $npc_result['events'] ?? []);
@@ -6388,6 +6488,11 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
    * Determines if the encounter is over.
    */
   protected function isEncounterOver(int $encounter_id, array $game_state): bool {
+    $mode = strtolower(trim((string) ($game_state['encounter_context']['mode'] ?? '')));
+    if ($mode !== 'hostile_combat') {
+      return FALSE;
+    }
+
     $initiative_order = $game_state['initiative_order'] ?? [];
     $teams_alive = [];
 
@@ -6407,32 +6512,33 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
    */
   protected function startRoomSceneEncounter(?string $actor_id, string $room_id, array &$game_state, array &$dungeon_data, int $campaign_id, ?array $room = NULL, ?string $narration = NULL): array {
     $initiative_order = $this->buildRoomEncounterTurnOrder($dungeon_data, $room_id, $actor_id);
+    $participants = $this->buildRoomSceneEncounterParticipants($dungeon_data, $initiative_order);
+    $encounter_id = $this->encounterStore->createEncounter(
+      $campaign_id > 0 ? $campaign_id : NULL,
+      $room_id,
+      $participants,
+      NULL
+    );
+    $canonical_turn = $this->loadCanonicalTurnState($encounter_id);
+    if ($canonical_turn === NULL) {
+      throw new \RuntimeException('Failed to initialize canonical room-scene encounter state.');
+    }
+
     $game_state['phase'] = 'encounter';
-    $game_state['round'] = 1;
-    $game_state['initiative_order'] = $initiative_order;
-    if (!empty($initiative_order)) {
-      $first = $initiative_order[0];
-      $game_state['turn'] = [
-        'entity' => $first['entity_id'] ?? NULL,
-        'index' => 0,
-        'actions_remaining' => 3,
-        'attacks_this_turn' => 0,
-        'reaction_available' => TRUE,
-        'delayed' => FALSE,
-      ];
-    }
-    else {
-      $game_state['turn'] = NULL;
-    }
+    $this->syncGameStateWithCanonicalTurn($game_state, $canonical_turn);
+    $game_state['round'] = (int) ($canonical_turn['round'] ?? 1);
     $game_state['encounter_context'] = [
       'room_id' => $room_id,
-      'started_at' => $game_state['encounter_context']['started_at'] ?? date('c'),
+      'mode' => 'room_scene',
+      'started_at' => date('c'),
     ];
-    $game_state['encounter_id'] = NULL;
+    $game_state['encounter_id'] = $encounter_id;
+    $initiative_order = is_array($game_state['initiative_order'] ?? NULL) ? $game_state['initiative_order'] : $initiative_order;
 
     $event_type = $narration === NULL ? 'encounter_framework_started' : 'encounter_framework_resumed';
     $events = [
       GameEventLogger::buildEvent($event_type, 'encounter', $actor_id, [
+        'encounter_id' => $encounter_id,
         'room_id' => $room_id,
         'participants' => count($initiative_order),
       ], $narration ?? sprintf('The scene in %s is active.', (string) (($room['name'] ?? NULL) ?: $room_id))),
@@ -6444,6 +6550,80 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
     }
 
     return $events;
+  }
+
+  /**
+   * Build persisted combat participants for room-scene canonical encounter state.
+   */
+  protected function buildRoomSceneEncounterParticipants(array $dungeon_data, array $initiative_order): array {
+    $entities_by_id = [];
+    foreach ((array) ($dungeon_data['entities'] ?? []) as $entity) {
+      if (!is_array($entity)) {
+        continue;
+      }
+      $entity_id = (string) ($entity['entity_instance_id'] ?? ($entity['instance_id'] ?? ($entity['id'] ?? '')));
+      if ($entity_id !== '') {
+        $entities_by_id[$entity_id] = $entity;
+      }
+    }
+
+    $participants = [];
+    foreach ($initiative_order as $participant) {
+      if (!is_array($participant)) {
+        continue;
+      }
+      $entity_id = (string) ($participant['entity_id'] ?? '');
+      if ($entity_id === '') {
+        continue;
+      }
+
+      $entity = $entities_by_id[$entity_id] ?? [];
+      $stats = is_array($entity['state']['metadata']['stats'] ?? NULL) ? $entity['state']['metadata']['stats'] : [];
+      $current_hp = $entity['state']['hit_points']['current']
+        ?? $stats['currentHp']
+        ?? 10;
+      $max_hp = $entity['state']['hit_points']['max']
+        ?? $stats['maxHp']
+        ?? max(1, (int) $current_hp);
+      $ac = $entity['state']['armor_class']
+        ?? $stats['ac']
+        ?? 10;
+
+      $content_type = (string) ($entity['entity_type'] ?? ($entity['entity_ref']['content_type'] ?? ''));
+      $content_id = (string) ($entity['entity_ref']['content_id'] ?? $entity_id);
+      $perception = isset($participant['perception']) && is_numeric($participant['perception'])
+        ? (int) $participant['perception']
+        : 0;
+
+      $participants[] = [
+        'entity_id' => $entity_id,
+        'entity_ref' => [
+          'content_type' => $content_type !== '' ? $content_type : (($participant['team'] ?? '') === 'player' ? 'player_character' : 'npc'),
+          'content_id' => $content_id,
+          'perception_modifier' => $perception,
+        ],
+        'team' => (string) ($participant['team'] ?? 'npc'),
+        'name' => (string) ($participant['name'] ?? $entity_id),
+        'status' => 'active',
+        'initiative' => (int) ($participant['initiative_total'] ?? $participant['initiative'] ?? 0),
+        'initiative_roll' => (int) ($participant['initiative_roll'] ?? 1),
+        'ac' => (int) $ac,
+        'hp' => (int) $current_hp,
+        'max_hp' => (int) $max_hp,
+        'actions_remaining' => 3,
+        'attacks_this_turn' => 0,
+        'reaction_available' => 1,
+        'position_q' => (int) ($participant['position_q'] ?? 0),
+        'position_r' => (int) ($participant['position_r'] ?? 0),
+        'is_defeated' => !empty($entity['state']['is_defeated']),
+      ];
+    }
+
+    if ($participants === []) {
+      throw new \RuntimeException('Cannot initialize room-scene encounter without participants.');
+    }
+
+    return $participants;
   }
 
   /**
