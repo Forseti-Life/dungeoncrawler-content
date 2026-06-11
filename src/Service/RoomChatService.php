@@ -167,8 +167,14 @@ class RoomChatService {
 
     // Ensure messages are properly structured with explicit sequence ordering.
     $normalized_messages = [];
-    foreach (array_values($chat) as $index => $msg) {
+    $sequence_index = 0;
+    foreach (array_values($chat) as $msg) {
       if (!is_array($msg)) {
+        continue;
+      }
+      if ($channel === 'room' && (!empty($msg['internal_log']) || !empty($msg['turn_prompt']))) {
+        // Room turn-harness diagnostics are server-side artifacts. They are not
+        // canonical encounter transcript lines and should not render in player chat.
         continue;
       }
       $speaker = (string) ($msg['speaker'] ?? 'Unknown');
@@ -176,6 +182,7 @@ class RoomChatService {
       if ($channel === 'room') {
         $message = $this->normalizeLegacyTurnOrderPrefix($message);
       }
+      $sequence_index++;
 
       $normalized_messages[] = [
         'speaker' => $speaker !== '' ? $speaker : 'Unknown',
@@ -184,7 +191,7 @@ class RoomChatService {
         'message_class' => trim((string) ($msg['message_class'] ?? '')),
         'channel' => $msg['channel'] ?? 'room',
         'timestamp' => $msg['timestamp'] ?? date('c'),
-        'sequence_index' => $index + 1,
+        'sequence_index' => $sequence_index,
         'character_id' => $msg['character_id'] ?? null,
         'user_id' => $msg['user_id'] ?? null,
         'internal_log' => !empty($msg['internal_log']),

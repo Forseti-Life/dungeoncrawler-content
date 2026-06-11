@@ -595,6 +595,9 @@ class RoomChatController extends ControllerBase {
     string $channel,
     string $client_request_id
   ): void {
+    $result['turn_logs'] = $this->filterClientVisibleTurnLogs(
+      is_array($result['turn_logs'] ?? NULL) ? $result['turn_logs'] : []
+    );
     if (!empty($result['turn_logs'])) {
       foreach ($result['turn_logs'] as $system_message) {
         $emit([
@@ -632,11 +635,14 @@ class RoomChatController extends ControllerBase {
       }
 
       if (!empty($npc_turn_result['turn_logs'])) {
+        $deferred_visible_turn_logs = $this->filterClientVisibleTurnLogs(
+          is_array($npc_turn_result['turn_logs'] ?? NULL) ? $npc_turn_result['turn_logs'] : []
+        );
         $result['turn_logs'] = array_values(array_merge(
           is_array($result['turn_logs'] ?? NULL) ? $result['turn_logs'] : [],
-          $npc_turn_result['turn_logs']
+          $deferred_visible_turn_logs
         ));
-        foreach ($npc_turn_result['turn_logs'] as $system_message) {
+        foreach ($deferred_visible_turn_logs as $system_message) {
           $emit([
             'type' => 'system_message',
             'data' => $system_message,
@@ -671,6 +677,23 @@ class RoomChatController extends ControllerBase {
         'client_request_id' => $client_request_id,
       ],
     ]);
+  }
+
+  /**
+   * Filter room-turn-harness diagnostics that should not render as transcript lines.
+   */
+  protected function filterClientVisibleTurnLogs(array $turn_logs): array {
+    $visible = [];
+    foreach ($turn_logs as $turn_log) {
+      if (!is_array($turn_log)) {
+        continue;
+      }
+      if (!empty($turn_log['internal_log']) || !empty($turn_log['turn_prompt'])) {
+        continue;
+      }
+      $visible[] = $turn_log;
+    }
+    return array_values($visible);
   }
 
   /**

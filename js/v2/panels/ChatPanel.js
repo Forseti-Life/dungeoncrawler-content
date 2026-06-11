@@ -521,6 +521,9 @@ export class ChatPanel {
 
       if (result.data?.turn_logs?.length) {
         for (const logMsg of result.data.turn_logs) {
+          if (!this.shouldRenderTurnLogLine(logMsg, chatTarget)) {
+            continue;
+          }
           this.appendChatLineToTarget(chatTarget, logMsg.speaker || 'System', logMsg.message || '', logMsg.type || 'system', {
             ...logMsg,
             source: 'room-response',
@@ -1206,6 +1209,10 @@ export class ChatPanel {
               this.renderPendingGmResponse(pending, event.data);
               releasePrimary(event.data);
             } else if (event.type === 'system_message' && event.data) {
+              if (!this.shouldRenderTurnLogLine(event.data, chatTarget)) {
+                newlineIndex = buffer.indexOf('\n');
+                continue;
+              }
               this.appendChatLineToTarget(chatTarget, event.data.speaker || 'System', event.data.message || '', event.data.type || 'system', {
                 ...event.data,
                 source: 'room-stream',
@@ -1527,9 +1534,38 @@ export class ChatPanel {
     return line;
   }
 
+  shouldRenderTurnLogLine(logLine = {}, target = null) {
+    if (!logLine || typeof logLine !== 'object') {
+      return false;
+    }
+    const normalizedTarget = this.buildChatRenderTarget(target || {
+      view: this.activeSessionView || 'room',
+      channelKey: this.activeChannel || 'room',
+      context: this.getChatContext(),
+    });
+    if (normalizedTarget.view !== 'room') {
+      return true;
+    }
+    if (Boolean(logLine.internal_log || logLine.internalLog)) {
+      return false;
+    }
+    if (Boolean(logLine.turn_prompt || logLine.turnPrompt)) {
+      return false;
+    }
+    return true;
+  }
+
   formatEncounterChatMessage(speaker, message, type = 'npc', options = {}) {
     const rawMessage = String(message || '').trim();
     const alreadyPrefixed = /^Round\s+(?:\d+|\?)\s*:\s*Turn\s+(?:\d+|\?)\s*:\s*Actor\s+.+?:/i.test(rawMessage);
+    const messageClass = String(options.messageClass || '').trim().toLowerCase();
+    const authority = String(options.authority || '').trim().toLowerCase();
+    if (messageClass !== '' && messageClass !== 'authoritative_transcript') {
+      return message || '';
+    }
+    if (authority !== '' && authority !== 'authoritative' && !options.encounterEvent) {
+      return message || '';
+    }
     if (!rawMessage || options.encounterPrefix === false || alreadyPrefixed) {
       return message || '';
     }
@@ -1854,11 +1890,11 @@ export class ChatPanel {
     const playerLineId = `chat-player-${requestId}`;
     const gmProgressLineId = `chat-gm-progress-${requestId}`;
     const gmResponseLineId = `chat-gm-${requestId}`;
-    const encounterPrefixRegex = /^Turn\s+(?:\d+|\?):\s+Round\s+(?:\d+|\?):\s+Actor\s+.*:\s+/u;
+    const encounterPrefixRegex = /^Round\s+(?:\d+|\?)\s*:\s*Turn\s+(?:\d+|\?)\s*:\s*Actor\s+.+?:\s*/u;
     const trimmedPlayerMessage = String(message || '').trim();
     const pendingPlayerMessage = encounterPrefixRegex.test(trimmedPlayerMessage)
       ? message
-      : `Turn ?: Round ?: Actor ${speaker}: ${trimmedPlayerMessage}`;
+      : `Round ?: Turn ?: Actor ${speaker}: ${trimmedPlayerMessage}`;
 
     if (includePlayer) {
       this.appendChatLineToTarget(target, speaker, pendingPlayerMessage, 'player', {

@@ -152,7 +152,7 @@ class RoomChatControllerProgressTest extends UnitTestCase {
   /**
    * @covers ::emitStreamedTurnResult
    */
-  public function testEmitStreamedTurnResultEmitsImmediateAndDeferredSystemMessages(): void {
+  public function testEmitStreamedTurnResultSuppressesHarnessSystemLogsFromTranscript(): void {
     $chat_service = $this->createMock(RoomChatService::class);
     $chat_service->expects($this->once())
       ->method('completeDeferredNpcInterjections')
@@ -160,7 +160,7 @@ class RoomChatControllerProgressTest extends UnitTestCase {
       ->willReturn([
         'turn_log_key' => 'room_turn_stream',
         'turn_logs' => [
-          ['speaker' => 'System', 'message' => 'Current turn: Eldric.', 'type' => 'system', 'turn_role' => 'npc', 'turn_name' => 'Eldric', 'turn_index' => 3],
+          ['speaker' => 'System', 'message' => 'Current turn: Eldric.', 'type' => 'system', 'turn_role' => 'npc', 'turn_name' => 'Eldric', 'turn_index' => 3, 'internal_log' => TRUE],
         ],
         'messages' => [
           ['speaker' => 'Eldric', 'message' => 'I do.', 'type' => 'npc'],
@@ -182,7 +182,7 @@ class RoomChatControllerProgressTest extends UnitTestCase {
       [
         'gm_response' => ['speaker' => 'Game Master', 'message' => 'The room quiets.', 'type' => 'npc'],
         'turn_logs' => [
-          ['speaker' => 'System', 'message' => 'Turn order: Narrator -> Game Master -> Eldric 17.', 'type' => 'system'],
+          ['speaker' => 'System', 'message' => 'Turn order: Narrator -> Game Master -> Eldric 17.', 'type' => 'system', 'internal_log' => TRUE],
         ],
         'npc_interjections_deferred' => TRUE,
       ],
@@ -196,14 +196,13 @@ class RoomChatControllerProgressTest extends UnitTestCase {
 
     $event_types = array_column($events, 'type');
     $this->assertSame(
-      ['system_message', 'gm_response', 'thinking', 'system_message', 'npc_interjection', 'complete'],
+      ['gm_response', 'thinking', 'npc_interjection', 'complete'],
       $event_types
     );
-    $this->assertSame('Turn order: Narrator -> Game Master -> Eldric 17.', $events[0]['data']['message']);
-    $this->assertSame('Current turn: Eldric.', $events[3]['data']['message']);
-    $this->assertSame('I do.', $events[4]['data']['message']);
-    $this->assertSame('Current turn: Eldric.', $events[5]['data']['turn_logs'][1]['message']);
-    $this->assertSame('room_turn_stream', $events[5]['data']['turn_log_key']);
+    $this->assertSame('The room quiets.', $events[0]['data']['message']);
+    $this->assertSame('I do.', $events[2]['data']['message']);
+    $this->assertSame([], $events[3]['data']['turn_logs']);
+    $this->assertSame('room_turn_stream', $events[3]['data']['turn_log_key']);
   }
 
   /**
