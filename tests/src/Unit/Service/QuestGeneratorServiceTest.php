@@ -1221,6 +1221,82 @@ class QuestGeneratorServiceTest extends UnitTestCase {
   }
 
   /**
+   * Verifies placeholder quest objectives include explicit dependency lists.
+   */
+  public function testBuildStorylineQuestPlaceholderEntryIncludesDependsOnField(): void {
+    $logger = $this->createMock(LoggerInterface::class);
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($logger);
+
+    $state_validation = $this->createMock(StateValidationService::class);
+    $state_validation->method('validateQuestSummary')->willReturn([
+      'valid' => TRUE,
+      'errors' => [],
+    ]);
+
+    $service = new class(
+      $this->createMock(Connection::class),
+      $logger_factory,
+      $this->createMock(NumberGenerationService::class),
+      $state_validation
+    ) extends QuestGeneratorService {
+      public function exposedBuildStorylineQuestPlaceholderEntry(
+        string $quest_node_id,
+        array $quest_node,
+        array $linked_quest,
+        array $scene_index,
+        array $lead_location,
+        bool $blocked,
+        ?string $current_location_id,
+        array $storyline_contacts = []
+      ): array {
+        return $this->buildStorylineQuestPlaceholderEntry(
+          $quest_node_id,
+          $quest_node,
+          $linked_quest,
+          $scene_index,
+          $lead_location,
+          $blocked,
+          $current_location_id,
+          $storyline_contacts
+        );
+      }
+    };
+
+    $entry = $service->exposedBuildStorylineQuestPlaceholderEntry(
+      'tok-search-the-wing',
+      [
+        'quest_id' => 'tok-search-the-wing',
+        'chapter_id' => 'magaambya-campus',
+        'scene_id' => 'forbidden-wing',
+        'status' => 'available',
+      ],
+      [
+        'quest_id' => 'tok-search-the-wing',
+        'chapter_id' => 'magaambya-campus',
+        'scene_id' => 'forbidden-wing',
+      ],
+      [
+        'forbidden-wing' => [
+          'chapter_id' => 'magaambya-campus',
+          'scene_id' => 'forbidden-wing',
+          'name' => 'Forbidden Wing',
+          'summary' => 'Search the forbidden wing for evidence.',
+        ],
+      ],
+      [
+        'id' => 'magaambya_gate',
+        'label' => 'Magaambya Gate',
+      ],
+      FALSE,
+      'magaambya_gate'
+    );
+
+    $this->assertArrayHasKey('depends_on', $entry['objectives'][0]);
+    $this->assertSame([], $entry['objectives'][0]['depends_on']);
+  }
+
+  /**
    * Verifies unrevealed future objectives stay hidden while completed discovered
    * objectives remain visible.
    */

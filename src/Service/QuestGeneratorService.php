@@ -2175,6 +2175,7 @@ class QuestGeneratorService {
         'required_value' => TRUE,
         'description' => 'Discover the required location.',
       ],
+      'depends_on' => [],
       'location' => $location,
       'next_step' => trim((string) ($scene_meta['summary'] ?? 'Travel to the next known location.')),
       'access' => $access,
