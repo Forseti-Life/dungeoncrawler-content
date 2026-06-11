@@ -5634,32 +5634,17 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
   protected function buildNpcTacticalIntentContract(string $entity_id, array $game_state, int $campaign_id): array {
     $npc = $this->findCombatant($entity_id, $game_state);
     $profile = $this->loadCombatantPsychologyProfile($entity_id, $game_state, $campaign_id);
-    $axes = is_array($profile['personality_axes'] ?? NULL) ? $profile['personality_axes'] : [];
+    $profile_present = is_array($profile) && $profile !== [];
+    $axes = $this->normalizeDecisionPersonalityAxes(is_array($profile['personality_axes'] ?? NULL) ? $profile['personality_axes'] : []);
     $goals = $this->resolveActorGoals($profile);
-    $attitude = strtolower((string) ($profile['attitude'] ?? 'indifferent'));
+    $attitude = $this->normalizeNpcAttitude((string) ($profile['attitude'] ?? 'indifferent')) ?? 'indifferent';
     $boldness = (int) ($axes['boldness'] ?? 5);
     $empathy = (int) ($axes['empathy'] ?? 5);
     $discipline = (int) ($axes['discipline'] ?? 5);
     $cunning = (int) ($axes['cunning'] ?? 5);
     $hp_ratio = $this->hpRatio($npc ?? []);
     $nearest_player = $this->findNearestAlivePlayer($entity_id, $game_state);
-
-    $has_adjacent_player = FALSE;
-    if ($npc) {
-      $npc_q = (int) ($npc['position_q'] ?? 0);
-      $npc_r = (int) ($npc['position_r'] ?? 0);
-      foreach (($game_state['initiative_order'] ?? []) as $combatant) {
-        if (($combatant['team'] ?? '') !== 'player' || !empty($combatant['is_defeated'])) {
-          continue;
-        }
-        $pq = (int) ($combatant['position_q'] ?? 0);
-        $pr = (int) ($combatant['position_r'] ?? 0);
-        if ($this->hexDistance($npc_q, $npc_r, $pq, $pr) <= 1) {
-          $has_adjacent_player = TRUE;
-          break;
-        }
-      }
-    }
+    $has_adjacent_player = $this->hasAdjacentAlivePlayer($npc, $game_state);
 
     $intent = 'aggressive_engage';
     $action_sequence = $has_adjacent_player
@@ -5692,7 +5677,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
       $target_strategy = 'weakest_adjacent';
       $decision_reason = 'High cunning/discipline profile prioritizes focused pressure on weak targets.';
     }
-    elseif (!$has_adjacent_player && $this->actorHasGoal($goals, 'gain treasure')) {
+    elseif ($profile_present && !$has_adjacent_player && $this->actorHasGoal($goals, 'gain treasure')) {
       $intent = 'treasure_seek';
       $action_sequence = ['interact', 'stride', 'interact'];
       $target_strategy = 'none';
@@ -5714,6 +5699,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
         ],
         'hp_ratio' => $hp_ratio,
         'goals' => $goals,
+        'profile_present' => $profile_present,
         'has_adjacent_player' => $has_adjacent_player,
         'nearest_player' => $nearest_player,
       ],
@@ -5760,6 +5746,13 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
           : NULL;
       }
 
+      if ($action_type === 'end_turn') {
+        break;
+      }
+
+      if (in_array($action_type, ['strike', 'talk'], TRUE) && $target === NULL) {
+        $action_type = ($intent_contract['intent'] ?? '') === 'self_preserve' ? 'stride' : 'end_turn';
+      }
       if ($action_type === 'end_turn') {
         break;
       }
@@ -5823,6 +5816,42 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
     }
 
     return in_array($action_type, $sequence, TRUE);
+  }
+
+  /**
+   * Normalize personality-axis values for deterministic tactical decisions.
+   */
+  protected function normalizeDecisionPersonalityAxes(array $axes): array {
+    $normalized = NpcPsychologyService::PERSONALITY_AXES;
+    foreach ($normalized as $key => $default_value) {
+      $value = is_numeric($axes[$key] ?? NULL) ? (int) $axes[$key] : (int) $default_value;
+      $normalized[$key] = max(0, min(10, $value));
+    }
+    return $normalized;
+  }
+
+  /**
+   * Returns true when at least one alive player is adjacent to this NPC.
+   */
+  protected function hasAdjacentAlivePlayer(?array $npc, array $game_state): bool {
+    if (!$npc) {
+      return FALSE;
+    }
+
+    $npc_q = (int) ($npc['position_q'] ?? 0);
+    $npc_r = (int) ($npc['position_r'] ?? 0);
+    foreach (($game_state['initiative_order'] ?? []) as $combatant) {
+      if (($combatant['team'] ?? '') !== 'player' || !empty($combatant['is_defeated'])) {
+        continue;
+      }
+      $pq = (int) ($combatant['position_q'] ?? 0);
+      $pr = (int) ($combatant['position_r'] ?? 0);
+      if ($this->hexDistance($npc_q, $npc_r, $pq, $pr) <= 1) {
+        return TRUE;
+      }
+    }
+
+    return FALSE;
   }
 
   /**
@@ -8040,7 +8069,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
         'display_name' => $this->resolveEntityName($entity_id, $game_state, []),
         'attitude' => 'indifferent',
         'personality_traits' => '',
-        'personality_axes' => NpcPsychologyService::PERSONALITY_AXES,
+        'personality_axes' => $this->normalizeDecisionPersonalityAxes([]),
         'motivations' => '',
         'fears' => '',
         'bonds' => '',
@@ -8064,9 +8093,9 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
 
     return [
       'display_name' => (string) ($profile['display_name'] ?? $entity_id),
-      'attitude' => (string) ($profile['attitude'] ?? 'indifferent'),
+      'attitude' => $this->normalizeNpcAttitude((string) ($profile['attitude'] ?? 'indifferent')) ?? 'indifferent',
       'personality_traits' => (string) ($profile['personality_traits'] ?? ''),
-      'personality_axes' => is_array($profile['personality_axes'] ?? NULL) ? $profile['personality_axes'] : [],
+      'personality_axes' => $this->normalizeDecisionPersonalityAxes(is_array($profile['personality_axes'] ?? NULL) ? $profile['personality_axes'] : []),
       'motivations' => (string) ($profile['motivations'] ?? ''),
       'fears' => (string) ($profile['fears'] ?? ''),
       'bonds' => (string) ($profile['bonds'] ?? ''),
@@ -8106,7 +8135,8 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
     $parts = [];
     $parts[] = "=== NPC COMBAT PERSONALITY ===";
     $parts[] = "Name: {$profile['display_name']}";
-    $parts[] = "Attitude toward party: {$profile['attitude']}";
+    $attitude = $this->normalizeNpcAttitude((string) ($profile['attitude'] ?? 'indifferent')) ?? 'indifferent';
+    $parts[] = "Attitude toward party: {$attitude}";
 
     if (!empty($profile['personality_traits'])) {
       $parts[] = "Personality: {$profile['personality_traits']}";
@@ -8120,7 +8150,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
     }
 
     // Translate personality axes into combat behavioral hints.
-    $axes = $profile['personality_axes'] ?? [];
+    $axes = $this->normalizeDecisionPersonalityAxes(is_array($profile['personality_axes'] ?? NULL) ? $profile['personality_axes'] : []);
     $hints = [];
     $boldness = $axes['boldness'] ?? 5;
     if ($boldness <= 3) {
@@ -8144,7 +8174,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
     }
 
     $empathy = $axes['empathy'] ?? 5;
-    if ($empathy >= 7 && in_array($profile['attitude'], ['friendly', 'helpful'])) {
+    if ($empathy >= 7 && in_array($attitude, ['friendly', 'helpful'], TRUE)) {
       $hints[] = 'May refuse to fight, or try to end combat through diplomacy';
     }
 

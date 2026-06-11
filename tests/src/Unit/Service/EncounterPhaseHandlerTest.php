@@ -1286,6 +1286,99 @@ class EncounterPhaseHandlerTest extends UnitTestCase {
   }
 
   /**
+   * Tactical intent basis should normalize malformed personality-axis values.
+   *
+   * @covers ::buildNpcTacticalIntentContract
+   */
+  public function testBuildNpcTacticalIntentContractNormalizesAxes(): void {
+    $psychology = $this->createMock(NpcPsychologyService::class);
+    $psychology->method('loadProfile')->willReturnMap([
+      [88, 'npc_malformed', [
+        'display_name' => 'Malformed Profile NPC',
+        'attitude' => 'hostile',
+        'personality_axes' => ['boldness' => 99, 'empathy' => -5, 'discipline' => 7],
+        'motivations' => 'Win quickly',
+        'fears' => '',
+      ]],
+    ]);
+
+    $handler = $this->buildHandler(NULL, NULL, NULL, NULL, $psychology);
+    $game_state = [
+      'campaign_id' => 88,
+      'turn' => ['actions_remaining' => 3],
+      'initiative_order' => [
+        [
+          'entity_id' => 'npc-1',
+          'entity_ref' => 'npc_malformed',
+          'team' => 'enemy',
+          'hp' => 18,
+          'max_hp' => 18,
+          'position_q' => 0,
+          'position_r' => 0,
+        ],
+        [
+          'entity_id' => 'pc-1',
+          'team' => 'player',
+          'is_defeated' => FALSE,
+          'hp' => 20,
+          'max_hp' => 20,
+          'position_q' => 1,
+          'position_r' => 0,
+        ],
+      ],
+    ];
+
+    $contract = $this->invokeBuildNpcTacticalIntentContract($handler, 'npc-1', $game_state, 88);
+    $axes = $contract['decision_basis']['axes'] ?? [];
+    $this->assertSame(10, $axes['boldness'] ?? NULL);
+    $this->assertSame(0, $axes['empathy'] ?? NULL);
+    $this->assertSame(7, $axes['discipline'] ?? NULL);
+    $this->assertSame(5, $axes['cunning'] ?? NULL);
+  }
+
+  /**
+   * Missing psychology profiles should not default into treasure-seek behavior.
+   *
+   * @covers ::buildNpcTacticalIntentContract
+   */
+  public function testBuildNpcTacticalIntentContractWithoutProfileUsesAggressiveBaseline(): void {
+    $psychology = $this->createMock(NpcPsychologyService::class);
+    $psychology->method('loadProfile')->willReturn(NULL);
+
+    $handler = $this->buildHandler(NULL, NULL, NULL, NULL, $psychology);
+    $game_state = [
+      'campaign_id' => 91,
+      'turn' => ['actions_remaining' => 3],
+      'initiative_order' => [
+        [
+          'entity_id' => 'npc-1',
+          'entity_ref' => 'npc_unknown',
+          'team' => 'enemy',
+          'hp' => 16,
+          'max_hp' => 16,
+          'position_q' => 0,
+          'position_r' => 0,
+        ],
+        [
+          'entity_id' => 'pc-1',
+          'team' => 'player',
+          'is_defeated' => FALSE,
+          'hp' => 24,
+          'max_hp' => 24,
+          'position_q' => 3,
+          'position_r' => 0,
+        ],
+      ],
+    ];
+
+    $contract = $this->invokeBuildNpcTacticalIntentContract($handler, 'npc-1', $game_state, 91);
+    $this->assertSame('aggressive_engage', $contract['intent'] ?? NULL);
+    $this->assertSame(['stride', 'strike', 'strike'], $contract['action_sequence'] ?? []);
+    $this->assertFalse((bool) ($contract['decision_basis']['has_adjacent_player'] ?? TRUE));
+    $this->assertFalse((bool) ($contract['decision_basis']['profile_present'] ?? TRUE));
+  }
+
+  /**
    * NPC encounter outputs should include decision metadata for observability.
    *
    * @covers ::autoPlayNpcTurn
