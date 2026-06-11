@@ -102,6 +102,7 @@ export class GameShell {
     this._domUnsubs = [];
     this._busUnsubs = [];
     this._inventoryRefreshSequence = 0;
+    this._characterRefreshSequence = 0;
     this.reset();
 
     // Sub-module handles — populated in init()
@@ -1944,7 +1945,7 @@ export class GameShell {
     const selectedInstanceId = selectedEntity?.dcEntityRef || selectedEntity?.dcEntityInstanceId || null;
     return {
       campaignId: this.resolveCampaignId(),
-      characterId: selectedCharacterId || launchCharacterId || null,
+      characterId: launchCharacterId || selectedCharacterId || null,
       instanceId: launchCharacterId > 0 && selectedCharacterId === launchCharacterId
         ? selectedInstanceId
         : (this.launchCharacter?.instanceId || this.launchCharacter?.instance_id || null),
@@ -2227,14 +2228,68 @@ export class GameShell {
   }
 
   // --- adapted from hexmap.js ---
-  loadCharacterFromApi(characterId) {
+  async loadCharacterFromApi(characterId) {
     if (!characterId || !this.bus) {
-      return;
+      return null;
     }
 
-    this.bus.emit('character:sheet-requested', { characterId });
-    if (Number(characterId) === this.resolveLaunchCharacterStateId()) {
-      void this.refreshCharacterInventoryFromApi(this.resolveLaunchCharacterRuntimeContext());
+    const resolvedCharacterId = Number(characterId) || 0;
+    if (resolvedCharacterId <= 0) {
+      return null;
+    }
+
+    this.bus.emit('character:sheet-requested', { characterId: resolvedCharacterId });
+
+    const requestSequence = ++this._characterRefreshSequence;
+    const runtimeContext = this.resolveLaunchCharacterRuntimeContext();
+    const query = new URLSearchParams();
+    if (runtimeContext.campaignId) {
+      query.set('campaignId', String(runtimeContext.campaignId));
+    }
+    if (runtimeContext.instanceId) {
+      query.set('instanceId', String(runtimeContext.instanceId));
+    }
+
+    const requestUrl = `/api/character/${encodeURIComponent(resolvedCharacterId)}/state${query.toString() ? `?${query.toString()}` : ''}`;
+
+    try {
+      const response = await fetch(requestUrl, {
+        headers: {
+          Accept: 'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+        credentials: 'same-origin',
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result?.success || !result?.data) {
+        throw new Error(result?.error || `Character state refresh failed (${response.status}).`);
+      }
+      if (requestSequence !== this._characterRefreshSequence) {
+        return null;
+      }
+
+      const hydrated = result.data;
+      this.launchCharacter = {
+        ...hydrated,
+        id: Number(hydrated.characterId || hydrated.id || resolvedCharacterId) || resolvedCharacterId,
+        instanceId: hydrated.instanceId || runtimeContext.instanceId || this.launchCharacter?.instanceId || null,
+        instance_id: hydrated.instanceId || runtimeContext.instanceId || this.launchCharacter?.instance_id || null,
+      };
+      this.characterData = this.launchCharacter;
+      this.syncLaunchCharacterRuntimeFromEntity(this._getStateValue('selectedEntity'));
+      this.bus.emit('character:updated');
+
+      if (resolvedCharacterId === this.resolveLaunchCharacterStateId()) {
+        await this.refreshCharacterInventoryFromApi({
+          ...this.resolveLaunchCharacterRuntimeContext(),
+          characterId: resolvedCharacterId,
+        });
+      }
+
+      return this.launchCharacter;
+    } catch (error) {
+      console.error('[GameShell] loadCharacterFromApi failed', error);
+      return null;
     }
   }
 
