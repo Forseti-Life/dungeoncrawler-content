@@ -1118,6 +1118,12 @@ class EncounterPhaseHandlerTest extends UnitTestCase {
     $this->assertStringContainsString('Fighting motivation: Protect the relic', (string) $context['npc_psychology']);
     $this->assertStringContainsString('Goals: Protect the relic, Gain XP, Gain Treasure', (string) $context['npc_psychology']);
     $this->assertSame('finish_weakest', $context['current_actor_tactical_intent']['intent'] ?? NULL);
+    $this->assertContains('cast_spell', $context['allowed_actions']);
+    $this->assertTrue(($context['actions_available_to_me_this_turn']['is_active_turn_actor'] ?? FALSE));
+    $this->assertSame(3, $context['actions_available_to_me_this_turn']['actions_remaining'] ?? NULL);
+    $this->assertContains('cast_spell', $context['actions_available_to_me_this_turn']['available_actions'] ?? []);
+    $this->assertSame('encounter', $context['actions_available_to_me_this_turn']['action_contract']['phase'] ?? NULL);
+    $this->assertTrue(is_array($context['actions_available_to_me_this_turn']['action_contract']['actions'] ?? NULL));
   }
 
   /**

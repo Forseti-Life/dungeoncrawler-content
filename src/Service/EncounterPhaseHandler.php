@@ -8023,6 +8023,29 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
       }
     }
 
+    $context_game_state = $game_state;
+    if (!is_array($context_game_state['turn'] ?? NULL)) {
+      $context_game_state['turn'] = [];
+    }
+    if (trim((string) ($context_game_state['turn']['entity'] ?? '')) === '') {
+      $context_game_state['turn']['entity'] = $entity_id;
+    }
+    if (!is_numeric($context_game_state['turn']['actions_remaining'] ?? NULL)) {
+      $context_game_state['turn']['actions_remaining'] = 3;
+    }
+    if (!array_key_exists('reaction_available', $context_game_state['turn'])) {
+      $context_game_state['turn']['reaction_available'] = FALSE;
+    }
+
+    $allowed_actions = $this->getAvailableActions($context_game_state, $dungeon_data, $entity_id);
+    $action_contract = $this->getClientActionContract($context_game_state, $dungeon_data, $entity_id);
+    $actions_available_to_me_this_turn = $this->buildActorTurnActionAvailabilityEnvelope(
+      $entity_id,
+      $context_game_state,
+      $allowed_actions,
+      $action_contract
+    );
+
     return [
       'encounter_id' => $game_state['encounter_id'] ?? NULL,
       'campaign_id' => $game_state['campaign_id'] ?? NULL,
@@ -8045,9 +8068,9 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
       'participants' => $initiative_order,
       'allies' => $allies,
       'threats' => $enemies,
-      'allowed_actions' => [
-        'strike', 'stride', 'interact', 'talk', 'end_turn',
-      ],
+      'allowed_actions' => $allowed_actions,
+      'action_contract' => $action_contract,
+      'actions_available_to_me_this_turn' => $actions_available_to_me_this_turn,
       // NPC personality/psychology context for AI decision-making.
       'npc_psychology' => $this->buildNpcPsychologyContext($entity_id, $game_state),
       'current_actor_tactical_intent' => $this->buildNpcTacticalIntentContract(
@@ -8055,6 +8078,33 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
         $game_state,
         (int) ($game_state['campaign_id'] ?? 0)
       ),
+    ];
+  }
+
+  /**
+   * Build canonical actor-scoped turn action availability envelope.
+   */
+  protected function buildActorTurnActionAvailabilityEnvelope(
+    string $entity_id,
+    array $game_state,
+    array $available_actions,
+    array $action_contract
+  ): array {
+    $turn_entity = (string) ($game_state['turn']['entity'] ?? '');
+    $effective_actions_remaining = $turn_entity !== '' && $turn_entity === $entity_id
+      ? max(0, (int) ($game_state['turn']['actions_remaining'] ?? 0))
+      : 0;
+
+    return [
+      'actor_instance_id' => $entity_id,
+      'is_active_turn_actor' => $turn_entity !== '' && $turn_entity === $entity_id,
+      'actions_remaining' => $effective_actions_remaining,
+      'reaction_available' => $turn_entity !== '' && $turn_entity === $entity_id && !empty($game_state['turn']['reaction_available']),
+      'available_actions' => array_values(array_unique(array_filter(array_map(
+        static fn($action): string => strtolower(trim((string) $action)),
+        $available_actions
+      )))),
+      'action_contract' => $action_contract,
     ];
   }
 

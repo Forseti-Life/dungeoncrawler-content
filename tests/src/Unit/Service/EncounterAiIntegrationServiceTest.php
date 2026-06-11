@@ -77,6 +77,13 @@ class EncounterAiIntegrationServiceTest extends UnitTestCase {
     $this->assertSame(3, $context['current_round']);
     $this->assertSame('npc-2', $context['current_actor']['entity_ref']);
     $this->assertContains('strike', $context['allowed_actions']);
+    $this->assertSame('encounter', $context['action_contract']['phase']);
+    $this->assertSame('npc-2', $context['action_contract']['actor_id']);
+    $this->assertTrue(is_array($context['action_contract']['actions']));
+    $this->assertTrue(isset($context['actions_available_to_me_this_turn']));
+    $this->assertSame('npc-2', $context['actions_available_to_me_this_turn']['actor_instance_id']);
+    $this->assertContains('end_turn', $context['actions_available_to_me_this_turn']['available_actions']);
+    $this->assertSame('encounter', $context['actions_available_to_me_this_turn']['action_contract']['phase']);
   }
 
   /**

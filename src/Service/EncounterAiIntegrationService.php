@@ -11,6 +11,66 @@ use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 class EncounterAiIntegrationService {
 
   /**
+   * Deterministic action definitions for encounter AI context contracts.
+   */
+  protected const AI_ACTION_DEFINITIONS = [
+    'strike' => [
+      'cost' => 1,
+      'category' => 'offense',
+      'requires_turn' => TRUE,
+      'targeting' => 'hostile_entity',
+    ],
+    'step' => [
+      'cost' => 1,
+      'category' => 'movement',
+      'requires_turn' => TRUE,
+      'targeting' => 'hex',
+    ],
+    'stride' => [
+      'cost' => 1,
+      'category' => 'movement',
+      'requires_turn' => TRUE,
+      'targeting' => 'hex',
+    ],
+    'interact' => [
+      'cost' => 1,
+      'category' => 'utility',
+      'requires_turn' => TRUE,
+      'targeting' => 'entity_or_object',
+    ],
+    'talk' => [
+      'cost' => 1,
+      'category' => 'conversation',
+      'requires_turn' => TRUE,
+      'targeting' => 'entity_or_room',
+    ],
+    'demoralize' => [
+      'cost' => 1,
+      'category' => 'social',
+      'requires_turn' => TRUE,
+      'targeting' => 'hostile_entity',
+    ],
+    'raise_shield' => [
+      'cost' => 1,
+      'category' => 'defense',
+      'requires_turn' => TRUE,
+      'targeting' => 'self',
+    ],
+    'end_turn' => [
+      'cost' => 0,
+      'category' => 'turn',
+      'requires_turn' => TRUE,
+      'targeting' => 'none',
+    ],
+    'reaction' => [
+      'cost' => 'reaction',
+      'category' => 'reaction',
+      'requires_turn' => FALSE,
+      'targeting' => 'contextual',
+    ],
+  ];
+
+  /**
    * Encounter AI provider implementation.
    */
   protected EncounterAiProviderInterface $provider;
@@ -60,6 +120,15 @@ class EncounterAiIntegrationService {
       throw new \InvalidArgumentException('Encounter has no active participant.');
     }
 
+    $allowed_actions = $this->buildAllowedActionsForCurrentActor($current_actor);
+    $actor_action_contract = $this->buildActorActionContract($current_actor, $allowed_actions);
+    $actions_available_to_me_this_turn = $this->buildActorTurnActionAvailabilityEnvelope(
+      $current_actor,
+      $turn_index,
+      $allowed_actions,
+      $actor_action_contract
+    );
+
     return [
       'campaign_id' => $campaign_id,
       'encounter_id' => $encounter_id,
@@ -68,16 +137,9 @@ class EncounterAiIntegrationService {
       'turn_index' => $turn_index,
       'current_actor' => $current_actor,
       'participants' => $participants,
-      'allowed_actions' => [
-        'strike',
-        'step',
-        'stride',
-        'interact',
-        'talk',
-        'demoralize',
-        'raise_shield',
-        'end_turn',
-      ],
+      'allowed_actions' => $allowed_actions,
+      'action_contract' => $actor_action_contract,
+      'actions_available_to_me_this_turn' => $actions_available_to_me_this_turn,
       'context_built_at' => $this->time->getCurrentTime(),
     ];
   }
@@ -172,6 +234,111 @@ class EncounterAiIntegrationService {
     return [
       'valid' => count($errors) === 0,
       'errors' => $errors,
+    ];
+  }
+
+  /**
+   * Build deterministic action list for the active actor from turn resources.
+   *
+   * @param array<string, mixed> $current_actor
+   *   Active actor payload.
+   *
+   * @return string[]
+   *   Canonical allowed action IDs.
+   */
+  protected function buildAllowedActionsForCurrentActor(array $current_actor): array {
+    $actions = [];
+    $actions_remaining = max(0, (int) ($current_actor['actions_remaining'] ?? 3));
+    $reaction_available = !empty($current_actor['reaction_available']);
+
+    if ($actions_remaining >= 1) {
+      $actions = array_merge($actions, [
+        'strike',
+        'step',
+        'stride',
+        'interact',
+        'talk',
+        'demoralize',
+        'raise_shield',
+      ]);
+    }
+    $actions[] = 'end_turn';
+    if ($reaction_available) {
+      $actions[] = 'reaction';
+    }
+
+    return array_values(array_unique($actions));
+  }
+
+  /**
+   * Build canonical actor-scoped action-availability envelope.
+   *
+   * @param array<string, mixed> $current_actor
+   *   Active actor payload.
+   * @param int $turn_index
+   *   Current turn index in participants.
+   * @param string[] $allowed_actions
+   *   Canonical allowed action IDs.
+   *
+   * @return array<string, mixed>
+   *   Action-availability envelope.
+   */
+  protected function buildActorTurnActionAvailabilityEnvelope(array $current_actor, int $turn_index, array $allowed_actions, array $action_contract): array {
+    $actor_ref = trim((string) ($current_actor['entity_ref'] ?? $current_actor['entity_id'] ?? ''));
+    $actions_remaining = max(0, (int) ($current_actor['actions_remaining'] ?? 3));
+
+    return [
+      'actor_instance_id' => $actor_ref !== '' ? $actor_ref : NULL,
+      'turn_index' => $turn_index,
+      'actions_remaining' => $actions_remaining,
+      'reaction_available' => !empty($current_actor['reaction_available']),
+      'available_actions' => array_values(array_unique(array_filter(array_map(
+        static fn($action): string => strtolower(trim((string) $action)),
+        $allowed_actions
+      )))),
+      'action_contract' => $action_contract,
+    ];
+  }
+
+  /**
+   * Build structured encounter action contract for the active actor.
+   *
+   * @param array<string, mixed> $current_actor
+   *   Active actor payload.
+   * @param string[] $allowed_actions
+   *   Canonical available actions for this actor.
+   *
+   * @return array<string, mixed>
+   *   Structured action contract.
+   */
+  protected function buildActorActionContract(array $current_actor, array $allowed_actions): array {
+    $available_map = [];
+    foreach ($allowed_actions as $allowed_action) {
+      $normalized = strtolower(trim((string) $allowed_action));
+      if ($normalized !== '') {
+        $available_map[$normalized] = TRUE;
+      }
+    }
+
+    $actions = [];
+    foreach (self::AI_ACTION_DEFINITIONS as $action_id => $definition) {
+      $actions[] = [
+        'id' => $action_id,
+        'cost' => $definition['cost'],
+        'category' => $definition['category'],
+        'requires_turn' => $definition['requires_turn'],
+        'targeting' => $definition['targeting'],
+        'available' => !empty($available_map[$action_id]),
+      ];
+    }
+
+    $actor_ref = trim((string) ($current_actor['entity_ref'] ?? $current_actor['entity_id'] ?? ''));
+    return [
+      'phase' => 'encounter',
+      'actor_id' => $actor_ref !== '' ? $actor_ref : NULL,
+      'current_turn_entity' => $actor_ref !== '' ? $actor_ref : NULL,
+      'available_actions' => array_values(array_keys($available_map)),
+      'actions' => $actions,
     ];
   }
 
