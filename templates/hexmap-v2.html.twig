@@ -41,7 +41,21 @@
       <aside class="game-shell__action-rail" id="hexmap-action-rail" data-panel="action-rail" aria-label="{{ 'Player action bar'|t }}">
         <div class="action-rail__header">
           <p class="eyebrow">{{ 'Action Bar'|t }}</p>
-          <h3 id="action-rail-actor-name" data-action-rail="actor-name">{{ 'No actor selected'|t }}</h3>
+          <div
+            id="action-rail-actor-card"
+            class="party-rail__card action-rail__actor-card action-rail__actor-card--disabled"
+            data-action-rail="actor-card"
+            role="button"
+            tabindex="0"
+            aria-disabled="true"
+            aria-label="{{ 'No actor selected'|t }}"
+          >
+            <div class="party-rail__card-avatar action-rail__actor-avatar" aria-hidden="true">
+              <img id="action-rail-actor-image" alt="" class="party-rail__card-avatar-img" loading="lazy" hidden>
+              <span id="action-rail-actor-initial">?</span>
+            </div>
+            <span id="action-rail-actor-name" class="party-rail__card-name" data-action-rail="actor-name">{{ 'No actor selected'|t }}</span>
+          </div>
           <p class="action-rail__status" id="action-rail-status" data-action-rail="status">{{ 'Select your character to unlock direct actions.'|t }}</p>
           <div class="action-rail__automation">
             <button type="button" class="btn btn-action action-rail__automation-toggle" id="action-rail-automate-toggle" aria-pressed="false">
@@ -87,10 +101,6 @@
           </div>
         </div>
 
-        <div class="game-shell__party-rail" data-panel="party-rail" aria-label="{{ 'Party members'|t }}">
-          <div class="party-rail__rail" data-party="rail"></div>
-          <div class="party-rail__empty" data-party="empty">{{ 'No party members'|t }}</div>
-        </div>
       </aside>
 
       <div class="game-shell__content">

@@ -17,7 +17,17 @@ export function buildActionRailContext(stateManager) {
   const actor = launchPlayer || (!hasServerTurn ? (selected || current || null) : null);
   const state = hexmap?.launchCharacter || hexmap?.characterData || {};
   const basicInfo = state?.basicInfo || {};
+  const actorMetadata = actor?.dcStatePayload?.metadata || {};
   const actorName = basicInfo.name || state?.name || actor?.getComponent?.('IdentityComponent')?.name || 'No actor selected';
+  const actorPortraitUrl = String(
+    actorMetadata?.portrait_url
+    || actorMetadata?.portrait
+    || state?.portrait_url
+    || state?.portrait
+    || basicInfo?.portrait_url
+    || basicInfo?.portrait
+    || ''
+  ).trim();
   const runtimeContext = hexmap?.resolveLaunchCharacterRuntimeContext?.() || {};
   const automationProfile = hexmap?.buildPlayerAutomationProfile?.() || {};
   const automationState = hexmap?.getPlayerAutomationState?.() || {};
@@ -92,6 +102,7 @@ export function buildActionRailContext(stateManager) {
     actor,
     actorRef,
     actorLabel: actorName,
+    actorPortraitUrl,
     characterId,
     runtimeContext,
     phaseSnapshot,

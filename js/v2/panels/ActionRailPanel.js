@@ -184,7 +184,10 @@ export class ActionRailPanel {
     const id = (k) => (typeof document !== 'undefined' ? document.getElementById(k) : null);
     this._el = {
       actionRail:                 id('hexmap-action-rail'),
+      actionRailActorCard:        id('action-rail-actor-card'),
       actionRailActorName:        id('action-rail-actor-name'),
+      actionRailActorImage:       id('action-rail-actor-image'),
+      actionRailActorInitial:     id('action-rail-actor-initial'),
       actionRailStatus:           id('action-rail-status'),
       actionRailAutomationToggle: id('action-rail-automate-toggle'),
       actionRailAutomationMeta:   id('action-rail-automation-meta'),
@@ -230,6 +233,7 @@ export class ActionRailPanel {
     const categories = this._el.actionRailCategories;
     const panelBody = this._el.actionRailPanelBody;
     const automationToggle = this._el.actionRailAutomationToggle;
+    const actorCard = this._el.actionRailActorCard;
     this.updateActionRailClocks();
     if (!this.actionRailRealClockTimer) {
       this.actionRailRealClockTimer = setInterval(() => {
@@ -245,6 +249,18 @@ export class ActionRailPanel {
     if (automationToggle) {
       this.bindActionRailDomListener(automationToggle, 'click', () => {
         this.handleActionRailAutomationToggle();
+      });
+    }
+    if (actorCard) {
+      this.bindActionRailDomListener(actorCard, 'click', () => {
+        this.handleActionRailActorCardActivate();
+      });
+      this.bindActionRailDomListener(actorCard, 'keydown', (event) => {
+        if (event.key !== 'Enter' && event.key !== ' ') {
+          return;
+        }
+        event.preventDefault();
+        this.handleActionRailActorCardActivate();
       });
     }
 
@@ -349,6 +365,37 @@ export class ActionRailPanel {
     this._domListeners = [];
   }
 
+  handleActionRailActorCardActivate() {
+    const context = this.getActionRailContext();
+    const actorRef = String(context?.actorRef || '').trim();
+    const canOpen = Boolean(context?.characterId || actorRef);
+    if (!canOpen) {
+      return;
+    }
+
+    const hexmap = this.stateManager?.hexmap || null;
+    if (actorRef && hexmap?.entityManager?.getEntity && typeof hexmap?.selectEntity === 'function') {
+      const actorEntity = hexmap.entityManager.getEntity(actorRef);
+      if (actorEntity) {
+        hexmap.selectEntity(actorEntity);
+      }
+    }
+
+    if (typeof hexmap?.activateGameShellTab === 'function') {
+      hexmap.activateGameShellTab('character');
+      return;
+    }
+
+    const shell = typeof document !== 'undefined'
+      ? document.querySelector('[data-game-shell]')
+      : null;
+    if (shell instanceof HTMLElement) {
+      shell.dispatchEvent(new CustomEvent('dungeoncrawler:activate-tab', {
+        detail: { tabId: 'character' },
+      }));
+    }
+  }
+
   resolveActionRailCategory(category = '') {
     return resolveContractActionRailCategory(category, 'navigate');
   }
@@ -376,7 +423,10 @@ export class ActionRailPanel {
     const panelTitle = this._el.actionRailPanelTitle;
     const panelChip = this._el.actionRailPanelChip;
     const panelBody = this._el.actionRailPanelBody;
+    const actorCard = this._el.actionRailActorCard;
     const actorName = this._el.actionRailActorName;
+    const actorImage = this._el.actionRailActorImage;
+    const actorInitial = this._el.actionRailActorInitial;
     const status = this._el.actionRailStatus;
     const automationToggle = this._el.actionRailAutomationToggle;
     const automationMeta = this._el.actionRailAutomationMeta;
@@ -396,6 +446,33 @@ export class ActionRailPanel {
       }
     };
     actorName.textContent = context.actorLabel;
+    if (actorCard) {
+      const actorRef = String(context.actorRef || '').trim();
+      const canOpen = Boolean(context.characterId || actorRef);
+      actorCard.setAttribute('aria-disabled', canOpen ? 'false' : 'true');
+      actorCard.classList.toggle('action-rail__actor-card--disabled', !canOpen);
+      actorCard.setAttribute('aria-label', canOpen ? `${context.actorLabel}: open character sheet` : context.actorLabel);
+      if (actorRef) {
+        actorCard.dataset.entityId = actorRef;
+      } else {
+        delete actorCard.dataset.entityId;
+      }
+    }
+    if (actorImage && actorInitial) {
+      const portraitUrl = String(context.actorPortraitUrl || '').trim();
+      if (portraitUrl) {
+        actorImage.src = portraitUrl;
+        actorImage.alt = context.actorLabel;
+        actorImage.hidden = false;
+        actorInitial.hidden = true;
+      } else {
+        actorImage.hidden = true;
+        actorImage.removeAttribute('src');
+        actorImage.alt = '';
+        actorInitial.hidden = false;
+        actorInitial.textContent = context.actorLabel.charAt(0).toUpperCase() || '?';
+      }
+    }
     status.textContent = context.statusLabel;
     console.log('[ActionRailPanel] refreshActionRail:render', { actor: context.actorLabel, status: context.statusLabel, encounter: context.encounterActive });
     if (automationToggle) {
