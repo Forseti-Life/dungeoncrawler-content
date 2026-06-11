@@ -21,6 +21,11 @@ use Drupal\dungeoncrawler_content\Service\CombatEncounterStore;
 class CombatActionController extends ControllerBase {
 
   /**
+   * Legacy mutation error code.
+   */
+  protected const LEGACY_MUTATION_DISABLED_CODE = 'legacy_combat_mutation_disabled';
+
+  /**
    * The action processor service.
    *
    * @var \Drupal\dungeoncrawler_content\Service\ActionProcessor
@@ -115,10 +120,7 @@ class CombatActionController extends ControllerBase {
    * @see /docs/dungeoncrawler/issues/combat-state-machine.md (Turn States)
    */
   public function startTurn($encounter_id, $participant_id) {
-    $result = $this->combatEngine->startTurn((int) $encounter_id, (int) $participant_id);
-    $status_code = ($result['status'] ?? 'error') === 'ok' ? 200 : 400;
-
-    return new JsonResponse($result, $status_code);
+    return $this->legacyMutationDisabledResponse('/api/game/{campaign_id}/action');
   }
 
   /**
@@ -137,10 +139,7 @@ class CombatActionController extends ControllerBase {
    * @see /docs/dungeoncrawler/issues/combat-engine-service.md#endturn
    */
   public function endTurn($encounter_id, $participant_id) {
-    $result = $this->combatEngine->endTurn((int) $encounter_id, (int) $participant_id);
-    $status_code = ($result['status'] ?? 'error') === 'ok' ? 200 : 400;
-
-    return new JsonResponse($result, $status_code);
+    return $this->legacyMutationDisabledResponse('/api/game/{campaign_id}/action');
   }
 
   /**
@@ -159,19 +158,7 @@ class CombatActionController extends ControllerBase {
    * @see /docs/dungeoncrawler/issues/combat-action-validation.md (Delay Rules)
    */
   public function delay($encounter_id, $participant_id) {
-    // TODO: Implement delay
-    // 1. Mark participant as delaying
-    // 2. Store original initiative
-    // 3. Remove from current turn order
-    // 4. Participant can rejoin at any later initiative
-    // 5. Return success
-    
-    return new JsonResponse([
-      'participant_id' => $participant_id,
-      'is_delaying' => TRUE,
-      'original_initiative' => 0,
-      'message' => 'Participant delayed',
-    ]);
+    return $this->legacyMutationDisabledResponse('/api/game/{campaign_id}/action');
   }
 
   /**
@@ -190,18 +177,7 @@ class CombatActionController extends ControllerBase {
    *   Updated initiative order.
    */
   public function resumeDelay($encounter_id, $participant_id, Request $request) {
-    // TODO: Implement resume from delay
-    // 1. Get new_initiative from request
-    // 2. Validate new_initiative < original_initiative
-    // 3. Reinsert participant at new initiative
-    // 4. New initiative becomes permanent
-    // 5. Return updated initiative order
-    
-    return new JsonResponse([
-      'participant_id' => $participant_id,
-      'new_initiative' => 0,
-      'is_delaying' => FALSE,
-    ]);
+    return $this->legacyMutationDisabledResponse('/api/game/{campaign_id}/action');
   }
 
   /**
@@ -221,37 +197,7 @@ class CombatActionController extends ControllerBase {
    * @see /docs/dungeoncrawler/issues/combat-action-validation.md
    */
   public function executeAction($encounter_id, Request $request) {
-    // TODO: Implement action execution
-    // 1. Parse request: participant_id, action_type, target_id, action_data
-    // 2. Validate action (6-layer validation):
-    //    a. State validation (combat active, participant's turn)
-    //    b. Action economy (enough actions remaining)
-    //    c. Condition restrictions (not paralyzed/unconscious)
-    //    d. Prerequisites (weapon equipped, spell slots, etc.)
-    //    e. Resource validation (spell slots, abilities)
-    //    f. Target validation (in range, line of sight)
-    // 3. If validation fails: return error
-    // 4. Execute action via ActionProcessor
-    // 5. Deduct action cost from actions_remaining
-    // 6. Update MAP if attack action
-    // 7. Apply action effects to targets
-    // 8. Log action to combat_actions table
-    // 9. Check for triggered reactions
-    // 10. Return action result and updated state
-    
-      $data = json_decode($request->getContent(), TRUE) ?: [];
-      $participant_id = (int) ($data['participant_id'] ?? 0);
-      $action_type = $data['action_type'] ?? NULL;
-      $action_data = $data['action_data'] ?? [];
-
-      if (!$participant_id || !$action_type) {
-        return new JsonResponse(['error' => 'Missing participant_id or action_type'], 400);
-      }
-
-      $result = $this->actionProcessor->executeAction((int) $encounter_id, $participant_id, $action_type, $action_data);
-      $status_code = ($result['status'] ?? 'error') === 'ok' ? 200 : 400;
-
-      return new JsonResponse($result, $status_code);
+    return $this->legacyMutationDisabledResponse('/api/game/{campaign_id}/action');
   }
 
   /**
@@ -271,44 +217,7 @@ class CombatActionController extends ControllerBase {
    * @see /docs/dungeoncrawler/issues/combat-database-schema.md (combat_actions)
    */
   public function strike($encounter_id, Request $request) {
-    // TODO: Implement Strike action
-    // 1. Load attacker and target participants
-    // 2. Load weapon stats
-    // 3. Calculate attack bonus:
-    //    = weapon_proficiency + ability_mod + item_bonus - MAP + bonuses - penalties
-    // 4. Roll d20 + attack bonus
-    // 5. Compare to target AC
-    // 6. Determine degree of success (critical/success/failure/critical failure)
-    // 7. If hit or critical hit:
-    //    a. Roll damage: weapon_damage_dice + ability_mod
-    //    b. If critical: double damage dice (not modifiers)
-    //    c. Apply resistances/weaknesses
-    //    d. Apply damage to target
-    //    e. Check for dying/death conditions
-    // 8. Increment attacks_this_turn
-    // 9. Update MAP: -5 (or -4 if agile weapon)
-    // 10. Log strike to combat_actions and combat_damage_log
-    // 11. Return attack result
-    
-    return new JsonResponse([
-      'action_id' => 0,
-      'action_type' => 'strike',
-      'success' => TRUE,
-      'result' => [
-        'attack_roll' => 0,
-        'attack_total' => 0,
-        'target_ac' => 0,
-        'degree' => 'success',
-        'damage_dealt' => 0,
-        'target_hp_before' => 0,
-        'target_hp_after' => 0,
-      ],
-      'participant_state' => [
-        'actions_remaining' => 2,
-        'current_map_penalty' => -5,
-        'attacks_this_turn' => 1,
-      ],
-    ]);
+    return $this->legacyMutationDisabledResponse('/api/game/{campaign_id}/action');
   }
 
   /**
@@ -327,24 +236,7 @@ class CombatActionController extends ControllerBase {
    * @see /docs/dungeoncrawler/issues/combat-engine-service.md#executestride
    */
   public function stride($encounter_id, Request $request) {
-    // TODO: Implement Stride action
-    // 1. Validate not immobilized/grabbed/paralyzed
-    // 2. Calculate movement cost (difficult terrain doubles cost)
-    // 3. Validate distance <= speed
-    // 4. Check for Attack of Opportunity triggers
-    // 5. Update participant position
-    // 6. Deduct 1 action
-    // 7. Log movement
-    // 8. Return new position
-    
-    return new JsonResponse([
-      'action_id' => 0,
-      'action_type' => 'stride',
-      'success' => TRUE,
-      'distance_moved' => 0,
-      'new_position' => ['x' => 0, 'y' => 0],
-      'reactions_triggered' => [],
-    ]);
+    return $this->legacyMutationDisabledResponse('/api/game/{campaign_id}/action');
   }
 
   /**
@@ -363,29 +255,7 @@ class CombatActionController extends ControllerBase {
    * @see /docs/dungeoncrawler/issues/combat-engine-service.md#executecastspell
    */
   public function castSpell($encounter_id, Request $request) {
-    // TODO: Implement Cast Spell action
-    // 1. Validate spell slot available
-    // 2. Validate not silenced (if verbal component)
-    // 3. Validate hand free (if somatic component)
-    // 4. Deduct spell slot
-    // 5. Execute spell effects by type:
-    //    - Attack roll spell: roll attack vs AC
-    //    - Save spell: targets roll save vs spell DC
-    //    - Automatic: apply effects directly
-    // 6. Apply conditions/damage/buffs to targets
-    // 7. Deduct actions (usually 2 for most spells)
-    // 8. Log spell cast
-    // 9. Return spell results per target
-    
-    return new JsonResponse([
-      'action_id' => 0,
-      'action_type' => 'cast_spell',
-      'success' => TRUE,
-      'spell_name' => '',
-      'spell_slot_used' => TRUE,
-      'results' => [],
-      'participant_state' => [],
-    ]);
+    return $this->legacyMutationDisabledResponse('/api/game/{campaign_id}/action');
   }
 
   /**
@@ -404,24 +274,7 @@ class CombatActionController extends ControllerBase {
    * @see /docs/dungeoncrawler/issues/combat-action-validation.md (Ready Rules)
    */
   public function ready($encounter_id, Request $request) {
-    // TODO: Implement Ready action
-    // 1. Cost: 2 actions
-    // 2. Store readied action (must be 1-action only)
-    // 3. Store trigger condition
-    // 4. Mark participant as having readied action
-    // 5. When trigger occurs: execute as reaction
-    // 6. Return success
-    
-    return new JsonResponse([
-      'action_id' => 0,
-      'action_type' => 'ready',
-      'success' => TRUE,
-      'readied_action' => [],
-      'participant_state' => [
-        'actions_remaining' => 1,
-        'is_readying' => TRUE,
-      ],
-    ]);
+    return $this->legacyMutationDisabledResponse('/api/game/{campaign_id}/action');
   }
 
   /**
@@ -440,28 +293,19 @@ class CombatActionController extends ControllerBase {
    * @see /docs/dungeoncrawler/issues/combat-engine-service.md (ReactionHandler)
    */
   public function executeReaction($encounter_id, Request $request) {
-    // TODO: Implement reaction execution
-    // 1. Validate reaction available
-    // 2. Validate trigger conditions met
-    // 3. Execute reaction by type:
-    //    - Attack of Opportunity: Strike with no MAP
-    //    - Shield Block: Reduce damage by hardness
-    //    - Nimble Dodge: +2 AC against attack
-    //    - Aid: Grant +1 bonus to ally
-    //    - Readied Action: Execute prepared action
-    // 4. Mark reaction as used
-    // 5. Log reaction to combat_reactions table
-    // 6. Return result (may modify triggering action)
-    
+    return $this->legacyMutationDisabledResponse('/api/game/{campaign_id}/action');
+  }
+
+  /**
+   * Return standardized response for disabled legacy mutation endpoints.
+   */
+  protected function legacyMutationDisabledResponse(string $canonical_path): JsonResponse {
     return new JsonResponse([
-      'reaction_id' => 0,
-      'reaction_type' => '',
-      'success' => TRUE,
-      'result' => [],
-      'participant_state' => [
-        'reaction_available' => FALSE,
-      ],
-    ]);
+      'success' => FALSE,
+      'error_code' => self::LEGACY_MUTATION_DISABLED_CODE,
+      'error' => sprintf('Legacy combat mutation endpoints are disabled. Use %s as the single canonical turn/round authority.', $canonical_path),
+      'canonical_endpoint' => $canonical_path,
+    ], 409);
   }
 
 }

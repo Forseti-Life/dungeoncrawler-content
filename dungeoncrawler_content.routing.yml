@@ -1422,7 +1422,7 @@ dungeoncrawler_content.api.character_start_turn:
 # ------------------------------------------------------------------------------
 # Combat Encounter API Endpoints (Legacy Hexmap Integration)
 # NOTE: Player actions MUST use the coordinator API (/api/game/{campaign_id}/action).
-# These legacy endpoints are admin-only for testing and support.
+# Legacy mutation endpoints return 409 and only read/diagnostic calls remain valid.
 # ------------------------------------------------------------------------------
 
 dungeoncrawler_content.api.combat_state:
@@ -2347,7 +2347,7 @@ dungeoncrawler_content.api.game_player_agent_step:
 # ------------------------------------------------------------------------------
 # Combat API Controller — Encounter-Scoped Endpoints
 # Provides per-encounter HP, condition, initiative, participant, log, and stats
-# management endpoints.
+# admin support endpoints (not canonical turn/round control).
 # NOTE: These are GM/admin support endpoints. Player actions MUST use the
 # coordinator API (/api/game/{campaign_id}/action).
 # ------------------------------------------------------------------------------

@@ -28,6 +28,11 @@ use Symfony\Component\HttpFoundation\Request;
 class CombatEncounterApiController extends ControllerBase {
 
   /**
+   * Legacy mutation error code.
+   */
+  protected const LEGACY_MUTATION_DISABLED_CODE = 'legacy_combat_mutation_disabled';
+
+  /**
    * Encounter storage service.
    *
    * @var \Drupal\dungeoncrawler_content\Service\CombatEncounterStore
@@ -259,140 +264,21 @@ class CombatEncounterApiController extends ControllerBase {
    * Start a new encounter.
    */
   public function start(Request $request): JsonResponse {
-    $data = json_decode($request->getContent(), TRUE) ?: [];
-
-    $participants = $this->normalizeParticipants($data['entities'] ?? []);
-    if (empty($participants)) {
-      return new JsonResponse([
-        'error' => 'At least one participant is required',
-      ], 400);
-    }
-
-    if (!$this->hasPlayerParticipant($participants)) {
-      return new JsonResponse([
-        'error' => 'At least one player participant is required to start an encounter',
-      ], 409);
-    }
-
-    // Sort by initiative (desc, then roll, then name).
-    usort($participants, function (array $a, array $b) {
-      $cmp = ($b['initiative'] ?? 0) <=> ($a['initiative'] ?? 0);
-      if ($cmp !== 0) {
-        return $cmp;
-      }
-      $cmp = ($b['initiative_roll'] ?? 0) <=> ($a['initiative_roll'] ?? 0);
-      if ($cmp !== 0) {
-        return $cmp;
-      }
-      return strcmp((string) $a['name'], (string) $b['name']);
-    });
-
-    // Reset turn index to the first non-defeated participant.
-    $turn_index = $this->findNextTurnIndex($participants, -1);
-
-    $campaign_id = isset($data['campaignId']) ? (int) $data['campaignId'] : 0;
-    $room_id = isset($data['roomId']) ? (string) $data['roomId'] : '';
-    $active_encounter_ids = $this->loadActiveEncounterIdsForContext($campaign_id, $room_id);
-    if ($active_encounter_ids !== []) {
-      $active_encounter_id = (int) $active_encounter_ids[0];
-      if (count($active_encounter_ids) > 1) {
-        $this->retireActiveEncounters($active_encounter_ids, $active_encounter_id);
-      }
-
-      $active_encounter = $this->normalizeEncounterForResponse($this->loadEncounter($active_encounter_id));
-      if ($active_encounter) {
-        return new JsonResponse($this->buildEncounterResponse($active_encounter));
-      }
-    }
-
-    $encounter_id = $this->encounterStore->createEncounter(
-      $data['campaignId'] ?? NULL,
-      $data['roomId'] ?? NULL,
-      $participants,
-      $data['mapId'] ?? NULL
-    );
-
-    // Persist the computed turn index.
-    $this->encounterStore->updateEncounter($encounter_id, [
-      'turn_index' => $turn_index,
-      'current_round' => 1,
-      'status' => 'active',
-    ]);
-
-    $encounter = $this->normalizeEncounterForResponse($this->encounterStore->loadEncounter($encounter_id));
-    if (!$encounter) {
-      return new JsonResponse(['error' => 'Encounter failed to initialize'], 500);
-    }
-
-    return new JsonResponse($this->buildEncounterResponse($encounter), 201);
+    return $this->legacyMutationDisabledResponse('/api/game/{campaign_id}/action');
   }
 
   /**
    * Advance turn for the active encounter.
    */
   public function endTurn(Request $request): JsonResponse {
-    $data = json_decode($request->getContent(), TRUE) ?: [];
-    $encounter_id = $data['encounterId'] ?? NULL;
-
-    if (!$encounter_id) {
-      return new JsonResponse(['error' => 'encounterId is required'], 400);
-    }
-
-      $encounter = $this->normalizeEncounterForResponse($this->loadEncounter($encounter_id));
-    if (!$encounter) {
-      return new JsonResponse(['error' => 'Encounter not found'], 404);
-    }
-
-    $participant_count = count($encounter['participants']);
-    if ($participant_count === 0) {
-      return new JsonResponse($this->buildEncounterResponse($encounter));
-    }
-
-    $next_index = $this->findNextTurnIndex($encounter['participants'], $encounter['turn_index']);
-
-    // If we wrapped around, increment round.
-    $fields = [
-      'turn_index' => $next_index,
-    ];
-    if ($next_index <= $encounter['turn_index']) {
-      $fields['current_round'] = (int) $encounter['current_round'] + 1;
-      $encounter['current_round'] = $fields['current_round'];
-    }
-    $encounter['turn_index'] = $next_index;
-
-    $this->encounterStore->updateEncounter($encounter_id, $fields);
-    $next_participant = $encounter['participants'][$next_index] ?? NULL;
-    if (!empty($next_participant['id'])) {
-      $this->encounterStore->updateParticipant((int) $next_participant['id'], [
-        'actions_remaining' => 3,
-        'attacks_this_turn' => 0,
-      ]);
-    }
-    $encounter = $this->normalizeEncounterForResponse($this->loadEncounter($encounter_id));
-
-    return new JsonResponse($this->buildEncounterResponse($encounter));
+    return $this->legacyMutationDisabledResponse('/api/game/{campaign_id}/action');
   }
 
   /**
    * End an encounter.
    */
   public function end(Request $request): JsonResponse {
-    $data = json_decode($request->getContent(), TRUE) ?: [];
-    $encounter_id = $data['encounterId'] ?? NULL;
-
-    if (!$encounter_id) {
-      return new JsonResponse(['error' => 'encounterId is required'], 400);
-    }
-
-    $encounter = $this->loadEncounter($encounter_id);
-    if ($encounter) {
-      $this->encounterStore->updateEncounter($encounter_id, ['status' => 'ended']);
-    }
-
-    return new JsonResponse([
-      'encounter_id' => $encounter_id,
-      'ended' => TRUE,
-    ]);
+    return $this->legacyMutationDisabledResponse('/api/game/{campaign_id}/action');
   }
 
   /**
@@ -418,371 +304,33 @@ class CombatEncounterApiController extends ControllerBase {
    * Replace encounter state (turn index/status/participants) with optimistic lock.
    */
   public function set(Request $request): JsonResponse {
-    $data = json_decode($request->getContent(), TRUE) ?: [];
-    $encounter_id = $data['encounterId'] ?? NULL;
-    if (!$encounter_id) {
-      return new JsonResponse(['error' => 'encounterId is required'], 400);
-    }
-
-    $encounter = $this->loadEncounter((int) $encounter_id);
-    if (!$encounter) {
-      return new JsonResponse(['error' => 'Encounter not found'], 404);
-    }
-
-    $expected_version = isset($data['expectedVersion']) ? (int) $data['expectedVersion'] : NULL;
-    $current_version = (int) ($encounter['updated'] ?? 0);
-    if ($expected_version !== NULL && $expected_version !== $current_version) {
-      return new JsonResponse([
-        'error' => 'Version conflict',
-        'currentVersion' => $current_version,
-        'state' => $this->buildEncounterResponse($encounter),
-      ], 409);
-    }
-
-    // Core fields update
-    $fields = [];
-    if (isset($data['turn_index'])) {
-      $fields['turn_index'] = (int) $data['turn_index'];
-    }
-    if (isset($data['current_round'])) {
-      $fields['current_round'] = (int) $data['current_round'];
-    }
-    if (!empty($data['status'])) {
-      $fields['status'] = $data['status'];
-    }
-    if ($fields) {
-      $this->encounterStore->updateEncounter((int) $encounter_id, $fields);
-    }
-
-    // Replace participants when provided
-    if (!empty($data['participants']) && is_array($data['participants'])) {
-      $this->encounterStore->saveParticipants((int) $encounter_id, $data['participants']);
-    }
-
-    $fresh = $this->loadEncounter((int) $encounter_id);
-    return new JsonResponse($this->buildEncounterResponse($fresh));
+    return $this->legacyMutationDisabledResponse('/api/game/{campaign_id}/action');
   }
 
   /**
    * Execute a basic attack (stub).
    */
   public function attack(Request $request): JsonResponse {
-    $data = json_decode($request->getContent(), TRUE) ?: [];
-
-    $encounter_id = $data['encounterId'] ?? NULL;
-    if (!$encounter_id) {
-      return new JsonResponse(['error' => 'encounterId is required'], 400);
-    }
-
-    $encounter = $this->loadEncounter($encounter_id);
-    if (!$encounter) {
-      return new JsonResponse(['error' => 'Encounter not found'], 404);
-    }
-
-    $target_ref = $data['targetId'] ?? NULL;
-    $attacker_ref = $data['attackerId'] ?? NULL;
-    $weapon_id = isset($data['weaponId']) ? (string) $data['weaponId'] : '';
-    $weapon_name = isset($data['weaponName']) ? trim((string) $data['weaponName']) : '';
-    $target = $this->findParticipantByReference($encounter['participants'], $target_ref);
-    $attacker = $this->findParticipantByReference($encounter['participants'], $attacker_ref);
-
-    if (!$attacker) {
-      return new JsonResponse(['error' => 'Attacker not found in encounter'], 400);
-    }
-
-    $attacker_actions_remaining = (int) ($attacker['actions_remaining'] ?? 0);
-    if ($attacker_actions_remaining <= 0) {
-      return new JsonResponse(['error' => 'No actions remaining for attacker'], 409);
-    }
-
-    $requested_damage = isset($data['damage']) ? (int) $data['damage'] : 0;
-    $damage = $requested_damage > 0 ? $requested_damage : $this->numberGeneration->rollRange(1, 8);
-
-    if ($target && $damage > 0) {
-      $hp_before = $target['hp'] ?? NULL;
-      $hp_after = $hp_before !== NULL ? max(0, $hp_before - $damage) : NULL;
-      $was_already_defeated = !empty($target['is_defeated']);
-
-      $this->encounterStore->updateParticipant((int) $target['id'], [
-        'hp' => $hp_after,
-        'is_defeated' => ($hp_after !== NULL && $hp_after <= 0) ? 1 : 0,
-      ]);
-
-      // Dispatch entity defeated event if this was the lethal blow
-      $is_now_defeated = ($hp_after !== NULL && $hp_after <= 0);
-      if ($is_now_defeated && !$was_already_defeated) {
-        $target_updated = array_merge($target, [
-          'hp' => $hp_after,
-          'is_defeated' => 1,
-        ]);
-        
-        $event = new EntityDefeatedEvent(
-          (int) ($encounter['campaign_id'] ?? 0),
-          (int) $encounter_id,
-          (int) $target['id'],
-          $target_updated,
-          (int) ($attacker['id'] ?? 0),
-          $damage
-        );
-        
-        $this->eventDispatcher->dispatch($event, EntityDefeatedEvent::NAME);
-      }
-
-      $this->encounterStore->logDamage([
-        'encounter_id' => $encounter_id,
-        'participant_id' => (int) $target['id'],
-        'amount' => $damage,
-        'damage_type' => $data['action']['damage_type'] ?? NULL,
-        'source' => $data['attackerId'] ?? NULL,
-        'hp_before' => $hp_before,
-        'hp_after' => $hp_after,
-      ]);
-    }
-
-    $this->encounterStore->updateParticipant((int) $attacker['id'], [
-      'actions_remaining' => max(0, $attacker_actions_remaining - 1),
-      'attacks_this_turn' => (int) ($attacker['attacks_this_turn'] ?? 0) + 1,
-    ]);
-
-    $this->encounterStore->logAction([
-      'encounter_id' => (int) $encounter_id,
-      'participant_id' => (int) $attacker['id'],
-      'action_type' => 'strike',
-      'target_id' => $target['id'] ?? NULL,
-      'payload' => json_encode([
-        'attacker' => $attacker_ref,
-        'target' => $target_ref,
-        'weapon_id' => $weapon_id !== '' ? $weapon_id : NULL,
-        'weapon_name' => $weapon_name !== '' ? $weapon_name : NULL,
-      ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
-      'result' => json_encode([
-        'hit' => !empty($target),
-        'damage' => $damage,
-        'weapon_name' => $weapon_name !== '' ? $weapon_name : NULL,
-      ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
-    ]);
-
-    $encounter = $this->loadEncounter($encounter_id);
-
-    $response = $this->buildEncounterResponse($encounter);
-    $response['success'] = TRUE;
-    $response['action_result'] = [
-      'type' => 'strike',
-      'attacker_id' => $attacker_ref,
-      'target_id' => $target_ref,
-      'hit' => !empty($target),
-      'damage' => $damage,
-      'weapon_id' => $weapon_id !== '' ? $weapon_id : NULL,
-      'weapon_name' => $weapon_name !== '' ? $weapon_name : NULL,
-    ];
-
-    return new JsonResponse($response);
+    return $this->legacyMutationDisabledResponse('/api/game/{campaign_id}/action');
   }
 
   /**
    * Execute non-attack combat actions (interact/talk).
    */
   public function action(Request $request): JsonResponse {
-    $data = json_decode($request->getContent(), TRUE) ?: [];
+    return $this->legacyMutationDisabledResponse('/api/game/{campaign_id}/action');
+  }
 
-    $encounter_id = $data['encounterId'] ?? NULL;
-    $actor_ref = $data['actorId'] ?? NULL;
-    $action_type = (string) ($data['actionType'] ?? '');
-
-    if (!$encounter_id) {
-      return new JsonResponse(['error' => 'encounterId is required'], 400);
-    }
-    if ($action_type === '') {
-      return new JsonResponse(['error' => 'actionType is required'], 400);
-    }
-
-    $allowed_types = ['interact', 'talk', 'skill', 'feat', 'cast_spell', 'consume_item'];
-    if (!in_array($action_type, $allowed_types, TRUE)) {
-      return new JsonResponse([
-        'error' => 'Unsupported actionType',
-        'supported' => $allowed_types,
-      ], 400);
-    }
-
-    $encounter = $this->loadEncounter((int) $encounter_id);
-    if (!$encounter) {
-      return new JsonResponse(['error' => 'Encounter not found'], 404);
-    }
-
-    if (($encounter['status'] ?? '') !== 'active') {
-      return new JsonResponse(['error' => 'Encounter is not active'], 409);
-    }
-
-    $actor = $this->findParticipantByReference($encounter['participants'] ?? [], $actor_ref);
-    if (!$actor) {
-      return new JsonResponse(['error' => 'Actor not found in encounter'], 400);
-    }
-
-    $turn_index = (int) ($encounter['turn_index'] ?? 0);
-    $active_participant = $encounter['participants'][$turn_index] ?? NULL;
-    if (!$active_participant || (int) ($active_participant['id'] ?? 0) !== (int) ($actor['id'] ?? 0)) {
-      return new JsonResponse(['error' => 'Actor is not the active turn participant'], 409);
-    }
-
-    $cost = $this->resolveCombatActionCost($action_type, $data);
-
-    if ($action_type === 'interact') {
-      $target_hex = $data['targetHex'] ?? NULL;
-      if (!is_array($target_hex) || !isset($target_hex['q']) || !isset($target_hex['r'])) {
-        return new JsonResponse(['error' => 'targetHex {q,r} is required for interact'], 400);
-      }
-    }
-
-    if ($action_type === 'talk') {
-      $message = trim((string) ($data['message'] ?? ''));
-      if ($message === '') {
-        return new JsonResponse(['error' => 'message is required for talk'], 400);
-      }
-    }
-
-    $action_effects = [];
-    $action_summary = '';
-    $character_id = isset($data['characterId']) ? (int) $data['characterId'] : (int) ($actor['entity_id'] ?? 0);
-    if ($character_id <= 0 && in_array($action_type, ['cast_spell', 'consume_item'], TRUE)) {
-      return new JsonResponse(['error' => 'Actor missing entity_id for character-scoped action'], 500);
-    }
-    $instance_id = !empty($actor['entity_ref']) ? (string) $actor['entity_ref'] : NULL;
-    $campaign_id = isset($encounter['campaign_id']) ? (int) $encounter['campaign_id'] : 0;
-
-    $actions_remaining = (int) ($actor['actions_remaining'] ?? 0);
-    if ($cost > 0 && $actions_remaining < $cost) {
-      return new JsonResponse(['error' => 'Not enough actions remaining'], 409);
-    }
-
-    if ($cost > 0) {
-      $this->encounterStore->updateParticipant((int) $actor['id'], [
-        'actions_remaining' => max(0, $actions_remaining - $cost),
-      ]);
-    }
-
-    $world_delta = NULL;
-    try {
-      if ($action_type === 'interact') {
-        $world_delta = $this->applyInteractionWorldMutation($encounter, $data, $data['mapId'] ?? NULL);
-        $action_summary = sprintf('%s interacts with the environment.', (string) ($actor['name'] ?? 'Actor'));
-      }
-      elseif ($action_type === 'talk') {
-        $action_summary = sprintf('%s speaks.', (string) ($actor['name'] ?? 'Actor'));
-      }
-      elseif ($action_type === 'skill') {
-        $skill_name = trim((string) ($data['skillName'] ?? 'Skill'));
-        $skill_modifier = isset($data['skillModifier']) ? (int) $data['skillModifier'] : NULL;
-        $action_effects['skill_name'] = $skill_name;
-        $action_effects['skill_modifier'] = $skill_modifier;
-        $action_summary = sprintf(
-          '%s uses %s%s.',
-          (string) ($actor['name'] ?? 'Actor'),
-          $skill_name,
-          $skill_modifier !== NULL ? sprintf(' (%+d)', $skill_modifier) : ''
-        );
-      }
-      elseif ($action_type === 'feat') {
-        $feat_name = trim((string) ($data['featName'] ?? 'Feat action'));
-        $action_effects['feat_name'] = $feat_name;
-        $action_effects['feat_id'] = $data['featId'] ?? NULL;
-        $action_summary = sprintf('%s uses %s.', (string) ($actor['name'] ?? 'Actor'), $feat_name);
-      }
-      elseif ($action_type === 'cast_spell') {
-        $spell_id = trim((string) ($data['spellId'] ?? ''));
-        $spell_name = trim((string) ($data['spellName'] ?? $spell_id));
-        $spell_level = isset($data['spellLevel']) ? (int) $data['spellLevel'] : 0;
-        $is_focus_spell = !empty($data['isFocusSpell']);
-        if ($character_id <= 0 || $spell_id === '') {
-          return new JsonResponse(['error' => 'characterId and spellId are required for cast_spell'], 400);
-        }
-
-        $slot_result = $this->characterStateService->castSpell(
-          (string) $character_id,
-          $spell_id,
-          $spell_level,
-          $is_focus_spell,
-          $campaign_id > 0 ? $campaign_id : NULL,
-          $instance_id
-        );
-        $action_effects['spell'] = [
-          'spell_id' => $spell_id,
-          'spell_name' => $spell_name,
-          'spell_level' => $spell_level,
-          'focus' => $is_focus_spell,
-          'slot_result' => $slot_result,
-        ];
-        $action_summary = sprintf('%s casts %s.', (string) ($actor['name'] ?? 'Actor'), $spell_name ?: $spell_id);
-      }
-      elseif ($action_type === 'consume_item') {
-        $item = is_array($data['item'] ?? NULL) ? $data['item'] : [];
-        $item_name = trim((string) ($item['name'] ?? $item['id'] ?? $item['item_id'] ?? 'consumable'));
-        if ($character_id <= 0 || $item_name === '') {
-          return new JsonResponse(['error' => 'characterId and item are required for consume_item'], 400);
-        }
-
-        $inventory = $this->characterStateService->updateInventory(
-          (string) $character_id,
-          'consume',
-          $item,
-          $campaign_id > 0 ? $campaign_id : NULL,
-          $instance_id
-        );
-        $action_effects = array_merge(
-          $action_effects,
-          $this->characterStateService->applyConsumableEffects(
-            (string) $character_id,
-            $item,
-            $campaign_id > 0 ? $campaign_id : NULL,
-            $instance_id
-          )
-        );
-        $action_effects['inventory'] = $inventory;
-        $action_effects['item_name'] = $item_name;
-        $action_summary = $this->summarizeConsumableAction((string) ($actor['name'] ?? 'Actor'), $item_name, $action_effects);
-      }
-    }
-    catch (\InvalidArgumentException $exception) {
-      return new JsonResponse(['error' => $exception->getMessage()], 400);
-    }
-
-    $this->encounterStore->logAction([
-      'encounter_id' => (int) $encounter_id,
-      'participant_id' => (int) $actor['id'],
-      'action_type' => $action_type,
-      'target_id' => NULL,
-      'payload' => json_encode([
-        'actor' => $actor_ref,
-        'target' => $data['targetId'] ?? NULL,
-        'interaction_type' => $data['interactionType'] ?? NULL,
-        'target_hex' => $data['targetHex'] ?? NULL,
-        'destination_hex' => $data['destinationHex'] ?? NULL,
-        'message' => $data['message'] ?? NULL,
-      ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
-      'result' => json_encode([
-        'accepted' => TRUE,
-        'cost' => $cost,
-        'world_delta' => $world_delta,
-        'summary' => $action_summary,
-        'effects' => $action_effects,
-      ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
-    ]);
-
-    $updated = $this->loadEncounter((int) $encounter_id);
-    $response = $this->buildEncounterResponse($updated);
-    $response['success'] = TRUE;
-    $response['action_result'] = [
-      'type' => $action_type,
-      'actor_id' => $actor_ref,
-      'cost' => $cost,
-      'interaction_type' => $data['interactionType'] ?? NULL,
-      'summary' => $action_summary,
-      'effects' => $action_effects,
-    ];
-    if ($world_delta !== NULL) {
-      $response['world_delta'] = $world_delta;
-    }
-
-    return new JsonResponse($response);
+  /**
+   * Return standardized response for disabled legacy mutation endpoints.
+   */
+  protected function legacyMutationDisabledResponse(string $canonical_path): JsonResponse {
+    return new JsonResponse([
+      'success' => FALSE,
+      'error_code' => self::LEGACY_MUTATION_DISABLED_CODE,
+      'error' => sprintf('Legacy combat mutation endpoints are disabled. Use %s as the single canonical turn/round authority.', $canonical_path),
+      'canonical_endpoint' => $canonical_path,
+    ], 409);
   }
 
   /**

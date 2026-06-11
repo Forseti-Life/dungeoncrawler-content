@@ -27,7 +27,7 @@ class CombatEncounterApiControllerTest extends BrowserTestBase {
   protected $defaultTheme = 'stark';
 
   /**
-   * Tests combat start API - positive case.
+   * Tests combat start API is disabled in favor of canonical coordinator actions.
    */
   public function testCombatStartApiPositive(): void {
     $user = $this->drupalCreateUser(['administer dungeoncrawler content', 'access dungeoncrawler characters']);
@@ -51,21 +51,11 @@ class CombatEncounterApiControllerTest extends BrowserTestBase {
       $combat_payload
     );
 
-    $status_code = $this->getSession()->getStatusCode();
-    // Route should exist (not 404) and method allowed (not 405).
-    $this->assertNotEquals(404, $status_code, 'Route should exist');
-    $this->assertNotEquals(405, $status_code, 'Method should be allowed');
-    
-    // If successful, validate response structure.
-    if ($status_code === 200) {
-      $response = json_decode($this->getSession()->getPage()->getContent(), TRUE);
-      $this->assertIsArray($response, 'Response should be JSON');
-      $this->assertArrayHasKey('success', $response, 'Response should have success field');
-      
-      if ($response['success']) {
-        $this->assertArrayHasKey('combat_id', $response, 'Response should contain combat_id');
-      }
-    }
+    $this->assertSession()->statusCodeEquals(409);
+    $response = json_decode($this->getSession()->getPage()->getContent(), TRUE);
+    $this->assertIsArray($response, 'Response should be JSON');
+    $this->assertFalse((bool) ($response['success'] ?? TRUE));
+    $this->assertSame('legacy_combat_mutation_disabled', $response['error_code'] ?? NULL);
   }
 
   /**
@@ -106,8 +96,7 @@ class CombatEncounterApiControllerTest extends BrowserTestBase {
       ['CONTENT_TYPE' => 'application/json'],
       json_encode([])
     );
-    $this->assertSession()->statusCodeNotEquals(404);
-    $this->assertSession()->statusCodeNotEquals(405);
+    $this->assertSession()->statusCodeEquals(409);
   }
 
   /**
@@ -125,8 +114,7 @@ class CombatEncounterApiControllerTest extends BrowserTestBase {
       ['CONTENT_TYPE' => 'application/json'],
       json_encode([])
     );
-    $this->assertSession()->statusCodeNotEquals(404);
-    $this->assertSession()->statusCodeNotEquals(405);
+    $this->assertSession()->statusCodeEquals(409);
   }
 
   /**
@@ -144,8 +132,7 @@ class CombatEncounterApiControllerTest extends BrowserTestBase {
       ['CONTENT_TYPE' => 'application/json'],
       json_encode([])
     );
-    $this->assertSession()->statusCodeNotEquals(404);
-    $this->assertSession()->statusCodeNotEquals(405);
+    $this->assertSession()->statusCodeEquals(409);
   }
 
   /**
@@ -160,48 +147,36 @@ class CombatEncounterApiControllerTest extends BrowserTestBase {
   }
 
   /**
-   * Tests current-state polling auto-plays non-player turns.
+   * Tests current-state polling reads canonical encounter state.
    */
   public function testCurrentStateAutoPlaysNonPlayerTurns(): void {
     $user = $this->drupalCreateUser(['administer dungeoncrawler content', 'access dungeoncrawler characters']);
     $this->drupalLogin($user);
 
-    $start_payload = json_encode([
-      'campaignId' => 66,
-      'roomId' => 'room-sync-1',
-      'entities' => [
-        [
-          'entityId' => 'npc-goblin-1',
-          'entityRef' => 'npc-goblin-1',
-          'name' => 'Goblin Raider',
-          'team' => 'enemy',
-          'initiative' => 18,
-          'hp' => 8,
-          'max_hp' => 8,
-          'ac' => 16,
-        ],
-        [
-          'entityId' => 'pc-hero-1',
-          'entityRef' => 'pc-hero-1',
-          'name' => 'Valeros',
-          'team' => 'player',
-          'initiative' => 12,
-          'hp' => 20,
-          'max_hp' => 20,
-          'ac' => 18,
-        ],
+    $this->createActiveEncounter(66, 'room-sync-1', [
+      [
+        'entity_id' => 'pc-hero-1',
+        'entity_ref' => 'pc-hero-1',
+        'name' => 'Valeros',
+        'team' => 'player',
+        'initiative' => 18,
+        'initiative_roll' => 15,
+        'hp' => 20,
+        'max_hp' => 20,
+        'ac' => 18,
+      ],
+      [
+        'entity_id' => 'npc-goblin-1',
+        'entity_ref' => 'npc-goblin-1',
+        'name' => 'Goblin Raider',
+        'team' => 'enemy',
+        'initiative' => 12,
+        'initiative_roll' => 9,
+        'hp' => 8,
+        'max_hp' => 8,
+        'ac' => 16,
       ],
     ]);
-
-    $this->getSession()->getDriver()->getClient()->request(
-      'POST',
-      $this->buildUrl('/api/combat/start'),
-      [],
-      [],
-      ['CONTENT_TYPE' => 'application/json'],
-      $start_payload
-    );
-    $this->assertSession()->statusCodeEquals(201);
 
     $this->drupalGet('/api/combat/state', [
       'query' => [
@@ -220,53 +195,36 @@ class CombatEncounterApiControllerTest extends BrowserTestBase {
   }
 
   /**
-   * Tests current-state polling keeps room encounters active until navigation.
+   * Tests current-state polling keeps neutral-only encounters active.
    */
   public function testCurrentStateKeepsNeutralOnlyEncounterActive(): void {
     $user = $this->drupalCreateUser(['administer dungeoncrawler content', 'access dungeoncrawler characters']);
     $this->drupalLogin($user);
 
-    $start_payload = json_encode([
-      'campaignId' => 67,
-      'roomId' => 'room-stale-encounter',
-      'entities' => [
-        [
-          'entityId' => 1001,
-          'entityRef' => 'npc-goblin-1',
-          'name' => 'Goblin Raider',
-          'team' => 'enemy',
-          'initiative' => 18,
-          'hp' => 8,
-          'max_hp' => 8,
-          'ac' => 16,
-        ],
-        [
-          'entityId' => 2001,
-          'entityRef' => 'pc-hero-1',
-          'name' => 'Valeros',
-          'team' => 'player',
-          'initiative' => 12,
-          'hp' => 20,
-          'max_hp' => 20,
-          'ac' => 18,
-        ],
+    $encounter_id = $this->createActiveEncounter(67, 'room-stale-encounter', [
+      [
+        'entity_id' => 'npc-goblin-1',
+        'entity_ref' => 'npc-goblin-1',
+        'name' => 'Goblin Raider',
+        'team' => 'enemy',
+        'initiative' => 18,
+        'initiative_roll' => 15,
+        'hp' => 8,
+        'max_hp' => 8,
+        'ac' => 16,
+      ],
+      [
+        'entity_id' => 'pc-hero-1',
+        'entity_ref' => 'pc-hero-1',
+        'name' => 'Valeros',
+        'team' => 'player',
+        'initiative' => 12,
+        'initiative_roll' => 9,
+        'hp' => 20,
+        'max_hp' => 20,
+        'ac' => 18,
       ],
     ]);
-
-    $this->getSession()->getDriver()->getClient()->request(
-      'POST',
-      $this->buildUrl('/api/combat/start'),
-      [],
-      [],
-      ['CONTENT_TYPE' => 'application/json'],
-      $start_payload
-    );
-    $this->assertSession()->statusCodeEquals(201);
-
-    $start_response = json_decode($this->getSession()->getPage()->getContent(), TRUE);
-    $this->assertIsArray($start_response);
-    $this->assertArrayHasKey('encounter_id', $start_response);
-    $encounter_id = (int) $start_response['encounter_id'];
 
     $database = \Drupal::database();
     $database->update('combat_participants')
@@ -315,45 +273,33 @@ class CombatEncounterApiControllerTest extends BrowserTestBase {
     $admin = $this->drupalCreateUser(['administer dungeoncrawler content', 'access dungeoncrawler characters']);
     $this->drupalLogin($admin);
 
-    $start_payload = json_encode([
-      'campaignId' => NULL,
-      'roomId' => 'room-preview-1',
-      'entities' => [
-        [
-          'entityId' => 'npc-goblin-1',
-          'name' => 'Goblin Raider',
-          'team' => 'npc',
-          'initiative' => 18,
-          'hp' => 8,
-          'max_hp' => 8,
-        ],
-        [
-          'entityId' => 'pc-hero-1',
-          'name' => 'Valeros',
-          'team' => 'player',
-          'initiative' => 12,
-          'hp' => 20,
-          'max_hp' => 20,
-        ],
+    $encounter_id = $this->createActiveEncounter(NULL, 'room-preview-1', [
+      [
+        'entity_id' => 'npc-goblin-1',
+        'entity_ref' => 'npc-goblin-1',
+        'name' => 'Goblin Raider',
+        'team' => 'npc',
+        'initiative' => 18,
+        'initiative_roll' => 15,
+        'hp' => 8,
+        'max_hp' => 8,
+        'ac' => 16,
+      ],
+      [
+        'entity_id' => 'pc-hero-1',
+        'entity_ref' => 'pc-hero-1',
+        'name' => 'Valeros',
+        'team' => 'player',
+        'initiative' => 12,
+        'initiative_roll' => 9,
+        'hp' => 20,
+        'max_hp' => 20,
+        'ac' => 18,
       ],
     ]);
 
-    $this->getSession()->getDriver()->getClient()->request(
-      'POST',
-      $this->buildUrl('/api/combat/start'),
-      [],
-      [],
-      ['CONTENT_TYPE' => 'application/json'],
-      $start_payload
-    );
-    $this->assertSession()->statusCodeEquals(201);
-
-    $start_response = json_decode($this->getSession()->getPage()->getContent(), TRUE);
-    $this->assertIsArray($start_response);
-    $this->assertArrayHasKey('encounter_id', $start_response);
-
     $preview_payload = json_encode([
-      'encounterId' => (int) $start_response['encounter_id'],
+      'encounterId' => $encounter_id,
       'includeNarration' => TRUE,
     ]);
 
@@ -375,6 +321,15 @@ class CombatEncounterApiControllerTest extends BrowserTestBase {
     $this->assertArrayHasKey('recommendation_preview', $response);
     $this->assertArrayHasKey('validation', $response['recommendation_preview']);
     $this->assertArrayHasKey('narration_preview', $response);
+  }
+
+  /**
+   * Creates an active encounter row for controller read/diagnostic tests.
+   */
+  protected function createActiveEncounter(?int $campaign_id, string $room_id, array $participants): int {
+    /** @var \Drupal\dungeoncrawler_content\Service\CombatEncounterStore $store */
+    $store = \Drupal::service('dungeoncrawler_content.combat_encounter_store');
+    return $store->createEncounter($campaign_id, $room_id, $participants, NULL);
   }
 
 }
