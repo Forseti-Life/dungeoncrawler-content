@@ -588,10 +588,12 @@ class CombatEncounterApiController extends ControllerBase {
   }
 
   /**
-   * Advance non-player turns and close encounters with no active combat sides.
+   * Normalize encounter payloads for read responses without mutating turn state.
+   *
+   * Round/turn progression is authoritative in the coordinator->encounter-handler
+   * action chain. Read endpoints must remain side-effect free.
    */
   protected function normalizeEncounterForResponse(?array $encounter): ?array {
-    $encounter = $this->autoPlayNonPlayerTurns($encounter);
     if (!$encounter) {
       return NULL;
     }

@@ -20,6 +20,26 @@ use Symfony\Component\HttpFoundation\Request;
 class CombatApiController extends ControllerBase {
 
   /**
+   * Canonical gameplay action endpoint.
+   */
+  protected const CANONICAL_ACTION_ENDPOINT = '/api/game/{campaign_id}/action';
+
+  /**
+   * Error code for direct round/turn mutation attempts.
+   */
+  protected const ROUND_TURN_AUTHORITY_DISABLED_CODE = 'round_turn_authority_disabled';
+
+  /**
+   * Participant fields that are owned by canonical encounter turn authority.
+   */
+  protected const CANONICAL_TURN_FIELDS = [
+    'initiative',
+    'actions_remaining',
+    'attacks_this_turn',
+    'reaction_available',
+  ];
+
+  /**
    * The HP manager service.
    *
    * @var \Drupal\dungeoncrawler_content\Service\HPManager
@@ -390,60 +410,7 @@ class CombatApiController extends ControllerBase {
    *   New initiative values.
    */
   public function rerollInitiative($encounter_id, Request $request) {
-    $data = json_decode($request->getContent(), TRUE);
-    $participant_ids = $data['participant_ids'] ?? [];
-
-    if (empty($participant_ids)) {
-      return new JsonResponse(['error' => 'participant_ids[] is required'], 400);
-    }
-
-    $encounter = $this->encounterStore->loadEncounter((int) $encounter_id);
-    if (!$encounter) {
-      return new JsonResponse(['error' => 'Encounter not found'], 404);
-    }
-
-    $rerolled = [];
-    $participants = $encounter['participants'];
-
-    foreach ($participants as &$p) {
-      if (in_array((int) $p['id'], array_map('intval', $participant_ids))) {
-        // Roll d20 for new initiative.
-        $roll = $this->numberGenerator->rollExpression('1d20');
-        $newInit = $roll['total'];
-        $p['initiative'] = $newInit;
-
-        $this->encounterStore->updateParticipant((int) $p['id'], [
-          'initiative' => $newInit,
-          'initiative_roll' => $newInit,
-        ]);
-
-        $rerolled[] = [
-          'participant_id' => (int) $p['id'],
-          'name' => $p['name'],
-          'old_initiative' => (int) ($encounter['participants'][array_search($p['id'], array_column($encounter['participants'], 'id'))]['initiative'] ?? 0),
-          'new_initiative' => $newInit,
-          'roll' => $roll,
-        ];
-      }
-    }
-    unset($p);
-
-    // Re-sort by initiative DESC.
-    usort($participants, function ($a, $b) {
-      return (int) $b['initiative'] - (int) $a['initiative'];
-    });
-
-    return new JsonResponse([
-      'encounter_id' => (int) $encounter_id,
-      'rerolled' => $rerolled,
-      'new_initiative_order' => array_map(function ($p) {
-        return [
-          'participant_id' => (int) $p['id'],
-          'name' => $p['name'],
-          'initiative' => (int) $p['initiative'],
-        ];
-      }, $participants),
-    ]);
+    return $this->roundTurnAuthorityDisabledResponse(['initiative']);
   }
 
   /**
@@ -625,11 +592,16 @@ class CombatApiController extends ControllerBase {
       return new JsonResponse(['error' => 'Participant not found in encounter'], 404);
     }
 
+    $requested_keys = array_keys($data);
+    $blocked_fields = array_values(array_intersect($requested_keys, self::CANONICAL_TURN_FIELDS));
+    if ($blocked_fields !== []) {
+      return $this->roundTurnAuthorityDisabledResponse($blocked_fields);
+    }
+
     // Whitelist of updatable fields.
     $allowed = [
       'name', 'team', 'ac', 'hp', 'max_hp',
-      'position_q', 'position_r', 'initiative',
-      'actions_remaining', 'attacks_this_turn', 'reaction_available',
+      'position_q', 'position_r',
     ];
 
     $fields = [];
@@ -650,6 +622,26 @@ class CombatApiController extends ControllerBase {
       'updated_fields' => array_keys($fields),
       'message' => 'Participant updated',
     ]);
+  }
+
+  /**
+   * Return a standardized round/turn authority rejection response.
+   *
+   * @param array<int, string> $blocked_fields
+   *   Fields rejected because they are canonical turn authority state.
+   */
+  protected function roundTurnAuthorityDisabledResponse(array $blocked_fields = []): JsonResponse {
+    $suffix = $blocked_fields === []
+      ? ''
+      : ' Blocked fields: ' . implode(', ', $blocked_fields) . '.';
+
+    return new JsonResponse([
+      'success' => FALSE,
+      'error_code' => self::ROUND_TURN_AUTHORITY_DISABLED_CODE,
+      'error' => 'Direct round/turn mutation is disabled. Use ' . self::CANONICAL_ACTION_ENDPOINT . ' as the single canonical authority.' . $suffix,
+      'canonical_endpoint' => self::CANONICAL_ACTION_ENDPOINT,
+      'blocked_fields' => array_values($blocked_fields),
+    ], 409);
   }
 
   /**
