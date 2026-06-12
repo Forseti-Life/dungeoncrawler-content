@@ -112,6 +112,40 @@ class CombatApiControllerAuthorityTest extends UnitTestCase {
   }
 
   /**
+   * @covers ::updateParticipant
+   */
+  public function testUpdateParticipantBlocksTeamMutation(): void {
+    $store = $this->createMock(CombatEncounterStore::class);
+    $store->expects($this->once())
+      ->method('loadEncounter')
+      ->with(88)
+      ->willReturn([
+        'participants' => [
+          ['id' => 4],
+        ],
+      ]);
+    $store->expects($this->never())
+      ->method('updateParticipant');
+
+    $controller = new CombatApiController(
+      $this->createMock(\stdClass::class),
+      $this->createMock(\stdClass::class),
+      $store,
+      $this->createMock(Connection::class)
+    );
+
+    $request = new Request([], [], [], [], [], [], json_encode([
+      'team' => 'player',
+    ]));
+    $response = $controller->updateParticipant(88, 4, $request);
+    $payload = json_decode((string) $response->getContent(), TRUE);
+
+    $this->assertSame(409, $response->getStatusCode());
+    $this->assertSame('round_turn_authority_disabled', $payload['error_code'] ?? NULL);
+    $this->assertSame(['team'], $payload['blocked_fields'] ?? []);
+  }
+
+  /**
    * @covers ::addParticipant
    */
   public function testAddParticipantIsDisabledForCanonicalAuthority(): void {

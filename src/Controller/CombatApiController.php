@@ -30,13 +30,14 @@ class CombatApiController extends ControllerBase {
   protected const ROUND_TURN_AUTHORITY_DISABLED_CODE = 'round_turn_authority_disabled';
 
   /**
-   * Participant fields that are owned by canonical encounter turn authority.
+   * Participant fields that are owned by canonical encounter authority.
    */
   protected const CANONICAL_TURN_FIELDS = [
     'initiative',
     'actions_remaining',
     'attacks_this_turn',
     'reaction_available',
+    'team',
   ];
 
   /**
@@ -487,7 +488,7 @@ class CombatApiController extends ControllerBase {
 
     // Whitelist of updatable fields.
     $allowed = [
-      'name', 'team', 'ac', 'hp', 'max_hp',
+      'name', 'ac', 'hp', 'max_hp',
       'position_q', 'position_r',
     ];
 
@@ -525,7 +526,7 @@ class CombatApiController extends ControllerBase {
     return new JsonResponse([
       'success' => FALSE,
       'error_code' => self::ROUND_TURN_AUTHORITY_DISABLED_CODE,
-      'error' => 'Direct round/turn mutation is disabled. Use ' . self::CANONICAL_ACTION_ENDPOINT . ' as the single canonical authority.' . $suffix,
+      'error' => 'Direct canonical encounter mutation is disabled. Use ' . self::CANONICAL_ACTION_ENDPOINT . ' as the single canonical authority.' . $suffix,
       'canonical_endpoint' => self::CANONICAL_ACTION_ENDPOINT,
       'blocked_fields' => array_values($blocked_fields),
     ], 409);
