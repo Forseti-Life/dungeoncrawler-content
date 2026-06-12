@@ -781,18 +781,47 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
           return ['success' => FALSE, 'result' => ['error' => 'Character not found.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
         }
 
-        $fp_max_rf = (int) ($entity_rf['stats']['focus_points_max'] ?? 3);
-        $fp_current_rf = (int) ($entity_rf['state']['focus_points'] ?? 0);
+        $canonical_identity_rf = $this->resolveCanonicalCharacterIdentity($entity_rf);
+        $canonical_character_id_rf = (string) ($canonical_identity_rf['character_id'] ?? '');
+        $canonical_instance_id_rf = is_string($canonical_identity_rf['instance_id'] ?? NULL) ? $canonical_identity_rf['instance_id'] : NULL;
+        if (!ctype_digit($canonical_character_id_rf) || (int) $canonical_character_id_rf <= 0) {
+          return ['success' => FALSE, 'result' => ['error' => 'Canonical character sheet is required for spellcasting resource updates.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
+        }
+
+        try {
+          $canonical_state_rf = $this->characterStateService->getState(
+            $canonical_character_id_rf,
+            $campaign_id > 0 ? $campaign_id : NULL,
+            $canonical_instance_id_rf
+          );
+        }
+        catch (\InvalidArgumentException $exception) {
+          return ['success' => FALSE, 'result' => ['error' => 'Canonical character sheet is required for spellcasting resource updates.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
+        }
+
+        $resources_rf = is_array($canonical_state_rf['resources'] ?? NULL) ? $canonical_state_rf['resources'] : [];
+        $focus_points_rf = is_array($resources_rf['focusPoints'] ?? NULL) ? $resources_rf['focusPoints'] : [];
+        $fp_max_rf = max(0, (int) ($focus_points_rf['max'] ?? 0));
+        $fp_current_rf = max(0, min((int) ($focus_points_rf['current'] ?? 0), $fp_max_rf));
+        if ($fp_max_rf <= 0) {
+          return ['success' => FALSE, 'result' => ['error' => 'This character has no Focus Points to restore.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
+        }
 
         if ($fp_current_rf >= $fp_max_rf) {
           $result = ['focus_points' => $fp_current_rf, 'restored' => 0, 'message' => 'Focus pool already full.'];
         }
         else {
           $fp_new_rf = min($fp_max_rf, $fp_current_rf + 1);
-          if (!isset($entity_rf['state'])) {
-            $entity_rf['state'] = [];
-          }
-          $entity_rf['state']['focus_points'] = $fp_new_rf;
+          $canonical_state_rf['resources']['focusPoints']['max'] = $fp_max_rf;
+          $canonical_state_rf['resources']['focusPoints']['current'] = $fp_new_rf;
+          $canonical_state_rf = $this->characterStateService->setState(
+            $canonical_character_id_rf,
+            $canonical_state_rf,
+            NULL,
+            $campaign_id > 0 ? $campaign_id : NULL,
+            $canonical_instance_id_rf
+          );
+          $this->applyCanonicalSpellcastingProjectionToEntity($entity_rf, $canonical_state_rf);
           $this->persistDungeonData($campaign_id, $dungeon_data);
           $result = ['focus_points' => $fp_new_rf, 'restored' => 1];
         }
@@ -2844,8 +2873,29 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
       return ['cast' => FALSE, 'error' => 'Character not found.', 'mutations' => [], 'narration' => NULL];
     }
 
+    $canonical_identity_ep = $this->resolveCanonicalCharacterIdentity($entity_ep);
+    $canonical_character_id_ep = (string) ($canonical_identity_ep['character_id'] ?? '');
+    $canonical_instance_id_ep = is_string($canonical_identity_ep['instance_id'] ?? NULL) ? $canonical_identity_ep['instance_id'] : NULL;
+    $has_canonical_sheet_ep = ctype_digit($canonical_character_id_ep) && (int) $canonical_character_id_ep > 0;
+    $canonical_state_ep = NULL;
+    if ($has_canonical_sheet_ep) {
+      try {
+        $canonical_state_ep = $this->characterStateService->getState(
+          $canonical_character_id_ep,
+          $campaign_id > 0 ? $campaign_id : NULL,
+          $canonical_instance_id_ep
+        );
+      }
+      catch (\InvalidArgumentException $exception) {
+        $canonical_state_ep = NULL;
+      }
+    }
+
     // AC-002: Tradition validation.
-    $char_tradition_ep = $entity_ep['stats']['spellcasting_tradition'] ?? NULL;
+    $char_tradition_ep = $canonical_state_ep['spells']['tradition']
+      ?? $canonical_state_ep['spells']['spellcasting_tradition']
+      ?? $entity_ep['stats']['spellcasting_tradition']
+      ?? NULL;
     if ($spell_tradition && $char_tradition_ep && $spell_tradition !== $char_tradition_ep) {
       return ['cast' => FALSE, 'error' => "Spell tradition '{$spell_tradition}' does not match '{$char_tradition_ep}'.", 'mutations' => [], 'narration' => NULL];
     }
@@ -2861,19 +2911,44 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
       ];
     }
 
+    if (!$has_canonical_sheet_ep || !is_array($canonical_state_ep)) {
+      return [
+        'cast' => FALSE,
+        'error' => 'Canonical character sheet is required for spellcasting resource updates.',
+        'mutations' => [],
+        'narration' => NULL,
+      ];
+    }
+
     // AC-007: Focus spells consume 1 Focus Point.
     if ($is_focus_spell) {
-      $fp_ep = (int) ($entity_ep['state']['focus_points'] ?? 0);
-      if ($fp_ep < 1) {
-        return ['cast' => FALSE, 'error' => 'No Focus Points remaining.', 'mutations' => [], 'narration' => NULL];
+      try {
+        $consume_result_ep = $this->characterStateService->castSpell(
+          $canonical_character_id_ep,
+          $spell_id !== '' ? $spell_id : (string) $spell_name,
+          0,
+          TRUE,
+          $campaign_id > 0 ? $campaign_id : NULL,
+          $canonical_instance_id_ep
+        );
+        $focus_remaining_ep = isset($consume_result_ep['remaining']) ? max(0, (int) $consume_result_ep['remaining']) : NULL;
+        $canonical_state_ep = $this->characterStateService->getState(
+          $canonical_character_id_ep,
+          $campaign_id > 0 ? $campaign_id : NULL,
+          $canonical_instance_id_ep
+        );
       }
-      $entity_ep['state']['focus_points'] = $fp_ep - 1;
+      catch (\InvalidArgumentException $exception) {
+        return ['cast' => FALSE, 'error' => $this->normalizeSpellResourceErrorMessage($exception->getMessage(), TRUE, 0), 'mutations' => [], 'narration' => NULL];
+      }
+
+      $this->applyCanonicalSpellcastingProjectionToEntity($entity_ep, $canonical_state_ep);
       $this->persistDungeonData($campaign_id, $dungeon_data);
       return [
         'cast' => TRUE,
         'spell' => $spell_name,
         'is_focus_spell' => TRUE,
-        'focus_points_remaining' => $fp_ep - 1,
+        'focus_points_remaining' => max(0, (int) ($focus_remaining_ep ?? 0)),
         'narration' => $is_detect_magic ? $this->buildDetectMagicNarration($campaign_id, $dungeon_data) : NULL,
         'mutations' => [],
       ];
@@ -2885,24 +2960,45 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
       $slot_level_ep = 1;
     }
     $slot_key_ep = (string) $slot_level_ep;
-    $slots_ep = $entity_ep['state']['spell_slots'] ?? [];
-    $slot_data_ep = $slots_ep[$slot_key_ep] ?? ['max' => 0, 'used' => 0];
-    $avail_ep = max(0, (int) ($slot_data_ep['max'] ?? 0) - (int) ($slot_data_ep['used'] ?? 0));
-    if ($avail_ep < 1) {
-      return ['cast' => FALSE, 'error' => "No level-{$slot_level_ep} spell slots remaining.", 'mutations' => [], 'narration' => NULL];
-    }
-
     // AC-003: Prepared casters must have spell prepared.
-    $casting_type_ep = $entity_ep['stats']['casting_type'] ?? 'spontaneous';
+    $casting_type_ep = strtolower((string) (
+      $canonical_state_ep['casting_type']
+      ?? $canonical_state_ep['spells']['casting_type']
+      ?? $entity_ep['stats']['casting_type']
+      ?? 'spontaneous'
+    ));
     if ($casting_type_ep === 'prepared') {
-      $prepared_ep = $entity_ep['state']['prepared_spells'][$slot_key_ep] ?? [];
-      if (!in_array($spell_name, $prepared_ep, TRUE)) {
+      $prepared_ep = $canonical_state_ep['prepared_spells'][$slot_key_ep]
+        ?? $canonical_state_ep['state']['prepared_spells'][$slot_key_ep]
+        ?? $canonical_state_ep['spells']['prepared_spells'][$slot_key_ep]
+        ?? $entity_ep['state']['prepared_spells'][$slot_key_ep]
+        ?? [];
+      if (!$this->preparedSpellListContainsSpell($prepared_ep, (string) $spell_name, $spell_id)) {
         return ['cast' => FALSE, 'error' => "'{$spell_name}' is not prepared in a level-{$slot_level_ep} slot.", 'mutations' => [], 'narration' => NULL];
       }
     }
 
-    // Deduct slot.
-    $entity_ep['state']['spell_slots'][$slot_key_ep]['used'] = (int) ($slot_data_ep['used'] ?? 0) + 1;
+    try {
+      $consume_result_ep = $this->characterStateService->castSpell(
+        $canonical_character_id_ep,
+        $spell_id !== '' ? $spell_id : (string) $spell_name,
+        $slot_level_ep,
+        FALSE,
+        $campaign_id > 0 ? $campaign_id : NULL,
+        $canonical_instance_id_ep
+      );
+      $slots_remaining_ep = isset($consume_result_ep['remaining']) ? max(0, (int) $consume_result_ep['remaining']) : NULL;
+      $canonical_state_ep = $this->characterStateService->getState(
+        $canonical_character_id_ep,
+        $campaign_id > 0 ? $campaign_id : NULL,
+        $canonical_instance_id_ep
+      );
+    }
+    catch (\InvalidArgumentException $exception) {
+      return ['cast' => FALSE, 'error' => $this->normalizeSpellResourceErrorMessage($exception->getMessage(), FALSE, $slot_level_ep), 'mutations' => [], 'narration' => NULL];
+    }
+
+    $this->applyCanonicalSpellcastingProjectionToEntity($entity_ep, $canonical_state_ep);
     $this->persistDungeonData($campaign_id, $dungeon_data);
 
     return [
@@ -2911,7 +3007,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
       'spell_level' => $spell_level,
       'cast_at_level' => $slot_level_ep,
       'heightened' => $slot_level_ep > $spell_level,
-      'slots_remaining' => $avail_ep - 1,
+      'slots_remaining' => max(0, (int) ($slots_remaining_ep ?? 0)),
       'narration' => $is_detect_magic ? $this->buildDetectMagicNarration($campaign_id, $dungeon_data) : NULL,
       'mutations' => [],
     ];
@@ -3179,6 +3275,175 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
       'time_cost_minutes' => 60,
       'mutations' => [],
     ];
+  }
+
+  /**
+   * Resolve canonical character identity from runtime entity payload.
+   *
+   * @return array{character_id: string, instance_id: ?string}
+   */
+  protected function resolveCanonicalCharacterIdentity(array $entity): array {
+    $character_id = (string) (
+      $entity['state']['metadata']['campaign_character_id']
+      ?? $entity['state']['metadata']['character_id']
+      ?? $entity['character_id']
+      ?? $entity['state']['character_id']
+      ?? $entity['entity_ref']['character_id']
+      ?? ''
+    );
+    $instance_id = trim((string) (
+      $entity['state']['metadata']['runtime_entity_id']
+      ?? $entity['instance_id']
+      ?? $entity['entity_instance_id']
+      ?? ''
+    ));
+
+    return [
+      'character_id' => $character_id,
+      'instance_id' => $instance_id !== '' ? $instance_id : NULL,
+    ];
+  }
+
+  /**
+   * Mirror canonical spell/focus resources into exploration runtime projection.
+   */
+  protected function applyCanonicalSpellcastingProjectionToEntity(array &$entity, array $character_state): void {
+    $resources = is_array($character_state['resources'] ?? NULL) ? $character_state['resources'] : [];
+    if (!isset($entity['state']) || !is_array($entity['state'])) {
+      $entity['state'] = [];
+    }
+    if (!isset($entity['state']['resources']) || !is_array($entity['state']['resources'])) {
+      $entity['state']['resources'] = [];
+    }
+
+    $spell_slots = is_array($resources['spellSlots'] ?? NULL) ? $resources['spellSlots'] : [];
+    if ($spell_slots !== []) {
+      $entity['state']['resources']['spellSlots'] = $spell_slots;
+      $entity['state']['spell_slots'] = $this->buildLegacySpellSlotProjection($spell_slots);
+    }
+
+    $focus_points = is_array($resources['focusPoints'] ?? NULL) ? $resources['focusPoints'] : NULL;
+    if (is_array($focus_points)) {
+      $focus_max = max(0, (int) ($focus_points['max'] ?? 0));
+      $focus_current = max(0, min((int) ($focus_points['current'] ?? $focus_max), $focus_max));
+      $entity['state']['resources']['focusPoints'] = [
+        'current' => $focus_current,
+        'max' => $focus_max,
+      ];
+      $entity['state']['focus_points'] = $focus_current;
+      if (isset($entity['focus_points']) && !is_array($entity['focus_points'])) {
+        $entity['focus_points'] = $focus_current;
+      }
+    }
+  }
+
+  /**
+   * Build legacy max/current/used spell slot projection from canonical resources.
+   */
+  protected function buildLegacySpellSlotProjection(array $spell_slots): array {
+    $projection = [];
+    $append_projection = function (string $rank_key, array $slot_state) use (&$projection): void {
+      $normalized_rank = $this->normalizeSpellSlotRankKey($rank_key);
+      if ($normalized_rank === NULL) {
+        return;
+      }
+      $max = max(0, (int) ($slot_state['max'] ?? 0));
+      $current = max(0, min((int) ($slot_state['current'] ?? $max), $max));
+      $projection[$normalized_rank] = [
+        'max' => $max,
+        'current' => $current,
+        'used' => max(0, $max - $current),
+      ];
+    };
+
+    foreach ($spell_slots as $rank_key => $slot_state) {
+      if (!is_array($slot_state)) {
+        continue;
+      }
+      if (array_key_exists('max', $slot_state) || array_key_exists('current', $slot_state)) {
+        $append_projection((string) $rank_key, $slot_state);
+        continue;
+      }
+      foreach ($slot_state as $nested_rank_key => $nested_slot_state) {
+        if (is_array($nested_slot_state)) {
+          $append_projection((string) $nested_rank_key, $nested_slot_state);
+        }
+      }
+    }
+
+    if ($projection !== []) {
+      ksort($projection, SORT_NATURAL);
+    }
+    return $projection;
+  }
+
+  protected function normalizeSpellSlotRankKey(string $slot_key): ?string {
+    $normalized = strtolower(trim($slot_key));
+    return match ($normalized) {
+      '1', '1st', 'first' => '1',
+      '2', '2nd', 'second' => '2',
+      '3', '3rd', 'third' => '3',
+      '4', '4th', 'fourth' => '4',
+      '5', '5th', 'fifth' => '5',
+      '6', '6th', 'sixth' => '6',
+      '7', '7th', 'seventh' => '7',
+      '8', '8th', 'eighth' => '8',
+      '9', '9th', 'ninth' => '9',
+      '10', '10th', 'tenth' => '10',
+      default => NULL,
+    };
+  }
+
+  protected function preparedSpellListContainsSpell(array $prepared_list, string $spell_name, string $spell_id = ''): bool {
+    $needle_name = $this->normalizeSpellToken($spell_name);
+    $needle_id = $this->normalizeSpellToken($spell_id);
+
+    foreach ($prepared_list as $prepared_spell) {
+      if (!is_scalar($prepared_spell)) {
+        continue;
+      }
+      $candidate = $this->normalizeSpellToken((string) $prepared_spell);
+      if ($candidate === '') {
+        continue;
+      }
+      if ($needle_name !== '' && $candidate === $needle_name) {
+        return TRUE;
+      }
+      if ($needle_id !== '' && $candidate === $needle_id) {
+        return TRUE;
+      }
+    }
+
+    return FALSE;
+  }
+
+  protected function normalizeSpellToken(string $value): string {
+    $normalized = strtolower(trim($value));
+    if ($normalized === '') {
+      return '';
+    }
+    $normalized = str_replace(['_', ' '], '-', $normalized);
+    $normalized = preg_replace('/-+/', '-', $normalized) ?? $normalized;
+    return trim($normalized, '-');
+  }
+
+  protected function normalizeSpellResourceErrorMessage(string $message, bool $is_focus_spell, int $slot_level): string {
+    $normalized = strtolower(trim($message));
+    if (str_contains($normalized, 'focus point')) {
+      return 'No Focus Points remaining.';
+    }
+    if (str_contains($normalized, 'spell slot')) {
+      return sprintf('No level-%d spell slots remaining.', max(1, $slot_level));
+    }
+
+    $trimmed = trim($message);
+    if ($trimmed !== '') {
+      return str_ends_with($trimmed, '.') ? $trimmed : $trimmed . '.';
+    }
+
+    return $is_focus_spell
+      ? 'No Focus Points remaining.'
+      : sprintf('No level-%d spell slots remaining.', max(1, $slot_level));
   }
 
   /**

@@ -4858,8 +4858,6 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
       return ['cast' => FALSE, 'error' => 'Caster not found.', 'mutations' => [], 'narration' => NULL];
     }
     $edata_cs = !empty($ptcp_cs['entity_ref']) ? json_decode($ptcp_cs['entity_ref'], TRUE) : [];
-    $participant_id = (int) ($ptcp_cs['id'] ?? 0);
-
     $actor_entity_index = $this->findDungeonEntityIndexByInstanceId($dungeon_data, $actor_id);
     $has_actor_entity = $actor_entity_index !== NULL
       && isset($dungeon_data['entities'][$actor_entity_index])
@@ -5001,23 +4999,12 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
       }
 
       if (!$canonical_consumed) {
-        $fp_cs = $this->resolveParticipantFocusPointCurrent($edata_cs);
-        if ($fp_cs < 1) {
-          return ['cast' => FALSE, 'error' => 'No Focus Points remaining.', 'mutations' => [], 'narration' => NULL];
-        }
-        $edata_cs['focus_points'] = $fp_cs - 1;
-        if (!isset($edata_cs['state']) || !is_array($edata_cs['state'])) {
-          $edata_cs['state'] = [];
-        }
-        if (!isset($edata_cs['state']['focus_points']) || !is_array($edata_cs['state']['focus_points'])) {
-          $edata_cs['state']['focus_points'] = [];
-        }
-        $edata_cs['state']['focus_points']['current'] = $fp_cs - 1;
-        if (!isset($edata_cs['state']['focus_points']['max']) || !is_numeric($edata_cs['state']['focus_points']['max'])) {
-          $edata_cs['state']['focus_points']['max'] = max($fp_cs, 0);
-        }
-        $this->persistEncounterParticipantEntityRef($participant_id, $edata_cs);
-        $focus_remaining = $fp_cs - 1;
+        return [
+          'cast' => FALSE,
+          'error' => 'Canonical character sheet is required for spellcasting resource updates.',
+          'mutations' => [],
+          'narration' => NULL,
+        ];
       }
 
       return [
@@ -5104,10 +5091,12 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
     }
 
     if (!$canonical_consumed) {
-      // Deduct slot from participant projection when no canonical character sheet is available.
-      $edata_cs['spell_slots'][$slot_key]['used'] = (int) ($slot_data_cs['used'] ?? 0) + 1;
-      $this->persistEncounterParticipantEntityRef($participant_id, $edata_cs);
-      $slots_remaining = $slots_avail - 1;
+      return [
+        'cast' => FALSE,
+        'error' => 'Canonical character sheet is required for spellcasting resource updates.',
+        'mutations' => [],
+        'narration' => NULL,
+      ];
     }
 
     // dc-cr-spells-ch07: Incapacitation trait — downgrade degree of success when

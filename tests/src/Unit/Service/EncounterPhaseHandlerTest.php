@@ -795,6 +795,108 @@ class EncounterPhaseHandlerTest extends UnitTestCase {
   }
 
   /**
+   * Spell resource mutations require canonical character identity for focus casts.
+   *
+   * @covers ::processCastSpell
+   */
+  public function testProcessCastSpellRejectsFocusSpendWithoutCanonicalIdentity(): void {
+    $encounter_store = $this->createMock(CombatEncounterStore::class);
+    $encounter_store->expects($this->once())
+      ->method('loadEncounter')
+      ->with(42)
+      ->willReturn([
+        'participants' => [
+          [
+            'id' => 41,
+            'entity_id' => 'pc-1',
+            'entity_ref' => json_encode([
+              'focus_points' => 2,
+              'state' => ['focus_points' => ['current' => 2, 'max' => 2]],
+            ]),
+          ],
+        ],
+      ]);
+    $encounter_store->expects($this->never())->method('updateParticipant');
+
+    $character_state = $this->createMock(CharacterStateService::class);
+    $character_state->expects($this->never())->method('castSpell');
+
+    $handler = $this->buildHandler(NULL, NULL, $encounter_store, $character_state);
+    $game_state = [];
+    $dungeon_data = [
+      'entities' => [
+        [
+          'entity_instance_id' => 'pc-1',
+          'state' => [],
+        ],
+      ],
+    ];
+    $params = [
+      'spell_name' => 'Focus Blast',
+      'spell_id' => 'focus-blast',
+      'is_focus_spell' => TRUE,
+      'spell_level' => 1,
+    ];
+
+    $result = $this->invokeProcessCastSpell($handler, 42, 'pc-1', NULL, $params, $game_state, $dungeon_data, 42);
+
+    $this->assertFalse($result['cast']);
+    $this->assertSame('Canonical character sheet is required for spellcasting resource updates.', $result['error']);
+  }
+
+  /**
+   * Spell resource mutations require canonical character identity for slot casts.
+   *
+   * @covers ::processCastSpell
+   */
+  public function testProcessCastSpellRejectsSlotSpendWithoutCanonicalIdentity(): void {
+    $encounter_store = $this->createMock(CombatEncounterStore::class);
+    $encounter_store->expects($this->once())
+      ->method('loadEncounter')
+      ->with(42)
+      ->willReturn([
+        'participants' => [
+          [
+            'id' => 43,
+            'entity_id' => 'pc-1',
+            'entity_ref' => json_encode([
+              'spell_slots' => [
+                '3' => ['max' => 2, 'used' => 0],
+              ],
+            ]),
+          ],
+        ],
+      ]);
+    $encounter_store->expects($this->never())->method('updateParticipant');
+
+    $character_state = $this->createMock(CharacterStateService::class);
+    $character_state->expects($this->never())->method('castSpell');
+
+    $handler = $this->buildHandler(NULL, NULL, $encounter_store, $character_state);
+    $game_state = [];
+    $dungeon_data = [
+      'entities' => [
+        [
+          'entity_instance_id' => 'pc-1',
+          'state' => [],
+        ],
+      ],
+    ];
+    $params = [
+      'spell_name' => 'Fireball',
+      'spell_id' => 'fireball',
+      'spell_level' => 3,
+      'cast_at_level' => 3,
+      'is_focus_spell' => FALSE,
+    ];
+
+    $result = $this->invokeProcessCastSpell($handler, 42, 'pc-1', NULL, $params, $game_state, $dungeon_data, 42);
+
+    $this->assertFalse($result['cast']);
+    $this->assertSame('Canonical character sheet is required for spellcasting resource updates.', $result['error']);
+  }
+
+  /**
    * Minor Color Shift updates coloration and spends one action.
    *
    * @covers ::processIntent
