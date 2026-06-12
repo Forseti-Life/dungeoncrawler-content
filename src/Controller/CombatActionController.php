@@ -26,20 +26,6 @@ class CombatActionController extends ControllerBase {
   protected const LEGACY_MUTATION_DISABLED_CODE = 'legacy_combat_mutation_disabled';
 
   /**
-   * The action processor service.
-   *
-   * @var \Drupal\dungeoncrawler_content\Service\ActionProcessor
-   */
-  protected $actionProcessor;
-
-  /**
-   * The combat engine service.
-   *
-   * @var \Drupal\dungeoncrawler_content\Service\CombatEngine
-   */
-  protected $combatEngine;
-
-  /**
    * Combat encounter store.
    *
    * @var \Drupal\dungeoncrawler_content\Service\CombatEncounterStore
@@ -49,9 +35,7 @@ class CombatActionController extends ControllerBase {
   /**
    * Constructor.
    */
-  public function __construct($action_processor, $combat_engine, CombatEncounterStore $store) {
-    $this->actionProcessor = $action_processor;
-    $this->combatEngine = $combat_engine;
+  public function __construct(CombatEncounterStore $store) {
     $this->store = $store;
   }
 
@@ -60,8 +44,6 @@ class CombatActionController extends ControllerBase {
    */
   public static function create(ContainerInterface $container) {
     return new static(
-      $container->get('dungeoncrawler_content.action_processor'),
-      $container->get('dungeoncrawler_content.combat_engine'),
       $container->get('dungeoncrawler_content.combat_encounter_store')
     );
   }
