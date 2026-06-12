@@ -7805,10 +7805,10 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
     $survival = is_array($character_state['resources']['survival'] ?? NULL) ? $character_state['resources']['survival'] : [];
 
     return [
-      'daysWithoutFood' => max(0, (int) ($survival['daysWithoutFood'] ?? $character_state['days_without_food'] ?? 0)),
-      'daysWithoutWater' => max(0, (int) ($survival['daysWithoutWater'] ?? $character_state['days_without_water'] ?? 0)),
-      'starvationDamagePhase' => (bool) ($survival['starvationDamagePhase'] ?? $character_state['starvation_damage_phase'] ?? FALSE),
-      'thirstDamagePhase' => (bool) ($survival['thirstDamagePhase'] ?? $character_state['thirst_damage_phase'] ?? FALSE),
+      'daysWithoutFood' => max(0, (int) ($survival['daysWithoutFood'] ?? 0)),
+      'daysWithoutWater' => max(0, (int) ($survival['daysWithoutWater'] ?? 0)),
+      'starvationDamagePhase' => (bool) ($survival['starvationDamagePhase'] ?? FALSE),
+      'thirstDamagePhase' => (bool) ($survival['thirstDamagePhase'] ?? FALSE),
     ];
   }
 

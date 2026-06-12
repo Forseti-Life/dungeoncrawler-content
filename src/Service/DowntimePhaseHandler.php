@@ -1401,10 +1401,10 @@ class DowntimePhaseHandler implements PhaseHandlerInterface {
     $survival = is_array($canonical_state['resources']['survival'] ?? NULL) ? $canonical_state['resources']['survival'] : [];
 
     return [
-      'daysWithoutFood' => max(0, (int) ($survival['daysWithoutFood'] ?? $canonical_state['days_without_food'] ?? 0)),
-      'daysWithoutWater' => max(0, (int) ($survival['daysWithoutWater'] ?? $canonical_state['days_without_water'] ?? 0)),
-      'starvationDamagePhase' => (bool) ($survival['starvationDamagePhase'] ?? $canonical_state['starvation_damage_phase'] ?? FALSE),
-      'thirstDamagePhase' => (bool) ($survival['thirstDamagePhase'] ?? $canonical_state['thirst_damage_phase'] ?? FALSE),
+      'daysWithoutFood' => max(0, (int) ($survival['daysWithoutFood'] ?? 0)),
+      'daysWithoutWater' => max(0, (int) ($survival['daysWithoutWater'] ?? 0)),
+      'starvationDamagePhase' => (bool) ($survival['starvationDamagePhase'] ?? FALSE),
+      'thirstDamagePhase' => (bool) ($survival['thirstDamagePhase'] ?? FALSE),
     ];
   }
 

@@ -1687,26 +1687,10 @@ class CharacterStateService {
     $survival = is_array($state['resources']['survival'] ?? NULL) ? $state['resources']['survival'] : [];
 
     return [
-      'daysWithoutFood' => max(0, (int) (
-        $survival['daysWithoutFood']
-        ?? $state['days_without_food']
-        ?? 0
-      )),
-      'daysWithoutWater' => max(0, (int) (
-        $survival['daysWithoutWater']
-        ?? $state['days_without_water']
-        ?? 0
-      )),
-      'starvationDamagePhase' => (bool) (
-        $survival['starvationDamagePhase']
-        ?? $state['starvation_damage_phase']
-        ?? FALSE
-      ),
-      'thirstDamagePhase' => (bool) (
-        $survival['thirstDamagePhase']
-        ?? $state['thirst_damage_phase']
-        ?? FALSE
-      ),
+      'daysWithoutFood' => max(0, (int) ($survival['daysWithoutFood'] ?? 0)),
+      'daysWithoutWater' => max(0, (int) ($survival['daysWithoutWater'] ?? 0)),
+      'starvationDamagePhase' => (bool) ($survival['starvationDamagePhase'] ?? FALSE),
+      'thirstDamagePhase' => (bool) ($survival['thirstDamagePhase'] ?? FALSE),
     ];
   }
 

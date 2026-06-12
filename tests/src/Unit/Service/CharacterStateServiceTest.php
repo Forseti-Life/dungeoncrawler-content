@@ -145,6 +145,119 @@ class CharacterStateServiceTest extends UnitTestCase {
   }
 
   /**
+   * Verifies legacy survival mirror fields are ignored in canonical reads.
+   */
+  public function testGetStateIgnoresLegacySurvivalMirrorFields(): void {
+    $database = $this->createMock(Connection::class);
+    $database->expects($this->exactly(2))
+      ->method('select')
+      ->willReturnOnConsecutiveCalls(
+        $this->buildLibrarySelectQueryMock((object) [
+          'id' => 329,
+          'uid' => 17,
+          'campaign_id' => 0,
+          'character_id' => 0,
+          'name' => 'Valeros',
+          'created' => 1,
+          'changed' => 2,
+          'level' => 2,
+          'ancestry' => 'human',
+          'class' => 'fighter',
+          'type' => 'pc',
+          'portrait' => NULL,
+          'hp_current' => 18,
+          'hp_max' => 18,
+          'armor_class' => 18,
+          'character_data' => json_encode([
+            'basicInfo' => [
+              'name' => 'Valeros',
+              'level' => 2,
+              'experiencePoints' => 1100,
+              'ancestry' => 'human',
+              'class' => 'fighter',
+            ],
+            'resources' => [
+              'hitPoints' => ['current' => 18, 'max' => 18, 'temporary' => 0],
+            ],
+            'days_without_food' => 8,
+            'days_without_water' => 6,
+            'starvation_damage_phase' => TRUE,
+            'thirst_damage_phase' => TRUE,
+          ]),
+          'default_character_data' => '',
+        ]),
+        $this->buildCampaignLookupQueryMock(NULL)
+      );
+
+    $feat_effect_manager = $this->createMock(FeatEffectManager::class);
+    $feat_effect_manager->expects($this->once())
+      ->method('buildEffectState')
+      ->willReturn([
+        'spell_augments' => [],
+        'training_grants' => ['skills' => [], 'lore' => [], 'weapons' => [], 'armor' => []],
+        'derived_adjustments' => [
+          'flags' => [],
+          'computed_speed' => 25,
+          'hp_max_bonus' => 0,
+          'initiative_bonus' => 0,
+          'perception_bonus' => 0,
+        ],
+      ]);
+
+    $image_repository = $this->createMock(GeneratedImageRepository::class);
+    $image_repository->expects($this->once())
+      ->method('loadImagesForObject')
+      ->willReturn([]);
+    $image_repository->expects($this->never())
+      ->method('resolveClientUrl');
+
+    $impact_service = $this->createMock(ImpactContractService::class);
+    $impact_service->expects($this->once())
+      ->method('buildPersistentImpacts')
+      ->willReturn([]);
+    $impact_service->expects($this->exactly(2))
+      ->method('normalizeImpactContracts')
+      ->willReturn([]);
+
+    $active_effect_store = $this->createMock(ActiveEffectStoreService::class);
+    $active_effect_store->expects($this->once())
+      ->method('hasStorage')
+      ->willReturn(FALSE);
+    $active_effect_store->expects($this->once())
+      ->method('listActiveEffects')
+      ->willReturn([]);
+    $active_effect_store->expects($this->once())
+      ->method('extractStoredImpacts')
+      ->with([])
+      ->willReturn([]);
+    $active_effect_store->expects($this->never())
+      ->method('buildImpactIdentity');
+
+    $service = new CharacterStateService(
+      $database,
+      $this->createMock(AccountProxyInterface::class),
+      $feat_effect_manager,
+      $image_repository,
+      $this->createMock(NumberGenerationService::class),
+      $impact_service,
+      $active_effect_store,
+    );
+
+    $state = $service->getState('329');
+
+    $this->assertSame([
+      'daysWithoutFood' => 0,
+      'daysWithoutWater' => 0,
+      'starvationDamagePhase' => FALSE,
+      'thirstDamagePhase' => FALSE,
+    ], $state['resources']['survival']);
+    $this->assertArrayNotHasKey('days_without_food', $state);
+    $this->assertArrayNotHasKey('days_without_water', $state);
+    $this->assertArrayNotHasKey('starvation_damage_phase', $state);
+    $this->assertArrayNotHasKey('thirst_damage_phase', $state);
+  }
+
+  /**
    * Verifies feat effect runtime inputs are normalized to compact feat refs.
    */
   public function testBuildFeatEffectStateStripsEmbeddedFeatDefinitionPayloads(): void {
