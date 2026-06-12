@@ -1356,7 +1356,7 @@ class RoomChatService {
         $this->resolveCampaignCharacterNpcProfile($campaign_id, $row);
       }
     }
-    catch (\Exception $e) {
+    catch (\Throwable $e) {
       $this->logger->warning('Room chat NPC profile ensure failed: @err', [
         '@err' => $e->getMessage(),
       ]);
@@ -2207,7 +2207,7 @@ class RoomChatService {
         $debug_meta
       );
     }
-    catch (\Exception $e) {
+    catch (\Throwable $e) {
       $this->logger->error('AI API error generating GM reply: @msg', ['@msg' => $e->getMessage()]);
       return NULL;
     }
@@ -2457,7 +2457,7 @@ class RoomChatService {
         'template_id' => $result['template_id'] ?? NULL,
       ];
     }
-    catch (\Exception $e) {
+    catch (\Throwable $e) {
       $this->logger->error('Failed to generate new setting for navigation to @dest: @err', [
         '@dest' => $destination,
         '@err' => $e->getMessage(),
@@ -2666,7 +2666,7 @@ class RoomChatService {
       $destination_session_key = $this->sessionManager->roomChatSessionKey($campaign_id, $destination_room_id);
       $this->sessionManager->appendMessage($destination_session_key, $campaign_id, 'system', $arrival_text);
     }
-    catch (\Exception $e) {
+    catch (\Throwable $e) {
       $this->logger->warning('Failed to append destination arrival to room session @room: @msg', [
         '@room' => $destination_room_id,
         '@msg' => $e->getMessage(),
@@ -2929,7 +2929,7 @@ class RoomChatService {
         ]
       );
     }
-    catch (\Exception $e) {
+    catch (\Throwable $e) {
       $this->logger->error('AI API error generating NPC reply on channel @channel: @msg', [
         '@channel' => $channel_key,
         '@msg' => $e->getMessage(),
@@ -3324,7 +3324,7 @@ class RoomChatService {
         );
       }
     }
-    catch (\Exception $e) {
+    catch (\Throwable $e) {
       $this->logger->warning('Session bridge error: @msg', ['@msg' => $e->getMessage()]);
     }
   }
@@ -3417,7 +3417,7 @@ class RoomChatService {
         }
       }
     }
-    catch (\Exception $e) {
+    catch (\Throwable $e) {
       $this->logger->warning('Session bridge GM reply error: @msg', ['@msg' => $e->getMessage()]);
     }
   }
@@ -3498,7 +3498,7 @@ class RoomChatService {
         );
       }
     }
-    catch (\Exception $e) {
+    catch (\Throwable $e) {
       $this->logger->warning('Session bridge channel reply error: @msg', ['@msg' => $e->getMessage()]);
     }
   }
@@ -3551,7 +3551,7 @@ class RoomChatService {
         );
       }
     }
-    catch (\Exception $e) {
+    catch (\Throwable $e) {
       $this->logger->warning('Session bridge channel message error: @msg', ['@msg' => $e->getMessage()]);
     }
   }
@@ -4727,7 +4727,7 @@ class RoomChatService {
     try {
       $this->roomTurnLogStoreAvailable = $this->database->schema()->tableExists('dc_room_turn_logs');
     }
-    catch (\Exception $e) {
+    catch (\Throwable $e) {
       $this->roomTurnLogStoreAvailable = FALSE;
     }
 
@@ -4770,7 +4770,7 @@ class RoomChatService {
         ])
         ->execute();
     }
-    catch (\Exception $e) {
+    catch (\Throwable $e) {
       $this->logger->warning('Failed to persist room turn log for room @room: @err', [
         '@room' => $room_id,
         '@err' => $e->getMessage(),
@@ -4880,7 +4880,7 @@ PROMPT;
         ]
       );
     }
-    catch (\Exception $e) {
+    catch (\Throwable $e) {
       $this->logger->warning('NPC interjection single-eval failed: @err', ['@err' => $e->getMessage()]);
       return FALSE;
     }
@@ -6763,7 +6763,7 @@ PROMPT;
         ]
       );
     }
-    catch (\Exception $e) {
+    catch (\Throwable $e) {
       $this->logger->warning('NPC room dialogue generation failed for @npc: @err', [
         '@npc' => $entity_ref,
         '@err' => $e->getMessage(),
@@ -8316,7 +8316,7 @@ PROMPT;
         );
       }
     }
-    catch (\Exception $e) {
+    catch (\Throwable $e) {
       // Non-critical; continue with entities already found.
     }
 
@@ -10429,7 +10429,7 @@ PROMPT;
       $result = $this->aiApiService->invokeModelDirect($prompt, $provider, $operation, $context_data, $options);
       $provider_wait_ms = $this->elapsedMs($provider_started_at);
     }
-    catch (\Exception $e) {
+    catch (\Throwable $e) {
       $provider_wait_ms = $this->elapsedMs($provider_started_at);
       $record_started_at = hrtime(true);
       if ($this->activeDebugTrace !== NULL) {
@@ -10872,7 +10872,7 @@ PROMPT;
         'public'
       );
     }
-    catch (\Exception $e) {
+    catch (\Throwable $e) {
       $this->logger->warning('Failed to bridge NPC interjection to session system: @err', [
         '@err' => $e->getMessage(),
       ]);

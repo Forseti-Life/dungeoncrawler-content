@@ -387,19 +387,6 @@ services:
       - '@dungeoncrawler_content.calculator'
       - '@dungeoncrawler_content.los_service'
 
-  dungeoncrawler_content.action_processor:
-    class: Drupal\dungeoncrawler_content\Service\ActionProcessor
-    arguments:
-      - '@dungeoncrawler_content.combat_calculator'
-      - '@dungeoncrawler_content.hp_manager'
-      - '@dungeoncrawler_content.condition_manager'
-      - '@logger.factory'
-      - '@dungeoncrawler_content.combat_encounter_store'
-      - '@dungeoncrawler_content.number_generation'
-      - '@dungeoncrawler_content.rules_engine'
-      - '@dungeoncrawler_content.area_resolver'
-      - '@dungeoncrawler_content.counteract'
-
   dungeoncrawler_content.combat_engine:
     class: Drupal\dungeoncrawler_content\Service\CombatEngine
     arguments:

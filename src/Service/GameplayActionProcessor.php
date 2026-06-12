@@ -2962,7 +2962,7 @@ ENTRY_NARRATION_RULES;
         }
       }
     }
-    catch (\Exception $e) {
+    catch (\Throwable $e) {
       // Proceed with original room_id.
     }
 
@@ -3019,7 +3019,7 @@ ENTRY_NARRATION_RULES;
         }
       }
     }
-    catch (\Exception $e) {
+    catch (\Throwable $e) {
       $this->logger->warning('Failed to load static room data for inventory: @error', ['@error' => $e->getMessage()]);
     }
 
@@ -3250,7 +3250,7 @@ ENTRY_NARRATION_RULES;
         }
       }
     }
-    catch (\Exception $e) {
+    catch (\Throwable $e) {
       $this->logger->warning('Failed to load entity instances for room inventory: @error', ['@error' => $e->getMessage()]);
     }
 
@@ -3288,7 +3288,7 @@ ENTRY_NARRATION_RULES;
               }
             }
           }
-          catch (\Exception $e) {
+          catch (\Throwable $e) {
             // Swallow — name will remain item_id.
           }
         }
@@ -3301,7 +3301,7 @@ ENTRY_NARRATION_RULES;
         ];
       }
     }
-    catch (\Exception $e) {
+    catch (\Throwable $e) {
       $this->logger->warning('Failed to load item instances for room inventory: @error', ['@error' => $e->getMessage()]);
     }
 
@@ -3381,7 +3381,7 @@ ENTRY_NARRATION_RULES;
           'items' => $items,
         ];
       }
-      catch (\Exception $e) {
+      catch (\Throwable $e) {
         $this->logger->debug('Failed to load storage owner inventory for @owner_type:@owner_id: @error', [
           '@owner_type' => $owner_type,
           '@owner_id' => $owner_id,
