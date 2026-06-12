@@ -9,13 +9,18 @@ use Psr\Log\LoggerInterface;
 use Symfony\Component\EventDispatcher\EventDispatcherInterface;
 
 /**
- * Handles game actions during the Encounter (combat) phase.
+ * Handles canonical action execution during the Encounter phase.
  *
- * Wraps the existing CombatEngine, ActionProcessor, and related services.
- * Enforces PF2e encounter rules: initiative, turn order, 3-action economy,
- * MAP, degree of success, conditions, HP tracking.
+ * Scope:
+ * - Enforce initiative, turn order, and round progression.
+ * - Enforce per-actor action legality/economy and apply encounter mutations.
+ * - Generate authoritative encounter events/transcript metadata for chat output.
+ * - Treat all actors uniformly in the turn loop (NPC, enemy, PC actor records).
  *
- * Also handles NPC auto-play by delegating to EncounterAiIntegrationService.
+ * Player behavior note:
+ * - The PC actor remains in the same authoritative turn system.
+ * - Player room chat is accepted as canonical Talk actions on that actor's turn,
+ *   while non-player turns are resolved by authoritative handler logic.
  */
 class EncounterPhaseHandler implements EncounterMasterInterface {
 

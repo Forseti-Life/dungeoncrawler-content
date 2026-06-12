@@ -1,9 +1,17 @@
 /**
  * @file panels/ChatPanel.js
  *
- * Multi-channel chat log and GM message rendering.
- * Methods ported verbatim from hexmap.js UIManager.
- * Largest panel: 65 functions.
+ * Client-side chat interface (submission + display only).
+ *
+ * Scope:
+ * - Collect player input and submit it to server chat endpoints.
+ * - Render only server-provided transcript lines and metadata.
+ * - Show local UX status (loading/errors/queue state) without inventing
+ *   authoritative room or turn state.
+ *
+ * Non-scope:
+ * - Does not own turn order, round progression, actor legality, or encounter
+ *   state transitions. Those are server-authoritative.
  */
 
 import { ChatSessionApi } from '../../ChatSessionApi.js';

@@ -13,11 +13,17 @@ use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
- * API controller for room chat messages.
+ * Server-side room chat API controller.
  *
- * Provides REST endpoints for reading and posting chat messages in dungeon rooms.
- * Player room chat is governed by the encounter engine and must flow through the
- * canonical talk action.
+ * Scope:
+ * - Accept chat requests from clients and return server-managed transcript output.
+ * - Route player room chat through the canonical encounter Talk action path.
+ * - Stream progress/response envelopes to clients while preserving server authority.
+ *
+ * Non-scope:
+ * - Does not decide turn/round ownership or action legality.
+ * - Does not author encounter state transitions outside the authoritative action
+ *   chain (GameCoordinator + phase handlers).
  */
 class RoomChatController extends ControllerBase {
 

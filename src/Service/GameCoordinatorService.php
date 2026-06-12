@@ -8,15 +8,22 @@ use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Psr\Log\LoggerInterface;
 
 /**
- * Game Coordinator Service — the central orchestrator ("main()").
+ * Encounter-authoritative action chain entrypoint.
  *
- * This is the single entry point for all game actions. It manages:
+ * This is the single server authority for action execution. It manages:
  * - Game phase state machine (encounter-only active runtime)
  * - Action validation and routing to the active phase handler
  * - Phase transitions (with onExit/onEnter lifecycle)
  * - Event logging for every action
  * - Dungeon data persistence
  * - State version tracking for optimistic concurrency
+ * - Canonical round/turn/current-actor ownership
+ *
+ * Model note:
+ * - All actors participate in the same authoritative turn framework.
+ * - The player character is represented in that same actor loop; on the PC turn,
+ *   player chat input is routed as canonical actions rather than bypassing state
+ *   authority.
  *
  * Design principles:
  * 1. Server-authoritative: the server owns the game phase and all transitions.
