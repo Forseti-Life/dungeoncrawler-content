@@ -24,6 +24,7 @@ function assert(condition, message) {
 
 const questSystemSource = fs.readFileSync(path.resolve(__dirname, '../js/v2/systems/QuestSystem.js'), 'utf8');
 const actionRailPanelSource = fs.readFileSync(path.resolve(__dirname, '../js/v2/panels/ActionRailPanel.js'), 'utf8');
+const questPanelSource = fs.readFileSync(path.resolve(__dirname, '../js/v2/panels/QuestPanel.js'), 'utf8');
 const hexmapSource = fs.readFileSync(path.resolve(__dirname, '../js/hexmap.js'), 'utf8');
 const gameShellSource = fs.readFileSync(path.resolve(__dirname, '../js/v2/GameShell.js'), 'utf8');
 
@@ -53,8 +54,16 @@ assert(
 );
 
 assert(
-  gameShellSource.includes("import { QuestSystem } from './systems/QuestSystem.js?v=20260608-v2-quest-summary-merge-2';"),
+  gameShellSource.includes("import { QuestSystem } from './systems/QuestSystem.js?v=20260608-v2-quest-summary-merge-2';")
+    && gameShellSource.includes("import { QuestPanel } from './panels/QuestPanel.js?v=20260612-v2-quest-storyline-grouping-1';"),
   'GameShell uses a cache-busted QuestSystem import so refactors load immediately'
+);
+
+assert(
+  questPanelSource.includes('renderStorylineGroupedQuestSection(')
+    && questPanelSource.includes('buildStorylineContextIndexes(')
+    && questPanelSource.includes('quest-entry quest-entry--storyline'),
+  'QuestPanel groups quest entries under storyline parent nodes in the character journal'
 );
 
 console.log('\n=============================================');

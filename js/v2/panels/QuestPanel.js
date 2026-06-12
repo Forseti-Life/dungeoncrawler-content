@@ -8,8 +8,6 @@
 
 import {
   normalizeQuestSummaryPayload,
-  renderQuestManagementQuestHtml,
-  renderQuestManagementStorylineHtml,
   renderQuestManagementNpcHtml,
   buildObjectiveStateIndex,
   extractQuestPhases,
@@ -169,73 +167,45 @@ export class QuestPanel {
 
     if (count) count.textContent = String(activeQuests.length + offeredQuests.length + leadQuests.length + completedQuests.length);
 
-    const activeHtml = activeQuests.map(quest => {
-      const title = resolveQuestTitle(quest);
-      const phases = extractQuestPhases(quest);
-      const objectiveIndex = buildObjectiveStateIndex(quest);
-      const rawStatus = String(quest.status || '').trim().toLowerCase();
-      const status = rawStatus ? rawStatus.charAt(0).toUpperCase() + rawStatus.slice(1) : 'Active';
+    const storylineIndexes = this.buildStorylineContextIndexes(managementTree);
 
-      let nextStep = '';
-      const objectiveRows = [];
-      for (const phase of phases) {
-        const objectives = flattenQuestObjectives(phase.objectives || [], { includeCompleted: true });
-        objectives.forEach(obj => {
-          const merged = mergeObjectiveProgress(obj, objectiveIndex);
-          if (merged.hidden && !merged.revealed && !merged.completed) {
-            return;
-          }
-          const current = merged.current;
-          const target = merged.target_count || 1;
-          const completed = merged.completed;
-          const icon = completed ? '✅' : '⬜';
-          const desc = merged.description || merged.objective_id;
-          const progress = merged.type === 'collect' ? ` (${current}/${target})` : '';
-          const details = this.renderObjectiveGuidanceLines(merged);
-          if (!completed && !nextStep) {
-            nextStep = merged.next_step || `${desc}${progress}`;
-          }
-          objectiveRows.push(`<li class="quest-objective ${completed ? 'quest-objective--done' : ''}">${icon} ${desc}${progress}${details}</li>`);
-        });
-      }
+    const activeHtml = this.renderStorylineGroupedQuestSection(activeQuests, (quest) => this.renderActiveQuestNodeHtml(quest), storylineIndexes, {
+      defaultStorylineStatus: 'active',
+      defaultStorylineNextStep: 'Review active quest objectives.',
+    });
 
-      let objectiveHtml = objectiveRows.join('');
-      if (!objectiveHtml) {
-        objectiveHtml = '<li class="quest-objective">✅ All objectives complete</li>';
-      }
-
-      return renderQuestTreeNodeHtml({
-        itemClass: 'quest-entry quest-entry--quest',
-        title,
-        titlePrefix: '📜',
-        metaLines: [`Status: ${status}`, nextStep ? `Next: ${nextStep}` : 'Next: Review quest completion.'],
-        bodyHtml: `<ul class="quest-objectives">${this.renderQuestRewardLine(quest)}${objectiveHtml}</ul>`,
-      });
-    }).join('');
-
-    const offerHtml = offeredQuests.map((quest) => renderQuestTreeNodeHtml({
+    const offerHtml = this.renderStorylineGroupedQuestSection(offeredQuests, (quest) => renderQuestTreeNodeHtml({
       itemClass: 'quest-entry quest-entry--quest',
       title: resolveQuestTitle(quest),
       titlePrefix: '🤝',
       metaLines: ['Status: Offered'],
       bodyHtml: `<ul class="quest-objectives">${this.renderQuestSummaryPreviewLines(quest, 'Quest offered. Review the details and accept it to begin.')}</ul>`,
-    })).join('');
+    }), storylineIndexes, {
+      defaultStorylineStatus: 'offered',
+      defaultStorylineNextStep: 'Review available quest offers in this storyline.',
+    });
 
-    const leadHtml = leadQuests.map((quest) => renderQuestTreeNodeHtml({
+    const leadHtml = this.renderStorylineGroupedQuestSection(leadQuests, (quest) => renderQuestTreeNodeHtml({
       itemClass: 'quest-entry quest-entry--quest',
       title: resolveQuestTitle(quest),
       titlePrefix: '🧭',
       metaLines: ['Status: Lead'],
       bodyHtml: `<ul class="quest-objectives">${this.renderQuestSummaryPreviewLines(quest, this.buildQuestLeadFallbackLine(quest))}</ul>`,
-    })).join('');
+    }), storylineIndexes, {
+      defaultStorylineStatus: 'lead',
+      defaultStorylineNextStep: 'Follow up on the next storyline lead.',
+    });
 
-    const completedHtml = completedQuests.map((quest) => renderQuestTreeNodeHtml({
+    const completedHtml = this.renderStorylineGroupedQuestSection(completedQuests, (quest) => renderQuestTreeNodeHtml({
       itemClass: 'quest-entry quest-entry--quest',
       title: resolveQuestTitle(quest),
       titlePrefix: '✅',
       metaLines: ['Status: Completed'],
       bodyHtml: `<ul class="quest-objectives">${this.renderQuestSummaryPreviewLines(quest, 'Quest complete. Review outcomes and rewards in your journal.')}</ul>`,
-    })).join('');
+    }), storylineIndexes, {
+      defaultStorylineStatus: 'completed',
+      defaultStorylineNextStep: 'Review completed storyline progress.',
+    });
 
     const availableSectionHtml = offerHtml || leadHtml
       ? `${this.renderQuestSectionLabelHtml('Available Quests')}${offerHtml}${leadHtml}`
@@ -245,6 +215,163 @@ export class QuestPanel {
     list.innerHTML = `${activeHtml}${availableSectionHtml}${completedSectionHtml}`;
     console.log('[QuestPanel] renderQuestJournal:branch', { branch: 'active', htmlLen: list.innerHTML.length });
     this.updateQuestJournalControlState();
+  }
+
+  renderActiveQuestNodeHtml(quest) {
+    const title = resolveQuestTitle(quest);
+    const phases = extractQuestPhases(quest);
+    const objectiveIndex = buildObjectiveStateIndex(quest);
+    const rawStatus = String(quest.status || '').trim().toLowerCase();
+    const status = rawStatus ? rawStatus.charAt(0).toUpperCase() + rawStatus.slice(1) : 'Active';
+
+    let nextStep = '';
+    const objectiveRows = [];
+    for (const phase of phases) {
+      const objectives = flattenQuestObjectives(phase.objectives || [], { includeCompleted: true });
+      objectives.forEach((obj) => {
+        const merged = mergeObjectiveProgress(obj, objectiveIndex);
+        if (merged.hidden && !merged.revealed && !merged.completed) {
+          return;
+        }
+        const current = merged.current;
+        const target = merged.target_count || 1;
+        const completed = merged.completed;
+        const icon = completed ? '✅' : '⬜';
+        const desc = merged.description || merged.objective_id;
+        const progress = merged.type === 'collect' ? ` (${current}/${target})` : '';
+        const details = this.renderObjectiveGuidanceLines(merged);
+        if (!completed && !nextStep) {
+          nextStep = merged.next_step || `${desc}${progress}`;
+        }
+        objectiveRows.push(`<li class="quest-objective ${completed ? 'quest-objective--done' : ''}">${icon} ${desc}${progress}${details}</li>`);
+      });
+    }
+
+    let objectiveHtml = objectiveRows.join('');
+    if (!objectiveHtml) {
+      objectiveHtml = '<li class="quest-objective">✅ All objectives complete</li>';
+    }
+
+    return renderQuestTreeNodeHtml({
+      itemClass: 'quest-entry quest-entry--quest',
+      title,
+      titlePrefix: '📜',
+      metaLines: [`Status: ${status}`, nextStep ? `Next: ${nextStep}` : 'Next: Review quest completion.'],
+      bodyHtml: `<ul class="quest-objectives">${this.renderQuestRewardLine(quest)}${objectiveHtml}</ul>`,
+    });
+  }
+
+  renderStorylineGroupedQuestSection(quests, renderQuestNode, storylineIndexes, options = {}) {
+    if (!Array.isArray(quests) || quests.length === 0) {
+      return '';
+    }
+
+    const grouped = new Map();
+    quests.forEach((quest) => {
+      const context = this.resolveQuestStorylineContext(quest, storylineIndexes, options.defaultStorylineStatus || 'active');
+      const key = context.storylineId || context.name;
+      if (!grouped.has(key)) {
+        grouped.set(key, {
+          context,
+          questNodes: [],
+        });
+      }
+      grouped.get(key).questNodes.push(renderQuestNode(quest));
+    });
+
+    return Array.from(grouped.values())
+      .sort((a, b) => a.context.name.localeCompare(b.context.name))
+      .map(({ context, questNodes }) => renderQuestTreeNodeHtml({
+        itemClass: 'quest-entry quest-entry--storyline',
+        title: context.name,
+        titlePrefix: '🧭',
+        metaLines: [
+          `Status: ${context.status}`,
+          `Next: ${context.nextStep || options.defaultStorylineNextStep || 'Review this storyline.'}`,
+          ...(context.synopsis ? [context.synopsis] : []),
+        ],
+        bodyHtml: `<ul class="quest-objectives">${questNodes.join('') || '<li class="quest-objective">No quests recorded for this storyline.</li>'}</ul>`,
+      }))
+      .join('');
+  }
+
+  buildStorylineContextIndexes(managementTree) {
+    const byStorylineId = new Map();
+    const byQuestId = new Map();
+    (Array.isArray(managementTree) ? managementTree : []).forEach((npc) => {
+      const storylines = Array.isArray(npc?.storylines) ? npc.storylines : [];
+      storylines.forEach((storyline) => {
+        const storylineId = String(storyline?.storyline_id || '').trim();
+        const context = this.normalizeStorylineContext(storyline);
+        if (storylineId && !byStorylineId.has(storylineId)) {
+          byStorylineId.set(storylineId, context);
+        }
+        const quests = Array.isArray(storyline?.quests) ? storyline.quests : [];
+        quests.forEach((quest) => {
+          const questId = String(quest?.quest_id || quest?.quest_key || '').trim();
+          if (questId && !byQuestId.has(questId)) {
+            byQuestId.set(questId, context);
+          }
+        });
+      });
+    });
+    return { byStorylineId, byQuestId };
+  }
+
+  normalizeStorylineContext(storyline) {
+    const storylineId = String(storyline?.storyline_id || '').trim();
+    const name = String(storyline?.name || storylineId || 'Standalone Quests').trim();
+    const rawStatus = String(storyline?.status || 'active').trim().toLowerCase();
+    const status = rawStatus ? rawStatus.charAt(0).toUpperCase() + rawStatus.slice(1) : 'Active';
+    return {
+      storylineId,
+      name,
+      status,
+      nextStep: String(storyline?.next_step || '').trim(),
+      synopsis: String(storyline?.synopsis || '').trim(),
+    };
+  }
+
+  resolveQuestStorylineContext(quest, storylineIndexes, defaultStatus) {
+    const questId = String(quest?.quest_id || quest?.quest_key || quest?.id || '').trim();
+    const storylineId = String(quest?.storyline?.storyline_id || quest?.storyline_id || '').trim();
+
+    if (storylineId && storylineIndexes?.byStorylineId?.has(storylineId)) {
+      return storylineIndexes.byStorylineId.get(storylineId);
+    }
+    if (questId && storylineIndexes?.byQuestId?.has(questId)) {
+      return storylineIndexes.byQuestId.get(questId);
+    }
+
+    if (storylineId) {
+      const status = defaultStatus ? `${defaultStatus.charAt(0).toUpperCase()}${defaultStatus.slice(1)}` : 'Active';
+      return {
+        storylineId,
+        name: this.humanizeIdentifier(storylineId),
+        status,
+        nextStep: '',
+        synopsis: '',
+      };
+    }
+
+    const fallbackStatus = defaultStatus ? `${defaultStatus.charAt(0).toUpperCase()}${defaultStatus.slice(1)}` : 'Active';
+    return {
+      storylineId: `standalone:${questId || resolveQuestTitle(quest)}`,
+      name: 'Standalone Quests',
+      status: fallbackStatus,
+      nextStep: '',
+      synopsis: '',
+    };
+  }
+
+  humanizeIdentifier(value) {
+    const raw = String(value || '').trim();
+    if (!raw) {
+      return 'Unknown Storyline';
+    }
+    return raw
+      .replace(/[_-]+/g, ' ')
+      .replace(/\b\w/g, (char) => char.toUpperCase());
   }
 
   renderQuestSectionLabelHtml(label) {

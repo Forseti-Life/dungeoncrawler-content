@@ -34,7 +34,7 @@ import { MerchantPanel } from './panels/MerchantPanel.js';
 import { CombatPanel } from './panels/CombatPanel.js';
 import { ActionRailPanel } from './panels/ActionRailPanel.js?v=20260608-v2-turn-gate-actor-context-1';
 import { ChatPanel } from './panels/ChatPanel.js?v=20260608-v2-quest-chat-highlight-1';
-import { QuestPanel } from './panels/QuestPanel.js?v=20260608-v2-quest-preview-objective-state-1';
+import { QuestPanel } from './panels/QuestPanel.js?v=20260612-v2-quest-storyline-grouping-1';
 import { InventoryPanel } from './panels/InventoryPanel.js';
 import { CharacterPanel } from './panels/CharacterPanel.js';
 import { RoomViewPanel } from './panels/RoomViewPanel.js';
