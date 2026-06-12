@@ -135,9 +135,7 @@ class GameCoordinatorService {
     CampaignCharacterRuntimeSyncService $campaign_character_runtime_sync,
     LoggerChannelFactoryInterface $logger_factory,
     GameEventLogger $event_logger,
-    ExplorationPhaseHandler $exploration_handler,
     EncounterPhaseHandler $encounter_handler,
-    DowntimePhaseHandler $downtime_handler,
     AiGmService $ai_gm_service,
     CampaignTimeResolverService $campaign_time_resolver,
     ?NarrationEngine $narration_engine = NULL,
@@ -154,8 +152,6 @@ class GameCoordinatorService {
     $this->textToSpeechIntegration = $text_to_speech_integration;
     $this->fileUrlGenerator = $file_url_generator;
 
-    // ExplorationPhaseHandler and DowntimePhaseHandler remain injected for
-    // code reuse only; the live runtime is encounter-only.
     $this->phaseHandlers['encounter'] = $encounter_handler;
   }
 
