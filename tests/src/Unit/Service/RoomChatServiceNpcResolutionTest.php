@@ -869,6 +869,26 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
   }
 
   /**
+   * @covers ::buildRoomTurnHarnessPayload
+   */
+  public function testBuildRoomTurnHarnessPayloadGeneratesNonEmptyTurnLogKeyWhenMissing(): void {
+    $payload = $this->roomChatService->publicBuildRoomTurnHarnessPayload([
+      'player' => ['message' => 'Who answers?'],
+      'gm' => ['narrative' => 'The room quiets around the question.'],
+      'gm_addressed' => FALSE,
+      'directly_addressed_npc' => NULL,
+      'npc_turns' => [],
+      'turn_sequence' => [],
+      'turn_log_key' => '',
+      'turn_logs' => [],
+      'messages' => [],
+    ]);
+
+    $this->assertNotSame('', trim((string) $payload['turn_log_key']));
+    $this->assertStringStartsWith('room_turn_', (string) $payload['turn_log_key']);
+  }
+
+  /**
    * @covers ::selectBestMatchingQuestLeadCandidate
    * @covers ::extractSpecificQuestLeadTokens
    */

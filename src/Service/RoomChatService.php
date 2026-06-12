@@ -6964,6 +6964,11 @@ PROMPT;
    * Build one canonical room-turn harness payload.
    */
   protected function buildRoomTurnHarnessPayload(array $payload): array {
+    $turn_log_key = trim((string) ($payload['turn_log_key'] ?? ''));
+    if ($turn_log_key === '') {
+      $turn_log_key = uniqid('room_turn_', TRUE);
+    }
+
     $result = [
       'schema_version' => self::ROOM_TURN_HARNESS_SCHEMA_VERSION,
       'player' => is_array($payload['player'] ?? NULL) ? $payload['player'] : ['message' => ''],
@@ -6972,7 +6977,7 @@ PROMPT;
       'directly_addressed_npc' => $payload['directly_addressed_npc'] ?? NULL,
       'npc_turns' => array_values(is_array($payload['npc_turns'] ?? NULL) ? $payload['npc_turns'] : []),
       'turn_sequence' => array_values(is_array($payload['turn_sequence'] ?? NULL) ? $payload['turn_sequence'] : []),
-      'turn_log_key' => (string) ($payload['turn_log_key'] ?? ''),
+      'turn_log_key' => $turn_log_key,
       'turn_logs' => array_values(is_array($payload['turn_logs'] ?? NULL) ? $payload['turn_logs'] : []),
       'messages' => array_values(is_array($payload['messages'] ?? NULL) ? $payload['messages'] : []),
     ];
