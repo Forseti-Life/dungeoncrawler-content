@@ -25,7 +25,6 @@ class CombatApiControllerAuthorityTest extends UnitTestCase {
       $this->createMock(\stdClass::class),
       $this->createMock(\stdClass::class),
       $this->createMock(CombatEncounterStore::class),
-      $this->createMock(\stdClass::class),
       $this->createMock(Connection::class)
     );
 
@@ -59,7 +58,6 @@ class CombatApiControllerAuthorityTest extends UnitTestCase {
       $this->createMock(\stdClass::class),
       $this->createMock(\stdClass::class),
       $store,
-      $this->createMock(\stdClass::class),
       $this->createMock(Connection::class)
     );
 
@@ -99,7 +97,6 @@ class CombatApiControllerAuthorityTest extends UnitTestCase {
       $this->createMock(\stdClass::class),
       $this->createMock(\stdClass::class),
       $store,
-      $this->createMock(\stdClass::class),
       $this->createMock(Connection::class)
     );
 
@@ -122,7 +119,6 @@ class CombatApiControllerAuthorityTest extends UnitTestCase {
       $this->createMock(\stdClass::class),
       $this->createMock(\stdClass::class),
       $this->createMock(CombatEncounterStore::class),
-      $this->createMock(\stdClass::class),
       $this->createMock(Connection::class)
     );
 
@@ -146,7 +142,6 @@ class CombatApiControllerAuthorityTest extends UnitTestCase {
       $this->createMock(\stdClass::class),
       $this->createMock(\stdClass::class),
       $this->createMock(CombatEncounterStore::class),
-      $this->createMock(\stdClass::class),
       $this->createMock(Connection::class)
     );
 

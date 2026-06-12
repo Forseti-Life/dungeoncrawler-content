@@ -61,13 +61,6 @@ class CombatApiController extends ControllerBase {
   protected $encounterStore;
 
   /**
-   * The number generation service.
-   *
-   * @var \Drupal\dungeoncrawler_content\Service\NumberGenerationService
-   */
-  protected $numberGenerator;
-
-  /**
    * Database connection.
    *
    * @var \Drupal\Core\Database\Connection
@@ -77,11 +70,10 @@ class CombatApiController extends ControllerBase {
   /**
    * Constructor.
    */
-  public function __construct($hp_manager, $condition_manager, $encounter_store, $number_generator, Connection $database) {
+  public function __construct($hp_manager, $condition_manager, $encounter_store, Connection $database) {
     $this->hpManager = $hp_manager;
     $this->conditionManager = $condition_manager;
     $this->encounterStore = $encounter_store;
-    $this->numberGenerator = $number_generator;
     $this->database = $database;
   }
 
@@ -93,7 +85,6 @@ class CombatApiController extends ControllerBase {
       $container->get('dungeoncrawler_content.hp_manager'),
       $container->get('dungeoncrawler_content.condition_manager'),
       $container->get('dungeoncrawler_content.combat_encounter_store'),
-      $container->get('dungeoncrawler_content.number_generation'),
       $container->get('database')
     );
   }

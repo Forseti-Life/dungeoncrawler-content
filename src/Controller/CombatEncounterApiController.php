@@ -241,9 +241,6 @@ class CombatEncounterApiController extends ControllerBase {
     }
 
     $encounter_id = (int) $active_encounter_ids[0];
-    if (count($active_encounter_ids) > 1) {
-      $this->retireActiveEncounters($active_encounter_ids, $encounter_id);
-    }
 
     $encounter = $this->normalizeEncounterForResponse($this->loadEncounter((int) $encounter_id));
     if (!$encounter) {
@@ -569,25 +566,6 @@ class CombatEncounterApiController extends ControllerBase {
   }
 
   /**
-   * Mark stale or invalid encounters ended.
-   *
-   * @param array<int> $encounter_ids
-   *   Encounter ids to retire.
-   * @param int|null $preserve_id
-   *   Optional encounter id to keep active.
-   */
-  protected function retireActiveEncounters(array $encounter_ids, ?int $preserve_id = NULL): void {
-    foreach ($encounter_ids as $encounter_id) {
-      $encounter_id = (int) $encounter_id;
-      if ($encounter_id <= 0 || ($preserve_id !== NULL && $encounter_id === $preserve_id)) {
-        continue;
-      }
-
-      $this->encounterStore->updateEncounter($encounter_id, ['status' => 'ended']);
-    }
-  }
-
-  /**
    * Normalize encounter payloads for read responses without mutating turn state.
    *
    * Round/turn progression is authoritative in the coordinator->encounter-handler
@@ -602,39 +580,12 @@ class CombatEncounterApiController extends ControllerBase {
   }
 
   /**
-   * Run a minimal server-side NPC loop: each non-player gets one swing at the first alive player.
-   * Advances turn index until we hit a player or exhaust participants.
+   * Legacy NPC autoplay hook (disabled).
+   *
+   * Round/turn advancement must stay inside the canonical coordinator action
+   * chain; this method is intentionally side-effect free.
    */
   protected function autoPlayNonPlayerTurns(?array $encounter): ?array {
-    if (!$encounter) {
-      return NULL;
-    }
-
-    $limit = max(1, count($encounter['participants'] ?? []));
-    for ($i = 0; $i < $limit; $i++) {
-      $participants = $encounter['participants'] ?? [];
-      $turn_index = (int) ($encounter['turn_index'] ?? 0);
-      $current = $participants[$turn_index] ?? NULL;
-
-      if (!$current || ($current['team'] ?? 'player') === 'player' || !empty($current['is_defeated'])) {
-        break;
-      }
-
-      $this->runNpcTurnAction($encounter, $current, $participants);
-      $encounter = $this->loadEncounter((int) $encounter['id']);
-
-      // Advance turn index and round.
-      $next_index = $this->findNextTurnIndex($encounter['participants'] ?? [], (int) $encounter['turn_index']);
-      $fields = ['turn_index' => $next_index];
-      if ($next_index <= $encounter['turn_index']) {
-        $fields['current_round'] = (int) $encounter['current_round'] + 1;
-        $encounter['current_round'] = $fields['current_round'];
-      }
-      $encounter['turn_index'] = $next_index;
-      $this->encounterStore->updateEncounter((int) $encounter['id'], $fields);
-      $encounter = $this->loadEncounter((int) $encounter['id']);
-    }
-
     return $encounter;
   }
 
