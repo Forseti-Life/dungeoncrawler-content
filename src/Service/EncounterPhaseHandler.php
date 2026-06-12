@@ -4117,6 +4117,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
           'objective_type' => (string) ($params['objective_type'] ?? ''),
           'objective_id' => (string) ($params['objective_id'] ?? ''),
           'entity_ref' => (string) ($target_id ?? ''),
+          '_validated_encounter_talk' => TRUE,
           '_encounter_prefix' => $this->buildEncounterChatPrefix($turn_ctx),
         ]
       );

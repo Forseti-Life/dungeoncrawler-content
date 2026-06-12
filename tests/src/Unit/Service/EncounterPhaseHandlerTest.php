@@ -181,6 +181,7 @@ class EncounterPhaseHandlerTest extends UnitTestCase {
           return ($metadata['objective_type'] ?? '') === ''
             && ($metadata['objective_id'] ?? '') === ''
             && ($metadata['entity_ref'] ?? '') === 'npc-guide'
+            && ($metadata['_validated_encounter_talk'] ?? FALSE) === TRUE
             && is_string($metadata['_encounter_prefix'] ?? NULL);
         })
       )

@@ -712,7 +712,18 @@ class RoomChatService {
     ]);
 
     $stage_started_at = hrtime(true);
-    $encounter_turn_error = $this->validateEncounterPlayerTurnForChat($dungeon_data, $channel, $character_id, $type, $speaker);
+    // EncounterPhaseHandler has already validated canonical Talk intents. Skip the
+    // duplicate room-turn gate in that internal path while keeping this guard for
+    // all other room-chat callers.
+    $skip_encounter_turn_validation = (
+      $type === 'player'
+      && $channel === 'room'
+      && !empty($quest_touchpoint_hint['_validated_encounter_talk'])
+    );
+
+    $encounter_turn_error = $skip_encounter_turn_validation
+      ? NULL
+      : $this->validateEncounterPlayerTurnForChat($dungeon_data, $channel, $character_id, $type, $speaker);
     if ($encounter_turn_error !== NULL) {
       throw new \InvalidArgumentException($encounter_turn_error, 409);
     }
