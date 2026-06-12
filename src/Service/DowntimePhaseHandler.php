@@ -807,7 +807,7 @@ class DowntimePhaseHandler implements PhaseHandlerInterface {
         ->condition('campaign_id', $campaign_id)
         ->execute();
     }
-    catch (\Exception $e) {
+    catch (\Throwable $e) {
       $this->logger->error('advance_starvation persist failed: @error', ['@error' => $e->getMessage()]);
     }
 
@@ -1042,7 +1042,7 @@ class DowntimePhaseHandler implements PhaseHandlerInterface {
         ->condition('campaign_id', $campaign_id)
         ->execute();
     }
-    catch (\Exception $e) {
+    catch (\Throwable $e) {
       $this->logger->error('Failed to persist long rest: @error', ['@error' => $e->getMessage()]);
     }
 
@@ -1157,7 +1157,7 @@ class DowntimePhaseHandler implements PhaseHandlerInterface {
         ->condition('campaign_id', $campaign_id)
         ->execute();
     }
-    catch (\Exception $e) {
+    catch (\Throwable $e) {
       $this->logger->error('Failed to persist downtime rest: @error', ['@error' => $e->getMessage()]);
     }
 

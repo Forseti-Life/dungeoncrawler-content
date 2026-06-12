@@ -339,10 +339,6 @@ services:
     class: Drupal\dungeoncrawler_content\Service\ConditionManager
     arguments: ['@database', '@dungeoncrawler_content.number_generation']
 
-  dungeoncrawler_content.state_manager:
-    class: Drupal\dungeoncrawler_content\Service\StateManager
-    arguments: ['@database', '@cache.default']
-
   dungeoncrawler_content.combat_calculator:
     class: Drupal\dungeoncrawler_content\Service\CombatCalculator
 

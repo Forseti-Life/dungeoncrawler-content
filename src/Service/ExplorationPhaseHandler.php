@@ -2019,7 +2019,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
         'mutations' => $chat_result['mutations'] ?? [],
       ];
     }
-    catch (\Exception $e) {
+    catch (\Throwable $e) {
       $this->logger->error('Talk action failed: @error', ['@error' => $e->getMessage()]);
       return [
         'talked' => FALSE,
@@ -2701,7 +2701,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
       try {
         $this->roomChatService->ensureNpcProfiles($campaign_id, $room_entities);
       }
-      catch (\Exception $e) {
+      catch (\Throwable $e) {
         $this->logger->warning('Auto-profile creation failed on room entry: @err', ['@err' => $e->getMessage()]);
       }
     }
@@ -3266,7 +3266,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
         ->condition('campaign_id', $campaign_id)
         ->execute();
     }
-    catch (\Exception $e) {
+    catch (\Throwable $e) {
       $this->logger->error('Failed to persist daily prepare: @error', ['@error' => $e->getMessage()]);
     }
 
@@ -4491,7 +4491,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
         ->condition('campaign_id', $campaign_id)
         ->execute();
     }
-    catch (\Exception $e) {
+    catch (\Throwable $e) {
       $this->logger->error('Failed to persist dungeon data: @error', ['@error' => $e->getMessage()]);
     }
   }
@@ -4649,7 +4649,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
         $present_characters
       );
     }
-    catch (\Exception $e) {
+    catch (\Throwable $e) {
       $this->logger->warning('NarrationEngine queue failed: @err', ['@err' => $e->getMessage()]);
       return [];
     }
