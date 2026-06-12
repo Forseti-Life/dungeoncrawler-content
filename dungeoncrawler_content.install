@@ -275,10 +275,10 @@ function dungeoncrawler_content_schema() {
         'description' => 'Linked encounter.',
       ],
       'entity_id' => [
-        'type' => 'int',
-        'unsigned' => TRUE,
+        'type' => 'varchar',
+        'length' => 191,
         'not null' => TRUE,
-        'description' => 'External entity identifier from the map/ECS.',
+        'description' => 'Runtime entity identifier from the map/ECS (string-compatible).',
       ],
       'entity_ref' => [
         'type' => 'varchar',
@@ -8459,6 +8459,47 @@ function dungeoncrawler_content_update_10080() {
   }
 
   return t('collect_spellbooks phase-advance reconciliation complete. Updated @updated progress row(s).', ['@updated' => $updated]);
+}
+
+/**
+ * Expand combat_participants.entity_id to runtime string IDs.
+ */
+function dungeoncrawler_content_update_10081() {
+  $database = \Drupal::database();
+  $schema = dungeoncrawler_content_schema();
+  $schema_handler = $database->schema();
+
+  if (!$schema_handler->tableExists('combat_participants')) {
+    $schema_handler->createTable('combat_participants', $schema['combat_participants']);
+    return t('Created combat_participants.');
+  }
+  if (!$schema_handler->fieldExists('combat_participants', 'entity_id')) {
+    $schema_handler->addField('combat_participants', 'entity_id', $schema['combat_participants']['fields']['entity_id']);
+    return t('Added missing combat_participants.entity_id.');
+  }
+
+  $driver = method_exists($database, 'databaseType')
+    ? (string) $database->databaseType()
+    : (string) (($database->getConnectionOptions()['driver'] ?? ''));
+
+  try {
+    if (in_array($driver, ['mysql', 'mysqli'], TRUE)) {
+      $database->query('ALTER TABLE {combat_participants} MODIFY entity_id VARCHAR(191) NOT NULL');
+    }
+    else {
+      $schema_handler->changeField(
+        'combat_participants',
+        'entity_id',
+        'entity_id',
+        $schema['combat_participants']['fields']['entity_id']
+      );
+    }
+  }
+  catch (\Throwable $exception) {
+    throw new \Drupal\Core\Utility\UpdateException('Failed to update combat_participants.entity_id to VARCHAR(191): ' . $exception->getMessage());
+  }
+
+  return t('Updated combat_participants.entity_id to VARCHAR(191) for runtime entity IDs.');
 }
 
 /**
