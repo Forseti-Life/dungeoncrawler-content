@@ -328,7 +328,7 @@ class GameCoordinatorService {
           $session_narration = $flush_result;
         }
       }
-      catch (\Exception $e) {
+      catch (\Throwable $e) {
         $this->logger->warning('NarrationEngine flush failed: @err', ['@err' => $e->getMessage()]);
       }
     }
@@ -754,7 +754,7 @@ class GameCoordinatorService {
           $present
         );
       }
-      catch (\Exception $e) {
+      catch (\Throwable $e) {
         $this->logger->warning('NarrationEngine queue failed during phase transition: @err', ['@err' => $e->getMessage()]);
       }
     }
@@ -806,7 +806,7 @@ class GameCoordinatorService {
         }
       }
     }
-    catch (\Exception $e) {
+    catch (\Throwable $e) {
       $this->logger->error('Failed to load dungeon data for campaign @id: @error', [
         '@id' => $campaign_id,
         '@error' => $e->getMessage(),
@@ -832,7 +832,7 @@ class GameCoordinatorService {
       $query->execute();
       return TRUE;
     }
-    catch (\Exception $e) {
+    catch (\Throwable $e) {
       $this->logger->error('Failed to persist dungeon data for campaign @id: @error', [
         '@id' => $campaign_id,
         '@error' => $e->getMessage(),

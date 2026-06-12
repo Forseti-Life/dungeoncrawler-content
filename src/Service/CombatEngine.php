@@ -48,16 +48,6 @@ class CombatEngine {
   protected $database;
 
   /**
-   * @var \Drupal\dungeoncrawler_content\Service\StateManager
-   */
-  protected $stateManager;
-
-  /**
-   * @var \Drupal\dungeoncrawler_content\Service\ActionProcessor
-   */
-  protected $actionProcessor;
-
-  /**
    * @var \Drupal\dungeoncrawler_content\Service\CombatEncounterStore
    */
   protected $store;
@@ -93,10 +83,8 @@ class CombatEngine {
    */
   protected ?AfflictionManager $afflictionManager;
 
-  public function __construct(Connection $database, StateManager $state_manager, ActionProcessor $action_processor, CombatEncounterStore $store, HPManager $hp_manager, NumberGenerationService $number_generation, CombatCalculator $combat_calculator = NULL, Calculator $calculator = NULL, ConditionManager $condition_manager = NULL, MovementResolverService $movement_resolver = NULL, AfflictionManager $affliction_manager = NULL) {
+  public function __construct(Connection $database, CombatEncounterStore $store, HPManager $hp_manager, NumberGenerationService $number_generation, CombatCalculator $combat_calculator = NULL, Calculator $calculator = NULL, ConditionManager $condition_manager = NULL, MovementResolverService $movement_resolver = NULL, AfflictionManager $affliction_manager = NULL) {
     $this->database = $database;
-    $this->stateManager = $state_manager;
-    $this->actionProcessor = $action_processor;
     $this->store = $store;
     $this->hpManager = $hp_manager;
     $this->numberGeneration = $number_generation;

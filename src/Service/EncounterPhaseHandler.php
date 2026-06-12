@@ -3845,7 +3845,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
         $this->markRoomEncounterTriggered($dungeon_data, $room_id);
       }
     }
-    catch (\Exception $e) {
+    catch (\Throwable $e) {
       $this->logger->error('Failed to create encounter: @error', ['@error' => $e->getMessage()]);
       $events[] = GameEventLogger::buildEvent('encounter_start_failed', 'encounter', NULL, [
         'error' => $e->getMessage(),
@@ -3871,7 +3871,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
           'encounter framework cleanup'
         );
       }
-      catch (\Exception $e) {
+      catch (\Throwable $e) {
         $this->logger->error('Failed to end encounter: @error', ['@error' => $e->getMessage()]);
       }
 
@@ -4499,7 +4499,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
         'mutations' => $mutations,
       ];
     }
-    catch (\Exception $e) {
+    catch (\Throwable $e) {
       $this->logger->error('Strike failed: @error', ['@error' => $e->getMessage()]);
       return ['error' => 'Strike resolution failed.', 'mutations' => []];
     }
@@ -5476,7 +5476,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
           'current_round' => $game_state['round'],
         ]);
       }
-      catch (\Exception $e) {
+      catch (\Throwable $e) {
         $this->logger->warning('Encounter store update failed: @error', ['@error' => $e->getMessage()]);
       }
     }
@@ -5584,7 +5584,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
           }
         }
       }
-      catch (\Exception $e) {
+      catch (\Throwable $e) {
         $this->logger->warning('NPC AI failed, using fallback: @error', ['@error' => $e->getMessage()]);
       }
     }
@@ -8881,7 +8881,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
         $present_characters
       );
     }
-    catch (\Exception $e) {
+    catch (\Throwable $e) {
       $this->logger->warning('NarrationEngine queue failed: @err', ['@err' => $e->getMessage()]);
       return [];
     }

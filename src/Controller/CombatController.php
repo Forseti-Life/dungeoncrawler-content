@@ -21,26 +21,10 @@ use Symfony\Component\HttpFoundation\Request;
 class CombatController extends ControllerBase {
 
   /**
-   * The combat engine service.
-   *
-   * @var \Drupal\dungeoncrawler_content\Service\CombatEngine
-   */
-  protected $combatEngine;
-
-  /**
-   * Constructor.
-   */
-  public function __construct($combat_engine) {
-    $this->combatEngine = $combat_engine;
-  }
-
-  /**
    * {@inheritdoc}
    */
   public static function create(ContainerInterface $container) {
-    return new static(
-      $container->get('dungeoncrawler_content.combat_engine')
-    );
+    return new static();
   }
 
   /**

@@ -408,8 +408,6 @@ services:
     class: Drupal\dungeoncrawler_content\Service\CombatEngine
     arguments:
       - '@database'
-      - '@dungeoncrawler_content.state_manager'
-      - '@dungeoncrawler_content.action_processor'
       - '@dungeoncrawler_content.combat_encounter_store'
       - '@dungeoncrawler_content.hp_manager'
       - '@dungeoncrawler_content.number_generation'
