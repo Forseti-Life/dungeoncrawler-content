@@ -236,7 +236,7 @@ class RoomChatController extends ControllerBase {
         'error' => $status === 404 ? 'Dungeon not found' : 'Invalid request',
       ], $status);
     }
-    catch (\Exception $e) {
+    catch (\Throwable $e) {
       return new JsonResponse([
         'success' => FALSE,
         'error' => 'An error occurred',
@@ -371,7 +371,7 @@ class RoomChatController extends ControllerBase {
         'error' => $e->getMessage(),
       ], $status);
     }
-    catch (\Exception $e) {
+    catch (\Throwable $e) {
       return new JsonResponse([
         'success' => FALSE,
         'error' => 'An error occurred',
@@ -427,7 +427,7 @@ class RoomChatController extends ControllerBase {
         'error' => $e->getMessage(),
       ], $status);
     }
-    catch (\Exception $e) {
+    catch (\Throwable $e) {
       return new JsonResponse([
         'success' => FALSE,
         'error' => 'An error occurred',
@@ -1055,7 +1055,7 @@ class RoomChatController extends ControllerBase {
         'data' => $result,
       ]);
     }
-    catch (\Exception $e) {
+    catch (\Throwable $e) {
       return new JsonResponse(['success' => FALSE, 'error' => 'An error occurred'], 500);
     }
   }
@@ -1107,7 +1107,7 @@ class RoomChatController extends ControllerBase {
       $status = $result['success'] ? 200 : 400;
       return new JsonResponse(['success' => $result['success'], 'data' => $result], $status);
     }
-    catch (\Exception $e) {
+    catch (\Throwable $e) {
       return new JsonResponse(['success' => FALSE, 'error' => 'An error occurred'], 500);
     }
   }
@@ -1130,7 +1130,7 @@ class RoomChatController extends ControllerBase {
         'data' => ['channel_key' => $channel_key, 'closed' => $closed],
       ]);
     }
-    catch (\Exception $e) {
+    catch (\Throwable $e) {
       return new JsonResponse(['success' => FALSE, 'error' => 'An error occurred'], 500);
     }
   }
