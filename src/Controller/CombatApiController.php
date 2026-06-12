@@ -32,12 +32,14 @@ class CombatApiController extends ControllerBase {
   /**
    * Participant fields that are owned by canonical encounter authority.
    */
-  protected const CANONICAL_TURN_FIELDS = [
+  protected const CANONICAL_MUTATION_FIELDS = [
     'initiative',
     'actions_remaining',
     'attacks_this_turn',
     'reaction_available',
     'team',
+    'hp',
+    'max_hp',
   ];
 
   /**
@@ -481,14 +483,14 @@ class CombatApiController extends ControllerBase {
     }
 
     $requested_keys = array_keys($data);
-    $blocked_fields = array_values(array_intersect($requested_keys, self::CANONICAL_TURN_FIELDS));
+    $blocked_fields = array_values(array_intersect($requested_keys, self::CANONICAL_MUTATION_FIELDS));
     if ($blocked_fields !== []) {
       return $this->roundTurnAuthorityDisabledResponse($blocked_fields);
     }
 
     // Whitelist of updatable fields.
     $allowed = [
-      'name', 'ac', 'hp', 'max_hp',
+      'name', 'ac',
       'position_q', 'position_r',
     ];
 

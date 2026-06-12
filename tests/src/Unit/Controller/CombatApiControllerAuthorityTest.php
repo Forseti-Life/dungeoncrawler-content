@@ -79,7 +79,7 @@ class CombatApiControllerAuthorityTest extends UnitTestCase {
   /**
    * @covers ::updateParticipant
    */
-  public function testUpdateParticipantAllowsNonTurnFields(): void {
+  public function testUpdateParticipantAllowsNonCanonicalMetadataFields(): void {
     $store = $this->createMock(CombatEncounterStore::class);
     $store->expects($this->once())
       ->method('loadEncounter')
@@ -91,7 +91,7 @@ class CombatApiControllerAuthorityTest extends UnitTestCase {
       ]);
     $store->expects($this->once())
       ->method('updateParticipant')
-      ->with(3, ['name' => 'Updated Name', 'hp' => 12]);
+      ->with(3, ['name' => 'Updated Name', 'ac' => 17]);
 
     $controller = new CombatApiController(
       $this->createMock(\stdClass::class),
@@ -101,14 +101,14 @@ class CombatApiControllerAuthorityTest extends UnitTestCase {
     );
 
     $request = new Request([], [], [], [], [], [], json_encode([
-      'hp' => 12,
+      'ac' => 17,
       'name' => 'Updated Name',
     ]));
     $response = $controller->updateParticipant(77, 3, $request);
     $payload = json_decode((string) $response->getContent(), TRUE);
 
     $this->assertSame(200, $response->getStatusCode());
-    $this->assertSame(['name', 'hp'], $payload['updated_fields'] ?? []);
+    $this->assertSame(['name', 'ac'], $payload['updated_fields'] ?? []);
   }
 
   /**
@@ -143,6 +143,41 @@ class CombatApiControllerAuthorityTest extends UnitTestCase {
     $this->assertSame(409, $response->getStatusCode());
     $this->assertSame('round_turn_authority_disabled', $payload['error_code'] ?? NULL);
     $this->assertSame(['team'], $payload['blocked_fields'] ?? []);
+  }
+
+  /**
+   * @covers ::updateParticipant
+   */
+  public function testUpdateParticipantBlocksHpMutation(): void {
+    $store = $this->createMock(CombatEncounterStore::class);
+    $store->expects($this->once())
+      ->method('loadEncounter')
+      ->with(89)
+      ->willReturn([
+        'participants' => [
+          ['id' => 5],
+        ],
+      ]);
+    $store->expects($this->never())
+      ->method('updateParticipant');
+
+    $controller = new CombatApiController(
+      $this->createMock(\stdClass::class),
+      $this->createMock(\stdClass::class),
+      $store,
+      $this->createMock(Connection::class)
+    );
+
+    $request = new Request([], [], [], [], [], [], json_encode([
+      'hp' => 12,
+      'max_hp' => 20,
+    ]));
+    $response = $controller->updateParticipant(89, 5, $request);
+    $payload = json_decode((string) $response->getContent(), TRUE);
+
+    $this->assertSame(409, $response->getStatusCode());
+    $this->assertSame('round_turn_authority_disabled', $payload['error_code'] ?? NULL);
+    $this->assertSame(['hp', 'max_hp'], $payload['blocked_fields'] ?? []);
   }
 
   /**
