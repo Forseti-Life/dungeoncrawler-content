@@ -444,11 +444,12 @@ class RoomChatController extends ControllerBase {
   ): StreamedResponse {
     return $this->createStreamedTurnResponse(
       function (callable $emit) use ($campaign_id, $room_id, $speaker, $message, $type, $character_id, $channel, $client_request_id): void {
+        $encounter_progress_ctx = $this->buildEncounterProgressSnapshot($campaign_id);
         $this->emitProgressUpdate($emit, $client_request_id, 'room_request_started', [
           'campaign_id' => $campaign_id,
           'room_id' => $room_id,
           'channel' => $channel,
-        ]);
+        ] + $encounter_progress_ctx);
 
         $posted_message = NULL;
         $player_message_for_followup = $message;
@@ -493,7 +494,7 @@ class RoomChatController extends ControllerBase {
               'campaign_id' => $campaign_id,
               'room_id' => $room_id,
               'channel' => $channel,
-            ])
+            ] + $encounter_progress_ctx)
           );
         }
 
@@ -547,11 +548,12 @@ class RoomChatController extends ControllerBase {
   ): StreamedResponse {
     return $this->createStreamedTurnResponse(
       function (callable $emit) use ($campaign_id, $room_id, $character_id, $channel, $client_request_id): void {
+        $encounter_progress_ctx = $this->buildEncounterProgressSnapshot($campaign_id);
         $emit([
           'type' => 'thinking',
           'data' => $this->buildProgressEventData('queued_continuation_started', $client_request_id, [
             'channel' => $channel,
-          ]),
+          ] + $encounter_progress_ctx),
         ]);
 
         $result = $this->chatService->continueQueuedRoomConversation(
@@ -564,7 +566,7 @@ class RoomChatController extends ControllerBase {
             'campaign_id' => $campaign_id,
             'room_id' => $room_id,
             'channel' => $channel,
-          ])
+          ] + $encounter_progress_ctx)
         );
 
         $this->emitStreamedTurnResult(
@@ -587,6 +589,68 @@ class RoomChatController extends ControllerBase {
         'stream_mode' => 'queued_continuation',
       ]
     );
+  }
+
+  /**
+   * Build a stable encounter round/turn snapshot for progress-line prefixing.
+   */
+  protected function buildEncounterProgressSnapshot(int $campaign_id): array {
+    if ($campaign_id <= 0) {
+      return [];
+    }
+
+    $state = $this->coordinator->getFullState($campaign_id);
+    if (!is_array($state)) {
+      return [];
+    }
+
+    $round_raw = $state['round'] ?? ($state['game_state']['round'] ?? NULL);
+    $turn = $state['turn'] ?? ($state['game_state']['turn'] ?? []);
+    $turn_index_raw = is_array($turn) && isset($turn['index']) && is_numeric($turn['index'])
+      ? (int) $turn['index']
+      : NULL;
+
+    $snapshot = [];
+    if (is_numeric($round_raw)) {
+      $snapshot['encounter_round_raw'] = (int) $round_raw;
+    }
+    if ($turn_index_raw !== NULL) {
+      $snapshot['encounter_turn_index_raw'] = $turn_index_raw;
+    }
+
+    return $snapshot;
+  }
+
+  /**
+   * Resolve progress prefix snapshot from action/chat result payloads.
+   */
+  protected function buildEncounterProgressSnapshotFromResult(array $result, int $campaign_id): array {
+    $game_state = [];
+    if (is_array($result['game_state'] ?? NULL)) {
+      $game_state = $result['game_state'];
+    }
+    elseif (is_array($result['dungeon_data']['game_state'] ?? NULL)) {
+      $game_state = $result['dungeon_data']['game_state'];
+    }
+
+    if ($game_state !== []) {
+      $round_raw = $game_state['round'] ?? NULL;
+      $turn = is_array($game_state['turn'] ?? NULL) ? $game_state['turn'] : [];
+      $turn_index_raw = isset($turn['index']) && is_numeric($turn['index']) ? (int) $turn['index'] : NULL;
+
+      $snapshot = [];
+      if (is_numeric($round_raw)) {
+        $snapshot['encounter_round_raw'] = (int) $round_raw;
+      }
+      if ($turn_index_raw !== NULL) {
+        $snapshot['encounter_turn_index_raw'] = $turn_index_raw;
+      }
+      if ($snapshot !== []) {
+        return $snapshot;
+      }
+    }
+
+    return $this->buildEncounterProgressSnapshot($campaign_id);
   }
 
   /**
@@ -684,7 +748,7 @@ class RoomChatController extends ControllerBase {
         'campaign_id' => $campaign_id,
         'room_id' => $room_id,
         'channel' => $channel,
-      ]);
+      ] + $this->buildEncounterProgressSnapshotFromResult($result, $campaign_id));
       $npc_turn_result = $this->chatService->completeDeferredNpcInterjections(
         $campaign_id,
         $room_id,
@@ -730,7 +794,6 @@ class RoomChatController extends ControllerBase {
           $npc_turn_result['quest_updates']
         ));
       }
-
       $result['npc_interjections_deferred'] = FALSE;
     }
 
@@ -920,10 +983,14 @@ class RoomChatController extends ControllerBase {
     }
 
     if ($campaign_id > 0) {
+      $round_raw = is_numeric($context['encounter_round_raw'] ?? NULL) ? (int) $context['encounter_round_raw'] : NULL;
+      $turn_index_raw = is_numeric($context['encounter_turn_index_raw'] ?? NULL) ? (int) $context['encounter_turn_index_raw'] : NULL;
       $data['message'] = $this->prefixEncounterProgressMessage(
         $campaign_id,
         (string) ($data['speaker'] ?? 'System'),
-        (string) ($data['message'] ?? '')
+        (string) ($data['message'] ?? ''),
+        $round_raw,
+        $turn_index_raw
       );
     }
 
@@ -934,19 +1001,30 @@ class RoomChatController extends ControllerBase {
     return \Drupal\dungeoncrawler_content\Service\EncounterTranscriptPrefix::isPrefixed($content);
   }
 
-  protected function prefixEncounterProgressMessage(int $campaign_id, string $speaker, string $message): string {
+  protected function prefixEncounterProgressMessage(
+    int $campaign_id,
+    string $speaker,
+    string $message,
+    ?int $round_raw = NULL,
+    ?int $turn_index_raw = NULL
+  ): string {
     $message = trim($message);
     if ($message === '' || $this->isEncounterPrefixedMessage($message)) {
       return $message;
     }
 
-    $state = $this->coordinator->getFullState($campaign_id);
+    if ($round_raw === NULL || $turn_index_raw === NULL) {
+      $state = $this->coordinator->getFullState($campaign_id);
+      if ($round_raw === NULL) {
+        $round_raw = is_array($state) ? ($state['round'] ?? ($state['game_state']['round'] ?? 1)) : 1;
+      }
+      if ($turn_index_raw === NULL) {
+        $turn = is_array($state) ? ($state['turn'] ?? ($state['game_state']['turn'] ?? [])) : [];
+        $turn_index_raw = is_array($turn) && isset($turn['index']) && is_numeric($turn['index']) ? (int) $turn['index'] : NULL;
+      }
+    }
 
-    $round_raw = is_array($state) ? ($state['round'] ?? ($state['game_state']['round'] ?? 1)) : 1;
     $round_display = \Drupal\dungeoncrawler_content\Service\EncounterTranscriptPrefix::displayRound($round_raw);
-
-    $turn = is_array($state) ? ($state['turn'] ?? ($state['game_state']['turn'] ?? [])) : [];
-    $turn_index_raw = is_array($turn) && isset($turn['index']) && is_numeric($turn['index']) ? (int) $turn['index'] : NULL;
     $turn_display = \Drupal\dungeoncrawler_content\Service\EncounterTranscriptPrefix::displayTurnFromIndexRaw($turn_index_raw);
 
     return \Drupal\dungeoncrawler_content\Service\EncounterTranscriptPrefix::formatPrefix($round_display, $turn_display, $speaker) . $message;

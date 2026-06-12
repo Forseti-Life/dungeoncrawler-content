@@ -104,6 +104,31 @@ class RoomChatControllerProgressTest extends UnitTestCase {
   }
 
   /**
+   * @covers ::buildProgressEventData
+   */
+  public function testBuildProgressEventDataUsesProvidedEncounterSnapshot(): void {
+    $coordinator = $this->createMock(GameCoordinatorService::class);
+    $coordinator->method('getFullState')->willReturn([
+      'success' => TRUE,
+      'round' => 1,
+      'turn' => ['index' => 0],
+      'game_state' => ['round' => 1, 'turn' => ['index' => 0]],
+    ]);
+
+    $controller = $this->createController($this->createMock(RoomChatService::class), NULL, $coordinator);
+    $method = new \ReflectionMethod(RoomChatController::class, 'buildProgressEventData');
+    $method->setAccessible(TRUE);
+
+    $snapshot_message = $method->invoke($controller, 'npc_reactions_generating', 'req-snapshot', [
+      'campaign_id' => 63,
+      'encounter_round_raw' => 1,
+      'encounter_turn_index_raw' => 1,
+    ]);
+
+    $this->assertSame('Round 0: Turn 2: Actor Initiative Order: Resolving nearby NPC turns...', $snapshot_message['message']);
+  }
+
+  /**
    * @covers ::postChatMessage
    */
   public function testPostChatMessageReturnsTurnLogsInJsonPayload(): void {

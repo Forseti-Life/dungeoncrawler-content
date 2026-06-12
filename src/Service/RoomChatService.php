@@ -816,7 +816,7 @@ class RoomChatService {
       'channel' => $channel,
       'room_entry' => $is_room_entry,
       'total_messages' => count($dungeon_data['rooms'][$room_index]['chat']),
-    ]);
+    ] + $this->buildEncounterProgressSnapshotFromDungeonData($dungeon_data));
 
     // Log chat activity
     $this->logger->info('Chat message posted in room @room by user @uid: @message', [
@@ -835,7 +835,7 @@ class RoomChatService {
     $this->recordDebugStage('bridge_to_session_system', $stage_started_at);
     $this->reportProgress($progress_callback, 'conversation_bridged', [
       'channel' => $channel,
-    ]);
+    ] + $this->buildEncounterProgressSnapshotFromDungeonData($dungeon_data));
 
     // Generate AI response (GM for room channel, NPC for private channels).
     $gm_result = [];
@@ -852,11 +852,11 @@ class RoomChatService {
         $this->recordDebugStage('ensure_room_npc_profiles', $stage_started_at);
         $this->reportProgress($progress_callback, 'npc_context_prepared', [
           'channel' => $channel,
-        ]);
+        ] + $this->buildEncounterProgressSnapshotFromDungeonData($dungeon_data));
         // Room channel: GM responds.
         $this->reportProgress($progress_callback, 'gm_reply_generating', [
           'channel' => $channel,
-        ]);
+        ] + $this->buildEncounterProgressSnapshotFromDungeonData($dungeon_data));
         $stage_started_at = hrtime(true);
         $gm_result = $this->generateGmReply($campaign_id, $room_id, $room_index, $dungeon_id, $dungeon_data, $character_id, $encounter_prefix);
         $this->recordDebugStage('generate_gm_reply', $stage_started_at, [
@@ -867,7 +867,7 @@ class RoomChatService {
         $channel_def = $dungeon_data['rooms'][$room_index]['channels'][$channel] ?? [];
         $this->reportProgress($progress_callback, 'gm_reply_generating', [
           'channel' => $channel,
-        ]);
+        ] + $this->buildEncounterProgressSnapshotFromDungeonData($dungeon_data));
         $stage_started_at = hrtime(true);
         $gm_result = $this->generateChannelNpcReply($campaign_id, $room_id, $room_index, $dungeon_id, $dungeon_data, $character_id, $channel, $channel_def);
         $this->recordDebugStage('generate_channel_npc_reply', $stage_started_at, [
@@ -1095,7 +1095,7 @@ class RoomChatService {
     $this->reportProgress($progress_callback, 'queued_messages_loaded', [
       'queued_player_count' => count($queued_player_messages),
       'channel' => $channel,
-    ]);
+    ] + $this->buildEncounterProgressSnapshotFromDungeonData($dungeon_data));
 
     $stage_started_at = hrtime(true);
     $this->ensureCurrentRoomNpcProfiles($campaign_id, $room_id, $dungeon_data, $room_index);
@@ -1103,12 +1103,12 @@ class RoomChatService {
     $this->reportProgress($progress_callback, 'npc_context_prepared', [
       'queued_player_count' => count($queued_player_messages),
       'channel' => $channel,
-    ]);
+    ] + $this->buildEncounterProgressSnapshotFromDungeonData($dungeon_data));
 
     $this->reportProgress($progress_callback, 'gm_reply_generating', [
       'queued_player_count' => count($queued_player_messages),
       'channel' => $channel,
-    ]);
+    ] + $this->buildEncounterProgressSnapshotFromDungeonData($dungeon_data));
 
     $encounter_prefix = ($channel === 'room') ? $this->buildEncounterPrefixFromDungeonData($dungeon_data) : NULL;
 
@@ -1264,6 +1264,30 @@ class RoomChatService {
       'stage' => $stage,
       'context' => $context,
     ]);
+  }
+
+  /**
+   * Build encounter round/turn snapshot fields for streamed progress events.
+   */
+  protected function buildEncounterProgressSnapshotFromDungeonData(array $dungeon_data): array {
+    $game_state = is_array($dungeon_data['game_state'] ?? NULL) ? $dungeon_data['game_state'] : [];
+    if ($game_state === []) {
+      return [];
+    }
+
+    $round_raw = is_numeric($game_state['round'] ?? NULL) ? (int) $game_state['round'] : NULL;
+    $turn = is_array($game_state['turn'] ?? NULL) ? $game_state['turn'] : [];
+    $turn_index_raw = isset($turn['index']) && is_numeric($turn['index']) ? (int) $turn['index'] : NULL;
+
+    $snapshot = [];
+    if ($round_raw !== NULL) {
+      $snapshot['encounter_round_raw'] = $round_raw;
+    }
+    if ($turn_index_raw !== NULL) {
+      $snapshot['encounter_turn_index_raw'] = $turn_index_raw;
+    }
+
+    return $snapshot;
   }
 
   /**
@@ -3778,6 +3802,23 @@ class RoomChatService {
     ?array $active_character_data = NULL,
     ?string $encounter_prefix = NULL
   ): array {
+    $game_state = is_array($dungeon_data['game_state'] ?? NULL) ? $dungeon_data['game_state'] : [];
+    if (($game_state['phase'] ?? '') === 'encounter') {
+      // Hard encounter loops are server-authoritative in GameCoordinator/EncounterPhaseHandler.
+      // Do not inject out-of-turn room harness chatter during encounter turns.
+      return $this->buildRoomTurnHarnessPayload([
+        'player' => ['message' => $player_message],
+        'gm' => ['narrative' => $gm_narrative],
+        'gm_addressed' => FALSE,
+        'directly_addressed_npc' => NULL,
+        'npc_turns' => [],
+        'turn_sequence' => [],
+        'turn_log_key' => '',
+        'turn_logs' => [],
+        'messages' => [],
+      ]);
+    }
+
     // Gather room NPCs with psychology profiles.
     $room_npcs = $this->gatherRoomNpcsWithProfiles($campaign_id, $room_id, $dungeon_data);
     $turn_log_key = uniqid('room_turn_', TRUE);
@@ -3895,8 +3936,6 @@ class RoomChatService {
 
     $messages = [];
     $spoken_refs = [];
-
-    $game_state = is_array($dungeon_data['game_state'] ?? NULL) ? $dungeon_data['game_state'] : [];
 
     // Structured logs have a dense sequence counter; chat/UX turn indices are
     // the stable speaker order within the harness.
