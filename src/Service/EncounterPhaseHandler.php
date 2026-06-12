@@ -4736,22 +4736,24 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
 
     $is_forced = !empty($params['is_forced']);
     $movement_type = $params['movement_type'] ?? 'land';
+    $encounter_for_actor = NULL;
+    $actor_participant = NULL;
 
     // Validate movement cost vs speed if MovementResolverService is available.
     if ($this->movementResolver && !$is_forced) {
       // Load participant for speed lookup.
-      $enc = $this->encounterStore->loadEncounter($encounter_id);
-      $ptcp = $enc ? $this->findEncounterParticipantByEntityId($enc, $actor_id) : NULL;
+      $encounter_for_actor = $this->encounterStore->loadEncounter($encounter_id);
+      $actor_participant = $encounter_for_actor ? $this->findEncounterParticipantByEntityId($encounter_for_actor, $actor_id) : NULL;
 
-      if ($ptcp) {
-        $speed = $this->movementResolver->getCreatureSpeed($ptcp, $movement_type);
+      if ($actor_participant) {
+        $speed = $this->movementResolver->getCreatureSpeed($actor_participant, $movement_type);
         if ($speed <= 0) {
           return ['error' => "No {$movement_type} speed.", 'mutations' => []];
         }
 
         // Derive from_hex from participant's current position.
-        $from_q = (int) ($ptcp['position_q'] ?? 0);
-        $from_r = (int) ($ptcp['position_r'] ?? 0);
+        $from_q = (int) ($actor_participant['position_q'] ?? 0);
+        $from_r = (int) ($actor_participant['position_r'] ?? 0);
         $from_hex_calc = ['q' => $from_q, 'r' => $from_r];
 
         $diagonal_count = (int) ($game_state['turn']['diagonal_count'] ?? 0);
@@ -4798,12 +4800,22 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
 
     // Also update the participant's position in the encounter store.
     try {
-      $this->encounterStore->updateParticipant($encounter_id, $actor_id, [
-        'position_q' => (int) $to_hex['q'],
-        'position_r' => (int) $to_hex['r'],
-      ]);
+      if (!$encounter_for_actor) {
+        $encounter_for_actor = $this->encounterStore->loadEncounter($encounter_id);
+      }
+      if ($actor_participant === NULL && $encounter_for_actor) {
+        $actor_participant = $this->findEncounterParticipantByEntityId($encounter_for_actor, $actor_id);
+      }
+
+      $participant_id = (int) ($actor_participant['id'] ?? 0);
+      if ($participant_id > 0) {
+        $this->encounterStore->updateParticipant($participant_id, [
+          'position_q' => (int) $to_hex['q'],
+          'position_r' => (int) $to_hex['r'],
+        ]);
+      }
     }
-    catch (\Exception $e) {
+    catch (\Throwable $e) {
       $this->logger->warning('Failed to update participant position: @error', ['@error' => $e->getMessage()]);
     }
 

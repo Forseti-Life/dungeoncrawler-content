@@ -1537,6 +1537,62 @@ class EncounterPhaseHandlerTest extends UnitTestCase {
   }
 
   /**
+   * Stride position sync updates canonical participant row by participant id.
+   *
+   * @covers ::processStride
+   */
+  public function testProcessStrideSyncsParticipantPositionByParticipantId(): void {
+    $encounter_store = $this->createMock(CombatEncounterStore::class);
+    $encounter_store->expects($this->once())
+      ->method('loadEncounter')
+      ->with(88)
+      ->willReturn([
+        'participants' => [
+          [
+            'id' => 321,
+            'entity_id' => 'actor-1',
+          ],
+        ],
+      ]);
+    $encounter_store->expects($this->once())
+      ->method('updateParticipant')
+      ->with(321, [
+        'position_q' => 4,
+        'position_r' => 5,
+      ]);
+
+    $handler = $this->buildHandler(NULL, NULL, $encounter_store);
+    $game_state = [
+      'active_room_id' => 'room-a',
+      'turn' => [],
+    ];
+    $dungeon_data = [
+      'entities' => [
+        [
+          'entity_instance_id' => 'actor-1',
+          'placement' => ['hex' => ['q' => 1, 'r' => 1]],
+        ],
+      ],
+    ];
+
+    $result = $this->invokeProcessStride(
+      $handler,
+      88,
+      'actor-1',
+      [
+        'to_hex' => ['q' => 4, 'r' => 5],
+        'is_forced' => TRUE,
+      ],
+      $game_state,
+      $dungeon_data,
+      42
+    );
+
+    $this->assertTrue($result['stride']);
+    $this->assertSame(['q' => 4, 'r' => 5], $dungeon_data['entities'][0]['placement']['hex']);
+  }
+
+  /**
    * Builds an EncounterPhaseHandler with lightweight mocks.
    */
   private function buildHandler(
@@ -1634,6 +1690,24 @@ class EncounterPhaseHandlerTest extends UnitTestCase {
     $method = new \ReflectionMethod(EncounterPhaseHandler::class, 'processCastSpell');
     $method->setAccessible(TRUE);
     $args = [$encounter_id, $actor_id, $target_id, $params, &$game_state, &$dungeon_data, $campaign_id];
+    return $method->invokeArgs($handler, $args);
+  }
+
+  /**
+   * Invoke protected stride processor with by-reference state payloads.
+   */
+  private function invokeProcessStride(
+    EncounterPhaseHandler $handler,
+    int $encounter_id,
+    string $actor_id,
+    array $params,
+    array &$game_state,
+    array &$dungeon_data,
+    int $campaign_id
+  ): array {
+    $method = new \ReflectionMethod(EncounterPhaseHandler::class, 'processStride');
+    $method->setAccessible(TRUE);
+    $args = [$encounter_id, $actor_id, $params, &$game_state, &$dungeon_data, $campaign_id];
     return $method->invokeArgs($handler, $args);
   }
 
