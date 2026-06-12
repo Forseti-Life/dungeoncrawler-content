@@ -150,6 +150,107 @@ class RoomChatControllerProgressTest extends UnitTestCase {
   }
 
   /**
+   * @covers ::postChatMessage
+   */
+  public function testPostChatMessageAutoResolvesNpcTurnBlockBeforePlayerTalk(): void {
+    $chat_service = $this->createMock(RoomChatService::class);
+    $chat_service->expects($this->once())
+      ->method('hasCampaignAccess')
+      ->with(63)
+      ->willReturn(TRUE);
+
+    $coordinator = $this->createMock(GameCoordinatorService::class);
+    $coordinator->expects($this->once())
+      ->method('resolveActorIdForCharacterId')
+      ->with(63, 241)
+      ->willReturn('pc-241-324');
+    $coordinator->expects($this->once())
+      ->method('getActiveRoomId')
+      ->with(63, 'pc-241-324')
+      ->willReturn('room-1');
+
+    $call_index = 0;
+    $coordinator->expects($this->exactly(3))
+      ->method('processAction')
+      ->willReturnCallback(function (int $campaign_id, array $intent) use (&$call_index): array {
+        $call_index++;
+        $this->assertSame(63, $campaign_id);
+
+        if ($call_index === 1) {
+          $this->assertSame('talk', $intent['type'] ?? NULL);
+          $this->assertSame('pc-241-324', $intent['actor'] ?? NULL);
+          return [
+            'success' => FALSE,
+            'error' => "It is not pc-241-324's turn. Current turn: npc_tavern_keeper.",
+            'result' => ['error' => "It is not pc-241-324's turn. Current turn: npc_tavern_keeper."],
+            'game_state' => [
+              'turn' => ['entity' => 'npc_tavern_keeper', 'index' => 1],
+              'initiative_order' => [
+                ['entity_id' => 'pc-241-324', 'team' => 'player'],
+                ['entity_id' => 'npc_tavern_keeper', 'team' => 'enemy'],
+              ],
+            ],
+          ];
+        }
+
+        if ($call_index === 2) {
+          $this->assertSame('choose_not_to_act', $intent['type'] ?? NULL);
+          $this->assertSame('npc_tavern_keeper', $intent['actor'] ?? NULL);
+          return [
+            'success' => TRUE,
+            'result' => ['turn_advanced' => TRUE],
+            'game_state' => [
+              'turn' => ['entity' => 'pc-241-324', 'index' => 0],
+              'initiative_order' => [
+                ['entity_id' => 'pc-241-324', 'team' => 'player'],
+                ['entity_id' => 'npc_tavern_keeper', 'team' => 'enemy'],
+              ],
+            ],
+          ];
+        }
+
+        $this->assertSame(3, $call_index);
+        $this->assertSame('talk', $intent['type'] ?? NULL);
+        $this->assertSame('pc-241-324', $intent['actor'] ?? NULL);
+        return [
+          'success' => TRUE,
+          'result' => [
+            'chat_message' => [
+              'speaker' => 'Burasco',
+              'message' => 'Who answers?',
+              'type' => 'player',
+            ],
+          ],
+        ];
+      });
+
+    $controller = $this->createController($chat_service, NULL, $coordinator);
+    $request = Request::create(
+      '/api/campaign/63/room/room-1/chat',
+      'POST',
+      [],
+      [],
+      [],
+      [],
+      json_encode([
+        'speaker' => 'Burasco',
+        'message' => 'Who answers?',
+        'type' => 'player',
+        'character_id' => 241,
+        'channel' => 'room',
+      ])
+    );
+
+    $response = $controller->postChatMessage(63, 'room-1', $request);
+    $payload = json_decode((string) $response->getContent(), TRUE);
+
+    $this->assertSame(200, $response->getStatusCode());
+    $this->assertTrue($payload['success']);
+    $this->assertSame('Who answers?', $payload['data']['message']['message']);
+    $this->assertSame('Burasco', $payload['data']['message']['speaker']);
+  }
+
+  /**
    * @covers ::emitStreamedTurnResult
    */
   public function testEmitStreamedTurnResultSuppressesHarnessSystemLogsFromTranscript(): void {
