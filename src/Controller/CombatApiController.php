@@ -427,71 +427,7 @@ class CombatApiController extends ControllerBase {
    *   New participant info.
    */
   public function addParticipant($encounter_id, Request $request) {
-    $data = json_decode($request->getContent(), TRUE);
-    if (!$data) {
-      return new JsonResponse(['error' => 'Invalid JSON body'], 400);
-    }
-
-    $encounter = $this->encounterStore->loadEncounter((int) $encounter_id);
-    if (!$encounter) {
-      return new JsonResponse(['error' => 'Encounter not found'], 404);
-    }
-
-    $name = $data['name'] ?? '';
-    if (empty($name)) {
-      return new JsonResponse(['error' => 'name is required'], 400);
-    }
-
-    // Roll initiative if requested.
-    $initiative = (int) ($data['initiative'] ?? 0);
-    $initiativeRoll = NULL;
-    if (!empty($data['roll_initiative'])) {
-      $roll = $this->numberGenerator->rollExpression('1d20');
-      $initiative = $roll['total'];
-      $initiativeRoll = $roll['total'];
-    }
-
-    $now = \Drupal::time()->getRequestTime();
-    $participant_id = $this->database->insert('combat_participants')
-      ->fields([
-        'encounter_id' => (int) $encounter_id,
-        'entity_id' => (int) ($data['entity_id'] ?? 0),
-        'entity_ref' => $data['entity_ref'] ?? NULL,
-        'name' => $name,
-        'team' => $data['team'] ?? 'enemy',
-        'initiative' => $initiative,
-        'initiative_roll' => $initiativeRoll,
-        'ac' => isset($data['ac']) ? (int) $data['ac'] : NULL,
-        'hp' => isset($data['hp']) ? (int) $data['hp'] : NULL,
-        'max_hp' => isset($data['max_hp']) ? (int) $data['max_hp'] : NULL,
-        'actions_remaining' => 3,
-        'attacks_this_turn' => 0,
-        'reaction_available' => 1,
-        'position_q' => isset($data['position_q']) ? (int) $data['position_q'] : NULL,
-        'position_r' => isset($data['position_r']) ? (int) $data['position_r'] : NULL,
-        'is_defeated' => 0,
-        'created' => $now,
-        'updated' => $now,
-      ])
-      ->execute();
-
-    // Log the addition.
-    $this->encounterStore->logAction([
-      'encounter_id' => (int) $encounter_id,
-      'participant_id' => (int) $participant_id,
-      'action_type' => 'join',
-      'payload' => json_encode(['name' => $name, 'team' => $data['team'] ?? 'enemy']),
-      'result' => json_encode(['initiative' => $initiative]),
-    ]);
-
-    return new JsonResponse([
-      'participant_id' => (int) $participant_id,
-      'name' => $name,
-      'team' => $data['team'] ?? 'enemy',
-      'initiative' => $initiative,
-      'added_at_round' => (int) ($encounter['current_round'] ?? 0),
-      'message' => "Participant '{$name}' added to encounter",
-    ], 201);
+    return $this->roundTurnAuthorityDisabledResponse(['participant_roster']);
   }
 
   /**
@@ -510,47 +446,7 @@ class CombatApiController extends ControllerBase {
    *   Removal confirmation.
    */
   public function removeParticipant($encounter_id, $participant_id, Request $request) {
-    $data = json_decode($request->getContent(), TRUE);
-    $reason = $data['reason'] ?? 'removed';
-
-    $encounter = $this->encounterStore->loadEncounter((int) $encounter_id);
-    if (!$encounter) {
-      return new JsonResponse(['error' => 'Encounter not found'], 404);
-    }
-
-    // Verify participant belongs to this encounter.
-    $found = FALSE;
-    foreach ($encounter['participants'] as $p) {
-      if ((int) $p['id'] === (int) $participant_id) {
-        $found = TRUE;
-        break;
-      }
-    }
-
-    if (!$found) {
-      return new JsonResponse(['error' => 'Participant not found in encounter'], 404);
-    }
-
-    // Mark defeated.
-    $this->encounterStore->updateParticipant((int) $participant_id, [
-      'is_defeated' => 1,
-    ]);
-
-    // Log removal.
-    $this->encounterStore->logAction([
-      'encounter_id' => (int) $encounter_id,
-      'participant_id' => (int) $participant_id,
-      'action_type' => 'removed',
-      'payload' => json_encode(['reason' => $reason]),
-      'result' => json_encode(['is_defeated' => TRUE]),
-    ]);
-
-    return new JsonResponse([
-      'participant_id' => (int) $participant_id,
-      'removed' => TRUE,
-      'reason' => $reason,
-      'message' => 'Participant removed from encounter',
-    ]);
+    return $this->roundTurnAuthorityDisabledResponse(['participant_roster']);
   }
 
   /**

@@ -114,4 +114,51 @@ class CombatApiControllerAuthorityTest extends UnitTestCase {
     $this->assertSame(['name', 'hp'], $payload['updated_fields'] ?? []);
   }
 
+  /**
+   * @covers ::addParticipant
+   */
+  public function testAddParticipantIsDisabledForCanonicalAuthority(): void {
+    $controller = new CombatApiController(
+      $this->createMock(\stdClass::class),
+      $this->createMock(\stdClass::class),
+      $this->createMock(CombatEncounterStore::class),
+      $this->createMock(\stdClass::class),
+      $this->createMock(Connection::class)
+    );
+
+    $request = new Request([], [], [], [], [], [], json_encode([
+      'name' => 'New NPC',
+      'team' => 'enemy',
+    ]));
+    $response = $controller->addParticipant(12, $request);
+    $payload = json_decode((string) $response->getContent(), TRUE);
+
+    $this->assertSame(409, $response->getStatusCode());
+    $this->assertSame('round_turn_authority_disabled', $payload['error_code'] ?? NULL);
+    $this->assertSame(['participant_roster'], $payload['blocked_fields'] ?? []);
+  }
+
+  /**
+   * @covers ::removeParticipant
+   */
+  public function testRemoveParticipantIsDisabledForCanonicalAuthority(): void {
+    $controller = new CombatApiController(
+      $this->createMock(\stdClass::class),
+      $this->createMock(\stdClass::class),
+      $this->createMock(CombatEncounterStore::class),
+      $this->createMock(\stdClass::class),
+      $this->createMock(Connection::class)
+    );
+
+    $request = new Request([], [], [], [], [], [], json_encode([
+      'reason' => 'cleanup',
+    ]));
+    $response = $controller->removeParticipant(12, 7, $request);
+    $payload = json_decode((string) $response->getContent(), TRUE);
+
+    $this->assertSame(409, $response->getStatusCode());
+    $this->assertSame('round_turn_authority_disabled', $payload['error_code'] ?? NULL);
+    $this->assertSame(['participant_roster'], $payload['blocked_fields'] ?? []);
+  }
+
 }
