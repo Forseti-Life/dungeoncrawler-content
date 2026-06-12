@@ -74,7 +74,7 @@ class DashboardController extends ControllerBase {
     $build = [];
 
     $build['header'] = [
-      '#markup' => '<h2>⚔️ ' . $this->t('Dungeon Content Management') . '</h2><p>' . $this->t('Manage the AI-generated dungeon rooms, creatures, items, and quests that populate the living dungeon.') . '</p>',
+      '#markup' => '<h2>⚔️ ' . $this->t('Dungeon Content Management') . '</h2><p>' . $this->t('Manage the algorithm-generated dungeon rooms, creatures, items, and quests that populate the living dungeon.') . '</p>',
     ];
 
     // Content type statistics.
@@ -112,7 +112,7 @@ class DashboardController extends ControllerBase {
     ];
 
     $build['actions'] = [
-      '#markup' => '<p>' . $this->t('The dungeon grows procedurally as adventurers explore. Use Structure → Content Types to manage dungeon rooms, AI creatures, items, and quests.') . '</p>',
+      '#markup' => '<p>' . $this->t('The dungeon grows procedurally as adventurers explore. Use Structure → Content Types to manage dungeon rooms, algorithm-generated creatures, items, and quests.') . '</p>',
     ];
 
     $integration_status = $this->integrationService->getIntegrationStatus();
@@ -128,7 +128,7 @@ class DashboardController extends ControllerBase {
 
     $build['gemini_image_generation'] = [
       '#type' => 'details',
-        '#title' => $this->t('AI Image Generation (Gemini + Vertex)'),
+        '#title' => $this->t('Algorithmic Image Generation (Gemini + Vertex)'),
       '#open' => TRUE,
       '#attributes' => ['class' => ['game-content-dashboard']],
       'overview' => [

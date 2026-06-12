@@ -25,7 +25,7 @@ dungeoncrawler_content.game_objects:
 
 dungeoncrawler_content.image_generation_interface:
   title: 'Image Generation'
-  description: 'Generate images from prompts using configured AI provider.'
+  description: 'Generate images from prompts using the configured generation provider.'
   route_name: dungeoncrawler_content.image_generation_interface
   parent: dungeoncrawler_content.dashboard
   weight: 6
@@ -138,7 +138,7 @@ dungeoncrawler_content.menu.dc_administration_game_objects:
 
 dungeoncrawler_content.menu.dc_administration_image_generation:
   title: 'Image Generation'
-  description: 'Generate images from prompts using configured AI provider.'
+  description: 'Generate images from prompts using the configured generation provider.'
   route_name: dungeoncrawler_content.image_generation_interface
   parent: dungeoncrawler_content.menu.dc_administration
   weight: 3
@@ -179,8 +179,8 @@ dungeoncrawler_content.menu.dc_administration_controller_architecture:
   weight: 8
 
 dungeoncrawler_content.menu.dc_administration_encounter_ai:
-  title: 'Encounter AI Integration'
-  description: 'Review encounter AI integration architecture.'
+  title: 'Encounter Algorithm Integration'
+  description: 'Review encounter algorithm integration architecture.'
   route_name: dungeoncrawler_content.encounter_ai_integration
   parent: dungeoncrawler_content.menu.dc_administration
   weight: 9

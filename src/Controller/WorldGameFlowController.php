@@ -213,28 +213,28 @@ MERMAID,
     $build['diagrams']['chat_flow'] = $this->buildDiagramCard(
       'Chat loop',
       'Conversation inside the current room',
-      'Room chat runs inside the live hexmap shell so players can converse without leaving the run. The GM path can be deterministic, cached, or LLM-backed; NPC room reactions and private channels each have their own model operations.',
+      'Room chat runs inside the live hexmap shell so players can converse without leaving the run. The GM path can be deterministic, cached, or algorithm-backed; NPC room reactions and private channels each have their own generation operations.',
       <<<'MERMAID'
 flowchart TD
   A[Player sends room message] --> B[RoomChatService persists player message]
   B --> C{Channel type}
   C -->|Room| D[Resolve room context, intent, cache, deterministic shortcuts]
-  C -->|Private whisper or ability channel| E[LLM call: channel_npc_reply]
+  C -->|Private whisper or ability channel| E[Generation call: channel_npc_reply]
   D --> F{Deterministic or cache hit?}
-  F -- Yes --> G[Return GM reply without LLM]
-  F -- No --> H[LLM call: room_chat_gm_reply]
+  F -- Yes --> G[Return GM reply without generation call]
+  F -- No --> H[Generation call: room_chat_gm_reply]
   H --> I{Mechanical actions invalid?}
-  I -- Yes --> J[LLM call: room_chat_gm_retry]
+  I -- Yes --> J[Generation call: room_chat_gm_retry]
   I -- No --> K[Accept parsed GM reply]
   J --> K
   G --> L{Room NPC interjections enabled?}
   K --> L
   E --> M[Return private NPC reply]
   L -- No --> N[Send final chat payload to UI]
-  L -- Yes --> O[Per candidate NPC: LLM call npc_interjection_eval_single]
+  L -- Yes --> O[Per candidate NPC: generation call npc_interjection_eval_single]
   O --> P{NPC should speak?}
   P -- No --> Q[Log NPC choose_not_to_act]
-  P -- Yes --> R[LLM call: npc_room_dialogue]
+  P -- Yes --> R[Generation call: npc_room_dialogue]
   Q --> N
   R --> N
   M --> N
@@ -244,7 +244,7 @@ MERMAID,
         'Room channel GM narration uses operation `room_chat_gm_reply`, with optional `room_chat_gm_retry` if authoritative action validation fails.',
         'Private channels bypass the GM layer and go straight to `channel_npc_reply` for in-character NPC speech.',
         'Room interjections are two-stage: `npc_interjection_eval_single` decides whether an NPC speaks, then `npc_room_dialogue` generates the actual line for NPCs that passed.',
-        'Deterministic shortcuts and GM response cache hits can skip some or all LLM calls for low-variance turns.',
+        'Deterministic shortcuts and GM response cache hits can skip some or all generation calls for low-variance turns.',
       ]
     );
 
@@ -264,13 +264,13 @@ MERMAID,
           '#type' => 'html_tag',
           '#tag' => 'h2',
           '#attributes' => ['class' => ['h3', 'mb-3']],
-          '#value' => 'Every LLM call in the chat pipeline',
+          '#value' => 'Every generation call in the chat pipeline',
         ],
         'summary' => [
           '#type' => 'html_tag',
           '#tag' => 'p',
           '#attributes' => ['class' => ['mb-4', 'world-game-flow__summary']],
-          '#value' => 'These are the concrete model operations used by RoomChatService. They do not all fire on every turn; the pipeline branches based on channel type, deterministic shortcuts, response cache hits, and whether NPC interjections are even eligible.',
+          '#value' => 'These are the concrete generation operations used by RoomChatService. They do not all fire on every turn; the pipeline branches based on channel type, deterministic shortcuts, response cache hits, and whether NPC interjections are even eligible.',
         ],
         'table' => [
           '#type' => 'table',
@@ -316,8 +316,8 @@ MERMAID,
           '#value' => 'Branching rules',
         ],
         'notes' => $this->buildBulletList([
-          'If the turn is handled by deterministic room logic, the chat response can complete with zero LLM calls.',
-          'If a low-variance GM narration turn hits the response cache, the GM reply also completes with zero GM LLM calls.',
+          'If the turn is handled by deterministic room logic, the chat response can complete with zero generation calls.',
+          'If a low-variance GM narration turn hits the response cache, the GM reply also completes with zero GM generation calls.',
           'Private channels use channel_npc_reply instead of room_chat_gm_reply.',
           'Each candidate interjecting NPC is evaluated separately, so crowded rooms can trigger multiple npc_interjection_eval_single calls and multiple npc_room_dialogue calls in one player turn.',
         ]),
@@ -335,7 +335,7 @@ flowchart TD
   C --> D[Active combatant turn]
   D --> E{Whose turn?}
   E -->|Player| F[Choose strike, stride, spell, skill, interact, end turn]
-  E -->|NPC| G[Auto-play AI or fallback turn]
+  E -->|NPC| G[Auto-play algorithm or fallback turn]
   F --> H[Combat API validates and resolves action]
   G --> H
   H --> I[Update HP, conditions, positions, logs, and world delta]
@@ -347,7 +347,7 @@ flowchart TD
 MERMAID,
       [
         'Encounter state stays server-authoritative through combat APIs and services.',
-        'NPC turns can auto-play through AI or fallback logic.',
+        'NPC turns can auto-play through algorithmic or fallback logic.',
         'Resolved encounters transition back to exploration instead of trapping the run in combat mode.',
       ]
     );

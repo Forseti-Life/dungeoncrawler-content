@@ -226,7 +226,7 @@ dungeoncrawler_content.encounter_ai_integration:
   path: '/architecture/encounter-ai-integration'
   defaults:
     _controller: '\Drupal\dungeoncrawler_content\Controller\EncounterAiIntegrationController::overview'
-    _title: 'Encounter AI Integration'
+    _title: 'Encounter Algorithm Integration'
   methods: [GET]
   requirements:
     _permission: 'access content'
@@ -235,7 +235,7 @@ dungeoncrawler_content.encounter_ai_integration_metrics_csv:
   path: '/architecture/encounter-ai-integration/metrics.csv'
   defaults:
     _controller: '\Drupal\dungeoncrawler_content\Controller\EncounterAiIntegrationController::exportMetricsCsv'
-    _title: 'Encounter AI Metrics CSV'
+    _title: 'Encounter Algorithm Metrics CSV'
   methods: [GET]
   requirements:
     _permission: 'access content'
@@ -2639,7 +2639,7 @@ dungeoncrawler_content.api.campaign_ai_context:
   path: '/api/campaign/{campaign_id}/play-sessions/ai-context'
   defaults:
     _controller: '\Drupal\dungeoncrawler_content\Controller\PlaySessionController::getAiGmContext'
-    _title: 'Campaign AI GM Context'
+    _title: 'Campaign Algorithm GM Context'
   methods: [GET]
   requirements:
     _campaign_access: 'TRUE'

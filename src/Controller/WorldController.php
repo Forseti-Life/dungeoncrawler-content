@@ -75,7 +75,7 @@ class WorldController extends ControllerBase {
       ],
       [
         'slug' => 'ai-born-creatures',
-        'title' => 'AI-Born Creatures',
+        'title' => 'Algorithm-Born Creatures',
         'content' => 'Creatures are generated to feel distinct, but they still belong to a coherent setting. The goal is variety with continuity, so encounters stay surprising without turning the world into disconnected random scenes.',
       ],
       [

@@ -23,7 +23,7 @@ class AboutController extends ControllerBase {
       [
         'slug' => 'forseti-guided-generation',
         'title' => 'Forseti-Guided Generation',
-        'description' => 'AI generation is directed toward campaign continuity, encounter readability, and a world that stays coherent over time.',
+        'description' => 'Algorithmic generation is directed toward campaign continuity, encounter readability, and a world that stays coherent over time.',
       ],
       [
         'slug' => 'enduring-replayability',
@@ -98,13 +98,13 @@ class AboutController extends ControllerBase {
           'Drupal CMS for structured content, routing, and operations',
           'Modern web UI with room to extend into mobile experiences',
           'H3-style geospatial thinking for region-scale world navigation',
-          'Generated-image and AI services integrated into gameplay systems',
+          'Generated-image and algorithmic generation services integrated into gameplay systems',
         ],
       ],
       [
         'title' => 'Operating model',
         'items' => [
-          'AI is used to expand content breadth, not replace game structure',
+          'Algorithmic generation expands content breadth without replacing game structure',
           'Systems are tuned for reliability, readability, and reuse',
           'The product is designed as a living service, not a static one-off campaign',
           'Every layer is meant to support continuity, clarity, and replay value',
@@ -149,7 +149,7 @@ class AboutController extends ControllerBase {
                 '#type' => 'html_tag',
                 '#tag' => 'p',
                 '#attributes' => ['class' => ['mb-4', 'text-secondary']],
-                '#value' => 'The product combines classic RPG structure, a persistent hex realm, AI-assisted content systems, and long-term campaign framing so returning to the same world feels rewarding instead of repetitive.',
+                '#value' => 'The product combines classic RPG structure, a persistent hex realm, algorithm-driven content systems, and long-term campaign framing so returning to the same world feels rewarding instead of repetitive.',
               ],
               'actions' => [
                 '#type' => 'container',
@@ -192,7 +192,7 @@ class AboutController extends ControllerBase {
                   'Persistent campaigns instead of disposable sessions',
                   'Character identity that survives many runs',
                   'A world model that remembers consequences',
-                  'AI support that serves structure instead of replacing it',
+                  'Algorithmic support that serves structure instead of replacing it',
                 ],
               ],
             ],
@@ -388,7 +388,7 @@ class AboutController extends ControllerBase {
           '#type' => 'html_tag',
           '#tag' => 'p',
           '#attributes' => ['class' => ['lead', 'text-secondary', 'mb-0']],
-          '#value' => 'The stack exists to support a living RPG service with clear systems, durable data, and room for AI-assisted content expansion.',
+          '#value' => 'The stack exists to support a living RPG service with clear systems, durable data, and room for algorithmic content expansion.',
         ],
       ],
       'columns' => [
@@ -436,7 +436,7 @@ class AboutController extends ControllerBase {
             'The team and product posture',
             [
               'Dungeon Crawler Life is being built as a living-world RPG service, which means the work is not just about generating more content. It is about making the generated world legible, durable, and worth investing time into.',
-              'The team is focused on aligning AI systems, game rules, and world structure so the product feels like a coherent campaign platform instead of a bag of disconnected features.',
+              'The team is focused on aligning generation systems, game rules, and world structure so the product feels like a coherent campaign platform instead of a bag of disconnected features.',
             ]
           ),
         ],

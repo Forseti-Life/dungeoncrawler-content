@@ -10,7 +10,7 @@ use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * Documentation page for encounter AI integration architecture.
+ * Documentation page for encounter algorithm integration architecture.
  */
 class EncounterAiIntegrationController extends ControllerBase {
 
@@ -43,7 +43,7 @@ class EncounterAiIntegrationController extends ControllerBase {
   }
 
   /**
-   * Render encounter AI integration overview and current implementation status.
+   * Render encounter algorithm integration overview and current implementation status.
    */
   public function overview(Request $request) {
     $window = $this->resolveWindow((string) $request->query->get('window', '24h'));
@@ -58,9 +58,9 @@ class EncounterAiIntegrationController extends ControllerBase {
     ];
 
     $integrationBoundaries = [
-      'Server-authoritative combat flow remains canonical; AI output is recommendation-only.',
+      'Server-authoritative combat flow remains canonical; algorithm output is recommendation-only.',
       'Encounter state and campaign ownership checks execute before provider calls.',
-      'Encounter AI provider calls are routed through the ai_conversation API integration layer.',
+      'Encounter generation provider calls are routed through the ai_conversation API integration layer.',
       'Recommendation payloads must be validated against available actions and turn state.',
       'Fallback behavior uses deterministic rules if provider fails or output is rejected.',
     ];
@@ -87,7 +87,7 @@ class EncounterAiIntegrationController extends ControllerBase {
         'parent' => '/architecture/controllers',
         'surface' => '/architecture/encounter-ai-integration',
         'controller' => 'EncounterAiIntegrationController::overview',
-        'relation' => 'Encounter AI phase status, safeguards, and operational metrics.',
+        'relation' => 'Encounter algorithm phase status, safeguards, and operational metrics.',
         'tables' => 'ai_conversation_api_usage (read for metrics)',
       ],
       [
@@ -101,8 +101,8 @@ class EncounterAiIntegrationController extends ControllerBase {
       [
         'level' => 'L4',
         'parent' => '/api/combat/action',
-        'surface' => 'AI orchestration call path',
-        'controller' => 'Encounter AI integration layer + EncounterAiPreviewController::preview',
+        'surface' => 'Algorithm orchestration call path',
+        'controller' => 'Encounter algorithm integration layer + EncounterAiPreviewController::preview',
         'relation' => 'Recommendation generation, validation, and deterministic fallback.',
         'tables' => 'ai_conversation_api_usage (telemetry and attempts)',
       ],
@@ -120,7 +120,7 @@ class EncounterAiIntegrationController extends ControllerBase {
       '#type' => 'container',
       '#attributes' => ['class' => ['encounter-ai-integration-doc']],
       'header' => [
-        '#markup' => '<h2>Encounter AI Integration Blueprint</h2><p>Design summary and implementation progress for AI-assisted encounter orchestration.</p><p>Blueprint source: AI_ENCOUNTER_INTEGRATION.md</p><p><strong>Window:</strong> <a href="/architecture/encounter-ai-integration?window=24h">24h</a> · <a href="/architecture/encounter-ai-integration?window=7d">7d</a> · <a href="/architecture/encounter-ai-integration?window=30d">30d</a></p><p><a href="/architecture/encounter-ai-integration' . $window_query . '">Refresh this status page</a> · <a href="/architecture/encounter-ai-integration/metrics.csv' . $window_query . '">Download metrics CSV</a></p>',
+        '#markup' => '<h2>Encounter Algorithm Integration Blueprint</h2><p>Design summary and implementation progress for algorithm-assisted encounter orchestration.</p><p>Blueprint source: encounter integration architecture document</p><p><strong>Window:</strong> <a href="/architecture/encounter-ai-integration?window=24h">24h</a> · <a href="/architecture/encounter-ai-integration?window=7d">7d</a> · <a href="/architecture/encounter-ai-integration?window=30d">30d</a></p><p><a href="/architecture/encounter-ai-integration' . $window_query . '">Refresh this status page</a> · <a href="/architecture/encounter-ai-integration/metrics.csv' . $window_query . '">Download metrics CSV</a></p>',
       ],
       '#attached' => [
         'library' => [
@@ -145,7 +145,7 @@ class EncounterAiIntegrationController extends ControllerBase {
     $build['hierarchy'] = [
       '#type' => 'details',
       '#open' => TRUE,
-      '#title' => 'Hierarchy map (Architecture → Combat → AI → Metrics)',
+      '#title' => 'Hierarchy map (Architecture → Combat → Algorithms → Metrics)',
       'table' => [
         '#type' => 'table',
         '#header' => ['Level', 'Parent', 'Page/API Surface', 'Controller/Layer', 'Relationship', 'Primary Tables'],
@@ -226,7 +226,7 @@ class EncounterAiIntegrationController extends ControllerBase {
     $window = $this->resolveWindow((string) $request->query->get('window', '24h'));
     $metrics = $this->buildOperationalMetrics($window['seconds']);
     $timestamp = gmdate('Y-m-d_H-i-s', $this->time->getCurrentTime());
-    $filename = sprintf('encounter-ai-metrics-%s-%s.csv', $window['key'], $timestamp);
+    $filename = sprintf('encounter-algorithm-metrics-%s-%s.csv', $window['key'], $timestamp);
 
     $lines = [
       ['metric', 'value'],

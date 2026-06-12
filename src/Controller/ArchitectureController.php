@@ -145,7 +145,7 @@ class ArchitectureController extends ControllerBase {
         'name' => $this->t('Dungeon Creation and Management'),
         'steps' => $this->t('Dungeon generation/load request → dungeon payload retrieval/update → hexmap runtime exploration/combat actions'),
         'controllers_apis' => $this->t('DungeonController (generate/get level/update state endpoints), HexMapController (hexmap payload/render orchestration), CombatEncounterApiController (/api/combat/start, /api/combat/action, /api/combat/end-turn, /api/combat/end).'),
-        'guardrails' => $this->t('Server-authoritative dungeon/encounter state; deterministic fallback behavior when AI provider responses are rejected/unavailable; route-level access and CSRF protections on mutation actions.'),
+        'guardrails' => $this->t('Server-authoritative dungeon/encounter state; deterministic fallback behavior when generation provider responses are rejected/unavailable; route-level access and CSRF protections on mutation actions.'),
       ],
     ];
 
@@ -155,7 +155,7 @@ class ArchitectureController extends ControllerBase {
       [
         'label' => $this->t('Controller architecture map'),
         'url' => Url::fromRoute('dungeoncrawler_content.controller_architecture')->toString(),
-        'description' => $this->t('Current backend controller responsibilities and boundaries (includes Encounter AI integration architecture: phase status, safeguards, and AI orchestration integration).'),
+        'description' => $this->t('Current backend controller responsibilities and boundaries (includes Encounter algorithm integration architecture: phase status, safeguards, and orchestration integration).'),
       ],
       [
         'label' => $this->t('Campaign operations (includes character roster)'),
@@ -204,10 +204,10 @@ class ArchitectureController extends ControllerBase {
         'flow' => $this->t('Dungeon Creation and Management'),
         'sequence' => $this->t('Dungeon generation/load request → dungeon payload retrieval/update → hexmap runtime exploration/combat actions'),
         'controllers_apis' => $this->t('DungeonController (generate/get level/update state endpoints), HexMapController (hexmap payload/render orchestration), CombatEncounterApiController (/api/combat/start, /api/combat/action, /api/combat/end-turn, /api/combat/end).'),
-        'guardrails' => $this->t('Server-authoritative dungeon/encounter state; deterministic fallback behavior when AI provider responses are rejected/unavailable; route-level access and CSRF protections on mutation actions.'),
+        'guardrails' => $this->t('Server-authoritative dungeon/encounter state; deterministic fallback behavior when generation provider responses are rejected/unavailable; route-level access and CSRF protections on mutation actions.'),
         'drill_label' => $this->t('Controller architecture map'),
         'drill_url' => Url::fromRoute('dungeoncrawler_content.controller_architecture')->toString(),
-        'drill_description' => $this->t('Current backend controller responsibilities and boundaries (includes Encounter AI integration architecture: phase status, safeguards, and AI orchestration integration).'),
+        'drill_description' => $this->t('Current backend controller responsibilities and boundaries (includes Encounter algorithm integration architecture: phase status, safeguards, and orchestration integration).'),
       ],
       [
         'domain' => $this->t('Architecture documentation'),
@@ -216,7 +216,7 @@ class ArchitectureController extends ControllerBase {
         'source_of_truth' => $this->t('Architecture pages + feature implementation notes'),
         'flow' => $this->t('Architecture governance, lineage, and review'),
         'sequence' => $this->t('/architecture → /architecture/data-lineage → /architecture/controllers → /architecture/encounter-ai-integration → feature index sync'),
-        'controllers_apis' => $this->t('ArchitectureController (hub + HQ feature index), DataLineageArchitectureController (page/API/controller/table hierarchy), ControllerArchitectureController (backend mapping), EncounterAiIntegrationController (phase status/safeguards/AI orchestration metrics).'),
+        'controllers_apis' => $this->t('ArchitectureController (hub + HQ feature index), DataLineageArchitectureController (page/API/controller/table hierarchy), ControllerArchitectureController (backend mapping), EncounterAiIntegrationController (phase status/safeguards/algorithm orchestration metrics).'),
         'guardrails' => $this->t('Architecture page remains source-of-truth for high-level flows; updates required when workflow behavior changes.'),
         'drill_label' => $this->t('Data lineage architecture'),
         'drill_url' => Url::fromRoute('dungeoncrawler_content.data_lineage_architecture')->toString(),

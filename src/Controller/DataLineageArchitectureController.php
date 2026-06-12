@@ -47,12 +47,12 @@ class DataLineageArchitectureController extends ControllerBase {
         'lineage' => 'Encounter records fan out to participants/conditions/actions/damage logs and are updated in a server-authoritative sequence.',
       ],
       [
-        'domain' => 'Encounter AI Telemetry',
+        'domain' => 'Encounter Algorithm Telemetry',
         'parent_surface' => '/api/combat/action',
         'child_surface' => '/architecture/encounter-ai-integration + /architecture/encounter-ai-integration/metrics.csv',
         'controllers_services' => 'EncounterAiIntegrationController + EncounterAiPreviewController + ai_conversation integration layer',
         'tables' => 'ai_conversation_api_usage',
-        'lineage' => 'AI recommendation/narration attempts are logged for observability and exported as architecture metrics evidence.',
+        'lineage' => 'Algorithm recommendation/narration attempts are logged for observability and exported as architecture metrics evidence.',
       ],
       [
         'domain' => 'Inventory and Item State',
@@ -89,9 +89,9 @@ class DataLineageArchitectureController extends ControllerBase {
         'used_by' => 'CombatEncounterApiController, CombatEncounterStore, CombatEngine, ConditionManager, HPManager',
       ],
       [
-        'family' => 'AI Telemetry',
+        'family' => 'Algorithm Telemetry',
         'tables' => 'ai_conversation_api_usage',
-        'used_by' => 'EncounterAiIntegrationController (metrics read/export), AI integration layer (write)',
+        'used_by' => 'EncounterAiIntegrationController (metrics read/export), algorithm integration layer (write)',
       ],
       [
         'family' => 'Inventory & Quests',
