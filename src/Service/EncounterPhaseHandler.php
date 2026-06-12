@@ -6,7 +6,6 @@ use Drupal\Core\Database\Connection;
 use Drupal\Core\Config\ConfigFactoryInterface;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Psr\Log\LoggerInterface;
-use Symfony\Component\EventDispatcher\EventDispatcherInterface;
 
 /**
  * Handles canonical action execution during the Encounter phase.
@@ -40,11 +39,6 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
   protected CombatEngine $combatEngine;
 
   /**
-   * @var \Drupal\dungeoncrawler_content\Service\ActionProcessor
-   */
-  protected ActionProcessor $actionProcessor;
-
-  /**
    * @var \Drupal\dungeoncrawler_content\Service\CombatEncounterStore
    */
   protected CombatEncounterStore $encounterStore;
@@ -73,16 +67,6 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
    * @var \Drupal\dungeoncrawler_content\Service\EncounterAiIntegrationService
    */
   protected EncounterAiIntegrationService $encounterAiService;
-
-  /**
-   * @var \Drupal\dungeoncrawler_content\Service\RulesEngine
-   */
-  protected RulesEngine $rulesEngine;
-
-  /**
-   * @var \Symfony\Component\EventDispatcher\EventDispatcherInterface
-   */
-  protected EventDispatcherInterface $eventDispatcher;
 
   /**
    * @var \Drupal\dungeoncrawler_content\Service\AiGmService
@@ -262,15 +246,12 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
     Connection $database,
     LoggerChannelFactoryInterface $logger_factory,
     CombatEngine $combat_engine,
-    ActionProcessor $action_processor,
     CombatEncounterStore $encounter_store,
     HPManager $hp_manager,
     ConditionManager $condition_manager,
     CombatCalculator $combat_calculator,
     NumberGenerationService $number_generation_service,
     EncounterAiIntegrationService $encounter_ai_service,
-    RulesEngine $rules_engine,
-    EventDispatcherInterface $event_dispatcher,
     AiGmService $ai_gm_service,
     ConfigFactoryInterface $config_factory,
     NpcPsychologyService $psychology_service = NULL,
@@ -287,15 +268,12 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
     $this->database = $database;
     $this->logger = $logger_factory->get('dungeoncrawler');
     $this->combatEngine = $combat_engine;
-    $this->actionProcessor = $action_processor;
     $this->encounterStore = $encounter_store;
     $this->hpManager = $hp_manager;
     $this->conditionManager = $condition_manager;
     $this->combatCalculator = $combat_calculator;
     $this->numberGenerationService = $number_generation_service;
     $this->encounterAiService = $encounter_ai_service;
-    $this->rulesEngine = $rules_engine;
-    $this->eventDispatcher = $event_dispatcher;
     $this->aiGmService = $ai_gm_service;
     $this->configFactory = $config_factory;
     $this->psychologyService = $psychology_service ?? new NpcPsychologyService($database, $logger_factory);

@@ -278,7 +278,7 @@ class AiGmService {
         }
       }
     }
-    catch (\Exception $e) {
+    catch (\Throwable $e) {
       $this->logger->warning('[AiGmService] npc_attitude_shift exception: @err', ['@err' => $e->getMessage()]);
     }
 
@@ -342,7 +342,7 @@ class AiGmService {
           }
         }
       }
-      catch (\Exception $e) {
+      catch (\Throwable $e) {
         $this->logger->warning('[AiGmService] session_summary exception: @err', ['@err' => $e->getMessage()]);
       }
     }
@@ -364,7 +364,7 @@ class AiGmService {
         'npcs' => $session_data['npcs'] ?? [],
       ]);
     }
-    catch (\Exception $e) {
+    catch (\Throwable $e) {
       $this->logger->warning('[AiGmService] endSession failed: @err', ['@err' => $e->getMessage()]);
     }
 
@@ -728,7 +728,7 @@ class AiGmService {
         '@error' => (string) ($response['error'] ?? 'Empty response'),
       ]);
     }
-    catch (\Exception $e) {
+    catch (\Throwable $e) {
       $this->logger->warning('[AiGmService] AI exception for @op: @error', [
         '@op' => $operation,
         '@error' => $e->getMessage(),

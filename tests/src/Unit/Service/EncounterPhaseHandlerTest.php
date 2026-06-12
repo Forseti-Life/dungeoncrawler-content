@@ -5,7 +5,6 @@ namespace Drupal\Tests\dungeoncrawler_content\Unit\Service;
 use Drupal\Core\Config\ConfigFactoryInterface;
 use Drupal\Core\Database\Connection;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
-use Drupal\dungeoncrawler_content\Service\ActionProcessor;
 use Drupal\dungeoncrawler_content\Service\AiGmService;
 use Drupal\dungeoncrawler_content\Service\CombatCalculator;
 use Drupal\dungeoncrawler_content\Service\CombatEncounterStore;
@@ -19,10 +18,8 @@ use Drupal\dungeoncrawler_content\Service\HPManager;
 use Drupal\dungeoncrawler_content\Service\NpcPsychologyService;
 use Drupal\dungeoncrawler_content\Service\NumberGenerationService;
 use Drupal\dungeoncrawler_content\Service\RoomChatService;
-use Drupal\dungeoncrawler_content\Service\RulesEngine;
 use Drupal\Tests\UnitTestCase;
 use Psr\Log\LoggerInterface;
-use Symfony\Component\EventDispatcher\EventDispatcherInterface;
 
 /**
  * Tests EncounterPhaseHandler available-actions behavior.
@@ -1825,15 +1822,12 @@ class EncounterPhaseHandlerTest extends UnitTestCase {
       $this->createMock(Connection::class),
       $logger_factory,
       $this->createMock(CombatEngine::class),
-      $this->createMock(ActionProcessor::class),
       $encounter_store ?? $this->createMock(CombatEncounterStore::class),
       $this->createMock(HPManager::class),
       $this->createMock(ConditionManager::class),
       $this->createMock(CombatCalculator::class),
       $number_generation_service ?? $this->createMock(NumberGenerationService::class),
       $this->createMock(EncounterAiIntegrationService::class),
-      $this->createMock(RulesEngine::class),
-      $this->createMock(EventDispatcherInterface::class),
       $this->createMock(AiGmService::class),
       $config_factory,
       $psychology_service ?? $this->createMock(NpcPsychologyService::class),
@@ -2022,15 +2016,12 @@ class EncounterPhaseHandlerTest extends UnitTestCase {
       $this->createMock(Connection::class),
       $logger_factory,
       $combat_engine,
-      $this->createMock(ActionProcessor::class),
       $this->createMock(CombatEncounterStore::class),
       $this->createMock(HPManager::class),
       $this->createMock(ConditionManager::class),
       $this->createMock(CombatCalculator::class),
       $this->createMock(NumberGenerationService::class),
       $this->createMock(EncounterAiIntegrationService::class),
-      $this->createMock(RulesEngine::class),
-      $this->createMock(EventDispatcherInterface::class),
       $ai_gm,
       $this->createMock(ConfigFactoryInterface::class),
       $this->createMock(NpcPsychologyService::class),
@@ -2100,15 +2091,12 @@ class EncounterPhaseHandlerTest extends UnitTestCase {
       $this->createMock(Connection::class),
       $logger_factory,
       $this->createMock(CombatEngine::class),
-      $this->createMock(ActionProcessor::class),
       $this->createMock(CombatEncounterStore::class),
       $this->createMock(HPManager::class),
       $this->createMock(ConditionManager::class),
       $this->createMock(CombatCalculator::class),
       $this->createMock(NumberGenerationService::class),
       $this->createMock(EncounterAiIntegrationService::class),
-      $this->createMock(RulesEngine::class),
-      $this->createMock(EventDispatcherInterface::class),
       $this->createMock(AiGmService::class),
       $this->createMock(ConfigFactoryInterface::class),
       $this->createMock(NpcPsychologyService::class),

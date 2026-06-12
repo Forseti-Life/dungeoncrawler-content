@@ -779,15 +779,12 @@ services:
       - '@database'
       - '@logger.factory'
       - '@dungeoncrawler_content.combat_engine'
-      - '@dungeoncrawler_content.action_processor'
       - '@dungeoncrawler_content.combat_encounter_store'
       - '@dungeoncrawler_content.hp_manager'
       - '@dungeoncrawler_content.condition_manager'
       - '@dungeoncrawler_content.combat_calculator'
       - '@dungeoncrawler_content.number_generation'
       - '@dungeoncrawler_content.encounter_ai_integration'
-      - '@dungeoncrawler_content.rules_engine'
-      - '@event_dispatcher'
       - '@dungeoncrawler_content.ai_gm'
       - '@config.factory'
       - '@dungeoncrawler_content.npc_psychology_service'
@@ -811,18 +808,6 @@ services:
       - '@logger.factory'
       - '@dungeoncrawler_content.character_state'
       - '@dungeoncrawler_content.inventory_management'
-
-  dungeoncrawler_content.downtime_phase_handler:
-    class: Drupal\dungeoncrawler_content\Service\DowntimePhaseHandler
-    arguments:
-      - '@database'
-      - '@logger.factory'
-      - '@dungeoncrawler_content.character_state'
-      - '@dungeoncrawler_content.crafting'
-      - '@dungeoncrawler_content.npc_psychology_service'
-      - '@dungeoncrawler_content.magic_item_service'
-      - '@dungeoncrawler_content.number_generation'
-      - '@dungeoncrawler_content.campaign_clock'
 
   dungeoncrawler_content.game_coordinator:
     class: Drupal\dungeoncrawler_content\Service\GameCoordinatorService

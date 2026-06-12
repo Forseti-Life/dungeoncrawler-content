@@ -5,7 +5,6 @@ namespace Drupal\Tests\dungeoncrawler_content\Unit\Service;
 use Drupal\Core\Config\ConfigFactoryInterface;
 use Drupal\Core\Database\Connection;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
-use Drupal\dungeoncrawler_content\Service\ActionProcessor;
 use Drupal\dungeoncrawler_content\Service\AiGmService;
 use Drupal\dungeoncrawler_content\Service\CharacterStateService;
 use Drupal\dungeoncrawler_content\Service\CombatCalculator;
@@ -20,10 +19,8 @@ use Drupal\dungeoncrawler_content\Service\HPManager;
 use Drupal\dungeoncrawler_content\Service\NpcPsychologyService;
 use Drupal\dungeoncrawler_content\Service\NumberGenerationService;
 use Drupal\dungeoncrawler_content\Service\RoomChatService;
-use Drupal\dungeoncrawler_content\Service\RulesEngine;
 use Drupal\Tests\UnitTestCase;
 use Psr\Log\LoggerInterface;
-use Symfony\Component\EventDispatcher\EventDispatcherInterface;
 
 /**
  * Tests NPC attitude social DC adjustments.
@@ -60,15 +57,12 @@ class SocialDcAttitudeAdjustmentTest extends UnitTestCase {
       $this->createMock(Connection::class),
       $logger_factory,
       $this->createMock(CombatEngine::class),
-      $this->createMock(ActionProcessor::class),
       $this->createMock(CombatEncounterStore::class),
       $this->createMock(HPManager::class),
       $this->createMock(ConditionManager::class),
       $combat_calculator,
       $number_generation,
       $this->createMock(EncounterAiIntegrationService::class),
-      $this->createMock(RulesEngine::class),
-      $this->createMock(EventDispatcherInterface::class),
       $this->createMock(AiGmService::class),
       $this->createMock(ConfigFactoryInterface::class),
       $psychology,
@@ -76,6 +70,7 @@ class SocialDcAttitudeAdjustmentTest extends UnitTestCase {
       NULL,
       NULL,
       NULL,
+      $this->createMock(CharacterStateService::class),
       NULL,
       $this->createMock(RoomChatService::class)
     );

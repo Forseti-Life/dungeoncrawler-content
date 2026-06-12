@@ -504,7 +504,7 @@ class NarrationEngine {
         return trim($result['response']);
       }
     }
-    catch (\Exception $e) {
+    catch (\Throwable $e) {
       $this->logger->error('Speech narration AI error: @msg', ['@msg' => $e->getMessage()]);
     }
 
@@ -666,7 +666,7 @@ class NarrationEngine {
         return trim($result['response']);
       }
     }
-    catch (\Exception $e) {
+    catch (\Throwable $e) {
       $this->logger->error('Scene beat narration AI error: @msg', ['@msg' => $e->getMessage()]);
     }
 
