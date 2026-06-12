@@ -143,6 +143,43 @@ class EncounterAiIntegrationServiceTest extends UnitTestCase {
   }
 
   /**
+   * @covers ::validateRecommendation
+   */
+  public function testValidateRecommendationPrefersCanonicalActionAvailabilityEnvelope(): void {
+    $context = [
+      'current_actor' => [
+        'entity_ref' => 'npc-1',
+        'team' => 'npc',
+        'actions_remaining' => 3,
+      ],
+      'allowed_actions' => ['strike', 'end_turn'],
+      'actions_available_to_me_this_turn' => [
+        'actor_instance_id' => 'npc-1',
+        'actions_remaining' => 0,
+        'available_actions' => ['end_turn'],
+        'action_contract' => [
+          'phase' => 'encounter',
+          'available_actions' => ['end_turn'],
+        ],
+      ],
+    ];
+
+    $recommendation = [
+      'actor_instance_id' => 'npc-1',
+      'recommended_action' => [
+        'type' => 'strike',
+        'action_cost' => 1,
+      ],
+    ];
+
+    $validation = $this->service->validateRecommendation($recommendation, $context);
+
+    $this->assertFalse($validation['valid']);
+    $this->assertContains('recommended_action.type is not supported by server action handlers.', $validation['errors']);
+    $this->assertContains('recommended_action.action_cost exceeds actions remaining.', $validation['errors']);
+  }
+
+  /**
    * @covers ::requestNpcActionRecommendation
    */
   public function testRequestNpcActionRecommendationWrapsProviderResponse(): void {

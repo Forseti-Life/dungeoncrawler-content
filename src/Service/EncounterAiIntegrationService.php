@@ -220,8 +220,9 @@ class EncounterAiIntegrationService {
     $recommended_action = is_array($recommendation['recommended_action'] ?? NULL) ? $recommendation['recommended_action'] : [];
     $action_type = (string) ($recommended_action['type'] ?? '');
     $action_cost = (int) ($recommended_action['action_cost'] ?? 0);
-    $actions_remaining = (int) ($current_actor['actions_remaining'] ?? 3);
-    $allowed_actions = is_array($context['allowed_actions'] ?? NULL) ? $context['allowed_actions'] : [];
+    $action_context = $this->resolveValidationActionContext($context, $current_actor);
+    $actions_remaining = $action_context['actions_remaining'];
+    $allowed_actions = $action_context['allowed_actions'];
 
     if ($action_type === '' || !in_array($action_type, $allowed_actions, TRUE)) {
       $errors[] = 'recommended_action.type is not supported by server action handlers.';
@@ -234,6 +235,54 @@ class EncounterAiIntegrationService {
     return [
       'valid' => count($errors) === 0,
       'errors' => $errors,
+    ];
+  }
+
+  /**
+   * Resolve canonical action availability for recommendation validation.
+   *
+   * @param array<string, mixed> $context
+   *   Encounter context payload.
+   * @param array<string, mixed> $current_actor
+   *   Active actor payload.
+   *
+   * @return array{allowed_actions: string[], actions_remaining: int}
+   *   Canonical action context fields.
+   */
+  protected function resolveValidationActionContext(array $context, array $current_actor): array {
+    $availability = is_array($context['actions_available_to_me_this_turn'] ?? NULL)
+      ? $context['actions_available_to_me_this_turn']
+      : [];
+    $action_contract = is_array($availability['action_contract'] ?? NULL)
+      ? $availability['action_contract']
+      : (is_array($context['action_contract'] ?? NULL) ? $context['action_contract'] : []);
+
+    $allowed_actions = is_array($availability['available_actions'] ?? NULL)
+      ? $availability['available_actions']
+      : [];
+
+    if ($allowed_actions === []) {
+      $allowed_actions = is_array($action_contract['available_actions'] ?? NULL)
+        ? $action_contract['available_actions']
+        : [];
+    }
+
+    if ($allowed_actions === []) {
+      $allowed_actions = is_array($context['allowed_actions'] ?? NULL)
+        ? $context['allowed_actions']
+        : [];
+    }
+
+    $actions_remaining = is_numeric($availability['actions_remaining'] ?? NULL)
+      ? max(0, (int) $availability['actions_remaining'])
+      : max(0, (int) ($current_actor['actions_remaining'] ?? 3));
+
+    return [
+      'allowed_actions' => array_values(array_unique(array_filter(array_map(
+        static fn($action): string => strtolower(trim((string) $action)),
+        $allowed_actions
+      )))),
+      'actions_remaining' => $actions_remaining,
     ];
   }
 

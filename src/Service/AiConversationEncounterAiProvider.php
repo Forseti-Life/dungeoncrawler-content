@@ -195,7 +195,30 @@ class AiConversationEncounterAiProvider implements EncounterAiProviderInterface 
   private function buildRecommendationPrompt(array $context): string {
     $current_actor = is_array($context['current_actor'] ?? NULL) ? $context['current_actor'] : [];
     $current_actor_profile = is_array($context['current_actor_profile'] ?? NULL) ? $context['current_actor_profile'] : [];
-    $allowed_actions = is_array($context['allowed_actions'] ?? NULL) ? $context['allowed_actions'] : [];
+    $actions_available_to_me_this_turn = is_array($context['actions_available_to_me_this_turn'] ?? NULL)
+      ? $context['actions_available_to_me_this_turn']
+      : [];
+    $action_contract = is_array($actions_available_to_me_this_turn['action_contract'] ?? NULL)
+      ? $actions_available_to_me_this_turn['action_contract']
+      : (is_array($context['action_contract'] ?? NULL) ? $context['action_contract'] : []);
+    $allowed_actions = is_array($actions_available_to_me_this_turn['available_actions'] ?? NULL)
+      ? $actions_available_to_me_this_turn['available_actions']
+      : [];
+    if ($allowed_actions === []) {
+      $allowed_actions = is_array($action_contract['available_actions'] ?? NULL)
+        ? $action_contract['available_actions']
+        : [];
+    }
+    if ($allowed_actions === []) {
+      $allowed_actions = is_array($context['allowed_actions'] ?? NULL) ? $context['allowed_actions'] : [];
+    }
+    $allowed_actions = array_values(array_unique(array_filter(array_map(
+      static fn($action): string => strtolower(trim((string) $action)),
+      $allowed_actions
+    ))));
+    $action_cost_max = is_numeric($actions_available_to_me_this_turn['actions_remaining'] ?? NULL)
+      ? max(0, (int) $actions_available_to_me_this_turn['actions_remaining'])
+      : max(0, (int) ($current_actor['actions_remaining'] ?? 3));
     $participants = is_array($context['participants'] ?? NULL) ? $context['participants'] : [];
     $visible_references = is_array($context['visible_references'] ?? NULL) ? $context['visible_references'] : [];
     $line_of_sight = is_array($context['line_of_sight'] ?? NULL) ? $context['line_of_sight'] : [];
@@ -211,7 +234,7 @@ class AiConversationEncounterAiProvider implements EncounterAiProviderInterface 
         'output_json_only' => TRUE,
         'allowed_actions' => $allowed_actions,
         'must_match_active_actor' => TRUE,
-        'action_cost_max' => (int) ($current_actor['actions_remaining'] ?? 3),
+        'action_cost_max' => $action_cost_max,
         'conversation_allowed_when_visible' => TRUE,
       ],
       'encounter' => [
@@ -228,6 +251,8 @@ class AiConversationEncounterAiProvider implements EncounterAiProviderInterface 
         'line_of_sight' => $line_of_sight,
         'conversation_options' => $conversation_options,
         'participants' => $participants,
+        'action_contract' => $action_contract,
+        'actions_available_to_me_this_turn' => $actions_available_to_me_this_turn,
       ],
       'required_response_schema' => [
         'version' => 'v1',

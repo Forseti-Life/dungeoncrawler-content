@@ -252,6 +252,73 @@ class AiConversationEncounterAiProviderTest extends UnitTestCase {
   }
 
   /**
+   * @covers ::recommendNpcAction
+   */
+  public function testRecommendNpcActionUsesCanonicalActionAvailabilityEnvelopeInPrompt(): void {
+    $context = $this->buildEncounterContext();
+    $context['allowed_actions'] = ['stride'];
+    $context['actions_available_to_me_this_turn'] = [
+      'actor_instance_id' => 'npc-1',
+      'actions_remaining' => 1,
+      'reaction_available' => FALSE,
+      'available_actions' => ['strike', 'end_turn'],
+      'action_contract' => [
+        'phase' => 'encounter',
+        'actor_id' => 'npc-1',
+        'available_actions' => ['strike', 'end_turn'],
+      ],
+    ];
+
+    $this->aiApiService->expects($this->once())
+      ->method('invokeModelDirect')
+      ->with(
+        $this->callback(static function ($prompt): bool {
+          if (!is_string($prompt)) {
+            return FALSE;
+          }
+          $payload = json_decode($prompt, TRUE);
+          if (!is_array($payload)) {
+            return FALSE;
+          }
+          $constraints = is_array($payload['constraints'] ?? NULL) ? $payload['constraints'] : [];
+          $encounter = is_array($payload['encounter'] ?? NULL) ? $payload['encounter'] : [];
+          $availability = is_array($encounter['actions_available_to_me_this_turn'] ?? NULL)
+            ? $encounter['actions_available_to_me_this_turn']
+            : [];
+
+          return ($constraints['allowed_actions'] ?? NULL) === ['strike', 'end_turn']
+            && ($constraints['action_cost_max'] ?? NULL) === 1
+            && ($availability['available_actions'] ?? NULL) === ['strike', 'end_turn'];
+        }),
+        'dungeoncrawler_content',
+        'encounter_npc_recommendation',
+        $this->anything(),
+        $this->anything()
+      )
+      ->willReturn([
+        'success' => TRUE,
+        'response' => json_encode([
+          'version' => 'v1',
+          'actor_instance_id' => 'npc-1',
+          'recommended_action' => [
+            'type' => 'strike',
+            'target_instance_id' => 'pc-1',
+            'action_cost' => 1,
+            'parameters' => [],
+          ],
+          'alternatives' => [],
+          'rationale' => 'Uses canonical turn envelope constraints.',
+          'confidence' => 0.76,
+        ]),
+      ]);
+
+    $recommendation = $this->provider->recommendNpcAction($context);
+
+    $this->assertFalse($recommendation['fallback_used']);
+    $this->assertSame('strike', $recommendation['recommended_action']['type']);
+  }
+
+  /**
    * @covers ::generateEncounterNarration
    */
   public function testGenerateEncounterNarrationUsesAiConversationResponse(): void {
@@ -321,6 +388,22 @@ class AiConversationEncounterAiProviderTest extends UnitTestCase {
           'entity_ref' => 'npc-1',
           'team' => 'npc',
           'is_defeated' => FALSE,
+        ],
+      ],
+      'action_contract' => [
+        'phase' => 'encounter',
+        'actor_id' => 'npc-1',
+        'available_actions' => ['strike', 'end_turn'],
+      ],
+      'actions_available_to_me_this_turn' => [
+        'actor_instance_id' => 'npc-1',
+        'actions_remaining' => 3,
+        'reaction_available' => FALSE,
+        'available_actions' => ['strike', 'end_turn'],
+        'action_contract' => [
+          'phase' => 'encounter',
+          'actor_id' => 'npc-1',
+          'available_actions' => ['strike', 'end_turn'],
         ],
       ],
       'allowed_actions' => ['strike', 'end_turn'],
