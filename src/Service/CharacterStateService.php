@@ -990,16 +990,28 @@ class CharacterStateService {
 
     $nutrition_days = $this->resolveProvisionDays($item, 'food');
     if ($nutrition_days > 0) {
-      $state['days_without_food'] = 0;
-      unset($state['starvation_damage_phase']);
+      if (!isset($state['resources']) || !is_array($state['resources'])) {
+        $state['resources'] = [];
+      }
+      if (!isset($state['resources']['survival']) || !is_array($state['resources']['survival'])) {
+        $state['resources']['survival'] = $this->normalizeSurvivalResourceState($state);
+      }
+      $state['resources']['survival']['daysWithoutFood'] = 0;
+      $state['resources']['survival']['starvationDamagePhase'] = FALSE;
       $effects['nutrition_days'] = $nutrition_days;
       $changed = TRUE;
     }
 
     $hydration_days = $this->resolveProvisionDays($item, 'water');
     if ($hydration_days > 0) {
-      $state['days_without_water'] = 0;
-      unset($state['thirst_damage_phase']);
+      if (!isset($state['resources']) || !is_array($state['resources'])) {
+        $state['resources'] = [];
+      }
+      if (!isset($state['resources']['survival']) || !is_array($state['resources']['survival'])) {
+        $state['resources']['survival'] = $this->normalizeSurvivalResourceState($state);
+      }
+      $state['resources']['survival']['daysWithoutWater'] = 0;
+      $state['resources']['survival']['thirstDamagePhase'] = FALSE;
       $effects['hydration_days'] = $hydration_days;
       $changed = TRUE;
     }
@@ -1652,11 +1664,50 @@ class CharacterStateService {
     );
     $state['spells'] = $normalized_spellcasting['spells'];
     $state['resources'] = $normalized_spellcasting['resources'];
+    $state['resources']['survival'] = $this->normalizeSurvivalResourceState($state);
+    unset(
+      $state['days_without_food'],
+      $state['days_without_water'],
+      $state['starvation_damage_phase'],
+      $state['thirst_damage_phase']
+    );
     $state['inventory'] = CharacterEquipmentSlotHelper::normalizeInventory(
       is_array($state['inventory'] ?? NULL) ? $state['inventory'] : []
     );
 
     return $state;
+  }
+
+  /**
+   * Normalize starvation/thirst state to canonical resources.survival shape.
+   *
+   * @return array{daysWithoutFood:int,daysWithoutWater:int,starvationDamagePhase:bool,thirstDamagePhase:bool}
+   */
+  private function normalizeSurvivalResourceState(array $state): array {
+    $survival = is_array($state['resources']['survival'] ?? NULL) ? $state['resources']['survival'] : [];
+
+    return [
+      'daysWithoutFood' => max(0, (int) (
+        $survival['daysWithoutFood']
+        ?? $state['days_without_food']
+        ?? 0
+      )),
+      'daysWithoutWater' => max(0, (int) (
+        $survival['daysWithoutWater']
+        ?? $state['days_without_water']
+        ?? 0
+      )),
+      'starvationDamagePhase' => (bool) (
+        $survival['starvationDamagePhase']
+        ?? $state['starvation_damage_phase']
+        ?? FALSE
+      ),
+      'thirstDamagePhase' => (bool) (
+        $survival['thirstDamagePhase']
+        ?? $state['thirst_damage_phase']
+        ?? FALSE
+      ),
+    ];
   }
 
   /**

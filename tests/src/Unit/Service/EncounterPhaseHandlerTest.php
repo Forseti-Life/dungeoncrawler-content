@@ -795,6 +795,108 @@ class EncounterPhaseHandlerTest extends UnitTestCase {
   }
 
   /**
+   * Consumable nutrition/hydration updates sync canonical survival projection.
+   *
+   * @covers ::processIntent
+   */
+  public function testProcessIntentConsumeItemSyncsCanonicalSurvivalProjection(): void {
+    $character_state = $this->createMock(CharacterStateService::class);
+    $character_state->expects($this->once())
+      ->method('updateInventory')
+      ->with(
+        '745',
+        'consume',
+        $this->callback(static function (array $item): bool {
+          return (string) ($item['id'] ?? '') === 'trail-ration'
+            && (string) ($item['name'] ?? '') === 'Trail Ration';
+        }),
+        42,
+        'pc-1'
+      )
+      ->willReturn(['carried' => [], 'worn' => [], 'currency' => [], 'totalBulk' => 0, 'encumbrance' => 'unencumbered']);
+    $character_state->expects($this->once())
+      ->method('applyConsumableEffects')
+      ->with(
+        '745',
+        $this->callback(static function (array $item): bool {
+          return (string) ($item['id'] ?? '') === 'trail-ration';
+        }),
+        42,
+        'pc-1'
+      )
+      ->willReturn([
+        'nutrition_days' => 1,
+        'hydration_days' => 1,
+      ]);
+    $character_state->expects($this->once())
+      ->method('getState')
+      ->with('745', 42, 'pc-1')
+      ->willReturn([
+        'resources' => [
+          'survival' => [
+            'daysWithoutFood' => 0,
+            'daysWithoutWater' => 0,
+            'starvationDamagePhase' => FALSE,
+            'thirstDamagePhase' => FALSE,
+          ],
+          'hitPoints' => [
+            'current' => 19,
+            'max' => 24,
+          ],
+        ],
+      ]);
+
+    $handler = $this->buildHandler(NULL, NULL, NULL, $character_state);
+    $game_state = [
+      'encounter_id' => NULL,
+      'round' => 1,
+      'turn' => [
+        'entity' => 'pc-1',
+        'actions_remaining' => 3,
+        'reaction_available' => TRUE,
+      ],
+    ];
+    $dungeon_data = [
+      'entities' => [
+        [
+          'entity_instance_id' => 'pc-1',
+          'state' => [
+            'metadata' => [
+              'campaign_character_id' => '745',
+              'runtime_entity_id' => 'pc-1',
+            ],
+            'days_without_food' => 3,
+            'days_without_water' => 2,
+            'starvation_damage_phase' => TRUE,
+            'thirst_damage_phase' => TRUE,
+            'hit_points' => ['current' => 10, 'max' => 24],
+          ],
+        ],
+      ],
+    ];
+
+    $response = $handler->processIntent([
+      'type' => 'consume_item',
+      'actor' => 'pc-1',
+      'params' => [
+        'character_id' => '745',
+        'item' => [
+          'id' => 'trail-ration',
+          'name' => 'Trail Ration',
+        ],
+      ],
+    ], $game_state, $dungeon_data, 42);
+
+    $this->assertTrue($response['success']);
+    $this->assertSame(0, (int) ($dungeon_data['entities'][0]['state']['days_without_food'] ?? -1));
+    $this->assertSame(0, (int) ($dungeon_data['entities'][0]['state']['days_without_water'] ?? -1));
+    $this->assertFalse((bool) ($dungeon_data['entities'][0]['state']['starvation_damage_phase'] ?? TRUE));
+    $this->assertFalse((bool) ($dungeon_data['entities'][0]['state']['thirst_damage_phase'] ?? TRUE));
+    $this->assertSame(19, (int) ($dungeon_data['entities'][0]['state']['hit_points']['current'] ?? -1));
+    $this->assertSame(24, (int) ($dungeon_data['entities'][0]['state']['hit_points']['max'] ?? -1));
+  }
+
+  /**
    * Spell resource mutations require canonical character identity for focus casts.
    *
    * @covers ::processCastSpell

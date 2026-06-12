@@ -997,6 +997,12 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
         ) {
           $this->syncCanonicalSpellcastingProjectionForActor($encounter_id, $actor_id, $campaign_id, $dungeon_data);
         }
+        if (
+          !empty($effects_ci['nutrition_days'])
+          || !empty($effects_ci['hydration_days'])
+        ) {
+          $this->syncCanonicalSurvivalProjectionForActor($encounter_id, $actor_id, $campaign_id, $dungeon_data);
+        }
 
         $actor_name = $this->resolveEntityName($actor_id, $game_state, $dungeon_data);
         $result = [
@@ -7659,6 +7665,151 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
     }
     $this->applyCanonicalSpellcastingResourcesToParticipantEntityRef($participant_entity_ref, $canonical_state);
     $this->persistEncounterParticipantEntityRef($participant_id, $participant_entity_ref);
+  }
+
+  protected function syncCanonicalSurvivalProjectionForActor(?int $encounter_id, string $actor_id, int $campaign_id, array &$dungeon_data, ?array $canonical_state = NULL): void {
+    $actor_entity_index = $this->findDungeonEntityIndexByInstanceId($dungeon_data, $actor_id);
+    $has_actor_entity = $actor_entity_index !== NULL
+      && isset($dungeon_data['entities'][$actor_entity_index])
+      && is_array($dungeon_data['entities'][$actor_entity_index]);
+    $canonical_identity = ['character_id' => '', 'instance_id' => NULL];
+    if ($has_actor_entity) {
+      $canonical_identity = $this->resolveCanonicalCharacterIdentity($dungeon_data['entities'][$actor_entity_index]);
+    }
+
+    $encounter = NULL;
+    $participant = NULL;
+    if ($encounter_id) {
+      $encounter = $this->encounterStore->loadEncounter((int) $encounter_id);
+      if (is_array($encounter)) {
+        $participant = $this->findEncounterParticipantByEntityId($encounter, $actor_id);
+        if (
+          (string) ($canonical_identity['character_id'] ?? '') === ''
+          && is_array($participant)
+        ) {
+          $participant_entity_ref = !empty($participant['entity_ref']) ? json_decode((string) $participant['entity_ref'], TRUE) : [];
+          if (is_array($participant_entity_ref)) {
+            $canonical_identity = $this->resolveCanonicalCharacterIdentityFromParticipantEntityRef($participant_entity_ref, $actor_id);
+          }
+        }
+      }
+    }
+
+    if (!is_array($canonical_state)) {
+      $character_id = (string) ($canonical_identity['character_id'] ?? '');
+      $instance_id = is_string($canonical_identity['instance_id'] ?? NULL) ? $canonical_identity['instance_id'] : NULL;
+      if (!ctype_digit($character_id) || (int) $character_id <= 0) {
+        return;
+      }
+      try {
+        $canonical_state = $this->characterStateService->getState(
+          $character_id,
+          $campaign_id > 0 ? $campaign_id : NULL,
+          $instance_id
+        );
+      }
+      catch (\InvalidArgumentException $exception) {
+        $this->logger->warning('Survival projection sync skipped: @error', ['@error' => $exception->getMessage()]);
+        return;
+      }
+      if (!is_array($canonical_state)) {
+        return;
+      }
+    }
+
+    if ($has_actor_entity) {
+      $this->applyCanonicalSurvivalResourcesToDungeonEntity($dungeon_data['entities'][$actor_entity_index], $canonical_state);
+    }
+
+    if (!$encounter_id) {
+      return;
+    }
+
+    if (!is_array($participant)) {
+      if (!is_array($encounter)) {
+        $encounter = $this->encounterStore->loadEncounter((int) $encounter_id);
+      }
+      if (is_array($encounter)) {
+        $participant = $this->findEncounterParticipantByEntityId($encounter, $actor_id);
+      }
+    }
+    if (!$participant) {
+      return;
+    }
+
+    $participant_id = (int) ($participant['id'] ?? 0);
+    if ($participant_id <= 0) {
+      return;
+    }
+    $participant_entity_ref = !empty($participant['entity_ref']) ? json_decode((string) $participant['entity_ref'], TRUE) : [];
+    if (!is_array($participant_entity_ref)) {
+      $participant_entity_ref = [];
+    }
+    $this->applyCanonicalSurvivalResourcesToParticipantEntityRef($participant_entity_ref, $canonical_state);
+    $this->persistEncounterParticipantEntityRef($participant_id, $participant_entity_ref);
+  }
+
+  protected function applyCanonicalSurvivalResourcesToDungeonEntity(array &$entity, array $character_state): void {
+    if (!isset($entity['state']) || !is_array($entity['state'])) {
+      $entity['state'] = [];
+    }
+
+    $survival = $this->readCanonicalSurvivalStateFromCanonicalState($character_state);
+    $entity['state']['days_without_food'] = (int) ($survival['daysWithoutFood'] ?? 0);
+    $entity['state']['days_without_water'] = (int) ($survival['daysWithoutWater'] ?? 0);
+    $entity['state']['starvation_damage_phase'] = !empty($survival['starvationDamagePhase']);
+    $entity['state']['thirst_damage_phase'] = !empty($survival['thirstDamagePhase']);
+
+    if (is_array($character_state['resources']['hitPoints'] ?? NULL)) {
+      $current = (int) ($character_state['resources']['hitPoints']['current'] ?? ($entity['state']['hit_points']['current'] ?? 0));
+      $max = (int) ($character_state['resources']['hitPoints']['max'] ?? ($entity['state']['hit_points']['max'] ?? $current));
+      $entity['state']['hit_points']['current'] = $current;
+      $entity['state']['hit_points']['max'] = $max;
+      $entity['state']['hp_current'] = $current;
+      $entity['state']['hp_max'] = $max;
+      if (isset($entity['hit_points']) && is_array($entity['hit_points'])) {
+        $entity['hit_points']['current'] = $current;
+        $entity['hit_points']['max'] = $max;
+      }
+    }
+  }
+
+  protected function applyCanonicalSurvivalResourcesToParticipantEntityRef(array &$entity_ref, array $character_state): void {
+    if (!isset($entity_ref['state']) || !is_array($entity_ref['state'])) {
+      $entity_ref['state'] = [];
+    }
+
+    $survival = $this->readCanonicalSurvivalStateFromCanonicalState($character_state);
+    $entity_ref['state']['days_without_food'] = (int) ($survival['daysWithoutFood'] ?? 0);
+    $entity_ref['state']['days_without_water'] = (int) ($survival['daysWithoutWater'] ?? 0);
+    $entity_ref['state']['starvation_damage_phase'] = !empty($survival['starvationDamagePhase']);
+    $entity_ref['state']['thirst_damage_phase'] = !empty($survival['thirstDamagePhase']);
+
+    if (is_array($character_state['resources']['hitPoints'] ?? NULL)) {
+      $current = (int) ($character_state['resources']['hitPoints']['current'] ?? 0);
+      $max = (int) ($character_state['resources']['hitPoints']['max'] ?? $current);
+      if (!isset($entity_ref['state']['hit_points']) || !is_array($entity_ref['state']['hit_points'])) {
+        $entity_ref['state']['hit_points'] = [];
+      }
+      $entity_ref['state']['hit_points']['current'] = $current;
+      $entity_ref['state']['hit_points']['max'] = $max;
+      $entity_ref['state']['hp_current'] = $current;
+      $entity_ref['state']['hp_max'] = $max;
+    }
+  }
+
+  /**
+   * @return array{daysWithoutFood:int,daysWithoutWater:int,starvationDamagePhase:bool,thirstDamagePhase:bool}
+   */
+  protected function readCanonicalSurvivalStateFromCanonicalState(array $character_state): array {
+    $survival = is_array($character_state['resources']['survival'] ?? NULL) ? $character_state['resources']['survival'] : [];
+
+    return [
+      'daysWithoutFood' => max(0, (int) ($survival['daysWithoutFood'] ?? $character_state['days_without_food'] ?? 0)),
+      'daysWithoutWater' => max(0, (int) ($survival['daysWithoutWater'] ?? $character_state['days_without_water'] ?? 0)),
+      'starvationDamagePhase' => (bool) ($survival['starvationDamagePhase'] ?? $character_state['starvation_damage_phase'] ?? FALSE),
+      'thirstDamagePhase' => (bool) ($survival['thirstDamagePhase'] ?? $character_state['thirst_damage_phase'] ?? FALSE),
+    ];
   }
 
   protected function normalizeSpellSlotRankKey(string $slot_key): ?string {

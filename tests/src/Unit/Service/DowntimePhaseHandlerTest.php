@@ -10,6 +10,7 @@ use Psr\Log\LoggerInterface;
 use Drupal\dungeoncrawler_content\Service\CharacterStateService;
 use Drupal\dungeoncrawler_content\Service\CraftingService;
 use Drupal\dungeoncrawler_content\Service\NpcPsychologyService;
+use Drupal\dungeoncrawler_content\Service\NumberGenerationService;
 
 /**
  * Tests for DowntimePhaseHandler service.
@@ -557,6 +558,235 @@ class DowntimePhaseHandlerTest extends UnitTestCase {
     $this->assertTrue($response['success']);
     $this->assertFalse($response['result']['covered']);
     $this->assertSame(10, $response['result']['penalty_cp']);
+  }
+
+  /**
+   * Starvation advancement writes canonical survival state and syncs projection.
+   */
+  public function testAdvanceStarvationUsesCanonicalStateAndSyncsProjection(): void {
+    $update = $this->createMock(\Drupal\Core\Database\Query\Update::class);
+    $update->method('fields')->willReturnSelf();
+    $update->method('condition')->willReturnSelf();
+    $update->method('execute')->willReturn(1);
+
+    $db = $this->createMock(Connection::class);
+    $db->method('update')->willReturn($update);
+
+    $lf = $this->createMock(LoggerChannelFactoryInterface::class);
+    $lf->method('get')->willReturn($this->createMock(LoggerInterface::class));
+
+    $css = $this->createMock(CharacterStateService::class);
+    $css->expects($this->once())
+      ->method('getState')
+      ->with('745', 42, 'pc-1')
+      ->willReturn([
+        'resources' => [
+          'hitPoints' => ['current' => 20, 'max' => 20],
+          'survival' => [
+            'daysWithoutFood' => 0,
+            'daysWithoutWater' => 0,
+            'starvationDamagePhase' => FALSE,
+            'thirstDamagePhase' => FALSE,
+          ],
+        ],
+        'conditions' => [],
+      ]);
+    $css->expects($this->once())
+      ->method('setState')
+      ->with(
+        '745',
+        $this->callback(function (array $state): bool {
+          return (int) ($state['resources']['survival']['daysWithoutFood'] ?? -1) === 1
+            && (int) ($state['resources']['survival']['daysWithoutWater'] ?? -1) === 1
+            && !empty($state['conditions'])
+            && strtolower((string) ($state['conditions'][0]['name'] ?? '')) === 'fatigued';
+        }),
+        NULL,
+        42,
+        'pc-1'
+      )
+      ->willReturnCallback(static function ($character_id, array $state): array {
+        return $state;
+      });
+
+    $craft = $this->createMock(CraftingService::class);
+    $npc = $this->createMock(NpcPsychologyService::class);
+    $roller = $this->createMock(NumberGenerationService::class);
+    $roller->expects($this->never())->method('rollPathfinderDie');
+
+    $handler = new DowntimePhaseHandler($db, $lf, $css, $craft, $npc, NULL, $roller);
+    $game_state = ['phase' => 'downtime', 'downtime' => ['days_elapsed' => 0]];
+    $dungeon_data = [
+      'entities' => [
+        [
+          'entity_instance_id' => 'pc-1',
+          'instance_id' => 'pc-1',
+          'stats' => ['con_modifier' => 1],
+          'state' => [
+            'metadata' => [
+              'campaign_character_id' => '745',
+              'runtime_entity_id' => 'pc-1',
+            ],
+            'hit_points' => ['current' => 20, 'max' => 20],
+            'conditions' => [],
+          ],
+        ],
+      ],
+    ];
+
+    $response = $handler->processIntent([
+      'type' => 'advance_starvation',
+      'actor' => 'pc-1',
+      'params' => ['char_ids' => ['pc-1'], 'resource' => 'both'],
+    ], $game_state, $dungeon_data, 42);
+
+    $this->assertTrue($response['success']);
+    $this->assertSame(1, (int) ($response['result']['results']['pc-1']['days_without_food'] ?? -1));
+    $this->assertSame(1, (int) ($response['result']['results']['pc-1']['days_without_water'] ?? -1));
+    $this->assertSame(1, (int) ($dungeon_data['entities'][0]['state']['days_without_food'] ?? -1));
+    $this->assertSame(1, (int) ($dungeon_data['entities'][0]['state']['days_without_water'] ?? -1));
+    $this->assertFalse((bool) ($dungeon_data['entities'][0]['state']['starvation_damage_phase'] ?? TRUE));
+    $this->assertFalse((bool) ($dungeon_data['entities'][0]['state']['thirst_damage_phase'] ?? TRUE));
+    $this->assertSame('fatigued', strtolower((string) ($dungeon_data['entities'][0]['state']['conditions'][0]['name'] ?? '')));
+  }
+
+  /**
+   * Starvation advancement rejects updates when canonical identity is missing.
+   */
+  public function testAdvanceStarvationRequiresCanonicalCharacterIdentity(): void {
+    $update = $this->createMock(\Drupal\Core\Database\Query\Update::class);
+    $update->method('fields')->willReturnSelf();
+    $update->method('condition')->willReturnSelf();
+    $update->method('execute')->willReturn(1);
+
+    $db = $this->createMock(Connection::class);
+    $db->method('update')->willReturn($update);
+
+    $lf = $this->createMock(LoggerChannelFactoryInterface::class);
+    $lf->method('get')->willReturn($this->createMock(LoggerInterface::class));
+
+    $css = $this->createMock(CharacterStateService::class);
+    $css->expects($this->never())->method('getState');
+    $css->expects($this->never())->method('setState');
+
+    $craft = $this->createMock(CraftingService::class);
+    $npc = $this->createMock(NpcPsychologyService::class);
+    $handler = new DowntimePhaseHandler($db, $lf, $css, $craft, $npc);
+
+    $game_state = ['phase' => 'downtime', 'downtime' => ['days_elapsed' => 0]];
+    $dungeon_data = [
+      'entities' => [
+        [
+          'entity_instance_id' => 'pc-1',
+          'instance_id' => 'pc-1',
+          'stats' => ['con_modifier' => 1],
+          'state' => ['hit_points' => ['current' => 20, 'max' => 20]],
+        ],
+      ],
+    ];
+
+    $response = $handler->processIntent([
+      'type' => 'advance_starvation',
+      'actor' => 'pc-1',
+      'params' => ['char_ids' => ['pc-1'], 'resource' => 'both'],
+    ], $game_state, $dungeon_data, 42);
+
+    $this->assertTrue($response['success']);
+    $this->assertSame(
+      'Canonical character sheet is required for starvation/thirst updates.',
+      $response['result']['results']['pc-1']['error'] ?? ''
+    );
+  }
+
+  /**
+   * Starvation/thirst damage phase activates once thresholds are exceeded.
+   */
+  public function testAdvanceStarvationAppliesDamageAfterThresholdTransition(): void {
+    $update = $this->createMock(\Drupal\Core\Database\Query\Update::class);
+    $update->method('fields')->willReturnSelf();
+    $update->method('condition')->willReturnSelf();
+    $update->method('execute')->willReturn(1);
+
+    $db = $this->createMock(Connection::class);
+    $db->method('update')->willReturn($update);
+
+    $lf = $this->createMock(LoggerChannelFactoryInterface::class);
+    $lf->method('get')->willReturn($this->createMock(LoggerInterface::class));
+
+    $css = $this->createMock(CharacterStateService::class);
+    $css->expects($this->once())
+      ->method('getState')
+      ->with('745', 42, 'pc-1')
+      ->willReturn([
+        'resources' => [
+          'hitPoints' => ['current' => 20, 'max' => 20],
+          'survival' => [
+            'daysWithoutFood' => 1,
+            'daysWithoutWater' => 1,
+            'starvationDamagePhase' => FALSE,
+            'thirstDamagePhase' => FALSE,
+          ],
+        ],
+        'conditions' => [],
+      ]);
+    $css->expects($this->once())
+      ->method('setState')
+      ->with(
+        '745',
+        $this->callback(function (array $state): bool {
+          return (int) ($state['resources']['hitPoints']['current'] ?? -1) === 16
+            && !empty($state['resources']['survival']['starvationDamagePhase'])
+            && !empty($state['resources']['survival']['thirstDamagePhase']);
+        }),
+        NULL,
+        42,
+        'pc-1'
+      )
+      ->willReturnCallback(static function ($character_id, array $state): array {
+        return $state;
+      });
+
+    $craft = $this->createMock(CraftingService::class);
+    $npc = $this->createMock(NpcPsychologyService::class);
+    $roller = $this->createMock(NumberGenerationService::class);
+    $roller->expects($this->once())
+      ->method('rollPathfinderDie')
+      ->with(4)
+      ->willReturn(3);
+
+    $handler = new DowntimePhaseHandler($db, $lf, $css, $craft, $npc, NULL, $roller);
+    $game_state = ['phase' => 'downtime', 'downtime' => ['days_elapsed' => 0]];
+    $dungeon_data = [
+      'entities' => [
+        [
+          'entity_instance_id' => 'pc-1',
+          'instance_id' => 'pc-1',
+          'stats' => ['con_modifier' => 0],
+          'state' => [
+            'metadata' => [
+              'campaign_character_id' => '745',
+              'runtime_entity_id' => 'pc-1',
+            ],
+            'hit_points' => ['current' => 20, 'max' => 20],
+            'conditions' => [],
+          ],
+        ],
+      ],
+    ];
+
+    $response = $handler->processIntent([
+      'type' => 'advance_starvation',
+      'actor' => 'pc-1',
+      'params' => ['char_ids' => ['pc-1'], 'resource' => 'both'],
+    ], $game_state, $dungeon_data, 42);
+
+    $this->assertTrue($response['success']);
+    $this->assertSame(4, (int) ($response['result']['results']['pc-1']['damage_taken'] ?? -1));
+    $this->assertTrue((bool) ($response['result']['results']['pc-1']['starvation_damage_phase'] ?? FALSE));
+    $this->assertTrue((bool) ($response['result']['results']['pc-1']['thirst_damage_phase'] ?? FALSE));
+    $this->assertSame(16, (int) ($dungeon_data['entities'][0]['state']['hit_points']['current'] ?? -1));
+    $this->assertTrue((bool) ($dungeon_data['entities'][0]['state']['starvation_damage_phase'] ?? FALSE));
+    $this->assertTrue((bool) ($dungeon_data['entities'][0]['state']['thirst_damage_phase'] ?? FALSE));
   }
 
   // ---------------------------------------------------------------------------

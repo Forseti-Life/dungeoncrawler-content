@@ -664,19 +664,31 @@ class DowntimePhaseHandler implements PhaseHandlerInterface {
    */
   protected function processAdvanceStarvation(?string $actor_id, array $params, array &$game_state, array &$dungeon_data, int $campaign_id): array {
     $char_ids = $params['char_ids'] ?? ($actor_id ? [$actor_id] : []);
+    $char_ids = array_values(array_unique(array_filter(array_map(
+      static fn ($value) => is_scalar($value) ? (string) $value : '',
+      is_array($char_ids) ? $char_ids : [$char_ids]
+    ))));
     $resource = $params['resource'] ?? 'both';
 
     $results  = [];
     $mutations = [];
 
-    foreach ($dungeon_data['entities'] ?? [] as &$entity) {
-      $eid = $entity['instance_id'] ?? ($entity['id'] ?? NULL);
-      if (!in_array($eid, $char_ids, TRUE)) {
+    if (empty($dungeon_data['entities']) || !is_array($dungeon_data['entities'])) {
+      return ['results' => $results, 'mutations' => $mutations];
+    }
+
+    foreach ($dungeon_data['entities'] as &$entity) {
+      $eid = $this->resolveEntityInstanceId($entity);
+      if ($eid === NULL || !in_array($eid, $char_ids, TRUE)) {
         continue;
       }
 
-      $con_mod = (int) ($entity['stats']['con_modifier'] ?? 0);
+      $canonical_identity = $this->resolveCanonicalCharacterIdentity($entity);
+      $campaign_character_id = (string) ($canonical_identity['character_id'] ?? '');
+      $canonical_instance_id = is_string($canonical_identity['instance_id'] ?? NULL) ? $canonical_identity['instance_id'] : NULL;
+
       // REQ 2349: Con modifier ≤ 0 means minimum of 1 day before damage onset.
+      $con_mod = (int) ($entity['stats']['con_modifier'] ?? 0);
       $threshold = max(1, $con_mod + 1);
 
       $char_result = [
@@ -685,50 +697,104 @@ class DowntimePhaseHandler implements PhaseHandlerInterface {
         'conditions_applied' => [],
       ];
 
+      if (!ctype_digit($campaign_character_id) || (int) $campaign_character_id <= 0) {
+        $char_result['error'] = 'Canonical character sheet is required for starvation/thirst updates.';
+        $results[$eid] = $char_result;
+        continue;
+      }
+
+      try {
+        $canonical_state = $this->characterStateService->getState(
+          $campaign_character_id,
+          $campaign_id > 0 ? $campaign_id : NULL,
+          $canonical_instance_id
+        );
+      }
+      catch (\Throwable $e) {
+        $char_result['error'] = 'Canonical character sheet is required for starvation/thirst updates.';
+        $results[$eid] = $char_result;
+        continue;
+      }
+
+      if (isset($canonical_state['abilities']['constitution']) && is_numeric($canonical_state['abilities']['constitution'])) {
+        $con_mod = (int) floor(((int) $canonical_state['abilities']['constitution'] - 10) / 2);
+        $threshold = max(1, $con_mod + 1);
+      }
+
+      $survival_state = $this->readCanonicalSurvivalState($canonical_state);
+      $current_hp = (int) ($canonical_state['resources']['hitPoints']['current'] ?? $entity['state']['hit_points']['current'] ?? 0);
+      $max_hp = (int) ($canonical_state['resources']['hitPoints']['max'] ?? $entity['state']['hit_points']['max'] ?? $current_hp);
+
       if (in_array($resource, ['water', 'both'], TRUE)) {
-        $days_without_water = (int) ($entity['state']['days_without_water'] ?? 0) + 1;
-        $entity['state']['days_without_water'] = $days_without_water;
+        $days_without_water = (int) ($survival_state['daysWithoutWater'] ?? 0) + 1;
+        $survival_state['daysWithoutWater'] = $days_without_water;
 
         // Immediate fatigue on first day without water.
         if ($days_without_water === 1) {
-          $this->applyFatigued($entity, 'dehydration');
-          $char_result['conditions_applied'][] = 'fatigued';
+          if ($this->applyFatiguedToCanonicalState($canonical_state, 'dehydration')) {
+            $char_result['conditions_applied'][] = 'fatigued';
+          }
         }
 
         // REQ 2348: After threshold days: 1d4 damage (abstracted to daily tick).
         // REQ 2349: healing blocked tracked via entity state flag.
         if ($days_without_water > $threshold) {
-          $entity['state']['thirst_damage_phase'] = TRUE;
+          $survival_state['thirstDamagePhase'] = TRUE;
           $dmg = $this->numberGenerationService->rollPathfinderDie(4);
-          $current_hp = (int) ($entity['state']['hit_points']['current'] ?? 0);
-          $entity['state']['hit_points']['current'] = max(0, $current_hp - $dmg);
+          $current_hp = max(0, $current_hp - $dmg);
           $char_result['damage_taken'] += $dmg;
-          $char_result['thirst_hp'] = $entity['state']['hit_points']['current'];
+          $char_result['thirst_hp'] = $current_hp;
         }
       }
 
       if (in_array($resource, ['food', 'both'], TRUE)) {
-        $days_without_food = (int) ($entity['state']['days_without_food'] ?? 0) + 1;
-        $entity['state']['days_without_food'] = $days_without_food;
+        $days_without_food = (int) ($survival_state['daysWithoutFood'] ?? 0) + 1;
+        $survival_state['daysWithoutFood'] = $days_without_food;
 
         // Immediate fatigue on first day without food.
         if ($days_without_food === 1) {
-          $this->applyFatigued($entity, 'starvation');
-          if (!in_array('fatigued', $char_result['conditions_applied'], TRUE)) {
+          if (
+            $this->applyFatiguedToCanonicalState($canonical_state, 'starvation')
+            && !in_array('fatigued', $char_result['conditions_applied'], TRUE)
+          ) {
             $char_result['conditions_applied'][] = 'fatigued';
           }
         }
 
         // REQ 2348: After threshold days: 1 damage per day.
         if ($days_without_food > $threshold) {
-          $entity['state']['starvation_damage_phase'] = TRUE;
-          $current_hp = (int) ($entity['state']['hit_points']['current'] ?? 0);
-          $entity['state']['hit_points']['current'] = max(0, $current_hp - 1);
+          $survival_state['starvationDamagePhase'] = TRUE;
+          $current_hp = max(0, $current_hp - 1);
           $char_result['damage_taken'] += 1;
-          $char_result['starvation_hp'] = $entity['state']['hit_points']['current'];
+          $char_result['starvation_hp'] = $current_hp;
         }
       }
 
+      $canonical_state['resources']['hitPoints']['max'] = $max_hp;
+      $canonical_state['resources']['hitPoints']['current'] = max(0, min($current_hp, $max_hp));
+      $this->writeCanonicalSurvivalState($canonical_state, $survival_state);
+
+      try {
+        $canonical_state = $this->characterStateService->setState(
+          $campaign_character_id,
+          $canonical_state,
+          NULL,
+          $campaign_id > 0 ? $campaign_id : NULL,
+          $canonical_instance_id
+        );
+      }
+      catch (\Throwable $e) {
+        $char_result['error'] = 'Failed to persist canonical starvation/thirst state.';
+        $results[$eid] = $char_result;
+        continue;
+      }
+
+      $this->syncCanonicalSurvivalProjectionToEntity($entity, $canonical_state);
+
+      $char_result['days_without_food'] = (int) ($survival_state['daysWithoutFood'] ?? 0);
+      $char_result['days_without_water'] = (int) ($survival_state['daysWithoutWater'] ?? 0);
+      $char_result['starvation_damage_phase'] = !empty($survival_state['starvationDamagePhase']);
+      $char_result['thirst_damage_phase'] = !empty($survival_state['thirstDamagePhase']);
       $mutations[] = ['type' => 'entity_state', 'entity_id' => $eid, 'state' => $entity['state']];
       $results[$eid] = $char_result;
     }
@@ -761,6 +827,23 @@ class DowntimePhaseHandler implements PhaseHandlerInterface {
       }
     }
     $entity['state']['conditions'][] = ['name' => 'fatigued', 'source' => $source];
+  }
+
+  /**
+   * Applies fatigued to canonical condition list if absent.
+   */
+  protected function applyFatiguedToCanonicalState(array &$canonical_state, string $source): bool {
+    if (!isset($canonical_state['conditions']) || !is_array($canonical_state['conditions'])) {
+      $canonical_state['conditions'] = [];
+    }
+    foreach ($canonical_state['conditions'] as $condition) {
+      $condition_name = strtolower((string) ($condition['name'] ?? $condition['type'] ?? $condition['id'] ?? ''));
+      if ($condition_name === 'fatigued') {
+        return FALSE;
+      }
+    }
+    $canonical_state['conditions'][] = ['name' => 'fatigued', 'source' => $source];
+    return TRUE;
   }
 
   /**
@@ -801,7 +884,10 @@ class DowntimePhaseHandler implements PhaseHandlerInterface {
             ?? 20);
 
           // REQ 2348: Healing blocked while in starvation or thirst damage phase.
-          $healing_blocked = !empty($entity['state']['starvation_damage_phase']) || !empty($entity['state']['thirst_damage_phase']);
+          $survival_state = is_array($canonical_state)
+            ? $this->readCanonicalSurvivalState($canonical_state)
+            : $this->readEntitySurvivalProjection($entity);
+          $healing_blocked = !empty($survival_state['starvationDamagePhase']) || !empty($survival_state['thirstDamagePhase']);
 
           // REQ 2301: HP regained = Con modifier × level (minimum 1).
           $constitution = (int) ($canonical_state['abilities']['constitution'] ?? 10);
@@ -1262,6 +1348,129 @@ class DowntimePhaseHandler implements PhaseHandlerInterface {
     }
 
     return $dungeon_data;
+  }
+
+  protected function resolveEntityInstanceId(array $entity): ?string {
+    $candidates = [
+      $entity['entity_instance_id'] ?? NULL,
+      $entity['instance_id'] ?? NULL,
+      $entity['id'] ?? NULL,
+    ];
+    foreach ($candidates as $candidate) {
+      if (is_scalar($candidate) && (string) $candidate !== '') {
+        return (string) $candidate;
+      }
+    }
+    return NULL;
+  }
+
+  /**
+   * Resolve canonical character identity from runtime entity payload.
+   *
+   * @return array{character_id: string, instance_id: ?string}
+   */
+  protected function resolveCanonicalCharacterIdentity(array $entity): array {
+    $character_id = (string) (
+      $entity['state']['metadata']['campaign_character_id']
+      ?? $entity['state']['metadata']['character_id']
+      ?? $entity['character_id']
+      ?? $entity['state']['character_id']
+      ?? $entity['entity_ref']['character_id']
+      ?? ''
+    );
+    $instance_id = trim((string) (
+      $entity['state']['metadata']['runtime_entity_id']
+      ?? $entity['entity_instance_id']
+      ?? $entity['instance_id']
+      ?? $entity['id']
+      ?? ''
+    ));
+
+    return [
+      'character_id' => $character_id,
+      'instance_id' => $instance_id !== '' ? $instance_id : NULL,
+    ];
+  }
+
+  /**
+   * Read canonical starvation/thirst state from character sheet resources.
+   *
+   * @return array{daysWithoutFood:int,daysWithoutWater:int,starvationDamagePhase:bool,thirstDamagePhase:bool}
+   */
+  protected function readCanonicalSurvivalState(array $canonical_state): array {
+    $survival = is_array($canonical_state['resources']['survival'] ?? NULL) ? $canonical_state['resources']['survival'] : [];
+
+    return [
+      'daysWithoutFood' => max(0, (int) ($survival['daysWithoutFood'] ?? $canonical_state['days_without_food'] ?? 0)),
+      'daysWithoutWater' => max(0, (int) ($survival['daysWithoutWater'] ?? $canonical_state['days_without_water'] ?? 0)),
+      'starvationDamagePhase' => (bool) ($survival['starvationDamagePhase'] ?? $canonical_state['starvation_damage_phase'] ?? FALSE),
+      'thirstDamagePhase' => (bool) ($survival['thirstDamagePhase'] ?? $canonical_state['thirst_damage_phase'] ?? FALSE),
+    ];
+  }
+
+  /**
+   * Store canonical starvation/thirst state on resources.survival.
+   *
+   * @param array{daysWithoutFood:int,daysWithoutWater:int,starvationDamagePhase:bool,thirstDamagePhase:bool} $survival_state
+   */
+  protected function writeCanonicalSurvivalState(array &$canonical_state, array $survival_state): void {
+    if (!isset($canonical_state['resources']) || !is_array($canonical_state['resources'])) {
+      $canonical_state['resources'] = [];
+    }
+    $canonical_state['resources']['survival'] = [
+      'daysWithoutFood' => max(0, (int) ($survival_state['daysWithoutFood'] ?? 0)),
+      'daysWithoutWater' => max(0, (int) ($survival_state['daysWithoutWater'] ?? 0)),
+      'starvationDamagePhase' => !empty($survival_state['starvationDamagePhase']),
+      'thirstDamagePhase' => !empty($survival_state['thirstDamagePhase']),
+    ];
+    unset(
+      $canonical_state['days_without_food'],
+      $canonical_state['days_without_water'],
+      $canonical_state['starvation_damage_phase'],
+      $canonical_state['thirst_damage_phase']
+    );
+  }
+
+  /**
+   * Read starvation/thirst state from runtime entity projection.
+   *
+   * @return array{daysWithoutFood:int,daysWithoutWater:int,starvationDamagePhase:bool,thirstDamagePhase:bool}
+   */
+  protected function readEntitySurvivalProjection(array $entity): array {
+    return [
+      'daysWithoutFood' => max(0, (int) ($entity['state']['days_without_food'] ?? 0)),
+      'daysWithoutWater' => max(0, (int) ($entity['state']['days_without_water'] ?? 0)),
+      'starvationDamagePhase' => !empty($entity['state']['starvation_damage_phase']),
+      'thirstDamagePhase' => !empty($entity['state']['thirst_damage_phase']),
+    ];
+  }
+
+  /**
+   * Mirror canonical survival resources into runtime entity projection fields.
+   */
+  protected function syncCanonicalSurvivalProjectionToEntity(array &$entity, array $canonical_state): void {
+    if (!isset($entity['state']) || !is_array($entity['state'])) {
+      $entity['state'] = [];
+    }
+
+    $survival = $this->readCanonicalSurvivalState($canonical_state);
+    $entity['state']['days_without_food'] = (int) ($survival['daysWithoutFood'] ?? 0);
+    $entity['state']['days_without_water'] = (int) ($survival['daysWithoutWater'] ?? 0);
+    $entity['state']['starvation_damage_phase'] = !empty($survival['starvationDamagePhase']);
+    $entity['state']['thirst_damage_phase'] = !empty($survival['thirstDamagePhase']);
+
+    if (is_array($canonical_state['resources']['hitPoints'] ?? NULL)) {
+      $entity['state']['hit_points']['current'] = (int) ($canonical_state['resources']['hitPoints']['current'] ?? ($entity['state']['hit_points']['current'] ?? 0));
+      $entity['state']['hit_points']['max'] = (int) ($canonical_state['resources']['hitPoints']['max'] ?? ($entity['state']['hit_points']['max'] ?? 0));
+    }
+
+    foreach ((array) ($canonical_state['conditions'] ?? []) as $condition) {
+      $condition_name = strtolower((string) ($condition['name'] ?? $condition['type'] ?? $condition['id'] ?? ''));
+      if ($condition_name === 'fatigued') {
+        $this->applyFatigued($entity, (string) ($condition['source'] ?? 'survival'));
+        break;
+      }
+    }
   }
 
   // =========================================================================

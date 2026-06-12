@@ -54,6 +54,12 @@ class CharacterStateServiceTest extends UnitTestCase {
             ],
             'resources' => [
               'hitPoints' => ['current' => 18, 'max' => 18, 'temporary' => 0],
+              'survival' => [
+                'daysWithoutFood' => 2,
+                'daysWithoutWater' => 1,
+                'starvationDamagePhase' => TRUE,
+                'thirstDamagePhase' => FALSE,
+              ],
             ],
             'progression' => [
               'pendingAdvancementId' => 77,
@@ -126,6 +132,16 @@ class CharacterStateServiceTest extends UnitTestCase {
     $this->assertSame(77, $state['progression']['pendingAdvancementId']);
     $this->assertSame(41, $state['progression']['history'][0]['advancementId']);
     $this->assertSame(1250, $state['basicInfo']['experiencePoints']);
+    $this->assertSame([
+      'daysWithoutFood' => 2,
+      'daysWithoutWater' => 1,
+      'starvationDamagePhase' => TRUE,
+      'thirstDamagePhase' => FALSE,
+    ], $state['resources']['survival']);
+    $this->assertArrayNotHasKey('days_without_food', $state);
+    $this->assertArrayNotHasKey('days_without_water', $state);
+    $this->assertArrayNotHasKey('starvation_damage_phase', $state);
+    $this->assertArrayNotHasKey('thirst_damage_phase', $state);
   }
 
   /**

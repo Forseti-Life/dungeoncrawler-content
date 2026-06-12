@@ -3447,6 +3447,22 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
   }
 
   /**
+   * Read starvation/thirst state from canonical character resources.
+   *
+   * @return array{daysWithoutFood:int,daysWithoutWater:int,starvationDamagePhase:bool,thirstDamagePhase:bool}
+   */
+  protected function readCanonicalSurvivalState(array $canonical_state): array {
+    $survival = is_array($canonical_state['resources']['survival'] ?? NULL) ? $canonical_state['resources']['survival'] : [];
+
+    return [
+      'daysWithoutFood' => max(0, (int) ($survival['daysWithoutFood'] ?? $canonical_state['days_without_food'] ?? 0)),
+      'daysWithoutWater' => max(0, (int) ($survival['daysWithoutWater'] ?? $canonical_state['days_without_water'] ?? 0)),
+      'starvationDamagePhase' => (bool) ($survival['starvationDamagePhase'] ?? $canonical_state['starvation_damage_phase'] ?? FALSE),
+      'thirstDamagePhase' => (bool) ($survival['thirstDamagePhase'] ?? $canonical_state['thirst_damage_phase'] ?? FALSE),
+    ];
+  }
+
+  /**
    * Advances the exploration time tracker.
    */
   protected function advanceExplorationTime(array &$game_state, int $minutes, array $context = []): void {
@@ -4786,15 +4802,53 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
 
     // REQ 2348: Healing is blocked while target is in starvation or thirst damage phase.
     foreach ($dungeon_data['entities'] ?? [] as $entity) {
-      if (($entity['entity_id'] ?? $entity['id'] ?? '') === $effective_target) {
-        if (!empty($entity['state']['thirst_damage_phase'])) {
-          return ['error' => 'Healing blocked: target must quench thirst before healing takes effect.', 'degree' => NULL, 'healed' => 0, 'mutations' => []];
+      $entity_identifiers = [
+        $entity['entity_id'] ?? NULL,
+        $entity['entity_instance_id'] ?? NULL,
+        $entity['instance_id'] ?? NULL,
+        $entity['id'] ?? NULL,
+      ];
+      $matches_target = FALSE;
+      foreach ($entity_identifiers as $identifier) {
+        if (is_scalar($identifier) && (string) $identifier === (string) $effective_target) {
+          $matches_target = TRUE;
+          break;
         }
-        if (!empty($entity['state']['starvation_damage_phase'])) {
-          return ['error' => 'Healing blocked: target must be fed before healing takes effect.', 'degree' => NULL, 'healed' => 0, 'mutations' => []];
-        }
-        break;
       }
+      if (!$matches_target) {
+        continue;
+      }
+
+      $canonical_identity_tw = $this->resolveCanonicalCharacterIdentity($entity);
+      $canonical_character_id_tw = (string) ($canonical_identity_tw['character_id'] ?? '');
+      $canonical_instance_id_tw = is_string($canonical_identity_tw['instance_id'] ?? NULL) ? $canonical_identity_tw['instance_id'] : NULL;
+      if (ctype_digit($canonical_character_id_tw) && (int) $canonical_character_id_tw > 0) {
+        try {
+          $canonical_state_tw = $this->characterStateService->getState(
+            $canonical_character_id_tw,
+            $campaign_id > 0 ? $campaign_id : NULL,
+            $canonical_instance_id_tw
+          );
+          $survival_state_tw = $this->readCanonicalSurvivalState($canonical_state_tw);
+          if (!empty($survival_state_tw['thirstDamagePhase'])) {
+            return ['error' => 'Healing blocked: target must quench thirst before healing takes effect.', 'degree' => NULL, 'healed' => 0, 'mutations' => []];
+          }
+          if (!empty($survival_state_tw['starvationDamagePhase'])) {
+            return ['error' => 'Healing blocked: target must be fed before healing takes effect.', 'degree' => NULL, 'healed' => 0, 'mutations' => []];
+          }
+        }
+        catch (\InvalidArgumentException $exception) {
+          // Fall through to projection check when canonical state cannot be loaded.
+        }
+      }
+
+      if (!empty($entity['state']['thirst_damage_phase'])) {
+        return ['error' => 'Healing blocked: target must quench thirst before healing takes effect.', 'degree' => NULL, 'healed' => 0, 'mutations' => []];
+      }
+      if (!empty($entity['state']['starvation_damage_phase'])) {
+        return ['error' => 'Healing blocked: target must be fed before healing takes effect.', 'degree' => NULL, 'healed' => 0, 'mutations' => []];
+      }
+      break;
     }
 
     // DC and healing table (rank: 1=Trained, 2=Expert, 3=Master, 4=Legendary).
