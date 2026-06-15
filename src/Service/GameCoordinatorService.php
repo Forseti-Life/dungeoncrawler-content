@@ -893,6 +893,14 @@ class GameCoordinatorService {
     $handler = $this->getPhaseHandler(self::DEFAULT_ACTIVE_PHASE);
     if ($handler instanceof EncounterPhaseHandler) {
       $result = $handler->enterRoomFramework(NULL, $room_id, [], $game_state, $dungeon_data, $campaign_id);
+      if (!empty($result['error'])) {
+        $this->logger->error('Failed to bootstrap initial room framework for campaign @campaign in room @room: @error', [
+          '@campaign' => $campaign_id,
+          '@room' => $room_id,
+          '@error' => (string) $result['error'],
+        ]);
+        return [];
+      }
       $events = $result['events'] ?? [];
       return $events !== [] ? $this->eventLogger->logEvents($dungeon_data, $events) : [];
     }
