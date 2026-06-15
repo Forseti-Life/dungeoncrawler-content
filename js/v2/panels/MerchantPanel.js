@@ -344,6 +344,20 @@ export class MerchantPanel {
     return null;
   }
 
+  hasMerchantInventoryContext(characterId) {
+    const activeCharacterId = Number(characterId || 0);
+    if (!activeCharacterId) {
+      return false;
+    }
+
+    const context = this.currentCharacterInventoryContext;
+    if (!context || Number(context.characterId || 0) !== activeCharacterId) {
+      return false;
+    }
+
+    return Boolean(context.inventory && typeof context.inventory === 'object');
+  }
+
   entityLooksMerchant(entity) {
     if (!entity || String(entity?.entity_type || '').trim().toLowerCase() !== 'npc') {
       return false;
@@ -734,7 +748,8 @@ export class MerchantPanel {
     const selectedMerchantEntry = merchantEntries.find((entry) => entry.entityId === this.currentMerchantRef) || merchantEntries[0] || null;
     const characterId = this.resolveActiveMerchantCharacterId();
 
-    if (force || !hasMerchantStock) {
+    const hasInventoryContext = this.hasMerchantInventoryContext(characterId);
+    if (!hasInventoryContext || !hasMerchantStock) {
       this.bus.emit('character:inventory-refresh-requested', {
         characterId,
         campaignId,
