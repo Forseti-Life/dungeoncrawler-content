@@ -682,9 +682,7 @@ class GameCoordinatorService {
       'success' => TRUE,
       'events' => $events,
       'cursor' => !empty($events) ? end($events)['id'] : $since_cursor,
-      'state_version' => is_array($dungeon_data['game_state'] ?? NULL)
-        ? (int) ($dungeon_data['game_state']['state_version'] ?? 1)
-        : 1,
+      'state_version' => $dungeon_data['game_state']['state_version'] ?? 1,
     ];
   }
 
@@ -800,12 +798,7 @@ class GameCoordinatorService {
             $this->resolveStartupRoomId($decoded);
           }
           $decoded['__campaign_dungeon_row_id'] = (int) ($row['id'] ?? 0);
-          $synced = $this->campaignCharacterRuntimeSync->syncActiveRoomPlayerEntities($decoded, $campaign_id, $preferred_actor_id);
-          $normalized = $this->normalizeDungeonRuntimePayload($synced);
-          if ($normalized !== $synced) {
-            $this->persistDungeonData($campaign_id, $normalized);
-          }
-          return $normalized;
+          return $this->campaignCharacterRuntimeSync->syncActiveRoomPlayerEntities($decoded, $campaign_id, $preferred_actor_id);
         }
       }
     }
@@ -1014,15 +1007,10 @@ class GameCoordinatorService {
    */
   protected function collectUnseenInitialEvents(array $dungeon_data, array &$game_state): array {
     $latest_event_id = 0;
-    $event_log = is_array($dungeon_data['event_log'] ?? NULL) ? $dungeon_data['event_log'] : [];
+    $event_log = $dungeon_data['event_log'] ?? [];
     if ($event_log !== []) {
-      for ($i = count($event_log) - 1; $i >= 0; $i--) {
-        $candidate = $event_log[$i] ?? NULL;
-        if (is_array($candidate) && isset($candidate['id']) && is_numeric($candidate['id'])) {
-          $latest_event_id = (int) $candidate['id'];
-          break;
-        }
-      }
+      $last_event = end($event_log);
+      $latest_event_id = (int) ($last_event['id'] ?? 0);
     }
 
     $cursor = (int) ($game_state['event_log_cursor'] ?? 0);
@@ -1098,36 +1086,6 @@ class GameCoordinatorService {
     }
 
     return NULL;
-  }
-
-  /**
-   * Normalize runtime payload shape loaded from persistence.
-   *
-   * Legacy rows may include malformed event_log rows (scalars) that break
-   * strict array-offset reads during state/event serialization.
-   */
-  protected function normalizeDungeonRuntimePayload(array $dungeon_data): array {
-    $normalized = $dungeon_data;
-
-    $event_log = is_array($normalized['event_log'] ?? NULL) ? $normalized['event_log'] : [];
-    $normalized_events = [];
-    $next_id = 1;
-    foreach ($event_log as $event) {
-      if (!is_array($event)) {
-        continue;
-      }
-      $event_id = isset($event['id']) && is_numeric($event['id']) ? (int) $event['id'] : $next_id;
-      $next_id = max($next_id, $event_id + 1);
-      $event['id'] = $event_id;
-      $normalized_events[] = $event;
-    }
-    $normalized['event_log'] = $normalized_events;
-
-    if (isset($normalized['game_state']) && !is_array($normalized['game_state'])) {
-      unset($normalized['game_state']);
-    }
-
-    return $normalized;
   }
 
 }

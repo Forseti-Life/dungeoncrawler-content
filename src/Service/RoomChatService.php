@@ -2298,7 +2298,7 @@ class RoomChatService {
    */
   protected function loadLatestDungeonSnapshot(int $campaign_id, ?string $room_id = NULL): array {
     $records = $this->database->select('dc_campaign_dungeons', 'd')
-      ->fields('d', ['id', 'dungeon_id', 'dungeon_data'])
+      ->fields('d', ['dungeon_id', 'dungeon_data'])
       ->condition('campaign_id', $campaign_id)
       ->orderBy('updated', 'DESC')
       ->execute()
@@ -2326,18 +2326,10 @@ class RoomChatService {
     }
 
     $dungeon_data = json_decode($record['dungeon_data'] ?? '{}', TRUE);
-    $decoded_dungeon_data = is_array($dungeon_data) ? $dungeon_data : [];
-    $normalized_dungeon_data = $this->normalizeDungeonChatPayload($decoded_dungeon_data);
-    if ($normalized_dungeon_data !== $decoded_dungeon_data) {
-      $this->database->update('dc_campaign_dungeons')
-        ->fields(['dungeon_data' => json_encode($normalized_dungeon_data)])
-        ->condition('id', (int) ($record['id'] ?? 0))
-        ->execute();
-    }
 
     return [
       'dungeon_id' => $record['dungeon_id'] ?? '',
-      'dungeon_data' => $normalized_dungeon_data,
+      'dungeon_data' => is_array($dungeon_data) ? $dungeon_data : [],
       'encoded_bytes' => strlen((string) ($record['dungeon_data'] ?? '')),
     ];
   }
@@ -2347,36 +2339,6 @@ class RoomChatService {
    */
   protected function reloadDungeonData(int $campaign_id): array {
     return $this->loadLatestDungeonSnapshot($campaign_id)['dungeon_data'];
-  }
-
-  /**
-   * Normalize persisted room chat payloads to canonical message row arrays.
-   */
-  protected function normalizeDungeonChatPayload(array $dungeon_data): array {
-    $normalized = $dungeon_data;
-    $rooms = is_array($normalized['rooms'] ?? NULL) ? $normalized['rooms'] : [];
-    if (isset($normalized['game_state']) && !is_array($normalized['game_state'])) {
-      unset($normalized['game_state']);
-    }
-
-    foreach ($rooms as $room_index => $room_entry) {
-      if (!is_array($room_entry)) {
-        continue;
-      }
-      $chat_rows = is_array($room_entry['chat'] ?? NULL) ? $room_entry['chat'] : [];
-      $normalized_chat_rows = [];
-      foreach ($chat_rows as $chat_row) {
-        if (!is_array($chat_row)) {
-          continue;
-        }
-        $chat_row['channel'] = (string) ($chat_row['channel'] ?? 'room');
-        $normalized_chat_rows[] = $chat_row;
-      }
-      $rooms[$room_index]['chat'] = $normalized_chat_rows;
-    }
-
-    $normalized['rooms'] = $rooms;
-    return $normalized;
   }
 
   /**
