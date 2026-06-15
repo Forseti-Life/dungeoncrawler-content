@@ -60,7 +60,7 @@ class MerchantTransactionService {
 
     return [
       'merchant' => $this->buildMerchantSummary($merchant),
-      'stock' => [],
+      'stock' => $this->buildMerchantStock($merchant),
       'player' => $player,
     ];
   }

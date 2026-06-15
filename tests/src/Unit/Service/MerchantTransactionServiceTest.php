@@ -76,9 +76,9 @@ class MerchantTransactionServiceTest extends UnitTestCase {
   }
 
   /**
-   * Verifies merchant panel context is lazy and does not preload stock rows.
+   * Verifies merchant panel context preloads profile-backed stock rows.
    */
-  public function testGetMerchantPanelContextReturnsEmptyStockUntilSearch(): void {
+  public function testGetMerchantPanelContextReturnsProfileBackedStock(): void {
     $service = $this->buildService();
     $service->merchantOverride = [
       'id' => '325',
@@ -101,7 +101,10 @@ class MerchantTransactionServiceTest extends UnitTestCase {
     $context = $service->getMerchantPanelContext(22, 'room-tavern', 'merchant-1');
 
     $this->assertIsArray($context['stock']);
-    $this->assertSame([], $context['stock']);
+    $this->assertNotEmpty($context['stock']);
+    $this->assertLessThanOrEqual(24, count($context['stock']));
+    $this->assertArrayHasKey('item_id', $context['stock'][0]);
+    $this->assertArrayHasKey('price_cp', $context['stock'][0]);
   }
 
   /**
