@@ -3658,20 +3658,15 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
     ], (string) ($room['description'] ?? $room['name'] ?? ''));
     $events = array_values($events);
 
-    try {
-      $combat_context = $this->buildCombatEncounterContext($target_room_id, $dungeon_data, $game_state);
-      if (!empty($combat_context['should_trigger'])) {
-        $events = array_merge($events, $this->onEnter($combat_context, $game_state, $dungeon_data, $campaign_id));
-      }
-      else {
-        $events = array_merge(
-          $events,
-          $this->startRoomSceneEncounter($actor_id, $target_room_id, $game_state, $dungeon_data, $campaign_id, $room)
-        );
-      }
+    $combat_context = $this->buildCombatEncounterContext($target_room_id, $dungeon_data, $game_state);
+    if (!empty($combat_context['should_trigger'])) {
+      $events = array_merge($events, $this->onEnter($combat_context, $game_state, $dungeon_data, $campaign_id));
     }
-    catch (\RuntimeException $e) {
-      return ['error' => $e->getMessage()];
+    else {
+      $events = array_merge(
+        $events,
+        $this->startRoomSceneEncounter($actor_id, $target_room_id, $game_state, $dungeon_data, $campaign_id, $room)
+      );
     }
 
     // Persist the room-scene intro into the instantiated room chat so the UI can

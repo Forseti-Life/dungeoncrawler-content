@@ -62,14 +62,9 @@ class GameEventLogger {
 
     // Determine the next event ID.
     $next_id = 1;
-    if (!empty($dungeon_data['event_log']) && is_array($dungeon_data['event_log'])) {
-      for ($i = count($dungeon_data['event_log']) - 1; $i >= 0; $i--) {
-        $candidate = $dungeon_data['event_log'][$i] ?? NULL;
-        if (is_array($candidate) && isset($candidate['id']) && is_numeric($candidate['id'])) {
-          $next_id = ((int) $candidate['id']) + 1;
-          break;
-        }
-      }
+    if (!empty($dungeon_data['event_log'])) {
+      $last_event = end($dungeon_data['event_log']);
+      $next_id = ($last_event['id'] ?? 0) + 1;
     }
 
     $logged = [];
@@ -128,9 +123,6 @@ class GameEventLogger {
     return array_values(array_filter(
       $dungeon_data['event_log'],
       function ($event) use ($since_cursor) {
-        if (!is_array($event)) {
-          return FALSE;
-        }
         return ($event['id'] ?? 0) > $since_cursor;
       }
     ));
