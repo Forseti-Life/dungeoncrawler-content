@@ -860,13 +860,13 @@ export class GameShell {
       await request;
     } catch (err) {
       if (token !== this._roomViewRequestToken) return;
-      this.bus.emit('room:view-loaded', {
+      this.bus?.emit('room:view-loaded', {
         room: payloadRoomBase,
         viewState: { statusLabel: 'Unavailable', placeholderText: err?.message || 'Room view generation failed.', entries: [] },
       });
     } finally {
       this._roomViewInflight.delete(viewKey);
-      this.bus.emit('game:backend-request-end', { requestId: backendRequestId, source: 'room-view' });
+      this.bus?.emit('game:backend-request-end', { requestId: backendRequestId, source: 'room-view' });
     }
   }
 
@@ -2358,7 +2358,7 @@ export class GameShell {
         currency: nextInventory.currency || currentContext.currency || context.currency || {},
       };
       // Emit bus event so InventoryPanel and MerchantPanel react
-      this.bus.emit('inventory:changed', {
+      this.bus?.emit('inventory:changed', {
         ...this.currentCharacterInventoryContext,
         inventory: nextInventory,
         currency: nextInventory.currency || currentContext.currency || context.currency || {},
@@ -2366,7 +2366,7 @@ export class GameShell {
         campaignId: context.campaignId || currentContext.campaignId || null,
       });
       if (this.activeGameShellTab === 'merchant') {
-        this.panels.merchant.loadMerchantPanel(true);
+        this.panels?.merchant?.loadMerchantPanel?.(true);
       }
     } catch (error) {
       console.error('Character inventory refresh failed', error);
