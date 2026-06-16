@@ -5254,6 +5254,10 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
    * Runs automatic Search at the start of an actor turn.
    */
   protected function buildTurnStartSearchEvents(string $entity_id, array &$game_state, array &$dungeon_data, int $campaign_id): array {
+    if ($this->isRoomSceneMode($game_state)) {
+      return [];
+    }
+
     if (!$this->explorationPhaseHandler) {
       return [];
     }
@@ -5697,50 +5701,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
    * Room-scene NPCs must still make an explicit turn decision.
    */
   protected function passRoomActorTurn(string $entity_id, array &$game_state, array &$dungeon_data, int $campaign_id): array {
-    $resolved_room_id = $dungeon_data['active_room_id'] ?? ($game_state['encounter_context']['room_id'] ?? NULL);
-    $pending_dialogue = ($resolved_room_id && $this->roomChatService)
-      ? $this->roomChatService->consumePendingEncounterRoomDialogue($campaign_id, (string) $resolved_room_id, $entity_id, $dungeon_data)
-      : NULL;
-    if (is_array($pending_dialogue)) {
-      return $this->resolvePendingEncounterDialogueTurn($entity_id, $pending_dialogue, $game_state, $dungeon_data, $campaign_id, 'room_scene_pending_dialogue');
-    }
-
-    $actor_name = $this->resolveEntityName($entity_id, $game_state, $dungeon_data);
-    $decision_reason = 'No room-scene action selected.';
-    $decision_basis = [
-      'intent' => 'room_scene_pass',
-      'round' => $game_state['round'] ?? NULL,
-      'actions_remaining' => $game_state['turn']['actions_remaining'] ?? NULL,
-    ];
-    $events = [
-      GameEventLogger::buildEvent('npc_choose_not_to_act', 'encounter', $entity_id, [
-        'round' => $game_state['round'] ?? NULL,
-        'room_id' => $resolved_room_id,
-        'actor_name' => $actor_name,
-        'actions_remaining' => $game_state['turn']['actions_remaining'] ?? NULL,
-        'reason' => $decision_reason,
-        'decision_reason' => $decision_reason,
-        'decision_basis' => $decision_basis,
-      ], sprintf('%s chooses not to take any further actions.', $actor_name)),
-    ];
-    $this->queueNarrationEvent($campaign_id, $dungeon_data, [
-      'type' => 'choose_not_to_act',
-      'speaker' => 'Narrator',
-      'speaker_type' => 'narrator',
-      'speaker_ref' => $entity_id,
-      'content' => sprintf('%s chooses not to take any further actions.', $actor_name),
-      'visibility' => 'public',
-      'mechanical_data' => [
-        'actor_id' => $entity_id,
-        'actor_name' => $actor_name,
-        'room_id' => $resolved_room_id,
-        'actions_remaining' => $game_state['turn']['actions_remaining'] ?? NULL,
-        'decision_reason' => $decision_reason,
-        'decision_basis' => $decision_basis,
-      ],
-    ], $resolved_room_id, $game_state);
-
-    return ['events' => $events];
+    return ['events' => []];
   }
 
   protected function resolvePendingEncounterDialogueTurn(
