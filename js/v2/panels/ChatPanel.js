@@ -495,6 +495,7 @@ export class ChatPanel {
       if (!result.success) {
         throw new Error(result.error || 'Unknown error');
       }
+      this.stateManager?.hexmap?.gameCoordinator?.applyAuthoritativeUpdate?.(result.data || result);
       const pending = options.pendingRequest || null;
       if (pending) {
         this.settlePendingChatRequest(pending, {

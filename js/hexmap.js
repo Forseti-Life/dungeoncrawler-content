@@ -8608,6 +8608,7 @@ import { SpriteService } from './SpriteService.js';
       if (!result.success) {
         throw new Error(result.error || 'Unknown error');
       }
+      this.stateManager?.hexmap?.gameCoordinator?.applyAuthoritativeUpdate?.(result.data || result);
       if (Array.isArray(result.data?.turn_sequence)) {
         this.rememberRoomTurnSequence(result.data.turn_sequence, chatTarget.context, chatTarget.channelKey);
       }
@@ -8818,6 +8819,7 @@ import { SpriteService } from './SpriteService.js';
                   success: true,
                   data: event.data || {},
                 };
+                this.stateManager?.hexmap?.gameCoordinator?.applyAuthoritativeUpdate?.(completeResult.data || completeResult);
                 console.error('Quest journal debug: streamed complete payload summary', {
                   campaignId: questCampaignId,
                   characterId: questCharacterId,
