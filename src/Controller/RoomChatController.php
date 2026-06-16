@@ -27,8 +27,6 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  */
 class RoomChatController extends ControllerBase {
 
-  protected const MAX_ROOM_CHAT_NPC_TURN_RESOLUTION_ATTEMPTS = 12;
-
   protected RoomChatService $chatService;
 
   protected GameCoordinatorService $coordinator;
@@ -110,72 +108,18 @@ class RoomChatController extends ControllerBase {
       ],
     ];
 
-    for ($attempt = 0; $attempt < self::MAX_ROOM_CHAT_NPC_TURN_RESOLUTION_ATTEMPTS; $attempt++) {
-      $action_response = $this->coordinator->processAction($campaign_id, $intent);
-      if (!empty($action_response['success'])) {
-        $talk_result = is_array($action_response['result'] ?? NULL) ? $action_response['result'] : [];
-        if (isset($talk_result['chat_message']) && is_array($talk_result['chat_message'])) {
-          $talk_result['message'] = $talk_result['chat_message'];
-          unset($talk_result['chat_message']);
-        }
-        return $talk_result;
+    $action_response = $this->coordinator->processAction($campaign_id, $intent);
+    if (!empty($action_response['success'])) {
+      $talk_result = is_array($action_response['result'] ?? NULL) ? $action_response['result'] : [];
+      if (isset($talk_result['chat_message']) && is_array($talk_result['chat_message'])) {
+        $talk_result['message'] = $talk_result['chat_message'];
+        unset($talk_result['chat_message']);
       }
-
-      if (!$this->resolveBlockedNonPlayerTurnForRoomChat($campaign_id, $actor_id, $action_response)) {
-        $error = $this->extractCoordinatorActionError($action_response, 'Talk failed.');
-        throw new \InvalidArgumentException($error, 409);
-      }
+      return $talk_result;
     }
 
-    throw new \InvalidArgumentException('Unable to resolve non-player turn progression for room chat.', 409);
-  }
-
-  /**
-   * Auto-resolve blocked non-player turns so player room chat can proceed.
-   */
-  protected function resolveBlockedNonPlayerTurnForRoomChat(int $campaign_id, string $player_actor_id, array $talk_action_response): bool {
-    $game_state = is_array($talk_action_response['game_state'] ?? NULL) ? $talk_action_response['game_state'] : [];
-    $turn = is_array($game_state['turn'] ?? NULL) ? $game_state['turn'] : [];
-    $current_turn_actor_id = trim((string) ($turn['entity'] ?? ''));
-    if ($current_turn_actor_id === '' || $current_turn_actor_id === $player_actor_id) {
-      return FALSE;
-    }
-
-    if (!$this->isNonPlayerTurnActor($current_turn_actor_id, $game_state)) {
-      return FALSE;
-    }
-
-    $advance_response = $this->coordinator->processAction($campaign_id, [
-      'type' => 'choose_not_to_act',
-      'actor' => $current_turn_actor_id,
-      'target' => NULL,
-      'params' => [
-        'reason' => 'auto-resolve non-player turn before player room chat',
-      ],
-    ]);
-
-    return !empty($advance_response['success']);
-  }
-
-  /**
-   * Determine whether the currently active turn actor is non-player.
-   */
-  protected function isNonPlayerTurnActor(string $turn_actor_id, array $game_state): bool {
-    $initiative_order = is_array($game_state['initiative_order'] ?? NULL) ? $game_state['initiative_order'] : [];
-    foreach ($initiative_order as $entry) {
-      if (!is_array($entry)) {
-        continue;
-      }
-      if ((string) ($entry['entity_id'] ?? '') !== $turn_actor_id) {
-        continue;
-      }
-      $team = strtolower(trim((string) ($entry['team'] ?? '')));
-      if ($team === 'player') {
-        return FALSE;
-      }
-      return $team !== '';
-    }
-    return FALSE;
+    $error = $this->extractCoordinatorActionError($action_response, 'Talk failed.');
+    throw new \InvalidArgumentException($error, 409);
   }
 
   /**
