@@ -155,6 +155,27 @@ class GameCoordinatorService {
     $this->phaseHandlers['encounter'] = $encounter_handler;
   }
 
+  protected function autoResolveRoomSceneNonPlayerTurns(
+    int $campaign_id,
+    array &$game_state,
+    array &$dungeon_data,
+    ?PhaseHandlerInterface $handler
+  ): array {
+    if (!$handler instanceof EncounterPhaseHandler) {
+      return [];
+    }
+    if (($game_state['phase'] ?? self::DEFAULT_ACTIVE_PHASE) !== self::DEFAULT_ACTIVE_PHASE) {
+      return [];
+    }
+
+    $events = $handler->advanceNonPlayerTurnsToNextPlayer($game_state, $dungeon_data, $campaign_id)['events'] ?? [];
+    if ($events === []) {
+      return [];
+    }
+
+    return $this->eventLogger->logEvents($dungeon_data, $events);
+  }
+
   // =========================================================================
   // Public API — these map to controller endpoints.
   // =========================================================================
@@ -249,6 +270,12 @@ class GameCoordinatorService {
       return $this->errorResponse("No handler for phase: $phase", $game_state);
     }
 
+    $autoplay_events = $this->autoResolveRoomSceneNonPlayerTurns($campaign_id, $game_state, $dungeon_data, $handler);
+    if ($autoplay_events !== []) {
+      $dungeon_data['game_state'] = $game_state;
+      $this->persistDungeonData($campaign_id, $dungeon_data);
+    }
+
     // 4. Validate the action.
     $validation = $handler->validateIntent($intent, $game_state, $dungeon_data);
     if (!($validation['valid'] ?? FALSE)) {
@@ -273,7 +300,7 @@ class GameCoordinatorService {
 
     // 6. Log events.
     $events_to_log = $action_result['events'] ?? [];
-    $logged_events = $bootstrap_events ?? [];
+    $logged_events = array_merge($bootstrap_events ?? [], $autoplay_events ?? []);
     if (!empty($events_to_log)) {
       $logged_events = array_merge(
         $logged_events,
@@ -371,6 +398,8 @@ class GameCoordinatorService {
 
     $had_game_state = isset($dungeon_data['game_state']) && is_array($dungeon_data['game_state']);
     $game_state = $this->ensureGameState($dungeon_data);
+    $phase = $game_state['phase'] ?? self::DEFAULT_ACTIVE_PHASE;
+    $handler = $this->getPhaseHandler($phase);
     $bootstrap_events = $this->bootstrapInitialRoomEntry($campaign_id, $dungeon_data, $game_state);
     if ($bootstrap_events !== []) {
       $game_state['event_log_cursor'] = max(array_map(
@@ -378,10 +407,17 @@ class GameCoordinatorService {
         $bootstrap_events
       ));
     }
-    $initial_events = $bootstrap_events !== []
-      ? $bootstrap_events
+    $autoplay_events = $this->autoResolveRoomSceneNonPlayerTurns($campaign_id, $game_state, $dungeon_data, $handler);
+    if ($autoplay_events !== []) {
+      $game_state['event_log_cursor'] = max(array_map(
+        static fn (array $event): int => (int) ($event['id'] ?? 0),
+        $autoplay_events
+      ));
+    }
+    $initial_events = ($bootstrap_events !== [] || $autoplay_events !== [])
+      ? array_merge($bootstrap_events, $autoplay_events)
       : $this->collectUnseenInitialEvents($dungeon_data, $game_state);
-    if (!$had_game_state || $bootstrap_events !== [] || $initial_events !== []) {
+    if (!$had_game_state || $bootstrap_events !== [] || $autoplay_events !== [] || $initial_events !== []) {
       $dungeon_data['game_state'] = $game_state;
       $this->persistDungeonData($campaign_id, $dungeon_data);
     }

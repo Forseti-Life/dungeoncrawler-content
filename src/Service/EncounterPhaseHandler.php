@@ -5315,7 +5315,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
     // Tick end-of-turn conditions for the current combatant.
     if ($encounter_id && $actor_id) {
       try {
-        $this->conditionManager->tickConditions($encounter_id, $actor_id);
+        $this->conditionManager->tickConditions((int) $encounter_id, $actor_id);
       }
       catch (\Throwable $e) {
         $this->logger->warning('Condition tick failed: @error', ['@error' => $e->getMessage()]);
@@ -5799,6 +5799,55 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
     ], $resolved_room_id);
 
     return ['events' => $events];
+  }
+
+  public function advanceNonPlayerTurnsToNextPlayer(array &$game_state, array &$dungeon_data, int $campaign_id): array {
+    if (!$this->isRoomSceneMode($game_state)) {
+      return ['events' => []];
+    }
+
+    $events = [];
+    $safety = 0;
+    while ($safety < 12) {
+      $turn = is_array($game_state['turn'] ?? NULL) ? $game_state['turn'] : [];
+      $current_entity = trim((string) ($turn['entity'] ?? ''));
+      if ($current_entity === '') {
+        break;
+      }
+
+      $current_team = $this->resolveInitiativeParticipantTeam($current_entity, $game_state);
+      if ($current_team === 'player') {
+        break;
+      }
+
+      $npc_result = $this->passRoomActorTurn($current_entity, $game_state, $dungeon_data, $campaign_id);
+      $events = array_merge($events, $npc_result['events'] ?? []);
+
+      $turn_result = $this->processEndTurn((int) ($game_state['encounter_id'] ?? 0), $current_entity, $game_state, $dungeon_data, $campaign_id);
+      $events = array_merge($events, $turn_result['npc_events'] ?? []);
+      $safety++;
+
+      $next_entity = trim((string) ($game_state['turn']['entity'] ?? ''));
+      if ($next_entity === '' || $this->resolveInitiativeParticipantTeam($next_entity, $game_state) === 'player') {
+        break;
+      }
+    }
+
+    return ['events' => $events];
+  }
+
+  protected function resolveInitiativeParticipantTeam(string $entity_id, array $game_state): string {
+    foreach (($game_state['initiative_order'] ?? []) as $participant) {
+      if (!is_array($participant)) {
+        continue;
+      }
+      if ((string) ($participant['entity_id'] ?? '') !== $entity_id) {
+        continue;
+      }
+      return strtolower(trim((string) ($participant['team'] ?? '')));
+    }
+
+    return '';
   }
 
   /**
