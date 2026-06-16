@@ -1435,7 +1435,7 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
 
     $this->assertNotNull($active_npc);
     $this->assertSame('scholar_npc', $active_npc['entity_ref']);
-    $this->assertSame('direct_npc_dialogue', $intent);
+    $this->assertSame('gm_narration', $intent);
   }
 
   /**
@@ -1469,7 +1469,7 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
     );
 
     $this->assertNotNull($active_npc);
-    $this->assertSame('direct_npc_dialogue', $intent);
+    $this->assertSame('quest_query', $intent);
   }
 
   /**
@@ -1503,7 +1503,7 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
     );
 
     $this->assertNotNull($active_npc);
-    $this->assertSame('direct_npc_dialogue', $intent);
+    $this->assertSame('gm_narration', $intent);
   }
 
   /**
@@ -1573,7 +1573,7 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
     );
 
     $this->assertNotNull($active_npc);
-    $this->assertSame('direct_npc_transaction', $intent);
+    $this->assertSame('merchant_inquiry', $intent);
   }
 
   /**
@@ -1596,7 +1596,7 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
       $active_npc
     );
 
-    $this->assertSame('direct_npc_transaction', $intent);
+    $this->assertSame('merchant_inquiry', $intent);
   }
 
   /**

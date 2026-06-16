@@ -5368,16 +5368,6 @@ PROMPT;
       return $this->finalizeRoomIntentDecision('direct_npc_dialogue', 'direct_address_default', $routing_context);
     }
 
-    if ($active_conversation_npc !== NULL && $this->shouldContinueActiveRoomConversation($player_message, $normalized, $active_conversation_npc)) {
-      if ($this->looksLikeQuestOrLeadRequest($normalized)) {
-        return $this->finalizeRoomIntentDecision('direct_npc_dialogue', 'active_conversation_quest', $routing_context);
-      }
-      if ($this->looksLikeMerchantTransactionText($normalized) && $this->npcSupportsMerchantDialogue($active_conversation_npc)) {
-        return $this->finalizeRoomIntentDecision('direct_npc_transaction', 'active_conversation_merchant', $routing_context);
-      }
-      return $this->finalizeRoomIntentDecision('direct_npc_dialogue', 'active_conversation_default', $routing_context);
-    }
-
     if ($this->looksLikeQuestOrLeadRequest($normalized)) {
       foreach ($room_npcs as $npc) {
         if ($this->npcSupportsQuestOrLeadDialogue($npc)) {
@@ -5748,6 +5738,19 @@ PROMPT;
     $subject = $character_name !== '' ? $character_name : 'your character';
     $roster_narrative = $this->buildDeterministicRoomRosterNarrative($campaign_id, $room_id, $room_meta, $dungeon_data, $room_npcs);
     $room_description = trim((string) ($room_meta['description'] ?? ''));
+    $turn_entity_id = trim((string) ($dungeon_data['game_state']['turn']['entity'] ?? ''));
+    $turn_display_name = $turn_entity_id !== ''
+      ? ($this->findEncounterTurnEntity($turn_entity_id, $dungeon_data)['state']['metadata']['display_name']
+        ?? $this->findEncounterTurnEntity($turn_entity_id, $dungeon_data)['name']
+        ?? $turn_entity_id)
+      : '';
+
+    if ($this->textContainsAny($normalized, ['whose turn', 'who s turn', 'whos turn', 'who is up', 'who goes next', 'my turn', 'your turn', 'what turn is it'])) {
+      if ($turn_display_name !== '') {
+        return sprintf('It is currently %s\'s turn.', $turn_display_name);
+      }
+      return 'The current turn is not grounded clearly enough to answer yet.';
+    }
 
     if ($this->textContainsAny($normalized, ['notice', 'see', 'tell', 'sense', 'spot'])) {
       $parts = ['From what is immediately apparent in the grounded scene,'];
@@ -5900,6 +5903,14 @@ PROMPT;
     }
 
     if ($this->textContainsAny($normalized_message, [
+      'whose turn',
+      'who s turn',
+      'whos turn',
+      'who is up',
+      'who goes next',
+      'my turn',
+      'your turn',
+      'what turn is it',
       'do i know',
       'would i know',
       'do we know',
@@ -6069,6 +6080,10 @@ PROMPT;
    */
   protected function looksLikeActiveRoomConversationPivot(string $normalized_message): bool {
     if ($normalized_message === '') {
+      return TRUE;
+    }
+
+    if ((bool) preg_match('/\b(?:i|we|let me|i ll|i will)?\s*(?:wait|hold|delay|end)\s+(?:my\s+)?turn\b/u', $normalized_message)) {
       return TRUE;
     }
 
@@ -8615,18 +8630,7 @@ PROMPT;
       $queue = is_array($dungeon_data['rooms'][$room_index]['conversation_queue'] ?? NULL)
         ? array_values(array_filter($dungeon_data['rooms'][$room_index]['conversation_queue'], 'is_array'))
         : [];
-      $replaced = FALSE;
-      foreach ($queue as $index => $queued_entry) {
-        if ((string) ($queued_entry['entity_ref'] ?? '') !== (string) ($entry['entity_ref'] ?? '')) {
-          continue;
-        }
-        $queue[$index] = $entry;
-        $replaced = TRUE;
-        break;
-      }
-      if (!$replaced) {
-        $queue[] = $entry;
-      }
+      $queue[] = $entry;
       $dungeon_data['rooms'][$room_index]['conversation_queue'] = array_values($queue);
       $dungeon_data['rooms'][$room_index]['conversation_state'] = $entry;
       return;
@@ -8649,30 +8653,29 @@ PROMPT;
 
     $room_meta = is_array($dungeon_data['rooms'][$room_index] ?? NULL) ? $dungeon_data['rooms'][$room_index] : [];
     $room_npcs = $this->gatherRoomNpcsWithProfiles($campaign_id, $room_id, $dungeon_data);
+    $current_npc = $this->findRoomNpcMatchingActorTurn($room_npcs, $actor_id);
+    if ($current_npc === NULL) {
+      return NULL;
+    }
     $queue = is_array($room_meta['conversation_queue'] ?? NULL)
       ? array_values(array_filter($room_meta['conversation_queue'], 'is_array'))
       : [];
     $state = NULL;
-    $npc = NULL;
     $matched_queue_index = NULL;
     foreach ($queue as $index => $queued_state) {
-      $candidate_npc = $this->resolveExplicitRoomConversationNpc(['conversation_state' => $queued_state], $room_npcs);
-      if ($candidate_npc === NULL || !$this->roomConversationNpcMatchesActorTurn($candidate_npc, $actor_id)) {
+      if (!$this->pendingRoomMessageAppliesToActorTurn($queued_state, $current_npc, $room_npcs)) {
         continue;
       }
       $state = $queued_state;
-      $npc = $candidate_npc;
       $matched_queue_index = $index;
       break;
     }
     if ($state === NULL && is_array($room_meta['conversation_state'] ?? NULL)) {
-      $candidate_npc = $this->resolveExplicitRoomConversationNpc($room_meta, $room_npcs);
-      if ($candidate_npc !== NULL && $this->roomConversationNpcMatchesActorTurn($candidate_npc, $actor_id)) {
+      if ($this->pendingRoomMessageAppliesToActorTurn($room_meta['conversation_state'], $current_npc, $room_npcs)) {
         $state = $room_meta['conversation_state'];
-        $npc = $candidate_npc;
       }
     }
-    if ($state === NULL || $npc === NULL) {
+    if ($state === NULL) {
       return NULL;
     }
 
