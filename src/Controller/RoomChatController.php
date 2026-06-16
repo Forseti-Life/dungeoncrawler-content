@@ -98,18 +98,6 @@ class RoomChatController extends ControllerBase {
   }
 
   /**
-   * Resolve canonical error text from a coordinator action response.
-   */
-  protected function extractCoordinatorActionError(array $action_response, string $default_message): string {
-    $error = trim((string) (
-      $action_response['error']
-      ?? ($action_response['result']['error'] ?? NULL)
-      ?? $default_message
-    ));
-    return $error !== '' ? $error : $default_message;
-  }
-
-  /**
    * Get chat history for a room.
    * 
    * GET /api/campaign/{campaign_id}/room/{room_id}/chat?channel=room&character_id=85
