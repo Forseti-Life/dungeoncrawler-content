@@ -799,6 +799,8 @@ class RoomChatService {
 
     $stage_started_at = hrtime(true);
     $dungeon_data['rooms'][$room_index]['chat'][] = $new_message;
+    $new_message['sequence_index'] = count($dungeon_data['rooms'][$room_index]['chat']);
+    $dungeon_data['rooms'][$room_index]['chat'][array_key_last($dungeon_data['rooms'][$room_index]['chat'])] = $new_message;
 
     // Enforce message limit
     $chat_count = count($dungeon_data['rooms'][$room_index]['chat']);
@@ -1862,6 +1864,8 @@ class RoomChatService {
 
     // Persist the GM reply (and any dungeon_data state changes from actions).
     $dungeon_data['rooms'][$room_index]['chat'][] = $gm_message;
+    $gm_message['sequence_index'] = count($dungeon_data['rooms'][$room_index]['chat']);
+    $dungeon_data['rooms'][$room_index]['chat'][array_key_last($dungeon_data['rooms'][$room_index]['chat'])] = $gm_message;
 
     // Enforce message limit again.
     $chat_count = count($dungeon_data['rooms'][$room_index]['chat']);
@@ -4601,6 +4605,8 @@ class RoomChatService {
     }
     if ($persist_to_chat) {
       $dungeon_data['rooms'][$room_index]['chat'][] = $system_message;
+      $system_message['sequence_index'] = count($dungeon_data['rooms'][$room_index]['chat']);
+      $dungeon_data['rooms'][$room_index]['chat'][array_key_last($dungeon_data['rooms'][$room_index]['chat'])] = $system_message;
 
       $chat_count = count($dungeon_data['rooms'][$room_index]['chat']);
       if ($chat_count > self::MAX_MESSAGES_PER_ROOM) {
@@ -4935,6 +4941,8 @@ PROMPT;
 
     // Persist the NPC interjection to dungeon_data chat.
     $dungeon_data['rooms'][$room_index]['chat'][] = $npc_message;
+    $npc_message['sequence_index'] = count($dungeon_data['rooms'][$room_index]['chat']);
+    $dungeon_data['rooms'][$room_index]['chat'][array_key_last($dungeon_data['rooms'][$room_index]['chat'])] = $npc_message;
 
     // Enforce message limit.
     $chat_count = count($dungeon_data['rooms'][$room_index]['chat']);

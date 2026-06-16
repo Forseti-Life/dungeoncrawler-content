@@ -521,6 +521,7 @@ export class ChatPanel {
         });
       } else {
         this.appendChatLineToTarget(chatTarget, speaker, message, 'player', {
+          ...(result.data?.message || {}),
           source: 'room-response',
           authority: 'authoritative',
           messageClass: 'authoritative_transcript',
@@ -550,6 +551,7 @@ export class ChatPanel {
       if (result.data?.npc_interjections?.length) {
         for (const npcMsg of result.data.npc_interjections) {
           this.appendChatLineToTarget(chatTarget, npcMsg.speaker, npcMsg.message, 'npc', {
+            ...npcMsg,
             source: 'room-response',
             authority: 'authoritative',
             messageClass: 'authoritative_transcript',
@@ -812,6 +814,9 @@ export class ChatPanel {
     if (normalized.sourceMessageId) {
       return `source:${normalized.sourceMessageId}`;
     }
+    if (normalized.sequenceIndex) {
+      return `sequence:${normalized.sequenceIndex}`;
+    }
     if (normalized.lineId) {
       return `line:${normalized.lineId}`;
     }
@@ -841,6 +846,7 @@ export class ChatPanel {
       lineId: String(line.lineId || ''),
       messageId: Number.isFinite(Number(line.messageId)) ? Number(line.messageId) : null,
       sourceMessageId: Number.isFinite(Number(line.sourceMessageId)) ? Number(line.sourceMessageId) : null,
+      sequenceIndex: Number.isFinite(Number(line.sequenceIndex ?? line.sequence_index)) ? Number(line.sequenceIndex ?? line.sequence_index) : null,
       created: Number.isFinite(Number(line.created)) ? Number(line.created) : 0,
       source: normalizedSource,
       authority: normalizedAuthority,
@@ -873,6 +879,7 @@ export class ChatPanel {
       lineId: next.lineId || base.lineId,
       messageId: next.messageId || base.messageId,
       sourceMessageId: next.sourceMessageId || base.sourceMessageId,
+      sequenceIndex: next.sequenceIndex || base.sequenceIndex,
       created: next.created || base.created || 0,
       persistent: next.persistent || base.persistent,
       source: next.source || base.source,
@@ -897,6 +904,7 @@ export class ChatPanel {
       lineId: line?.lineId,
       messageId: line?.messageId,
       sourceMessageId: line?.sourceMessageId,
+      sequenceIndex: line?.sequenceIndex ?? line?.sequence_index,
       created: line?.created,
       source: line?.source || options.source,
       authority: line?.authority || options.authority,
@@ -1184,6 +1192,7 @@ export class ChatPanel {
                 const playerLine = this.isChatTargetVisible(pending.target) ? this.findChatLineById(pending.playerLineId) : null;
                 if (playerLine) {
                   this.appendChatLine(event.data.speaker || 'You', event.data.message || '', event.data.type || 'player', {
+                    ...event.data,
                     replaceLine: playerLine,
                     lineId: pending.playerLineId,
                     pending: false,
@@ -1195,6 +1204,7 @@ export class ChatPanel {
                 }
               } else {
                 this.appendChatLineToTarget(chatTarget, event.data.speaker || 'You', event.data.message || '', event.data.type || 'player', {
+                  ...event.data,
                   source: 'room-stream',
                   authority: 'authoritative',
                   messageClass: 'authoritative_transcript',
@@ -1238,6 +1248,7 @@ export class ChatPanel {
               }
             } else if (event.type === 'npc_interjection' && event.data) {
               this.appendChatLineToTarget(chatTarget, event.data.speaker, event.data.message, event.data.type || 'npc', {
+                ...event.data,
                 source: 'room-stream',
                 authority: 'authoritative',
                 messageClass: 'authoritative_transcript',
@@ -2061,6 +2072,7 @@ export class ChatPanel {
     }
     const visibleMessage = this.resolveVisibleGmResponseMessage(response);
     this.appendChatLineToTarget(pending?.target || null, response.speaker || 'Game Master', visibleMessage, response.type || 'npc', {
+      ...response,
       lineId: pending?.gmResponseLineId || '',
       pending: false,
       transient: false,
@@ -2324,6 +2336,19 @@ export class ChatPanel {
     const sortedLines = normalizedLines
       .map((line, index) => ({ ...line, __sortIndex: index }))
       .sort((a, b) => {
+        const numeric = (value) => {
+          const n = Number(value);
+          return Number.isFinite(n) ? n : null;
+        };
+
+        const aSequenceIndex = numeric(a.sequenceIndex);
+        const bSequenceIndex = numeric(b.sequenceIndex);
+        if (aSequenceIndex !== null || bSequenceIndex !== null) {
+          if (aSequenceIndex === null) return 1;
+          if (bSequenceIndex === null) return -1;
+          if (aSequenceIndex !== bSequenceIndex) return aSequenceIndex - bSequenceIndex;
+        }
+
         const aCreated = Number(a.created) || 0;
         const bCreated = Number(b.created) || 0;
         const aHasCreated = aCreated > 0;
