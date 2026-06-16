@@ -9579,7 +9579,6 @@ import { SpriteService } from './SpriteService.js';
         : this.buildActiveRoomNpcTurnOrder(targetContext?.roomId || null);
       const orderedTurns = [
         { role: 'narrator', name: 'Narrator', initiative: null },
-        { role: 'gm', name: 'Game Master', initiative: null },
         ...(fallbackNpcTurns.length > 0 ? fallbackNpcTurns : [{ role: 'npc', name: 'NPC initiative order', initiative: null }]),
       ];
       const descriptor = pending ? this.getPendingTurnDescriptor(pending) : null;
@@ -10331,6 +10330,7 @@ import { SpriteService } from './SpriteService.js';
      */
     resolveSessionLineType(msg, view) {
       if (msg.speaker_type === 'system') return 'system';
+      if (msg.speaker_type === 'narrator') return 'narrator';
       if (msg.speaker_type === 'gm') return 'gm';
       if (msg.message_type === 'mechanical' || msg.message_type === 'dice_roll') return 'mechanical';
       if (view === 'gm-private') return msg.speaker_type === 'player' ? 'secret' : 'gm';

@@ -1256,6 +1256,7 @@ export class ChatPanel {
                 success: true,
                 data: event.data || {},
               };
+              this.stateManager?.hexmap?.gameCoordinator?.applyAuthoritativeUpdate?.(completeResult.data || completeResult);
               console.log('[ChatPanel] Quest journal debug: streamed complete payload summary', {
                 campaignId: questCampaignId,
                 characterId: questCharacterId,
@@ -1566,7 +1567,7 @@ export class ChatPanel {
 
   formatEncounterChatMessage(speaker, message, type = 'npc', options = {}) {
     const rawMessage = String(message || '').trim();
-    const alreadyPrefixed = /^Round\s+(?:\d+|\?)\s*:\s*Turn\s+(?:\d+|\?)\s*:\s*Actor\s+.+?:/i.test(rawMessage);
+    const alreadyPrefixed = /^Round\s+(?:\d+|\?)\s*:\s*Turn\s+(?:\d+|\?)\s*:\s*(?:Actor\s+)?[^:]+:/i.test(rawMessage);
     const messageClass = String(options.messageClass || '').trim().toLowerCase();
     const authority = String(options.authority || '').trim().toLowerCase();
     if (messageClass !== '' && messageClass !== 'authoritative_transcript') {
@@ -2876,6 +2877,7 @@ export class ChatPanel {
 
   resolveSessionLineType(msg, view) {
     if (msg.speaker_type === 'system') return 'system';
+    if (msg.speaker_type === 'narrator') return 'narrator';
     if (msg.speaker_type === 'gm') return 'gm';
     if (msg.message_type === 'mechanical' || msg.message_type === 'dice_roll') return 'mechanical';
     if (view === 'gm-private') return msg.speaker_type === 'player' ? 'secret' : 'gm';
