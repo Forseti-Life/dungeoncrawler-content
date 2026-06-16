@@ -627,6 +627,66 @@ class EncounterPhaseHandlerTest extends UnitTestCase {
   }
 
   /**
+   * Room-scene end turn now resolves intervening NPC turns explicitly.
+   *
+   * @covers ::processIntent
+   */
+  public function testProcessIntentEndTurnResolvesRoomSceneNpcTurn(): void {
+    $handler = $this->buildHandler();
+    $game_state = [
+      'encounter_id' => NULL,
+      'phase' => 'encounter',
+      'round' => 1,
+      'encounter_context' => ['room_id' => 'room-a', 'mode' => 'room_scene'],
+      'turn' => [
+        'entity' => 'pc-1',
+        'index' => 0,
+        'actions_remaining' => 0,
+        'reaction_available' => TRUE,
+      ],
+      'initiative_order' => [
+        ['entity_id' => 'pc-1', 'team' => 'player', 'name' => 'Hero'],
+        ['entity_id' => 'npc-1', 'team' => 'npc', 'name' => 'Eldric'],
+        ['entity_id' => 'pc-2', 'team' => 'player', 'name' => 'Scout'],
+      ],
+    ];
+    $dungeon_data = [
+      'active_room_id' => 'room-a',
+      'entities' => [
+        [
+          'entity_instance_id' => 'pc-1',
+          'entity_type' => 'player_character',
+          'placement' => ['room_id' => 'room-a', 'hex' => ['q' => 0, 'r' => 0]],
+          'state' => ['metadata' => ['display_name' => 'Hero']],
+        ],
+        [
+          'entity_instance_id' => 'npc-1',
+          'entity_type' => 'npc',
+          'placement' => ['room_id' => 'room-a', 'hex' => ['q' => 1, 'r' => 0]],
+          'state' => ['metadata' => ['display_name' => 'Eldric']],
+        ],
+        [
+          'entity_instance_id' => 'pc-2',
+          'entity_type' => 'player_character',
+          'placement' => ['room_id' => 'room-a', 'hex' => ['q' => 2, 'r' => 0]],
+          'state' => ['metadata' => ['display_name' => 'Scout']],
+        ],
+      ],
+    ];
+
+    $response = $handler->processIntent([
+      'type' => 'end_turn',
+      'actor' => 'pc-1',
+    ], $game_state, $dungeon_data, 42);
+
+    $this->assertTrue($response['success']);
+    $this->assertSame('pc-2', $game_state['turn']['entity']);
+    $event_types = array_map(static fn(array $event): string => (string) ($event['type'] ?? ''), $response['events']);
+    $this->assertContains('npc_choose_not_to_act', $event_types);
+    $this->assertContains('turn_start', $event_types);
+  }
+
+  /**
    * Room-scene turn order is initiative-driven (roll + perception), not actor insertion order.
    *
    * @covers ::buildRoomEncounterTurnOrder
