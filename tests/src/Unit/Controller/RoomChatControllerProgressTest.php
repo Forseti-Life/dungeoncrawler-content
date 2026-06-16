@@ -80,11 +80,11 @@ class RoomChatControllerProgressTest extends UnitTestCase {
     $unknown = $method->invoke($controller, 'unknown_stage', 'req-3', ['campaign_id' => 63]);
 
     $this->assertSame('reviewing-room', $started['phase']);
-    $this->assertSame('Round 0: Turn 1: Actor Narrator: Reviewing the room and what you just said...', $started['message']);
+    $this->assertSame('Round 0: Turn 1: Actor System: Reviewing the room and what you just said...', $started['message']);
     $this->assertSame('req-0', $started['client_request_id']);
 
     $this->assertSame('updating-conversation', $persisted['phase']);
-    $this->assertSame('Round 0: Turn 1: Actor Narrator: Updating conversation state...', $persisted['message']);
+    $this->assertSame('Round 0: Turn 1: Actor System: Updating conversation state...', $persisted['message']);
     $this->assertSame('req-1', $persisted['client_request_id']);
 
     $this->assertSame('reviewing-queue', $queued['phase']);
@@ -92,12 +92,12 @@ class RoomChatControllerProgressTest extends UnitTestCase {
     $this->assertSame('req-2', $queued['client_request_id']);
 
     $this->assertSame('npc-reactions', $npc_reactions['phase']);
-    $this->assertSame('Initiative Order', $npc_reactions['speaker']);
-    $this->assertSame('Round 0: Turn 1: Actor Initiative Order: Resolving nearby NPC turns...', $npc_reactions['message']);
+    $this->assertSame('System', $npc_reactions['speaker']);
+    $this->assertSame('Round 0: Turn 1: Actor System: Resolving the next actor in turn order...', $npc_reactions['message']);
     $this->assertSame('req-2b', $npc_reactions['client_request_id']);
 
     $this->assertSame('reviewing-room', $private_started['phase']);
-    $this->assertSame('Round 0: Turn 1: Actor Narrator: Reviewing what you just said...', $private_started['message']);
+    $this->assertSame('Round 0: Turn 1: Actor System: Reviewing what you just said...', $private_started['message']);
     $this->assertSame('req-private', $private_started['client_request_id']);
 
     $this->assertNull($unknown);
@@ -125,7 +125,7 @@ class RoomChatControllerProgressTest extends UnitTestCase {
       'encounter_turn_index_raw' => 1,
     ]);
 
-    $this->assertSame('Round 0: Turn 2: Actor Initiative Order: Resolving nearby NPC turns...', $snapshot_message['message']);
+    $this->assertSame('Round 0: Turn 2: Actor System: Resolving the next actor in turn order...', $snapshot_message['message']);
   }
 
   /**
@@ -172,6 +172,145 @@ class RoomChatControllerProgressTest extends UnitTestCase {
     $this->assertTrue($payload['success']);
     $this->assertSame('room_turn_abc', $payload['data']['turn_log_key']);
     $this->assertSame('Turn order: Narrator -> Game Master -> Eldric 17.', $payload['data']['turn_logs'][0]['message']);
+  }
+
+  /**
+   * @covers ::postChatMessage
+   */
+  public function testPostChatMessageIncludesEncounterStateForClientResync(): void {
+    $chat_service = $this->createMock(RoomChatService::class);
+    $chat_service->expects($this->once())
+      ->method('hasCampaignAccess')
+      ->with(63)
+      ->willReturn(TRUE);
+
+    $coordinator = $this->createMock(GameCoordinatorService::class);
+    $coordinator->expects($this->once())
+      ->method('resolveActorIdForCharacterId')
+      ->with(63, 241)
+      ->willReturn('pc-241-324');
+    $coordinator->expects($this->once())
+      ->method('getActiveRoomId')
+      ->with(63, 'pc-241-324')
+      ->willReturn('room-1');
+    $coordinator->expects($this->once())
+      ->method('processAction')
+      ->willReturn([
+        'success' => TRUE,
+        'result' => [
+          'chat_message' => [
+            'speaker' => 'Burasco',
+            'message' => 'Any work for me?',
+            'type' => 'player',
+          ],
+        ],
+        'game_state' => [
+          'round' => 1,
+          'turn' => ['entity' => 'pc-241-324', 'index' => 0, 'actions_remaining' => 2],
+        ],
+        'available_actions' => ['talk', 'delay', 'end_turn'],
+        'action_contract' => ['available_actions' => ['talk', 'delay', 'end_turn']],
+      ]);
+
+    $controller = $this->createController($chat_service, NULL, $coordinator);
+    $request = Request::create(
+      '/api/campaign/63/room/room-1/chat',
+      'POST',
+      [],
+      [],
+      [],
+      [],
+      json_encode([
+        'speaker' => 'Burasco',
+        'message' => 'Any work for me?',
+        'type' => 'player',
+        'character_id' => 241,
+        'channel' => 'room',
+      ])
+    );
+
+    $response = $controller->postChatMessage(63, 'room-1', $request);
+    $payload = json_decode((string) $response->getContent(), TRUE);
+
+    $this->assertSame(200, $response->getStatusCode());
+    $this->assertTrue($payload['success']);
+    $this->assertSame(2, $payload['data']['game_state']['turn']['actions_remaining']);
+    $this->assertSame(['talk', 'delay', 'end_turn'], $payload['data']['available_actions']);
+    $this->assertSame(['talk', 'delay', 'end_turn'], $payload['data']['action_contract']['available_actions']);
+  }
+
+  /**
+   * @covers ::postChatMessage
+   */
+  public function testPostChatMessageRoutesDelayChatIntoEncounterDelayAction(): void {
+    $chat_service = $this->createMock(RoomChatService::class);
+    $chat_service->expects($this->once())
+      ->method('hasCampaignAccess')
+      ->with(63)
+      ->willReturn(TRUE);
+
+    $coordinator = $this->createMock(GameCoordinatorService::class);
+    $coordinator->expects($this->once())
+      ->method('resolveActorIdForCharacterId')
+      ->with(63, 241)
+      ->willReturn('pc-241-324');
+    $coordinator->expects($this->once())
+      ->method('getActiveRoomId')
+      ->with(63, 'pc-241-324')
+      ->willReturn('room-1');
+    $coordinator->expects($this->once())
+      ->method('getFullState')
+      ->with(63)
+      ->willReturn([
+        'available_actions' => ['talk', 'delay', 'end_turn'],
+        'initiative_order' => [
+          ['entity_id' => 'pc-241-324', 'team' => 'player', 'name' => 'Felaiamiali'],
+          ['entity_id' => 'npc-eldric', 'team' => 'npc', 'name' => 'Eldric'],
+        ],
+      ]);
+    $coordinator->expects($this->once())
+      ->method('processAction')
+      ->with(63, $this->callback(function (array $intent): bool {
+        $this->assertSame('delay', $intent['type'] ?? NULL);
+        $this->assertSame('pc-241-324', $intent['actor'] ?? NULL);
+        $this->assertSame('npc-eldric', $intent['params']['delay_until_actor_id'] ?? NULL);
+        return TRUE;
+      }))
+      ->willReturn([
+        'success' => TRUE,
+        'result' => [],
+        'game_state' => [
+          'round' => 1,
+          'turn' => ['entity' => 'pc-241-324', 'index' => 1, 'actions_remaining' => 2],
+        ],
+        'available_actions' => ['talk', 'delay', 'end_turn'],
+        'action_contract' => ['available_actions' => ['talk', 'delay', 'end_turn']],
+      ]);
+
+    $controller = $this->createController($chat_service, NULL, $coordinator);
+    $request = Request::create(
+      '/api/campaign/63/room/room-1/chat',
+      'POST',
+      [],
+      [],
+      [],
+      [],
+      json_encode([
+        'speaker' => 'Felaiamiali',
+        'message' => "I'll go after Eldric.",
+        'type' => 'player',
+        'character_id' => 241,
+        'channel' => 'room',
+      ])
+    );
+
+    $response = $controller->postChatMessage(63, 'room-1', $request);
+    $payload = json_decode((string) $response->getContent(), TRUE);
+
+    $this->assertSame(200, $response->getStatusCode());
+    $this->assertTrue($payload['success']);
+    $this->assertSame(2, $payload['data']['game_state']['turn']['actions_remaining']);
+    $this->assertSame(['talk', 'delay', 'end_turn'], $payload['data']['available_actions']);
   }
 
   /**

@@ -242,11 +242,11 @@ class EncounterPhaseHandlerTest extends UnitTestCase {
   }
 
   /**
-   * Room-scene talk spends exactly one action and keeps turn advancement explicit.
+   * Room-scene talk spends one action and prompts for the remaining turn choices.
    *
    * @covers ::processIntent
    */
-  public function testProcessIntentTalkSpendsSingleActionWithoutAutoEndTurn(): void {
+  public function testProcessIntentTalkKeepsTurnActiveAndPromptsForRemainingActions(): void {
     $room_chat = $this->createMock(RoomChatService::class);
     $room_chat->expects($this->once())
       ->method('postMessage')
@@ -309,6 +309,139 @@ class EncounterPhaseHandlerTest extends UnitTestCase {
     $this->assertSame(2, $game_state['turn']['actions_remaining']);
     $event_types = array_map(static fn(array $event): string => (string) ($event['type'] ?? ''), $response['events']);
     $this->assertNotContains('auto_end_turn', $event_types);
+    $turn_logs = is_array($response['result']['turn_logs'] ?? NULL) ? $response['result']['turn_logs'] : [];
+    $this->assertNotSame([], $turn_logs);
+    $this->assertStringContainsString('still has 2 action(s) this turn', (string) ($turn_logs[count($turn_logs) - 1]['message'] ?? ''));
+    $this->assertSame('delay', $turn_logs[count($turn_logs) - 1]['suggested_action'] ?? NULL);
+  }
+
+  /**
+   * Room-scene delay advances to the next actor and wraps the round when needed.
+   *
+   * @covers ::processIntent
+   */
+  public function testProcessIntentDelayAdvancesRoomSceneTurnOrder(): void {
+    $handler = $this->buildHandler();
+    $game_state = [
+      'encounter_id' => NULL,
+      'phase' => 'encounter',
+      'round' => 1,
+      'encounter_context' => ['room_id' => 'room-a'],
+      'turn' => [
+        'entity' => 'pc-1',
+        'index' => 0,
+        'actions_remaining' => 2,
+        'reaction_available' => TRUE,
+      ],
+      'initiative_order' => [
+        ['entity_id' => 'pc-1', 'team' => 'player', 'name' => 'Hero'],
+        ['entity_id' => 'npc-1', 'team' => 'npc', 'name' => 'Eldric'],
+      ],
+    ];
+    $dungeon_data = [
+      'active_room_id' => 'room-a',
+      'entities' => [
+        [
+          'entity_instance_id' => 'pc-1',
+          'entity_type' => 'player_character',
+          'entity_ref' => ['content_id' => 501],
+          'placement' => ['room_id' => 'room-a', 'hex' => ['q' => 0, 'r' => 0]],
+          'state' => ['metadata' => ['display_name' => 'Hero']],
+        ],
+        [
+          'entity_instance_id' => 'npc-1',
+          'entity_type' => 'npc',
+          'entity_ref' => ['content_id' => 'eldric'],
+          'placement' => ['room_id' => 'room-a', 'hex' => ['q' => 1, 'r' => 0]],
+          'state' => ['metadata' => ['display_name' => 'Eldric']],
+        ],
+      ],
+    ];
+
+    $response = $handler->processIntent([
+      'type' => 'delay',
+      'actor' => 'pc-1',
+      'target' => NULL,
+      'params' => [],
+    ], $game_state, $dungeon_data, 42);
+
+    $this->assertTrue($response['success']);
+    $this->assertSame(1, $game_state['round']);
+    $this->assertSame('pc-1', $game_state['turn']['entity']);
+    $this->assertSame(1, $game_state['turn']['index']);
+    $this->assertSame(2, $game_state['turn']['actions_remaining']);
+    $this->assertSame(['npc-1', 'pc-1'], array_map(static fn(array $participant): string => (string) ($participant['entity_id'] ?? ''), $game_state['initiative_order']));
+    $event_types = array_map(static fn(array $event): string => (string) ($event['type'] ?? ''), $response['events']);
+    $this->assertContains('delay', $event_types);
+    $this->assertContains('turn_start', $event_types);
+  }
+
+  /**
+   * If all active actors delay, the round ends and the first delayed actor resumes next round.
+   *
+   * @covers ::processIntent
+   */
+  public function testProcessIntentDelayEndsRoundWhenAllActorsDelay(): void {
+    $handler = $this->buildHandler();
+    $game_state = [
+      'encounter_id' => NULL,
+      'phase' => 'encounter',
+      'round' => 1,
+      'encounter_context' => ['room_id' => 'room-a'],
+      'turn' => [
+        'entity' => 'pc-1',
+        'index' => 0,
+        'actions_remaining' => 2,
+        'reaction_available' => TRUE,
+      ],
+      'initiative_order' => [
+        ['entity_id' => 'pc-1', 'team' => 'player', 'name' => 'Hero'],
+        ['entity_id' => 'pc-2', 'team' => 'player', 'name' => 'Felaiamiali'],
+      ],
+    ];
+    $dungeon_data = [
+      'active_room_id' => 'room-a',
+      'entities' => [
+        [
+          'entity_instance_id' => 'pc-1',
+          'entity_type' => 'player_character',
+          'entity_ref' => ['content_id' => 501],
+          'placement' => ['room_id' => 'room-a', 'hex' => ['q' => 0, 'r' => 0]],
+          'state' => ['metadata' => ['display_name' => 'Hero']],
+        ],
+        [
+          'entity_instance_id' => 'pc-2',
+          'entity_type' => 'player_character',
+          'entity_ref' => ['content_id' => 502],
+          'placement' => ['room_id' => 'room-a', 'hex' => ['q' => 1, 'r' => 0]],
+          'state' => ['metadata' => ['display_name' => 'Felaiamiali']],
+        ],
+      ],
+    ];
+
+    $handler->processIntent([
+      'type' => 'delay',
+      'actor' => 'pc-1',
+      'target' => NULL,
+      'params' => [],
+    ], $game_state, $dungeon_data, 42);
+
+    $response = $handler->processIntent([
+      'type' => 'delay',
+      'actor' => 'pc-2',
+      'target' => NULL,
+      'params' => [],
+    ], $game_state, $dungeon_data, 42);
+
+    $this->assertTrue($response['success']);
+    $this->assertSame(2, $game_state['round']);
+    $this->assertSame('pc-1', $game_state['turn']['entity']);
+    $this->assertSame(0, $game_state['turn']['index']);
+    $this->assertSame(2, $game_state['turn']['actions_remaining']);
+    $event_types = array_map(static fn(array $event): string => (string) ($event['type'] ?? ''), $response['events']);
+    $this->assertContains('delay', $event_types);
+    $this->assertContains('round_start', $event_types);
+    $this->assertContains('turn_start', $event_types);
   }
 
   /**
@@ -1101,9 +1234,11 @@ class EncounterPhaseHandlerTest extends UnitTestCase {
     $this->assertSame([99, 'npc-1', 42], $handler->processEndTurnArgs);
     $this->assertSame('pc-1', $game_state['turn']['entity']);
     $this->assertSame(1, $game_state['turn']['index']);
-    $this->assertSame('encounter_started', $events[0]['type'] ?? null);
-    $this->assertSame('npc_auto', $events[1]['type'] ?? null);
-    $this->assertSame('npc_advanced', $events[2]['type'] ?? null);
+    $event_types = array_values(array_map(static fn(array $event): string => (string) ($event['type'] ?? ''), $events));
+    $this->assertSame('round_start', $event_types[0] ?? null);
+    $this->assertContains('encounter_started', $event_types);
+    $this->assertContains('npc_auto', $event_types);
+    $this->assertContains('npc_advanced', $event_types);
   }
 
   /**
@@ -2074,7 +2209,7 @@ class EncounterPhaseHandlerTest extends UnitTestCase {
         ];
       }
 
-      protected function queueNarrationEvent(int $campaign_id, array $dungeon_data, array $event, ?string $room_id = NULL): array {
+      protected function queueNarrationEvent(int $campaign_id, array $dungeon_data, array $event, ?string $room_id = NULL, ?array $game_state_override = NULL): array {
         return [];
       }
     };

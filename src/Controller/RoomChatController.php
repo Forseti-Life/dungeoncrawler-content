@@ -96,21 +96,29 @@ class RoomChatController extends ControllerBase {
       throw new \InvalidArgumentException('Cannot post room chat: requested room does not match active room.', 409);
     }
 
-    $intent = [
-      'type' => 'talk',
-      'actor' => $actor_id,
-      'target' => NULL,
-      'params' => [
-        'message' => $message,
-        'character_id' => $character_id,
-        'defer_npc_interjections' => $defer_npc_interjections,
-        'suppress_gm' => $suppress_gm,
-      ],
-    ];
+    $intent = $this->buildDirectRoomTurnControlIntent($campaign_id, $actor_id, $character_id, $message);
+    if ($intent === NULL) {
+      $intent = [
+        'type' => 'talk',
+        'actor' => $actor_id,
+        'target' => NULL,
+        'params' => [
+          'message' => $message,
+          'character_id' => $character_id,
+          'defer_npc_interjections' => $defer_npc_interjections,
+          'suppress_gm' => $suppress_gm,
+        ],
+      ];
+    }
 
     $action_response = $this->coordinator->processAction($campaign_id, $intent);
     if (!empty($action_response['success'])) {
       $talk_result = is_array($action_response['result'] ?? NULL) ? $action_response['result'] : [];
+      foreach (['game_state', 'available_actions', 'action_contract', 'events', 'phase_transition', 'dungeon_data'] as $response_key) {
+        if (array_key_exists($response_key, $action_response)) {
+          $talk_result[$response_key] = $action_response[$response_key];
+        }
+      }
       if (isset($talk_result['chat_message']) && is_array($talk_result['chat_message'])) {
         $talk_result['message'] = $talk_result['chat_message'];
         unset($talk_result['chat_message']);
@@ -120,6 +128,96 @@ class RoomChatController extends ControllerBase {
 
     $error = $this->extractCoordinatorActionError($action_response, 'Talk failed.');
     throw new \InvalidArgumentException($error, 409);
+  }
+
+  /**
+   * Convert direct room-chat turn-control commands into canonical encounter actions.
+   */
+  protected function buildDirectRoomTurnControlIntent(
+    int $campaign_id,
+    string $actor_id,
+    ?int $character_id,
+    string $message
+  ): ?array {
+    $trimmed = trim($message);
+    if ($trimmed === '') {
+      return NULL;
+    }
+
+    $normalized = $this->normalizeTurnControlText($trimmed);
+    $matches_delay = preg_match('/^(?:delay|wait|hold(?:\s+my)?\s+turn)\b/u', $normalized) === 1
+      || preg_match('/^(?:i(?:ll| will)\s+go\s+after)\b/u', $normalized) === 1;
+    if (!$matches_delay) {
+      return NULL;
+    }
+
+    $state = $this->coordinator->getFullState($campaign_id);
+    $available_actions = array_values(array_unique(array_filter(
+      array_map(static fn($action): string => strtolower(trim((string) $action)), $state['available_actions'] ?? []),
+      static fn(string $action): bool => $action !== ''
+    )));
+    if (!in_array('delay', $available_actions, TRUE)) {
+      return NULL;
+    }
+
+    $after_actor_id = $this->resolveDelayAfterActorId($normalized, $state['initiative_order'] ?? [], $actor_id);
+
+    return [
+      'type' => 'delay',
+      'actor' => $actor_id,
+      'target' => NULL,
+      'params' => array_filter([
+        'character_id' => $character_id,
+        'delay_until_actor_id' => $after_actor_id,
+        'source' => 'room_chat',
+      ], static fn($value): bool => $value !== NULL && $value !== ''),
+    ];
+  }
+
+  /**
+   * Resolve a named delay target from room-chat text.
+   */
+  protected function resolveDelayAfterActorId(string $normalized_message, array $initiative_order, string $actor_id): ?string {
+    if (preg_match('/\b(?:after|behind)\s+(.+?)\s*$/u', $normalized_message, $matches) !== 1) {
+      return NULL;
+    }
+
+    $target_label = $this->normalizeTurnControlText((string) ($matches[1] ?? ''));
+    if ($target_label === '') {
+      return NULL;
+    }
+
+    foreach ($initiative_order as $participant) {
+      if (!is_array($participant)) {
+        continue;
+      }
+      $participant_actor_id = trim((string) ($participant['entity_id'] ?? ''));
+      if ($participant_actor_id === '' || $participant_actor_id === $actor_id) {
+        continue;
+      }
+
+      $name = $this->normalizeTurnControlText((string) ($participant['name'] ?? ''));
+      if ($name === '') {
+        continue;
+      }
+
+      if ($name === $target_label || str_contains($name, $target_label) || str_contains($target_label, $name)) {
+        return $participant_actor_id;
+      }
+    }
+
+    return NULL;
+  }
+
+  /**
+   * Normalize chat turn-control text for intent matching.
+   */
+  protected function normalizeTurnControlText(string $text): string {
+    $text = strtolower(trim($text));
+    $text = preg_replace('/[^a-z0-9\'\s-]+/u', ' ', $text) ?? $text;
+    $text = str_replace("'", '', $text);
+    $text = preg_replace('/\s+/u', ' ', $text) ?? $text;
+    return trim($text);
   }
 
   /**
@@ -863,7 +961,7 @@ class RoomChatController extends ControllerBase {
             ? 'Reviewing what you just said...'
             : 'Reviewing the room and what you just said...',
           'phase' => 'reviewing-room',
-          'speaker' => 'Narrator',
+          'speaker' => 'System',
           'client_request_id' => $client_request_id,
         ];
         break;
@@ -872,7 +970,7 @@ class RoomChatController extends ControllerBase {
         $data = [
           'message' => 'Updating conversation state...',
           'phase' => 'updating-conversation',
-          'speaker' => 'Narrator',
+          'speaker' => 'System',
           'client_request_id' => $client_request_id,
         ];
         break;
@@ -881,7 +979,7 @@ class RoomChatController extends ControllerBase {
         $data = [
           'message' => 'Syncing the scene context...',
           'phase' => 'syncing-context',
-          'speaker' => 'Narrator',
+          'speaker' => 'System',
           'client_request_id' => $client_request_id,
         ];
         break;
@@ -892,7 +990,7 @@ class RoomChatController extends ControllerBase {
             ? 'Checking the active participants...'
             : 'Checking who is active in the scene...',
           'phase' => 'checking-reactions',
-          'speaker' => 'Narrator',
+          'speaker' => 'System',
           'client_request_id' => $client_request_id,
         ];
         break;
@@ -903,16 +1001,16 @@ class RoomChatController extends ControllerBase {
             ? 'Preparing the reply...'
             : 'Preparing the scene...',
           'phase' => 'drafting-response',
-          'speaker' => 'Narrator',
+          'speaker' => 'System',
           'client_request_id' => $client_request_id,
         ];
         break;
 
       case 'npc_reactions_generating':
         $data = [
-          'message' => 'Resolving nearby NPC turns...',
+          'message' => 'Resolving the next actor in turn order...',
           'phase' => 'npc-reactions',
-          'speaker' => 'Initiative Order',
+          'speaker' => 'System',
           'client_request_id' => $client_request_id,
         ];
         break;

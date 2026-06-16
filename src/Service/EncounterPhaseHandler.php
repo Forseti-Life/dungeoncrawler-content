@@ -1056,6 +1056,15 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
 
         // Talk consumes exactly 1 action in encounter.
         $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+        if ($this->isRoomSceneMode($game_state)) {
+          $result['remaining_turn_prompt'] = $this->buildRemainingRoomSceneActionPrompt($actor_id, $game_state, $dungeon_data);
+          if (is_array($result['remaining_turn_prompt'])) {
+            $result['turn_logs'] = array_values(array_merge(
+              is_array($result['turn_logs'] ?? NULL) ? $result['turn_logs'] : [],
+              [$result['remaining_turn_prompt']]
+            ));
+          }
+        }
 
         $events[] = GameEventLogger::buildEvent('talk', 'encounter', $actor_id, [
           'message' => $result['message'] ?? '',
@@ -1122,16 +1131,54 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
         break;
 
       case 'delay':
-        // REQ 2193-2195: Store remaining actions, set delayed flag.
         $delay_remaining = $game_state['turn']['actions_remaining'] ?? 0;
-        $game_state['turn']['delayed'] = TRUE;
-        $game_state['turn']['delayed_actions_remaining'] = $delay_remaining;
-        $game_state['turn']['actions_remaining'] = 0;
-        $result = ['delayed' => TRUE, 'remaining_actions' => $delay_remaining];
+        $turn_ctx = $this->captureEncounterTurnContext($game_state, $dungeon_data, $actor_id);
+        $result = [
+          'delayed' => TRUE,
+          'remaining_actions' => $delay_remaining,
+        ];
+        $resolved_room_id = $dungeon_data['active_room_id'] ?? ($game_state['encounter_context']['room_id'] ?? NULL);
+        $actor_name = (string) ($turn_ctx['actor_name'] ?? ($actor_id ? $this->resolveEntityName($actor_id, $game_state, $dungeon_data) : 'Narrator'));
         $events[] = GameEventLogger::buildEvent('delay', 'encounter', $actor_id, [
           'remaining_actions' => $delay_remaining,
           'round' => $game_state['round'] ?? NULL,
-        ]);
+        ], $this->prefixEncounterChatLine($turn_ctx, sprintf('%s delays until the end of the round.', $actor_name)));
+        $delay_after_actor_id = trim((string) ($params['delay_until_actor_id'] ?? ''));
+        if ($actor_id && is_array($game_state['initiative_order'] ?? NULL) && $game_state['initiative_order'] !== []) {
+          $delay_plan = $this->buildDelayedInitiativePlan(
+            $game_state['initiative_order'],
+            $actor_id,
+            (int) ($game_state['turn']['index'] ?? 0),
+            (int) $delay_remaining,
+            $delay_after_actor_id !== '' ? $delay_after_actor_id : NULL
+          );
+          $game_state['initiative_order'] = $delay_plan['initiative_order'];
+          $game_state['turn']['index'] = $delay_plan['pre_advance_index'];
+          $game_state['turn']['delayed'] = TRUE;
+          $game_state['turn']['delayed_actions_remaining'] = (int) $delay_remaining;
+        }
+        $game_state['turn']['actions_remaining'] = 0;
+        $advance = $this->processEndTurn($encounter_id, $actor_id, $game_state, $dungeon_data, $campaign_id);
+        $time_effects = array_merge($time_effects, $this->buildRoundElapsedTimeEffects($advance, $actor_id, $dungeon_data));
+        if ($actor_id && $delay_remaining > 0) {
+          $this->queueNarrationEvent($campaign_id, $dungeon_data, [
+            'type' => 'delay',
+            'speaker' => 'Narrator',
+            'speaker_type' => 'narrator',
+            'speaker_ref' => '',
+            'content' => $this->prefixEncounterChatLine($turn_ctx, sprintf('%s delays with %d action(s) still unused.', $actor_name, (int) $delay_remaining)),
+            'visibility' => 'public',
+            'mechanical_data' => [
+              'actor_id' => $actor_id,
+              'actor_name' => $actor_name,
+              'room_id' => $resolved_room_id,
+              'remaining_actions' => (int) $delay_remaining,
+            ],
+          ], $resolved_room_id);
+        }
+        if (!empty($advance['npc_events'])) {
+          $events = array_merge($events, $advance['npc_events']);
+        }
         break;
 
       case 'delay_reenter':
@@ -3919,6 +3966,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
           $actions[] = 'talk';
           $actions[] = 'search';
           $actions[] = 'interact';
+          $actions[] = 'delay';
         }
         if ($this->isSafeRestAvailable($game_state, $dungeon_data)) {
           $actions[] = 'treat_wounds';
@@ -5448,11 +5496,19 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
       ];
     }
 
+    $restored_delayed_actions = NULL;
+    if (!empty($initiative_order[$next_index]['delayed'])) {
+      $restored_delayed_actions = max(0, (int) ($initiative_order[$next_index]['delayed_actions_remaining'] ?? 0));
+      $initiative_order[$next_index]['delayed'] = FALSE;
+      unset($initiative_order[$next_index]['delayed_actions_remaining'], $initiative_order[$next_index]['delay_until_actor_id']);
+      $game_state['initiative_order'] = $initiative_order;
+    }
+
     // Update game_state turn.
     $game_state['turn'] = [
       'entity' => $next_entity,
       'index' => $next_index,
-      'actions_remaining' => 3,
+      'actions_remaining' => $restored_delayed_actions !== NULL ? $restored_delayed_actions : 3,
       'attacks_this_turn' => 0,
       'reaction_available' => TRUE,
       'delayed' => FALSE,
@@ -5507,6 +5563,115 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
       'mutations' => [],
       'actions_remaining_before_end' => $actions_remaining_before_end,
     ];
+  }
+
+  /**
+   * Reorder initiative for a delayed actor and determine the next turn anchor.
+   */
+  protected function buildDelayedInitiativePlan(
+    array $initiative_order,
+    string $actor_id,
+    int $current_index,
+    int $remaining_actions,
+    ?string $delay_after_actor_id = NULL
+  ): array {
+    $original_order = array_values($initiative_order);
+    $actor_index = $this->findInitiativeActorIndex($original_order, $actor_id);
+    if ($actor_index === NULL) {
+      $actor_index = max(0, $current_index);
+    }
+
+    $actor_entry = $original_order[$actor_index] ?? ['entity_id' => $actor_id];
+    $actor_entry['delayed'] = TRUE;
+    $actor_entry['delayed_actions_remaining'] = max(0, $remaining_actions);
+    if ($delay_after_actor_id !== NULL && $delay_after_actor_id !== '') {
+      $actor_entry['delay_until_actor_id'] = $delay_after_actor_id;
+    }
+
+    array_splice($original_order, $actor_index, 1);
+
+    $insert_at = count($original_order);
+    if ($delay_after_actor_id !== NULL && $delay_after_actor_id !== '') {
+      $target_original_index = $this->findInitiativeActorIndex($initiative_order, $delay_after_actor_id);
+      if ($target_original_index !== NULL && $target_original_index > $actor_index) {
+        $target_reordered_index = $this->findInitiativeActorIndex($original_order, $delay_after_actor_id);
+        if ($target_reordered_index !== NULL) {
+          $insert_at = $target_reordered_index + 1;
+        }
+      }
+    }
+
+    array_splice($original_order, $insert_at, 0, [$actor_entry]);
+    $reordered = array_values($original_order);
+
+    $all_delayed = $this->allActiveInitiativeActorsDelayed($reordered);
+    if ($all_delayed) {
+      return [
+        'initiative_order' => $reordered,
+        'pre_advance_index' => max(0, count($reordered) - 1),
+      ];
+    }
+
+    $reduced_without_actor = array_values(array_filter(
+      $reordered,
+      static fn(array $participant): bool => (string) ($participant['entity_id'] ?? '') !== $actor_id
+    ));
+    $next_actor = NULL;
+    if ($actor_index < count($reduced_without_actor)) {
+      $next_actor = (string) ($reduced_without_actor[$actor_index]['entity_id'] ?? '');
+    }
+    if ($next_actor === '' || $next_actor === NULL) {
+      $next_actor = (string) ($reduced_without_actor[0]['entity_id'] ?? '');
+    }
+
+    $next_index = $this->findInitiativeActorIndex($reordered, $next_actor);
+    if ($next_index === NULL) {
+      $next_index = 0;
+    }
+
+    $pre_advance_index = $next_index - 1;
+    if ($pre_advance_index < 0) {
+      $pre_advance_index = -1;
+    }
+    if ($next_index > 0 && $pre_advance_index < 0) {
+      $pre_advance_index = max(0, count($reordered) - 1);
+    }
+
+    return [
+      'initiative_order' => $reordered,
+      'pre_advance_index' => $pre_advance_index,
+    ];
+  }
+
+  /**
+   * Find an actor inside the initiative order.
+   */
+  protected function findInitiativeActorIndex(array $initiative_order, string $actor_id): ?int {
+    foreach ($initiative_order as $index => $participant) {
+      if ((string) ($participant['entity_id'] ?? '') === $actor_id) {
+        return (int) $index;
+      }
+    }
+
+    return NULL;
+  }
+
+  /**
+   * Determine whether every active participant is currently delayed.
+   */
+  protected function allActiveInitiativeActorsDelayed(array $initiative_order): bool {
+    $active_count = 0;
+    foreach ($initiative_order as $participant) {
+      if (!is_array($participant) || !empty($participant['is_defeated'])) {
+        continue;
+      }
+      $active_count++;
+      if (empty($participant['delayed'])) {
+        return FALSE;
+      }
+    }
+
+    return $active_count > 0;
   }
 
   // =========================================================================
@@ -6581,6 +6746,54 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
   protected function shouldAutoEndTurn(array $game_state): bool {
     $actions = $game_state['turn']['actions_remaining'] ?? 0;
     return $actions <= 0;
+  }
+
+  /**
+   * Build the follow-up system prompt for partial room-scene turns.
+   */
+  protected function buildRemainingRoomSceneActionPrompt(?string $actor_id, array $game_state, array $dungeon_data): ?array {
+    if (!$this->isRoomSceneMode($game_state) || !$actor_id) {
+      return NULL;
+    }
+
+    $remaining_actions = (int) ($game_state['turn']['actions_remaining'] ?? 0);
+    if ($remaining_actions <= 0) {
+      return NULL;
+    }
+
+    $current_turn_actor = (string) ($game_state['turn']['entity'] ?? '');
+    if ($current_turn_actor !== '' && $current_turn_actor !== $actor_id) {
+      return NULL;
+    }
+
+    $actor_name = $this->resolveEntityName($actor_id, $game_state, $dungeon_data);
+    $turn_index = isset($game_state['turn']['index']) && is_numeric($game_state['turn']['index']) ? (int) $game_state['turn']['index'] : NULL;
+    $round = isset($game_state['round']) && is_numeric($game_state['round']) ? (int) $game_state['round'] : NULL;
+    $line_id = sprintf(
+      'room-scene-actions-%s-%s-%s',
+      $actor_id,
+      $round ?? 'unknown',
+      $turn_index ?? 'unknown'
+    );
+
+    return [
+      'speaker' => 'System',
+      'message' => sprintf(
+        '%s still has %d action(s) this turn. What do you want to do next? If you only wanted to chat, use Delay to hold until the end of the round.',
+        $actor_name !== '' ? $actor_name : 'This character',
+        $remaining_actions
+      ),
+      'type' => 'system',
+      'line_id' => $line_id,
+      'lineId' => $line_id,
+      'round' => $round,
+      'turn_index' => $turn_index,
+      'actor_name' => $actor_name,
+      'turn_name' => $actor_name,
+      'turn_role' => 'player',
+      'remaining_actions' => $remaining_actions,
+      'suggested_action' => 'delay',
+    ];
   }
 
   /**
