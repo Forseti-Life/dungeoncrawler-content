@@ -1100,7 +1100,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
           $this->queueNarrationEvent($campaign_id, $dungeon_data, [
             'type' => 'choose_not_to_act',
             'speaker' => 'Narrator',
-            'speaker_type' => 'gm',
+            'speaker_type' => 'narrator',
             'speaker_ref' => '',
             'content' => $this->prefixEncounterChatLine($turn_ctx, sprintf('%s chooses not to use %d remaining action(s).', $actor_name, (int) $result['actions_remaining_before_end'])),
             'visibility' => 'public',
@@ -5184,7 +5184,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
     $this->queueNarrationEvent($campaign_id, $dungeon_data, [
       'type' => 'round_start',
       'speaker' => 'Narrator',
-      'speaker_type' => 'gm',
+      'speaker_type' => 'narrator',
       'speaker_ref' => '',
       'content' => $content,
       'visibility' => 'public',
@@ -5193,7 +5193,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
         'room_id' => $resolved_room_id,
         'actor_name' => 'Narrator',
       ],
-    ], $resolved_room_id);
+    ], $resolved_room_id, $game_state);
 
     return [
       GameEventLogger::buildEvent('round_start', 'encounter', NULL, [
@@ -5223,7 +5223,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
     $this->queueNarrationEvent($campaign_id, $dungeon_data, [
       'type' => 'turn_start',
       'speaker' => 'Narrator',
-      'speaker_type' => 'gm',
+      'speaker_type' => 'narrator',
       'speaker_ref' => $entity_id,
       'content' => $content,
       'visibility' => 'public',
@@ -5236,7 +5236,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
         'total_turns' => $total_turns,
         'actions_available' => $actions_available,
       ],
-    ], $resolved_room_id);
+    ], $resolved_room_id, $game_state);
 
     return [
       GameEventLogger::buildEvent('turn_start', 'encounter', $entity_id, [
@@ -5676,7 +5676,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
     $this->queueNarrationEvent($campaign_id, $dungeon_data, [
       'type' => 'choose_not_to_act',
       'speaker' => 'Narrator',
-      'speaker_type' => 'gm',
+      'speaker_type' => 'narrator',
       'speaker_ref' => $entity_id,
       'content' => sprintf('%s chooses not to take any further actions.', $actor_name),
       'visibility' => 'public',
@@ -5688,7 +5688,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
         'decision_reason' => $terminal_decision_reason,
         'decision_basis' => $terminal_decision_basis,
       ],
-    ], $resolved_room_id);
+    ], $resolved_room_id, $game_state);
 
     return ['events' => $events];
   }
@@ -5726,7 +5726,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
     $this->queueNarrationEvent($campaign_id, $dungeon_data, [
       'type' => 'choose_not_to_act',
       'speaker' => 'Narrator',
-      'speaker_type' => 'gm',
+      'speaker_type' => 'narrator',
       'speaker_ref' => $entity_id,
       'content' => sprintf('%s chooses not to take any further actions.', $actor_name),
       'visibility' => 'public',
@@ -5738,7 +5738,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
         'decision_reason' => $decision_reason,
         'decision_basis' => $decision_basis,
       ],
-    ], $resolved_room_id);
+    ], $resolved_room_id, $game_state);
 
     return ['events' => $events];
   }
@@ -5788,7 +5788,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
           'player_message' => (string) ($pending_dialogue['player_message'] ?? ''),
         ],
       ],
-    ], $resolved_room_id);
+    ], $resolved_room_id, $game_state);
 
     $remaining_before_end = max(0, ((int) ($game_state['turn']['actions_remaining'] ?? 0)) - 1);
     $game_state['turn']['actions_remaining'] = 0;
@@ -5822,7 +5822,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
           'remaining_actions_before_end' => $remaining_before_end,
         ],
       ],
-    ], $resolved_room_id);
+    ], $resolved_room_id, $game_state);
 
     return ['events' => $events];
   }
@@ -8975,13 +8975,15 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
    * @return array
    *   NarrationEngine result, or empty array if engine unavailable.
    */
-  protected function queueNarrationEvent(int $campaign_id, array $dungeon_data, array $event, ?string $room_id = NULL): array {
+  protected function queueNarrationEvent(int $campaign_id, array $dungeon_data, array $event, ?string $room_id = NULL, ?array $game_state_override = NULL): array {
     if (!$this->narrationEngine) {
       return [];
     }
 
     // Server-authoritative transcript: stamp Turn/Round/Actor prefix.
-    $game_state = is_array($dungeon_data['game_state'] ?? NULL) ? $dungeon_data['game_state'] : [];
+    $game_state = is_array($game_state_override ?? NULL)
+      ? $game_state_override
+      : (is_array($dungeon_data['game_state'] ?? NULL) ? $dungeon_data['game_state'] : []);
     if (isset($event['content']) && is_string($event['content'])) {
       $prefix_actor_id = NULL;
       if (isset($event['speaker_ref']) && is_string($event['speaker_ref']) && trim($event['speaker_ref']) !== '') {
