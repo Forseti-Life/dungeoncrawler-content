@@ -5,6 +5,7 @@ namespace Drupal\Tests\dungeoncrawler_content\Unit\Controller;
 use Drupal\Core\DependencyInjection\ContainerBuilder;
 use Drupal\dungeoncrawler_content\Controller\RoomChatController;
 use Drupal\dungeoncrawler_content\Service\GameCoordinatorService;
+use Drupal\dungeoncrawler_content\Service\GameMasterSubsystemService;
 use Drupal\dungeoncrawler_content\Service\RoomChatService;
 use Drupal\Tests\UnitTestCase;
 use Psr\Log\LoggerInterface;
@@ -19,10 +20,11 @@ use Symfony\Component\HttpFoundation\Request;
  */
 class RoomChatControllerProgressTest extends UnitTestCase {
 
-  protected function createController(RoomChatService $chat_service, ?LoggerInterface $logger = NULL, ?GameCoordinatorService $coordinator = NULL): RoomChatController {
+  protected function createController(RoomChatService $chat_service, ?LoggerInterface $logger = NULL, ?GameCoordinatorService $coordinator = NULL, ?GameMasterSubsystemService $gm_subsystem = NULL): RoomChatController {
     return new RoomChatController(
       $chat_service,
       $coordinator ?: $this->createMock(GameCoordinatorService::class),
+      $gm_subsystem ?: $this->createMock(GameMasterSubsystemService::class),
       $logger ?: $this->createMock(LoggerInterface::class)
     );
   }
@@ -42,6 +44,7 @@ class RoomChatControllerProgressTest extends UnitTestCase {
     $container = new ContainerBuilder();
     $container->set('dungeoncrawler_content.room_chat_service', $chat_service);
     $container->set('dungeoncrawler_content.game_coordinator', $this->createMock(GameCoordinatorService::class));
+    $container->set('dungeoncrawler_content.game_master_subsystem', $this->createMock(GameMasterSubsystemService::class));
     $container->set('logger.factory', $logger_factory);
 
     $controller = RoomChatController::create($container);
@@ -185,24 +188,15 @@ class RoomChatControllerProgressTest extends UnitTestCase {
       ->willReturn(TRUE);
 
     $coordinator = $this->createMock(GameCoordinatorService::class);
-    $coordinator->expects($this->once())
-      ->method('resolveActorIdForCharacterId')
-      ->with(63, 241)
-      ->willReturn('pc-241-324');
-    $coordinator->expects($this->once())
-      ->method('getActiveRoomId')
-      ->with(63, 'pc-241-324')
-      ->willReturn('room-1');
-    $coordinator->expects($this->once())
-      ->method('processAction')
+    $gm_subsystem = $this->createMock(GameMasterSubsystemService::class);
+    $gm_subsystem->expects($this->once())
+      ->method('handlePlayerRoomChat')
+      ->with(63, 'room-1', 241, 'Any work for me?', FALSE, FALSE)
       ->willReturn([
-        'success' => TRUE,
-        'result' => [
-          'chat_message' => [
-            'speaker' => 'Burasco',
-            'message' => 'Any work for me?',
-            'type' => 'player',
-          ],
+        'message' => [
+          'speaker' => 'Burasco',
+          'message' => 'Any work for me?',
+          'type' => 'player',
         ],
         'game_state' => [
           'round' => 1,
@@ -212,7 +206,7 @@ class RoomChatControllerProgressTest extends UnitTestCase {
         'action_contract' => ['available_actions' => ['talk', 'delay', 'end_turn']],
       ]);
 
-    $controller = $this->createController($chat_service, NULL, $coordinator);
+    $controller = $this->createController($chat_service, NULL, $coordinator, $gm_subsystem);
     $request = Request::create(
       '/api/campaign/63/room/room-1/chat',
       'POST',
@@ -250,35 +244,16 @@ class RoomChatControllerProgressTest extends UnitTestCase {
       ->willReturn(TRUE);
 
     $coordinator = $this->createMock(GameCoordinatorService::class);
-    $coordinator->expects($this->once())
-      ->method('resolveActorIdForCharacterId')
-      ->with(63, 241)
-      ->willReturn('pc-241-324');
-    $coordinator->expects($this->once())
-      ->method('getActiveRoomId')
-      ->with(63, 'pc-241-324')
-      ->willReturn('room-1');
-    $coordinator->expects($this->once())
-      ->method('getFullState')
-      ->with(63)
+    $gm_subsystem = $this->createMock(GameMasterSubsystemService::class);
+    $gm_subsystem->expects($this->once())
+      ->method('handlePlayerRoomChat')
+      ->with(63, 'room-1', 241, "I'm waiting until after Eldric", FALSE, FALSE)
       ->willReturn([
-        'available_actions' => ['talk', 'delay', 'end_turn'],
-        'initiative_order' => [
-          ['entity_id' => 'pc-241-324', 'team' => 'player', 'name' => 'Felaiamiali'],
-          ['entity_id' => 'npc-eldric', 'team' => 'npc', 'name' => 'Eldric'],
+        'message' => [
+          'speaker' => 'Felaiamiali',
+          'message' => "I'm waiting until after Eldric",
+          'type' => 'player',
         ],
-      ]);
-    $coordinator->expects($this->once())
-      ->method('processAction')
-      ->with(63, $this->callback(function (array $intent): bool {
-        $this->assertSame('delay', $intent['type'] ?? NULL);
-        $this->assertSame('pc-241-324', $intent['actor'] ?? NULL);
-        $this->assertSame('npc-eldric', $intent['params']['delay_until_actor_id'] ?? NULL);
-        return TRUE;
-      }))
-      ->willReturn([
-        'success' => TRUE,
-        'result' => [],
         'game_state' => [
           'round' => 1,
           'turn' => ['entity' => 'pc-241-324', 'index' => 1, 'actions_remaining' => 2],
@@ -287,7 +262,7 @@ class RoomChatControllerProgressTest extends UnitTestCase {
         'action_contract' => ['available_actions' => ['talk', 'delay', 'end_turn']],
       ]);
 
-    $controller = $this->createController($chat_service, NULL, $coordinator);
+    $controller = $this->createController($chat_service, NULL, $coordinator, $gm_subsystem);
     $request = Request::create(
       '/api/campaign/63/room/room-1/chat',
       'POST',
@@ -324,71 +299,19 @@ class RoomChatControllerProgressTest extends UnitTestCase {
       ->willReturn(TRUE);
 
     $coordinator = $this->createMock(GameCoordinatorService::class);
-    $coordinator->expects($this->once())
-      ->method('resolveActorIdForCharacterId')
-      ->with(63, 241)
-      ->willReturn('pc-241-324');
-    $coordinator->expects($this->once())
-      ->method('getActiveRoomId')
-      ->with(63, 'pc-241-324')
-      ->willReturn('room-1');
+    $gm_subsystem = $this->createMock(GameMasterSubsystemService::class);
+    $gm_subsystem->expects($this->once())
+      ->method('handlePlayerRoomChat')
+      ->with(63, 'room-1', 241, 'Who answers?', FALSE, FALSE)
+      ->willReturn([
+        'message' => [
+          'speaker' => 'Burasco',
+          'message' => 'Who answers?',
+          'type' => 'player',
+        ],
+      ]);
 
-    $call_index = 0;
-    $coordinator->expects($this->exactly(3))
-      ->method('processAction')
-      ->willReturnCallback(function (int $campaign_id, array $intent) use (&$call_index): array {
-        $call_index++;
-        $this->assertSame(63, $campaign_id);
-
-        if ($call_index === 1) {
-          $this->assertSame('talk', $intent['type'] ?? NULL);
-          $this->assertSame('pc-241-324', $intent['actor'] ?? NULL);
-          return [
-            'success' => FALSE,
-            'error' => "It is not pc-241-324's turn. Current turn: npc_tavern_keeper.",
-            'result' => ['error' => "It is not pc-241-324's turn. Current turn: npc_tavern_keeper."],
-            'game_state' => [
-              'turn' => ['entity' => 'npc_tavern_keeper', 'index' => 1],
-              'initiative_order' => [
-                ['entity_id' => 'pc-241-324', 'team' => 'player'],
-                ['entity_id' => 'npc_tavern_keeper', 'team' => 'enemy'],
-              ],
-            ],
-          ];
-        }
-
-        if ($call_index === 2) {
-          $this->assertSame('choose_not_to_act', $intent['type'] ?? NULL);
-          $this->assertSame('npc_tavern_keeper', $intent['actor'] ?? NULL);
-          return [
-            'success' => TRUE,
-            'result' => ['turn_advanced' => TRUE],
-            'game_state' => [
-              'turn' => ['entity' => 'pc-241-324', 'index' => 0],
-              'initiative_order' => [
-                ['entity_id' => 'pc-241-324', 'team' => 'player'],
-                ['entity_id' => 'npc_tavern_keeper', 'team' => 'enemy'],
-              ],
-            ],
-          ];
-        }
-
-        $this->assertSame(3, $call_index);
-        $this->assertSame('talk', $intent['type'] ?? NULL);
-        $this->assertSame('pc-241-324', $intent['actor'] ?? NULL);
-        return [
-          'success' => TRUE,
-          'result' => [
-            'chat_message' => [
-              'speaker' => 'Burasco',
-              'message' => 'Who answers?',
-              'type' => 'player',
-            ],
-          ],
-        ];
-      });
-
-    $controller = $this->createController($chat_service, NULL, $coordinator);
+    $controller = $this->createController($chat_service, NULL, $coordinator, $gm_subsystem);
     $request = Request::create(
       '/api/campaign/63/room/room-1/chat',
       'POST',

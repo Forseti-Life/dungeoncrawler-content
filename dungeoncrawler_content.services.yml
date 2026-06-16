@@ -161,6 +161,11 @@ services:
       - '@dungeoncrawler_content.quest_touchpoint'
       - '@service_container'
 
+  dungeoncrawler_content.game_master_subsystem:
+    class: Drupal\dungeoncrawler_content\Service\GameMasterSubsystemService
+    arguments:
+      - '@dungeoncrawler_content.game_coordinator'
+
   dungeoncrawler_content.number_generation:
     class: Drupal\dungeoncrawler_content\Service\NumberGenerationService
     arguments: ['@database', '@current_user']
