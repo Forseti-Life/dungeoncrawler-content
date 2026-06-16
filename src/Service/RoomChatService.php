@@ -301,7 +301,7 @@ class RoomChatService {
     array_unshift($chat, [
       'speaker' => 'Narrator',
       'message' => $intro_message,
-      'type' => 'gm',
+      'type' => 'narrator',
       'channel' => 'room',
       'timestamp' => $this->resolveRoomSceneIntroTimestamp($chat),
       'character_id' => NULL,
@@ -5744,10 +5744,28 @@ PROMPT;
         ?? $this->findEncounterTurnEntity($turn_entity_id, $dungeon_data)['name']
         ?? $turn_entity_id)
       : '';
+    $initiative_order = is_array($dungeon_data['game_state']['initiative_order'] ?? NULL)
+      ? $dungeon_data['game_state']['initiative_order']
+      : [];
+    $upcoming_names = [];
+    foreach ($initiative_order as $participant) {
+      if (!is_array($participant)) {
+        continue;
+      }
+      $name = trim((string) ($participant['name'] ?? ''));
+      if ($name !== '') {
+        $upcoming_names[] = $name;
+      }
+    }
 
-    if ($this->textContainsAny($normalized, ['whose turn', 'who s turn', 'whos turn', 'who is up', 'who goes next', 'my turn', 'your turn', 'what turn is it'])) {
+    if ($this->textContainsAny($normalized, ['whose turn', 'who s turn', 'whos turn', 'who is up', 'who goes next', 'my turn', 'your turn', 'what turn is it', 'which npc is getting resolved', 'which npc is being resolved', 'nothing is happening', 'do them one at a time', 'something is wrong', 'something is really fucked up'])) {
       if ($turn_display_name !== '') {
-        return sprintf('It is currently %s\'s turn.', $turn_display_name);
+        $narrative = sprintf('It is currently %s\'s turn.', $turn_display_name);
+        if ($upcoming_names !== []) {
+          $narrative .= ' Initiative order in this room is: ' . implode(' -> ', $upcoming_names) . '.';
+        }
+        $narrative .= ' NPCs act one at a time only after the current actor ends or delays their turn.';
+        return $narrative;
       }
       return 'The current turn is not grounded clearly enough to answer yet.';
     }
@@ -5911,6 +5929,12 @@ PROMPT;
       'my turn',
       'your turn',
       'what turn is it',
+      'which npc is getting resolved',
+      'which npc is being resolved',
+      'nothing is happening',
+      'do them one at a time',
+      'something is wrong',
+      'something is really fucked up',
       'do i know',
       'would i know',
       'do we know',
@@ -8609,19 +8633,8 @@ PROMPT;
       $tracked_intent = $tracked_npc !== NULL ? 'direct_npc_transaction' : $turn_intent;
     }
 
-    if ($tracked_npc === NULL && !empty($response_context['entity_ref'])) {
-      $tracked_npc = $this->resolveExplicitRoomConversationNpc([
-        'conversation_state' => [
-          'entity_ref' => (string) $response_context['entity_ref'],
-          'speaker_name' => (string) ($response_context['speaker_name'] ?? ''),
-        ],
-      ], $room_npcs);
-    }
-
-    if ($tracked_npc !== NULL && in_array($tracked_intent, ['direct_npc_dialogue', 'direct_npc_transaction', 'quest_query'], TRUE)) {
+    if (in_array($tracked_intent, ['direct_npc_dialogue', 'direct_npc_transaction', 'quest_query', 'merchant_inquiry'], TRUE)) {
       $entry = [
-        'entity_ref' => (string) ($tracked_npc['entity_ref'] ?? ''),
-        'speaker_name' => (string) ($tracked_npc['profile']['display_name'] ?? $tracked_npc['entity_ref'] ?? ''),
         'intent' => $tracked_intent,
         'channel' => 'room',
         'pending_player_message' => $this->stripEncounterTranscriptPrefix($player_message),
@@ -8686,8 +8699,8 @@ PROMPT;
     $character_id = isset($state['character_id']) && is_numeric($state['character_id'])
       ? (int) $state['character_id']
       : NULL;
-    $entity_ref = (string) ($npc['entity_ref'] ?? '');
-    $display_name = trim((string) ($npc['profile']['display_name'] ?? ''));
+    $entity_ref = (string) ($current_npc['entity_ref'] ?? '');
+    $display_name = trim((string) ($current_npc['profile']['display_name'] ?? ''));
 
     if ($matched_queue_index !== NULL) {
       unset($queue[$matched_queue_index]);
@@ -8730,6 +8743,31 @@ PROMPT;
       'player_message' => $player_message,
       'intent' => (string) ($state['intent'] ?? ''),
     ];
+  }
+
+  protected function pendingRoomMessageAppliesToActorTurn(array $state, array $current_npc, array $room_npcs): bool {
+    $intent = (string) ($state['intent'] ?? '');
+    $message = trim((string) ($state['pending_player_message'] ?? ''));
+    if ($message === '') {
+      return FALSE;
+    }
+
+    return match ($intent) {
+      'direct_npc_dialogue', 'direct_npc_transaction' => (($this->resolveDirectlyAddressedNpc($room_npcs, $message)['entity_ref'] ?? '') === (string) ($current_npc['entity_ref'] ?? '')),
+      'quest_query' => $this->npcSupportsQuestOrLeadDialogue($current_npc),
+      'merchant_inquiry' => $this->npcSupportsMerchantDialogue($current_npc),
+      default => FALSE,
+    };
+  }
+
+  protected function findRoomNpcMatchingActorTurn(array $room_npcs, string $actor_id): ?array {
+    foreach ($room_npcs as $npc) {
+      if ($this->roomConversationNpcMatchesActorTurn($npc, $actor_id)) {
+        return $npc;
+      }
+    }
+
+    return NULL;
   }
 
   protected function roomConversationNpcMatchesActorTurn(array $npc, string $actor_id): bool {
