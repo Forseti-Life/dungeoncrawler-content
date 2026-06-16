@@ -154,6 +154,36 @@ class EncounterPhaseHandlerTest extends UnitTestCase {
   }
 
   /**
+   * Delay remains a legal room-scene action when encounter context is complete.
+   *
+   * @covers ::validateIntent
+   */
+  public function testValidateIntentAllowsRoomSceneDelay(): void {
+    $handler = $this->buildHandler();
+    $validation = $handler->validateIntent([
+      'type' => 'delay',
+      'actor' => 'char-001',
+      'params' => [],
+    ], [
+      'encounter_id' => NULL,
+      'phase' => 'encounter',
+      'round' => 1,
+      'encounter_context' => ['room_id' => 'room-a'],
+      'turn' => [
+        'entity' => 'char-001',
+        'index' => 0,
+        'actions_remaining' => 2,
+      ],
+      'initiative_order' => [
+        ['entity_id' => 'char-001', 'team' => 'player', 'name' => 'Tikask'],
+        ['entity_id' => 'npc-1', 'team' => 'npc', 'name' => 'Eldric'],
+      ],
+    ], []);
+
+    $this->assertTrue($validation['valid']);
+  }
+
+  /**
    * Encounter talk delegates to RoomChatService and returns an explicit contract.
    *
    * @covers ::processIntent
@@ -442,6 +472,83 @@ class EncounterPhaseHandlerTest extends UnitTestCase {
     $this->assertContains('delay', $event_types);
     $this->assertContains('round_start', $event_types);
     $this->assertContains('turn_start', $event_types);
+  }
+
+  /**
+   * Delay-until-target should place the actor after that target in the current round.
+   *
+   * @covers ::processIntent
+   */
+  public function testProcessIntentDelayAfterNamedActorRequeuesWithinCurrentRound(): void {
+    $handler = $this->buildHandler();
+    $game_state = [
+      'encounter_id' => NULL,
+      'phase' => 'encounter',
+      'round' => 1,
+      'encounter_context' => ['room_id' => 'room-a'],
+      'turn' => [
+        'entity' => 'pc-1',
+        'index' => 1,
+        'actions_remaining' => 1,
+        'reaction_available' => TRUE,
+      ],
+      'initiative_order' => [
+        ['entity_id' => 'npc-1', 'team' => 'npc', 'name' => 'Gribbles Rindsworth'],
+        ['entity_id' => 'pc-1', 'team' => 'player', 'name' => 'Tikask'],
+        ['entity_id' => 'npc-2', 'team' => 'npc', 'name' => 'Marta the Scholar'],
+        ['entity_id' => 'npc-3', 'team' => 'npc', 'name' => 'Eldric'],
+      ],
+    ];
+    $dungeon_data = [
+      'active_room_id' => 'room-a',
+      'entities' => [
+        [
+          'entity_instance_id' => 'npc-1',
+          'entity_type' => 'npc',
+          'entity_ref' => ['content_id' => 'gribbles'],
+          'placement' => ['room_id' => 'room-a', 'hex' => ['q' => 0, 'r' => 0]],
+          'state' => ['metadata' => ['display_name' => 'Gribbles Rindsworth']],
+        ],
+        [
+          'entity_instance_id' => 'pc-1',
+          'entity_type' => 'player_character',
+          'entity_ref' => ['content_id' => 501],
+          'placement' => ['room_id' => 'room-a', 'hex' => ['q' => 1, 'r' => 0]],
+          'state' => ['metadata' => ['display_name' => 'Tikask']],
+        ],
+        [
+          'entity_instance_id' => 'npc-2',
+          'entity_type' => 'npc',
+          'entity_ref' => ['content_id' => 'marta'],
+          'placement' => ['room_id' => 'room-a', 'hex' => ['q' => 2, 'r' => 0]],
+          'state' => ['metadata' => ['display_name' => 'Marta the Scholar']],
+        ],
+        [
+          'entity_instance_id' => 'npc-3',
+          'entity_type' => 'npc',
+          'entity_ref' => ['content_id' => 'eldric'],
+          'placement' => ['room_id' => 'room-a', 'hex' => ['q' => 3, 'r' => 0]],
+          'state' => ['metadata' => ['display_name' => 'Eldric']],
+        ],
+      ],
+    ];
+
+    $response = $handler->processIntent([
+      'type' => 'delay',
+      'actor' => 'pc-1',
+      'target' => NULL,
+      'params' => ['delay_until_actor_id' => 'npc-3'],
+    ], $game_state, $dungeon_data, 42);
+
+    $this->assertTrue($response['success']);
+    $this->assertSame(1, $game_state['round']);
+    $this->assertSame('pc-1', $game_state['turn']['entity']);
+    $this->assertSame(3, $game_state['turn']['index']);
+    $this->assertSame(1, $game_state['turn']['actions_remaining']);
+    $this->assertSame(
+      ['npc-1', 'npc-2', 'npc-3', 'pc-1'],
+      array_map(static fn(array $participant): string => (string) ($participant['entity_id'] ?? ''), $game_state['initiative_order'])
+    );
   }
 
   /**

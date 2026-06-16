@@ -485,7 +485,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
       ? (int) $canonical_turn['actions_remaining']
       : (int) ($game_state['turn']['actions_remaining'] ?? 0);
     if ($this->isRoomSceneMode($game_state)) {
-      $room_scene_actions = ['talk', 'search', 'interact', 'end_turn', 'choose_not_to_act', 'treat_wounds', 'refocus', 'repair', 'daily_preparations'];
+      $room_scene_actions = ['talk', 'search', 'interact', 'delay', 'end_turn', 'choose_not_to_act', 'treat_wounds', 'refocus', 'repair', 'daily_preparations'];
       if (!in_array($type, $room_scene_actions, TRUE)) {
         return [
           'valid' => FALSE,
