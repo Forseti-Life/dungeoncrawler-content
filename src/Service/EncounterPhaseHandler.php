@@ -3587,12 +3587,6 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
       'game_state' => $game_state,
     ]);
 
-    if ($encounter_id && $this->isEncounterOver($encounter_id, $game_state)) {
-      $resolution = $this->resolveCombatEncounter($actor_id, $game_state, $dungeon_data, $campaign_id);
-      $events = array_merge($events, $resolution['events'] ?? []);
-      $result = array_merge($result, $resolution['result'] ?? []);
-    }
-
     // Check for auto-end-turn (actions depleted + no movement remaining).
     // Delay is intentional initiative exit — do NOT auto-end-turn for it.
     $no_auto_end_types = ['end_turn', 'choose_not_to_act', 'delay', 'delay_reenter', 'release', 'aid'];
@@ -3619,43 +3613,6 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
       'phase_transition' => $phase_transition,
       'narration' => $narration,
       'time_effects' => $time_effects,
-    ];
-  }
-
-  /**
-   * Resumes the noncombat room-scene framework after hostile combat ends.
-   */
-  protected function resolveCombatEncounter(?string $actor_id, array &$game_state, array &$dungeon_data, int $campaign_id): array {
-    $room_id = (string) ($game_state['encounter_context']['room_id'] ?? ($dungeon_data['active_room_id'] ?? ''));
-    $room = $room_id !== '' ? $this->findRoomById($dungeon_data, $room_id) : NULL;
-
-    if (!empty($game_state['encounter_id'])) {
-      $this->syncEncounterParticipantsToDungeonData((int) $game_state['encounter_id'], $dungeon_data);
-    }
-
-    $events = $this->onExit($game_state, $dungeon_data, $campaign_id);
-    if ($room_id !== '') {
-      $events = array_merge(
-        $events,
-        $this->startRoomSceneEncounter(
-          $actor_id,
-          $room_id,
-          $game_state,
-          $dungeon_data,
-          $campaign_id,
-          $room,
-          sprintf('Combat in %s has ended. The room encounter framework continues.', (string) ($room['name'] ?? $room_id))
-        )
-      );
-    }
-
-    return [
-      'events' => $events,
-      'result' => [
-        'encounter_resolved' => TRUE,
-        'room_id' => $room_id,
-        'last_encounter' => $game_state['last_encounter'] ?? NULL,
-      ],
     ];
   }
 
@@ -6847,33 +6804,6 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
   /**
    * Checks if the encounter should end (all enemies defeated or all players defeated).
    */
-  protected function checkEncounterEnd(int $encounter_id, array &$game_state): ?array {
-    return NULL;
-  }
-
-  /**
-   * Determines if the encounter is over.
-   */
-  protected function isEncounterOver(int $encounter_id, array $game_state): bool {
-    $mode = strtolower(trim((string) ($game_state['encounter_context']['mode'] ?? '')));
-    if ($mode !== 'hostile_combat') {
-      return FALSE;
-    }
-
-    $initiative_order = $game_state['initiative_order'] ?? [];
-    $teams_alive = [];
-
-    foreach ($initiative_order as $combatant) {
-      if (empty($combatant['is_defeated'])) {
-        $team = $combatant['team'] ?? 'enemy';
-        $teams_alive[$team] = TRUE;
-      }
-    }
-
-    // Encounter is over if only one team (or zero) remains.
-    return count($teams_alive) <= 1;
-  }
-
   /**
    * Starts or resumes the room-scene encounter framework for a room.
    */

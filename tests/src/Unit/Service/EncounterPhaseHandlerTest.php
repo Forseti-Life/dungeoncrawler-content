@@ -2354,10 +2354,6 @@ class EncounterPhaseHandlerTest extends UnitTestCase {
         ];
       }
 
-      protected function isEncounterOver(int $encounter_id, array $game_state): bool {
-        return FALSE;
-      }
-
       protected function processEndTurn(?int $encounter_id, ?string $actor_id, array &$game_state, array &$dungeon_data, int $campaign_id): array {
         $this->processEndTurnArgs = [$encounter_id, $actor_id, $campaign_id];
         $game_state['turn'] = [
