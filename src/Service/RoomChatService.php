@@ -5606,30 +5606,14 @@ PROMPT;
         ? $this->buildDeterministicNpcDialogue($campaign_id, $entity_ref, $display_name, $player_message, $room_id, $dungeon_data, $character_id)
         : NULL;
       if ($npc_dialogue !== NULL) {
-        $game_state = is_array($dungeon_data['game_state'] ?? NULL) ? $dungeon_data['game_state'] : [];
-        if (($game_state['phase'] ?? '') === 'encounter') {
-          return [
-            'narrative' => $npc_dialogue,
-            'actions' => [],
-            'dice_rolls' => [],
-            'validation_errors' => [],
-            'suppress_npc_interjections' => TRUE,
-            'speaker_name' => $display_name !== '' ? $display_name : NULL,
-            'entity_ref' => $entity_ref !== '' ? $entity_ref : NULL,
-          ];
-        }
-        $handoff_name = $display_name !== '' ? $display_name : 'The NPC';
-        $this->logger->info('Direct NPC dialogue handed off from GM layer to NPC turn: campaign={campaign_id} room={room_id} npc={npc}', [
-          'campaign_id' => $campaign_id,
-          'room_id' => $room_id,
-          'npc' => $handoff_name,
-        ]);
         return [
-          'narrative' => $handoff_name . ' gives you their full attention and prepares to answer directly.',
+          'narrative' => $npc_dialogue,
           'actions' => [],
           'dice_rolls' => [],
           'validation_errors' => [],
-          'suppress_npc_interjections' => FALSE,
+          'suppress_npc_interjections' => TRUE,
+          'speaker_name' => $display_name !== '' ? $display_name : NULL,
+          'entity_ref' => $entity_ref !== '' ? $entity_ref : NULL,
         ];
       }
       return [

@@ -79,7 +79,7 @@ class RoomChatServiceQuestTouchpointTest extends UnitTestCase {
     $quest_tracker = $this->createMock(\Drupal\dungeoncrawler_content\Service\QuestTrackerService::class);
     $quest_tracker->expects($this->once())
       ->method('findMentionedAvailableQuests')
-      ->with(93, 'tavern_entrance', 361, 'Eldric gives you their full attention and prepares to answer directly.', 2, 5)
+      ->with(93, 'tavern_entrance', 361, 'If you want work, Marta the Scholar is missing spellbooks in this tavern.', 2, 5)
       ->willReturn([]);
 
     $quest_touchpoint = $this->createMock(QuestTouchpointService::class);
@@ -158,7 +158,7 @@ class RoomChatServiceQuestTouchpointTest extends UnitTestCase {
       [
         'entity_ref' => 'npc_tavern_keeper',
         'speaker_name' => 'Eldric',
-        'message' => 'Eldric gives you their full attention and prepares to answer directly.',
+        'message' => 'If you want work, Marta the Scholar is missing spellbooks in this tavern.',
       ],
       []
     );
