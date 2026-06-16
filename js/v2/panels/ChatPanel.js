@@ -2364,11 +2364,6 @@ export class ChatPanel {
           return a.__sortIndex - b.__sortIndex;
         }
 
-        const numeric = (value) => {
-          const n = Number(value);
-          return Number.isFinite(n) ? n : null;
-        };
-
         const aEventId = numeric(a.eventId);
         const bEventId = numeric(b.eventId);
         if (aEventId !== null || bEventId !== null) {

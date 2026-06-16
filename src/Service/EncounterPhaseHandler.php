@@ -9130,7 +9130,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
       'content' => sprintf('%s resolves %s (%d vs DC %d: %s).', $actor_name, $detail_label, $total, $dc, $degree),
       'mechanical_data' => $metadata,
       'visibility' => 'public',
-    ]);
+    ], NULL, $game_state);
   }
 
   /**
