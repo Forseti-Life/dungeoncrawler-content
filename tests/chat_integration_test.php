@@ -332,7 +332,7 @@ $alias_rooms = [
     'chat' => [
       [
         'speaker' => 'Game Master',
-        'message' => 'Round 0: Turn 1: Actor Game Master: The Gilded Tankard',
+        'message' => 'Round 0: Turn 1: Game Master: The Gilded Tankard',
         'type' => 'gm',
         'channel' => 'room',
       ],

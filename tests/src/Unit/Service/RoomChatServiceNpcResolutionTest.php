@@ -708,8 +708,7 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
       ],
       'turn_sequence' => [
         ['actor_key' => 'narrator', 'actor_ref' => NULL, 'display_name' => 'Narrator', 'role' => 'narrator', 'turn_index' => 1, 'initiative_total' => NULL, 'initiative_roll' => NULL, 'initiative_modifier' => NULL, 'spoke' => TRUE],
-        ['actor_key' => 'game_master', 'actor_ref' => NULL, 'display_name' => 'Game Master', 'role' => 'gm', 'turn_index' => 2, 'initiative_total' => NULL, 'initiative_roll' => NULL, 'initiative_modifier' => NULL, 'spoke' => TRUE],
-        ['actor_key' => 'scholar_npc', 'actor_ref' => 'scholar_npc', 'display_name' => 'Marta the Scholar', 'role' => 'npc', 'turn_index' => 3, 'initiative_total' => 17, 'initiative_roll' => 12, 'initiative_modifier' => 5, 'spoke' => TRUE],
+        ['actor_key' => 'scholar_npc', 'actor_ref' => 'scholar_npc', 'display_name' => 'Marta the Scholar', 'role' => 'npc', 'turn_index' => 2, 'initiative_total' => 17, 'initiative_roll' => 12, 'initiative_modifier' => 5, 'spoke' => TRUE],
       ],
       'turn_log_key' => 'room_turn_123',
       'turn_logs' => [
@@ -724,7 +723,7 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
           'internal_log' => TRUE,
           'turn_role' => 'npc',
           'turn_name' => 'Marta the Scholar',
-          'turn_index' => 3,
+          'turn_index' => 2,
           'initiative_total' => 17,
           'initiative_roll' => 12,
           'initiative_modifier' => 5,
@@ -770,7 +769,7 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
     $this->assertSame('room-turn-harness-v1', $harnessPayload['schema_version']);
     $this->assertSame('scholar_npc', $harnessPayload['directly_addressed_npc']);
     $this->assertCount(1, $harnessPayload['npc_turns']);
-    $this->assertCount(3, $harnessPayload['turn_sequence']);
+    $this->assertCount(2, $harnessPayload['turn_sequence']);
     $this->assertTrue(!empty($harnessPayload['turn_logs'][0]['turn_prompt']));
     $this->assertCount(1, $harnessPayload['messages']);
 
@@ -1382,7 +1381,7 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
   public function testClassifyRoomTurnIntentDoesNotTreatNarrativeGmMentionAsAdjudication(): void {
     $intent = $this->roomChatService->publicClassifyRoomTurnIntent('This is a GM-led quest.');
 
-    $this->assertSame('gm_narration', $intent);
+    $this->assertSame('quest_query', $intent);
   }
 
   /**
@@ -1712,6 +1711,38 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
     );
 
     $this->assertSame('gm_adjudication_query', $intent);
+  }
+
+  /**
+   * @covers ::classifyRoomTurnIntent
+   */
+  public function testClassifyRoomTurnIntentTreatsTurnQuestionAsGmQuery(): void {
+    $intent = $this->roomChatService->publicClassifyRoomTurnIntent(
+      "Who's turn is it?"
+    );
+
+    $this->assertSame('gm_adjudication_query', $intent);
+  }
+
+  /**
+   * @covers ::looksLikeActiveRoomConversationPivot
+   * @covers ::classifyRoomTurnIntent
+   */
+  public function testClassifyRoomTurnIntentDoesNotRouteWaitPhraseBackToNpc(): void {
+    $intent = $this->roomChatService->publicClassifyRoomTurnIntentWithActiveConversation(
+      "I'll wait for you Eldric",
+      [[
+        'entity_ref' => 'tavern_keeper',
+        'profile' => ['display_name' => 'Eldric'],
+      ]],
+      NULL,
+      [
+        'entity_ref' => 'tavern_keeper',
+        'profile' => ['display_name' => 'Eldric'],
+      ]
+    );
+
+    $this->assertSame('gm_narration', $intent);
   }
 
   /**

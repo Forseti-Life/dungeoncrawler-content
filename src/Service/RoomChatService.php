@@ -3930,38 +3930,14 @@ class RoomChatService {
       'turn_name' => 'Narrator',
       'turn_index' => 1,
     ], $encounter_prefix, FALSE);
-    $this->persistStructuredRoomTurnLog(
-      $campaign_id,
-      $dungeon_id,
-      $room_id,
-      $turn_log_key,
-      2,
-      'current_turn',
-      NULL,
-      'Game Master',
-      [
-        'speaker_role' => 'gm',
-        'player_message' => $player_message,
-        'gm_narrative' => $gm_narrative,
-      ]
-    );
-    $turn_logs[] = $this->appendInternalRoomLogMessage($dungeon_data, $room_index, $this->buildRoomCurrentTurnLogMessage('Game Master'), [
-      'turn_role' => 'gm',
-      'turn_name' => 'Game Master',
-      'turn_index' => 2,
-    ], $encounter_prefix, FALSE);
-    $this->logger->info('Room turn current speaker in room @room (turn @turn_key): Game Master', [
-      '@room' => $room_id,
-      '@turn_key' => $turn_log_key,
-    ]);
 
     $messages = [];
     $spoken_refs = [];
 
     // Structured logs have a dense sequence counter; chat/UX turn indices are
     // the stable speaker order within the harness.
-    $turn_log_sequence = 3;
-    $harness_turn_index = 3;
+    $turn_log_sequence = 2;
+    $harness_turn_index = 2;
 
     foreach ($ordered_npcs as $npc) {
       $current_speaker = (string) ($npc['profile']['display_name'] ?? $npc['entity_ref'] ?? 'Unknown');
@@ -4658,17 +4634,6 @@ class RoomChatService {
         'initiative_modifier' => NULL,
         'spoke' => TRUE,
       ],
-      [
-        'actor_key' => 'game_master',
-        'actor_ref' => NULL,
-        'display_name' => 'Game Master',
-        'role' => 'gm',
-        'turn_index' => 2,
-        'initiative_total' => NULL,
-        'initiative_roll' => NULL,
-        'initiative_modifier' => NULL,
-        'spoke' => TRUE,
-      ],
     ];
 
     foreach (array_values($ordered_npcs) as $index => $npc) {
@@ -4677,7 +4642,7 @@ class RoomChatService {
         'actor_ref' => (string) ($npc['entity_ref'] ?? ''),
         'display_name' => (string) ($npc['profile']['display_name'] ?? $npc['entity_ref'] ?? 'Unknown'),
         'role' => 'npc',
-        'turn_index' => $index + 3,
+        'turn_index' => $index + 2,
         'initiative_total' => isset($npc['initiative_total']) ? (int) $npc['initiative_total'] : NULL,
         'initiative_roll' => isset($npc['initiative_roll']) ? (int) $npc['initiative_roll'] : NULL,
         'initiative_modifier' => isset($npc['initiative_modifier']) ? (int) $npc['initiative_modifier'] : NULL,
@@ -11360,7 +11325,7 @@ PROMPT;
 
   protected function stripEncounterTranscriptPrefix(string $content): string {
     $content = trim($content);
-    $stripped = preg_replace('/^Round\s+[0-9\?]+:\s+Turn\s+[0-9\?]+:\s+Actor\s+.+?:\s+/u', '', $content, 1);
+    $stripped = preg_replace('/^Round\s+[0-9\?]+:\s+Turn\s+[0-9\?]+:\s+(?:Actor\s+)?[^\:]+\:\s+/u', '', $content, 1);
     return is_string($stripped) ? trim($stripped) : $content;
   }
 

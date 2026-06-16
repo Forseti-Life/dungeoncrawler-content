@@ -147,7 +147,7 @@ class RoomChatControllerProgressTest extends UnitTestCase {
         'message' => ['speaker' => 'Burasco', 'message' => 'Who answers?'],
         'turn_log_key' => 'room_turn_abc',
         'turn_logs' => [
-          ['speaker' => 'System', 'message' => 'Turn order: Narrator -> Game Master -> Eldric 17.', 'type' => 'system'],
+          ['speaker' => 'System', 'message' => 'Turn order: Narrator -> Eldric 17.', 'type' => 'system'],
         ],
       ]);
 
@@ -174,7 +174,7 @@ class RoomChatControllerProgressTest extends UnitTestCase {
     $this->assertSame(200, $response->getStatusCode());
     $this->assertTrue($payload['success']);
     $this->assertSame('room_turn_abc', $payload['data']['turn_log_key']);
-    $this->assertSame('Turn order: Narrator -> Game Master -> Eldric 17.', $payload['data']['turn_logs'][0]['message']);
+    $this->assertSame('Turn order: Narrator -> Eldric 17.', $payload['data']['turn_logs'][0]['message']);
   }
 
   /**
@@ -370,7 +370,7 @@ class RoomChatControllerProgressTest extends UnitTestCase {
       [
         'gm_response' => ['speaker' => 'Game Master', 'message' => 'The room quiets.', 'type' => 'npc'],
         'turn_logs' => [
-          ['speaker' => 'System', 'message' => 'Turn order: Narrator -> Game Master -> Eldric 17.', 'type' => 'system', 'internal_log' => TRUE],
+          ['speaker' => 'System', 'message' => 'Turn order: Narrator -> Eldric 17.', 'type' => 'system', 'internal_log' => TRUE],
         ],
         'npc_interjections_deferred' => TRUE,
       ],

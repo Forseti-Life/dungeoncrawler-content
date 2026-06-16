@@ -7,7 +7,7 @@ namespace Drupal\dungeoncrawler_content\Service;
  */
 final class EncounterTranscriptPrefix {
 
-  public const PREFIX_REGEX = '/^Round\s+(?:\d+|\?)\:\s+Turn\s+(?:\d+|\?)\:\s+Actor\s+.*\:\s+/u';
+  public const PREFIX_REGEX = '/^Round\s+(?:\d+|\?)\:\s+Turn\s+(?:\d+|\?)\:\s+(?:Actor\s+)?[^\:]+\:\s+/u';
 
   /**
    * Return the 0-based round number for transcript display.
@@ -33,6 +33,10 @@ final class EncounterTranscriptPrefix {
     $actor_name = trim($actor_name);
     if ($actor_name === '') {
       $actor_name = 'Unknown';
+    }
+
+    if ($actor_name === 'Game Master') {
+      return sprintf('Round %s: Turn %s: Game Master: ', (string) $round_display, (string) $turn_display);
     }
 
     return sprintf('Round %s: Turn %s: Actor %s: ', (string) $round_display, (string) $turn_display, $actor_name);
