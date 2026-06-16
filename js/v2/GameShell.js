@@ -343,7 +343,10 @@ export class GameShell {
   }
 
   _syncInitialActiveTabState() {
-    const shell = this.container?.closest?.('[data-game-shell]') || null;
+    const shell = this.container?.closest?.('[data-game-shell]')
+      || this.container?.querySelector?.('[data-game-shell]')
+      || (typeof document !== 'undefined' ? document.querySelector('[data-game-shell]') : null)
+      || null;
     const activeTab = shell?.dataset?.gameShellActive || '';
     console.log('[GameShell] _syncInitialActiveTabState', {
       activeTab: activeTab || null,
