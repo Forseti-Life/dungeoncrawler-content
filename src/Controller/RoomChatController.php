@@ -693,7 +693,10 @@ class RoomChatController extends ControllerBase {
       ]);
     }
 
-    if (!empty($result['npc_interjections_deferred']) && !empty($result['gm_response']['message'])) {
+    $should_complete_deferred_npc_turns = !empty($result['npc_interjections_deferred'])
+      && !empty($result['gm_response']['message'])
+      && empty($result['gm_response']['gm_payload']['flags']['suppress_npc_interjections']);
+    if ($should_complete_deferred_npc_turns) {
       $this->emitProgressUpdate($emit, $client_request_id, 'npc_reactions_generating', [
         'campaign_id' => $campaign_id,
         'room_id' => $room_id,
