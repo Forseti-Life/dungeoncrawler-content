@@ -1859,6 +1859,54 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
   }
 
   /**
+   * @covers ::buildDeterministicGmResponse
+   */
+  public function testBuildDeterministicGmResponseEmitsDirectNpcReplyImmediatelyDuringEncounter(): void {
+    $this->psychologyService->method('loadProfile')
+      ->willReturnMap([
+        [22, 'tikka', ['display_name' => 'Tikka the Trapmaster', 'attitude' => 'indifferent', 'role' => 'guide', 'motivations' => 'protect the burrow']],
+      ]);
+
+    $npc = [
+      'entity_ref' => 'tikka',
+      'profile' => [
+        'display_name' => 'Tikka the Trapmaster',
+      ],
+    ];
+
+    $response = $this->roomChatService->publicBuildDeterministicGmResponse(
+      22,
+      'direct_npc_dialogue',
+      [$npc],
+      $npc,
+      'Are you alone Tikka? How big is this Kobold colony?',
+      [
+        'name' => 'Kobold Burrow',
+        'description' => 'A network of small tunnels opens into an organized underground chamber.',
+      ],
+      'room-burrow',
+      [
+        'game_state' => [
+          'phase' => 'encounter',
+        ],
+        'rooms' => [
+          [
+            'room_id' => 'room-burrow',
+            'name' => 'Kobold Burrow',
+            'description' => 'A network of small tunnels opens into an organized underground chamber.',
+          ],
+        ],
+      ]
+    );
+
+    $this->assertNotNull($response);
+    $this->assertTrue($response['suppress_npc_interjections']);
+    $this->assertSame('Tikka the Trapmaster', $response['speaker_name']);
+    $this->assertSame('tikka', $response['entity_ref']);
+    $this->assertStringContainsString('In this chamber, yes. In the burrow, no.', $response['narrative']);
+  }
+
+  /**
    * @covers ::buildDeterministicNpcDialogue
    * @covers ::buildBrokeredStorylineLeadDialogue
    */

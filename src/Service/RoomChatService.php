@@ -1822,13 +1822,16 @@ class RoomChatService {
       $room_npcs
     );
 
+    $resolved_speaker = !empty($checked_response['speaker_name'])
+      ? (string) $checked_response['speaker_name']
+      : 'Game Master';
     $visible_gm_narrative = $this->buildVisibleGmNarrative($narrative, $actions, $state_diff, $navigation_result);
-    $gm_encounter_prefix = $this->buildEncounterPrefixForSpeaker($dungeon_data, 'Game Master');
+    $gm_encounter_prefix = $this->buildEncounterPrefixForSpeaker($dungeon_data, $resolved_speaker);
     $visible_gm_narrative = $this->prefixEncounterChatText($visible_gm_narrative, $gm_encounter_prefix);
     $suppress_npc_interjections = !empty($checked_response['suppress_npc_interjections']);
     $gm_payload = $this->buildGmRoomResponsePayload($visible_gm_narrative, $actions, $dice_rolls, $suppress_npc_interjections);
     $gm_message = [
-      'speaker' => 'Game Master',
+      'speaker' => $resolved_speaker,
       'message' => $visible_gm_narrative,
       'type' => 'npc',
       'channel' => 'room',
@@ -5603,6 +5606,18 @@ PROMPT;
         ? $this->buildDeterministicNpcDialogue($campaign_id, $entity_ref, $display_name, $player_message, $room_id, $dungeon_data, $character_id)
         : NULL;
       if ($npc_dialogue !== NULL) {
+        $game_state = is_array($dungeon_data['game_state'] ?? NULL) ? $dungeon_data['game_state'] : [];
+        if (($game_state['phase'] ?? '') === 'encounter') {
+          return [
+            'narrative' => $npc_dialogue,
+            'actions' => [],
+            'dice_rolls' => [],
+            'validation_errors' => [],
+            'suppress_npc_interjections' => TRUE,
+            'speaker_name' => $display_name !== '' ? $display_name : NULL,
+            'entity_ref' => $entity_ref !== '' ? $entity_ref : NULL,
+          ];
+        }
         $handoff_name = $display_name !== '' ? $display_name : 'The NPC';
         $this->logger->info('Direct NPC dialogue handed off from GM layer to NPC turn: campaign={campaign_id} room={room_id} npc={npc}', [
           'campaign_id' => $campaign_id,
