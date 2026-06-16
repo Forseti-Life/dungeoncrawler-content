@@ -5763,6 +5763,25 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
         ],
       ], $narration),
     ];
+    $this->queueNarrationEvent($campaign_id, $dungeon_data, [
+      'type' => 'talk',
+      'speaker' => $actor_name,
+      'speaker_type' => 'npc',
+      'speaker_ref' => $entity_id,
+      'content' => $narration,
+      'visibility' => 'public',
+      'mechanical_data' => [
+        'actor_id' => $entity_id,
+        'actor_name' => $actor_name,
+        'room_id' => $resolved_room_id,
+        'decision_reason' => 'Responding to the active room conversation on this actor turn.',
+        'decision_basis' => [
+          'intent' => $decision_intent,
+          'conversation_entity_ref' => (string) ($pending_dialogue['entity_ref'] ?? ''),
+          'player_message' => (string) ($pending_dialogue['player_message'] ?? ''),
+        ],
+      ],
+    ], $resolved_room_id);
 
     $remaining_before_end = max(0, ((int) ($game_state['turn']['actions_remaining'] ?? 0)) - 1);
     $game_state['turn']['actions_remaining'] = 0;

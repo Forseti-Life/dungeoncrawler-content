@@ -8593,7 +8593,7 @@ PROMPT;
     }
 
     if ($tracked_npc !== NULL && in_array($tracked_intent, ['direct_npc_dialogue', 'direct_npc_transaction', 'quest_query'], TRUE)) {
-      $dungeon_data['rooms'][$room_index]['conversation_state'] = [
+      $entry = [
         'entity_ref' => (string) ($tracked_npc['entity_ref'] ?? ''),
         'speaker_name' => (string) ($tracked_npc['profile']['display_name'] ?? $tracked_npc['entity_ref'] ?? ''),
         'intent' => $tracked_intent,
@@ -8601,10 +8601,28 @@ PROMPT;
         'pending_player_message' => $this->stripEncounterTranscriptPrefix($player_message),
         'character_id' => $character_id,
       ];
+      $queue = is_array($dungeon_data['rooms'][$room_index]['conversation_queue'] ?? NULL)
+        ? array_values(array_filter($dungeon_data['rooms'][$room_index]['conversation_queue'], 'is_array'))
+        : [];
+      $replaced = FALSE;
+      foreach ($queue as $index => $queued_entry) {
+        if ((string) ($queued_entry['entity_ref'] ?? '') !== (string) ($entry['entity_ref'] ?? '')) {
+          continue;
+        }
+        $queue[$index] = $entry;
+        $replaced = TRUE;
+        break;
+      }
+      if (!$replaced) {
+        $queue[] = $entry;
+      }
+      $dungeon_data['rooms'][$room_index]['conversation_queue'] = array_values($queue);
+      $dungeon_data['rooms'][$room_index]['conversation_state'] = $entry;
       return;
     }
 
     unset($dungeon_data['rooms'][$room_index]['conversation_state']);
+    unset($dungeon_data['rooms'][$room_index]['conversation_queue']);
   }
 
   public function consumePendingEncounterRoomDialogue(
@@ -8619,17 +8637,34 @@ PROMPT;
     }
 
     $room_meta = is_array($dungeon_data['rooms'][$room_index] ?? NULL) ? $dungeon_data['rooms'][$room_index] : [];
-    if (!is_array($room_meta['conversation_state'] ?? NULL)) {
-      return NULL;
-    }
-
     $room_npcs = $this->gatherRoomNpcsWithProfiles($campaign_id, $room_id, $dungeon_data);
-    $npc = $this->resolveExplicitRoomConversationNpc($room_meta, $room_npcs);
-    if ($npc === NULL || !$this->roomConversationNpcMatchesActorTurn($npc, $actor_id)) {
+    $queue = is_array($room_meta['conversation_queue'] ?? NULL)
+      ? array_values(array_filter($room_meta['conversation_queue'], 'is_array'))
+      : [];
+    $state = NULL;
+    $npc = NULL;
+    $matched_queue_index = NULL;
+    foreach ($queue as $index => $queued_state) {
+      $candidate_npc = $this->resolveExplicitRoomConversationNpc(['conversation_state' => $queued_state], $room_npcs);
+      if ($candidate_npc === NULL || !$this->roomConversationNpcMatchesActorTurn($candidate_npc, $actor_id)) {
+        continue;
+      }
+      $state = $queued_state;
+      $npc = $candidate_npc;
+      $matched_queue_index = $index;
+      break;
+    }
+    if ($state === NULL && is_array($room_meta['conversation_state'] ?? NULL)) {
+      $candidate_npc = $this->resolveExplicitRoomConversationNpc($room_meta, $room_npcs);
+      if ($candidate_npc !== NULL && $this->roomConversationNpcMatchesActorTurn($candidate_npc, $actor_id)) {
+        $state = $room_meta['conversation_state'];
+        $npc = $candidate_npc;
+      }
+    }
+    if ($state === NULL || $npc === NULL) {
       return NULL;
     }
 
-    $state = $room_meta['conversation_state'];
     $player_message = trim((string) ($state['pending_player_message'] ?? ''));
     if ($player_message === '') {
       $player_message = $this->findLatestRoomPlayerMessage($room_meta);
@@ -8640,7 +8675,21 @@ PROMPT;
     $entity_ref = (string) ($npc['entity_ref'] ?? '');
     $display_name = trim((string) ($npc['profile']['display_name'] ?? ''));
 
-    unset($dungeon_data['rooms'][$room_index]['conversation_state']);
+    if ($matched_queue_index !== NULL) {
+      unset($queue[$matched_queue_index]);
+      $queue = array_values($queue);
+      if ($queue !== []) {
+        $dungeon_data['rooms'][$room_index]['conversation_queue'] = $queue;
+        $dungeon_data['rooms'][$room_index]['conversation_state'] = end($queue);
+      }
+      else {
+        unset($dungeon_data['rooms'][$room_index]['conversation_queue']);
+        unset($dungeon_data['rooms'][$room_index]['conversation_state']);
+      }
+    }
+    else {
+      unset($dungeon_data['rooms'][$room_index]['conversation_state']);
+    }
 
     if ($entity_ref === '' || $player_message === '') {
       return NULL;
