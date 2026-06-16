@@ -73,6 +73,11 @@ export class MerchantPanel {
     const tabHandler = (e) => {
       const prevTab = this.activeGameShellTab;
       this.activeGameShellTab = e.detail?.tabId || null;
+      this.logMerchantPanelTrace('tab-changed', {
+        prevTab,
+        nextTab: this.activeGameShellTab,
+        eventSource: e.detail?.source || 'tab-click',
+      });
       // When merchant tab becomes active, re-render with current context so
       // data loaded while on another tab becomes immediately visible.
       if (this.activeGameShellTab === 'merchant' && prevTab !== 'merchant') {

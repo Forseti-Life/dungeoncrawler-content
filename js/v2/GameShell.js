@@ -338,7 +338,27 @@ export class GameShell {
     this._emitInitialRoomState();
     this._syncActiveRoomEntities();
     this._initApiHandlers();
+    this._syncInitialActiveTabState();
     this._initGameCoordinator();
+  }
+
+  _syncInitialActiveTabState() {
+    const shell = this.container?.closest?.('[data-game-shell]') || null;
+    const activeTab = shell?.dataset?.gameShellActive || '';
+    console.log('[GameShell] _syncInitialActiveTabState', {
+      activeTab: activeTab || null,
+      shellFound: Boolean(shell),
+    });
+    if (!activeTab) {
+      return;
+    }
+
+    window.dispatchEvent(new CustomEvent('dungeoncrawler:game-shell-tab-changed', {
+      detail: {
+        tabId: activeTab,
+        source: 'gameshell-init-sync',
+      },
+    }));
   }
 
   _initGameCoordinator() {

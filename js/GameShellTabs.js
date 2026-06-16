@@ -97,6 +97,11 @@
     shell.dataset.gameShellActive = activeTabId;
     persistGameShellTab(storage, activeTabId, storageKey);
 
+    console.log('[GameShellTabs] activateGameShellTab', {
+      tabId: activeTabId,
+      fromStoredState: options.fromStoredState === true,
+    });
+
     window.dispatchEvent(new CustomEvent('dungeoncrawler:game-shell-tab-changed', {
       detail: { tabId: activeTabId },
     }));
@@ -114,7 +119,13 @@
 
     const storage = typeof window !== 'undefined' && window.localStorage ? window.localStorage : null;
     const initialTab = resolveInitialGameShellTab(shell, storage);
-    activateGameShellTab(shell, initialTab, { storage });
+    const storedTab = storage && typeof storage.getItem === 'function'
+      ? storage.getItem('dc_game_shell_surface')
+      : null;
+    activateGameShellTab(shell, initialTab, {
+      storage,
+      fromStoredState: storedTab !== null,
+    });
 
     shell.addEventListener('dungeoncrawler:activate-tab', (event) => {
       const requestedTab = event?.detail?.tabId;
