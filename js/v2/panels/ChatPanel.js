@@ -1898,11 +1898,14 @@ export class ChatPanel {
     const playerLineId = `chat-player-${requestId}`;
     const gmProgressLineId = `chat-gm-progress-${requestId}`;
     const gmResponseLineId = `chat-gm-${requestId}`;
-    const encounterPrefixRegex = /^Round\s+(?:\d+|\?)\s*:\s*Turn\s+(?:\d+|\?)\s*:\s*Actor\s+.+?:\s*/u;
+    const encounterPrefixRegex = /^Round\s+(?:\d+|\?)\s*:\s*Turn\s+(?:\d+|\?)\s*:\s*(?:Actor\s+)?[^:]+:\s*/u;
     const trimmedPlayerMessage = String(message || '').trim();
+    const pendingPrefix = speaker === 'Game Master'
+      ? 'Round ?: Turn ?: Game Master: '
+      : `Round ?: Turn ?: Actor ${speaker}: `;
     const pendingPlayerMessage = encounterPrefixRegex.test(trimmedPlayerMessage)
       ? message
-      : `Round ?: Turn ?: Actor ${speaker}: ${trimmedPlayerMessage}`;
+      : `${pendingPrefix}${trimmedPlayerMessage}`;
 
     if (includePlayer) {
       this.appendChatLineToTarget(target, speaker, pendingPlayerMessage, 'player', {

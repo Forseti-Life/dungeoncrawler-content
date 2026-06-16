@@ -9299,16 +9299,22 @@ import { SpriteService } from './SpriteService.js';
       const playerLineId = `chat-player-${requestId}`;
       const gmProgressLineId = `chat-gm-progress-${requestId}`;
       const gmResponseLineId = `chat-gm-${requestId}`;
-      const encounterPrefixRegex = /^Turn\s+(?:\d+|\?):\s+Round\s+(?:\d+|\?):\s+Actor\s+.*:\s+/u;
+      const encounterPrefixRegex = /^Turn\s+(?:\d+|\?):\s+Round\s+(?:\d+|\?):\s+(?:Actor\s+)?[^:]+:\s+/u;
       const trimmedPlayerMessage = String(message || '').trim();
+      const pendingPrefix = speaker === 'Game Master'
+        ? 'Turn ?: Round ?: Game Master: '
+        : `Turn ?: Round ?: Actor ${speaker}: `;
       const pendingPlayerMessage = encounterPrefixRegex.test(trimmedPlayerMessage)
         ? message
-        : `Turn ?: Round ?: Actor ${speaker}: ${trimmedPlayerMessage}`;
+        : `${pendingPrefix}${trimmedPlayerMessage}`;
 
       const trimmedPlaceholderText = String(placeholderText || '').trim();
+      const pendingPlaceholderPrefix = placeholderSpeaker === 'Game Master'
+        ? 'Turn ?: Round ?: Game Master: '
+        : `Turn ?: Round ?: Actor ${placeholderSpeaker}: `;
       const pendingPlaceholderText = encounterPrefixRegex.test(trimmedPlaceholderText)
         ? placeholderText
-        : `Turn ?: Round ?: Actor ${placeholderSpeaker}: ${trimmedPlaceholderText || '...'}`;
+        : `${pendingPlaceholderPrefix}${trimmedPlaceholderText || '...'}`;
 
       if (includePlayer) {
         this.appendChatLineToTarget(target, speaker, pendingPlayerMessage, 'player', {
