@@ -1020,7 +1020,7 @@ export class ChatPanel {
       };
     });
 
-    const encounterPrefixRegex = /^Round\s+(?:\d+|\?)\s*:\s*Turn\s+(?:\d+|\?)\s*:\s*Actor\s+.+?:/i;
+    const encounterPrefixRegex = /^Round\s+(?:\d+|\?)\s*:\s*Turn\s+(?:\d+|\?)\s*:\s*(?:Actor\s+)?[^:]+:/i;
     this._roomHistoryHasEncounterTranscript = incoming.some((line) => encounterPrefixRegex.test(String(line?.message || '').trim()));
 
     const merged = this.rememberChatLines('room', incoming, {
