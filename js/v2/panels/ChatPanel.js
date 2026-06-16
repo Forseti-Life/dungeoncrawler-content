@@ -407,29 +407,7 @@ export class ChatPanel {
     this.bus.emit('room:view-reload-requested', { roomId, force: true, preserveExisting: true });
 
     try {
-      if (!queueOnly) {
-        this.roomChatBusy = true;
-      }
-      if (queueOnly) {
-        this.roomChatDeferredMessages.push({
-          requestId: clientRequestId,
-          speaker: characterName,
-          message: trimmedMessage,
-          roomId,
-          campaignId,
-          characterId,
-          channel: activeChannelKey,
-          pendingRequest,
-          target: chatTarget,
-        });
-        this.updateQueuedChatStatus(this.roomChatDeferredMessages.length);
-        return {
-          success: true,
-          data: {
-            queued: true,
-          },
-        };
-      }
+      this.roomChatBusy = true;
       return await this.postChatMessage(campaignId, roomId, characterName, trimmedMessage, characterId, {
         clientRequestId,
         pendingRequest,
@@ -893,6 +871,14 @@ export class ChatPanel {
       requestId: next.requestId || base.requestId,
       eventId: next.eventId || base.eventId,
     };
+  }
+
+  hasCanonicalTranscriptOrder(line = {}) {
+    const normalized = this.normalizeChatLineRecord(line);
+    return normalized.sequenceIndex !== null
+      || normalized.eventId !== ''
+      || normalized.messageId !== null
+      || normalized.sourceMessageId !== null;
   }
 
   normalizeChatLineRecords(lines = [], options = {}) {
@@ -2336,6 +2322,15 @@ export class ChatPanel {
       channel: options.channelKey || (view === 'room' ? this.activeChannel : view),
     });
 
+    normalizedLines.forEach((line, index) => {
+      const requiresCanonicalOrder = line.view === 'room'
+        && line.authority === 'authoritative'
+        && line.messageClass === 'authoritative_transcript';
+      if (requiresCanonicalOrder && !this.hasCanonicalTranscriptOrder(line)) {
+        throw new Error(`room-chat-transcript-v1 contract violation: missing canonical order metadata at line ${index}`);
+      }
+    });
+
     const sortedLines = normalizedLines
       .map((line, index) => ({ ...line, __sortIndex: index }))
       .sort((a, b) => {
@@ -2350,21 +2345,6 @@ export class ChatPanel {
           if (aSequenceIndex === null) return 1;
           if (bSequenceIndex === null) return -1;
           if (aSequenceIndex !== bSequenceIndex) return aSequenceIndex - bSequenceIndex;
-        }
-
-        const aCreated = Number(a.created) || 0;
-        const bCreated = Number(b.created) || 0;
-        const aHasCreated = aCreated > 0;
-        const bHasCreated = bCreated > 0;
-
-        if (aHasCreated !== bHasCreated) {
-          return aHasCreated ? -1 : 1;
-        }
-        if (aHasCreated && bHasCreated && aCreated !== bCreated) {
-          return aCreated - bCreated;
-        }
-        if (!aHasCreated && !bHasCreated) {
-          return a.__sortIndex - b.__sortIndex;
         }
 
         const aEventId = numeric(a.eventId);
@@ -2389,12 +2369,6 @@ export class ChatPanel {
           if (aSourceMessageId === null) return 1;
           if (bSourceMessageId === null) return -1;
           if (aSourceMessageId !== bSourceMessageId) return aSourceMessageId - bSourceMessageId;
-        }
-
-        const aLineId = String(a.lineId || '');
-        const bLineId = String(b.lineId || '');
-        if (aLineId !== bLineId) {
-          return aLineId.localeCompare(bLineId);
         }
 
         return a.__sortIndex - b.__sortIndex;
