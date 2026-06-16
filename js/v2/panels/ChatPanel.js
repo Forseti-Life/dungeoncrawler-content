@@ -387,6 +387,9 @@ export class ChatPanel {
       },
     });
     const queueOnly = this.roomChatBusy || this.roomChatQueueDraining;
+    if (queueOnly) {
+      throw new Error('Wait for the current turn response to finish before sending another room message.');
+    }
     const pendingResponder = this.resolvePendingResponder(trimmedMessage, {
       channelKey: activeChannelKey,
       roomId,
