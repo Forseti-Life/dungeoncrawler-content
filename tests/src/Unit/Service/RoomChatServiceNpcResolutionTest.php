@@ -1861,7 +1861,7 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
   /**
    * @covers ::buildDeterministicGmResponse
    */
-  public function testBuildDeterministicGmResponseEmitsDirectNpcReplyImmediatelyDuringEncounter(): void {
+  public function testBuildDeterministicGmResponseQueuesDirectNpcReplyForNpcTurn(): void {
     $this->psychologyService->method('loadProfile')
       ->willReturnMap([
         [22, 'tikka', ['display_name' => 'Tikka the Trapmaster', 'attitude' => 'indifferent', 'role' => 'guide', 'motivations' => 'protect the burrow']],
@@ -1903,7 +1903,7 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
     $this->assertTrue($response['suppress_npc_interjections']);
     $this->assertSame('Tikka the Trapmaster', $response['speaker_name']);
     $this->assertSame('tikka', $response['entity_ref']);
-    $this->assertStringContainsString('In this chamber, yes. In the burrow, no.', $response['narrative']);
+    $this->assertStringContainsString('hears the question and holds the floor for their turn', $response['narrative']);
   }
 
   /**

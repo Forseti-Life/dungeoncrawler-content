@@ -1819,19 +1819,19 @@ class RoomChatService {
       $room_index,
       $turn_intent,
       $effective_direct_npc,
-      $room_npcs
+      $room_npcs,
+      $latest_player_message,
+      $character_id,
+      is_array($checked_response) ? $checked_response : []
     );
 
-    $resolved_speaker = !empty($checked_response['speaker_name'])
-      ? (string) $checked_response['speaker_name']
-      : 'Game Master';
     $visible_gm_narrative = $this->buildVisibleGmNarrative($narrative, $actions, $state_diff, $navigation_result);
-    $gm_encounter_prefix = $this->buildEncounterPrefixForSpeaker($dungeon_data, $resolved_speaker);
+    $gm_encounter_prefix = $this->buildEncounterPrefixForSpeaker($dungeon_data, 'Game Master');
     $visible_gm_narrative = $this->prefixEncounterChatText($visible_gm_narrative, $gm_encounter_prefix);
     $suppress_npc_interjections = !empty($checked_response['suppress_npc_interjections']);
     $gm_payload = $this->buildGmRoomResponsePayload($visible_gm_narrative, $actions, $dice_rolls, $suppress_npc_interjections);
     $gm_message = [
-      'speaker' => $resolved_speaker,
+      'speaker' => 'Game Master',
       'message' => $visible_gm_narrative,
       'type' => 'npc',
       'channel' => 'room',
@@ -5566,16 +5566,15 @@ PROMPT;
         $player_message,
         $character_id
       );
-      if ($merchant_response !== NULL) {
-        return $merchant_response;
-      }
       $merchant_name = trim((string) ($merchant['profile']['display_name'] ?? 'The nearest merchant'));
       return [
-        'narrative' => $merchant_name . ' turns toward the trade talk, ready to quote prices and haggle plainly.',
+        'narrative' => $merchant_name . ' hears the trade question as the turn order continues.',
         'actions' => [],
         'dice_rolls' => [],
         'validation_errors' => [],
         'suppress_npc_interjections' => TRUE,
+        'speaker_name' => $merchant_name !== '' ? $merchant_name : NULL,
+        'entity_ref' => (string) ($merchant['entity_ref'] ?? ''),
       ];
     }
 
@@ -5588,16 +5587,15 @@ PROMPT;
           $player_message,
           $character_id
         );
-        if ($merchant_response !== NULL) {
-          return $merchant_response;
-        }
         $merchant_name = trim((string) ($directly_addressed_npc['profile']['display_name'] ?? 'The merchant'));
         return [
-          'narrative' => $merchant_name . ' gives you their full attention and shifts into a practical exchange about goods and prices.',
+          'narrative' => $merchant_name . ' takes in the trade request and waits for their turn to answer.',
           'actions' => [],
           'dice_rolls' => [],
           'validation_errors' => [],
           'suppress_npc_interjections' => TRUE,
+          'speaker_name' => $merchant_name !== '' ? $merchant_name : NULL,
+          'entity_ref' => (string) ($directly_addressed_npc['entity_ref'] ?? ''),
         ];
       }
       $entity_ref = (string) ($directly_addressed_npc['entity_ref'] ?? '');
@@ -5607,7 +5605,7 @@ PROMPT;
         : NULL;
       if ($npc_dialogue !== NULL) {
         return [
-          'narrative' => $npc_dialogue,
+          'narrative' => ($display_name !== '' ? $display_name : 'The NPC') . ' hears the question and holds the floor for their turn.',
           'actions' => [],
           'dice_rolls' => [],
           'validation_errors' => [],
@@ -5634,7 +5632,7 @@ PROMPT;
             $npc_dialogue = $this->buildDeterministicNpcDialogue($campaign_id, $entity_ref, $display_name, $player_message, $room_id, $dungeon_data);
             if ($npc_dialogue !== NULL) {
               return [
-                'narrative' => $npc_dialogue,
+                  'narrative' => ($display_name !== '' ? $display_name : 'The NPC') . ' takes note of the question and will answer on their turn.',
                 'actions' => [],
                 'dice_rolls' => [],
                 'validation_errors' => [],
@@ -8572,7 +8570,10 @@ PROMPT;
     int|string $room_index,
     string $turn_intent,
     ?array $conversation_npc = NULL,
-    array $room_npcs = []
+    array $room_npcs = [],
+    string $player_message = '',
+    ?int $character_id = NULL,
+    array $response_context = []
   ): void {
     $tracked_npc = $conversation_npc;
     $tracked_intent = $turn_intent;
@@ -8582,17 +8583,133 @@ PROMPT;
       $tracked_intent = $tracked_npc !== NULL ? 'direct_npc_transaction' : $turn_intent;
     }
 
-    if ($tracked_npc !== NULL && in_array($tracked_intent, ['direct_npc_dialogue', 'direct_npc_transaction'], TRUE)) {
+    if ($tracked_npc === NULL && !empty($response_context['entity_ref'])) {
+      $tracked_npc = $this->resolveExplicitRoomConversationNpc([
+        'conversation_state' => [
+          'entity_ref' => (string) $response_context['entity_ref'],
+          'speaker_name' => (string) ($response_context['speaker_name'] ?? ''),
+        ],
+      ], $room_npcs);
+    }
+
+    if ($tracked_npc !== NULL && in_array($tracked_intent, ['direct_npc_dialogue', 'direct_npc_transaction', 'quest_query'], TRUE)) {
       $dungeon_data['rooms'][$room_index]['conversation_state'] = [
         'entity_ref' => (string) ($tracked_npc['entity_ref'] ?? ''),
         'speaker_name' => (string) ($tracked_npc['profile']['display_name'] ?? $tracked_npc['entity_ref'] ?? ''),
         'intent' => $tracked_intent,
         'channel' => 'room',
+        'pending_player_message' => $this->stripEncounterTranscriptPrefix($player_message),
+        'character_id' => $character_id,
       ];
       return;
     }
 
     unset($dungeon_data['rooms'][$room_index]['conversation_state']);
+  }
+
+  public function consumePendingEncounterRoomDialogue(
+    int $campaign_id,
+    string $room_id,
+    string $actor_id,
+    array &$dungeon_data
+  ): ?array {
+    $room_index = $this->findRoomIndex($dungeon_data['rooms'] ?? [], $room_id);
+    if ($room_index === NULL) {
+      return NULL;
+    }
+
+    $room_meta = is_array($dungeon_data['rooms'][$room_index] ?? NULL) ? $dungeon_data['rooms'][$room_index] : [];
+    if (!is_array($room_meta['conversation_state'] ?? NULL)) {
+      return NULL;
+    }
+
+    $room_npcs = $this->gatherRoomNpcsWithProfiles($campaign_id, $room_id, $dungeon_data);
+    $npc = $this->resolveExplicitRoomConversationNpc($room_meta, $room_npcs);
+    if ($npc === NULL || !$this->roomConversationNpcMatchesActorTurn($npc, $actor_id)) {
+      return NULL;
+    }
+
+    $state = $room_meta['conversation_state'];
+    $player_message = trim((string) ($state['pending_player_message'] ?? ''));
+    if ($player_message === '') {
+      $player_message = $this->findLatestRoomPlayerMessage($room_meta);
+    }
+    $character_id = isset($state['character_id']) && is_numeric($state['character_id'])
+      ? (int) $state['character_id']
+      : NULL;
+    $entity_ref = (string) ($npc['entity_ref'] ?? '');
+    $display_name = trim((string) ($npc['profile']['display_name'] ?? ''));
+
+    unset($dungeon_data['rooms'][$room_index]['conversation_state']);
+
+    if ($entity_ref === '' || $player_message === '') {
+      return NULL;
+    }
+
+    $dialogue = $this->buildDeterministicNpcDialogue(
+      $campaign_id,
+      $entity_ref,
+      $display_name,
+      $player_message,
+      $room_id,
+      $dungeon_data,
+      $character_id
+    );
+    if ($dialogue === NULL) {
+      return NULL;
+    }
+
+    return [
+      'narrative' => $dialogue,
+      'speaker_name' => $display_name !== '' ? $display_name : $entity_ref,
+      'entity_ref' => $entity_ref,
+      'character_id' => $character_id,
+      'player_message' => $player_message,
+      'intent' => (string) ($state['intent'] ?? ''),
+    ];
+  }
+
+  protected function roomConversationNpcMatchesActorTurn(array $npc, string $actor_id): bool {
+    $actor_id = trim($actor_id);
+    if ($actor_id === '') {
+      return FALSE;
+    }
+
+    $candidates = array_filter([
+      (string) ($npc['entity_ref'] ?? ''),
+      (string) ($npc['entity']['entity_instance_id'] ?? ''),
+      (string) ($npc['entity']['instance_id'] ?? ''),
+      (string) ($npc['entity']['id'] ?? ''),
+      (string) ($npc['entity']['state']['metadata']['runtime_entity_id'] ?? ''),
+      (string) ($npc['entity']['state']['content_id'] ?? ''),
+    ]);
+
+    foreach ($candidates as $candidate) {
+      if ($candidate === $actor_id) {
+        return TRUE;
+      }
+      if (trim((string) preg_replace('/^npc[_-]?/', '', $candidate)) === trim((string) preg_replace('/^npc[_-]?/', '', $actor_id))) {
+        return TRUE;
+      }
+    }
+
+    return FALSE;
+  }
+
+  protected function findLatestRoomPlayerMessage(array $room_meta): string {
+    $chat = is_array($room_meta['chat'] ?? NULL) ? $room_meta['chat'] : [];
+    for ($index = count($chat) - 1; $index >= 0; $index--) {
+      $entry = is_array($chat[$index] ?? NULL) ? $chat[$index] : [];
+      if (strtolower((string) ($entry['type'] ?? '')) !== 'player') {
+        continue;
+      }
+      $message = trim((string) ($entry['message'] ?? ''));
+      if ($message !== '') {
+        return $this->stripEncounterTranscriptPrefix($message);
+      }
+    }
+
+    return '';
   }
 
   /**
@@ -11133,6 +11250,12 @@ PROMPT;
     }
 
     return $prefix . $content;
+  }
+
+  protected function stripEncounterTranscriptPrefix(string $content): string {
+    $content = trim($content);
+    $stripped = preg_replace('/^Round\s+[0-9\?]+:\s+Turn\s+[0-9\?]+:\s+Actor\s+.+?:\s+/u', '', $content, 1);
+    return is_string($stripped) ? trim($stripped) : $content;
   }
 
   /**

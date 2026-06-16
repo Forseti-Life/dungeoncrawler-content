@@ -5507,6 +5507,13 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
    */
   protected function autoPlayNpcTurn(int $encounter_id, string $entity_id, array &$game_state, array &$dungeon_data, int $campaign_id): array {
     $events = [];
+    $resolved_room_id = $dungeon_data['active_room_id'] ?? ($game_state['encounter_context']['room_id'] ?? NULL);
+    $pending_dialogue = ($resolved_room_id && $this->roomChatService)
+      ? $this->roomChatService->consumePendingEncounterRoomDialogue($campaign_id, (string) $resolved_room_id, $entity_id, $dungeon_data)
+      : NULL;
+    if (is_array($pending_dialogue)) {
+      return $this->resolvePendingEncounterDialogueTurn($entity_id, $pending_dialogue, $game_state, $dungeon_data, $campaign_id, 'npc_pending_dialogue');
+    }
 
     // REQ 2381: Complex hazard routine — execute per-round routine actions rather than NPC AI.
     $hazard_entity = $this->hazardService->findHazardByInstanceId($entity_id, $dungeon_data);
@@ -5684,6 +5691,13 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
    */
   protected function passRoomActorTurn(string $entity_id, array &$game_state, array &$dungeon_data, int $campaign_id): array {
     $resolved_room_id = $dungeon_data['active_room_id'] ?? ($game_state['encounter_context']['room_id'] ?? NULL);
+    $pending_dialogue = ($resolved_room_id && $this->roomChatService)
+      ? $this->roomChatService->consumePendingEncounterRoomDialogue($campaign_id, (string) $resolved_room_id, $entity_id, $dungeon_data)
+      : NULL;
+    if (is_array($pending_dialogue)) {
+      return $this->resolvePendingEncounterDialogueTurn($entity_id, $pending_dialogue, $game_state, $dungeon_data, $campaign_id, 'room_scene_pending_dialogue');
+    }
+
     $actor_name = $this->resolveEntityName($entity_id, $game_state, $dungeon_data);
     $decision_reason = 'No room-scene action selected.';
     $decision_basis = [
@@ -5716,6 +5730,71 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
         'actions_remaining' => $game_state['turn']['actions_remaining'] ?? NULL,
         'decision_reason' => $decision_reason,
         'decision_basis' => $decision_basis,
+      ],
+    ], $resolved_room_id);
+
+    return ['events' => $events];
+  }
+
+  protected function resolvePendingEncounterDialogueTurn(
+    string $entity_id,
+    array $pending_dialogue,
+    array &$game_state,
+    array &$dungeon_data,
+    int $campaign_id,
+    string $decision_intent
+  ): array {
+    $resolved_room_id = $dungeon_data['active_room_id'] ?? ($game_state['encounter_context']['room_id'] ?? NULL);
+    $actor_name = $this->resolveEntityName($entity_id, $game_state, $dungeon_data);
+    $narration = trim((string) ($pending_dialogue['narrative'] ?? ''));
+    if ($narration === '') {
+      return ['events' => []];
+    }
+
+    $events = [
+      GameEventLogger::buildEvent('npc_talk', 'encounter', $entity_id, [
+        'message' => $narration,
+        'target' => NULL,
+        'decision_reason' => 'Responding to the active room conversation on this actor turn.',
+        'decision_basis' => [
+          'intent' => $decision_intent,
+          'conversation_entity_ref' => (string) ($pending_dialogue['entity_ref'] ?? ''),
+          'player_message' => (string) ($pending_dialogue['player_message'] ?? ''),
+        ],
+      ], $narration),
+    ];
+
+    $remaining_before_end = max(0, ((int) ($game_state['turn']['actions_remaining'] ?? 0)) - 1);
+    $game_state['turn']['actions_remaining'] = 0;
+    $events[] = GameEventLogger::buildEvent('npc_choose_not_to_act', 'encounter', $entity_id, [
+      'round' => $game_state['round'] ?? NULL,
+      'room_id' => $resolved_room_id,
+      'actor_name' => $actor_name,
+      'actions_remaining' => 0,
+      'reason' => 'No further action selected after replying on this turn.',
+      'decision_reason' => 'Responded to the pending room conversation, then ended the turn.',
+      'decision_basis' => [
+        'intent' => $decision_intent,
+        'remaining_actions_before_end' => $remaining_before_end,
+      ],
+    ], sprintf('%s chooses not to take any further actions.', $actor_name));
+    $this->queueNarrationEvent($campaign_id, $dungeon_data, [
+      'type' => 'choose_not_to_act',
+      'speaker' => 'Narrator',
+      'speaker_type' => 'narrator',
+      'speaker_ref' => $entity_id,
+      'content' => sprintf('%s chooses not to take any further actions.', $actor_name),
+      'visibility' => 'public',
+      'mechanical_data' => [
+        'actor_id' => $entity_id,
+        'actor_name' => $actor_name,
+        'room_id' => $resolved_room_id,
+        'actions_remaining' => 0,
+        'decision_reason' => 'Responded to the pending room conversation, then ended the turn.',
+        'decision_basis' => [
+          'intent' => $decision_intent,
+          'remaining_actions_before_end' => $remaining_before_end,
+        ],
       ],
     ], $resolved_room_id);
 
