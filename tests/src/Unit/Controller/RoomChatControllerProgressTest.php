@@ -297,7 +297,7 @@ class RoomChatControllerProgressTest extends UnitTestCase {
       [],
       json_encode([
         'speaker' => 'Felaiamiali',
-        'message' => "I'll wait until after Eldric's response",
+        'message' => "I'm waiting until after Eldric",
         'type' => 'player',
         'character_id' => 241,
         'channel' => 'room',

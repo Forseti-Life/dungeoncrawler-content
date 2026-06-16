@@ -145,8 +145,8 @@ class RoomChatController extends ControllerBase {
     }
 
     $normalized = $this->normalizeTurnControlText($trimmed);
-    $matches_delay = preg_match('/^(?:delay|wait|hold(?:\s+my)?\s+turn)\b/u', $normalized) === 1
-      || preg_match('/^(?:i(?:ll| will)\s+(?:wait|delay)\b)/u', $normalized) === 1
+    $matches_delay = preg_match('/^(?:delay|wait|waiting|hold(?:\s+my)?\s+turn)\b/u', $normalized) === 1
+      || preg_match('/^(?:i(?:ll| will|m| am)\s+(?:wait|waiting|delay|delaying)\b)/u', $normalized) === 1
       || preg_match('/^(?:i(?:ll| will)\s+go\s+after)\b/u', $normalized) === 1;
     if (!$matches_delay) {
       return NULL;
