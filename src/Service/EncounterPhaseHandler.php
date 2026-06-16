@@ -3904,6 +3904,10 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
    * {@inheritdoc}
    */
   public function getAvailableActions(array $game_state, array $dungeon_data, ?string $actor_id = NULL): array {
+    // TODO(actor-action-availability): Replace this curated subset with a
+    // canonical actor action-availability resolver that includes branching
+    // families like spells, feats, consumables, item activations, hazards, and
+    // actor-specific variants/options derived from authoritative state.
     $actions = ['transition'];
     if ($this->isRoomSceneMode($game_state)) {
       $turn = $game_state['turn'] ?? [];
@@ -3965,6 +3969,9 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
    * Build the canonical encounter action contract for client consumers.
    */
   public function getClientActionContract(array $game_state, array $dungeon_data, ?string $actor_id = NULL): array {
+    // TODO(actor-action-availability): Move this contract onto a shared
+    // subsystem so prompts, UI, preview tooling, and execution validation all
+    // consume the same actor-scoped envelope and resolved option payloads.
     $available_actions = $this->getAvailableActions($game_state, $dungeon_data, $actor_id);
     $actions = [];
 

@@ -296,6 +296,9 @@ class EncounterAiIntegrationService {
    *   Canonical allowed action IDs.
    */
   protected function buildAllowedActionsForCurrentActor(array $current_actor): array {
+    // TODO(actor-action-availability): Delete this duplicate narrow builder once
+    // preview/integration paths consume EncounterPhaseHandler's canonical actor
+    // action-availability subsystem directly.
     $actions = [];
     $actions_remaining = max(0, (int) ($current_actor['actions_remaining'] ?? 3));
     $reaction_available = !empty($current_actor['reaction_available']);

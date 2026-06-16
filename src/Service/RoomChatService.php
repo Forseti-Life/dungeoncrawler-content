@@ -2875,6 +2875,9 @@ class RoomChatService {
     }
 
     // Build the prompt with full NPC context.
+    // TODO(actor-action-availability): Replace this descriptive tool/action text
+    // with the same canonical actor action-availability envelope used by
+    // encounter AI so freeform actor prompts get authoritative legal actions.
     $prompt = '';
     if ($session_context !== '') {
       $prompt .= $session_context . "\n\n---\n";

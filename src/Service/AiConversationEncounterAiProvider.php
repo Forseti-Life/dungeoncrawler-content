@@ -198,6 +198,9 @@ class AiConversationEncounterAiProvider implements EncounterAiProviderInterface 
     $actions_available_to_me_this_turn = is_array($context['actions_available_to_me_this_turn'] ?? NULL)
       ? $context['actions_available_to_me_this_turn']
       : [];
+    // TODO(actor-action-availability): Expand this prompt contract from
+    // top-level action IDs to resolved concrete options for action families
+    // like spells, feats, consumables, and item activations.
     $action_contract = is_array($actions_available_to_me_this_turn['action_contract'] ?? NULL)
       ? $actions_available_to_me_this_turn['action_contract']
       : (is_array($context['action_contract'] ?? NULL) ? $context['action_contract'] : []);
