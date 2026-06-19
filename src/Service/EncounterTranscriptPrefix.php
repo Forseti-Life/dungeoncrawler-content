@@ -7,7 +7,7 @@ namespace Drupal\dungeoncrawler_content\Service;
  */
 final class EncounterTranscriptPrefix {
 
-  public const PREFIX_REGEX = '/^Round\s+(?:\d+|\?)\:\s+Turn\s+(?:\d+|\?)\:\s+(?:Actor\s+)?[^\:]+\:\s+/u';
+  public const PREFIX_REGEX = '/^Round\s+(?:\d+|\?)\:\s+(?:Turn\s+(?:\d+|\?)\:\s+)?(?:Actor\s+)?[^\:]+\:\s+/u';
 
   /**
    * Return the 0-based round number for transcript display.
@@ -29,17 +29,28 @@ final class EncounterTranscriptPrefix {
     return ((int) $turn_index_raw) + 1;
   }
 
-  public static function formatPrefix(int|string $round_display, int|string $turn_display, string $actor_name): string {
+  public static function formatPrefix(
+    int|string $round_display,
+    int|string|null $turn_display,
+    string $actor_name,
+    int|string|null $actions_remaining = NULL,
+    int|string|null $actions_total = NULL
+  ): string {
     $actor_name = trim($actor_name);
     if ($actor_name === '') {
       $actor_name = 'Unknown';
     }
 
-    if ($actor_name === 'Game Master') {
-      return sprintf('Round %s: Turn %s: Game Master: ', (string) $round_display, (string) $turn_display);
+    $turn_segment = '';
+    if ($turn_display !== NULL && $turn_display !== '') {
+      $turn_segment = sprintf('Turn %s: ', (string) $turn_display);
     }
 
-    return sprintf('Round %s: Turn %s: Actor %s: ', (string) $round_display, (string) $turn_display, $actor_name);
+    if ($actor_name === 'Game Master') {
+      return sprintf('Round %s: %sGame Master: ', (string) $round_display, $turn_segment);
+    }
+
+    return sprintf('Round %s: %sActor %s: ', (string) $round_display, $turn_segment, $actor_name);
   }
 
   public static function isPrefixed(string $content): bool {

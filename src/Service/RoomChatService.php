@@ -11368,7 +11368,7 @@ PROMPT;
 
   protected function stripEncounterTranscriptPrefix(string $content): string {
     $content = trim($content);
-    $stripped = preg_replace('/^Round\s+[0-9\?]+:\s+Turn\s+[0-9\?]+:\s+(?:Actor\s+)?[^\:]+\:\s+/u', '', $content, 1);
+    $stripped = preg_replace('/^Round\s+[0-9\?]+:\s+(?:Turn\s+[0-9\?]+:\s+)?(?:Actor\s+)?[^\:]+\:\s+/u', '', $content, 1);
     return is_string($stripped) ? trim($stripped) : $content;
   }
 

@@ -5101,9 +5101,8 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
     $content = $this->prefixEncounterChatLine(
       $this->captureEncounterTurnContext($game_state, $dungeon_data, NULL, [
         'actor_name' => 'Narrator',
-        // Narrator round banner is canonical turn slot 0; actor turns start at 1.
-        'turn_index_raw' => -1,
-        'turn_index_human' => 0,
+        'turn_index_raw' => NULL,
+        'turn_index_human' => NULL,
       ]),
       $content
     );
@@ -8960,6 +8959,13 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
     $turn_index_human = $turn_index_raw !== NULL ? ($turn_index_raw + 1) : '?';
 
     $effective_actor_id = is_string($actor_id) && trim($actor_id) !== '' ? trim($actor_id) : NULL;
+    if ($effective_actor_id !== NULL && is_array($game_state['initiative_order'] ?? NULL)) {
+      $initiative_index = $this->findInitiativeActorIndex($game_state['initiative_order'], $effective_actor_id);
+      if ($initiative_index !== NULL) {
+        $turn_index_raw = $initiative_index;
+        $turn_index_human = $initiative_index + 1;
+      }
+    }
     $actor_name = $effective_actor_id !== NULL
       ? $this->resolveEntityName($effective_actor_id, $game_state, $dungeon_data)
       : 'Unknown';
@@ -9001,10 +9007,12 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
   }
 
   protected function buildEncounterChatPrefix(array $turn_ctx): string {
-    $turn = $turn_ctx['turn_index_human'] ?? 1;
+    $turn = array_key_exists('turn_index_human', $turn_ctx) ? $turn_ctx['turn_index_human'] : 1;
     $round = $turn_ctx['round'] ?? 1;
 
-    $turn_display = is_numeric($turn) ? (int) $turn : '?';
+    $turn_display = $turn === NULL || $turn === ''
+      ? NULL
+      : (is_numeric($turn) ? (int) $turn : '?');
     $round_display = \Drupal\dungeoncrawler_content\Service\EncounterTranscriptPrefix::displayRound($round);
 
     $actor_name = $turn_ctx['actor_name'] ?? 'Unknown';
@@ -9076,6 +9084,8 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
       $overrides = [];
       if (($event['type'] ?? '') === 'round_start') {
         $overrides['actor_name'] = 'Narrator';
+        $overrides['turn_index_raw'] = NULL;
+        $overrides['turn_index_human'] = NULL;
       }
 
       $turn_ctx = $this->captureEncounterTurnContext($game_state, $dungeon_data, $prefix_actor_id, $overrides);

@@ -829,11 +829,11 @@ class EncounterPhaseHandlerTest extends UnitTestCase {
   }
 
   /**
-   * Round-start narration is explicitly emitted as narrator turn 0.
+   * Round-start narration is emitted without consuming a narrator turn slot.
    *
    * @covers ::buildRoundStartEvents
    */
-  public function testBuildRoundStartEventsUsesNarratorTurnZeroPrefix(): void {
+  public function testBuildRoundStartEventsDoesNotUseNarratorTurnSlot(): void {
     $handler = $this->buildHandler();
     $game_state = [
       'round' => 1,
@@ -850,7 +850,38 @@ class EncounterPhaseHandlerTest extends UnitTestCase {
 
     $this->assertCount(1, $events);
     $this->assertSame('round_start', $events[0]['type'] ?? NULL);
-    $this->assertStringContainsString('Turn 0: Actor Narrator:', (string) ($events[0]['narration'] ?? ''));
+    $this->assertStringContainsString('Round 0: Actor Narrator:', (string) ($events[0]['narration'] ?? ''));
+    $this->assertStringNotContainsString('Turn 0:', (string) ($events[0]['narration'] ?? ''));
+  }
+
+  /**
+   * Narrator lines about a specific actor resolve that actor's initiative slot.
+   */
+  public function testCaptureEncounterTurnContextUsesReferencedActorInitiativeSlot(): void {
+    $handler = $this->buildHandler();
+    $context = $this->invokeCaptureEncounterTurnContext($handler, [
+      'round' => 1,
+      'turn' => [
+        'entity' => 'pc-2',
+        'index' => 2,
+        'actions_remaining' => 3,
+      ],
+      'initiative_order' => [
+        ['entity_id' => 'pc-1', 'name' => 'Marta the Scholar'],
+        ['entity_id' => 'npc-1', 'name' => 'Eldric'],
+        ['entity_id' => 'pc-2', 'name' => 'Burasco'],
+      ],
+    ], [
+      'entities' => [
+        ['entity_instance_id' => 'pc-1', 'state' => ['metadata' => ['display_name' => 'Marta the Scholar']]],
+        ['entity_instance_id' => 'npc-1', 'state' => ['metadata' => ['display_name' => 'Eldric']]],
+        ['entity_instance_id' => 'pc-2', 'state' => ['metadata' => ['display_name' => 'Burasco']]],
+      ],
+    ], 'pc-1');
+
+    $this->assertSame(0, $context['turn_index_raw']);
+    $this->assertSame(1, $context['turn_index_human']);
+    $this->assertSame('Marta the Scholar', $context['actor_name']);
   }
 
   /**
@@ -2252,6 +2283,22 @@ class EncounterPhaseHandlerTest extends UnitTestCase {
     $method = new \ReflectionMethod(EncounterPhaseHandler::class, 'buildRoundStartEvents');
     $method->setAccessible(TRUE);
     return $method->invoke($handler, $round, $game_state, $dungeon_data, $campaign_id, $room_id);
+  }
+
+  /**
+   * Invoke protected turn-context capture helper.
+   */
+  private function invokeCaptureEncounterTurnContext(
+    EncounterPhaseHandler $handler,
+    array $game_state,
+    array $dungeon_data,
+    ?string $actor_id,
+    array $overrides = []
+  ): array {
+    $method = new \ReflectionMethod(EncounterPhaseHandler::class, 'captureEncounterTurnContext');
+    $method->setAccessible(TRUE);
+    $context = $method->invoke($handler, $game_state, $dungeon_data, $actor_id, $overrides);
+    return is_array($context) ? $context : [];
   }
 
   /**
