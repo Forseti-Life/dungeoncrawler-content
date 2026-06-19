@@ -5769,6 +5769,8 @@ import { SpriteService } from './SpriteService.js';
         }
         hexmap.gameCoordinator?.applyAuthoritativeUpdate?.(data);
         hexmap.gameCoordinator?.getActiveHandler?.()?._syncTurnManagement?.(data);
+        this.invalidateChatCaches({ sessionViews: ['system-log'] });
+        this.prefetchSessionViews(['system-log']);
         const searchDiscoveries = Array.isArray(data?.result?.discoveries)
           ? data.result.discoveries
           : (Array.isArray(data?.discoveries) ? data.discoveries : []);

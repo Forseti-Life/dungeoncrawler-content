@@ -29,18 +29,22 @@ console.log('\n=== Encounter Search refresh contract ===');
 
 assert(
   encounterSource.includes('const searchDiscoveries = Array.isArray(data?.result?.discoveries)')
+    && encounterSource.includes("this.shell?.panels?.chat?.invalidateChatCaches?.({ sessionViews: ['system-log'] });")
+    && encounterSource.includes("this.shell?.panels?.chat?.prefetchSessionViews?.(['system-log']);")
     && encounterSource.includes('if (searchDiscoveries.length > 0) {')
     && encounterSource.includes('await hexmap.loadCharacterFromApi?.(context.characterId);')
     && encounterSource.includes('await hexmap.refreshQuestJournalFromApi?.();'),
-  'v2 encounter Search only refreshes character/journal when discoveries are returned'
+  'v2 encounter Search invalidates system-log and only refreshes character/journal when discoveries are returned'
 );
 
 assert(
   legacySource.includes('const searchDiscoveries = Array.isArray(data?.result?.discoveries)')
+    && legacySource.includes("this.invalidateChatCaches({ sessionViews: ['system-log'] });")
+    && legacySource.includes("this.prefetchSessionViews(['system-log']);")
     && legacySource.includes('if (searchDiscoveries.length > 0) {')
     && legacySource.includes('await hexmap.loadCharacterFromApi?.(context.characterId);')
     && legacySource.includes('await hexmap.refreshQuestJournalFromApi?.();'),
-  'legacy encounter Search only refreshes character/journal when discoveries are returned'
+  'legacy encounter Search invalidates system-log and only refreshes character/journal when discoveries are returned'
 );
 
 console.log(`\nPassed: ${passed}`);

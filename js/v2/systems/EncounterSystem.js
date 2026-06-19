@@ -232,6 +232,8 @@ export class EncounterSystem {
           this._appendChatLine('Game Master', data.narration.trim(), 'gm');
         }
       }
+      this.shell?.panels?.chat?.invalidateChatCaches?.({ sessionViews: ['system-log'] });
+      this.shell?.panels?.chat?.prefetchSessionViews?.(['system-log']);
       const searchDiscoveries = Array.isArray(data?.result?.discoveries)
         ? data.result.discoveries
         : (Array.isArray(data?.discoveries) ? data.discoveries : []);
