@@ -407,7 +407,29 @@ export class ChatPanel {
     this.bus.emit('room:view-reload-requested', { roomId, force: true, preserveExisting: true });
 
     try {
-      this.roomChatBusy = true;
+      if (!queueOnly) {
+        this.roomChatBusy = true;
+      }
+      if (queueOnly) {
+        this.roomChatDeferredMessages.push({
+          requestId: clientRequestId,
+          speaker: characterName,
+          message: trimmedMessage,
+          roomId,
+          campaignId,
+          characterId,
+          channel: activeChannelKey,
+          pendingRequest,
+          target: chatTarget,
+        });
+        this.updateQueuedChatStatus(this.roomChatDeferredMessages.length);
+        return {
+          success: true,
+          data: {
+            queued: true,
+          },
+        };
+      }
       return await this.postChatMessage(campaignId, roomId, characterName, trimmedMessage, characterId, {
         clientRequestId,
         pendingRequest,

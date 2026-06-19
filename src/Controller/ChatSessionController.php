@@ -201,12 +201,12 @@ class ChatSessionController extends ControllerBase {
       $speaker_type = $payload['speaker_type'] ?? 'player';
       $speaker_ref = (string) ($payload['speaker_ref'] ?? '');
 
-      // Prevent bypassing the encounter/turn framework via direct session writes.
-      if ($speaker_type === 'player' && ($session['type'] ?? '') === 'room') {
+      $session_type = strtolower(trim((string) ($session['session_type'] ?? '')));
+      if (!in_array($session_type, ['party', 'gm_private'], TRUE)) {
         return new JsonResponse([
           'success' => FALSE,
-          'error' => 'Room chat must be sent as the Talk encounter action.',
-        ], 409);
+          'error' => 'Direct writes are not allowed for this session type.',
+        ], 403);
       }
 
       $msg_id = $this->sessionManager->postMessage(
@@ -246,7 +246,7 @@ class ChatSessionController extends ControllerBase {
    *     ?dungeon_id=&room_id=&limit=50&before_id=0
    */
   public function getCharacterNarrative(int $campaign_id, int $character_id, Request $request): JsonResponse {
-    if (!$this->chatService->hasCampaignAccess($campaign_id)) {
+    if (!$this->chatService->hasCampaignAccess($campaign_id) || !$this->chatService->hasCharacterAccess($campaign_id, $character_id)) {
       return new JsonResponse(['success' => FALSE, 'error' => 'Access denied'], 403);
     }
 
@@ -456,7 +456,7 @@ class ChatSessionController extends ControllerBase {
    * GET /api/campaign/{campaign_id}/gm-private/{character_id}?limit=50
    */
   public function getGmPrivate(int $campaign_id, int $character_id, Request $request): JsonResponse {
-    if (!$this->chatService->hasCampaignAccess($campaign_id)) {
+    if (!$this->chatService->hasCampaignAccess($campaign_id) || !$this->chatService->hasCharacterAccess($campaign_id, $character_id)) {
       return new JsonResponse(['success' => FALSE, 'error' => 'Access denied'], 403);
     }
 
@@ -496,7 +496,7 @@ class ChatSessionController extends ControllerBase {
    * Payload: { "speaker": "Torgar", "message": "I secretly pickpocket the merchant." }
    */
   public function postGmPrivate(int $campaign_id, int $character_id, Request $request): JsonResponse {
-    if (!$this->chatService->hasCampaignAccess($campaign_id)) {
+    if (!$this->chatService->hasCampaignAccess($campaign_id) || !$this->chatService->hasCharacterAccess($campaign_id, $character_id)) {
       return new JsonResponse(['success' => FALSE, 'error' => 'Access denied'], 403);
     }
 

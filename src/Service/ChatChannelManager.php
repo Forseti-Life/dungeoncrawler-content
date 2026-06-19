@@ -505,6 +505,9 @@ class ChatChannelManager {
    */
   public function filterMessagesByChannel(array $messages, string $channel_key): array {
     return array_values(array_filter($messages, function ($msg) use ($channel_key) {
+      if (!is_array($msg)) {
+        return FALSE;
+      }
       $msg_channel = $msg['channel'] ?? 'room';
       return $msg_channel === $channel_key;
     }));
