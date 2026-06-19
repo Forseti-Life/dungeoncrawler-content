@@ -2326,6 +2326,9 @@ class RoomChatService {
       $matched_record = NULL;
       foreach ($records as $candidate) {
         $candidate_data = json_decode($candidate['dungeon_data'] ?? '{}', TRUE);
+        if (!is_array($candidate_data)) {
+          continue;
+        }
         $rooms = is_array($candidate_data['rooms'] ?? NULL) ? $candidate_data['rooms'] : [];
         if ($this->findRoomIndex($rooms, $room_id) !== NULL) {
           $matched_record = $candidate;
