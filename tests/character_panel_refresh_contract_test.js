@@ -23,6 +23,7 @@ function assert(condition, message) {
 }
 
 const source = fs.readFileSync(path.resolve(__dirname, '../js/v2/panels/CharacterPanel.js'), 'utf8');
+const shellSource = fs.readFileSync(path.resolve(__dirname, '../js/v2/GameShell.js'), 'utf8');
 
 console.log('\n=== CharacterPanel refresh contract ===');
 
@@ -37,6 +38,11 @@ assert(
 assert(
   !source.includes("this.bus.emit('character:updated');"),
   'CharacterPanel does not recursively emit character:updated from showLaunchCharacter'
+);
+
+assert(
+  shellSource.includes("this.bus.emit('character:updated', { launchCharacter: this.launchCharacter });"),
+  'GameShell emits the freshly hydrated launchCharacter payload with character:updated'
 );
 
 console.log(`\nPassed: ${passed}`);

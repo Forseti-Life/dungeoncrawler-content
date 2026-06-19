@@ -2310,7 +2310,7 @@ export class GameShell {
       };
       this.characterData = this.launchCharacter;
       this.syncLaunchCharacterRuntimeFromEntity(this._getStateValue('selectedEntity'));
-      this.bus.emit('character:updated');
+      this.bus.emit('character:updated', { launchCharacter: this.launchCharacter });
 
       if (resolvedCharacterId === this.resolveLaunchCharacterStateId()) {
         await this.refreshCharacterInventoryFromApi({
