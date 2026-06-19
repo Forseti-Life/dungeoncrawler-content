@@ -618,7 +618,16 @@ class RoomChatController extends ControllerBase {
       return [];
     }
 
-    $state = $this->getCoordinator()->getFullState($campaign_id);
+    try {
+      $state = $this->getCoordinator()->getFullState($campaign_id);
+    }
+    catch (\Throwable $e) {
+      $this->logger->warning('Encounter progress snapshot fallback: campaign={campaign_id} message={message}', [
+        'campaign_id' => $campaign_id,
+        'message' => $e->getMessage(),
+      ]);
+      return [];
+    }
     if (!is_array($state)) {
       return [];
     }
@@ -1036,7 +1045,16 @@ class RoomChatController extends ControllerBase {
     }
 
     if ($round_raw === NULL || $turn_index_raw === NULL) {
-      $state = $this->getCoordinator()->getFullState($campaign_id);
+      try {
+        $state = $this->getCoordinator()->getFullState($campaign_id);
+      }
+      catch (\Throwable $e) {
+        $this->logger->warning('Encounter progress prefix fallback: campaign={campaign_id} message={message}', [
+          'campaign_id' => $campaign_id,
+          'message' => $e->getMessage(),
+        ]);
+        $state = [];
+      }
       if ($round_raw === NULL) {
         $round_raw = is_array($state) ? ($state['round'] ?? ($state['game_state']['round'] ?? 1)) : 1;
       }
