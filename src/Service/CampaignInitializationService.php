@@ -657,10 +657,6 @@ class CampaignInitializationService {
         'giver_npc_id' => $npc_ids['tavern_keeper'] ?? NULL,
         'initial_status' => 'offered',
       ],
-      'collect_spellbooks' => [
-        'giver_npc_id' => $npc_ids['scholar_npc'] ?? NULL,
-        'initial_status' => 'lead',
-      ],
     ];
 
     $this->ensureQuestTemplatesLoaded(array_keys($starter_templates));

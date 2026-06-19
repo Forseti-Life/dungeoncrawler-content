@@ -7796,6 +7796,8 @@ PROMPT;
       return NULL;
     }
 
+    $this->ensureQuestgiverRoomQuestsMaterialized($campaign_id, $giver_npc_id, $room_id, $dungeon_data);
+
     $location_candidates = array_values(array_unique(array_filter([
       $this->resolveRoomSlugForQuery($campaign_id, $room_id, $dungeon_data),
       $room_id,
@@ -7896,6 +7898,103 @@ PROMPT;
     }
 
     return '"That sounds like ' . $giver_name . '\'s work. Talk to ' . $giver_name . ' directly."';
+  }
+
+  /**
+   * Materialize canonical quest rows for quests authored directly on a room questgiver.
+   */
+  protected function ensureQuestgiverRoomQuestsMaterialized(int $campaign_id, int $giver_npc_id, string $room_id, array $dungeon_data = []): void {
+    if ($campaign_id <= 0 || $giver_npc_id <= 0 || $room_id === '') {
+      return;
+    }
+
+    $giver_row = $this->database->select('dc_campaign_characters', 'c')
+      ->fields('c', ['id', 'instance_id'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('id', $giver_npc_id)
+      ->condition('type', 'npc')
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    if (!is_array($giver_row)) {
+      return;
+    }
+
+    $giver_content_id = preg_replace('/^npc_/', '', trim((string) ($giver_row['instance_id'] ?? '')));
+    if (!is_string($giver_content_id) || $giver_content_id === '') {
+      return;
+    }
+
+    $canonical_room_id = $this->resolveRoomSlugForQuery($campaign_id, $room_id, $dungeon_data) ?? $room_id;
+    $room_query = $this->database->select('dungeoncrawler_content_rooms', 'r')
+      ->fields('r', ['environment_tags', 'contents_data']);
+    $room_or = $room_query->orConditionGroup()
+      ->condition('room_id', $canonical_room_id)
+      ->condition('source_room_id', $canonical_room_id);
+    $room_row = $room_query
+      ->condition($room_or)
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    if (!is_array($room_row)) {
+      return;
+    }
+
+    $contents = json_decode((string) ($room_row['contents_data'] ?? '{}'), TRUE);
+    if (!is_array($contents)) {
+      return;
+    }
+
+    $template_ids = [];
+    foreach ((array) ($contents['npcs'] ?? []) as $npc) {
+      if (!is_array($npc) || trim((string) ($npc['content_id'] ?? '')) !== $giver_content_id) {
+        continue;
+      }
+      foreach ((array) ($npc['quests'] ?? []) as $quest) {
+        $template_id = trim((string) ($quest['quest_id'] ?? ''));
+        if ($template_id !== '') {
+          $template_ids[] = $template_id;
+        }
+      }
+      break;
+    }
+
+    $template_ids = array_values(array_unique($template_ids));
+    if ($template_ids === [] || !\Drupal::hasService('dungeoncrawler_content.quest_generator')) {
+      return;
+    }
+
+    /** @var \Drupal\dungeoncrawler_content\Service\QuestGeneratorService $quest_generator */
+    $quest_generator = \Drupal::service('dungeoncrawler_content.quest_generator');
+    $environment_tags = json_decode((string) ($room_row['environment_tags'] ?? '[]'), TRUE);
+    $environment_tags = is_array($environment_tags) ? $environment_tags : [];
+
+    foreach ($template_ids as $template_id) {
+      $exists = $this->database->select('dc_campaign_quests', 'q')
+        ->fields('q', ['quest_id'])
+        ->condition('campaign_id', $campaign_id)
+        ->condition('source_template_id', $template_id)
+        ->range(0, 1)
+        ->execute()
+        ->fetchField();
+      if ($exists) {
+        continue;
+      }
+
+      $quest_data = $quest_generator->generateQuestFromTemplate($template_id, $campaign_id, [
+        'party_level' => 1,
+        'difficulty' => 'moderate',
+        'location' => $canonical_room_id,
+        'location_tags' => $environment_tags,
+        'giver_npc_id' => $giver_npc_id,
+        'initial_status' => 'offered',
+      ]);
+      if ($quest_data !== []) {
+        $this->database->insert('dc_campaign_quests')
+          ->fields($quest_data)
+          ->execute();
+      }
+    }
   }
 
   /**
