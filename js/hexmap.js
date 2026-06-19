@@ -5769,7 +5769,8 @@ import { SpriteService } from './SpriteService.js';
         }
         hexmap.gameCoordinator?.applyAuthoritativeUpdate?.(data);
         hexmap.gameCoordinator?.getActiveHandler?.()?._syncTurnManagement?.(data);
-        hexmap.loadCharacterFromApi?.(context.characterId);
+        await hexmap.loadCharacterFromApi?.(context.characterId);
+        await hexmap.refreshQuestJournalFromApi?.();
         this.refreshActionRail();
       } finally {
         this.endActionRailRequest(button);

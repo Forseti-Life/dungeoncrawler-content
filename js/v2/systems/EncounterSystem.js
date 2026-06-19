@@ -232,7 +232,8 @@ export class EncounterSystem {
           this._appendChatLine('Game Master', data.narration.trim(), 'gm');
         }
       }
-      hexmap.loadCharacterFromApi?.(context.characterId);
+      await hexmap.loadCharacterFromApi?.(context.characterId);
+      await hexmap.refreshQuestJournalFromApi?.();
       this._refreshActionRail();
     } finally {
       this._endActionRailRequest(button);

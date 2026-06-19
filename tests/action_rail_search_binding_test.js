@@ -131,11 +131,13 @@ assert(
     && encounterSystemSource.includes("coordinator.api.sendAction('search', actorRef, {")
     && encounterSystemSource.includes('|| phaseSnapshot?.actionContract?.actor_id')
     && encounterSystemSource.includes('|| phaseSnapshot?.turn?.entity')
+    && encounterSystemSource.includes('await hexmap.loadCharacterFromApi?.(context.characterId);')
+    && encounterSystemSource.includes('await hexmap.refreshQuestJournalFromApi?.();')
     && !encounterSystemSource.includes('await coordinator.api.getState()')
     && !encounterSystemSource.includes('explicit_search: true')
     && !encounterSystemSource.includes('perception_bonus: perceptionBonus')
     && !encounterSystemSource.includes('searches the room.'),
-  'v2 explicit Search sends standardized search params without client state fallback fetches'
+  'v2 explicit Search sends standardized search params and waits for refreshed character and quest journal state'
 );
 assert(
   coordinatorApiSource.includes("return this.sendAction('search', actor, { search_mode: 'explicit' }, { stateVersion });")
