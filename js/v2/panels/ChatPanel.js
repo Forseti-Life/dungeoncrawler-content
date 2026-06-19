@@ -462,12 +462,14 @@ export class ChatPanel {
 
   async postChatMessage(campaignId, roomId, speaker, message, characterId = null, options = {}) {
     const supportsStreaming = typeof ReadableStream !== 'undefined';
-    const shouldStream = supportsStreaming && !options.suppressGm;
     const chatTarget = this.buildChatRenderTarget(options.target || {
       view: 'room',
       channelKey: options.channelKey,
       context: options.context,
     });
+    const roomChannel = (chatTarget.channelKey || 'room') === 'room';
+    const shouldStream = supportsStreaming && !options.suppressGm;
+    const useStreamTransport = shouldStream && !roomChannel;
     const backendRequestId = options.clientRequestId || `chat-${Date.now()}`;
     this.bus.emit('game:backend-request-start', {
       requestId: backendRequestId,
@@ -492,7 +494,7 @@ export class ChatPanel {
             type: 'player',
             character_id: characterId,
             channel: chatTarget.channelKey,
-            stream: shouldStream,
+            stream: useStreamTransport,
             client_request_id: options.clientRequestId || '',
             suppress_gm: Boolean(options.suppressGm),
             continue_gm: Boolean(options.continueGm),
@@ -506,7 +508,7 @@ export class ChatPanel {
       }
 
       const contentType = response.headers.get('content-type') || '';
-      if (contentType.includes('application/x-ndjson') && response.body?.getReader) {
+      if (useStreamTransport && contentType.includes('application/x-ndjson') && response.body?.getReader) {
         return await this.consumeStreamedChatResponse(response, {
           ...options,
           target: chatTarget,
