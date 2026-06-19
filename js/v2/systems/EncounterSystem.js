@@ -232,8 +232,6 @@ export class EncounterSystem {
           this._appendChatLine('Game Master', data.narration.trim(), 'gm');
         }
       }
-      this.shell?.panels?.chat?.invalidateChatCaches?.({ sessionViews: ['system-log'] });
-      this.shell?.panels?.chat?.prefetchSessionViews?.(['system-log']);
       const searchDiscoveries = Array.isArray(data?.result?.discoveries)
         ? data.result.discoveries
         : (Array.isArray(data?.discoveries) ? data.discoveries : []);
@@ -851,7 +849,11 @@ export class EncounterSystem {
     });
 
     try {
-      return await sendWithCurrentStateVersion();
+      const result = await sendWithCurrentStateVersion();
+      if (result?.success) {
+        this._refreshSystemLogView();
+      }
+      return result;
     } catch (error) {
       const fallbackResult = this._toCoordinatorFailureResult(error);
       const status = Number(error?.status || 0);
@@ -866,7 +868,11 @@ export class EncounterSystem {
       this.announceGameState(payload.game_state);
 
       try {
-        return await sendWithCurrentStateVersion();
+        const retryResult = await sendWithCurrentStateVersion();
+        if (retryResult?.success) {
+          this._refreshSystemLogView();
+        }
+        return retryResult;
       } catch (retryError) {
         return this._toCoordinatorFailureResult(retryError);
       }
@@ -1034,6 +1040,11 @@ export class EncounterSystem {
       authority: 'authoritative',
       messageClass: 'authoritative_transcript',
     });
+  }
+
+  _refreshSystemLogView() {
+    this.shell?.panels?.chat?.invalidateChatCaches?.({ sessionViews: ['system-log'] });
+    this.shell?.panels?.chat?.prefetchSessionViews?.(['system-log']);
   }
 
   _resolveEntityName(entity) {

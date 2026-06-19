@@ -25,16 +25,16 @@ function assert(condition, message) {
 const encounterSource = fs.readFileSync(path.resolve(__dirname, '../js/v2/systems/EncounterSystem.js'), 'utf8');
 const legacySource = fs.readFileSync(path.resolve(__dirname, '../js/hexmap.js'), 'utf8');
 
-console.log('\n=== Encounter Search refresh contract ===');
+console.log('\n=== Encounter action system-log contract ===');
 
 assert(
-  encounterSource.includes('const searchDiscoveries = Array.isArray(data?.result?.discoveries)')
+  encounterSource.includes('_refreshSystemLogView() {')
     && encounterSource.includes("this.shell?.panels?.chat?.invalidateChatCaches?.({ sessionViews: ['system-log'] });")
     && encounterSource.includes("this.shell?.panels?.chat?.prefetchSessionViews?.(['system-log']);")
-    && encounterSource.includes('if (searchDiscoveries.length > 0) {')
-    && encounterSource.includes('await hexmap.loadCharacterFromApi?.(context.characterId);')
-    && encounterSource.includes('await hexmap.refreshQuestJournalFromApi?.();'),
-  'v2 encounter Search invalidates system-log and only refreshes character/journal when discoveries are returned'
+    && encounterSource.includes('if (result?.success) {')
+    && encounterSource.includes('this._refreshSystemLogView();')
+    && encounterSource.includes('if (retryResult?.success) {'),
+  'v2 shared coordinator helper refreshes system-log for successful encounter actions'
 );
 
 assert(
@@ -45,6 +45,13 @@ assert(
     && legacySource.includes('await hexmap.loadCharacterFromApi?.(context.characterId);')
     && legacySource.includes('await hexmap.refreshQuestJournalFromApi?.();'),
   'legacy encounter Search invalidates system-log and only refreshes character/journal when discoveries are returned'
+);
+
+assert(
+  legacySource.includes("performCombatAction: async function (payload = {}) {")
+    && legacySource.includes("this.invalidateChatCaches({ sessionViews: ['system-log'] });")
+    && legacySource.includes("this.prefetchSessionViews(['system-log']);"),
+  'legacy shared combat action helper refreshes system-log for successful encounter actions'
 );
 
 console.log(`\nPassed: ${passed}`);

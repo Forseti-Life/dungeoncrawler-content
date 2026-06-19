@@ -13539,6 +13539,9 @@ import { SpriteService } from './SpriteService.js';
           this.applyWorldDelta(serverState.world_delta);
         }
 
+        this.invalidateChatCaches({ sessionViews: ['system-log'] });
+        this.prefetchSessionViews(['system-log']);
+
         return serverState;
       } catch (err) {
         console.error('Combat action via API failed; client will not fall back.', err);
