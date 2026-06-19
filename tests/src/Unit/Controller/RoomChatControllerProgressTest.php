@@ -204,6 +204,12 @@ class RoomChatControllerProgressTest extends UnitTestCase {
         ],
         'available_actions' => ['talk', 'delay', 'end_turn'],
         'action_contract' => ['available_actions' => ['talk', 'delay', 'end_turn']],
+        'gm_subsystem' => [
+          'workflow' => 'authoritative_room_action',
+          'route' => 'room_talk',
+          'deterministic' => FALSE,
+          'intent' => ['type' => 'talk'],
+        ],
       ]);
 
     $controller = $this->createController($chat_service, NULL, $coordinator, $gm_subsystem);
@@ -231,6 +237,8 @@ class RoomChatControllerProgressTest extends UnitTestCase {
     $this->assertSame(2, $payload['data']['game_state']['turn']['actions_remaining']);
     $this->assertSame(['talk', 'delay', 'end_turn'], $payload['data']['available_actions']);
     $this->assertSame(['talk', 'delay', 'end_turn'], $payload['data']['action_contract']['available_actions']);
+    $this->assertSame('room_talk', $payload['data']['gm_subsystem']['route']);
+    $this->assertFalse($payload['data']['gm_subsystem']['deterministic']);
   }
 
   /**

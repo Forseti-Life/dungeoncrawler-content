@@ -44,22 +44,17 @@ class GameMasterSubsystemService {
       throw new \InvalidArgumentException('Cannot post room chat: requested room does not match active room.', 409);
     }
 
-    $intent = $this->buildDeterministicTurnControlIntent($campaign_id, $actor_id, $character_id, $message);
-    if ($intent === NULL) {
-      $intent = [
-        'type' => 'talk',
-        'actor' => $actor_id,
-        'target' => NULL,
-        'params' => [
-          'message' => $message,
-          'character_id' => $character_id,
-          'defer_npc_interjections' => $defer_npc_interjections,
-          'suppress_gm' => $suppress_gm,
-        ],
-      ];
-    }
+    $route = $this->buildPlayerRoomChatRouteEnvelope(
+      $campaign_id,
+      $requested_room_id,
+      $actor_id,
+      $character_id,
+      $message,
+      $defer_npc_interjections,
+      $suppress_gm
+    );
 
-    $action_response = $this->coordinator->processAction($campaign_id, $intent);
+    $action_response = $this->coordinator->processAction($campaign_id, $route['intent']);
     if (empty($action_response['success'])) {
       $error = trim((string) (
         $action_response['error']
@@ -79,8 +74,83 @@ class GameMasterSubsystemService {
       $talk_result['message'] = $talk_result['chat_message'];
       unset($talk_result['chat_message']);
     }
+    $talk_result['gm_subsystem'] = $this->buildResponseEnvelope($route, $active_room_id ?: $requested_room_id);
 
     return $talk_result;
+  }
+
+  /**
+   * Build the normalized subsystem route envelope for player room chat.
+   */
+  protected function buildPlayerRoomChatRouteEnvelope(
+    int $campaign_id,
+    string $requested_room_id,
+    string $actor_id,
+    ?int $character_id,
+    string $message,
+    bool $defer_npc_interjections,
+    bool $suppress_gm
+  ): array {
+    $deterministic_intent = $this->buildDeterministicTurnControlIntent($campaign_id, $actor_id, $character_id, $message);
+    if ($deterministic_intent !== NULL) {
+      return [
+        'workflow' => 'authoritative_room_action',
+        'route' => 'deterministic_turn_control',
+        'deterministic' => TRUE,
+        'requested_room_id' => $requested_room_id,
+        'actor_id' => $actor_id,
+        'character_id' => $character_id,
+        'intent' => $deterministic_intent,
+      ];
+    }
+
+    return [
+      'workflow' => 'authoritative_room_action',
+      'route' => 'room_talk',
+      'deterministic' => FALSE,
+      'requested_room_id' => $requested_room_id,
+      'actor_id' => $actor_id,
+      'character_id' => $character_id,
+      'intent' => [
+        'type' => 'talk',
+        'actor' => $actor_id,
+        'target' => NULL,
+        'params' => [
+          'message' => $message,
+          'character_id' => $character_id,
+          'defer_npc_interjections' => $defer_npc_interjections,
+          'suppress_gm' => $suppress_gm,
+        ],
+      ],
+    ];
+  }
+
+  /**
+   * Build the response metadata exposed by the explicit GM subsystem boundary.
+   */
+  protected function buildResponseEnvelope(array $route, string $resolved_room_id): array {
+    return [
+      'workflow' => (string) ($route['workflow'] ?? 'authoritative_room_action'),
+      'route' => (string) ($route['route'] ?? 'room_talk'),
+      'deterministic' => !empty($route['deterministic']),
+      'resolved_room_id' => $resolved_room_id,
+      'requested_room_id' => (string) ($route['requested_room_id'] ?? $resolved_room_id),
+      'actor_id' => (string) ($route['actor_id'] ?? ''),
+      'character_id' => isset($route['character_id']) ? (int) $route['character_id'] : NULL,
+      'intent' => $this->normalizeIntentEnvelope(is_array($route['intent'] ?? NULL) ? $route['intent'] : []),
+    ];
+  }
+
+  /**
+   * Normalize an authoritative action intent into a stable envelope shape.
+   */
+  protected function normalizeIntentEnvelope(array $intent): array {
+    return [
+      'type' => (string) ($intent['type'] ?? ''),
+      'actor' => (string) ($intent['actor'] ?? ''),
+      'target' => array_key_exists('target', $intent) ? $intent['target'] : NULL,
+      'params' => is_array($intent['params'] ?? NULL) ? $intent['params'] : [],
+    ];
   }
 
   /**

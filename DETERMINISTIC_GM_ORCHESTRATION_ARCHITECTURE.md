@@ -1,8 +1,8 @@
 # Deterministic GM Orchestration Architecture
 
 **Module**: dungeoncrawler_content  
-**Last updated**: 2026-05-08  
-**Status**: Proposed architecture with Phase 1 scaffold in place; deterministic routing migration not yet implemented
+**Last updated**: 2026-06-19  
+**Status**: Proposed architecture with explicit GM subsystem facade in place; normalized player room-chat routing envelope is now implemented, while broader deterministic broker migration remains in progress
 
 ---
 
@@ -16,6 +16,8 @@ Current implementation state:
 
 - architecture documentation is now in-repo,
 - a first `GmOrchestrationBrokerService` scaffold exists,
+- `GameMasterSubsystemService` now owns the explicit player room-chat subsystem boundary between transport and authoritative action routing,
+- the subsystem returns a normalized route/workflow/intent envelope for player room chat while keeping the controller response contract stable,
 - `RoomChatService` now delegates authoritative quest/combat canonical action
   execution through that broker,
 - deterministic route extraction, argument resolution, and receipt-driven narration
@@ -123,11 +125,14 @@ layer that chooses and coordinates them before any GM prompt fallback.
 
 ---
 
-## Current Phase 1 State
+## Current Phase 1/2 State
 
 Today, the implemented scaffold is narrower than the full target design:
 
-- `RoomChatService` remains the stable room-chat entrypoint.
+- `RoomChatController` remains a transport-only entrypoint for player room chat.
+- `GameMasterSubsystemService` is now the explicit server-side boundary for player room-chat routing and canonical room action submission.
+- The subsystem currently classifies deterministic turn-control phrasing vs normal room-talk and emits a normalized routing envelope for downstream consumers.
+- `RoomChatService` remains the stable room-chat entrypoint for broader GM narration/orchestration.
 - `GmOrchestrationBrokerService` exists and owns authoritative quest/combat
   canonical action execution.
 - `CanonicalActionRegistryService` now exposes broker-oriented tool metadata.

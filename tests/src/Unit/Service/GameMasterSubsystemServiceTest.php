@@ -54,6 +54,10 @@ class GameMasterSubsystemServiceTest extends UnitTestCase {
 
     $this->assertSame('Any work for me?', $result['message']['message']);
     $this->assertSame('Tikask', $result['message']['speaker']);
+    $this->assertFalse($result['gm_subsystem']['deterministic']);
+    $this->assertSame('room_talk', $result['gm_subsystem']['route']);
+    $this->assertSame('talk', $result['gm_subsystem']['intent']['type']);
+    $this->assertSame('pc-241-324', $result['gm_subsystem']['intent']['actor']);
   }
 
   /**
@@ -105,6 +109,10 @@ class GameMasterSubsystemServiceTest extends UnitTestCase {
 
     $this->assertSame(2, $result['game_state']['turn']['actions_remaining']);
     $this->assertSame('pc-241-324', $result['game_state']['turn']['entity']);
+    $this->assertTrue($result['gm_subsystem']['deterministic']);
+    $this->assertSame('deterministic_turn_control', $result['gm_subsystem']['route']);
+    $this->assertSame('delay', $result['gm_subsystem']['intent']['type']);
+    $this->assertSame('npc-eldric', $result['gm_subsystem']['intent']['params']['delay_until_actor_id']);
   }
 
 }
