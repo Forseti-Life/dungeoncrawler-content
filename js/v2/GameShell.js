@@ -1964,7 +1964,6 @@ export class GameShell {
     return Number(
       this.launchCharacter?.id
       || this.launchCharacter?.characterId
-      || this.launchCharacter?.character_id
       || this.launchContext?.character_id
       || 0,
     ) || 0;
