@@ -34,6 +34,11 @@ assert(
   'CharacterPanel re-renders launch character data on character:updated events'
 );
 
+assert(
+  !source.includes("this.bus.emit('character:updated');"),
+  'CharacterPanel does not recursively emit character:updated from showLaunchCharacter'
+);
+
 console.log(`\nPassed: ${passed}`);
 console.log(`Failed: ${failed}`);
 

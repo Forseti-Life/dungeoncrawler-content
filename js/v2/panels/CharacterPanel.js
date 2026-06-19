@@ -888,7 +888,6 @@ export class CharacterPanel {
       }
     }
 
-    this.bus.emit('character:updated');
     console.log('[CharacterPanel] showLaunchCharacter:done', {
       name: this._el.characterName?.textContent,
       hp: this._el.characterHp?.textContent,

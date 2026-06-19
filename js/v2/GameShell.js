@@ -36,7 +36,7 @@ import { ActionRailPanel } from './panels/ActionRailPanel.js?v=20260616-v2-gm-no
 import { ChatPanel } from './panels/ChatPanel.js?v=20260616-v2-gm-nonturn-prefix-2';
 import { QuestPanel } from './panels/QuestPanel.js?v=20260612-v2-quest-storyline-grouping-1';
 import { InventoryPanel } from './panels/InventoryPanel.js';
-import { CharacterPanel } from './panels/CharacterPanel.js?v=20260619-v2-character-reward-refresh-1';
+import { CharacterPanel } from './panels/CharacterPanel.js?v=20260619-v2-character-loop-fix-1';
 import { RoomViewPanel } from './panels/RoomViewPanel.js';
 import { PartyRailPanel } from './panels/PartyRailPanel.js';
 import { StatusPanel } from './panels/StatusPanel.js';

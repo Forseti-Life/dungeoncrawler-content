@@ -15,7 +15,7 @@
  * During Phase 10 parallel testing it runs alongside the old hexmap library.
  */
 
-import { GameShell } from './v2/GameShell.js?v=20260619-v2-character-reward-refresh-1';
+import { GameShell } from './v2/GameShell.js?v=20260619-v2-character-loop-fix-1';
 
 (function (Drupal, drupalSettings, once) {
   'use strict';
