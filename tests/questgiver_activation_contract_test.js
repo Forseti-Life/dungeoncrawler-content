@@ -35,6 +35,11 @@ assert(
     && roomChatSource.includes("$this->questTracker->startQuest($campaign_id, $quest_id, $character_id);"),
   'Direct questgiver talk promotes lead quests to offered and then starts them'
 );
+assert(
+  roomChatSource.includes('didQuestgiverSpeakForQuest($campaign_id, $quest, $message_entries)')
+    && roomChatSource.includes('protected function didQuestgiverSpeakForQuest'),
+  'Dialogue surfacing checks whether the speaking NPC is the quest giver before auto-starting the quest'
+);
 
 const collectSpellbooks = questTemplates.find((entry) => entry.template_id === 'collect_spellbooks') || {};
 assert(collectSpellbooks.name === 'Recover {item_name}', 'Collect Spellbooks template uses the recover journal quest name');

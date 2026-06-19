@@ -9174,6 +9174,9 @@ PROMPT;
       if ($update !== NULL) {
         $updates[] = $update;
       }
+      if ($this->didQuestgiverSpeakForQuest($campaign_id, $quest, $message_entries)) {
+        $this->applyQuestgiverLeadTouchpoint($campaign_id, (int) $character_id, $room_id, $quest);
+      }
     }
 
     $storyline_updates = $this->activateMentionedBrokeredStorylineQuests(
@@ -9226,6 +9229,56 @@ PROMPT;
     }
 
     return $updates;
+  }
+
+  /**
+   * Determine whether one of the current dialogue entries came from the quest giver.
+   */
+  protected function didQuestgiverSpeakForQuest(int $campaign_id, array $quest, array $message_entries): bool {
+    $giver_npc_id = (int) ($quest['giver_npc_id'] ?? 0);
+    if ($campaign_id <= 0 || $giver_npc_id <= 0 || $message_entries === []) {
+      return FALSE;
+    }
+
+    $row = $this->database->select('dc_campaign_characters', 'c')
+      ->fields('c', ['id', 'name', 'instance_id'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('id', $giver_npc_id)
+      ->condition('type', 'npc')
+      ->range(0, 1)
+      ->execute()
+      ->fetchObject();
+    if (!$row) {
+      return FALSE;
+    }
+
+    $resolved = $this->resolveCampaignCharacterNpcProfile($campaign_id, $row);
+    $giver_refs = array_values(array_filter(array_map('strtolower', [
+      trim((string) ($resolved['entity_ref'] ?? '')),
+      trim((string) ($row->instance_id ?? '')),
+      trim((string) ($row->name ?? '')),
+    ])));
+    if ($giver_refs === []) {
+      return FALSE;
+    }
+
+    foreach ($message_entries as $entry) {
+      if (!is_array($entry)) {
+        continue;
+      }
+      $entry_refs = array_values(array_filter(array_map('strtolower', [
+        trim((string) ($entry['entity_ref'] ?? '')),
+        trim((string) ($entry['speaker'] ?? $entry['name'] ?? '')),
+      ])));
+      if ($entry_refs === []) {
+        continue;
+      }
+      if (array_intersect($giver_refs, $entry_refs) !== []) {
+        return TRUE;
+      }
+    }
+
+    return FALSE;
   }
 
   /**
