@@ -50,6 +50,10 @@ assert(
   'non-deterministic player room chat is posted directly through RoomChatService'
 );
 assert(
+  gmSubsystemSource.includes("$this->coordinator->getActionAvailabilityForActor($campaign_id, $actor_id)"),
+  'free player room chat resyncs actor-scoped action availability instead of unscoped encounter actions'
+);
+assert(
   gmSubsystemSource.includes("'_validated_encounter_room_chat' => TRUE"),
   'free player room chat marks the internal validated encounter-room-chat bypass flag'
 );
@@ -73,6 +77,11 @@ assert(
 assert(
   controllerSource.includes('$suppress_gm,\n      $speaker'),
   'RoomChatController forwards the speaker name into the GM subsystem for free player chat'
+);
+assert(
+  controllerSource.includes('!$defer_npc_interjections')
+    && controllerSource.includes('$this->chatService->completeDeferredNpcInterjections('),
+  'non-stream room chat completes deferred NPC interjections before returning the JSON payload'
 );
 
 console.log(`\nPassed: ${passed}`);

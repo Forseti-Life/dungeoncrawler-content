@@ -108,11 +108,18 @@ class GameMasterSubsystemService {
       ]
     );
     $state = $this->coordinator->getFullState($campaign_id);
+    $action_availability = $this->coordinator->getActionAvailabilityForActor($campaign_id, $actor_id);
     foreach (['game_state', 'available_actions', 'action_contract', 'events', 'phase', 'encounter_id', 'round', 'turn', 'state_version', 'active_room_id'] as $response_key) {
       if (array_key_exists($response_key, $state)) {
         $chat_result[$response_key] = $state[$response_key];
       }
     }
+    $chat_result['available_actions'] = is_array($action_availability['available_actions'] ?? NULL)
+      ? $action_availability['available_actions']
+      : [];
+    $chat_result['action_contract'] = is_array($action_availability['action_contract'] ?? NULL)
+      ? $action_availability['action_contract']
+      : NULL;
     if (isset($chat_result['message']) && !is_array($chat_result['message']) && isset($chat_result['speaker'])) {
       $chat_result['message'] = [
         'speaker' => (string) $chat_result['speaker'],
