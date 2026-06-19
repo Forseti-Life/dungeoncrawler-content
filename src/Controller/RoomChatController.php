@@ -66,10 +66,12 @@ class RoomChatController extends ControllerBase {
       $data['client_request_id'] = $client_request_id;
     }
 
-    return new JsonResponse([
+    $response = new JsonResponse([
       'success' => TRUE,
       'data' => $data,
     ]);
+    $response->setEncodingOptions($response->getEncodingOptions() | JSON_INVALID_UTF8_SUBSTITUTE);
+    return $response;
   }
 
   protected function isPlayerRoomChat(string $type, string $channel): bool {
@@ -177,7 +179,7 @@ class RoomChatController extends ControllerBase {
 
       $messages = $this->chatService->getChatHistory($campaign_id, $room_id, $channel, $character_id);
 
-      return new JsonResponse([
+      $response = new JsonResponse([
         'success' => TRUE,
         'data' => [
           'roomId' => $room_id,
@@ -185,6 +187,8 @@ class RoomChatController extends ControllerBase {
           'messages' => $messages,
         ],
       ]);
+      $response->setEncodingOptions($response->getEncodingOptions() | JSON_INVALID_UTF8_SUBSTITUTE);
+      return $response;
     }
     catch (\InvalidArgumentException $e) {
       $status = (int) $e->getCode() ?: 500;
@@ -645,7 +649,7 @@ class RoomChatController extends ControllerBase {
    */
   protected function createNdjsonEmitter(): callable {
     return function (array $payload): void {
-      echo json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n";
+      echo json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE) . "\n";
       if (function_exists('ob_flush')) {
         @ob_flush();
       }
