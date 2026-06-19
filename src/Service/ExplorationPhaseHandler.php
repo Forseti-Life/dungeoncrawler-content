@@ -2256,7 +2256,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
     $quests = $this->database->select('dc_campaign_quests', 'q')
       ->fields('q')
       ->condition('q.campaign_id', $campaign_id)
-      ->condition('q.status', ['active', 'lead', 'offered'], 'IN')
+      ->condition('q.status', ['active'], 'IN')
       ->orderBy('q.created_at', 'ASC')
       ->execute()
       ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
