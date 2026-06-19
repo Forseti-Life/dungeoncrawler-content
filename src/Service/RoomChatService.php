@@ -9261,6 +9261,25 @@ PROMPT;
     }
 
     $this->applyConversationQuestTouchpoint($campaign_id, $character_id, $room_id, $npc_ref, $target_name);
+
+    $quest_id = trim((string) ($quest['quest_id'] ?? ''));
+    if ($quest_id === '' || !$this->questTracker) {
+      return;
+    }
+
+    $status = strtolower(trim((string) ($quest['status'] ?? '')));
+    if ($status === 'lead') {
+      $this->database->update('dc_campaign_quests')
+        ->fields(['status' => 'offered'])
+        ->condition('campaign_id', $campaign_id)
+        ->condition('quest_id', $quest_id)
+        ->execute();
+      $status = 'offered';
+    }
+
+    if ($status === 'offered') {
+      $this->questTracker->startQuest($campaign_id, $quest_id, $character_id);
+    }
   }
 
   /**

@@ -1111,8 +1111,8 @@
             "quests": [
               {
                 "quest_id": "collect_spellbooks",
-                "title": "Recover Lost Spellbooks",
-                "description": "Marta seeks lost spellbooks scattered around the tavern"
+                "title": "Recover Marta's Journal",
+                "description": "Marta needs her journal recovered from somewhere in the tavern"
               }
             ]
           },
@@ -1223,8 +1223,7 @@
               "collect_spellbooks",
               "collectible",
               "knowledge"
-            ],
-            "quest_association": "collect_spellbooks"
+            ]
           },
           {
             "content_id": "spellbook_2",
@@ -1239,18 +1238,17 @@
               "collect_spellbooks",
               "collectible",
               "knowledge"
-            ],
-            "quest_association": "collect_spellbooks"
+            ]
           },
           {
             "content_id": "spellbook_3",
-            "name": "Faded Journal",
+            "name": "Marta's Journal",
             "type": "collectible_item",
             "position": {
               "q": 2,
               "r": -1
             },
-            "description": "A faded journal filled with spell notes",
+            "description": "Marta's personal journal filled with spell notes and research annotations",
             "tags": [
               "collect_spellbooks",
               "collectible",
@@ -1271,8 +1269,7 @@
               "collect_spellbooks",
               "collectible",
               "knowledge"
-            ],
-            "quest_association": "collect_spellbooks"
+            ]
           },
           {
             "content_id": "torch_component_1",

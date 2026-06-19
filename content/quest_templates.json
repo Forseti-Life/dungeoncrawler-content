@@ -159,7 +159,7 @@
   {
     "template_id": "collect_spellbooks",
     "name": "Collect Lost {item_name}",
-    "description": "A scholar in the tavern is searching for {item_name} that have been scattered around. Help recover them and earn a reward.",
+    "description": "Marta the Scholar misplaced {item_name} in the tavern. Help recover it and earn a reward.",
     "quest_type": "side_quest",
     "level_min": "1",
     "level_max": "3",
@@ -177,18 +177,15 @@
             "objective_id": "collect_books",
             "type": "collect",
             "item": "{item_name}",
-            "target_count_range": [
-              2,
-              4
-            ],
+            "target_count": 1,
             "location_id": "{location}",
-            "description": "Find and collect {item_name} in {room_name}",
-            "next_step": "Search {room_name} and pick up each {item_name} quest item.",
+            "description": "Find and recover {item_name} in {room_name}",
+            "next_step": "Search {room_name} and recover {item_name}.",
             "completion_criteria": {
               "kind": "count",
               "metric": "current",
               "target_count": 1,
-              "description": "Collect {target_count} {item_name} in {room_name}."
+              "description": "Recover {item_name} in {room_name}."
             }
           }
         ]
