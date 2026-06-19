@@ -13,9 +13,9 @@ class StubEncounterAiProvider implements EncounterAiProviderInterface {
   public function recommendNpcAction(array $context): array {
     $participants = is_array($context['participants'] ?? NULL) ? $context['participants'] : [];
     $current_actor = is_array($context['current_actor'] ?? NULL) ? $context['current_actor'] : [];
-    $current_actor_ref = (string) ($current_actor['entity_ref'] ?? $current_actor['entity_id'] ?? '');
+    $current_actor_ref = $this->resolveActorId($current_actor);
     $target = $this->findFirstAlivePlayer($participants);
-    $target_ref = $target !== NULL ? (string) ($target['entity_ref'] ?? $target['entity_id'] ?? '') : '';
+    $target_ref = $target !== NULL ? $this->resolveActorId($target) : '';
 
     $action_type = $target !== NULL ? 'strike' : 'end_turn';
     $rationale = $target !== NULL
@@ -32,7 +32,7 @@ class StubEncounterAiProvider implements EncounterAiProviderInterface {
       'recommended_action' => [
         'type' => $action_type,
         'target_instance_id' => $target_ref !== '' ? $target_ref : NULL,
-        'action_cost' => 1,
+        'action_cost' => $action_type === 'end_turn' ? 0 : 1,
         'parameters' => [
           'weapon' => 'basic_attack',
         ],
@@ -89,6 +89,37 @@ class StubEncounterAiProvider implements EncounterAiProviderInterface {
     }
 
     return NULL;
+  }
+
+  /**
+   * Resolve a stable actor id from preview/current actor payloads.
+   */
+  private function resolveActorId(array $actor): string {
+    $entity_id = trim((string) ($actor['entity_id'] ?? ''));
+    if ($entity_id !== '') {
+      return $entity_id;
+    }
+
+    $entity_ref = $actor['entity_ref'] ?? NULL;
+    if (is_string($entity_ref)) {
+      $decoded = json_decode($entity_ref, TRUE);
+      if (is_array($decoded)) {
+        $content_id = trim((string) ($decoded['content_id'] ?? ''));
+        if ($content_id !== '') {
+          return $content_id;
+        }
+      }
+      return trim($entity_ref);
+    }
+
+    if (is_array($entity_ref)) {
+      $content_id = trim((string) ($entity_ref['content_id'] ?? ''));
+      if ($content_id !== '') {
+        return $content_id;
+      }
+    }
+
+    return '';
   }
 
 }

@@ -526,19 +526,11 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
           'reason' => "It is not $actor_id's turn. Current turn: $current_entity.",
         ];
       }
-      if (in_array($type, ['search', 'interact'], TRUE)) {
-        $action_cost = $this->getActionCost($type, $intent['params'] ?? []);
-        if ($actions_remaining < $action_cost) {
-          return [
-            'valid' => FALSE,
-            'reason' => "Not enough actions remaining ($actions_remaining) for $type (costs $action_cost).",
-          ];
-        }
-      }
-      if ($this->isRestAction($type) && !$this->isSafeRestAvailable($game_state, $dungeon_data)) {
+      $available_actions = $this->getAvailableActions($game_state, $dungeon_data, $actor_id ?: NULL);
+      if (!in_array($type, $available_actions, TRUE)) {
         return [
           'valid' => FALSE,
-          'reason' => 'Rest actions are only available in rooms flagged as safe for rest.',
+          'reason' => "Action '$type' is not currently available for this actor.",
         ];
       }
 
@@ -566,15 +558,12 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
       }
     }
 
-    // Validate action economy.
-    if (in_array($type, ['strike', 'stride', 'cast_spell', 'interact', 'search', 'skill', 'feat', 'consume_item'], TRUE)) {
-      $action_cost = $this->getActionCost($type, $intent['params'] ?? []);
-      if ($actions_remaining < $action_cost) {
-        return [
-          'valid' => FALSE,
-          'reason' => "Not enough actions remaining ($actions_remaining) for $type (costs $action_cost).",
-        ];
-      }
+    $available_actions = $this->getAvailableActions($game_state, $dungeon_data, $intent['actor'] ?? NULL);
+    if (!in_array($type, ['reaction', 'transition'], TRUE) && !in_array($type, $available_actions, TRUE)) {
+      return [
+        'valid' => FALSE,
+        'reason' => "Action '$type' is not currently available for this actor.",
+      ];
     }
 
     return ['valid' => TRUE, 'reason' => NULL];

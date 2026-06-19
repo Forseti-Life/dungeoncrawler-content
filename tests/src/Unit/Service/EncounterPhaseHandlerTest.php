@@ -204,6 +204,30 @@ class EncounterPhaseHandlerTest extends UnitTestCase {
   }
 
   /**
+   * Shared availability validation blocks one-action talk when the actor has no actions.
+   *
+   * @covers ::validateIntent
+   */
+  public function testValidateIntentRejectsTalkWhenNoActionsRemain(): void {
+    $handler = $this->buildHandler();
+    $validation = $handler->validateIntent([
+      'type' => 'talk',
+      'actor' => 'char-001',
+      'params' => ['message' => 'Hello'],
+    ], [
+      'encounter_id' => 42,
+      'turn' => [
+        'entity' => 'char-001',
+        'actions_remaining' => 0,
+        'reaction_available' => FALSE,
+      ],
+    ], []);
+
+    $this->assertFalse($validation['valid']);
+    $this->assertSame("Action 'talk' is not currently available for this actor.", $validation['reason']);
+  }
+
+  /**
    * Transition is actor-scoped and cannot be executed out of turn.
    *
    * @covers ::validateIntent

@@ -504,10 +504,7 @@ class AiConversationEncounterAiProvider implements EncounterAiProviderInterface 
       return NULL;
     }
 
-    $action_cost = (int) ($recommended_action['action_cost'] ?? 1);
-    if ($action_cost <= 0) {
-      $action_cost = 1;
-    }
+    $action_cost = (int) ($recommended_action['action_cost'] ?? 0);
 
     $confidence = (float) ($payload['confidence'] ?? 0.5);
     $confidence = max(0.0, min(1.0, $confidence));
@@ -517,7 +514,16 @@ class AiConversationEncounterAiProvider implements EncounterAiProviderInterface 
 
     $parameters = is_array($recommended_action['parameters'] ?? NULL) ? $recommended_action['parameters'] : [];
     $alternatives = is_array($payload['alternatives'] ?? NULL) ? $payload['alternatives'] : [];
-    $actor_instance_id = trim((string) ($payload['actor_instance_id'] ?? $current_actor['entity_ref'] ?? ''));
+    $actor_instance_id = trim((string) ($payload['actor_instance_id'] ?? $current_actor['entity_id'] ?? ''));
+    if ($actor_instance_id === '') {
+      $actor_instance_id = trim((string) ($current_actor['entity_ref'] ?? ''));
+      if ($actor_instance_id !== '' && str_starts_with($actor_instance_id, '{')) {
+        $decoded_actor_ref = json_decode($actor_instance_id, TRUE);
+        if (is_array($decoded_actor_ref)) {
+          $actor_instance_id = trim((string) ($decoded_actor_ref['content_id'] ?? $actor_instance_id));
+        }
+      }
+    }
     $decision_reason = trim((string) ($payload['decision_reason'] ?? ''));
     if ($decision_reason === '') {
       $decision_reason = (string) ($payload['rationale'] ?? 'Selected by ai_conversation tactical provider.');
