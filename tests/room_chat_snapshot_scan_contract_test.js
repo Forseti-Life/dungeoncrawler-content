@@ -38,6 +38,10 @@ assert(
   'snapshot scanner skips malformed legacy dungeon payloads instead of reading room offsets from scalars'
 );
 assert(
+  source.includes('Room snapshot scan skipped malformed dungeon payload: campaign={campaign_id} requested_room={room_id} dungeon_id={dungeon_id} payload_bytes={payload_bytes} decoded_type={decoded_type}'),
+  'snapshot scanner logs an explicit warning when it skips a malformed legacy dungeon payload'
+);
+assert(
   source.includes("throw new \\InvalidArgumentException(sprintf('Room %s not found in any dungeon', $room_id), 404);"),
   'snapshot scanner still fails with a 404 when no valid row contains the requested room'
 );

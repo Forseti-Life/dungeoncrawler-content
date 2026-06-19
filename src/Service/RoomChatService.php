@@ -2327,6 +2327,13 @@ class RoomChatService {
       foreach ($records as $candidate) {
         $candidate_data = json_decode($candidate['dungeon_data'] ?? '{}', TRUE);
         if (!is_array($candidate_data)) {
+          $this->logger->warning('Room snapshot scan skipped malformed dungeon payload: campaign={campaign_id} requested_room={room_id} dungeon_id={dungeon_id} payload_bytes={payload_bytes} decoded_type={decoded_type}', [
+            'campaign_id' => $campaign_id,
+            'room_id' => $room_id,
+            'dungeon_id' => (string) ($candidate['dungeon_id'] ?? ''),
+            'payload_bytes' => strlen((string) ($candidate['dungeon_data'] ?? '')),
+            'decoded_type' => get_debug_type($candidate_data),
+          ]);
           continue;
         }
         $rooms = is_array($candidate_data['rooms'] ?? NULL) ? $candidate_data['rooms'] : [];
