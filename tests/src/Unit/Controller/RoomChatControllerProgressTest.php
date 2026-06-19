@@ -44,7 +44,6 @@ class RoomChatControllerProgressTest extends UnitTestCase {
     $container = new ContainerBuilder();
     $container->set('dungeoncrawler_content.room_chat_service', $chat_service);
     $container->set('dungeoncrawler_content.game_coordinator', $this->createMock(GameCoordinatorService::class));
-    $container->set('dungeoncrawler_content.game_master_subsystem', $this->createMock(GameMasterSubsystemService::class));
     $container->set('logger.factory', $logger_factory);
 
     $controller = RoomChatController::create($container);

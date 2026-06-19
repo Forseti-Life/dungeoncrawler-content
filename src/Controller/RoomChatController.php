@@ -32,14 +32,14 @@ class RoomChatController extends ControllerBase {
 
   protected GameCoordinatorService $coordinator;
 
-  protected GameMasterSubsystemService $gmSubsystem;
+  protected ?GameMasterSubsystemService $gmSubsystem;
 
   protected LoggerInterface $logger;
 
   /**
    * Constructor.
    */
-  public function __construct(RoomChatService $chat_service, GameCoordinatorService $coordinator, GameMasterSubsystemService $gm_subsystem, LoggerInterface $logger) {
+  public function __construct(RoomChatService $chat_service, GameCoordinatorService $coordinator, ?GameMasterSubsystemService $gm_subsystem, LoggerInterface $logger) {
     $this->chatService = $chat_service;
     $this->coordinator = $coordinator;
     $this->gmSubsystem = $gm_subsystem;
@@ -53,9 +53,25 @@ class RoomChatController extends ControllerBase {
     return new static(
       $container->get('dungeoncrawler_content.room_chat_service'),
       $container->get('dungeoncrawler_content.game_coordinator'),
-      $container->get('dungeoncrawler_content.game_master_subsystem'),
+      NULL,
       $container->get('logger.factory')->get('dungeoncrawler_chat')
     );
+  }
+
+  /**
+   * Resolve the GM subsystem lazily so read-only room history requests do not
+   * depend on the full chat action graph during controller construction.
+   */
+  protected function getGmSubsystem(): GameMasterSubsystemService {
+    if (!$this->gmSubsystem) {
+      $service = \Drupal::service('dungeoncrawler_content.game_master_subsystem');
+      if (!$service instanceof GameMasterSubsystemService) {
+        throw new \RuntimeException('Game Master subsystem service is unavailable.');
+      }
+      $this->gmSubsystem = $service;
+    }
+
+    return $this->gmSubsystem;
   }
 
   /**
@@ -91,7 +107,7 @@ class RoomChatController extends ControllerBase {
     bool $defer_npc_interjections = FALSE,
     bool $suppress_gm = FALSE
   ): array {
-    $result = $this->gmSubsystem->handlePlayerRoomChat(
+    $result = $this->getGmSubsystem()->handlePlayerRoomChat(
       $campaign_id,
       $requested_room_id,
       $character_id,
