@@ -34,16 +34,28 @@ assert(
   'controller stores the GM subsystem as a nullable dependency'
 );
 assert(
+  source.includes('protected ?GameCoordinatorService $coordinator;'),
+  'controller stores the game coordinator as a nullable dependency'
+);
+assert(
   source.includes('protected function getGmSubsystem(): GameMasterSubsystemService {'),
   'controller exposes a lazy GM subsystem accessor'
+);
+assert(
+  source.includes('protected function getCoordinator(): GameCoordinatorService {'),
+  'controller exposes a lazy coordinator accessor'
 );
 assert(
   source.includes("\\Drupal::service('dungeoncrawler_content.game_master_subsystem')"),
   'lazy accessor resolves the GM subsystem service only on demand'
 );
 assert(
-  source.includes('NULL,\n      $container->get(\'logger.factory\')->get(\'dungeoncrawler_chat\')'),
-  'controller factory no longer instantiates the GM subsystem during creation'
+  source.includes("\\Drupal::service('dungeoncrawler_content.game_coordinator')"),
+  'lazy accessor resolves the game coordinator service only on demand'
+);
+assert(
+  source.includes("return new static(\n      $container->get('dungeoncrawler_content.room_chat_service'),\n      NULL,\n      NULL,"),
+  'controller factory no longer instantiates the GM subsystem or coordinator during creation'
 );
 
 console.log(`\nPassed: ${passed}`);

@@ -30,7 +30,7 @@ class RoomChatController extends ControllerBase {
 
   protected RoomChatService $chatService;
 
-  protected GameCoordinatorService $coordinator;
+  protected ?GameCoordinatorService $coordinator;
 
   protected ?GameMasterSubsystemService $gmSubsystem;
 
@@ -39,7 +39,7 @@ class RoomChatController extends ControllerBase {
   /**
    * Constructor.
    */
-  public function __construct(RoomChatService $chat_service, GameCoordinatorService $coordinator, ?GameMasterSubsystemService $gm_subsystem, LoggerInterface $logger) {
+  public function __construct(RoomChatService $chat_service, ?GameCoordinatorService $coordinator, ?GameMasterSubsystemService $gm_subsystem, LoggerInterface $logger) {
     $this->chatService = $chat_service;
     $this->coordinator = $coordinator;
     $this->gmSubsystem = $gm_subsystem;
@@ -52,10 +52,26 @@ class RoomChatController extends ControllerBase {
   public static function create(ContainerInterface $container) {
     return new static(
       $container->get('dungeoncrawler_content.room_chat_service'),
-      $container->get('dungeoncrawler_content.game_coordinator'),
+      NULL,
       NULL,
       $container->get('logger.factory')->get('dungeoncrawler_chat')
     );
+  }
+
+  /**
+   * Resolve the coordinator lazily so read-only room history requests do not
+   * depend on the full encounter runtime during controller construction.
+   */
+  protected function getCoordinator(): GameCoordinatorService {
+    if (!$this->coordinator) {
+      $service = \Drupal::service('dungeoncrawler_content.game_coordinator');
+      if (!$service instanceof GameCoordinatorService) {
+        throw new \RuntimeException('Game coordinator service is unavailable.');
+      }
+      $this->coordinator = $service;
+    }
+
+    return $this->coordinator;
   }
 
   /**
@@ -602,7 +618,7 @@ class RoomChatController extends ControllerBase {
       return [];
     }
 
-    $state = $this->coordinator->getFullState($campaign_id);
+    $state = $this->getCoordinator()->getFullState($campaign_id);
     if (!is_array($state)) {
       return [];
     }
@@ -1020,7 +1036,7 @@ class RoomChatController extends ControllerBase {
     }
 
     if ($round_raw === NULL || $turn_index_raw === NULL) {
-      $state = $this->coordinator->getFullState($campaign_id);
+      $state = $this->getCoordinator()->getFullState($campaign_id);
       if ($round_raw === NULL) {
         $round_raw = is_array($state) ? ($state['round'] ?? ($state['game_state']['round'] ?? 1)) : 1;
       }
