@@ -520,6 +520,65 @@ class QuestTrackerServiceTest extends UnitTestCase {
   }
 
   /**
+   * Verifies quest narration resolves the dungeon snapshot that contains the quest room.
+   */
+  public function testResolveQuestNarrationContextPrefersRoomMatchingDungeonSnapshot(): void {
+    $logger = $this->createMock(LoggerInterface::class);
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($logger);
+
+    $statement = $this->createMock(\Drupal\Core\Database\StatementInterface::class);
+    $statement->method('fetchAssoc')->willReturn(FALSE);
+
+    $select = $this->createMock(\Drupal\Core\Database\Query\SelectInterface::class);
+    $select->method('fields')->willReturnSelf();
+    $select->method('condition')->willReturnSelf();
+    $select->method('range')->willReturnSelf();
+    $select->method('execute')->willReturn($statement);
+
+    $database = $this->createMock(Connection::class);
+    $database->method('select')->willReturn($select);
+
+    $service = new class(
+      $database,
+      $logger_factory,
+      $this->createMock(TimeInterface::class)
+    ) extends QuestTrackerService {
+      public array $requestedRooms = [];
+
+      protected function loadLatestQuestNarrationDungeonRow(int $campaign_id, string $room_id = ''): ?array {
+        $this->requestedRooms[] = $room_id;
+        if ($room_id === 'tavern_entrance') {
+          return [
+            'id' => 378,
+            'dungeon_id' => '23a74f50-58f8-4c34-aeb0-f885844244b7',
+            'dungeon_data' => json_encode(['active_room_id' => 'tavern_entrance']),
+          ];
+        }
+
+        return [
+          'id' => 379,
+          'dungeon_id' => 'onboarding',
+          'dungeon_data' => json_encode(['active_room_id' => 'onboarding_start']),
+        ];
+      }
+
+      public function resolveContextForTest(int $campaign_id, array $quest): array {
+        return $this->resolveQuestNarrationContext($campaign_id, $quest);
+      }
+    };
+
+    $context = $service->resolveContextForTest(266, [
+      'quest_id' => 'tavern_storyline_leads',
+      'location_id' => 'tavern_entrance',
+    ]);
+
+    $this->assertSame(['tavern_entrance'], $service->requestedRooms);
+    $this->assertSame('23a74f50-58f8-4c34-aeb0-f885844244b7', $context[0]);
+    $this->assertSame('tavern_entrance', $context[1]);
+  }
+
+  /**
    * Verifies quest rewards persist into campaign character state and inventory.
    */
   public function testApplyQuestRewardsPersistsCampaignCharacterState(): void {

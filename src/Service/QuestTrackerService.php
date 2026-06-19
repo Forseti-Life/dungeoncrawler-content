@@ -569,6 +569,22 @@ class QuestTrackerService {
     $rooms = is_array($dungeon_data['rooms'] ?? NULL) ? $dungeon_data['rooms'] : [];
     $room_index = $this->findQuestNarrationRoomIndex($rooms, $room_id);
     if ($room_index === NULL) {
+      $resolved_row = $this->loadLatestQuestNarrationDungeonRow($campaign_id, $room_id);
+      if (is_array($resolved_row) && !empty($resolved_row['id'])) {
+        $resolved_data = json_decode((string) ($resolved_row['dungeon_data'] ?? '{}'), TRUE);
+        if (is_array($resolved_data)) {
+          $resolved_rooms = is_array($resolved_data['rooms'] ?? NULL) ? $resolved_data['rooms'] : [];
+          $resolved_room_index = $this->findQuestNarrationRoomIndex($resolved_rooms, $room_id);
+          if ($resolved_room_index !== NULL) {
+            $dungeon_row = $resolved_row;
+            $dungeon_data = $resolved_data;
+            $rooms = $resolved_rooms;
+            $room_index = $resolved_room_index;
+          }
+        }
+      }
+    }
+    if ($room_index === NULL) {
       $active_room_id = trim((string) ($dungeon_data['active_room_id'] ?? ''));
       if ($active_room_id !== '') {
         $room_index = $this->findQuestNarrationRoomIndex($rooms, $active_room_id);
@@ -670,13 +686,7 @@ class QuestTrackerService {
       }
     }
 
-    $dungeon_row = $this->database->select('dc_campaign_dungeons', 'd')
-      ->fields('d', ['dungeon_id', 'dungeon_data'])
-      ->condition('campaign_id', $campaign_id)
-      ->orderBy('id', 'DESC')
-      ->range(0, 1)
-      ->execute()
-      ->fetchAssoc();
+    $dungeon_row = $this->loadLatestQuestNarrationDungeonRow($campaign_id, $room_id);
     $dungeon_id = is_array($dungeon_row) ? trim((string) ($dungeon_row['dungeon_id'] ?? '')) : '';
 
     if ($room_id === '' && is_array($dungeon_row)) {
@@ -700,6 +710,47 @@ class QuestTrackerService {
     }
 
     return [$dungeon_id, $room_id, $room_name];
+  }
+
+  /**
+   * Load the latest dungeon snapshot row for narrator quest notes.
+   *
+   * When a room id is provided, prefer the newest snapshot that actually
+   * contains that room instead of blindly using the newest dungeon row.
+   *
+   * @return array<string, mixed>|null
+   *   The resolved dungeon row, or NULL when none exist.
+   */
+  protected function loadLatestQuestNarrationDungeonRow(int $campaign_id, string $room_id = ''): ?array {
+    $rows = $this->database->select('dc_campaign_dungeons', 'd')
+      ->fields('d', ['id', 'dungeon_id', 'dungeon_data'])
+      ->condition('campaign_id', $campaign_id)
+      ->orderBy('updated', 'DESC')
+      ->orderBy('id', 'DESC')
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+
+    if ($rows === []) {
+      return NULL;
+    }
+
+    $room_id = trim($room_id);
+    if ($room_id === '') {
+      return $rows[0];
+    }
+
+    foreach ($rows as $row) {
+      $dungeon_data = json_decode((string) ($row['dungeon_data'] ?? '{}'), TRUE);
+      if (!is_array($dungeon_data)) {
+        continue;
+      }
+      $rooms = is_array($dungeon_data['rooms'] ?? NULL) ? $dungeon_data['rooms'] : [];
+      if ($this->findQuestNarrationRoomIndex($rooms, $room_id) !== NULL) {
+        return $row;
+      }
+    }
+
+    return $rows[0];
   }
 
   /**
