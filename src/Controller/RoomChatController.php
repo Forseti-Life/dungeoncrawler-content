@@ -133,52 +133,6 @@ class RoomChatController extends ControllerBase {
       $speaker
     );
 
-    $should_complete_deferred_npc_turns = !$defer_npc_interjections
-      && !empty($result['npc_interjections_deferred'])
-      && !empty($result['gm_response']['message'])
-      && empty($result['gm_response']['gm_payload']['flags']['suppress_npc_interjections']);
-    if ($should_complete_deferred_npc_turns) {
-      $npc_turn_result = $this->chatService->completeDeferredNpcInterjections(
-        $campaign_id,
-        $requested_room_id,
-        $message,
-        (string) $result['gm_response']['message'],
-        $character_id
-      );
-      $result = $this->mergeDeferredNpcTurnResult($result, $npc_turn_result);
-    }
-
-    return $result;
-  }
-
-  /**
-   * Merge deferred NPC completion data back into a room-chat result payload.
-   */
-  protected function mergeDeferredNpcTurnResult(array $result, array $npc_turn_result): array {
-    if (!empty($npc_turn_result['turn_log_key'])) {
-      $result['turn_log_key'] = $npc_turn_result['turn_log_key'];
-    }
-
-    if (!empty($npc_turn_result['turn_logs']) && is_array($npc_turn_result['turn_logs'])) {
-      $result['turn_logs'] = array_values(array_merge(
-        is_array($result['turn_logs'] ?? NULL) ? $result['turn_logs'] : [],
-        $this->filterClientVisibleTurnLogs($npc_turn_result['turn_logs'])
-      ));
-    }
-
-    if (!empty($npc_turn_result['messages']) && is_array($npc_turn_result['messages'])) {
-      $result['turn_harness'] = $npc_turn_result;
-      $result['npc_interjections'] = $npc_turn_result['messages'];
-    }
-
-    if (!empty($npc_turn_result['quest_updates']) && is_array($npc_turn_result['quest_updates'])) {
-      $result['quest_updates'] = array_values(array_merge(
-        is_array($result['quest_updates'] ?? NULL) ? $result['quest_updates'] : [],
-        $npc_turn_result['quest_updates']
-      ));
-    }
-
-    $result['npc_interjections_deferred'] = FALSE;
     return $result;
   }
 

@@ -37,6 +37,12 @@ const controllerSource = fs.readFileSync(
 
 console.log('\n=== Player free chat contract ===');
 
+const roomPostStart = controllerSource.indexOf('  protected function postPlayerRoomChatViaEncounterTalk(');
+const roomPostEnd = controllerSource.indexOf('\n  /**', roomPostStart + 1);
+const roomPostSource = roomPostStart >= 0
+  ? controllerSource.slice(roomPostStart, roomPostEnd >= 0 ? roomPostEnd : controllerSource.length)
+  : '';
+
 assert(
   gmSubsystemSource.includes("'route' => 'free_player_room_chat'"),
   'GM subsystem exposes a distinct free-player-room-chat route'
@@ -79,9 +85,10 @@ assert(
   'RoomChatController forwards the speaker name into the GM subsystem for free player chat'
 );
 assert(
-  controllerSource.includes('!$defer_npc_interjections')
-    && controllerSource.includes('$this->chatService->completeDeferredNpcInterjections('),
-  'non-stream room chat completes deferred NPC interjections before returning the JSON payload'
+  roomPostSource !== ''
+    && !roomPostSource.includes('mergeDeferredNpcTurnResult(')
+    && !roomPostSource.includes('$this->chatService->completeDeferredNpcInterjections('),
+  'non-stream room chat does not synchronously drain deferred NPC interjections'
 );
 
 console.log(`\nPassed: ${passed}`);
