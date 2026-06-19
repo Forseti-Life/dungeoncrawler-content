@@ -572,7 +572,6 @@ class MerchantTransactionService {
 
     foreach ($this->flattenInventoryItems($inventory) as $item) {
       $quantity = max(1, (int) ($item['quantity'] ?? 1));
-      $price_gp = (float) ($item['price_gp'] ?? 0.0);
       $inventory_metadata = is_array($item['inventory_metadata'] ?? NULL) ? $item['inventory_metadata'] : [];
       $subtype = (string) ($item['subtype'] ?? $item['item_subtype'] ?? '');
       $item_id = (string) ($item['id'] ?? $item['item_id'] ?? '');
@@ -583,6 +582,24 @@ class MerchantTransactionService {
       elseif (!empty($item['name'])) {
         $catalog_item = $this->merchantBotService->lookupItem((string) $item['name']) ?? [];
       }
+      $price_cp = isset($item['price_cp']) ? (int) $item['price_cp'] : NULL;
+      if ($price_cp === NULL && isset($inventory_metadata['price_cp'])) {
+        $price_cp = (int) $inventory_metadata['price_cp'];
+      }
+      if ($price_cp === NULL && isset($catalog_item['price_cp'])) {
+        $price_cp = (int) $catalog_item['price_cp'];
+      }
+      $price_gp = $price_cp !== NULL
+        ? ((float) $price_cp / 100.0)
+        : (float) (
+          $item['price_gp']
+          ?? $item['value_gp']
+          ?? $inventory_metadata['price_gp']
+          ?? $inventory_metadata['value_gp']
+          ?? $catalog_item['price_gp']
+          ?? $catalog_item['value_gp']
+          ?? 0.0
+        );
       $blocked = !empty($item['sell_taboo']);
       $is_full_price = in_array($subtype, InventoryManagementService::FULL_PRICE_SUBTYPES, TRUE);
       $offer_cp = (int) round(($is_full_price ? $price_gp : ($price_gp / 2.0)) * 100);

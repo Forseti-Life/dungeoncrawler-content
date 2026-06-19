@@ -164,6 +164,40 @@ class MerchantTransactionServiceTest extends UnitTestCase {
   }
 
   /**
+   * Verifies sellable inventory falls back to catalog price when inventory price is absent.
+   */
+  public function testBuildSellableInventoryFallsBackToCatalogPriceForOffer(): void {
+    $merchant_bot_service = $this->createMock(MerchantBotService::class);
+    $merchant_bot_service->expects($this->once())
+      ->method('lookupItem')
+      ->with('healing_potion_minor')
+      ->willReturn([
+        'id' => 'healing_potion_minor',
+        'name' => 'Minor Healing Potion',
+        'type' => 'consumable',
+        'subtype' => 'potion',
+        'price_gp' => 4.0,
+        'level' => 1,
+        'description' => 'Restores a small amount of HP.',
+      ]);
+
+    $service = $this->buildService($merchant_bot_service);
+    $items = $service->exposeBuildSellableInventory([
+      'carried' => [[
+        'item_instance_id' => 'potion_1',
+        'item_id' => 'healing_potion_minor',
+        'name' => 'Minor Healing Potion',
+        'type' => 'consumable',
+        'bulk' => 'L',
+      ]],
+    ]);
+
+    $this->assertCount(1, $items);
+    $this->assertSame(200, $items[0]['offer_cp']);
+    $this->assertSame('2 gp', $items[0]['offer_label']);
+  }
+
+  /**
    * Verifies merchant runtime metadata can force the catalog-all stock profile.
    */
   public function testResolveMerchantProfileUsesCatalogAllOverride(): void {
