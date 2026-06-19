@@ -38,8 +38,10 @@ assert(
   'streamed NDJSON payloads are emitted with UTF-8 substitution enabled'
 );
 assert(
-  source.includes("$response->setEncodingOptions($response->getEncodingOptions() | JSON_INVALID_UTF8_SUBSTITUTE);"),
-  'JSON response wrappers are hardened with UTF-8 substitution before returning transcript payloads'
+  source.includes('$response = new JsonResponse(NULL);')
+    && source.includes("$response->setEncodingOptions($response->getEncodingOptions() | JSON_INVALID_UTF8_SUBSTITUTE);")
+    && source.includes('$response->setData(['),
+  'JSON response wrappers set UTF-8 substitution before assigning transcript payload data'
 );
 
 console.log(`\nPassed: ${passed}`);

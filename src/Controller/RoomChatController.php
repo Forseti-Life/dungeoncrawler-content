@@ -66,11 +66,12 @@ class RoomChatController extends ControllerBase {
       $data['client_request_id'] = $client_request_id;
     }
 
-    $response = new JsonResponse([
+    $response = new JsonResponse(NULL);
+    $response->setEncodingOptions($response->getEncodingOptions() | JSON_INVALID_UTF8_SUBSTITUTE);
+    $response->setData([
       'success' => TRUE,
       'data' => $data,
     ]);
-    $response->setEncodingOptions($response->getEncodingOptions() | JSON_INVALID_UTF8_SUBSTITUTE);
     return $response;
   }
 
@@ -179,7 +180,9 @@ class RoomChatController extends ControllerBase {
 
       $messages = $this->chatService->getChatHistory($campaign_id, $room_id, $channel, $character_id);
 
-      $response = new JsonResponse([
+      $response = new JsonResponse(NULL);
+      $response->setEncodingOptions($response->getEncodingOptions() | JSON_INVALID_UTF8_SUBSTITUTE);
+      $response->setData([
         'success' => TRUE,
         'data' => [
           'roomId' => $room_id,
@@ -187,7 +190,6 @@ class RoomChatController extends ControllerBase {
           'messages' => $messages,
         ],
       ]);
-      $response->setEncodingOptions($response->getEncodingOptions() | JSON_INVALID_UTF8_SUBSTITUTE);
       return $response;
     }
     catch (\InvalidArgumentException $e) {
