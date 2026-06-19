@@ -388,10 +388,10 @@ class QuestTrackerServiceTest extends UnitTestCase {
         901,
         221,
         'Narrator',
-        'gm',
+        'narrator',
         '',
         $this->stringContains('Objective completed for The Missing Spellbooks'),
-        'system',
+        'narrative',
         'public',
         $this->callback(function (array $metadata): bool {
           return ($metadata['event'] ?? '') === 'quest_objective_completed'

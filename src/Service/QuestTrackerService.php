@@ -519,10 +519,10 @@ class QuestTrackerService {
       $session_id,
       $campaign_id,
       'Narrator',
-      'gm',
+      'narrator',
       '',
       $message,
-      'system',
+      'narrative',
       'public',
       $metadata
     );
@@ -586,7 +586,7 @@ class QuestTrackerService {
     $entry = [
       'speaker' => 'Narrator',
       'message' => trim($message),
-      'type' => 'gm',
+      'type' => 'narrator',
       'channel' => 'room',
       'timestamp' => date('c'),
       'character_id' => NULL,
