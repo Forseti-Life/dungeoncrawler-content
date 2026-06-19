@@ -1,6 +1,6 @@
 /**
  * @file
- * Regression coverage for visible room-GM transcript identity.
+ * Regression coverage for visible GM label vs narrator turn-role contract.
  *
  * Run with:
  *   node tests/room_gm_narrator_contract_test.js
@@ -27,23 +27,23 @@ const source = fs.readFileSync(
   'utf8'
 );
 
-console.log('\n=== Room GM narrator contract ===');
+console.log('\n=== Room GM label vs narrator role contract ===');
 
 assert(
   source.includes("$this->buildEncounterPrefixForSpeaker($dungeon_data, 'Narrator')"),
-  'visible room GM narration uses the Narrator encounter prefix instead of Game Master'
+  'visible room narration still uses the Narrator encounter-role prefix'
 );
 assert(
-  source.includes("'speaker' => 'Narrator',\n      'message' => $visible_gm_narrative,\n      'type' => 'narrator'"),
-  'legacy room chat stores visible GM replies as Narrator narrator-lines'
+  source.includes("'speaker' => 'Game Master',\n      'message' => $visible_gm_narrative,\n      'type' => 'npc'"),
+  'legacy room chat keeps Game Master as the visible narration label'
 );
 assert(
-  source.includes("'Narrator',\n        'narrator',"),
-  'normalized room session bridge writes visible GM replies as narrator/narrative'
+  source.includes("'Game Master',\n        'gm',"),
+  'normalized room session bridge keeps Game Master as the visible narration label'
 );
 assert(
-  source.includes("'speaker' => 'Narrator'"),
-  'GM room response payload advertises Narrator as the visible speaker'
+  source.includes("'speaker' => 'Game Master'"),
+  'GM room response payload still advertises Game Master as the visible speaker'
 );
 
 console.log(`\nPassed: ${passed}`);

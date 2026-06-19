@@ -1839,9 +1839,9 @@ class RoomChatService {
     $suppress_npc_interjections = !empty($checked_response['suppress_npc_interjections']);
     $gm_payload = $this->buildGmRoomResponsePayload($visible_gm_narrative, $actions, $dice_rolls, $suppress_npc_interjections);
     $gm_message = [
-      'speaker' => 'Narrator',
+      'speaker' => 'Game Master',
       'message' => $visible_gm_narrative,
-      'type' => 'narrator',
+      'type' => 'npc',
       'channel' => 'room',
       'timestamp' => date('c'),
       'character_id' => NULL,
@@ -3396,8 +3396,8 @@ class RoomChatService {
       $this->chatSessionManager->postMessage(
         (int) $room_session['id'],
         $campaign_id,
-        'Narrator',
-        'narrator',
+        'Game Master',
+        'gm',
         '',
         $narrative,
         'narrative',
@@ -6342,7 +6342,7 @@ PROMPT;
     $speaker = (string) ($entry['speaker'] ?? '');
     $message = trim((string) ($entry['message'] ?? ''));
 
-    return in_array($speaker, ['Narrator', 'Game Master', 'System'], TRUE)
+    return in_array($speaker, ['Game Master', 'System'], TRUE)
       && preg_match('/^You (arrive|return) at .+\.$/i', $message) === 1;
   }
 
@@ -7019,7 +7019,7 @@ PROMPT;
 
     $payload = [
       'schema_version' => self::GM_ROOM_RESPONSE_SCHEMA_VERSION,
-      'speaker' => 'Narrator',
+      'speaker' => 'Game Master',
       'channel' => 'room',
       'narrative' => $this->truncateContractString($narrative, 4000, 'Game Master update: the situation shifts.'),
       'mechanical_actions' => $normalized_actions,
