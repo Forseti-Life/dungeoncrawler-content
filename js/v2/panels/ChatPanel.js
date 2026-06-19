@@ -505,6 +505,15 @@ export class ChatPanel {
       if (!response.ok) {
         const result = await response.json().catch(() => ({}));
         const debugId = String(result?.debug?.debug_id || '').trim();
+        if (result?.debug?.exception_class || result?.debug?.message) {
+          console.error('[RoomChat] JSON POST debug', {
+            requestId: options.clientRequestId || null,
+            roomId,
+            campaignId,
+            characterId,
+            debug: result.debug,
+          });
+        }
         throw new Error(debugId && !(String(result.error || '').includes(debugId))
           ? `${result.error || `HTTP ${response.status}`} [debug ${debugId}]`
           : (result.error || `HTTP ${response.status}`));

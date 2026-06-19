@@ -43,8 +43,17 @@ assert(
   'room chat POST debug payload explicitly marks the JSON transport mode'
 );
 assert(
+  controllerSource.includes("'exception_class' => get_class($e),")
+    && controllerSource.includes("'message' => $e->getMessage(),"),
+  'room chat POST debug payload includes the server exception class and message'
+);
+assert(
   panelSource.includes("const debugId = String(result?.debug?.debug_id || '').trim();"),
   'ChatPanel reads JSON POST debug ids from the response payload'
+);
+assert(
+  panelSource.includes("console.error('[RoomChat] JSON POST debug'"),
+  'ChatPanel logs the JSON POST debug payload when server diagnostics are returned'
 );
 
 console.log(`\nPassed: ${passed}`);

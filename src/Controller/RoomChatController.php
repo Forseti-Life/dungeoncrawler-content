@@ -358,6 +358,8 @@ class RoomChatController extends ControllerBase {
           'channel' => $channel,
           'status' => $status,
           'stream_mode' => 'json_post',
+          'exception_class' => get_class($e),
+          'message' => $e->getMessage(),
         ],
       ], $status);
     }
@@ -391,6 +393,8 @@ class RoomChatController extends ControllerBase {
           'channel' => $channel,
           'status' => 500,
           'stream_mode' => 'json_post',
+          'exception_class' => get_class($e),
+          'message' => $e->getMessage(),
         ],
       ], 500);
     }
