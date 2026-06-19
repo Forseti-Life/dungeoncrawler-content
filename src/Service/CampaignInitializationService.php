@@ -360,6 +360,7 @@ class CampaignInitializationService {
    *   Starter room data, or NULL if unavailable.
    */
   private function loadStarterRoomSeed(): ?array {
+    $canonical_override = $this->loadCanonicalStarterRoomOverride('tavern_entrance');
     $query = $this->database->select('dungeoncrawler_content_rooms', 'r')
       ->fields('r', ['room_id', 'name', 'description', 'environment_tags', 'layout_data', 'contents_data', 'source_room_id']);
     $or = $query->orConditionGroup()
@@ -376,6 +377,15 @@ class CampaignInitializationService {
     if (!is_array($record)) {
       $this->logger->error('Starter tavern asset not found in dungeoncrawler_content_rooms; packaged JSON fallbacks are disabled.');
       return NULL;
+    }
+
+    if (is_array($canonical_override)) {
+      $record['name'] = $canonical_override['name'] ?? $record['name'];
+      $record['description'] = $canonical_override['description'] ?? $record['description'];
+      $record['environment_tags'] = json_encode($canonical_override['environment_tags'] ?? $this->decodeJsonArray($record['environment_tags'] ?? NULL));
+      $record['layout_data'] = json_encode($canonical_override['layout_data'] ?? $this->decodeJsonArray($record['layout_data'] ?? NULL));
+      $record['contents_data'] = json_encode($canonical_override['contents_data'] ?? $this->decodeJsonArray($record['contents_data'] ?? NULL));
+      $record['source_room_id'] = $canonical_override['source_room_id'] ?? $record['source_room_id'];
     }
 
     $room_id = trim((string) ($record['source_room_id'] ?? ''));
@@ -779,12 +789,78 @@ class CampaignInitializationService {
         ->execute()
         ->fetchField();
 
+      $canonical = $this->loadCanonicalQuestTemplateDefinition((string) $template_id);
       if (!$existing) {
         $this->logger->error('Required starter quest template missing from canonical asset library: {template_id}', [
           'template_id' => $template_id,
         ]);
       }
+      elseif ($canonical !== NULL) {
+        $this->database->update('dungeoncrawler_content_quest_templates')
+          ->fields($canonical)
+          ->condition('id', (int) $existing)
+          ->execute();
+      }
     }
+  }
+
+  /**
+   * Load one canonical bundled quest template definition from the source file.
+   */
+  private function loadCanonicalQuestTemplateDefinition(string $template_id): ?array {
+    $path = $this->moduleList->getPath('dungeoncrawler_content') . '/content/quest_templates.json';
+    if (!is_file($path)) {
+      return NULL;
+    }
+
+    $decoded = json_decode((string) file_get_contents($path), TRUE);
+    if (!is_array($decoded)) {
+      return NULL;
+    }
+
+    foreach ($decoded as $entry) {
+      if (!is_array($entry) || trim((string) ($entry['template_id'] ?? '')) !== $template_id) {
+        continue;
+      }
+
+      return [
+        'name' => (string) ($entry['name'] ?? ''),
+        'description' => (string) ($entry['description'] ?? ''),
+        'quest_type' => (string) ($entry['quest_type'] ?? 'side_quest'),
+        'level_min' => (int) ($entry['level_min'] ?? 1),
+        'level_max' => (int) ($entry['level_max'] ?? 20),
+        'tags' => json_encode($entry['tags'] ?? []),
+        'objectives_schema' => json_encode($entry['objectives_schema'] ?? []),
+        'rewards_schema' => json_encode($entry['rewards_schema'] ?? []),
+        'prerequisites' => json_encode($entry['prerequisites'] ?? []),
+        'story_impact' => (string) ($entry['story_impact'] ?? ''),
+        'estimated_duration_minutes' => isset($entry['estimated_duration_minutes']) ? (int) $entry['estimated_duration_minutes'] : NULL,
+        'updated' => $this->time->getRequestTime(),
+        'version' => (string) ($entry['version'] ?? '1.0.0'),
+      ];
+    }
+
+    return NULL;
+  }
+
+  /**
+   * Load the canonical tavern starter room override from the source file.
+   */
+  private function loadCanonicalStarterRoomOverride(string $room_id): ?array {
+    $path = $this->moduleList->getPath('dungeoncrawler_content') . '/config/examples/templates/dungeoncrawler_content_rooms/default_room_templates.json';
+    if (!is_file($path)) {
+      return NULL;
+    }
+
+    $decoded = json_decode((string) file_get_contents($path), TRUE);
+    $rows = is_array($decoded['rows'] ?? NULL) ? $decoded['rows'] : [];
+    foreach ($rows as $row) {
+      if (is_array($row) && trim((string) ($row['room_id'] ?? '')) === $room_id) {
+        return $row;
+      }
+    }
+
+    return NULL;
   }
 
   /**

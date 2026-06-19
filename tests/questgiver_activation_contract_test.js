@@ -37,9 +37,15 @@ assert(
 );
 
 const collectSpellbooks = questTemplates.find((entry) => entry.template_id === 'collect_spellbooks') || {};
+assert(collectSpellbooks.name === 'Recover {item_name}', 'Collect Spellbooks template uses the recover journal quest name');
 const collectObjective = collectSpellbooks?.objectives_schema?.[0]?.objectives?.[0] || {};
 assert(collectObjective.target_count === 1, 'Collect Spellbooks template target_count is fixed at 1');
 assert(String(collectObjective.item || '').includes('{item_name}'), 'Collect Spellbooks template still uses item_name placeholder');
+assert((collectSpellbooks?.rewards_schema?.xp?.base ?? null) === 73, 'Collect Spellbooks template uses fixed XP reward');
+assert((collectSpellbooks?.rewards_schema?.xp?.per_level ?? null) === 0, 'Collect Spellbooks template disables per-level XP scaling');
+assert((collectSpellbooks?.rewards_schema?.gold?.base ?? null) === 6, 'Collect Spellbooks template uses fixed gold reward');
+assert((collectSpellbooks?.rewards_schema?.gold?.per_level ?? null) === 0, 'Collect Spellbooks template disables per-level gold scaling');
+assert(Array.isArray(collectSpellbooks?.rewards_schema?.items) && collectSpellbooks.rewards_schema.items[0]?.item_id === 'healing_potion_minor', 'Collect Spellbooks template uses a fixed healing potion reward');
 
 const tavernRoom = (roomTemplates.rows || []).find((room) => room.room_id === 'tavern_entrance') || {};
 const martaQuest = (tavernRoom.contents_data?.npcs || []).flatMap((npc) => npc.quests || []).find((quest) => quest.quest_id === 'collect_spellbooks') || {};
