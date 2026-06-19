@@ -192,12 +192,28 @@ class RoomChatController extends ControllerBase {
     }
     catch (\InvalidArgumentException $e) {
       $status = (int) $e->getCode() ?: 500;
+      $this->logger->warning('Room chat history request rejected: campaign={campaign_id} room={room_id} channel={channel} character_id={character_id} status={status} message={message}', [
+        'campaign_id' => $campaign_id,
+        'room_id' => $room_id,
+        'channel' => isset($channel) ? (string) $channel : 'room',
+        'character_id' => isset($character_id) ? (int) ($character_id ?? 0) : 0,
+        'status' => $status,
+        'message' => $e->getMessage(),
+      ]);
       return new JsonResponse([
         'success' => FALSE,
         'error' => $status === 404 ? 'Dungeon not found' : 'Invalid request',
       ], $status);
     }
     catch (\Throwable $e) {
+      $this->logger->error('Room chat history request failed: campaign={campaign_id} room={room_id} channel={channel} character_id={character_id} exception={exception} message={message}', [
+        'campaign_id' => $campaign_id,
+        'room_id' => $room_id,
+        'channel' => isset($channel) ? (string) $channel : 'room',
+        'character_id' => isset($character_id) ? (int) ($character_id ?? 0) : 0,
+        'exception' => get_class($e),
+        'message' => $e->getMessage(),
+      ]);
       return new JsonResponse([
         'success' => FALSE,
         'error' => 'An error occurred',

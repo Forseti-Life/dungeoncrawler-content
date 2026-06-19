@@ -614,7 +614,17 @@ export class GameShell {
         headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
         credentials: 'same-origin',
       });
-      if (!resp.ok) return;
+      if (!resp.ok) {
+        const responseText = await resp.text().catch(() => '');
+        console.error('[GameShell] _loadChatHistory failed', {
+          campaignId,
+          roomId,
+          characterId: charId,
+          status: resp.status,
+          body: responseText,
+        });
+        return;
+      }
       const result = await resp.json().catch(() => ({}));
       if (!result?.success || !Array.isArray(result.data?.messages)) {
         console.warn('[GameShell] _loadChatHistory: unexpected response', { ok: resp.ok, success: result?.success, messageCount: result?.data?.messages?.length });
