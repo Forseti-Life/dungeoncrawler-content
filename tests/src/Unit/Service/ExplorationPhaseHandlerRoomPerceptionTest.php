@@ -221,6 +221,71 @@ class ExplorationPhaseHandlerRoomPerceptionTest extends UnitTestCase {
   /**
    * @covers ::processIntent
    */
+  public function testSearchAppendsQuestCompletionNarratorAnnouncement(): void {
+    $roller = $this->createMock(NumberGenerationService::class);
+    $roller->expects($this->once())
+      ->method('rollPathfinderDie')
+      ->with(20)
+      ->willReturn(14);
+
+    $update = $this->createMock(Update::class);
+    $update->method('fields')->willReturnSelf();
+    $update->method('condition')->willReturnSelf();
+    $update->method('execute')->willReturn(1);
+
+    $database = $this->createMock(Connection::class);
+    $database->method('update')->willReturn($update);
+
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($this->createMock(LoggerInterface::class));
+
+    $handler = new class(
+      $database,
+      $logger_factory,
+      $this->createMock(RoomChatService::class),
+      $this->createMock(DungeonStateService::class),
+      $this->createMock(CharacterStateService::class),
+      $roller,
+      $this->createMock(AiGmService::class)
+    ) extends ExplorationPhaseHandler {
+      protected function resolveQuestSearchCollectibleDiscovery(int $campaign_id, string $actor_id, array $params, array &$dungeon_data): ?array {
+        return [
+          'item_instance_id' => 'item-1',
+          'item_id' => 'crystal_bound_codex',
+          'item_name' => 'Crystal-Bound Codex',
+          'quest_id' => 'tavern_storyline_leads',
+          'objective_id' => 'collect_codex',
+          'current' => 1,
+          'target' => 1,
+          'narration' => 'You notice Crystal-Bound Codex.',
+          'narrator_notes' => [
+            'Quest completed: Gather Storyline Leads in the Tavern. All goals accomplished.',
+          ],
+        ];
+      }
+    };
+
+    $game_state = $this->minimalGameState();
+    $dungeon_data = $this->buildDungeonData();
+    $dungeon_data['rooms'][0]['gameplay_state']['search_dc'] = 15;
+    unset($dungeon_data['rooms'][0]['gameplay_state']['sensory_details']);
+
+    $response = $handler->processIntent([
+      'type' => 'search',
+      'actor' => 'pc-1',
+      'params' => [
+        'search_mode' => 'explicit',
+      ],
+    ], $game_state, $dungeon_data, 42);
+
+    $this->assertTrue($response['success']);
+    $this->assertStringContainsString('You notice Crystal-Bound Codex.', (string) $response['narration']);
+    $this->assertStringContainsString('Quest completed: Gather Storyline Leads in the Tavern. All goals accomplished.', (string) $response['narration']);
+  }
+
+  /**
+   * @covers ::processIntent
+   */
   public function testRoomEntryAutoSearchUsesActorPerceptionModifier(): void {
     $roller = $this->createMock(NumberGenerationService::class);
     $roller->expects($this->exactly(2))

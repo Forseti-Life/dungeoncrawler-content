@@ -128,6 +128,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
   protected CampaignClockService $campaignClockService;
   protected ?TextToSpeechIntegrationService $textToSpeechIntegration;
   protected ?FileUrlGeneratorInterface $fileUrlGenerator;
+  protected ?QuestTrackerService $questTracker;
 
   /**
    * Constructs an ExplorationPhaseHandler.
@@ -147,7 +148,8 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
     ?GameplayActionProcessor $gameplay_action_processor = NULL,
     ?CampaignClockService $campaign_clock_service = NULL,
     ?TextToSpeechIntegrationService $text_to_speech_integration = NULL,
-    ?FileUrlGeneratorInterface $file_url_generator = NULL
+    ?FileUrlGeneratorInterface $file_url_generator = NULL,
+    ?QuestTrackerService $quest_tracker = NULL
   ) {
     $this->database = $database;
     $this->logger = $logger_factory->get('dungeoncrawler');
@@ -171,6 +173,14 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
     $this->campaignClockService = $campaign_clock_service ?? new CampaignClockService();
     $this->textToSpeechIntegration = $text_to_speech_integration;
     $this->fileUrlGenerator = $file_url_generator;
+    $this->questTracker = $quest_tracker;
+    if (
+      $this->questTracker === NULL
+      && \Drupal::hasService('dungeoncrawler_content.quest_tracker')
+    ) {
+      $candidate = \Drupal::service('dungeoncrawler_content.quest_tracker');
+      $this->questTracker = $candidate instanceof QuestTrackerService ? $candidate : NULL;
+    }
   }
 
   /**
@@ -2101,6 +2111,15 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
       }
     }
     $narration = $this->buildSearchNarration($discoveries, $sensory_result);
+    $quest_narrator_notes = array_values(array_filter((array) ($quest_discovery['narrator_notes'] ?? []), static fn($note): bool => is_string($note) && trim($note) !== ''));
+    if ($quest_narrator_notes !== []) {
+      $narration_parts = [];
+      if (is_string($narration) && trim($narration) !== '') {
+        $narration_parts[] = trim($narration);
+      }
+      $narration_parts = array_merge($narration_parts, $quest_narrator_notes);
+      $narration = implode(' ', $narration_parts);
+    }
     if ($requested_mode === self::SEARCH_MODE_EXPLICIT && (!is_string($narration) || trim($narration) === '')) {
       $narration = 'You search the area carefully but do not uncover anything new.';
     }
@@ -2493,12 +2512,36 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
    */
   protected function recordSearchCollectibleProgress(int $campaign_id, int $character_id, array $quest_target): array {
     $target = max(1, (int) $quest_target['target']);
-    $next_current = min($target, ((int) $quest_target['current']) + 1);
-    $this->syncSearchCollectibleProgress($campaign_id, $character_id, $quest_target, $next_current);
+    $current = min($target, max(0, (int) $quest_target['current']));
+    if ($current > 0 || empty($quest_target['progress_exists'])) {
+      $this->syncSearchCollectibleProgress($campaign_id, $character_id, $quest_target, $current);
+    }
+
+    $result = NULL;
+    if ($this->questTracker) {
+      $result = $this->questTracker->updateObjectiveProgress(
+        $campaign_id,
+        (string) ($quest_target['quest_id'] ?? ''),
+        (string) ($quest_target['objective_id'] ?? ''),
+        1,
+        $character_id
+      );
+    }
+
+    if (!is_array($result) || empty($result['success'])) {
+      $next_current = min($target, $current + 1);
+      $this->syncSearchCollectibleProgress($campaign_id, $character_id, $quest_target, $next_current);
+      return [
+        'current' => $next_current,
+        'target' => $target,
+        'narrator_notes' => [],
+      ];
+    }
 
     return [
-      'current' => $next_current,
+      'current' => min($target, $current + 1),
       'target' => $target,
+      'narrator_notes' => array_values(array_filter((array) ($result['narrator_notes'] ?? []), 'is_string')),
     ];
   }
 

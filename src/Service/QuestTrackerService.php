@@ -267,6 +267,7 @@ class QuestTrackerService {
       // Check if phase is complete
       $phase_complete = $this->isPhaseComplete($objective_states, $current_phase);
       $quest_complete = $this->isQuestCompleted($objective_states);
+      $narrator_notes = [];
 
       // Save updated progress for the caller scope.
       $this->saveProgressRecord(
@@ -292,13 +293,17 @@ class QuestTrackerService {
           $next_step = $quest_complete
             ? ''
             : $this->resolveNextObjectiveNarrationLabel($objective_states, $current_phase);
-          $this->postQuestObjectiveCompletionNarratorNote($campaign_id, $quest, $objective_id, $progress_character_id, $next_step);
+          $narrator_notes[] = $this->postQuestObjectiveCompletionNarratorNote($campaign_id, $quest, $objective_id, $progress_character_id, $next_step);
         }
       }
 
       if ($phase_complete) {
         if ($quest_complete) {
-          $this->completeQuest($campaign_id, $quest_id, $progress_character_id);
+          $completion_result = $this->completeQuest($campaign_id, $quest_id, $progress_character_id);
+          $narrator_notes = array_values(array_merge(
+            $narrator_notes,
+            array_values(array_filter((array) ($completion_result['narrator_notes'] ?? []), 'is_string'))
+          ));
         }
         else {
           $this->advancePhase($campaign_id, $quest_id, $progress_character_id);
@@ -312,6 +317,7 @@ class QuestTrackerService {
         'phase_completed' => $phase_complete,
         'objective_completed' => $objective_completed,
         'quest_status' => $quest_complete ? 'completed' : 'active',
+        'narrator_notes' => array_values(array_filter($narrator_notes, static fn($note): bool => is_string($note) && trim($note) !== '')),
       ];
     }
     catch (\Exception $e) {
@@ -402,6 +408,7 @@ class QuestTrackerService {
       ->execute();
 
     $rewards_applied = [];
+    $narrator_notes = [];
     $reward_transaction = $this->database->startTransaction();
     $reward_claim_started = $this->beginQuestRewardGrant($campaign_id, $quest_id, $reward_claim_character_id);
     if ($reward_claim_started) {
@@ -420,7 +427,7 @@ class QuestTrackerService {
       $character_id
     );
     if (!$already_completed) {
-      $this->postQuestCompletionNarratorNote($campaign_id, $quest, $character_id);
+      $narrator_notes[] = $this->postQuestCompletionNarratorNote($campaign_id, $quest, $character_id);
     }
 
     $this->logger->info('Completed quest @quest with outcome @outcome', [
@@ -440,6 +447,7 @@ class QuestTrackerService {
       'rewards' => $rewards,
       'rewards_applied' => $rewards_applied,
       'completed_at' => $now,
+      'narrator_notes' => array_values(array_filter($narrator_notes, static fn($note): bool => is_string($note) && trim($note) !== '')),
     ];
   }
 
@@ -452,7 +460,7 @@ class QuestTrackerService {
     string $objective_id,
     ?int $character_id,
     string $next_step = ''
-  ): void {
+  ): string {
     $quest_name = trim((string) ($quest['quest_name'] ?? $quest['name'] ?? $quest['quest_id'] ?? 'Quest'));
     $objective_label = $this->resolveQuestObjectiveNarrationLabel($quest, $objective_id);
     $message = $objective_label !== ''
@@ -471,19 +479,22 @@ class QuestTrackerService {
       'character_id' => $character_id,
       'next_step' => $next_step,
     ]);
+    return $message;
   }
 
   /**
    * Post a narrator note when a quest is completed.
    */
-  protected function postQuestCompletionNarratorNote(int $campaign_id, array $quest, ?int $character_id): void {
+  protected function postQuestCompletionNarratorNote(int $campaign_id, array $quest, ?int $character_id): string {
     $quest_name = trim((string) ($quest['quest_name'] ?? $quest['name'] ?? $quest['quest_id'] ?? 'Quest'));
-    $this->postQuestNarratorNote($campaign_id, $quest, sprintf('Quest completed: %s. All goals accomplished.', $quest_name), [
+    $message = sprintf('Quest completed: %s. All goals accomplished.', $quest_name);
+    $this->postQuestNarratorNote($campaign_id, $quest, $message, [
       'event' => 'quest_completed',
       'message_class' => 'quest_completion',
       'quest_id' => (string) ($quest['quest_id'] ?? ''),
       'character_id' => $character_id,
     ]);
+    return $message;
   }
 
   /**

@@ -579,6 +579,103 @@ class QuestTrackerServiceTest extends UnitTestCase {
   }
 
   /**
+   * Verifies canonical objective progress returns narrator notes for quest completion.
+   */
+  public function testUpdateObjectiveProgressReturnsQuestCompletionNarratorNotes(): void {
+    $logger = $this->createMock(LoggerInterface::class);
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($logger);
+
+    $service = new class(
+      $this->createMock(Connection::class),
+      $logger_factory,
+      $this->createMock(TimeInterface::class)
+    ) extends QuestTrackerService {
+      public array $saved = [];
+
+      protected function loadProgress(int $campaign_id, string $quest_id, ?int $character_id = NULL, ?int $party_id = NULL): ?array {
+        return [
+          'quest_id' => $quest_id,
+          'character_id' => $character_id,
+          'party_id' => NULL,
+          'objective_states' => json_encode([
+            [
+              'phase' => 1,
+              'objectives' => [
+                [
+                  'objective_id' => 'collect_codex',
+                  'type' => 'collect',
+                  'description' => 'Recover the Crystal-Bound Codex.',
+                  'current' => 0,
+                  'target_count' => 1,
+                  'completed' => FALSE,
+                  'completion_criteria' => [
+                    'kind' => 'count',
+                    'metric' => 'current',
+                    'target_count' => 1,
+                    'description' => 'Recover the Crystal-Bound Codex.',
+                  ],
+                ],
+              ],
+            ],
+          ]),
+          'current_phase' => 1,
+        ];
+      }
+
+      protected function loadCampaignQuest(int $campaign_id, string $quest_id): ?array {
+        return [
+          'quest_id' => $quest_id,
+          'quest_name' => 'Gather Storyline Leads in the Tavern',
+          'status' => 'active',
+        ];
+      }
+
+      protected function saveProgressRecord(int $campaign_id, string $quest_id, ?int $character_id, ?int $party_id, array $objective_states, int $current_phase): void {
+        $this->saved = [
+          'campaign_id' => $campaign_id,
+          'quest_id' => $quest_id,
+          'character_id' => $character_id,
+          'objective_states' => $objective_states,
+          'current_phase' => $current_phase,
+        ];
+      }
+
+      protected function logQuestEvent(int $campaign_id, string $quest_id, string $event_type, array $event_data, ?string $narrative_text = NULL, ?int $character_id = NULL): void {}
+
+      protected function postQuestObjectiveCompletionNarratorNote(int $campaign_id, array $quest, string $objective_id, ?int $character_id, string $next_step = ''): string {
+        return 'Objective completed for Gather Storyline Leads in the Tavern: Recover the Crystal-Bound Codex.';
+      }
+
+      public function completeQuest(int $campaign_id, string $quest_id, ?int $character_id = NULL, string $outcome = 'success'): array {
+        return [
+          'success' => TRUE,
+          'quest_id' => $quest_id,
+          'outcome' => $outcome,
+          'rewards' => [],
+          'rewards_applied' => [],
+          'completed_at' => 123456,
+          'narrator_notes' => [
+            'Quest completed: Gather Storyline Leads in the Tavern. All goals accomplished.',
+          ],
+        ];
+      }
+    };
+
+    $result = $service->updateObjectiveProgress(266, 'tavern_storyline_leads', 'collect_codex', 1, 984);
+
+    $this->assertTrue($result['success']);
+    $this->assertTrue($result['objective_completed']);
+    $this->assertTrue($result['phase_completed']);
+    $this->assertTrue($result['quest_completed']);
+    $this->assertSame('completed', $result['quest_status']);
+    $this->assertSame([
+      'Objective completed for Gather Storyline Leads in the Tavern: Recover the Crystal-Bound Codex.',
+      'Quest completed: Gather Storyline Leads in the Tavern. All goals accomplished.',
+    ], $result['narrator_notes']);
+  }
+
+  /**
    * Verifies quest rewards persist into campaign character state and inventory.
    */
   public function testApplyQuestRewardsPersistsCampaignCharacterState(): void {
