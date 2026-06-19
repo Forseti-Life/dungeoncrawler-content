@@ -15,7 +15,7 @@
  * During Phase 10 parallel testing it runs alongside the old hexmap library.
  */
 
-import { GameShell } from './v2/GameShell.js?v=20260616-v2-gm-nonturn-prefix-2';
+import { GameShell } from './v2/GameShell.js?v=20260619-v2-search-reward-refresh-1';
 
 (function (Drupal, drupalSettings, once) {
   'use strict';
