@@ -77,12 +77,13 @@ class RoomChatController extends ControllerBase {
   }
 
   /**
-   * Route player room chat through the canonical encounter talk action.
+   * Route player room chat through the GM subsystem.
    */
   protected function postPlayerRoomChatViaEncounterTalk(
     int $campaign_id,
     string $requested_room_id,
     ?int $character_id,
+    string $speaker,
     string $message,
     bool $defer_npc_interjections = FALSE,
     bool $suppress_gm = FALSE
@@ -93,7 +94,8 @@ class RoomChatController extends ControllerBase {
       $character_id,
       $message,
       $defer_npc_interjections,
-      $suppress_gm
+      $suppress_gm,
+      $speaker
     );
   }
 
@@ -250,6 +252,7 @@ class RoomChatController extends ControllerBase {
           $campaign_id,
           $room_id,
           $character_id,
+          $speaker,
           $message,
           FALSE,
           $suppress_gm
@@ -372,6 +375,7 @@ class RoomChatController extends ControllerBase {
             $campaign_id,
             $room_id,
             $character_id,
+            $speaker,
             $message,
             TRUE,
             FALSE

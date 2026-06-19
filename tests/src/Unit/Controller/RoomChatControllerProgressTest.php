@@ -191,7 +191,7 @@ class RoomChatControllerProgressTest extends UnitTestCase {
     $gm_subsystem = $this->createMock(GameMasterSubsystemService::class);
     $gm_subsystem->expects($this->once())
       ->method('handlePlayerRoomChat')
-      ->with(63, 'room-1', 241, 'Any work for me?', FALSE, FALSE)
+      ->with(63, 'room-1', 241, 'Any work for me?', FALSE, FALSE, 'Burasco')
       ->willReturn([
         'message' => [
           'speaker' => 'Burasco',
@@ -205,10 +205,10 @@ class RoomChatControllerProgressTest extends UnitTestCase {
         'available_actions' => ['talk', 'delay', 'end_turn'],
         'action_contract' => ['available_actions' => ['talk', 'delay', 'end_turn']],
         'gm_subsystem' => [
-          'workflow' => 'authoritative_room_action',
-          'route' => 'room_talk',
+          'workflow' => 'authoritative_room_chat',
+          'route' => 'free_player_room_chat',
           'deterministic' => FALSE,
-          'intent' => ['type' => 'talk'],
+          'intent' => ['type' => 'room_chat'],
         ],
       ]);
 
@@ -237,7 +237,7 @@ class RoomChatControllerProgressTest extends UnitTestCase {
     $this->assertSame(2, $payload['data']['game_state']['turn']['actions_remaining']);
     $this->assertSame(['talk', 'delay', 'end_turn'], $payload['data']['available_actions']);
     $this->assertSame(['talk', 'delay', 'end_turn'], $payload['data']['action_contract']['available_actions']);
-    $this->assertSame('room_talk', $payload['data']['gm_subsystem']['route']);
+    $this->assertSame('free_player_room_chat', $payload['data']['gm_subsystem']['route']);
     $this->assertFalse($payload['data']['gm_subsystem']['deterministic']);
   }
 
@@ -255,7 +255,7 @@ class RoomChatControllerProgressTest extends UnitTestCase {
     $gm_subsystem = $this->createMock(GameMasterSubsystemService::class);
     $gm_subsystem->expects($this->once())
       ->method('handlePlayerRoomChat')
-      ->with(63, 'room-1', 241, "I'm waiting until after Eldric", FALSE, FALSE)
+      ->with(63, 'room-1', 241, "I'm waiting until after Eldric", FALSE, FALSE, 'Felaiamiali')
       ->willReturn([
         'message' => [
           'speaker' => 'Felaiamiali',
@@ -310,7 +310,7 @@ class RoomChatControllerProgressTest extends UnitTestCase {
     $gm_subsystem = $this->createMock(GameMasterSubsystemService::class);
     $gm_subsystem->expects($this->once())
       ->method('handlePlayerRoomChat')
-      ->with(63, 'room-1', 241, 'Who answers?', FALSE, FALSE)
+      ->with(63, 'room-1', 241, 'Who answers?', FALSE, FALSE, 'Burasco')
       ->willReturn([
         'message' => [
           'speaker' => 'Burasco',

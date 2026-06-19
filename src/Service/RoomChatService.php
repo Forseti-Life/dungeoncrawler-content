@@ -715,11 +715,17 @@ class RoomChatService {
     // EncounterPhaseHandler has already validated canonical Talk intents. Skip the
     // duplicate room-turn gate in that internal path while keeping this guard for
     // all other room-chat callers.
-    $skip_encounter_turn_validation = (
+    $validated_encounter_talk = (
       $type === 'player'
       && $channel === 'room'
       && !empty($quest_touchpoint_hint['_validated_encounter_talk'])
     );
+    $validated_encounter_room_chat = (
+      $type === 'player'
+      && $channel === 'room'
+      && !empty($quest_touchpoint_hint['_validated_encounter_room_chat'])
+    );
+    $skip_encounter_turn_validation = $validated_encounter_talk || $validated_encounter_room_chat;
 
     $encounter_turn_error = $skip_encounter_turn_validation
       ? NULL
@@ -738,7 +744,7 @@ class RoomChatService {
     // Room chat is governed by the encounter engine (EncounterPhaseHandler).
     // Player room messages must be posted via the Talk action so the turn/action
     // framework remains authoritative.
-    if ($type === 'player' && $channel === 'room' && $encounter_prefix === NULL) {
+    if ($type === 'player' && $channel === 'room' && $encounter_prefix === NULL && !$validated_encounter_room_chat) {
       throw new \InvalidArgumentException('Room chat must be sent as the Talk encounter action.', 409);
     }
 

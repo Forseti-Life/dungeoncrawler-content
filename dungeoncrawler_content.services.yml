@@ -165,6 +165,7 @@ services:
     class: Drupal\dungeoncrawler_content\Service\GameMasterSubsystemService
     arguments:
       - '@dungeoncrawler_content.game_coordinator'
+      - '@dungeoncrawler_content.room_chat_service'
 
   dungeoncrawler_content.number_generation:
     class: Drupal\dungeoncrawler_content\Service\NumberGenerationService

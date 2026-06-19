@@ -11,12 +11,14 @@ namespace Drupal\dungeoncrawler_content\Service;
 class GameMasterSubsystemService {
 
   protected GameCoordinatorService $coordinator;
+  protected RoomChatService $roomChatService;
 
   /**
    * Constructor.
    */
-  public function __construct(GameCoordinatorService $coordinator) {
+  public function __construct(GameCoordinatorService $coordinator, RoomChatService $room_chat_service) {
     $this->coordinator = $coordinator;
+    $this->roomChatService = $room_chat_service;
   }
 
   /**
@@ -28,7 +30,8 @@ class GameMasterSubsystemService {
     ?int $character_id,
     string $message,
     bool $defer_npc_interjections = FALSE,
-    bool $suppress_gm = FALSE
+    bool $suppress_gm = FALSE,
+    string $speaker = ''
   ): array {
     if ($character_id === NULL || $character_id <= 0) {
       throw new \InvalidArgumentException('character_id is required for player room chat.', 400);
@@ -51,32 +54,74 @@ class GameMasterSubsystemService {
       $character_id,
       $message,
       $defer_npc_interjections,
-      $suppress_gm
+      $suppress_gm,
+      $speaker
     );
 
-    $action_response = $this->coordinator->processAction($campaign_id, $route['intent']);
-    if (empty($action_response['success'])) {
-      $error = trim((string) (
-        $action_response['error']
-        ?? ($action_response['result']['error'] ?? NULL)
-        ?? 'Talk failed.'
-      ));
-      throw new \InvalidArgumentException($error !== '' ? $error : 'Talk failed.', 409);
+    if (!empty($route['deterministic'])) {
+      $action_response = $this->coordinator->processAction($campaign_id, $route['intent']);
+      if (empty($action_response['success'])) {
+        $error = trim((string) (
+          $action_response['error']
+          ?? ($action_response['result']['error'] ?? NULL)
+          ?? 'Talk failed.'
+        ));
+        throw new \InvalidArgumentException($error !== '' ? $error : 'Talk failed.', 409);
+      }
+
+      $talk_result = is_array($action_response['result'] ?? NULL) ? $action_response['result'] : [];
+      foreach (['game_state', 'available_actions', 'action_contract', 'events', 'phase_transition', 'dungeon_data'] as $response_key) {
+        if (array_key_exists($response_key, $action_response)) {
+          $talk_result[$response_key] = $action_response[$response_key];
+        }
+      }
+      if (isset($talk_result['chat_message']) && is_array($talk_result['chat_message'])) {
+        $talk_result['message'] = $talk_result['chat_message'];
+        unset($talk_result['chat_message']);
+      }
+      $talk_result['gm_subsystem'] = $this->buildResponseEnvelope($route, $active_room_id ?: $requested_room_id);
+
+      return $talk_result;
     }
 
-    $talk_result = is_array($action_response['result'] ?? NULL) ? $action_response['result'] : [];
-    foreach (['game_state', 'available_actions', 'action_contract', 'events', 'phase_transition', 'dungeon_data'] as $response_key) {
-      if (array_key_exists($response_key, $action_response)) {
-        $talk_result[$response_key] = $action_response[$response_key];
+    $room_id = $active_room_id ?: $requested_room_id;
+    $requested_speaker = trim($speaker);
+    $speaker = trim((string) $this->coordinator->resolveActorDisplayName($campaign_id, $actor_id));
+    if ($speaker === '') {
+      $speaker = $requested_speaker !== '' ? $requested_speaker : 'Player';
+    }
+    $defer_npc_interjections = TRUE;
+    $chat_result = $this->roomChatService->postMessage(
+      $campaign_id,
+      $room_id,
+      $speaker,
+      $message,
+      'player',
+      $character_id,
+      'room',
+      $defer_npc_interjections,
+      $suppress_gm,
+      NULL,
+      [
+        '_validated_encounter_room_chat' => TRUE,
+      ]
+    );
+    $state = $this->coordinator->getFullState($campaign_id);
+    foreach (['game_state', 'available_actions', 'action_contract', 'events', 'phase', 'encounter_id', 'round', 'turn', 'state_version', 'active_room_id'] as $response_key) {
+      if (array_key_exists($response_key, $state)) {
+        $chat_result[$response_key] = $state[$response_key];
       }
     }
-    if (isset($talk_result['chat_message']) && is_array($talk_result['chat_message'])) {
-      $talk_result['message'] = $talk_result['chat_message'];
-      unset($talk_result['chat_message']);
+    if (isset($chat_result['message']) && !is_array($chat_result['message']) && isset($chat_result['speaker'])) {
+      $chat_result['message'] = [
+        'speaker' => (string) $chat_result['speaker'],
+        'message' => (string) $chat_result['message'],
+        'type' => 'player',
+      ];
     }
-    $talk_result['gm_subsystem'] = $this->buildResponseEnvelope($route, $active_room_id ?: $requested_room_id);
+    $chat_result['gm_subsystem'] = $this->buildResponseEnvelope($route, $room_id);
 
-    return $talk_result;
+    return $chat_result;
   }
 
   /**
@@ -89,7 +134,8 @@ class GameMasterSubsystemService {
     ?int $character_id,
     string $message,
     bool $defer_npc_interjections,
-    bool $suppress_gm
+    bool $suppress_gm,
+    string $speaker
   ): array {
     $deterministic_intent = $this->buildDeterministicTurnControlIntent($campaign_id, $actor_id, $character_id, $message);
     if ($deterministic_intent !== NULL) {
@@ -105,20 +151,21 @@ class GameMasterSubsystemService {
     }
 
     return [
-      'workflow' => 'authoritative_room_action',
-      'route' => 'room_talk',
+      'workflow' => 'authoritative_room_chat',
+      'route' => 'free_player_room_chat',
       'deterministic' => FALSE,
       'requested_room_id' => $requested_room_id,
       'actor_id' => $actor_id,
       'character_id' => $character_id,
       'intent' => [
-        'type' => 'talk',
+        'type' => 'room_chat',
         'actor' => $actor_id,
         'target' => NULL,
         'params' => [
+          'speaker' => $speaker,
           'message' => $message,
           'character_id' => $character_id,
-          'defer_npc_interjections' => $defer_npc_interjections,
+          'defer_npc_interjections' => TRUE,
           'suppress_gm' => $suppress_gm,
         ],
       ],
@@ -130,8 +177,8 @@ class GameMasterSubsystemService {
    */
   protected function buildResponseEnvelope(array $route, string $resolved_room_id): array {
     return [
-      'workflow' => (string) ($route['workflow'] ?? 'authoritative_room_action'),
-      'route' => (string) ($route['route'] ?? 'room_talk'),
+      'workflow' => (string) ($route['workflow'] ?? 'authoritative_room_chat'),
+      'route' => (string) ($route['route'] ?? 'free_player_room_chat'),
       'deterministic' => !empty($route['deterministic']),
       'resolved_room_id' => $resolved_room_id,
       'requested_room_id' => (string) ($route['requested_room_id'] ?? $resolved_room_id),

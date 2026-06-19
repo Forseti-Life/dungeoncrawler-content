@@ -472,6 +472,44 @@ class GameCoordinatorService {
   }
 
   /**
+   * Resolve the display name for a runtime actor entity.
+   */
+  public function resolveActorDisplayName(int $campaign_id, string $actor_id): ?string {
+    $actor_id = trim($actor_id);
+    if ($actor_id === '') {
+      return NULL;
+    }
+
+    $dungeon_data = $this->loadDungeonData($campaign_id, $actor_id);
+    if (!$dungeon_data) {
+      return NULL;
+    }
+
+    $game_state = $this->ensureGameState($dungeon_data);
+    foreach ($game_state['initiative_order'] ?? [] as $combatant) {
+      if (($combatant['entity_id'] ?? '') === $actor_id) {
+        $name = trim((string) ($combatant['name'] ?? $combatant['display_name'] ?? ''));
+        return $name !== '' ? $name : $actor_id;
+      }
+    }
+
+    foreach ($dungeon_data['entities'] ?? [] as $entity) {
+      if (!is_array($entity)) {
+        continue;
+      }
+      $entity_instance_id = (string) ($entity['entity_instance_id'] ?? ($entity['entity_ref']['content_id'] ?? ''));
+      if ($entity_instance_id !== $actor_id) {
+        continue;
+      }
+
+      $name = trim((string) ($entity['state']['metadata']['display_name'] ?? ($entity['name'] ?? '')));
+      return $name !== '' ? $name : $actor_id;
+    }
+
+    return $actor_id;
+  }
+
+  /**
    * Resolve the runtime actor entity ID for a campaign character.
    */
   public function resolveActorIdForCharacterId(int $campaign_id, int $character_id): ?string {

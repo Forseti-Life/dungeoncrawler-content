@@ -4,6 +4,7 @@ namespace Drupal\Tests\dungeoncrawler_content\Unit\Service;
 
 use Drupal\dungeoncrawler_content\Service\GameCoordinatorService;
 use Drupal\dungeoncrawler_content\Service\GameMasterSubsystemService;
+use Drupal\dungeoncrawler_content\Service\RoomChatService;
 use Drupal\Tests\UnitTestCase;
 
 /**
@@ -17,8 +18,79 @@ class GameMasterSubsystemServiceTest extends UnitTestCase {
   /**
    * @covers ::handlePlayerRoomChat
    */
-  public function testHandlePlayerRoomChatRoutesStandardTalkIntent(): void {
+  public function testHandlePlayerRoomChatRoutesStandardPlayerSpeechWithoutSpendingAction(): void {
     $coordinator = $this->createMock(GameCoordinatorService::class);
+    $room_chat_service = $this->createMock(RoomChatService::class);
+    $coordinator->expects($this->once())
+      ->method('resolveActorIdForCharacterId')
+      ->with(63, 241)
+      ->willReturn('pc-241-324');
+    $coordinator->expects($this->once())
+      ->method('getActiveRoomId')
+      ->with(63, 'pc-241-324')
+      ->willReturn('room-1');
+    $coordinator->expects($this->once())
+      ->method('resolveActorDisplayName')
+      ->with(63, 'pc-241-324')
+      ->willReturn('Tikask');
+    $coordinator->expects($this->once())
+      ->method('getFullState');
+    $coordinator->expects($this->once())
+      ->method('getFullState')
+      ->willReturn([
+        'game_state' => [
+          'turn' => [
+            'entity' => 'pc-241-324',
+            'index' => 0,
+            'actions_remaining' => 2,
+          ],
+        ],
+        'available_actions' => ['talk', 'delay', 'end_turn'],
+        'action_contract' => ['available_actions' => ['talk', 'delay', 'end_turn']],
+      ]);
+    $coordinator->expects($this->never())
+      ->method('processAction');
+    $room_chat_service->expects($this->once())
+      ->method('postMessage')
+      ->with(
+        63,
+        'room-1',
+        'Tikask',
+        'Any work for me?',
+        'player',
+        241,
+        'room',
+        TRUE,
+        FALSE,
+        NULL,
+        ['_validated_encounter_room_chat' => TRUE]
+      )
+      ->willReturn([
+        'message' => [
+          'speaker' => 'Tikask',
+          'message' => 'Any work for me?',
+          'type' => 'player',
+        ],
+      ]);
+
+    $service = new GameMasterSubsystemService($coordinator, $room_chat_service);
+    $result = $service->handlePlayerRoomChat(63, 'room-1', 241, 'Any work for me?', FALSE, FALSE, 'Tikask');
+
+    $this->assertSame('Any work for me?', $result['message']['message']);
+    $this->assertSame('Tikask', $result['message']['speaker']);
+    $this->assertFalse($result['gm_subsystem']['deterministic']);
+    $this->assertSame('free_player_room_chat', $result['gm_subsystem']['route']);
+    $this->assertSame('room_chat', $result['gm_subsystem']['intent']['type']);
+    $this->assertSame('pc-241-324', $result['gm_subsystem']['intent']['actor']);
+    $this->assertSame(2, $result['game_state']['turn']['actions_remaining']);
+  }
+
+  /**
+   * @covers ::handlePlayerRoomChat
+   */
+  public function testHandlePlayerRoomChatRoutesDeterministicDelayIntent(): void {
+    $coordinator = $this->createMock(GameCoordinatorService::class);
+    $room_chat_service = $this->createMock(RoomChatService::class);
     $coordinator->expects($this->once())
       ->method('resolveActorIdForCharacterId')
       ->with(63, 241)
@@ -28,51 +100,7 @@ class GameMasterSubsystemServiceTest extends UnitTestCase {
       ->with(63, 'pc-241-324')
       ->willReturn('room-1');
     $coordinator->expects($this->never())
-      ->method('getFullState');
-    $coordinator->expects($this->once())
-      ->method('processAction')
-      ->with(63, $this->callback(function (array $intent): bool {
-        $this->assertSame('talk', $intent['type'] ?? NULL);
-        $this->assertSame('pc-241-324', $intent['actor'] ?? NULL);
-        $this->assertSame('Any work for me?', $intent['params']['message'] ?? NULL);
-        $this->assertSame(241, $intent['params']['character_id'] ?? NULL);
-        return TRUE;
-      }))
-      ->willReturn([
-        'success' => TRUE,
-        'result' => [
-          'chat_message' => [
-            'speaker' => 'Tikask',
-            'message' => 'Any work for me?',
-            'type' => 'player',
-          ],
-        ],
-      ]);
-
-    $service = new GameMasterSubsystemService($coordinator);
-    $result = $service->handlePlayerRoomChat(63, 'room-1', 241, 'Any work for me?');
-
-    $this->assertSame('Any work for me?', $result['message']['message']);
-    $this->assertSame('Tikask', $result['message']['speaker']);
-    $this->assertFalse($result['gm_subsystem']['deterministic']);
-    $this->assertSame('room_talk', $result['gm_subsystem']['route']);
-    $this->assertSame('talk', $result['gm_subsystem']['intent']['type']);
-    $this->assertSame('pc-241-324', $result['gm_subsystem']['intent']['actor']);
-  }
-
-  /**
-   * @covers ::handlePlayerRoomChat
-   */
-  public function testHandlePlayerRoomChatRoutesDeterministicDelayIntent(): void {
-    $coordinator = $this->createMock(GameCoordinatorService::class);
-    $coordinator->expects($this->once())
-      ->method('resolveActorIdForCharacterId')
-      ->with(63, 241)
-      ->willReturn('pc-241-324');
-    $coordinator->expects($this->once())
-      ->method('getActiveRoomId')
-      ->with(63, 'pc-241-324')
-      ->willReturn('room-1');
+      ->method('resolveActorDisplayName');
     $coordinator->expects($this->once())
       ->method('getFullState')
       ->with(63)
@@ -103,8 +131,10 @@ class GameMasterSubsystemServiceTest extends UnitTestCase {
           ],
         ],
       ]);
+    $room_chat_service->expects($this->never())
+      ->method('postMessage');
 
-    $service = new GameMasterSubsystemService($coordinator);
+    $service = new GameMasterSubsystemService($coordinator, $room_chat_service);
     $result = $service->handlePlayerRoomChat(63, 'room-1', 241, "I'm waiting until after Eldric");
 
     $this->assertSame(2, $result['game_state']['turn']['actions_remaining']);
