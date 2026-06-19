@@ -128,11 +128,17 @@ class GameMasterSubsystemServiceTest extends UnitTestCase {
       ->method('getFullState')
       ->with(63)
       ->willReturn([
-        'available_actions' => ['talk', 'delay', 'end_turn'],
         'initiative_order' => [
           ['entity_id' => 'pc-241-324', 'team' => 'player', 'name' => 'Tikask'],
           ['entity_id' => 'npc-eldric', 'team' => 'npc', 'name' => 'Eldric'],
         ],
+      ]);
+    $coordinator->expects($this->once())
+      ->method('getActionAvailabilityForActor')
+      ->with(63, 'pc-241-324')
+      ->willReturn([
+        'available_actions' => ['talk', 'delay', 'end_turn'],
+        'action_contract' => ['available_actions' => ['talk', 'delay', 'end_turn']],
       ]);
     $coordinator->expects($this->once())
       ->method('processAction')

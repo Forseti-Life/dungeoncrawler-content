@@ -65,7 +65,7 @@ class EncounterAiIntegrationServiceTest extends UnitTestCase {
       'turn_index' => 1,
       'participants' => [
         ['entity_ref' => 'pc-1', 'team' => 'player'],
-        ['entity_ref' => 'npc-2', 'team' => 'npc'],
+        ['entity_ref' => json_encode(['content_id' => 'npc-2', 'heritage' => 'chameleon']), 'team' => 'npc'],
       ],
     ];
 
@@ -75,9 +75,10 @@ class EncounterAiIntegrationServiceTest extends UnitTestCase {
     $this->assertSame(501, $context['encounter_id']);
     $this->assertSame('active', $context['status']);
     $this->assertSame(3, $context['current_round']);
-    $this->assertSame('npc-2', $context['current_actor']['entity_ref']);
+    $this->assertSame(json_encode(['content_id' => 'npc-2', 'heritage' => 'chameleon']), $context['current_actor']['entity_ref']);
     $this->assertContains('strike', $context['allowed_actions']);
     $this->assertContains('raise_shield', $context['allowed_actions']);
+    $this->assertContains('minor_color_shift', $context['allowed_actions']);
     $this->assertSame('encounter', $context['action_contract']['phase']);
     $this->assertSame('npc-2', $context['action_contract']['actor_id']);
     $this->assertTrue(is_array($context['action_contract']['actions']));

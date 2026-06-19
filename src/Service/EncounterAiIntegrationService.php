@@ -71,13 +71,18 @@ class EncounterAiIntegrationService {
       throw new \InvalidArgumentException('Encounter has no active participant.');
     }
 
-    $actor_id = trim((string) ($current_actor['entity_ref'] ?? $current_actor['entity_id'] ?? ''));
+    $actor_id = $this->resolveCurrentActorId($current_actor);
+    $heritage = $this->actionAvailability->resolveActorHeritageFromReference(
+      $current_actor['entity_ref'] ?? NULL,
+      is_string($current_actor['heritage'] ?? NULL) ? $current_actor['heritage'] : NULL
+    );
     $allowed_actions = $this->actionAvailability->resolveAvailableActionsFromTurnState(
       FALSE,
       $actor_id !== '' ? $actor_id : NULL,
       $actor_id !== '' ? $actor_id : NULL,
       max(0, (int) ($current_actor['actions_remaining'] ?? 3)),
-      !empty($current_actor['reaction_available'])
+      !empty($current_actor['reaction_available']),
+      $heritage
     );
     $actor_action_contract = $this->actionAvailability->buildActionContractFromAvailableActions(
       $allowed_actions,
@@ -248,6 +253,37 @@ class EncounterAiIntegrationService {
       )))),
       'actions_remaining' => $actions_remaining,
     ];
+  }
+
+  /**
+   * Resolve a stable actor id from preview/current actor payloads.
+   */
+  protected function resolveCurrentActorId(array $current_actor): string {
+    $entity_id = trim((string) ($current_actor['entity_id'] ?? ''));
+    if ($entity_id !== '') {
+      return $entity_id;
+    }
+
+    $entity_ref = $current_actor['entity_ref'] ?? NULL;
+    if (is_string($entity_ref)) {
+      $decoded = json_decode($entity_ref, TRUE);
+      if (is_array($decoded)) {
+        $content_id = trim((string) ($decoded['content_id'] ?? ''));
+        if ($content_id !== '') {
+          return $content_id;
+        }
+      }
+      return trim($entity_ref);
+    }
+
+    if (is_array($entity_ref)) {
+      $content_id = trim((string) ($entity_ref['content_id'] ?? ''));
+      if ($content_id !== '') {
+        return $content_id;
+      }
+    }
+
+    return '';
   }
 
 }

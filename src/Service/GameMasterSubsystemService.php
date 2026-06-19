@@ -252,15 +252,16 @@ class GameMasterSubsystemService {
       return NULL;
     }
 
-    $state = $this->coordinator->getFullState($campaign_id);
+    $availability = $this->coordinator->getActionAvailabilityForActor($campaign_id, $actor_id);
     $available_actions = array_values(array_unique(array_filter(
-      array_map(static fn($action): string => strtolower(trim((string) $action)), $state['available_actions'] ?? []),
+      array_map(static fn($action): string => strtolower(trim((string) $action)), $availability['available_actions'] ?? []),
       static fn(string $action): bool => $action !== ''
     )));
     if (!in_array('delay', $available_actions, TRUE)) {
       return NULL;
     }
 
+    $state = $this->coordinator->getFullState($campaign_id);
     $after_actor_id = $this->resolveDelayAfterActorId($normalized, $state['initiative_order'] ?? [], $actor_id);
 
     return [

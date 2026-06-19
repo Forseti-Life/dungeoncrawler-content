@@ -6824,6 +6824,9 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
           'content_type' => $content_type !== '' ? $content_type : (($participant['team'] ?? '') === 'player' ? 'player_character' : 'npc'),
           'content_id' => $content_id,
           'perception_modifier' => $perception,
+          'heritage' => is_string($entity['heritage'] ?? ($entity['state']['heritage'] ?? NULL))
+            ? strtolower(trim((string) ($entity['heritage'] ?? $entity['state']['heritage'])))
+            : NULL,
         ],
         'team' => (string) ($participant['team'] ?? 'npc'),
         'name' => (string) ($participant['name'] ?? $entity_id),
@@ -6983,6 +6986,9 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
             'content_type' => $entity['entity_ref']['content_type'] ?? $content_type,
             'content_id' => $entity['entity_ref']['content_id'] ?? $instance_id,
             'perception_modifier' => (int) $perception,
+            'heritage' => is_string($entity['heritage'] ?? ($entity['state']['heritage'] ?? NULL))
+              ? strtolower(trim((string) ($entity['heritage'] ?? $entity['state']['heritage'])))
+              : NULL,
           ]),
           'team' => 'player',
           'name' => $entity['state']['metadata']['display_name'] ?? ($entity['entity_ref']['content_id'] ?? 'Unknown'),
@@ -7003,6 +7009,9 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
             'content_type' => $entity['entity_ref']['content_type'] ?? $content_type,
             'content_id' => $entity['entity_ref']['content_id'] ?? $instance_id,
             'perception_modifier' => (int) $perception,
+            'heritage' => is_string($entity['heritage'] ?? ($entity['state']['heritage'] ?? NULL))
+              ? strtolower(trim((string) ($entity['heritage'] ?? $entity['state']['heritage'])))
+              : NULL,
           ]),
           'team' => $team,
           'name' => $entity['state']['metadata']['display_name'] ?? ($entity['entity_ref']['content_id'] ?? 'Unknown'),

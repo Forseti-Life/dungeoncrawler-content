@@ -273,7 +273,7 @@ class ActorActionAvailabilityService {
       $actions[] = 'delay';
     }
 
-    if ($reaction_available) {
+    if ($is_active_turn_actor && $reaction_available) {
       $actions[] = 'reaction';
     }
 
@@ -399,6 +399,19 @@ class ActorActionAvailabilityService {
       static fn($action): string => strtolower(trim((string) $action)),
       $actions
     ))));
+  }
+
+  /**
+   * Resolve heritage-like actor metadata from stored participant references.
+   */
+  public function resolveActorHeritageFromReference(mixed $entity_ref, ?string $fallback = NULL): ?string {
+    $decoded = is_string($entity_ref)
+      ? json_decode($entity_ref, TRUE)
+      : (is_array($entity_ref) ? $entity_ref : []);
+    $heritage = $decoded['heritage'] ?? $fallback;
+    return is_string($heritage) && trim($heritage) !== ''
+      ? strtolower(trim($heritage))
+      : NULL;
   }
 
 }
