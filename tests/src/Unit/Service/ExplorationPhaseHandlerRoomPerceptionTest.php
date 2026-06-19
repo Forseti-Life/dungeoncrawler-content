@@ -16,7 +16,7 @@ use Drupal\Tests\UnitTestCase;
 use Psr\Log\LoggerInterface;
 
 /**
- * Tests tiered room perception search behavior.
+ * Tests quest-item-only search behavior and room-entry perception behavior.
  *
  * @group dungeoncrawler_content
  * @group exploration
@@ -27,7 +27,7 @@ class ExplorationPhaseHandlerRoomPerceptionTest extends UnitTestCase {
   /**
    * @covers ::processIntent
    */
-  public function testSearchRevealsFirstAvailableSensoryTier(): void {
+  public function testSearchOnlyReportsNoDiscoveryWhenNoQuestItemIsFound(): void {
     $roller = $this->createMock(NumberGenerationService::class);
     $roller->expects($this->once())
       ->method('rollPathfinderDie')
@@ -49,12 +49,8 @@ class ExplorationPhaseHandlerRoomPerceptionTest extends UnitTestCase {
     $this->assertTrue($response['success']);
     $this->assertSame(['searched' => TRUE], $response['result']);
     $this->assertSearchMechanicsHidden($response);
-    $this->assertStringNotContainsString('Smell:', (string) $response['narration']);
-    $this->assertStringContainsString('A sour mildew smell rises from the soaked flagstones.', (string) $response['narration']);
-    $this->assertSame(
-      'A sour mildew smell rises from the soaked flagstones.',
-      $dungeon_data['rooms'][0]['gameplay_state']['revealed_sensory_details']['smell']['detail']
-    );
+    $this->assertSame('You search the area carefully but do not uncover anything new.', $response['narration']);
+    $this->assertArrayNotHasKey('revealed_sensory_details', $dungeon_data['rooms'][0]['gameplay_state']);
   }
 
   /**
@@ -86,13 +82,13 @@ class ExplorationPhaseHandlerRoomPerceptionTest extends UnitTestCase {
     $this->assertSame(['searched' => TRUE], $response['result']);
     $this->assertSearchMechanicsHidden($response);
     $this->assertSame('You search the area carefully but do not uncover anything new.', $response['narration']);
-    $this->assertSame([], $dungeon_data['rooms'][0]['gameplay_state']['revealed_sensory_details']);
+    $this->assertArrayNotHasKey('revealed_sensory_details', $dungeon_data['rooms'][0]['gameplay_state']);
   }
 
   /**
    * @covers ::processIntent
    */
-  public function testRepeatedSearchAdvancesToNextSensoryTier(): void {
+  public function testRepeatedSearchDoesNotRevealSensoryDetails(): void {
     $roller = $this->createMock(NumberGenerationService::class);
     $roller->expects($this->exactly(2))
       ->method('rollPathfinderDie')
@@ -121,16 +117,15 @@ class ExplorationPhaseHandlerRoomPerceptionTest extends UnitTestCase {
 
     $this->assertSearchMechanicsHidden($first);
     $this->assertSearchMechanicsHidden($second);
-    $this->assertArrayHasKey('smell', $dungeon_data['rooms'][0]['gameplay_state']['revealed_sensory_details']);
-    $this->assertArrayHasKey('sound', $dungeon_data['rooms'][0]['gameplay_state']['revealed_sensory_details']);
-    $this->assertStringNotContainsString('Sound:', (string) $second['narration']);
-    $this->assertStringContainsString('Soft dripping water and distant runoff echo through the room.', (string) $second['narration']);
+    $this->assertArrayNotHasKey('revealed_sensory_details', $dungeon_data['rooms'][0]['gameplay_state']);
+    $this->assertSame('You search the area carefully but do not uncover anything new.', $first['narration']);
+    $this->assertSame('You search the area carefully but do not uncover anything new.', $second['narration']);
   }
 
   /**
    * @covers ::processIntent
    */
-  public function testSearchIgnoresRequestedSenseAndUsesNextDiscoverableDetail(): void {
+  public function testSearchIgnoresRequestedSenseAndStillOnlyChecksQuestItems(): void {
     $roller = $this->createMock(NumberGenerationService::class);
     $roller->expects($this->once())
       ->method('rollPathfinderDie')
@@ -152,9 +147,8 @@ class ExplorationPhaseHandlerRoomPerceptionTest extends UnitTestCase {
 
     $this->assertTrue($response['success']);
     $this->assertSearchMechanicsHidden($response);
-    $this->assertArrayHasKey('smell', $dungeon_data['rooms'][0]['gameplay_state']['revealed_sensory_details']);
-    $this->assertArrayNotHasKey('sound', $dungeon_data['rooms'][0]['gameplay_state']['revealed_sensory_details']);
-    $this->assertStringNotContainsString('Sound:', (string) $response['narration']);
+    $this->assertArrayNotHasKey('revealed_sensory_details', $dungeon_data['rooms'][0]['gameplay_state']);
+    $this->assertSame('You search the area carefully but do not uncover anything new.', $response['narration']);
   }
 
   /**
@@ -186,13 +180,13 @@ class ExplorationPhaseHandlerRoomPerceptionTest extends UnitTestCase {
     $this->assertSame('search', (string) ($response['events'][0]['type'] ?? ''));
     $this->assertSame([], $response['events'][0]['data']['discoveries'] ?? []);
     $this->assertSame('You search the area carefully but do not uncover anything new.', $response['narration']);
-    $this->assertSame([], $dungeon_data['rooms'][0]['gameplay_state']['revealed_sensory_details']);
+    $this->assertArrayNotHasKey('revealed_sensory_details', $dungeon_data['rooms'][0]['gameplay_state']);
   }
 
   /**
    * @covers ::processIntent
    */
-  public function testSearchUsesActorPerceptionModifier(): void {
+  public function testSearchUsesActorPerceptionModifierButDoesNotRevealRoomDetails(): void {
     $roller = $this->createMock(NumberGenerationService::class);
     $roller->expects($this->once())
       ->method('rollPathfinderDie')
@@ -214,8 +208,8 @@ class ExplorationPhaseHandlerRoomPerceptionTest extends UnitTestCase {
 
     $this->assertTrue($response['success']);
     $this->assertSearchMechanicsHidden($response);
-    $this->assertStringContainsString('A sour mildew smell rises from the soaked flagstones.', (string) $response['narration']);
-    $this->assertArrayHasKey('smell', $dungeon_data['rooms'][0]['gameplay_state']['revealed_sensory_details']);
+    $this->assertSame('You search the area carefully but do not uncover anything new.', $response['narration']);
+    $this->assertArrayNotHasKey('revealed_sensory_details', $dungeon_data['rooms'][0]['gameplay_state']);
   }
 
   /**

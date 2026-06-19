@@ -2040,7 +2040,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
   }
 
   /**
-   * Process a search action (Perception check to reveal hidden entities).
+   * Process a search action for quest-item discovery in the current room.
    */
   public function processSearch(string $actor_id, array $params, array &$game_state, array &$dungeon_data, int $campaign_id): array {
     $requested_mode = strtolower(trim((string) ($params['search_mode'] ?? self::SEARCH_MODE_EXPLICIT)));
@@ -2058,46 +2058,9 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
     $search_dc = $room['gameplay_state']['search_dc'] ?? 15;
 
     $degree = $this->calculateDegreeOfSuccess($total, $search_dc, $roll_result);
-
     $discoveries = [];
-    // Reveal hidden entities based on degree of success.
-    if (in_array($degree, ['critical_success', 'success'], TRUE)) {
-      $discoveries = $this->revealHiddenEntities($dungeon_data, $degree === 'critical_success');
-    }
-
-    // REQ 2375: While Searching, also check for min-proficiency hazards that
-    // a passive walk-through check would not attempt.
     $hazard_events = [];
-    foreach ($this->hazardService->getRoomHazards($dungeon_data) as $hazard_snapshot) {
-      $hazard_id = $hazard_snapshot['instance_id'] ?? $hazard_snapshot['id'] ?? NULL;
-      if (!$hazard_id) {
-        continue;
-      }
-      $hazard_ref = &$this->hazardService->findHazardByInstanceId($hazard_id, $dungeon_data);
-      if (!$hazard_ref || !empty($hazard_ref['state']['detected'])) {
-        continue;
-      }
-      $detect = $this->hazardService->rollHazardDetection(
-        $hazard_ref,
-        $perception_bonus,
-        $perception_rank,
-        TRUE // is_searching = TRUE
-      );
-      if ($detect['detected']) {
-        $this->hazardService->markDetected($hazard_ref);
-        $hazard_events[] = [
-          'type'        => 'hazard_detected',
-          'instance_id' => $hazard_id,
-          'name'        => $hazard_ref['name'] ?? $hazard_id,
-          'roll'        => $detect['roll'],
-          'total'       => $detect['total'],
-          'dc'          => $detect['dc'],
-        ];
-        $discoveries[] = ['instance_id' => $hazard_id, 'name' => $hazard_ref['name'] ?? $hazard_id];
-      }
-    }
-
-    $sensory_result = $this->resolveRoomSensorySearch($dungeon_data, $total, $params, $search_dc);
+    $sensory_result = [];
     $quest_discovery = NULL;
     if (in_array($degree, ['critical_success', 'success'], TRUE)) {
       $quest_discovery = $this->resolveQuestSearchCollectibleDiscovery($campaign_id, $actor_id, $params, $dungeon_data);
@@ -2110,7 +2073,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
         ];
       }
     }
-    $narration = $this->buildSearchNarration($discoveries, $sensory_result);
+    $narration = trim((string) ($quest_discovery['narration'] ?? ''));
     $quest_narrator_notes = array_values(array_filter((array) ($quest_discovery['narrator_notes'] ?? []), static fn($note): bool => is_string($note) && trim($note) !== ''));
     if ($quest_narrator_notes !== []) {
       $narration_parts = [];
