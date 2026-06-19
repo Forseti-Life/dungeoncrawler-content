@@ -6985,7 +6985,13 @@ PROMPT;
       'turn_sequence' => array_values(is_array($payload['turn_sequence'] ?? NULL) ? $payload['turn_sequence'] : []),
       'turn_log_key' => $turn_log_key,
       'turn_logs' => array_values(is_array($payload['turn_logs'] ?? NULL) ? $payload['turn_logs'] : []),
-      'messages' => array_values(is_array($payload['messages'] ?? NULL) ? $payload['messages'] : []),
+      'messages' => array_map(
+        fn (array $message): array => $this->normalizeRoomTurnHarnessMessage($message),
+        array_values(array_filter(
+          is_array($payload['messages'] ?? NULL) ? $payload['messages'] : [],
+          static fn ($message): bool => is_array($message)
+        ))
+      ),
     ];
 
     if (!$this->stateValidationService) {
@@ -6998,6 +7004,37 @@ PROMPT;
     }
 
     throw new \RuntimeException('Room turn harness contract violation: ' . implode('; ', $validation['errors'] ?? []));
+  }
+
+  /**
+   * Normalize one room-turn harness message to the strict contract shape.
+   */
+  protected function normalizeRoomTurnHarnessMessage(array $message): array {
+    $normalized = [
+      'speaker' => $this->truncateContractString((string) ($message['speaker'] ?? 'Unknown'), 255, 'Unknown'),
+      'message' => $this->truncateContractString((string) ($message['message'] ?? ''), 4000),
+      'type' => $this->truncateContractString((string) ($message['type'] ?? 'npc'), 64, 'npc'),
+      'channel' => $this->truncateContractString((string) ($message['channel'] ?? 'room'), 64, 'room'),
+      'timestamp' => $this->truncateContractString((string) ($message['timestamp'] ?? date('c')), 64, date('c')),
+      'character_id' => isset($message['character_id']) && $message['character_id'] !== '' ? (int) $message['character_id'] : NULL,
+      'user_id' => isset($message['user_id']) ? (int) $message['user_id'] : 0,
+    ];
+
+    $entity_ref = trim((string) ($message['entity_ref'] ?? ''));
+    if ($entity_ref !== '') {
+      $normalized['entity_ref'] = $this->truncateContractString($entity_ref, 160);
+    }
+
+    if (array_key_exists('interjection', $message)) {
+      $normalized['interjection'] = !empty($message['interjection']);
+    }
+
+    $dialogue_payload = $message['dialogue_payload'] ?? NULL;
+    if ($dialogue_payload === NULL || is_array($dialogue_payload)) {
+      $normalized['dialogue_payload'] = $dialogue_payload;
+    }
+
+    return $normalized;
   }
 
   /**

@@ -886,6 +886,45 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
   }
 
   /**
+   * @covers ::buildRoomTurnHarnessPayload
+   */
+  public function testBuildRoomTurnHarnessPayloadStripsPersistedChatOnlyFieldsFromMessages(): void {
+    $payload = $this->roomChatService->publicBuildRoomTurnHarnessPayload([
+      'player' => ['message' => 'Tell me about this place.'],
+      'gm' => ['narrative' => 'The tavern stills for a moment.'],
+      'gm_addressed' => FALSE,
+      'directly_addressed_npc' => 'npc_tavern_keeper',
+      'npc_turns' => [],
+      'turn_sequence' => [],
+      'turn_log_key' => 'room_turn_contract',
+      'turn_logs' => [],
+      'messages' => [
+        [
+          'speaker' => 'Innkeeper',
+          'message' => '"Depends who is asking."',
+          'type' => 'npc',
+          'channel' => 'room',
+          'timestamp' => '2026-06-19T18:00:45+00:00',
+          'character_id' => NULL,
+          'user_id' => 0,
+          'entity_ref' => 'npc_tavern_keeper',
+          'interjection' => TRUE,
+          'dialogue_payload' => ['schema_version' => 'character-dialogue-v1'],
+          'sequence_index' => 12,
+          'message_class' => 'authoritative_transcript',
+        ],
+      ],
+    ]);
+
+    $this->assertSame('Innkeeper', $payload['messages'][0]['speaker']);
+    $this->assertSame('"Depends who is asking."', $payload['messages'][0]['message']);
+    $this->assertArrayNotHasKey('sequence_index', $payload['messages'][0]);
+    $this->assertArrayNotHasKey('message_class', $payload['messages'][0]);
+    $this->assertSame('npc_tavern_keeper', $payload['messages'][0]['entity_ref']);
+    $this->assertTrue($payload['messages'][0]['interjection']);
+  }
+
+  /**
    * @covers ::selectBestMatchingQuestLeadCandidate
    * @covers ::extractSpecificQuestLeadTokens
    */
