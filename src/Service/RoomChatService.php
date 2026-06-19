@@ -1834,14 +1834,14 @@ class RoomChatService {
     );
 
     $visible_gm_narrative = $this->buildVisibleGmNarrative($narrative, $actions, $state_diff, $navigation_result);
-    $gm_encounter_prefix = $this->buildEncounterPrefixForSpeaker($dungeon_data, 'Game Master');
+    $gm_encounter_prefix = $this->buildEncounterPrefixForSpeaker($dungeon_data, 'Narrator');
     $visible_gm_narrative = $this->prefixEncounterChatText($visible_gm_narrative, $gm_encounter_prefix);
     $suppress_npc_interjections = !empty($checked_response['suppress_npc_interjections']);
     $gm_payload = $this->buildGmRoomResponsePayload($visible_gm_narrative, $actions, $dice_rolls, $suppress_npc_interjections);
     $gm_message = [
-      'speaker' => 'Game Master',
+      'speaker' => 'Narrator',
       'message' => $visible_gm_narrative,
-      'type' => 'npc',
+      'type' => 'narrator',
       'channel' => 'room',
       'timestamp' => date('c'),
       'character_id' => NULL,
@@ -3396,8 +3396,8 @@ class RoomChatService {
       $this->chatSessionManager->postMessage(
         (int) $room_session['id'],
         $campaign_id,
-        'Game Master',
-        'gm',
+        'Narrator',
+        'narrator',
         '',
         $narrative,
         'narrative',
@@ -6342,7 +6342,7 @@ PROMPT;
     $speaker = (string) ($entry['speaker'] ?? '');
     $message = trim((string) ($entry['message'] ?? ''));
 
-    return in_array($speaker, ['Game Master', 'System'], TRUE)
+    return in_array($speaker, ['Narrator', 'Game Master', 'System'], TRUE)
       && preg_match('/^You (arrive|return) at .+\.$/i', $message) === 1;
   }
 
@@ -7019,7 +7019,7 @@ PROMPT;
 
     $payload = [
       'schema_version' => self::GM_ROOM_RESPONSE_SCHEMA_VERSION,
-      'speaker' => 'Game Master',
+      'speaker' => 'Narrator',
       'channel' => 'room',
       'narrative' => $this->truncateContractString($narrative, 4000, 'Game Master update: the situation shifts.'),
       'mechanical_actions' => $normalized_actions,
