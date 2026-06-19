@@ -79,7 +79,7 @@ class RoomChatServiceQuestTouchpointTest extends UnitTestCase {
     $quest_tracker = $this->createMock(\Drupal\dungeoncrawler_content\Service\QuestTrackerService::class);
     $quest_tracker->expects($this->once())
       ->method('findMentionedAvailableQuests')
-      ->with(93, 'tavern_entrance', 361, 'Eldric hears the question and holds the floor for their turn.', 2, 5)
+      ->with(93, 'tavern_entrance', 361, 'Eldric, any jobs?', 2, 5)
       ->willReturn([]);
 
     $quest_touchpoint = $this->createMock(QuestTouchpointService::class);
@@ -113,7 +113,8 @@ class RoomChatServiceQuestTouchpointTest extends UnitTestCase {
         array $dungeon_data,
         ?array $gm_response,
         array $npc_interjections,
-        array $quest_touchpoint_hint = []
+        array $quest_touchpoint_hint = [],
+        string $player_message = ''
       ): array {
         return $this->activateMentionedAvailableQuests(
           $campaign_id,
@@ -122,7 +123,8 @@ class RoomChatServiceQuestTouchpointTest extends UnitTestCase {
           $dungeon_data,
           $gm_response,
           $npc_interjections,
-          $quest_touchpoint_hint
+          $quest_touchpoint_hint,
+          $player_message
         );
       }
 
@@ -155,12 +157,10 @@ class RoomChatServiceQuestTouchpointTest extends UnitTestCase {
       'tavern_entrance',
       361,
       ['rooms' => [['room_id' => 'tavern_entrance', 'name' => 'Tavern Entrance']]],
-      [
-        'entity_ref' => 'npc_tavern_keeper',
-        'speaker_name' => 'Eldric',
-        'message' => 'Eldric hears the question and holds the floor for their turn.',
-      ],
-      []
+      NULL,
+      [],
+      [],
+      'Eldric, any jobs?'
     );
 
     $this->assertSame([], $result);

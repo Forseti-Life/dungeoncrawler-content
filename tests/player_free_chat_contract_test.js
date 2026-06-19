@@ -64,12 +64,16 @@ assert(
   'free player room chat marks the internal validated encounter-room-chat bypass flag'
 );
 assert(
-  gmSubsystemSource.includes("'defer_npc_interjections' => TRUE"),
-  'free player room chat keeps NPC replies deferred so NPC dialogue remains turn-locked'
+  gmSubsystemSource.includes('$defer_npc_interjections = FALSE;'),
+  'free player room chat resolves NPC replies immediately instead of deferring them behind turn order'
 );
 assert(
   gmSubsystemSource.includes("'route' => 'deterministic_turn_control'"),
   'deterministic turn-control chat routing remains available'
+);
+assert(
+  roomChatSource.includes("'suppress_visible_gm_response' => TRUE"),
+  'direct NPC-facing room chat suppresses the narrator placeholder and lets NPC replies carry the exchange'
 );
 assert(
   roomChatSource.includes('$validated_encounter_room_chat')
@@ -83,6 +87,14 @@ assert(
 assert(
   controllerSource.includes('$suppress_gm,\n      $speaker'),
   'RoomChatController forwards the speaker name into the GM subsystem for free player chat'
+);
+assert(
+  !roomChatSource.includes('hears the question and holds the floor for their turn.'),
+  'room chat no longer emits the narrator wait-your-turn placeholder for addressed NPC dialogue'
+);
+assert(
+  !roomChatSource.includes("if (($game_state['phase'] ?? '') === 'encounter') {\n      // Hard encounter loops are server-authoritative in GameCoordinator/EncounterPhaseHandler.\n      // Do not inject out-of-turn room harness chatter during encounter turns."),
+  'room turn harness no longer hard-disables NPC chat replies during encounter phase'
 );
 assert(
   roomPostSource !== ''

@@ -91,7 +91,7 @@ class GameMasterSubsystemService {
       $speaker = $requested_speaker !== '' ? $requested_speaker : 'Player';
     }
     $route['intent']['params']['speaker'] = $speaker;
-    $defer_npc_interjections = TRUE;
+    $defer_npc_interjections = FALSE;
     $chat_result = $this->roomChatService->postMessage(
       $campaign_id,
       $room_id,

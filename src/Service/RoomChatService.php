@@ -902,7 +902,7 @@ class RoomChatService {
 
       // After GM replies on the room channel, evaluate NPC interjections.
       // Room NPCs monitor the conversation and may chime in if motivated.
-      if ($channel === 'room' && $gm_response !== NULL && empty($gm_result['suppress_npc_interjections'])) {
+      if ($channel === 'room' && $gm_result !== NULL && empty($gm_result['suppress_npc_interjections'])) {
         $stage_started_at = hrtime(true);
         if ($defer_npc_interjections) {
           $this->recordDebugStage('evaluate_npc_interjections', $stage_started_at, [
@@ -1419,19 +1419,14 @@ class RoomChatService {
     $stage_started_at = hrtime(true);
     $room_npcs = $this->gatherRoomNpcsWithProfiles($campaign_id, $room_id, $dungeon_data);
     $directly_addressed_npc = $this->resolveDirectlyAddressedNpc($room_npcs, $latest_player_message);
-    $persisted_conversation_npc = $this->resolveExplicitRoomConversationNpc($room_meta, $room_npcs);
-    $active_conversation_npc = $persisted_conversation_npc
-      ?? $this->resolveActiveDirectConversationNpc(array_slice($chat, 0, -1), $room_npcs);
-    $turn_intent = $this->classifyRoomTurnIntent($latest_player_message, $room_npcs, $directly_addressed_npc, $active_conversation_npc);
-    $effective_direct_npc = $directly_addressed_npc ?? ($turn_intent === 'direct_npc_dialogue' || $turn_intent === 'direct_npc_transaction'
-      ? $active_conversation_npc
-      : NULL);
+    $turn_intent = $this->classifyRoomTurnIntent($latest_player_message, $room_npcs, $directly_addressed_npc, NULL);
+    $effective_direct_npc = $directly_addressed_npc;
     $this->recordDebugStage('gm.intent_classification', $stage_started_at, [
       'intent' => $turn_intent,
       'room_npc_count' => count($room_npcs),
       'direct_addressed' => $effective_direct_npc['entity_ref'] ?? NULL,
-      'persisted_conversation_npc' => $persisted_conversation_npc['entity_ref'] ?? NULL,
-      'continued_conversation' => $directly_addressed_npc === NULL && $effective_direct_npc !== NULL,
+      'persisted_conversation_npc' => NULL,
+      'continued_conversation' => FALSE,
     ]);
 
     $stage_started_at = hrtime(true);
@@ -1833,88 +1828,95 @@ class RoomChatService {
       is_array($checked_response) ? $checked_response : []
     );
 
-    $visible_gm_narrative = $this->buildVisibleGmNarrative($narrative, $actions, $state_diff, $navigation_result);
-    $gm_encounter_prefix = $this->buildEncounterPrefixForSpeaker($dungeon_data, 'Narrator');
-    $visible_gm_narrative = $this->prefixEncounterChatText($visible_gm_narrative, $gm_encounter_prefix);
+    $suppress_visible_gm_response = !empty($checked_response['suppress_visible_gm_response']);
+    $visible_gm_narrative = $suppress_visible_gm_response
+      ? ''
+      : $this->buildVisibleGmNarrative($narrative, $actions, $state_diff, $navigation_result);
+    if (!$suppress_visible_gm_response) {
+      $gm_encounter_prefix = $this->buildEncounterPrefixForSpeaker($dungeon_data, 'Narrator');
+      $visible_gm_narrative = $this->prefixEncounterChatText($visible_gm_narrative, $gm_encounter_prefix);
+    }
     $suppress_npc_interjections = !empty($checked_response['suppress_npc_interjections']);
-    $gm_payload = $this->buildGmRoomResponsePayload($visible_gm_narrative, $actions, $dice_rolls, $suppress_npc_interjections);
-    $gm_message = [
-      'speaker' => 'Game Master',
-      'message' => $visible_gm_narrative,
-      'type' => 'npc',
-      'channel' => 'room',
-      'timestamp' => date('c'),
-      'character_id' => NULL,
-      'user_id' => 0,
-      'gm_payload' => $gm_payload,
-    ];
-    if (!empty($checked_response['speaker_name'])) {
-      $gm_message['speaker_name'] = (string) $checked_response['speaker_name'];
-    }
-    if (!empty($checked_response['entity_ref'])) {
-      $gm_message['entity_ref'] = (string) $checked_response['entity_ref'];
-    }
-
-    // If there were mechanical actions, attach a summary to the message.
-    if (!empty($actions)) {
-      $gm_message['mechanical_actions'] = array_map(function($a) {
-        return [
-          'type' => $a['type'] ?? 'unknown',
-          'name' => $a['name'] ?? 'Unknown',
-        ];
-      }, $actions);
-      if (!empty($dice_rolls)) {
-        $gm_message['dice_rolls'] = $dice_rolls;
+    $gm_message = NULL;
+    if (!$suppress_visible_gm_response) {
+      $gm_payload = $this->buildGmRoomResponsePayload($visible_gm_narrative, $actions, $dice_rolls, $suppress_npc_interjections);
+      $gm_message = [
+        'speaker' => 'Game Master',
+        'message' => $visible_gm_narrative,
+        'type' => 'npc',
+        'channel' => 'room',
+        'timestamp' => date('c'),
+        'character_id' => NULL,
+        'user_id' => 0,
+        'gm_payload' => $gm_payload,
+      ];
+      if (!empty($checked_response['speaker_name'])) {
+        $gm_message['speaker_name'] = (string) $checked_response['speaker_name'];
       }
-    }
+      if (!empty($checked_response['entity_ref'])) {
+        $gm_message['entity_ref'] = (string) $checked_response['entity_ref'];
+      }
 
-    // Persist the GM reply (and any dungeon_data state changes from actions).
-    $dungeon_data['rooms'][$room_index]['chat'][] = $gm_message;
-    $gm_message['sequence_index'] = count($dungeon_data['rooms'][$room_index]['chat']);
-    $dungeon_data['rooms'][$room_index]['chat'][array_key_last($dungeon_data['rooms'][$room_index]['chat'])] = $gm_message;
+      // If there were mechanical actions, attach a summary to the message.
+      if (!empty($actions)) {
+        $gm_message['mechanical_actions'] = array_map(function($a) {
+          return [
+            'type' => $a['type'] ?? 'unknown',
+            'name' => $a['name'] ?? 'Unknown',
+          ];
+        }, $actions);
+        if (!empty($dice_rolls)) {
+          $gm_message['dice_rolls'] = $dice_rolls;
+        }
+      }
+      // Persist the GM reply (and any dungeon_data state changes from actions).
+      $dungeon_data['rooms'][$room_index]['chat'][] = $gm_message;
+      $gm_message['sequence_index'] = count($dungeon_data['rooms'][$room_index]['chat']);
+      $dungeon_data['rooms'][$room_index]['chat'][array_key_last($dungeon_data['rooms'][$room_index]['chat'])] = $gm_message;
 
-    // Enforce message limit again.
-    $chat_count = count($dungeon_data['rooms'][$room_index]['chat']);
-    if ($chat_count > self::MAX_MESSAGES_PER_ROOM) {
-      $dungeon_data['rooms'][$room_index]['chat'] = array_slice(
-        $dungeon_data['rooms'][$room_index]['chat'],
-        $chat_count - self::MAX_MESSAGES_PER_ROOM
+      // Enforce message limit again.
+      $chat_count = count($dungeon_data['rooms'][$room_index]['chat']);
+      if ($chat_count > self::MAX_MESSAGES_PER_ROOM) {
+        $dungeon_data['rooms'][$room_index]['chat'] = array_slice(
+          $dungeon_data['rooms'][$room_index]['chat'],
+          $chat_count - self::MAX_MESSAGES_PER_ROOM
+        );
+      }
+
+      $stage_started_at = hrtime(true);
+      $this->database->update('dc_campaign_dungeons')
+        ->fields([
+          'dungeon_data' => json_encode($dungeon_data),
+          'updated' => time(),
+        ])
+        ->condition('dungeon_id', $dungeon_id)
+        ->condition('campaign_id', $campaign_id)
+        ->execute();
+      $this->recordDebugStage('gm.persist_reply', $stage_started_at, [
+        'narrative_length' => strlen($narrative),
+        'action_count' => count($actions),
+      ]);
+
+      // Record this exchange in the campaign room chat session for future context.
+      $player_msg_text = end($chat)['message'] ?? '';
+      $stage_started_at = hrtime(true);
+      $this->sessionManager->appendMessage($session_key, $campaign_id, 'user', $player_msg_text);
+      $this->sessionManager->appendMessage($session_key, $campaign_id, 'assistant', $visible_gm_narrative);
+
+      // Bridge GM reply into hierarchical session system.
+      $this->bridgeGmReplyToSessionSystem(
+        $campaign_id, $dungeon_id, $room_id, $visible_gm_narrative, $actions, $dice_rolls
       );
+      $this->recordDebugStage('gm.session_bridge', $stage_started_at, [
+        'session_key' => $session_key,
+      ]);
+
+      $this->logger->info('GM reply persisted in room @room (@chars chars, @actions_count mechanical actions)', [
+        '@room' => $room_id,
+        '@chars' => strlen($narrative),
+        '@actions_count' => count($actions),
+      ]);
     }
-
-    $stage_started_at = hrtime(true);
-    $this->database->update('dc_campaign_dungeons')
-      ->fields([
-        'dungeon_data' => json_encode($dungeon_data),
-        'updated' => time(),
-      ])
-      ->condition('dungeon_id', $dungeon_id)
-      ->condition('campaign_id', $campaign_id)
-      ->execute();
-    $this->recordDebugStage('gm.persist_reply', $stage_started_at, [
-      'narrative_length' => strlen($narrative),
-      'action_count' => count($actions),
-    ]);
-
-    // Record this exchange in the campaign room chat session for future context.
-    $player_msg_text = end($chat)['message'] ?? '';
-    $stage_started_at = hrtime(true);
-    $this->sessionManager->appendMessage($session_key, $campaign_id, 'user', $player_msg_text);
-    $this->sessionManager->appendMessage($session_key, $campaign_id, 'assistant', $visible_gm_narrative);
-
-    // Bridge GM reply into hierarchical session system.
-    $this->bridgeGmReplyToSessionSystem(
-      $campaign_id, $dungeon_id, $room_id, $visible_gm_narrative, $actions, $dice_rolls
-    );
-    $this->recordDebugStage('gm.session_bridge', $stage_started_at, [
-      'session_key' => $session_key,
-    ]);
-
-    $this->logger->info('GM reply persisted in room @room (@chars chars, @actions_count mechanical actions)', [
-      '@room' => $room_id,
-      '@chars' => strlen($narrative),
-      '@actions_count' => count($actions),
-    ]);
     $this->recordDebugStage('gm.total', $gm_started_at, [
       'action_count' => count($actions),
       'validation_error_count' => count($validation_errors),
@@ -3877,22 +3879,6 @@ class RoomChatService {
     ?string $encounter_prefix = NULL
   ): array {
     $game_state = is_array($dungeon_data['game_state'] ?? NULL) ? $dungeon_data['game_state'] : [];
-    if (($game_state['phase'] ?? '') === 'encounter') {
-      // Hard encounter loops are server-authoritative in GameCoordinator/EncounterPhaseHandler.
-      // Do not inject out-of-turn room harness chatter during encounter turns.
-      return $this->buildRoomTurnHarnessPayload([
-        'player' => ['message' => $player_message],
-        'gm' => ['narrative' => $gm_narrative],
-        'gm_addressed' => FALSE,
-        'directly_addressed_npc' => NULL,
-        'npc_turns' => [],
-        'turn_sequence' => [],
-        'turn_log_key' => '',
-        'turn_logs' => [],
-        'messages' => [],
-      ]);
-    }
-
     // Gather room NPCs with psychology profiles.
     $room_npcs = $this->gatherRoomNpcsWithProfiles($campaign_id, $room_id, $dungeon_data);
     $turn_log_key = uniqid('room_turn_', TRUE);
@@ -4211,34 +4197,28 @@ class RoomChatService {
     $gm_addressed = $this->isExplicitRoomGmAddress($player_message);
     $active_conversation_npc = NULL;
     $persisted_conversation_npc = NULL;
-    if (!$gm_addressed && $directly_addressed_npc === NULL && $room_id !== '') {
-      $room_meta = $this->findRoomByRoomId($dungeon_data['rooms'] ?? [], $room_id);
-      $persisted_conversation_npc = $this->resolveExplicitRoomConversationNpc($room_meta, $room_npcs);
-      $room_chat = is_array($room_meta['chat'] ?? NULL) ? $room_meta['chat'] : [];
-      if ($persisted_conversation_npc !== NULL) {
-        $active_conversation_npc = $persisted_conversation_npc;
-      }
-      elseif ($room_chat !== []) {
-        $active_conversation_npc = $this->resolveActiveDirectConversationNpc($room_chat, $room_npcs);
-      }
-    }
 
     $ordered_npcs = $this->buildRoomNpcInitiativeOrder($room_npcs, $dungeon_data, $room_id, $turn_seed);
     if ($gm_addressed) {
       $speaking_npcs = [];
       $plan_source = 'gm_addressed';
     }
-    elseif ($directly_addressed_npc !== NULL) {
-      $speaking_npcs = [$directly_addressed_npc];
-      $plan_source = 'direct_address';
-    }
-    elseif ($active_conversation_npc !== NULL) {
-      $speaking_npcs = [$active_conversation_npc];
-      $plan_source = 'active_conversation';
-    }
     else {
       $speaking_npcs = $this->filterAmbientNpcInterjectionOrder($ordered_npcs, $player_message, $gm_narrative, $room_id, $turn_seed);
-      $plan_source = 'initiative_order';
+      $plan_source = $directly_addressed_npc !== NULL ? 'direct_plus_room' : 'room_wide';
+      if ($directly_addressed_npc !== NULL) {
+        $direct_ref = (string) ($directly_addressed_npc['entity_ref'] ?? '');
+        $has_direct = FALSE;
+        foreach ($speaking_npcs as $npc) {
+          if ((string) ($npc['entity_ref'] ?? '') === $direct_ref) {
+            $has_direct = TRUE;
+            break;
+          }
+        }
+        if (!$has_direct) {
+          array_unshift($speaking_npcs, $directly_addressed_npc);
+        }
+      }
     }
 
     $speaking_npc_refs = array_values(array_filter(array_map(
@@ -5577,90 +5557,35 @@ PROMPT;
     }
 
     if ($intent === 'merchant_inquiry') {
-      $merchant = $this->findMerchantNpc($room_npcs);
-      $merchant_response = $this->buildDeterministicMerchantResponse(
-        $campaign_id,
-        $room_id,
-        $merchant,
-        $player_message,
-        $character_id
-      );
-      $merchant_name = trim((string) ($merchant['profile']['display_name'] ?? 'The nearest merchant'));
       return [
-        'narrative' => $merchant_name . ' hears the trade question as the turn order continues.',
+        'narrative' => '',
         'actions' => [],
         'dice_rolls' => [],
         'validation_errors' => [],
-        'suppress_npc_interjections' => TRUE,
-        'speaker_name' => $merchant_name !== '' ? $merchant_name : NULL,
-        'entity_ref' => (string) ($merchant['entity_ref'] ?? ''),
+        'suppress_visible_gm_response' => TRUE,
       ];
     }
 
     if (($intent === 'direct_npc_dialogue' || $intent === 'direct_npc_transaction') && $directly_addressed_npc !== NULL) {
-      if ($intent === 'direct_npc_transaction') {
-        $merchant_response = $this->buildDeterministicMerchantResponse(
-          $campaign_id,
-          $room_id,
-          $directly_addressed_npc,
-          $player_message,
-          $character_id
-        );
-        $merchant_name = trim((string) ($directly_addressed_npc['profile']['display_name'] ?? 'The merchant'));
-        return [
-          'narrative' => $merchant_name . ' takes in the trade request and waits for their turn to answer.',
-          'actions' => [],
-          'dice_rolls' => [],
-          'validation_errors' => [],
-          'suppress_npc_interjections' => TRUE,
-          'speaker_name' => $merchant_name !== '' ? $merchant_name : NULL,
-          'entity_ref' => (string) ($directly_addressed_npc['entity_ref'] ?? ''),
-        ];
-      }
-      $entity_ref = (string) ($directly_addressed_npc['entity_ref'] ?? '');
-      $display_name = trim((string) ($directly_addressed_npc['profile']['display_name'] ?? ''));
-      $npc_dialogue = $entity_ref !== ''
-        ? $this->buildDeterministicNpcDialogue($campaign_id, $entity_ref, $display_name, $player_message, $room_id, $dungeon_data, $character_id)
-        : NULL;
-      if ($npc_dialogue !== NULL) {
-        return [
-          'narrative' => ($display_name !== '' ? $display_name : 'The NPC') . ' hears the question and holds the floor for their turn.',
-          'actions' => [],
-          'dice_rolls' => [],
-          'validation_errors' => [],
-          'suppress_npc_interjections' => TRUE,
-          'speaker_name' => $display_name !== '' ? $display_name : NULL,
-          'entity_ref' => $entity_ref !== '' ? $entity_ref : NULL,
-        ];
-      }
       return [
-        'narrative' => ($display_name !== '' ? $display_name : 'The NPC') . ' turns their attention to you, waiting for a clear question or request.',
+        'narrative' => '',
         'actions' => [],
         'dice_rolls' => [],
         'validation_errors' => [],
-        'suppress_npc_interjections' => TRUE,
+        'suppress_visible_gm_response' => TRUE,
       ];
     }
 
     if ($intent === 'quest_query') {
       foreach ($room_npcs as $npc) {
         if ($this->npcSupportsQuestOrLeadDialogue($npc)) {
-          $entity_ref = (string) ($npc['entity_ref'] ?? '');
-          $display_name = trim((string) ($npc['profile']['display_name'] ?? ''));
-          if ($entity_ref !== '') {
-            $npc_dialogue = $this->buildDeterministicNpcDialogue($campaign_id, $entity_ref, $display_name, $player_message, $room_id, $dungeon_data);
-            if ($npc_dialogue !== NULL) {
-              return [
-                  'narrative' => ($display_name !== '' ? $display_name : 'The NPC') . ' takes note of the question and will answer on their turn.',
-                'actions' => [],
-                'dice_rolls' => [],
-                'validation_errors' => [],
-                'suppress_npc_interjections' => TRUE,
-                'speaker_name' => $display_name !== '' ? $display_name : NULL,
-                'entity_ref' => $entity_ref !== '' ? $entity_ref : NULL,
-              ];
-            }
-          }
+          return [
+            'narrative' => '',
+            'actions' => [],
+            'dice_rolls' => [],
+            'validation_errors' => [],
+            'suppress_visible_gm_response' => TRUE,
+          ];
         }
       }
       $quest_givers = [];
@@ -8650,27 +8575,6 @@ PROMPT;
   ): void {
     $tracked_npc = $conversation_npc;
     $tracked_intent = $turn_intent;
-
-    if ($tracked_npc === NULL && $turn_intent === 'merchant_inquiry') {
-      $tracked_npc = $this->findMerchantNpc($room_npcs);
-      $tracked_intent = $tracked_npc !== NULL ? 'direct_npc_transaction' : $turn_intent;
-    }
-
-    if (in_array($tracked_intent, ['direct_npc_dialogue', 'direct_npc_transaction', 'quest_query', 'merchant_inquiry'], TRUE)) {
-      $entry = [
-        'intent' => $tracked_intent,
-        'channel' => 'room',
-        'pending_player_message' => $this->stripEncounterTranscriptPrefix($player_message),
-        'character_id' => $character_id,
-      ];
-      $queue = is_array($dungeon_data['rooms'][$room_index]['conversation_queue'] ?? NULL)
-        ? array_values(array_filter($dungeon_data['rooms'][$room_index]['conversation_queue'], 'is_array'))
-        : [];
-      $queue[] = $entry;
-      $dungeon_data['rooms'][$room_index]['conversation_queue'] = array_values($queue);
-      $dungeon_data['rooms'][$room_index]['conversation_state'] = $entry;
-      return;
-    }
 
     unset($dungeon_data['rooms'][$room_index]['conversation_state']);
     unset($dungeon_data['rooms'][$room_index]['conversation_queue']);

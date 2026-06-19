@@ -304,7 +304,7 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
   /**
    * @covers ::buildNpcTurnPlan
    */
-  public function testBuildNpcTurnPlanKeepsActiveDirectConversationNpcAsOnlySpeaker(): void {
+  public function testBuildNpcTurnPlanDoesNotCarryActiveConversationTangentsForward(): void {
     $roomNpcs = [
       [
         'entity_ref' => 'gribbles_rindsworth',
@@ -346,15 +346,14 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
     );
 
     $this->assertNull($plan['directly_addressed_npc']);
-    $this->assertSame('gribbles_rindsworth', $plan['active_conversation_npc']['entity_ref']);
-    $this->assertCount(1, $plan['ordered_npcs']);
-    $this->assertSame('gribbles_rindsworth', $plan['ordered_npcs'][0]['entity_ref']);
+    $this->assertNull($plan['active_conversation_npc']);
+    $this->assertContains('gribbles_rindsworth', $plan['speaking_npc_refs']);
   }
 
   /**
    * @covers ::buildNpcTurnPlan
    */
-  public function testBuildNpcTurnPlanUsesPersistedConversationStateAsOnlySpeaker(): void {
+  public function testBuildNpcTurnPlanIgnoresPersistedConversationStateTangents(): void {
     $roomNpcs = [
       [
         'entity_ref' => 'eldric',
@@ -396,9 +395,8 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
     );
 
     $this->assertNull($plan['directly_addressed_npc']);
-    $this->assertSame('eldric', $plan['active_conversation_npc']['entity_ref']);
-    $this->assertCount(1, $plan['ordered_npcs']);
-    $this->assertSame('eldric', $plan['ordered_npcs'][0]['entity_ref']);
+    $this->assertNull($plan['active_conversation_npc']);
+    $this->assertNotEmpty($plan['speaking_npc_refs']);
   }
 
   /**
@@ -1931,10 +1929,9 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
     );
 
     $this->assertNotNull($response);
-    $this->assertTrue($response['suppress_npc_interjections']);
-    $this->assertSame('Tikka the Trapmaster', $response['speaker_name']);
-    $this->assertSame('tikka', $response['entity_ref']);
-    $this->assertStringContainsString('hears the question and holds the floor for their turn', $response['narrative']);
+    $this->assertArrayNotHasKey('suppress_npc_interjections', $response);
+    $this->assertTrue($response['suppress_visible_gm_response']);
+    $this->assertSame('', $response['narrative']);
   }
 
   /**
