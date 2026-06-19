@@ -90,6 +90,7 @@ class GameMasterSubsystemService {
     if ($speaker === '') {
       $speaker = $requested_speaker !== '' ? $requested_speaker : 'Player';
     }
+    $route['intent']['params']['speaker'] = $speaker;
     $defer_npc_interjections = TRUE;
     $chat_result = $this->roomChatService->postMessage(
       $campaign_id,
@@ -122,6 +123,28 @@ class GameMasterSubsystemService {
     $chat_result['gm_subsystem'] = $this->buildResponseEnvelope($route, $room_id);
 
     return $chat_result;
+  }
+
+  /**
+   * Return authoritative action availability for one actor on demand.
+   *
+   * This is the GM-facing query surface for the shared actor availability
+   * subsystem. Callers may provide an actor id directly or a character id that
+   * resolves to the active runtime actor.
+   *
+   * @return array{available_actions: string[], action_contract: ?array<string,mixed>}
+   *   Shared actor-scoped availability payload.
+   */
+  public function getActorActionAvailability(int $campaign_id, ?string $actor_id = NULL, ?int $character_id = NULL): array {
+    $resolved_actor_id = $actor_id;
+    if (($resolved_actor_id === NULL || trim($resolved_actor_id) === '') && $character_id !== NULL && $character_id > 0) {
+      $resolved_actor_id = $this->coordinator->resolveActorIdForCharacterId($campaign_id, $character_id);
+    }
+
+    return $this->coordinator->getActionAvailabilityForActor(
+      $campaign_id,
+      is_string($resolved_actor_id) && trim($resolved_actor_id) !== '' ? trim($resolved_actor_id) : NULL
+    );
   }
 
   /**

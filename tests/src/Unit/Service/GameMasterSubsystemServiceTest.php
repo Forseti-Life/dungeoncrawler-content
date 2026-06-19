@@ -16,6 +16,31 @@ use Drupal\Tests\UnitTestCase;
 class GameMasterSubsystemServiceTest extends UnitTestCase {
 
   /**
+   * @covers ::getActorActionAvailability
+   */
+  public function testGetActorActionAvailabilityResolvesActorFromCharacterId(): void {
+    $coordinator = $this->createMock(GameCoordinatorService::class);
+    $room_chat_service = $this->createMock(RoomChatService::class);
+    $coordinator->expects($this->once())
+      ->method('resolveActorIdForCharacterId')
+      ->with(63, 241)
+      ->willReturn('pc-241-324');
+    $coordinator->expects($this->once())
+      ->method('getActionAvailabilityForActor')
+      ->with(63, 'pc-241-324')
+      ->willReturn([
+        'available_actions' => ['talk', 'delay', 'end_turn'],
+        'action_contract' => ['available_actions' => ['talk', 'delay', 'end_turn']],
+      ]);
+
+    $service = new GameMasterSubsystemService($coordinator, $room_chat_service);
+    $result = $service->getActorActionAvailability(63, NULL, 241);
+
+    $this->assertSame(['talk', 'delay', 'end_turn'], $result['available_actions']);
+    $this->assertSame(['talk', 'delay', 'end_turn'], $result['action_contract']['available_actions']);
+  }
+
+  /**
    * @covers ::handlePlayerRoomChat
    */
   public function testHandlePlayerRoomChatRoutesStandardPlayerSpeechWithoutSpendingAction(): void {
@@ -33,8 +58,6 @@ class GameMasterSubsystemServiceTest extends UnitTestCase {
       ->method('resolveActorDisplayName')
       ->with(63, 'pc-241-324')
       ->willReturn('Tikask');
-    $coordinator->expects($this->once())
-      ->method('getFullState');
     $coordinator->expects($this->once())
       ->method('getFullState')
       ->willReturn([

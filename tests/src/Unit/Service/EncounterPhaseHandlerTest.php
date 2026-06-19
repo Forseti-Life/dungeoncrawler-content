@@ -107,6 +107,26 @@ class EncounterPhaseHandlerTest extends UnitTestCase {
   }
 
   /**
+   * Shared encounter availability now includes additional canonical combat actions.
+   *
+   * @covers ::getAvailableActions
+   */
+  public function testGetAvailableActionsIncludesSharedCombatAvailabilityActions(): void {
+    $handler = $this->buildHandler();
+    $actions = $handler->getAvailableActions([
+      'turn' => [
+        'entity' => 'char-001',
+        'actions_remaining' => 3,
+        'reaction_available' => FALSE,
+      ],
+    ], [], 'char-001');
+
+    $this->assertContains('step', $actions);
+    $this->assertContains('demoralize', $actions);
+    $this->assertContains('raise_shield', $actions);
+  }
+
+  /**
    * Talk is blocked when the acting player does not own the active turn.
    *
    * @covers ::validateIntent

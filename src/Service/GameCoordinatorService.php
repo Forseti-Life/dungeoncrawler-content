@@ -472,6 +472,41 @@ class GameCoordinatorService {
   }
 
   /**
+   * Return the shared actor-scoped action-availability contract.
+   *
+   * This is the coordinator-facing query surface that GM/NPC/UI tooling can use
+   * to ask for one actor's current authoritative action availability.
+   *
+   * @return array{available_actions: string[], action_contract: ?array<string,mixed>}
+   *   Shared actor-scoped availability payload.
+   */
+  public function getActionAvailabilityForActor(int $campaign_id, ?string $actor_id = NULL): array {
+    $dungeon_data = $this->loadDungeonData($campaign_id, $actor_id);
+    if (!$dungeon_data) {
+      return [
+        'available_actions' => [],
+        'action_contract' => NULL,
+      ];
+    }
+
+    $game_state = $this->ensureGameState($dungeon_data);
+    $phase = $game_state['phase'] ?? self::DEFAULT_ACTIVE_PHASE;
+    $handler = $this->getPhaseHandler($phase);
+
+    if ($handler === NULL) {
+      return [
+        'available_actions' => [],
+        'action_contract' => NULL,
+      ];
+    }
+
+    return [
+      'available_actions' => $handler->getAvailableActions($game_state, $dungeon_data, $actor_id),
+      'action_contract' => $this->buildActionContract($handler, $game_state, $dungeon_data, $actor_id),
+    ];
+  }
+
+  /**
    * Resolve the display name for a runtime actor entity.
    */
   public function resolveActorDisplayName(int $campaign_id, string $actor_id): ?string {

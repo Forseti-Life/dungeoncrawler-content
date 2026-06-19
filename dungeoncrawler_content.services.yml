@@ -424,6 +424,10 @@ services:
       - '@dungeoncrawler_content.encounter_ai_provider.ai_conversation'
       - '@datetime.time'
       - '@logger.factory'
+      - '@dungeoncrawler_content.actor_action_availability'
+
+  dungeoncrawler_content.actor_action_availability:
+    class: Drupal\dungeoncrawler_content\Service\ActorActionAvailabilityService
 
   # Campaign State Services
   dungeoncrawler_content.dungeon_state_service:
@@ -790,6 +794,7 @@ services:
       - '@dungeoncrawler_content.room_chat_service'
       - '@dungeoncrawler_content.exploration_phase_handler'
       - '@dungeoncrawler_content.navigation_service'
+      - '@dungeoncrawler_content.actor_action_availability'
 
   dungeoncrawler_content.encounter_master:
     alias: dungeoncrawler_content.encounter_phase_handler

@@ -120,6 +120,11 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
   protected ?NavigationService $navigationService;
 
   /**
+   * Shared actor action-availability resolver.
+   */
+  protected ActorActionAvailabilityService $actionAvailability;
+
+  /**
    * Canonical client-facing encounter action definitions.
    */
   protected const CLIENT_ACTION_DEFINITIONS = [
@@ -263,7 +268,8 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
     ?SpellCatalogService $spell_catalog = NULL,
     ?RoomChatService $room_chat_service = NULL,
     ?ExplorationPhaseHandler $exploration_phase_handler = NULL,
-    ?NavigationService $navigation_service = NULL
+    ?NavigationService $navigation_service = NULL,
+    ?ActorActionAvailabilityService $action_availability = NULL
   ) {
     $this->database = $database;
     $this->logger = $logger_factory->get('dungeoncrawler');
@@ -286,6 +292,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
     $this->roomChatService = $room_chat_service ?? \Drupal::service('dungeoncrawler_content.room_chat_service');
     $this->explorationPhaseHandler = $exploration_phase_handler;
     $this->navigationService = $navigation_service;
+    $this->actionAvailability = $action_availability ?? new ActorActionAvailabilityService();
   }
 
   /**
@@ -3908,97 +3915,16 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
    * {@inheritdoc}
    */
   public function getAvailableActions(array $game_state, array $dungeon_data, ?string $actor_id = NULL): array {
-    // TODO(actor-action-availability): Replace this curated subset with a
-    // canonical actor action-availability resolver that includes branching
-    // families like spells, feats, consumables, item activations, hazards, and
-    // actor-specific variants/options derived from authoritative state.
-    $actions = ['transition'];
-    if ($this->isRoomSceneMode($game_state)) {
-      $turn = $game_state['turn'] ?? [];
-      $current_entity = $turn['entity'] ?? NULL;
-      $actions_remaining = $turn['actions_remaining'] ?? 0;
-      $effective_actor_id = $actor_id ?? $current_entity;
-      if ($effective_actor_id && $current_entity && $effective_actor_id === $current_entity) {
-        if ($actions_remaining >= 1) {
-          $actions[] = 'talk';
-          $actions[] = 'search';
-          $actions[] = 'interact';
-          $actions[] = 'delay';
-        }
-        if ($this->isSafeRestAvailable($game_state, $dungeon_data)) {
-          $actions[] = 'treat_wounds';
-          $actions[] = 'refocus';
-          $actions[] = 'repair';
-          $actions[] = 'daily_preparations';
-        }
-        $actions[] = 'end_turn';
-        $actions[] = 'choose_not_to_act';
-      }
-      return $actions;
-    }
-    $turn = $game_state['turn'] ?? [];
-    $current_entity = $turn['entity'] ?? NULL;
-    $actions_remaining = $turn['actions_remaining'] ?? 0;
-    $reaction_available = $turn['reaction_available'] ?? FALSE;
-    $effective_actor_id = $actor_id ?? $current_entity;
-    $actor_heritage = $this->resolveActorHeritage($effective_actor_id, $dungeon_data);
-
-    // If it's the actor's turn.
-    if ($effective_actor_id && $effective_actor_id === $current_entity) {
-      if ($actions_remaining >= 1) {
-        $actions[] = 'strike';
-        $actions[] = 'stride';
-        $actions[] = 'interact';
-        $actions[] = 'search';
-        $actions[] = 'talk';
-        if ($actor_heritage === 'chameleon') {
-          $actions[] = 'minor_color_shift';
-        }
-      }
-      if ($actions_remaining >= 2) {
-        $actions[] = 'cast_spell';
-      }
-      $actions[] = 'end_turn';
-      $actions[] = 'choose_not_to_act';
-      $actions[] = 'delay';
-    }
-
-    if ($reaction_available) {
-      $actions[] = 'reaction';
-    }
-
-    return $actions;
+    return $this->actionAvailability
+      ->resolveEncounterAvailability($game_state, $dungeon_data, $actor_id)['available_actions'];
   }
 
   /**
    * Build the canonical encounter action contract for client consumers.
    */
   public function getClientActionContract(array $game_state, array $dungeon_data, ?string $actor_id = NULL): array {
-    // TODO(actor-action-availability): Move this contract onto a shared
-    // subsystem so prompts, UI, preview tooling, and execution validation all
-    // consume the same actor-scoped envelope and resolved option payloads.
-    $available_actions = $this->getAvailableActions($game_state, $dungeon_data, $actor_id);
-    $actions = [];
-
-    foreach (self::CLIENT_ACTION_DEFINITIONS as $action_id => $definition) {
-      $actions[] = [
-        'id' => $action_id,
-        'label' => $definition['label'],
-        'cost' => $definition['cost'],
-        'category' => $definition['category'],
-        'requires_turn' => $definition['requires_turn'],
-        'targeting' => $definition['targeting'],
-        'available' => in_array($action_id, $available_actions, TRUE),
-      ];
-    }
-
-    return [
-      'phase' => 'encounter',
-      'actor_id' => $actor_id,
-      'current_turn_entity' => $game_state['turn']['entity'] ?? NULL,
-      'available_actions' => $available_actions,
-      'actions' => $actions,
-    ];
+    return $this->actionAvailability
+      ->resolveEncounterAvailability($game_state, $dungeon_data, $actor_id)['action_contract'];
   }
 
   /**
@@ -8699,14 +8625,10 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
       $context_game_state['turn']['reaction_available'] = FALSE;
     }
 
-    $allowed_actions = $this->getAvailableActions($context_game_state, $dungeon_data, $entity_id);
-    $action_contract = $this->getClientActionContract($context_game_state, $dungeon_data, $entity_id);
-    $actions_available_to_me_this_turn = $this->buildActorTurnActionAvailabilityEnvelope(
-      $entity_id,
-      $context_game_state,
-      $allowed_actions,
-      $action_contract
-    );
+    $availability = $this->actionAvailability->resolveEncounterAvailability($context_game_state, $dungeon_data, $entity_id);
+    $allowed_actions = $availability['available_actions'];
+    $action_contract = $availability['action_contract'];
+    $actions_available_to_me_this_turn = $availability['availability_envelope'];
 
     return [
       'encounter_id' => $game_state['encounter_id'] ?? NULL,
