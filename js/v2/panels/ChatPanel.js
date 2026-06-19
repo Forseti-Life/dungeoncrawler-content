@@ -504,7 +504,10 @@ export class ChatPanel {
 
       if (!response.ok) {
         const result = await response.json().catch(() => ({}));
-        throw new Error(result.error || `HTTP ${response.status}`);
+        const debugId = String(result?.debug?.debug_id || '').trim();
+        throw new Error(debugId && !(String(result.error || '').includes(debugId))
+          ? `${result.error || `HTTP ${response.status}`} [debug ${debugId}]`
+          : (result.error || `HTTP ${response.status}`));
       }
 
       const contentType = response.headers.get('content-type') || '';

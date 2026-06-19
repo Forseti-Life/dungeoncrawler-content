@@ -332,15 +332,66 @@ class RoomChatController extends ControllerBase {
     }
     catch (\InvalidArgumentException $e) {
       $status = (int) $e->getCode() ?: 400;
+      $debug_id = 'roomchat-' . substr(hash('sha256', microtime(TRUE) . '|' . random_int(0, PHP_INT_MAX)), 0, 12);
+      $this->logger->warning(
+        'Room chat POST rejected [{debug_id}] campaign={campaign_id} room={room_id} channel={channel} character={character_id} request={client_request_id}: {message}',
+        [
+          'debug_id' => $debug_id,
+          'campaign_id' => $campaign_id,
+          'room_id' => $room_id,
+          'channel' => $channel,
+          'character_id' => $character_id,
+          'client_request_id' => $client_request_id,
+          'message' => $e->getMessage(),
+          'exception' => $e,
+        ]
+      );
       return new JsonResponse([
         'success' => FALSE,
-        'error' => $e->getMessage(),
+        'error' => $debug_id !== '' ? $e->getMessage() . ' [debug ' . $debug_id . ']' : $e->getMessage(),
+        'debug' => [
+          'debug_id' => $debug_id,
+          'client_request_id' => $client_request_id,
+          'campaign_id' => $campaign_id,
+          'room_id' => $room_id,
+          'character_id' => $character_id,
+          'channel' => $channel,
+          'status' => $status,
+          'stream_mode' => 'json_post',
+        ],
       ], $status);
     }
     catch (\Throwable $e) {
+      $debug_id = 'roomchat-' . substr(hash('sha256', microtime(TRUE) . '|' . random_int(0, PHP_INT_MAX)), 0, 12);
+      $this->logger->error(
+        'Room chat POST failed [{debug_id}] campaign={campaign_id} room={room_id} channel={channel} character={character_id} request={client_request_id}: {message}',
+        [
+          'debug_id' => $debug_id,
+          'campaign_id' => $campaign_id,
+          'room_id' => $room_id,
+          'channel' => $channel,
+          'character_id' => $character_id,
+          'client_request_id' => $client_request_id,
+          'message' => $e->getMessage(),
+          'exception_class' => get_class($e),
+          'exception' => $e,
+          'speaker' => $speaker,
+          'type' => $type,
+        ]
+      );
       return new JsonResponse([
         'success' => FALSE,
-        'error' => 'An error occurred',
+        'error' => $debug_id !== '' ? 'An error occurred [debug ' . $debug_id . ']' : 'An error occurred',
+        'debug' => [
+          'debug_id' => $debug_id,
+          'client_request_id' => $client_request_id,
+          'campaign_id' => $campaign_id,
+          'room_id' => $room_id,
+          'character_id' => $character_id,
+          'channel' => $channel,
+          'status' => 500,
+          'stream_mode' => 'json_post',
+        ],
       ], 500);
     }
   }
