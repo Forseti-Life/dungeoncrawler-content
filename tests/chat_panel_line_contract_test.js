@@ -235,10 +235,7 @@ console.log('\n=== ChatPanel canonical line contract ===');
     data: { round: 4 },
   });
 
-  assert(chatLine.source === 'encounter-event', 'encounter chat lines carry the encounter-event source');
-  assert(chatLine.authority === 'authoritative', 'encounter chat lines are authoritative');
-  assert(chatLine.messageClass === 'authoritative_transcript', 'encounter chat lines are categorized as authoritative transcript');
-  assert(chatLine.eventId === '42', 'encounter chat lines preserve the originating event id');
+  assert(chatLine === null, 'round_start narrator chatter is suppressed from encounter chat lines');
 }
 
 {
@@ -254,24 +251,13 @@ console.log('\n=== ChatPanel canonical line contract ===');
       return { campaignId: 1, roomId: 'room-1', characterId: 7 };
     },
     buildEncounterEventChatLine(event) {
-      const actorName = String(event?.data?.actor_name || '').trim() || 'Narrator';
-      return {
-        speaker: 'Narrator',
-        message: `${actorName}'s turn begins.`,
-        type: 'gm',
-        lineId: `encounter-event-${event.id}`,
-        created: 0,
-        round: event?.data?.round,
-        actorId: 'actor-1',
-        actorName,
-        source: 'encounter-event',
-        authority: 'authoritative',
-        messageClass: 'authoritative_transcript',
-        eventId: String(event.id || ''),
-      };
+      return null;
     },
     appendChatLineToTarget(target, speaker, message, type, options = {}) {
       appended.push({ target, speaker, message, type, options });
+    },
+    resolveEncounterActorName() {
+      return 'Burasco';
     },
   };
 
@@ -283,10 +269,10 @@ console.log('\n=== ChatPanel canonical line contract ===');
     },
   });
 
-  assert(appended.length === 2, 'turn_start emits a transcript line plus a player turn prompt');
-  assert(appended[1].speaker === 'System', 'player turn prompt uses the System speaker');
-  assert(appended[1].options.turn_prompt === true, 'player turn prompt carries turn_prompt metadata');
-  assert(appended[1].target?.channelKey === 'room', 'player turn prompt is always routed to the room channel');
+  assert(appended.length === 1, 'turn_start only emits the player turn prompt when narrator chatter is suppressed');
+  assert(appended[0].speaker === 'System', 'player turn prompt uses the System speaker');
+  assert(appended[0].options.turn_prompt === true, 'player turn prompt carries turn_prompt metadata');
+  assert(appended[0].target?.channelKey === 'room', 'player turn prompt is always routed to the room channel');
 }
 
 {

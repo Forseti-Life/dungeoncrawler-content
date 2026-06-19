@@ -505,8 +505,10 @@ export class ChatPanel {
       if (!response.ok) {
         const result = await response.json().catch(() => ({}));
         const debugId = String(result?.debug?.debug_id || '').trim();
+        const debugClass = String(result?.debug?.exception_class || '').trim();
+        const debugMessage = String(result?.debug?.message || '').trim();
         if (result?.debug?.exception_class || result?.debug?.message) {
-          console.error('[RoomChat] JSON POST debug', {
+          console.error(`[RoomChat] JSON POST debug ${debugClass || 'Error'}: ${debugMessage || '(no message)'}`, {
             requestId: options.clientRequestId || null,
             roomId,
             campaignId,
@@ -514,9 +516,17 @@ export class ChatPanel {
             debug: result.debug,
           });
         }
-        throw new Error(debugId && !(String(result.error || '').includes(debugId))
-          ? `${result.error || `HTTP ${response.status}`} [debug ${debugId}]`
-          : (result.error || `HTTP ${response.status}`));
+        let errorText = result.error || `HTTP ${response.status}`;
+        if (debugClass || debugMessage) {
+          const details = [debugClass, debugMessage].filter(Boolean).join(': ');
+          if (details && !errorText.includes(details)) {
+            errorText += ` [${details}]`;
+          }
+        }
+        if (debugId && !errorText.includes(debugId)) {
+          errorText += ` [debug ${debugId}]`;
+        }
+        throw new Error(errorText);
       }
 
       const contentType = response.headers.get('content-type') || '';
@@ -1699,31 +1709,34 @@ export class ChatPanel {
 
     for (const gameEvent of events) {
       const chatLine = this.buildEncounterEventChatLine(gameEvent);
-      if (!chatLine) {
-        continue;
+      if (chatLine) {
+        this.appendChatLineToTarget({ view: 'room', channelKey: 'room' }, chatLine.speaker, chatLine.message, chatLine.type, {
+          lineId: chatLine.lineId,
+          created: chatLine.created,
+          encounterEvent: true,
+          event: gameEvent,
+          round: Number.isFinite(chatLine.round) ? chatLine.round : undefined,
+          actorId: chatLine.actorId,
+          actorName: chatLine.actorName,
+          source: chatLine.source,
+          authority: chatLine.authority,
+          messageClass: chatLine.messageClass,
+          eventId: chatLine.eventId,
+        });
       }
-      this.appendChatLineToTarget({ view: 'room', channelKey: 'room' }, chatLine.speaker, chatLine.message, chatLine.type, {
-        lineId: chatLine.lineId,
-        created: chatLine.created,
-        encounterEvent: true,
-        event: gameEvent,
-        round: Number.isFinite(chatLine.round) ? chatLine.round : undefined,
-        actorId: chatLine.actorId,
-        actorName: chatLine.actorName,
-        source: chatLine.source,
-        authority: chatLine.authority,
-        messageClass: chatLine.messageClass,
-        eventId: chatLine.eventId,
-      });
 
       if (
         gameEvent
         && String(gameEvent.type || '').trim().toLowerCase() === 'turn_start'
         && activeCharacterName
-        && normalizeName(chatLine.actorName) === normalizeName(activeCharacterName)
+        && normalizeName(
+          chatLine?.actorName
+          || gameEvent?.data?.actor_name
+          || this.resolveEncounterActorName(String(gameEvent?.actor || gameEvent?.data?.entity_id || '').trim())
+        ) === normalizeName(activeCharacterName)
       ) {
         const rawRound = Number(gameEvent?.data?.round);
-        const fallbackRound = Number.isFinite(rawRound) ? rawRound : (Number.isFinite(chatLine.round) ? chatLine.round : NaN);
+        const fallbackRound = Number.isFinite(rawRound) ? rawRound : (Number.isFinite(chatLine?.round) ? chatLine.round : NaN);
         const promptLineId = gameEvent.id
           ? `turn-prompt-${gameEvent.id}`
           : `turn-prompt-${Number.isFinite(fallbackRound) ? fallbackRound : 'unknown'}-${normalizeName(activeCharacterName)}`;
@@ -1766,53 +1779,8 @@ export class ChatPanel {
       : `encounter-event-${type}-${Number.isFinite(round) ? round : 'unknown'}-${actorId || 'narrator'}-${String(event.narration || '').slice(0, 32)}`;
     const timestamp = String(event.timestamp || '').trim();
     const created = timestamp !== '' ? Date.parse(timestamp) || 0 : 0;
-    if (type === 'round_start') {
-      return {
-        speaker: 'Narrator',
-        message: event.narration || `Round ${Number.isFinite(round) ? round : ''} begins.`.trim(),
-        type: 'gm',
-        lineId,
-        created,
-        round,
-        actorId,
-        actorName: 'Narrator',
-        source: 'encounter-event',
-        authority: 'authoritative',
-        messageClass: 'authoritative_transcript',
-        eventId: String(event.id || ''),
-      };
-    }
-    if (type === 'turn_start') {
-      return {
-        speaker: 'Narrator',
-        message: event.narration || `${actorName}'s turn begins.`,
-        type: 'gm',
-        lineId,
-        created,
-        round,
-        actorId,
-        actorName,
-        source: 'encounter-event',
-        authority: 'authoritative',
-        messageClass: 'authoritative_transcript',
-        eventId: String(event.id || ''),
-      };
-    }
-    if (type === 'choose_not_to_act' || type === 'npc_choose_not_to_act' || type === 'end_turn') {
-      return {
-        speaker: 'Narrator',
-        message: event.narration || `${actorName} ends their turn.`,
-        type: 'gm',
-        lineId,
-        created,
-        round,
-        actorId,
-        actorName,
-        source: 'encounter-event',
-        authority: 'authoritative',
-        messageClass: 'authoritative_transcript',
-        eventId: String(event.id || ''),
-      };
+    if (['round_start', 'turn_start', 'choose_not_to_act', 'npc_choose_not_to_act', 'end_turn'].includes(type)) {
+      return null;
     }
     if (type === 'search' && typeof event.narration === 'string' && event.narration.trim()) {
       return {

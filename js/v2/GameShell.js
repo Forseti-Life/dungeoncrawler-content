@@ -33,7 +33,7 @@ import { PortraitPanel } from './panels/PortraitPanel.js';
 import { MerchantPanel } from './panels/MerchantPanel.js';
 import { CombatPanel } from './panels/CombatPanel.js';
 import { ActionRailPanel } from './panels/ActionRailPanel.js?v=20260616-v2-gm-nonturn-prefix-2';
-import { ChatPanel } from './panels/ChatPanel.js?v=20260616-v2-gm-nonturn-prefix-2';
+import { ChatPanel } from './panels/ChatPanel.js?v=20260619-v2-turn-chatter-suppress-1';
 import { QuestPanel } from './panels/QuestPanel.js?v=20260612-v2-quest-storyline-grouping-1';
 import { InventoryPanel } from './panels/InventoryPanel.js';
 import { CharacterPanel } from './panels/CharacterPanel.js?v=20260619-v2-character-loop-fix-1';
