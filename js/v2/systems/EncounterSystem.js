@@ -232,8 +232,13 @@ export class EncounterSystem {
           this._appendChatLine('Game Master', data.narration.trim(), 'gm');
         }
       }
-      await hexmap.loadCharacterFromApi?.(context.characterId);
-      await hexmap.refreshQuestJournalFromApi?.();
+      const searchDiscoveries = Array.isArray(data?.result?.discoveries)
+        ? data.result.discoveries
+        : (Array.isArray(data?.discoveries) ? data.discoveries : []);
+      if (searchDiscoveries.length > 0) {
+        await hexmap.loadCharacterFromApi?.(context.characterId);
+        await hexmap.refreshQuestJournalFromApi?.();
+      }
       this._refreshActionRail();
     } finally {
       this._endActionRailRequest(button);

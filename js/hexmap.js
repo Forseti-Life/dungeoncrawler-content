@@ -5769,8 +5769,13 @@ import { SpriteService } from './SpriteService.js';
         }
         hexmap.gameCoordinator?.applyAuthoritativeUpdate?.(data);
         hexmap.gameCoordinator?.getActiveHandler?.()?._syncTurnManagement?.(data);
-        await hexmap.loadCharacterFromApi?.(context.characterId);
-        await hexmap.refreshQuestJournalFromApi?.();
+        const searchDiscoveries = Array.isArray(data?.result?.discoveries)
+          ? data.result.discoveries
+          : (Array.isArray(data?.discoveries) ? data.discoveries : []);
+        if (searchDiscoveries.length > 0) {
+          await hexmap.loadCharacterFromApi?.(context.characterId);
+          await hexmap.refreshQuestJournalFromApi?.();
+        }
         this.refreshActionRail();
       } finally {
         this.endActionRailRequest(button);
