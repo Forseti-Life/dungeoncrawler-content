@@ -450,6 +450,14 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
     }
 
     if ($type === 'transition') {
+      $current_entity = (string) ($game_state['turn']['entity'] ?? '');
+      $actor_id = (string) ($intent['actor'] ?? '');
+      if ($actor_id !== '' && $current_entity !== '' && $actor_id !== $current_entity) {
+        return [
+          'valid' => FALSE,
+          'reason' => "It is not $actor_id's turn. Current turn: $current_entity.",
+        ];
+      }
       $target_room = $intent['params']['target_room_id'] ?? NULL;
       if (!is_string($target_room) || trim($target_room) === '') {
         return [

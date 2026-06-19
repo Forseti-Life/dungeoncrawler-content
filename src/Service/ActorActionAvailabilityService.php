@@ -217,7 +217,7 @@ class ActorActionAvailabilityService {
     ?string $heritage = NULL,
     bool $safe_rest_available = FALSE
   ): array {
-    $actions = ['transition'];
+    $actions = [];
     $is_active_turn_actor = $actor_id !== NULL
       && $actor_id !== ''
       && $current_entity !== NULL
@@ -226,6 +226,7 @@ class ActorActionAvailabilityService {
 
     if ($room_scene) {
       if ($is_active_turn_actor) {
+        $actions[] = 'transition';
         if ($actions_remaining >= 1) {
           $actions = array_merge($actions, [
             'talk',
@@ -250,6 +251,7 @@ class ActorActionAvailabilityService {
     }
 
     if ($is_active_turn_actor) {
+      $actions[] = 'transition';
       if ($actions_remaining >= 1) {
         $actions = array_merge($actions, [
           'strike',

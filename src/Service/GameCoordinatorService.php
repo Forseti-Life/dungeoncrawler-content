@@ -481,6 +481,14 @@ class GameCoordinatorService {
    *   Shared actor-scoped availability payload.
    */
   public function getActionAvailabilityForActor(int $campaign_id, ?string $actor_id = NULL): array {
+    $snapshot = $this->getFullState($campaign_id);
+    if (empty($snapshot['success'])) {
+      return [
+        'available_actions' => [],
+        'action_contract' => NULL,
+      ];
+    }
+
     $dungeon_data = $this->loadDungeonData($campaign_id, $actor_id);
     if (!$dungeon_data) {
       return [

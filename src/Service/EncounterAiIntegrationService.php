@@ -175,7 +175,7 @@ class EncounterAiIntegrationService {
     $errors = [];
 
     $current_actor = is_array($context['current_actor'] ?? NULL) ? $context['current_actor'] : [];
-    $current_actor_ref = (string) ($current_actor['entity_ref'] ?? $current_actor['entity_id'] ?? '');
+    $current_actor_ref = $this->resolveCurrentActorId($current_actor);
     $recommended_actor_ref = (string) ($recommendation['actor_instance_id'] ?? '');
 
     if ($current_actor_ref === '' || $recommended_actor_ref === '' || $recommended_actor_ref !== $current_actor_ref) {
@@ -192,13 +192,32 @@ class EncounterAiIntegrationService {
     $action_context = $this->resolveValidationActionContext($context, $current_actor);
     $actions_remaining = $action_context['actions_remaining'];
     $allowed_actions = $action_context['allowed_actions'];
+    $action_definitions = $action_context['action_definitions'];
 
     if ($action_type === '' || !in_array($action_type, $allowed_actions, TRUE)) {
       $errors[] = 'recommended_action.type is not supported by server action handlers.';
     }
 
-    if ($action_cost <= 0 || $action_cost > $actions_remaining) {
-      $errors[] = 'recommended_action.action_cost exceeds actions remaining.';
+    $action_definition = is_array($action_definitions[$action_type] ?? NULL)
+      ? $action_definitions[$action_type]
+      : NULL;
+    if ($action_definition === NULL) {
+      $errors[] = 'recommended_action.type is missing from the canonical action contract.';
+    }
+    else {
+      $canonical_cost = $action_definition['cost'] ?? NULL;
+      if (is_numeric($canonical_cost)) {
+        $canonical_cost = (int) $canonical_cost;
+        if ($action_cost !== $canonical_cost) {
+          $errors[] = 'recommended_action.action_cost does not match the canonical action cost.';
+        }
+        if ($action_cost > $actions_remaining) {
+          $errors[] = 'recommended_action.action_cost exceeds actions remaining.';
+        }
+      }
+      elseif ($canonical_cost === 'reaction' && $action_cost < 0) {
+        $errors[] = 'recommended_action.action_cost is invalid for reaction actions.';
+      }
     }
 
     return [
@@ -215,7 +234,7 @@ class EncounterAiIntegrationService {
    * @param array<string, mixed> $current_actor
    *   Active actor payload.
    *
-   * @return array{allowed_actions: string[], actions_remaining: int}
+   * @return array{allowed_actions: string[], actions_remaining: int, action_definitions: array<string, array<string, mixed>>}
    *   Canonical action context fields.
    */
   protected function resolveValidationActionContext(array $context, array $current_actor): array {
@@ -242,6 +261,18 @@ class EncounterAiIntegrationService {
         : [];
     }
 
+    $action_definitions = [];
+    foreach ((array) ($action_contract['actions'] ?? []) as $action_definition) {
+      if (!is_array($action_definition)) {
+        continue;
+      }
+      $action_id = strtolower(trim((string) ($action_definition['id'] ?? '')));
+      if ($action_id === '') {
+        continue;
+      }
+      $action_definitions[$action_id] = $action_definition;
+    }
+
     $actions_remaining = is_numeric($availability['actions_remaining'] ?? NULL)
       ? max(0, (int) $availability['actions_remaining'])
       : max(0, (int) ($current_actor['actions_remaining'] ?? 3));
@@ -252,6 +283,7 @@ class EncounterAiIntegrationService {
         $allowed_actions
       )))),
       'actions_remaining' => $actions_remaining,
+      'action_definitions' => $action_definitions,
     ];
   }
 

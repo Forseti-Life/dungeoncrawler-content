@@ -204,6 +204,42 @@ class EncounterPhaseHandlerTest extends UnitTestCase {
   }
 
   /**
+   * Transition is actor-scoped and cannot be executed out of turn.
+   *
+   * @covers ::validateIntent
+   */
+  public function testValidateIntentRejectsTransitionOutOfTurn(): void {
+    $handler = $this->buildHandler();
+    $validation = $handler->validateIntent([
+      'type' => 'transition',
+      'actor' => 'char-002',
+      'params' => ['target_room_id' => 'room-b'],
+    ], [
+      'encounter_id' => 42,
+      'turn' => [
+        'entity' => 'char-001',
+        'actions_remaining' => 3,
+      ],
+    ], [
+      'active_room_id' => 'room-a',
+      'rooms' => [
+        [
+          'room_id' => 'room-a',
+          'connections' => [
+            ['room_id' => 'room-b', 'available' => TRUE],
+          ],
+        ],
+        [
+          'room_id' => 'room-b',
+        ],
+      ],
+    ]);
+
+    $this->assertFalse($validation['valid']);
+    $this->assertSame('It is not char-002\'s turn. Current turn: char-001.', $validation['reason']);
+  }
+
+  /**
    * Encounter talk delegates to RoomChatService and returns an explicit contract.
    *
    * @covers ::processIntent

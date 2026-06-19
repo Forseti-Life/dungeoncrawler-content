@@ -99,6 +99,12 @@ class EncounterAiIntegrationServiceTest extends UnitTestCase {
         'actions_remaining' => 3,
       ],
       'allowed_actions' => ['strike', 'end_turn'],
+      'action_contract' => [
+        'actions' => [
+          ['id' => 'strike', 'cost' => 1],
+          ['id' => 'end_turn', 'cost' => 0],
+        ],
+      ],
     ];
 
     $recommendation = [
@@ -126,6 +132,11 @@ class EncounterAiIntegrationServiceTest extends UnitTestCase {
         'actions_remaining' => 1,
       ],
       'allowed_actions' => ['strike'],
+      'action_contract' => [
+        'actions' => [
+          ['id' => 'strike', 'cost' => 1],
+        ],
+      ],
     ];
 
     $recommendation = [
@@ -162,6 +173,9 @@ class EncounterAiIntegrationServiceTest extends UnitTestCase {
         'action_contract' => [
           'phase' => 'encounter',
           'available_actions' => ['end_turn'],
+          'actions' => [
+            ['id' => 'end_turn', 'cost' => 0],
+          ],
         ],
       ],
     ];
@@ -178,7 +192,45 @@ class EncounterAiIntegrationServiceTest extends UnitTestCase {
 
     $this->assertFalse($validation['valid']);
     $this->assertContains('recommended_action.type is not supported by server action handlers.', $validation['errors']);
-    $this->assertContains('recommended_action.action_cost exceeds actions remaining.', $validation['errors']);
+    $this->assertContains('recommended_action.type is missing from the canonical action contract.', $validation['errors']);
+  }
+
+  /**
+   * @covers ::validateRecommendation
+   */
+  public function testValidateRecommendationAllowsCanonicalZeroCostEndTurn(): void {
+    $context = [
+      'current_actor' => [
+        'entity_ref' => 'npc-1',
+        'team' => 'npc',
+        'actions_remaining' => 0,
+      ],
+      'actions_available_to_me_this_turn' => [
+        'actor_instance_id' => 'npc-1',
+        'actions_remaining' => 0,
+        'available_actions' => ['end_turn'],
+        'action_contract' => [
+          'phase' => 'encounter',
+          'available_actions' => ['end_turn'],
+          'actions' => [
+            ['id' => 'end_turn', 'cost' => 0],
+          ],
+        ],
+      ],
+    ];
+
+    $recommendation = [
+      'actor_instance_id' => 'npc-1',
+      'recommended_action' => [
+        'type' => 'end_turn',
+        'action_cost' => 0,
+      ],
+    ];
+
+    $validation = $this->service->validateRecommendation($recommendation, $context);
+
+    $this->assertTrue($validation['valid']);
+    $this->assertSame([], $validation['errors']);
   }
 
   /**
@@ -194,6 +246,11 @@ class EncounterAiIntegrationServiceTest extends UnitTestCase {
         'actions_remaining' => 3,
       ],
       'allowed_actions' => ['strike'],
+      'action_contract' => [
+        'actions' => [
+          ['id' => 'strike', 'cost' => 1],
+        ],
+      ],
     ];
 
     $this->provider->method('getProviderName')->willReturn('stub');
