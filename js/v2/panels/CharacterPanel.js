@@ -155,6 +155,13 @@ export class CharacterPanel {
       this.bus.on('game:init',         (d) => {
         if (d?.launchCharacter) this.showLaunchCharacter(d.launchCharacter);
       }),
+      this.bus.on('character:updated', (d) => {
+        const launchCharacter = d?.launchCharacter
+          || this.stateManager?.hexmap?.launchCharacter
+          || this.stateManager?.hexmap?.characterData
+          || null;
+        if (launchCharacter) this.showLaunchCharacter(launchCharacter);
+      }),
       this.bus.on('character:sheet-requested', (d) => {
         if (d?.characterId) this.showEmbeddedCharacterSheet(d.characterId);
       }),
