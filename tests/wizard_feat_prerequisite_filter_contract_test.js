@@ -65,4 +65,11 @@ assert(
   'Wizard build marks duplicate feat options as disabled and labelled in selector cards'
 );
 
+assert(
+  source.includes('Improved Familiar Attunement already grants Familiar for free.') &&
+  source.includes("'source' => 'arcane-thesis:improved-familiar-attunement'") &&
+  source.includes('Already granted by arcane thesis'),
+  'Improved Familiar Attunement grants Familiar for free and disables duplicate manual selection'
+);
+
 console.log('OK wizard feat prerequisite filter contract');

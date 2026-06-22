@@ -1185,6 +1185,14 @@ class CharacterCreationStepForm extends FormBase {
         if ($selected_bonus_feat !== '' && $selected_bonus_feat === (string) ($feat['id'] ?? '') && $selected_bonus_feat !== $selected_class_feat) {
           $duplicate_tags[] = (string) $this->t('Already selected by Natural Ambition');
         }
+        if (
+          $selected_class === 'wizard'
+          && trim((string) ($character_data['arcane_thesis'] ?? '')) === 'improved-familiar-attunement'
+          && (string) ($feat['id'] ?? '') === 'familiar'
+          && $selected_class_feat !== 'familiar'
+        ) {
+          $duplicate_tags[] = (string) $this->t('Already granted by arcane thesis');
+        }
         $feat_options[$feat['id']] = $feat['name'];
         $feat_cards[$feat['id']] = $this->buildOptionCardData(
           $this->resolveFeatDisplayDescription($feat),
@@ -1212,6 +1220,13 @@ class CharacterCreationStepForm extends FormBase {
       $selected_bonus_feat = trim((string) ($character_data['feat_selections']['natural-ambition']['bonus_class_feat'] ?? ''));
       if ($selected_bonus_feat !== '' && $selected_bonus_feat !== $selected_class_feat) {
         $class_feat_disabled_ids[] = $selected_bonus_feat;
+      }
+      if (
+        $selected_class === 'wizard'
+        && trim((string) ($character_data['arcane_thesis'] ?? '')) === 'improved-familiar-attunement'
+        && $selected_class_feat !== 'familiar'
+      ) {
+        $class_feat_disabled_ids[] = 'familiar';
       }
       $this->attachOptionCardSettings($form['class_dynamic'], 'class_feat', $feat_cards, 'single', $class_feat_disabled_ids);
 
@@ -2507,6 +2522,13 @@ class CharacterCreationStepForm extends FormBase {
             $selected_class_feat = trim((string) $form_state->getValue('class_feat', ''));
             if ($selected_class_feat === '') {
               $form_state->setErrorByName('class_feat', $this->t('Class feat selection is required.'));
+            }
+            elseif (
+              $class_val_for_ka === 'wizard'
+              && trim((string) $form_state->getValue('arcane_thesis', '')) === 'improved-familiar-attunement'
+              && $selected_class_feat === 'familiar'
+            ) {
+              $form_state->setErrorByName('class_feat', $this->t('Improved Familiar Attunement already grants Familiar for free.'));
             }
             elseif (!in_array($selected_class_feat, array_column($eligible_class_feats, 'id'), TRUE)) {
               $form_state->setErrorByName('class_feat', $this->t('Choose a valid class feat for the current character build.'));
@@ -8096,18 +8118,28 @@ class CharacterCreationStepForm extends FormBase {
    */
   private function appendSubclassGrantedFeats(array &$feats, array $character_data, array $class_feats): void {
     $class_name = strtolower(trim((string) ($character_data['class'] ?? '')));
-    if ($class_name !== 'druid') {
-      return;
+    $granted_feat_sources = [];
+    if ($class_name === 'druid') {
+      $selected_order = strtolower(trim((string) ($character_data['subclass'] ?? '')));
+      $order_definition = CharacterManager::CLASSES['druid']['order']['orders'][$selected_order] ?? NULL;
+      if (is_array($order_definition)) {
+        foreach (($order_definition['granted_feats'] ?? []) as $granted_feat_id) {
+          $granted_feat_sources[] = [
+            'id' => strtolower(str_replace('_', '-', trim((string) $granted_feat_id))),
+            'source' => 'druid-order:' . $selected_order,
+          ];
+        }
+      }
+    }
+    elseif ($class_name === 'wizard' && strtolower(trim((string) ($character_data['arcane_thesis'] ?? ''))) === 'improved-familiar-attunement') {
+      $granted_feat_sources[] = [
+        'id' => 'familiar',
+        'source' => 'arcane-thesis:improved-familiar-attunement',
+      ];
     }
 
-    $selected_order = strtolower(trim((string) ($character_data['subclass'] ?? '')));
-    $order_definition = CharacterManager::CLASSES['druid']['order']['orders'][$selected_order] ?? NULL;
-    if (!is_array($order_definition)) {
-      return;
-    }
-
-    foreach (($order_definition['granted_feats'] ?? []) as $granted_feat_id) {
-      $normalized_id = strtolower(str_replace('_', '-', trim((string) $granted_feat_id)));
+    foreach ($granted_feat_sources as $granted_feat) {
+      $normalized_id = (string) ($granted_feat['id'] ?? '');
       if ($normalized_id === '' || in_array($normalized_id, array_column($feats, 'id'), TRUE)) {
         continue;
       }
@@ -8122,7 +8154,7 @@ class CharacterCreationStepForm extends FormBase {
           'id' => $feat_definition['id'],
           'name' => $feat_definition['name'],
           'level' => (int) ($feat_definition['level'] ?? 1),
-          'source' => 'druid-order:' . $selected_order,
+          'source' => (string) ($granted_feat['source'] ?? 'granted'),
         ];
         break;
       }
