@@ -1961,9 +1961,11 @@ class CharacterCreationStepForm extends FormBase {
         '#items' => array_map(static fn(array $item): string => $item['name'], $class_loadout_preset['items']),
       ];
       $form['class_default_loadout']['apply'] = [
-        '#type' => 'button',
+        '#type' => 'html_tag',
+        '#tag' => 'button',
         '#value' => $this->t('Apply @class Loadout', ['@class' => $class_loadout_preset['class_label']]),
         '#attributes' => [
+          'type' => 'button',
           'data-step7-loadout-apply' => $class_loadout_preset['id'],
           'class' => ['button', 'button--primary'],
         ],

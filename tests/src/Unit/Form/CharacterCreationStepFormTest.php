@@ -165,6 +165,8 @@ class CharacterCreationStepFormTest extends UnitTestCase {
     $method->invokeArgs($form, $arguments);
 
     $this->assertArrayHasKey('class_default_loadout', $form_array);
+    $this->assertSame('html_tag', $form_array['class_default_loadout']['apply']['#type']);
+    $this->assertSame('button', $form_array['class_default_loadout']['apply']['#attributes']['type']);
     $this->assertSame('fighter_default', $form_array['class_default_loadout']['apply']['#attributes']['data-step7-loadout-apply']);
 
     $presets = $form_array['#attached']['drupalSettings']['characterStep7']['presets'] ?? [];
