@@ -3087,6 +3087,9 @@ class CharacterCreationStepForm extends FormBase {
 
     // Redirect to next step or character view
     if ($step >= 8) {
+      if ($campaign_id) {
+        $this->ensureCampaignCharacterHasCanonicalSource((int) $character_id, (int) $campaign_id);
+      }
       if ($character_id) {
         $this->characterManager->updateCharacter((int) $character_id, ['status' => 1]);
       }
@@ -3620,6 +3623,86 @@ class CharacterCreationStepForm extends FormBase {
     }
     $character_data['wizard'] = $wizard;
     return $character_data;
+  }
+
+  /**
+   * Ensure a campaign-created character points back to a canonical library row.
+   */
+  private function ensureCampaignCharacterHasCanonicalSource(int $character_id, int $campaign_id): void {
+    if ($character_id <= 0 || $campaign_id <= 0) {
+      return;
+    }
+
+    $record = $this->characterManager->loadCharacter($character_id);
+    if (!$record || (int) ($record->campaign_id ?? 0) !== $campaign_id) {
+      return;
+    }
+
+    $linked_character_id = (int) ($record->character_id ?? 0);
+    if ($linked_character_id > 0 && $linked_character_id !== (int) $record->id) {
+      return;
+    }
+
+    $character_data = json_decode((string) ($record->character_data ?? '{}'), TRUE);
+    if (!is_array($character_data)) {
+      $character_data = [];
+    }
+    $schema_data = $this->characterManager->canonicalizeCharacterData($character_data);
+    $hot = $this->characterManager->extractHotColumnsFromData($schema_data);
+    $now = $this->time->getRequestTime();
+    $library_instance_id = $this->uuid->generate();
+
+    $library_row_id = (int) $this->database->insert('dc_campaign_characters')
+      ->fields([
+        'uuid' => $library_instance_id,
+        'campaign_id' => 0,
+        'character_id' => 0,
+        'instance_id' => $library_instance_id,
+        'uid' => (int) ($record->uid ?? $this->currentUser->id()),
+        'name' => $schema_data['name'] ?: 'Unnamed Character',
+        'level' => $schema_data['level'],
+        'ancestry' => $schema_data['ancestry'] ?? '',
+        'class' => $schema_data['class'] ?? '',
+        'hp_current' => $hot['hp_current'],
+        'hp_max' => $hot['hp_max'],
+        'armor_class' => $hot['armor_class'],
+        'experience_points' => (int) ($schema_data['experience_points'] ?? 0),
+        'position_q' => 0,
+        'position_r' => 0,
+        'last_room_id' => '',
+        'character_data' => json_encode($schema_data, JSON_PRETTY_PRINT),
+        'default_character_data' => json_encode($schema_data, JSON_PRETTY_PRINT),
+        'location_type' => 'roster',
+        'location_ref' => '',
+        'role' => (string) ($record->role ?? 'player'),
+        'type' => (string) ($record->type ?? 'pc'),
+        'status' => max(1, (int) ($record->status ?? 1)),
+        'is_active' => 0,
+        'created' => $now,
+        'changed' => $now,
+        'updated' => $now,
+      ])
+      ->execute();
+
+    $this->database->update('dc_campaign_characters')
+      ->fields([
+        'character_id' => $library_row_id,
+        'instance_id' => sprintf('pc-%d-%d', $campaign_id, $library_row_id),
+        'default_character_data' => json_encode($schema_data, JSON_PRETTY_PRINT),
+        'changed' => $now,
+        'updated' => $now,
+      ])
+      ->condition('id', $character_id)
+      ->execute();
+
+    $this->database->update('dc_campaigns')
+      ->fields([
+        'active_character_id' => $library_row_id,
+        'changed' => $now,
+      ])
+      ->condition('id', $campaign_id)
+      ->condition('active_character_id', $character_id)
+      ->execute();
   }
 
   /**
