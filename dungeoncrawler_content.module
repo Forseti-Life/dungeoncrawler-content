@@ -183,6 +183,7 @@ function dungeoncrawler_content_theme(array $existing, string $type, string $the
         'melee_attacks' => [],
         'ranged_attacks' => [],
         'equipment' => [],
+        'followers' => [],
         'feats' => [],
         'spells' => NULL,
         'conditions' => [],
