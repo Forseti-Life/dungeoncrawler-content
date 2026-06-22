@@ -24,7 +24,8 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
  *   - dc_campaign_room_states rows
  *   - dc_campaign_content_registry rows
  *   - dc_campaign_characters (campaign instances only)
- *   - dc_campaign_quests rows
+ *   - dc_campaign_quests + quest progress/log/reward/confirmation rows
+ *   - dc_campaign_item_instances rows
  *   - dc_chat_sessions + dc_chat_messages via ChatSessionManager
  */
 class CampaignDeleteForm extends ConfirmFormBase {
@@ -154,40 +155,35 @@ class CampaignDeleteForm extends ConfirmFormBase {
       }
     }
 
-    // 2. Campaign quests.
-    if ($this->database->schema()->tableExists('dc_campaign_quests')) {
-      $this->database->delete('dc_campaign_quests')
-        ->condition('campaign_id', $campaign_id)
-        ->execute();
+    // 2. Quest-scoped rows.
+    foreach ([
+      'dc_campaign_quest_confirmations',
+      'dc_campaign_quest_log',
+      'dc_campaign_quest_progress',
+      'dc_campaign_quest_rewards_claimed',
+      'dc_campaign_quests',
+    ] as $table) {
+      $this->deleteCampaignScopedRows($table, $campaign_id);
     }
 
-    // 3. Content registry.
-    $this->database->delete('dc_campaign_content_registry')
-      ->condition('campaign_id', $campaign_id)
-      ->execute();
+    // 3. Campaign room/item/content rows.
+    foreach ([
+      'dc_campaign_item_instances',
+      'dc_campaign_content_registry',
+      'dc_campaign_room_states',
+      'dc_campaign_rooms',
+      'dc_campaign_dungeons',
+    ] as $table) {
+      $this->deleteCampaignScopedRows($table, $campaign_id);
+    }
 
-    // 4. Room states.
-    $this->database->delete('dc_campaign_room_states')
-      ->condition('campaign_id', $campaign_id)
-      ->execute();
-
-    // 5. Rooms.
-    $this->database->delete('dc_campaign_rooms')
-      ->condition('campaign_id', $campaign_id)
-      ->execute();
-
-    // 6. Dungeons.
-    $this->database->delete('dc_campaign_dungeons')
-      ->condition('campaign_id', $campaign_id)
-      ->execute();
-
-    // 7. Campaign character instances. Preserve player PCs by detaching them
+    // 4. Campaign character instances. Preserve player PCs by detaching them
     // back to the library slot before deleting campaign-only runtime rows.
     $this->database->delete('dc_campaign_characters')
       ->condition('campaign_id', $campaign_id)
       ->execute();
 
-    // 8. Campaign record itself.
+    // 5. Campaign record itself.
     $this->database->delete('dc_campaigns')
       ->condition('id', $campaign_id)
       ->execute();
@@ -215,6 +211,19 @@ class CampaignDeleteForm extends ConfirmFormBase {
     ]));
 
     $form_state->setRedirectUrl($this->getCancelUrl());
+  }
+
+  /**
+   * Delete rows from one campaign-scoped table when it exists.
+   */
+  protected function deleteCampaignScopedRows(string $table, int $campaign_id): void {
+    if (!$this->database->schema()->tableExists($table)) {
+      return;
+    }
+
+    $this->database->delete($table)
+      ->condition('campaign_id', $campaign_id)
+      ->execute();
   }
 
   /**
