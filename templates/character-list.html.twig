@@ -22,7 +22,7 @@
       <p>
         You are selecting a character for
         <strong>{{ campaign_name ?: ('Campaign #' ~ campaign_id) }}</strong>.
-        Choose a completed character from your roster, or create one to begin a new legacy arc.
+        Choose a completed character from your roster, or create one to begin a new continuity arc in this shard.
       </p>
     </div>
   {% endif %}
@@ -139,9 +139,9 @@
   {% else %}
     <div class="dc-character-list__empty">
       <h2>No Characters Yet</h2>
-      <p>Your roster is empty. Create your first character and start building a permanent home in Forseti Life.</p>
+      <p>Your roster is empty. Create your first character and start building a portable identity you can carry across shard campaigns.</p>
       <a href="{{ create_url }}" class="dc-btn dc-btn-primary">
-        Create Your First Legacy Character
+        Create Your First Character
       </a>
     </div>
   {% endif %}

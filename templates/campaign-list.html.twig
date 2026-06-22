@@ -4,14 +4,14 @@
  #}
 <div class="dc-character-list dc-character-list--campaigns">
   <div class="dc-character-list__header">
-    <h1 class="dc-character-list__title">My Legacy Campaigns</h1>
+    <h1 class="dc-character-list__title">My Shard Campaigns</h1>
     <div class="dc-sheet__nav-actions">
       <a href="{{ characters_url }}" class="dc-btn dc-btn-secondary">My Characters</a>
       {% if archived_url %}
         <a href="{{ archived_url }}" class="dc-btn dc-btn-secondary">Archived Campaigns</a>
       {% endif %}
       <a href="{{ create_url }}" class="dc-btn dc-btn-primary">
-        <span class="dc-btn__icon">+</span> Create New Legacy Campaign
+        <span class="dc-btn__icon">+</span> Create New Shard Campaign
       </a>
     </div>
   </div>
@@ -69,8 +69,8 @@
   {% else %}
     <div class="dc-character-list__empty">
       <h2>No Campaigns Yet</h2>
-      <p>Create your first campaign home, then choose a character to begin a long-term story.</p>
-      <a href="{{ create_url }}" class="dc-btn dc-btn-primary">Create Your First Legacy Campaign</a>
+      <p>Create your first shard campaign, then choose a character to begin a long-term continuity story.</p>
+      <a href="{{ create_url }}" class="dc-btn dc-btn-primary">Create Your First Shard Campaign</a>
     </div>
   {% endif %}
 </div>

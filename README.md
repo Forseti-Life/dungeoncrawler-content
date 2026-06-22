@@ -31,10 +31,10 @@ Core content module for the living dungeon crawler RPG. Provides character manag
 ### Player-Facing Positioning (2026-02-18)
 
 Current game-facing messaging is intentionally tuned for former tabletop/classic RPG players who want:
-- A persistent campaign home rather than disposable one-off sessions
+- A persistent shard campaign rather than disposable one-off sessions
 - Long-term character continuity across adventures
 - A clear path for character retirement and successor roster play
-- Participation in a constantly growing Dungeon Crawler Forseti Life universe
+- Participation in a constantly growing Dungeon Crawler Life multiverse
 
 ## Features
 
@@ -315,7 +315,7 @@ Implementation strategy (first-pass architecture):
 ### Information Pages
 - **World Lore** (`/world`) - Multiverse setting overview covering shard campaigns, continuity anchors, and cross-setting character portability
 - **How to Play** (`/how-to-play`) - Game mechanics and tutorial
-- **About** (`/about`) - Game information, technology, and legacy-world framing for long-term character play
+- **About** (`/about`) - Game information, technology, and multiverse framing for long-term character play
 - **Spell Catalogue** (`/spellcatalogue`) - Public review page for canonical spell records pulled from `dungeoncrawler_content_registry`
 - **Focus Spell API** (`/api/focus-spells`) - Registry-backed focus spell catalog with `source_book` filters (`crb`, `apg`, `som`, `all`) and class filters covering wizard, oracle, witch, bard, ranger, sorcerer, champion, cleric, druid, monk, magus, and summoner
 
