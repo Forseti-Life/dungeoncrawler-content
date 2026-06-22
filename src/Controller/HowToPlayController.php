@@ -21,16 +21,16 @@ class HowToPlayController extends ControllerBase {
 
     $first_steps = [
       [
-        'title' => 'Create one campaign world',
-        'description' => 'Start by making a campaign and treating it like your persistent home. This is the save world that keeps your progress, discoveries, setbacks, and character history tied together.',
+        'title' => 'Launch one shard campaign',
+        'description' => 'Start by creating a campaign shard and treating it like a real universe branch. It keeps your progress, discoveries, setbacks, and continuity history together instead of resetting after one run.',
       ],
       [
-        'title' => 'Finish one complete character',
-        'description' => 'Do not stop halfway through setup. Finish the full creation flow so the character is ready to enter the tavern, bind to the campaign, and actually survive a first run.',
+        'title' => 'Finish one deployable character',
+        'description' => 'Do not stop halfway through setup. Finish the full creation flow so the character is ready to enter the tavern, bind to a shard, and survive a first live expedition.',
       ],
       [
-        'title' => 'Make a cautious first expedition',
-        'description' => 'Use the tavern to get oriented, then head onto the hexmap with the goal of learning the loop. A good first session is about understanding pacing, not proving mastery.',
+        'title' => 'Make a cautious first run',
+        'description' => 'Use the tavern to get oriented, then head onto the hexmap to learn the loop. A good first session is about understanding pacing, continuity, and risk instead of proving mastery.',
       ],
     ];
 
@@ -59,26 +59,26 @@ class HowToPlayController extends ControllerBase {
                 '#type' => 'html_tag',
                 '#tag' => 'h1',
                 '#attributes' => ['class' => ['display-5', 'mb-3']],
-                '#value' => 'Start your first campaign without guessing what the game expects from you.',
+                '#value' => 'Learn the shard loop before you commit to your first live run.',
               ],
               'summary' => [
                 '#type' => 'html_tag',
                 '#tag' => 'p',
                 '#attributes' => ['class' => ['lead', 'mb-4']],
-                '#value' => 'Dungeon Crawler is built around long-form campaign play. You are not just launching a disposable run. You are building a world that remembers your characters, your route choices, and the consequences of how you play.',
+                '#value' => 'Dungeon Crawler Life is built around persistent shard campaigns. You are not just launching a disposable run; you are instantiating a character into a world that remembers route choices, relationships, and consequences over time.',
               ],
               'details' => [
                 '#type' => 'html_tag',
                 '#tag' => 'p',
                 '#attributes' => ['class' => ['mb-4']],
-                '#value' => 'If you are new, the basic loop is straightforward: create a campaign, finish one character, enter through the tavern, then use the hexmap to begin exploring. The important shift is that every run feeds back into a larger campaign story, so steady learning matters more than rushing.',
+                '#value' => 'If you are new, the basic loop is straightforward: create a shard, finish one character, enter through the tavern, then use the hexmap to explore. The important shift is that save/restore, repeat runs, and future setting-crossing all feed back into one larger continuity model, so steady learning matters more than rushing.',
               ],
               'actions' => [
                 '#type' => 'container',
                 '#attributes' => ['class' => ['d-grid', 'gap-3', 'd-sm-flex']],
                 'primary' => [
                   '#type' => 'link',
-                  '#title' => $this->t('Start Your First Campaign'),
+                  '#title' => $this->t('Launch Your First Shard'),
                   '#url' => Url::fromRoute('dungeoncrawler_content.campaigns'),
                   '#attributes' => ['class' => ['btn', 'btn-warning', 'btn-lg', 'px-4']],
                 ],
@@ -111,7 +111,7 @@ class HowToPlayController extends ControllerBase {
                 '#type' => 'html_tag',
                 '#tag' => 'p',
                 '#attributes' => ['class' => ['mb-4']],
-                '#value' => 'Three words carry most of the page: campaign, tavern, and hexmap. Once those click, the rest of the experience becomes much easier to read.',
+                '#value' => 'Three words carry most of the page: shard, tavern, and hexmap. Once those click, the rest of the experience becomes much easier to read.',
               ],
               'terms' => [
                 '#type' => 'container',
@@ -123,13 +123,13 @@ class HowToPlayController extends ControllerBase {
                     '#type' => 'html_tag',
                     '#tag' => 'h3',
                     '#attributes' => ['class' => ['h5', 'mb-2']],
-                    '#value' => 'Campaign',
+                    '#value' => 'Shard Campaign',
                   ],
                   'text' => [
                     '#type' => 'html_tag',
                     '#tag' => 'p',
                     '#attributes' => ['class' => ['mb-0']],
-                    '#value' => 'Your persistent world. It keeps the history of your party and the state of the world between sessions.',
+                    '#value' => 'Your persistent universe branch. It keeps the history of your party, world state, and continuity decisions between sessions.',
                   ],
                 ],
                 'tavern' => [
@@ -145,7 +145,7 @@ class HowToPlayController extends ControllerBase {
                     '#type' => 'html_tag',
                     '#tag' => 'p',
                     '#attributes' => ['class' => ['mb-0']],
-                    '#value' => 'Your staging area. This is where you prepare, attach a character to the campaign, and decide what kind of run to make next.',
+                    '#value' => 'Your staging area. This is where you prepare, attach a character to the shard, and decide what kind of run or return attempt to make next.',
                   ],
                 ],
                 'hexmap' => [
@@ -161,7 +161,7 @@ class HowToPlayController extends ControllerBase {
                     '#type' => 'html_tag',
                     '#tag' => 'p',
                     '#attributes' => ['class' => ['mb-0']],
-                    '#value' => 'The exploration layer. This is where travel, scouting, route choice, and campaign-level risk start to matter.',
+                    '#value' => 'The exploration layer. This is where travel, scouting, route choice, and shard-level risk start to matter.',
                   ],
                 ],
               ],
@@ -184,13 +184,13 @@ class HowToPlayController extends ControllerBase {
             '#type' => 'html_tag',
             '#tag' => 'h2',
             '#attributes' => ['class' => ['mb-3']],
-            '#value' => 'Your first campaign, step by step',
+            '#value' => 'Your first shard campaign, step by step',
           ],
           'intro' => [
             '#type' => 'html_tag',
             '#tag' => 'p',
             '#attributes' => ['class' => ['lead', 'text-secondary', 'mb-4']],
-            '#value' => 'A good first session is not about clearing the most content. It is about learning the flow well enough that the next session feels intentional instead of confusing.',
+            '#value' => 'A good first session is not about clearing the most content. It is about learning the flow well enough that your next return, restore, or follow-up run feels intentional instead of confusing.',
           ],
           'steps' => [
             '#type' => 'container',
@@ -216,14 +216,14 @@ class HowToPlayController extends ControllerBase {
           'card' => $this->buildSectionCard(
             'What to focus on early',
             [
-              'Treat your first few sessions like reconnaissance. You are learning how pacing, preparation, and survivability work together inside a persistent campaign.',
-              'The fastest way to enjoy the game is to get one character and one campaign fully working before you start experimenting with edge-case builds or aggressive routes.',
+              'Treat your first few sessions like reconnaissance. You are learning how pacing, preparation, and survivability work together inside a persistent shard.',
+              'The fastest way to enjoy the game is to get one character and one shard fully working before you start experimenting with edge-case builds, restores, or aggressive routes.',
             ],
             [
               'Finish the full character setup before judging the flow.',
               'Use the tavern as a planning space, not just a button you click through.',
               'Take routes that teach you something instead of routes that only look dramatic.',
-              'Track what actually made a run feel safer or more dangerous.',
+              'Track what actually made a run feel safer, stranger, or more dangerous.',
             ]
           ),
         ],
@@ -233,11 +233,11 @@ class HowToPlayController extends ControllerBase {
           'card' => $this->buildSectionCard(
             'What success looks like',
             [
-              'A successful first session is one where the campaign makes more sense by the end than it did at the beginning. Survival, clarity, and useful information are all real wins.',
-              'If you end a run understanding your class better, knowing which route felt too risky, and having a clearer plan for the next expedition, the session did its job.',
+              'A successful first session is one where the shard makes more sense by the end than it did at the beginning. Survival, clarity, and useful information are all real wins.',
+              'If you end a run understanding your class better, knowing which route felt too risky, and having a clearer plan for the next expedition or restored attempt, the session did its job.',
             ],
             [
-              'You know how campaign, tavern, and hexmap fit together.',
+              'You know how shard, tavern, and hexmap fit together.',
               'You can get one character from creation into a real run.',
               'You have a better sense of what to improve next time.',
               'The next session feels easier to plan than the first one did.',
@@ -266,17 +266,17 @@ class HowToPlayController extends ControllerBase {
             '#type' => 'html_tag',
             '#tag' => 'p',
             '#attributes' => ['class' => ['mb-4']],
-            '#value' => 'These are the habits that make the game feel better quickly, especially if you are still learning what matters from one session to the next.',
+            '#value' => 'These are the habits that make the game feel better quickly, especially if you are still learning what matters from one session, restore point, or shard return to the next.',
           ],
           'list' => [
             '#theme' => 'item_list',
             '#attributes' => ['class' => ['how-to-play-bullet-list', 'mb-0']],
             '#items' => [
-              'Finish setup before judging the game. Many early frustrations come from entering the loop with an unfinished character or a vague campaign goal.',
+              'Finish setup before judging the game. Many early frustrations come from entering the loop with an unfinished character or a vague shard goal.',
               'Choose readability over ambition. Your first solid character should be easy to understand, even if it is not the most advanced build on paper.',
               'Respect survival. Leaving with information and a living character is often more valuable than forcing one more risky encounter.',
-              'Reset your thinking between runs. Use the tavern to ask what the campaign actually needs next: safety, gear, a different route, or a different role.',
-              'Think in campaign terms. Steady progress and retained knowledge matter more than a single flashy win.',
+              'Reset your thinking between runs. Use the tavern to ask what the shard actually needs next: safety, gear, a different route, or a different role.',
+              'Think in continuity terms. Steady progress and retained knowledge matter more than a single flashy win.',
             ],
           ],
         ],
@@ -296,27 +296,27 @@ class HowToPlayController extends ControllerBase {
             '#type' => 'html_tag',
             '#tag' => 'h2',
             '#attributes' => ['class' => ['mb-3']],
-            '#value' => 'Ready to build a campaign world that keeps your history?',
+            '#value' => 'Ready to launch a shard that keeps your history?',
           ],
           'text' => [
             '#type' => 'html_tag',
             '#tag' => 'p',
             '#attributes' => ['class' => ['lead', 'mb-4']],
-            '#value' => 'Start with one campaign, one character, and one deliberate first run. You can grow from there.',
+            '#value' => 'Start with one shard, one character, and one deliberate first run. You can grow, restore, branch, and travel from there.',
           ],
           'actions' => [
             '#type' => 'container',
             '#attributes' => ['class' => ['d-grid', 'gap-3', 'd-sm-flex', 'justify-content-center']],
             'primary' => [
               '#type' => 'link',
-              '#title' => $this->t('Start Your First Campaign'),
+              '#title' => $this->t('Launch Your First Shard'),
               '#url' => Url::fromRoute('dungeoncrawler_content.campaigns'),
               '#attributes' => ['class' => ['btn', 'btn-warning', 'btn-lg', 'px-4']],
             ],
             'secondary' => [
               '#type' => 'link',
-              '#title' => $this->t('Create a Character'),
-              '#url' => Url::fromUri('internal:/charactersetup'),
+              '#title' => $this->t('View the World Model'),
+              '#url' => Url::fromRoute('dungeoncrawler_content.world'),
               '#attributes' => ['class' => ['btn', 'btn-outline-light', 'btn-lg', 'px-4']],
             ],
           ],

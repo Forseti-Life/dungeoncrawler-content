@@ -21,64 +21,64 @@ class AboutController extends ControllerBase {
 
     $feature_pillars = [
       [
-        'slug' => 'forseti-guided-generation',
-        'title' => 'Forseti-Guided Generation',
-        'description' => 'Algorithmic generation is directed toward campaign continuity, encounter readability, and a world that stays coherent over time.',
+        'slug' => 'shard-campaigns',
+        'title' => 'Shard Campaigns',
+        'description' => 'Campaigns are treated as real universe shards with their own local history, pressures, and consequences rather than disposable save slots.',
       ],
       [
-        'slug' => 'enduring-replayability',
-        'title' => 'Enduring Replayability',
-        'description' => 'The game is built for repeat sessions with the same roster, not one-off disposable runs that reset your investment.',
+        'slug' => 'continuity-anchors',
+        'title' => 'Continuity Anchors',
+        'description' => 'Save, restore, and replay are part of the fiction. A stored state is a continuity anchor that can be resumed, studied, or branched without pretending nothing happened.',
       ],
       [
-        'slug' => 'campaign-scale-challenge',
-        'title' => 'Campaign-Scale Challenge',
-        'description' => 'Pacing, difficulty, and progression are tuned for longer arcs where decisions compound and preparation matters.',
+        'slug' => 'forked-characters',
+        'title' => 'Forked Characters',
+        'description' => 'Characters are modeled as persistent agents who can evolve, diverge, retire, return, and carry identity across timelines or future setting shifts.',
       ],
       [
-        'slug' => 'persistent-hex-world',
-        'title' => 'Persistent Hex World',
-        'description' => 'Travel, regrouping, and strategic movement happen in a broader realm that gives the dungeon a larger context.',
+        'slug' => 'cross-setting-portability',
+        'title' => 'Cross-Setting Portability',
+        'description' => 'A character can move from classic fantasy into cyberpunk, planar, or stranger shards as part of the world model instead of as an out-of-band import trick.',
       ],
       [
-        'slug' => 'classic-rpg-mechanics',
-        'title' => 'Classic RPG Mechanics',
-        'description' => 'The foundation stays legible to tabletop and classic CRPG players who want systems with consequence and texture.',
+        'slug' => 'authoritative-systems',
+        'title' => 'Authoritative Systems',
+        'description' => 'The product is designed around server-authoritative state, readable rules, and explicit world history so persistence stays trustworthy.',
       ],
       [
-        'slug' => 'play-anywhere',
-        'title' => 'Play Anywhere',
-        'description' => 'Your campaign home is meant to stay accessible across web and future mobile surfaces without losing continuity.',
+        'slug' => 'living-service',
+        'title' => 'Living Service',
+        'description' => 'The platform is meant to grow over time, with new shards, new rules families, and new interfaces added without breaking the continuity already earned.',
       ],
     ];
 
     $campaign_loop = [
       [
-        'title' => 'Build a roster',
-        'description' => 'Create heroes meant to persist, specialize, retire, and eventually be replaced by successors in the same account history.',
+        'title' => 'Instantiate a roster',
+        'description' => 'Create characters meant to persist, specialize, retire, restore, and eventually be replaced by successors or forked variants inside the same account history.',
       ],
       [
-        'title' => 'Push the world forward',
-        'description' => 'Campaigns explore new territory, uncover threats, earn equipment, and create a living record of what your group changed.',
+        'title' => 'Push a shard forward',
+        'description' => 'Campaigns explore new territory, uncover threats, earn equipment, and create a living record of what your group changed inside that universe branch.',
       ],
       [
-        'title' => 'Return with consequences',
-        'description' => 'The next session starts from the world you left behind, so victories, losses, and unfinished problems stay meaningful.',
+        'title' => 'Return, branch, or migrate',
+        'description' => 'The next session can continue from the same world, restore from an earlier anchor, or carry the character into a different shard without losing the larger continuity story.',
       ],
     ];
 
     $audience_cards = [
       [
         'title' => 'For long-form RPG players',
-        'description' => 'This is aimed at players who miss campaigns that lasted months or years and want digital systems that respect that cadence.',
+        'description' => 'This is aimed at players who miss campaigns that lasted months or years and want digital systems that respect long arcs and persistent consequences.',
       ],
       [
         'title' => 'For roster builders',
-        'description' => 'Characters are meant to define playstyles, relationships, and account history instead of being consumed and discarded.',
+        'description' => 'Characters are meant to define playstyles, relationships, and account history instead of being consumed and discarded after a single run.',
       ],
       [
-        'title' => 'For world-first progression',
-        'description' => 'The setting matters as much as the character sheet: travel, location state, and campaign memory are part of advancement.',
+        'title' => 'For multiverse tinkerers',
+        'description' => 'The setting matters as much as the character sheet: travel, location state, branching continuity, and eventual cross-setting migration are part of advancement.',
       ],
     ];
 
@@ -86,10 +86,10 @@ class AboutController extends ControllerBase {
       [
         'title' => 'Game systems',
         'items' => [
-          'Persistent campaigns and character rosters',
+          'Persistent shard campaigns and character rosters',
           'Hex-realm travel layered above dungeon expeditions',
-          'Procedural encounters and content with campaign continuity',
-          'Equipment, quests, and world state designed for long arcs',
+          'Authoritative encounter, chat, and continuity state',
+          'Equipment, quests, and world history designed for long arcs',
         ],
       ],
       [
@@ -106,8 +106,8 @@ class AboutController extends ControllerBase {
         'items' => [
           'Algorithmic generation expands content breadth without replacing game structure',
           'Systems are tuned for reliability, readability, and reuse',
-          'The product is designed as a living service, not a static one-off campaign',
-          'Every layer is meant to support continuity, clarity, and replay value',
+          'The product is designed as a living multiverse service, not a static one-off campaign',
+          'Every layer is meant to support continuity, clarity, portability, and replay value',
         ],
       ],
     ];
@@ -137,33 +137,33 @@ class AboutController extends ControllerBase {
                 '#type' => 'html_tag',
                 '#tag' => 'h1',
                 '#attributes' => ['class' => ['display-4', 'mb-3']],
-                '#value' => 'A persistent RPG home for characters, campaigns, and shared history.',
+                '#value' => 'A persistent multiverse RPG for shard campaigns, portable characters, and shared history.',
               ],
               'summary' => [
                 '#type' => 'html_tag',
                 '#tag' => 'p',
                 '#attributes' => ['class' => ['lead', 'mb-4']],
-                '#value' => 'Dungeon Crawler Life is built around the idea that a campaign should accumulate meaning. Characters grow, worlds remember, and a player account becomes a legacy instead of a queue of disposable runs.',
+                '#value' => 'Dungeon Crawler Life is built around the idea that a campaign shard should accumulate meaning. Characters grow, worlds remember, and an account becomes a continuity graph instead of a queue of disposable runs.',
               ],
               'details' => [
                 '#type' => 'html_tag',
                 '#tag' => 'p',
                 '#attributes' => ['class' => ['mb-4', 'text-secondary']],
-                '#value' => 'The product combines classic RPG structure, a persistent hex realm, algorithm-driven content systems, and long-term campaign framing so returning to the same world feels rewarding instead of repetitive.',
+                '#value' => 'The product combines classic RPG structure, a persistent hex realm, authoritative gameplay systems, and a multiverse continuity model so returning to the same world or moving into a new shard still feels coherent.',
               ],
               'actions' => [
                 '#type' => 'container',
                 '#attributes' => ['class' => ['d-grid', 'gap-3', 'd-sm-flex']],
                 'primary' => [
                   '#type' => 'link',
-                  '#title' => $this->t('Create Legacy Character'),
+                  '#title' => $this->t('Create a Portable Character'),
                   '#url' => Url::fromUri('internal:/charactersetup'),
                   '#attributes' => ['class' => ['btn', 'btn-warning', 'btn-lg', 'px-4']],
                 ],
                 'secondary' => [
                   '#type' => 'link',
-                  '#title' => $this->t('Read Player Guide'),
-                  '#url' => Url::fromUri('internal:/how-to-play'),
+                  '#title' => $this->t('Read the Shard Loop'),
+                  '#url' => Url::fromRoute('dungeoncrawler_content.how_to_play'),
                   '#attributes' => ['class' => ['btn', 'btn-outline-light', 'btn-lg', 'px-4']],
                 ],
               ],
@@ -189,9 +189,9 @@ class AboutController extends ControllerBase {
                 '#theme' => 'item_list',
                 '#attributes' => ['class' => ['about-bullet-list']],
                 '#items' => [
-                  'Persistent campaigns instead of disposable sessions',
-                  'Character identity that survives many runs',
-                  'A world model that remembers consequences',
+                  'Shard campaigns instead of disposable sessions',
+                  'Character identity that survives many runs and restores',
+                  'A world model that remembers consequences across branches',
                   'Algorithmic support that serves structure instead of replacing it',
                 ],
               ],
@@ -213,13 +213,13 @@ class AboutController extends ControllerBase {
           'card' => $this->buildSectionCard(
             'Why this world exists',
             [
-              'Most digital dungeon runs are built to be replayed, but not remembered. Dungeon Crawler Life takes the opposite approach: the goal is to build a world worth returning to because your earlier choices still matter.',
-              'That means campaigns persist, locations become familiar, and a character can complete an arc without the whole account losing continuity. Retirement is part of the design, not a failure state.',
+              'Most digital dungeon runs are built to be replayed, but not remembered. Dungeon Crawler Life takes the opposite approach: the goal is to build shard worlds worth returning to because your earlier choices still matter.',
+              'That means campaigns persist, locations become familiar, and a character can complete an arc without the whole account losing continuity. Retirement, restoration, and forked variants are part of the design, not failure states.',
             ],
             [
               'Campaigns should feel authored by play, not erased by the next queue.',
               'Character progression should create identity, not just higher numbers.',
-              'World systems should support planning, travel, and consequence across sessions.',
+              'World systems should support planning, travel, continuity, and consequence across sessions.',
             ]
           ),
         ],
@@ -274,7 +274,7 @@ class AboutController extends ControllerBase {
         '#type' => 'html_tag',
         '#tag' => 'p',
         '#attributes' => ['class' => ['lead', 'text-secondary', 'mb-0']],
-        '#value' => 'These are the product-level promises that shape how content, systems, and progression are designed.',
+        '#value' => 'These are the product-level promises that shape how content, systems, and progression are designed across every shard the platform can host.',
       ],
     ];
 
@@ -339,7 +339,7 @@ class AboutController extends ControllerBase {
             '#type' => 'html_tag',
             '#tag' => 'p',
             '#attributes' => ['class' => ['lead', 'text-secondary', 'mb-4']],
-            '#value' => 'The game is designed to create momentum across sessions, not just inside one run.',
+            '#value' => 'The game is designed to create momentum across sessions, restores, and future shard jumps, not just inside one isolated run.',
           ],
           'steps' => [
             '#type' => 'container',
@@ -388,7 +388,7 @@ class AboutController extends ControllerBase {
           '#type' => 'html_tag',
           '#tag' => 'p',
           '#attributes' => ['class' => ['lead', 'text-secondary', 'mb-0']],
-          '#value' => 'The stack exists to support a living RPG service with clear systems, durable data, and room for algorithmic content expansion.',
+          '#value' => 'The stack exists to support a living multiverse RPG service with clear systems, durable data, and room for algorithmic content expansion.',
         ],
       ],
       'columns' => [
@@ -435,8 +435,8 @@ class AboutController extends ControllerBase {
           'card' => $this->buildSectionCard(
             'The team and product posture',
             [
-              'Dungeon Crawler Life is being built as a living-world RPG service, which means the work is not just about generating more content. It is about making the generated world legible, durable, and worth investing time into.',
-              'The team is focused on aligning generation systems, game rules, and world structure so the product feels like a coherent campaign platform instead of a bag of disconnected features.',
+              'Dungeon Crawler Life is being built as a living-world RPG service, which means the work is not just about generating more content. It is about making every shard legible, durable, and worth investing time into.',
+              'The team is focused on aligning generation systems, game rules, and world structure so the product feels like a coherent multiverse platform instead of a bag of disconnected features.',
             ]
           ),
         ],
@@ -461,7 +461,7 @@ class AboutController extends ControllerBase {
                 '#items' => [
                   'Persistence over disposability',
                   'Readable systems over novelty for its own sake',
-                  'Player legacy over isolated single runs',
+                  'Player continuity over isolated single runs',
                   'Operational reliability over flashy but brittle features',
                 ],
               ],
@@ -484,20 +484,20 @@ class AboutController extends ControllerBase {
             '#type' => 'html_tag',
             '#tag' => 'h2',
             '#attributes' => ['class' => ['card-title', 'mb-3']],
-            '#value' => 'Ready to start a character that can actually build history?',
+            '#value' => 'Ready to start a character that can actually travel with its history?',
           ],
           'text' => [
             '#type' => 'html_tag',
             '#tag' => 'p',
             '#attributes' => ['class' => ['lead', 'mb-4']],
-            '#value' => 'Create a roster, launch a campaign, and start shaping a world you can return to instead of resetting from scratch.',
+            '#value' => 'Create a roster, launch a shard, and start shaping a world you can return to, restore, or carry forward instead of resetting from scratch.',
           ],
           'actions' => [
             '#type' => 'container',
             '#attributes' => ['class' => ['d-grid', 'gap-3', 'd-sm-flex', 'justify-content-sm-center']],
             'primary' => [
               '#type' => 'link',
-              '#title' => $this->t('Create Legacy Character'),
+              '#title' => $this->t('Create a Portable Character'),
               '#url' => Url::fromUri('internal:/charactersetup'),
               '#attributes' => ['class' => ['btn', 'btn-light', 'btn-lg', 'px-5']],
             ],

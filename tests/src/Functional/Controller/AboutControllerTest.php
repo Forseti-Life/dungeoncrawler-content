@@ -31,7 +31,7 @@ class AboutControllerTest extends BrowserTestBase {
     
     // Verify expected content structure/blocks.
     $this->assertSession()->pageTextContains('About Dungeon Crawler Life');
-    $this->assertSession()->pageTextContains('A persistent RPG home for characters, campaigns, and shared history.');
+    $this->assertSession()->pageTextContains('A persistent multiverse RPG for shard campaigns, portable characters, and shared history.');
     $this->assertSession()->elementsCount('css', '.about-feature-card', 6);
      
     // Verify key sections exist.
@@ -42,8 +42,8 @@ class AboutControllerTest extends BrowserTestBase {
     $this->assertSession()->pageTextContains('The team and product posture');
      
     // Verify CTA buttons.
-    $this->assertSession()->linkExists('Create Legacy Character');
-    $this->assertSession()->linkExists('Read Player Guide');
+    $this->assertSession()->linkExists('Create a Portable Character');
+    $this->assertSession()->linkExists('Read the Shard Loop');
     $this->assertSession()->linkExists('View Campaigns');
   }
 

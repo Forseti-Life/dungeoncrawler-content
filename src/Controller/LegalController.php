@@ -17,21 +17,21 @@ class LegalController extends ControllerBase {
   public function privacyPolicy(): array {
     return $this->buildLegalPage(
       'Privacy Policy',
-      'How Dungeon Crawler Life handles account, gameplay, and service data.',
-      'This page explains what information the service stores, why it is stored, and the practical choices available to players who use the site.',
+      'How Dungeon Crawler Life handles account, shard, and continuity data.',
+      'This page explains what information the service stores, why it is stored, and the practical choices available to players who use a persistent multiverse-style game service.',
       [
         $this->buildSection(
           'What we collect',
           [
             'Account records needed to authenticate users and associate characters, campaigns, and in-game progress with the right player.',
-            'Gameplay data such as campaign state, character sheets, inventory, quest progress, and related world-state information that keeps a persistent run playable over time.',
+            'Gameplay data such as campaign state, character sheets, inventory, quest progress, and related world-state information that keeps persistent shard continuity playable over time.',
             'Operational logs and basic technical metadata used to debug failures, monitor abuse, and keep the live service stable.',
           ]
         ),
         $this->buildSection(
           'How we use it',
           [
-            'To deliver the core game experience, including persistent campaigns, character progression, and account-linked world history.',
+            'To deliver the core game experience, including persistent campaigns, character progression, restore points, and account-linked world history.',
             'To improve reliability, investigate errors, and respond to misuse or security concerns that affect the service or other players.',
             'To support product development, including evaluating which systems are working, where friction exists, and what needs to be improved next.',
           ]
@@ -74,7 +74,7 @@ class LegalController extends ControllerBase {
   public function termsOfService(): array {
     return $this->buildLegalPage(
       'Terms of Service',
-      'The practical rules for using Dungeon Crawler Life and its persistent campaign systems.',
+      'The practical rules for using Dungeon Crawler Life and its persistent shard systems.',
       'Using the site means agreeing to use it responsibly, respect the service boundaries, and understand that access can change when security, abuse, or operational risk requires it.',
       [
         $this->buildSection(

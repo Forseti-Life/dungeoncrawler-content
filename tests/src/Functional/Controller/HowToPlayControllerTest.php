@@ -29,19 +29,19 @@ class HowToPlayControllerTest extends BrowserTestBase {
     $this->drupalGet('/how-to-play');
     $this->assertSession()->statusCodeEquals(200);
 
-    $this->assertSession()->pageTextContains('Start your first campaign without guessing what the game expects from you.');
+    $this->assertSession()->pageTextContains('Learn the shard loop before you commit to your first live run.');
     $this->assertSession()->pageTextContains('Field guide for your first hour');
-    $this->assertSession()->pageTextContains('Campaign');
+    $this->assertSession()->pageTextContains('Shard Campaign');
     $this->assertSession()->pageTextContains('Tavern');
     $this->assertSession()->pageTextContains('Hexmap');
 
-    $this->assertSession()->pageTextContains('Your first campaign, step by step');
-    $this->assertSession()->pageTextContains('Create one campaign world');
+    $this->assertSession()->pageTextContains('Your first shard campaign, step by step');
+    $this->assertSession()->pageTextContains('Launch one shard campaign');
     $this->assertSession()->pageTextContains('What to focus on early');
     $this->assertSession()->pageTextContains('What success looks like');
     $this->assertSession()->pageTextContains('Beginner Tips');
-    $this->assertSession()->linkExists('Start Your First Campaign');
-    $this->assertSession()->linkExists('Create a Character');
+    $this->assertSession()->linkExists('Launch Your First Shard');
+    $this->assertSession()->linkExists('View the World Model');
   }
 
   /**

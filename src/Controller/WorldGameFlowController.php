@@ -57,13 +57,13 @@ class WorldGameFlowController extends ControllerBase {
             '#type' => 'html_tag',
             '#tag' => 'h1',
             '#attributes' => ['class' => ['display-5', 'mb-3']],
-            '#value' => 'How a campaign run moves from tavern entry to exploration, chat, combat, and back again.',
+            '#value' => 'How a shard campaign run moves from tavern entry to exploration, chat, combat, and back again.',
           ],
           'summary' => [
             '#type' => 'html_tag',
             '#tag' => 'p',
             '#attributes' => ['class' => ['lead', 'mb-4']],
-            '#value' => 'This page documents the live runtime loop: a campaign launches through the tavern, the hexmap enters exploration, room chat stays active inside that loop, combat interrupts through a phase transition, and resolved encounters return the run to exploration with persistent state still intact.',
+            '#value' => 'This page documents the live runtime loop: a shard campaign launches through the tavern, the hexmap enters exploration, room chat stays active inside that loop, combat interrupts through a phase transition, and resolved encounters return the run to exploration with continuity state still intact.',
           ],
           'actions' => [
             '#type' => 'container',
@@ -93,9 +93,9 @@ class WorldGameFlowController extends ControllerBase {
         '#attributes' => ['class' => ['col-lg-6']],
         'card' => $this->buildTextCard(
           'Player-facing loop',
-          'Think of the run as one persistent cycle. Tavern entry sets the stage, exploration handles movement and discovery, chat covers in-room conversation, encounter mode takes over when danger commits, and the run returns to exploration when the fight resolves.',
+          'Think of the run as one persistent shard cycle. Tavern entry sets the stage, exploration handles movement and discovery, chat covers in-room conversation, encounter mode takes over when danger commits, and the run returns to exploration when the fight resolves.',
           [
-            'A campaign and selected character define the launch context.',
+            'A shard campaign and selected character define the launch context.',
             'Startup narration and room state are delivered before free exploration begins.',
             'Chat is part of exploration, not a separate world map or menu mode.',
             'Combat is a temporary phase shift, not a separate campaign instance.',
