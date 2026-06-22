@@ -86,5 +86,9 @@ function extractFunctionSource(source, name) {
   const mergedDerived = _mergeRoomMetadata({ room_id: 'room-b', terrain: ['stone_floor'], lighting: 'dark' }, {}, 'room-b');
   assert.strictEqual(mergedDerived.subtitle, 'derived-subtitle', 'subtitle should be derived when missing');
 
+  const mergedFromNull = _mergeRoomMetadata(null, null, 'room-c');
+  assert.strictEqual(mergedFromNull.room_id, 'room-c', 'room merge should tolerate null inputs and preserve fallback room id');
+  assert.strictEqual(mergedFromNull.subtitle, 'derived-subtitle', 'null room metadata should still derive a subtitle safely');
+
   console.log('OK room metadata merge contract');
 })();

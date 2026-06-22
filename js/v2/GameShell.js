@@ -2949,7 +2949,7 @@ function _mergeRoomMetadata(visualRoom = {}, apiRoom = {}, roomId = '') {
   const merged = {
     ...(_isPlainObject(visualRoom) ? visualRoom : {}),
     ...(_isPlainObject(apiRoom) ? apiRoom : {}),
-    room_id: apiRoom.room_id || visualRoom.room_id || roomId,
+    room_id: apiRoom?.room_id || visualRoom?.room_id || roomId,
   };
 
   ['name', 'description', 'room_type', 'size_category', 'terrain', 'lighting'].forEach((key) => {
