@@ -788,7 +788,7 @@ class CharacterCreationStepForm extends FormBase {
     ];
     if (!empty($selected_ancestry)) {
       $ancestry_name = $this->resolveAncestryName($selected_ancestry);
-      $ancestry_feats = $this->getCanonicalAncestryFeats($ancestry_name);
+      $ancestry_feats = $this->getCreationEligibleAncestryFeats($ancestry_name, $character_data);
 
       if (!empty($ancestry_feats)) {
         $form['heritage_dynamic']['ancestry_feat_dynamic']['ancestry_feat_section'] = [
@@ -1166,7 +1166,7 @@ class CharacterCreationStepForm extends FormBase {
     }
 
     // Class Feat Selection
-    $class_feats = $this->getCanonicalClassFeats($selected_class);
+    $class_feats = $this->getCreationEligibleClassFeats($selected_class, $character_data);
 
     if (!empty($class_feats)) {
       $form['class_dynamic']['class_feat_section'] = [
@@ -1857,7 +1857,7 @@ class CharacterCreationStepForm extends FormBase {
 
     $general_feat_options = [];
     $general_feat_cards = [];
-    foreach ($this->getCanonicalGeneralFeats() as $feat) {
+    foreach ($this->getCreationEligibleGeneralFeats($character_data) as $feat) {
       $general_feat_options[$feat['id']] = $feat['name'];
       $general_feat_cards[$feat['id']] = $this->buildOptionCardData(
         $this->resolveFeatDisplayDescription($feat),
@@ -2339,18 +2339,25 @@ class CharacterCreationStepForm extends FormBase {
           // Validate ancestry feat (enforced here instead of #required on the
           // radios element to avoid browser :invalid pre-styling on page load).
           $ancestry_name_val = $this->resolveAncestryName($ancestry_val);
-          $feats_for_ancestry = $this->getCanonicalAncestryFeats($ancestry_name_val);
-          if (!empty($feats_for_ancestry) && trim((string) $form_state->getValue('ancestry_feat', '')) === '') {
+          $preview_character_data = $this->loadCharacterData((int) $form_state->get('character_id'));
+          $preview_character_data['ancestry'] = $ancestry_val;
+          $preview_character_data['heritage'] = $submitted_heritage;
+          $feats_for_ancestry = $this->getCreationEligibleAncestryFeats($ancestry_name_val, $preview_character_data);
+          $selected_ancestry_feat = trim((string) $form_state->getValue('ancestry_feat', ''));
+          if (!empty($feats_for_ancestry) && $selected_ancestry_feat === '') {
             $form_state->setErrorByName('ancestry_feat', $this->t('Ancestry feat selection is required.'));
           }
+          elseif ($selected_ancestry_feat !== '' && !in_array($selected_ancestry_feat, array_column($feats_for_ancestry, 'id'), TRUE)) {
+            $form_state->setErrorByName('ancestry_feat', $this->t('Choose a valid ancestry feat for the current character build.'));
+          }
 
-          if (trim((string) $form_state->getValue('ancestry_feat', '')) === 'first-world-magic') {
+          if ($selected_ancestry_feat === 'first-world-magic') {
             $this->validateFirstWorldMagicSelection($form_state);
           }
-          if (trim((string) $form_state->getValue('ancestry_feat', '')) === 'otherworldly-magic') {
+          if ($selected_ancestry_feat === 'otherworldly-magic') {
             $this->validateOtherworldlyMagicSelection($form_state);
           }
-          if (trim((string) $form_state->getValue('ancestry_feat', '')) === 'general-training') {
+          if ($selected_ancestry_feat === 'general-training') {
             $this->validateGeneralTrainingSelection($form_state);
           }
           if (trim((string) $form_state->getValue('ancestry_feat', '')) === 'elf-atavism') {
@@ -2470,6 +2477,20 @@ class CharacterCreationStepForm extends FormBase {
             elseif ($selected_key_ability !== NULL && !in_array($selected_key_ability, $ka_opts, TRUE)) {
               $form_state->setErrorByName('class_key_ability', $this->t('That key ability is not allowed for your selected class feat.'));
             }
+
+            $preview_character_data = $this->loadCharacterData((int) $form_state->get('character_id'));
+            $preview_character_data['class'] = $class_val_for_ka;
+            $preview_character_data['class_feat'] = $selected_class_feat_for_ka;
+            $preview_character_data['subclass'] = trim((string) $form_state->getValue('subclass', $preview_character_data['subclass'] ?? ''));
+            $preview_character_data['arcane_thesis'] = trim((string) $form_state->getValue('arcane_thesis', $preview_character_data['arcane_thesis'] ?? ''));
+            $eligible_class_feats = $this->getCreationEligibleClassFeats($class_val_for_ka, $preview_character_data);
+            $selected_class_feat = trim((string) $form_state->getValue('class_feat', ''));
+            if ($selected_class_feat === '') {
+              $form_state->setErrorByName('class_feat', $this->t('Class feat selection is required.'));
+            }
+            elseif (!in_array($selected_class_feat, array_column($eligible_class_feats, 'id'), TRUE)) {
+              $form_state->setErrorByName('class_feat', $this->t('Choose a valid class feat for the current character build.'));
+            }
           }
         }
 
@@ -2582,6 +2603,9 @@ class CharacterCreationStepForm extends FormBase {
 
         $general_feat_value = trim((string) $form_state->getValue('general_feat', ''));
         $stored_character_data = $this->loadCharacterData((int) $form_state->get('character_id'));
+        if ($general_feat_value !== '' && !in_array($general_feat_value, array_column($this->getCreationEligibleGeneralFeats($stored_character_data), 'id'), TRUE)) {
+          $form_state->setErrorByName('general_feat', $this->t('Choose a valid general feat for the current character build.'));
+        }
         $stored_class_feat = trim((string) ($stored_character_data['class_feat'] ?? ''));
         $stored_bonus_feat = trim((string) ($stored_character_data['feat_selections']['natural-ambition']['bonus_class_feat'] ?? ''));
         if ($stored_class_feat === 'domain-initiate' || $stored_bonus_feat === 'domain-initiate') {
@@ -7660,7 +7684,7 @@ class CharacterCreationStepForm extends FormBase {
   private function buildFeatsArray(array $character_data): array {
     $feats = [];
     $class_name = strtolower(trim((string) ($character_data['class'] ?? '')));
-    $class_feats = $this->getCanonicalClassFeats($class_name);
+    $class_feats = $this->getCreationEligibleClassFeats($class_name, $character_data);
 
     // Ancestry feat.
     if (!empty($character_data['ancestry_feat'])) {
@@ -7728,7 +7752,7 @@ class CharacterCreationStepForm extends FormBase {
 
     // General feat.
     if (!empty($character_data['general_feat'])) {
-      foreach ($this->getCanonicalGeneralFeats() as $f) {
+      foreach ($this->getCreationEligibleGeneralFeats($character_data) as $f) {
         if ($f['id'] === $character_data['general_feat']) {
           $feats[] = ['type' => 'general', 'id' => $f['id'], 'name' => $f['name'], 'level' => 1];
           break;
@@ -7738,7 +7762,7 @@ class CharacterCreationStepForm extends FormBase {
 
     if (($character_data['ancestry_feat'] ?? '') === 'general-training') {
       $bonus_general_feat = trim((string) ($character_data['feat_selections']['general-training']['bonus_general_feat'] ?? ''));
-      foreach ($this->getCanonicalGeneralFeats() as $f) {
+      foreach ($this->getCreationEligibleGeneralFeats($character_data) as $f) {
         if ($f['id'] === $bonus_general_feat) {
           $already_listed = in_array($bonus_general_feat, array_column($feats, 'id'), TRUE);
           if (!$already_listed) {
@@ -7818,6 +7842,19 @@ class CharacterCreationStepForm extends FormBase {
   }
 
   /**
+   * Get creation-eligible ancestry feats for the selected ancestry.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Filtered 1st-level ancestry feats whose prerequisites are met.
+   */
+  private function getCreationEligibleAncestryFeats(string $ancestry_name, array $character_data): array {
+    return array_values(array_filter(
+      $this->getCanonicalAncestryFeats($ancestry_name),
+      fn(array $feat): bool => $this->isCreationFeatEligible($feat, $character_data)
+    ));
+  }
+
+  /**
    * Get canonical class feat definitions for the selected class.
    *
    * @return array<int, array<string, mixed>>
@@ -7829,6 +7866,19 @@ class CharacterCreationStepForm extends FormBase {
   }
 
   /**
+   * Get creation-eligible class feats for the selected class.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Filtered 1st-level class feats whose prerequisites are met.
+   */
+  private function getCreationEligibleClassFeats(string $class_name, array $character_data): array {
+    return array_values(array_filter(
+      $this->getCanonicalClassFeats($class_name),
+      fn(array $feat): bool => $this->isCreationFeatEligible($feat, $character_data)
+    ));
+  }
+
+  /**
    * Get canonical general feat definitions.
    *
    * @return array<int, array<string, mixed>>
@@ -7836,6 +7886,143 @@ class CharacterCreationStepForm extends FormBase {
    */
   private function getCanonicalGeneralFeats(): array {
     return $this->featLibrary->getGeneralFeats();
+  }
+
+  /**
+   * Get creation-eligible general feats.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Filtered 1st-level general feats whose prerequisites are met.
+   */
+  private function getCreationEligibleGeneralFeats(array $character_data): array {
+    return array_values(array_filter(
+      $this->getCanonicalGeneralFeats(),
+      fn(array $feat): bool => $this->isCreationFeatEligible($feat, $character_data)
+    ));
+  }
+
+  /**
+   * Determine whether a feat is eligible during level-1 character creation.
+   */
+  private function isCreationFeatEligible(array $feat, array $character_data): bool {
+    if ((int) ($feat['level'] ?? 1) !== 1) {
+      return FALSE;
+    }
+
+    $prerequisites = trim((string) ($feat['prerequisites'] ?? ''));
+    if ($prerequisites === '' || strtolower($prerequisites) === 'none') {
+      return TRUE;
+    }
+
+    foreach (preg_split('/\s*,\s*/', $prerequisites) ?: [] as $clause) {
+      $clause = trim($clause);
+      if ($clause === '') {
+        continue;
+      }
+      if (!$this->doesCreationPrerequisiteClausePass($clause, $character_data)) {
+        return FALSE;
+      }
+    }
+
+    return TRUE;
+  }
+
+  /**
+   * Evaluate one prerequisite clause, including simple OR chains.
+   */
+  private function doesCreationPrerequisiteClausePass(string $clause, array $character_data): bool {
+    $alternatives = preg_split('/\s+or\s+/i', $clause) ?: [$clause];
+    foreach ($alternatives as $alternative) {
+      if ($this->doesCreationPrerequisiteAtomPass(trim($alternative), $character_data)) {
+        return TRUE;
+      }
+    }
+    return FALSE;
+  }
+
+  /**
+   * Evaluate one prerequisite atom against current creation state.
+   */
+  private function doesCreationPrerequisiteAtomPass(string $atom, array $character_data): bool {
+    $normalized = strtolower(trim($atom));
+    if ($normalized === '' || $normalized === 'none') {
+      return TRUE;
+    }
+
+    $class_id = strtolower(trim((string) ($character_data['class'] ?? '')));
+    $subclass = strtolower(trim((string) ($character_data['subclass'] ?? '')));
+    $arcane_thesis = strtolower(trim((string) ($character_data['arcane_thesis'] ?? '')));
+    $class_feat = strtolower(trim((string) ($character_data['class_feat'] ?? '')));
+    $ancestry_feat = strtolower(trim((string) ($character_data['ancestry_feat'] ?? '')));
+    $general_feat = strtolower(trim((string) ($character_data['general_feat'] ?? '')));
+    $trained_skills = array_map(
+      static fn(string $skill): string => strtolower(trim($skill)),
+      is_array($character_data['trained_skills'] ?? NULL) ? $character_data['trained_skills'] : []
+    );
+    $background_skill = strtolower(trim((string) ($character_data['background_skill_training'] ?? '')));
+    if ($background_skill !== '') {
+      $trained_skills[] = $background_skill;
+    }
+    $trained_skills = array_values(array_unique(array_filter($trained_skills)));
+
+    if ($normalized === 'spellcasting class feature') {
+      return $class_id !== '' && $this->characterManager->resolveClassTradition($class_id, $character_data) !== NULL;
+    }
+
+    if (preg_match('/^trained in (.+)$/i', $atom, $matches) === 1) {
+      $skill = strtolower(trim((string) $matches[1]));
+      return in_array($skill, $trained_skills, TRUE);
+    }
+
+    if (preg_match('/^([a-z ]+)\s*\+(\d+)\s*modifier$/i', $atom, $matches) === 1) {
+      $ability_key = $this->abilityScoreTracker->normalizeAbilityKey($matches[1]);
+      if ($ability_key === NULL) {
+        return FALSE;
+      }
+      $score = (int) (
+        $character_data[$ability_key]
+        ?? ($character_data['abilities'][$ability_key] ?? $character_data['abilities'][substr($ability_key, 0, 3)] ?? 10)
+      );
+      return (int) floor(($score - 10) / 2) >= (int) $matches[2];
+    }
+
+    if ($normalized === 'universalist wizard') {
+      return $class_id === 'wizard' && $subclass === 'universalist';
+    }
+
+    if (str_ends_with($normalized, ' order')) {
+      $order = strtolower(trim(substr($normalized, 0, -strlen(' order'))));
+      return $class_id === 'druid' && $subclass === $order;
+    }
+
+    if (str_ends_with($normalized, ' bloodline')) {
+      $bloodline = strtolower(trim(substr($normalized, 0, -strlen(' bloodline'))));
+      return $class_id === 'sorcerer' && $subclass === $bloodline;
+    }
+
+    if (str_starts_with($normalized, 'research field:')) {
+      $field = strtolower(trim(substr($normalized, strlen('research field:'))));
+      return $class_id === 'alchemist' && $subclass === $field;
+    }
+
+    if (str_starts_with($normalized, 'access to ')) {
+      $target = strtolower(trim(substr($normalized, strlen('access to '))));
+      return str_contains($subclass, $target) || str_contains($class_feat, $target) || str_contains($general_feat, $target);
+    }
+
+    if ($normalized === 'a familiar' || $normalized === 'familiar') {
+      return in_array($class_feat, ['familiar', 'familiar-druid', 'familiar-sorcerer', 'alchemical-familiar', 'leshy-familiar-druid'], TRUE)
+        || ($class_id === 'wizard' && $arcane_thesis === 'improved-familiar-attunement')
+        || $class_id === 'witch';
+    }
+
+    $owned_feat_ids = array_filter([
+      $ancestry_feat,
+      $class_feat,
+      $general_feat,
+    ]);
+    $normalized_atom_id = strtolower(str_replace([' ', '_'], ['-', '-'], $normalized));
+    return in_array($normalized_atom_id, $owned_feat_ids, TRUE);
   }
 
   /**
