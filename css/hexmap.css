@@ -841,6 +841,10 @@
   gap: var(--space-3);
 }
 
+.room-view-panel__header--nested {
+  margin-top: var(--space-2);
+}
+
 .room-view-panel__meta {
   margin: 0;
   color: var(--muted);
@@ -874,6 +878,17 @@
   max-height: min(72vh, 1200px);
   overflow-y: auto;
   padding-right: var(--space-2);
+}
+
+.room-view-panel__portraits {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.room-view-panel__portraits .room-view-panel__placeholder {
+  min-height: 140px;
+  padding: var(--space-4);
 }
 
 .room-view-card {

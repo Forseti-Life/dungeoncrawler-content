@@ -17,7 +17,6 @@
  * @see GameEventBus
  * @see canvas/HexCanvas
  * @see systems/EncounterSystem
- * @see panels/PortraitPanel
  */
 
 import { GameEventBus } from './GameEventBus.js';
@@ -29,7 +28,6 @@ import { EncounterSystem } from './systems/EncounterSystem.js?v=20260619-v2-sear
 import { NavigationSystem } from './systems/NavigationSystem.js?v=20260607-v2-action-bus-flow-1';
 import { PlayerAutomation } from './systems/PlayerAutomation.js?v=20260608-v2-chat-persistence-dev-1';
 import { QuestSystem } from './systems/QuestSystem.js?v=20260608-v2-quest-summary-merge-2';
-import { PortraitPanel } from './panels/PortraitPanel.js';
 import { MerchantPanel } from './panels/MerchantPanel.js';
 import { CombatPanel } from './panels/CombatPanel.js';
 import { ActionRailPanel } from './panels/ActionRailPanel.js?v=20260616-v2-gm-nonturn-prefix-2';
@@ -114,7 +112,7 @@ export class GameShell {
     /** @type {{ encounter: EncounterSystem, navigation: NavigationSystem, automation: PlayerAutomation, quest: QuestSystem }} */
     this.systems = {};
 
-    /** @type {{ portrait: PortraitPanel, merchant: MerchantPanel, combat: CombatPanel, actionRail: ActionRailPanel, chat: ChatPanel, quest: QuestPanel, inventory: InventoryPanel, character: CharacterPanel, roomView: RoomViewPanel, partyRail: PartyRailPanel, status: StatusPanel }} */
+    /** @type {{ merchant: MerchantPanel, combat: CombatPanel, actionRail: ActionRailPanel, chat: ChatPanel, quest: QuestPanel, inventory: InventoryPanel, character: CharacterPanel, roomView: RoomViewPanel, partyRail: PartyRailPanel, status: StatusPanel }} */
     this.panels = {};
 
     /** @type {GameCoordinator|null} */
@@ -1455,7 +1453,6 @@ export class GameShell {
 
     console.log('[GameShell] _initPanels start', { dungeonData: !!this.dungeonData, launchCharacter: !!this.launchCharacter });
 
-    this.panels.portrait   = new PortraitPanel(panel('[data-panel="portrait"]'), bus);
     this.panels.merchant   = new MerchantPanel(panel('[data-panel="merchant"]'), bus);
     this.panels.combat     = new CombatPanel(panel('[data-panel="combat"]'), bus);
     this.panels.actionRail = new ActionRailPanel(panel('[data-panel="action-rail"]'), bus);
@@ -1467,7 +1464,6 @@ export class GameShell {
     this.panels.partyRail  = new PartyRailPanel(panel('[data-panel="party-rail"]'), bus);
     this.panels.status     = new StatusPanel(panel('[data-panel="status"]'), bus);
 
-    this.panels.portrait.init(this.dungeonData, stateManager);
     this.panels.merchant.init(this.dungeonData, stateManager, this.panels.inventory);
     this.panels.actionRail.init(this.dungeonData, stateManager);
     this.panels.chat.init(this.dungeonData, stateManager);
@@ -1477,7 +1473,7 @@ export class GameShell {
     // Panels with no-arg init
     this.panels.combat.init();
     this.panels.quest.init();
-    this.panels.roomView.init();
+    this.panels.roomView.init(this.dungeonData, stateManager);
     this.panels.status.init();
 
     console.log('[GameShell] _initPanels complete');

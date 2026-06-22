@@ -21,9 +21,6 @@
       <button id="game-tab-view" class="game-shell__tab" type="button" role="tab" aria-selected="false" aria-controls="game-panel-view" data-game-tab="view" tabindex="0">
         {{ 'View'|t }}
       </button>
-      <button id="game-tab-portraits" class="game-shell__tab" type="button" role="tab" aria-selected="false" aria-controls="game-panel-portraits" data-game-tab="portraits" tabindex="0">
-        {{ 'NPC Portraits'|t }}
-      </button>
       <button id="game-tab-merchant" class="game-shell__tab" type="button" role="tab" aria-selected="false" aria-controls="game-panel-merchant" data-game-tab="merchant" tabindex="0">
         {{ 'Merchant'|t }}
       </button>
@@ -236,6 +233,20 @@
           {# V2 RoomViewPanel — scene image + NPC responders #}
           <img data-room="scene-image" class="room-view-panel__scene-img" alt="{{ 'Room scene'|t }}" hidden />
           <div data-room="responders" class="room-view-panel__responders"></div>
+          <section class="room-view-panel__portraits" data-room="portraits-section">
+            <div class="room-view-panel__header room-view-panel__header--nested">
+              <div>
+                <p class="eyebrow">{{ 'Room Cast'|t }}</p>
+                <h4 id="npc-portraits-name" data-portrait="room-name">{{ 'Current room'|t }}</h4>
+                <p class="room-view-panel__meta" id="npc-portraits-meta">{{ 'Portraits for PCs and NPCs in the active room.'|t }}</p>
+              </div>
+              <span class="chip chip-live" id="npc-portraits-status" data-portrait="count">{{ 'Idle'|t }}</span>
+            </div>
+            <div class="npc-portraits-panel__grid" id="npc-portraits-grid" data-portrait="grid" hidden></div>
+            <div class="room-view-panel__placeholder" id="npc-portraits-placeholder" data-portrait="placeholder">
+              <p id="npc-portraits-placeholder-text">{{ 'Portraits for room occupants will appear here.'|t }}</p>
+            </div>
+          </section>
           <div class="room-view-panel__placeholder" id="room-view-placeholder" data-room="empty">
             <p id="room-view-placeholder-text">{{ 'Generating scene gallery...'|t }}</p>
           </div>
@@ -253,25 +264,6 @@
               </div>
             </article>
           </template>
-        </div>
-      </div>
-    </div>
-
-    <div class="game-shell__panel" id="game-panel-portraits" role="tabpanel" aria-labelledby="game-tab-portraits" hidden>
-      <div class="game-shell__view-panel">
-        <div class="room-view-panel npc-portraits-panel" id="npc-portraits-panel" data-panel="portrait">
-          <div class="room-view-panel__header">
-            <div>
-              <p class="eyebrow">{{ 'Room Cast Portraits'|t }}</p>
-              <h3 id="npc-portraits-name" data-portrait="room-name">{{ 'Current room'|t }}</h3>
-              <p class="room-view-panel__meta" id="npc-portraits-meta">{{ 'Portraits for PCs and NPCs in the active room.'|t }}</p>
-            </div>
-            <span class="chip chip-live" id="npc-portraits-status" data-portrait="count">{{ 'Idle'|t }}</span>
-          </div>
-          <div class="npc-portraits-panel__grid" id="npc-portraits-grid" data-portrait="grid" hidden></div>
-          <div class="room-view-panel__placeholder" id="npc-portraits-placeholder" data-portrait="placeholder">
-            <p id="npc-portraits-placeholder-text">{{ 'Portraits for room occupants will appear here.'|t }}</p>
-          </div>
         </div>
       </div>
     </div>

@@ -17,9 +17,13 @@ export class RoomViewPanel {
     this.roomViewPendingCacheTtlMs = 30000;  // 30 sec for pending entries
     this.roomViewRetryDelayMs = 5000;        // 5 sec retry delay
     this.lastRoomViewKey = null;
+    this.dungeonData = null;
+    this.stateManager = null;
   }
 
-  init() {
+  init(dungeonData = {}, stateManager = {}) {
+    this.dungeonData = dungeonData || {};
+    this.stateManager = stateManager || {};
     const id = (k) => document.getElementById(k);
     const s = (k) => this.container?.querySelector(`[data-room="${k}"]`) || null;
     this._el = {
@@ -33,6 +37,12 @@ export class RoomViewPanel {
       roomViewCardTemplate:    id('room-view-card-template'),
       roomViewSceneImage:      s('scene-image'),
       roomViewResponders:      s('responders'),
+      npcPortraitsName:            id('npc-portraits-name'),
+      npcPortraitsMeta:            id('npc-portraits-meta'),
+      npcPortraitsStatus:          id('npc-portraits-status'),
+      npcPortraitsGrid:            id('npc-portraits-grid'),
+      npcPortraitsPlaceholder:     id('npc-portraits-placeholder'),
+      npcPortraitsPlaceholderText: id('npc-portraits-placeholder-text'),
       chatShell:               document.getElementById('hexmap-chat'),
     };
     const nullKeys = Object.entries(this._el).filter(([,v]) => !v).map(([k]) => k);
@@ -116,6 +126,109 @@ export class RoomViewPanel {
     return article;
   }
 
+  buildRoomPortraitEntries(roomId = null) {
+    const hexmap = this.stateManager?.hexmap || null;
+    const resolvedRoomId = roomId || hexmap?.resolveActiveRoomId?.() || null;
+    if (!resolvedRoomId) {
+      return [];
+    }
+
+    const canonicalOccupants = typeof hexmap?.getVisualOccupants === 'function'
+      ? hexmap.getVisualOccupants()
+      : [];
+    const roomOccupants = canonicalOccupants.filter((occupant) => {
+      if (String(occupant?.room_id || '') !== resolvedRoomId) {
+        return false;
+      }
+      const rawType = String(occupant?.occupant_type || '').trim().toLowerCase();
+      if (!['npc', 'player_character', 'player'].includes(rawType)) {
+        return false;
+      }
+      return hexmap?.isVisualOccupantVisible?.(occupant) !== false;
+    });
+
+    if (roomOccupants.length === 0) {
+      return [];
+    }
+
+    const entries = [];
+    const seen = new Set();
+    roomOccupants.forEach((occupant) => {
+      const entityId = String(occupant?.occupant_id || '').trim();
+      if (!entityId || seen.has(entityId)) {
+        return;
+      }
+      seen.add(entityId);
+
+      const contentId = String(occupant?.content_id || '').trim();
+      const objectDefinition = contentId ? hexmap?.getObjectDefinition?.(contentId) : null;
+      const portraitSpriteId = contentId ? `portrait_${contentId}` : null;
+      const fallbackPortraitSpriteId = typeof objectDefinition?.visual?.sprite_id === 'string'
+        && objectDefinition.visual.sprite_id.startsWith('portrait_')
+        ? objectDefinition.visual.sprite_id
+        : null;
+      const portraitUrl = occupant?.presentation?.portrait_url
+        || (portraitSpriteId ? hexmap?.spriteService?.getCachedUrl?.(portraitSpriteId) : null)
+        || (fallbackPortraitSpriteId ? hexmap?.spriteService?.getCachedUrl?.(fallbackPortraitSpriteId) : null)
+        || null;
+      const name = String(occupant?.label || objectDefinition?.label || contentId || 'Unknown').trim();
+      const rawType = String(occupant?.occupant_type || '').trim().toLowerCase();
+      const kind = rawType === 'npc' ? 'NPC' : 'PC';
+      const summary = String(occupant?.presentation?.role || objectDefinition?.description || '').trim();
+
+      entries.push({
+        entityId,
+        name,
+        kind,
+        portraitUrl,
+        summary,
+      });
+    });
+
+    entries.sort((a, b) => {
+      if (a.kind !== b.kind) {
+        return a.kind === 'PC' ? -1 : 1;
+      }
+      return a.name.localeCompare(b.name);
+    });
+    return entries;
+  }
+
+  buildRoomPortraitCard(entry = {}) {
+    const card = document.createElement('article');
+    card.className = 'npc-portrait-card';
+
+    const frame = document.createElement('div');
+    frame.className = 'npc-portrait-card__frame';
+    if (entry.portraitUrl) {
+      const image = document.createElement('img');
+      image.className = 'npc-portrait-card__image';
+      image.src = entry.portraitUrl;
+      image.alt = `${entry.name || 'Room occupant'} portrait`;
+      frame.appendChild(image);
+    } else {
+      const placeholder = document.createElement('div');
+      placeholder.className = 'npc-portrait-card__placeholder';
+      placeholder.textContent = String(entry.name || '?').trim().charAt(0).toUpperCase() || '?';
+      frame.appendChild(placeholder);
+    }
+
+    const name = document.createElement('h4');
+    name.className = 'npc-portrait-card__name';
+    name.textContent = entry.name || 'Unknown';
+
+    const meta = document.createElement('p');
+    meta.className = 'npc-portrait-card__meta';
+    meta.textContent = entry.kind || 'Room occupant';
+
+    const summary = document.createElement('p');
+    summary.className = 'npc-portrait-card__summary';
+    summary.textContent = entry.summary || 'No additional summary available.';
+
+    card.append(frame, name, meta, summary);
+    return card;
+  }
+
   buildRoomViewCacheKey(campaignId, roomId) {
     if (!campaignId || !roomId) {
       return '';
@@ -160,6 +273,20 @@ export class RoomViewPanel {
     const firstImageEntry = entries.find((entry) => entry?.entry_type === 'establishing' && Boolean(entry?.image?.url || entry?.image?.data_uri))
       || entries.find((entry) => Boolean(entry?.image?.url || entry?.image?.data_uri));
     return firstImageEntry?.image?.url || firstImageEntry?.image?.data_uri || '';
+  }
+
+  formatPortraitsMeta(room, entryCount = 0) {
+    const summary = entryCount > 0
+      ? `${entryCount} room portrait${entryCount === 1 ? '' : 's'}`
+      : 'Portraits for PCs and NPCs in the active room.';
+    if (!room || typeof room !== 'object') {
+      return summary;
+    }
+    return [
+      summary,
+      room.room_type ? String(room.room_type).replace(/_/g, ' ') : '',
+      room.size_category ? String(room.size_category).replace(/_/g, ' ') : '',
+    ].filter(Boolean).join(' • ');
   }
 
   scheduleRoomViewRetry(roomId, viewKey) {
@@ -232,6 +359,32 @@ export class RoomViewPanel {
     }
     if (this._el.roomViewPlaceholder) {
       this._el.roomViewPlaceholder.hidden = entries.length > 0;
+    }
+
+    const portraitEntries = this.buildRoomPortraitEntries(room?.room_id || room?.id || null);
+    if (this._el.npcPortraitsName) {
+      this._el.npcPortraitsName.textContent = room?.name || 'Current room';
+    }
+    if (this._el.npcPortraitsMeta) {
+      this._el.npcPortraitsMeta.textContent = this.formatPortraitsMeta(room, portraitEntries.length);
+    }
+    if (this._el.npcPortraitsStatus) {
+      this._el.npcPortraitsStatus.textContent = portraitEntries.length > 0 ? `${portraitEntries.length} Loaded` : 'Unavailable';
+    }
+    if (this._el.npcPortraitsPlaceholderText) {
+      this._el.npcPortraitsPlaceholderText.textContent = portraitEntries.length > 0
+        ? ''
+        : 'No PC or NPC portraits are available for the active room yet.';
+    }
+    if (this._el.npcPortraitsGrid) {
+      this._el.npcPortraitsGrid.innerHTML = '';
+      this._el.npcPortraitsGrid.hidden = portraitEntries.length === 0;
+      portraitEntries.forEach((entry) => {
+        this._el.npcPortraitsGrid.appendChild(this.buildRoomPortraitCard(entry));
+      });
+    }
+    if (this._el.npcPortraitsPlaceholder) {
+      this._el.npcPortraitsPlaceholder.hidden = portraitEntries.length > 0;
     }
 
     const sceneImageSrc = this.resolveRoomViewImageSrc(entries);
