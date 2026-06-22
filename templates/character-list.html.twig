@@ -82,7 +82,7 @@
             <div class="dc-character-card__info">
               <h3 class="dc-character-card__name">{{ char.name }}</h3>
               <div class="dc-character-card__subtitle">
-                Level {{ char.level }} {{ char.ancestry }} {{ char.class }}
+                {{ char.subtitle }}
               </div>
 
               {% if char.heritage %}
@@ -102,31 +102,28 @@
                 </div>
               </div>
 
-              <div class="dc-character-card__meta">
-                <span class="dc-character-card__alignment">{{ char.alignment }}</span>
-                <span class="dc-character-card__created">{{ char.created }}</span>
-              </div>
+              {% if char.meta_bits %}
+                <div class="dc-character-card__meta">
+                  {% for meta in char.meta_bits %}
+                    <span>{{ meta }}</span>
+                  {% endfor %}
+                </div>
+              {% endif %}
 
               <div class="dc-character-card__action-text">
-                {% if campaign_id %}
-                  {% if char.select_url %}
-                    <span class="dc-btn dc-btn-success">Select for Campaign</span>
-                  {% elseif char.continue_url %}
-                    <span class="dc-btn dc-btn-warning">Complete Creation (Step {{ char.step }}/8)</span>
-                  {% else %}
-                    <span class="dc-btn dc-btn-muted">Not Available</span>
-                  {% endif %}
+                {% if char.primary_action_label == 'Select for Campaign' %}
+                  <span class="dc-btn dc-btn-success">{{ char.primary_action_label }}</span>
+                {% elseif char.primary_action_label starts with 'Complete Creation' or char.primary_action_label starts with 'Continue Creation' %}
+                  <span class="dc-btn dc-btn-warning">{{ char.primary_action_label }}</span>
+                {% elseif char.primary_action_label == 'Not Available' %}
+                  <span class="dc-btn dc-btn-muted">{{ char.primary_action_label }}</span>
                 {% else %}
-                  {% if char.continue_url %}
-                    <span class="dc-btn dc-btn-warning">Continue Creation (Step {{ char.step }}/8)</span>
-                  {% else %}
-                    <span class="dc-btn dc-btn-secondary">View Character</span>
-                  {% endif %}
+                  <span class="dc-btn dc-btn-secondary">{{ char.primary_action_label }}</span>
                 {% endif %}
               </div>
-              {% if char.url %}
+              {% if campaign_id and char.url %}
                 <a href="{{ char.url }}" class="dc-character-card__view-link dc-btn dc-btn-secondary dc-btn-sm" onclick="event.stopPropagation();">
-                  View Full Sheet
+                  Preview Sheet
                 </a>
               {% endif %}
             </div>

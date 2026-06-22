@@ -119,6 +119,46 @@ class CharacterListController extends ControllerBase {
         $portrait_url = $this->imageRepository->resolveClientUrl($portraits[0]);
       }
 
+      $subtitle_parts = [];
+      $level = (int) ($record->level ?? 0);
+      if ($level > 0) {
+        $subtitle_parts[] = 'Level ' . $level;
+      }
+      if (!empty($record->ancestry)) {
+        $subtitle_parts[] = $this->formatCharacterCardLabel((string) $record->ancestry);
+      }
+      if (!empty($record->class)) {
+        $subtitle_parts[] = $this->formatCharacterCardLabel((string) $record->class);
+      }
+      $subtitle = implode(' • ', $subtitle_parts);
+      if ($subtitle === '') {
+        $subtitle = $step < 8
+          ? 'Draft character • Step ' . $step . ' of 8'
+          : 'Character record';
+      }
+
+      $meta_bits = [];
+      if (!empty($char['personality']['alignment'])) {
+        $meta_bits[] = (string) $char['personality']['alignment'];
+      }
+      $meta_bits[] = 'Created ' . date('M j, Y', (int) $record->created);
+
+      $primary_action_label = 'Open Character Sheet';
+      if ($campaign_id !== NULL) {
+        if ($select_url) {
+          $primary_action_label = 'Select for Campaign';
+        }
+        elseif ($continue_url) {
+          $primary_action_label = 'Complete Creation (Step ' . $step . '/8)';
+        }
+        else {
+          $primary_action_label = 'Not Available';
+        }
+      }
+      elseif ($continue_url) {
+        $primary_action_label = 'Continue Creation (Step ' . $step . '/8)';
+      }
+
       $character_cards[] = [
         'id' => $record->id,
         'uuid' => $record->uuid,
@@ -126,6 +166,7 @@ class CharacterListController extends ControllerBase {
         'level' => $record->level,
         'ancestry' => $record->ancestry,
         'class' => $record->class,
+        'subtitle' => $subtitle,
         'hp_current' => $hot['hp_current'],
         'hp_max' => $hot['hp_max'],
         'ac' => $hot['armor_class'],
@@ -133,12 +174,14 @@ class CharacterListController extends ControllerBase {
         'portrait' => $portrait_url,
         'heritage' => $char['ancestry']['heritage'] ?? '',
         'alignment' => $char['personality']['alignment'] ?? '',
+        'meta_bits' => $meta_bits,
         'url' => $view_url->toString(),
         'select_url' => $select_url,
         'step' => $step,
         'continue_url' => $continue_url,
         'archive_url' => $archive_url,
         'created' => date('M j, Y', $record->created),
+        'primary_action_label' => $primary_action_label,
       ];
     }
 
@@ -272,6 +315,14 @@ class CharacterListController extends ControllerBase {
     else {
       return 'incomplete';
     }
+  }
+
+  /**
+   * Formats stored ancestry/class labels for roster-card display.
+   */
+  private function formatCharacterCardLabel(string $value): string {
+    $normalized = trim(str_replace(['_', '-'], ' ', strtolower($value)));
+    return $normalized === '' ? '' : ucwords($normalized);
   }
 
 }
