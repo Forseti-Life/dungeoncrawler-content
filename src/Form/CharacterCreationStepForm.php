@@ -3955,14 +3955,24 @@ class CharacterCreationStepForm extends FormBase {
       ])
       ->execute();
 
+    $starter_room_id = $this->resolveCampaignStarterRoomId($campaign_id);
+    $runtime_fields = [
+      'character_id' => $library_row_id,
+      'instance_id' => sprintf('pc-%d-%d', $campaign_id, $library_row_id),
+      'default_character_data' => json_encode($schema_data, JSON_PRETTY_PRINT),
+      'changed' => $now,
+      'updated' => $now,
+    ];
+    $existing_location_type = trim((string) ($record->location_type ?? ''));
+    $existing_location_ref = trim((string) ($record->location_ref ?? ''));
+    if ($starter_room_id !== '' && ($existing_location_type === '' || $existing_location_type === 'global' || $existing_location_ref === '')) {
+      $runtime_fields['last_room_id'] = $starter_room_id;
+      $runtime_fields['location_type'] = 'room';
+      $runtime_fields['location_ref'] = $starter_room_id;
+    }
+
     $this->database->update('dc_campaign_characters')
-      ->fields([
-        'character_id' => $library_row_id,
-        'instance_id' => sprintf('pc-%d-%d', $campaign_id, $library_row_id),
-        'default_character_data' => json_encode($schema_data, JSON_PRETTY_PRINT),
-        'changed' => $now,
-        'updated' => $now,
-      ])
+      ->fields($runtime_fields)
       ->condition('id', $character_id)
       ->execute();
 
@@ -3972,8 +3982,54 @@ class CharacterCreationStepForm extends FormBase {
         'changed' => $now,
       ])
       ->condition('id', $campaign_id)
-      ->condition('active_character_id', $character_id)
       ->execute();
+  }
+
+  /**
+   * Resolve the starter room id for a campaign's active dungeon payload.
+   */
+  private function resolveCampaignStarterRoomId(int $campaign_id): string {
+    if ($campaign_id <= 0) {
+      return '';
+    }
+
+    $row = $this->database->select('dc_campaign_dungeons', 'd')
+      ->fields('d', ['dungeon_data'])
+      ->condition('campaign_id', $campaign_id)
+      ->orderBy('id', 'DESC')
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    if (!$row) {
+      return '';
+    }
+
+    $decoded = json_decode((string) ($row['dungeon_data'] ?? '{}'), TRUE);
+    if (!is_array($decoded)) {
+      return '';
+    }
+
+    $active_room_id = trim((string) ($decoded['active_room_id'] ?? ''));
+    if ($active_room_id !== '') {
+      return $active_room_id;
+    }
+
+    $game_state_room_id = trim((string) ($decoded['game_state']['active_room_id'] ?? ''));
+    if ($game_state_room_id !== '') {
+      return $game_state_room_id;
+    }
+
+    foreach (($decoded['rooms'] ?? []) as $room) {
+      if (!is_array($room)) {
+        continue;
+      }
+      $room_id = trim((string) ($room['room_id'] ?? ''));
+      if ($room_id !== '') {
+        return $room_id;
+      }
+    }
+
+    return '';
   }
 
   /**
