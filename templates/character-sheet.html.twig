@@ -382,6 +382,22 @@
     {% endif %}
   </div>
 
+  {% if followers|length > 0 %}
+    <div class="dc-sheet__section">
+      <h2 class="dc-sheet__section-title">Followers</h2>
+      {% for follower in followers %}
+        <div class="dc-sheet__feat-item">
+          <strong>{{ follower.name }}</strong>
+          <span class="dc-sheet__tag dc-sheet__tag--feat-type">{{ follower.kind }}</span>
+          <span class="dc-sheet__tag">{{ follower.status|capitalize }}</span>
+          {% for detail in follower.details %}
+            <div class="dc-sheet__detail">{{ detail }}</div>
+          {% endfor %}
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
   {# Feats #}
   {% if feats|length > 0 %}
     <div class="dc-sheet__section">

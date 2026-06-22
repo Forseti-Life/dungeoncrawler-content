@@ -335,6 +335,7 @@ class CharacterViewController extends ControllerBase {
         'gold' => $equipment_gold,
         'items' => $equipment_items,
       ],
+      '#followers' => $this->buildFollowerDisplayData($char_data),
       '#feats' => $this->enrichFeatDisplayData($char_data['feats'] ?? []),
       '#spells' => $this->buildSpellsDisplayData($char_data, $feat_effects),
       '#conditions' => $char_data['conditions'] ?? [],
@@ -845,6 +846,89 @@ class CharacterViewController extends ControllerBase {
     }
 
     return $abilities;
+  }
+
+  /**
+   * Build familiar and companion display data for the character sheet.
+   */
+  private function buildFollowerDisplayData(array $char_data): array {
+    $followers = [];
+    $class_id = strtolower(trim((string) ($char_data['class'] ?? '')));
+    $class_feat = strtolower(trim((string) ($char_data['class_feat'] ?? '')));
+    $subclass = strtolower(trim((string) ($char_data['subclass'] ?? '')));
+    $arcane_thesis = strtolower(trim((string) ($char_data['arcane_thesis'] ?? '')));
+    $feat_selections = is_array($char_data['feat_selections'] ?? NULL) ? $char_data['feat_selections'] : [];
+
+    $familiar = is_array($char_data['familiar'] ?? NULL) ? $char_data['familiar'] : [];
+    $familiar_source = $this->resolveFollowerFamiliarSource($class_id, $class_feat, $subclass, $arcane_thesis);
+    if ($familiar !== []) {
+      $familiar_type = (string) ($familiar['familiar_type'] ?? 'standard');
+      $followers[] = [
+        'kind' => 'Familiar',
+        'status' => 'configured',
+        'name' => trim((string) ($familiar['name'] ?? '')) !== ''
+          ? (string) $familiar['name']
+          : $this->humanizeName($familiar_type === 'standard' ? 'standard familiar' : $familiar_type),
+        'details' => array_values(array_filter([
+          $familiar_type !== 'standard' ? 'Form: ' . $this->humanizeName($familiar_type) : 'Form: Standard familiar',
+          'Abilities: ' . count($familiar['abilities'] ?? []),
+          isset($familiar['max_hp']) ? 'HP: ' . (int) ($familiar['hp'] ?? 0) . '/' . (int) $familiar['max_hp'] : '',
+          !empty($familiar['is_witch_required']) ? 'Class-bound familiar' : '',
+        ])),
+      ];
+    }
+    elseif ($familiar_source !== NULL) {
+      $followers[] = [
+        'kind' => 'Familiar',
+        'status' => 'pending',
+        'name' => 'Pending familiar',
+        'details' => [
+          'Granted by: ' . $this->humanizeName($familiar_source),
+          'Familiar choices have not been saved yet. Revisit Step 4 to configure this follower.',
+        ],
+      ];
+    }
+
+    foreach (['animal-companion', 'animal-companion-druid'] as $source_id) {
+      $selection = is_array($feat_selections[$source_id] ?? NULL) ? $feat_selections[$source_id] : [];
+      $species_id = strtolower(trim((string) ($selection['selected_companion_species'] ?? $selection['species_id'] ?? '')));
+      if ($species_id === '') {
+        continue;
+      }
+      $followers[] = [
+        'kind' => 'Animal Companion',
+        'status' => 'configured',
+        'name' => trim((string) ($selection['name'] ?? '')) !== ''
+          ? (string) $selection['name']
+          : $this->humanizeName($species_id),
+        'details' => array_values(array_filter([
+          'Species: ' . $this->humanizeName($species_id),
+          'Source: ' . $this->humanizeName($source_id),
+        ])),
+      ];
+    }
+
+    return $followers;
+  }
+
+  /**
+   * Resolve whether the current character build should have a familiar.
+   */
+  private function resolveFollowerFamiliarSource(string $class_id, string $class_feat, string $subclass, string $arcane_thesis): ?string {
+    if (in_array($class_feat, ['familiar', 'familiar-druid', 'familiar-sorcerer', 'alchemical-familiar', 'leshy-familiar-druid'], TRUE)) {
+      return $class_feat;
+    }
+    if ($class_id === 'druid' && $subclass === 'leaf') {
+      return 'leshy-familiar-druid';
+    }
+    if ($class_id === 'wizard' && $arcane_thesis === 'improved-familiar-attunement') {
+      return 'improved-familiar-attunement';
+    }
+    if ($class_id === 'witch') {
+      return 'familiar-witch-class';
+    }
+
+    return NULL;
   }
 
   /**
