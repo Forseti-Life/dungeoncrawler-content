@@ -3759,6 +3759,10 @@ class CharacterCreationStepForm extends FormBase {
           ])
           ->condition('id', $character_id)
           ->execute();
+
+        if ($resolved_campaign_id > 0 && $existing_record) {
+          $this->syncCanonicalSourceRowFromCampaignRecord($existing_record, $schema_data, $hot, $now);
+        }
       }
       else {
         $instance_id = $this->uuid->generate();
@@ -3804,6 +3808,37 @@ class CharacterCreationStepForm extends FormBase {
     }
 
     return $character_id;
+  }
+
+  /**
+   * Mirror campaign-scoped character setup saves back into the canonical source row.
+   */
+  private function syncCanonicalSourceRowFromCampaignRecord(object $campaign_record, array $schema_data, array $hot, int $now): void {
+    $source_character_id = (int) ($campaign_record->character_id ?? 0);
+    $campaign_record_id = (int) ($campaign_record->id ?? 0);
+    if ($source_character_id <= 0 || $source_character_id === $campaign_record_id) {
+      return;
+    }
+
+    $this->database->update('dc_campaign_characters')
+      ->fields([
+        'name' => $schema_data['name'] ?: 'Unnamed Character',
+        'level' => $schema_data['level'],
+        'ancestry' => $schema_data['ancestry'] ?? '',
+        'class' => $schema_data['class'] ?? '',
+        'hp_current' => $hot['hp_current'],
+        'hp_max' => $hot['hp_max'],
+        'armor_class' => $hot['armor_class'],
+        'experience_points' => (int) ($schema_data['experience_points'] ?? 0),
+        'character_data' => json_encode($schema_data, JSON_PRETTY_PRINT),
+        'default_character_data' => json_encode($schema_data, JSON_PRETTY_PRINT),
+        'status' => max(1, (int) ($campaign_record->status ?? 1)),
+        'changed' => $now,
+        'updated' => $now,
+      ])
+      ->condition('id', $source_character_id)
+      ->condition('campaign_id', 0)
+      ->execute();
   }
 
   /**
