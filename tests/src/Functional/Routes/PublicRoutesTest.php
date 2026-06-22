@@ -51,7 +51,7 @@ class PublicRoutesTest extends BrowserTestBase {
   public function testWorldRoutePositive(): void {
     $this->drupalGet('/world');
     $this->assertSession()->statusCodeEquals(200);
-    $this->assertSession()->pageTextContains('The Living Dungeon');
+    $this->assertSession()->pageTextContains('The Living Multiverse');
   }
 
   /**

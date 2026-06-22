@@ -30,21 +30,22 @@ class WorldControllerTest extends BrowserTestBase {
     $this->assertSession()->statusCodeEquals(200);
     
     // Verify expected content structure/blocks.
-    $this->assertSession()->pageTextContains('The Living Dungeon');
+    $this->assertSession()->pageTextContains('The Living Multiverse');
     $this->assertSession()->elementsCount('css', '.world-lore-card', 6);
-     
+      
     // Verify key lore sections exist.
-    $this->assertSession()->pageTextContains('The Endless Depths');
-    $this->assertSession()->pageTextContains('AI-Born Creatures');
-    $this->assertSession()->pageTextContains('Procedural Treasures');
-    $this->assertSession()->pageTextContains('Dynamic Quests');
-    $this->assertSession()->pageTextContains('The Hex Realm');
-    $this->assertSession()->pageTextContains('Living History');
-    $this->assertSession()->elementExists('css', '.world-lore-card--endless-depths');
-    $this->assertSession()->elementExists('css', '.world-lore-card--living-history');
-     
-    // Verify CTA button.
+    $this->assertSession()->pageTextContains('Shard Campaigns');
+    $this->assertSession()->pageTextContains('Continuity Anchors');
+    $this->assertSession()->pageTextContains('Forked Agents');
+    $this->assertSession()->pageTextContains('Cross-World Transit');
+    $this->assertSession()->pageTextContains('Setting Drift');
+    $this->assertSession()->pageTextContains('Living Histories');
+    $this->assertSession()->elementExists('css', '.world-lore-card--shard-campaigns');
+    $this->assertSession()->elementExists('css', '.world-lore-card--living-histories');
+      
+    // Verify CTA buttons.
     $this->assertSession()->linkExists('View Campaigns');
+    $this->assertSession()->linkExists('View Game Flow');
   }
 
   /**

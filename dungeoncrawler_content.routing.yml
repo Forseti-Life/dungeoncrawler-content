@@ -136,7 +136,7 @@ dungeoncrawler_content.world:
   path: '/world'
   defaults:
     _controller: '\Drupal\dungeoncrawler_content\Controller\WorldController::index'
-    _title: 'The Living Dungeon'
+    _title: 'The Living Multiverse'
   methods: [GET]
   requirements:
     _access: 'TRUE'

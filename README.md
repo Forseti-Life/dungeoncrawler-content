@@ -313,7 +313,7 @@ Implementation strategy (first-pass architecture):
    - `/dungeoncrawler/objects` - Review objects and attributes
 
 ### Information Pages
-- **World Lore** (`/world`) - Living dungeon background and lore
+- **World Lore** (`/world`) - Multiverse setting overview covering shard campaigns, continuity anchors, and cross-setting character portability
 - **How to Play** (`/how-to-play`) - Game mechanics and tutorial
 - **About** (`/about`) - Game information, technology, and legacy-world framing for long-term character play
 - **Spell Catalogue** (`/spellcatalogue`) - Public review page for canonical spell records pulled from `dungeoncrawler_content_registry`
@@ -679,7 +679,7 @@ Indexes: `session_type` (session_id, message_type), `sender` (sender_type, sende
 
 ### Public Routes
 - `/` - Homepage (Play)
-- `/world` - World lore page
+- `/world` - World lore page for the shard-based multiverse setting
 - `/how-to-play` - Tutorial and game guide
 - `/about` - About page
 
