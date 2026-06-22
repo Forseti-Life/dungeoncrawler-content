@@ -748,19 +748,6 @@ class CampaignController extends ControllerBase {
   }
 
   /**
-   * Resolve persisted location fields for an existing campaign character row.
-   */
-  private function resolveCharacterLocationFields(?array $existing_location_state): array {
-    return [
-      'position_q' => (int) ($existing_location_state['position_q'] ?? 0),
-      'position_r' => (int) ($existing_location_state['position_r'] ?? 0),
-      'last_room_id' => (string) ($existing_location_state['last_room_id'] ?? ''),
-      'location_type' => (string) ($existing_location_state['location_type'] ?? 'global'),
-      'location_ref' => (string) ($existing_location_state['location_ref'] ?? ''),
-    ];
-  }
-
-  /**
    * Load the most recently updated campaign dungeon row.
    */
   private function loadLatestCampaignDungeon(int $campaign_id): ?object {
