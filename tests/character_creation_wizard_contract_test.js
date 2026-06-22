@@ -45,6 +45,34 @@ assert(
   'Both character creation save paths resync the nested wizard draft before persistence'
 );
 
+assert(
+  formSource.includes('$character_data = $this->storeCalculatedAbilityScores($character_data, $calculation);') &&
+  formSource.includes("$character_data['abilities'] = $abilities;") &&
+  formSource.includes("$character_data['ability_scores'] = $ability_scores;") &&
+  formSource.includes("$character_data['hit_points'] = [") &&
+  formSource.includes("$resources['hitPoints'] = [") &&
+  formSource.includes("$defenses['armorClass'] = 10 + $dex_mod;"),
+  'Form save path persists recalculated abilities and derived combat stats into canonical and mirror payloads'
+);
+
+assert(
+  controllerSource.includes('new AbilityScoreTracker($this->characterManager);') &&
+  controllerSource.includes('$character_data = $this->storeCalculatedAbilityScores(') &&
+  controllerSource.includes("$character_data['abilities'] = $abilities;") &&
+  controllerSource.includes("$character_data['hit_points'] = [") &&
+  controllerSource.includes("$resources['hitPoints'] = [") &&
+  controllerSource.includes("$defenses['armorClass'] = 10 + $dex_mod;"),
+  'Controller save path also refreshes canonical ability and derived combat mirrors after steps 2-5'
+);
+
+assert(
+  formSource.includes("if ((int) ($character_data['step'] ?? 0) >= 8) {") &&
+  formSource.includes("$character_data['wizard_complete'] = TRUE;") &&
+  controllerSource.includes("if ((int) ($character_data['step'] ?? 0) >= 8) {") &&
+  controllerSource.includes("$character_data['wizard_complete'] = TRUE;"),
+  'Both save paths mark step-8 characters as wizard_complete before persistence'
+);
+
 console.log(`\nPassed: ${passed}`);
 console.log(`Failed: ${failed}`);
 

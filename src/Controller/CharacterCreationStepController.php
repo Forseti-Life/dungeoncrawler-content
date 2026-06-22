@@ -8,6 +8,7 @@ use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Database\Connection;
 use Drupal\Core\Url;
 use Drupal\dungeoncrawler_content\Service\CharacterManager;
+use Drupal\dungeoncrawler_content\Service\AbilityScoreTracker;
 use Drupal\dungeoncrawler_content\Service\CharacterPortraitGenerationService;
 use Drupal\dungeoncrawler_content\Service\FeatLibraryService;
 use Drupal\dungeoncrawler_content\Service\SchemaLoader;
@@ -226,6 +227,9 @@ class CharacterCreationStepController extends ControllerBase {
     $next_step = $this->getNextStep($step);
     $character_data['step'] = $next_step; // Advance to next step
     $character_data = $this->syncWizardDraftFromCharacterData($character_data);
+    if ((int) ($character_data['step'] ?? 0) >= 8) {
+      $character_data['wizard_complete'] = TRUE;
+    }
     $character_data = CharacterManager::normalizePersistentCharacterPayload($character_data);
 
     $hit_points = is_array($character_data['hit_points'] ?? NULL) ? $character_data['hit_points'] : [];
@@ -743,6 +747,89 @@ class CharacterCreationStepController extends ControllerBase {
         'encumbrance' => 'unencumbered',
       ];
     }
+
+    if (in_array($step, [2, 3, 4, 5], TRUE)) {
+      $tracker = new AbilityScoreTracker($this->characterManager);
+      $character_data = $this->storeCalculatedAbilityScores(
+        $character_data,
+        $tracker->calculateAbilityScores($character_data)
+      );
+    }
+
+    return $character_data;
+  }
+
+  /**
+   * Persist the latest calculated ability scores onto the draft payload.
+   *
+   * @param array<string,mixed> $character_data
+   *   Current character payload.
+   * @param array<string,mixed> $calculation
+   *   AbilityScoreTracker calculation result.
+   *
+   * @return array<string,mixed>
+   *   Character payload with canonical ability mirrors refreshed.
+   */
+  private function storeCalculatedAbilityScores(array $character_data, array $calculation): array {
+    $short_map = [
+      'strength' => 'str',
+      'dexterity' => 'dex',
+      'constitution' => 'con',
+      'intelligence' => 'int',
+      'wisdom' => 'wis',
+      'charisma' => 'cha',
+    ];
+
+    $abilities = [];
+    $ability_scores = [];
+    foreach (($calculation['scores'] ?? []) as $ability => $score) {
+      $score = (int) $score;
+      $modifier = (int) (($calculation['modifiers'][$ability] ?? floor(($score - 10) / 2)));
+      $short_key = $short_map[$ability] ?? NULL;
+
+      $character_data[$ability] = $score;
+      $abilities[$ability] = $score;
+      if ($short_key !== NULL) {
+        $abilities[$short_key] = $score;
+      }
+      $ability_scores[$ability] = [
+        'score' => $score,
+        'modifier' => $modifier,
+      ];
+    }
+
+    if ($abilities !== []) {
+      $character_data['abilities'] = $abilities;
+      $character_data['ability_scores'] = $ability_scores;
+    }
+
+    $level = max(1, (int) ($character_data['level'] ?? 1));
+    $canonical_ancestry = CharacterManager::resolveAncestryCanonicalName((string) ($character_data['ancestry'] ?? ''));
+    $ancestry_data = $canonical_ancestry !== '' ? (CharacterManager::ANCESTRIES[$canonical_ancestry] ?? []) : [];
+    $class_hp = $this->characterManager->getClassHP((string) ($character_data['class'] ?? ''));
+    $con_mod = (int) ($ability_scores['constitution']['modifier'] ?? 0);
+    $dex_mod = (int) ($ability_scores['dexterity']['modifier'] ?? 0);
+    $max_hp = (int) (($ancestry_data['hp'] ?? 0) + $class_hp + $con_mod + (($level - 1) * ($class_hp + $con_mod)));
+    $character_data['hit_points'] = [
+      'max' => $max_hp,
+      'current' => $max_hp,
+      'temp' => (int) ($character_data['hit_points']['temp'] ?? $character_data['hit_points']['temporary'] ?? 0),
+    ];
+    $character_data['armor_class'] = 10 + $dex_mod;
+    $resources = is_array($character_data['resources'] ?? NULL) ? $character_data['resources'] : [];
+    $resources['hitPoints'] = [
+      'max' => $max_hp,
+      'current' => $max_hp,
+      'temporary' => (int) ($character_data['hit_points']['temp'] ?? $character_data['hit_points']['temporary'] ?? 0),
+    ];
+    $character_data['resources'] = $resources;
+    $defenses = is_array($character_data['defenses'] ?? NULL) ? $character_data['defenses'] : [];
+    $defenses['armorClass'] = 10 + $dex_mod;
+    $character_data['defenses'] = $defenses;
+
+    $character_data['ability_sources'] = is_array($calculation['sources'] ?? NULL)
+      ? $calculation['sources']
+      : [];
 
     return $character_data;
   }
