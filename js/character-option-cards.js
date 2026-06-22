@@ -221,6 +221,7 @@
   function enhanceGroup(form, groupName, config, context) {
     var selectionType = config.selectionType || 'single';
     var selector = buildInputSelector(groupName, selectionType);
+    var disabledValues = Array.isArray(config.disabledValues) ? config.disabledValues : [];
 
     once('option-card-' + groupName, selector, context).forEach(function (input) {
       var option = (config.options || {})[input.value];
@@ -252,6 +253,9 @@
       }
 
       input.classList.add('option-selector-card__control');
+      if (disabledValues.indexOf(input.value) !== -1) {
+        input.disabled = true;
+      }
       card.dataset.optionSearch = buildSearchText(option, label ? label.textContent : input.value, input.value);
 
       var tooltipText = buildTooltipText(option, label ? label.textContent : input.value);

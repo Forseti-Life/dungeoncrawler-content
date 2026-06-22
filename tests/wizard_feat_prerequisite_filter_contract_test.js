@@ -50,4 +50,19 @@ assert(
   'Wizard validation rejects feats that are no longer eligible for the current build'
 );
 
+assert(
+  source.includes('Natural Ambition cannot grant the same class feat you already selected.') &&
+  source.includes('General Training cannot grant the same general feat you already selected.'),
+  'Wizard validation rejects duplicate feat picks across primary and bonus feat grants'
+);
+
+assert(
+  source.includes('Already selected by Natural Ambition') &&
+  source.includes('Already selected as class feat') &&
+  source.includes('Already selected by General Training') &&
+  source.includes('Already selected as general feat') &&
+  source.includes("'disabledValues' =>"),
+  'Wizard build marks duplicate feat options as disabled and labelled in selector cards'
+);
+
 console.log('OK wizard feat prerequisite filter contract');

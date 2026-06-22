@@ -1176,14 +1176,19 @@ class CharacterCreationStepForm extends FormBase {
           . '</div>',
       ];
 
+      $selected_bonus_feat = trim((string) ($character_data['feat_selections']['natural-ambition']['bonus_class_feat'] ?? ''));
       $feat_options = [];
       $feat_cards = [];
 
       foreach ($class_feats as $feat) {
+        $duplicate_tags = [];
+        if ($selected_bonus_feat !== '' && $selected_bonus_feat === (string) ($feat['id'] ?? '') && $selected_bonus_feat !== $selected_class_feat) {
+          $duplicate_tags[] = (string) $this->t('Already selected by Natural Ambition');
+        }
         $feat_options[$feat['id']] = $feat['name'];
         $feat_cards[$feat['id']] = $this->buildOptionCardData(
           $this->resolveFeatDisplayDescription($feat),
-          $feat['traits'] ?? [],
+          array_values(array_merge($feat['traits'] ?? [], $duplicate_tags)),
           [
             (string) $this->t('Prerequisites') => $feat['prerequisites'] ?? '',
           ],
@@ -1203,7 +1208,12 @@ class CharacterCreationStepForm extends FormBase {
           'event' => 'change',
         ],
       ];
-      $this->attachOptionCardSettings($form['class_dynamic'], 'class_feat', $feat_cards, 'single');
+      $class_feat_disabled_ids = [];
+      $selected_bonus_feat = trim((string) ($character_data['feat_selections']['natural-ambition']['bonus_class_feat'] ?? ''));
+      if ($selected_bonus_feat !== '' && $selected_bonus_feat !== $selected_class_feat) {
+        $class_feat_disabled_ids[] = $selected_bonus_feat;
+      }
+      $this->attachOptionCardSettings($form['class_dynamic'], 'class_feat', $feat_cards, 'single', $class_feat_disabled_ids);
 
       if ($selected_class_feat === 'monster-hunter') {
         $this->buildMonsterHunterSelectionSection($form['class_dynamic'], $form_state, $character_data);
@@ -1857,18 +1867,23 @@ class CharacterCreationStepForm extends FormBase {
 
     $general_feat_options = [];
     $general_feat_cards = [];
+    $selected_general_feat = (string) ($form_state->getValue('general_feat') ?: ($character_data['general_feat'] ?? ''));
+    $selected_bonus_general_feat = trim((string) ($character_data['feat_selections']['general-training']['bonus_general_feat'] ?? ''));
     foreach ($this->getCreationEligibleGeneralFeats($character_data) as $feat) {
+      $duplicate_tags = [];
+      if ($selected_bonus_general_feat !== '' && $selected_bonus_general_feat === (string) ($feat['id'] ?? '') && $selected_bonus_general_feat !== $selected_general_feat) {
+        $duplicate_tags[] = (string) $this->t('Already selected by General Training');
+      }
       $general_feat_options[$feat['id']] = $feat['name'];
       $general_feat_cards[$feat['id']] = $this->buildOptionCardData(
         $this->resolveFeatDisplayDescription($feat),
-        $feat['traits'] ?? [],
+        array_values(array_merge($feat['traits'] ?? [], $duplicate_tags)),
         [
           (string) $this->t('Prerequisites') => $feat['prerequisites'] ?? '',
         ],
       );
     }
 
-    $selected_general_feat = (string) ($form_state->getValue('general_feat') ?: ($character_data['general_feat'] ?? ''));
     $form['general_feat_dynamic']['general_feat'] = [
       '#type' => 'radios',
       '#title' => $this->t('Select General Feat'),
@@ -1882,7 +1897,12 @@ class CharacterCreationStepForm extends FormBase {
         'event' => 'change',
       ],
     ];
-    $this->attachOptionCardSettings($form['general_feat_dynamic'], 'general_feat', $general_feat_cards, 'single');
+    $general_feat_disabled_ids = [];
+    $selected_bonus_general_feat = trim((string) ($character_data['feat_selections']['general-training']['bonus_general_feat'] ?? ''));
+    if ($selected_bonus_general_feat !== '' && $selected_bonus_general_feat !== $selected_general_feat) {
+      $general_feat_disabled_ids[] = $selected_bonus_general_feat;
+    }
+    $this->attachOptionCardSettings($form['general_feat_dynamic'], 'general_feat', $general_feat_cards, 'single', $general_feat_disabled_ids);
 
     if ($selected_general_feat === 'specialty-crafting') {
       $this->buildSpecialtyCraftingSelectionSection($form['general_feat_dynamic'], $form_state, $character_data);
@@ -5269,7 +5289,7 @@ class CharacterCreationStepForm extends FormBase {
   /**
    * Attaches selector-card metadata to a form wrapper.
    */
-  private function attachOptionCardSettings(array &$element, string $group_name, array $options, string $selection_type): void {
+  private function attachOptionCardSettings(array &$element, string $group_name, array $options, string $selection_type, array $disabled_values = []): void {
     if (empty($options)) {
       return;
     }
@@ -5277,6 +5297,7 @@ class CharacterCreationStepForm extends FormBase {
     $element['#attached']['drupalSettings']['characterOptionCards'][$group_name] = [
       'selectionType' => $selection_type,
       'options' => $options,
+      'disabledValues' => array_values(array_unique(array_filter(array_map(static fn($value): string => trim((string) $value), $disabled_values), static fn(string $value): bool => $value !== ''))),
     ];
   }
 
@@ -5625,13 +5646,18 @@ class CharacterCreationStepForm extends FormBase {
       ];
     }
 
+    $selected_general_feat = trim((string) ($character_data['general_feat'] ?? ''));
     $feat_options = [];
     $feat_cards = [];
-    foreach ($this->getCanonicalGeneralFeats() as $feat) {
+    foreach ($this->getCreationEligibleGeneralFeats($character_data) as $feat) {
+      $duplicate_tags = [];
+      if ($selected_general_feat !== '' && $selected_general_feat === (string) ($feat['id'] ?? '') && $selected_general_feat !== $selected_bonus_feat) {
+        $duplicate_tags[] = (string) $this->t('Already selected as general feat');
+      }
       $feat_options[$feat['id']] = $feat['name'];
       $feat_cards[$feat['id']] = $this->buildOptionCardData(
         $this->resolveFeatDisplayDescription($feat),
-        $feat['traits'] ?? [],
+        array_values(array_merge($feat['traits'] ?? [], $duplicate_tags)),
         [
           (string) $this->t('Prerequisites') => $feat['prerequisites'] ?? '',
         ],
@@ -5640,6 +5666,10 @@ class CharacterCreationStepForm extends FormBase {
 
     if (!array_key_exists($selected_bonus_feat, $feat_options)) {
       $selected_bonus_feat = '';
+    }
+    $disabled_bonus_general_feat_ids = [];
+    if ($selected_general_feat !== '' && $selected_general_feat !== $selected_bonus_feat) {
+      $disabled_bonus_general_feat_ids[] = $selected_general_feat;
     }
 
     $container['feat_selections']['general-training'] = [
@@ -5665,7 +5695,8 @@ class CharacterCreationStepForm extends FormBase {
       $container['feat_selections']['general-training'],
       'bonus_general_feat',
       $feat_cards,
-      'single'
+      'single',
+      $disabled_bonus_general_feat_ids
     );
   }
 
@@ -6118,14 +6149,23 @@ class CharacterCreationStepForm extends FormBase {
     $feat_options = [];
     $feat_cards = [];
     foreach ($class_feats as $feat) {
+      $duplicate_tags = [];
+      if ($selected_class_feat !== '' && $selected_class_feat === (string) ($feat['id'] ?? '') && $selected_class_feat !== $selected_bonus_feat) {
+        $duplicate_tags[] = (string) $this->t('Already selected as class feat');
+      }
       $feat_options[$feat['id']] = $feat['name'];
       $feat_cards[$feat['id']] = $this->buildOptionCardData(
         $feat['benefit'] ?? '',
-        $feat['traits'] ?? [],
+        array_values(array_merge($feat['traits'] ?? [], $duplicate_tags)),
         [
           (string) $this->t('Prerequisites') => $feat['prerequisites'] ?? '',
         ],
       );
+    }
+    $selected_class_feat = trim((string) ($character_data['class_feat'] ?? ''));
+    $disabled_bonus_feat_ids = [];
+    if ($selected_class_feat !== '' && $selected_class_feat !== $selected_bonus_feat) {
+      $disabled_bonus_feat_ids[] = $selected_class_feat;
     }
 
     if (!array_key_exists($selected_bonus_feat, $feat_options)) {
@@ -6155,7 +6195,8 @@ class CharacterCreationStepForm extends FormBase {
       $form['class_dynamic']['feat_selections']['natural-ambition'],
       'bonus_class_feat',
       $feat_cards,
-      'single'
+      'single',
+      $disabled_bonus_feat_ids
     );
   }
 
@@ -6830,6 +6871,7 @@ class CharacterCreationStepForm extends FormBase {
    */
   private function validateNaturalAmbitionSelection(FormStateInterface $form_state, string $selected_class): void {
     $selected_bonus_feat = trim((string) $form_state->getValue(['feat_selections', 'natural-ambition', 'bonus_class_feat'], ''));
+    $selected_class_feat = trim((string) $form_state->getValue('class_feat', ''));
     if ($selected_bonus_feat === '') {
       $form_state->setErrorByName(
         'feat_selections][natural-ambition][bonus_class_feat',
@@ -6837,9 +6879,16 @@ class CharacterCreationStepForm extends FormBase {
       );
       return;
     }
+    if ($selected_bonus_feat === $selected_class_feat) {
+      $form_state->setErrorByName(
+        'feat_selections][natural-ambition][bonus_class_feat',
+        $this->t('Natural Ambition cannot grant the same class feat you already selected.')
+      );
+      return;
+    }
     $valid_feat_ids = array_map(
       static fn(array $feat): string => (string) ($feat['id'] ?? ''),
-      $this->getCanonicalClassFeats($selected_class)
+      $this->getCreationEligibleClassFeats($selected_class, $this->loadCharacterData((int) $form_state->get('character_id')))
     );
     if (!in_array($selected_bonus_feat, $valid_feat_ids, TRUE)) {
       $form_state->setErrorByName(
@@ -6854,6 +6903,9 @@ class CharacterCreationStepForm extends FormBase {
    */
   private function validateGeneralTrainingSelection(FormStateInterface $form_state): void {
     $selected_bonus_feat = trim((string) $form_state->getValue(['feat_selections', 'general-training', 'bonus_general_feat'], ''));
+    $selected_general_feat = trim((string) $form_state->getValue('ancestry_feat', '')) === 'general-training'
+      ? trim((string) $form_state->getValue('general_feat', ''))
+      : '';
     if ($selected_bonus_feat === '') {
       $form_state->setErrorByName(
         'feat_selections][general-training][bonus_general_feat',
@@ -6861,9 +6913,16 @@ class CharacterCreationStepForm extends FormBase {
       );
       return;
     }
+    if ($selected_general_feat !== '' && $selected_bonus_feat === $selected_general_feat) {
+      $form_state->setErrorByName(
+        'feat_selections][general-training][bonus_general_feat',
+        $this->t('General Training cannot grant the same general feat you already selected.')
+      );
+      return;
+    }
     $valid_feat_ids = array_map(
       static fn(array $feat): string => (string) ($feat['id'] ?? ''),
-      $this->getCanonicalGeneralFeats()
+      $this->getCreationEligibleGeneralFeats($this->loadCharacterData((int) $form_state->get('character_id')))
     );
     if (!in_array($selected_bonus_feat, $valid_feat_ids, TRUE)) {
       $form_state->setErrorByName(
