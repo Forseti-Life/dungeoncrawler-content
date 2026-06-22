@@ -450,6 +450,42 @@ class CharacterManagerCanonicalizationTest extends UnitTestCase {
     $this->assertTrue((bool) ($completed['actions']['threeActionEconomy']['reactionAvailable'] ?? FALSE));
   }
 
+  /**
+   * @covers ::canonicalizeCharacterData
+   */
+  public function testCanonicalizeCharacterDataPrefersNonEmptyTopLevelIdentityFieldsOverBlankBasicInfo(): void {
+    $canonical = $this->manager->canonicalizeCharacterData([
+      'ancestry' => 'human',
+      'heritage' => 'versatile',
+      'background' => 'scholar',
+      'class' => 'wizard',
+      'basicInfo' => [
+        'name' => 'Testing',
+        'level' => 1,
+        'experiencePoints' => 0,
+        'ancestry' => '',
+        'heritage' => '',
+        'background' => '',
+        'class' => '',
+      ],
+      'resources' => [
+        'hitPoints' => ['current' => 8, 'max' => 8, 'temporary' => 0],
+        'heroPoints' => ['current' => 1, 'max' => 3],
+      ],
+      'defenses' => [
+        'armorClass' => 10,
+        'fortitude' => 3,
+        'reflex' => 3,
+        'will' => 3,
+      ],
+    ]);
+
+    $this->assertSame('human', $canonical['ancestry']);
+    $this->assertSame('versatile', $canonical['heritage']);
+    $this->assertSame('scholar', $canonical['background']);
+    $this->assertSame('wizard', $canonical['class']);
+  }
+
   private function buildWriteQueryMock(array &$captured_fields): object {
     return new class($captured_fields) {
       public function __construct(private array &$captured_fields) {}

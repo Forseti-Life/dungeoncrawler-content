@@ -11938,10 +11938,30 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
     ]);
     $canonical['level'] = (int) ($basic_info['level'] ?? $characterData['level'] ?? 1);
     $canonical['experience_points'] = (int) ($basic_info['experiencePoints'] ?? $characterData['experience_points'] ?? 0);
-    $canonical['ancestry'] = (string) ($basic_info['ancestry'] ?? $characterData['ancestry'] ?? '');
-    $canonical['heritage'] = (string) ($basic_info['heritage'] ?? $characterData['heritage'] ?? '');
-    $canonical['background'] = (string) ($basic_info['background'] ?? $characterData['background'] ?? '');
-    $canonical['class'] = (string) ($basic_info['class'] ?? $characterData['class'] ?? '');
+    $canonical['ancestry'] = $this->firstNonEmptyString([
+      $characterData['ancestry'] ?? '',
+      $basic_info['ancestry'] ?? '',
+      $wizard['ancestry'] ?? '',
+      $canonical['ancestry'] ?? '',
+    ]);
+    $canonical['heritage'] = $this->firstNonEmptyString([
+      $characterData['heritage'] ?? '',
+      $basic_info['heritage'] ?? '',
+      $wizard['heritage'] ?? '',
+      $canonical['heritage'] ?? '',
+    ]);
+    $canonical['background'] = $this->firstNonEmptyString([
+      $characterData['background'] ?? '',
+      $basic_info['background'] ?? '',
+      $wizard['background'] ?? '',
+      $canonical['background'] ?? '',
+    ]);
+    $canonical['class'] = $this->firstNonEmptyString([
+      $characterData['class'] ?? '',
+      $basic_info['class'] ?? '',
+      $wizard['class'] ?? '',
+      $canonical['class'] ?? '',
+    ]);
     $canonical['alignment'] = $this->firstNonEmptyString([
       $basic_info['alignment'] ?? '',
       $characterData['alignment'] ?? '',
