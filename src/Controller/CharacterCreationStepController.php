@@ -201,6 +201,9 @@ class CharacterCreationStepController extends ControllerBase {
 
     // Merge with existing data
     $character_data = $character ? json_decode($character->character_data, TRUE) : $this->getDefaultCharacterData();
+    if (!is_array($character_data)) {
+      $character_data = $this->getDefaultCharacterData();
+    }
 
     $validation_errors = $this->validateStepRequirements($step, $data, $character_data);
     if (!empty($validation_errors)) {
@@ -222,6 +225,7 @@ class CharacterCreationStepController extends ControllerBase {
     $character_data = $result;
     $next_step = $this->getNextStep($step);
     $character_data['step'] = $next_step; // Advance to next step
+    $character_data = $this->syncWizardDraftFromCharacterData($character_data);
     $character_data = CharacterManager::normalizePersistentCharacterPayload($character_data);
 
     $hit_points = is_array($character_data['hit_points'] ?? NULL) ? $character_data['hit_points'] : [];
@@ -327,6 +331,21 @@ class CharacterCreationStepController extends ControllerBase {
     }
 
     return $summary;
+  }
+
+  /**
+   * Keep the nested wizard draft aligned with the latest top-level character data.
+   */
+  private function syncWizardDraftFromCharacterData(array $character_data): array {
+    $wizard = is_array($character_data['wizard'] ?? NULL) ? $character_data['wizard'] : [];
+    foreach ($character_data as $key => $value) {
+      if (in_array($key, ['wizard', 'basicInfo', 'resources', 'defenses'], TRUE)) {
+        continue;
+      }
+      $wizard[$key] = $value;
+    }
+    $character_data['wizard'] = $wizard;
+    return $character_data;
   }
 
   /**

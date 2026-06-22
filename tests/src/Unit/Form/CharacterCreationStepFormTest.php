@@ -713,6 +713,67 @@ class CharacterCreationStepFormTest extends UnitTestCase {
     $this->assertSame(12, $resolved);
   }
 
+  /**
+   * @covers ::loadCharacterData
+   */
+  public function testLoadCharacterDataPrefersCanonicalTopLevelPayloadOverStaleWizardDraft(): void {
+    $record = (object) [
+      'uid' => 0,
+      'character_data' => json_encode([
+        'basicInfo' => [
+          'name' => 'Burasco',
+          'level' => 1,
+          'experiencePoints' => 0,
+          'ancestry' => 'human',
+          'heritage' => 'versatile',
+          'background' => 'scholar',
+          'class' => 'wizard',
+          'appearance' => 'Hooded cloak',
+          'personality' => '',
+          'backstory' => '',
+        ],
+        'resources' => [
+          'hitPoints' => ['current' => 8, 'max' => 8, 'temporary' => 0],
+          'heroPoints' => ['current' => 1, 'max' => 3],
+        ],
+        'defenses' => [
+          'armorClass' => 10,
+          'fortitude' => 3,
+          'reflex' => 3,
+          'will' => 3,
+        ],
+        'step' => 8,
+        'wizard' => [
+          'step' => 2,
+          'ancestry' => '',
+          'background' => '',
+          'class' => '',
+        ],
+      ], JSON_PRETTY_PRINT),
+    ];
+
+    $current_user = $this->createMock(AccountProxyInterface::class);
+    $current_user->method('id')->willReturn(0);
+
+    $character_manager = $this->createMock(CharacterManager::class);
+    $character_manager->method('loadCharacter')
+      ->with(1016)
+      ->willReturn($record);
+
+    $form = $this->buildFormObject($character_manager);
+    $ref = new \ReflectionProperty($form, 'currentUser');
+    $ref->setValue($form, $current_user);
+
+    $method = new \ReflectionMethod($form, 'loadCharacterData');
+    $method->setAccessible(TRUE);
+    $loaded = $method->invoke($form, 1016);
+
+    $this->assertSame('human', $loaded['ancestry']);
+    $this->assertSame('scholar', $loaded['background']);
+    $this->assertSame('wizard', $loaded['class']);
+    $this->assertSame(8, $loaded['step']);
+  }
+
   private function buildFormObject(CharacterManager $character_manager, ?FeatLibraryService $feat_library = NULL, ?Connection $database = NULL, int $campaign_id = 70, ?CampaignSubjectRegistryService $campaign_subject_registry = NULL, ?InstitutionNormalizationService $institution_normalization = NULL, ?FactionGenerationService $faction_generation = NULL, ?InstitutionMembershipService $institution_membership = NULL): CharacterCreationStepForm {
     $database ??= $this->buildSubjectRegistryDatabaseMock(FALSE);
     $campaign_subject_registry ??= $this->createMock(CampaignSubjectRegistryService::class);

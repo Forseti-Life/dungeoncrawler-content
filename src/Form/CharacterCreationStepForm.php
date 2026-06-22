@@ -3362,7 +3362,12 @@ class CharacterCreationStepForm extends FormBase {
       $character = $this->characterManager->loadCharacter($character_id);
       if ($character && $character->uid == $this->currentUser->id()) {
         $data = json_decode($character->character_data, TRUE);
-        $form_data = is_array($data['wizard'] ?? NULL) ? $data['wizard'] : $data;
+        $has_canonical_payload = is_array($data['basicInfo'] ?? NULL)
+          && is_array($data['resources'] ?? NULL)
+          && is_array($data['defenses'] ?? NULL);
+        $form_data = $has_canonical_payload
+          ? $data
+          : (is_array($data['wizard'] ?? NULL) ? $data['wizard'] : $data);
         $form_data = $this->characterManager->canonicalizeCharacterData(is_array($form_data) ? $form_data : []);
         if (!empty($form_data['abilities'])) {
           $form_data['strength'] = $form_data['abilities']['strength'] ?? $form_data['abilities']['str'] ?? 10;
@@ -3524,6 +3529,8 @@ class CharacterCreationStepForm extends FormBase {
         $this->normalizeStructuredAffiliationCharacterData($character_data);
       }
 
+      $character_data = $this->syncWizardDraftFromCharacterData($character_data);
+
       $schema_data = $this->characterManager->canonicalizeCharacterData($character_data);
       if (empty($schema_data['created_at'])) {
         $schema_data['created_at'] = date('c', $now);
@@ -3598,6 +3605,21 @@ class CharacterCreationStepForm extends FormBase {
     }
 
     return $character_id;
+  }
+
+  /**
+   * Keep the nested wizard draft aligned with the latest top-level character data.
+   */
+  private function syncWizardDraftFromCharacterData(array $character_data): array {
+    $wizard = is_array($character_data['wizard'] ?? NULL) ? $character_data['wizard'] : [];
+    foreach ($character_data as $key => $value) {
+      if (in_array($key, ['wizard', 'basicInfo', 'resources', 'defenses'], TRUE)) {
+        continue;
+      }
+      $wizard[$key] = $value;
+    }
+    $character_data['wizard'] = $wizard;
+    return $character_data;
   }
 
   /**
