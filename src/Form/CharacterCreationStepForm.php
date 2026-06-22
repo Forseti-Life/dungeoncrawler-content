@@ -1959,10 +1959,10 @@ class CharacterCreationStepForm extends FormBase {
             '@class' => $class_loadout_preset['class_label'],
           ]) . '</p>'
           . '</div>'
-          . '<div class="step7-loadout-preset__summary">'
-          . '<span class="step7-loadout-preset__fact">' . $this->t('@count items', ['@count' => count($class_loadout_preset['items'])]) . '</span>'
-          . '<span class="step7-loadout-preset__fact">' . $this->t('@cost gp', ['@cost' => number_format((float) $class_loadout_preset['cost'], 1)]) . '</span>'
-          . '<span class="step7-loadout-preset__fact">' . $this->t('@remaining gp left', ['@remaining' => number_format(max(0, 15 - (float) $class_loadout_preset['cost']), 1)]) . '</span>'
+          . '<div class="step7-loadout-preset__facts">'
+          . '<div class="step7-loadout-preset__fact-card"><span class="step7-loadout-preset__fact-label">' . $this->t('Items') . '</span><span class="step7-loadout-preset__fact-value">' . count($class_loadout_preset['items']) . '</span></div>'
+          . '<div class="step7-loadout-preset__fact-card"><span class="step7-loadout-preset__fact-label">' . $this->t('Cost') . '</span><span class="step7-loadout-preset__fact-value">' . number_format((float) $class_loadout_preset['cost'], 1) . ' gp</span></div>'
+          . '<div class="step7-loadout-preset__fact-card"><span class="step7-loadout-preset__fact-label">' . $this->t('Gold Left') . '</span><span class="step7-loadout-preset__fact-value">' . number_format(max(0, 15 - (float) $class_loadout_preset['cost']), 1) . ' gp</span></div>'
           . '</div>'
           . '</div>',
       ];
@@ -2189,11 +2189,14 @@ class CharacterCreationStepForm extends FormBase {
    *   Preset item list.
    */
   private function buildStep7LoadoutItemMarkup(array $items): string {
-    $chips = array_map(static function (array $item): string {
-      return '<span class="step7-loadout-preset__item">' . Html::escape((string) ($item['name'] ?? 'Unknown item')) . '</span>';
+    $list_items = array_map(static function (array $item): string {
+      return '<li class="step7-loadout-preset__list-item">' . Html::escape((string) ($item['name'] ?? 'Unknown item')) . '</li>';
     }, $items);
 
-    return '<div class="step7-loadout-preset__items">' . implode('', $chips) . '</div>';
+    return '<div class="step7-loadout-preset__items-block">'
+      . '<p class="step7-loadout-preset__items-title">' . $this->t('Included equipment') . '</p>'
+      . '<ul class="step7-loadout-preset__list">' . implode('', $list_items) . '</ul>'
+      . '</div>';
   }
 
   /**

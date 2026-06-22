@@ -55,14 +55,16 @@ assert(
 assert(
   formSource.includes("'presets' => $class_loadout_preset !== NULL") &&
     formSource.includes("buildStep7LoadoutItemMarkup") &&
-    formSource.includes("step7SelectionMatchesPreset"),
+    formSource.includes("step7SelectionMatchesPreset") &&
+    formSource.includes("Included equipment"),
   'Step 7 form builds a dedicated loadout summary instead of a raw item list'
 );
 
 assert(
   cssSource.includes('.step7-loadout-preset') &&
     cssSource.includes('.step7-loadout-preset--active') &&
-    cssSource.includes('.step7-loadout-preset__items'),
+    cssSource.includes('.step7-loadout-preset__facts') &&
+    cssSource.includes('.step7-loadout-preset__list'),
   'Step 7 preset UI has dedicated styling hooks'
 );
 

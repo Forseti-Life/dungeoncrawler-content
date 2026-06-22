@@ -163,6 +163,7 @@
   display: block;
   color: var(--dc-text-light);
   font-weight: 600;
+  margin-bottom: var(--dc-space-sm);
 }
 
 .step7-loadout-preset {
@@ -202,30 +203,89 @@
   line-height: 1.6;
 }
 
-.step7-loadout-preset__summary,
-.step7-loadout-preset__items,
+.step7-loadout-preset__facts,
 .step7-loadout-preset__actions {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
   gap: var(--dc-space-sm);
 }
 
-.step7-loadout-preset__fact,
-.step7-loadout-preset__item {
-  display: inline-flex;
-  align-items: center;
-  min-height: 2rem;
-  padding: 0.35rem 0.7rem;
-  border-radius: 999px;
-  background: rgba(245, 158, 11, 0.12);
-  border: 1px solid rgba(245, 158, 11, 0.24);
+.step7-loadout-preset__facts {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.step7-loadout-preset__fact-card {
+  display: grid;
+  gap: var(--dc-space-xs);
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--dc-border-light);
+  border-radius: var(--dc-radius-md);
+  background: var(--dc-card-bg-light);
+}
+
+.step7-loadout-preset__fact-label {
+  color: var(--dc-text-muted);
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.step7-loadout-preset__fact-value {
   color: var(--dc-text-light);
-  font-size: 0.92rem;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.step7-loadout-preset__items-block {
+  display: grid;
+  gap: var(--dc-space-sm);
+}
+
+.step7-loadout-preset__items-title {
+  margin: 0;
+  color: var(--dc-text-light);
+  font-weight: 700;
+}
+
+.step7-loadout-preset__list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--dc-space-sm);
+  margin: 0;
+  padding-left: 1.1rem;
+}
+
+.step7-loadout-preset__list-item {
+  color: var(--dc-text-light);
+  line-height: 1.5;
+}
+
+.step7-loadout-preset__status {
+  padding: 0.75rem 0.9rem;
+  border-radius: var(--dc-radius-md);
+  border: 1px solid var(--dc-border-light);
+  background: var(--dc-card-bg-light);
 }
 
 .step7-loadout-preset__button {
   min-width: 10rem;
-  margin-bottom: var(--dc-space-sm);
+  justify-self: start;
+}
+
+.step7-loadout-preset__actions {
+  grid-auto-flow: column;
+  justify-content: start;
+  align-items: center;
+}
+
+@media (max-width: 768px) {
+  .step7-loadout-preset__facts,
+  .step7-loadout-preset__list {
+    grid-template-columns: 1fr;
+  }
+
+  .step7-loadout-preset__actions {
+    grid-auto-flow: row;
+  }
 }
 
 .form-control {
