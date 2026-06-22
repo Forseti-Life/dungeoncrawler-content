@@ -253,6 +253,28 @@ class CharacterCreationStepFormTest extends UnitTestCase {
   }
 
   /**
+   * @covers ::buildStep3Fields
+   */
+  public function testBuildStep3FieldsRequiresBackgroundBeforeShowingBoostSelector(): void {
+    $form = $this->buildFormObject($this->createMock(CharacterManager::class));
+    $form_state = new FormState();
+    $form_array = [];
+    $character_data = [
+      'background' => '',
+      'background_boosts' => [],
+    ];
+
+    $method = new \ReflectionMethod($form, 'buildStep3Fields');
+    $method->setAccessible(TRUE);
+    $method->invokeArgs($form, [&$form_array, $form_state, $character_data, []]);
+
+    $this->assertArrayHasKey('background_dynamic', $form_array);
+    $this->assertArrayHasKey('background_boosts_pending', $form_array['background_dynamic']);
+    $this->assertArrayHasKey('background_boosts', $form_array['background_dynamic']);
+    $this->assertArrayNotHasKey('background_boosts_selector', $form_array['background_dynamic']);
+  }
+
+  /**
    * @covers ::validateForm
    */
   public function testValidateFormRejectsStructuredAffiliationInWrongDomain(): void {

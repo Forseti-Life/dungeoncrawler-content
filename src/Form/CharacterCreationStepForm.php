@@ -990,6 +990,21 @@ class CharacterCreationStepForm extends FormBase {
       ],
     ];
 
+    if ($selected_background_for_boosts === '') {
+      $form['background_dynamic']['background_boosts_pending'] = [
+        '#markup' => '<div class="section-instructions background-boosts-section">'
+          . '<h3>' . $this->t('Background Ability Boosts') . '</h3>'
+          . '<p>' . $this->t('Choose a pre-campaign background first. Background ability boosts are determined only after that selection.') . '</p>'
+          . '</div>',
+      ];
+      $form['background_dynamic']['background_boosts'] = [
+        '#type' => 'hidden',
+        '#default_value' => json_encode([]),
+        '#attributes' => ['id' => 'background-boosts-field'],
+      ];
+      return;
+    }
+
     $form['background_dynamic']['background_boosts_help'] = [
       '#markup' => '<div class="section-instructions background-boosts-section">'
         . '<h3>' . $this->t('Background Ability Boosts') . '</h3>'
