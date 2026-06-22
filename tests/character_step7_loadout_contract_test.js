@@ -29,6 +29,7 @@ function read(relativePath) {
 const formSource = read('src/Form/CharacterCreationStepForm.php');
 const managerSource = read('src/Service/CharacterManager.php');
 const jsSource = read('js/character-step-7.js');
+const cssSource = read('css/character-steps.css');
 const functionalSource = read('tests/src/Functional/CharacterCreation/CharacterCreationWorkflowTest.php');
 
 console.log('Step 7 loadout contract');
@@ -46,8 +47,41 @@ assert(
 );
 
 assert(
-  formSource.includes("'presets' => $class_loadout_preset !== NULL"),
-  'Step 7 form exposes preset ids through drupalSettings'
+  formSource.includes("'data-step7-loadout-clear' => '1'") &&
+    formSource.includes("'activePresetId' =>"),
+  'Step 7 form exposes clear-loadout controls and active preset state'
+);
+
+assert(
+  formSource.includes("'presets' => $class_loadout_preset !== NULL") &&
+    formSource.includes("buildStep7LoadoutItemMarkup") &&
+    formSource.includes("step7SelectionMatchesPreset"),
+  'Step 7 form builds a dedicated loadout summary instead of a raw item list'
+);
+
+assert(
+  cssSource.includes('.step7-loadout-preset') &&
+    cssSource.includes('.step7-loadout-preset--active') &&
+    cssSource.includes('.step7-loadout-preset__items'),
+  'Step 7 preset UI has dedicated styling hooks'
+);
+
+assert(
+  jsSource.includes('function updatePresetUi()') &&
+    jsSource.includes('input.dispatchEvent(new Event(\'change\', { bubbles: true }))') &&
+    jsSource.includes('function clearPreset()'),
+  'Step 7 JavaScript synchronizes preset state, option-card visuals, and clear actions'
+);
+
+assert(
+  jsSource.includes("var $clearPresetButtons = $form.find('[data-step7-loadout-clear]');") &&
+    jsSource.includes('clearPreset();'),
+  'Step 7 JavaScript wires the clear-loadout control'
+);
+
+assert(
+  jsSource.includes("var activePresetId = config.activePresetId || '';"),
+  'Step 7 JavaScript consumes the active preset state from drupalSettings'
 );
 
 assert(

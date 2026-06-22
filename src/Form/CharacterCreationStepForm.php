@@ -1940,34 +1940,64 @@ class CharacterCreationStepForm extends FormBase {
     $class_loadout_preset = $this->buildStep7ClassLoadoutPreset((string) ($character_data['class'] ?? ''), $catalog_by_id);
 
     if ($class_loadout_preset !== NULL) {
+      $preset_is_selected = $this->step7SelectionMatchesPreset($selected_ids, $class_loadout_preset['ids']);
       $form['class_default_loadout'] = [
-        '#type' => 'details',
-        '#title' => $this->t('@class Default Loadout', ['@class' => $class_loadout_preset['class_label']]),
-        '#open' => TRUE,
+        '#type' => 'container',
+        '#attributes' => [
+          'class' => array_values(array_filter([
+            'step7-loadout-preset',
+            $preset_is_selected ? 'step7-loadout-preset--active' : '',
+          ])),
+          'data-step7-preset-card' => $class_loadout_preset['id'],
+        ],
       ];
       $form['class_default_loadout']['intro'] = [
-        '#markup' => '<div class="section-instructions">'
-          . '<p>' . $this->t('Start with a deterministic @class kit, then customize the checkboxes below if you want to tune it for this specific campaign.', [
+        '#markup' => '<div class="step7-loadout-preset__header">'
+          . '<div class="step7-loadout-preset__heading">'
+          . '<h3>' . $this->t('@class Default Loadout', ['@class' => $class_loadout_preset['class_label']]) . '</h3>'
+          . '<p>' . $this->t('Apply the recommended @class kit, then fine-tune individual items below if you want to customize it for this campaign.', [
             '@class' => $class_loadout_preset['class_label'],
           ]) . '</p>'
-          . '<p><strong>' . $this->t('Loadout cost: @cost gp • Remaining gold: @remaining gp', [
-            '@cost' => number_format((float) $class_loadout_preset['cost'], 1),
-            '@remaining' => number_format(max(0, 15 - (float) $class_loadout_preset['cost']), 1),
-          ]) . '</strong></p>'
+          . '</div>'
+          . '<div class="step7-loadout-preset__summary">'
+          . '<span class="step7-loadout-preset__fact">' . $this->t('@count items', ['@count' => count($class_loadout_preset['items'])]) . '</span>'
+          . '<span class="step7-loadout-preset__fact">' . $this->t('@cost gp', ['@cost' => number_format((float) $class_loadout_preset['cost'], 1)]) . '</span>'
+          . '<span class="step7-loadout-preset__fact">' . $this->t('@remaining gp left', ['@remaining' => number_format(max(0, 15 - (float) $class_loadout_preset['cost']), 1)]) . '</span>'
+          . '</div>'
           . '</div>',
       ];
-      $form['class_default_loadout']['items'] = [
-        '#theme' => 'item_list',
-        '#items' => array_map(static fn(array $item): string => $item['name'], $class_loadout_preset['items']),
+      $form['class_default_loadout']['status'] = [
+        '#markup' => '<p class="step7-loadout-preset__status" data-step7-preset-status="' . Html::escape($class_loadout_preset['id']) . '">'
+          . ($preset_is_selected
+            ? $this->t('This loadout is currently applied.')
+            : $this->t('This loadout is ready to apply.'))
+          . '</p>',
       ];
-      $form['class_default_loadout']['apply'] = [
+      $form['class_default_loadout']['items'] = [
+        '#markup' => $this->buildStep7LoadoutItemMarkup($class_loadout_preset['items']),
+      ];
+      $form['class_default_loadout']['actions'] = [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['step7-loadout-preset__actions']],
+      ];
+      $form['class_default_loadout']['actions']['apply'] = [
         '#type' => 'html_tag',
         '#tag' => 'button',
-        '#value' => $this->t('Apply @class Loadout', ['@class' => $class_loadout_preset['class_label']]),
+        '#value' => $this->t('Apply Loadout'),
         '#attributes' => [
           'type' => 'button',
           'data-step7-loadout-apply' => $class_loadout_preset['id'],
-          'class' => ['button', 'button--primary'],
+          'class' => ['btn', 'btn-primary', 'step7-loadout-preset__button'],
+        ],
+      ];
+      $form['class_default_loadout']['actions']['clear'] = [
+        '#type' => 'html_tag',
+        '#tag' => 'button',
+        '#value' => $this->t('Clear Equipment'),
+        '#attributes' => [
+          'type' => 'button',
+          'data-step7-loadout-clear' => '1',
+          'class' => ['btn', 'btn-secondary', 'step7-loadout-preset__button'],
         ],
       ];
     }
@@ -2081,10 +2111,15 @@ class CharacterCreationStepForm extends FormBase {
       'presets' => $class_loadout_preset !== NULL
         ? [
           $class_loadout_preset['id'] => [
+            'label' => $class_loadout_preset['class_label'],
+            'cost' => (float) $class_loadout_preset['cost'],
             'ids' => $class_loadout_preset['ids'],
           ],
         ]
         : [],
+      'activePresetId' => ($class_loadout_preset !== NULL && $this->step7SelectionMatchesPreset($selected_ids, $class_loadout_preset['ids']))
+        ? $class_loadout_preset['id']
+        : '',
     ];
 
     $form['equipment_help'] = [
@@ -2145,6 +2180,34 @@ class CharacterCreationStepForm extends FormBase {
       'items' => $items,
       'cost' => round($cost, 2),
     ];
+  }
+
+  /**
+   * Render Step 7 loadout items as compact chips.
+   *
+   * @param array<int,array<string,mixed>> $items
+   *   Preset item list.
+   */
+  private function buildStep7LoadoutItemMarkup(array $items): string {
+    $chips = array_map(static function (array $item): string {
+      return '<span class="step7-loadout-preset__item">' . Html::escape((string) ($item['name'] ?? 'Unknown item')) . '</span>';
+    }, $items);
+
+    return '<div class="step7-loadout-preset__items">' . implode('', $chips) . '</div>';
+  }
+
+  /**
+   * Determine whether the current Step 7 selection matches a preset exactly.
+   *
+   * @param array<int,string> $selected_ids
+   *   Current selected equipment ids.
+   * @param array<int,string> $preset_ids
+   *   Preset equipment ids.
+   */
+  private function step7SelectionMatchesPreset(array $selected_ids, array $preset_ids): bool {
+    sort($selected_ids);
+    sort($preset_ids);
+    return $selected_ids === $preset_ids;
   }
 
   /**
