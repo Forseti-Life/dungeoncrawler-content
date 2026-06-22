@@ -101,11 +101,11 @@ class CharacterCreationWorkflowTest extends BrowserTestBase {
 
     // Step 7: Equipment
     $this->assertSession()->pageTextContains('Step 7 of 8');
-    $this->assertSession()->fieldExists('Select Equipment');
+    $this->assertSession()->pageTextContains('Starting Equipment');
     $this->submitForm([
-      'equipment[longsword]' => 'longsword',
-      'equipment[leather]' => 'leather',
-      'equipment[backpack]' => 'backpack',
+      'weapons[longsword]' => 'longsword',
+      'armor[leather]' => 'leather',
+      'gear[backpack]' => 'backpack',
     ], 'Next →');
     $this->assertSession()->statusCodeEquals(200);
 
@@ -271,15 +271,15 @@ class CharacterCreationWorkflowTest extends BrowserTestBase {
     // Test Step 7 validation: Equipment cost constraint
     // Select equipment that exceeds 15 gp budget
     $this->submitForm([
-      'equipment[longsword]' => 'longsword',    // 1.0 gp
-      'equipment[chain-shirt]' => 'chain-shirt', // 5.0 gp
-      'equipment[leather]' => 'leather',         // 2.0 gp
-      'equipment[shortsword]' => 'shortsword',   // 0.9 gp
-      'equipment[backpack]' => 'backpack',       // 0.1 gp
-      'equipment[bedroll]' => 'bedroll',         // 0.1 gp
-      'equipment[rope]' => 'rope',               // 0.5 gp
-      'equipment[dagger]' => 'dagger',           // 0.2 gp
-      'equipment[staff]' => 'staff',             // 0.0 gp
+      'weapons[longsword]' => 'longsword',    // 1.0 gp
+      'armor[chain_shirt]' => 'chain_shirt',  // 5.0 gp
+      'armor[leather]' => 'leather',          // 2.0 gp
+      'weapons[shortsword]' => 'shortsword',  // 0.9 gp
+      'gear[backpack]' => 'backpack',         // 0.1 gp
+      'gear[bedroll]' => 'bedroll',           // 0.1 gp
+      'gear[rope]' => 'rope',                 // 0.5 gp
+      'weapons[dagger]' => 'dagger',          // 0.2 gp
+      'weapons[staff]' => 'staff',            // 0.0 gp
     ], 'Next →');
     // Total = 9.8 gp, which is valid
     // Let's try to exceed by selecting duplicate expensive items
@@ -406,8 +406,8 @@ class CharacterCreationWorkflowTest extends BrowserTestBase {
     ], 'Next →');
 
     $this->submitForm([
-      'equipment[staff]' => 'staff',
-      'equipment[backpack]' => 'backpack',
+      'weapons[staff]' => 'staff',
+      'gear[backpack]' => 'backpack',
     ], 'Next →');
 
     $this->submitForm([
