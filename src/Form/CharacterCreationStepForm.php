@@ -1937,6 +1937,38 @@ class CharacterCreationStepForm extends FormBase {
     }
 
     $remaining_gold = max(0, 15 - $selected_cost);
+    $class_loadout_preset = $this->buildStep7ClassLoadoutPreset((string) ($character_data['class'] ?? ''), $catalog_by_id);
+
+    if ($class_loadout_preset !== NULL) {
+      $form['class_default_loadout'] = [
+        '#type' => 'details',
+        '#title' => $this->t('@class Default Loadout', ['@class' => $class_loadout_preset['class_label']]),
+        '#open' => TRUE,
+      ];
+      $form['class_default_loadout']['intro'] = [
+        '#markup' => '<div class="section-instructions">'
+          . '<p>' . $this->t('Start with a deterministic @class kit, then customize the checkboxes below if you want to tune it for this specific campaign.', [
+            '@class' => $class_loadout_preset['class_label'],
+          ]) . '</p>'
+          . '<p><strong>' . $this->t('Loadout cost: @cost gp • Remaining gold: @remaining gp', [
+            '@cost' => number_format((float) $class_loadout_preset['cost'], 1),
+            '@remaining' => number_format(max(0, 15 - (float) $class_loadout_preset['cost']), 1),
+          ]) . '</strong></p>'
+          . '</div>',
+      ];
+      $form['class_default_loadout']['items'] = [
+        '#theme' => 'item_list',
+        '#items' => array_map(static fn(array $item): string => $item['name'], $class_loadout_preset['items']),
+      ];
+      $form['class_default_loadout']['apply'] = [
+        '#type' => 'button',
+        '#value' => $this->t('Apply @class Loadout', ['@class' => $class_loadout_preset['class_label']]),
+        '#attributes' => [
+          'data-step7-loadout-apply' => $class_loadout_preset['id'],
+          'class' => ['button', 'button--primary'],
+        ],
+      ];
+    }
 
     $form['equipment_intro'] = [
       '#markup' => '<div class="section-instructions equipment-intro">'
@@ -2044,6 +2076,13 @@ class CharacterCreationStepForm extends FormBase {
     $form['#attached']['drupalSettings']['characterStep7'] = [
       'budget' => 15,
       'catalog' => $js_catalog,
+      'presets' => $class_loadout_preset !== NULL
+        ? [
+          $class_loadout_preset['id'] => [
+            'ids' => $class_loadout_preset['ids'],
+          ],
+        ]
+        : [],
     ];
 
     $form['equipment_help'] = [
@@ -2056,6 +2095,53 @@ class CharacterCreationStepForm extends FormBase {
         . '<li>' . $this->t('<strong>Gold:</strong> Unspent gold carries over to your starting funds.') . '</li>'
         . '</ul>'
         . '</div>',
+    ];
+  }
+
+  /**
+   * Build the current class's deterministic step-7 default loadout preset.
+   *
+   * @param string $class_id
+   *   Current character class machine name.
+   * @param array<string,array<string,mixed>> $catalog_by_id
+   *   Equipment catalog keyed by item id.
+   *
+   * @return array<string,mixed>|null
+   *   Preset metadata for the active class, or NULL when unavailable.
+   */
+  private function buildStep7ClassLoadoutPreset(string $class_id, array $catalog_by_id): ?array {
+    $class_id = strtolower(trim($class_id));
+    if ($class_id === '' || $catalog_by_id === []) {
+      return NULL;
+    }
+
+    $ids = CharacterManager::getDefaultEquipmentLoadoutIdsForClass($class_id, array_keys($catalog_by_id));
+    if ($ids === []) {
+      return NULL;
+    }
+
+    $items = [];
+    $cost = 0.0;
+    foreach ($ids as $item_id) {
+      if (!isset($catalog_by_id[$item_id])) {
+        continue;
+      }
+
+      $items[] = $catalog_by_id[$item_id];
+      $cost += (float) ($catalog_by_id[$item_id]['cost'] ?? 0);
+    }
+
+    if ($items === []) {
+      return NULL;
+    }
+
+    return [
+      'id' => sprintf('%s_default', $class_id),
+      'class_id' => $class_id,
+      'class_label' => ucwords(str_replace(['-', '_'], ' ', $class_id)),
+      'ids' => array_values(array_unique(array_column($items, 'id'))),
+      'items' => $items,
+      'cost' => round($cost, 2),
     ];
   }
 

@@ -20,14 +20,35 @@
         var config = settings.characterStep7 || {};
         var BUDGET = config.budget || 15;
         var catalog = config.catalog || {};
+        var presets = config.presets || {};
 
         // Collect all equipment checkboxes across the three categories.
         var $checkboxes = $form.find(
           'input[name^="weapons["], input[name^="armor["], input[name^="gear["]'
         );
+        var $presetButtons = $form.find('[data-step7-loadout-apply]');
 
         if (!$checkboxes.length) {
           return;
+        }
+
+        function applyPreset(presetId) {
+          var preset = presets[presetId] || {};
+          var ids = Array.isArray(preset.ids) ? preset.ids : [];
+          if (!ids.length) {
+            return;
+          }
+
+          var selected = {};
+          ids.forEach(function (id) {
+            selected[id] = true;
+          });
+
+          $checkboxes.each(function () {
+            this.checked = !!selected[$(this).val()];
+          });
+
+          recalcGold();
         }
 
         function recalcGold() {
@@ -76,6 +97,10 @@
         }
 
         $checkboxes.on('change', recalcGold);
+        $presetButtons.on('click', function (event) {
+          event.preventDefault();
+          applyPreset(this.getAttribute('data-step7-loadout-apply'));
+        });
 
         // Initial calculation for pre-selected items.
         recalcGold();

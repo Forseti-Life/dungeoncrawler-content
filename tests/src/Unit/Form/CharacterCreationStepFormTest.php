@@ -146,6 +146,35 @@ class CharacterCreationStepFormTest extends UnitTestCase {
   }
 
   /**
+   * @covers ::buildStep7Fields
+   */
+  public function testBuildStep7FieldsAddsClassDefaultLoadoutPreset(): void {
+    $form = $this->buildFormObject($this->createMock(CharacterManager::class));
+    $form_state = new FormState();
+    $form_array = [];
+    $character_data = [
+      'class' => 'fighter',
+      'strength' => 16,
+      'inventory' => ['carried' => []],
+      'gm_equipment_ids' => [],
+    ];
+
+    $method = new \ReflectionMethod($form, 'buildStep7Fields');
+    $method->setAccessible(TRUE);
+    $arguments = [&$form_array, $form_state, $character_data, []];
+    $method->invokeArgs($form, $arguments);
+
+    $this->assertArrayHasKey('class_default_loadout', $form_array);
+    $this->assertSame('fighter_default', $form_array['class_default_loadout']['apply']['#attributes']['data-step7-loadout-apply']);
+
+    $presets = $form_array['#attached']['drupalSettings']['characterStep7']['presets'] ?? [];
+    $this->assertArrayHasKey('fighter_default', $presets);
+    $this->assertContains('longsword', $presets['fighter_default']['ids']);
+    $this->assertContains('chain_mail', $presets['fighter_default']['ids']);
+    $this->assertContains('wooden_shield', $presets['fighter_default']['ids']);
+  }
+
+  /**
    * @covers ::validateGeneralTrainingSelection
    */
   public function testValidateGeneralTrainingSelectionAcceptsCanonicalFeatLibraryChoice(): void {

@@ -11699,26 +11699,76 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
    * @return string[]
    *   Equipment ids from the wizard starter catalog.
    */
+  public static function getDefaultEquipmentLoadoutIdsForClass(string $class_id, ?array $available_ids = NULL): array {
+    $preferences_by_class = self::getDefaultEquipmentLoadoutPreferencesByClass();
+    if (!isset($preferences_by_class[$class_id])) {
+      return [];
+    }
+
+    $preference_groups = $preferences_by_class[$class_id];
+    $available_lookup = $available_ids !== NULL
+      ? array_fill_keys(array_values($available_ids), TRUE)
+      : NULL;
+    $selected_ids = [];
+
+    foreach ($preference_groups as $candidates) {
+      foreach ((array) $candidates as $candidate_id) {
+        if ($available_lookup !== NULL && !isset($available_lookup[$candidate_id])) {
+          continue;
+        }
+
+        $selected_ids[] = $candidate_id;
+        break;
+      }
+    }
+
+    return array_values(array_unique($selected_ids));
+  }
+
+  /**
+   * Canonical step-7 starter loadout preferences by class.
+   *
+   * Each entry is an ordered candidate list so the wizard can deterministically
+   * resolve the best available item ids from the live starter catalog.
+   *
+   * @return array<string,array<int,array<int,string>>>
+   *   Per-class ordered candidate item ids.
+   */
+  public static function getDefaultEquipmentLoadoutPreferencesByClass(): array {
+    $shared = [
+      ['backpack'],
+      ['bedroll'],
+      ['torches'],
+      ['rations'],
+      ['waterskin'],
+    ];
+
+    return [
+      'fighter' => array_merge([['longsword'], ['chain_mail', 'chain-mail'], ['wooden_shield', 'shield_wooden']], $shared),
+      'rogue' => array_merge([['shortsword'], ['dagger'], ['studded_leather_armor', 'studded-leather-armor', 'studded_leather'], ['thieves_tools', 'thieves-tools']], $shared),
+      'wizard' => array_merge([['staff'], ['dagger']], $shared),
+      'cleric' => array_merge([['warhammer', 'mace'], ['chain_shirt', 'chain-shirt'], ['wooden_shield', 'shield_wooden']], $shared),
+      'ranger' => array_merge([['longbow', 'shortbow'], ['shortsword', 'dagger'], ['leather', 'leather_armor'], ['rope']], $shared),
+      'bard' => array_merge([['rapier', 'shortsword'], ['leather', 'leather_armor']], $shared),
+      'barbarian' => array_merge([['battleaxe', 'warhammer'], ['hide_armor', 'hide-armor']], $shared),
+      'champion' => array_merge([['longsword', 'warhammer'], ['chain_mail', 'chain-mail'], ['wooden_shield', 'shield_wooden']], $shared),
+      'druid' => array_merge([['staff'], ['hide_armor', 'hide-armor']], $shared),
+      'monk' => array_merge([['staff'], ['rope'], ['grappling_hook']], $shared),
+      'sorcerer' => array_merge([['staff'], ['dagger']], $shared),
+      'alchemist' => array_merge([['dagger'], ['leather', 'leather_armor'], ['healers_tools', 'healers-tools']], $shared),
+      'investigator' => array_merge([['rapier', 'shortsword'], ['leather', 'leather_armor'], ['thieves_tools', 'thieves-tools']], $shared),
+      'oracle' => array_merge([['staff'], ['warhammer', 'mace'], ['chain_shirt', 'chain-shirt']], $shared),
+      'swashbuckler' => array_merge([['rapier', 'shortsword'], ['leather', 'leather_armor']], $shared),
+      'witch' => array_merge([['staff'], ['dagger']], $shared),
+      'gunslinger' => array_merge([['pistol', 'dueling_pistol', 'arquebus', 'crossbow_light', 'light_crossbow', 'shortbow'], ['dagger'], ['leather', 'leather_armor']], $shared),
+      'inventor' => array_merge([['warhammer', 'battleaxe'], ['leather', 'leather_armor'], ['grappling_hook'], ['rope']], $shared),
+      'magus' => array_merge([['longsword', 'staff'], ['chain_shirt', 'chain-shirt']], $shared),
+      'summoner' => array_merge([['staff'], ['dagger']], $shared),
+    ];
+  }
+
   private function getQuickPlayEquipmentLoadoutIds(string $class_id): array {
-    $shared = ['backpack', 'bedroll', 'torches', 'rations', 'waterskin'];
-    return match ($class_id) {
-      'fighter' => array_merge(['longsword', 'chain_mail', 'wooden_shield'], $shared),
-      'barbarian' => array_merge(['battleaxe', 'hide_armor'], $shared),
-      'champion' => array_merge(['longsword', 'chain_mail', 'wooden_shield'], $shared),
-      'rogue' => array_merge(['shortsword', 'dagger', 'studded_leather_armor', 'thieves_tools'], $shared),
-      'ranger' => array_merge(['longbow', 'shortsword', 'leather', 'rope'], $shared),
-      'bard' => array_merge(['rapier', 'leather'], $shared),
-      'cleric' => array_merge(['warhammer', 'chain_shirt', 'wooden_shield'], $shared),
-      'druid' => array_merge(['staff', 'hide_armor'], $shared),
-      'monk' => array_merge(['staff', 'rope'], $shared),
-      'sorcerer', 'oracle', 'witch', 'summoner' => array_merge(['staff'], $shared),
-      'alchemist' => array_merge(['dagger', 'leather', 'healers_tools'], $shared),
-      'investigator' => array_merge(['rapier', 'leather', 'thieves_tools'], $shared),
-      'inventor' => array_merge(['warhammer', 'leather', 'grappling_hook', 'rope'], $shared),
-      'magus' => array_merge(['longsword', 'chain_shirt'], $shared),
-      'swashbuckler' => array_merge(['rapier', 'leather'], $shared),
-      default => array_merge(['staff'], $shared),
-    };
+    return self::getDefaultEquipmentLoadoutIdsForClass($class_id);
   }
 
   /**
