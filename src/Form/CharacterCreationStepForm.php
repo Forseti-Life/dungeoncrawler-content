@@ -3979,7 +3979,13 @@ class CharacterCreationStepForm extends FormBase {
         ? self::normalizeList($form_state->getValue($field, []))
         : self::normalizeList($form_state->getValue($field, ''));
       $create_labels = $this->parseStructuredAffiliationCreateLabels($form_state->getValue($this->getStructuredAffiliationCreateLabelsKey($field), ''));
-      $creating_new = in_array(self::STRUCTURED_AFFILIATION_CREATE_SENTINEL, $selected_subject_ids, TRUE) || $create_labels !== [];
+      $parent_subject_id = trim((string) $form_state->getValue($this->getStructuredAffiliationCreateParentKey($field), ''));
+      $provenance_note = trim((string) $form_state->getValue($this->getStructuredAffiliationCreateNoteKey($field), ''));
+      $confirmed = (bool) $form_state->getValue($this->getStructuredAffiliationCreateConfirmKey($field), FALSE);
+      $creating_new = $create_labels !== []
+        || $parent_subject_id !== ''
+        || $provenance_note !== ''
+        || $confirmed;
       $selected_subject_ids = array_values(array_filter(
         $selected_subject_ids,
         static fn(string $subject_id): bool => $subject_id !== self::STRUCTURED_AFFILIATION_CREATE_SENTINEL
@@ -4021,12 +4027,10 @@ class CharacterCreationStepForm extends FormBase {
         continue;
       }
 
-      $parent_subject_id = trim((string) $form_state->getValue($this->getStructuredAffiliationCreateParentKey($field), ''));
       if ($parent_subject_id !== '' && !array_key_exists($parent_subject_id, $parent_options)) {
         $form_state->setErrorByName($this->getStructuredAffiliationCreateParentKey($field), $this->t('Select a valid parent institution.'));
       }
 
-      $confirmed = (bool) $form_state->getValue($this->getStructuredAffiliationCreateConfirmKey($field), FALSE);
       foreach ($create_labels as $label) {
         if ($this->isFactionGenerationField($field)) {
           try {

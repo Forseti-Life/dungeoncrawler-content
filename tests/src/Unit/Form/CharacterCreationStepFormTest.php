@@ -328,6 +328,43 @@ class CharacterCreationStepFormTest extends UnitTestCase {
   }
 
   /**
+   * @covers ::validateForm
+   */
+  public function testValidateFormDoesNotRequireCreateLabelsWhenCreateSentinelIsSelectedAlone(): void {
+    $database = $this->buildSubjectRegistryDatabaseMock(TRUE, []);
+    $registry = $this->createMock(CampaignSubjectRegistryService::class);
+    $registry->method('isSubjectRegistryReady')->willReturn(TRUE);
+
+    $form = $this->buildFormObject(
+      $this->createMock(CharacterManager::class),
+      $this->buildGeneralFeatLibraryMock(),
+      $database,
+      70,
+      $registry
+    );
+    $form_state = (new FormState())->setValues([
+      'alignment' => 'NG',
+      'general_feat' => 'toughness',
+      'home_settlement_ref' => '__create__',
+      'government_ref' => '__create__',
+      'security_affiliation_refs' => ['__create__'],
+      'home_settlement_ref__create_labels' => '',
+      'government_ref__create_labels' => '',
+      'security_affiliation_refs__create_labels' => '',
+    ]);
+    $form_state->set('step', 6);
+    $form_state->set('campaign_id', 70);
+    $form_state->set('character_id', 0);
+
+    $form_array = [];
+    $form->validateForm($form_array, $form_state);
+
+    $this->assertArrayNotHasKey('home_settlement_ref__create_labels', $form_state->getErrors());
+    $this->assertArrayNotHasKey('government_ref__create_labels', $form_state->getErrors());
+    $this->assertArrayNotHasKey('security_affiliation_refs__create_labels', $form_state->getErrors());
+  }
+
+  /**
    * @covers ::resolveStructuredAffiliationCreations
    */
   public function testResolveStructuredAffiliationCreationsAppendsCreatedSubjectIds(): void {
