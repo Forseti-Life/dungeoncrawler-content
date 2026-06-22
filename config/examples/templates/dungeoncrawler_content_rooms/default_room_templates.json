@@ -1163,54 +1163,6 @@
             "quest_association": "gather_wine"
           },
           {
-            "content_id": "wine_bottle_3",
-            "name": "Wine Bottle",
-            "type": "collectible_item",
-            "position": {
-              "q": 0,
-              "r": 1
-            },
-            "description": "An ornate wine bottle near the bar",
-            "tags": [
-              "gather_wine",
-              "collectible",
-              "tavern"
-            ],
-            "quest_association": "gather_wine"
-          },
-          {
-            "content_id": "wine_bottle_4",
-            "name": "Wine Bottle",
-            "type": "collectible_item",
-            "position": {
-              "q": -1,
-              "r": 0
-            },
-            "description": "A dusty wine bottle in the corner",
-            "tags": [
-              "gather_wine",
-              "collectible",
-              "tavern"
-            ],
-            "quest_association": "gather_wine"
-          },
-          {
-            "content_id": "wine_bottle_5",
-            "name": "Wine Bottle",
-            "type": "collectible_item",
-            "position": {
-              "q": 2,
-              "r": 1
-            },
-            "description": "A wine bottle near the shelves",
-            "tags": [
-              "gather_wine",
-              "collectible",
-              "tavern"
-            ],
-            "quest_association": "gather_wine"
-          },
-          {
             "content_id": "spellbook_1",
             "name": "Ancient Spellbook",
             "type": "collectible_item",
@@ -1296,70 +1248,6 @@
               "r": 0
             },
             "description": "Cloth wrapping that could be used for torch binding",
-            "tags": [
-              "gather_torch_components",
-              "collectible",
-              "equipment"
-            ],
-            "quest_association": "gather_torch_components"
-          },
-          {
-            "content_id": "torch_component_3",
-            "name": "Torch Rod",
-            "type": "collectible_item",
-            "position": {
-              "q": 0,
-              "r": 1
-            },
-            "description": "Another iron torch rod",
-            "tags": [
-              "gather_torch_components",
-              "collectible",
-              "equipment"
-            ],
-            "quest_association": "gather_torch_components"
-          },
-          {
-            "content_id": "torch_component_4",
-            "name": "Flint Stone",
-            "type": "collectible_item",
-            "position": {
-              "q": -1,
-              "r": 0
-            },
-            "description": "A piece of flint for creating sparks",
-            "tags": [
-              "gather_torch_components",
-              "collectible",
-              "equipment"
-            ],
-            "quest_association": "gather_torch_components"
-          },
-          {
-            "content_id": "torch_component_5",
-            "name": "Cloth Wrapping",
-            "type": "collectible_item",
-            "position": {
-              "q": 1,
-              "r": -1
-            },
-            "description": "More cloth wrapping material",
-            "tags": [
-              "gather_torch_components",
-              "collectible",
-              "equipment"
-            ],
-            "quest_association": "gather_torch_components"
-          },
-          {
-            "content_id": "torch_component_6",
-            "name": "Flint Stone",
-            "type": "collectible_item",
-            "position": {
-              "q": 2,
-              "r": 1
-            },
-            "description": "Another flint stone piece",
             "tags": [
               "gather_torch_components",
               "collectible",

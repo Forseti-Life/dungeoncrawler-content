@@ -20,16 +20,13 @@
             "type": "collect",
             "item": "{item_name}",
             "location_id": "{location}",
-            "target_count_range": [
-              3,
-              5
-            ],
+            "target_count": 2,
             "description": "Collect {item_name} from around the tavern",
             "next_step": "Search the tavern common room and pick up each {item_name} quest item.",
             "completion_criteria": {
               "kind": "count",
               "metric": "current",
-              "target_count": 1,
+              "target_count": 2,
               "description": "Complete when {target_count} {item_name} have been collected from the tavern."
             }
           }
@@ -101,16 +98,13 @@
             "type": "collect",
             "item": "{item_name}",
             "location_id": "{location}",
-            "target_count_range": [
-              4,
-              6
-            ],
+            "target_count": 2,
             "description": "Gather {item_name} scattered around the tavern",
             "next_step": "Search the tavern common room and pick up each {item_name} quest item.",
             "completion_criteria": {
               "kind": "count",
               "metric": "current",
-              "target_count": 1,
+              "target_count": 2,
               "description": "Complete when {target_count} {item_name} have been collected from the tavern."
             }
           }
