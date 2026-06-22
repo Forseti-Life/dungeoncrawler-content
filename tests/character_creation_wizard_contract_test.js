@@ -86,6 +86,13 @@ assert(
   'Adapted Cantrip preserves the shared feat selection container instead of overwriting other Step 4 workflows'
 );
 
+assert(
+  formSource.includes("$item !== FALSE") &&
+  formSource.includes("$item !== 0") &&
+  formSource.includes("$item !== '0'"),
+  'Wizard list normalization strips unchecked checkbox zero values before validation and persistence'
+);
+
 console.log(`\nPassed: ${passed}`);
 console.log(`Failed: ${failed}`);
 

@@ -4126,7 +4126,11 @@ class CharacterCreationStepForm extends FormBase {
     return array_values(array_filter(array_map(static function ($item) {
       return is_string($item) ? trim($item) : $item;
     }, $value), static function ($item) {
-      return $item !== NULL && $item !== '';
+      return $item !== NULL
+        && $item !== ''
+        && $item !== FALSE
+        && $item !== 0
+        && $item !== '0';
     }));
   }
 
