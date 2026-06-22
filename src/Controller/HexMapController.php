@@ -328,9 +328,38 @@ class HexMapController extends ControllerBase {
       return $launch_context;
     }
 
-    $record = $this->loadLaunchCampaignCharacterRecord($launch_context);
+    $record = $this->campaignCharacterRuntimeResolver->loadRuntimeRecord($campaign_id, $requested_character_id);
     if (!$record) {
-      $record = $this->materializeLaunchRuntimeCharacterRecord($launch_context, $room_explicit, $start_q_explicit, $start_r_explicit);
+      $selected_character = $this->database->select('dc_campaign_characters', 'cc')
+        ->fields('cc')
+        ->condition('id', $requested_character_id)
+        ->range(0, 1)
+        ->execute()
+        ->fetchObject();
+      if ($selected_character) {
+        $current_user = $this->currentUser();
+        $is_admin = in_array('administrator', $current_user->getRoles(), TRUE)
+          || $current_user->hasPermission('administer dungeoncrawler content')
+          || (int) $current_user->id() === 1;
+        if ((int) ($selected_character->uid ?? 0) === (int) $current_user->id() || $is_admin) {
+          $canonical_character = $this->campaignCharacterRuntimeResolver->resolveCanonicalCharacterRecord($selected_character);
+          if ($canonical_character) {
+            $record = $this->campaignCharacterRuntimeResolver->upsertRuntimeRecord(
+              $campaign_id,
+              $selected_character,
+              $canonical_character,
+              [
+                'room_id' => (string) ($launch_context['room_id'] ?? ''),
+                'start_q' => (int) ($launch_context['start_q'] ?? 0),
+                'start_r' => (int) ($launch_context['start_r'] ?? 0),
+                'room_explicit' => $room_explicit,
+                'start_q_explicit' => $start_q_explicit,
+                'start_r_explicit' => $start_r_explicit,
+              ]
+            );
+          }
+        }
+      }
     }
     if (!$record) {
       return $launch_context;
@@ -353,90 +382,6 @@ class HexMapController extends ControllerBase {
     }
 
     return $launch_context;
-  }
-
-  /**
-   * Load the selected campaign character row for the current launch context.
-   *
-   * @param array $launch_context
-   *   Current launch context query values.
-   * @param array $extra_fields
-   *   Additional dc_campaign_characters columns to select.
-   *
-   * @return array|null
-   *   Matching campaign character record, if found.
-   */
-  protected function loadLaunchCampaignCharacterRecord(array $launch_context, array $extra_fields = []): ?array {
-    return $this->campaignCharacterRuntimeResolver->loadRuntimeRecord(
-      (int) ($launch_context['campaign_id'] ?? 0),
-      (int) ($launch_context['character_id'] ?? 0),
-      NULL,
-      $extra_fields
-    );
-  }
-
-  /**
-   * Materialize a campaign runtime row when launch starts from a library row.
-   */
-  protected function materializeLaunchRuntimeCharacterRecord(array $launch_context, bool $room_explicit = FALSE, bool $start_q_explicit = FALSE, bool $start_r_explicit = FALSE): ?array {
-    $campaign_id = (int) ($launch_context['campaign_id'] ?? 0);
-    $requested_character_id = (int) ($launch_context['character_id'] ?? 0);
-    if ($campaign_id <= 0 || $requested_character_id <= 0) {
-      return NULL;
-    }
-
-    $selected_character = $this->database->select('dc_campaign_characters', 'cc')
-      ->fields('cc')
-      ->condition('id', $requested_character_id)
-      ->range(0, 1)
-      ->execute()
-      ->fetchAssoc();
-    if (!$selected_character) {
-      return NULL;
-    }
-
-    $current_user = $this->currentUser();
-    $is_admin = in_array('administrator', $current_user->getRoles(), TRUE)
-      || $current_user->hasPermission('administer dungeoncrawler content')
-      || (int) $current_user->id() === 1;
-    if ((int) ($selected_character['uid'] ?? 0) !== (int) $current_user->id() && !$is_admin) {
-      $this->getLogger('dungeoncrawler_hexmap')->warning('Hexmap refused runtime materialization for unowned character: campaign_id=@campaign_id requested_character_id=@requested_character_id owner_uid=@owner_uid current_uid=@current_uid', [
-        '@campaign_id' => $campaign_id,
-        '@requested_character_id' => $requested_character_id,
-        '@owner_uid' => (int) ($selected_character['uid'] ?? 0),
-        '@current_uid' => (int) $current_user->id(),
-      ]);
-      return NULL;
-    }
-
-    $canonical_character_id = $requested_character_id;
-    $character = $selected_character;
-    if ((int) ($selected_character['campaign_id'] ?? 0) > 0 && (int) ($selected_character['character_id'] ?? 0) > 0) {
-      $canonical_character_id = (int) $selected_character['character_id'];
-      $canonical_character = $this->database->select('dc_campaign_characters', 'cc')
-        ->fields('cc')
-        ->condition('id', $canonical_character_id)
-        ->range(0, 1)
-        ->execute()
-        ->fetchAssoc();
-      if ($canonical_character && ((int) ($canonical_character['uid'] ?? 0) === (int) $current_user->id() || $is_admin)) {
-        $character = $canonical_character;
-      }
-    }
-
-    return $this->campaignCharacterRuntimeResolver->upsertRuntimeRecord(
-      $campaign_id,
-      (object) $selected_character,
-      (object) $character,
-      [
-        'room_id' => (string) ($launch_context['room_id'] ?? ''),
-        'start_q' => (int) ($launch_context['start_q'] ?? 0),
-        'start_r' => (int) ($launch_context['start_r'] ?? 0),
-        'room_explicit' => $room_explicit,
-        'start_q_explicit' => $start_q_explicit,
-        'start_r_explicit' => $start_r_explicit,
-      ]
-    );
   }
 
   /**
@@ -476,7 +421,7 @@ class HexMapController extends ControllerBase {
       return [];
     }
 
-    $record = $this->loadLaunchCampaignCharacterRecord($launch_context);
+    $record = $this->campaignCharacterRuntimeResolver->loadRuntimeRecord($campaign_id, $character_id);
 
     if (!$record) {
       return [
@@ -929,7 +874,12 @@ class HexMapController extends ControllerBase {
       return $dungeon_payload;
     }
 
-    $record = $this->loadLaunchCampaignCharacterRecord($launch_context, ['instance_id']);
+    $record = $this->campaignCharacterRuntimeResolver->loadRuntimeRecord(
+      $campaign_id,
+      (int) ($launch_context['character_id'] ?? 0),
+      NULL,
+      ['instance_id']
+    );
     $preferred_actor_id = trim((string) ($record['instance_id'] ?? ''));
 
     return $this->campaignCharacterRuntimeSync->syncActiveRoomPlayerEntities(
