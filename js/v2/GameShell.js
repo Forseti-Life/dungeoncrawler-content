@@ -373,6 +373,25 @@ export class GameShell {
     this.gameCoordinator = new GameCoordinator(campaignId, hexmapShim);
     this.gameCoordinator.init()
       .then(() => {
+        const authoritativeRoomId = String(this.gameCoordinator?.phaseManager?.activeRoomId || '').trim();
+        if (authoritativeRoomId && authoritativeRoomId !== this.activeRoomId) {
+          const room = _mergeRoomMetadata(this.mapVisualState?.topology?.rooms?.[authoritativeRoomId] ?? null, {}, authoritativeRoomId);
+          this.activeRoomId = authoritativeRoomId;
+          this._activeRoomData = room;
+          this._setStateValue('activeRoomId', authoritativeRoomId);
+          this.bus.emit('room:changed', {
+            roomId: authoritativeRoomId,
+            roomName: room?.name ?? authoritativeRoomId,
+            room,
+            sceneImageUrl: room?.image_url ?? null,
+            connections: _buildRoomConnections(authoritativeRoomId, this.mapVisualState),
+            responders: [],
+            _source: 'shell',
+          });
+          this._syncActiveRoomEntities(authoritativeRoomId);
+          this._loadChatHistory();
+          this._loadRoomView({ force: true, preserveExisting: true });
+        }
         this.panels?.actionRail?.refreshActionRail?.();
       })
       .catch((error) => {
