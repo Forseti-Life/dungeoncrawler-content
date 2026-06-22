@@ -73,6 +73,19 @@ assert(
   'Both save paths mark step-8 characters as wizard_complete before persistence'
 );
 
+assert(
+  formSource.includes('buildFamiliarSelectionSection($form[\'class_dynamic\']') &&
+  formSource.includes('resolveFamiliarSelectionSource(') &&
+  formSource.includes('buildCreationFamiliarPayload('),
+  'Step 4 now includes a familiar workflow branch and persists the familiar payload'
+);
+
+assert(
+  formSource.includes("if (!isset($form['class_dynamic']['feat_selections']) || !is_array($form['class_dynamic']['feat_selections'])) {") &&
+  formSource.includes("$form['class_dynamic']['feat_selections']['adapted-cantrip']"),
+  'Adapted Cantrip preserves the shared feat selection container instead of overwriting other Step 4 workflows'
+);
+
 console.log(`\nPassed: ${passed}`);
 console.log(`Failed: ${failed}`);
 

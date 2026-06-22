@@ -17,6 +17,7 @@ use Drupal\dungeoncrawler_content\Service\AbilityScoreTracker;
 use Drupal\dungeoncrawler_content\Service\CampaignSubjectRegistryService;
 use Drupal\dungeoncrawler_content\Service\CharacterCreationGmService;
 use Drupal\dungeoncrawler_content\Service\CharacterManager;
+use Drupal\dungeoncrawler_content\Service\FamiliarService;
 use Drupal\dungeoncrawler_content\Service\FactionGenerationService;
 use Drupal\dungeoncrawler_content\Service\InstitutionMembershipService;
 use Drupal\dungeoncrawler_content\Service\InstitutionNormalizationService;
@@ -1231,6 +1232,10 @@ class CharacterCreationStepForm extends FormBase {
       $animal_companion_source = $this->resolveAnimalCompanionSelectionSource($form_state, $character_data, $selected_class);
       if ($animal_companion_source !== NULL) {
         $this->buildAnimalCompanionSelectionSection($form['class_dynamic'], $form_state, $character_data, $animal_companion_source);
+      }
+      $familiar_source = $this->resolveFamiliarSelectionSource($form_state, $character_data, $selected_class);
+      if ($familiar_source !== NULL) {
+        $this->buildFamiliarSelectionSection($form['class_dynamic'], $form_state, $character_data, $familiar_source);
       }
     }
 
@@ -2546,6 +2551,10 @@ class CharacterCreationStepForm extends FormBase {
         if ($animal_companion_source !== NULL) {
           $this->validateAnimalCompanionSelection($form_state, $animal_companion_source);
         }
+        $familiar_source = $this->resolveFamiliarSelectionSource($form_state, $this->loadCharacterData((int) $form_state->get('character_id')), $class_val);
+        if ($familiar_source !== NULL) {
+          $this->validateFamiliarSelection($form_state, $familiar_source, $class_val);
+        }
         break;
 
       case 5:
@@ -3035,6 +3044,28 @@ class CharacterCreationStepForm extends FormBase {
         $selection['species_id'] = $selection['selected_companion_species'];
         $selection['name'] = trim((string) ($selection['name'] ?? $selection['display_name'] ?? ''));
         $character_data['feat_selections'][$animal_companion_source] = $selection;
+      }
+
+      $familiar_source = $this->resolveFamiliarSelectionSource($form_state, $character_data, $selected_class);
+      foreach ($this->getFamiliarSelectionSourceIds() as $source_id) {
+        if ($familiar_source !== $source_id) {
+          unset($character_data['feat_selections'][$source_id]);
+        }
+      }
+      if ($familiar_source !== NULL) {
+        $selection = $character_data['feat_selections'][$familiar_source] ?? [];
+        if (!is_array($selection)) {
+          $selection = [];
+        }
+        $selection['selected_familiar_type'] = strtolower(trim((string) ($selection['selected_familiar_type'] ?? $selection['familiar_type'] ?? 'standard')));
+        $selection['familiar_type'] = $selection['selected_familiar_type'] !== '' ? $selection['selected_familiar_type'] : 'standard';
+        $selection['selected_familiar_abilities'] = self::normalizeList($selection['selected_familiar_abilities'] ?? []);
+        $selection['name'] = trim((string) ($selection['name'] ?? ''));
+        $character_data['feat_selections'][$familiar_source] = $selection;
+        $character_data['familiar'] = $this->buildCreationFamiliarPayload($character_data, $selected_class, $selection);
+      }
+      else {
+        unset($character_data['familiar']);
       }
 
       // Build feats summary array from all sources.
@@ -6482,6 +6513,138 @@ class CharacterCreationStepForm extends FormBase {
   }
 
   /**
+   * Adds Step 4 selection UI for familiar-granting feats and class features.
+   */
+  private function buildFamiliarSelectionSection(array &$container, FormStateInterface $form_state, array $character_data, string $source_feat_id): void {
+    if (!isset($container['feat_selections']) || !is_array($container['feat_selections'])) {
+      $container['feat_selections'] = [
+        '#type' => 'container',
+        '#tree' => TRUE,
+      ];
+    }
+
+    $stored_selection = $character_data['feat_selections'][$source_feat_id] ?? [];
+    $selected_type = strtolower(trim((string) $form_state->getValue(
+      ['feat_selections', $source_feat_id, 'selected_familiar_type'],
+      $stored_selection['selected_familiar_type'] ?? $stored_selection['familiar_type'] ?? 'standard'
+    )));
+    $selected_abilities = self::normalizeList($form_state->getValue(
+      ['feat_selections', $source_feat_id, 'selected_familiar_abilities'],
+      $stored_selection['selected_familiar_abilities'] ?? []
+    ));
+    $familiar_name = (string) $form_state->getValue(
+      ['feat_selections', $source_feat_id, 'name'],
+      $stored_selection['name'] ?? ''
+    );
+
+    $container['feat_selections'][$source_feat_id] = [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['feat-selection-section']],
+    ];
+    $container['feat_selections'][$source_feat_id]['intro'] = [
+      '#markup' => '<div class="spell-help"><strong>'
+        . $this->t('Familiar')
+        . '</strong><br>'
+        . $this->t('Choose the familiar form and starting familiar abilities that this feat or class feature grants.')
+        . '</div>',
+    ];
+
+    $type_options = ['standard' => (string) $this->t('Standard Familiar')];
+    $type_cards = [
+      'standard' => $this->buildOptionCardData(
+        (string) $this->t('A general magical familiar form that uses the standard familiar rules.'),
+        [],
+        [
+          (string) $this->t('Speed') => FamiliarService::DEFAULT_SPEED . ' ft.',
+          (string) $this->t('Abilities') => (string) $this->getFamiliarStartingAbilityCount($character_data, $source_feat_id),
+        ]
+      ),
+    ];
+    foreach (FamiliarService::FAMILIAR_TYPES as $type_id => $type) {
+      $type_options[$type_id] = (string) ($type['name'] ?? ucfirst((string) $type_id));
+      $facts = [
+        (string) $this->t('Speed') => FamiliarService::DEFAULT_SPEED . ' ft.',
+      ];
+      if (!empty($type['burrow_speed'])) {
+        $facts[(string) $this->t('Special')] = (string) $this->t('Burrow-capable form');
+      }
+      $type_cards[$type_id] = $this->buildOptionCardData(
+        (string) $this->t('A @type familiar form using the standard familiar rules.', ['@type' => $type_options[$type_id]]),
+        !empty($type['burrow_speed']) ? [(string) $this->t('Burrow form')] : [],
+        $facts
+      );
+    }
+
+    if (!array_key_exists($selected_type, $type_options)) {
+      $selected_type = 'standard';
+    }
+
+    $container['feat_selections'][$source_feat_id]['selected_familiar_type'] = [
+      '#type' => 'radios',
+      '#title' => $this->t('Choose familiar form'),
+      '#options' => $type_options,
+      '#default_value' => $selected_type,
+      '#required' => FALSE,
+      '#description' => $this->t('This determines the familiar’s base creature form and whether wing-based abilities are available.'),
+      '#ajax' => [
+        'callback' => '::updateClassOptions',
+        'wrapper' => 'class-dynamic-wrapper',
+        'event' => 'change',
+      ],
+    ];
+    $this->attachOptionCardSettings(
+      $container['feat_selections'][$source_feat_id],
+      'selected_familiar_type',
+      $type_cards,
+      'single'
+    );
+
+    $ability_options = [];
+    $ability_cards = [];
+    $has_wings = $this->familiarTypeHasWings($selected_type);
+    foreach (FamiliarService::ABILITY_CATALOG as $ability_id => $ability) {
+      $prerequisites = is_array($ability['prerequisites'] ?? NULL) ? $ability['prerequisites'] : [];
+      if (($prerequisites['has_wings'] ?? FALSE) && !$has_wings) {
+        continue;
+      }
+      $ability_options[$ability_id] = $ability['name'];
+      $tags = [];
+      if (($prerequisites['has_wings'] ?? FALSE) === TRUE) {
+        $tags[] = (string) $this->t('Requires wings');
+      }
+      $ability_cards[$ability_id] = $this->buildOptionCardData(
+        (string) ($ability['description'] ?? ''),
+        $tags
+      );
+    }
+
+    $container['feat_selections'][$source_feat_id]['selected_familiar_abilities'] = [
+      '#type' => 'checkboxes',
+      '#title' => $this->t('Choose starting familiar abilities'),
+      '#options' => $ability_options,
+      '#default_value' => array_values(array_filter($selected_abilities, static fn($value): bool => is_string($value) && $value !== '')),
+      '#description' => $this->t('Select exactly @count familiar abilities for this familiar.', [
+        '@count' => $this->getFamiliarStartingAbilityCount($character_data, $source_feat_id),
+      ]),
+    ];
+    $this->attachOptionCardSettings(
+      $container['feat_selections'][$source_feat_id],
+      'selected_familiar_abilities',
+      $ability_cards,
+      'multiple'
+    );
+
+    $container['feat_selections'][$source_feat_id]['name'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('Familiar name'),
+      '#default_value' => $familiar_name,
+      '#required' => FALSE,
+      '#maxlength' => 80,
+      '#description' => $this->t('Optional. Leave blank to use the familiar form as the default display name.'),
+    ];
+  }
+
+  /**
    * Adds Step 4 selection UI for Staff Nexus.
    */
   private function buildStaffNexusSelectionSection(array &$container, FormStateInterface $form_state, array $character_data, string $tradition): void {
@@ -6976,6 +7139,52 @@ class CharacterCreationStepForm extends FormBase {
   }
 
   /**
+   * Validates familiar creation selections.
+   */
+  private function validateFamiliarSelection(FormStateInterface $form_state, string $source_feat_id, string $selected_class): void {
+    $selected_type = strtolower(trim((string) $form_state->getValue(
+      ['feat_selections', $source_feat_id, 'selected_familiar_type'],
+      'standard'
+    )));
+    if ($selected_type !== 'standard' && !isset(FamiliarService::FAMILIAR_TYPES[$selected_type])) {
+      $form_state->setErrorByName(
+        'feat_selections][' . $source_feat_id . '][selected_familiar_type',
+        $this->t('Choose a valid familiar form.')
+      );
+    }
+
+    $selected_abilities = self::normalizeList($form_state->getValue(
+      ['feat_selections', $source_feat_id, 'selected_familiar_abilities'],
+      []
+    ));
+    $expected_count = $this->getFamiliarStartingAbilityCount(['class' => $selected_class], $source_feat_id);
+    if (count($selected_abilities) !== $expected_count) {
+      $form_state->setErrorByName(
+        'feat_selections][' . $source_feat_id . '][selected_familiar_abilities',
+        $this->t('Choose exactly @count familiar abilities.', ['@count' => $expected_count])
+      );
+      return;
+    }
+
+    foreach ($selected_abilities as $ability_id) {
+      if (!isset(FamiliarService::ABILITY_CATALOG[$ability_id])) {
+        $form_state->setErrorByName(
+          'feat_selections][' . $source_feat_id . '][selected_familiar_abilities',
+          $this->t('Choose only valid familiar abilities.')
+        );
+        return;
+      }
+      if ($ability_id === 'flier' && !$this->familiarTypeHasWings($selected_type)) {
+        $form_state->setErrorByName(
+          'feat_selections][' . $source_feat_id . '][selected_familiar_abilities',
+          $this->t('The selected familiar form does not have wings, so Flier is not available.')
+        );
+        return;
+      }
+    }
+  }
+
+  /**
    * Validates Armor Proficiency against the selected class.
    */
   private function validateArmorProficiencySelection(FormStateInterface $form_state, array $character_data): void {
@@ -7266,10 +7475,12 @@ class CharacterCreationStepForm extends FormBase {
       $selected_tradition = '';
     }
 
-    $form['class_dynamic']['feat_selections'] = [
-      '#type' => 'container',
-      '#tree' => TRUE,
-    ];
+    if (!isset($form['class_dynamic']['feat_selections']) || !is_array($form['class_dynamic']['feat_selections'])) {
+      $form['class_dynamic']['feat_selections'] = [
+        '#type' => 'container',
+        '#tree' => TRUE,
+      ];
+    }
     $form['class_dynamic']['feat_selections']['adapted-cantrip'] = [
       '#type' => 'container',
       '#attributes' => ['class' => ['spell-reference-section', 'feat-selection-section']],
@@ -7644,6 +7855,114 @@ class CharacterCreationStepForm extends FormBase {
     }
 
     return NULL;
+  }
+
+  /**
+   * Resolves which Step 4 source currently grants a familiar choice.
+   */
+  private function resolveFamiliarSelectionSource(FormStateInterface $form_state, array $character_data, string $selected_class): ?string {
+    $selected_class_feat = trim((string) $form_state->getValue('class_feat', $character_data['class_feat'] ?? ''));
+    if (in_array($selected_class_feat, $this->getFamiliarSelectionSourceIds(), TRUE)) {
+      return $selected_class_feat;
+    }
+
+    $selected_bonus_feat = trim((string) $form_state->getValue(
+      ['feat_selections', 'natural-ambition', 'bonus_class_feat'],
+      $character_data['feat_selections']['natural-ambition']['bonus_class_feat'] ?? ''
+    ));
+    if (in_array($selected_bonus_feat, $this->getFamiliarSelectionSourceIds(), TRUE)) {
+      return $selected_bonus_feat;
+    }
+
+    $selected_subclass = strtolower(trim((string) $form_state->getValue('subclass', $character_data['subclass'] ?? '')));
+    if ($selected_class === 'druid' && $selected_subclass === 'leaf') {
+      return 'leshy-familiar-druid';
+    }
+
+    $selected_arcane_thesis = strtolower(trim((string) $form_state->getValue('arcane_thesis', $character_data['arcane_thesis'] ?? '')));
+    if ($selected_class === 'wizard' && $selected_arcane_thesis === 'improved-familiar-attunement') {
+      return 'improved-familiar-attunement';
+    }
+
+    if ($selected_class === 'witch') {
+      return 'familiar-witch-class';
+    }
+
+    return NULL;
+  }
+
+  /**
+   * Return familiar-granting feat or class feature identifiers used in Step 4.
+   *
+   * @return array<int,string>
+   *   Familiar source identifiers.
+   */
+  private function getFamiliarSelectionSourceIds(): array {
+    return [
+      'familiar',
+      'familiar-druid',
+      'familiar-sorcerer',
+      'alchemical-familiar',
+      'leshy-familiar-druid',
+      'improved-familiar-attunement',
+      'familiar-witch-class',
+    ];
+  }
+
+  /**
+   * Determine the familiar ability count available at creation.
+   */
+  private function getFamiliarStartingAbilityCount(array $character_data, string $source_feat_id): int {
+    $count = FamiliarService::BASE_ABILITY_COUNT;
+    if (($character_data['class'] ?? '') === 'wizard' && $source_feat_id === 'improved-familiar-attunement') {
+      $count += 1;
+    }
+    return $count;
+  }
+
+  /**
+   * Determine whether a familiar form supports wing-based abilities.
+   */
+  private function familiarTypeHasWings(string $familiar_type): bool {
+    return in_array($familiar_type, ['bat', 'owl', 'raven'], TRUE);
+  }
+
+  /**
+   * Build a persisted familiar payload for character creation.
+   *
+   * @param array<string,mixed> $character_data
+   *   Character payload.
+   * @param string $selected_class
+   *   Selected class id.
+   * @param array<string,mixed> $selection
+   *   Familiar selection payload.
+   *
+   * @return array<string,mixed>
+   *   Persisted familiar record.
+   */
+  private function buildCreationFamiliarPayload(array $character_data, string $selected_class, array $selection): array {
+    $level = max(1, (int) ($character_data['level'] ?? 1));
+    $familiar_type = strtolower(trim((string) ($selection['selected_familiar_type'] ?? $selection['familiar_type'] ?? 'standard')));
+    if ($familiar_type === '' || ($familiar_type !== 'standard' && !isset(FamiliarService::FAMILIAR_TYPES[$familiar_type]))) {
+      $familiar_type = 'standard';
+    }
+
+    return [
+      'familiar_id' => ((string) ($character_data['name'] ?? 'character')) . '_familiar',
+      'character_id' => (string) ($character_data['character_id'] ?? ''),
+      'familiar_type' => $familiar_type,
+      'name' => trim((string) ($selection['name'] ?? '')),
+      'hp' => FamiliarService::HP_PER_LEVEL * $level,
+      'max_hp' => FamiliarService::HP_PER_LEVEL * $level,
+      'speed' => FamiliarService::DEFAULT_SPEED,
+      'state' => 'alive',
+      'abilities' => self::normalizeList($selection['selected_familiar_abilities'] ?? []),
+      'has_wings' => $this->familiarTypeHasWings($familiar_type),
+      'is_witch_required' => $selected_class === 'witch',
+      'spell_storage' => 0,
+      'stored_witch_spells' => [],
+      'downtime_replacement' => NULL,
+    ];
   }
 
 }
