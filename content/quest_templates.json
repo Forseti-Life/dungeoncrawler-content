@@ -19,6 +19,7 @@
             "objective_id": "collect_wine",
             "type": "collect",
             "item": "{item_name}",
+            "location_id": "{location}",
             "target_count_range": [
               3,
               5
@@ -41,6 +42,7 @@
             "objective_id": "return_wine",
             "type": "interact",
             "target": "tavern_keeper",
+            "location_id": "{location}",
             "description": "Return the wine to the tavern keeper",
             "next_step": "Speak to the tavern keeper after collecting the wine.",
             "completion_criteria": {
@@ -98,6 +100,7 @@
             "objective_id": "collect_torches",
             "type": "collect",
             "item": "{item_name}",
+            "location_id": "{location}",
             "target_count_range": [
               4,
               6
@@ -120,6 +123,7 @@
             "objective_id": "return_torches",
             "type": "interact",
             "target": "tavern_keeper",
+            "location_id": "{location}",
             "description": "Bring the torch components to the tavern keeper",
             "next_step": "Speak to the tavern keeper after collecting the torch components.",
             "completion_criteria": {

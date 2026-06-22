@@ -32,9 +32,9 @@ assert(
 );
 
 assert(
-  source.includes("$quest_location_id = trim((string) ($quest['location_id'] ?? ''));") &&
-  source.includes('$objective_ref = $this->findSearchCollectObjective($objective_states, $objective_room_ids, $quest_room_ids);'),
-  'Search collectible quest targeting falls back to the quest row location when the objective omits location metadata'
+  source.includes("&& in_array($location, $room_ids, TRUE)") &&
+  !source.includes('$quest_room_ids = [];'),
+  'Search collectible quest targeting requires canonical objective location metadata instead of read-time fallback'
 );
 
 console.log(`\nPassed: ${passed}`);

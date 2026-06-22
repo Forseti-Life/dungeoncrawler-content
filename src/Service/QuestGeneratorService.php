@@ -1150,6 +1150,9 @@ class QuestGeneratorService {
         $generated_obj['current'] = 0;
         $generated_obj['target_count'] = max(1, (int) $target_count);
         $variables['target_count'] = (string) $generated_obj['target_count'];
+        if (!array_key_exists('location', $objective_schema) && !array_key_exists('location_id', $objective_schema) && !empty($context['location'])) {
+          $generated_obj['location_id'] = trim((string) $context['location']);
+        }
         break;
 
       case 'explore':
@@ -1185,6 +1188,9 @@ class QuestGeneratorService {
 
       case 'interact':
         $generated_obj['target'] = $this->resolveVariables((string) ($objective_schema['target'] ?? ''), $variables);
+        if (!array_key_exists('location', $objective_schema) && !array_key_exists('location_id', $objective_schema) && !empty($context['location'])) {
+          $generated_obj['location_id'] = trim((string) $context['location']);
+        }
         break;
 
       case 'investigate':

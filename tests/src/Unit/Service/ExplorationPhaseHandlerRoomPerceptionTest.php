@@ -184,44 +184,6 @@ class ExplorationPhaseHandlerRoomPerceptionTest extends UnitTestCase {
   }
 
   /**
-   * @covers ::findSearchCollectObjective
-   * @covers ::findSearchCollectObjectiveNode
-   */
-  public function testSearchMatchesQuestRowLocationWhenObjectiveOmitsLocation(): void {
-    $handler = new class(
-      $this->createMock(Connection::class),
-      $this->createMock(LoggerChannelFactoryInterface::class),
-      $this->createMock(RoomChatService::class),
-      $this->createMock(DungeonStateService::class),
-      $this->createMock(CharacterStateService::class),
-      $this->createMock(NumberGenerationService::class),
-      $this->createMock(AiGmService::class)
-    ) extends ExplorationPhaseHandler {
-      public function exposeFindSearchCollectObjective(array $objective_states, array $room_ids, array $fallback_room_ids = []): ?array {
-        return $this->findSearchCollectObjective($objective_states, $room_ids, $fallback_room_ids);
-      }
-    };
-
-    $objective_states = [[
-      'phase' => 1,
-      'objectives' => [[
-        'objective_id' => 'collect_wine',
-        'type' => 'collect',
-        'description' => 'Collect Wine Bottles from around the tavern',
-        'completed' => FALSE,
-        'item' => 'Wine Bottles',
-        'current' => 0,
-        'target_count' => 5,
-      ]],
-    ]];
-
-    $match = $handler->exposeFindSearchCollectObjective($objective_states, ['tavern_entrance'], ['tavern_entrance']);
-
-    $this->assertNotNull($match);
-    $this->assertSame('collect_wine', $match['objective']['objective_id'] ?? NULL);
-  }
-
-  /**
    * @covers ::processIntent
    */
   public function testSearchUsesActorPerceptionModifierButDoesNotRevealRoomDetails(): void {

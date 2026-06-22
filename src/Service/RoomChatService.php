@@ -7203,14 +7203,14 @@ PROMPT;
       'story', 'stories', 'storyline', 'storylines', 'module', 'modules',
     ]);
     if ($asks_for_leads) {
-      $brokered_leads = $this->buildBrokeredStorylineLeadDialogue($campaign_id, $entity_ref, $display_name);
-      if ($brokered_leads !== NULL) {
-        return $brokered_leads;
-      }
-
       $available_quest_offer = $this->buildAvailableQuestgiverQuestDialogue($campaign_id, $entity_ref, $display_name, $room_id, $dungeon_data);
       if ($available_quest_offer !== NULL) {
         return $available_quest_offer;
+      }
+
+      $brokered_leads = $this->buildBrokeredStorylineLeadDialogue($campaign_id, $entity_ref, $display_name);
+      if ($brokered_leads !== NULL) {
+        return $brokered_leads;
       }
 
       $generated_bootstrap = $this->buildGeneratedStorylineLeadDialogue($campaign_id, $entity_ref, $display_name, $player_message, $normalized, $room_id, $character_id);
@@ -7828,20 +7828,30 @@ PROMPT;
       return strcmp((string) ($a->quest_name ?? ''), (string) ($b->quest_name ?? ''));
     });
 
+    $lines = [];
     foreach ($rows as $row) {
-      $line = $this->buildQuestgiverQuestDialogueLine($row, $display_name);
-      if ($line !== NULL) {
-        return $line;
+      $line = $this->buildQuestgiverQuestDialogueLine($row);
+      if ($line === NULL) {
+        continue;
+      }
+      $lines[] = $line;
+      if (count($lines) >= 8) {
+        break;
       }
     }
 
-    return NULL;
+    if ($lines === []) {
+      return NULL;
+    }
+
+    $speaker = $display_name !== '' ? $display_name . ' says, ' : '';
+    return '"' . $speaker . implode(' ', $lines) . '"';
   }
 
   /**
    * Build the NPC-facing line for an offered or already-active quest.
    */
-  protected function buildQuestgiverQuestDialogueLine(object $row, string $display_name): ?string {
+  protected function buildQuestgiverQuestDialogueLine(object $row): ?string {
     $quest_name = trim((string) ($row->quest_name ?? ''));
     if ($quest_name === '') {
       return NULL;
@@ -7849,7 +7859,6 @@ PROMPT;
 
     $objective_hint = $this->extractQuestgiverObjectiveHint((string) ($row->generated_objectives ?? ''));
     $description_hint = trim((string) ($row->quest_description ?? ''));
-    $speaker = $display_name !== '' ? $display_name . ' says, ' : '';
     $status = strtolower(trim((string) ($row->status ?? 'offered')));
 
     if ($status === 'active') {
@@ -7860,7 +7869,7 @@ PROMPT;
       elseif ($description_hint !== '') {
         $line .= ' Follow this lead: ' . $this->trimNpcDialogueClause($description_hint);
       }
-      return '"' . $speaker . $line . '"';
+      return $line;
     }
 
     $line = 'I have work for you: ' . $quest_name . '.';
@@ -7871,7 +7880,7 @@ PROMPT;
       $line .= ' ' . $this->trimNpcDialogueClause($description_hint);
     }
 
-    return '"' . $speaker . $line . '"';
+    return $line;
   }
 
   /**
