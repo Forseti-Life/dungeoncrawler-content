@@ -55,7 +55,7 @@ class WorldController extends ControllerBase {
         '#markup' => '<div class="card bg-dark text-light border-warning">
           <div class="card-body">
             <h2 class="card-title">The Living Multiverse</h2>
-            <p class="lead">Dungeon Crawler Life treats every campaign as a real universe shard, every save as a continuity anchor, and every character as an evolving agent that can survive, diverge, and travel into new settings without stopping the larger story.</p>
+            <p class="lead">Montinuity treats every campaign as a real universe shard, every save as a continuity anchor, and every character as an evolving agent that can survive, diverge, and travel into new settings without stopping the larger story.</p>
           </div>
         </div>',
       ],
@@ -71,7 +71,7 @@ class WorldController extends ControllerBase {
       [
         'slug' => 'shard-campaigns',
         'title' => 'Shard Campaigns',
-        'content' => 'Each campaign is its own universe shard with local history, factions, rooms, and rules pressure. Starting a new campaign does not erase the old one; it creates another real branch in the Dungeon Crawler cosmology.',
+        'content' => 'Each campaign is its own universe shard with local history, factions, rooms, and rules pressure. Starting a new campaign does not erase the old one; it creates another real branch in the Montinuity cosmology.',
       ],
       [
         'slug' => 'continuity-anchors',

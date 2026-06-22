@@ -30,7 +30,7 @@ class AboutControllerTest extends BrowserTestBase {
     $this->assertSession()->statusCodeEquals(200);
     
     // Verify expected content structure/blocks.
-    $this->assertSession()->pageTextContains('About Dungeon Crawler Life');
+    $this->assertSession()->pageTextContains('About Montinuity');
     $this->assertSession()->pageTextContains('A persistent multiverse RPG for shard campaigns, portable characters, and shared history.');
     $this->assertSession()->elementsCount('css', '.about-feature-card', 6);
      

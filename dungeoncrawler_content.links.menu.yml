@@ -214,7 +214,7 @@ dungeoncrawler_content.menu.dc_administration_institution_review:
 
 dungeoncrawler_content.footer.about:
   title: 'About'
-  description: 'About Dungeon Crawler Life'
+  description: 'About Montinuity'
   route_name: dungeoncrawler_content.about
   menu_name: footer
   weight: 0

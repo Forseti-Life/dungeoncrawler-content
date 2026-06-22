@@ -127,7 +127,7 @@ dungeoncrawler_content.home:
   path: '/home'
   defaults:
     _controller: '\Drupal\dungeoncrawler_content\Controller\HomeController::index'
-    _title: 'Dungeon Crawler Life'
+    _title: 'Montinuity'
   methods: [GET]
   requirements:
     _access: 'TRUE'
@@ -163,7 +163,7 @@ dungeoncrawler_content.about:
   path: '/about'
   defaults:
     _controller: '\Drupal\dungeoncrawler_content\Controller\AboutController::index'
-    _title: 'About Dungeon Crawler Life'
+    _title: 'About Montinuity'
   methods: [GET]
   requirements:
     _access: 'TRUE'

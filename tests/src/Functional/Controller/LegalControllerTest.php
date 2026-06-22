@@ -30,7 +30,7 @@ class LegalControllerTest extends BrowserTestBase {
     $this->assertSession()->statusCodeEquals(200);
 
     $this->assertSession()->pageTextContains('Privacy Policy');
-    $this->assertSession()->pageTextContains('How Dungeon Crawler Life handles account, gameplay, and service data.');
+    $this->assertSession()->pageTextContains('How Montinuity handles account, shard, and continuity data.');
     $this->assertSession()->pageTextContains('What we collect');
     $this->assertSession()->pageTextContains('How we use it');
     $this->assertSession()->pageTextContains('What we do not do');
@@ -45,7 +45,7 @@ class LegalControllerTest extends BrowserTestBase {
     $this->assertSession()->statusCodeEquals(200);
 
     $this->assertSession()->pageTextContains('Terms of Service');
-    $this->assertSession()->pageTextContains('The practical rules for using Dungeon Crawler Life and its persistent campaign systems.');
+    $this->assertSession()->pageTextContains('The practical rules for using Montinuity and its persistent shard systems.');
     $this->assertSession()->pageTextContains('Using the service');
     $this->assertSession()->pageTextContains('Acceptable behavior');
     $this->assertSession()->pageTextContains('Service boundaries');

@@ -131,7 +131,7 @@ class AboutController extends ControllerBase {
                 '#type' => 'html_tag',
                 '#tag' => 'p',
                 '#attributes' => ['class' => ['text-uppercase', 'small', 'fw-bold', 'mb-3', 'about-eyebrow']],
-                '#value' => 'About Dungeon Crawler Life',
+                '#value' => 'About Montinuity',
               ],
               'title' => [
                 '#type' => 'html_tag',
@@ -143,7 +143,7 @@ class AboutController extends ControllerBase {
                 '#type' => 'html_tag',
                 '#tag' => 'p',
                 '#attributes' => ['class' => ['lead', 'mb-4']],
-                '#value' => 'Dungeon Crawler Life is built around the idea that a campaign shard should accumulate meaning. Characters grow, worlds remember, and an account becomes a continuity graph instead of a queue of disposable runs.',
+                '#value' => 'Montinuity is built around the idea that a campaign shard should accumulate meaning. Characters grow, worlds remember, and an account becomes a continuity graph instead of a queue of disposable runs.',
               ],
               'details' => [
                 '#type' => 'html_tag',
@@ -213,7 +213,7 @@ class AboutController extends ControllerBase {
           'card' => $this->buildSectionCard(
             'Why this world exists',
             [
-              'Most digital dungeon runs are built to be replayed, but not remembered. Dungeon Crawler Life takes the opposite approach: the goal is to build shard worlds worth returning to because your earlier choices still matter.',
+              'Most digital dungeon runs are built to be replayed, but not remembered. Montinuity takes the opposite approach: the goal is to build shard worlds worth returning to because your earlier choices still matter.',
               'That means campaigns persist, locations become familiar, and a character can complete an arc without the whole account losing continuity. Retirement, restoration, and forked variants are part of the design, not failure states.',
             ],
             [
@@ -435,7 +435,7 @@ class AboutController extends ControllerBase {
           'card' => $this->buildSectionCard(
             'The team and product posture',
             [
-              'Dungeon Crawler Life is being built as a living-world RPG service, which means the work is not just about generating more content. It is about making every shard legible, durable, and worth investing time into.',
+              'Montinuity is being built as a living-world RPG service, which means the work is not just about generating more content. It is about making every shard legible, durable, and worth investing time into.',
               'The team is focused on aligning generation systems, game rules, and world structure so the product feels like a coherent multiverse platform instead of a bag of disconnected features.',
             ]
           ),

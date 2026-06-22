@@ -28,7 +28,7 @@ class PublicRoutesTest extends BrowserTestBase {
   public function testHomeRoutePositive(): void {
     $this->drupalGet('/home');
     $this->assertSession()->statusCodeEquals(200);
-    $this->assertSession()->pageTextContains('Dungeon Crawler Life');
+    $this->assertSession()->pageTextContains('Montinuity');
   }
 
   /**
@@ -102,7 +102,7 @@ class PublicRoutesTest extends BrowserTestBase {
   public function testAboutRoutePositive(): void {
     $this->drupalGet('/about');
     $this->assertSession()->statusCodeEquals(200);
-    $this->assertSession()->pageTextContains('About Dungeon Crawler Life');
+    $this->assertSession()->pageTextContains('About Montinuity');
   }
 
   /**

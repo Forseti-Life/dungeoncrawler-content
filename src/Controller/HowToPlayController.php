@@ -65,7 +65,7 @@ class HowToPlayController extends ControllerBase {
                 '#type' => 'html_tag',
                 '#tag' => 'p',
                 '#attributes' => ['class' => ['lead', 'mb-4']],
-                '#value' => 'Dungeon Crawler Life is built around persistent shard campaigns. You are not just launching a disposable run; you are instantiating a character into a world that remembers route choices, relationships, and consequences over time.',
+                '#value' => 'Montinuity is built around persistent shard campaigns. You are not just launching a disposable run; you are instantiating a character into a world that remembers route choices, relationships, and consequences over time.',
               ],
               'details' => [
                 '#type' => 'html_tag',

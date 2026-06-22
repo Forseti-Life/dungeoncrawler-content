@@ -17,7 +17,7 @@ class LegalController extends ControllerBase {
   public function privacyPolicy(): array {
     return $this->buildLegalPage(
       'Privacy Policy',
-      'How Dungeon Crawler Life handles account, shard, and continuity data.',
+      'How Montinuity handles account, shard, and continuity data.',
       'This page explains what information the service stores, why it is stored, and the practical choices available to players who use a persistent multiverse-style game service.',
       [
         $this->buildSection(
@@ -74,7 +74,7 @@ class LegalController extends ControllerBase {
   public function termsOfService(): array {
     return $this->buildLegalPage(
       'Terms of Service',
-      'The practical rules for using Dungeon Crawler Life and its persistent shard systems.',
+      'The practical rules for using Montinuity and its persistent shard systems.',
       'Using the site means agreeing to use it responsibly, respect the service boundaries, and understand that access can change when security, abuse, or operational risk requires it.',
       [
         $this->buildSection(
@@ -96,7 +96,7 @@ class LegalController extends ControllerBase {
         $this->buildSection(
           'Service boundaries',
           [
-            'Dungeon Crawler Life is a managed online service, not an entitlement. The maintainers may suspend, restrict, or remove access when needed to protect the platform or community.',
+            'Montinuity is a managed online service, not an entitlement. The maintainers may suspend, restrict, or remove access when needed to protect the platform or community.',
             'Content, progression, and system behavior may be reset, rebalanced, or retired where the health of the product requires it.',
             'No uninterrupted-availability promise is made here. Maintenance, bugs, and active development can affect uptime or feature behavior.',
           ]
