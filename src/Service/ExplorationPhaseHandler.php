@@ -2237,7 +2237,13 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
         continue;
       }
 
-      $objective_ref = $this->findSearchCollectObjective($objective_states, $objective_room_ids);
+      $quest_room_ids = [];
+      $quest_location_id = trim((string) ($quest['location_id'] ?? ''));
+      if ($quest_location_id !== '') {
+        $quest_room_ids = $this->resolveSearchObjectiveRoomIds($campaign_id, $quest_location_id);
+      }
+
+      $objective_ref = $this->findSearchCollectObjective($objective_states, $objective_room_ids, $quest_room_ids);
       if (!$objective_ref) {
         continue;
       }
@@ -2331,13 +2337,13 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
   /**
    * Find a collect objective for the active room.
    */
-  protected function findSearchCollectObjective(array $objective_states, array $room_ids): ?array {
+  protected function findSearchCollectObjective(array $objective_states, array $room_ids, array $fallback_room_ids = []): ?array {
     foreach ($objective_states as $phase) {
       if (!is_array($phase)) {
         continue;
       }
       foreach (($phase['objectives'] ?? []) as $objective) {
-        $match = $this->findSearchCollectObjectiveNode($objective, $room_ids);
+        $match = $this->findSearchCollectObjectiveNode($objective, $room_ids, $fallback_room_ids);
         if ($match) {
           return [
             'phase' => (int) ($phase['phase'] ?? 1),
@@ -2352,16 +2358,17 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
   /**
    * Recursively locate a collect objective in a room.
    */
-  protected function findSearchCollectObjectiveNode($objective, array $room_ids): ?array {
+  protected function findSearchCollectObjectiveNode($objective, array $room_ids, array $fallback_room_ids = []): ?array {
     if (!is_array($objective)) {
       return NULL;
     }
 
     $type = strtolower((string) ($objective['type'] ?? ''));
     $location = trim((string) ($objective['location_id'] ?? $objective['location'] ?? ''));
+    $candidate_room_ids = $location !== '' ? [$location] : $fallback_room_ids;
     if (
       $type === 'collect'
-      && in_array($location, $room_ids, TRUE)
+      && array_intersect($candidate_room_ids, $room_ids) !== []
       && empty($objective['completed'])
     ) {
       return $objective;
@@ -2369,7 +2376,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
 
     foreach (['objectives', 'children', 'sub_objectives'] as $children_key) {
       foreach (($objective[$children_key] ?? []) as $child) {
-        $match = $this->findSearchCollectObjectiveNode($child, $room_ids);
+        $match = $this->findSearchCollectObjectiveNode($child, $room_ids, $fallback_room_ids);
         if ($match) {
           return $match;
         }
