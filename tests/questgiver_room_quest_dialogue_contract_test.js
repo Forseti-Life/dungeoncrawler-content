@@ -36,6 +36,11 @@ assert(
   'Questgiver room quest dialogue keeps a bounded authored quest list'
 );
 
+assert(
+  source.includes('applyDirectQuestgiverDialogueQuestState($campaign_id, $character_id, $entity_ref, $display_name, $room_id, $dungeon_data);'),
+  'Direct questgiver room dialogue applies deterministic quest state changes when the NPC surfaces authored quests'
+);
+
 console.log(`\nPassed: ${passed}`);
 console.log(`Failed: ${failed}`);
 

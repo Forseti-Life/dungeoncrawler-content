@@ -7205,6 +7205,7 @@ PROMPT;
     if ($asks_for_leads) {
       $available_quest_offer = $this->buildAvailableQuestgiverQuestDialogue($campaign_id, $entity_ref, $display_name, $room_id, $dungeon_data);
       if ($available_quest_offer !== NULL) {
+        $this->applyDirectQuestgiverDialogueQuestState($campaign_id, $character_id, $entity_ref, $display_name, $room_id, $dungeon_data);
         return $available_quest_offer;
       }
 
@@ -7881,6 +7882,49 @@ PROMPT;
     }
 
     return $line;
+  }
+
+  /**
+   * Apply deterministic quest state changes when a questgiver directly surfaces room quests.
+   */
+  protected function applyDirectQuestgiverDialogueQuestState(
+    int $campaign_id,
+    ?int $character_id,
+    string $entity_ref,
+    string $display_name,
+    string $room_id,
+    array $dungeon_data = []
+  ): void {
+    if ($campaign_id <= 0 || !$this->questTracker || !$character_id || $character_id <= 0) {
+      return;
+    }
+
+    $giver_npc_id = $this->resolveCampaignQuestgiverNpcId($campaign_id, $entity_ref, $display_name, $room_id, $dungeon_data);
+    if ($giver_npc_id === NULL) {
+      return;
+    }
+
+    $location_candidates = array_values(array_unique(array_filter([
+      $this->resolveRoomSlugForQuery($campaign_id, $room_id, $dungeon_data),
+      $room_id,
+    ], static fn($value): bool => is_string($value) && $value !== '')));
+
+    $query = $this->database->select('dc_campaign_quests', 'q')
+      ->fields('q')
+      ->condition('campaign_id', $campaign_id)
+      ->condition('giver_npc_id', $giver_npc_id)
+      ->condition('status', ['offered', 'active', 'ready_for_turn_in'], 'IN');
+
+    if ($location_candidates !== []) {
+      $query->condition('location_id', $location_candidates, 'IN');
+    }
+
+    $rows = $query->execute()->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+    foreach ($rows as $quest) {
+      if (is_array($quest)) {
+        $this->applyQuestgiverLeadTouchpoint($campaign_id, (int) $character_id, $room_id, $quest);
+      }
+    }
   }
 
   /**

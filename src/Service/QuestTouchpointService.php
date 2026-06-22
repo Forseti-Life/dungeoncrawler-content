@@ -408,7 +408,11 @@ class QuestTouchpointService {
       }
 
       $objectives = is_array($phase['objectives'] ?? NULL) ? $phase['objectives'] : [];
-      return $this->collectActiveObjectives($objectives);
+      $active = $this->collectActiveObjectives($objectives, TRUE);
+      if ($active !== []) {
+        return $active;
+      }
+      return $this->collectActiveObjectives($objectives, FALSE);
     }
 
     return [];
@@ -420,20 +424,20 @@ class QuestTouchpointService {
    * @return array<int, array<string, mixed>>
    *   Active objectives.
    */
-  protected function collectActiveObjectives(array $objectives): array {
+  protected function collectActiveObjectives(array $objectives, bool $require_revealed = TRUE): array {
     $active = [];
     foreach ($objectives as $objective) {
       if (!is_array($objective)) {
         continue;
       }
 
-      if (!$this->isObjectiveCurrentlyRevealed($objective)) {
+      if ($require_revealed && !$this->isObjectiveCurrentlyRevealed($objective)) {
         continue;
       }
 
       $children = is_array($objective['children'] ?? NULL) ? $objective['children'] : [];
       if ($children !== []) {
-        $active = array_merge($active, $this->collectActiveObjectives($children));
+        $active = array_merge($active, $this->collectActiveObjectives($children, $require_revealed));
       }
 
       if ($children !== []) {
