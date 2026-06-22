@@ -9,6 +9,7 @@ use Drupal\Core\Database\Connection;
 use Drupal\Core\Form\FormBuilderInterface;
 use Drupal\Core\Url;
 use Drupal\dungeoncrawler_content\Form\CampaignCreateForm;
+use Drupal\dungeoncrawler_content\Service\CampaignCharacterRuntimeResolverService;
 use Drupal\dungeoncrawler_content\Service\CharacterManager;
 use Drupal\dungeoncrawler_content\Service\GeneratedImageRepository;
 use Drupal\dungeoncrawler_content\Service\InstitutionMembershipService;
@@ -30,15 +31,17 @@ class CampaignController extends ControllerBase {
   protected QuestTrackerService $questTracker;
   protected GeneratedImageRepository $imageRepository;
   protected InstitutionMembershipService $institutionMembership;
+  protected CampaignCharacterRuntimeResolverService $runtimeResolver;
   protected TimeInterface $time;
 
-  public function __construct(Connection $database, CharacterManager $character_manager, FormBuilderInterface $form_builder, QuestTrackerService $quest_tracker, GeneratedImageRepository $image_repository, InstitutionMembershipService $institution_membership, TimeInterface $time) {
+  public function __construct(Connection $database, CharacterManager $character_manager, FormBuilderInterface $form_builder, QuestTrackerService $quest_tracker, GeneratedImageRepository $image_repository, InstitutionMembershipService $institution_membership, CampaignCharacterRuntimeResolverService $runtime_resolver, TimeInterface $time) {
     $this->database = $database;
     $this->characterManager = $character_manager;
     $this->formBuilderService = $form_builder;
     $this->questTracker = $quest_tracker;
     $this->imageRepository = $image_repository;
     $this->institutionMembership = $institution_membership;
+    $this->runtimeResolver = $runtime_resolver;
     $this->time = $time;
   }
 
@@ -53,6 +56,7 @@ class CampaignController extends ControllerBase {
       $container->get('dungeoncrawler_content.quest_tracker'),
       $container->get('dungeoncrawler_content.generated_image_repository'),
       $container->get('dungeoncrawler_content.institution_membership'),
+      $container->get('dungeoncrawler_content.campaign_character_runtime_resolver'),
       $container->get('datetime.time'),
     );
   }
@@ -871,132 +875,12 @@ class CampaignController extends ControllerBase {
       }
     }
 
-    $now = \Drupal::time()->getRequestTime();
-    $instance_id = sprintf('pc-%d-%d', $campaign_id, $canonical_character_id);
-    $character_data = json_decode((string) ($character->character_data ?? '{}'), TRUE);
-    if (!is_array($character_data)) {
-      $character_data = [];
+    $runtime_record = $this->runtimeResolver->upsertRuntimeRecord($campaign_id, $selected_character, $character);
+    if (!$runtime_record) {
+      throw new NotFoundHttpException();
     }
-    $default_character_data = json_decode((string) ($character->default_character_data ?? '{}'), TRUE);
-    if (!is_array($default_character_data)) {
-      $default_character_data = [];
-    }
-    $hot = $this->characterManager->resolveHotColumnsForRecord($character, $character_data);
-
-    $existing_query = $this->database->select('dc_campaign_characters', 'cc')
-      ->fields('cc', ['id'])
-      ->condition('campaign_id', $campaign_id);
-    $existing_match = $existing_query->orConditionGroup()
-      ->condition('instance_id', $instance_id)
-      ->condition('character_id', $canonical_character_id);
-    if ((int) ($selected_character->campaign_id ?? 0) === $campaign_id) {
-      $existing_match->condition('id', (int) $selected_character->id);
-    }
-    $existing_row_id = $existing_query
-      ->condition($existing_match)
-      ->orderBy('updated', 'DESC')
-      ->orderBy('id', 'DESC')
-      ->range(0, 1)
-      ->execute()
-      ->fetchField();
-
-    $existing_location_state = NULL;
-    if ($existing_row_id) {
-      $existing_location_state = $this->database->select('dc_campaign_characters', 'cc')
-        ->fields('cc', ['position_q', 'position_r', 'last_room_id', 'location_type', 'location_ref'])
-        ->condition('id', (int) $existing_row_id)
-        ->range(0, 1)
-        ->execute()
-        ->fetchAssoc() ?: NULL;
-    }
-
-    $location_fields = $this->resolveCharacterLocationFields($existing_location_state);
-    if ($location_fields['last_room_id'] === '' || $location_fields['location_ref'] === '') {
-      $starter_dungeon = $this->loadLatestCampaignDungeon($campaign_id);
-      if ($starter_dungeon) {
-        $starter_decoded = json_decode((string) ($starter_dungeon->dungeon_data ?? '{}'), TRUE);
-        if (is_array($starter_decoded)) {
-          $starter_room_context = $this->extractRoomContext($starter_decoded);
-          $starter_room_id = (string) ($starter_room_context['room_id'] ?? '');
-          if ($starter_room_id !== '') {
-            $location_fields['last_room_id'] = $starter_room_id;
-            $location_fields['location_type'] = 'room';
-            $location_fields['location_ref'] = $starter_room_id;
-          }
-        }
-      }
-    }
-
-    $fields = [
-      'character_id' => $canonical_character_id,
-      'instance_id' => $instance_id,
-      'uid' => (int) $this->currentUser()->id(),
-      'name' => (string) $character->name,
-      'level' => (int) $character->level,
-      'ancestry' => (string) $character->ancestry,
-      'class' => (string) $character->class,
-      'hp_current' => $hot['hp_current'],
-      'hp_max' => $hot['hp_max'],
-      'armor_class' => $hot['armor_class'],
-      'experience_points' => $hot['experience_points'],
-      'position_q' => $location_fields['position_q'],
-      'position_r' => $location_fields['position_r'],
-      'last_room_id' => $location_fields['last_room_id'],
-      'role' => 'player',
-      'type' => 'pc',
-      'state_data' => json_encode($character_data, JSON_UNESCAPED_UNICODE),
-      'character_data' => json_encode($character_data, JSON_UNESCAPED_UNICODE),
-      'default_character_data' => json_encode($default_character_data, JSON_UNESCAPED_UNICODE),
-      'location_type' => $location_fields['location_type'],
-      'location_ref' => $location_fields['location_ref'],
-      'is_active' => 1,
-      'status' => max(1, (int) ($character->status ?? 1)),
-      'joined' => $now,
-      'changed' => $now,
-      'updated' => $now,
-    ];
-
-    $selected_row_id = 0;
-    if ($existing_row_id) {
-      $this->database->update('dc_campaign_characters')
-        ->fields($fields)
-        ->condition('id', (int) $existing_row_id)
-        ->execute();
-      $selected_row_id = (int) $existing_row_id;
-    }
-    else {
-      $selected_row_id = (int) $this->database->insert('dc_campaign_characters')
-        ->fields($fields + [
-          'campaign_id' => $campaign_id,
-          'created' => $now,
-        ])
-        ->execute();
-    }
-
-    if ($canonical_character_id > 0 && $selected_row_id > 0) {
-      $this->database->delete('dc_campaign_characters')
-        ->condition('campaign_id', $campaign_id)
-        ->condition('character_id', $canonical_character_id)
-        ->condition('id', $selected_row_id, '<>')
-        ->execute();
-    }
-
-    $this->database->update('dc_campaigns')
-      ->fields([
-        'active_character_id' => $canonical_character_id,
-        'status' => 'ready',
-        'changed' => $now,
-      ])
-      ->condition('id', $campaign_id)
-      ->execute();
-
-    if ($instance_id !== '' && is_array($character_data)) {
-      $this->institutionMembership->syncCampaignCharacterMemberships(
-        $campaign_id,
-        $instance_id,
-        $character_data
-      );
-    }
+    $selected_row_id = (int) ($runtime_record['id'] ?? 0);
+    $canonical_character_id = (int) ($runtime_record['character_id'] ?? $canonical_character_id);
 
     $this->startStarterQuest($campaign_id, $canonical_character_id);
 

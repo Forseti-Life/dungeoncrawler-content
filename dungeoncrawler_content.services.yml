@@ -287,6 +287,14 @@ services:
       - '@?dungeoncrawler_content.npc_sheet_generation'
       - '@?dungeoncrawler_content.character_portrait_generator'
 
+  dungeoncrawler_content.campaign_character_runtime_resolver:
+    class: Drupal\dungeoncrawler_content\Service\CampaignCharacterRuntimeResolverService
+    arguments:
+      - '@database'
+      - '@dungeoncrawler_content.character_manager'
+      - '@dungeoncrawler_content.institution_membership'
+      - '@datetime.time'
+
   dungeoncrawler_content.player_agent_runtime_adapter:
     class: Drupal\dungeoncrawler_content\Service\PlayerAgentRuntimeAdapter
     arguments:

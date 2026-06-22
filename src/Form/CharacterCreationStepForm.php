@@ -15,6 +15,7 @@ use Drupal\Component\Uuid\UuidInterface;
 use Drupal\Component\Utility\Html;
 use Drupal\dungeoncrawler_content\Service\AbilityScoreTracker;
 use Drupal\dungeoncrawler_content\Service\CampaignSubjectRegistryService;
+use Drupal\dungeoncrawler_content\Service\CampaignCharacterRuntimeResolverService;
 use Drupal\dungeoncrawler_content\Service\CharacterCreationGmService;
 use Drupal\dungeoncrawler_content\Service\CharacterManager;
 use Drupal\dungeoncrawler_content\Service\FamiliarService;
@@ -128,6 +129,7 @@ class CharacterCreationStepForm extends FormBase {
     protected InstitutionMembershipService $institutionMembership,
     protected InstitutionNormalizationService $institutionNormalization,
     protected FactionGenerationService $factionGeneration,
+    protected CampaignCharacterRuntimeResolverService $runtimeResolver,
   ) {}
 
   /**
@@ -152,6 +154,7 @@ class CharacterCreationStepForm extends FormBase {
       $container->get('dungeoncrawler_content.institution_membership'),
       $container->get('dungeoncrawler_content.institution_normalization'),
       $container->get('dungeoncrawler_content.faction_generation'),
+      $container->get('dungeoncrawler_content.campaign_character_runtime_resolver'),
     );
   }
 
@@ -3990,7 +3993,7 @@ class CharacterCreationStepForm extends FormBase {
       ])
       ->execute();
 
-    $starter_room_id = $this->resolveCampaignStarterRoomId($campaign_id);
+    $starter_room_id = $this->runtimeResolver->resolveStarterRoomIdForCampaign($campaign_id);
     $runtime_fields = [
       'character_id' => $library_row_id,
       'instance_id' => sprintf('pc-%d-%d', $campaign_id, $library_row_id),
@@ -4018,53 +4021,6 @@ class CharacterCreationStepForm extends FormBase {
       ])
       ->condition('id', $campaign_id)
       ->execute();
-  }
-
-  /**
-   * Resolve the starter room id for a campaign's active dungeon payload.
-   */
-  private function resolveCampaignStarterRoomId(int $campaign_id): string {
-    if ($campaign_id <= 0) {
-      return '';
-    }
-
-    $row = $this->database->select('dc_campaign_dungeons', 'd')
-      ->fields('d', ['dungeon_data'])
-      ->condition('campaign_id', $campaign_id)
-      ->orderBy('id', 'DESC')
-      ->range(0, 1)
-      ->execute()
-      ->fetchAssoc();
-    if (!$row) {
-      return '';
-    }
-
-    $decoded = json_decode((string) ($row['dungeon_data'] ?? '{}'), TRUE);
-    if (!is_array($decoded)) {
-      return '';
-    }
-
-    $active_room_id = trim((string) ($decoded['active_room_id'] ?? ''));
-    if ($active_room_id !== '') {
-      return $active_room_id;
-    }
-
-    $game_state_room_id = trim((string) ($decoded['game_state']['active_room_id'] ?? ''));
-    if ($game_state_room_id !== '') {
-      return $game_state_room_id;
-    }
-
-    foreach (($decoded['rooms'] ?? []) as $room) {
-      if (!is_array($room)) {
-        continue;
-      }
-      $room_id = trim((string) ($room['room_id'] ?? ''));
-      if ($room_id !== '') {
-        return $room_id;
-      }
-    }
-
-    return '';
   }
 
   /**

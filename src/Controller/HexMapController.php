@@ -5,6 +5,7 @@ namespace Drupal\dungeoncrawler_content\Controller;
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Database\Connection;
 use Drupal\dungeoncrawler_content\Service\AnimalCompanionService;
+use Drupal\dungeoncrawler_content\Service\CampaignCharacterRuntimeResolverService;
 use Drupal\dungeoncrawler_content\Service\CampaignCharacterRuntimeSyncService;
 use Drupal\dungeoncrawler_content\Service\CharacterManager;
 use Drupal\dungeoncrawler_content\Service\CharacterStateService;
@@ -32,6 +33,7 @@ class HexMapController extends ControllerBase {
 
   protected Connection $database;
   protected AnimalCompanionService $animalCompanionService;
+  protected CampaignCharacterRuntimeResolverService $campaignCharacterRuntimeResolver;
   protected CampaignCharacterRuntimeSyncService $campaignCharacterRuntimeSync;
   protected QuestTrackerService $questTracker;
   protected QuestGeneratorService $questGenerator;
@@ -51,10 +53,11 @@ class HexMapController extends ControllerBase {
    * @var array<string, array|null>
    */
   protected array $roomContentsCache = [];
-  public function __construct(RequestStack $request_stack, Connection $database, AnimalCompanionService $animal_companion_service, CampaignCharacterRuntimeSyncService $campaign_character_runtime_sync, QuestTrackerService $quest_tracker, QuestGeneratorService $quest_generator, GeneratedImageRepository $image_repository, MapVisualStateProjector $map_visual_state_projector, StorylineManagerService $storyline_manager, RelationshipManagerService $relationship_manager, StateValidationService $state_validation_service, CharacterManager $character_manager, CharacterStateService $character_state_service) {
+  public function __construct(RequestStack $request_stack, Connection $database, AnimalCompanionService $animal_companion_service, CampaignCharacterRuntimeResolverService $campaign_character_runtime_resolver, CampaignCharacterRuntimeSyncService $campaign_character_runtime_sync, QuestTrackerService $quest_tracker, QuestGeneratorService $quest_generator, GeneratedImageRepository $image_repository, MapVisualStateProjector $map_visual_state_projector, StorylineManagerService $storyline_manager, RelationshipManagerService $relationship_manager, StateValidationService $state_validation_service, CharacterManager $character_manager, CharacterStateService $character_state_service) {
     $this->requestStack = $request_stack;
     $this->database = $database;
     $this->animalCompanionService = $animal_companion_service;
+    $this->campaignCharacterRuntimeResolver = $campaign_character_runtime_resolver;
     $this->campaignCharacterRuntimeSync = $campaign_character_runtime_sync;
     $this->questTracker = $quest_tracker;
     $this->questGenerator = $quest_generator;
@@ -75,6 +78,7 @@ class HexMapController extends ControllerBase {
       $container->get('request_stack'),
       $container->get('database'),
       $container->get('dungeoncrawler_content.animal_companion'),
+      $container->get('dungeoncrawler_content.campaign_character_runtime_resolver'),
       $container->get('dungeoncrawler_content.campaign_character_runtime_sync'),
       $container->get('dungeoncrawler_content.quest_tracker'),
       $container->get('dungeoncrawler_content.quest_generator'),
@@ -273,12 +277,17 @@ class HexMapController extends ControllerBase {
     bool $start_q_explicit = FALSE,
     bool $start_r_explicit = FALSE
   ): array {
-    $record = $this->loadLaunchCampaignCharacterRecord($launch_context, [
+    $record = $this->campaignCharacterRuntimeResolver->loadRuntimeRecord(
+      (int) ($launch_context['campaign_id'] ?? 0),
+      (int) ($launch_context['character_id'] ?? 0),
+      NULL,
+      [
       'position_q',
       'position_r',
       'last_room_id',
       'location_ref',
-    ]);
+      ]
+    );
     if (!$record) {
       return $launch_context;
     }
@@ -321,7 +330,7 @@ class HexMapController extends ControllerBase {
 
     $record = $this->loadLaunchCampaignCharacterRecord($launch_context);
     if (!$record) {
-      $record = $this->materializeLaunchRuntimeCharacterRecord($launch_context);
+      $record = $this->materializeLaunchRuntimeCharacterRecord($launch_context, $room_explicit, $start_q_explicit, $start_r_explicit);
     }
     if (!$record) {
       return $launch_context;
@@ -358,82 +367,18 @@ class HexMapController extends ControllerBase {
    *   Matching campaign character record, if found.
    */
   protected function loadLaunchCampaignCharacterRecord(array $launch_context, array $extra_fields = []): ?array {
-    $campaign_id = (int) ($launch_context['campaign_id'] ?? 0);
-    $character_id = (int) ($launch_context['character_id'] ?? 0);
-
-    if ($campaign_id <= 0 || $character_id <= 0) {
-      return NULL;
-    }
-
-    $base_fields = [
-      'id',
-      'campaign_id',
-      'character_id',
-      'instance_id',
-      'name',
-      'level',
-      'ancestry',
-      'class',
-      'hp_current',
-      'hp_max',
-      'armor_class',
-      'character_data',
-      'default_character_data',
-    ];
-    $fields = array_values(array_unique(array_merge($base_fields, $extra_fields)));
-
-    $query = $this->database->select('dc_campaign_characters', 'cc')
-      ->fields('cc', $fields)
-      ->condition('campaign_id', $campaign_id);
-
-    $character_match = $query->orConditionGroup()
-      ->condition('character_id', $character_id)
-      ->condition('id', $character_id)
-      ->condition('instance_id', sprintf('pc-%d-%d', $campaign_id, $character_id));
-
-    $record = $query
-      ->condition($character_match)
-      ->orderBy('updated', 'DESC')
-      ->orderBy('id', 'DESC')
-      ->range(0, 1)
-      ->execute()
-      ->fetchAssoc();
-
-    if ($record) {
-      $match_mode = 'campaign_instance';
-      if ((int) ($record['id'] ?? 0) === $character_id) {
-        $match_mode = 'campaign_row_id';
-      }
-      elseif ((int) ($record['character_id'] ?? 0) === $character_id) {
-        $match_mode = 'canonical_character_id';
-      }
-      elseif ((string) ($record['instance_id'] ?? '') === sprintf('pc-%d-%d', $campaign_id, $character_id)) {
-        $match_mode = 'campaign_instance_id';
-      }
-      $this->getLogger('dungeoncrawler_hexmap')->notice('Hexmap launch character resolved in campaign scope: campaign_id=@campaign_id requested_character_id=@requested_character_id matched_row_id=@matched_row_id canonical_character_id=@canonical_character_id instance_id=@instance_id match_mode=@match_mode', [
-        '@campaign_id' => $campaign_id,
-        '@requested_character_id' => $character_id,
-        '@matched_row_id' => (int) ($record['id'] ?? 0),
-        '@canonical_character_id' => (int) ($record['character_id'] ?? 0),
-        '@instance_id' => (string) ($record['instance_id'] ?? ''),
-        '@match_mode' => $match_mode,
-      ]);
-      return $record;
-    }
-
-    $this->getLogger('dungeoncrawler_hexmap')->warning('Hexmap launch character could not be resolved in campaign scope; refusing cross-campaign fallback: campaign_id=@campaign_id requested_character_id=@requested_character_id expected_instance_id=@instance_id', [
-      '@campaign_id' => $campaign_id,
-      '@requested_character_id' => $character_id,
-      '@instance_id' => sprintf('pc-%d-%d', $campaign_id, $character_id),
-    ]);
-
-    return NULL;
+    return $this->campaignCharacterRuntimeResolver->loadRuntimeRecord(
+      (int) ($launch_context['campaign_id'] ?? 0),
+      (int) ($launch_context['character_id'] ?? 0),
+      NULL,
+      $extra_fields
+    );
   }
 
   /**
    * Materialize a campaign runtime row when launch starts from a library row.
    */
-  protected function materializeLaunchRuntimeCharacterRecord(array $launch_context): ?array {
+  protected function materializeLaunchRuntimeCharacterRecord(array $launch_context, bool $room_explicit = FALSE, bool $start_q_explicit = FALSE, bool $start_r_explicit = FALSE): ?array {
     $campaign_id = (int) ($launch_context['campaign_id'] ?? 0);
     $requested_character_id = (int) ($launch_context['character_id'] ?? 0);
     if ($campaign_id <= 0 || $requested_character_id <= 0) {
@@ -479,126 +424,19 @@ class HexMapController extends ControllerBase {
       }
     }
 
-    $instance_id = sprintf('pc-%d-%d', $campaign_id, $canonical_character_id);
-    $existing_query = $this->database->select('dc_campaign_characters', 'cc')
-      ->fields('cc', ['id'])
-      ->condition('campaign_id', $campaign_id);
-    $existing_match = $existing_query->orConditionGroup()
-      ->condition('instance_id', $instance_id)
-      ->condition('character_id', $canonical_character_id);
-    if ((int) ($selected_character['campaign_id'] ?? 0) === $campaign_id) {
-      $existing_match->condition('id', (int) $selected_character['id']);
-    }
-    $existing_row_id = $existing_query
-      ->condition($existing_match)
-      ->orderBy('updated', 'DESC')
-      ->orderBy('id', 'DESC')
-      ->range(0, 1)
-      ->execute()
-      ->fetchField();
-    if ($existing_row_id) {
-      return $this->loadLaunchCampaignCharacterRecord([
-        'campaign_id' => $campaign_id,
-        'character_id' => (int) $existing_row_id,
-      ]);
-    }
-
-    $character_data = json_decode((string) ($character['character_data'] ?? '{}'), TRUE);
-    if (!is_array($character_data)) {
-      $character_data = [];
-    }
-    $default_character_data = json_decode((string) ($character['default_character_data'] ?? '{}'), TRUE);
-    if (!is_array($default_character_data)) {
-      $default_character_data = [];
-    }
-
-    $location_room_id = (string) ($launch_context['room_id'] ?? '');
-    $position_q = (int) ($launch_context['start_q'] ?? 0);
-    $position_r = (int) ($launch_context['start_r'] ?? 0);
-    if ((int) ($selected_character['campaign_id'] ?? 0) === $campaign_id) {
-      $position_q = (int) ($selected_character['position_q'] ?? $position_q);
-      $position_r = (int) ($selected_character['position_r'] ?? $position_r);
-      $location_room_id = (string) ($selected_character['last_room_id'] ?? $selected_character['location_ref'] ?? $location_room_id);
-    }
-
-    $hp_max = (int) ($character['hp_max'] ?? 0);
-    if ($hp_max <= 0) {
-      $hp_max = (int) ($character_data['hp']['max'] ?? $character_data['calculated_stats']['max_hp'] ?? 0);
-    }
-    $hp_current = (int) ($character['hp_current'] ?? 0);
-    if ($hp_current <= 0 && $hp_max > 0) {
-      $hp_current = (int) ($character_data['hp']['current'] ?? $hp_max);
-    }
-    $armor_class = (int) ($character['armor_class'] ?? 0);
-    if ($armor_class <= 0) {
-      $armor_class = (int) ($character_data['ac'] ?? $character_data['calculated_stats']['ac'] ?? 0);
-    }
-
-    $now = \Drupal::time()->getRequestTime();
-    $fields = [
-      'campaign_id' => $campaign_id,
-      'character_id' => $canonical_character_id,
-      'instance_id' => $instance_id,
-      'uid' => (int) ($character['uid'] ?? $current_user->id()),
-      'name' => (string) ($character['name'] ?? ('Character ' . $canonical_character_id)),
-      'level' => (int) ($character['level'] ?? ($character_data['level'] ?? 1)),
-      'ancestry' => (string) ($character['ancestry'] ?? ''),
-      'class' => (string) ($character['class'] ?? ''),
-      'hp_current' => $hp_current,
-      'hp_max' => $hp_max,
-      'armor_class' => $armor_class,
-      'experience_points' => (int) ($character['experience_points'] ?? 0),
-      'position_q' => $position_q,
-      'position_r' => $position_r,
-      'last_room_id' => $location_room_id,
-      'role' => 'player',
-      'type' => 'pc',
-      'state_data' => json_encode($character_data, JSON_UNESCAPED_UNICODE),
-      'character_data' => json_encode($character_data, JSON_UNESCAPED_UNICODE),
-      'default_character_data' => json_encode($default_character_data, JSON_UNESCAPED_UNICODE),
-      'location_type' => $location_room_id !== '' ? 'room' : 'global',
-      'location_ref' => $location_room_id,
-      'is_active' => 1,
-      'status' => max(1, (int) ($character['status'] ?? 1)),
-      'joined' => $now,
-      'changed' => $now,
-      'updated' => $now,
-    ];
-
-    $selected_row_id = (int) $this->database->insert('dc_campaign_characters')
-      ->fields($fields + [
-        'created' => $now,
-      ])
-      ->execute();
-
-    $this->database->delete('dc_campaign_characters')
-      ->condition('campaign_id', $campaign_id)
-      ->condition('character_id', $canonical_character_id)
-      ->condition('id', $selected_row_id, '<>')
-      ->execute();
-
-    $this->database->update('dc_campaigns')
-      ->fields([
-        'active_character_id' => $canonical_character_id,
-        'status' => 'ready',
-        'changed' => $now,
-      ])
-      ->condition('id', $campaign_id)
-      ->execute();
-
-    $this->getLogger('dungeoncrawler_hexmap')->notice('Hexmap materialized campaign runtime row for direct launch: campaign_id=@campaign_id requested_character_id=@requested_character_id canonical_character_id=@canonical_character_id runtime_row_id=@runtime_row_id instance_id=@instance_id room_id=@room_id', [
-      '@campaign_id' => $campaign_id,
-      '@requested_character_id' => $requested_character_id,
-      '@canonical_character_id' => $canonical_character_id,
-      '@runtime_row_id' => $selected_row_id,
-      '@instance_id' => $instance_id,
-      '@room_id' => $location_room_id,
-    ]);
-
-    return $this->loadLaunchCampaignCharacterRecord([
-      'campaign_id' => $campaign_id,
-      'character_id' => $selected_row_id,
-    ]);
+    return $this->campaignCharacterRuntimeResolver->upsertRuntimeRecord(
+      $campaign_id,
+      (object) $selected_character,
+      (object) $character,
+      [
+        'room_id' => (string) ($launch_context['room_id'] ?? ''),
+        'start_q' => (int) ($launch_context['start_q'] ?? 0),
+        'start_r' => (int) ($launch_context['start_r'] ?? 0),
+        'room_explicit' => $room_explicit,
+        'start_q_explicit' => $start_q_explicit,
+        'start_r_explicit' => $start_r_explicit,
+      ]
+    );
   }
 
   /**

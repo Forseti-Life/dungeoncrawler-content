@@ -7,6 +7,7 @@ use Drupal\Core\Access\CsrfTokenGenerator;
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Database\Connection;
 use Drupal\Core\Url;
+use Drupal\dungeoncrawler_content\Service\CampaignCharacterRuntimeResolverService;
 use Drupal\dungeoncrawler_content\Service\CharacterManager;
 use Drupal\dungeoncrawler_content\Service\AbilityScoreTracker;
 use Drupal\dungeoncrawler_content\Service\CharacterPortraitGenerationService;
@@ -28,14 +29,16 @@ class CharacterCreationStepController extends ControllerBase {
   protected Connection $database;
   protected CharacterPortraitGenerationService $portraitGenerator;
   protected FeatLibraryService $featLibrary;
+  protected CampaignCharacterRuntimeResolverService $runtimeResolver;
 
-  public function __construct(CharacterManager $character_manager, SchemaLoader $schema_loader, CsrfTokenGenerator $csrf_token, Connection $database, CharacterPortraitGenerationService $portrait_generator, FeatLibraryService $feat_library) {
+  public function __construct(CharacterManager $character_manager, SchemaLoader $schema_loader, CsrfTokenGenerator $csrf_token, Connection $database, CharacterPortraitGenerationService $portrait_generator, FeatLibraryService $feat_library, CampaignCharacterRuntimeResolverService $runtime_resolver) {
     $this->characterManager = $character_manager;
     $this->schemaLoader = $schema_loader;
     $this->csrfToken = $csrf_token;
     $this->database = $database;
     $this->portraitGenerator = $portrait_generator;
     $this->featLibrary = $feat_library;
+    $this->runtimeResolver = $runtime_resolver;
   }
 
   public static function create(ContainerInterface $container) {
@@ -46,6 +49,7 @@ class CharacterCreationStepController extends ControllerBase {
       $container->get('database'),
       $container->get('dungeoncrawler_content.character_portrait_generator'),
       $container->get('dungeoncrawler_content.feat_library'),
+      $container->get('dungeoncrawler_content.campaign_character_runtime_resolver'),
     );
   }
 
@@ -414,7 +418,7 @@ class CharacterCreationStepController extends ControllerBase {
       ])
       ->execute();
 
-    $starter_room_id = $this->resolveCampaignStarterRoomId($campaign_id);
+    $starter_room_id = $this->runtimeResolver->resolveStarterRoomIdForCampaign($campaign_id);
     $runtime_fields = [
       'character_id' => $library_row_id,
       'instance_id' => sprintf('pc-%d-%d', $campaign_id, $library_row_id),
@@ -442,53 +446,6 @@ class CharacterCreationStepController extends ControllerBase {
       ])
       ->condition('id', $campaign_id)
       ->execute();
-  }
-
-  /**
-   * Resolve the starter room id for a campaign's active dungeon payload.
-   */
-  private function resolveCampaignStarterRoomId(int $campaign_id): string {
-    if ($campaign_id <= 0) {
-      return '';
-    }
-
-    $row = $this->database->select('dc_campaign_dungeons', 'd')
-      ->fields('d', ['dungeon_data'])
-      ->condition('campaign_id', $campaign_id)
-      ->orderBy('id', 'DESC')
-      ->range(0, 1)
-      ->execute()
-      ->fetchAssoc();
-    if (!$row) {
-      return '';
-    }
-
-    $decoded = json_decode((string) ($row['dungeon_data'] ?? '{}'), TRUE);
-    if (!is_array($decoded)) {
-      return '';
-    }
-
-    $active_room_id = trim((string) ($decoded['active_room_id'] ?? ''));
-    if ($active_room_id !== '') {
-      return $active_room_id;
-    }
-
-    $game_state_room_id = trim((string) ($decoded['game_state']['active_room_id'] ?? ''));
-    if ($game_state_room_id !== '') {
-      return $game_state_room_id;
-    }
-
-    foreach (($decoded['rooms'] ?? []) as $room) {
-      if (!is_array($room)) {
-        continue;
-      }
-      $room_id = trim((string) ($room['room_id'] ?? ''));
-      if ($room_id !== '') {
-        return $room_id;
-      }
-    }
-
-    return '';
   }
 
   /**
