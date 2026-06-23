@@ -2067,6 +2067,62 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
 
   /**
    * @covers ::buildDeterministicNpcDialogue
+   * @covers ::buildBrokeredStorylineLeadDialogue
+   */
+  public function testDeterministicNpcDialogueSurfacesBrokeredStorylinesOneAtATime(): void {
+    $this->psychologyService->method('loadProfile')
+      ->willReturnMap([
+        [22, 'npc_tavern_keeper', [
+          'display_name' => 'Eldric',
+          'attitude' => 'friendly',
+          'role' => 'quest_giver',
+          'motivations' => 'connect travelers with paying work',
+        ]],
+      ]);
+
+    $relationship_manager = $this->createMock(\Drupal\dungeoncrawler_content\Service\RelationshipManagerService::class);
+    $relationship_manager->expects($this->once())
+      ->method('getCampaignStorylineContacts')
+      ->with(22, 'npc_tavern_keeper')
+      ->willReturn([
+        [
+          'name' => 'Little Trouble in Big Absalom',
+          'quest_giver' => [
+            'display_name' => 'The Kind Old Lady',
+          ],
+          'lead_location' => [
+            'label' => "Grandma's House",
+          ],
+        ],
+        [
+          'name' => 'Threshold of Knowledge',
+          'quest_giver' => [
+            'display_name' => 'Okoro of the Open Palm',
+          ],
+          'lead_location' => [
+            'label' => 'Magaambya Campus',
+          ],
+        ],
+      ]);
+
+    $this->roomChatService->setRelationshipManager($relationship_manager);
+
+    $reply = $this->roomChatService->publicBuildDeterministicNpcDialogue(
+      22,
+      'npc_tavern_keeper',
+      'Eldric',
+      'Any additional jobs for me Eldric?'
+    );
+
+    $this->assertNotNull($reply);
+    $this->assertStringContainsString('Little Trouble in Big Absalom', $reply);
+    $this->assertStringContainsString('The Kind Old Lady', $reply);
+    $this->assertStringNotContainsString('Threshold of Knowledge', $reply);
+    $this->assertStringNotContainsString('Also,', $reply);
+  }
+
+  /**
+   * @covers ::buildDeterministicNpcDialogue
    */
   public function testDeterministicNpcDialogueDoesNotFallbackToGreetingForQuestAskOnInformant(): void {
     $this->psychologyService->method('loadProfile')

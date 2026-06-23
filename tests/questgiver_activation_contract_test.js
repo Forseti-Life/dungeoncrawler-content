@@ -42,7 +42,7 @@ assert(
 );
 assert(
   roomChatSource.indexOf('buildAvailableQuestgiverQuestDialogue($campaign_id, $entity_ref, $display_name, $room_id, $dungeon_data)') <
-    roomChatSource.indexOf('buildBrokeredStorylineLeadDialogue($campaign_id, $entity_ref, $display_name)'),
+    roomChatSource.indexOf('buildBrokeredStorylineLeadDialogue($campaign_id, $entity_ref, $display_name, $player_message)'),
   'Direct authored questgiver offers are prioritized before brokered storyline lead chatter'
 );
 

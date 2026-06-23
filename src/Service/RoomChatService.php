@@ -7262,7 +7262,7 @@ PROMPT;
         return $available_quest_offer;
       }
 
-      $brokered_leads = $this->buildBrokeredStorylineLeadDialogue($campaign_id, $entity_ref, $display_name);
+      $brokered_leads = $this->buildBrokeredStorylineLeadDialogue($campaign_id, $entity_ref, $display_name, $player_message);
       if ($brokered_leads !== NULL) {
         return $brokered_leads;
       }
@@ -7728,43 +7728,46 @@ PROMPT;
   /**
    * Builds Eldric's deterministic lead handoff.
    */
-  protected function buildBrokeredStorylineLeadDialogue(int $campaign_id, string $entity_ref, string $display_name): ?string {
+  protected function buildBrokeredStorylineLeadDialogue(int $campaign_id, string $entity_ref, string $display_name, string $player_message = ''): ?string {
     $contacts = $this->loadBrokeredStorylineContacts($campaign_id, $entity_ref);
     if ($contacts === []) {
       return NULL;
     }
 
-    $lead_lines = [];
-    foreach (array_slice($contacts, 0, 3) as $contact) {
-      $storyline_name = trim((string) ($contact['name'] ?? ''));
-      $quest_giver_name = trim((string) ($contact['quest_giver']['display_name'] ?? ''));
-      $lead_location = trim((string) ($contact['lead_location']['label'] ?? ''));
-      $lead_notes = trim((string) ($contact['quest_giver']['notes'] ?? $contact['quest_giver']['relationship_state']['notes'] ?? $contact['lead_location']['notes'] ?? ''));
-
-      if ($quest_giver_name === '' && $storyline_name === '') {
-        continue;
+    $selected_contact = $contacts[0] ?? NULL;
+    if ($player_message !== '') {
+      $mentioned = $this->selectMentionedBrokeredStorylineContacts($contacts, $player_message, 1, 1);
+      if ($mentioned !== []) {
+        $selected_contact = $mentioned[0];
       }
-
-      $line = '';
-      if ($storyline_name !== '') {
-        $line .= 'For ' . $storyline_name . ', ';
-      }
-      $line .= 'look for ' . ($quest_giver_name !== '' ? $quest_giver_name : 'my contact');
-      if ($lead_location !== '') {
-        $line .= ' at ' . $lead_location;
-      }
-      if ($lead_notes !== '') {
-        $line .= '; ' . $this->trimNpcDialogueClause($lead_notes);
-      }
-      $lead_lines[] = $line;
     }
 
-    if ($lead_lines === []) {
+    if (!is_array($selected_contact)) {
       return NULL;
     }
 
+    $storyline_name = trim((string) ($selected_contact['name'] ?? ''));
+    $quest_giver_name = trim((string) ($selected_contact['quest_giver']['display_name'] ?? ''));
+    $lead_location = trim((string) ($selected_contact['lead_location']['label'] ?? ''));
+    $lead_notes = trim((string) ($selected_contact['quest_giver']['notes'] ?? $selected_contact['quest_giver']['relationship_state']['notes'] ?? $selected_contact['lead_location']['notes'] ?? ''));
+    if ($quest_giver_name === '' && $storyline_name === '') {
+      return NULL;
+    }
+
+    $line = '';
+    if ($storyline_name !== '') {
+      $line .= 'For ' . $storyline_name . ', ';
+    }
+    $line .= 'look for ' . ($quest_giver_name !== '' ? $quest_giver_name : 'my contact');
+    if ($lead_location !== '') {
+      $line .= ' at ' . $lead_location;
+    }
+    if ($lead_notes !== '') {
+      $line .= '; ' . $this->trimNpcDialogueClause($lead_notes);
+    }
+
     $prefix = $display_name !== '' ? 'If you want work, ' : '';
-    return '"' . $prefix . implode('. Also, ', $lead_lines) . '."';
+    return '"' . $prefix . $line . '."';
   }
 
   /**
