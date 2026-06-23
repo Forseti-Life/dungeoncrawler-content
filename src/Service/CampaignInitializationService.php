@@ -938,10 +938,10 @@ class CampaignInitializationService {
           $this->chatSessionManager->postMessage(
             (int) $room_session['id'],
             $campaign_id,
-            'Game Master',
-            'gm',
+            'Narrator',
+            'narrator',
             '',
-            $this->prefixInitialEncounterNarration('Game Master', $seed_message),
+            $this->prefixInitialEncounterNarration('Narrator', $seed_message),
             'narrative',
             'all',
             ['event' => 'room_enter', 'room_id' => $room_id],
@@ -1027,7 +1027,7 @@ class CampaignInitializationService {
       $resolved_room_name = trim((string) ($room['name'] ?? $room_name));
       $resolved_room_description = trim((string) ($room['description'] ?? $room_description));
       $seed_message = $this->prefixInitialEncounterNarration(
-        'Game Master',
+        'Narrator',
         $this->buildStarterRoomIntroMessage($resolved_room_name, $resolved_room_description)
       );
 
@@ -1039,9 +1039,9 @@ class CampaignInitializationService {
       }
 
       $room['chat'][] = [
-        'speaker' => 'Game Master',
+        'speaker' => 'Narrator',
         'message' => $seed_message,
-        'type' => 'gm',
+        'type' => 'narrator',
         'channel' => 'room',
         'timestamp' => date('c', $now),
         'character_id' => NULL,

@@ -152,7 +152,7 @@ if ($campaign_id > 0 && isset($room_session)) {
 
   if (!empty($messages)) {
     $first_msg = $messages[0];
-    assert_equals('Game Master', $first_msg['speaker'] ?? '', 'Welcome message speaker is Game Master');
+    assert_equals('Narrator', $first_msg['speaker'] ?? '', 'Welcome message speaker is Narrator');
     assert_equals('narrative', $first_msg['message_type'] ?? '', 'Welcome message type is narrative');
     $welcome_message = (string) ($first_msg['message'] ?? '');
     assert_contains('The Gilded Tankard', $welcome_message, 'Welcome message mentions The Gilded Tankard');

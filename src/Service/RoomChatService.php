@@ -150,6 +150,9 @@ class RoomChatService {
 
     // Room chat must remain server-authoritative during encounters.
     // Do not inject derived narrator intro text at read time.
+    if ($channel === 'room') {
+      $chat = $this->normalizeOpeningNarratorLine($chat, $room_entry);
+    }
 
     // For non-room channels, verify the character has access.
     if ($channel !== 'room' && $character_id !== NULL) {
@@ -293,7 +296,8 @@ class RoomChatService {
       if ($existing === '') {
         continue;
       }
-      if ($existing === $intro_message || str_contains($existing, $description)) {
+      $existing_speaker = trim((string) ($message['speaker'] ?? ''));
+      if ($existing === $intro_message && strcasecmp($existing_speaker, 'Narrator') === 0) {
         return $chat;
       }
     }
@@ -308,6 +312,55 @@ class RoomChatService {
       'user_id' => 0,
       'scene_intro' => TRUE,
     ]);
+
+    return $chat;
+  }
+
+  /**
+   * Re-labels the first authored room-intro line as Narrator when legacy data
+   * still carries the historic "Game Master" speaker label.
+   *
+   * @param array<int, mixed> $chat
+   * @param array<string, mixed> $room_entry
+   *
+   * @return array<int, mixed>
+   */
+  protected function normalizeOpeningNarratorLine(array $chat, array $room_entry): array {
+    $description = trim((string) ($room_entry['description'] ?? ''));
+    if ($description === '') {
+      return $chat;
+    }
+
+    foreach ($chat as $index => $message) {
+      if (!is_array($message) || !empty($message['internal_log'])) {
+        continue;
+      }
+
+      $speaker = trim((string) ($message['speaker'] ?? ''));
+      $body = trim((string) ($message['message'] ?? ''));
+      if ($body === '') {
+        continue;
+      }
+      if (strcasecmp($speaker, 'Narrator') === 0) {
+        return $chat;
+      }
+      if (strcasecmp($speaker, 'Game Master') !== 0) {
+        return $chat;
+      }
+      if (!str_contains($body, $description)) {
+        return $chat;
+      }
+
+      $chat[$index]['speaker'] = 'Narrator';
+      $chat[$index]['type'] = 'narrator';
+      $chat[$index]['message'] = preg_replace(
+        '/^(Round\s+(?:\d+|\?)\s*:\s*Turn\s+(?:\d+|\?)\s*:\s*)Game Master:/i',
+        '$1Narrator:',
+        $body,
+        1
+      ) ?? $body;
+      return $chat;
+    }
 
     return $chat;
   }
