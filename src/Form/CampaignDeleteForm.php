@@ -309,6 +309,7 @@ class CampaignDeleteForm extends ConfirmFormBase {
     return [
       'campaign_id' => 0,
       'character_id' => 0,
+      'source_character_id' => NULL,
       'instance_id' => $instance_id,
       'location_type' => 'roster',
       'location_ref' => '',
@@ -316,6 +317,7 @@ class CampaignDeleteForm extends ConfirmFormBase {
       'position_r' => 0,
       'last_room_id' => '',
       'is_active' => 0,
+      'lifecycle_state' => 'detached_roster',
       'updated' => $now,
       'changed' => $now,
     ];

@@ -670,6 +670,7 @@ class DungeonGeneratorService {
                 ])
                 ->fields([
                   'character_id' => 0,
+                  'source_character_id' => NULL,
                   'name' => $display_name,
                   'level' => $creature_level,
                   'ancestry' => '',
@@ -682,6 +683,7 @@ class DungeonGeneratorService {
                   'position_r' => $hex['r'] ?? 0,
                   'last_room_id' => $room_id,
                   'type' => 'npc',
+                  'lifecycle_state' => 'campaign_entity',
                   'status' => 1,
                   'uid' => 0,
                   'role' => 'creature',

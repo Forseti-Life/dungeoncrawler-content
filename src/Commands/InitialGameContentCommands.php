@@ -428,6 +428,7 @@ class InitialGameContentCommands extends DrushCommands {
         ->fields([
           'campaign_id' => $campaign_id,
           'character_id' => 0,  // Generic NPC.
+          'source_character_id' => NULL,
           'name' => $name,
           'level' => 0,
           'ancestry' => 'humanoid',
@@ -441,6 +442,7 @@ class InitialGameContentCommands extends DrushCommands {
           'last_room_id' => $room_id,
           'instance_id' => $instance_id,
           'type' => 'npc',
+          'lifecycle_state' => 'campaign_npc',
           'state_data' => json_encode($state_data),
           'location_type' => 'room',
           'location_ref' => $room_id,

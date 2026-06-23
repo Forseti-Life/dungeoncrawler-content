@@ -612,6 +612,7 @@ PROMPT;
             'last_room_id' => (string) ($schema_data['position']['room_id'] ?? ''),
             'character_data' => json_encode($schema_data, JSON_PRETTY_PRINT),
             'status' => $schema_data['step'] >= 8 ? 1 : 0,
+            'lifecycle_state' => $resolved_campaign_id > 0 ? 'campaign_draft' : 'draft_library',
             'version' => $next_version,
             'changed' => $now,
           ])
@@ -627,6 +628,7 @@ PROMPT;
             'uuid' => $instance_id,
             'campaign_id' => $resolved_campaign_id,
             'character_id' => 0,
+            'source_character_id' => NULL,
             'instance_id' => $instance_id,
             'uid' => (int) $this->currentUser->id(),
             'name' => $schema_data['name'] ?: 'Unnamed Character',
@@ -642,6 +644,7 @@ PROMPT;
             'last_room_id' => (string) ($schema_data['position']['room_id'] ?? ''),
             'character_data' => json_encode($schema_data, JSON_PRETTY_PRINT),
             'status' => $schema_data['step'] >= 8 ? 1 : 0,
+            'lifecycle_state' => $resolved_campaign_id > 0 ? 'campaign_draft' : 'draft_library',
             'created' => $now,
             'changed' => $now,
           ])

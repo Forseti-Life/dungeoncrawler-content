@@ -30,6 +30,7 @@ class CampaignCharacterRuntimeSyncServiceTest extends UnitTestCase {
       [
         'id' => 218,
         'character_id' => 205,
+        'source_character_id' => 205,
         'instance_id' => 'pc-63-205',
         'name' => 'Brakouk',
         'hp_current' => 18,

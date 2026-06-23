@@ -565,6 +565,7 @@ class CampaignInitializationService {
         ->fields([
           'campaign_id' => $campaign_id,
           'character_id' => 0,
+          'source_character_id' => NULL,
           'name' => $npc['name'],
           'level' => 0,
           'ancestry' => 'humanoid',
@@ -578,6 +579,7 @@ class CampaignInitializationService {
           'last_room_id' => $runtime_room_id,
           'instance_id' => $instance_id,
           'type' => 'npc',
+          'lifecycle_state' => 'campaign_npc',
           'state_data' => json_encode($state_data),
           'location_type' => 'room',
           'location_ref' => $runtime_room_id,

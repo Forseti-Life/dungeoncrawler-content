@@ -3823,6 +3823,7 @@ class CharacterCreationStepForm extends FormBase {
             'last_room_id' => (string) ($schema_data['position']['room_id'] ?? ''),
             'character_data' => json_encode($schema_data, JSON_PRETTY_PRINT),
             'status' => $schema_data['step'] >= 8 ? 1 : 0,
+            'lifecycle_state' => $resolved_campaign_id > 0 ? 'campaign_draft' : 'draft_library',
             'version' => $next_version,
             'changed' => $now,
           ])
@@ -3840,6 +3841,7 @@ class CharacterCreationStepForm extends FormBase {
             'uuid' => $instance_id,
             'campaign_id' => $resolved_campaign_id,
             'character_id' => 0,
+            'source_character_id' => NULL,
             'instance_id' => $instance_id,
             'uid' => (int) $this->currentUser->id(),
             'name' => $schema_data['name'] ?: 'Unnamed Character',
@@ -3854,6 +3856,7 @@ class CharacterCreationStepForm extends FormBase {
             'position_r' => (int) ($schema_data['position']['r'] ?? 0),
             'last_room_id' => (string) ($schema_data['position']['room_id'] ?? ''),
             'character_data' => json_encode($schema_data, JSON_PRETTY_PRINT),
+            'lifecycle_state' => $resolved_campaign_id > 0 ? 'campaign_draft' : 'draft_library',
             'status' => 0,
             'created' => $now,
             'changed' => $now,
@@ -4013,7 +4016,7 @@ class CharacterCreationStepForm extends FormBase {
       return;
     }
 
-    $linked_character_id = (int) ($record->character_id ?? 0);
+    $linked_character_id = (int) ($record->source_character_id ?? $record->character_id ?? 0);
     if ($linked_character_id > 0 && $linked_character_id !== (int) $record->id) {
       return;
     }
@@ -4032,6 +4035,7 @@ class CharacterCreationStepForm extends FormBase {
         'uuid' => $library_instance_id,
         'campaign_id' => 0,
         'character_id' => 0,
+        'source_character_id' => NULL,
         'instance_id' => $library_instance_id,
         'uid' => (int) ($record->uid ?? $this->currentUser->id()),
         'name' => $schema_data['name'] ?: 'Unnamed Character',
@@ -4051,6 +4055,7 @@ class CharacterCreationStepForm extends FormBase {
         'location_ref' => '',
         'role' => (string) ($record->role ?? 'player'),
         'type' => (string) ($record->type ?? 'pc'),
+        'lifecycle_state' => 'ready_library',
         'status' => max(1, (int) ($record->status ?? 1)),
         'is_active' => 0,
         'created' => $now,
@@ -4062,7 +4067,9 @@ class CharacterCreationStepForm extends FormBase {
     $starter_room_id = $this->runtimeResolver->resolveStarterRoomIdForCampaign($campaign_id);
     $runtime_fields = [
       'character_id' => $library_row_id,
+      'source_character_id' => $library_row_id,
       'instance_id' => sprintf('pc-%d-%d', $campaign_id, $library_row_id),
+      'lifecycle_state' => 'campaign_runtime',
       'default_character_data' => json_encode($schema_data, JSON_PRETTY_PRINT),
       'changed' => $now,
       'updated' => $now,
@@ -6820,24 +6827,78 @@ class CharacterCreationStepForm extends FormBase {
         . $this->t('Choose one of your selected cantrips and one of your selected 1st-rank spellbook spells to embed in your makeshift staff.')
         . '</div>',
     ];
+
+    if (empty($options['cantrips']) || empty($options['spells'])) {
+      $container['feat_selections']['staff-nexus']['pending'] = [
+        '#markup' => '<div class="spell-help">'
+          . $this->t('Select your cantrips and 1st-rank spellbook spells above first. Staff Nexus choices will unlock as soon as those spell selections are present.')
+          . '</div>',
+      ];
+      return;
+    }
+
+    $selected_cantrip_cards = [];
+    foreach ($this->characterManager->getSpellsByTradition($tradition, 0) as $spell) {
+      $spell_id = (string) ($spell['id'] ?? '');
+      if (!array_key_exists($spell_id, $options['cantrips'])) {
+        continue;
+      }
+      $tags = ['Cantrip', ucfirst($tradition)];
+      if (!empty($spell['school'])) {
+        $tags[] = ucfirst((string) $spell['school']);
+      }
+      $selected_cantrip_cards[$spell_id] = $this->buildOptionCardData(
+        $spell['description'] ?? '',
+        $tags,
+        $this->extractSpellFacts($spell)
+      );
+    }
+    $selected_spell_cards = [];
+    foreach ($this->characterManager->getSpellsByTradition($tradition, 1) as $spell) {
+      $spell_id = (string) ($spell['id'] ?? '');
+      if (!array_key_exists($spell_id, $options['spells'])) {
+        continue;
+      }
+      $tags = ['1st-rank spell', ucfirst($tradition)];
+      if (!empty($spell['school'])) {
+        $tags[] = ucfirst((string) $spell['school']);
+      }
+      $selected_spell_cards[$spell_id] = $this->buildOptionCardData(
+        $spell['description'] ?? '',
+        $tags,
+        $this->extractSpellFacts($spell)
+      );
+    }
+
     $container['feat_selections']['staff-nexus']['selected_cantrip'] = [
-      '#type' => 'select',
+      '#type' => 'radios',
       '#title' => $this->t('Choose the staff cantrip'),
       '#options' => $options['cantrips'],
       '#default_value' => $selected_cantrip,
-      '#empty_option' => $this->t('- Select a cantrip -'),
-      '#description' => $this->t('The makeshift staff contains one cantrip from your chosen arcane cantrips.'),
-      '#disabled' => empty($options['cantrips']),
+      '#required' => FALSE,
+      '#description' => $this->t('The makeshift staff contains one cantrip from your selected arcane cantrips.'),
     ];
+    $this->attachOptionCardSettings(
+      $container['feat_selections']['staff-nexus'],
+      'selected_cantrip',
+      $selected_cantrip_cards,
+      'single'
+    );
+
     $container['feat_selections']['staff-nexus']['selected_spell'] = [
-      '#type' => 'select',
+      '#type' => 'radios',
       '#title' => $this->t('Choose the staff 1st-rank spell'),
       '#options' => $options['spells'],
       '#default_value' => $selected_spell,
-      '#empty_option' => $this->t('- Select a 1st-rank spell -'),
+      '#required' => FALSE,
       '#description' => $this->t('The makeshift staff contains one selected 1st-rank spell from your spellbook.'),
-      '#disabled' => empty($options['spells']),
     ];
+    $this->attachOptionCardSettings(
+      $container['feat_selections']['staff-nexus'],
+      'selected_spell',
+      $selected_spell_cards,
+      'single'
+    );
   }
 
   /**

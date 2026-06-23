@@ -81,6 +81,13 @@ class CampaignCharacterRuntimeSyncService {
       $hp_max = (int) ($record['hp_max'] ?: ($char_data['hp']['max'] ?? $char_data['calculated_stats']['max_hp'] ?? 20));
       $hp_current = (int) ($record['hp_current'] ?: ($char_data['hp']['current'] ?? $hp_max));
       $armor_class = (int) ($record['armor_class'] ?: ($char_data['ac'] ?? $char_data['calculated_stats']['ac'] ?? 10));
+      $source_character_id = (int) ($record['source_character_id'] ?? 0);
+      if ($source_character_id <= 0) {
+        throw new \RuntimeException(sprintf(
+          'Campaign runtime PC row %d is missing source_character_id.',
+          (int) ($record['id'] ?? 0)
+        ));
+      }
       $instance_id = (string) ($record['instance_id'] ?? '');
       if ($instance_id === '') {
         $instance_id = sprintf('pc-%d-%d', $campaign_id, (int) ($record['id'] ?? 0));
@@ -108,7 +115,7 @@ class CampaignCharacterRuntimeSyncService {
             'name' => $name,
             'team' => 'player',
             'character_id' => (int) ($record['id'] ?? 0),
-            'source_character_id' => (int) ($record['character_id'] ?? 0),
+            'source_character_id' => $source_character_id,
             'campaign_character_id' => (int) ($record['id'] ?? 0),
             'runtime_entity_id' => $instance_id,
             'stats' => [
@@ -143,6 +150,7 @@ class CampaignCharacterRuntimeSyncService {
       ->fields('cc', [
         'id',
         'character_id',
+        'source_character_id',
         'instance_id',
         'name',
         'hp_current',

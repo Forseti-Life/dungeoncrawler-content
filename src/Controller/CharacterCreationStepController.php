@@ -86,7 +86,7 @@ class CharacterCreationStepController extends ControllerBase {
       ->fields('c', ['id'])
       ->condition('uid', (int) $this->currentUser()->id())
       ->condition('campaign_id', 0)
-      ->condition('character_id', 0)
+      ->condition('lifecycle_state', 'draft_library')
       ->condition('status', 0)
       ->range(0, 1)
       ->execute()
@@ -372,7 +372,7 @@ class CharacterCreationStepController extends ControllerBase {
       return;
     }
 
-    $linked_character_id = (int) ($record->character_id ?? 0);
+    $linked_character_id = (int) ($record->source_character_id ?? $record->character_id ?? 0);
     if ($linked_character_id > 0 && $linked_character_id !== (int) $record->id) {
       return;
     }
@@ -391,6 +391,7 @@ class CharacterCreationStepController extends ControllerBase {
         'uuid' => $library_instance_id,
         'campaign_id' => 0,
         'character_id' => 0,
+        'source_character_id' => NULL,
         'instance_id' => $library_instance_id,
         'uid' => (int) ($record->uid ?? $this->currentUser()->id()),
         'name' => $schema_data['name'] ?: 'Unnamed Character',
@@ -410,6 +411,7 @@ class CharacterCreationStepController extends ControllerBase {
         'location_ref' => '',
         'role' => (string) ($record->role ?? 'player'),
         'type' => (string) ($record->type ?? 'pc'),
+        'lifecycle_state' => 'ready_library',
         'status' => max(1, (int) ($record->status ?? 1)),
         'is_active' => 0,
         'created' => $now,
@@ -421,7 +423,9 @@ class CharacterCreationStepController extends ControllerBase {
     $starter_room_id = $this->runtimeResolver->resolveStarterRoomIdForCampaign($campaign_id);
     $runtime_fields = [
       'character_id' => $library_row_id,
+      'source_character_id' => $library_row_id,
       'instance_id' => sprintf('pc-%d-%d', $campaign_id, $library_row_id),
+      'lifecycle_state' => 'campaign_runtime',
       'default_character_data' => json_encode($schema_data, JSON_PRETTY_PRINT),
       'changed' => $now,
       'updated' => $now,
@@ -500,6 +504,7 @@ class CharacterCreationStepController extends ControllerBase {
         'uuid' => $instance_id,
         'campaign_id' => 0,
         'character_id' => 0,
+        'source_character_id' => NULL,
         'instance_id' => $instance_id,
         'uid' => (int) $this->currentUser()->id(),
         'name' => $character_data['name'] ?: 'Unnamed Character',
@@ -514,6 +519,7 @@ class CharacterCreationStepController extends ControllerBase {
         'position_r' => 0,
         'last_room_id' => '',
         'character_data' => json_encode($character_data, JSON_PRETTY_PRINT),
+        'lifecycle_state' => 'draft_library',
         'status' => 0, // Draft
         'created' => $now,
         'changed' => $now,

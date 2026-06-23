@@ -199,6 +199,7 @@ class CharacterApiController extends ControllerBase {
             'uuid' => $instance_id,
             'campaign_id' => 0,
             'character_id' => 0,
+            'source_character_id' => NULL,
             'instance_id' => $instance_id,
             'uid' => (int) $this->currentUser()->id(),
             'name' => $character_data['name'] ?: 'Unnamed Character',
@@ -213,6 +214,7 @@ class CharacterApiController extends ControllerBase {
             'position_r' => (int) ($character_data['position']['r'] ?? 0),
             'last_room_id' => (string) ($character_data['position']['room_id'] ?? ''),
             'character_data' => json_encode($character_data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE),
+            'lifecycle_state' => 'draft_library',
             'status' => 0, // Draft status until wizard is complete
             'created' => $now,
             'changed' => $now,

@@ -1177,6 +1177,13 @@ function dungeoncrawler_content_schema() {
         'default' => 0,
         'description' => 'Library character ID.',
       ],
+      'source_character_id' => [
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => FALSE,
+        'default' => NULL,
+        'description' => 'Canonical source character row id for runtime PC records; NULL for non-PC and unlinked drafts.',
+      ],
       'name' => [
         'type' => 'varchar',
         'length' => 255,
@@ -1307,6 +1314,13 @@ function dungeoncrawler_content_schema() {
         'default' => 'player',
         'description' => 'Party role in campaign.',
       ],
+      'lifecycle_state' => [
+        'type' => 'varchar',
+        'length' => 64,
+        'not null' => TRUE,
+        'default' => 'legacy',
+        'description' => 'Explicit lifecycle state (draft_library, campaign_runtime, invited_pending_character, campaign_npc, detached_roster, etc).',
+      ],
       'state_data' => [
         'type' => 'text',
         'size' => 'big',
@@ -1374,6 +1388,7 @@ function dungeoncrawler_content_schema() {
     'indexes' => [
       'campaign_id' => ['campaign_id'],
       'character_id' => ['character_id'],
+      'source_character_id' => ['source_character_id'],
       'name' => ['name'],
       'status' => ['status'],
       'hp_current' => ['hp_current'],
@@ -1382,6 +1397,7 @@ function dungeoncrawler_content_schema() {
       'class' => ['class'],
       'type' => ['type'],
       'uid' => ['uid'],
+      'lifecycle_state' => ['lifecycle_state'],
       'location_type' => ['location_type'],
       'location_ref' => ['location_ref'],
     ],
@@ -8500,6 +8516,161 @@ function dungeoncrawler_content_update_10081() {
   }
 
   return t('Updated combat_participants.entity_id to VARCHAR(191) for runtime entity IDs.');
+}
+
+/**
+ * De-overload campaign character identity with explicit source/lifecycle fields.
+ */
+function dungeoncrawler_content_update_10082() {
+  $database = \Drupal::database();
+  $schema_handler = $database->schema();
+  $schema = dungeoncrawler_content_schema();
+
+  if (!$schema_handler->tableExists('dc_campaign_characters')) {
+    throw new \Drupal\Core\Utility\UpdateException('dc_campaign_characters table is required for identity migration.');
+  }
+  if (!$schema_handler->fieldExists('dc_campaign_characters', 'source_character_id')) {
+    $schema_handler->addField(
+      'dc_campaign_characters',
+      'source_character_id',
+      $schema['dc_campaign_characters']['fields']['source_character_id']
+    );
+  }
+  if (!$schema_handler->fieldExists('dc_campaign_characters', 'lifecycle_state')) {
+    $schema_handler->addField(
+      'dc_campaign_characters',
+      'lifecycle_state',
+      $schema['dc_campaign_characters']['fields']['lifecycle_state']
+    );
+  }
+  if (!$schema_handler->indexExists('dc_campaign_characters', 'source_character_id')) {
+    $schema_handler->addIndex('dc_campaign_characters', 'source_character_id', ['source_character_id']);
+  }
+  if (!$schema_handler->indexExists('dc_campaign_characters', 'lifecycle_state')) {
+    $schema_handler->addIndex('dc_campaign_characters', 'lifecycle_state', ['lifecycle_state']);
+  }
+
+  $rows = $database->select('dc_campaign_characters', 'c')
+    ->fields('c', ['id', 'campaign_id', 'character_id', 'source_character_id', 'instance_id', 'type', 'status', 'is_active', 'uid', 'role'])
+    ->orderBy('id', 'ASC')
+    ->execute()
+    ->fetchAllAssoc('id');
+
+  foreach ($rows as $id => $row) {
+    $id = (int) $id;
+    $campaign_id = (int) ($row->campaign_id ?? 0);
+    $character_id = (int) ($row->character_id ?? 0);
+    $current_source = $row->source_character_id !== NULL ? (int) $row->source_character_id : NULL;
+    $instance_id = trim((string) ($row->instance_id ?? ''));
+    $type = strtolower(trim((string) ($row->type ?? 'pc')));
+    $status = (int) ($row->status ?? 0);
+    $is_active = (int) ($row->is_active ?? 1);
+    $uid = (int) ($row->uid ?? 0);
+    $role = strtolower(trim((string) ($row->role ?? 'player')));
+
+    $source_character_id = $current_source;
+    $lifecycle_state = 'legacy';
+
+    if ($type === 'pc' && $campaign_id > 0) {
+      if ($is_active === 0 && $instance_id === '') {
+        $source_character_id = NULL;
+        $lifecycle_state = 'invited_pending_character';
+      }
+      else {
+        $derived_source = $character_id;
+        if ($derived_source <= 0 && preg_match('/^pc-\d+-(\d+)$/', $instance_id, $matches)) {
+          $derived_source = (int) $matches[1];
+        }
+        if ($derived_source <= 0) {
+          throw new \Drupal\Core\Utility\UpdateException(sprintf(
+            'Identity migration failed: runtime PC row id=%d campaign_id=%d has no canonical source character.',
+            $id,
+            $campaign_id
+          ));
+        }
+        $source_exists = (bool) $database->select('dc_campaign_characters', 's')
+          ->condition('s.id', $derived_source)
+          ->condition('s.campaign_id', 0)
+          ->condition('s.type', 'pc')
+          ->countQuery()
+          ->execute()
+          ->fetchField();
+        if (!$source_exists) {
+          throw new \Drupal\Core\Utility\UpdateException(sprintf(
+            'Identity migration failed: runtime PC row id=%d references missing source character id=%d.',
+            $id,
+            $derived_source
+          ));
+        }
+        $source_character_id = $derived_source;
+        $character_id = $derived_source;
+        $lifecycle_state = 'campaign_runtime';
+      }
+    }
+    elseif ($type === 'pc' && $campaign_id === 0) {
+      $source_character_id = NULL;
+      if ($status <= 0) {
+        $lifecycle_state = 'draft_library';
+      }
+      elseif ($is_active === 0) {
+        $lifecycle_state = 'detached_roster';
+      }
+      else {
+        $lifecycle_state = 'ready_library';
+      }
+    }
+    else {
+      $source_character_id = NULL;
+      if ($campaign_id > 0 && $type === 'npc') {
+        $lifecycle_state = $role === 'merchant' ? 'campaign_merchant' : 'campaign_npc';
+      }
+      elseif ($campaign_id > 0) {
+        $lifecycle_state = 'campaign_entity';
+      }
+      else {
+        $lifecycle_state = 'library_entity';
+      }
+    }
+
+    $database->update('dc_campaign_characters')
+      ->fields([
+        'character_id' => $character_id,
+        'source_character_id' => $source_character_id,
+        'lifecycle_state' => $lifecycle_state,
+      ])
+      ->condition('id', $id)
+      ->execute();
+  }
+
+  $invalid_runtime_pc = (int) $database->select('dc_campaign_characters', 'c')
+    ->condition('c.campaign_id', 0, '>')
+    ->condition('c.type', 'pc')
+    ->condition('c.is_active', 1)
+    ->isNull('c.source_character_id')
+    ->countQuery()
+    ->execute()
+    ->fetchField();
+  if ($invalid_runtime_pc > 0) {
+    throw new \Drupal\Core\Utility\UpdateException(sprintf(
+      'Identity migration failed validation: found %d active runtime PC rows without source_character_id.',
+      $invalid_runtime_pc
+    ));
+  }
+
+  $invalid_non_pc = (int) $database->select('dc_campaign_characters', 'c')
+    ->condition('c.type', 'pc', '<>')
+    ->isNotNull('c.source_character_id')
+    ->countQuery()
+    ->execute()
+    ->fetchField();
+  if ($invalid_non_pc > 0) {
+    throw new \Drupal\Core\Utility\UpdateException(sprintf(
+      'Identity migration failed validation: found %d non-PC rows with source_character_id set.',
+      $invalid_non_pc
+    ));
+  }
+
+  return t('dc_campaign_characters identity migration complete: added source/lifecycle fields and normalized runtime PC source identity.');
 }
 
 /**

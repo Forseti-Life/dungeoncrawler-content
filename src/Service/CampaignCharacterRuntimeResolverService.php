@@ -78,7 +78,7 @@ class CampaignCharacterRuntimeResolverService {
    * Resolve the canonical source row for a selected character row.
    */
   public function resolveCanonicalCharacterRecord(object $selected_character): ?object {
-    $linked_character_id = (int) ($selected_character->character_id ?? 0);
+    $linked_character_id = (int) ($selected_character->source_character_id ?? $selected_character->character_id ?? 0);
     if ((int) ($selected_character->campaign_id ?? 0) > 0 && $linked_character_id > 0) {
       $canonical_character = $this->characterManager->loadCharacter($linked_character_id);
       if ($canonical_character) {
@@ -107,6 +107,7 @@ class CampaignCharacterRuntimeResolverService {
       'id',
       'campaign_id',
       'character_id',
+      'source_character_id',
       'instance_id',
       'uid',
       'name',
@@ -136,11 +137,11 @@ class CampaignCharacterRuntimeResolverService {
 
     $match = $query->orConditionGroup()
       ->condition('id', $requested_character_id)
-      ->condition('character_id', $requested_character_id)
+      ->condition('source_character_id', $requested_character_id)
       ->condition('instance_id', sprintf('pc-%d-%d', $campaign_id, $requested_character_id));
     if ($canonical_character_id !== NULL && $canonical_character_id > 0 && $canonical_character_id !== $requested_character_id) {
       $match
-        ->condition('character_id', $canonical_character_id)
+        ->condition('source_character_id', $canonical_character_id)
         ->condition('instance_id', sprintf('pc-%d-%d', $campaign_id, $canonical_character_id));
     }
 
@@ -197,6 +198,7 @@ class CampaignCharacterRuntimeResolverService {
     $now = $this->time->getRequestTime();
     $fields = [
       'character_id' => $canonical_character_id,
+      'source_character_id' => $canonical_character_id,
       'instance_id' => $instance_id,
       'uid' => (int) ($canonical_character->uid ?? $selected_character->uid ?? 0),
       'name' => (string) ($canonical_character->name ?? ('Character ' . $canonical_character_id)),
@@ -212,6 +214,7 @@ class CampaignCharacterRuntimeResolverService {
       'last_room_id' => $location_fields['last_room_id'],
       'role' => 'player',
       'type' => 'pc',
+      'lifecycle_state' => 'campaign_runtime',
       'state_data' => json_encode($character_data, JSON_UNESCAPED_UNICODE),
       'character_data' => json_encode($character_data, JSON_UNESCAPED_UNICODE),
       'default_character_data' => json_encode($default_character_data, JSON_UNESCAPED_UNICODE),
@@ -242,7 +245,7 @@ class CampaignCharacterRuntimeResolverService {
 
     $this->database->delete('dc_campaign_characters')
       ->condition('campaign_id', $campaign_id)
-      ->condition('character_id', $canonical_character_id)
+      ->condition('source_character_id', $canonical_character_id)
       ->condition('id', $selected_row_id, '<>')
       ->execute();
 

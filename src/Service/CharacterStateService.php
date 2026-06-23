@@ -1571,12 +1571,12 @@ class CharacterStateService {
    */
   private function loadCampaignCharacter(?int $campaign_id, ?string $instance_id, int $character_id): ?array {
     $query = $this->database->select('dc_campaign_characters', 'cc')
-      ->fields('cc', ['id', 'campaign_id', 'character_id', 'instance_id', 'type', 'state_data', 'location_type', 'location_ref', 'updated'])
+      ->fields('cc', ['id', 'campaign_id', 'character_id', 'source_character_id', 'instance_id', 'type', 'state_data', 'location_type', 'location_ref', 'updated'])
       ->condition('campaign_id', 0, '>');
 
     $identity_group = $query->orConditionGroup()
       ->condition('id', $character_id)
-      ->condition('character_id', $character_id);
+      ->condition('source_character_id', $character_id);
     $query->condition($identity_group);
 
     if ($campaign_id !== NULL) {
@@ -1603,7 +1603,7 @@ class CharacterStateService {
     }
 
     $campaign_id = (int) ($record->campaign_id ?? 0);
-    $source_character_id = (int) ($record->character_id ?? 0);
+    $source_character_id = (int) ($record->source_character_id ?? 0);
     $runtime_character_id = (int) ($record->id ?? 0);
     if ($campaign_id <= 0 || $source_character_id <= 0 || $source_character_id === $runtime_character_id) {
       return $default_data;
