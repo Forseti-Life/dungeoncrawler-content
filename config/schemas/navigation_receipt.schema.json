@@ -154,6 +154,10 @@
           "is_passable": { "type": "boolean" },
           "bidirectional": { "type": "boolean" },
           "requires_interaction": { "type": "boolean" },
+          "travel_time_seconds": {
+            "type": ["integer", "null"],
+            "minimum": 0
+          },
           "origin_hex": {
             "type": ["object", "null"],
             "additionalProperties": false,

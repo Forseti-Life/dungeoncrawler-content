@@ -253,6 +253,7 @@ class StateValidationServiceTest extends UnitTestCase {
           'is_passable' => TRUE,
           'bidirectional' => TRUE,
           'requires_interaction' => FALSE,
+          'travel_time_seconds' => 60,
           'origin_hex' => [
             'q' => 0,
             'r' => 0,
