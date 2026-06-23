@@ -52,10 +52,21 @@ export class NavigationSystem {
       }
 
       const selectedEntity = hexmap.stateManager?.get('selectedEntity');
-      const actorId = selectedEntity?.dcEntityRef || selectedEntity?.id || null;
+      const launchPlayer = hexmap.findLaunchPlayerEntity?.() || null;
+      const actorId = String(
+        context?.actorRef
+        || selectedEntity?.dcEntityRef
+        || selectedEntity?.dcEntityInstanceId
+        || selectedEntity?.id
+        || launchPlayer?.dcEntityRef
+        || launchPlayer?.dcEntityInstanceId
+        || launchPlayer?.instanceId
+        || launchPlayer?.id
+        || '',
+      ).trim() || null;
       const coordinator = hexmap.gameCoordinator || null;
       if (!coordinator?.api?.sendAction || !actorId) {
-        this._appendChatLine('System', 'Select an actor before navigating.', 'system');
+        this._appendChatLine('System', 'No active player actor is available for navigation right now.', 'system');
         return;
       }
 
