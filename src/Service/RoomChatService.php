@@ -5794,6 +5794,9 @@ PROMPT;
     }
 
     return $this->textContainsAny($normalized_message, [
+      'travel to ',
+      'move to ',
+      'exit via ',
       'leave the ',
       'leave this ',
       'i leave',
@@ -5834,6 +5837,11 @@ PROMPT;
       'let us go there',
       'lets go',
       'let us go',
+      'do it',
+      'proceed',
+      'take it',
+      'take that exit',
+      'take that door',
     ]);
   }
 
@@ -6224,7 +6232,8 @@ PROMPT;
   protected function extractNavigationDestination(string $player_message, array $room_meta = [], string $room_id = '', array $dungeon_data = []): ?string {
     $patterns = [
       '/(?:lets|let\'s|let\s+us)\s+had\s+to\s+(?:the\s+)?([a-z0-9][a-z0-9\'\-\s]+)/i',
-      '/(?:leave(?:\s+for)?|head(?:ing)?\s+(?:to|for)|travel(?:ing)?\s+(?:to|for)|journey(?:ing)?\s+(?:to|for)|set out for|depart for|go to|navigation to|navigating to)\s+(?:the\s+)?([a-z0-9][a-z0-9\'\-\s]+)/i',
+      '/(?:leave(?:\s+for)?|head(?:ing)?\s+(?:to|for)|travel(?:ing)?\s+(?:to|for)|move(?:ing)?\s+(?:to|toward|towards)|journey(?:ing)?\s+(?:to|for)|set out for|depart for|go to|navigation to|navigating to)\s+(?:the\s+)?([a-z0-9][a-z0-9\'\-\s]+)/i',
+      '/(?:exit via|use)\s+(?:the\s+)?([a-z0-9][a-z0-9\'\-]*(?:\s+[a-z0-9][a-z0-9\'\-]*)+)[.!?]*$/i',
       '/(?:meet you there\.?\s*then i leave for)\s+(?:the\s+)?([a-z0-9][a-z0-9\'\-\s]+)/i',
       '/(?:open(?:ing)?\s+(?:the\s+)?door\s+and\s+(?:go|head|step|move|walk|enter)\s+(?:in|inside|through)|enter(?:ing)?\s+(?:the\s+)?door|go(?:ing)?\s+(?:in|inside)|head(?:ing)?\s+(?:in|inside))\b/i',
     ];
@@ -6236,7 +6245,7 @@ PROMPT;
         return 'Beyond the door';
       }
       $destination = trim((string) ($matches[1] ?? ''));
-      $destination = preg_replace('/\s+to\s+(?:talk|speak|meet|ask|check)\b.*$/i', '', $destination) ?? $destination;
+      $destination = preg_replace('/\s+to\s+(?:talk|speak|meet|ask|check(?:\s+on)?|find|get|grab|collect|turn\s*[- ]?in|hand\s*[- ]?in)\b.*$/i', '', $destination) ?? $destination;
       $destination = preg_replace('/\s+(?:with|and|then|after|before)\b.*$/i', '', $destination) ?? $destination;
       $destination = preg_replace('/\s+(?:again|now|please|today|tonight|tomorrow|asap|immediately|right now)\b.*$/i', '', $destination) ?? $destination;
       $destination = trim($destination, " \t\n\r\0\x0B.,!?;:\"'");
@@ -6252,6 +6261,11 @@ PROMPT;
     }
 
     $preferred_exit = $this->resolvePreferredNavigationExit($room_meta, $room_id, $dungeon_data);
+    $directional_exit = $this->resolveDirectionalNavigationExit($normalized, $room_meta, $room_id, $dungeon_data);
+    if ($directional_exit !== NULL) {
+      return (string) $directional_exit['name'];
+    }
+
     if ($preferred_exit !== NULL && $this->textContainsAny($normalized, [
       'next room',
       'through the door',
@@ -6281,7 +6295,7 @@ PROMPT;
       return $preferred_exit['name'];
     }
 
-    if ($preferred_exit !== NULL && preg_match('/^(?:ok|okay|yeah|yea|yep|sure|alright|all right)?\s*(?:lets|let us)?\s*go(?:\s+there|\s+that way)?[.!?]*$/i', trim($player_message))) {
+    if ($preferred_exit !== NULL && preg_match('/^(?:ok|okay|yeah|yea|yep|sure|alright|all right)?\s*(?:(?:lets|let us)\s+go(?:\s+there|\s+that way)?|do it|proceed|take it|take that exit|take that door)[.!?]*$/i', trim($player_message))) {
       return $preferred_exit['name'];
     }
 
@@ -6389,7 +6403,7 @@ PROMPT;
 
     $exits = $this->actionProcessor->getResolvedRoomExits($dungeon_data, $current_room_id);
     if ($exits === []) {
-      return 'No grounded exit is mapped from this room yet.';
+      return 'No grounded exit is mapped from this room yet. Use "travel to <location>" once a destination is known.';
     }
 
     $origin_name = trim((string) ($room_meta['name'] ?? 'this room'));
@@ -6408,7 +6422,7 @@ PROMPT;
       $narrative .= ' If you press forward, ' . $preferred_name . ' is ' . $preferred_status . '.';
     }
 
-    return $narrative;
+    return $narrative . ' Use "travel to <location>" or "exit via <exit name>" to move.';
   }
 
   /**
@@ -6445,6 +6459,67 @@ PROMPT;
     }
 
     return NULL;
+  }
+
+  /**
+   * Resolve directional travel language (north/south/east/west) to an exit.
+   */
+  protected function resolveDirectionalNavigationExit(string $normalized_message, array $room_meta = [], string $room_id = '', array $dungeon_data = []): ?array {
+    $current_room_id = $room_id !== '' ? $room_id : (string) ($room_meta['room_id'] ?? '');
+    if ($current_room_id === '') {
+      return NULL;
+    }
+
+    $direction_needles = [
+      'north' => ['north', 'northward', 'northern'],
+      'south' => ['south', 'southward', 'southern'],
+      'east' => ['east', 'eastward', 'eastern'],
+      'west' => ['west', 'westward', 'western'],
+      'northeast' => ['northeast', 'north east'],
+      'northwest' => ['northwest', 'north west'],
+      'southeast' => ['southeast', 'south east'],
+      'southwest' => ['southwest', 'south west'],
+    ];
+
+    $requested = NULL;
+    foreach ($direction_needles as $canonical => $needles) {
+      if ($this->textContainsAny($normalized_message, $needles)) {
+        $requested = $canonical;
+        break;
+      }
+    }
+
+    if ($requested === NULL) {
+      return NULL;
+    }
+
+    $exits = $this->actionProcessor->getResolvedRoomExits($dungeon_data, $current_room_id);
+    if ($exits === []) {
+      return NULL;
+    }
+
+    $matches = [];
+    foreach ($exits as $exit) {
+      if (!is_array($exit) || empty($exit['name'])) {
+        continue;
+      }
+      $exit_text = strtolower(trim((string) ($exit['name'] ?? '')));
+      if ($this->textContainsAny($exit_text, $direction_needles[$requested])) {
+        $matches[] = $exit;
+      }
+    }
+
+    if ($matches === []) {
+      return NULL;
+    }
+
+    foreach ($matches as $match) {
+      if (empty($match['explored'])) {
+        return $match;
+      }
+    }
+
+    return $matches[0];
   }
 
   /**

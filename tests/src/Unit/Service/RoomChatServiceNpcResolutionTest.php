@@ -1076,6 +1076,17 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
   }
 
   /**
+   * @covers ::classifyRoomTurnIntent
+   */
+  public function testClassifyRoomTurnIntentRecognizesCanonicalMoveToCommand(): void {
+    $intent = $this->roomChatService->publicClassifyRoomTurnIntent(
+      'Move to the rat dungeon.'
+    );
+
+    $this->assertSame('navigation_travel', $intent);
+  }
+
+  /**
    * @covers ::buildDeterministicGmResponse
    */
   public function testBuildDeterministicGmResponseCreatesNavigationAction(): void {
@@ -1304,6 +1315,8 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
     $this->assertSame([], $response['actions']);
     $this->assertStringContainsString('The Goblin Warrens', $response['narrative']);
     $this->assertStringContainsString('unexplored', $response['narrative']);
+    $this->assertStringContainsString('travel to <location>', $response['narrative']);
+    $this->assertStringContainsString('exit via <exit name>', $response['narrative']);
   }
 
   /**
@@ -1375,12 +1388,94 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
   /**
    * @covers ::extractNavigationDestination
    */
+  public function testExtractNavigationDestinationSupportsExitViaCommand(): void {
+    $destination = $this->roomChatService->publicExtractNavigationDestination(
+      'Exit via the north passage.'
+    );
+
+    $this->assertSame('North Passage', $destination);
+  }
+
+  /**
+   * @covers ::extractNavigationDestination
+   */
   public function testExtractNavigationDestinationHandlesLetsHadToTypoAndTalkSuffix(): void {
     $destination = $this->roomChatService->publicExtractNavigationDestination(
       'Lets had to the tavern entrance to talk to Venture-Captain Celia Arvanxi.'
     );
 
     $this->assertSame('Tavern Entrance', $destination);
+  }
+
+  /**
+   * @covers ::extractNavigationDestination
+   */
+  public function testExtractNavigationDestinationStripsTrailingTurnInIntentClause(): void {
+    $destination = $this->roomChatService->publicExtractNavigationDestination(
+      'Travel to the old crypt to turn in the relic.'
+    );
+
+    $this->assertSame('Old Crypt', $destination);
+  }
+
+  /**
+   * @covers ::extractNavigationDestination
+   */
+  public function testExtractNavigationDestinationResolvesDirectionalExitFromRoomExits(): void {
+    $actionProcessor = $this->createMock(GameplayActionProcessor::class);
+    $actionProcessor->method('getResolvedRoomExits')
+      ->willReturn([
+        [
+          'name' => 'West Hall',
+          'room_id' => 'room-west',
+          'connection_type' => 'passage',
+          'explored' => TRUE,
+        ],
+        [
+          'name' => 'North Tunnel',
+          'room_id' => 'room-north',
+          'connection_type' => 'tunnel',
+          'explored' => FALSE,
+        ],
+      ]);
+
+    $this->roomChatService->setActionProcessor($actionProcessor);
+
+    $destination = $this->roomChatService->publicExtractNavigationDestination(
+      'Take the north exit.',
+      ['name' => 'Crossroads', 'room_id' => 'room-crossroads'],
+      'room-crossroads',
+      []
+    );
+
+    $this->assertSame('North Tunnel', $destination);
+  }
+
+  /**
+   * @covers ::extractNavigationDestination
+   */
+  public function testExtractNavigationDestinationAcceptsShortProceedConfirmation(): void {
+    $actionProcessor = $this->createMock(GameplayActionProcessor::class);
+    $actionProcessor->method('getResolvedRoomExits')
+      ->willReturn([
+        [
+          'name' => 'The Goblin Warrens',
+          'room_id' => 'room-warrens',
+          'connection_type' => 'passage',
+          'explored' => FALSE,
+        ],
+      ]);
+
+    $this->roomChatService->setActionProcessor($actionProcessor);
+
+    $destination = $this->roomChatService->publicExtractNavigationDestination(
+      'Proceed.',
+      ['name' => 'Vermin-Ridden Antechamber', 'room_id' => 'room-rats'],
+      'room-rats',
+      []
+    );
+
+    $this->assertSame('The Goblin Warrens', $destination);
   }
 
   /**
