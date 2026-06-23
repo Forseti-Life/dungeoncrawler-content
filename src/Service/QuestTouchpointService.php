@@ -126,6 +126,74 @@ class QuestTouchpointService {
     }
 
     $confidence = strtolower((string) ($touchpoint['confidence'] ?? 'high'));
+    if (
+      count($candidates) > 1
+      && $this->shouldAutoApplyAllInteractCandidates($touchpoint, $candidates, $objective_type, $confidence)
+    ) {
+      $applied_objectives = [];
+      foreach ($candidates as $candidate) {
+        $progress_character_id = (int) ($candidate['progress_character_id'] ?? 0);
+        if ($progress_character_id <= 0) {
+          $progress_character_id = $character_id;
+        }
+
+        if (!empty($candidate['requires_start'])) {
+          $started = $this->questTracker->startQuest($campaign_id, (string) $candidate['quest_id'], $character_id);
+          if (!$started) {
+            return [
+              'success' => FALSE,
+              'decision' => 'NO_ACTION',
+              'error' => sprintf('Failed to start offered quest "%s" before applying touchpoint progress.', (string) $candidate['quest_id']),
+            ];
+          }
+        }
+
+        $result = $this->questTracker->updateObjectiveProgress(
+          $campaign_id,
+          (string) $candidate['quest_id'],
+          (string) $candidate['objective_id'],
+          max(1, (int) ($touchpoint['quantity'] ?? $touchpoint['amount'] ?? 1)),
+          $progress_character_id
+        );
+
+        if (empty($result['success'])) {
+          return [
+            'success' => FALSE,
+            'decision' => 'NO_ACTION',
+            'error' => (string) ($result['error'] ?? 'Failed to apply quest progress'),
+          ];
+        }
+
+        $objective_fingerprint = sha1($fingerprint . '|' . strtolower((string) ($candidate['objective_id'] ?? '')));
+        $this->fingerprintStore->set($objective_fingerprint, [
+          'campaign_id' => $campaign_id,
+          'character_id' => $character_id,
+          'quest_id' => $candidate['quest_id'],
+          'objective_id' => $candidate['objective_id'],
+          'applied_at' => $this->time->getRequestTime(),
+        ]);
+
+        $applied_objectives[] = [
+          'quest_id' => (string) $candidate['quest_id'],
+          'objective_id' => (string) $candidate['objective_id'],
+        ];
+      }
+
+      $this->fingerprintStore->set($fingerprint, [
+        'campaign_id' => $campaign_id,
+        'character_id' => $character_id,
+        'objective_ids' => array_column($applied_objectives, 'objective_id'),
+        'applied_at' => $this->time->getRequestTime(),
+      ]);
+
+      return [
+        'success' => TRUE,
+        'decision' => 'APPLY_PROGRESS',
+        'requires_confirmation' => FALSE,
+        'applied_objectives' => $applied_objectives,
+      ];
+    }
+
     if (count($candidates) > 1 || in_array($confidence, ['low', 'medium'], TRUE)) {
       $confirmation = $this->confirmationService->createPending(
         $campaign_id,
@@ -195,6 +263,31 @@ class QuestTouchpointService {
       'progress_delta' => $amount,
       'objective_state' => $result,
     ];
+  }
+
+  /**
+   * Allow deterministic multi-objective hand-ins for direct NPC interactions.
+   */
+  protected function shouldAutoApplyAllInteractCandidates(array $touchpoint, array $candidates, string $objective_type, string $confidence): bool {
+    if ($objective_type !== 'interact' || $confidence !== 'high') {
+      return FALSE;
+    }
+
+    $matching_mode = strtolower(trim((string) ($touchpoint['matching_mode'] ?? '')));
+    if (!in_array($matching_mode, ['direct_npc_dialogue', 'typed_receipt'], TRUE)) {
+      return FALSE;
+    }
+
+    foreach ($candidates as $candidate) {
+      if (strtolower((string) ($candidate['objective_type'] ?? '')) !== 'interact') {
+        return FALSE;
+      }
+      if (trim((string) ($candidate['objective_id'] ?? '')) === '') {
+        return FALSE;
+      }
+    }
+
+    return TRUE;
   }
 
   /**

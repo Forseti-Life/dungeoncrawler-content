@@ -400,6 +400,70 @@ class QuestTouchpointServiceTest extends UnitTestCase {
   }
 
   /**
+   * Direct NPC hand-ins should auto-apply all matching interact objectives.
+   */
+  public function testIngestEventAutoAppliesAllDirectNpcInteractCandidates(): void {
+    $store = $this->createMock(KeyValueStoreInterface::class);
+    $store->expects($this->once())
+      ->method('get')
+      ->willReturn(NULL);
+    $store->expects($this->exactly(3))
+      ->method('set');
+
+    $factory = $this->createMock(KeyValueFactoryInterface::class);
+    $factory->method('get')->willReturn($store);
+
+    $captured_updates = [];
+    $quest_tracker = $this->createMock(QuestTrackerService::class);
+    $quest_tracker->expects($this->once())
+      ->method('getActiveQuests')
+      ->with(282, 1046)
+      ->willReturn([
+        $this->buildTavernTurnInQuestRow('gather_wine_quest', 'return_wine', 'Return the wine to the tavern keeper'),
+        $this->buildTavernTurnInQuestRow('gather_torch_quest', 'return_torches', 'Bring the torch components to the tavern keeper'),
+      ]);
+    $quest_tracker->expects($this->exactly(2))
+      ->method('updateObjectiveProgress')
+      ->willReturnCallback(static function (
+        int $campaign_id,
+        string $quest_id,
+        string $objective_id,
+        int $amount,
+        int $character_id
+      ) use (&$captured_updates): array {
+        $captured_updates[] = [$campaign_id, $quest_id, $objective_id, $amount, $character_id];
+        return ['success' => TRUE];
+      });
+
+    $confirmation_service = $this->createMock(QuestConfirmationService::class);
+    $confirmation_service->expects($this->never())
+      ->method('createPending');
+
+    $time = $this->createMock(TimeInterface::class);
+    $time->method('getRequestTime')->willReturn(1700000000);
+
+    $service = new QuestTouchpointService($quest_tracker, $confirmation_service, $factory, $time);
+    $result = $service->ingestEvent(282, [
+      'character_id' => 1046,
+      'touchpoint' => [
+        'objective_type' => 'interact',
+        'npc_ref' => 'Eldric',
+        'entity_ref' => 'tavern_keeper',
+        'room_id' => 'tavern_entrance',
+        'confidence' => 'high',
+        'matching_mode' => 'direct_npc_dialogue',
+      ],
+    ]);
+
+    $this->assertTrue($result['success']);
+    $this->assertSame('APPLY_PROGRESS', $result['decision']);
+    $this->assertCount(2, $result['applied_objectives'] ?? []);
+    $this->assertCount(2, $captured_updates);
+    $this->assertSame([282, 'gather_wine_quest', 'return_wine', 1, 1046], $captured_updates[0]);
+    $this->assertSame([282, 'gather_torch_quest', 'return_torches', 1, 1046], $captured_updates[1]);
+  }
+
+  /**
    * Build a representative active quest row for matching.
    */
   private function buildActiveQuestRow(): array {
@@ -497,6 +561,34 @@ class QuestTouchpointServiceTest extends UnitTestCase {
         ],
       ]),
       'objective_states' => '[]',
+    ];
+  }
+
+  /**
+   * Build a tavern hand-in quest row with one active interact objective.
+   */
+  private function buildTavernTurnInQuestRow(string $quest_id, string $objective_id, string $description): array {
+    return [
+      'quest_id' => $quest_id,
+      'quest_name' => 'Tavern Hand-in',
+      'character_id' => 1046,
+      'current_phase' => 2,
+      'objective_states' => json_encode([
+        [
+          'phase' => 2,
+          'objectives' => [
+            [
+              'objective_id' => $objective_id,
+              'type' => 'interact',
+              'description' => $description,
+              'completed' => FALSE,
+              'target' => 'tavern_keeper',
+              'location_id' => 'tavern_entrance',
+              'revealed' => TRUE,
+            ],
+          ],
+        ],
+      ]),
     ];
   }
 
