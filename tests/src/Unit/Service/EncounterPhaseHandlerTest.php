@@ -264,6 +264,54 @@ class EncounterPhaseHandlerTest extends UnitTestCase {
   }
 
   /**
+   * Transition resolution must honor explicit connection_id before room target fallback.
+   *
+   * @covers ::validateIntent
+   */
+  public function testValidateIntentTransitionUsesExplicitConnectionId(): void {
+    $handler = $this->buildHandler();
+    $validation = $handler->validateIntent([
+      'type' => 'transition',
+      'actor' => 'char-001',
+      'params' => [
+        'target_room_id' => 'room-b',
+        'connection_id' => 'blocked-connection',
+      ],
+    ], [
+      'encounter_id' => 42,
+      'turn' => [
+        'entity' => 'char-001',
+        'actions_remaining' => 3,
+      ],
+    ], [
+      'active_room_id' => 'room-a',
+      'rooms' => [
+        ['room_id' => 'room-a'],
+        ['room_id' => 'room-b'],
+      ],
+      'connections' => [
+        [
+          'connection_id' => 'open-connection',
+          'from_room' => 'room-a',
+          'to_room' => 'room-b',
+          'is_discovered' => TRUE,
+          'is_passable' => TRUE,
+        ],
+        [
+          'connection_id' => 'blocked-connection',
+          'from_room' => 'room-a',
+          'to_room' => 'room-b',
+          'is_discovered' => TRUE,
+          'is_passable' => FALSE,
+        ],
+      ],
+    ]);
+
+    $this->assertFalse($validation['valid']);
+    $this->assertSame("Room 'room-b' is not available for transition: blocked.", $validation['reason']);
+  }
+
+  /**
    * Encounter talk delegates to RoomChatService and returns an explicit contract.
    *
    * @covers ::processIntent

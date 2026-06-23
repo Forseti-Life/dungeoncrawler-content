@@ -7111,18 +7111,23 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
     $capabilities = $this->navigationService
       ? $this->navigationService->buildNavigationCapabilities($dungeon_data, $active_room_id)
       : $this->buildFallbackNavigationCapabilities($dungeon_data, $active_room_id);
-    foreach ($capabilities as $capability) {
-      if ((string) ($capability['target_room_id'] ?? '') === $target_room_id) {
-        return $capability;
-      }
-    }
-
     $connection_id = isset($params['connection_id']) ? (string) $params['connection_id'] : '';
     if ($connection_id !== '') {
       foreach ($capabilities as $capability) {
-        if ((string) ($capability['connection_id'] ?? '') === $connection_id) {
-          return $capability;
+        if ((string) ($capability['connection_id'] ?? '') !== $connection_id) {
+          continue;
         }
+        if ((string) ($capability['target_room_id'] ?? '') !== $target_room_id) {
+          return NULL;
+        }
+        return $capability;
+      }
+      return NULL;
+    }
+
+    foreach ($capabilities as $capability) {
+      if ((string) ($capability['target_room_id'] ?? '') === $target_room_id) {
+        return $capability;
       }
     }
 

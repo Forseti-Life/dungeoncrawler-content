@@ -29,6 +29,7 @@ export class NavigationSystem {
     this._unsubs.push(
       this.bus.on('user:navigate', (d) => this.executeDirectNavigate(d?.button)),
       this.bus.on('user:navigate-dungeon', (d) => this.navigateToDungeonContext(d?.dungeonSwitch)),
+      this.bus.on('navigation:apply-result', (d) => this.handleNavigationResult(d?.navigation)),
     );
   }
 
@@ -201,9 +202,18 @@ export class NavigationSystem {
     // 6. Switch to the new room (triggers full re-render, chat reload, banner).
     hexmap.setActiveRoom(targetRoomId);
     hexmap.updateLaunchLocationContext?.(targetRoomId, Number(entryHex.q), Number(entryHex.r));
-    this.activateGameShellTab('view');
-    if (targetRoomId && this.loadActiveRoomView) {
-      this.loadActiveRoomView(targetRoomId, { force: true, preserveExisting: true });
+    if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function' && typeof CustomEvent === 'function') {
+      window.dispatchEvent(new CustomEvent('dungeoncrawler:game-shell-tab-changed', {
+        detail: { tabId: 'view' },
+      }));
+    }
+    this.bus.emit('room:changed', {
+      roomId: targetRoomId,
+      roomName: nav.destination || newRoom?.name || targetRoomId,
+      room: newRoom || null,
+    });
+    if (targetRoomId) {
+      this.bus.emit('room:view-reload-requested', { roomId: targetRoomId, force: true, preserveExisting: true });
     }
 
     // 7. Re-select the player entity in the new room.
