@@ -572,8 +572,10 @@ class GameCoordinatorService {
 
       $candidate_character_id = (string) (
         $entity['state']['metadata']['campaign_character_id']
+        ?? $entity['state']['metadata']['source_character_id']
         ?? $entity['state']['metadata']['character_id']
         ?? $entity['character_id']
+        ?? $entity['source_character_id']
         ?? $entity['state']['character_id']
         ?? ($entity['entity_ref']['character_id'] ?? NULL)
         ?? ($entity['entity_ref']['content_id'] ?? NULL)
