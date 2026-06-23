@@ -454,25 +454,6 @@ class InstitutionMembershipServiceTest extends UnitTestCase {
           'display_name' => $display_name,
         ];
       });
-    $registry->expects($this->exactly(3))
-      ->method('loadInstitutionSubject')
-      ->willReturnMap([
-        [9, 'institution_settlement_fordwatch', [
-          'subject_id' => 'institution_settlement_fordwatch',
-          'subject_domain' => 'settlement',
-          'display_name' => 'Fordwatch',
-        ]],
-        [9, 'institution_religion_sun-oath', [
-          'subject_id' => 'institution_religion_sun-oath',
-          'subject_domain' => 'religion',
-          'display_name' => 'Sun Oath',
-        ]],
-        [9, 'institution_security_city-watch', [
-          'subject_id' => 'institution_security_city-watch',
-          'subject_domain' => 'security',
-          'display_name' => 'City Watch',
-        ]],
-      ]);
 
     $relationship_calls = [];
     $relationships = $this->createMock(RelationshipManagerService::class);
@@ -498,7 +479,7 @@ class InstitutionMembershipServiceTest extends UnitTestCase {
     ]);
 
     $this->assertSame(4, $count);
-    $this->assertGreaterThan(1, count($registry_calls));
+    $this->assertCount(4, $registry_calls);
     $membership_targets = [];
     $sentiment_targets = [];
     foreach ($relationship_calls as $call) {

@@ -513,7 +513,14 @@ class InstitutionMembershipService {
       $dedupe_key = '';
 
       if ($explicit_subject_id !== '') {
-        $resolved_subject = $this->campaignSubjectRegistry->loadInstitutionSubject($campaign_id, $explicit_subject_id);
+        $subject_input = $input;
+        $subject_input['subject_id'] = $explicit_subject_id;
+        $subject_input['domain'] = trim((string) ($subject_input['domain'] ?? $expected_domain));
+        $subject_input['display_name'] = trim((string) ($subject_input['display_name'] ?? $subject_input['label'] ?? ''));
+        if ($subject_input['domain'] === '' || $subject_input['display_name'] === '') {
+          throw new \RuntimeException(sprintf('Campaign institution subject "%s" is missing required registry fields.', $explicit_subject_id));
+        }
+        $resolved_subject = $this->campaignSubjectRegistry->resolveOrCreateInstitutionSubject($campaign_id, $subject_input);
         $resolved_subject_id = trim((string) ($resolved_subject['subject_id'] ?? ''));
         $resolved_domain = trim((string) ($resolved_subject['subject_domain'] ?? ''));
         $resolved_display_name = trim((string) ($resolved_subject['display_name'] ?? ''));
