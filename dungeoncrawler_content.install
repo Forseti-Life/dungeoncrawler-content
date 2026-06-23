@@ -8544,10 +8544,10 @@ function dungeoncrawler_content_update_10082() {
     );
   }
   if (!$schema_handler->indexExists('dc_campaign_characters', 'source_character_id')) {
-    $schema_handler->addIndex('dc_campaign_characters', 'source_character_id', ['source_character_id']);
+    $schema_handler->addIndex('dc_campaign_characters', 'source_character_id', ['source_character_id'], $schema['dc_campaign_characters']);
   }
   if (!$schema_handler->indexExists('dc_campaign_characters', 'lifecycle_state')) {
-    $schema_handler->addIndex('dc_campaign_characters', 'lifecycle_state', ['lifecycle_state']);
+    $schema_handler->addIndex('dc_campaign_characters', 'lifecycle_state', ['lifecycle_state'], $schema['dc_campaign_characters']);
   }
 
   $rows = $database->select('dc_campaign_characters', 'c')
