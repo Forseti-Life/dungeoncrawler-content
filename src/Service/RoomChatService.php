@@ -6223,6 +6223,7 @@ PROMPT;
    */
   protected function extractNavigationDestination(string $player_message, array $room_meta = [], string $room_id = '', array $dungeon_data = []): ?string {
     $patterns = [
+      '/(?:lets|let\'s|let\s+us)\s+had\s+to\s+(?:the\s+)?([a-z0-9][a-z0-9\'\-\s]+)/i',
       '/(?:leave(?:\s+for)?|head(?:ing)?\s+(?:to|for)|travel(?:ing)?\s+(?:to|for)|journey(?:ing)?\s+(?:to|for)|set out for|depart for|go to|navigation to|navigating to)\s+(?:the\s+)?([a-z0-9][a-z0-9\'\-\s]+)/i',
       '/(?:meet you there\.?\s*then i leave for)\s+(?:the\s+)?([a-z0-9][a-z0-9\'\-\s]+)/i',
       '/(?:open(?:ing)?\s+(?:the\s+)?door\s+and\s+(?:go|head|step|move|walk|enter)\s+(?:in|inside|through)|enter(?:ing)?\s+(?:the\s+)?door|go(?:ing)?\s+(?:in|inside)|head(?:ing)?\s+(?:in|inside))\b/i',
@@ -6235,6 +6236,7 @@ PROMPT;
         return 'Beyond the door';
       }
       $destination = trim((string) ($matches[1] ?? ''));
+      $destination = preg_replace('/\s+to\s+(?:talk|speak|meet|ask|check)\b.*$/i', '', $destination) ?? $destination;
       $destination = preg_replace('/\s+(?:with|and|then|after|before)\b.*$/i', '', $destination) ?? $destination;
       $destination = preg_replace('/\s+(?:again|now|please|today|tonight|tomorrow|asap|immediately|right now)\b.*$/i', '', $destination) ?? $destination;
       $destination = trim($destination, " \t\n\r\0\x0B.,!?;:\"'");

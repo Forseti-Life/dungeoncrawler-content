@@ -1373,6 +1373,28 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
   }
 
   /**
+   * @covers ::extractNavigationDestination
+   */
+  public function testExtractNavigationDestinationHandlesLetsHadToTypoAndTalkSuffix(): void {
+    $destination = $this->roomChatService->publicExtractNavigationDestination(
+      'Lets had to the tavern entrance to talk to Venture-Captain Celia Arvanxi.'
+    );
+
+    $this->assertSame('Tavern Entrance', $destination);
+  }
+
+  /**
+   * @covers ::classifyRoomTurnIntent
+   */
+  public function testClassifyRoomTurnIntentTreatsLetsHadToPhraseAsNavigationTravel(): void {
+    $intent = $this->roomChatService->publicClassifyRoomTurnIntent(
+      'Lets had to the tavern entrance to talk to Venture-Captain Celia Arvanxi.'
+    );
+
+    $this->assertSame('navigation_travel', $intent);
+  }
+
+  /**
    * @covers ::classifyRoomTurnIntent
    */
   public function testClassifyRoomTurnIntentRecognizesRoomDescriptionQuery(): void {
