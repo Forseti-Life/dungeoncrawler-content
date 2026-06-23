@@ -81,4 +81,40 @@ class NavigationServiceTest extends UnitTestCase {
     $this->assertTrue($capability['available']);
   }
 
+  /**
+   * Verifies fallback ids disambiguate parallel edges when explicit ids are absent.
+   */
+  public function testBuildNavigationCapabilitiesDerivesDistinctFallbackConnectionIds(): void {
+    $service = new NavigationService();
+
+    $capabilities = $service->buildNavigationCapabilities([
+      'hex_map' => [
+        'connections' => [
+          [
+            'from_room' => 'hall',
+            'to_room' => 'atrium',
+            'type' => 'door',
+            'from_hex' => ['q' => 0, 'r' => 0],
+            'to_hex' => ['q' => 1, 'r' => 0],
+            'is_discovered' => TRUE,
+            'is_passable' => TRUE,
+          ],
+          [
+            'from_room' => 'hall',
+            'to_room' => 'atrium',
+            'type' => 'door',
+            'from_hex' => ['q' => 2, 'r' => 0],
+            'to_hex' => ['q' => 3, 'r' => 0],
+            'is_discovered' => TRUE,
+            'is_passable' => TRUE,
+          ],
+        ],
+      ],
+    ], 'hall');
+
+    $connection_ids = array_values(array_map(static fn(array $capability): string => (string) ($capability['connection_id'] ?? ''), $capabilities));
+    $this->assertCount(2, $connection_ids);
+    $this->assertCount(2, array_values(array_unique($connection_ids)));
+  }
+
 }

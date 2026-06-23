@@ -8456,7 +8456,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
       $is_passable = array_key_exists('is_passable', $connection) ? !empty($connection['is_passable']) : TRUE;
       $blocked_reason = !$is_discovered ? 'undiscovered' : (!$is_passable ? 'blocked' : NULL);
       $capabilities[] = [
-        'connection_id' => (string) ($connection['connection_id'] ?? ($from_room . '__' . $to_room)),
+        'connection_id' => $this->deriveFallbackConnectionId($connection, $from_room, $to_room),
         'target_room_id' => $target_room_id,
         'available' => $blocked_reason === NULL,
         'blocked_reason' => $blocked_reason,
@@ -8464,6 +8464,29 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
       ];
     }
     return $capabilities;
+  }
+
+  /**
+   * Derive a deterministic fallback connection id for transition capabilities.
+   */
+  protected function deriveFallbackConnectionId(array $connection, string $from_room, string $to_room): string {
+    $explicit = trim((string) ($connection['connection_id'] ?? ''));
+    if ($explicit !== '') {
+      return $explicit;
+    }
+
+    $type = trim((string) ($connection['type'] ?? 'passage')) ?: 'passage';
+    $from_hex = is_array($connection['from_hex'] ?? NULL) ? $connection['from_hex'] : NULL;
+    $to_hex = is_array($connection['to_hex'] ?? NULL) ? $connection['to_hex'] : NULL;
+    $scope_suffix = 'unscoped';
+    if (
+      is_array($from_hex) && array_key_exists('q', $from_hex) && array_key_exists('r', $from_hex)
+      && is_array($to_hex) && array_key_exists('q', $to_hex) && array_key_exists('r', $to_hex)
+    ) {
+      $scope_suffix = (int) $from_hex['q'] . ':' . (int) $from_hex['r'] . '__' . (int) $to_hex['q'] . ':' . (int) $to_hex['r'];
+    }
+
+    return $from_room . '__' . $to_room . '__' . $type . '__' . $scope_suffix;
   }
 
   /**

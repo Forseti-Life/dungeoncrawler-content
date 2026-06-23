@@ -191,7 +191,15 @@ class NavigationService {
 
     $from_room = trim((string) ($connection['from_room'] ?? 'unknown'));
     $to_room = trim((string) ($connection['to_room'] ?? 'unknown'));
-    return $from_room . '__' . $to_room;
+    $type = trim((string) ($connection['type'] ?? 'passage')) ?: 'passage';
+    $from_hex = $this->normalizeHex($connection['from_hex'] ?? NULL);
+    $to_hex = $this->normalizeHex($connection['to_hex'] ?? NULL);
+    $scope_suffix = 'unscoped';
+    if ($from_hex !== NULL && $to_hex !== NULL) {
+      $scope_suffix = $from_hex['q'] . ':' . $from_hex['r'] . '__' . $to_hex['q'] . ':' . $to_hex['r'];
+    }
+
+    return $from_room . '__' . $to_room . '__' . $type . '__' . $scope_suffix;
   }
 
   /**
