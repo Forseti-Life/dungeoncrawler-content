@@ -555,7 +555,7 @@ class CampaignController extends ControllerBase {
       ->fetchAllAssoc('room_id');
 
     $quest_rows = $this->database->select('dc_campaign_quests', 'q')
-      ->fields('q', ['quest_id', 'quest_name', 'status', 'location_id', 'generated_objectives'])
+      ->fields('q', ['status', 'location_id', 'generated_objectives'])
       ->condition('campaign_id', $campaign_id)
       ->execute()
       ->fetchAll();
@@ -576,76 +576,14 @@ class CampaignController extends ControllerBase {
       $room_lookup = $this->buildDungeonRoomLookup($payload, $room_rows);
       $history_lookup = $this->buildDungeonHistoryLookup($payload, $room_rows);
       $room_name_lookup = $this->buildDungeonRoomNameLookup($room_lookup);
-      $locations_by_room = [];
-
-      $upsert_location = static function (array &$index, array $entry): void {
-        $room_id = (string) ($entry['room_id'] ?? '');
-        if ($room_id === '') {
-          return;
-        }
-        if (!isset($index[$room_id])) {
-          $index[$room_id] = [
-            'room_id' => $room_id,
-            'room_name' => (string) ($entry['room_name'] ?? $room_id),
-            'description' => (string) ($entry['description'] ?? ''),
-            'last_visited' => (int) ($entry['last_visited'] ?? 0),
-            'navigable' => !array_key_exists('navigable', $entry) || $entry['navigable'] !== FALSE,
-            'source_tags' => [],
-          ];
-        }
-        $existing = $index[$room_id];
-        $incoming_name = trim((string) ($entry['room_name'] ?? ''));
-        if ($incoming_name !== '' && $incoming_name !== $room_id) {
-          $existing['room_name'] = $incoming_name;
-        }
-        $incoming_description = trim((string) ($entry['description'] ?? ''));
-        if ($incoming_description !== '' && trim((string) ($existing['description'] ?? '')) === '') {
-          $existing['description'] = $incoming_description;
-        }
-        $existing['last_visited'] = max((int) ($existing['last_visited'] ?? 0), (int) ($entry['last_visited'] ?? 0));
-        if (array_key_exists('navigable', $entry) && $entry['navigable'] === FALSE) {
-          $existing['navigable'] = FALSE;
-        }
-        $existing_tags = is_array($existing['source_tags'] ?? NULL) ? $existing['source_tags'] : [];
-        $incoming_tags = is_array($entry['source_tags'] ?? NULL) ? $entry['source_tags'] : [];
-        $existing['source_tags'] = array_values(array_unique(array_filter(array_merge($existing_tags, $incoming_tags), static fn($tag): bool => is_string($tag) && $tag !== '')));
-        $index[$room_id] = $existing;
-      };
-
-      foreach ($room_lookup as $room_id => $room_meta) {
-        $state_row = $state_rows[$room_id] ?? NULL;
-        $fog_state = json_decode((string) ($state_row->fog_state ?? '{}'), TRUE);
-        if (!is_array($fog_state)) {
-          $fog_state = [];
-        }
-
-        $history_meta = $history_lookup[$room_id] ?? [];
-        $last_visited = max(
-          (int) ($state_row->last_visited ?? 0),
-          (int) ($history_meta['last_visited'] ?? 0)
-        );
-        $visited = !empty($fog_state['explored']) || $last_visited > 0 || !empty($history_meta);
-        if (!$visited) {
-          continue;
-        }
-
-        $upsert_location($locations_by_room, [
-          'room_id' => (string) $room_id,
-          'room_name' => (string) ($room_meta['name'] ?? $history_meta['name'] ?? $room_id),
-          'description' => (string) ($room_meta['description'] ?? ''),
-          'last_visited' => $last_visited,
-          'navigable' => TRUE,
-          'source_tags' => ['visited'],
-        ]);
-      }
-
-      foreach ($this->buildQuestNavigationLocationSignals($quest_rows, $room_lookup, $room_name_lookup) as $signal) {
-        $upsert_location($locations_by_room, $signal);
-      }
-
-      foreach ($this->buildQuestItemNavigationSignals($item_rows, $room_lookup) as $signal) {
-        $upsert_location($locations_by_room, $signal);
-      }
+      $locations_by_room = $this->compileDungeonNavigationLocations(
+        $room_lookup,
+        $history_lookup,
+        $room_name_lookup,
+        $state_rows,
+        $quest_rows,
+        $item_rows
+      );
 
       $visited_locations = array_values($locations_by_room);
       usort($visited_locations, static function (array $a, array $b): int {
@@ -673,6 +611,106 @@ class CampaignController extends ControllerBase {
       'campaign_id' => $campaign_id,
       'dungeons' => $groups,
     ]);
+  }
+
+  /**
+   * Compile all navigation location signals for a dungeon into a room-indexed map.
+   *
+   * @param array<string, array<string, mixed>> $room_lookup
+   * @param array<string, array<string, mixed>> $history_lookup
+   * @param array<string, string> $room_name_lookup
+   * @param array<string, object> $state_rows
+   * @param array<int, object> $quest_rows
+   * @param array<int, object> $item_rows
+   *
+   * @return array<string, array<string, mixed>>
+   */
+  protected function compileDungeonNavigationLocations(
+    array $room_lookup,
+    array $history_lookup,
+    array $room_name_lookup,
+    array $state_rows,
+    array $quest_rows,
+    array $item_rows
+  ): array {
+    $locations_by_room = [];
+
+    foreach ($room_lookup as $room_id => $room_meta) {
+      $state_row = $state_rows[$room_id] ?? NULL;
+      $fog_state = json_decode((string) ($state_row->fog_state ?? '{}'), TRUE);
+      if (!is_array($fog_state)) {
+        $fog_state = [];
+      }
+
+      $history_meta = $history_lookup[$room_id] ?? [];
+      $last_visited = max(
+        (int) ($state_row->last_visited ?? 0),
+        (int) ($history_meta['last_visited'] ?? 0)
+      );
+      $visited = !empty($fog_state['explored']) || $last_visited > 0 || !empty($history_meta);
+      if (!$visited) {
+        continue;
+      }
+
+      $this->mergeNavigationLocationEntry($locations_by_room, [
+        'room_id' => (string) $room_id,
+        'room_name' => (string) ($room_meta['name'] ?? $history_meta['name'] ?? $room_id),
+        'description' => (string) ($room_meta['description'] ?? ''),
+        'last_visited' => $last_visited,
+        'navigable' => TRUE,
+        'source_tags' => ['visited'],
+      ]);
+    }
+
+    foreach ($this->buildQuestNavigationLocationSignals($quest_rows, $room_lookup, $room_name_lookup) as $signal) {
+      $this->mergeNavigationLocationEntry($locations_by_room, $signal);
+    }
+
+    foreach ($this->buildQuestItemNavigationSignals($item_rows, $room_lookup) as $signal) {
+      $this->mergeNavigationLocationEntry($locations_by_room, $signal);
+    }
+
+    return $locations_by_room;
+  }
+
+  /**
+   * Merge one location signal into the room-indexed navigation location map.
+   *
+   * @param array<string, array<string, mixed>> $index
+   * @param array<string, mixed> $entry
+   */
+  protected function mergeNavigationLocationEntry(array &$index, array $entry): void {
+    $room_id = (string) ($entry['room_id'] ?? '');
+    if ($room_id === '') {
+      return;
+    }
+    if (!isset($index[$room_id])) {
+      $index[$room_id] = [
+        'room_id' => $room_id,
+        'room_name' => (string) ($entry['room_name'] ?? $room_id),
+        'description' => (string) ($entry['description'] ?? ''),
+        'last_visited' => (int) ($entry['last_visited'] ?? 0),
+        'navigable' => !array_key_exists('navigable', $entry) || $entry['navigable'] !== FALSE,
+        'source_tags' => [],
+      ];
+    }
+    $existing = $index[$room_id];
+    $incoming_name = trim((string) ($entry['room_name'] ?? ''));
+    if ($incoming_name !== '' && $incoming_name !== $room_id) {
+      $existing['room_name'] = $incoming_name;
+    }
+    $incoming_description = trim((string) ($entry['description'] ?? ''));
+    if ($incoming_description !== '' && trim((string) ($existing['description'] ?? '')) === '') {
+      $existing['description'] = $incoming_description;
+    }
+    $existing['last_visited'] = max((int) ($existing['last_visited'] ?? 0), (int) ($entry['last_visited'] ?? 0));
+    if (array_key_exists('navigable', $entry) && $entry['navigable'] === FALSE) {
+      $existing['navigable'] = FALSE;
+    }
+    $existing_tags = is_array($existing['source_tags'] ?? NULL) ? $existing['source_tags'] : [];
+    $incoming_tags = is_array($entry['source_tags'] ?? NULL) ? $entry['source_tags'] : [];
+    $existing['source_tags'] = array_values(array_unique(array_filter(array_merge($existing_tags, $incoming_tags), static fn($tag): bool => is_string($tag) && $tag !== '')));
+    $index[$room_id] = $existing;
   }
 
   /**
