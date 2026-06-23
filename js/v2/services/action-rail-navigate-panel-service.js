@@ -127,6 +127,7 @@ function collectVisitedNavigateLocationGroups(panel, context, campaignId, exitGr
 
   const hexmap = context.hexmap;
   const currentMapId = String(hexmap?.dungeonData?.map_id || hexmap?.launchContext?.map_id || panel.stateManager?.get?.('mapId') || '').trim();
+  const activeRoomId = String(hexmap?.resolveActiveRoomId?.() || '').trim();
   const directRouteKeys = new Set();
 
   exitGroups.forEach((group) => {
@@ -150,16 +151,17 @@ function collectVisitedNavigateLocationGroups(panel, context, campaignId, exitGr
           roomName: String(location?.roomName || location?.roomId || 'Room'),
           mapId,
           dungeonLevelId,
-          statusLabel: 'Visited',
+          statusLabel: resolveNavigateKnownLocationStatusLabel(location),
           lastVisitedLabel: String(location?.lastVisitedLabel || 'Visited by party'),
           meta: String(location?.meta || ''),
+          navigable: location?.navigable !== false,
         }))
         .filter((location) => {
           if (!location.roomId) {
             return false;
           }
           const sameMap = Boolean(mapId && currentMapId && mapId === currentMapId);
-          if (sameMap) {
+          if (sameMap && activeRoomId && location.roomId === activeRoomId) {
             return false;
           }
           return !directRouteKeys.has(`${mapId || currentMapId}:${location.roomId}`);
@@ -175,6 +177,23 @@ function collectVisitedNavigateLocationGroups(panel, context, campaignId, exitGr
       };
     })
     .filter((group) => Array.isArray(group.locations) && group.locations.length > 0);
+}
+
+function resolveNavigateKnownLocationStatusLabel(location) {
+  const tags = Array.isArray(location?.sourceTags) ? location.sourceTags.map((tag) => String(tag || '').trim()) : [];
+  if (tags.includes('quest_item_navigation')) {
+    return 'Quest item route';
+  }
+  if (tags.includes('discovered')) {
+    return 'Discovered';
+  }
+  if (tags.includes('mentioned')) {
+    return 'Mentioned';
+  }
+  if (tags.includes('visited')) {
+    return 'Visited';
+  }
+  return 'Known';
 }
 
 function ensureNavigateLocationGroups(panel, campaignId) {

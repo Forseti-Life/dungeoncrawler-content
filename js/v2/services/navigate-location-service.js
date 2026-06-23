@@ -36,6 +36,8 @@ export async function fetchVisitedNavigateLocationGroups(campaignId) {
           lastVisitedLabel: Number(location?.last_visited || 0) > 0
             ? `Visited ${new Date(Number(location.last_visited) * 1000).toLocaleString()}`
             : 'Visited by party',
+          sourceTags: Array.isArray(location?.source_tags) ? location.source_tags.map((tag) => String(tag || '').trim()).filter(Boolean) : [],
+          navigable: location?.navigable !== false,
         })).filter((location) => location.roomId)
         : [],
     }))

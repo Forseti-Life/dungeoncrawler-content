@@ -554,6 +554,18 @@ class CampaignController extends ControllerBase {
       ->execute()
       ->fetchAllAssoc('room_id');
 
+    $quest_rows = $this->database->select('dc_campaign_quests', 'q')
+      ->fields('q', ['quest_id', 'quest_name', 'status', 'location_id', 'generated_objectives'])
+      ->condition('campaign_id', $campaign_id)
+      ->execute()
+      ->fetchAll();
+
+    $item_rows = $this->database->select('dc_campaign_item_instances', 'i')
+      ->fields('i', ['location_type', 'location_ref', 'state_data'])
+      ->condition('campaign_id', $campaign_id)
+      ->execute()
+      ->fetchAll();
+
     $groups = [];
     foreach ($dungeon_rows as $dungeon_id => $dungeon_row) {
       $payload = json_decode((string) ($dungeon_row->dungeon_data ?? '{}'), TRUE);
@@ -563,7 +575,42 @@ class CampaignController extends ControllerBase {
 
       $room_lookup = $this->buildDungeonRoomLookup($payload, $room_rows);
       $history_lookup = $this->buildDungeonHistoryLookup($payload, $room_rows);
-      $visited_locations = [];
+      $room_name_lookup = $this->buildDungeonRoomNameLookup($room_lookup);
+      $locations_by_room = [];
+
+      $upsert_location = static function (array &$index, array $entry): void {
+        $room_id = (string) ($entry['room_id'] ?? '');
+        if ($room_id === '') {
+          return;
+        }
+        if (!isset($index[$room_id])) {
+          $index[$room_id] = [
+            'room_id' => $room_id,
+            'room_name' => (string) ($entry['room_name'] ?? $room_id),
+            'description' => (string) ($entry['description'] ?? ''),
+            'last_visited' => (int) ($entry['last_visited'] ?? 0),
+            'navigable' => !array_key_exists('navigable', $entry) || $entry['navigable'] !== FALSE,
+            'source_tags' => [],
+          ];
+        }
+        $existing = $index[$room_id];
+        $incoming_name = trim((string) ($entry['room_name'] ?? ''));
+        if ($incoming_name !== '' && $incoming_name !== $room_id) {
+          $existing['room_name'] = $incoming_name;
+        }
+        $incoming_description = trim((string) ($entry['description'] ?? ''));
+        if ($incoming_description !== '' && trim((string) ($existing['description'] ?? '')) === '') {
+          $existing['description'] = $incoming_description;
+        }
+        $existing['last_visited'] = max((int) ($existing['last_visited'] ?? 0), (int) ($entry['last_visited'] ?? 0));
+        if (array_key_exists('navigable', $entry) && $entry['navigable'] === FALSE) {
+          $existing['navigable'] = FALSE;
+        }
+        $existing_tags = is_array($existing['source_tags'] ?? NULL) ? $existing['source_tags'] : [];
+        $incoming_tags = is_array($entry['source_tags'] ?? NULL) ? $entry['source_tags'] : [];
+        $existing['source_tags'] = array_values(array_unique(array_filter(array_merge($existing_tags, $incoming_tags), static fn($tag): bool => is_string($tag) && $tag !== '')));
+        $index[$room_id] = $existing;
+      };
 
       foreach ($room_lookup as $room_id => $room_meta) {
         $state_row = $state_rows[$room_id] ?? NULL;
@@ -582,14 +629,25 @@ class CampaignController extends ControllerBase {
           continue;
         }
 
-        $visited_locations[] = [
+        $upsert_location($locations_by_room, [
           'room_id' => (string) $room_id,
           'room_name' => (string) ($room_meta['name'] ?? $history_meta['name'] ?? $room_id),
           'description' => (string) ($room_meta['description'] ?? ''),
           'last_visited' => $last_visited,
-        ];
+          'navigable' => TRUE,
+          'source_tags' => ['visited'],
+        ]);
       }
 
+      foreach ($this->buildQuestNavigationLocationSignals($quest_rows, $room_lookup, $room_name_lookup) as $signal) {
+        $upsert_location($locations_by_room, $signal);
+      }
+
+      foreach ($this->buildQuestItemNavigationSignals($item_rows, $room_lookup) as $signal) {
+        $upsert_location($locations_by_room, $signal);
+      }
+
+      $visited_locations = array_values($locations_by_room);
       usort($visited_locations, static function (array $a, array $b): int {
         if (($b['last_visited'] ?? 0) !== ($a['last_visited'] ?? 0)) {
           return (int) ($b['last_visited'] ?? 0) <=> (int) ($a['last_visited'] ?? 0);
@@ -672,6 +730,196 @@ class CampaignController extends ControllerBase {
     }
 
     return $lookup;
+  }
+
+  /**
+   * Build a normalized room-name lookup for fuzzy location token matches.
+   */
+  protected function buildDungeonRoomNameLookup(array $room_lookup): array {
+    $lookup = [];
+    foreach ($room_lookup as $room_id => $room_meta) {
+      $name = trim((string) ($room_meta['name'] ?? ''));
+      if ($name === '') {
+        continue;
+      }
+      $lookup[$this->normalizeNavigationLocationToken($name)] = (string) $room_id;
+    }
+    return $lookup;
+  }
+
+  /**
+   * Build quest-derived location signals (mentioned/discovered) for navigation.
+   *
+   * @param array<int, object> $quest_rows
+   * @return array<int, array<string, mixed>>
+   */
+  protected function buildQuestNavigationLocationSignals(array $quest_rows, array $room_lookup, array $room_name_lookup): array {
+    $signals = [];
+    $room_id_lookup = [];
+    foreach ($room_lookup as $room_id => $room_meta) {
+      $room_id_lookup[$this->normalizeNavigationLocationToken((string) $room_id)] = (string) $room_id;
+    }
+    foreach ($quest_rows as $quest_row) {
+      if (!is_object($quest_row)) {
+        continue;
+      }
+      $quest_status = strtolower(trim((string) ($quest_row->status ?? '')));
+      $quest_implies_discovery = in_array($quest_status, ['active', 'ready_for_turn_in', 'completed'], TRUE);
+      $objective_tokens = [];
+
+      $quest_location = trim((string) ($quest_row->location_id ?? ''));
+      if ($quest_location !== '') {
+        $objective_tokens[] = [
+          'token' => $quest_location,
+          'discovered' => $quest_implies_discovery,
+        ];
+      }
+
+      $generated_objectives = json_decode((string) ($quest_row->generated_objectives ?? '[]'), TRUE);
+      if (is_array($generated_objectives)) {
+        foreach ($generated_objectives as $phase) {
+          if (!is_array($phase)) {
+            continue;
+          }
+          foreach ((array) ($phase['objectives'] ?? []) as $objective) {
+            if (!is_array($objective)) {
+              continue;
+            }
+            $tokens = $this->extractQuestObjectiveLocationTokens($objective);
+            if ($tokens === []) {
+              continue;
+            }
+            $objective_discovered = $quest_implies_discovery
+              || !empty($objective['completed'])
+              || !empty($objective['discovered'])
+              || (isset($objective['completion_criteria']['metric']) && (string) $objective['completion_criteria']['metric'] === 'discovered');
+            foreach ($tokens as $token) {
+              $objective_tokens[] = [
+                'token' => $token,
+                'discovered' => $objective_discovered,
+              ];
+            }
+          }
+        }
+      }
+
+      foreach ($objective_tokens as $candidate) {
+        $raw_token = trim((string) ($candidate['token'] ?? ''));
+        if ($raw_token === '') {
+          continue;
+        }
+        $token = $this->normalizeNavigationLocationToken($raw_token);
+        $resolved_room_id = '';
+        if (isset($room_lookup[$raw_token])) {
+          $resolved_room_id = $raw_token;
+        }
+        elseif (isset($room_id_lookup[$token])) {
+          $resolved_room_id = (string) $room_id_lookup[$token];
+        }
+        elseif (isset($room_name_lookup[$token])) {
+          $resolved_room_id = (string) $room_name_lookup[$token];
+        }
+        if ($resolved_room_id === '' || !isset($room_lookup[$resolved_room_id])) {
+          continue;
+        }
+        $room_meta = $room_lookup[$resolved_room_id];
+        $tags = ['mentioned'];
+        if (!empty($candidate['discovered'])) {
+          $tags[] = 'discovered';
+        }
+        $signals[] = [
+          'room_id' => $resolved_room_id,
+          'room_name' => (string) ($room_meta['name'] ?? $resolved_room_id),
+          'description' => (string) ($room_meta['description'] ?? ''),
+          'last_visited' => 0,
+          'navigable' => TRUE,
+          'source_tags' => $tags,
+        ];
+      }
+    }
+    return $signals;
+  }
+
+  /**
+   * Build quest-item-derived direct navigation signals.
+   *
+   * @param array<int, object> $item_rows
+   * @return array<int, array<string, mixed>>
+   */
+  protected function buildQuestItemNavigationSignals(array $item_rows, array $room_lookup): array {
+    $signals = [];
+    foreach ($item_rows as $item_row) {
+      if (!is_object($item_row)) {
+        continue;
+      }
+      $state_data = json_decode((string) ($item_row->state_data ?? '{}'), TRUE);
+      if (!is_array($state_data)) {
+        continue;
+      }
+      $quest_association = trim((string) ($state_data['quest_association'] ?? ''));
+      if ($quest_association === '') {
+        continue;
+      }
+
+      $candidates = [];
+      if ((string) ($item_row->location_type ?? '') === 'room') {
+        $candidates[] = (string) ($item_row->location_ref ?? '');
+      }
+      $candidates[] = (string) ($state_data['room_id'] ?? '');
+      $candidates[] = (string) ($state_data['location_id'] ?? '');
+      if (is_array($state_data['_spawn'] ?? NULL)) {
+        $candidates[] = (string) (($state_data['_spawn']['room_id'] ?? ''));
+      }
+      $candidates = array_values(array_unique(array_filter(array_map('trim', $candidates), static fn(string $value): bool => $value !== '')));
+
+      foreach ($candidates as $room_id) {
+        if (!isset($room_lookup[$room_id])) {
+          continue;
+        }
+        $room_meta = $room_lookup[$room_id];
+        $signals[] = [
+          'room_id' => $room_id,
+          'room_name' => (string) ($room_meta['name'] ?? $room_id),
+          'description' => (string) ($room_meta['description'] ?? ''),
+          'last_visited' => 0,
+          'navigable' => TRUE,
+          'source_tags' => ['quest_item_navigation'],
+        ];
+      }
+    }
+    return $signals;
+  }
+
+  /**
+   * Extract objective location token candidates recursively.
+   *
+   * @return string[]
+   */
+  protected function extractQuestObjectiveLocationTokens(array $objective): array {
+    $tokens = [];
+    foreach (['location_id', 'location', 'room_id', 'destination', 'destination_room_id'] as $key) {
+      $value = trim((string) ($objective[$key] ?? ''));
+      if ($value !== '') {
+        $tokens[] = $value;
+      }
+    }
+    foreach ((array) ($objective['children'] ?? []) as $child) {
+      if (!is_array($child)) {
+        continue;
+      }
+      $tokens = array_merge($tokens, $this->extractQuestObjectiveLocationTokens($child));
+    }
+    return array_values(array_unique(array_filter($tokens, static fn(string $value): bool => $value !== '')));
+  }
+
+  /**
+   * Normalize room/location token for robust matching.
+   */
+  protected function normalizeNavigationLocationToken(string $value): string {
+    $normalized = strtolower(trim($value));
+    $normalized = str_replace(['_', '-'], ' ', $normalized);
+    $normalized = preg_replace('/\s+/', ' ', $normalized) ?? $normalized;
+    return trim($normalized);
   }
 
   /**

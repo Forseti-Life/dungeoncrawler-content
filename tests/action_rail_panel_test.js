@@ -55,10 +55,11 @@ assert(
 );
 
 assert(
-  panelSource.includes("import { fetchVisitedNavigateLocationGroups } from '../services/navigate-location-service.js';")
-    && panelSource.includes('this.navigateLocationsInflight = fetchVisitedNavigateLocationGroups(campaignId)')
+  panelSource.includes("import { buildNavigateActionRailPanel } from '../services/action-rail-navigate-panel-service.js';")
+    && panelSource.includes('navigate: () => buildNavigateActionRailPanel(this, context),')
+    && !panelSource.includes("import { fetchVisitedNavigateLocationGroups } from '../services/navigate-location-service.js';")
     && !panelSource.includes('fetch(`/api/campaign/${campaignId}/visited-locations`'),
-  'ActionRailPanel navigation data loading is delegated to shared service adapter'
+  'ActionRailPanel delegates navigation preload/rendering to dedicated navigate panel service'
 );
 
 assert(
