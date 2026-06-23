@@ -71,6 +71,28 @@ class NarrationEngine {
     'pickpocket',
   ];
 
+  /**
+   * Event types owned by Narrator (procedural/mechanical room flow updates).
+   */
+  const NARRATOR_EVENT_TYPES = [
+    'round_start',
+    'turn_start',
+    'turn_end',
+    'choose_not_to_act',
+    'npc_choose_not_to_act',
+    'phase_transition',
+    'initiative_set',
+  ];
+
+  /**
+   * Event types owned by System (UI/control-plane prompts).
+   */
+  const SYSTEM_EVENT_TYPES = [
+    'system',
+    'player_prompt',
+    'control_notice',
+  ];
+
   protected Connection $database;
   protected LoggerInterface $logger;
   protected ChatSessionManager $sessionManager;
@@ -259,6 +281,7 @@ class NarrationEngine {
     array $event,
     array $present_characters = []
   ): array {
+    $event = $this->normalizeEventRoleScope($event);
     $result = [
       'event_recorded' => FALSE,
       'immediate_narrations' => [],
@@ -337,6 +360,53 @@ class NarrationEngine {
     }
 
     return $result;
+  }
+
+  /**
+   * Enforce role/scope boundaries for room-event speakers.
+   */
+  protected function normalizeEventRoleScope(array $event): array {
+    $event_type = strtolower(trim((string) ($event['type'] ?? 'unknown')));
+    $speaker = trim((string) ($event['speaker'] ?? ''));
+    $speaker_type = strtolower(trim((string) ($event['speaker_type'] ?? '')));
+    $content = trim((string) ($event['content'] ?? ''));
+
+    if ($speaker === '') {
+      $speaker = 'Unknown';
+    }
+
+    if (in_array($event_type, self::SYSTEM_EVENT_TYPES, TRUE) || $speaker_type === 'system' || strcasecmp($speaker, 'System') === 0) {
+      $event['speaker'] = 'System';
+      $event['speaker_type'] = 'system';
+      return $event;
+    }
+
+    if (in_array($event_type, self::NARRATOR_EVENT_TYPES, TRUE)) {
+      $event['speaker'] = 'Narrator';
+      $event['speaker_type'] = 'narrator';
+      return $event;
+    }
+
+    $is_speech_event = in_array($event_type, self::IMMEDIATE_NARRATION_TYPES, TRUE);
+    $looks_like_npc_dialogue = (bool) preg_match('/\b(says|asks|replies|shouts|whispers)\b/i', $content)
+      || str_contains($content, '"');
+
+    if (strcasecmp($speaker, 'Narrator') === 0 && ($is_speech_event || $looks_like_npc_dialogue)) {
+      $event['speaker'] = 'Game Master';
+      $event['speaker_type'] = 'gm';
+      return $event;
+    }
+
+    if (strcasecmp($speaker, 'Narrator') === 0) {
+      $event['speaker_type'] = 'narrator';
+      return $event;
+    }
+
+    if ($speaker_type === '') {
+      $event['speaker_type'] = 'gm';
+    }
+
+    return $event;
   }
 
   // =========================================================================

@@ -46,6 +46,14 @@ assert(
 );
 
 assert(
+  formSource.includes('$wizard = [];') &&
+  formSource.includes("if ($key === 'wizard')") &&
+  controllerSource.includes('$wizard = [];') &&
+  controllerSource.includes("if ($key === 'wizard')"),
+  'Wizard mirrors are rebuilt from canonical payload data instead of merging stale nested state'
+);
+
+assert(
   formSource.includes('$character_data = $this->storeCalculatedAbilityScores($character_data, $calculation);') &&
   formSource.includes("$character_data['abilities'] = $abilities;") &&
   formSource.includes("$character_data['ability_scores'] = $ability_scores;") &&
@@ -91,6 +99,14 @@ assert(
   formSource.includes("$item !== 0") &&
   formSource.includes("$item !== '0'"),
   'Wizard list normalization strips unchecked checkbox zero values before validation and persistence'
+);
+
+assert(
+  formSource.includes("buildStaffNexusSelectionSection") &&
+  formSource.includes("Staff Nexus choices will unlock as soon as those spell selections are present.") &&
+  formSource.includes("The makeshift staff contains one cantrip from your selected arcane cantrips.") &&
+  formSource.includes("The makeshift staff contains one selected 1st-rank spell from your spellbook."),
+  'Staff Nexus surfaces a dedicated dependent selector and a pending-state prompt tied to selected cantrips and spells'
 );
 
 console.log(`\nPassed: ${passed}`);

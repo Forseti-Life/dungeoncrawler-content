@@ -40,6 +40,11 @@ assert(
     && roomChatSource.includes('protected function didQuestgiverSpeakForQuest'),
   'Dialogue surfacing checks whether the speaking NPC is the quest giver before auto-starting the quest'
 );
+assert(
+  roomChatSource.indexOf('buildAvailableQuestgiverQuestDialogue($campaign_id, $entity_ref, $display_name, $room_id, $dungeon_data)') <
+    roomChatSource.indexOf('buildBrokeredStorylineLeadDialogue($campaign_id, $entity_ref, $display_name)'),
+  'Direct authored questgiver offers are prioritized before brokered storyline lead chatter'
+);
 
 const collectSpellbooks = questTemplates.find((entry) => entry.template_id === 'collect_spellbooks') || {};
 assert(collectSpellbooks.name === 'Recover {item_name}', 'Collect Spellbooks template uses the recover journal quest name');

@@ -13,6 +13,7 @@ use Drupal\Core\Session\AccountProxyInterface;
 use Drupal\Core\DependencyInjection\ContainerBuilder;
 use Drupal\dungeoncrawler_content\Form\CharacterCreationStepForm;
 use Drupal\dungeoncrawler_content\Service\AbilityScoreTracker;
+use Drupal\dungeoncrawler_content\Service\CampaignCharacterRuntimeResolverService;
 use Drupal\dungeoncrawler_content\Service\CampaignSubjectRegistryService;
 use Drupal\dungeoncrawler_content\Service\CharacterCreationGmService;
 use Drupal\dungeoncrawler_content\Service\CharacterManager;
@@ -864,12 +865,198 @@ class CharacterCreationStepFormTest extends UnitTestCase {
     $this->assertSame(8, $loaded['step']);
   }
 
-  private function buildFormObject(CharacterManager $character_manager, ?FeatLibraryService $feat_library = NULL, ?Connection $database = NULL, int $campaign_id = 70, ?CampaignSubjectRegistryService $campaign_subject_registry = NULL, ?InstitutionNormalizationService $institution_normalization = NULL, ?FactionGenerationService $faction_generation = NULL, ?InstitutionMembershipService $institution_membership = NULL): CharacterCreationStepForm {
+  /**
+   * @covers ::syncWizardDraftFromCharacterData
+   */
+  public function testSyncWizardDraftRebuildsMirrorFromCanonicalPayload(): void {
+    $form = $this->buildFormObject($this->createMock(CharacterManager::class));
+    $method = new \ReflectionMethod($form, 'syncWizardDraftFromCharacterData');
+    $method->setAccessible(TRUE);
+
+    $character_data = [
+      'name' => 'Burasco',
+      'step' => 8,
+      'ancestry' => 'human',
+      'class' => 'wizard',
+      'basicInfo' => [
+        'name' => 'Stale Nested Name',
+      ],
+      'resources' => [
+        'hitPoints' => ['current' => 1, 'max' => 1, 'temporary' => 0],
+      ],
+      'defenses' => [
+        'armorClass' => 11,
+      ],
+      'wizard' => [
+        'name' => 'Stale Nested Name',
+        'step' => 2,
+        'stale_only' => 'should be dropped',
+      ],
+    ];
+
+    $result = $method->invoke($form, $character_data);
+
+    $this->assertSame('Burasco', $result['wizard']['name']);
+    $this->assertSame(8, $result['wizard']['step']);
+    $this->assertSame('human', $result['wizard']['ancestry']);
+    $this->assertArrayNotHasKey('stale_only', $result['wizard']);
+  }
+
+  /**
+   * @covers ::ensureCampaignCharacterHasCanonicalSource
+   */
+  public function testEnsureCampaignCharacterHasCanonicalSourceReplacesSelfLinkWithLibraryRow(): void {
+    $character_manager = $this->createMock(CharacterManager::class);
+    $character_manager->expects($this->once())
+      ->method('loadCharacter')
+      ->with(77)
+      ->willReturn((object) [
+        'id' => 77,
+        'uid' => 9,
+        'campaign_id' => 12,
+        'character_id' => 77,
+        'source_character_id' => 77,
+        'instance_id' => 'pc-self-77',
+        'role' => 'player',
+        'type' => 'pc',
+        'status' => 0,
+        'location_type' => 'global',
+        'location_ref' => '',
+        'character_data' => json_encode([
+          'name' => 'Burasco',
+          'level' => 8,
+          'step' => 8,
+          'ancestry' => 'human',
+          'class' => 'wizard',
+        ]),
+      ]);
+    $character_manager->method('canonicalizeCharacterData')
+      ->willReturnCallback(static fn(array $input): array => $input);
+    $character_manager->method('extractHotColumnsFromData')
+      ->willReturn([
+        'hp_current' => 8,
+        'hp_max' => 8,
+        'armor_class' => 15,
+      ]);
+
+    $runtime_resolver = $this->createMock(CampaignCharacterRuntimeResolverService::class);
+    $runtime_resolver->expects($this->once())
+      ->method('resolveStarterRoomIdForCampaign')
+      ->with(12)
+      ->willReturn('starter-room');
+
+    $insert_builder = NULL;
+    $character_update_builder = NULL;
+    $campaign_update_builder = NULL;
+    $database = $this->createMock(Connection::class);
+    $database->method('insert')
+      ->willReturnCallback(static function (string $table) use (&$insert_builder): object {
+        $insert_builder = new class() {
+          public array $fields = [];
+
+          public function fields(array $fields): self {
+            $this->fields = $fields;
+            return $this;
+          }
+
+          public function execute(): int {
+            return 101;
+          }
+        };
+
+        return $insert_builder;
+      });
+    $database->method('update')
+      ->willReturnCallback(static function (string $table) use (&$character_update_builder, &$campaign_update_builder): object {
+        if ($table === 'dc_campaign_characters') {
+          $character_update_builder = new class() {
+            public array $fields = [];
+            public array $conditions = [];
+
+            public function fields(array $fields): self {
+              $this->fields = $fields;
+              return $this;
+            }
+
+            public function condition(string $field, mixed $value): self {
+              $this->conditions[] = [$field, $value];
+              return $this;
+            }
+
+            public function execute(): int {
+              return 1;
+            }
+          };
+
+          return $character_update_builder;
+        }
+
+        if ($table === 'dc_campaigns') {
+          $campaign_update_builder = new class() {
+            public array $fields = [];
+            public array $conditions = [];
+
+            public function fields(array $fields): self {
+              $this->fields = $fields;
+              return $this;
+            }
+
+            public function condition(string $field, mixed $value): self {
+              $this->conditions[] = [$field, $value];
+              return $this;
+            }
+
+            public function execute(): int {
+              return 1;
+            }
+          };
+
+          return $campaign_update_builder;
+        }
+
+        throw new \LogicException(sprintf('Unexpected table %s', $table));
+      });
+
+    $form = $this->buildFormObject(
+      $character_manager,
+      NULL,
+      $database,
+      12,
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      $runtime_resolver
+    );
+
+    $container = \Drupal::getContainer();
+    $time = $this->createMock(TimeInterface::class);
+    $time->method('getRequestTime')->willReturn(1700000000);
+    $uuid = $this->createMock(UuidInterface::class);
+    $uuid->method('generate')->willReturn('library-instance-uuid');
+    $container->set('time', $time);
+    $container->set('uuid', $uuid);
+
+    $method = new \ReflectionMethod($form, 'ensureCampaignCharacterHasCanonicalSource');
+    $method->setAccessible(TRUE);
+    $method->invoke($form, 77, 12);
+
+    $this->assertSame('library-instance-uuid', $insert_builder->fields['uuid'] ?? NULL);
+    $this->assertSame(0, $insert_builder->fields['campaign_id'] ?? NULL);
+    $this->assertSame(NULL, $insert_builder->fields['source_character_id'] ?? 'missing');
+    $this->assertSame(101, $character_update_builder->fields['character_id'] ?? NULL);
+    $this->assertSame(101, $character_update_builder->fields['source_character_id'] ?? NULL);
+    $this->assertSame('starter-room', $character_update_builder->fields['last_room_id'] ?? NULL);
+    $this->assertSame(101, $campaign_update_builder->fields['active_character_id'] ?? NULL);
+  }
+
+  private function buildFormObject(CharacterManager $character_manager, ?FeatLibraryService $feat_library = NULL, ?Connection $database = NULL, int $campaign_id = 70, ?CampaignSubjectRegistryService $campaign_subject_registry = NULL, ?InstitutionNormalizationService $institution_normalization = NULL, ?FactionGenerationService $faction_generation = NULL, ?InstitutionMembershipService $institution_membership = NULL, ?CampaignCharacterRuntimeResolverService $runtime_resolver = NULL): CharacterCreationStepForm {
     $database ??= $this->buildSubjectRegistryDatabaseMock(FALSE);
     $campaign_subject_registry ??= $this->createMock(CampaignSubjectRegistryService::class);
     $institution_normalization ??= new InstitutionNormalizationService();
     $faction_generation ??= $this->createMock(FactionGenerationService::class);
     $institution_membership ??= $this->createMock(InstitutionMembershipService::class);
+    $runtime_resolver ??= $this->createMock(CampaignCharacterRuntimeResolverService::class);
     $ability_score_tracker = $this->createMock(AbilityScoreTracker::class);
     $ability_score_tracker->method('calculateAbilityScores')->willReturn([
       'scores' => [
@@ -917,6 +1104,7 @@ class CharacterCreationStepFormTest extends UnitTestCase {
       $institution_membership,
       $institution_normalization,
       $faction_generation,
+      $runtime_resolver,
     );
 
     $form->setStringTranslation($this->getStringTranslationStub());

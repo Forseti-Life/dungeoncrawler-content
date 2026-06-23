@@ -55,6 +55,15 @@ assert(
   panelSource.includes("console.error('[RoomChat] JSON POST debug'"),
   'ChatPanel logs the JSON POST debug payload when server diagnostics are returned'
 );
+assert(
+  panelSource.includes('const debugClass = String(result?.debug?.exception_class || \'\').trim();')
+    && panelSource.includes('const debugMessage = String(result?.debug?.message || \'\').trim();'),
+  'ChatPanel extracts debug exception class and message from JSON POST failures'
+);
+assert(
+  panelSource.includes('errorText += ` [${details}]`;'),
+  'ChatPanel appends server exception details into the thrown browser error text'
+);
 
 console.log(`\nPassed: ${passed}`);
 console.log(`Failed: ${failed}`);

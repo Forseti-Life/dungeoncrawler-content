@@ -348,9 +348,9 @@ class CharacterCreationStepController extends ControllerBase {
    * Keep the nested wizard draft aligned with the latest top-level character data.
    */
   private function syncWizardDraftFromCharacterData(array $character_data): array {
-    $wizard = is_array($character_data['wizard'] ?? NULL) ? $character_data['wizard'] : [];
+    $wizard = [];
     foreach ($character_data as $key => $value) {
-      if (in_array($key, ['wizard', 'basicInfo', 'resources', 'defenses'], TRUE)) {
+      if ($key === 'wizard') {
         continue;
       }
       $wizard[$key] = $value;
