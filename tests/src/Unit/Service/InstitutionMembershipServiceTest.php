@@ -479,7 +479,8 @@ class InstitutionMembershipServiceTest extends UnitTestCase {
     ]);
 
     $this->assertSame(4, $count);
-    $this->assertCount(4, $registry_calls);
+    $creation_calls = array_values(array_filter($registry_calls, static fn (array $call): bool => (string) ($call['metadata']['seed_source'] ?? '') === 'npc_creation'));
+    $this->assertCount(4, $creation_calls);
     $membership_targets = [];
     $sentiment_targets = [];
     foreach ($relationship_calls as $call) {
@@ -1034,7 +1035,10 @@ class InstitutionMembershipServiceTest extends UnitTestCase {
     ]);
 
     $this->assertSame(4, $count);
-    $this->assertGreaterThan(1, count($registry_calls));
+    $creation_calls = array_values(array_filter($registry_calls, static fn (array $call): bool => (string) ($call['metadata']['seed_source'] ?? '') === 'character_creation'));
+    $this->assertCount(1, $creation_calls);
+    $this->assertSame('profession', $creation_calls[0]['domain'] ?? '');
+    $this->assertSame('Wizard', $creation_calls[0]['display_name'] ?? '');
     $membership_targets = [];
     foreach ($relationship_calls as $call) {
       if (($call['relationship']['relationship_type'] ?? '') === 'institution_member') {

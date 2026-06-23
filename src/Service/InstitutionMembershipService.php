@@ -513,14 +513,23 @@ class InstitutionMembershipService {
       $dedupe_key = '';
 
       if ($explicit_subject_id !== '') {
-        $subject_input = $input;
-        $subject_input['subject_id'] = $explicit_subject_id;
-        $subject_input['domain'] = trim((string) ($subject_input['domain'] ?? $expected_domain));
-        $subject_input['display_name'] = trim((string) ($subject_input['display_name'] ?? $subject_input['label'] ?? ''));
-        if ($subject_input['domain'] === '' || $subject_input['display_name'] === '') {
-          throw new \RuntimeException(sprintf('Campaign institution subject "%s" is missing required registry fields.', $explicit_subject_id));
+        $subject_input = $this->buildSubjectInputFromExplicitSubjectId($input, $explicit_subject_id, $expected_domain);
+        $resolved_subject = [];
+
+        try {
+          $resolved_subject = $this->campaignSubjectRegistry->loadInstitutionSubject($campaign_id, $explicit_subject_id);
         }
-        $resolved_subject = $this->campaignSubjectRegistry->resolveOrCreateInstitutionSubject($campaign_id, $subject_input);
+        catch (\InvalidArgumentException) {
+          // Missing campaign-scoped row is resolved deterministically from the explicit subject id contract.
+        }
+
+        $resolved_subject_id = trim((string) ($resolved_subject['subject_id'] ?? ''));
+        $resolved_domain = trim((string) ($resolved_subject['subject_domain'] ?? ''));
+        $resolved_display_name = trim((string) ($resolved_subject['display_name'] ?? ''));
+        if ($resolved_subject_id === '' || $resolved_domain === '' || $resolved_display_name === '') {
+          $resolved_subject = $this->campaignSubjectRegistry->resolveOrCreateInstitutionSubject($campaign_id, $subject_input);
+        }
+
         $resolved_subject_id = trim((string) ($resolved_subject['subject_id'] ?? ''));
         $resolved_domain = trim((string) ($resolved_subject['subject_domain'] ?? ''));
         $resolved_display_name = trim((string) ($resolved_subject['display_name'] ?? ''));
@@ -566,6 +575,69 @@ class InstitutionMembershipService {
     }
 
     return $prepared;
+  }
+
+  /**
+   * Builds deterministic institution input fields from an explicit subject id.
+   *
+   * @param array<string, mixed> $input
+   *   Source membership input.
+   * @return array<string, mixed>
+   *   Normalized input fields required by the subject registry.
+   */
+  protected function buildSubjectInputFromExplicitSubjectId(array $input, string $subject_id, string $expected_domain): array {
+    $subject_input = $input;
+    $subject_input['subject_id'] = $subject_id;
+
+    $domain = trim((string) ($subject_input['domain'] ?? $expected_domain));
+    $display_name = trim((string) ($subject_input['display_name'] ?? $subject_input['label'] ?? ''));
+
+    if ($domain === '' || $display_name === '') {
+      [$derived_domain, $derived_display_name] = $this->deriveInstitutionFieldsFromSubjectId($subject_id);
+      if ($domain === '') {
+        $domain = $derived_domain;
+      }
+      if ($display_name === '') {
+        $display_name = $derived_display_name;
+      }
+    }
+
+    if ($expected_domain !== '' && $domain !== $expected_domain) {
+      throw new \InvalidArgumentException(sprintf('Campaign institution subject "%s" does not match expected domain "%s".', $subject_id, $expected_domain));
+    }
+    if ($domain === '' || $display_name === '') {
+      throw new \RuntimeException(sprintf('Campaign institution subject "%s" is missing required registry fields.', $subject_id));
+    }
+
+    $subject_input['domain'] = $domain;
+    $subject_input['display_name'] = $display_name;
+
+    return $subject_input;
+  }
+
+  /**
+   * Derives canonical domain/display fields from a stable institution subject id.
+   *
+   * @return array{0:string,1:string}
+   *   Tuple of [domain, display_name].
+   */
+  protected function deriveInstitutionFieldsFromSubjectId(string $subject_id): array {
+    if (!preg_match('/^institution_([a-z0-9-]+)_(.+)$/', $subject_id, $matches)) {
+      throw new \InvalidArgumentException(sprintf('Campaign institution subject "%s" is not a valid institution subject id.', $subject_id));
+    }
+
+    $domain = $this->institutionNormalization->normalizeDomain((string) $matches[1]);
+    $normalized_label = trim((string) $matches[2]);
+    if ($domain === '' || $normalized_label === '') {
+      throw new \RuntimeException(sprintf('Campaign institution subject "%s" is missing required registry fields.', $subject_id));
+    }
+
+    $display_name = $this->humanizeValue($normalized_label);
+    if ($display_name === '') {
+      throw new \RuntimeException(sprintf('Campaign institution subject "%s" is missing required registry fields.', $subject_id));
+    }
+
+    return [$domain, $display_name];
   }
 
   /**
