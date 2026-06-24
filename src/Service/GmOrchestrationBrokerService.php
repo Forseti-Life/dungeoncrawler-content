@@ -47,6 +47,9 @@ class GmOrchestrationBrokerService {
     $results = [
       'quest_turn_in' => [],
       'combat_initiation' => NULL,
+      'transfer_currency' => [],
+      'consume_inventory' => [],
+      'apply_quest_touchpoint' => [],
     ];
     $errors = [];
     $receipts = [];
@@ -90,6 +93,45 @@ class GmOrchestrationBrokerService {
         continue;
       }
 
+      if ($type === 'transfer_currency') {
+        $transfer = $this->handleTransferCurrencyAction($campaign_id, $character_id, $action);
+        $results['transfer_currency'][] = $transfer;
+        $receipts[] = $this->buildReceipt('transactional', $type, $action, $transfer);
+        if (empty($transfer['success'])) {
+          $errors[] = [
+            'action_name' => $action['name'] ?? 'transfer_currency',
+            'message' => $transfer['error'] ?? 'Currency transfer failed.',
+          ];
+        }
+        continue;
+      }
+
+      if ($type === 'consume_inventory') {
+        $consume = $this->handleConsumeInventoryAction($campaign_id, $character_id, $action);
+        $results['consume_inventory'][] = $consume;
+        $receipts[] = $this->buildReceipt('transactional', $type, $action, $consume);
+        if (empty($consume['success'])) {
+          $errors[] = [
+            'action_name' => $action['name'] ?? 'consume_inventory',
+            'message' => $consume['error'] ?? 'Inventory consume failed.',
+          ];
+        }
+        continue;
+      }
+
+      if ($type === 'apply_quest_touchpoint') {
+        $touchpoint = $this->handleApplyQuestTouchpointAction($campaign_id, $character_id, $action);
+        $results['apply_quest_touchpoint'][] = $touchpoint;
+        $receipts[] = $this->buildReceipt('quest_progression', $type, $action, $touchpoint);
+        if (empty($touchpoint['success'])) {
+          $errors[] = [
+            'action_name' => $action['name'] ?? 'apply_quest_touchpoint',
+            'message' => $touchpoint['error'] ?? 'Quest touchpoint application failed.',
+          ];
+        }
+        continue;
+      }
+
       $remaining_actions[] = $action;
     }
 
@@ -100,6 +142,116 @@ class GmOrchestrationBrokerService {
       'receipts' => $receipts,
       'reloaded_dungeon_data' => $reloaded_dungeon_data,
     ];
+  }
+
+  /**
+   * Validate and execute a transfer_currency action.
+   */
+  public function handleTransferCurrencyAction(int $campaign_id, ?int $character_id, array $action): array {
+    $spec = $this->extractCurrencyTransferSpec($action, $character_id);
+    if (empty($spec['valid'])) {
+      $errors = $spec['errors'] ?? ['transfer_currency validation failed'];
+      $this->canonicalActionRegistry->recordUsage($campaign_id, 'transfer_currency', 'rejected', [
+        'character_id' => $character_id,
+        'errors' => $errors,
+      ]);
+      return [
+        'success' => FALSE,
+        'error' => implode(' ', $errors),
+      ];
+    }
+
+    try {
+      return $this->getInventoryManagementService()->transferCurrencyTransaction(
+        $spec['source'],
+        $spec['destination'],
+        $spec['denomination'],
+        $spec['amount'],
+        $campaign_id
+      );
+    }
+    catch (\InvalidArgumentException $e) {
+      $this->canonicalActionRegistry->recordUsage($campaign_id, 'transfer_currency', 'rejected', [
+        'character_id' => $character_id,
+        'error' => $e->getMessage(),
+      ]);
+      return [
+        'success' => FALSE,
+        'error' => $e->getMessage(),
+      ];
+    }
+  }
+
+  /**
+   * Validate and execute a consume_inventory action.
+   */
+  public function handleConsumeInventoryAction(int $campaign_id, ?int $character_id, array $action): array {
+    $spec = $this->extractConsumeInventorySpec($action, $character_id);
+    if (empty($spec['valid'])) {
+      $errors = $spec['errors'] ?? ['consume_inventory validation failed'];
+      $this->canonicalActionRegistry->recordUsage($campaign_id, 'consume_inventory', 'rejected', [
+        'character_id' => $character_id,
+        'errors' => $errors,
+      ]);
+      return [
+        'success' => FALSE,
+        'error' => implode(' ', $errors),
+      ];
+    }
+
+    try {
+      return $this->getInventoryManagementService()->consumeItemTransaction(
+        $spec['source'],
+        $spec['item_instance_id'],
+        $spec['quantity'],
+        $campaign_id
+      );
+    }
+    catch (\InvalidArgumentException $e) {
+      $this->canonicalActionRegistry->recordUsage($campaign_id, 'consume_inventory', 'rejected', [
+        'character_id' => $character_id,
+        'error' => $e->getMessage(),
+      ]);
+      return [
+        'success' => FALSE,
+        'error' => $e->getMessage(),
+      ];
+    }
+  }
+
+  /**
+   * Validate and execute an apply_quest_touchpoint action.
+   */
+  public function handleApplyQuestTouchpointAction(int $campaign_id, ?int $character_id, array $action): array {
+    $spec = $this->extractQuestTouchpointSpec($action, $character_id);
+    if (empty($spec['valid'])) {
+      $errors = $spec['errors'] ?? ['apply_quest_touchpoint validation failed'];
+      $this->canonicalActionRegistry->recordUsage($campaign_id, 'apply_quest_touchpoint', 'rejected', [
+        'character_id' => $character_id,
+        'errors' => $errors,
+      ]);
+      return [
+        'success' => FALSE,
+        'error' => implode(' ', $errors),
+      ];
+    }
+
+    $result = $this->questTouchpointService->ingestEvent($campaign_id, [
+      'character_id' => $spec['character_id'],
+      'touchpoint' => $spec['touchpoint'],
+    ]);
+    if (empty($result['success'])) {
+      $this->canonicalActionRegistry->recordUsage($campaign_id, 'apply_quest_touchpoint', 'rejected', [
+        'character_id' => $spec['character_id'],
+        'result' => $result,
+      ]);
+      return [
+        'success' => FALSE,
+        'error' => (string) ($result['error'] ?? 'Quest touchpoint could not be applied.'),
+      ];
+    }
+
+    return $result + ['success' => TRUE];
   }
 
   /**
@@ -360,12 +512,159 @@ class GmOrchestrationBrokerService {
   }
 
   /**
+   * Extract and validate transfer_currency action details.
+   */
+  protected function extractCurrencyTransferSpec(array $action, ?int $character_id): array {
+    $transfer = $action['details']['currency_transfer'] ?? NULL;
+    if (!is_array($transfer)) {
+      return [
+        'valid' => FALSE,
+        'errors' => ['transfer_currency action is missing details.currency_transfer.'],
+      ];
+    }
+
+    $source_owner_type = (string) ($transfer['source_owner_type'] ?? 'character');
+    $source_owner_id = trim((string) ($transfer['source_owner_id'] ?? ($character_id !== NULL ? (string) $character_id : '')));
+    $dest_owner_type = (string) ($transfer['dest_owner_type'] ?? '');
+    $dest_owner_id = trim((string) ($transfer['dest_owner_id'] ?? ''));
+    $denomination = strtolower((string) ($transfer['denomination'] ?? ''));
+    $amount = (int) ($transfer['amount'] ?? 0);
+
+    if (strtoupper($source_owner_id) === 'ACTING_CHARACTER') {
+      $source_owner_id = $character_id !== NULL ? (string) $character_id : '';
+    }
+    if (strtoupper($dest_owner_id) === 'ACTING_CHARACTER') {
+      $dest_owner_id = $character_id !== NULL ? (string) $character_id : '';
+    }
+
+    $errors = [];
+    if ($source_owner_type === '' || $source_owner_id === '') {
+      $errors[] = 'transfer_currency requires source owner.';
+    }
+    if ($dest_owner_type === '' || $dest_owner_id === '') {
+      $errors[] = 'transfer_currency requires destination owner.';
+    }
+    if (!in_array($denomination, ['cp', 'sp', 'gp', 'pp'], TRUE)) {
+      $errors[] = 'transfer_currency requires a valid denomination.';
+    }
+    if ($amount < 1) {
+      $errors[] = 'transfer_currency requires amount >= 1.';
+    }
+
+    if ($errors !== []) {
+      return ['valid' => FALSE, 'errors' => $errors];
+    }
+
+    return [
+      'valid' => TRUE,
+      'source' => [
+        'owner_type' => $source_owner_type,
+        'owner_id' => $source_owner_id,
+      ],
+      'destination' => [
+        'owner_type' => $dest_owner_type,
+        'owner_id' => $dest_owner_id,
+      ],
+      'denomination' => $denomination,
+      'amount' => $amount,
+    ];
+  }
+
+  /**
+   * Extract and validate consume_inventory action details.
+   */
+  protected function extractConsumeInventorySpec(array $action, ?int $character_id): array {
+    $consume = $action['details']['consume'] ?? NULL;
+    if (!is_array($consume)) {
+      return [
+        'valid' => FALSE,
+        'errors' => ['consume_inventory action is missing details.consume.'],
+      ];
+    }
+
+    $source_owner_type = (string) ($consume['source_owner_type'] ?? 'character');
+    $source_owner_id = trim((string) ($consume['source_owner_id'] ?? ($character_id !== NULL ? (string) $character_id : '')));
+    $item_instance_id = trim((string) ($consume['item_instance_id'] ?? ''));
+    $quantity = max(1, (int) ($consume['quantity'] ?? 1));
+    $location_type = $consume['source_location_type'] ?? NULL;
+
+    if (strtoupper($source_owner_id) === 'ACTING_CHARACTER') {
+      $source_owner_id = $character_id !== NULL ? (string) $character_id : '';
+    }
+
+    $errors = [];
+    if ($source_owner_type === '' || $source_owner_id === '') {
+      $errors[] = 'consume_inventory requires source owner.';
+    }
+    if ($item_instance_id === '') {
+      $errors[] = 'consume_inventory requires item_instance_id.';
+    }
+
+    if ($errors !== []) {
+      return ['valid' => FALSE, 'errors' => $errors];
+    }
+
+    return [
+      'valid' => TRUE,
+      'source' => [
+        'owner_type' => $source_owner_type,
+        'owner_id' => $source_owner_id,
+        'location_type' => $location_type,
+      ],
+      'item_instance_id' => $item_instance_id,
+      'quantity' => $quantity,
+    ];
+  }
+
+  /**
+   * Extract and validate apply_quest_touchpoint action details.
+   */
+  protected function extractQuestTouchpointSpec(array $action, ?int $character_id): array {
+    $touchpoint = $action['details']['touchpoint'] ?? NULL;
+    if (!is_array($touchpoint)) {
+      return [
+        'valid' => FALSE,
+        'errors' => ['apply_quest_touchpoint action is missing details.touchpoint.'],
+      ];
+    }
+
+    $resolved_character_id = (int) ($touchpoint['character_id'] ?? $character_id ?? 0);
+    if ($resolved_character_id <= 0) {
+      return [
+        'valid' => FALSE,
+        'errors' => ['apply_quest_touchpoint requires character_id.'],
+      ];
+    }
+    if (trim((string) ($touchpoint['objective_type'] ?? '')) === '') {
+      return [
+        'valid' => FALSE,
+        'errors' => ['apply_quest_touchpoint requires touchpoint.objective_type.'],
+      ];
+    }
+
+    return [
+      'valid' => TRUE,
+      'character_id' => $resolved_character_id,
+      'touchpoint' => $touchpoint,
+    ];
+  }
+
+  /**
    * Lazily resolve the game coordinator to avoid a circular constructor graph.
    */
   protected function getGameCoordinator(): GameCoordinatorService {
     /** @var \Drupal\dungeoncrawler_content\Service\GameCoordinatorService $game_coordinator */
     $game_coordinator = $this->serviceContainer->get('dungeoncrawler_content.game_coordinator');
     return $game_coordinator;
+  }
+
+  /**
+   * Lazily resolve inventory management for transactional canonical actions.
+   */
+  protected function getInventoryManagementService(): InventoryManagementService {
+    /** @var \Drupal\dungeoncrawler_content\Service\InventoryManagementService $inventory_management */
+    $inventory_management = $this->serviceContainer->get('dungeoncrawler_content.inventory_management');
+    return $inventory_management;
   }
 
 }
