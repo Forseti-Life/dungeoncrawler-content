@@ -339,7 +339,7 @@ class NpcAttentionService {
       $player_speaker_id
     );
     $recent_interaction = $this->scoreRecentInteraction($npc_profile, $conversation_state);
-    $base_charisma = min(100, (int) ($npc_profile['ability_scores']['charisma'] ?? 10));
+    $base_charisma = min(100, (int) ($this->defensivelyExtractCharismaScore($npc_profile) ?? 10));
     $fatigue_penalty = $this->calculateFatiguePenalty($npc_profile, $conversation_state);
     $initiative_bonus = $this->getInitiativeBonus($npc_profile, $game_state);
 
@@ -622,21 +622,65 @@ class NpcAttentionService {
    * @return bool
    *   TRUE if valid, FALSE if missing required fields.
    *
-   * @throws InvalidArgumentException
+   * @throws \InvalidArgumentException
    *   If critical fields are missing.
    */
   protected function validateNpcProfile(array $npc_profile): bool {
-    // Critical fields that must exist
+    // Critical: Must have entity_ref
     if (empty($npc_profile['entity_ref'])) {
       throw new \InvalidArgumentException('NPC profile missing required entity_ref');
     }
-    if (empty($npc_profile['ability_scores']['charisma'])) {
-      throw new \InvalidArgumentException('NPC profile missing required ability_scores.charisma');
-    }
+
+    // Critical: Must have display_name
     if (empty($npc_profile['profile']['display_name'])) {
       throw new \InvalidArgumentException('NPC profile missing required profile.display_name');
     }
+
+    // Charisma is defensive: if not found in primary locations, use default.
+    // This prevents data quality issues from breaking the attention system.
+    $charisma = $this->defensivelyExtractCharismaScore($npc_profile);
+    // Note: $charisma can be NULL, which is OK—caller will use default value
+
     return TRUE;
+  }
+
+  /**
+   * Defensively extract charisma score from NPC profile.
+   * Checks multiple possible locations matching RoomChatService.extractNpcAbilityScore behavior.
+   *
+   * @return int|NULL
+   *   Charisma score if found, NULL otherwise (use default in caller).
+   */
+  protected function defensivelyExtractCharismaScore(array $npc_profile): ?int {
+    $ability = 'charisma';
+
+    // Multiple possible locations for ability scores
+    $sources = [
+      $npc_profile['entity']['state']['abilities'] ?? NULL,
+      $npc_profile['entity']['abilities'] ?? NULL,
+      $npc_profile['entity']['character_data']['abilities'] ?? NULL,
+      $npc_profile['entity']['state']['character_data']['abilities'] ?? NULL,
+      $npc_profile['profile']['abilities'] ?? NULL,
+      $npc_profile['profile']['stats'] ?? NULL,
+      $npc_profile['profile']['ability_scores'] ?? NULL,
+      $npc_profile['ability_scores'] ?? NULL,
+    ];
+
+    foreach ($sources as $source) {
+      if (!is_array($source)) {
+        continue;
+      }
+
+      $value = $source[$ability] ?? NULL;
+      if (is_array($value)) {
+        $value = $value['score'] ?? $value['value'] ?? NULL;
+      }
+      if ($value !== NULL && is_numeric($value)) {
+        return (int) $value;
+      }
+    }
+
+    return NULL;
   }
 
 }
