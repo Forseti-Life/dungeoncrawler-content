@@ -48,8 +48,29 @@ export class NavigationSystem {
       const rawOriginR = String(button.dataset.originR || '').trim();
       const originQ = rawOriginQ !== '' ? Number(rawOriginQ) : null;
       const originR = rawOriginR !== '' ? Number(rawOriginR) : null;
+      const mapId = String(button.dataset.mapId || '').trim();
+      const dungeonLevelId = String(button.dataset.dungeonLevelId || '').trim();
 
       if (!hexmap || !roomId) {
+        return;
+      }
+
+      // If the target room does not exist in the current dungeon's visual rooms,
+      // it is an ungenerated or cross-dungeon destination (e.g. a quest target).
+      // Route through dungeon-context switch rather than the encounter action API.
+      const visualRooms = typeof hexmap.getVisualRooms === 'function' ? hexmap.getVisualRooms() : {};
+      const roomExistsInCurrentDungeon = Boolean(visualRooms[roomId]);
+      if (!roomExistsInCurrentDungeon) {
+        // For ungenerated quest destinations, omit map_id so the server can
+        // find or generate the appropriate dungeon for that room.
+        const dungeonSwitch = { room_id: roomId, target_room_id: roomId };
+        if (mapId) {
+          dungeonSwitch.map_id = mapId;
+        }
+        if (dungeonLevelId) {
+          dungeonSwitch.dungeon_level_id = dungeonLevelId;
+        }
+        this.navigateToDungeonContext(dungeonSwitch);
         return;
       }
 
@@ -250,8 +271,12 @@ export class NavigationSystem {
       params.set('character_id', String(characterId));
     }
 
-    params.set('map_id', String(dungeonSwitch.map_id));
     params.set('room_id', String(dungeonSwitch.room_id || dungeonSwitch.target_room_id || ''));
+    if (dungeonSwitch.map_id) {
+      params.set('map_id', String(dungeonSwitch.map_id));
+    } else {
+      params.delete('map_id');
+    }
     if (dungeonSwitch.dungeon_level_id) {
       params.set('dungeon_level_id', String(dungeonSwitch.dungeon_level_id));
     }
