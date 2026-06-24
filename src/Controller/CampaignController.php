@@ -946,7 +946,7 @@ class CampaignController extends ControllerBase {
    */
   protected function extractQuestObjectiveLocationTokens(array $objective): array {
     $tokens = [];
-    foreach (['location_id', 'location', 'room_id', 'destination', 'destination_room_id'] as $key) {
+    foreach (['location_id', 'location', 'room_id', 'destination', 'destination_id', 'destination_room_id'] as $key) {
       $value = trim((string) ($objective[$key] ?? ''));
       if ($value !== '') {
         $tokens[] = $value;
