@@ -508,6 +508,9 @@ services:
     class: Drupal\dungeoncrawler_content\Service\NpcPsychologyService
     arguments: ['@database', '@logger.factory', '@ai_conversation.ai_api_service', '@dungeoncrawler_content.ai_session_manager']
 
+  dungeoncrawler_content.npc_attention_service:
+    class: Drupal\dungeoncrawler_content\Service\NpcAttentionService
+
   dungeoncrawler_content.room_chat_service:
     class: Drupal\dungeoncrawler_content\Service\RoomChatService
     arguments:
@@ -537,6 +540,7 @@ services:
       - '@?dungeoncrawler_content.storyline_manager'
       - '@?dungeoncrawler_content.storyline_generation_service'
       - '@?dungeoncrawler_content.quest_touchpoint'
+      - '@?dungeoncrawler_content.npc_attention_service'
 
   dungeoncrawler_content.campaign_initialization:
     class: Drupal\dungeoncrawler_content\Service\CampaignInitializationService

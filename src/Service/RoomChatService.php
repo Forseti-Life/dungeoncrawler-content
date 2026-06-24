@@ -62,6 +62,7 @@ class RoomChatService {
   protected MerchantBotService $merchantBotService;
   protected ?InventoryManagementService $inventoryManagementService;
   protected ?MerchantTransactionService $merchantTransactionService;
+  protected NpcAttentionService $attentionService;
   protected ?array $activeDebugTrace = NULL;
   protected ?bool $roomTurnLogStoreAvailable = NULL;
 
@@ -94,7 +95,8 @@ class RoomChatService {
     ?StateValidationService $state_validation_service = NULL,
     ?StorylineManagerService $storyline_manager = NULL,
     ?StorylineGenerationService $storyline_generation_service = NULL,
-    ?QuestTouchpointService $quest_touchpoint_service = NULL
+    ?QuestTouchpointService $quest_touchpoint_service = NULL,
+    ?NpcAttentionService $attention_service = NULL
   ) {
     $this->database = $database;
     $this->dungeonStateService = $dungeon_state_service;
@@ -121,6 +123,7 @@ class RoomChatService {
     $this->storylineManager = $storyline_manager;
     $this->storylineGenerationService = $storyline_generation_service;
     $this->questTouchpointService = $quest_touchpoint_service;
+    $this->attentionService = $attention_service ?? new NpcAttentionService();
   }
 
   /**
