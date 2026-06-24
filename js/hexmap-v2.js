@@ -15,7 +15,7 @@
  * During Phase 10 parallel testing it runs alongside the old hexmap library.
  */
 
-import { GameShell } from './v2/GameShell.js?v=20260624-v3-room-sync-nav-1';
+import { GameShell } from './v2/GameShell.js?v=20260624-v3-room-sync-nav-2';
 
 (function (Drupal, drupalSettings, once) {
   'use strict';

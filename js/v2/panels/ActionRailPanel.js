@@ -11,7 +11,7 @@ import { extractConsumableItems, collectCharacterSkillEntries, buildActionRailEn
 import { escapeQuestHtml } from '../utils/quest-utils.js';
 import { escapeTooltipAttr, flattenTooltipBuckets, slugifyTooltipKey } from '../utils/dom-utils.js';
 import { buildActionRailContext } from '../services/action-rail-context-service.js';
-import { buildNavigateActionRailPanel } from '../services/action-rail-navigate-panel-service.js?v=20260624-v2-room-sync-nav-1';
+import { buildNavigateActionRailPanel } from '../services/action-rail-navigate-panel-service.js?v=20260624-v2-room-sync-nav-2';
 import {
   getActionRailDirectRoute,
   getServerActionIdForExecute,
@@ -239,6 +239,12 @@ export class ActionRailPanel {
     const panelBody = this._el.actionRailPanelBody;
     const automationToggle = this._el.actionRailAutomationToggle;
     const actorCard = this._el.actionRailActorCard;
+    console.log('[ActionRailPanel] setupActionRail', {
+      hasCategories: !!categories,
+      hasPanelBody: !!panelBody,
+      hasAutomationToggle: !!automationToggle,
+      hasActorCard: !!actorCard,
+    });
     this.updateActionRailClocks();
     if (!this.actionRailRealClockTimer) {
       this.actionRailRealClockTimer = setInterval(() => {
@@ -246,6 +252,7 @@ export class ActionRailPanel {
       }, 1000);
     }
     if (!categories) {
+      console.warn('[ActionRailPanel] setupActionRail: categories element missing — panelBody click listener NOT bound');
       this.refreshActionRail();
       return;
     }
@@ -322,6 +329,7 @@ export class ActionRailPanel {
     });
 
     if (panelBody) {
+      console.log('[ActionRailPanel] setupActionRail: binding panelBody click listener');
       this.bindActionRailDomListener(panelBody, 'click', (event) => {
         const toggle = event.target instanceof HTMLElement
           ? event.target.closest('[data-action-rail-toggle-descriptions]')
@@ -334,7 +342,16 @@ export class ActionRailPanel {
         const button = event.target instanceof HTMLElement
           ? event.target.closest('[data-action-rail-execute]')
           : null;
-        if (!(button instanceof HTMLButtonElement) || button.disabled) {
+        if (!(button instanceof HTMLButtonElement)) {
+          return;
+        }
+        if (button.disabled) {
+          console.warn('[ActionRailPanel] panelBody click: button is disabled, ignoring', {
+            execute: button.dataset.actionRailExecute,
+            roomId: button.dataset.roomId,
+            disabled: button.disabled,
+            ariaBusy: button.getAttribute('aria-busy'),
+          });
           return;
         }
         this.handleActionRailPanelAction(button);
@@ -1097,12 +1114,15 @@ export class ActionRailPanel {
 
   beginActionRailRequest(button) {
     if (!(button instanceof HTMLButtonElement)) {
+      console.error('[ActionRailPanel] beginActionRailRequest: button is not HTMLButtonElement', { type: typeof button, tag: button?.tagName });
       return false;
     }
     if (button.dataset.actionRailPending === '1') {
+      console.warn('[ActionRailPanel] beginActionRailRequest: request already pending for button', { execute: button.dataset.actionRailExecute });
       return false;
     }
     const requestId = `action-rail-${Date.now()}-${++this._actionRailRequestSequence}`;
+    console.log('[ActionRailPanel] beginActionRailRequest: starting', { requestId, execute: button.dataset.actionRailExecute, roomId: button.dataset.roomId });
     button.dataset.actionRailPending = '1';
     button.dataset.backendRequestId = requestId;
     button.disabled = true;

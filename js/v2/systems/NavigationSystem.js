@@ -34,7 +34,17 @@ export class NavigationSystem {
   }
 
   async executeDirectNavigate(button) {
+    console.log('[Navigation] executeDirectNavigate: entry', {
+      hasButton: !!button,
+      isHTMLButton: button instanceof HTMLButtonElement,
+      roomId: button?.dataset?.roomId,
+      roomName: button?.dataset?.roomName,
+      mapId: button?.dataset?.mapId,
+      dungeonLevelId: button?.dataset?.dungeonLevelId,
+    });
+
     if (!this._beginActionRailRequest(button)) {
+      console.error('[Navigation] executeDirectNavigate: _beginActionRailRequest returned false — aborting');
       return;
     }
 
@@ -51,7 +61,18 @@ export class NavigationSystem {
       const mapId = String(button.dataset.mapId || '').trim();
       const dungeonLevelId = String(button.dataset.dungeonLevelId || '').trim();
 
+      console.log('[Navigation] executeDirectNavigate: context resolved', {
+        hasHexmap: !!hexmap,
+        roomId,
+        roomName,
+        connectionId,
+        mapId,
+        dungeonLevelId,
+      });
+
       if (!hexmap || !roomId) {
+        console.error('[Navigation] executeDirectNavigate: missing hexmap or roomId — aborting', { hasHexmap: !!hexmap, roomId });
+        this._appendChatLine('System', 'Navigation could not resolve the destination room.', 'system');
         return;
       }
 
@@ -60,6 +81,13 @@ export class NavigationSystem {
       // Route through dungeon-context switch rather than the encounter action API.
       const visualRooms = typeof hexmap.getVisualRooms === 'function' ? hexmap.getVisualRooms() : {};
       const roomExistsInCurrentDungeon = Boolean(visualRooms[roomId]);
+      console.log('[Navigation] executeDirectNavigate: room resolution', {
+        roomId,
+        roomExistsInCurrentDungeon,
+        visualRoomCount: Object.keys(visualRooms).length,
+        visualRoomKeys: Object.keys(visualRooms).slice(0, 5),
+      });
+
       if (!roomExistsInCurrentDungeon) {
         // For quest/ungenerated rooms not in the current dungeon, do NOT pass
         // mapId — let the server find or generate the appropriate dungeon.
@@ -67,6 +95,7 @@ export class NavigationSystem {
         if (dungeonLevelId) {
           dungeonSwitch.dungeon_level_id = dungeonLevelId;
         }
+        console.log('[Navigation] executeDirectNavigate: room not in current dungeon — dungeon context switch', { roomId, dungeonSwitch });
         this.navigateToDungeonContext(dungeonSwitch);
         return;
       }
@@ -85,7 +114,17 @@ export class NavigationSystem {
         || '',
       ).trim() || null;
       const coordinator = hexmap.gameCoordinator || null;
+
+      console.log('[Navigation] executeDirectNavigate: actor/coordinator resolution', {
+        actorId,
+        hasCoordinator: !!coordinator,
+        hasCoordinatorApi: !!coordinator?.api?.sendAction,
+        contextActorRef: context?.actorRef,
+        launchPlayerRef: launchPlayer?.dcEntityRef,
+      });
+
       if (!coordinator?.api?.sendAction || !actorId) {
+        console.error('[Navigation] executeDirectNavigate: no coordinator or actorId — aborting', { hasCoordinator: !!coordinator, actorId });
         this._appendChatLine('System', 'No active player actor is available for navigation right now.', 'system');
         return;
       }
@@ -100,8 +139,14 @@ export class NavigationSystem {
         params.target_hex = { q: originQ, r: originR };
       }
 
+      console.log('[Navigation] executeDirectNavigate: sending transition action', { actorId, params });
       const result = await coordinator.api.sendAction('transition', actorId, params, {
         stateVersion: coordinator.phaseManager?.stateVersion,
+      });
+      console.log('[Navigation] executeDirectNavigate: transition result', {
+        success: result?.success,
+        error: result?.error,
+        activeRoomId: result?.game_state?.active_room_id || result?.active_room_id,
       });
       if (!result?.success) {
         this._appendChatLine('System', result?.error || 'That destination is not navigable right now.', 'system');
@@ -269,7 +314,7 @@ export class NavigationSystem {
 
   navigateToDungeonContext(dungeonSwitch) {
     if (typeof window === 'undefined' || !window.location) {
-      console.error('[Navigation] window.location not available for dungeon switch');
+      console.error('[Navigation] navigateToDungeonContext: window.location not available');
       return;
     }
 
@@ -302,13 +347,26 @@ export class NavigationSystem {
     params.set('start_q', '0');
     params.set('start_r', '0');
 
-    window.location.assign(`${window.location.pathname}?${params.toString()}`);
+    const newUrl = `${window.location.pathname}?${params.toString()}`;
+    console.log('[Navigation] navigateToDungeonContext: redirecting', {
+      dungeonSwitch,
+      currentUrl: window.location.href.split('?')[1] || '',
+      newParams: params.toString(),
+      isSameUrl: newUrl === window.location.href,
+    });
+    window.location.assign(newUrl);
   }
 
   // --- Proxy helpers (UIManager methods now live on panels/bus) ---
 
   _beginActionRailRequest(button) {
-    return this.shell.panels.actionRail?.beginActionRailRequest(button) ?? false;
+    const hasActionRail = !!this.shell?.panels?.actionRail;
+    console.log('[Navigation] _beginActionRailRequest', { hasActionRail, isHTMLButton: button instanceof HTMLButtonElement });
+    const result = this.shell.panels.actionRail?.beginActionRailRequest(button) ?? false;
+    if (!result) {
+      console.warn('[Navigation] _beginActionRailRequest: returned false', { hasActionRail, isHTMLButton: button instanceof HTMLButtonElement, pending: button?.dataset?.actionRailPending });
+    }
+    return result;
   }
 
   _endActionRailRequest(button) {
