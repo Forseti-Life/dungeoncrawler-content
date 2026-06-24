@@ -4449,18 +4449,18 @@ class RoomChatService {
       }
     }
 
-    // VALIDATION: conversation_state MUST be initialized by caller or successfully initialized here.
+    // If attention state still unavailable, use legacy fallback gate
+    // This allows the system to gracefully degrade if room data is unavailable
     if ($conversation_state === NULL) {
-      throw new \InvalidArgumentException(
-        'conversation_state parameter is required for filterAmbientNpcInterjectionOrder() attention scoring. ' .
-        'Conversation state must be either: (1) passed as a parameter, or (2) initialized from dungeon_data. ' .
-        'Pass conversation_state reference to avoid redundant initialization.'
-      );
+      // Fall through to legacy ambient chatter gate (see line 4499+)
+      $use_legacy_gate = TRUE;
+    }
+    else {
+      $use_legacy_gate = FALSE;
     }
 
-    // Detect topic for this turn
-    // Note: conversation_state is guaranteed to be non-NULL due to validation above
-    if ($player_message !== '') {
+    // Detect topic and update conversation state only if state is available
+    if ($use_legacy_gate === FALSE && $player_message !== '') {
       $topic_data = $this->attentionService->detectTopic($player_message);
       if ($topic_data['topic'] !== NULL) {
         $this->attentionService->updateTopic($conversation_state, $topic_data['topic'], 0);
@@ -4475,8 +4475,8 @@ class RoomChatService {
         continue;
       }
 
-      // Use attention score system if conversation state available
-      if ($conversation_state !== NULL) {
+      // Use attention score system if available
+      if ($use_legacy_gate === FALSE && $conversation_state !== NULL) {
         // Extract player speaker ID from last speaker in conversation state
         $player_speaker_id = $conversation_state['last_speaker'] ?? '';
         $score_result = $this->attentionService->calculateAttentionScore(
@@ -4496,7 +4496,7 @@ class RoomChatService {
         continue;
       }
 
-      // Fallback to legacy roll-based gate if no conversation state
+      // Fallback to legacy roll-based gate
       $threshold = $this->resolveAmbientNpcInterjectionPercent($npc);
       $roll = $this->computeAmbientNpcInterjectionRoll($npc, $effective_seed);
       if ($roll < $threshold) {
