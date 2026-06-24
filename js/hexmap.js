@@ -4774,7 +4774,7 @@ import { SpriteService } from './SpriteService.js';
       const routeGroups = this.collectNavigateLocationGroups(context);
       const visitedGroups = this.collectVisitedNavigateLocationGroups(context, campaignId);
       const questTargetGroups = this.collectQuestTargetNavigateLocationGroups(context, routeGroups, visitedGroups);
-      const groups = [...routeGroups, ...questTargetGroups, ...visitedGroups];
+      const groups = this.dedupeNavigateGroups([...routeGroups, ...questTargetGroups, ...visitedGroups]);
 
       if (!groups.length) {
         return {
@@ -4785,6 +4785,13 @@ import { SpriteService } from './SpriteService.js';
       }
 
       const entryCount = groups.reduce((total, group) => total + group.locations.length, 0);
+      const visualRooms = typeof context?.hexmap?.getVisualRooms === 'function' ? context.hexmap.getVisualRooms() : {};
+      const rooms = visualRooms && typeof visualRooms === 'object' ? visualRooms : {};
+      const activeRoomId = String(context?.hexmap?.resolveActiveRoomId?.() || '').trim();
+      const activeRoom = activeRoomId && rooms[activeRoomId] ? rooms[activeRoomId] : null;
+      const currentLocationLabel = activeRoomId
+        ? String(activeRoom?.name || activeRoom?.title || activeRoomId).trim()
+        : '';
       const html = groups.map((group) => {
         const entries = group.locations.map((location) => this.renderActionRailEntry({
           execute: 'navigate',
@@ -4811,9 +4818,34 @@ import { SpriteService } from './SpriteService.js';
 
       return {
         title: 'Navigate',
-        chip: `${entryCount} destination${entryCount === 1 ? '' : 's'}`,
+        chip: currentLocationLabel ? `Current: ${currentLocationLabel}` : `${entryCount} destination${entryCount === 1 ? '' : 's'}`,
         html,
       };
+    }
+
+    dedupeNavigateGroups(groups) {
+      const seen = new Set();
+      return (Array.isArray(groups) ? groups : [])
+        .map((group) => {
+          const filteredLocations = (Array.isArray(group?.locations) ? group.locations : []).filter((location) => {
+            const roomId = String(location?.roomId || '').trim();
+            if (!roomId) {
+              return false;
+            }
+            const mapId = String(location?.mapId || group?.mapId || '').trim();
+            const key = `${mapId}:${roomId}`;
+            if (seen.has(key)) {
+              return false;
+            }
+            seen.add(key);
+            return true;
+          });
+          return {
+            ...group,
+            locations: filteredLocations,
+          };
+        })
+        .filter((group) => Array.isArray(group.locations) && group.locations.length > 0);
     }
 
     collectNavigateLocationGroups(context) {

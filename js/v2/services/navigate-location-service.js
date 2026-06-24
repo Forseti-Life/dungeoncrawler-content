@@ -6,7 +6,7 @@
 export async function fetchVisitedNavigateLocationGroups(campaignId) {
   const numericCampaignId = Number(campaignId || 0);
   if (!numericCampaignId) {
-    return [];
+    return { groups: [], activeRoom: null };
   }
 
   const response = await fetch(`/api/campaign/${numericCampaignId}/visited-locations`, {
@@ -22,7 +22,11 @@ export async function fetchVisitedNavigateLocationGroups(campaignId) {
     throw new Error(data.error || 'Unable to load visited locations.');
   }
 
-  return (Array.isArray(data.dungeons) ? data.dungeons : [])
+  const activeRoom = data.active_room
+    ? { roomId: String(data.active_room.room_id || ''), roomName: String(data.active_room.room_name || '') }
+    : null;
+
+  const groups = (Array.isArray(data.dungeons) ? data.dungeons : [])
     .map((group) => ({
       dungeonId: String(group?.dungeon_id || ''),
       dungeonName: String(group?.dungeon_name || group?.dungeon_id || 'Dungeon'),
@@ -44,4 +48,6 @@ export async function fetchVisitedNavigateLocationGroups(campaignId) {
         : [],
     }))
     .filter((group) => group.locations.length > 0);
+
+  return { groups, activeRoom };
 }

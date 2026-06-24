@@ -96,6 +96,7 @@ export class ActionRailPanel {
     this.navigateLocationGroups = [];
     this.navigateLocationsCampaignId = null;
     this.navigateLocationsInflight = null;
+    this.navigateActiveRoom = null;
     this._actionRailRequestSequence = 0;
     this._domListeners = [];
   }

@@ -574,13 +574,43 @@ class CampaignController extends ControllerBase {
       ->fetchAll();
 
     $groups = [];
+    $primary_dungeon_id = array_key_first($dungeon_rows) ?? '';
+    $active_room_id = '';
+    $active_room_name = '';
+
     foreach ($dungeon_rows as $dungeon_id => $dungeon_row) {
       $payload = json_decode((string) ($dungeon_row->dungeon_data ?? '{}'), TRUE);
       if (!is_array($payload)) {
         $payload = [];
       }
 
-      $room_lookup = $this->buildDungeonRoomLookup($payload, $room_rows, $global_room_rows);
+      $is_primary = ((string) $dungeon_id === $primary_dungeon_id);
+
+      // Track the active room for the primary dungeon so the client can
+      // display it as "Current Location" rather than a navigable destination.
+      if ($is_primary) {
+        $active_room_id = (string) ($payload['active_room_id'] ?? '');
+        // Resolve the room name from dungeon data
+        foreach ((array) ($payload['rooms'] ?? []) as $room) {
+          if (is_array($room) && (string) ($room['room_id'] ?? '') === $active_room_id) {
+            $active_room_name = (string) ($room['name'] ?? $active_room_id);
+            break;
+          }
+        }
+        if ($active_room_name === '' && $active_room_id !== '') {
+          $active_room_name = (string) ($room_rows[$active_room_id]->name ?? $active_room_id);
+        }
+      }
+
+      // For the primary dungeon include global template room stubs so that
+      // quest destinations not yet generated still resolve for signal building.
+      // Secondary dungeons use only their own rooms to prevent cross-dungeon
+      // quest signals from appearing in every group.
+      $room_lookup = $this->buildDungeonRoomLookup(
+        $payload,
+        $room_rows,
+        $is_primary ? $global_room_rows : []
+      );
       $history_lookup = $this->buildDungeonHistoryLookup($payload, $room_rows);
       $room_name_lookup = $this->buildDungeonRoomNameLookup($room_lookup);
       $locations_by_room = $this->compileDungeonNavigationLocations(
@@ -588,9 +618,15 @@ class CampaignController extends ControllerBase {
         $history_lookup,
         $room_name_lookup,
         $state_rows,
-        $quest_rows,
-        $item_rows
+        $is_primary ? $quest_rows : [],
+        $is_primary ? $item_rows : []
       );
+
+      // Exclude the active room — it is shown as "Current Location" on the
+      // client, not as a navigable destination.
+      if ($active_room_id !== '') {
+        unset($locations_by_room[$active_room_id]);
+      }
 
       $visited_locations = array_values($locations_by_room);
       usort($visited_locations, static function (array $a, array $b): int {
@@ -616,6 +652,10 @@ class CampaignController extends ControllerBase {
     return new JsonResponse([
       'success' => TRUE,
       'campaign_id' => $campaign_id,
+      'active_room' => $active_room_id !== '' ? [
+        'room_id' => $active_room_id,
+        'room_name' => $active_room_name,
+      ] : NULL,
       'dungeons' => $groups,
     ]);
   }

@@ -13,18 +13,32 @@ export function buildNavigateActionRailPanel(panel, context) {
 
   const exitGroups = collectNavigateExitGroups(panel, context);
   const visitedGroups = collectVisitedNavigateLocationGroups(panel, context, campaignId, exitGroups);
-  const groups = [...exitGroups, ...visitedGroups];
+  const groups = dedupeNavigateGroups([...exitGroups, ...visitedGroups]);
+
+  // Current location: prefer server-provided active room, fall back to client.
+  const serverActiveRoom = panel.navigateActiveRoom || null;
+  const currentLocationLabel = serverActiveRoom?.roomName
+    || resolveNavigateCurrentLocationLabel(context);
 
   if (!groups.length) {
+    const emptyMsg = panel.navigateLocationsInflight
+      ? 'Loading previously visited dungeons and rooms...'
+      : 'No room exits or accessible known destinations are available yet.';
     return {
       title: 'Navigate',
-      chip: panel.navigateLocationsInflight ? 'Loading' : 'No routes',
-      html: `<div class="action-rail__empty"><p>${panel.navigateLocationsInflight ? 'Loading previously visited dungeons and rooms...' : 'No room exits or accessible known destinations are available from the current campaign state yet.'}</p></div>`,
+      chip: currentLocationLabel ? `📍 ${currentLocationLabel}` : (panel.navigateLocationsInflight ? 'Loading' : 'No routes'),
+      html: currentLocationLabel
+        ? `<div class="action-rail__current-location"><p class="action-rail__current-location-label">📍 You are here: <strong>${escapeQuestHtml(currentLocationLabel)}</strong></p></div><div class="action-rail__empty"><p>${emptyMsg}</p></div>`
+        : `<div class="action-rail__empty"><p>${emptyMsg}</p></div>`,
     };
   }
 
   const entryCount = groups.reduce((total, group) => total + group.locations.length, 0);
-  const html = groups.map((group) => {
+  const currentLocationHtml = currentLocationLabel
+    ? `<div class="action-rail__current-location"><p class="action-rail__current-location-label">📍 You are here: <strong>${escapeQuestHtml(currentLocationLabel)}</strong></p></div>`
+    : '';
+
+  const html = currentLocationHtml + groups.map((group) => {
     const entries = group.locations.map((location) => panel.renderActionRailEntry({
       execute: 'navigate',
       title: location.roomName,
@@ -53,6 +67,44 @@ export function buildNavigateActionRailPanel(panel, context) {
     chip: `${entryCount} destination${entryCount === 1 ? '' : 's'}`,
     html,
   };
+}
+
+function dedupeNavigateGroups(groups) {
+  const seen = new Set();
+  return (Array.isArray(groups) ? groups : [])
+    .map((group) => {
+      const filteredLocations = (Array.isArray(group?.locations) ? group.locations : []).filter((location) => {
+        const roomId = String(location?.roomId || '').trim();
+        if (!roomId) {
+          return false;
+        }
+        const mapId = String(location?.mapId || group?.mapId || '').trim();
+        const key = `${mapId}:${roomId}`;
+        if (seen.has(key)) {
+          return false;
+        }
+        seen.add(key);
+        return true;
+      });
+      return {
+        ...group,
+        locations: filteredLocations,
+      };
+    })
+    .filter((group) => Array.isArray(group.locations) && group.locations.length > 0);
+}
+
+function resolveNavigateCurrentLocationLabel(context) {
+  const hexmap = context?.hexmap;
+  const activeRoomId = String(hexmap?.resolveActiveRoomId?.() || '').trim();
+  if (!activeRoomId) {
+    return '';
+  }
+  const visualRooms = typeof hexmap?.getVisualRooms === 'function' ? hexmap.getVisualRooms() : {};
+  const rooms = visualRooms && typeof visualRooms === 'object' ? visualRooms : {};
+  const activeRoom = rooms[activeRoomId] || null;
+  const roomName = String(activeRoom?.name || activeRoom?.title || activeRoomId).trim();
+  return roomName || activeRoomId;
 }
 
 function collectNavigateExitGroups(panel, context) {
@@ -226,9 +278,10 @@ function ensureNavigateLocationGroups(panel, campaignId) {
   }
 
   panel.navigateLocationsInflight = fetchVisitedNavigateLocationGroups(campaignId)
-    .then((groups) => {
+    .then(({ groups, activeRoom }) => {
       panel.navigateLocationsCampaignId = campaignId;
       panel.navigateLocationGroups = groups;
+      panel.navigateActiveRoom = activeRoom;
     })
     .catch((error) => {
       console.warn('Failed to load campaign visited locations:', error);
