@@ -3939,19 +3939,19 @@ class RoomChatService {
     $room_npcs = $this->gatherRoomNpcsWithProfiles($campaign_id, $room_id, $dungeon_data);
     $turn_log_key = uniqid('room_turn_', TRUE);
 
-    // Record player speaker in conversation attention state.
+    // Initialize conversation attention state for this room.
     $room_index_for_attention = $this->getRoomIndexFromRoomId($dungeon_data, $room_id);
+    $conversation_state_ref = NULL;
     if ($room_index_for_attention !== NULL) {
-      $player_character_id = '';
-      $player_display_name = 'Player';
-      if (is_array($active_character_data)) {
-        $player_character_id = (string) ($active_character_data['id'] ?? '');
-        $player_display_name = (string) ($active_character_data['name'] ?? 'Player');
-      }
+      $conversation_state_ref = &$this->attentionService->ensureConversationAttentionState($dungeon_data, $room_index_for_attention);
+    }
+
+    // Record player speaker in conversation attention state.
+    if ($conversation_state_ref !== NULL && is_array($active_character_data)) {
+      $player_character_id = (string) ($active_character_data['id'] ?? '');
+      $player_display_name = (string) ($active_character_data['name'] ?? 'Player');
       $player_speaker_id = $player_character_id !== '' ? "pc:$player_character_id" : 'pc:unknown';
-      
-      $conversation_state = &$this->attentionService->ensureConversationAttentionState($dungeon_data, $room_index_for_attention);
-      $this->attentionService->recordSpeaker($conversation_state, $player_speaker_id, $player_display_name, 0);
+      $this->attentionService->recordSpeaker($conversation_state_ref, $player_speaker_id, $player_display_name, 0);
     }
 
     // Always derive per-speaker encounter prefixes inside this harness.
@@ -4119,16 +4119,14 @@ class RoomChatService {
         if (!empty($built_messages)) {
           $messages = array_merge($messages, $built_messages);
           $spoken_refs[] = $current_speaker_ref;
-          
+
           // Record NPC speaker in conversation attention state
-          if ($room_index_for_attention !== NULL) {
-            $conversation_state = &$this->attentionService->ensureConversationAttentionState($dungeon_data, $room_index_for_attention);
+          if ($conversation_state_ref !== NULL) {
             $npc_display_name = (string) ($npc['profile']['display_name'] ?? $current_speaker_ref);
-            $this->attentionService->recordSpeaker($conversation_state, (string) $current_speaker_ref, $npc_display_name, 0);
-            // NPC spoke, so increment fatigue penalty
-            $this->attentionService->incrementFatiguePenalty($conversation_state, (string) $current_speaker_ref);
+            $this->attentionService->recordSpeaker($conversation_state_ref, (string) $current_speaker_ref, $npc_display_name, 0);
+            $this->attentionService->incrementFatiguePenalty($conversation_state_ref, (string) $current_speaker_ref);
           }
-          
+
         $this->persistStructuredRoomTurnLog(
           $campaign_id,
           $dungeon_id,
@@ -4436,6 +4434,9 @@ class RoomChatService {
       ? $turn_seed
       : $this->normalizeNpcNameForMatch($room_id . '|' . $player_message . '|' . $gm_narrative);
 
+    // Extract game state from dungeon data
+    $game_state = is_array($dungeon_data['game_state'] ?? NULL) ? $dungeon_data['game_state'] : [];
+
     // Ensure conversation attention state exists
     $room_index = $this->getRoomIndexFromRoomId($dungeon_data, $room_id);
     $conversation_state = NULL;
@@ -4461,7 +4462,6 @@ class RoomChatService {
 
       // Use attention score system if conversation state available
       if ($conversation_state !== NULL) {
-        $game_state = [];
         $score_result = $this->attentionService->calculateAttentionScore(
           $npc,
           $conversation_state,
@@ -4499,6 +4499,14 @@ class RoomChatService {
 
   /**
    * Gets room index from room_id by searching dungeon data.
+   *
+   * @param array $dungeon_data
+   *   The dungeon data structure containing rooms.
+   * @param string $room_id
+   *   The room identifier to search for.
+   *
+   * @return int|null
+   *   The room array index if found, NULL otherwise.
    */
   protected function getRoomIndexFromRoomId(array $dungeon_data, string $room_id): ?int {
     if ($room_id === '' || empty($dungeon_data['rooms'])) {

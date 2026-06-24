@@ -225,10 +225,15 @@ class NpcAttentionService {
     // Update topic history
     if ($new_topic !== NULL) {
       $history = (array) ($conversation_state['topic_history'] ?? []);
-      $history[] = [
-        'topic' => $new_topic,
-        'turns' => 1,
-      ];
+      // Check if last topic is same, just increment turn count
+      if (!empty($history) && $history[count($history) - 1]['topic'] === $new_topic) {
+        $history[count($history) - 1]['turns']++;
+      } else {
+        $history[] = [
+          'topic' => $new_topic,
+          'turns' => 1,
+        ];
+      }
       $conversation_state['topic_history'] = $history;
     }
 
@@ -265,8 +270,6 @@ class NpcAttentionService {
     array $game_state,
     string $player_speaker_id = ''
   ): array {
-    $entity_ref = (string) ($npc_profile['entity_ref'] ?? '');
-
     $topic_relevance = $this->scoreTopicRelevance($npc_profile, $player_message);
     $personality_alignment = $this->scorePersonalityAlignment(
       $npc_profile,
@@ -279,9 +282,10 @@ class NpcAttentionService {
     $initiative_bonus = $this->getInitiativeBonus($npc_profile, $game_state);
 
     // Weighted calculation
+    // Note: personality_alignment ranges -50~+50, so we shift by +50 to normalize to 0~100 range
     $total = (int) (
       (0.30 * $topic_relevance) +
-      (0.25 * ($personality_alignment + 50)) + // Shift -50~+50 to 0~100
+      (0.25 * ($personality_alignment + 50)) +
       (0.15 * $recent_interaction) +
       (0.20 * $base_charisma) +
       (0.10 * $initiative_bonus)
