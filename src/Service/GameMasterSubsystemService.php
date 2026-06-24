@@ -172,7 +172,9 @@ class GameMasterSubsystemService {
       return [
         'workflow' => 'authoritative_room_action',
         'route' => 'deterministic_turn_control',
+        'route_family' => 'deterministic_action',
         'deterministic' => TRUE,
+        'handoff_reason' => 'deterministic_turn_control_phrase',
         'requested_room_id' => $requested_room_id,
         'actor_id' => $actor_id,
         'character_id' => $character_id,
@@ -183,7 +185,9 @@ class GameMasterSubsystemService {
     return [
       'workflow' => 'authoritative_room_chat',
       'route' => 'free_player_room_chat',
+      'route_family' => 'gm_backstop_chat',
       'deterministic' => FALSE,
+      'handoff_reason' => 'no_deterministic_turn_control_match',
       'requested_room_id' => $requested_room_id,
       'actor_id' => $actor_id,
       'character_id' => $character_id,
@@ -209,7 +213,9 @@ class GameMasterSubsystemService {
     return [
       'workflow' => (string) ($route['workflow'] ?? 'authoritative_room_chat'),
       'route' => (string) ($route['route'] ?? 'free_player_room_chat'),
+      'route_family' => (string) ($route['route_family'] ?? 'gm_backstop_chat'),
       'deterministic' => !empty($route['deterministic']),
+      'handoff_reason' => (string) ($route['handoff_reason'] ?? 'unspecified'),
       'resolved_room_id' => $resolved_room_id,
       'requested_room_id' => (string) ($route['requested_room_id'] ?? $resolved_room_id),
       'actor_id' => (string) ($route['actor_id'] ?? ''),

@@ -103,6 +103,8 @@ class GameMasterSubsystemServiceTest extends UnitTestCase {
     $this->assertSame('Tikask', $result['message']['speaker']);
     $this->assertFalse($result['gm_subsystem']['deterministic']);
     $this->assertSame('free_player_room_chat', $result['gm_subsystem']['route']);
+    $this->assertSame('gm_backstop_chat', $result['gm_subsystem']['route_family']);
+    $this->assertSame('no_deterministic_turn_control_match', $result['gm_subsystem']['handoff_reason']);
     $this->assertSame('room_chat', $result['gm_subsystem']['intent']['type']);
     $this->assertSame('pc-241-324', $result['gm_subsystem']['intent']['actor']);
     $this->assertSame(2, $result['game_state']['turn']['actions_remaining']);
@@ -170,6 +172,8 @@ class GameMasterSubsystemServiceTest extends UnitTestCase {
     $this->assertSame('pc-241-324', $result['game_state']['turn']['entity']);
     $this->assertTrue($result['gm_subsystem']['deterministic']);
     $this->assertSame('deterministic_turn_control', $result['gm_subsystem']['route']);
+    $this->assertSame('deterministic_action', $result['gm_subsystem']['route_family']);
+    $this->assertSame('deterministic_turn_control_phrase', $result['gm_subsystem']['handoff_reason']);
     $this->assertSame('delay', $result['gm_subsystem']['intent']['type']);
     $this->assertSame('npc-eldric', $result['gm_subsystem']['intent']['params']['delay_until_actor_id']);
   }
