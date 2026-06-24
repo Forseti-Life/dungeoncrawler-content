@@ -142,7 +142,7 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["connection_id", "origin_room_id", "target_room_id", "type", "available", "is_discovered", "is_passable", "bidirectional", "requires_interaction"],
+        "required": ["connection_id", "origin_room_id", "target_room_id", "type", "available", "is_discovered", "is_passable", "bidirectional", "requires_interaction", "destination_type", "destination_id", "distance"],
         "properties": {
           "connection_id": { "type": "string", "minLength": 1, "maxLength": 255 },
           "origin_room_id": { "type": "string", "minLength": 1, "maxLength": 255 },
@@ -154,6 +154,9 @@
           "is_passable": { "type": "boolean" },
           "bidirectional": { "type": "boolean" },
           "requires_interaction": { "type": "boolean" },
+          "destination_type": { "type": "string", "minLength": 1, "maxLength": 64 },
+          "destination_id": { "type": "string", "minLength": 1, "maxLength": 255 },
+          "distance": { "type": "integer", "minimum": 0 },
           "travel_time_seconds": {
             "type": ["integer", "null"],
             "minimum": 0
