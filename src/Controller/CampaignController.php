@@ -548,6 +548,13 @@ class CampaignController extends ControllerBase {
       ->execute()
       ->fetchAllAssoc('room_id');
 
+    // Load global room templates as a fallback for quest destination rooms
+    // that haven't been generated yet for this campaign.
+    $global_room_rows = $this->database->select('dungeoncrawler_content_rooms', 'gr')
+      ->fields('gr', ['room_id', 'name', 'description'])
+      ->execute()
+      ->fetchAllAssoc('room_id');
+
     $state_rows = $this->database->select('dc_campaign_room_states', 's')
       ->fields('s', ['room_id', 'fog_state', 'last_visited'])
       ->condition('campaign_id', $campaign_id)
@@ -573,7 +580,7 @@ class CampaignController extends ControllerBase {
         $payload = [];
       }
 
-      $room_lookup = $this->buildDungeonRoomLookup($payload, $room_rows);
+      $room_lookup = $this->buildDungeonRoomLookup($payload, $room_rows, $global_room_rows);
       $history_lookup = $this->buildDungeonHistoryLookup($payload, $room_rows);
       $room_name_lookup = $this->buildDungeonRoomNameLookup($room_lookup);
       $locations_by_room = $this->compileDungeonNavigationLocations(
@@ -727,7 +734,7 @@ class CampaignController extends ControllerBase {
   /**
    * Build a room lookup for a dungeon payload.
    */
-  protected function buildDungeonRoomLookup(array $payload, array $room_rows): array {
+  protected function buildDungeonRoomLookup(array $payload, array $room_rows, array $global_room_rows = []): array {
     $lookup = [];
     $rooms = $payload['rooms'] ?? [];
 
@@ -738,12 +745,36 @@ class CampaignController extends ControllerBase {
           if ($room_id === '') {
             continue;
           }
-          $row = $room_rows[$room_id] ?? NULL;
+          $row = $room_rows[$room_id] ?? $global_room_rows[$room_id] ?? NULL;
           $lookup[$room_id] = [
             'name' => (string) ($room['name'] ?? $row->name ?? $room_id),
             'description' => (string) ($row->description ?? $room['description'] ?? ''),
           ];
         }
+      }
+    }
+
+    // Include rooms from dc_campaign_rooms (e.g., rooms that were created but
+    // not yet embedded in dungeon_data).
+    foreach ($room_rows as $room_id => $row) {
+      if (!isset($lookup[$room_id])) {
+        $lookup[$room_id] = [
+          'name' => (string) ($row->name ?? $room_id),
+          'description' => (string) ($row->description ?? ''),
+        ];
+      }
+    }
+
+    // Include global template rooms as stubs for quest destination resolution.
+    // Marked template_only=TRUE so the visited-rooms scan skips them (they have
+    // no fog_state or last_visited, so they'd be filtered out regardless).
+    foreach ($global_room_rows as $room_id => $row) {
+      if (!isset($lookup[$room_id])) {
+        $lookup[$room_id] = [
+          'name' => (string) ($row->name ?? $room_id),
+          'description' => (string) ($row->description ?? ''),
+          'template_only' => TRUE,
+        ];
       }
     }
 
