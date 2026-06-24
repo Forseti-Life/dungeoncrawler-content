@@ -4444,6 +4444,17 @@ class RoomChatService {
       $conversation_state = &$this->attentionService->ensureConversationAttentionState($dungeon_data, $room_index);
     }
 
+    // VALIDATION: conversation_state MUST be initialized by caller or be successfully
+    // initialized here. If NULL after this point, it indicates caller failed to provide
+    // required context and we cannot proceed with attention scoring.
+    if ($conversation_state === NULL) {
+      throw new InvalidArgumentException(
+        'conversation_state must be provided to filterAmbientNpcInterjectionOrder, ' .
+        'OR dungeon_data must contain valid room context. ' .
+        'Caller must pass pre-initialized conversation_state reference to avoid redundant initialization.'
+      );
+    }
+
     // Detect topic for this turn
     if ($conversation_state !== NULL && $player_message !== '') {
       $topic_data = $this->attentionService->detectTopic($player_message);
