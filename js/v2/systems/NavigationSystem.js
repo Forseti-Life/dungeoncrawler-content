@@ -109,6 +109,23 @@ export class NavigationSystem {
       }
 
       coordinator.applyAuthoritativeUpdate?.(result);
+      const nextRoomId = String(
+        result?.game_state?.active_room_id
+        || result?.active_room_id
+        || roomId
+        || ''
+      ).trim();
+      if (nextRoomId && typeof hexmap.setActiveRoom === 'function') {
+        console.info('[Navigation] Syncing active room after successful navigate', {
+          requestedRoomId: roomId,
+          activeRoomId: nextRoomId,
+        });
+        hexmap.setActiveRoom(nextRoomId);
+        const entryHex = result?.entry_hex || result?.navigation?.entry_hex || null;
+        if (entryHex && Number.isFinite(Number(entryHex.q)) && Number.isFinite(Number(entryHex.r))) {
+          hexmap.updateLaunchLocationContext?.(nextRoomId, Number(entryHex.q), Number(entryHex.r));
+        }
+      }
       this._appendChatLine('System', `Navigating to ${roomName}.`, 'system');
       this._refreshActionRail();
     } finally {

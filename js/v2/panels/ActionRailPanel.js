@@ -11,7 +11,7 @@ import { extractConsumableItems, collectCharacterSkillEntries, buildActionRailEn
 import { escapeQuestHtml } from '../utils/quest-utils.js';
 import { escapeTooltipAttr, flattenTooltipBuckets, slugifyTooltipKey } from '../utils/dom-utils.js';
 import { buildActionRailContext } from '../services/action-rail-context-service.js';
-import { buildNavigateActionRailPanel } from '../services/action-rail-navigate-panel-service.js';
+import { buildNavigateActionRailPanel } from '../services/action-rail-navigate-panel-service.js?v=20260624-v2-room-sync-nav-1';
 import {
   getActionRailDirectRoute,
   getServerActionIdForExecute,
@@ -222,7 +222,11 @@ export class ActionRailPanel {
       }),
       this.bus.on('combat:state-changed', () => this.refreshActionRail()),
       this.bus.on('game:init', () => this.refreshActionRail()),
-      this.bus.on('room:changed', () => this.refreshActionRail()),
+      this.bus.on('room:changed', () => {
+        this.navigateActiveRoom = null;
+        this.navigateLocationsCampaignId = null;
+        this.refreshActionRail();
+      }),
       this.bus.on('room:occupants-changed', () => this.refreshActionRail()),
       this.bus.on('character:updated', () => this.refreshActionRail()),
       this.bus.on('inventory:changed', () => this.refreshActionRail()),
@@ -1065,8 +1069,20 @@ export class ActionRailPanel {
       return;
     }
 
+    console.info('[ActionRailPanel] Clicked action rail button', {
+      actionType,
+      title: String(button.dataset.actionLabel || button.textContent || '').trim(),
+      roomId: String(button.dataset.roomId || '').trim(),
+      mapId: String(button.dataset.mapId || '').trim(),
+      dungeonLevelId: String(button.dataset.dungeonLevelId || '').trim(),
+    });
+
     const directRoute = getActionRailDirectRoute(actionType, button);
     if (directRoute?.event) {
+      console.info('[ActionRailPanel] Dispatching direct route', {
+        actionType,
+        event: directRoute.event,
+      });
       this.bus.emit(directRoute.event, directRoute.payload || {});
       return;
     }

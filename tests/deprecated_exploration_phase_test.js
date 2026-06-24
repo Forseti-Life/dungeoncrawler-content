@@ -12,7 +12,9 @@ const campaignClock = fs.readFileSync(path.join(root, 'src/Service/CampaignClock
 const campaignTimeResolver = fs.readFileSync(path.join(root, 'src/Service/CampaignTimeResolverService.php'), 'utf8');
 const explorationHandler = fs.readFileSync(path.join(root, 'js/game-coordinator/phases/ExplorationPhaseHandler.js'), 'utf8');
 const navigationSystem = fs.readFileSync(path.join(root, 'js/v2/systems/NavigationSystem.js'), 'utf8');
+const actionRailPanel = fs.readFileSync(path.join(root, 'js/v2/panels/ActionRailPanel.js'), 'utf8');
 const chatPanel = fs.readFileSync(path.join(root, 'js/v2/panels/ChatPanel.js'), 'utf8');
+const navigatePanel = fs.readFileSync(path.join(root, 'js/v2/services/action-rail-navigate-panel-service.js'), 'utf8');
 const install = fs.readFileSync(path.join(root, 'dungeoncrawler_content.install'), 'utf8');
 const docs = fs.readFileSync(path.join(root, 'GAMEPLAY_ORCHESTRATION_ARCHITECTURE.md'), 'utf8');
 const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
@@ -118,21 +120,36 @@ assert(
     && !explorationHandler.includes('"room_transition"')
     && explorationHandler.includes("_notifyServer('transition'")
     && navigationSystem.includes("sendAction('transition'")
+    && navigationSystem.includes('hexmap.setActiveRoom(nextRoomId)')
     && !navigationSystem.includes('tryTransitionAtHex?.(')
     && !navigationSystem.includes('navigateToVisitedRoom?.('),
-  'reachable browser room navigation sends canonical transition without local authoritative room mutation'
+  'reachable browser room navigation sends canonical transition and syncs the new room back into the shell'
+);
+
+assert(
+  chatPanel.includes('const activeRoomId = String(this.stateManager?.hexmap?.resolveActiveRoomId?.() || \'\').trim();')
+    && chatPanel.includes('if (activeRoomId) {')
+    && chatPanel.includes('const urlRoomId = String(new URLSearchParams(window.location.search).get(\'room_id\') || \'\').trim();'),
+  'chat context now prefers the live active room over the URL pin'
+);
+
+assert(
+  navigatePanel.includes('const serverCurrentLocationLabel = formatNavigationLocationTitle(')
+    && navigatePanel.includes('const currentLocationLabel = serverCurrentLocationLabel || liveCurrentLocationLabel;')
+    && actionRailPanel.includes('this.navigateLocationsCampaignId = null;'),
+  'navigation labels refresh from the server snapshot after room changes'
 );
 
 assert(
   chatPanel.includes("window.addEventListener('dungeoncrawler:game-events'")
     && chatPanel.includes('formatEncounterChatMessage')
-    && chatPanel.includes('Round ${context.round}: Actor ${context.actorName}:')
+  && chatPanel.includes('Round ${context.round}: Turn ${context.turn}: Actor ${context.actorName}:')
     && chatPanel.includes('renderPersistedEncounterEventHistory')
     && chatPanel.includes('/api/game/${encodeURIComponent(context.campaignId)}/events?since=0')
-    && chatPanel.includes("type === 'round_start'")
-    && chatPanel.includes("type === 'turn_start'")
-    && chatPanel.includes("type === 'choose_not_to_act' || type === 'npc_choose_not_to_act' || type === 'end_turn'"),
-  'chat transcript renders visible round/actor prefixes and persisted encounter turn events'
+    && chatPanel.includes("result.data?.navigation?.target_room_id")
+    && chatPanel.includes('this.handleNavigationResult(result.data.navigation)')
+    && chatPanel.includes("['round_start', 'turn_start', 'choose_not_to_act', 'npc_choose_not_to_act', 'end_turn'].includes(type)"),
+    'chat transcript renders visible round/actor prefixes and persisted encounter turn events'
 );
 
 assert(

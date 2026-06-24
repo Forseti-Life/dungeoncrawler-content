@@ -27,6 +27,15 @@ import { SpriteService } from './SpriteService.js';
     return quest.title || quest.quest_name || quest.name || quest.quest_key || quest.quest_id || quest.id || 'Unknown Quest';
   }
 
+  function formatNavigationLocationTitle(dungeonName, roomName) {
+    const dungeon = String(dungeonName || '').trim();
+    const room = String(roomName || '').trim();
+    if (dungeon && room) {
+      return `${dungeon} — ${room}`;
+    }
+    return room || dungeon || 'Destination';
+  }
+
   function normalizeQuestObjectivePayload(objective) {
     if (!objective || typeof objective !== 'object') {
       return null;
@@ -4790,12 +4799,15 @@ import { SpriteService } from './SpriteService.js';
       const activeRoomId = String(context?.hexmap?.resolveActiveRoomId?.() || '').trim();
       const activeRoom = activeRoomId && rooms[activeRoomId] ? rooms[activeRoomId] : null;
       const currentLocationLabel = activeRoomId
-        ? String(activeRoom?.name || activeRoom?.title || activeRoomId).trim()
+        ? formatNavigationLocationTitle(
+          String(this.dungeonData?.name || this.dungeonData?.dungeon_name || this.launchContext?.dungeon_name || ''),
+          String(activeRoom?.name || activeRoom?.title || activeRoomId).trim()
+        )
         : '';
       const html = groups.map((group) => {
         const entries = group.locations.map((location) => this.renderActionRailEntry({
           execute: 'navigate',
-          title: location.roomName,
+          title: formatNavigationLocationTitle(location.dungeonName || group.dungeonName, location.roomName),
           summary: buildActionRailEntrySummary([
             location.statusLabel || group.dungeonName || group.title,
             location.lastVisitedLabel,
@@ -4892,6 +4904,12 @@ import { SpriteService } from './SpriteService.js';
         { key: 'unexplored-navigable', title: 'Unexplored navigable', locations: [] },
         { key: 'unexplored-blocked', title: 'Unexplored not navigable', locations: [] },
       ];
+      const currentDungeonName = String(
+        this.dungeonData?.name
+        || this.dungeonData?.dungeon_name
+        || this.launchContext?.dungeon_name
+        || ''
+      ).trim();
 
       const destinations = Object.entries(rooms)
         .map(([roomId, room]) => {
@@ -4905,7 +4923,10 @@ import { SpriteService } from './SpriteService.js';
           const explored = visitOrder.has(normalizedRoomId);
           const navigable = Boolean(capability?.available);
           const blockedReason = String(capability?.blocked_reason || '').trim();
-          const roomName = String(room?.name || lastHistoryEntry?.room_name || normalizedRoomId);
+          const roomName = formatNavigationLocationTitle(
+            currentDungeonName,
+            String(room?.name || lastHistoryEntry?.room_name || normalizedRoomId)
+          );
           const statusLabel = [
             explored ? 'Explored' : 'Unexplored',
             navigable ? 'Navigable' : 'Not navigable',
@@ -4965,6 +4986,12 @@ import { SpriteService } from './SpriteService.js';
       const hexmap = context.hexmap;
       const activeRoomId = String(hexmap?.resolveActiveRoomId?.() || '').trim();
       const currentMapId = String(hexmap?.dungeonData?.map_id || hexmap?.launchContext?.map_id || this.stateManager?.get?.('mapId') || '').trim();
+      const currentDungeonName = String(
+        hexmap?.dungeonData?.name
+        || hexmap?.dungeonData?.dungeon_name
+        || hexmap?.launchContext?.dungeon_name
+        || ''
+      ).trim();
       const directRouteKeys = new Set();
 
       this.collectNavigateLocationGroups(context).forEach((group) => {
@@ -4984,7 +5011,10 @@ import { SpriteService } from './SpriteService.js';
             .map((location) => ({
               ...location,
               roomId: String(location?.roomId || '').trim(),
-              roomName: String(location?.roomName || location?.roomId || 'Room'),
+              roomName: formatNavigationLocationTitle(
+                String(location?.dungeonName || group?.dungeonName || currentDungeonName || ''),
+                String(location?.roomName || location?.roomId || 'Room')
+              ),
               mapId,
               dungeonLevelId,
               statusLabel: 'Visited',
@@ -5883,6 +5913,12 @@ import { SpriteService } from './SpriteService.js';
         const mapId = String(button.dataset.mapId || '').trim();
         const dungeonLevelId = String(button.dataset.dungeonLevelId || '').trim();
 
+        this.appendChatLine(
+          'System',
+          `Navigation clicked: ${roomName}${mapId ? ` [${mapId}]` : ''}${dungeonLevelId ? ` (${dungeonLevelId})` : ''}.`,
+          'system'
+        );
+
         if (!hexmap || !roomId) {
           return;
         }
@@ -5890,11 +5926,13 @@ import { SpriteService } from './SpriteService.js';
         const currentMapId = String(hexmap?.dungeonData?.map_id || hexmap?.launchContext?.map_id || this.stateManager?.get?.('mapId') || '').trim();
         let changed = false;
         if (Number.isFinite(originQ) && Number.isFinite(originR)) {
+          this.appendChatLine('System', `Resolving navigation through the current hex route to ${roomName}.`, 'system');
           changed = Boolean(hexmap.tryTransitionAtHex?.(originQ, originR));
         } else if (hexmap?.getVisualRooms?.()?.[roomId] && (!mapId || !currentMapId || mapId === currentMapId)) {
+          this.appendChatLine('System', `Navigating to visited room ${roomName}.`, 'system');
           changed = Boolean(hexmap.navigateToVisitedRoom?.(roomId));
         } else if (mapId && typeof this.navigateToDungeonContext === 'function') {
-          this.appendChatLine('System', `Navigating to ${roomName} in ${button.closest?.('.action-rail__group')?.querySelector?.('.action-rail__group-label')?.textContent || 'another dungeon'}.`, 'system');
+          this.appendChatLine('System', `Switching to dungeon context for ${roomName}.`, 'system');
           this.navigateToDungeonContext({
             map_id: mapId,
             dungeon_level_id: dungeonLevelId,
@@ -8168,16 +8206,21 @@ import { SpriteService } from './SpriteService.js';
     }
 
     resolvePinnedChatRoomId() {
-      if (typeof window !== 'undefined' && window.location?.search) {
-        const urlRoomId = String(new URLSearchParams(window.location.search).get('room_id') || '').trim();
-        if (urlRoomId) {
-          return urlRoomId;
-        }
+      const activeRoomId = String(this.stateManager?.hexmap?.resolveActiveRoomId?.() || '').trim();
+      if (activeRoomId) {
+        return activeRoomId;
       }
 
       const launchRoomId = String(this.stateManager?.hexmap?.launchContext?.room_id || '').trim();
       if (launchRoomId) {
         return launchRoomId;
+      }
+
+      if (typeof window !== 'undefined' && window.location?.search) {
+        const urlRoomId = String(new URLSearchParams(window.location.search).get('room_id') || '').trim();
+        if (urlRoomId) {
+          return urlRoomId;
+        }
       }
 
       return this.stateManager?.hexmap?.resolveActiveRoomId?.() || null;

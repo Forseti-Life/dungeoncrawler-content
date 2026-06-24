@@ -7,6 +7,15 @@ import { escapeQuestHtml } from '../utils/quest-utils.js';
 import { buildActionRailEntrySummary } from '../utils/inventory-utils.js';
 import { fetchVisitedNavigateLocationGroups } from './navigate-location-service.js';
 
+function formatNavigationLocationTitle(dungeonName, roomName) {
+  const dungeon = String(dungeonName || '').trim();
+  const room = String(roomName || '').trim();
+  if (dungeon && room) {
+    return `${dungeon} — ${room}`;
+  }
+  return room || dungeon || 'Destination';
+}
+
 export function buildNavigateActionRailPanel(panel, context) {
   const campaignId = Number(context.runtimeContext?.campaignId || context.hexmap?.resolveCampaignId?.() || 0);
   ensureNavigateLocationGroups(panel, campaignId);
@@ -15,10 +24,14 @@ export function buildNavigateActionRailPanel(panel, context) {
   const visitedGroups = collectVisitedNavigateLocationGroups(panel, context, campaignId, exitGroups);
   const groups = dedupeNavigateGroups([...exitGroups, ...visitedGroups]);
 
-  // Current location: prefer server-provided active room, fall back to client.
+  // Current location: prefer the refreshed server snapshot, fall back to the live shell room.
   const serverActiveRoom = panel.navigateActiveRoom || null;
-  const currentLocationLabel = serverActiveRoom?.roomName
-    || resolveNavigateCurrentLocationLabel(context);
+  const serverCurrentLocationLabel = formatNavigationLocationTitle(
+    serverActiveRoom?.dungeonName || '',
+    serverActiveRoom?.roomName || ''
+  );
+  const liveCurrentLocationLabel = resolveNavigateCurrentLocationLabel(context);
+  const currentLocationLabel = serverCurrentLocationLabel || liveCurrentLocationLabel;
 
   if (!groups.length) {
     const emptyMsg = panel.navigateLocationsInflight
@@ -41,7 +54,7 @@ export function buildNavigateActionRailPanel(panel, context) {
   const html = currentLocationHtml + groups.map((group) => {
     const entries = group.locations.map((location) => panel.renderActionRailEntry({
       execute: 'navigate',
-      title: location.roomName,
+      title: formatNavigationLocationTitle(location.dungeonName || group.dungeonName, location.roomName),
       summary: buildActionRailEntrySummary([
         location.statusLabel || group.dungeonName || group.title,
         location.lastVisitedLabel,
@@ -104,7 +117,7 @@ function resolveNavigateCurrentLocationLabel(context) {
   const rooms = visualRooms && typeof visualRooms === 'object' ? visualRooms : {};
   const activeRoom = rooms[activeRoomId] || null;
   const roomName = String(activeRoom?.name || activeRoom?.title || activeRoomId).trim();
-  return roomName || activeRoomId;
+  return formatNavigationLocationTitle(activeRoom?.dungeonName || '', roomName || activeRoomId);
 }
 
 function collectNavigateExitGroups(panel, context) {

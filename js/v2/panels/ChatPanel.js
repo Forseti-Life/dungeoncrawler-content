@@ -691,16 +691,21 @@ export class ChatPanel {
   }
 
   resolvePinnedChatRoomId() {
-    if (typeof window !== 'undefined' && window.location?.search) {
-      const urlRoomId = String(new URLSearchParams(window.location.search).get('room_id') || '').trim();
-      if (urlRoomId) {
-        return urlRoomId;
-      }
+    const activeRoomId = String(this.stateManager?.hexmap?.resolveActiveRoomId?.() || '').trim();
+    if (activeRoomId) {
+      return activeRoomId;
     }
 
     const launchRoomId = String(this.stateManager?.hexmap?.launchContext?.room_id || '').trim();
     if (launchRoomId) {
       return launchRoomId;
+    }
+
+    if (typeof window !== 'undefined' && window.location?.search) {
+      const urlRoomId = String(new URLSearchParams(window.location.search).get('room_id') || '').trim();
+      if (urlRoomId) {
+        return urlRoomId;
+      }
     }
 
     return this.stateManager?.hexmap?.resolveActiveRoomId?.() || null;
