@@ -50,6 +50,9 @@ class NavigationServiceTest extends UnitTestCase {
     $this->assertSame('guard_to_hall', $capabilities[0]['connection_id']);
     $this->assertTrue($capabilities[0]['available']);
     $this->assertSame('great_hall', $capabilities[0]['target_room_id']);
+    $this->assertSame('room', $capabilities[0]['destination_type']);
+    $this->assertSame('great_hall', $capabilities[0]['destination_id']);
+    $this->assertSame(0, $capabilities[0]['distance']);
     $this->assertSame('guard_to_boss', $capabilities[1]['connection_id']);
     $this->assertFalse($capabilities[1]['available']);
     $this->assertSame('blocked', $capabilities[1]['blocked_reason']);
@@ -115,6 +118,130 @@ class NavigationServiceTest extends UnitTestCase {
     $connection_ids = array_values(array_map(static fn(array $capability): string => (string) ($capability['connection_id'] ?? ''), $capabilities));
     $this->assertCount(2, $connection_ids);
     $this->assertCount(2, array_values(array_unique($connection_ids)));
+  }
+
+  /**
+   * Verifies direct room transitions enforce zero-distance contracts.
+   */
+  public function testBuildNavigationCapabilitiesRejectsNonZeroDirectRoomDistance(): void {
+    $service = new NavigationService();
+
+    $capabilities = $service->buildNavigationCapabilities([
+      'hex_map' => [
+        'connections' => [
+          [
+            'connection_id' => 'hall_to_atrium',
+            'from_room' => 'hall',
+            'to_room' => 'atrium',
+            'type' => 'open_passage',
+            'distance' => 5,
+            'is_discovered' => TRUE,
+            'is_passable' => TRUE,
+          ],
+        ],
+      ],
+    ], 'hall');
+
+    $this->assertCount(1, $capabilities);
+    $this->assertFalse($capabilities[0]['available']);
+    $this->assertSame('invalid_distance_contract', $capabilities[0]['blocked_reason']);
+    $this->assertSame(5, $capabilities[0]['distance']);
+  }
+
+  /**
+   * Verifies road connections without a room anchor are rejected.
+   */
+  public function testBuildNavigationCapabilitiesRejectsRoadWithoutAnchor(): void {
+    $service = new NavigationService();
+
+    $capabilities = $service->buildNavigationCapabilities([
+      'hex_map' => [
+        'connections' => [
+          [
+            'connection_id' => 'hall_to_road',
+            'from_room' => 'hall',
+            'to_room' => '',
+            'to_type' => 'road',
+            'road_node_id' => 'north_road_node_1',
+            'type' => 'gate',
+            'distance' => 2,
+            'is_discovered' => TRUE,
+            'is_passable' => TRUE,
+          ],
+        ],
+      ],
+      'room_road_anchors' => [],
+    ], 'hall');
+
+    $this->assertCount(1, $capabilities);
+    $this->assertFalse($capabilities[0]['available']);
+    $this->assertSame('missing_road_anchor', $capabilities[0]['blocked_reason']);
+    $this->assertSame('road', $capabilities[0]['destination_type']);
+  }
+
+  /**
+   * Verifies road connections with a room anchor are allowed.
+   */
+  public function testBuildNavigationCapabilitiesAllowsRoadWithAnchor(): void {
+    $service = new NavigationService();
+
+    $capabilities = $service->buildNavigationCapabilities([
+      'hex_map' => [
+        'connections' => [
+          [
+            'connection_id' => 'hall_to_road',
+            'from_room' => 'hall',
+            'to_room' => '',
+            'to_type' => 'road',
+            'road_node_id' => 'north_road_node_1',
+            'type' => 'gate',
+            'distance' => 2,
+            'is_discovered' => TRUE,
+            'is_passable' => TRUE,
+          ],
+        ],
+      ],
+      'room_road_anchors' => [
+        [
+          'room_id' => 'hall',
+          'road_node_id' => 'north_road_node_1',
+          'access_distance' => 2,
+        ],
+      ],
+    ], 'hall');
+
+    $this->assertCount(1, $capabilities);
+    $this->assertTrue($capabilities[0]['available']);
+    $this->assertSame('road', $capabilities[0]['destination_type']);
+    $this->assertSame('north_road_node_1', $capabilities[0]['destination_id']);
+    $this->assertSame(2, $capabilities[0]['distance']);
+  }
+
+  /**
+   * Verifies missing destination metadata blocks a capability.
+   */
+  public function testBuildNavigationCapabilitiesRejectsMissingDestinationType(): void {
+    $service = new NavigationService();
+
+    $capabilities = $service->buildNavigationCapabilities([
+      'hex_map' => [
+        'connections' => [
+          [
+            'connection_id' => 'hall_to_unknown',
+            'from_room' => 'hall',
+            'to_room' => '',
+            'to_type' => '',
+            'is_discovered' => TRUE,
+            'is_passable' => TRUE,
+          ],
+        ],
+      ],
+    ], 'hall');
+
+    $this->assertCount(1, $capabilities);
+    // Missing destination falls through to 'room' type, but empty to_room causes unresolved_destination
+    $this->assertFalse($capabilities[0]['available']);
+    $this->assertSame('unresolved_destination', $capabilities[0]['blocked_reason']);
   }
 
 }

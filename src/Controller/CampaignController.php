@@ -657,6 +657,8 @@ class CampaignController extends ControllerBase {
         'room_name' => (string) ($room_meta['name'] ?? $history_meta['name'] ?? $room_id),
         'description' => (string) ($room_meta['description'] ?? ''),
         'last_visited' => $last_visited,
+        'destination_type' => 'room',
+        'distance' => 0,
         'navigable' => TRUE,
         'source_tags' => ['visited'],
       ]);
@@ -690,6 +692,8 @@ class CampaignController extends ControllerBase {
         'room_name' => (string) ($entry['room_name'] ?? $room_id),
         'description' => (string) ($entry['description'] ?? ''),
         'last_visited' => (int) ($entry['last_visited'] ?? 0),
+        'destination_type' => 'room',
+        'distance' => 0,
         'navigable' => !array_key_exists('navigable', $entry) || $entry['navigable'] !== FALSE,
         'source_tags' => [],
       ];
@@ -704,6 +708,13 @@ class CampaignController extends ControllerBase {
       $existing['description'] = $incoming_description;
     }
     $existing['last_visited'] = max((int) ($existing['last_visited'] ?? 0), (int) ($entry['last_visited'] ?? 0));
+    $incoming_destination_type = strtolower(trim((string) ($entry['destination_type'] ?? '')));
+    if (in_array($incoming_destination_type, ['room', 'road'], TRUE)) {
+      $existing['destination_type'] = $incoming_destination_type;
+    }
+    if (array_key_exists('distance', $entry) && is_numeric($entry['distance'])) {
+      $existing['distance'] = max(0, (int) $entry['distance']);
+    }
     if (array_key_exists('navigable', $entry) && $entry['navigable'] === FALSE) {
       $existing['navigable'] = FALSE;
     }

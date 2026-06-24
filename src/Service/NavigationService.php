@@ -21,7 +21,7 @@ class NavigationService {
 
     $capabilities = [];
     foreach ($this->extractConnections($dungeon_data) as $connection) {
-      $capability = $this->buildCapabilityFromConnection($connection, $room_id);
+      $capability = $this->buildCapabilityFromConnection($connection, $room_id, $dungeon_data);
       if ($capability !== NULL) {
         $capabilities[] = $capability;
       }
@@ -94,7 +94,7 @@ class NavigationService {
   /**
    * Build one navigation capability from one connection if it touches the room.
    */
-  protected function buildCapabilityFromConnection(array $connection, string $room_id): ?array {
+  protected function buildCapabilityFromConnection(array $connection, string $room_id, array $dungeon_data = []): ?array {
     $from_room = trim((string) ($connection['from_room'] ?? ''));
     $to_room = trim((string) ($connection['to_room'] ?? ''));
     if ($from_room !== $room_id && $to_room !== $room_id) {
@@ -110,10 +110,22 @@ class NavigationService {
     $is_passable = array_key_exists('is_passable', $connection) ? !empty($connection['is_passable']) : TRUE;
     $bidirectional = array_key_exists('bidirectional', $connection) ? !empty($connection['bidirectional']) : ($type !== 'one_way');
     $requires_interaction = !$is_passable || in_array($type, ['door', 'locked_door', 'secret_door', 'trapped_door', 'barricade', 'collapsed', 'magical_barrier'], TRUE);
+    $destination_type = $this->resolveDestinationType($connection);
+    $destination_id = $this->resolveDestinationId($connection, $target_room_id, $destination_type);
+    $distance = $this->resolveDistance($connection, $destination_type);
 
     $blocked_reason = NULL;
     if ($target_room_id === '') {
       $blocked_reason = 'unresolved_destination';
+    }
+    elseif ($destination_type === '' || $destination_id === '') {
+      $blocked_reason = 'missing_destination_metadata';
+    }
+    elseif ($destination_type === 'room' && $distance !== 0) {
+      $blocked_reason = 'invalid_distance_contract';
+    }
+    elseif ($destination_type === 'road' && !$this->hasRoomRoadAnchor($dungeon_data, $room_id)) {
+      $blocked_reason = 'missing_road_anchor';
     }
     elseif (!$is_discovered) {
       $blocked_reason = 'undiscovered';
@@ -126,6 +138,8 @@ class NavigationService {
       'connection_id' => $this->deriveConnectionId($connection),
       'origin_room_id' => $room_id,
       'target_room_id' => $target_room_id,
+      'destination_type' => $destination_type,
+      'destination_id' => $destination_id,
       'type' => $type,
       'available' => $blocked_reason === NULL,
       'blocked_reason' => $blocked_reason,
@@ -133,6 +147,7 @@ class NavigationService {
       'is_passable' => $is_passable,
       'bidirectional' => $bidirectional,
       'requires_interaction' => $requires_interaction,
+      'distance' => $distance,
       'origin_hex' => $origin_hex,
       'target_hex' => $target_hex,
       'travel_time_seconds' => $this->resolveTravelSeconds($connection),
@@ -217,6 +232,63 @@ class NavigationService {
       'q' => (int) $hex['q'],
       'r' => (int) $hex['r'],
     ];
+  }
+
+  /**
+   * Resolves canonical destination type for one connection.
+   */
+  protected function resolveDestinationType(array $connection): string {
+    $raw_type = strtolower(trim((string) ($connection['destination_type'] ?? $connection['to_type'] ?? '')));
+    if (in_array($raw_type, ['road', 'room'], TRUE)) {
+      return $raw_type;
+    }
+
+    return 'room';
+  }
+
+  /**
+   * Resolves canonical destination id for one connection.
+   */
+  protected function resolveDestinationId(array $connection, string $target_room_id, string $destination_type): string {
+    if ($destination_type === 'road') {
+      return trim((string) ($connection['road_node_id'] ?? $connection['road_id'] ?? $connection['to_id'] ?? ''));
+    }
+
+    return $target_room_id;
+  }
+
+  /**
+   * Resolves canonical edge distance for one connection.
+   */
+  protected function resolveDistance(array $connection, string $destination_type): int {
+    foreach (['distance', 'travel_distance', 'distance_units'] as $key) {
+      if (isset($connection[$key]) && is_numeric($connection[$key])) {
+        return max(0, (int) $connection[$key]);
+      }
+    }
+
+    if ($destination_type === 'road') {
+      foreach (['road_distance', 'road_access_distance'] as $key) {
+        if (isset($connection[$key]) && is_numeric($connection[$key])) {
+          return max(0, (int) $connection[$key]);
+        }
+      }
+    }
+
+    return 0;
+  }
+
+  /**
+   * Checks whether a room has a road anchor mapping for connections to roads.
+   */
+  protected function hasRoomRoadAnchor(array $dungeon_data, string $room_id): bool {
+    $anchors = (array) ($dungeon_data['room_road_anchors'] ?? $dungeon_data['road_anchors'] ?? []);
+    foreach ($anchors as $anchor) {
+      if (is_array($anchor) && (string) ($anchor['room_id'] ?? '') === $room_id) {
+        return TRUE;
+      }
+    }
+    return FALSE;
   }
 
 }

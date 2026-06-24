@@ -43,6 +43,7 @@ export class NavigationSystem {
       const hexmap = context.hexmap;
       const roomId = String(button.dataset.roomId || '').trim();
       const roomName = button.dataset.roomName || roomId || 'that room';
+      const connectionId = String(button.dataset.connectionId || '').trim();
       const rawOriginQ = String(button.dataset.originQ || '').trim();
       const rawOriginR = String(button.dataset.originR || '').trim();
       const originQ = rawOriginQ !== '' ? Number(rawOriginQ) : null;
@@ -74,6 +75,9 @@ export class NavigationSystem {
       const params = {
         target_room_id: roomId,
       };
+      if (connectionId) {
+        params.connection_id = connectionId;
+      }
       if (Number.isFinite(originQ) && Number.isFinite(originR)) {
         params.target_hex = { q: originQ, r: originR };
       }

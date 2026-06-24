@@ -2831,14 +2831,27 @@ function _resolveNavigationCapabilities(rawConnections = [], roomId = null) {
         ? Boolean(connection.is_passable)
         : true;
       const type = String(connection.type || 'passage');
+      const destinationTypeRaw = String(connection.destination_type || connection.to_type || '').trim().toLowerCase();
+      const destinationType = (destinationTypeRaw === 'road' || destinationTypeRaw === 'room')
+        ? destinationTypeRaw
+        : 'room';
+      const parsedDistance = Number(connection.distance ?? connection.travel_distance ?? connection.distance_units ?? 0);
+      const distance = Number.isFinite(parsedDistance) ? Math.max(0, Math.trunc(parsedDistance)) : 0;
       const blockedReason = !targetRoomId
         ? 'unresolved_destination'
-        : (!isDiscovered ? 'undiscovered' : (!isPassable ? 'blocked' : null));
+        : ((destinationType === 'room' && distance !== 0)
+          ? 'invalid_distance_contract'
+          : (!isDiscovered ? 'undiscovered' : (!isPassable ? 'blocked' : null)))
+      ;
 
       return {
         connection_id: String(connection.connection_id || `${_getConnectionRoomId(connection, 'from') || 'unknown'}__${_getConnectionRoomId(connection, 'to') || 'unknown'}`),
         origin_room_id: activeRoomId,
         target_room_id: targetRoomId,
+        destination_type: destinationType,
+        destination_id: destinationType === 'road'
+          ? String(connection.road_node_id || connection.road_id || connection.to_id || '')
+          : targetRoomId,
         type,
         available: blockedReason === null,
         blocked_reason: blockedReason,
@@ -2848,6 +2861,7 @@ function _resolveNavigationCapabilities(rawConnections = [], roomId = null) {
           ? Boolean(connection.bidirectional)
           : type !== 'one_way',
         requires_interaction: !isPassable || ['door', 'locked_door', 'secret_door', 'trapped_door', 'barricade', 'collapsed', 'magical_barrier'].includes(type),
+        distance,
         origin_hex: travelsForward ? (_getConnectionHex(connection, 'from') || null) : (_getConnectionHex(connection, 'to') || null),
         target_hex: travelsForward ? (_getConnectionHex(connection, 'to') || null) : (_getConnectionHex(connection, 'from') || null),
         connection,

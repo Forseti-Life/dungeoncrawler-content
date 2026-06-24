@@ -8454,12 +8454,16 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
       $target_room_id = $from_room === $room_id ? $to_room : $from_room;
       $is_discovered = array_key_exists('is_discovered', $connection) ? !empty($connection['is_discovered']) : TRUE;
       $is_passable = array_key_exists('is_passable', $connection) ? !empty($connection['is_passable']) : TRUE;
-      $blocked_reason = !$is_discovered ? 'undiscovered' : (!$is_passable ? 'blocked' : NULL);
+      $distance = isset($connection['distance']) && is_numeric($connection['distance']) ? max(0, (int) $connection['distance']) : 0;
+      $blocked_reason = !$is_discovered ? 'undiscovered' : (!$is_passable ? 'blocked' : ($distance !== 0 ? 'invalid_distance_contract' : NULL));
       $capabilities[] = [
         'connection_id' => $this->deriveFallbackConnectionId($connection, $from_room, $to_room),
         'target_room_id' => $target_room_id,
+        'destination_type' => 'room',
+        'destination_id' => $target_room_id,
         'available' => $blocked_reason === NULL,
         'blocked_reason' => $blocked_reason,
+        'distance' => $distance,
         'travel_time_seconds' => $this->resolveTravelSeconds($connection, []),
       ];
     }

@@ -86,12 +86,16 @@ function collectNavigateExitGroups(panel, context) {
       }
       const room = rooms[targetRoomId] || null;
       const historyEntry = latestHistoryByRoomId.get(targetRoomId) || null;
+      const destinationType = String(capability?.destination_type || 'room').trim().toLowerCase() || 'room';
+      const distanceValue = Number.isFinite(Number(capability?.distance)) ? Number(capability.distance) : 0;
       return {
         roomId: targetRoomId,
         roomName: String(room?.name || historyEntry?.room_name || targetRoomId),
         statusLabel: 'Exit',
         lastVisitedLabel: historyEntry?.timestamp ? `Seen ${historyEntry.timestamp}` : 'Linked from current room',
         meta: [
+          `Destination: ${formatDestinationType(destinationType)}`,
+          `Distance: ${formatDistanceValue(distanceValue)}`,
           room?.description || room?.short_description || '',
           capability?.type ? `Connection: ${String(capability.type).replace(/_/g, ' ')}` : '',
         ].filter(Boolean).join(' '),
@@ -153,7 +157,7 @@ function collectVisitedNavigateLocationGroups(panel, context, campaignId, exitGr
           dungeonLevelId,
           statusLabel: resolveNavigateKnownLocationStatusLabel(location),
           lastVisitedLabel: String(location?.lastVisitedLabel || 'Visited by party'),
-          meta: String(location?.meta || ''),
+          meta: String(location?.meta || `Destination: ${formatDestinationType(String(location?.destinationType || 'room'))}. Distance: ${formatDistanceValue(location?.distance ?? 0)}.`),
           navigable: location?.navigable !== false,
         }))
         .filter((location) => {
@@ -194,6 +198,18 @@ function resolveNavigateKnownLocationStatusLabel(location) {
     return 'Visited';
   }
   return 'Known';
+}
+
+function formatDestinationType(destinationType) {
+  if (destinationType === 'road') {
+    return 'Road';
+  }
+  return 'Room';
+}
+
+function formatDistanceValue(distance) {
+  const normalized = Number.isFinite(Number(distance)) ? Math.max(0, Math.trunc(Number(distance))) : 0;
+  return String(normalized);
 }
 
 function ensureNavigateLocationGroups(panel, campaignId) {

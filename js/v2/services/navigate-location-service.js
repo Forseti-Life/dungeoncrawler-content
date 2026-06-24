@@ -38,6 +38,8 @@ export async function fetchVisitedNavigateLocationGroups(campaignId) {
             : 'Visited by party',
           sourceTags: Array.isArray(location?.source_tags) ? location.source_tags.map((tag) => String(tag || '').trim()).filter(Boolean) : [],
           navigable: location?.navigable !== false,
+          destinationType: String(location?.destination_type || 'room').trim().toLowerCase() || 'room',
+          distance: Number.isFinite(Number(location?.distance)) ? Math.max(0, Math.trunc(Number(location.distance))) : 0,
         })).filter((location) => location.roomId)
         : [],
     }))
