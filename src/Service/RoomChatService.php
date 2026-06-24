@@ -3939,6 +3939,21 @@ class RoomChatService {
     $room_npcs = $this->gatherRoomNpcsWithProfiles($campaign_id, $room_id, $dungeon_data);
     $turn_log_key = uniqid('room_turn_', TRUE);
 
+    // Record player speaker in conversation attention state.
+    $room_index_for_attention = $this->getRoomIndexFromRoomId($dungeon_data, $room_id);
+    if ($room_index_for_attention !== NULL) {
+      $player_character_id = '';
+      $player_display_name = 'Player';
+      if (is_array($active_character_data)) {
+        $player_character_id = (string) ($active_character_data['id'] ?? '');
+        $player_display_name = (string) ($active_character_data['name'] ?? 'Player');
+      }
+      $player_speaker_id = $player_character_id !== '' ? "pc:$player_character_id" : 'pc:unknown';
+      
+      $conversation_state = &$this->attentionService->ensureConversationAttentionState($dungeon_data, $room_index_for_attention);
+      $this->attentionService->recordSpeaker($conversation_state, $player_speaker_id, $player_display_name, 0);
+    }
+
     // Always derive per-speaker encounter prefixes inside this harness.
     // Caller-provided prefixes typically reflect the active player and would
     // incorrectly label System/NPC turn-log lines.
@@ -4104,6 +4119,16 @@ class RoomChatService {
         if (!empty($built_messages)) {
           $messages = array_merge($messages, $built_messages);
           $spoken_refs[] = $current_speaker_ref;
+          
+          // Record NPC speaker in conversation attention state
+          if ($room_index_for_attention !== NULL) {
+            $conversation_state = &$this->attentionService->ensureConversationAttentionState($dungeon_data, $room_index_for_attention);
+            $npc_display_name = (string) ($npc['profile']['display_name'] ?? $current_speaker_ref);
+            $this->attentionService->recordSpeaker($conversation_state, (string) $current_speaker_ref, $npc_display_name, 0);
+            // NPC spoke, so increment fatigue penalty
+            $this->attentionService->incrementFatiguePenalty($conversation_state, (string) $current_speaker_ref);
+          }
+          
         $this->persistStructuredRoomTurnLog(
           $campaign_id,
           $dungeon_id,
@@ -4260,7 +4285,7 @@ class RoomChatService {
       $plan_source = 'gm_addressed';
     }
     else {
-      $speaking_npcs = $this->filterAmbientNpcInterjectionOrder($ordered_npcs, $player_message, $gm_narrative, $room_id, $turn_seed);
+      $speaking_npcs = $this->filterAmbientNpcInterjectionOrder($ordered_npcs, $player_message, $gm_narrative, $dungeon_data, $room_id, $turn_seed);
       $plan_source = $directly_addressed_npc !== NULL ? 'direct_plus_room' : 'room_wide';
       if ($directly_addressed_npc !== NULL) {
         $direct_ref = (string) ($directly_addressed_npc['entity_ref'] ?? '');
@@ -4398,6 +4423,7 @@ class RoomChatService {
     array $ordered_npcs,
     string $player_message,
     string $gm_narrative,
+    array $dungeon_data = [],
     string $room_id = '',
     string $turn_seed = ''
   ): array {
@@ -4410,13 +4436,49 @@ class RoomChatService {
       ? $turn_seed
       : $this->normalizeNpcNameForMatch($room_id . '|' . $player_message . '|' . $gm_narrative);
 
+    // Ensure conversation attention state exists
+    $room_index = $this->getRoomIndexFromRoomId($dungeon_data, $room_id);
+    $conversation_state = NULL;
+    if ($room_index !== NULL) {
+      $conversation_state = &$this->attentionService->ensureConversationAttentionState($dungeon_data, $room_index);
+    }
+
+    // Detect topic for this turn
+    if ($conversation_state !== NULL && $player_message !== '') {
+      $topic_data = $this->attentionService->detectTopic($player_message, $ordered_npcs);
+      if ($topic_data['topic'] !== NULL) {
+        $this->attentionService->updateTopic($conversation_state, $topic_data['topic'], 0);
+      }
+    }
+
     $filtered = [];
     foreach ($ordered_npcs as $npc) {
+      // Direct reference always speaks (unchanged behavior)
       if ($this->isNpcDirectlyReferencedForAmbientInterjection($npc, $combined_text)) {
         $filtered[] = $npc;
         continue;
       }
 
+      // Use attention score system if conversation state available
+      if ($conversation_state !== NULL) {
+        $game_state = [];
+        $score_result = $this->attentionService->calculateAttentionScore(
+          $npc,
+          $conversation_state,
+          $player_message,
+          $game_state
+        );
+
+        if ($score_result['qualified']) {
+          $filtered[] = $npc + [
+            'attention_score' => $score_result['total_score'],
+            'attention_components' => $score_result['component_scores'],
+          ];
+        }
+        continue;
+      }
+
+      // Fallback to legacy roll-based gate if no conversation state
       $threshold = $this->resolveAmbientNpcInterjectionPercent($npc);
       $roll = $this->computeAmbientNpcInterjectionRoll($npc, $effective_seed);
       if ($roll < $threshold) {
@@ -4427,7 +4489,29 @@ class RoomChatService {
       }
     }
 
+    // Decay fatigue for NPCs that didn't speak this turn
+    if ($conversation_state !== NULL) {
+      $this->attentionService->decayFatiguePenalties($conversation_state);
+    }
+
     return $filtered;
+  }
+
+  /**
+   * Gets room index from room_id by searching dungeon data.
+   */
+  protected function getRoomIndexFromRoomId(array $dungeon_data, string $room_id): ?int {
+    if ($room_id === '' || empty($dungeon_data['rooms'])) {
+      return NULL;
+    }
+
+    foreach ($dungeon_data['rooms'] as $index => $room) {
+      if ((string) ($room['room_id'] ?? '') === $room_id) {
+        return $index;
+      }
+    }
+
+    return NULL;
   }
 
   /**
