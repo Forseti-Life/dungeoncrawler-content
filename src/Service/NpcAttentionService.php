@@ -315,21 +315,12 @@ class NpcAttentionService {
     // Enforce data contract: validate NPC profile structure
     $this->validateNpcProfile($npc_profile);
 
-    // VALIDATION: player_speaker_id is required for personality alignment scoring.
-    // If empty (default), attempt to recover from conversation_state['last_speaker'].
-    // If both missing, hard-fail with clear error message.
+    // DEFENSIVE: player_speaker_id is for personality alignment scoring.
+    // If empty, attempt recovery from conversation_state['last_speaker'].
+    // If both missing, use neutral default (no personality adjustment).
+    // This allows scoring to proceed even if speaker tracking is unavailable.
     if ($player_speaker_id === '') {
-      $last_speaker = $conversation_state['last_speaker'] ?? '';
-      if ($last_speaker === '') {
-        throw new \InvalidArgumentException(
-          'player_speaker_id parameter is required for calculateAttentionScore() personality alignment. ' .
-          'Speaker ID must be either: (1) passed as a parameter, or (2) available in conversation_state[\'last_speaker\']. ' .
-          'Personality alignment cannot function without knowing the current speaker.'
-        );
-      }
-      // Defensive recovery: use last_speaker from conversation_state since player_speaker_id wasn't provided.
-      // This maintains backward compatibility while still calculating personality alignment.
-      $player_speaker_id = $last_speaker;
+      $player_speaker_id = $conversation_state['last_speaker'] ?? '';
     }
 
     $topic_relevance = $this->scoreTopicRelevance($npc_profile, $player_message);
