@@ -10636,12 +10636,15 @@ import { SpriteService } from './SpriteService.js';
         bodyHtml: `<ul class="quest-objectives">${this.renderQuestSummaryPreviewLines(quest, 'Quest complete. Review outcomes and rewards in your journal.')}</ul>`,
       })).join('');
 
+      const activeSectionHtml = activeHtml
+        ? `${this.renderQuestSectionLabelHtml('Active Quests')}${activeHtml}`
+        : '';
       const availableSectionHtml = offerHtml || leadHtml
         ? `${this.renderQuestSectionLabelHtml('Available Quests')}${offerHtml}${leadHtml}`
         : '';
       const completedSectionHtml = `${this.renderQuestSectionLabelHtml('Completed Quests')}${completedHtml || '<li class="quest-empty">No completed quests yet</li>'}`;
 
-      list.innerHTML = `${activeHtml}${availableSectionHtml}${completedSectionHtml}`;
+      list.innerHTML = `${activeSectionHtml}${availableSectionHtml}${completedSectionHtml}`;
       this.updateQuestJournalControlState();
     }
 

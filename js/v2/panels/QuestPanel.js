@@ -207,12 +207,15 @@ export class QuestPanel {
       defaultStorylineNextStep: 'Review completed storyline progress.',
     });
 
+    const activeSectionHtml = activeHtml
+      ? `${this.renderQuestSectionLabelHtml('Active Quests')}${activeHtml}`
+      : '';
     const availableSectionHtml = offerHtml || leadHtml
       ? `${this.renderQuestSectionLabelHtml('Available Quests')}${offerHtml}${leadHtml}`
       : '';
     const completedSectionHtml = `${this.renderQuestSectionLabelHtml('Completed Quests')}${completedHtml || '<li class="quest-empty">No completed quests yet</li>'}`;
 
-    list.innerHTML = `${activeHtml}${availableSectionHtml}${completedSectionHtml}`;
+    list.innerHTML = `${activeSectionHtml}${availableSectionHtml}${completedSectionHtml}`;
     console.log('[QuestPanel] renderQuestJournal:branch', { branch: 'active', htmlLen: list.innerHTML.length });
     this.updateQuestJournalControlState();
   }
@@ -279,6 +282,11 @@ export class QuestPanel {
       grouped.get(key).questNodes.push(renderQuestNode(quest));
     });
 
+    const rawSectionStatus = String(options.defaultStorylineStatus || '').trim().toLowerCase();
+    const sectionStatus = rawSectionStatus
+      ? `${rawSectionStatus.charAt(0).toUpperCase()}${rawSectionStatus.slice(1)}`
+      : '';
+
     return Array.from(grouped.values())
       .sort((a, b) => a.context.name.localeCompare(b.context.name))
       .map(({ context, questNodes }) => renderQuestTreeNodeHtml({
@@ -286,7 +294,7 @@ export class QuestPanel {
         title: context.name,
         titlePrefix: '🧭',
         metaLines: [
-          `Status: ${context.status}`,
+          `Status: ${sectionStatus || context.status}`,
           `Next: ${context.nextStep || options.defaultStorylineNextStep || 'Review this storyline.'}`,
           ...(context.synopsis ? [context.synopsis] : []),
         ],
