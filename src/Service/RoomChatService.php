@@ -4451,7 +4451,7 @@ class RoomChatService {
 
     // VALIDATION: conversation_state MUST be initialized by caller or successfully initialized here.
     if ($conversation_state === NULL) {
-      throw new InvalidArgumentException(
+      throw new \InvalidArgumentException(
         'conversation_state parameter is required for filterAmbientNpcInterjectionOrder() attention scoring. ' .
         'Conversation state must be either: (1) passed as a parameter, or (2) initialized from dungeon_data. ' .
         'Pass conversation_state reference to avoid redundant initialization.'

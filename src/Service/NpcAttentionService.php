@@ -321,7 +321,7 @@ class NpcAttentionService {
     if ($player_speaker_id === '') {
       $last_speaker = $conversation_state['last_speaker'] ?? '';
       if ($last_speaker === '') {
-        throw new InvalidArgumentException(
+        throw new \InvalidArgumentException(
           'player_speaker_id parameter is required for calculateAttentionScore() personality alignment. ' .
           'Speaker ID must be either: (1) passed as a parameter, or (2) available in conversation_state[\'last_speaker\']. ' .
           'Personality alignment cannot function without knowing the current speaker.'
@@ -628,13 +628,13 @@ class NpcAttentionService {
   protected function validateNpcProfile(array $npc_profile): bool {
     // Critical fields that must exist
     if (empty($npc_profile['entity_ref'])) {
-      throw new InvalidArgumentException('NPC profile missing required entity_ref');
+      throw new \InvalidArgumentException('NPC profile missing required entity_ref');
     }
     if (empty($npc_profile['ability_scores']['charisma'])) {
-      throw new InvalidArgumentException('NPC profile missing required ability_scores.charisma');
+      throw new \InvalidArgumentException('NPC profile missing required ability_scores.charisma');
     }
     if (empty($npc_profile['profile']['display_name'])) {
-      throw new InvalidArgumentException('NPC profile missing required profile.display_name');
+      throw new \InvalidArgumentException('NPC profile missing required profile.display_name');
     }
     return TRUE;
   }
