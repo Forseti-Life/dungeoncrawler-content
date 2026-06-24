@@ -578,8 +578,10 @@ export class ChatPanel {
 
       if (result.data?.npc_interjections?.length) {
         for (const npcMsg of result.data.npc_interjections) {
+          const sequenceIndex = Number(npcMsg.sequence_index);
           this.appendChatLineToTarget(chatTarget, npcMsg.speaker, npcMsg.message, 'npc', {
             ...npcMsg,
+            sourceMessageId: Number.isFinite(sequenceIndex) ? sequenceIndex : undefined,
             source: 'room-response',
             authority: 'authoritative',
             messageClass: 'authoritative_transcript',
@@ -1283,8 +1285,10 @@ export class ChatPanel {
                   : (turnRole === 'narrator' ? 'Narrator' : 'NPC');
               }
             } else if (event.type === 'npc_interjection' && event.data) {
+              const sequenceIndex = Number(event.data.sequence_index);
               this.appendChatLineToTarget(chatTarget, event.data.speaker, event.data.message, event.data.type || 'npc', {
                 ...event.data,
+                sourceMessageId: Number.isFinite(sequenceIndex) ? sequenceIndex : undefined,
                 source: 'room-stream',
                 authority: 'authoritative',
                 messageClass: 'authoritative_transcript',
