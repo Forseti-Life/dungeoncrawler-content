@@ -9,7 +9,16 @@
 
 Core content module for the living dungeon crawler RPG. Provides character management, game content types, and navigation structure for the Dungeoncrawler universe.
 
-> **Checkpoint note (2026-05-17):** The current local checkpoint centers on player automation/quest-handoff improvements plus storyline and schema hardening that are now tracked in recent repository history.
+> **Checkpoint note (2026-06-24):** Current runtime hardening centers on GM/chat orchestration contracts, quest surfacing/activation reliability, and hexmap v2 shell stability.
+
+## Current Runtime State (2026-06-24)
+
+- **Chat remains authoritative ingress** for encounter/campaign mutations, with GM orchestration and broker validation enforcing canonical state transitions.
+- **Deterministic questgiver dialogue is contract-backed**: NPC lead/offer lines now route through quest materialization/surfacing flows so quest journal entries are backed by real campaign quest rows.
+- **Implicit lead asks are handled canonically** (for example: “you have any?”), preventing freeform untracked quest chatter.
+- **Quest activation now materializes collect objectives** into room item instances immediately at quest start (no reload dependency).
+- **Quest journal rendering is explicitly sectioned** into Active, Available, and Completed for clearer state semantics.
+- **Hexmap v2 GameShell recursion overflow is fixed** for active room resolution (`resolveActiveRoomId` no longer self-recurses through state getter).
 
 ## Documentation Index
 
@@ -441,7 +450,7 @@ Trigger-based one-shot narration at specific game events: room entry, encounter 
 **Service ID**: `dungeoncrawler_content.room_chat_service`  
 **Class**: `Drupal\dungeoncrawler_content\Service\RoomChatService`
 
-AI GM conversation service — processes player chat messages, builds AI prompts with room/character/NPC context, parses GM responses, extracts gameplay actions and state mutations. Bridge methods connect to NarrationEngine for session-backed message recording.
+Authoritative room chat orchestrator — processes player/NPC dialogue, runs deterministic-first NPC and questgiver paths, brokers canonical gameplay actions through GM orchestration contracts, and emits validated quest update payloads for the client runtime. Bridge methods connect to NarrationEngine for session-backed message recording.
 
 #### NPC Psychology Service
 **Service ID**: `dungeoncrawler_content.npc_psychology`  
