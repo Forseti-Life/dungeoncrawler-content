@@ -4283,7 +4283,7 @@ class RoomChatService {
       $plan_source = 'gm_addressed';
     }
     else {
-      $speaking_npcs = $this->filterAmbientNpcInterjectionOrder($ordered_npcs, $player_message, $gm_narrative, $dungeon_data, $room_id, $turn_seed);
+      $speaking_npcs = $this->filterAmbientNpcInterjectionOrder($ordered_npcs, $player_message, $gm_narrative, $dungeon_data, $room_id, $turn_seed, $conversation_state_ref);
       $plan_source = $directly_addressed_npc !== NULL ? 'direct_plus_room' : 'room_wide';
       if ($directly_addressed_npc !== NULL) {
         $direct_ref = (string) ($directly_addressed_npc['entity_ref'] ?? '');
@@ -4423,7 +4423,8 @@ class RoomChatService {
     string $gm_narrative,
     array $dungeon_data = [],
     string $room_id = '',
-    string $turn_seed = ''
+    string $turn_seed = '',
+    ?array &$conversation_state = NULL
   ): array {
     if ($ordered_npcs === []) {
       return [];
@@ -4439,14 +4440,13 @@ class RoomChatService {
 
     // Ensure conversation attention state exists
     $room_index = $this->getRoomIndexFromRoomId($dungeon_data, $room_id);
-    $conversation_state = NULL;
-    if ($room_index !== NULL) {
+    if ($conversation_state === NULL && $room_index !== NULL) {
       $conversation_state = &$this->attentionService->ensureConversationAttentionState($dungeon_data, $room_index);
     }
 
     // Detect topic for this turn
     if ($conversation_state !== NULL && $player_message !== '') {
-      $topic_data = $this->attentionService->detectTopic($player_message, $ordered_npcs);
+      $topic_data = $this->attentionService->detectTopic($player_message);
       if ($topic_data['topic'] !== NULL) {
         $this->attentionService->updateTopic($conversation_state, $topic_data['topic'], 0);
       }
@@ -4462,11 +4462,14 @@ class RoomChatService {
 
       // Use attention score system if conversation state available
       if ($conversation_state !== NULL) {
+        // Extract player speaker ID from last speaker in conversation state
+        $player_speaker_id = $conversation_state['last_speaker'] ?? '';
         $score_result = $this->attentionService->calculateAttentionScore(
           $npc,
           $conversation_state,
           $player_message,
-          $game_state
+          $game_state,
+          $player_speaker_id
         );
 
         if ($score_result['qualified']) {

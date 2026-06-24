@@ -15,6 +15,32 @@ namespace Drupal\dungeoncrawler_content\Service;
  *
  * Attention is persistent across turns, allowing NPCs to "stay dialed in"
  * to conversations and for players to build rapport.
+ *
+ * DATA STRUCTURE CONTRACTS
+ * ========================
+ *
+ * conversation_state array format:
+ *   - last_speaker: (string) Entity ref of most recent speaker (e.g., "pc:123" or "npc:ref")
+ *   - speaker_chain: (array) Full ordered list of all speakers in this conversation
+ *   - recent_speakers: (array) Last 5 speakers with turn numbers for interaction bonus
+ *   - current_topic: (string|NULL) Active conversation topic (quest, commerce, etc.)
+ *   - topic_history: (array) History of topics discussed, keyed by topic name
+ *   - engagement_scores: (array) Per-NPC fatigue penalties, keyed by entity_ref
+ *   - topic_drift_penalty: (int) Penalty applied when topic changes abruptly
+ *
+ * npc_profile array format (passed from RoomChatService):
+ *   - entity_ref: (string) Unique NPC identifier
+ *   - ability_scores: (array) Abilities with at minimum 'charisma' key (int 1-20)
+ *   - profile: (array) Contains 'display_name' (string)
+ *   - attitude: (string, optional) One of: friendly, helpful, neutral, suspicious, hostile
+ *   - personality_type: (string, optional) One of: talkative, quiet, gregarious, reserved
+ *   - quest_leads: (array, optional) Quest topics this NPC can discuss
+ *   - is_merchant: (bool, optional) Whether NPC sells items
+ *   - is_guide: (bool, optional) Whether NPC provides navigation help
+ *
+ * game_state array format (passed from RoomChatService):
+ *   - phase: (string) Current encounter/exploration phase
+ *   - initiative_order: (array, optional) NPC initiative ranks for scoring
  */
 class NpcAttentionService {
 
@@ -125,14 +151,12 @@ class NpcAttentionService {
    * Extracts keywords related to quests, merchants, navigation, combat, etc.
    *
    * @param string $message
-   *   The player message.
-   * @param array $npc_profiles
-   *   NPC profiles with expertise/quest data for matching.
+   *   The player message to analyze.
    *
    * @return array
-   *   ['topic' => 'identifier', 'keywords' => [strings], 'confidence' => 0-100]
+   *   ['topic' => 'identifier'|NULL, 'keywords' => [strings], 'confidence' => 0-100]
    */
-  public function detectTopic(string $message, array $npc_profiles = []): array {
+  public function detectTopic(string $message): array {
     $normalized = strtolower(trim($message));
     $keywords = [];
     $topic = NULL;
@@ -270,6 +294,9 @@ class NpcAttentionService {
     array $game_state,
     string $player_speaker_id = ''
   ): array {
+    // Enforce data contract: validate NPC profile structure
+    $this->validateNpcProfile($npc_profile);
+
     $topic_relevance = $this->scoreTopicRelevance($npc_profile, $player_message);
     $personality_alignment = $this->scorePersonalityAlignment(
       $npc_profile,
@@ -549,6 +576,32 @@ class NpcAttentionService {
    */
   public function resetAttentionState(array &$conversation_state): void {
     $conversation_state = $this->initializeAttentionState();
+  }
+
+  /**
+   * Validates that an NPC profile has required fields for attention scoring.
+   *
+   * @param array $npc_profile
+   *   NPC profile data to validate.
+   *
+   * @return bool
+   *   TRUE if valid, FALSE if missing required fields.
+   *
+   * @throws InvalidArgumentException
+   *   If critical fields are missing.
+   */
+  protected function validateNpcProfile(array $npc_profile): bool {
+    // Critical fields that must exist
+    if (empty($npc_profile['entity_ref'])) {
+      throw new InvalidArgumentException('NPC profile missing required entity_ref');
+    }
+    if (empty($npc_profile['ability_scores']['charisma'])) {
+      throw new InvalidArgumentException('NPC profile missing required ability_scores.charisma');
+    }
+    if (empty($npc_profile['profile']['display_name'])) {
+      throw new InvalidArgumentException('NPC profile missing required profile.display_name');
+    }
+    return TRUE;
   }
 
 }
