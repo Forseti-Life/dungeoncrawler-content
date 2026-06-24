@@ -406,4 +406,300 @@ class NavigationServiceTest extends UnitTestCase {
     $this->assertIsArray($capabilities);
   }
 
+  /**
+   * Tests hasRoadConnection detects road connections.
+   */
+  public function testHasRoadConnectionTrue(): void {
+    $dungeon = [
+      'connections' => [
+        [
+          'from_room' => 'tavern',
+          'to_room' => 'market',
+          'destination_type' => 'road',
+          'type' => 'road',
+        ],
+      ],
+      'rooms' => [
+        ['room_id' => 'tavern', 'name' => 'Tavern'],
+        ['room_id' => 'market', 'name' => 'Market'],
+      ],
+    ];
+
+    $has_road = $this->getPrivateMethod('hasRoadConnection')->invoke(
+      $this->service,
+      $dungeon,
+      'tavern'
+    );
+
+    $this->assertTrue($has_road);
+  }
+
+  /**
+   * Tests hasRoadConnection returns false for room without road.
+   */
+  public function testHasRoadConnectionFalse(): void {
+    $dungeon = [
+      'connections' => [
+        [
+          'from_room' => 'tavern',
+          'to_room' => 'back_room',
+          'destination_type' => 'room',
+          'type' => 'passage',
+        ],
+      ],
+      'rooms' => [
+        ['room_id' => 'tavern', 'name' => 'Tavern'],
+        ['room_id' => 'back_room', 'name' => 'Back Room'],
+      ],
+    ];
+
+    $has_road = $this->getPrivateMethod('hasRoadConnection')->invoke(
+      $this->service,
+      $dungeon,
+      'tavern'
+    );
+
+    $this->assertFalse($has_road);
+  }
+
+  /**
+   * Tests extractRoadNetworkRooms collects all road-connected rooms.
+   */
+  public function testExtractRoadNetworkRooms(): void {
+    $dungeon = [
+      'connections' => [
+        ['from_room' => 'tavern', 'destination_type' => 'road'],
+        ['from_room' => 'market', 'destination_type' => 'road'],
+        ['from_room' => 'dungeon', 'destination_type' => 'room'],
+        ['from_room' => 'garden', 'destination_type' => 'road'],
+      ],
+      'rooms' => [
+        ['room_id' => 'tavern'],
+        ['room_id' => 'market'],
+        ['room_id' => 'dungeon'],
+        ['room_id' => 'garden'],
+      ],
+    ];
+
+    $road_rooms = $this->getPrivateMethod('extractRoadNetworkRooms')->invoke(
+      $this->service,
+      $dungeon,
+      'tavern' // Current room (excluded from results)
+    );
+
+    // Should include market and garden, but NOT tavern (current) or dungeon (no road)
+    $this->assertCount(2, $road_rooms);
+    $this->assertContains('market', $road_rooms);
+    $this->assertContains('garden', $road_rooms);
+    $this->assertNotContains('tavern', $road_rooms); // Current room excluded
+    $this->assertNotContains('dungeon', $road_rooms); // No road connection
+  }
+
+  /**
+   * Tests buildNavigationCapabilitiesWithRoadNetwork for road-connected room.
+   */
+  public function testBuildNavigationCapabilitiesWithRoadNetworkRoadRoom(): void {
+    $dungeon = [
+      'connections' => [
+        // Direct connection
+        [
+          'from_room' => 'tavern',
+          'to_room' => 'back_room',
+          'destination_type' => 'room',
+          'type' => 'passage',
+        ],
+        // Road connections
+        [
+          'from_room' => 'tavern',
+          'to_room' => 'road-node-1',
+          'destination_type' => 'road',
+          'type' => 'road',
+        ],
+        [
+          'from_room' => 'market',
+          'to_room' => 'road-node-1',
+          'destination_type' => 'road',
+          'type' => 'road',
+        ],
+        [
+          'from_room' => 'garden',
+          'to_room' => 'road-node-1',
+          'destination_type' => 'road',
+          'type' => 'road',
+        ],
+      ],
+      'rooms' => [
+        ['room_id' => 'tavern', 'name' => 'Tavern'],
+        ['room_id' => 'back_room', 'name' => 'Back Room'],
+        ['room_id' => 'market', 'name' => 'Market'],
+        ['room_id' => 'garden', 'name' => 'Garden'],
+      ],
+    ];
+
+    $capabilities = $this->service->buildNavigationCapabilitiesWithRoadNetwork(
+      $dungeon,
+      'tavern'
+    );
+
+    // Should have: back_room (direct) + market (road) + garden (road) = 3 capabilities
+    $this->assertGreaterThanOrEqual(3, count($capabilities));
+
+    // Verify back_room is there (direct connection)
+    $back_room_cap = array_filter($capabilities, fn($c) => 
+      ($c['target_room_id'] ?? '') === 'back_room'
+    );
+    $this->assertCount(1, $back_room_cap);
+
+    // Verify market is there (road network)
+    $market_cap = array_filter($capabilities, fn($c) => 
+      ($c['target_room_id'] ?? '') === 'market'
+    );
+    $this->assertCount(1, $market_cap);
+    $this->assertTrue(($market_cap[array_key_first($market_cap)]['is_road_network'] ?? FALSE));
+
+    // Verify garden is there (road network)
+    $garden_cap = array_filter($capabilities, fn($c) => 
+      ($c['target_room_id'] ?? '') === 'garden'
+    );
+    $this->assertCount(1, $garden_cap);
+    $this->assertTrue(($garden_cap[array_key_first($garden_cap)]['is_road_network'] ?? FALSE));
+  }
+
+  /**
+   * Tests buildNavigationCapabilitiesWithRoadNetwork for non-road room.
+   */
+  public function testBuildNavigationCapabilitiesWithRoadNetworkNonRoadRoom(): void {
+    $dungeon = [
+      'connections' => [
+        // Direct connections only
+        [
+          'from_room' => 'tavern',
+          'to_room' => 'back_room',
+          'destination_type' => 'room',
+          'type' => 'passage',
+        ],
+        // Other rooms have road connections
+        [
+          'from_room' => 'market',
+          'to_room' => 'road-node-1',
+          'destination_type' => 'road',
+          'type' => 'road',
+        ],
+      ],
+      'rooms' => [
+        ['room_id' => 'tavern', 'name' => 'Tavern'],
+        ['room_id' => 'back_room', 'name' => 'Back Room'],
+        ['room_id' => 'market', 'name' => 'Market'],
+      ],
+    ];
+
+    $capabilities = $this->service->buildNavigationCapabilitiesWithRoadNetwork(
+      $dungeon,
+      'tavern'
+    );
+
+    // Should have ONLY back_room (direct connection)
+    // Market should NOT be included because tavern has no road connection
+    $this->assertCount(1, $capabilities);
+    $this->assertSame('back_room', $capabilities[0]['target_room_id']);
+  }
+
+  /**
+   * Tests buildNavigationCapabilitiesWithRoadNetwork with no direct connections.
+   */
+  public function testBuildNavigationCapabilitiesWithRoadNetworkOnlyRoad(): void {
+    $dungeon = [
+      'connections' => [
+        // Only road connections from tavern
+        [
+          'from_room' => 'tavern',
+          'to_room' => 'road-node-1',
+          'destination_type' => 'road',
+          'type' => 'road',
+        ],
+        [
+          'from_room' => 'market',
+          'to_room' => 'road-node-1',
+          'destination_type' => 'road',
+          'type' => 'road',
+        ],
+        [
+          'from_room' => 'garden',
+          'to_room' => 'road-node-1',
+          'destination_type' => 'road',
+          'type' => 'road',
+        ],
+      ],
+      'rooms' => [
+        ['room_id' => 'tavern', 'name' => 'Tavern'],
+        ['room_id' => 'market', 'name' => 'Market'],
+        ['room_id' => 'garden', 'name' => 'Garden'],
+      ],
+    ];
+
+    $capabilities = $this->service->buildNavigationCapabilitiesWithRoadNetwork(
+      $dungeon,
+      'tavern'
+    );
+
+    // Should have market + garden via road network (no direct connections)
+    $this->assertCount(2, $capabilities);
+
+    $road_caps = array_filter($capabilities, fn($c) => 
+      ($c['is_road_network'] ?? FALSE) === TRUE
+    );
+    $this->assertCount(2, $road_caps);
+  }
+
+  /**
+   * Tests road network synthetic capabilities are bidirectional.
+   */
+  public function testRoadNetworkSyntheticCapabilitiesBidirectional(): void {
+    $dungeon = [
+      'connections' => [
+        ['from_room' => 'tavern', 'destination_type' => 'road'],
+        ['from_room' => 'market', 'destination_type' => 'road'],
+      ],
+      'rooms' => [
+        ['room_id' => 'tavern', 'name' => 'Tavern'],
+        ['room_id' => 'market', 'name' => 'Market'],
+      ],
+    ];
+
+    $tavern_caps = $this->service->buildNavigationCapabilitiesWithRoadNetwork(
+      $dungeon,
+      'tavern'
+    );
+
+    $market_caps = $this->service->buildNavigationCapabilitiesWithRoadNetwork(
+      $dungeon,
+      'market'
+    );
+
+    // Both should have access to each other
+    $tavern_to_market = array_filter($tavern_caps, fn($c) => 
+      ($c['target_room_id'] ?? '') === 'market'
+    );
+    $this->assertCount(1, $tavern_to_market);
+
+    $market_to_tavern = array_filter($market_caps, fn($c) => 
+      ($c['target_room_id'] ?? '') === 'tavern'
+    );
+    $this->assertCount(1, $market_to_tavern);
+
+    // Both should be marked as road network
+    $this->assertTrue(reset($tavern_to_market)['is_road_network'] ?? FALSE);
+    $this->assertTrue(reset($market_to_tavern)['is_road_network'] ?? FALSE);
+  }
+
+  /**
+   * Helper to get private method via reflection for testing.
+   */
+  private function getPrivateMethod(string $method_name) {
+    $reflection = new \ReflectionClass($this->service);
+    $method = $reflection->getMethod($method_name);
+    $method->setAccessible(TRUE);
+    return $method;
+  }
+
 }

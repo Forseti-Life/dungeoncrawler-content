@@ -449,4 +449,188 @@ class NavigationService {
     return NULL;
   }
 
+  /**
+   * Build navigation capabilities with road network access.
+   *
+   * Extends buildNavigationCapabilities() with road network logic:
+   * - If current room has a road connection, gain access to all other road-connected rooms
+   * - If current room has no road connection, limited to direct connections only
+   *
+   * @param array $dungeon_data
+   *   The dungeon data.
+   * @param string $room_id
+   *   The current room ID.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Navigation capabilities including road network destinations.
+   */
+  public function buildNavigationCapabilitiesWithRoadNetwork(
+    array $dungeon_data,
+    string $room_id
+  ): array {
+    // Start with normal capabilities
+    $capabilities = $this->buildNavigationCapabilities($dungeon_data, $room_id);
+
+    // Check if current room has any road connection
+    $current_room_has_road = $this->hasRoadConnection($dungeon_data, $room_id);
+    if (!$current_room_has_road) {
+      return $capabilities; // No road access, limited to direct connections
+    }
+
+    // Current room has road access — add all other road-connected rooms
+    $road_network_rooms = $this->extractRoadNetworkRooms($dungeon_data, $room_id);
+
+    foreach ($road_network_rooms as $target_room_id) {
+      // Check if already in capabilities (direct connection)
+      $already_present = FALSE;
+      foreach ($capabilities as $cap) {
+        if ((string) ($cap['target_room_id'] ?? '') === $target_room_id) {
+          $already_present = TRUE;
+          break;
+        }
+      }
+
+      if (!$already_present) {
+        // Add synthetic road network capability
+        $capability = $this->synthesizeRoadCapability($dungeon_data, $room_id, $target_room_id);
+        if ($capability !== NULL) {
+          $capabilities[] = $capability;
+        }
+      }
+    }
+
+    // Re-sort after adding road network destinations
+    usort($capabilities, static function (array $left, array $right): int {
+      $left_available = !empty($left['available']) ? 0 : 1;
+      $right_available = !empty($right['available']) ? 0 : 1;
+      if ($left_available !== $right_available) {
+        return $left_available <=> $right_available;
+      }
+
+      return strcmp((string) ($left['target_room_id'] ?? ''), (string) ($right['target_room_id'] ?? ''));
+    });
+
+    return $capabilities;
+  }
+
+  /**
+   * Check if a room has any road connection.
+   *
+   * @param array $dungeon_data
+   *   The dungeon data.
+   * @param string $room_id
+   *   The room ID to check.
+   *
+   * @return bool
+   *   TRUE if room has a road connection, FALSE otherwise.
+   */
+  protected function hasRoadConnection(array $dungeon_data, string $room_id): bool {
+    $room_id = trim($room_id);
+    if ($room_id === '') {
+      return FALSE;
+    }
+
+    foreach ($this->extractConnections($dungeon_data) as $connection) {
+      $from = trim((string) ($connection['from_room'] ?? ''));
+      if ($from !== $room_id) {
+        continue;
+      }
+
+      $destination_type = $this->resolveDestinationType($connection);
+      if ($destination_type === 'road') {
+        return TRUE;
+      }
+    }
+
+    return FALSE;
+  }
+
+  /**
+   * Extract all rooms with road connections (road network membership).
+   *
+   * Returns all rooms that have at least one road connection, excluding
+   * the current room (since it already has direct access to its own room).
+   *
+   * @param array $dungeon_data
+   *   The dungeon data.
+   * @param string $room_id
+   *   The current room ID (excluded from results).
+   *
+   * @return array<int, string>
+   *   Array of room IDs that are part of the road network.
+   */
+  protected function extractRoadNetworkRooms(
+    array $dungeon_data,
+    string $room_id
+  ): array {
+    $room_id = trim($room_id);
+    $road_rooms = [];
+
+    foreach ($this->extractConnections($dungeon_data) as $connection) {
+      $from = trim((string) ($connection['from_room'] ?? ''));
+      if ($from === '') {
+        continue;
+      }
+
+      // Skip current room (already accessible)
+      if ($from === $room_id) {
+        continue;
+      }
+
+      $destination_type = $this->resolveDestinationType($connection);
+      if ($destination_type === 'road') {
+        // This room has a road connection
+        if (!in_array($from, $road_rooms, TRUE)) {
+          $road_rooms[] = $from;
+        }
+      }
+    }
+
+    return $road_rooms;
+  }
+
+  /**
+   * Synthesize a road network navigation capability.
+   *
+   * Creates a synthetic capability for navigating to another room via the
+   * road network. These are always marked as type='road_network'.
+   *
+   * @param array $dungeon_data
+   *   The dungeon data.
+   * @param string $from_room_id
+   *   The current room ID.
+   * @param string $to_room_id
+   *   The destination room ID (via road network).
+   *
+   * @return array<string, mixed>|null
+   *   Synthetic capability, or NULL if room not found.
+   */
+  protected function synthesizeRoadCapability(
+    array $dungeon_data,
+    string $from_room_id,
+    string $to_room_id
+  ): ?array {
+    $to_room = $this->findRoomById($dungeon_data, $to_room_id);
+    if ($to_room === NULL) {
+      return NULL;
+    }
+
+    return [
+      'connection_id' => "road-network-synthetic-{$from_room_id}-to-{$to_room_id}",
+      'origin_room_id' => $from_room_id,
+      'target_room_id' => $to_room_id,
+      'destination_type' => 'room',
+      'destination_id' => $to_room_id,
+      'distance' => 0, // Road network is abstract (distance handled by road system)
+      'type' => 'road_network',
+      'available' => TRUE,
+      'blocked_reason' => NULL,
+      'is_discovered' => FALSE, // Not discovered until explicitly visited
+      'is_passable' => TRUE,
+      'bidirectional' => TRUE, // Road network is bidirectional
+      'requires_interaction' => FALSE,
+      'is_road_network' => TRUE, // Mark as road network synthetic
+    ];
+  }
+
 }
