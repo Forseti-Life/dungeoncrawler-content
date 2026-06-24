@@ -7474,6 +7474,14 @@ PROMPT;
       return '"If you are after work, say what kind. I might know a lead, or I might know who does."';
     }
 
+    if ($this->looksLikeQuestTurnInHandoff($normalized)) {
+      return match ($attitude) {
+        'friendly', 'helpful' => '"Got it. I\'ll take those now and mark the handoff complete."',
+        'unfriendly', 'hostile' => '"Fine. Leave them here. I\'ll log the handoff."',
+        default => '"Understood. Hand them over and I\'ll mark that complete."',
+      };
+    }
+
     if ($this->looksLikeQuestOrLeadRequest($normalized) && ($this->npcSupportsQuestOrLeadRole($role) || $this->isBrokeredStorylineNpcRef($entity_ref))) {
       return "\"If you're asking about work, be specific — I can point you toward leads, objectives, or anything ready to turn in.\"";
     }
@@ -7586,6 +7594,14 @@ PROMPT;
       || (bool) preg_match('/\b(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred)\s+(?:gold|silver|copper|coin|coins|silvers|coppers|golds)\b/u', $normalized)
       || (bool) preg_match('/\b(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|a|an)\s+(?:ale|beer|wine|mead|drink|drinks|round|rooms?|bed|meal|stew|ration|rations)\b/u', $normalized)
       || (bool) preg_match('/\b(?:deal|done|agreed|ill take it|i ll take it|take it|no more|too much|fair price|knock a copper off)\b/u', $normalized);
+  }
+
+  /**
+   * Check whether the player is explicitly handing over quest items.
+   */
+  protected function looksLikeQuestTurnInHandoff(string $normalized): bool {
+    return (bool) preg_match('/\b(?:here(?:\'?s| is| are)|i(?:\'?m| am)?\s*(?:bringing|brought)|turn(?:ing)?\s*in|hand(?:ing)?\s*(?:over|in)|deliver(?:ed|ing)?|for you)\b/u', $normalized)
+      && (bool) preg_match('/\b(?:item|items|component|components|material|materials|bottle|bottles|torch|wine|package|parcel|supplies|goods)\b/u', $normalized);
   }
 
   /**

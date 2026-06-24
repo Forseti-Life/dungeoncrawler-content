@@ -2267,6 +2267,32 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
 
   /**
    * @covers ::buildDeterministicNpcDialogue
+   * @covers ::looksLikeQuestTurnInHandoff
+   */
+  public function testDeterministicNpcDialoguePrefersQuestHandoffAcknowledgementOverGreeting(): void {
+    $this->psychologyService->method('loadProfile')
+      ->willReturnMap([
+        [22, 'npc_tavern_keeper', [
+          'display_name' => 'Eldric',
+          'attitude' => 'friendly',
+          'role' => 'quest_giver',
+        ]],
+      ]);
+
+    $reply = $this->roomChatService->publicBuildDeterministicNpcDialogue(
+      22,
+      'npc_tavern_keeper',
+      'Eldric',
+      'Hey Eldric, here are the wine bottles and the torch components.'
+    );
+
+    $this->assertNotNull($reply);
+    $this->assertStringContainsString('handoff', strtolower($reply));
+    $this->assertStringNotContainsString('What do you need?', $reply);
+  }
+
+  /**
+   * @covers ::buildDeterministicNpcDialogue
    * @covers ::buildBrokeredStorylineLeadDialogue
    * @covers ::loadBrokeredStorylineContacts
    */
