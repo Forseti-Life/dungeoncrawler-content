@@ -291,4 +291,162 @@ class NavigationService {
     return FALSE;
   }
 
+  /**
+   * Build navigation capabilities + quest destination targets.
+   *
+   * Enhances navigation with quest objectives that specify destinations.
+   * Ensures all quest destinations are visible in action rail.
+   *
+   * @param array $dungeon_data
+   *   The dungeon data.
+   * @param string $room_id
+   *   The current room ID.
+   * @param array|null $active_quests
+   *   Active quest data with 'objectives' field per quest.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Navigation capabilities including quest-referenced destinations.
+   */
+  public function buildNavigationCapabilitiesWithQuestTargets(
+    array $dungeon_data,
+    string $room_id,
+    ?array $active_quests = NULL
+  ): array {
+    $capabilities = $this->buildNavigationCapabilities($dungeon_data, $room_id);
+
+    if (empty($active_quests) || !is_array($active_quests)) {
+      return $capabilities;
+    }
+
+    // Collect all quest destinations
+    $quest_destinations = $this->extractQuestDestinations($active_quests);
+
+    // For each quest destination, ensure it's in capabilities
+    foreach ($quest_destinations as $quest_ref) {
+      $destination_identifier = $quest_ref['destination'];
+      $quest_id = $quest_ref['quest_id'];
+
+      // Resolve destination to room_id
+      $target_room = $this->findRoomByIdOrName($dungeon_data, $destination_identifier);
+      if (!$target_room) {
+        continue; // Destination doesn't exist, skip
+      }
+
+      $target_room_id = (string) ($target_room['room_id'] ?? '');
+      if ($target_room_id === '') {
+        continue;
+      }
+
+      // Check if this room is already in capabilities
+      $already_present = FALSE;
+      foreach ($capabilities as $cap) {
+        if ((string) ($cap['target_room_id'] ?? '') === $target_room_id) {
+          $already_present = TRUE;
+          // Mark as quest-referenced
+          $cap['quest_reference'] = TRUE;
+          if (!isset($cap['quest_ids'])) {
+            $cap['quest_ids'] = [];
+          }
+          if (!in_array($quest_id, $cap['quest_ids'], TRUE)) {
+            $cap['quest_ids'][] = $quest_id;
+          }
+          break;
+        }
+      }
+
+      // If not present, add as synthetic capability
+      if (!$already_present) {
+        $capabilities[] = [
+          'connection_id' => "quest-synthetic-{$target_room_id}",
+          'origin_room_id' => $room_id,
+          'target_room_id' => $target_room_id,
+          'destination_type' => 'room',
+          'destination_id' => $target_room_id,
+          'distance' => 0,
+          'type' => 'synthetic',
+          'available' => TRUE,
+          'blocked_reason' => NULL,
+          'is_discovered' => TRUE,
+          'is_passable' => TRUE,
+          'bidirectional' => FALSE,
+          'requires_interaction' => FALSE,
+          'quest_reference' => TRUE,
+          'quest_ids' => [$quest_id],
+        ];
+      }
+    }
+
+    return $capabilities;
+  }
+
+  /**
+   * Extracts destination references from active quests.
+   *
+   * @param array $active_quests
+   *   Array of quest data, each with 'quest_id' and 'objectives' fields.
+   *
+   * @return array<int, array<string, string>>
+   *   Array of ['destination' => ..., 'quest_id' => ...] references.
+   */
+  protected function extractQuestDestinations(array $active_quests): array {
+    $destinations = [];
+
+    foreach ($active_quests as $quest) {
+      $quest_id = (string) ($quest['quest_id'] ?? '');
+      if ($quest_id === '') {
+        continue;
+      }
+
+      $objectives = (array) ($quest['objectives'] ?? []);
+      foreach ($objectives as $objective) {
+        $destination = trim((string) ($objective['destination'] ?? 
+                                      $objective['destination_id'] ?? ''));
+        if ($destination !== '') {
+          $destinations[] = [
+            'destination' => $destination,
+            'quest_id' => $quest_id,
+          ];
+        }
+      }
+    }
+
+    return $destinations;
+  }
+
+  /**
+   * Finds a room by room_id or room name.
+   *
+   * @param array $dungeon_data
+   *   The dungeon data.
+   * @param string $identifier
+   *   The room_id or room name to find.
+   *
+   * @return array|null
+   *   The room data if found, null otherwise.
+   */
+  protected function findRoomByIdOrName(array $dungeon_data, string $identifier): ?array {
+    $identifier = trim($identifier);
+    if ($identifier === '') {
+      return NULL;
+    }
+
+    $rooms = (array) ($dungeon_data['rooms'] ?? []);
+
+    // Try exact match on room_id first
+    foreach ($rooms as $room) {
+      if ((string) ($room['room_id'] ?? '') === $identifier) {
+        return $room;
+      }
+    }
+
+    // Try exact match on room name
+    foreach ($rooms as $room) {
+      if ((string) ($room['name'] ?? '') === $identifier) {
+        return $room;
+      }
+    }
+
+    return NULL;
+  }
+
 }

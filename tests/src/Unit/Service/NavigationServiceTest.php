@@ -244,4 +244,166 @@ class NavigationServiceTest extends UnitTestCase {
     $this->assertSame('unresolved_destination', $capabilities[0]['blocked_reason']);
   }
 
+  /**
+   * Tests buildNavigationCapabilitiesWithQuestTargets adds quest destinations.
+   */
+  public function testBuildNavigationCapabilitiesWithQuestTargetsAddsQuests(): void {
+    $dungeon = [
+      'connections' => [],
+      'rooms' => [
+        ['room_id' => 'start', 'name' => 'Starting Room'],
+        ['room_id' => 'vault-entry', 'name' => 'Vault Entry'],
+      ],
+    ];
+
+    $active_quests = [
+      [
+        'quest_id' => 'quest-1',
+        'objectives' => [
+          ['destination_id' => 'vault-entry'],
+        ],
+      ],
+    ];
+
+    $capabilities = $this->service->buildNavigationCapabilitiesWithQuestTargets(
+      $dungeon,
+      'start',
+      $active_quests
+    );
+
+    // Should have the synthetic quest destination
+    $quest_caps = array_filter($capabilities, fn($c) => 
+      ($c['quest_reference'] ?? FALSE) === TRUE
+    );
+    $this->assertCount(1, $quest_caps);
+    
+    $quest_cap = array_values($quest_caps)[0];
+    $this->assertSame('vault-entry', $quest_cap['target_room_id']);
+    $this->assertSame(['quest-1'], $quest_cap['quest_ids']);
+  }
+
+  /**
+   * Tests buildNavigationCapabilitiesWithQuestTargets resolves by room name.
+   */
+  public function testBuildNavigationCapabilitiesWithQuestTargetsResolvesByName(): void {
+    $dungeon = [
+      'connections' => [],
+      'rooms' => [
+        ['room_id' => 'start', 'name' => 'Starting Room'],
+        ['room_id' => 'vault-entry', 'name' => 'Vault Entry'],
+      ],
+    ];
+
+    $active_quests = [
+      [
+        'quest_id' => 'quest-1',
+        'objectives' => [
+          ['destination' => 'Vault Entry'], // Use name, not ID
+        ],
+      ],
+    ];
+
+    $capabilities = $this->service->buildNavigationCapabilitiesWithQuestTargets(
+      $dungeon,
+      'start',
+      $active_quests
+    );
+
+    $quest_caps = array_filter($capabilities, fn($c) => 
+      ($c['quest_reference'] ?? FALSE) === TRUE
+    );
+    $this->assertCount(1, $quest_caps);
+  }
+
+  /**
+   * Tests buildNavigationCapabilitiesWithQuestTargets skips non-existent destinations.
+   */
+  public function testBuildNavigationCapabilitiesWithQuestTargetsSkipsInvalid(): void {
+    $dungeon = [
+      'connections' => [],
+      'rooms' => [
+        ['room_id' => 'start', 'name' => 'Starting Room'],
+      ],
+    ];
+
+    $active_quests = [
+      [
+        'quest_id' => 'quest-1',
+        'objectives' => [
+          ['destination' => 'Non Existent Room'],
+        ],
+      ],
+    ];
+
+    // Should not throw, just skip the invalid destination
+    $capabilities = $this->service->buildNavigationCapabilitiesWithQuestTargets(
+      $dungeon,
+      'start',
+      $active_quests
+    );
+
+    // No quest capabilities added
+    $quest_caps = array_filter($capabilities, fn($c) => 
+      ($c['quest_reference'] ?? FALSE) === TRUE
+    );
+    $this->assertCount(0, $quest_caps);
+  }
+
+  /**
+   * Tests buildNavigationCapabilitiesWithQuestTargets with multiple quests.
+   */
+  public function testBuildNavigationCapabilitiesWithQuestTargetsMultiple(): void {
+    $dungeon = [
+      'connections' => [],
+      'rooms' => [
+        ['room_id' => 'start', 'name' => 'Starting Room'],
+        ['room_id' => 'room-a', 'name' => 'Room A'],
+        ['room_id' => 'room-b', 'name' => 'Room B'],
+      ],
+    ];
+
+    $active_quests = [
+      [
+        'quest_id' => 'quest-1',
+        'objectives' => [['destination_id' => 'room-a']],
+      ],
+      [
+        'quest_id' => 'quest-2',
+        'objectives' => [['destination_id' => 'room-b']],
+      ],
+    ];
+
+    $capabilities = $this->service->buildNavigationCapabilitiesWithQuestTargets(
+      $dungeon,
+      'start',
+      $active_quests
+    );
+
+    $quest_caps = array_filter($capabilities, fn($c) => 
+      ($c['quest_reference'] ?? FALSE) === TRUE
+    );
+    $this->assertCount(2, $quest_caps);
+  }
+
+  /**
+   * Tests buildNavigationCapabilitiesWithQuestTargets handles empty quests gracefully.
+   */
+  public function testBuildNavigationCapabilitiesWithQuestTargetsEmptyQuests(): void {
+    $dungeon = [
+      'connections' => [],
+      'rooms' => [
+        ['room_id' => 'start', 'name' => 'Starting Room'],
+      ],
+    ];
+
+    $capabilities = $this->service->buildNavigationCapabilitiesWithQuestTargets(
+      $dungeon,
+      'start',
+      [] // Empty quests
+    );
+
+    // Should just return normal capabilities (empty in this case)
+    $this->assertIsArray($capabilities);
+  }
+
 }

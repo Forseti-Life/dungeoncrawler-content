@@ -63,6 +63,11 @@ class QuestGeneratorService {
   protected ObjectiveTypeService $objectiveTypeService;
 
   /**
+   * Quest destination validator service.
+   */
+  protected ?QuestDestinationValidatorService $questDestinationValidator = NULL;
+
+  /**
    * Constructs a QuestGeneratorService object.
    *
    * @param \Drupal\Core\Database\Connection $database
@@ -78,7 +83,8 @@ class QuestGeneratorService {
     NumberGenerationService $number_generation,
     ?StateValidationService $state_validation_service = NULL,
     ?ObjectiveTypeService $objective_type_service = NULL,
-    ?StorylineManagerService $storyline_manager = NULL
+    ?StorylineManagerService $storyline_manager = NULL,
+    ?QuestDestinationValidatorService $quest_destination_validator = NULL
   ) {
     $this->database = $database;
     $this->logger = $logger_factory->get('dungeoncrawler_content');
@@ -86,6 +92,7 @@ class QuestGeneratorService {
     $this->stateValidationService = $state_validation_service;
     $this->objectiveTypeService = $objective_type_service ?? new ObjectiveTypeService();
     $this->storylineManager = $storyline_manager;
+    $this->questDestinationValidator = $quest_destination_validator ?? new QuestDestinationValidatorService();
   }
 
   /**
@@ -142,6 +149,19 @@ class QuestGeneratorService {
         $variables,
         $context
       );
+
+      // Validate quest destinations (hard-fail if invalid)
+      if (!empty($generated_objectives)) {
+        try {
+          $this->questDestinationValidator->validateQuestObjectives(
+            ['quest_id' => $template_id, 'objectives' => $generated_objectives],
+            $this->getDungeonDataForContext($context)
+          );
+        } catch (\InvalidArgumentException $e) {
+          $this->logger->error('Quest destination validation failed: @error', ['@error' => $e->getMessage()]);
+          throw $e;
+        }
+      }
 
       // Scale rewards
       $generated_rewards = $this->scaleRewards(
@@ -3231,6 +3251,42 @@ class QuestGeneratorService {
     $normalized = str_replace(['_', '-'], ' ', $normalized);
     $normalized = preg_replace('/\s+/', ' ', $normalized) ?? $normalized;
     return ucwords(trim($normalized));
+  }
+
+  /**
+   * Retrieves dungeon data for validation context.
+   *
+   * @param array $context
+   *   The generation context (may include campaign_id, location, dungeon_data).
+   *
+   * @return array
+   *   The dungeon data array with 'rooms' definition.
+   */
+  protected function getDungeonDataForContext(array $context): array {
+    // If dungeon_data is already in context, use it
+    if (!empty($context['dungeon_data']) && is_array($context['dungeon_data'])) {
+      return $context['dungeon_data'];
+    }
+
+    // Otherwise, try to load from campaign if available
+    if (!empty($context['campaign_id'])) {
+      $campaign_id = (int) $context['campaign_id'];
+      // Load dungeon data from campaign context
+      try {
+        $campaign_service = \Drupal::service('dungeoncrawler_content.campaign_service');
+        if ($campaign_service && method_exists($campaign_service, 'getCampaignDungeonData')) {
+          return $campaign_service->getCampaignDungeonData($campaign_id);
+        }
+      } catch (\Exception $e) {
+        $this->logger->warning('Could not load dungeon data for campaign @campaign: @error', [
+          '@campaign' => $campaign_id,
+          '@error' => $e->getMessage(),
+        ]);
+      }
+    }
+
+    // Return empty dungeon structure as fallback
+    return ['rooms' => []];
   }
 
 }

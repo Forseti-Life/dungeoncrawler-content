@@ -88,14 +88,18 @@ function collectNavigateExitGroups(panel, context) {
       const historyEntry = latestHistoryByRoomId.get(targetRoomId) || null;
       const destinationType = String(capability?.destination_type || 'room').trim().toLowerCase() || 'room';
       const distanceValue = Number.isFinite(Number(capability?.distance)) ? Number(capability.distance) : 0;
+      const isQuestTarget = capability?.quest_reference === true;
+      const questIds = Array.isArray(capability?.quest_ids) ? capability.quest_ids : [];
+      
       return {
         roomId: targetRoomId,
         roomName: String(room?.name || historyEntry?.room_name || targetRoomId),
-        statusLabel: 'Exit',
+        statusLabel: isQuestTarget ? '🎯 Quest Target' : 'Exit',
         lastVisitedLabel: historyEntry?.timestamp ? `Seen ${historyEntry.timestamp}` : 'Linked from current room',
         meta: [
           `Destination: ${formatDestinationType(destinationType)}`,
           `Distance: ${formatDistanceValue(distanceValue)}`,
+          isQuestTarget ? '⭐ This location is a quest objective' : '',
           room?.description || room?.short_description || '',
           capability?.type ? `Connection: ${String(capability.type).replace(/_/g, ' ')}` : '',
         ].filter(Boolean).join(' '),
@@ -105,6 +109,7 @@ function collectNavigateExitGroups(panel, context) {
         originR: capability?.origin_hex?.r ?? '',
         mapId: currentMapId,
         dungeonLevelId: currentDungeonLevelId,
+        questIds: questIds,
       };
     })
     .filter(Boolean)

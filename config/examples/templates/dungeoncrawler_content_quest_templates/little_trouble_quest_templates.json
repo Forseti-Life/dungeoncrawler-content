@@ -28,7 +28,8 @@
                 "required_value": true,
                 "description": "Complete when the vault entry location is discovered."
               },
-              "location": "ltba-vault-entry"
+              "location": "Vault Entry",
+              "destination_id": "ltba-vault-entry"
             }
           ]
         }
