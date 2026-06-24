@@ -18,6 +18,7 @@ class GameMasterSubsystemService {
   protected const ROUTE_FAMILY_DETERMINISTIC_ACTION = 'deterministic_action';
   protected const ROUTE_FAMILY_GM_BACKSTOP_CHAT = 'gm_backstop_chat';
   protected const HANDOFF_REASON_DETERMINISTIC_TURN_CONTROL_PHRASE = 'deterministic_turn_control_phrase';
+  protected const HANDOFF_REASON_DETERMINISTIC_END_TURN_PHRASE = 'deterministic_end_turn_phrase';
   protected const HANDOFF_REASON_NO_TURN_CONTROL_MATCH = 'no_deterministic_turn_control_match';
 
   protected GameCoordinatorService $coordinator;
@@ -175,18 +176,18 @@ class GameMasterSubsystemService {
     bool $suppress_gm,
     string $speaker
   ): array {
-    $deterministic_intent = $this->buildDeterministicTurnControlIntent($campaign_id, $actor_id, $character_id, $message);
-    if ($deterministic_intent !== NULL) {
+    $deterministic_route = $this->buildDeterministicTurnControlRoute($campaign_id, $actor_id, $character_id, $message);
+    if ($deterministic_route !== NULL) {
       return $this->buildRouteEnvelope(
         self::WORKFLOW_AUTHORITATIVE_ROOM_ACTION,
         self::ROUTE_DETERMINISTIC_TURN_CONTROL,
         self::ROUTE_FAMILY_DETERMINISTIC_ACTION,
         TRUE,
-        self::HANDOFF_REASON_DETERMINISTIC_TURN_CONTROL_PHRASE,
+        (string) ($deterministic_route['handoff_reason'] ?? self::HANDOFF_REASON_DETERMINISTIC_TURN_CONTROL_PHRASE),
         $requested_room_id,
         $actor_id,
         $character_id,
-        $deterministic_intent
+        is_array($deterministic_route['intent'] ?? NULL) ? $deterministic_route['intent'] : []
       );
     }
 
@@ -212,6 +213,34 @@ class GameMasterSubsystemService {
         ],
       ]
     );
+  }
+
+  /**
+   * Build deterministic turn-control route metadata when the message is explicit.
+   */
+  protected function buildDeterministicTurnControlRoute(
+    int $campaign_id,
+    string $actor_id,
+    ?int $character_id,
+    string $message
+  ): ?array {
+    $deterministic_intent = $this->buildDeterministicTurnControlIntent($campaign_id, $actor_id, $character_id, $message);
+    if ($deterministic_intent !== NULL) {
+      return [
+        'handoff_reason' => self::HANDOFF_REASON_DETERMINISTIC_TURN_CONTROL_PHRASE,
+        'intent' => $deterministic_intent,
+      ];
+    }
+
+    $end_turn_intent = $this->buildDeterministicEndTurnIntent($campaign_id, $actor_id, $character_id, $message);
+    if ($end_turn_intent !== NULL) {
+      return [
+        'handoff_reason' => self::HANDOFF_REASON_DETERMINISTIC_END_TURN_PHRASE,
+        'intent' => $end_turn_intent,
+      ];
+    }
+
+    return NULL;
   }
 
   /**
@@ -313,6 +342,47 @@ class GameMasterSubsystemService {
       'params' => array_filter([
         'character_id' => $character_id,
         'delay_until_actor_id' => $after_actor_id,
+        'source' => 'room_chat',
+      ], static fn($value): bool => $value !== NULL && $value !== ''),
+    ];
+  }
+
+  /**
+   * Convert explicit end-turn phrasing into canonical end_turn action.
+   */
+  protected function buildDeterministicEndTurnIntent(
+    int $campaign_id,
+    string $actor_id,
+    ?int $character_id,
+    string $message
+  ): ?array {
+    $trimmed = trim($message);
+    if ($trimmed === '') {
+      return NULL;
+    }
+
+    $normalized = $this->normalizeTurnControlText($trimmed);
+    $matches_end_turn = preg_match('/^(?:end(?:\s+my)?\s+turn|finish(?:\s+my)?\s+turn|im\s+done|i\s+am\s+done|done)\b/u', $normalized) === 1
+      || preg_match('/^(?:i(?:ll| will)\s+end(?:\s+my)?\s+turn)\b/u', $normalized) === 1;
+    if (!$matches_end_turn) {
+      return NULL;
+    }
+
+    $availability = $this->coordinator->getActionAvailabilityForActor($campaign_id, $actor_id);
+    $available_actions = array_values(array_unique(array_filter(
+      array_map(static fn($action): string => strtolower(trim((string) $action)), $availability['available_actions'] ?? []),
+      static fn(string $action): bool => $action !== ''
+    )));
+    if (!in_array('end_turn', $available_actions, TRUE)) {
+      return NULL;
+    }
+
+    return [
+      'type' => 'end_turn',
+      'actor' => $actor_id,
+      'target' => NULL,
+      'params' => array_filter([
+        'character_id' => $character_id,
         'source' => 'room_chat',
       ], static fn($value): bool => $value !== NULL && $value !== ''),
     ];

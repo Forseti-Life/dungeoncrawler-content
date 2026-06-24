@@ -180,4 +180,63 @@ class GameMasterSubsystemServiceTest extends UnitTestCase {
     $this->assertSame('npc-eldric', $result['gm_subsystem']['intent']['params']['delay_until_actor_id']);
   }
 
+  /**
+   * @covers ::handlePlayerRoomChat
+   */
+  public function testHandlePlayerRoomChatRoutesDeterministicEndTurnIntent(): void {
+    $coordinator = $this->createMock(GameCoordinatorService::class);
+    $room_chat_service = $this->createMock(RoomChatService::class);
+    $coordinator->expects($this->once())
+      ->method('resolveActorIdForCharacterId')
+      ->with(63, 241)
+      ->willReturn('pc-241-324');
+    $coordinator->expects($this->once())
+      ->method('getActiveRoomId')
+      ->with(63, 'pc-241-324')
+      ->willReturn('room-1');
+    $coordinator->expects($this->never())
+      ->method('resolveActorDisplayName');
+    $coordinator->expects($this->once())
+      ->method('getActionAvailabilityForActor')
+      ->with(63, 'pc-241-324')
+      ->willReturn([
+        'available_actions' => ['talk', 'delay', 'end_turn'],
+        'action_contract' => ['available_actions' => ['talk', 'delay', 'end_turn']],
+      ]);
+    $coordinator->expects($this->never())
+      ->method('getFullState');
+    $coordinator->expects($this->once())
+      ->method('processAction')
+      ->with(63, $this->callback(function (array $intent): bool {
+        $this->assertSame('end_turn', $intent['type'] ?? NULL);
+        $this->assertSame('pc-241-324', $intent['actor'] ?? NULL);
+        $this->assertSame('room_chat', $intent['params']['source'] ?? NULL);
+        return TRUE;
+      }))
+      ->willReturn([
+        'success' => TRUE,
+        'result' => [],
+        'game_state' => [
+          'turn' => [
+            'entity' => 'pc-241-324',
+            'index' => 2,
+            'actions_remaining' => 0,
+          ],
+        ],
+      ]);
+    $room_chat_service->expects($this->never())
+      ->method('postMessage');
+
+    $service = new GameMasterSubsystemService($coordinator, $room_chat_service);
+    $result = $service->handlePlayerRoomChat(63, 'room-1', 241, 'End my turn');
+
+    $this->assertSame('gm_subsystem_route_v1', $result['gm_subsystem']['contract_version']);
+    $this->assertTrue($result['gm_subsystem']['deterministic']);
+    $this->assertSame('deterministic_turn_control', $result['gm_subsystem']['route']);
+    $this->assertSame('deterministic_action', $result['gm_subsystem']['route_family']);
+    $this->assertSame('deterministic_end_turn_phrase', $result['gm_subsystem']['handoff_reason']);
+    $this->assertSame('end_turn', $result['gm_subsystem']['intent']['type']);
+    $this->assertSame('room_chat', $result['gm_subsystem']['intent']['params']['source']);
+  }
+
 }
