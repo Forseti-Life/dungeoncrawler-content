@@ -7444,7 +7444,7 @@ PROMPT;
       'quest', 'job', 'task', 'mission', 'work', 'reward', 'objective',
       'lead', 'where', 'go', 'start', 'contact', 'looking for work',
       'story', 'stories', 'storyline', 'storylines', 'module', 'modules',
-    ]);
+    ]) || $this->looksLikeImplicitLeadRequest($normalized);
     if ($asks_for_leads) {
       $available_quest_offer = $this->buildAvailableQuestgiverQuestDialogue($campaign_id, $entity_ref, $display_name, $room_id, $dungeon_data);
       if ($available_quest_offer !== NULL) {
@@ -8450,6 +8450,21 @@ PROMPT;
       'quest', 'job', 'task', 'mission', 'reward', 'objective', 'work',
       'lead', 'contact', 'start', 'story', 'stories', 'storyline',
       'storylines', 'module', 'modules',
+    ]);
+  }
+
+  /**
+   * Detect short implied "any work?" follow-ups that omit explicit quest nouns.
+   */
+  protected function looksLikeImplicitLeadRequest(string $normalized_message): bool {
+    return $this->textContainsAny($normalized_message, [
+      'you have any',
+      'got any',
+      'any work',
+      'any leads',
+      'anything for me',
+      'anything i can do',
+      'anything available',
     ]);
   }
 

@@ -977,6 +977,15 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
   }
 
   /**
+   * @covers ::looksLikeImplicitLeadRequest
+   */
+  public function testLooksLikeImplicitLeadRequestDetectsAnyWorkFollowUp(): void {
+    $this->assertTrue($this->roomChatService->publicLooksLikeImplicitLeadRequest('what about you marta you have any'));
+    $this->assertTrue($this->roomChatService->publicLooksLikeImplicitLeadRequest('got any work'));
+    $this->assertFalse($this->roomChatService->publicLooksLikeImplicitLeadRequest('what do you think about this room'));
+  }
+
+  /**
    * @covers ::buildQuestgiverQuestDialogueLine
    */
   public function testBuildQuestgiverQuestDialogueLineUsesActiveQuestGuidance(): void {
@@ -3036,6 +3045,10 @@ class TestableRoomChatService extends RoomChatService {
 
   public function publicSelectBestMatchingQuestLeadCandidate(string $player_message, array $candidates, array $exclude_giver_npc_ids = []): ?array {
     return $this->selectBestMatchingQuestLeadCandidate($player_message, $candidates, $exclude_giver_npc_ids);
+  }
+
+  public function publicLooksLikeImplicitLeadRequest(string $normalized_message): bool {
+    return $this->looksLikeImplicitLeadRequest($normalized_message);
   }
 
   public function publicBuildQuestgiverQuestDialogueLine(object $row, string $display_name): ?string {
