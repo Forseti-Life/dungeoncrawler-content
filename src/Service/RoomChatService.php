@@ -4439,24 +4439,28 @@ class RoomChatService {
     $game_state = is_array($dungeon_data['game_state'] ?? NULL) ? $dungeon_data['game_state'] : [];
 
     // Ensure conversation attention state exists
-    $room_index = $this->getRoomIndexFromRoomId($dungeon_data, $room_id);
-    if ($conversation_state === NULL && $room_index !== NULL) {
-      $conversation_state = &$this->attentionService->ensureConversationAttentionState($dungeon_data, $room_index);
+    // Defensive initialization: attempt to initialize from dungeon_data if state not passed
+    if ($conversation_state === NULL) {
+      if (!empty($dungeon_data) && $room_id !== '') {
+        $room_index = $this->getRoomIndexFromRoomId($dungeon_data, $room_id);
+        if ($room_index !== NULL) {
+          $conversation_state = &$this->attentionService->ensureConversationAttentionState($dungeon_data, $room_index);
+        }
+      }
     }
 
-    // VALIDATION: conversation_state MUST be initialized by caller or be successfully
-    // initialized here. If NULL after this point, it indicates caller failed to provide
-    // required context and we cannot proceed with attention scoring.
+    // VALIDATION: conversation_state MUST be initialized by caller or successfully initialized here.
     if ($conversation_state === NULL) {
       throw new InvalidArgumentException(
-        'conversation_state must be provided to filterAmbientNpcInterjectionOrder, ' .
-        'OR dungeon_data must contain valid room context. ' .
-        'Caller must pass pre-initialized conversation_state reference to avoid redundant initialization.'
+        'conversation_state parameter is required for filterAmbientNpcInterjectionOrder() attention scoring. ' .
+        'Conversation state must be either: (1) passed as a parameter, or (2) initialized from dungeon_data. ' .
+        'Pass conversation_state reference to avoid redundant initialization.'
       );
     }
 
     // Detect topic for this turn
-    if ($conversation_state !== NULL && $player_message !== '') {
+    // Note: conversation_state is guaranteed to be non-NULL due to validation above
+    if ($player_message !== '') {
       $topic_data = $this->attentionService->detectTopic($player_message);
       if ($topic_data['topic'] !== NULL) {
         $this->attentionService->updateTopic($conversation_state, $topic_data['topic'], 0);

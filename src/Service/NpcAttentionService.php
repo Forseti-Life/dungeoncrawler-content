@@ -16,6 +16,24 @@ namespace Drupal\dungeoncrawler_content\Service;
  * Attention is persistent across turns, allowing NPCs to "stay dialed in"
  * to conversations and for players to build rapport.
  *
+ * OPTION B: DEFENSIVE WITH VALIDATION PATTERN
+ * ============================================
+ * This service implements a defensive validation pattern that:
+ * 1. Accepts optional parameters for backward compatibility
+ * 2. Attempts to recover missing parameters from available context
+ * 3. Hard-fails with explicit errors if contract cannot be satisfied
+ *
+ * Examples:
+ *   - calculateAttentionScore: If player_speaker_id not passed, tries to use
+ *     conversation_state['last_speaker']. If both missing, throws InvalidArgumentException.
+ *   - validateNpcProfile: Throws exception if required profile fields missing.
+ *
+ * This ensures:
+ *   ✅ Backward compatible (optional signatures)
+ *   ✅ No silent failures (hard errors on contract violations)
+ *   ✅ Forgiving (defensive recovery from available context)
+ *   ✅ Clear errors (actionable error messages)
+ *
  * DATA STRUCTURE CONTRACTS
  * ========================
  *
@@ -297,20 +315,20 @@ class NpcAttentionService {
     // Enforce data contract: validate NPC profile structure
     $this->validateNpcProfile($npc_profile);
 
-    // VALIDATION: player_speaker_id is critical for personality alignment scoring.
-    // If empty string (default), it indicates caller likely omitted required parameter.
-    // This is a contract violation - personality alignment cannot work without knowing who's speaking.
+    // VALIDATION: player_speaker_id is required for personality alignment scoring.
+    // If empty (default), attempt to recover from conversation_state['last_speaker'].
+    // If both missing, hard-fail with clear error message.
     if ($player_speaker_id === '') {
-      // Check if there's a last_speaker in conversation_state we should use
       $last_speaker = $conversation_state['last_speaker'] ?? '';
       if ($last_speaker === '') {
         throw new InvalidArgumentException(
-          'calculateAttentionScore requires $player_speaker_id (the current speaker) for personality alignment scoring. ' .
-          'Caller must pass player_speaker_id explicitly, or ensure conversation_state contains last_speaker. ' .
-          'Personality alignment cannot be calculated without knowing who is speaking.'
+          'player_speaker_id parameter is required for calculateAttentionScore() personality alignment. ' .
+          'Speaker ID must be either: (1) passed as a parameter, or (2) available in conversation_state[\'last_speaker\']. ' .
+          'Personality alignment cannot function without knowing the current speaker.'
         );
       }
-      // Use conversation_state's last_speaker if available (defensive fallback for truly backward-compat callers)
+      // Defensive recovery: use last_speaker from conversation_state since player_speaker_id wasn't provided.
+      // This maintains backward compatibility while still calculating personality alignment.
       $player_speaker_id = $last_speaker;
     }
 
