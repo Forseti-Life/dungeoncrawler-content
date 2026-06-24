@@ -1729,7 +1729,7 @@ export class GameShell {
     const visualRoomId = this.mapVisualState?.map_meta?.active_room_id
       || Object.keys(this.mapVisualState?.topology?.rooms || {})[0]
       || null;
-    return this.activeRoomId || this._getStateValue('activeRoomId') || visualRoomId || this.launchContext?.room_id || null;
+    return this.activeRoomId || this.state?.activeRoomId || visualRoomId || this.launchContext?.room_id || null;
   }
 
   // --- ported from hexmap.js ---

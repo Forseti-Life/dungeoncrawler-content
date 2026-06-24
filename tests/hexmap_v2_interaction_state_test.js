@@ -150,6 +150,10 @@ const getHexDetailSource = extractMethodSource(source, '  getHexDetail(q, r) {')
   .replace('  getHexDetail(q, r) {', 'function getHexDetail(q, r) {');
 const setActiveRoomSource = extractMethodSource(source, '  setActiveRoom(roomId) {')
   .replace('  setActiveRoom(roomId) {', 'function setActiveRoom(roomId) {');
+const getStateValueSource = extractMethodSource(source, '  _getStateValue(key) {')
+  .replace('  _getStateValue(key) {', 'function _getStateValue(key) {');
+const resolveActiveRoomIdSource = extractMethodSource(source, '  resolveActiveRoomId() {')
+  .replace('  resolveActiveRoomId() {', 'function resolveActiveRoomId() {');
 const buildRoomSubtitleSource = extractNamedFunctionSource(source, '_buildRoomSubtitle');
 const isPlainObjectSource = extractNamedFunctionSource(source, '_isPlainObject');
 const hasMeaningfulValueSource = extractNamedFunctionSource(source, '_hasMeaningfulValue');
@@ -176,10 +180,12 @@ ${describeObjectsAtHexSource}
 ${describeConnectionAtHexSource}
 ${getHexDetailSource}
 ${setActiveRoomSource}
-return { _bindInteractionEvents, setSelectedHex, resolveTerrainKey, describePassability, describeEntitiesAtHex, getObjectLabelAtHex, getObjectIdAtHex, describeObjectsAtHex, describeConnectionAtHex, getHexDetail, setActiveRoom };
+${getStateValueSource}
+${resolveActiveRoomIdSource}
+return { _bindInteractionEvents, setSelectedHex, resolveTerrainKey, describePassability, describeEntitiesAtHex, getObjectLabelAtHex, getObjectIdAtHex, describeObjectsAtHex, describeConnectionAtHex, getHexDetail, setActiveRoom, _getStateValue, resolveActiveRoomId };
 `);
 
-const { _bindInteractionEvents, setSelectedHex, resolveTerrainKey, describePassability, describeEntitiesAtHex, getObjectLabelAtHex, getObjectIdAtHex, describeObjectsAtHex, describeConnectionAtHex, getHexDetail, setActiveRoom } = factory();
+const { _bindInteractionEvents, setSelectedHex, resolveTerrainKey, describePassability, describeEntitiesAtHex, getObjectLabelAtHex, getObjectIdAtHex, describeObjectsAtHex, describeConnectionAtHex, getHexDetail, setActiveRoom, _getStateValue, resolveActiveRoomId } = factory();
 
 console.log('\n=== Hexmap V2 interaction state ===');
 
@@ -413,6 +419,23 @@ console.log('\n=== Hexmap V2 interaction state ===');
   assert(roomChanged?.payload?.room?.subtitle === 'stone floor | Lighting: dim | large', 'setActiveRoom emits legacy room subtitle metadata for room-transition surfaces');
   assert(Array.isArray(occupantsChanged?.payload?.occupants) && occupantsChanged.payload.occupants.length === 1, 'setActiveRoom re-broadcasts visible occupants for room-driven panels');
   assert(calls.some((call) => call[0] === 'prefetch'), 'setActiveRoom prefetches connected-room context during transitions');
+}
+
+{
+  const shell = {
+    state: { activeRoomId: 'state_room' },
+    activeRoomId: null,
+    mapVisualState: {
+      map_meta: { active_room_id: 'visual_room' },
+      topology: { rooms: { visual_room: {} } },
+    },
+    launchContext: { room_id: 'launch_room' },
+    resolveActiveRoomId,
+    _getStateValue,
+  };
+
+  const roomId = _getStateValue.call(shell, 'activeRoomId');
+  assert(roomId === 'state_room', 'state manager activeRoomId lookup resolves without recursive overflow');
 }
 
 console.log(`\nPassed: ${passed}`);
