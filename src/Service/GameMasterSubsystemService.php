@@ -10,6 +10,16 @@ namespace Drupal\dungeoncrawler_content\Service;
  */
 class GameMasterSubsystemService {
 
+  protected const ENVELOPE_CONTRACT_VERSION = 'gm_subsystem_route_v1';
+  protected const WORKFLOW_AUTHORITATIVE_ROOM_ACTION = 'authoritative_room_action';
+  protected const WORKFLOW_AUTHORITATIVE_ROOM_CHAT = 'authoritative_room_chat';
+  protected const ROUTE_DETERMINISTIC_TURN_CONTROL = 'deterministic_turn_control';
+  protected const ROUTE_FREE_PLAYER_ROOM_CHAT = 'free_player_room_chat';
+  protected const ROUTE_FAMILY_DETERMINISTIC_ACTION = 'deterministic_action';
+  protected const ROUTE_FAMILY_GM_BACKSTOP_CHAT = 'gm_backstop_chat';
+  protected const HANDOFF_REASON_DETERMINISTIC_TURN_CONTROL_PHRASE = 'deterministic_turn_control_phrase';
+  protected const HANDOFF_REASON_NO_TURN_CONTROL_MATCH = 'no_deterministic_turn_control_match';
+
   protected GameCoordinatorService $coordinator;
   protected RoomChatService $roomChatService;
 
@@ -53,7 +63,6 @@ class GameMasterSubsystemService {
       $actor_id,
       $character_id,
       $message,
-      $defer_npc_interjections,
       $suppress_gm,
       $speaker
     );
@@ -163,35 +172,34 @@ class GameMasterSubsystemService {
     string $actor_id,
     ?int $character_id,
     string $message,
-    bool $defer_npc_interjections,
     bool $suppress_gm,
     string $speaker
   ): array {
     $deterministic_intent = $this->buildDeterministicTurnControlIntent($campaign_id, $actor_id, $character_id, $message);
     if ($deterministic_intent !== NULL) {
-      return [
-        'workflow' => 'authoritative_room_action',
-        'route' => 'deterministic_turn_control',
-        'route_family' => 'deterministic_action',
-        'deterministic' => TRUE,
-        'handoff_reason' => 'deterministic_turn_control_phrase',
-        'requested_room_id' => $requested_room_id,
-        'actor_id' => $actor_id,
-        'character_id' => $character_id,
-        'intent' => $deterministic_intent,
-      ];
+      return $this->buildRouteEnvelope(
+        self::WORKFLOW_AUTHORITATIVE_ROOM_ACTION,
+        self::ROUTE_DETERMINISTIC_TURN_CONTROL,
+        self::ROUTE_FAMILY_DETERMINISTIC_ACTION,
+        TRUE,
+        self::HANDOFF_REASON_DETERMINISTIC_TURN_CONTROL_PHRASE,
+        $requested_room_id,
+        $actor_id,
+        $character_id,
+        $deterministic_intent
+      );
     }
 
-    return [
-      'workflow' => 'authoritative_room_chat',
-      'route' => 'free_player_room_chat',
-      'route_family' => 'gm_backstop_chat',
-      'deterministic' => FALSE,
-      'handoff_reason' => 'no_deterministic_turn_control_match',
-      'requested_room_id' => $requested_room_id,
-      'actor_id' => $actor_id,
-      'character_id' => $character_id,
-      'intent' => [
+    return $this->buildRouteEnvelope(
+      self::WORKFLOW_AUTHORITATIVE_ROOM_CHAT,
+      self::ROUTE_FREE_PLAYER_ROOM_CHAT,
+      self::ROUTE_FAMILY_GM_BACKSTOP_CHAT,
+      FALSE,
+      self::HANDOFF_REASON_NO_TURN_CONTROL_MATCH,
+      $requested_room_id,
+      $actor_id,
+      $character_id,
+      [
         'type' => 'room_chat',
         'actor' => $actor_id,
         'target' => NULL,
@@ -202,8 +210,8 @@ class GameMasterSubsystemService {
           'defer_npc_interjections' => TRUE,
           'suppress_gm' => $suppress_gm,
         ],
-      ],
-    ];
+      ]
+    );
   }
 
   /**
@@ -211,9 +219,10 @@ class GameMasterSubsystemService {
    */
   protected function buildResponseEnvelope(array $route, string $resolved_room_id): array {
     return [
-      'workflow' => (string) ($route['workflow'] ?? 'authoritative_room_chat'),
-      'route' => (string) ($route['route'] ?? 'free_player_room_chat'),
-      'route_family' => (string) ($route['route_family'] ?? 'gm_backstop_chat'),
+      'contract_version' => self::ENVELOPE_CONTRACT_VERSION,
+      'workflow' => (string) ($route['workflow'] ?? self::WORKFLOW_AUTHORITATIVE_ROOM_CHAT),
+      'route' => (string) ($route['route'] ?? self::ROUTE_FREE_PLAYER_ROOM_CHAT),
+      'route_family' => (string) ($route['route_family'] ?? self::ROUTE_FAMILY_GM_BACKSTOP_CHAT),
       'deterministic' => !empty($route['deterministic']),
       'handoff_reason' => (string) ($route['handoff_reason'] ?? 'unspecified'),
       'resolved_room_id' => $resolved_room_id,
@@ -221,6 +230,33 @@ class GameMasterSubsystemService {
       'actor_id' => (string) ($route['actor_id'] ?? ''),
       'character_id' => isset($route['character_id']) ? (int) $route['character_id'] : NULL,
       'intent' => $this->normalizeIntentEnvelope(is_array($route['intent'] ?? NULL) ? $route['intent'] : []),
+    ];
+  }
+
+  /**
+   * Build the internal route envelope shape before response normalization.
+   */
+  protected function buildRouteEnvelope(
+    string $workflow,
+    string $route,
+    string $route_family,
+    bool $deterministic,
+    string $handoff_reason,
+    string $requested_room_id,
+    string $actor_id,
+    ?int $character_id,
+    array $intent
+  ): array {
+    return [
+      'workflow' => $workflow,
+      'route' => $route,
+      'route_family' => $route_family,
+      'deterministic' => $deterministic,
+      'handoff_reason' => $handoff_reason,
+      'requested_room_id' => $requested_room_id,
+      'actor_id' => $actor_id,
+      'character_id' => $character_id,
+      'intent' => $intent,
     ];
   }
 
