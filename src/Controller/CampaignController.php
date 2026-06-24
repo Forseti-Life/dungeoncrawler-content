@@ -564,6 +564,7 @@ class CampaignController extends ControllerBase {
     $quest_rows = $this->database->select('dc_campaign_quests', 'q')
       ->fields('q', ['status', 'location_id', 'generated_objectives'])
       ->condition('campaign_id', $campaign_id)
+      ->condition('status', ['offered', 'active', 'ready_for_turn_in'], 'IN')
       ->execute()
       ->fetchAll();
 
@@ -905,6 +906,9 @@ class CampaignController extends ControllerBase {
             if (!is_array($objective)) {
               continue;
             }
+            if (!empty($objective['completed'])) {
+              continue;
+            }
             $tokens = $this->extractQuestObjectiveLocationTokens($objective);
             if ($tokens === []) {
               continue;
@@ -940,12 +944,23 @@ class CampaignController extends ControllerBase {
           $resolved_room_id = (string) $room_name_lookup[$token];
         }
         if ($resolved_room_id === '' || !isset($room_lookup[$resolved_room_id])) {
-          continue;
+          // Keep unresolved quest locations visible in navigation so players can
+          // still choose them and trigger generation of the destination.
+          $resolved_room_id = $raw_token;
+          $room_meta = [
+            'name' => $raw_token,
+            'description' => 'Quest destination pending generation.',
+          ];
         }
-        $room_meta = $room_lookup[$resolved_room_id];
+        else {
+          $room_meta = $room_lookup[$resolved_room_id];
+        }
         $tags = ['mentioned'];
         if (!empty($candidate['discovered'])) {
           $tags[] = 'discovered';
+        }
+        if (!isset($room_lookup[$resolved_room_id])) {
+          $tags[] = 'unresolved_quest_location';
         }
         $signals[] = [
           'room_id' => $resolved_room_id,
