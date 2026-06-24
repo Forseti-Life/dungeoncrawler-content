@@ -188,6 +188,8 @@ class QuestTrackerService {
         ->condition('quest_id', $quest_id)
         ->execute();
 
+      $this->materializeCollectQuestItemsForActivePhase($campaign_id, $quest);
+
       // Log event
       $this->logQuestEvent(
         $campaign_id,
@@ -214,6 +216,175 @@ class QuestTrackerService {
       $this->logger->error('Failed to start quest: @error', ['@error' => $e->getMessage()]);
       return FALSE;
     }
+  }
+
+  /**
+   * Ensure active-phase collect objectives have room item instances to collect.
+   */
+  protected function materializeCollectQuestItemsForActivePhase(int $campaign_id, array $quest): void {
+    if (
+      $campaign_id <= 0
+      || !$this->database->schema()->tableExists('dc_campaign_item_instances')
+    ) {
+      return;
+    }
+
+    $objective_states = json_decode((string) ($quest['generated_objectives'] ?? '[]'), TRUE);
+    if (!is_array($objective_states) || $objective_states === []) {
+      return;
+    }
+
+    $quest_id = trim((string) ($quest['quest_id'] ?? ''));
+    if ($quest_id === '') {
+      return;
+    }
+    $quest_source = trim((string) ($quest['source_template_id'] ?? $quest_id));
+    if ($quest_source === '') {
+      $quest_source = $quest_id;
+    }
+    $fallback_room_id = trim((string) ($quest['location_id'] ?? ''));
+    $now = $this->time->getRequestTime();
+    $collect_objectives = $this->collectQuestCollectObjectivesForPhase($objective_states, 1);
+
+    foreach ($collect_objectives as $objective) {
+      if (!is_array($objective)) {
+        continue;
+      }
+      $objective_id = trim((string) ($objective['objective_id'] ?? ''));
+      if ($objective_id === '') {
+        continue;
+      }
+      $room_id = trim((string) ($objective['location_id'] ?? $objective['location'] ?? $fallback_room_id));
+      if ($room_id === '') {
+        continue;
+      }
+
+      $target_count = max(1, (int) ($objective['target_count'] ?? $objective['completion_criteria']['target_count'] ?? 1));
+      $existing = $this->countRoomQuestCollectiblesForObjective($campaign_id, $room_id, $quest_source, $objective_id);
+      if ($existing >= $target_count) {
+        continue;
+      }
+
+      $item_name = trim((string) ($objective['item'] ?? 'Quest Item'));
+      if ($item_name === '') {
+        $item_name = 'Quest Item';
+      }
+      $item_id = $this->buildQuestCollectibleItemId($quest_source, $objective_id, $item_name);
+
+      for ($slot = $existing + 1; $slot <= $target_count; $slot++) {
+        $item_instance_id = sprintf(
+          'quest_item_%d_%s_%02d',
+          $campaign_id,
+          substr(hash('sha256', $quest_source . '|' . $objective_id), 0, 16),
+          $slot
+        );
+        $item_state = [
+          'id' => $item_id,
+          'content_id' => $item_id,
+          'name' => $item_name,
+          'type' => 'quest_collectible_item',
+          'description' => sprintf('Collectible for %s.', (string) ($quest['quest_name'] ?? $quest_id)),
+          'quest_association' => $quest_source,
+          'objective_id' => $objective_id,
+          'tags' => ['collectible', 'quest_item'],
+          '_spawn' => [
+            'source' => 'quest_start',
+            'quest_id' => $quest_id,
+            'quest_source' => $quest_source,
+            'objective_id' => $objective_id,
+            'room_id' => $room_id,
+          ],
+        ];
+
+        $this->database->merge('dc_campaign_item_instances')
+          ->keys([
+            'campaign_id' => $campaign_id,
+            'item_instance_id' => $item_instance_id,
+          ])
+          ->fields([
+            'item_id' => $item_id,
+            'location_type' => 'room',
+            'location_ref' => $room_id,
+            'quantity' => 1,
+            'state_data' => json_encode($item_state, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            'updated' => $now,
+          ])
+          ->expression('created', 'COALESCE(created, :created)', [':created' => $now])
+          ->execute();
+      }
+    }
+  }
+
+  /**
+   * Return collect objectives for one quest phase, including nested nodes.
+   */
+  protected function collectQuestCollectObjectivesForPhase(array $objective_states, int $phase_number): array {
+    foreach ($objective_states as $phase) {
+      if (!is_array($phase) || (int) ($phase['phase'] ?? 1) !== $phase_number) {
+        continue;
+      }
+      return $this->collectQuestCollectObjectiveNodes((array) ($phase['objectives'] ?? []));
+    }
+    return [];
+  }
+
+  /**
+   * Recursively collect "collect" objective nodes from a tree.
+   */
+  protected function collectQuestCollectObjectiveNodes(array $objectives): array {
+    $result = [];
+    foreach ($objectives as $objective) {
+      if (!is_array($objective)) {
+        continue;
+      }
+      if (strtolower((string) ($objective['type'] ?? '')) === 'collect') {
+        $result[] = $objective;
+      }
+      foreach (['objectives', 'children', 'sub_objectives'] as $children_key) {
+        if (!is_array($objective[$children_key] ?? NULL)) {
+          continue;
+        }
+        $result = array_merge($result, $this->collectQuestCollectObjectiveNodes($objective[$children_key]));
+      }
+    }
+    return $result;
+  }
+
+  /**
+   * Count room collectibles already present for one quest objective.
+   */
+  protected function countRoomQuestCollectiblesForObjective(int $campaign_id, string $room_id, string $quest_source, string $objective_id): int {
+    $rows = $this->database->select('dc_campaign_item_instances', 'i')
+      ->fields('i', ['state_data', 'quantity'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('location_type', 'room')
+      ->condition('location_ref', $room_id)
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+
+    $count = 0;
+    foreach ($rows as $row) {
+      $state = json_decode((string) ($row['state_data'] ?? '{}'), TRUE);
+      $state = is_array($state) ? $state : [];
+      $association = trim((string) ($state['quest_association'] ?? $state['_spawn']['quest_source'] ?? ''));
+      $state_objective_id = trim((string) ($state['objective_id'] ?? $state['_spawn']['objective_id'] ?? ''));
+      if ($association === $quest_source && $state_objective_id === $objective_id) {
+        $count += max(1, (int) ($row['quantity'] ?? 1));
+      }
+    }
+    return $count;
+  }
+
+  /**
+   * Build a stable item id for generated collect quest items.
+   */
+  protected function buildQuestCollectibleItemId(string $quest_source, string $objective_id, string $item_name): string {
+    $slug = strtolower(trim(preg_replace('/[^a-z0-9]+/i', '_', $item_name) ?? ''));
+    $slug = trim($slug, '_');
+    if ($slug === '') {
+      $slug = 'quest_item';
+    }
+    return sprintf('quest_collect_%s_%s_%s', substr(hash('sha256', $quest_source), 0, 8), substr(hash('sha256', $objective_id), 0, 8), $slug);
   }
 
   /**
