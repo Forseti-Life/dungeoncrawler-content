@@ -338,6 +338,7 @@ export class GameShell {
     this._initApiHandlers();
     this._syncInitialActiveTabState();
     this._initGameCoordinator();
+    void this._triggerPendingRoomGeneration();
   }
 
   _syncInitialActiveTabState() {
@@ -462,10 +463,69 @@ export class GameShell {
   }
 
   /**
-   * Wire up API-driven handlers: tab-change triggers, chat submit, initial loads.
-   * Called once after initial bus events are emitted.
+   * If the dungeon payload signals an ungenerated room, auto-trigger location
+   * generation so the player lands in the correct room after dungeon-switching
+   * to a quest destination that hasn't been created yet.
    * @private
    */
+  async _triggerPendingRoomGeneration() {
+    const pending = this.dungeonData?.pending_room_generation;
+    if (!pending || typeof pending !== 'object') {
+      return;
+    }
+    const campaignId = Number(this.launchContext?.campaign_id || 0);
+    const characterId = Number(this.launchContext?.character_id || 0);
+    const roomId = String(pending.room_id || '').trim();
+    const originRoomId = String(pending.origin_room_id || '').trim();
+    if (!campaignId || !roomId) {
+      return;
+    }
+
+    console.log('[GameShell] Auto-generating quest destination room:', roomId);
+    this.bus?.emit('chat:system-message', {
+      speaker: 'System',
+      kind: 'info',
+      text: `Generating quest destination: ${roomId}...`,
+    });
+
+    try {
+      const response = await fetch(`/api/campaign/${campaignId}/gm/locations/request`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          destination: roomId,
+          origin_room_id: originRoomId || roomId,
+          character_id: characterId || undefined,
+        }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (result?.success && result?.data?.navigation?.target_room_id) {
+        const nav = result.data.navigation;
+        console.log('[GameShell] Quest destination generated:', nav.target_room_id);
+        // Apply the navigation result to update dungeon data and transition
+        if (typeof this.applyNavigationResult === 'function') {
+          this.applyNavigationResult(nav);
+        } else {
+          this.bus?.emit('navigation:apply-result', { navigation: nav });
+        }
+      } else {
+        console.warn('[GameShell] Quest destination generation failed:', result?.error || 'unknown');
+        this.bus?.emit('chat:system-message', {
+          speaker: 'System',
+          kind: 'error',
+          text: `Could not generate destination: ${result?.error || 'Room generation failed'}`,
+        });
+      }
+    } catch (err) {
+      console.warn('[GameShell] Quest destination generation error:', err?.message || err);
+    }
+  }
+
+
   _initApiHandlers() {
     // Tab change → trigger appropriate API load
     this._tabChangedHandler = (e) => this._onTabChanged(e.detail?.tabId ?? '');

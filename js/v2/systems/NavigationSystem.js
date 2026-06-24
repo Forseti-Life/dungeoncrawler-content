@@ -61,12 +61,9 @@ export class NavigationSystem {
       const visualRooms = typeof hexmap.getVisualRooms === 'function' ? hexmap.getVisualRooms() : {};
       const roomExistsInCurrentDungeon = Boolean(visualRooms[roomId]);
       if (!roomExistsInCurrentDungeon) {
-        // For ungenerated quest destinations, omit map_id so the server can
-        // find or generate the appropriate dungeon for that room.
+        // For quest/ungenerated rooms not in the current dungeon, do NOT pass
+        // mapId — let the server find or generate the appropriate dungeon.
         const dungeonSwitch = { room_id: roomId, target_room_id: roomId };
-        if (mapId) {
-          dungeonSwitch.map_id = mapId;
-        }
         if (dungeonLevelId) {
           dungeonSwitch.dungeon_level_id = dungeonLevelId;
         }

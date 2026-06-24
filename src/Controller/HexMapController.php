@@ -817,7 +817,7 @@ class HexMapController extends ControllerBase {
 
     if ($campaign_id > 0) {
       $query = $this->database->select('dc_campaign_dungeons', 'd')
-        ->fields('d', ['dungeon_data'])
+        ->fields('d', ['dungeon_id', 'dungeon_data'])
         ->condition('campaign_id', $campaign_id);
 
       // If caller supplied a map_id use it as dungeon_id selector when present.
@@ -832,6 +832,17 @@ class HexMapController extends ControllerBase {
         $decoded = json_decode($raw, TRUE);
         if (is_array($decoded)) {
           $normalized = $this->normalizeDungeonPayload($decoded, $launch_context);
+
+          // If the requested room is missing from the loaded dungeon, search
+          // all other campaign dungeons for it before falling through.
+          $requested_room = trim((string) ($launch_context['room_id'] ?? ''));
+          if ($requested_room !== '' && !isset($normalized['rooms'][$requested_room])) {
+            $fallback = $this->findDungeonContainingRoom($campaign_id, $requested_room, (string) ($launch_context['map_id'] ?? ''));
+            if ($fallback !== NULL) {
+              $normalized = $this->normalizeDungeonPayload($fallback, $launch_context);
+            }
+          }
+
           $this->getLogger('dungeoncrawler_hexmap')->notice('Hexmap loadDungeonPayload exit: campaign_id=@campaign_id result=loaded active_room_id=@active_room_id room_count=@room_count entity_count=@entity_count', [
             '@campaign_id' => (int) $campaign_id,
             '@active_room_id' => (string) ($normalized['active_room_id'] ?? ''),
@@ -851,6 +862,46 @@ class HexMapController extends ControllerBase {
       '@campaign_id' => (int) $campaign_id,
     ]);
     return [];
+  }
+
+  /**
+   * Search all campaign dungeons for one that contains the given room_id.
+   *
+   * Used when a requested room is absent from the primary-loaded dungeon (e.g.
+   * a quest destination in a different dungeon than the current map_id).
+   *
+   * @param int $campaign_id
+   * @param string $room_id
+   * @param string $exclude_dungeon_id
+   *   Dungeon already checked — skip it to avoid redundant work.
+   *
+   * @return array|null
+   *   Decoded dungeon_data array if found, NULL otherwise.
+   */
+  protected function findDungeonContainingRoom(int $campaign_id, string $room_id, string $exclude_dungeon_id = ''): ?array {
+    $rows = $this->database->select('dc_campaign_dungeons', 'd')
+      ->fields('d', ['dungeon_id', 'dungeon_data'])
+      ->condition('campaign_id', $campaign_id)
+      ->orderBy('updated', 'DESC')
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC);
+
+    foreach ($rows as $row) {
+      if ($exclude_dungeon_id !== '' && (string) ($row['dungeon_id'] ?? '') === $exclude_dungeon_id) {
+        continue;
+      }
+      $decoded = json_decode((string) ($row['dungeon_data'] ?? '{}'), TRUE);
+      if (!is_array($decoded)) {
+        continue;
+      }
+      foreach ((array) ($decoded['rooms'] ?? []) as $room) {
+        if (is_array($room) && (string) ($room['room_id'] ?? '') === $room_id) {
+          return $decoded;
+        }
+      }
+    }
+
+    return NULL;
   }
 
   /**
@@ -2592,6 +2643,17 @@ class HexMapController extends ControllerBase {
       'entities' => array_values($entities),
       'object_definitions' => $object_definitions,
     ];
+
+    // If the requested room wasn't found in any dungeon, signal the client
+    // to auto-generate it. The active_room_id stays as the fallback room.
+    $requested_room = trim((string) ($launch_context['room_id'] ?? ''));
+    if ($requested_room !== '' && !isset($rooms[$requested_room])) {
+      $normalized_payload['pending_room_generation'] = [
+        'room_id' => $requested_room,
+        'destination' => $requested_room,
+        'origin_room_id' => $active_room_id,
+      ];
+    }
 
     return $this->ensurePayloadObjectOrientations($normalized_payload);
   }
