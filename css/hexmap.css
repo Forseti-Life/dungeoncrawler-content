@@ -1914,13 +1914,14 @@
 
 .chat-line--message-class-quest-objective-completion,
 .chat-line--message-class-quest-completion {
-  color: #f6e05e;
+  color: #FFD700;
   font-weight: 700;
+  font-size: 1.7em;
 }
 
 .chat-line--message-class-quest-objective-completion .chat-line__speaker,
 .chat-line--message-class-quest-completion .chat-line__speaker {
-  color: #fbd38d;
+  color: #FFD700;
 }
 
 .hexmap-chat__input {
