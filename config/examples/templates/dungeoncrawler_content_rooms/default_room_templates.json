@@ -1185,13 +1185,92 @@
               "q": 3,
               "r": 0
             },
-            "description": "A woman with ink-stained fingers, carefully studying an ancient text",
+            "orientation": "w",
+            "description": "An exacting arcane scholar cataloging dangerous lore before it can harm the district.",
             "role": "quest_giver",
+            "class": "wizard",
+            "ancestry": "human",
+            "level": 3,
+            "alignment": "LN",
+            "attitude": "curious",
+            "backstory": "Marta apprenticed in a major university archive before leaving over ethical disputes about forbidden research. She now studies in the tavern where she can hire capable escorts and keep her findings practical.",
+            "motivations": "Preserve knowledge, prevent magical misuse, and prove disciplined scholarship can save lives.",
+            "personality_traits": [
+              "precise",
+              "methodical",
+              "dryly compassionate",
+              "obsessive note-taker"
+            ],
+            "fears": "An unstable artifact triggering a catastrophe because she missed a detail.",
+            "bonds": "Protective of apprentices and deeply loyal to fellow researchers who respect safety protocols.",
+            "goals": [
+              "Recover and classify missing spellbooks tied to local anomalies.",
+              "Decode the crystal-bound codex without activating its wards.",
+              "Build a trusted field network for safe artifact retrieval."
+            ],
+            "stats": {
+              "ac": 15,
+              "perception": 9,
+              "fortitude": 7,
+              "reflex": 8,
+              "will": 11,
+              "currentHp": 24,
+              "maxHp": 24
+            },
+            "abilities": {
+              "strength": 10,
+              "dexterity": 14,
+              "constitution": 12,
+              "intelligence": 18,
+              "wisdom": 16,
+              "charisma": 11
+            },
+            "skills": [
+              "Arcana +12",
+              "Occultism +11",
+              "Society +9",
+              "Crafting +8",
+              "Diplomacy +7"
+            ],
+            "attacks": [
+              "Quarterstaff +7 (1d6 bludgeoning)",
+              "Arcane Bolt +10 (force)"
+            ],
+            "equipment": [
+              "Crystal-Bound Codex",
+              "Spell Satchel",
+              "Wand of Detect Magic",
+              "Ink and Field Journals",
+              "Runed Chalk",
+              "Quarterstaff"
+            ],
+            "languages": [
+              "Common",
+              "Draconic",
+              "Elven"
+            ],
+            "senses": [
+              "Arcane Sight (trained)"
+            ],
+            "psychology": {
+              "inner_conflict": "She values caution, but urgency to prevent disaster pushes her into risky expeditions.",
+              "coping_mechanism": "Builds strict checklists and annotated diagrams before taking action.",
+              "stress_response": "Speaks rapidly, narrows focus, and over-controls every variable.",
+              "insecurity": "Worries her talent is narrower than peers who improvise more easily.",
+              "secret": "She still carries a restricted index from her old archive, technically stolen to keep it out of worse hands.",
+              "desire": "Turn dangerous fragments of lore into usable public safeguards.",
+              "need": "Accept help sooner instead of trying to out-think every threat alone."
+            },
             "quests": [
               {
                 "quest_id": "collect_spellbooks",
-                "title": "Recover Marta's Journal",
-                "description": "Marta needs her journal recovered from somewhere in the tavern"
+                "title": "Recover Lost Spellbooks",
+                "description": "Marta seeks lost spellbooks scattered around the tavern"
+              },
+              {
+                "quest_id": "stabilize_arcane_resonance",
+                "title": "Stabilize Arcane Resonance",
+                "description": "Help Marta collect resonance samples and stabilize the codex's ambient magical feedback."
               }
             ]
           },
@@ -1204,8 +1283,95 @@
               "q": 1,
               "r": 0
             },
-            "description": "A wiry goblin informant lounging with a tankard and listening to every conversation",
-            "role": "quest_giver"
+            "orientation": "ne",
+            "description": "A sharp-eyed goblin rogue who trades rumors, routes, and leverage for the right price.",
+            "role": "quest_giver",
+            "class": "rogue",
+            "ancestry": "goblin",
+            "level": 3,
+            "alignment": "CN",
+            "attitude": "wary",
+            "backstory": "Gribbles grew up running messages through gang territory and learned to survive by hearing everything before everyone else. He now serves as an information broker out of the tavern, staying useful to every side and owned by none.",
+            "motivations": "Stay alive, stay informed, and make sure dangerous players expose themselves before they can strike first.",
+            "personality_traits": [
+              "streetwise",
+              "sarcastic",
+              "hyper-observant",
+              "transactional but loyal once earned"
+            ],
+            "fears": "Being cornered without an exit route or bargaining chip.",
+            "bonds": "Keeps a quiet watch over Marta and honors old debts to the dockside courier network.",
+            "goals": [
+              "Map active faction routes near the tavern.",
+              "Identify who is buying stolen spellwork.",
+              "Secure a safe channel for adventurers willing to work clean."
+            ],
+            "stats": {
+              "ac": 18,
+              "perception": 11,
+              "fortitude": 8,
+              "reflex": 12,
+              "will": 8,
+              "currentHp": 30,
+              "maxHp": 30
+            },
+            "abilities": {
+              "strength": 12,
+              "dexterity": 18,
+              "constitution": 14,
+              "intelligence": 14,
+              "wisdom": 13,
+              "charisma": 15
+            },
+            "skills": [
+              "Stealth +12",
+              "Thievery +12",
+              "Deception +10",
+              "Society +9",
+              "Perception +11"
+            ],
+            "attacks": [
+              "Dagger +11 (1d4+4 piercing, agile, finesse)",
+              "Sling +10 (1d6 bludgeoning)",
+              "Sneak Strike +11 (precision)"
+            ],
+            "equipment": [
+              "Twin Daggers",
+              "Loaded Sling",
+              "Lockpick Roll",
+              "Concealed Ledger",
+              "Signal Chalk",
+              "Smoke Vial"
+            ],
+            "languages": [
+              "Common",
+              "Goblin",
+              "Undercommon"
+            ],
+            "senses": [
+              "Low-light Vision"
+            ],
+            "psychology": {
+              "inner_conflict": "He wants real allies, but distrust keeps him operating at arm's length.",
+              "coping_mechanism": "Turns fear into contingency planning and layered escape routes.",
+              "stress_response": "Jokes harder, talks faster, and relocates before anyone notices.",
+              "insecurity": "Believes people only value him when he has new information.",
+              "secret": "He once sold a lead that indirectly got an innocent courier killed.",
+              "desire": "Become indispensable to people who actually protect their own.",
+              "need": "Let loyalty be mutual instead of purely transactional."
+            },
+            "quests": [
+              {
+                "quest_id": "follow_the_whispers",
+                "title": "Follow the Whispers",
+                "description": "Track suspicious tavern rumors to identify who is moving contraband arcana through town."
+              },
+              {
+                "quest_id": "recover_blackmail_ledger",
+                "title": "Recover Blackmail Ledger",
+                "description": "Retrieve Gribbles' stolen ledger before rival brokers weaponize its secrets."
+              }
+            ]
           }
         ],
         "items": [
