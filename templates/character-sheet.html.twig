@@ -350,6 +350,22 @@
     </div>
   {% endif %}
 
+  {% if class_data.class_features is defined and class_data.class_features|length > 0 %}
+    <div class="dc-sheet__section">
+      <h2 class="dc-sheet__section-title">Class Features</h2>
+      {% for feature in class_data.class_features %}
+        <div class="dc-sheet__detail">
+          {% if feature.name is defined %}
+            <strong>{{ feature.name }}</strong>
+            {% if feature.description is defined and feature.description %}<span> — {{ feature.description }}</span>{% endif %}
+          {% else %}
+            {{ feature }}
+          {% endif %}
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
   {# Equipment & Gold #}
   <div class="dc-sheet__section">
     <h2 class="dc-sheet__section-title">Equipment & Wealth</h2>
@@ -618,6 +634,14 @@
         <div class="dc-sheet__detail"><strong>Deity:</strong> {{ personality.deity }}</div>
       {% endif %}
 
+      {% if personality.attitude %}
+        <div class="dc-sheet__detail"><strong>Attitude:</strong> {{ personality.attitude|replace({'_':' '})|capitalize }}</div>
+      {% endif %}
+
+      {% if personality.motivations %}
+        <div class="dc-sheet__detail"><strong>Motivations:</strong> {{ personality.motivations }}</div>
+      {% endif %}
+
       {% if personality.traits|length > 0 %}
         <h3 class="dc-sheet__subsection-title">Traits</h3>
         <ul class="dc-sheet__trait-list">
@@ -645,6 +669,78 @@
             <li><em>"{{ phrase }}"</em></li>
           {% endfor %}
         </ul>
+      {% endif %}
+    </div>
+  {% endif %}
+
+  {% set has_outgoing_relationships = relationships is defined and relationships.outgoing is defined and relationships.outgoing|length > 0 %}
+  {% set has_incoming_relationships = relationships is defined and relationships.incoming is defined and relationships.incoming|length > 0 %}
+  {% if has_outgoing_relationships or has_incoming_relationships %}
+    <div class="dc-sheet__section">
+      <h2 class="dc-sheet__section-title">Relationships</h2>
+      {% if has_outgoing_relationships %}
+        <h3 class="dc-sheet__subsection-title">Outgoing</h3>
+        {% for rel in relationships.outgoing %}
+          <div class="dc-sheet__detail">
+            <strong>{{ rel.relationship_type|replace({'_':' '})|capitalize }}</strong>
+            → {{ rel.target_type|replace({'_':' '})|capitalize }}: {{ rel.target_id }}
+            {% if rel.attitude %}<span class="dc-sheet__tag">{{ rel.attitude|replace({'_':' '}) }}</span>{% endif %}
+            {% if rel.status %}<span class="dc-sheet__tag">{{ rel.status|replace({'_':' '}) }}</span>{% endif %}
+            {% if rel.relationship_state is iterable and rel.relationship_state.contact_display_name is defined and rel.relationship_state.contact_display_name %}
+              <div class="dc-sheet__detail">Display: {{ rel.relationship_state.contact_display_name }}</div>
+            {% endif %}
+            {% if rel.relationship_state is iterable and rel.relationship_state.notes is defined and rel.relationship_state.notes %}
+              <div class="dc-sheet__detail">{{ rel.relationship_state.notes }}</div>
+            {% endif %}
+          </div>
+        {% endfor %}
+      {% endif %}
+
+      {% if has_incoming_relationships %}
+        <h3 class="dc-sheet__subsection-title">Incoming</h3>
+        {% for rel in relationships.incoming %}
+          <div class="dc-sheet__detail">
+            <strong>{{ rel.relationship_type|replace({'_':' '})|capitalize }}</strong>
+            ← {{ rel.source_type|replace({'_':' '})|capitalize }}: {{ rel.source_id }}
+            {% if rel.attitude %}<span class="dc-sheet__tag">{{ rel.attitude|replace({'_':' '}) }}</span>{% endif %}
+            {% if rel.status %}<span class="dc-sheet__tag">{{ rel.status|replace({'_':' '}) }}</span>{% endif %}
+            {% if rel.relationship_state is iterable and rel.relationship_state.contact_display_name is defined and rel.relationship_state.contact_display_name %}
+              <div class="dc-sheet__detail">Display: {{ rel.relationship_state.contact_display_name }}</div>
+            {% endif %}
+            {% if rel.relationship_state is iterable and rel.relationship_state.notes is defined and rel.relationship_state.notes %}
+              <div class="dc-sheet__detail">{{ rel.relationship_state.notes }}</div>
+            {% endif %}
+          </div>
+        {% endfor %}
+      {% endif %}
+    </div>
+  {% endif %}
+
+  {% if actor_identity is defined %}
+    <div class="dc-sheet__section">
+      <h2 class="dc-sheet__section-title">Actor Identity</h2>
+      <div class="dc-sheet__detail"><strong>Type:</strong> {{ actor_identity.type }}</div>
+      {% if actor_identity.role %}<div class="dc-sheet__detail"><strong>Role:</strong> {{ actor_identity.role }}</div>{% endif %}
+      {% if actor_identity.lifecycle_state %}<div class="dc-sheet__detail"><strong>Lifecycle:</strong> {{ actor_identity.lifecycle_state }}</div>{% endif %}
+      {% if actor_identity.instance_id %}<div class="dc-sheet__detail"><strong>Instance ID:</strong> {{ actor_identity.instance_id }}</div>{% endif %}
+      {% if actor_identity.source_character_id %}<div class="dc-sheet__detail"><strong>Source Character ID:</strong> {{ actor_identity.source_character_id }}</div>{% endif %}
+    </div>
+  {% endif %}
+
+  {% if actor_state is defined %}
+    <div class="dc-sheet__section">
+      <h2 class="dc-sheet__section-title">Actor State Summary</h2>
+      {% if actor_state.descriptors is defined and actor_state.descriptors is iterable and actor_state.descriptors|length > 0 %}
+        <div class="dc-sheet__detail"><strong>Descriptors:</strong> {{ actor_state.descriptors|keys|join(', ') }}</div>
+      {% endif %}
+      {% if actor_state.resources is defined and actor_state.resources is iterable and actor_state.resources|length > 0 %}
+        <div class="dc-sheet__detail"><strong>Resources:</strong> {{ actor_state.resources|keys|join(', ') }}</div>
+      {% endif %}
+      {% if actor_state.defenses is defined and actor_state.defenses is iterable and actor_state.defenses|length > 0 %}
+        <div class="dc-sheet__detail"><strong>Defenses:</strong> {{ actor_state.defenses|keys|join(', ') }}</div>
+      {% endif %}
+      {% if actor_state.features is defined and actor_state.features is iterable and actor_state.features|length > 0 %}
+        <div class="dc-sheet__detail"><strong>Features:</strong> {{ actor_state.features|keys|join(', ') }}</div>
       {% endif %}
     </div>
   {% endif %}
@@ -734,6 +830,15 @@
     </h2>
     <div class="dc-sheet__json-raw hidden" id="json-raw">
       <pre class="dc-sheet__json-pre"><code>{{ raw_json }}</code></pre>
+    </div>
+  </div>
+
+  <div class="dc-sheet__section">
+    <h2 class="dc-sheet__section-title dc-sheet__json-toggle" data-dc-toggle="json-state">
+      🧭 Canonical Actor State JSON <span class="dc-sheet__toggle-icon">▸</span>
+    </h2>
+    <div class="dc-sheet__json-raw hidden" id="json-state">
+      <pre class="dc-sheet__json-pre"><code>{{ state_json }}</code></pre>
     </div>
   </div>
 

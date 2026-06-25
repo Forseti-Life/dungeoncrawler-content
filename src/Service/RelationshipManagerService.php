@@ -312,6 +312,31 @@ class RelationshipManagerService {
   }
 
   /**
+   * Lists incoming runtime relationships for one entity.
+   */
+  public function listIncomingEntityRelationships(int $campaign_id, string $target_type, string $target_id): array {
+    if (!$this->isRelationshipStorageReady()) {
+      return [];
+    }
+
+    $rows = $this->database->select('dc_campaign_relationships', 'r')
+      ->fields('r')
+      ->condition('campaign_id', $campaign_id)
+      ->condition('target_type', $target_type)
+      ->condition('target_id', $target_id)
+      ->orderBy('relationship_type', 'ASC')
+      ->orderBy('source_type', 'ASC')
+      ->orderBy('source_id', 'ASC')
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC);
+
+    return array_map(function (array $row): array {
+      $row['relationship_state'] = $this->decodeJsonColumn($row['relationship_state'] ?? NULL);
+      return $row;
+    }, $rows);
+  }
+
+  /**
    * Creates or updates one campaign relationship edge.
    */
   protected function upsertCampaignRelationship(int $campaign_id, array $relationship): int {

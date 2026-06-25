@@ -9,9 +9,12 @@ use Drupal\Core\Url;
 use Drupal\dungeoncrawler_content\Form\CharacterPortraitRegenerateForm;
 use Drupal\dungeoncrawler_content\Form\CharacterPortraitUploadForm;
 use Drupal\dungeoncrawler_content\Service\CharacterManager;
+use Drupal\dungeoncrawler_content\Service\CharacterStateService;
 use Drupal\dungeoncrawler_content\Service\FeatLibraryService;
 use Drupal\dungeoncrawler_content\Service\FeatEffectManager;
 use Drupal\dungeoncrawler_content\Service\GeneratedImageRepository;
+use Drupal\dungeoncrawler_content\Service\NpcPsychologyService;
+use Drupal\dungeoncrawler_content\Service\RelationshipManagerService;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Response;
@@ -24,16 +27,22 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 class CharacterViewController extends ControllerBase {
 
   protected CharacterManager $characterManager;
+  protected CharacterStateService $characterStateService;
   protected FeatEffectManager $featEffectManager;
   protected FeatLibraryService $featLibrary;
+  protected RelationshipManagerService $relationshipManager;
+  protected ?NpcPsychologyService $npcPsychologyService;
   protected GeneratedImageRepository $imageRepository;
   protected Connection $database;
   protected TimeInterface $time;
 
-  public function __construct(CharacterManager $character_manager, FeatEffectManager $feat_effect_manager, FeatLibraryService $feat_library, GeneratedImageRepository $image_repository, Connection $database, TimeInterface $time) {
+  public function __construct(CharacterManager $character_manager, CharacterStateService $character_state_service, FeatEffectManager $feat_effect_manager, FeatLibraryService $feat_library, RelationshipManagerService $relationship_manager, ?NpcPsychologyService $npc_psychology_service, GeneratedImageRepository $image_repository, Connection $database, TimeInterface $time) {
     $this->characterManager = $character_manager;
+    $this->characterStateService = $character_state_service;
     $this->featEffectManager = $feat_effect_manager;
     $this->featLibrary = $feat_library;
+    $this->relationshipManager = $relationship_manager;
+    $this->npcPsychologyService = $npc_psychology_service;
     $this->imageRepository = $image_repository;
     $this->database = $database;
     $this->time = $time;
@@ -42,8 +51,11 @@ class CharacterViewController extends ControllerBase {
   public static function create(ContainerInterface $container) {
     return new static(
       $container->get('dungeoncrawler_content.character_manager'),
+      $container->get('dungeoncrawler_content.character_state_service'),
       $container->get('dungeoncrawler_content.feat_effect_manager'),
       $container->get('dungeoncrawler_content.feat_library'),
+      $container->get('dungeoncrawler_content.relationship_manager'),
+      $container->get('dungeoncrawler_content.npc_psychology_service'),
       $container->get('dungeoncrawler_content.generated_image_repository'),
       $container->get('database'),
       $container->get('datetime.time'),
@@ -62,7 +74,10 @@ class CharacterViewController extends ControllerBase {
       throw new NotFoundHttpException();
     }
 
-    if (!$this->characterManager->isOwner($record) && !$this->currentUser()->hasPermission('administer site configuration')) {
+    $is_admin = $this->currentUser()->hasPermission('administer site configuration');
+    $is_owner = $this->characterManager->isOwner($record);
+    $is_campaign_owner = $campaign_id > 0 ? $this->isCampaignOwner($campaign_id) : FALSE;
+    if (!$is_owner && !$is_admin && !$is_campaign_owner) {
       throw new AccessDeniedHttpException();
     }
 
@@ -72,10 +87,27 @@ class CharacterViewController extends ControllerBase {
     $char_data = $this->characterManager->canonicalizeCharacterData($decoded);
     $hot = $this->characterManager->resolveHotColumnsForRecord($record, $char_data);
 
+    $state = $this->characterStateService->getState(
+      (string) $record->id,
+      $campaign_id > 0 ? $campaign_id : NULL,
+      !empty($record->instance_id) ? (string) $record->instance_id : NULL
+    );
+    $state_basic_info = is_array($state['basicInfo'] ?? NULL) ? $state['basicInfo'] : [];
+    $state_resources = is_array($state['resources'] ?? NULL) ? $state['resources'] : [];
+    $state_defenses = is_array($state['defenses'] ?? NULL) ? $state['defenses'] : [];
+    $state_skills = is_array($state['skills'] ?? NULL) ? $state['skills'] : [];
+    $state_features = is_array($state['features'] ?? NULL) ? $state['features'] : [];
+    $state_traits = is_array($state['traits'] ?? NULL) ? $state['traits'] : [];
+    $state_conditions = is_array($state['conditions'] ?? NULL) ? $state['conditions'] : [];
+    $state_descriptors = is_array($state['descriptors'] ?? NULL) ? $state['descriptors'] : [];
+
     $abilities = $this->buildAbilityDisplayData($char_data);
+    if (is_array($state['abilities'] ?? NULL) && $state['abilities'] !== []) {
+      $abilities = $this->buildAbilityDisplayData(['abilities' => $state['abilities']]);
+    }
 
     // Calculate derived stats
-    $level = $char_data['level'] ?? $record->level ?? 1;
+    $level = $state_basic_info['level'] ?? $char_data['level'] ?? $record->level ?? 1;
     $con_mod = $abilities['constitution']['modifier'];
     
     $ac = (int) ($char_data['armor_class'] ?? $hot['armor_class']);
@@ -84,24 +116,29 @@ class CharacterViewController extends ControllerBase {
     $max_hp = (int) ($hit_points['max'] ?? $hot['hp_max']);
     
     $prof_bonus = $level + 2;
-    $stored_saves = is_array($char_data['saves'] ?? NULL) ? $char_data['saves'] : [];
+    $stored_saves = is_array($state['saves'] ?? NULL)
+      ? $state['saves']
+      : (is_array($char_data['saves'] ?? NULL) ? $char_data['saves'] : []);
+    $fortitude = is_array($stored_saves['fortitude'] ?? NULL) ? $stored_saves['fortitude'] : ['modifier' => (int) ($stored_saves['fortitude'] ?? ($con_mod + $prof_bonus))];
+    $reflex = is_array($stored_saves['reflex'] ?? NULL) ? $stored_saves['reflex'] : ['modifier' => (int) ($stored_saves['reflex'] ?? ($abilities['dexterity']['modifier'] + $prof_bonus))];
+    $will = is_array($stored_saves['will'] ?? NULL) ? $stored_saves['will'] : ['modifier' => (int) ($stored_saves['will'] ?? ($abilities['wisdom']['modifier'] + $prof_bonus))];
     $saves = [
       'Fortitude' => [
-        'modifier' => (int) ($stored_saves['fortitude'] ?? ($con_mod + $prof_bonus)),
-        'proficiency' => 'Trained',
+        'modifier' => (int) ($fortitude['modifier'] ?? ($con_mod + $prof_bonus)),
+        'proficiency' => (string) ($fortitude['proficiency'] ?? 'Trained'),
       ],
       'Reflex' => [
-        'modifier' => (int) ($stored_saves['reflex'] ?? ($abilities['dexterity']['modifier'] + $prof_bonus)),
-        'proficiency' => 'Trained',
+        'modifier' => (int) ($reflex['modifier'] ?? ($abilities['dexterity']['modifier'] + $prof_bonus)),
+        'proficiency' => (string) ($reflex['proficiency'] ?? 'Trained'),
       ],
       'Will' => [
-        'modifier' => (int) ($stored_saves['will'] ?? ($abilities['wisdom']['modifier'] + $prof_bonus)),
-        'proficiency' => 'Trained',
+        'modifier' => (int) ($will['modifier'] ?? ($abilities['wisdom']['modifier'] + $prof_bonus)),
+        'proficiency' => (string) ($will['proficiency'] ?? 'Trained'),
       ],
     ];
 
     $perception = [
-      'modifier' => (int) ($char_data['perception'] ?? ($abilities['wisdom']['modifier'] + $prof_bonus)),
+      'modifier' => (int) ($state['perception'] ?? $char_data['perception'] ?? ($abilities['wisdom']['modifier'] + $prof_bonus)),
       'proficiency' => 'Trained',
       'senses' => [],
     ];
@@ -127,14 +164,7 @@ class CharacterViewController extends ControllerBase {
       'Thievery' => 'dexterity',
     ];
 
-    $skills = [];
-    foreach ($skill_list as $skill_name => $ability_key) {
-      $skills[] = [
-        'name' => $skill_name,
-        'modifier' => $abilities[$ability_key]['modifier'],
-        'proficiency' => 'Untrained',
-      ];
-    }
+    $skills = $this->buildSkillsDisplayData($state_skills, $abilities, $skill_list);
 
     $launch_url = Url::fromRoute('dungeoncrawler_content.hexmap_demo')
       ->setOption('query', ['character_id' => $record->id]);
@@ -262,21 +292,45 @@ class CharacterViewController extends ControllerBase {
       $portrait_url = $record->portrait;
     }
 
-    $alignment = is_array($char_data['personality'] ?? NULL)
-      ? ($char_data['personality']['alignment'] ?? NULL)
-      : ($char_data['alignment'] ?? NULL);
-    $deity = is_array($char_data['personality'] ?? NULL)
-      ? ($char_data['personality']['deity'] ?? NULL)
-      : ($char_data['deity'] ?? NULL);
-    $appearance = is_array($char_data['personality'] ?? NULL)
-      ? ($char_data['personality']['appearance'] ?? NULL)
-      : ($char_data['appearance'] ?? NULL);
-    $personality = is_array($char_data['personality'] ?? NULL)
-      ? ($char_data['personality']['traits'][0] ?? NULL)
-      : ($char_data['personality'] ?? NULL);
-    $backstory = is_array($char_data['personality'] ?? NULL)
-      ? ($char_data['personality']['backstory'] ?? NULL)
-      : ($char_data['backstory'] ?? NULL);
+    $alignment = (string) ($state_basic_info['alignment'] ?? $char_data['alignment'] ?? '');
+    $deity = (string) ($state_basic_info['deity'] ?? $char_data['deity'] ?? '');
+    $appearance = (string) ($state_basic_info['appearance'] ?? $state_descriptors['appearance'] ?? $char_data['appearance'] ?? '');
+    $personality_text = (string) ($state_basic_info['personality'] ?? $state_descriptors['personality'] ?? $char_data['personality'] ?? '');
+    $backstory = (string) ($state_basic_info['backstory'] ?? $char_data['backstory'] ?? '');
+    $attitude = (string) ($state_descriptors['attitude'] ?? '');
+    $motivations = (string) ($state_descriptors['motivations'] ?? '');
+    $goals = $this->normalizePersonalityGoals($state['goals'] ?? ($char_data['goals'] ?? []));
+
+    $type = (string) ($state['type'] ?? $record->type ?? 'pc');
+    $relationship_source_type = $type === 'pc' ? 'campaign_character' : 'campaign_npc';
+    $relationship_source_id = trim((string) ($state['instanceId'] ?? $record->instance_id ?? ''));
+    $relationships_outgoing = [];
+    $relationships_incoming = [];
+    if ($campaign_id > 0 && $relationship_source_id !== '' && $this->relationshipManager->isRelationshipStorageReady()) {
+      $relationships_outgoing = $this->relationshipManager->listEntityRelationships($campaign_id, $relationship_source_type, $relationship_source_id);
+      $relationships_incoming = $this->relationshipManager->listIncomingEntityRelationships($campaign_id, $relationship_source_type, $relationship_source_id);
+    }
+
+    if ($campaign_id > 0 && $type !== 'pc' && $relationship_source_id !== '' && $this->npcPsychologyService) {
+      $profile = $this->npcPsychologyService->loadProfile($campaign_id, $relationship_source_id);
+      if (is_array($profile)) {
+        $attitude = (string) ($profile['attitude'] ?? $attitude);
+        $motivations = (string) ($profile['motivations'] ?? $motivations);
+        $sheet = is_array($profile['character_sheet'] ?? NULL) ? $profile['character_sheet'] : [];
+        if ($appearance === '') {
+          $appearance = (string) ($sheet['appearance'] ?? '');
+        }
+        if ($personality_text === '') {
+          $personality_text = (string) ($sheet['personality'] ?? '');
+        }
+        if ($backstory === '') {
+          $backstory = (string) ($sheet['backstory'] ?? '');
+        }
+        if ($goals === []) {
+          $goals = $this->normalizePersonalityGoals($sheet['goals'] ?? []);
+        }
+      }
+    }
 
     $setup_query = ['character_id' => (int) $record->id];
     if ($campaign_id > 0) {
@@ -285,6 +339,14 @@ class CharacterViewController extends ControllerBase {
 
     $continue_query = $setup_query;
     $continue_query['step'] = max(1, (int) ($char_data['step'] ?? 1));
+
+    $state_attacks = is_array($state['attacks'] ?? NULL) ? $state['attacks'] : [];
+    $melee_attacks = is_array($state_attacks['melee'] ?? NULL)
+      ? $state_attacks['melee']
+      : (is_array($char_data['attacks']['melee'] ?? NULL) ? $char_data['attacks']['melee'] : []);
+    $ranged_attacks = is_array($state_attacks['ranged'] ?? NULL)
+      ? $state_attacks['ranged']
+      : (is_array($char_data['attacks']['ranged'] ?? NULL) ? $char_data['attacks']['ranged'] : []);
 
     $build = [
       '#theme' => 'character_sheet',
@@ -306,7 +368,7 @@ class CharacterViewController extends ControllerBase {
         'size' => $size,
         'speed' => (int) $base_speed,
         'languages' => $languages,
-        'traits' => [],
+        'traits' => $state_traits,
       ],
       '#background' => [
         'name' => !empty($char_data['background']) ? $this->humanizeName((string) $char_data['background']) : 'Unknown',
@@ -316,8 +378,8 @@ class CharacterViewController extends ControllerBase {
         'subclass' => $class_subclass,
         'key_ability' => $class_key_ability,
         'hp_per_level' => $class_hp_per_level,
-        'class_features' => [],
-        'class_feats' => [],
+        'class_features' => is_array($state_features['classFeatures'] ?? NULL) ? $state_features['classFeatures'] : [],
+        'class_feats' => is_array($state_features['feats'] ?? NULL) ? $state_features['feats'] : [],
       ],
       '#abilities' => $abilities,
       '#hp' => [
@@ -329,8 +391,8 @@ class CharacterViewController extends ControllerBase {
       '#saves' => $saves,
       '#perception' => $perception,
       '#skills' => $skills,
-      '#melee_attacks' => [],
-      '#ranged_attacks' => [],
+      '#melee_attacks' => $melee_attacks,
+      '#ranged_attacks' => $ranged_attacks,
       '#equipment' => [
         'gold' => $equipment_gold,
         'items' => $equipment_items,
@@ -338,20 +400,46 @@ class CharacterViewController extends ControllerBase {
       '#followers' => $this->buildFollowerDisplayData($char_data),
       '#feats' => $this->enrichFeatDisplayData($char_data['feats'] ?? []),
       '#spells' => $this->buildSpellsDisplayData($char_data, $feat_effects),
-      '#conditions' => $char_data['conditions'] ?? [],
+      '#conditions' => $state_conditions !== [] ? $state_conditions : ($char_data['conditions'] ?? []),
       '#feat_effects' => $feat_effects,
       '#sheet_effect_summary' => $sheet_effect_summary,
       '#personality' => [
         'alignment' => $alignment,
         'deity' => $deity,
-        'age' => $char_data['age'] ?? NULL,
+        'age' => $state_basic_info['age'] ?? $char_data['age'] ?? NULL,
         'gender' => $char_data['gender'] ?? NULL,
         'appearance' => $appearance,
-        'personality' => $personality,
+        'personality' => $personality_text,
         'backstory' => $backstory,
+        'attitude' => $attitude,
+        'motivations' => $motivations,
+        'goals' => $goals,
+        'traits' => is_array($char_data['personality']['traits'] ?? NULL) ? $char_data['personality']['traits'] : [],
+        'catchphrases' => is_array($char_data['personality']['catchphrases'] ?? NULL) ? $char_data['personality']['catchphrases'] : [],
       ],
-      '#npc_data' => NULL,
+      '#npc_data' => $type === 'pc' ? NULL : (is_array($state['npcDefinition'] ?? NULL) ? $state['npcDefinition'] : NULL),
+      '#relationships' => [
+        'outgoing' => $relationships_outgoing,
+        'incoming' => $relationships_incoming,
+      ],
+      '#actor_identity' => [
+        'type' => $type,
+        'role' => (string) ($record->role ?? ''),
+        'lifecycle_state' => (string) ($record->lifecycle_state ?? ''),
+        'campaign_id' => (int) ($record->campaign_id ?? 0),
+        'source_character_id' => (int) ($record->source_character_id ?? 0),
+        'instance_id' => (string) ($state['instanceId'] ?? $record->instance_id ?? ''),
+      ],
+      '#actor_state' => [
+        'basic_info' => $state_basic_info,
+        'resources' => $state_resources,
+        'defenses' => $state_defenses,
+        'skills' => $state_skills,
+        'features' => $state_features,
+        'descriptors' => $state_descriptors,
+      ],
       '#raw_json' => json_encode($decoded, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE),
+      '#state_json' => json_encode($state, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE),
       '#portrait_upload_form' => $this->formBuilder()->getForm(CharacterPortraitUploadForm::class, (int) $record->id, $campaign_id),
       '#portrait_regenerate_form' => $this->formBuilder()->getForm(CharacterPortraitRegenerateForm::class, (int) $record->id, $campaign_id),
       '#edit_url' => Url::fromRoute('dungeoncrawler_content.character_setup', [], ['query' => $setup_query])->toString(),
@@ -849,6 +937,85 @@ class CharacterViewController extends ControllerBase {
   }
 
   /**
+   * Normalize mixed skill payload shapes into template-ready rows.
+   *
+   * @param array<int,mixed> $state_skills
+   * @param array<string,array<string,int>> $abilities
+   * @param array<string,string> $skill_list
+   *
+   * @return array<int,array{name:string,modifier:int,proficiency:string}>
+   */
+  private function buildSkillsDisplayData(array $state_skills, array $abilities, array $skill_list): array {
+    $skills = [];
+    if ($state_skills !== []) {
+      foreach ($state_skills as $key => $entry) {
+        if (is_array($entry)) {
+          $name = (string) ($entry['name'] ?? $entry['skill'] ?? $key);
+          $modifier = (int) ($entry['modifier'] ?? $entry['bonus'] ?? 0);
+          $proficiency = (string) ($entry['proficiency'] ?? $entry['rank'] ?? 'Untrained');
+          $skills[] = [
+            'name' => $this->humanizeName($name),
+            'modifier' => $modifier,
+            'proficiency' => ucfirst(strtolower($proficiency)),
+          ];
+          continue;
+        }
+        if (is_numeric($entry) || is_string($entry)) {
+          $skills[] = [
+            'name' => $this->humanizeName((string) $key),
+            'modifier' => (int) $entry,
+            'proficiency' => 'Trained',
+          ];
+        }
+      }
+      if ($skills !== []) {
+        return $skills;
+      }
+    }
+
+    foreach ($skill_list as $skill_name => $ability_key) {
+      $skills[] = [
+        'name' => $skill_name,
+        'modifier' => (int) ($abilities[$ability_key]['modifier'] ?? 0),
+        'proficiency' => 'Untrained',
+      ];
+    }
+
+    return $skills;
+  }
+
+  /**
+   * Normalize personality goals from string/list/object shapes.
+   *
+   * @return array<int,string>|array<string,string>
+   */
+  private function normalizePersonalityGoals(mixed $goals): array {
+    if (is_array($goals)) {
+      $is_list = array_keys($goals) === range(0, count($goals) - 1);
+      if ($is_list) {
+        return array_values(array_filter(array_map(static fn($v) => is_scalar($v) ? trim((string) $v) : '', $goals), static fn($v) => $v !== ''));
+      }
+      $normalized = [];
+      foreach ($goals as $key => $value) {
+        if (is_scalar($value)) {
+          $text = trim((string) $value);
+          if ($text !== '') {
+            $normalized[(string) $key] = $text;
+          }
+        }
+      }
+      return $normalized;
+    }
+
+    if (is_string($goals) && trim($goals) !== '') {
+      $parts = preg_split('/[;\n\r]+/', $goals) ?: [];
+      return array_values(array_filter(array_map('trim', $parts), static fn($v) => $v !== ''));
+    }
+
+    return [];
+  }
+
+  /**
    * Build familiar and companion display data for the character sheet.
    */
   private function buildFollowerDisplayData(array $char_data): array {
@@ -1052,6 +1219,23 @@ class CharacterViewController extends ControllerBase {
    */
   private function humanizeName(string $id): string {
     return ucwords(str_replace(['_', '-'], ' ', $id));
+  }
+
+  /**
+   * Returns whether current user owns the campaign.
+   */
+  private function isCampaignOwner(int $campaign_id): bool {
+    if ($campaign_id <= 0) {
+      return FALSE;
+    }
+    $campaign_uid = $this->database->select('dc_campaigns', 'c')
+      ->fields('c', ['uid'])
+      ->condition('id', $campaign_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchField();
+
+    return $campaign_uid !== FALSE && (int) $campaign_uid === (int) $this->currentUser()->id();
   }
 
   /**
