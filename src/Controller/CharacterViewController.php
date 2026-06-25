@@ -298,15 +298,19 @@ class CharacterViewController extends ControllerBase {
     $appearance = (string) ($state_basic_info['appearance'] ?? $state_descriptors['appearance'] ?? $char_data['appearance'] ?? '');
     $personality_text = (string) ($state_basic_info['personality'] ?? $state_descriptors['personality'] ?? $char_data['personality'] ?? '');
     $backstory = (string) ($state_basic_info['backstory'] ?? $char_data['backstory'] ?? '');
-    $attitude = (string) ($state_descriptors['attitude'] ?? '');
-    $motivations = (string) ($state_descriptors['motivations'] ?? '');
+    $state_profile = is_array($state['profile'] ?? NULL) ? $state['profile'] : [];
+    $char_profile = is_array($char_data['profile'] ?? NULL) ? $char_data['profile'] : [];
+    $profile = $state_profile !== [] ? $state_profile : $char_profile;
+    $profile_sheet = is_array($profile['character_sheet'] ?? NULL) ? $profile['character_sheet'] : [];
+    $attitude = (string) ($state_descriptors['attitude'] ?? $profile['attitude'] ?? '');
+    $motivations = (string) ($state_descriptors['motivations'] ?? $profile['motivations'] ?? '');
     $goals = $this->normalizePersonalityGoals($state['goals'] ?? ($char_data['goals'] ?? []));
-    $psychology_dimensions = [];
-    $psychology_traits = [];
-    $psychology_fears = '';
-    $psychology_bonds = '';
-    $actor_description = trim((string) ($state['description'] ?? ''));
-    $actor_role = trim((string) ($state['role'] ?? $record->role ?? ''));
+    $psychology_dimensions = $this->buildPsychologyDimensions(is_array($profile['personality_axes'] ?? NULL) ? $profile['personality_axes'] : []);
+    $psychology_traits = is_array($profile['personality_traits'] ?? NULL) ? array_values($profile['personality_traits']) : [];
+    $psychology_fears = trim((string) ($profile['fears'] ?? ''));
+    $psychology_bonds = trim((string) ($profile['bonds'] ?? ''));
+    $actor_description = trim((string) ($state['description'] ?? $profile_sheet['description'] ?? ''));
+    $actor_role = trim((string) ($profile['role'] ?? $state['role'] ?? $record->role ?? ''));
     $default_location = is_array($state['location'] ?? NULL) ? $state['location'] : [];
     $quest_payload = is_array($state['quests'] ?? NULL) ? $state['quests'] : [];
 
@@ -321,15 +325,23 @@ class CharacterViewController extends ControllerBase {
     }
 
     if ($campaign_id > 0 && $type !== 'pc' && $relationship_source_id !== '' && $this->npcPsychologyService) {
-      $profile = $this->npcPsychologyService->loadProfile($campaign_id, $relationship_source_id);
-      if (is_array($profile)) {
-        $attitude = (string) ($profile['attitude'] ?? $attitude);
-        $motivations = (string) ($profile['motivations'] ?? $motivations);
-        $psychology_dimensions = $this->buildPsychologyDimensions(is_array($profile['personality_axes'] ?? NULL) ? $profile['personality_axes'] : []);
-        $psychology_traits = is_array($profile['personality_traits'] ?? NULL) ? array_values($profile['personality_traits']) : [];
-        $psychology_fears = trim((string) ($profile['fears'] ?? ''));
-        $psychology_bonds = trim((string) ($profile['bonds'] ?? ''));
-        $sheet = is_array($profile['character_sheet'] ?? NULL) ? $profile['character_sheet'] : [];
+      $npc_profile = $this->npcPsychologyService->loadProfile($campaign_id, $relationship_source_id);
+      if (is_array($npc_profile)) {
+        $attitude = (string) ($npc_profile['attitude'] ?? $attitude);
+        $motivations = (string) ($npc_profile['motivations'] ?? $motivations);
+        if ($psychology_dimensions === []) {
+          $psychology_dimensions = $this->buildPsychologyDimensions(is_array($npc_profile['personality_axes'] ?? NULL) ? $npc_profile['personality_axes'] : []);
+        }
+        if ($psychology_traits === []) {
+          $psychology_traits = is_array($npc_profile['personality_traits'] ?? NULL) ? array_values($npc_profile['personality_traits']) : [];
+        }
+        if ($psychology_fears === '') {
+          $psychology_fears = trim((string) ($npc_profile['fears'] ?? ''));
+        }
+        if ($psychology_bonds === '') {
+          $psychology_bonds = trim((string) ($npc_profile['bonds'] ?? ''));
+        }
+        $sheet = is_array($npc_profile['character_sheet'] ?? NULL) ? $npc_profile['character_sheet'] : [];
         if ($appearance === '') {
           $appearance = (string) ($sheet['appearance'] ?? '');
         }
@@ -357,12 +369,12 @@ class CharacterViewController extends ControllerBase {
     $continue_query['step'] = max(1, (int) ($char_data['step'] ?? 1));
 
     $state_attacks = is_array($state['attacks'] ?? NULL) ? $state['attacks'] : [];
-    $melee_attacks = is_array($state_attacks['melee'] ?? NULL)
-      ? $state_attacks['melee']
-      : (is_array($char_data['attacks']['melee'] ?? NULL) ? $char_data['attacks']['melee'] : []);
-    $ranged_attacks = is_array($state_attacks['ranged'] ?? NULL)
-      ? $state_attacks['ranged']
-      : (is_array($char_data['attacks']['ranged'] ?? NULL) ? $char_data['attacks']['ranged'] : []);
+    $attack_groups = $this->normalizeAttackCollections($state_attacks);
+    if ($attack_groups['melee'] === [] && $attack_groups['ranged'] === []) {
+      $attack_groups = $this->normalizeAttackCollections(is_array($char_data['attacks'] ?? NULL) ? $char_data['attacks'] : []);
+    }
+    $melee_attacks = $attack_groups['melee'];
+    $ranged_attacks = $attack_groups['ranged'];
     $spell_source_data = $char_data;
     if ($state_spells !== []) {
       $spell_source_data['spells'] = $state_spells;
@@ -1339,6 +1351,83 @@ class CharacterViewController extends ControllerBase {
       return strcmp((string) ($a['axis'] ?? ''), (string) ($b['axis'] ?? ''));
     });
     return $rows;
+  }
+
+  /**
+   * Normalizes attack payloads from mixed list/map shapes into melee/ranged arrays.
+   */
+  private function normalizeAttackCollections(array $attacks): array {
+    $melee = [];
+    $ranged = [];
+
+    if (is_array($attacks['melee'] ?? NULL) || is_array($attacks['ranged'] ?? NULL)) {
+      foreach ((array) ($attacks['melee'] ?? []) as $entry) {
+        $normalized = $this->normalizeAttackEntry($entry);
+        if ($normalized !== NULL) {
+          $melee[] = $normalized;
+        }
+      }
+      foreach ((array) ($attacks['ranged'] ?? []) as $entry) {
+        $normalized = $this->normalizeAttackEntry($entry);
+        if ($normalized !== NULL) {
+          $ranged[] = $normalized;
+        }
+      }
+      return ['melee' => $melee, 'ranged' => $ranged];
+    }
+
+    foreach ($attacks as $entry) {
+      $normalized = $this->normalizeAttackEntry($entry);
+      if ($normalized === NULL) {
+        continue;
+      }
+      $name = strtolower((string) ($normalized['name'] ?? ''));
+      if (str_contains($name, 'bow') || str_contains($name, 'sling') || str_contains($name, 'crossbow') || str_contains($name, 'ranged')) {
+        $ranged[] = $normalized;
+      }
+      else {
+        $melee[] = $normalized;
+      }
+    }
+
+    return ['melee' => $melee, 'ranged' => $ranged];
+  }
+
+  /**
+   * Normalizes a single attack entry to the template contract shape.
+   */
+  private function normalizeAttackEntry(mixed $entry): ?array {
+    if (is_string($entry)) {
+      $name = trim($entry);
+      if ($name === '') {
+        return NULL;
+      }
+      return [
+        'name' => $name,
+        'bonus' => 0,
+        'damage' => '',
+        'damage_type' => '',
+        'traits' => [],
+      ];
+    }
+
+    if (!is_array($entry)) {
+      return NULL;
+    }
+
+    $name = trim((string) ($entry['name'] ?? $entry['label'] ?? $entry['attack'] ?? ''));
+    if ($name === '') {
+      return NULL;
+    }
+
+    return [
+      'name' => $name,
+      'bonus' => (int) ($entry['bonus'] ?? $entry['attack_bonus'] ?? 0),
+      'damage' => (string) ($entry['damage'] ?? ''),
+      'damage_type' => (string) ($entry['damage_type'] ?? ''),
+      'range' => (string) ($entry['range'] ?? ''),
+      'traits' => is_array($entry['traits'] ?? NULL) ? array_values($entry['traits']) : [],
+    ];
   }
 
   /**
