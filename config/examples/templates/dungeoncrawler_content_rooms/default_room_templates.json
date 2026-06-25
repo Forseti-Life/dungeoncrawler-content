@@ -1082,8 +1082,82 @@
               "r": 1
             },
             "orientation": "se",
-            "description": "A stout, friendly man with a bushy beard and warm smile",
+            "description": "A bardic tavernmaster who steadies the room with music, wit, and hard-earned diplomacy.",
             "role": "quest_giver",
+            "class": "bard",
+            "ancestry": "human",
+            "level": 3,
+            "alignment": "NG",
+            "attitude": "friendly",
+            "backstory": "Eldric trained as a traveling bard before becoming a caravan quartermaster. He now runs the tavern as a stage and sanctuary, using performance, lore, and diplomacy to keep the peace and guide adventurers.",
+            "motivations": "Protect regulars, maintain neutrality, reward trust, and keep dangerous politics outside the tavern.",
+            "personality_traits": [
+              "unflappable host",
+              "careful listener",
+              "protective of patrons",
+              "quietly pragmatic"
+            ],
+            "fears": "A violent faction using his tavern as a battlefield.",
+            "bonds": "Loyal to long-term regulars and indebted to the caravan crew that once saved his life.",
+            "goals": [
+              "Keep tonight's service calm and profitable.",
+              "Help reliable adventurers clear nearby threats before they spill into the city.",
+              "Build the tavern into the safest and best-informed gathering point in this district."
+            ],
+            "stats": {
+              "ac": 17,
+              "perception": 10,
+              "fortitude": 9,
+              "reflex": 7,
+              "will": 10,
+              "currentHp": 34,
+              "maxHp": 34
+            },
+            "abilities": {
+              "strength": 14,
+              "dexterity": 12,
+              "constitution": 16,
+              "intelligence": 13,
+              "wisdom": 15,
+              "charisma": 18
+            },
+            "skills": [
+              "Diplomacy +12",
+              "Deception +10",
+              "Intimidation +9",
+              "Society +8",
+              "Performance +12"
+            ],
+            "attacks": [
+              "Rapier +10 (1d6+4 piercing, deadly d8)",
+              "Bardic Rebuke +10 (verbal, emotional)"
+            ],
+            "equipment": [
+              "Masterwork Lute",
+              "Pan Flute",
+              "Songbook of Ballads",
+              "Diplomat's Scarf",
+              "Ledger of Tabs",
+              "Cellar Master Keys",
+              "Rapier"
+            ],
+            "languages": [
+              "Common",
+              "Taldane",
+              "Varisian"
+            ],
+            "senses": [
+              "Low-light Vision"
+            ],
+            "psychology": {
+              "inner_conflict": "He wants to remain neutral, but his conscience pushes him to intervene when patrons are in danger.",
+              "coping_mechanism": "Defuses tension with humor and music while quietly gathering facts.",
+              "stress_response": "Becomes sharply directive, assigning tasks with quartermaster precision.",
+              "insecurity": "Fears that one bad call will turn his tavern into a battleground.",
+              "secret": "He keeps a private ledger of debts and favors involving powerful local factions.",
+              "desire": "Keep the tavern safe and useful to decent people.",
+              "need": "Trust others enough to share burdens instead of carrying every crisis alone."
+            },
             "quests": [
               {
                 "quest_id": "gather_wine",
@@ -1094,6 +1168,11 @@
                 "quest_id": "gather_torch_components",
                 "title": "Gather Torch Materials",
                 "description": "Help brighten the tavern by collecting torch components"
+              },
+              {
+                "quest_id": "quiet_the_back_room",
+                "title": "Quiet the Back Room",
+                "description": "Investigate disruptive late-night visitors and restore order without starting a brawl."
               }
             ]
           },

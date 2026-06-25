@@ -553,13 +553,56 @@ class CampaignInitializationService {
     // Create NPCs
     foreach ($contents_data['npcs'] as $npc) {
       $instance_id = 'npc_' . $npc['content_id'];
+      $npc_stats = is_array($npc['stats'] ?? NULL) ? $npc['stats'] : [];
+      $npc_level = max(1, (int) ($npc['level'] ?? 1));
+      $npc_hp_current = max(0, (int) ($npc_stats['currentHp'] ?? 0));
+      $npc_hp_max = max($npc_hp_current, (int) ($npc_stats['maxHp'] ?? 0));
+      $npc_ac = max(0, (int) ($npc_stats['ac'] ?? 0));
+      $npc_perception = (int) ($npc_stats['perception'] ?? 0);
+      $npc_fortitude = (int) ($npc_stats['fortitude'] ?? 0);
+      $npc_reflex = (int) ($npc_stats['reflex'] ?? 0);
+      $npc_will = (int) ($npc_stats['will'] ?? 0);
+      $npc_role = (string) ($npc['role'] ?? 'npc');
+      $npc_class = (string) ($npc['class'] ?? 'npc');
+      $npc_ancestry = (string) ($npc['ancestry'] ?? 'humanoid');
+      $npc_seed_payload = [
+        'content_id' => $npc['content_id'],
+        'role' => $npc_role,
+        'description' => $npc['description'] ?? '',
+        'backstory' => $npc['backstory'] ?? '',
+        'quests' => $npc['quests'] ?? [],
+        'abilities' => is_array($npc['abilities'] ?? NULL) ? $npc['abilities'] : [],
+        'skills' => is_array($npc['skills'] ?? NULL) ? $npc['skills'] : [],
+        'attacks' => is_array($npc['attacks'] ?? NULL) ? $npc['attacks'] : [],
+        'equipment' => is_array($npc['equipment'] ?? NULL) ? $npc['equipment'] : [],
+        'languages' => is_array($npc['languages'] ?? NULL) ? $npc['languages'] : ['Common'],
+        'senses' => is_array($npc['senses'] ?? NULL) ? $npc['senses'] : [],
+        'goals' => is_array($npc['goals'] ?? NULL) ? $npc['goals'] : [],
+        'motivations' => (string) ($npc['motivations'] ?? ''),
+        'personality_traits' => is_array($npc['personality_traits'] ?? NULL) ? $npc['personality_traits'] : [],
+        'fears' => (string) ($npc['fears'] ?? ''),
+        'bonds' => (string) ($npc['bonds'] ?? ''),
+        'psychology' => is_array($npc['psychology'] ?? NULL) ? $npc['psychology'] : [],
+        'animation_state' => 'idle',
+      ];
       $state_data = [
         'content_id' => $npc['content_id'],
-        'role' => $npc['role'] ?? 'npc',
+        'role' => $npc_role,
         'description' => $npc['description'] ?? '',
         'quests' => $npc['quests'] ?? [],
         'animation_state' => 'idle',
       ];
+      $state_data = array_replace_recursive($state_data, $npc_seed_payload, [
+        'stats' => [
+          'ac' => $npc_ac,
+          'perception' => $npc_perception,
+          'fortitude' => $npc_fortitude,
+          'reflex' => $npc_reflex,
+          'will' => $npc_will,
+          'currentHp' => $npc_hp_current,
+          'maxHp' => $npc_hp_max,
+        ],
+      ]);
 
       $this->database->insert('dc_campaign_characters')
         ->fields([
@@ -567,12 +610,12 @@ class CampaignInitializationService {
           'character_id' => 0,
           'source_character_id' => NULL,
           'name' => $npc['name'],
-          'level' => 0,
-          'ancestry' => 'humanoid',
-          'class' => 'npc',
-          'hp_current' => 0,
-          'hp_max' => 0,
-          'armor_class' => 0,
+          'level' => $npc_level,
+          'ancestry' => $npc_ancestry,
+          'class' => $npc_class,
+          'hp_current' => $npc_hp_current,
+          'hp_max' => $npc_hp_max,
+          'armor_class' => $npc_ac,
           'experience_points' => 0,
           'position_q' => $npc['position']['q'],
           'position_r' => $npc['position']['r'],
@@ -580,12 +623,31 @@ class CampaignInitializationService {
           'instance_id' => $instance_id,
           'type' => 'npc',
           'lifecycle_state' => 'campaign_npc',
+          'character_data' => json_encode([
+            'step' => 8,
+            'name' => $npc['name'],
+            'type' => 'npc',
+            'role' => $npc_role,
+            'description' => $npc['description'] ?? '',
+            'class' => $npc_class,
+            'ancestry' => $npc_ancestry,
+            'level' => $npc_level,
+            'backstory' => (string) ($npc['backstory'] ?? ''),
+            'goals' => is_array($npc['goals'] ?? NULL) ? $npc['goals'] : [],
+            'abilities' => is_array($npc['abilities'] ?? NULL) ? $npc['abilities'] : [],
+            'skills' => is_array($npc['skills'] ?? NULL) ? $npc['skills'] : [],
+            'attacks' => is_array($npc['attacks'] ?? NULL) ? $npc['attacks'] : [],
+            'inventory' => [
+              'carried' => is_array($npc['equipment'] ?? NULL) ? $npc['equipment'] : [],
+              'currency' => ['cp' => 0, 'sp' => 0, 'gp' => 0, 'pp' => 0],
+            ],
+          ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
           'state_data' => json_encode($state_data),
           'location_type' => 'room',
           'location_ref' => $runtime_room_id,
           'is_active' => 1,
           'uid' => 0,
-          'role' => 'npc',
+          'role' => $npc_role,
           'status' => 1,
           'joined' => $now,
           'created' => $now,
@@ -597,19 +659,35 @@ class CampaignInitializationService {
       if ($this->npcSheetGenerationService) {
         $this->npcSheetGenerationService->enqueueNpcSheetGeneration($campaign_id, $instance_id, [
           'entity_ref' => $instance_id,
+          'instance_id' => $instance_id,
+          'content_id' => (string) ($npc['content_id'] ?? $instance_id),
           'name' => $npc['name'],
-          'role' => $npc['role'] ?? 'npc',
+          'role' => $npc_role,
           'description' => $npc['description'] ?? '',
           'backstory' => $npc['backstory'] ?? '',
           'stats' => [
-            'currentHp' => 0,
-            'maxHp' => 0,
-            'ac' => 0,
+            'currentHp' => $npc_hp_current,
+            'maxHp' => $npc_hp_max,
+            'ac' => $npc_ac,
+            'perception' => $npc_perception,
+            'fortitude' => $npc_fortitude,
+            'reflex' => $npc_reflex,
+            'will' => $npc_will,
           ],
-          'equipment' => $npc['equipment'] ?? [],
-          'level' => 1,
-          'ancestry' => 'Humanoid',
-          'class' => 'npc',
+          'equipment' => is_array($npc['equipment'] ?? NULL) ? $npc['equipment'] : [],
+          'level' => $npc_level,
+          'ancestry' => (string) ($npc['ancestry'] ?? 'Humanoid'),
+          'class' => (string) ($npc['class'] ?? 'npc'),
+          'alignment' => (string) ($npc['alignment'] ?? 'N'),
+          'attitude' => (string) ($npc['attitude'] ?? 'indifferent'),
+          'motivations' => (string) ($npc['motivations'] ?? ''),
+          'personality_traits' => is_array($npc['personality_traits'] ?? NULL) ? $npc['personality_traits'] : [],
+          'fears' => (string) ($npc['fears'] ?? ''),
+          'bonds' => (string) ($npc['bonds'] ?? ''),
+          'goals' => is_array($npc['goals'] ?? NULL) ? $npc['goals'] : [],
+          'languages' => is_array($npc['languages'] ?? NULL) ? $npc['languages'] : ['Common'],
+          'senses' => is_array($npc['senses'] ?? NULL) ? $npc['senses'] : [],
+          'psychology' => is_array($npc['psychology'] ?? NULL) ? $npc['psychology'] : [],
         ], FALSE);
       }
     }
