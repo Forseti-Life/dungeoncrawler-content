@@ -301,6 +301,14 @@ class CharacterViewController extends ControllerBase {
     $attitude = (string) ($state_descriptors['attitude'] ?? '');
     $motivations = (string) ($state_descriptors['motivations'] ?? '');
     $goals = $this->normalizePersonalityGoals($state['goals'] ?? ($char_data['goals'] ?? []));
+    $psychology_dimensions = [];
+    $psychology_traits = [];
+    $psychology_fears = '';
+    $psychology_bonds = '';
+    $actor_description = trim((string) ($state['description'] ?? ''));
+    $actor_role = trim((string) ($state['role'] ?? $record->role ?? ''));
+    $default_location = is_array($state['location'] ?? NULL) ? $state['location'] : [];
+    $quest_payload = is_array($state['quests'] ?? NULL) ? $state['quests'] : [];
 
     $type = (string) ($state['type'] ?? $record->type ?? 'pc');
     $relationship_source_type = $type === 'pc' ? 'campaign_character' : 'campaign_npc';
@@ -317,12 +325,19 @@ class CharacterViewController extends ControllerBase {
       if (is_array($profile)) {
         $attitude = (string) ($profile['attitude'] ?? $attitude);
         $motivations = (string) ($profile['motivations'] ?? $motivations);
+        $psychology_dimensions = $this->buildPsychologyDimensions(is_array($profile['personality_axes'] ?? NULL) ? $profile['personality_axes'] : []);
+        $psychology_traits = is_array($profile['personality_traits'] ?? NULL) ? array_values($profile['personality_traits']) : [];
+        $psychology_fears = trim((string) ($profile['fears'] ?? ''));
+        $psychology_bonds = trim((string) ($profile['bonds'] ?? ''));
         $sheet = is_array($profile['character_sheet'] ?? NULL) ? $profile['character_sheet'] : [];
         if ($appearance === '') {
           $appearance = (string) ($sheet['appearance'] ?? '');
         }
         if ($personality_text === '') {
           $personality_text = (string) ($sheet['personality'] ?? '');
+        }
+        if ($personality_text === '' && $psychology_traits !== []) {
+          $personality_text = implode('; ', $psychology_traits);
         }
         if ($backstory === '') {
           $backstory = (string) ($sheet['backstory'] ?? '');
@@ -424,6 +439,18 @@ class CharacterViewController extends ControllerBase {
         'goals' => $goals,
         'traits' => is_array($char_data['personality']['traits'] ?? NULL) ? $char_data['personality']['traits'] : [],
         'catchphrases' => is_array($char_data['personality']['catchphrases'] ?? NULL) ? $char_data['personality']['catchphrases'] : [],
+      ],
+      '#psychology_dimensions' => $psychology_dimensions,
+      '#psychology_profile' => [
+        'traits' => $psychology_traits,
+        'fears' => $psychology_fears,
+        'bonds' => $psychology_bonds,
+      ],
+      '#quest_payload' => $quest_payload,
+      '#actor_meta' => [
+        'role' => $actor_role,
+        'description' => $actor_description,
+        'default_location' => $default_location,
       ],
       '#npc_data' => $type === 'pc' ? NULL : (is_array($state['npcDefinition'] ?? NULL) ? $state['npcDefinition'] : NULL),
       '#relationships' => [
@@ -1282,6 +1309,35 @@ class CharacterViewController extends ControllerBase {
       }
     }
 
+    return $rows;
+  }
+
+  /**
+   * Normalizes personality-axis scores into display rows.
+   */
+  private function buildPsychologyDimensions(array $axes): array {
+    $rows = [];
+    foreach ($axes as $axis => $raw_score) {
+      if (!is_numeric($raw_score)) {
+        continue;
+      }
+      $score = (int) $raw_score;
+      $label = 'neutral';
+      if ($score >= 7) {
+        $label = 'high';
+      }
+      elseif ($score <= 3) {
+        $label = 'low';
+      }
+      $rows[] = [
+        'axis' => $this->humanizeName((string) $axis),
+        'score' => $score,
+        'band' => $label,
+      ];
+    }
+    usort($rows, static function (array $a, array $b): int {
+      return strcmp((string) ($a['axis'] ?? ''), (string) ($b['axis'] ?? ''));
+    });
     return $rows;
   }
 

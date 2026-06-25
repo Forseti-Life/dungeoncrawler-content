@@ -3,6 +3,9 @@
  # Full PF2e character sheet rendered from JSON data.
  #}
 <div class="dc-character-sheet">
+  <div style="padding:8px 12px; margin-bottom:10px; background:#1f2937; color:#f9fafb; border:1px solid #374151; border-radius:6px; font-size:13px;">
+    Character Sheet Template Version: v2026-06-25-psych-rel-debug-1
+  </div>
   {% set sheet_summary = sheet_effect_summary ?? {} %}
   {% set stat_summary = sheet_summary.stats ?? {} %}
   {% set hp_summary = stat_summary.hp_max ?? {} %}
@@ -77,6 +80,15 @@
 
     <div class="dc-sheet__identity">
       <h1 class="dc-sheet__name">{{ character.name }}</h1>
+      {% if actor_meta.role %}
+        <div class="dc-sheet__detail"><strong>Role:</strong> {{ actor_meta.role|replace({'_':' '})|capitalize }}</div>
+      {% endif %}
+      {% if actor_meta.description %}
+        <div class="dc-sheet__bio-block"><strong>Description:</strong> {{ actor_meta.description }}</div>
+      {% endif %}
+      {% if actor_meta.default_location is defined and actor_meta.default_location.ref %}
+        <div class="dc-sheet__detail"><strong>Default Location:</strong> {{ actor_meta.default_location.ref|replace({'_':' '})|capitalize }}</div>
+      {% endif %}
       <div class="dc-sheet__subtitle">
         Level {{ character.level }}
         {% if ancestry.name %}{{ ancestry.name }}{% endif %}
@@ -672,6 +684,33 @@
       <div class="dc-sheet__detail"><strong>Motivations:</strong> <em>Not set</em></div>
     {% endif %}
 
+    {% if psychology_dimensions is defined and psychology_dimensions|length > 0 %}
+      <h3 class="dc-sheet__subsection-title">Psychology Dimensions</h3>
+      {% for dimension in psychology_dimensions %}
+        <div class="dc-sheet__detail">
+          <strong>{{ dimension.axis }}:</strong> {{ dimension.score }}/10
+          <span class="dc-sheet__tag">{{ dimension.band|capitalize }}</span>
+        </div>
+      {% endfor %}
+    {% endif %}
+
+    {% if psychology_profile is defined %}
+      {% if psychology_profile.traits is defined and psychology_profile.traits|length > 0 %}
+        <h3 class="dc-sheet__subsection-title">Psychology Traits</h3>
+        <ul class="dc-sheet__trait-list">
+          {% for trait in psychology_profile.traits %}
+            <li>{{ trait }}</li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+      {% if psychology_profile.fears %}
+        <div class="dc-sheet__detail"><strong>Fears:</strong> {{ psychology_profile.fears }}</div>
+      {% endif %}
+      {% if psychology_profile.bonds %}
+        <div class="dc-sheet__detail"><strong>Bonds:</strong> {{ psychology_profile.bonds }}</div>
+      {% endif %}
+    {% endif %}
+
     {% if personality.traits|length > 0 %}
       <h3 class="dc-sheet__subsection-title">Traits</h3>
       <ul class="dc-sheet__trait-list">
@@ -703,6 +742,23 @@
 
     {% if not char_data.concept and not personality.appearance and not personality.personality and not personality.backstory and personality.goals is empty and (personality.traits|default([])) is empty and (personality.catchphrases|default([])) is empty %}
       <p><em>No narrative profile data has been authored for this actor yet.</em></p>
+    {% endif %}
+  </div>
+
+  <div class="dc-sheet__section">
+    <h2 class="dc-sheet__section-title">Quest Payload</h2>
+    {% if quest_payload is defined and quest_payload|length > 0 %}
+      {% for quest in quest_payload %}
+        <div class="dc-sheet__detail">
+          <strong>{{ quest.title ?? quest.quest_id ?? 'Quest' }}</strong>
+          {% if quest.quest_id %}<span class="dc-sheet__tag">{{ quest.quest_id }}</span>{% endif %}
+          {% if quest.description %}
+            <div class="dc-sheet__detail">{{ quest.description }}</div>
+          {% endif %}
+        </div>
+      {% endfor %}
+    {% else %}
+      <p><em>No quest payload linked to this actor.</em></p>
     {% endif %}
   </div>
 
