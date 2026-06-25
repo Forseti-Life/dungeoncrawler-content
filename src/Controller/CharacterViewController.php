@@ -100,6 +100,7 @@ class CharacterViewController extends ControllerBase {
     $state_traits = is_array($state['traits'] ?? NULL) ? $state['traits'] : [];
     $state_conditions = is_array($state['conditions'] ?? NULL) ? $state['conditions'] : [];
     $state_descriptors = is_array($state['descriptors'] ?? NULL) ? $state['descriptors'] : [];
+    $state_spells = is_array($state['spells'] ?? NULL) ? $state['spells'] : [];
 
     $abilities = $this->buildAbilityDisplayData($char_data);
     if (is_array($state['abilities'] ?? NULL) && $state['abilities'] !== []) {
@@ -347,6 +348,13 @@ class CharacterViewController extends ControllerBase {
     $ranged_attacks = is_array($state_attacks['ranged'] ?? NULL)
       ? $state_attacks['ranged']
       : (is_array($char_data['attacks']['ranged'] ?? NULL) ? $char_data['attacks']['ranged'] : []);
+    $spell_source_data = $char_data;
+    if ($state_spells !== []) {
+      $spell_source_data['spells'] = $state_spells;
+    }
+    $display_feats = is_array($state_features['feats'] ?? NULL) && $state_features['feats'] !== []
+      ? $state_features['feats']
+      : (is_array($char_data['feats'] ?? NULL) ? $char_data['feats'] : []);
 
     $build = [
       '#theme' => 'character_sheet',
@@ -398,8 +406,8 @@ class CharacterViewController extends ControllerBase {
         'items' => $equipment_items,
       ],
       '#followers' => $this->buildFollowerDisplayData($char_data),
-      '#feats' => $this->enrichFeatDisplayData($char_data['feats'] ?? []),
-      '#spells' => $this->buildSpellsDisplayData($char_data, $feat_effects),
+      '#feats' => $this->enrichFeatDisplayData($display_feats),
+      '#spells' => $this->buildSpellsDisplayData($spell_source_data, $feat_effects),
       '#conditions' => $state_conditions !== [] ? $state_conditions : ($char_data['conditions'] ?? []),
       '#feat_effects' => $feat_effects,
       '#sheet_effect_summary' => $sheet_effect_summary,
@@ -438,6 +446,13 @@ class CharacterViewController extends ControllerBase {
         'features' => $state_features,
         'descriptors' => $state_descriptors,
       ],
+      '#actor_contract' => $this->buildActorContractCoverage(
+        $type,
+        $state,
+        $char_data,
+        $relationships_outgoing,
+        $relationships_incoming
+      ),
       '#raw_json' => json_encode($decoded, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE),
       '#state_json' => json_encode($state, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE),
       '#portrait_upload_form' => $this->formBuilder()->getForm(CharacterPortraitUploadForm::class, (int) $record->id, $campaign_id),
@@ -1199,6 +1214,75 @@ class CharacterViewController extends ControllerBase {
     }
 
     return $feats;
+  }
+
+  /**
+   * Builds actor contract-coverage rows for page diagnostics.
+   */
+  private function buildActorContractCoverage(string $type, array $state, array $char_data, array $relationships_outgoing, array $relationships_incoming): array {
+    $is_pc = $type === 'pc';
+    $has_identity = (string) ($state['characterId'] ?? '') !== '' && $type !== '';
+    $has_psychology = !empty($state['descriptors']['personality'] ?? '')
+      || !empty($state['descriptors']['attitude'] ?? '')
+      || !empty($state['basicInfo']['personality'] ?? '')
+      || !empty($char_data['personality'] ?? '');
+    $has_relationships = $relationships_outgoing !== [] || $relationships_incoming !== [];
+    $has_combat = !empty($state['abilities'] ?? [])
+      || !empty($state['defenses'] ?? [])
+      || !empty($state['attacks'] ?? [])
+      || !empty($state['resources']['hitPoints'] ?? []);
+    $has_inventory = !empty($char_data['inventory'] ?? [])
+      || !empty($state['resources']['equipment'] ?? [])
+      || !empty($state['resources']['currency'] ?? []);
+    $has_magic = !empty($state['spells'] ?? []) || !empty($char_data['spells'] ?? []);
+    $has_features = !empty($state['features'] ?? []) || !empty($char_data['feats'] ?? []);
+
+    $rows = [
+      [
+        'domain' => 'identity',
+        'required' => TRUE,
+        'present' => $has_identity,
+      ],
+      [
+        'domain' => 'psychology',
+        'required' => TRUE,
+        'present' => $has_psychology,
+      ],
+      [
+        'domain' => 'relationships',
+        'required' => TRUE,
+        'present' => $has_relationships,
+      ],
+      [
+        'domain' => 'combat',
+        'required' => $is_pc,
+        'present' => $has_combat,
+      ],
+      [
+        'domain' => 'inventory',
+        'required' => $is_pc,
+        'present' => $has_inventory,
+      ],
+      [
+        'domain' => 'magic',
+        'required' => $is_pc,
+        'present' => $has_magic,
+      ],
+      [
+        'domain' => 'features',
+        'required' => TRUE,
+        'present' => $has_features,
+      ],
+    ];
+
+    foreach ($rows as $index => $row) {
+      $rows[$index]['status'] = $row['present'] ? 'present' : 'missing';
+      if (!$row['required']) {
+        $rows[$index]['status'] = $row['present'] ? 'present' : 'optional';
+      }
+    }
+
+    return $rows;
   }
 
   /**

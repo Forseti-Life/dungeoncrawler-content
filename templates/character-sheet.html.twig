@@ -287,11 +287,28 @@
     </div>
   {% endif %}
 
+  {% if actor_contract is defined and actor_contract|length > 0 %}
+    <div class="dc-sheet__section">
+      <h2 class="dc-sheet__section-title">Actor Contract Coverage</h2>
+      {% for row in actor_contract %}
+        <div class="dc-sheet__detail">
+          <strong>{{ row.domain|replace({'_':' '})|capitalize }}:</strong>
+          <span class="dc-sheet__tag">{{ row.status|replace({'_':' '})|capitalize }}</span>
+          {% if row.required %}
+            <span class="dc-sheet__tag">Required</span>
+          {% else %}
+            <span class="dc-sheet__tag">Optional</span>
+          {% endif %}
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
 
   {# Skills #}
-  {% if skills|length > 0 %}
-    <div class="dc-sheet__section">
-      <h2 class="dc-sheet__section-title">Skills</h2>
+  <div class="dc-sheet__section">
+    <h2 class="dc-sheet__section-title">Skills</h2>
+    {% if skills|length > 0 %}
       <div class="dc-sheet__skills-grid">
         {% for skill in skills %}
           <div class="dc-sheet__skill">
@@ -301,58 +318,62 @@
           </div>
         {% endfor %}
       </div>
-    </div>
-  {% endif %}
+    {% else %}
+      <p><em>No skill data available in canonical actor state.</em></p>
+    {% endif %}
+  </div>
 
   {# Attacks #}
-  {% if melee_attacks|length > 0 or ranged_attacks|length > 0 %}
-    <div class="dc-sheet__section">
-      <h2 class="dc-sheet__section-title">Attacks</h2>
+  <div class="dc-sheet__section">
+    <h2 class="dc-sheet__section-title">Attacks</h2>
+    {% if melee_attacks|length > 0 or ranged_attacks|length > 0 %}
 
-      {% if melee_attacks|length > 0 %}
-        <h3 class="dc-sheet__subsection-title">⚔️ Melee</h3>
-        {% for attack in melee_attacks %}
-          <div class="dc-sheet__attack">
-            <span class="dc-sheet__attack-name">{{ attack.name }}</span>
-            <span class="dc-sheet__attack-bonus">{{ attack.bonus >= 0 ? '+' : '' }}{{ attack.bonus }}</span>
-            <span class="dc-sheet__attack-damage">{{ attack.damage }} {{ attack.damage_type }}</span>
-            {% if attack.traits|length > 0 %}
-              <div class="dc-sheet__attack-traits">
-                {% for trait in attack.traits %}
-                  <span class="dc-sheet__trait-tag dc-sheet__trait-tag--small">{{ trait }}</span>
-                {% endfor %}
-              </div>
-            {% endif %}
-          </div>
-        {% endfor %}
-      {% endif %}
+    {% if melee_attacks|length > 0 %}
+      <h3 class="dc-sheet__subsection-title">⚔️ Melee</h3>
+      {% for attack in melee_attacks %}
+        <div class="dc-sheet__attack">
+          <span class="dc-sheet__attack-name">{{ attack.name }}</span>
+          <span class="dc-sheet__attack-bonus">{{ attack.bonus >= 0 ? '+' : '' }}{{ attack.bonus }}</span>
+          <span class="dc-sheet__attack-damage">{{ attack.damage }} {{ attack.damage_type }}</span>
+          {% if attack.traits|length > 0 %}
+            <div class="dc-sheet__attack-traits">
+              {% for trait in attack.traits %}
+                <span class="dc-sheet__trait-tag dc-sheet__trait-tag--small">{{ trait }}</span>
+              {% endfor %}
+            </div>
+          {% endif %}
+        </div>
+      {% endfor %}
+    {% endif %}
 
-      {% if ranged_attacks|length > 0 %}
-        <h3 class="dc-sheet__subsection-title">🏹 Ranged</h3>
-        {% for attack in ranged_attacks %}
-          <div class="dc-sheet__attack">
-            <span class="dc-sheet__attack-name">{{ attack.name }}</span>
-            <span class="dc-sheet__attack-bonus">{{ attack.bonus >= 0 ? '+' : '' }}{{ attack.bonus }}</span>
-            <span class="dc-sheet__attack-damage">{{ attack.damage }} {{ attack.damage_type }}</span>
-            {% if attack.range %}
-              <span class="dc-sheet__attack-range">{{ attack.range }}</span>
-            {% endif %}
-            {% if attack.traits|length > 0 %}
-              <div class="dc-sheet__attack-traits">
-                {% for trait in attack.traits %}
-                  <span class="dc-sheet__trait-tag dc-sheet__trait-tag--small">{{ trait }}</span>
-                {% endfor %}
-              </div>
-            {% endif %}
-          </div>
-        {% endfor %}
-      {% endif %}
-    </div>
-  {% endif %}
+    {% if ranged_attacks|length > 0 %}
+      <h3 class="dc-sheet__subsection-title">🏹 Ranged</h3>
+      {% for attack in ranged_attacks %}
+        <div class="dc-sheet__attack">
+          <span class="dc-sheet__attack-name">{{ attack.name }}</span>
+          <span class="dc-sheet__attack-bonus">{{ attack.bonus >= 0 ? '+' : '' }}{{ attack.bonus }}</span>
+          <span class="dc-sheet__attack-damage">{{ attack.damage }} {{ attack.damage_type }}</span>
+          {% if attack.range %}
+            <span class="dc-sheet__attack-range">{{ attack.range }}</span>
+          {% endif %}
+          {% if attack.traits|length > 0 %}
+            <div class="dc-sheet__attack-traits">
+              {% for trait in attack.traits %}
+                <span class="dc-sheet__trait-tag dc-sheet__trait-tag--small">{{ trait }}</span>
+              {% endfor %}
+            </div>
+          {% endif %}
+        </div>
+      {% endfor %}
+    {% endif %}
+    {% else %}
+      <p><em>No attack actions available in canonical actor state.</em></p>
+    {% endif %}
+  </div>
 
-  {% if class_data.class_features is defined and class_data.class_features|length > 0 %}
-    <div class="dc-sheet__section">
-      <h2 class="dc-sheet__section-title">Class Features</h2>
+  <div class="dc-sheet__section">
+    <h2 class="dc-sheet__section-title">Class Features</h2>
+    {% if class_data.class_features is defined and class_data.class_features|length > 0 %}
       {% for feature in class_data.class_features %}
         <div class="dc-sheet__detail">
           {% if feature.name is defined %}
@@ -363,8 +384,10 @@
           {% endif %}
         </div>
       {% endfor %}
-    </div>
-  {% endif %}
+    {% else %}
+      <p><em>No class features in canonical actor state.</em></p>
+    {% endif %}
+  </div>
 
   {# Equipment & Gold #}
   <div class="dc-sheet__section">
@@ -533,17 +556,17 @@
   {% endif %}
 
   {# Spellcasting #}
-  {% if spells %}
-    <div class="dc-sheet__section">
-      <h2 class="dc-sheet__section-title">Spellcasting</h2>
+  <div class="dc-sheet__section">
+    <h2 class="dc-sheet__section-title">Spellcasting</h2>
+    {% if spells %}
 
-      <div class="dc-sheet__detail"><strong>Tradition:</strong> {{ spells.tradition|capitalize }}</div>
-      {% if spells.spell_attack is defined %}
-        <div class="dc-sheet__detail"><strong>Spell Attack:</strong> {{ spells.spell_attack >= 0 ? '+' : '' }}{{ spells.spell_attack }}</div>
-      {% endif %}
-      {% if spells.spell_dc is defined %}
-        <div class="dc-sheet__detail"><strong>Spell DC:</strong> {{ spells.spell_dc }}</div>
-      {% endif %}
+    <div class="dc-sheet__detail"><strong>Tradition:</strong> {{ spells.tradition|capitalize }}</div>
+    {% if spells.spell_attack is defined %}
+      <div class="dc-sheet__detail"><strong>Spell Attack:</strong> {{ spells.spell_attack >= 0 ? '+' : '' }}{{ spells.spell_attack }}</div>
+    {% endif %}
+    {% if spells.spell_dc is defined %}
+      <div class="dc-sheet__detail"><strong>Spell DC:</strong> {{ spells.spell_dc }}</div>
+    {% endif %}
 
       {% if spells.focus_points %}
         <div class="dc-sheet__detail">
@@ -566,35 +589,37 @@
         {% endif %}
       {% endif %}
 
-      {% if spells.rank_groups|length > 0 %}
-        <h3 class="dc-sheet__subsection-title">Spells Known</h3>
-        {% for group in spells.rank_groups %}
-          <h4 class="dc-sheet__spell-rank-title">{{ group.label }}</h4>
-          {% if group.slots %}
-            <div class="dc-sheet__spell-slots">
-              Slots: {{ group.slots.remaining ?? 0 }} / {{ group.slots.max }}
-            </div>
-          {% endif %}
-          <ul class="dc-sheet__spell-list">
-            {% for spell in group.spells %}
-              <li>
-                {% if spell.description is defined and spell.description %}
-                  <span title="{{ spell.description|e('html_attr') }}">{{ spell.name }}</span>
-                {% else %}
-                  {{ spell.name }}
-                {% endif %}
-              </li>
-            {% endfor %}
-          </ul>
-        {% endfor %}
-      {% endif %}
-    </div>
-  {% endif %}
+    {% if spells.rank_groups|length > 0 %}
+      <h3 class="dc-sheet__subsection-title">Spells Known</h3>
+      {% for group in spells.rank_groups %}
+        <h4 class="dc-sheet__spell-rank-title">{{ group.label }}</h4>
+        {% if group.slots %}
+          <div class="dc-sheet__spell-slots">
+            Slots: {{ group.slots.remaining ?? 0 }} / {{ group.slots.max }}
+          </div>
+        {% endif %}
+        <ul class="dc-sheet__spell-list">
+          {% for spell in group.spells %}
+            <li>
+              {% if spell.description is defined and spell.description %}
+                <span title="{{ spell.description|e('html_attr') }}">{{ spell.name }}</span>
+              {% else %}
+                {{ spell.name }}
+              {% endif %}
+            </li>
+          {% endfor %}
+        </ul>
+      {% endfor %}
+    {% endif %}
+    {% else %}
+      <p><em>No spellcasting data in canonical actor state.</em></p>
+    {% endif %}
+  </div>
 
   {# Conditions #}
-  {% if conditions|length > 0 %}
-    <div class="dc-sheet__section">
-      <h2 class="dc-sheet__section-title">Active Conditions</h2>
+  <div class="dc-sheet__section">
+    <h2 class="dc-sheet__section-title">Active Conditions</h2>
+    {% if conditions|length > 0 %}
       {% for condition in conditions %}
         <div class="dc-sheet__condition">
           <strong>{{ condition.name }}</strong>
@@ -602,83 +627,90 @@
           {% if condition.duration %}<span class="dc-sheet__tag">{{ condition.duration }}</span>{% endif %}
         </div>
       {% endfor %}
-    </div>
-  {% endif %}
+    {% else %}
+      <p><em>No active conditions.</em></p>
+    {% endif %}
+  </div>
 
   {# Concept & Personality #}
-  {% if char_data.concept or personality.appearance or personality.personality or personality.backstory %}
-    <div class="dc-sheet__section">
-      <h2 class="dc-sheet__section-title">Personality & Backstory</h2>
+  <div class="dc-sheet__section">
+    <h2 class="dc-sheet__section-title">Personality & Backstory</h2>
 
-      {% if char_data.concept %}
-        <h3 class="dc-sheet__subsection-title">Concept</h3>
-        <div class="dc-sheet__text-block">{{ char_data.concept }}</div>
-      {% endif %}
+    {% if char_data.concept %}
+      <h3 class="dc-sheet__subsection-title">Concept</h3>
+      <div class="dc-sheet__text-block">{{ char_data.concept }}</div>
+    {% endif %}
 
-      {% if personality.appearance %}
-        <h3 class="dc-sheet__subsection-title">Appearance</h3>
-        <div class="dc-sheet__text-block">{{ personality.appearance }}</div>
-      {% endif %}
+    {% if personality.appearance %}
+      <h3 class="dc-sheet__subsection-title">Appearance</h3>
+      <div class="dc-sheet__text-block">{{ personality.appearance }}</div>
+    {% endif %}
 
-      {% if personality.personality %}
-        <h3 class="dc-sheet__subsection-title">Personality</h3>
-        <div class="dc-sheet__text-block">{{ personality.personality }}</div>
-      {% endif %}
+    {% if personality.personality %}
+      <h3 class="dc-sheet__subsection-title">Personality</h3>
+      <div class="dc-sheet__text-block">{{ personality.personality }}</div>
+    {% endif %}
 
-      {% if personality.backstory %}
-        <h3 class="dc-sheet__subsection-title">Backstory</h3>
-        <div class="dc-sheet__backstory">{{ personality.backstory }}</div>
-      {% endif %}
+    {% if personality.backstory %}
+      <h3 class="dc-sheet__subsection-title">Backstory</h3>
+      <div class="dc-sheet__backstory">{{ personality.backstory }}</div>
+    {% endif %}
 
-      {% if personality.deity %}
-        <div class="dc-sheet__detail"><strong>Deity:</strong> {{ personality.deity }}</div>
-      {% endif %}
+    {% if personality.deity %}
+      <div class="dc-sheet__detail"><strong>Deity:</strong> {{ personality.deity }}</div>
+    {% endif %}
 
-      {% if personality.attitude %}
-        <div class="dc-sheet__detail"><strong>Attitude:</strong> {{ personality.attitude|replace({'_':' '})|capitalize }}</div>
-      {% endif %}
+    {% if personality.attitude %}
+      <div class="dc-sheet__detail"><strong>Attitude:</strong> {{ personality.attitude|replace({'_':' '})|capitalize }}</div>
+    {% else %}
+      <div class="dc-sheet__detail"><strong>Attitude:</strong> <em>Not set</em></div>
+    {% endif %}
 
-      {% if personality.motivations %}
-        <div class="dc-sheet__detail"><strong>Motivations:</strong> {{ personality.motivations }}</div>
-      {% endif %}
+    {% if personality.motivations %}
+      <div class="dc-sheet__detail"><strong>Motivations:</strong> {{ personality.motivations }}</div>
+    {% else %}
+      <div class="dc-sheet__detail"><strong>Motivations:</strong> <em>Not set</em></div>
+    {% endif %}
 
-      {% if personality.traits|length > 0 %}
-        <h3 class="dc-sheet__subsection-title">Traits</h3>
-        <ul class="dc-sheet__trait-list">
-          {% for trait in personality.traits %}
-            <li>{{ trait }}</li>
+    {% if personality.traits|length > 0 %}
+      <h3 class="dc-sheet__subsection-title">Traits</h3>
+      <ul class="dc-sheet__trait-list">
+        {% for trait in personality.traits %}
+          <li>{{ trait }}</li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+
+    {% if personality.goals %}
+      <h3 class="dc-sheet__subsection-title">Goals</h3>
+      {% if personality.goals is iterable %}
+        <ul class="dc-sheet__goal-list">
+          {% for key, goal in personality.goals %}
+            <li><strong>{{ key|capitalize }}:</strong> {{ goal }}</li>
           {% endfor %}
         </ul>
       {% endif %}
+    {% endif %}
 
-      {% if personality.goals %}
-        <h3 class="dc-sheet__subsection-title">Goals</h3>
-        {% if personality.goals is iterable %}
-          <ul class="dc-sheet__goal-list">
-            {% for key, goal in personality.goals %}
-              <li><strong>{{ key|capitalize }}:</strong> {{ goal }}</li>
-            {% endfor %}
-          </ul>
-        {% endif %}
-      {% endif %}
+    {% if personality.catchphrases is defined and personality.catchphrases|length > 0 %}
+      <h3 class="dc-sheet__subsection-title">Catchphrases</h3>
+      <ul class="dc-sheet__catchphrase-list">
+        {% for phrase in personality.catchphrases %}
+          <li><em>"{{ phrase }}"</em></li>
+        {% endfor %}
+      </ul>
+    {% endif %}
 
-      {% if personality.catchphrases is defined and personality.catchphrases|length > 0 %}
-        <h3 class="dc-sheet__subsection-title">Catchphrases</h3>
-        <ul class="dc-sheet__catchphrase-list">
-          {% for phrase in personality.catchphrases %}
-            <li><em>"{{ phrase }}"</em></li>
-          {% endfor %}
-        </ul>
-      {% endif %}
-    </div>
-  {% endif %}
+    {% if not char_data.concept and not personality.appearance and not personality.personality and not personality.backstory and personality.goals is empty and (personality.traits|default([])) is empty and (personality.catchphrases|default([])) is empty %}
+      <p><em>No narrative profile data has been authored for this actor yet.</em></p>
+    {% endif %}
+  </div>
 
   {% set has_outgoing_relationships = relationships is defined and relationships.outgoing is defined and relationships.outgoing|length > 0 %}
   {% set has_incoming_relationships = relationships is defined and relationships.incoming is defined and relationships.incoming|length > 0 %}
-  {% if has_outgoing_relationships or has_incoming_relationships %}
-    <div class="dc-sheet__section">
-      <h2 class="dc-sheet__section-title">Relationships</h2>
-      {% if has_outgoing_relationships %}
+  <div class="dc-sheet__section">
+    <h2 class="dc-sheet__section-title">Relationships</h2>
+    {% if has_outgoing_relationships %}
         <h3 class="dc-sheet__subsection-title">Outgoing</h3>
         {% for rel in relationships.outgoing %}
           <div class="dc-sheet__detail">
@@ -694,9 +726,9 @@
             {% endif %}
           </div>
         {% endfor %}
-      {% endif %}
+    {% endif %}
 
-      {% if has_incoming_relationships %}
+    {% if has_incoming_relationships %}
         <h3 class="dc-sheet__subsection-title">Incoming</h3>
         {% for rel in relationships.incoming %}
           <div class="dc-sheet__detail">
@@ -712,9 +744,11 @@
             {% endif %}
           </div>
         {% endfor %}
-      {% endif %}
-    </div>
-  {% endif %}
+    {% endif %}
+    {% if not has_outgoing_relationships and not has_incoming_relationships %}
+      <p><em>No relationships have been recorded for this actor in this campaign.</em></p>
+    {% endif %}
+  </div>
 
   {% if actor_identity is defined %}
     <div class="dc-sheet__section">
