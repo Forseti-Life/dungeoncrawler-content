@@ -69,4 +69,25 @@ class NavigationRoadGraphServiceTest extends UnitTestCase {
     $this->assertNull($distance);
   }
 
+  /**
+   * Verifies one-way road edges do not allow implicit reverse traversal.
+   */
+  public function testResolveShortestRoadPathDistanceHonorsDirectionality(): void {
+    $service = new NavigationRoadGraphService();
+
+    $forward = $service->resolveShortestRoadPathDistance([
+      'road_edges' => [
+        ['from_node_id' => 'road-a', 'to_node_id' => 'road-b', 'distance' => 2, 'bidirectional' => FALSE],
+      ],
+    ], 'road-a', 'road-b');
+    $this->assertSame(2, $forward);
+
+    $reverse = $service->resolveShortestRoadPathDistance([
+      'road_edges' => [
+        ['from_node_id' => 'road-a', 'to_node_id' => 'road-b', 'distance' => 2, 'bidirectional' => FALSE],
+      ],
+    ], 'road-b', 'road-a');
+    $this->assertNull($reverse);
+  }
+
 }
