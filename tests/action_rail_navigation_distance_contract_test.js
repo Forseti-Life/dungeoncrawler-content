@@ -49,6 +49,23 @@ assert(
   'room exits route destination + connection metadata into distance formatter'
 );
 
+assert(
+  source.includes('const navigable = capability?.available !== false;')
+    && source.includes('statusLabel: isQuestTarget ? \'🎯 Quest Target\' : (navigable ? \'Exit\' : \'Unavailable\')'),
+  'room exits project authoritative availability into action labels'
+);
+
+assert(
+  source.includes('!navigable && blockedReason ? `Blocked: ${formatBlockedReason(blockedReason)}` : \'\'')
+    && source.includes('function formatBlockedReason(reason) {'),
+  'room exits surface blocked_reason metadata in action-rail summary'
+);
+
+assert(
+  source.includes('const key = connectionId ? `${mapId}:${roomId}:${connectionId}` : `${mapId}:${roomId}`;'),
+  'navigate dedupe key prefers connection identity to avoid collapsing distinct exits'
+);
+
 console.log('\n===============================================');
 console.log(`Passed: ${passed}`);
 console.log(`Failed: ${failed}`);
@@ -57,4 +74,3 @@ if (failed > 0) {
   process.exit(1);
 }
 console.log('ALL TESTS PASSED');
-

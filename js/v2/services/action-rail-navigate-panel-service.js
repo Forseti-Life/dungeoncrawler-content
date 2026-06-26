@@ -92,8 +92,9 @@ function dedupeNavigateGroups(groups) {
         if (!roomId) {
           return false;
         }
+        const connectionId = String(location?.connectionId || '').trim();
         const mapId = String(location?.mapId || group?.mapId || '').trim();
-        const key = `${mapId}:${roomId}`;
+        const key = connectionId ? `${mapId}:${roomId}:${connectionId}` : `${mapId}:${roomId}`;
         if (seen.has(key)) {
           return false;
         }
@@ -142,9 +143,6 @@ function collectNavigateExitGroups(panel, context) {
 
   const exits = capabilities
     .map((capability) => {
-      if (!capability?.available) {
-        return null;
-      }
       const targetRoomId = String(capability?.target_room_id || '').trim();
       if (!targetRoomId || targetRoomId === activeRoomId) {
         return null;
@@ -154,22 +152,25 @@ function collectNavigateExitGroups(panel, context) {
       const destinationType = String(capability?.destination_type || 'room').trim().toLowerCase() || 'room';
       const connectionType = String(capability?.type || '').trim().toLowerCase();
       const distanceValue = Number.isFinite(Number(capability?.distance)) ? Number(capability.distance) : 0;
+      const navigable = capability?.available !== false;
+      const blockedReason = String(capability?.blocked_reason || '').trim().toLowerCase();
       const isQuestTarget = capability?.quest_reference === true;
       const questIds = Array.isArray(capability?.quest_ids) ? capability.quest_ids : [];
       
       return {
         roomId: targetRoomId,
         roomName: String(room?.name || historyEntry?.room_name || targetRoomId),
-        statusLabel: isQuestTarget ? '🎯 Quest Target' : 'Exit',
+        statusLabel: isQuestTarget ? '🎯 Quest Target' : (navigable ? 'Exit' : 'Unavailable'),
         lastVisitedLabel: historyEntry?.timestamp ? `Seen ${historyEntry.timestamp}` : 'Linked from current room',
         meta: [
           `Destination: ${formatDestinationType(destinationType)}`,
           `Distance: ${formatDistanceValue(distanceValue, destinationType, connectionType)}`,
+          !navigable && blockedReason ? `Blocked: ${formatBlockedReason(blockedReason)}` : '',
           isQuestTarget ? '⭐ This location is a quest objective' : '',
           room?.description || room?.short_description || '',
           capability?.type ? `Connection: ${String(capability.type).replace(/_/g, ' ')}` : '',
         ].filter(Boolean).join(' '),
-        navigable: true,
+        navigable,
         connectionId: String(capability?.connection_id || ''),
         originQ: capability?.origin_hex?.q ?? '',
         originR: capability?.origin_hex?.r ?? '',
@@ -303,6 +304,23 @@ function formatDistanceValue(distance, destinationType = 'room', connectionType 
     return `road ${normalized}`;
   }
   return String(normalized);
+}
+
+function formatBlockedReason(reason) {
+  const normalized = String(reason || '').trim().toLowerCase();
+  if (normalized === 'missing_road_path') {
+    return 'no connected road path';
+  }
+  if (normalized === 'missing_road_anchor') {
+    return 'missing road anchor';
+  }
+  if (normalized === 'invalid_distance_contract') {
+    return 'invalid distance contract';
+  }
+  if (normalized === 'unresolved_destination') {
+    return 'unresolved destination';
+  }
+  return normalized ? normalized.replace(/_/g, ' ') : 'unavailable';
 }
 
 function ensureNavigateLocationGroups(panel, campaignId) {
