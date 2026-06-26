@@ -30,6 +30,9 @@
  * - 10069: Campaign subject registry storage for collective runtime actors
  * - 10072: Structured institution review-resolution decision storage
  * - 10073: Widen registry version storage for packaged feat imports
+ * - 10083: Canonical actor cutover for psychology/NPC payload
+ * - 10084: Canonical actor history cutover (dc_npc_history → dc_actor_history)
+ * - 10085: Retire legacy dc_npc table after canonical validation
  *
  * @see dungeoncrawler_content_schema()
  */
@@ -1400,6 +1403,100 @@ function dungeoncrawler_content_schema() {
       'lifecycle_state' => ['lifecycle_state'],
       'location_type' => ['location_type'],
       'location_ref' => ['location_ref'],
+    ],
+  ];
+
+  $schema['dc_actor_history'] = [
+    'description' => 'Canonical actor change history trail keyed to dc_campaign_characters.id.',
+    'fields' => [
+      'id' => [
+        'type' => 'serial',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'description' => 'Primary key.',
+      ],
+      'campaign_character_id' => [
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'description' => 'Canonical actor row id (dc_campaign_characters.id).',
+      ],
+      'campaign_id' => [
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'description' => 'Denormalized campaign id for fast filtering.',
+      ],
+      'session_id' => [
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Session in which the change occurred (0 = outside session).',
+      ],
+      'actor_type' => [
+        'type' => 'varchar',
+        'length' => 32,
+        'not null' => TRUE,
+        'default' => 'npc',
+        'description' => 'Canonical actor type (npc, pc, etc).',
+      ],
+      'actor_instance_id' => [
+        'type' => 'varchar',
+        'length' => 191,
+        'not null' => TRUE,
+        'default' => '',
+        'description' => 'Canonical actor runtime instance id.',
+      ],
+      'change_type' => [
+        'type' => 'varchar',
+        'length' => 32,
+        'not null' => TRUE,
+        'description' => 'attitude|relationship|note.',
+      ],
+      'old_value' => [
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE,
+        'default' => '',
+      ],
+      'new_value' => [
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE,
+        'default' => '',
+      ],
+      'trigger' => [
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE,
+        'default' => '',
+        'description' => 'Human-readable trigger text.',
+      ],
+      'created' => [
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ],
+      'legacy_npc_history_id' => [
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => FALSE,
+        'default' => NULL,
+        'description' => 'Legacy dc_npc_history.id for one-time migration traceability.',
+      ],
+    ],
+    'primary key' => ['id'],
+    'unique keys' => [
+      'legacy_npc_history_id' => ['legacy_npc_history_id'],
+    ],
+    'indexes' => [
+      'campaign_character_id' => ['campaign_character_id'],
+      'campaign_id' => ['campaign_id'],
+      'actor_instance_id' => ['actor_instance_id'],
+      'campaign_actor_instance' => ['campaign_id', 'actor_instance_id'],
+      'created' => ['created'],
     ],
   ];
 
@@ -6074,7 +6171,7 @@ function dungeoncrawler_content_update_10042() {
           'length' => 255,
           'not null' => TRUE,
           'default' => '',
-          'description' => 'Links to dc_npc_psychology.entity_ref for in-session psychology profile.',
+          'description' => 'Links to dc_psychology.actor_instance_id for in-session psychology profile.',
         ],
         'created' => [
           'type' => 'int',
@@ -8671,6 +8768,960 @@ function dungeoncrawler_content_update_10082() {
   }
 
   return t('dc_campaign_characters identity migration complete: added source/lifecycle fields and normalized runtime PC source identity.');
+}
+
+/**
+ * Canonicalize actor psychology and NPC payload storage.
+ *
+ * - Renames dc_npc_psychology => dc_psychology.
+ * - Links psychology rows to canonical actor rows (dc_campaign_characters.id).
+ * - Migrates dc_npc payload fields into canonical actor runtime state.
+ */
+function dungeoncrawler_content_update_10083() {
+  $database = \Drupal::database();
+  $schema_handler = $database->schema();
+
+  if (!$schema_handler->tableExists('dc_campaign_characters')) {
+    throw new \Drupal\Core\Utility\UpdateException('dc_campaign_characters table is required for actor canonicalization.');
+  }
+
+  $has_psychology_table = $schema_handler->tableExists('dc_psychology');
+  $has_legacy_psychology_table = $schema_handler->tableExists('dc_npc_psychology');
+
+  if ($has_psychology_table && $has_legacy_psychology_table) {
+    throw new \Drupal\Core\Utility\UpdateException('Both dc_psychology and dc_npc_psychology exist. Manual reconciliation is required before migration can continue.');
+  }
+  if (!$has_psychology_table && !$has_legacy_psychology_table) {
+    throw new \Drupal\Core\Utility\UpdateException('Missing psychology table: expected dc_npc_psychology or dc_psychology.');
+  }
+  if (!$has_psychology_table) {
+    $schema_handler->renameTable('dc_npc_psychology', 'dc_psychology');
+  }
+
+  if (!$schema_handler->fieldExists('dc_psychology', 'campaign_character_id')) {
+    $schema_handler->addField('dc_psychology', 'campaign_character_id', [
+      'type' => 'int',
+      'unsigned' => TRUE,
+      'not null' => FALSE,
+      'default' => NULL,
+      'description' => 'Canonical actor row id in dc_campaign_characters.',
+    ]);
+  }
+  if (!$schema_handler->fieldExists('dc_psychology', 'actor_instance_id')) {
+    $schema_handler->addField('dc_psychology', 'actor_instance_id', [
+      'type' => 'varchar',
+      'length' => 255,
+      'not null' => FALSE,
+      'default' => NULL,
+      'description' => 'Canonical actor runtime instance id from dc_campaign_characters.instance_id.',
+    ]);
+  }
+  if (!$schema_handler->fieldExists('dc_psychology', 'actor_type')) {
+    $schema_handler->addField('dc_psychology', 'actor_type', [
+      'type' => 'varchar',
+      'length' => 32,
+      'not null' => FALSE,
+      'default' => NULL,
+      'description' => 'Canonical actor type from dc_campaign_characters.type.',
+    ]);
+  }
+
+  $psychology_index_schema = [
+    'fields' => [
+      'campaign_id' => [
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ],
+      'campaign_character_id' => [
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => FALSE,
+        'default' => NULL,
+      ],
+      'actor_instance_id' => [
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => FALSE,
+        'default' => NULL,
+      ],
+    ],
+  ];
+
+  if (!$schema_handler->indexExists('dc_psychology', 'campaign_character_id')) {
+    $schema_handler->addIndex('dc_psychology', 'campaign_character_id', ['campaign_character_id'], $psychology_index_schema);
+  }
+  if (!$schema_handler->indexExists('dc_psychology', 'campaign_actor_instance')) {
+    $schema_handler->addIndex('dc_psychology', 'campaign_actor_instance', ['campaign_id', 'actor_instance_id'], $psychology_index_schema);
+  }
+
+  $campaign_ids = array_map('intval', $database->select('dc_campaigns', 'c')
+    ->fields('c', ['id'])
+    ->execute()
+    ->fetchCol());
+  $campaign_lookup = array_fill_keys($campaign_ids, TRUE);
+
+  $purged_npc_rows = 0;
+  $purged_psychology_rows = 0;
+  if ($campaign_ids === []) {
+    if ($schema_handler->tableExists('dc_npc')) {
+      $purged_npc_rows = (int) $database->delete('dc_npc')->execute();
+    }
+    $purged_psychology_rows = (int) $database->delete('dc_psychology')->execute();
+  }
+  else {
+    if ($schema_handler->tableExists('dc_npc')) {
+      $purged_npc_rows = (int) $database->delete('dc_npc')
+        ->condition('campaign_id', $campaign_ids, 'NOT IN')
+        ->execute();
+    }
+    $purged_psychology_rows = (int) $database->delete('dc_psychology')
+      ->condition('campaign_id', $campaign_ids, 'NOT IN')
+      ->execute();
+  }
+
+  $migrated_npc_payload_rows = 0;
+  $inserted_actor_rows_from_npc = 0;
+  if ($schema_handler->tableExists('dc_npc')) {
+    $npc_rows = $database->select('dc_npc', 'n')
+      ->fields('n')
+      ->orderBy('id', 'ASC')
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC);
+
+    foreach ($npc_rows as $npc_row) {
+      $campaign_id = (int) ($npc_row['campaign_id'] ?? 0);
+      if ($campaign_id <= 0) {
+        continue;
+      }
+
+      $actor_row = dungeoncrawler_content_resolve_actor_for_legacy_entity(
+        $database,
+        $campaign_id,
+        (string) ($npc_row['entity_ref'] ?? ''),
+        (string) ($npc_row['name'] ?? '')
+      );
+      if ($actor_row === NULL) {
+        $actor_row = dungeoncrawler_content_create_actor_from_npc($database, $npc_row);
+        if ($actor_row === NULL) {
+          throw new \Drupal\Core\Utility\UpdateException(sprintf(
+            'NPC migration failed: could not resolve or create canonical actor for dc_npc.id=%d campaign_id=%d entity_ref=%s.',
+            (int) ($npc_row['id'] ?? 0),
+            $campaign_id,
+            (string) ($npc_row['entity_ref'] ?? '')
+          ));
+        }
+        $inserted_actor_rows_from_npc++;
+      }
+
+      $actor_id = (int) ($actor_row['id'] ?? 0);
+      if ($actor_id <= 0) {
+        throw new \Drupal\Core\Utility\UpdateException('NPC migration failed: resolved actor row is missing id.');
+      }
+
+      $state_data = json_decode((string) ($actor_row['state_data'] ?? '{}'), TRUE);
+      if (!is_array($state_data)) {
+        $state_data = [];
+      }
+      $character_data = json_decode((string) ($actor_row['character_data'] ?? '{}'), TRUE);
+      if (!is_array($character_data)) {
+        $character_data = [];
+      }
+
+      $stats = is_array($state_data['stats'] ?? NULL) ? $state_data['stats'] : [];
+      $stats['perception'] = (int) ($npc_row['perception'] ?? 0);
+      $stats['ac'] = (int) ($npc_row['armor_class'] ?? 10);
+      $stats['currentHp'] = (int) ($npc_row['hit_points'] ?? 0);
+      $stats['maxHp'] = (int) ($npc_row['hit_points'] ?? 0);
+      $stats['fortitude'] = (int) ($npc_row['fort_save'] ?? 0);
+      $stats['reflex'] = (int) ($npc_row['ref_save'] ?? 0);
+      $stats['will'] = (int) ($npc_row['will_save'] ?? 0);
+      $state_data['stats'] = $stats;
+      $state_data['npc_profile'] = [
+        'attitude' => (string) ($npc_row['attitude'] ?? 'indifferent'),
+        'lore_notes' => (string) ($npc_row['lore_notes'] ?? ''),
+        'dialogue_notes' => (string) ($npc_row['dialogue_notes'] ?? ''),
+        'npc_archetype' => (string) ($npc_row['npc_archetype'] ?? ''),
+        'alignment' => (string) ($npc_row['alignment'] ?? ''),
+        'scene_ref' => (string) ($npc_row['scene_ref'] ?? ''),
+        'is_gallery_entry' => (int) ($npc_row['is_gallery_entry'] ?? 0),
+        'gallery_source_id' => (int) ($npc_row['gallery_source_id'] ?? 0),
+      ];
+      if (empty($state_data['description'])) {
+        $state_data['description'] = (string) ($npc_row['dialogue_notes'] ?? '');
+      }
+      if (empty($state_data['backstory'])) {
+        $state_data['backstory'] = (string) ($npc_row['lore_notes'] ?? '');
+      }
+
+      if (empty($character_data['attitude'])) {
+        $character_data['attitude'] = (string) ($npc_row['attitude'] ?? 'indifferent');
+      }
+      if (empty($character_data['alignment'])) {
+        $character_data['alignment'] = (string) ($npc_row['alignment'] ?? 'N');
+      }
+
+      $canonical_instance_id = trim((string) ($npc_row['entity_ref'] ?? ''));
+      if ($canonical_instance_id === '') {
+        throw new \Drupal\Core\Utility\UpdateException(sprintf(
+          'NPC migration failed: dc_npc.id=%d has empty entity_ref.',
+          (int) ($npc_row['id'] ?? 0)
+        ));
+      }
+      if (!str_starts_with($canonical_instance_id, 'npc_')) {
+        $canonical_instance_id = 'npc_' . $canonical_instance_id;
+      }
+
+      $actor_role = trim((string) ($actor_row['role'] ?? ''));
+      if ($actor_role === '') {
+        $actor_role = trim((string) ($npc_row['role'] ?? 'npc'));
+      }
+      if ($actor_role === '') {
+        $actor_role = 'npc';
+      }
+
+      $lifecycle_state = $actor_role === 'merchant' ? 'campaign_merchant' : 'campaign_npc';
+      $now = \Drupal::time()->getRequestTime();
+      $database->update('dc_campaign_characters')
+        ->fields([
+          'name' => (string) ($npc_row['name'] ?? $actor_row['name'] ?? ''),
+          'instance_id' => $canonical_instance_id,
+          'type' => 'npc',
+          'role' => $actor_role,
+          'level' => (int) ($npc_row['level'] ?? ($actor_row['level'] ?? 1)),
+          'armor_class' => (int) ($npc_row['armor_class'] ?? ($actor_row['armor_class'] ?? 10)),
+          'hp_current' => (int) ($npc_row['hit_points'] ?? ($actor_row['hp_current'] ?? 0)),
+          'hp_max' => (int) ($npc_row['hit_points'] ?? ($actor_row['hp_max'] ?? 0)),
+          'character_data' => json_encode($character_data, JSON_UNESCAPED_UNICODE),
+          'state_data' => json_encode($state_data, JSON_UNESCAPED_UNICODE),
+          'lifecycle_state' => $lifecycle_state,
+          'changed' => $now,
+          'updated' => $now,
+        ])
+        ->condition('id', $actor_id)
+        ->execute();
+      $migrated_npc_payload_rows++;
+    }
+  }
+
+  $inserted_actor_rows_from_psychology = 0;
+  $linked_psychology_rows = 0;
+  $unresolved_active_psychology = [];
+  $psychology_rows = $database->select('dc_psychology', 'p')
+    ->fields('p', ['id', 'campaign_id', 'entity_ref', 'display_name', 'character_sheet'])
+    ->orderBy('id', 'ASC')
+    ->execute()
+    ->fetchAll(\PDO::FETCH_ASSOC);
+
+  foreach ($psychology_rows as $psychology_row) {
+    $campaign_id = (int) ($psychology_row['campaign_id'] ?? 0);
+    if ($campaign_id <= 0) {
+      continue;
+    }
+
+    $actor_row = dungeoncrawler_content_resolve_actor_for_legacy_entity(
+      $database,
+      $campaign_id,
+      (string) ($psychology_row['entity_ref'] ?? ''),
+      (string) ($psychology_row['display_name'] ?? '')
+    );
+    if ($actor_row === NULL) {
+      $actor_row = dungeoncrawler_content_create_actor_from_psychology($database, $psychology_row);
+      if ($actor_row !== NULL) {
+        $inserted_actor_rows_from_psychology++;
+      }
+    }
+
+    if ($actor_row === NULL) {
+      if (isset($campaign_lookup[$campaign_id])) {
+        $unresolved_active_psychology[] = sprintf(
+          'id=%d campaign_id=%d entity_ref=%s display_name=%s',
+          (int) ($psychology_row['id'] ?? 0),
+          $campaign_id,
+          (string) ($psychology_row['entity_ref'] ?? ''),
+          (string) ($psychology_row['display_name'] ?? '')
+        );
+      }
+      continue;
+    }
+
+    $actor_id = (int) ($actor_row['id'] ?? 0);
+    $actor_instance_id = trim((string) ($actor_row['instance_id'] ?? ''));
+    $actor_type = trim((string) ($actor_row['type'] ?? 'npc'));
+    if ($actor_id <= 0 || $actor_instance_id === '' || $actor_type === '') {
+      throw new \Drupal\Core\Utility\UpdateException(sprintf(
+        'Psychology migration failed: invalid canonical actor row for dc_psychology.id=%d.',
+        (int) ($psychology_row['id'] ?? 0)
+      ));
+    }
+
+    $database->update('dc_psychology')
+      ->fields([
+        'campaign_character_id' => $actor_id,
+        'actor_instance_id' => $actor_instance_id,
+        'actor_type' => $actor_type,
+        'updated' => \Drupal::time()->getRequestTime(),
+      ])
+      ->condition('id', (int) ($psychology_row['id'] ?? 0))
+      ->execute();
+    $linked_psychology_rows++;
+  }
+
+  if ($unresolved_active_psychology !== []) {
+    $preview = implode('; ', array_slice($unresolved_active_psychology, 0, 5));
+    throw new \Drupal\Core\Utility\UpdateException(
+      'Psychology migration failed: unresolved active-campaign rows remain after actor mapping. Examples: ' . $preview
+    );
+  }
+
+  $remaining_unlinked = (int) $database->select('dc_psychology', 'p')
+    ->isNull('campaign_character_id')
+    ->countQuery()
+    ->execute()
+    ->fetchField();
+  if ($remaining_unlinked > 0) {
+    throw new \Drupal\Core\Utility\UpdateException(sprintf(
+      'Psychology migration failed validation: found %d rows without campaign_character_id.',
+      $remaining_unlinked
+    ));
+  }
+
+  $deduped_by_actor_link = 0;
+  $deduped_by_actor_instance = 0;
+
+  $duplicate_actor_links = $database->query(
+    'SELECT campaign_id, campaign_character_id, COUNT(*) AS cnt
+     FROM {dc_psychology}
+     GROUP BY campaign_id, campaign_character_id
+     HAVING COUNT(*) > 1'
+  )->fetchAll(\PDO::FETCH_ASSOC);
+  foreach ($duplicate_actor_links as $group) {
+    $campaign_id = (int) ($group['campaign_id'] ?? 0);
+    $campaign_character_id = (int) ($group['campaign_character_id'] ?? 0);
+    if ($campaign_id <= 0 || $campaign_character_id <= 0) {
+      continue;
+    }
+    $ids = $database->select('dc_psychology', 'p')
+      ->fields('p', ['id'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('campaign_character_id', $campaign_character_id)
+      ->orderBy('updated', 'DESC')
+      ->orderBy('id', 'DESC')
+      ->execute()
+      ->fetchCol();
+    if (count($ids) <= 1) {
+      continue;
+    }
+    $keep_id = (int) array_shift($ids);
+    $drop_ids = array_map('intval', $ids);
+    if ($drop_ids !== []) {
+      $database->delete('dc_psychology')
+        ->condition('id', $drop_ids, 'IN')
+        ->execute();
+      $deduped_by_actor_link += count($drop_ids);
+    }
+  }
+
+  $duplicate_actor_instances = $database->query(
+    'SELECT campaign_id, actor_instance_id, COUNT(*) AS cnt
+     FROM {dc_psychology}
+     WHERE actor_instance_id IS NOT NULL
+     GROUP BY campaign_id, actor_instance_id
+     HAVING COUNT(*) > 1'
+  )->fetchAll(\PDO::FETCH_ASSOC);
+  foreach ($duplicate_actor_instances as $group) {
+    $campaign_id = (int) ($group['campaign_id'] ?? 0);
+    $actor_instance_id = trim((string) ($group['actor_instance_id'] ?? ''));
+    if ($campaign_id <= 0 || $actor_instance_id === '') {
+      continue;
+    }
+    $ids = $database->select('dc_psychology', 'p')
+      ->fields('p', ['id'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('actor_instance_id', $actor_instance_id)
+      ->orderBy('updated', 'DESC')
+      ->orderBy('id', 'DESC')
+      ->execute()
+      ->fetchCol();
+    if (count($ids) <= 1) {
+      continue;
+    }
+    $keep_id = (int) array_shift($ids);
+    $drop_ids = array_map('intval', $ids);
+    if ($drop_ids !== []) {
+      $database->delete('dc_psychology')
+        ->condition('id', $drop_ids, 'IN')
+        ->execute();
+      $deduped_by_actor_instance += count($drop_ids);
+    }
+  }
+
+  $remaining_duplicate_actor_links = (int) $database->query(
+    'SELECT COUNT(*) FROM (
+      SELECT campaign_id, campaign_character_id, COUNT(*) AS cnt
+      FROM {dc_psychology}
+      GROUP BY campaign_id, campaign_character_id
+      HAVING COUNT(*) > 1
+    ) dup'
+  )->fetchField();
+  if ($remaining_duplicate_actor_links > 0) {
+    throw new \Drupal\Core\Utility\UpdateException('Psychology migration failed validation: duplicate campaign_id + campaign_character_id rows exist after dedupe.');
+  }
+
+  $remaining_duplicate_actor_instances = (int) $database->query(
+    'SELECT COUNT(*) FROM (
+      SELECT campaign_id, actor_instance_id, COUNT(*) AS cnt
+      FROM {dc_psychology}
+      WHERE actor_instance_id IS NOT NULL
+      GROUP BY campaign_id, actor_instance_id
+      HAVING COUNT(*) > 1
+    ) dup'
+  )->fetchField();
+  if ($remaining_duplicate_actor_instances > 0) {
+    throw new \Drupal\Core\Utility\UpdateException('Psychology migration failed validation: duplicate campaign_id + actor_instance_id rows exist after dedupe.');
+  }
+
+  if (!$schema_handler->indexExists('dc_psychology', 'campaign_actor_unique')) {
+    $schema_handler->addUniqueKey('dc_psychology', 'campaign_actor_unique', ['campaign_id', 'campaign_character_id'], $psychology_index_schema);
+  }
+  if (!$schema_handler->indexExists('dc_psychology', 'campaign_actor_instance_unique')) {
+    $schema_handler->addUniqueKey('dc_psychology', 'campaign_actor_instance_unique', ['campaign_id', 'actor_instance_id'], $psychology_index_schema);
+  }
+
+  return t(
+    'Actor canonicalization complete: renamed dc_psychology, purged @purged_npc orphan dc_npc rows, purged @purged_psych orphan psychology rows, migrated @migrated_npc NPC payload rows, linked @linked psychology rows, inserted @npc_inserts actors from dc_npc and @psych_inserts actors from psychology, deduped @dedup_links actor-link duplicates and @dedup_instances actor-instance duplicates.',
+    [
+      '@purged_npc' => $purged_npc_rows,
+      '@purged_psych' => $purged_psychology_rows,
+      '@migrated_npc' => $migrated_npc_payload_rows,
+      '@linked' => $linked_psychology_rows,
+      '@npc_inserts' => $inserted_actor_rows_from_npc,
+      '@psych_inserts' => $inserted_actor_rows_from_psychology,
+      '@dedup_links' => $deduped_by_actor_link,
+      '@dedup_instances' => $deduped_by_actor_instance,
+    ]
+  );
+}
+
+/**
+ * Canonicalize NPC change history storage to actor identity.
+ *
+ * - Creates dc_actor_history when missing.
+ * - Migrates dc_npc_history rows to canonical campaign_character_id records.
+ * - Drops dc_npc_history after successful migration.
+ */
+function dungeoncrawler_content_update_10084() {
+  $database = \Drupal::database();
+  $schema_handler = $database->schema();
+  $schema = dungeoncrawler_content_schema();
+
+  if (!$schema_handler->tableExists('dc_campaign_characters')) {
+    throw new \Drupal\Core\Utility\UpdateException('dc_campaign_characters table is required for actor-history canonicalization.');
+  }
+
+  if (!$schema_handler->tableExists('dc_actor_history')) {
+    $schema_handler->createTable('dc_actor_history', $schema['dc_actor_history']);
+  }
+  else {
+    foreach ($schema['dc_actor_history']['fields'] as $field_name => $field_spec) {
+      if (!$schema_handler->fieldExists('dc_actor_history', $field_name)) {
+        $schema_handler->addField('dc_actor_history', $field_name, $field_spec);
+      }
+    }
+    foreach (($schema['dc_actor_history']['indexes'] ?? []) as $index_name => $index_fields) {
+      if (!$schema_handler->indexExists('dc_actor_history', $index_name)) {
+        $schema_handler->addIndex('dc_actor_history', $index_name, $index_fields, $schema['dc_actor_history']);
+      }
+    }
+    if (!$schema_handler->indexExists('dc_actor_history', 'legacy_npc_history_id')) {
+      $schema_handler->addUniqueKey('dc_actor_history', 'legacy_npc_history_id', ['legacy_npc_history_id'], $schema['dc_actor_history']);
+    }
+  }
+
+  if (!$schema_handler->tableExists('dc_npc_history')) {
+    return t('Actor history canonicalization complete: legacy dc_npc_history table was already absent.');
+  }
+
+  $legacy_rows = $database->select('dc_npc_history', 'h')
+    ->fields('h')
+    ->orderBy('id', 'ASC')
+    ->execute()
+    ->fetchAll(\PDO::FETCH_ASSOC);
+
+  $migrated_rows = 0;
+  $skipped_existing_rows = 0;
+  $unresolved_rows = [];
+  foreach ($legacy_rows as $legacy_row) {
+    $legacy_id = (int) ($legacy_row['id'] ?? 0);
+    if ($legacy_id <= 0) {
+      continue;
+    }
+
+    $already_migrated = (bool) $database->select('dc_actor_history', 'ah')
+      ->condition('legacy_npc_history_id', $legacy_id)
+      ->countQuery()
+      ->execute()
+      ->fetchField();
+    if ($already_migrated) {
+      $skipped_existing_rows++;
+      continue;
+    }
+
+    $campaign_character_id = (int) ($legacy_row['npc_id'] ?? 0);
+    $campaign_id = (int) ($legacy_row['campaign_id'] ?? 0);
+    $actor_row = $database->select('dc_campaign_characters', 'c')
+      ->fields('c', ['id', 'campaign_id', 'instance_id', 'type'])
+      ->condition('id', $campaign_character_id)
+      ->condition('type', 'npc')
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    if (!$actor_row || (int) ($actor_row['campaign_id'] ?? -1) !== $campaign_id) {
+      $unresolved_rows[] = sprintf(
+        'legacy_id=%d npc_id=%d campaign_id=%d',
+        $legacy_id,
+        $campaign_character_id,
+        $campaign_id
+      );
+      continue;
+    }
+
+    $database->insert('dc_actor_history')
+      ->fields([
+        'campaign_character_id' => $campaign_character_id,
+        'campaign_id' => $campaign_id,
+        'session_id' => (int) ($legacy_row['session_id'] ?? 0),
+        'actor_type' => (string) ($actor_row['type'] ?? 'npc'),
+        'actor_instance_id' => (string) ($actor_row['instance_id'] ?? ''),
+        'change_type' => (string) ($legacy_row['change_type'] ?? ''),
+        'old_value' => (string) ($legacy_row['old_value'] ?? ''),
+        'new_value' => (string) ($legacy_row['new_value'] ?? ''),
+        'trigger' => (string) ($legacy_row['trigger'] ?? ''),
+        'created' => (int) ($legacy_row['created'] ?? 0),
+        'legacy_npc_history_id' => $legacy_id,
+      ])
+      ->execute();
+    $migrated_rows++;
+  }
+
+  if ($unresolved_rows !== []) {
+    $preview = implode('; ', array_slice($unresolved_rows, 0, 5));
+    throw new \Drupal\Core\Utility\UpdateException(
+      'Actor-history canonicalization failed: unresolved legacy rows remain. Examples: ' . $preview
+    );
+  }
+
+  $schema_handler->dropTable('dc_npc_history');
+
+  return t(
+    'Actor history canonicalization complete: migrated @migrated legacy rows, skipped @skipped previously migrated rows, and dropped dc_npc_history.',
+    [
+      '@migrated' => $migrated_rows,
+      '@skipped' => $skipped_existing_rows,
+    ]
+  );
+}
+
+/**
+ * Retire legacy dc_npc table once canonical actor rows are validated.
+ */
+function dungeoncrawler_content_update_10085() {
+  $database = \Drupal::database();
+  $schema_handler = $database->schema();
+
+  if (!$schema_handler->tableExists('dc_npc')) {
+    return t('Legacy dc_npc table was already absent.');
+  }
+  if (!$schema_handler->tableExists('dc_campaign_characters')) {
+    throw new \Drupal\Core\Utility\UpdateException('dc_campaign_characters table is required before retiring dc_npc.');
+  }
+
+  $legacy_npc_rows = $database->select('dc_npc', 'n')
+    ->fields('n')
+    ->orderBy('id', 'ASC')
+    ->execute()
+    ->fetchAll(\PDO::FETCH_ASSOC);
+
+  $validated_rows = 0;
+  $inserted_actor_rows = 0;
+  foreach ($legacy_npc_rows as $npc_row) {
+    $campaign_id = (int) ($npc_row['campaign_id'] ?? 0);
+    $entity_ref = trim((string) ($npc_row['entity_ref'] ?? ''));
+    if ($entity_ref === '') {
+      throw new \Drupal\Core\Utility\UpdateException(sprintf(
+        'Legacy dc_npc retirement failed: row id=%d has empty entity_ref.',
+        (int) ($npc_row['id'] ?? 0)
+      ));
+    }
+
+    $actor_row = dungeoncrawler_content_resolve_actor_for_legacy_entity(
+      $database,
+      $campaign_id,
+      $entity_ref,
+      (string) ($npc_row['name'] ?? '')
+    );
+    if ($actor_row === NULL) {
+      $actor_row = dungeoncrawler_content_create_actor_from_npc($database, $npc_row);
+      if ($actor_row !== NULL) {
+        $inserted_actor_rows++;
+      }
+    }
+    if ($actor_row === NULL) {
+      throw new \Drupal\Core\Utility\UpdateException(sprintf(
+        'Legacy dc_npc retirement failed: unable to resolve canonical actor for row id=%d campaign_id=%d entity_ref=%s.',
+        (int) ($npc_row['id'] ?? 0),
+        $campaign_id,
+        $entity_ref
+      ));
+    }
+
+    $actor_id = (int) ($actor_row['id'] ?? 0);
+    if ($actor_id <= 0) {
+      throw new \Drupal\Core\Utility\UpdateException('Legacy dc_npc retirement failed: canonical actor row is missing id.');
+    }
+
+    $state_data = json_decode((string) ($actor_row['state_data'] ?? '{}'), TRUE);
+    if (!is_array($state_data)) {
+      $state_data = [];
+    }
+    $character_data = json_decode((string) ($actor_row['character_data'] ?? '{}'), TRUE);
+    if (!is_array($character_data)) {
+      $character_data = [];
+    }
+
+    $stats = is_array($state_data['stats'] ?? NULL) ? $state_data['stats'] : [];
+    $stats['perception'] = (int) ($npc_row['perception'] ?? 0);
+    $stats['ac'] = (int) ($npc_row['armor_class'] ?? 10);
+    $stats['currentHp'] = (int) ($npc_row['hit_points'] ?? 0);
+    $stats['maxHp'] = (int) ($npc_row['hit_points'] ?? 0);
+    $stats['fortitude'] = (int) ($npc_row['fort_save'] ?? 0);
+    $stats['reflex'] = (int) ($npc_row['ref_save'] ?? 0);
+    $stats['will'] = (int) ($npc_row['will_save'] ?? 0);
+    $state_data['stats'] = $stats;
+    $state_data['npc_profile'] = [
+      'attitude' => (string) ($npc_row['attitude'] ?? 'indifferent'),
+      'lore_notes' => (string) ($npc_row['lore_notes'] ?? ''),
+      'dialogue_notes' => (string) ($npc_row['dialogue_notes'] ?? ''),
+      'npc_archetype' => (string) ($npc_row['npc_archetype'] ?? ''),
+      'alignment' => (string) ($npc_row['alignment'] ?? ''),
+      'scene_ref' => (string) ($npc_row['scene_ref'] ?? ''),
+      'is_gallery_entry' => (int) ($npc_row['is_gallery_entry'] ?? 0),
+      'gallery_source_id' => (int) ($npc_row['gallery_source_id'] ?? 0),
+      'elite_weak_template' => NULL,
+    ];
+    if (empty($state_data['description'])) {
+      $state_data['description'] = (string) ($npc_row['dialogue_notes'] ?? '');
+    }
+    if (empty($state_data['backstory'])) {
+      $state_data['backstory'] = (string) ($npc_row['lore_notes'] ?? '');
+    }
+
+    if (empty($character_data['attitude'])) {
+      $character_data['attitude'] = (string) ($npc_row['attitude'] ?? 'indifferent');
+    }
+    if (empty($character_data['alignment'])) {
+      $character_data['alignment'] = (string) ($npc_row['alignment'] ?? 'N');
+    }
+
+    $canonical_instance_id = $entity_ref;
+    if (!str_starts_with($canonical_instance_id, 'npc_')) {
+      $canonical_instance_id = 'npc_' . $canonical_instance_id;
+    }
+
+    $actor_role = trim((string) ($actor_row['role'] ?? ''));
+    if ($actor_role === '') {
+      $actor_role = trim((string) ($npc_row['role'] ?? 'npc'));
+    }
+    if ($actor_role === '') {
+      $actor_role = 'npc';
+    }
+
+    $is_gallery_entry = (int) ($npc_row['is_gallery_entry'] ?? 0) === 1;
+    $lifecycle_state = ($campaign_id === 0 || $is_gallery_entry)
+      ? 'npc_gallery_template'
+      : ($actor_role === 'merchant' ? 'campaign_merchant' : 'campaign_npc');
+    $now = \Drupal::time()->getRequestTime();
+
+    $database->update('dc_campaign_characters')
+      ->fields([
+        'name' => (string) ($npc_row['name'] ?? $actor_row['name'] ?? ''),
+        'instance_id' => $canonical_instance_id,
+        'type' => 'npc',
+        'role' => $actor_role,
+        'level' => (int) ($npc_row['level'] ?? ($actor_row['level'] ?? 1)),
+        'armor_class' => (int) ($npc_row['armor_class'] ?? ($actor_row['armor_class'] ?? 10)),
+        'hp_current' => (int) ($npc_row['hit_points'] ?? ($actor_row['hp_current'] ?? 0)),
+        'hp_max' => (int) ($npc_row['hit_points'] ?? ($actor_row['hp_max'] ?? 0)),
+        'character_data' => json_encode($character_data, JSON_UNESCAPED_UNICODE),
+        'state_data' => json_encode($state_data, JSON_UNESCAPED_UNICODE),
+        'lifecycle_state' => $lifecycle_state,
+        'changed' => $now,
+        'updated' => $now,
+      ])
+      ->condition('id', $actor_id)
+      ->execute();
+
+    $validated_rows++;
+  }
+
+  $schema_handler->dropTable('dc_npc');
+
+  return t(
+    'Legacy NPC retirement complete: validated @validated dc_npc rows, inserted @inserted canonical actor rows, and dropped dc_npc.',
+    [
+      '@validated' => $validated_rows,
+      '@inserted' => $inserted_actor_rows,
+    ]
+  );
+}
+
+/**
+ * Resolve a canonical actor row for a legacy entity reference.
+ */
+function dungeoncrawler_content_resolve_actor_for_legacy_entity(\Drupal\Core\Database\Connection $database, int $campaign_id, string $entity_ref, string $display_name): ?array {
+  $entity_ref = trim($entity_ref);
+  $display_name = trim($display_name);
+  if ($campaign_id < 0) {
+    return NULL;
+  }
+
+  if ($entity_ref !== '') {
+    $row = $database->select('dc_campaign_characters', 'c')
+      ->fields('c')
+      ->condition('campaign_id', $campaign_id)
+      ->condition('instance_id', $entity_ref)
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    if ($row) {
+      return $row;
+    }
+
+    $prefixed_ref = str_starts_with($entity_ref, 'npc_') ? $entity_ref : 'npc_' . $entity_ref;
+    if ($prefixed_ref !== $entity_ref) {
+      $row = $database->select('dc_campaign_characters', 'c')
+        ->fields('c')
+        ->condition('campaign_id', $campaign_id)
+        ->condition('instance_id', $prefixed_ref)
+        ->range(0, 1)
+        ->execute()
+        ->fetchAssoc();
+      if ($row) {
+        return $row;
+      }
+    }
+  }
+
+  if ($display_name !== '') {
+    $rows = $database->select('dc_campaign_characters', 'c')
+      ->fields('c')
+      ->condition('campaign_id', $campaign_id)
+      ->condition('name', $display_name)
+      ->range(0, 2)
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC);
+    if (count($rows) === 1) {
+      return $rows[0];
+    }
+  }
+
+  return NULL;
+}
+
+/**
+ * Create a canonical actor row from legacy NPC payload.
+ */
+function dungeoncrawler_content_create_actor_from_npc(\Drupal\Core\Database\Connection $database, array $npc_row): ?array {
+  $campaign_id = (int) ($npc_row['campaign_id'] ?? 0);
+  $entity_ref = trim((string) ($npc_row['entity_ref'] ?? ''));
+  if ($campaign_id < 0 || $entity_ref === '') {
+    return NULL;
+  }
+
+  $instance_id = str_starts_with($entity_ref, 'npc_') ? $entity_ref : 'npc_' . $entity_ref;
+  $role = trim((string) ($npc_row['role'] ?? 'npc'));
+  if ($role === '') {
+    $role = 'npc';
+  }
+  $is_gallery_entry = (int) ($npc_row['is_gallery_entry'] ?? 0) === 1;
+  $lifecycle_state = ($campaign_id === 0 || $is_gallery_entry)
+    ? 'npc_gallery_template'
+    : ($role === 'merchant' ? 'campaign_merchant' : 'campaign_npc');
+  $now = \Drupal::time()->getRequestTime();
+
+  $state_data = [
+    'role' => $role,
+    'content_id' => $entity_ref,
+    'description' => (string) ($npc_row['dialogue_notes'] ?? ''),
+    'backstory' => (string) ($npc_row['lore_notes'] ?? ''),
+    'stats' => [
+      'perception' => (int) ($npc_row['perception'] ?? 0),
+      'ac' => (int) ($npc_row['armor_class'] ?? 10),
+      'currentHp' => (int) ($npc_row['hit_points'] ?? 0),
+      'maxHp' => (int) ($npc_row['hit_points'] ?? 0),
+      'fortitude' => (int) ($npc_row['fort_save'] ?? 0),
+      'reflex' => (int) ($npc_row['ref_save'] ?? 0),
+      'will' => (int) ($npc_row['will_save'] ?? 0),
+    ],
+  ];
+  $character_data = [
+    'name' => (string) ($npc_row['name'] ?? $entity_ref),
+    'type' => 'npc',
+    'role' => $role,
+    'level' => (int) ($npc_row['level'] ?? 1),
+    'attitude' => (string) ($npc_row['attitude'] ?? 'indifferent'),
+    'alignment' => (string) ($npc_row['alignment'] ?? 'N'),
+    'description' => (string) ($npc_row['dialogue_notes'] ?? ''),
+    'backstory' => (string) ($npc_row['lore_notes'] ?? ''),
+  ];
+
+  $actor_id = (int) $database->insert('dc_campaign_characters')
+    ->fields([
+      'campaign_id' => $campaign_id,
+      'character_id' => 0,
+      'source_character_id' => NULL,
+      'uid' => 0,
+      'role' => $role,
+      'is_active' => 1,
+      'joined' => $now,
+      'instance_id' => $instance_id,
+      'type' => 'npc',
+      'state_data' => json_encode($state_data, JSON_UNESCAPED_UNICODE),
+      'location_type' => 'global',
+      'location_ref' => '',
+      'updated' => $now,
+      'uuid' => \Drupal::service('uuid')->generate(),
+      'name' => (string) ($npc_row['name'] ?? $entity_ref),
+      'level' => (int) ($npc_row['level'] ?? 1),
+      'ancestry' => '',
+      'class' => '',
+      'character_data' => json_encode($character_data, JSON_UNESCAPED_UNICODE),
+      'default_character_data' => NULL,
+      'default_locations' => NULL,
+      'portrait' => NULL,
+      'status' => 1,
+      'created' => $now,
+      'changed' => $now,
+      'hp_current' => (int) ($npc_row['hit_points'] ?? 0),
+      'hp_max' => (int) ($npc_row['hit_points'] ?? 0),
+      'armor_class' => (int) ($npc_row['armor_class'] ?? 10),
+      'experience_points' => 0,
+      'position_q' => 0,
+      'position_r' => 0,
+      'last_room_id' => '',
+      'version' => 1,
+      'lifecycle_state' => $lifecycle_state,
+    ])
+    ->execute();
+
+  return $database->select('dc_campaign_characters', 'c')
+    ->fields('c')
+    ->condition('id', $actor_id)
+    ->range(0, 1)
+    ->execute()
+    ->fetchAssoc() ?: NULL;
+}
+
+/**
+ * Create a canonical actor row from psychology payload when actor row is absent.
+ */
+function dungeoncrawler_content_create_actor_from_psychology(\Drupal\Core\Database\Connection $database, array $psychology_row): ?array {
+  $campaign_id = (int) ($psychology_row['campaign_id'] ?? 0);
+  $entity_ref = trim((string) ($psychology_row['entity_ref'] ?? ''));
+  $display_name = trim((string) ($psychology_row['display_name'] ?? ''));
+  if ($campaign_id <= 0 || $entity_ref === '') {
+    return NULL;
+  }
+
+  $character_sheet = json_decode((string) ($psychology_row['character_sheet'] ?? '{}'), TRUE);
+  if (!is_array($character_sheet)) {
+    $character_sheet = [];
+  }
+  $stats = is_array($character_sheet['stats'] ?? NULL) ? $character_sheet['stats'] : [];
+  $role = trim((string) ($character_sheet['role'] ?? 'npc'));
+  if ($role === '') {
+    $role = 'npc';
+  }
+
+  $instance_id = str_starts_with($entity_ref, 'npc_') ? $entity_ref : 'npc_' . $entity_ref;
+  $name = $display_name !== '' ? $display_name : trim((string) ($character_sheet['display_name'] ?? $entity_ref));
+  if ($name === '') {
+    $name = $entity_ref;
+  }
+  $hp_max = (int) ($stats['maxHp'] ?? $stats['hp'] ?? 0);
+  $hp_current = (int) ($stats['currentHp'] ?? $stats['hp'] ?? $hp_max);
+  $armor_class = (int) ($stats['ac'] ?? $stats['armor_class'] ?? 10);
+  $level = (int) ($character_sheet['level'] ?? 1);
+  $ancestry = (string) ($character_sheet['ancestry'] ?? '');
+  $class = (string) ($character_sheet['class'] ?? '');
+  $description = (string) ($character_sheet['description'] ?? '');
+  $backstory = (string) ($character_sheet['backstory'] ?? '');
+
+  $state_data = [
+    'role' => $role,
+    'content_id' => $entity_ref,
+    'description' => $description,
+    'backstory' => $backstory,
+    'stats' => $stats,
+  ];
+  $character_data = [
+    'name' => $name,
+    'type' => 'npc',
+    'role' => $role,
+    'level' => $level,
+    'ancestry' => $ancestry,
+    'class' => $class,
+    'description' => $description,
+    'backstory' => $backstory,
+  ];
+
+  $now = \Drupal::time()->getRequestTime();
+  $actor_id = (int) $database->insert('dc_campaign_characters')
+    ->fields([
+      'campaign_id' => $campaign_id,
+      'character_id' => 0,
+      'source_character_id' => NULL,
+      'uid' => 0,
+      'role' => $role,
+      'is_active' => 1,
+      'joined' => $now,
+      'instance_id' => $instance_id,
+      'type' => 'npc',
+      'state_data' => json_encode($state_data, JSON_UNESCAPED_UNICODE),
+      'location_type' => 'global',
+      'location_ref' => '',
+      'updated' => $now,
+      'uuid' => \Drupal::service('uuid')->generate(),
+      'name' => $name,
+      'level' => $level,
+      'ancestry' => $ancestry,
+      'class' => $class,
+      'character_data' => json_encode($character_data, JSON_UNESCAPED_UNICODE),
+      'default_character_data' => NULL,
+      'default_locations' => NULL,
+      'portrait' => NULL,
+      'status' => 1,
+      'created' => $now,
+      'changed' => $now,
+      'hp_current' => $hp_current,
+      'hp_max' => $hp_max,
+      'armor_class' => $armor_class,
+      'experience_points' => 0,
+      'position_q' => 0,
+      'position_r' => 0,
+      'last_room_id' => '',
+      'version' => 1,
+      'lifecycle_state' => $role === 'merchant' ? 'campaign_merchant' : 'campaign_npc',
+    ])
+    ->execute();
+
+  return $database->select('dc_campaign_characters', 'c')
+    ->fields('c')
+    ->condition('id', $actor_id)
+    ->range(0, 1)
+    ->execute()
+    ->fetchAssoc() ?: NULL;
 }
 
 /**

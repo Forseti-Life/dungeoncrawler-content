@@ -109,11 +109,19 @@ class NpcServiceTest extends TestCase {
     $account->method('id')->willReturn(7);
     $account->method('hasPermission')->with('administer dungeoncrawler content')->willReturn(FALSE);
 
-    $select_result = new class {
+    $campaign_owner_result = new class {
       public function fields($table, $fields) { return $this; }
       public function condition($field, $value, $operator = NULL) { return $this; }
+      public function range($start = 0, $length = NULL) { return $this; }
       public function execute() { return $this; }
       public function fetchField() { return 7; }
+    };
+    $actor_instance_result = new class {
+      public function fields($table, $fields) { return $this; }
+      public function condition($field, $value, $operator = NULL) { return $this; }
+      public function range($start = 0, $length = NULL) { return $this; }
+      public function execute() { return $this; }
+      public function fetchField() { return FALSE; }
     };
     $insert_query = new class {
       public function fields(array $fields): self { return $this; }
@@ -121,7 +129,9 @@ class NpcServiceTest extends TestCase {
     };
 
     $database = $this->createMock(Connection::class);
-    $database->method('select')->willReturn($select_result);
+    $database->method('select')->willReturnCallback(static function (string $table, ...$unused) use ($campaign_owner_result, $actor_instance_result) {
+      return $table === 'dc_campaign_characters' ? $actor_instance_result : $campaign_owner_result;
+    });
     $database->expects($this->once())
       ->method('startTransaction')
       ->willReturnCallback(static function () use (&$order) {
@@ -130,7 +140,7 @@ class NpcServiceTest extends TestCase {
           public function rollBack(): void {}
         };
       });
-    $database->method('insert')->with('dc_npc')->willReturn($insert_query);
+    $database->method('insert')->with('dc_campaign_characters')->willReturn($insert_query);
 
     $faction_generation = $this->createMock(FactionGenerationService::class);
     $faction_generation->expects($this->once())

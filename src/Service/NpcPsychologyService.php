@@ -8,7 +8,7 @@ use Drupal\ai_conversation\Service\AIApiService;
 use Psr\Log\LoggerInterface;
 
 /**
- * Manages NPC personality matrices, inner monologues, and attitude shifts.
+ * Manages actor personality matrices, inner monologues, and attitude shifts.
  *
  * Each NPC in a campaign gets a full psychology profile that informs how the AI
  * portrays them in chat, combat, and exploration. Inner monologues are generated
@@ -88,7 +88,7 @@ class NpcPsychologyService {
   // -------------------------------------------------------------------------
 
   /**
-   * Get or create a psychology profile for an NPC in a campaign.
+   * Get or create a psychology profile for an actor in a campaign.
    *
    * @param int $campaign_id
    *   Campaign ID.
@@ -124,10 +124,17 @@ class NpcPsychologyService {
    */
   public function loadProfile(int $campaign_id, string $entity_ref): ?array {
     try {
-      $row = $this->database->select('dc_npc_psychology', 'p')
+      $candidates = $this->buildEntityRefCandidates($entity_ref);
+      $query = $this->database->select('dc_psychology', 'p')
         ->fields('p')
-        ->condition('campaign_id', $campaign_id)
-        ->condition('entity_ref', $entity_ref)
+        ->condition('campaign_id', $campaign_id);
+      $match = $query->orConditionGroup()
+        ->condition('entity_ref', $candidates, 'IN')
+        ->condition('actor_instance_id', $candidates, 'IN');
+      $row = $query
+        ->condition($match)
+        ->orderBy('updated', 'DESC')
+        ->range(0, 1)
         ->execute()
         ->fetchAssoc();
 
@@ -136,7 +143,8 @@ class NpcPsychologyService {
       }
 
       $profile = $this->hydrateProfile($row);
-      $this->repairStoredProfileStructure($campaign_id, $entity_ref, $row, $profile);
+      $profile_ref = trim((string) ($row['actor_instance_id'] ?? $row['entity_ref'] ?? $entity_ref));
+      $this->repairStoredProfileStructure($campaign_id, $profile_ref, $row, $profile);
       return $profile;
     }
     catch (\Exception $e) {
@@ -149,8 +157,18 @@ class NpcPsychologyService {
    * Create a new psychology profile from seed data.
    */
   protected function createProfile(int $campaign_id, string $entity_ref, array $seed_data): array {
-    $display_name = $seed_data['display_name'] ?? $entity_ref;
-    $creature_type = $seed_data['creature_type'] ?? $this->inferCreatureType($entity_ref);
+    $actor = $this->resolveOrCreateCanonicalActor($campaign_id, $entity_ref, $seed_data);
+    $canonical_ref = (string) ($actor['instance_id'] ?? '');
+    if ($canonical_ref === '') {
+      throw new \RuntimeException(sprintf(
+        'Cannot create psychology profile: failed to resolve canonical actor ref for campaign_id=%d entity_ref=%s.',
+        $campaign_id,
+        $entity_ref
+      ));
+    }
+
+    $display_name = $seed_data['display_name'] ?? ($actor['name'] ?? $canonical_ref);
+    $creature_type = $seed_data['creature_type'] ?? $this->inferCreatureType($canonical_ref);
     $level = (int) ($seed_data['level'] ?? 1);
     $role = $seed_data['role'] ?? 'neutral';
     $initial_attitude = $seed_data['initial_attitude'] ?? $this->defaultAttitudeForRole($role);
@@ -188,10 +206,13 @@ class NpcPsychologyService {
     $now = time();
 
     try {
-      $this->database->insert('dc_npc_psychology')
+      $this->database->insert('dc_psychology')
         ->fields([
           'campaign_id' => $campaign_id,
-          'entity_ref' => $entity_ref,
+          'campaign_character_id' => (int) ($actor['id'] ?? 0),
+          'actor_instance_id' => $canonical_ref,
+          'actor_type' => (string) ($actor['type'] ?? 'npc'),
+          'entity_ref' => $canonical_ref,
           'display_name' => $display_name,
           'character_sheet' => json_encode($character_sheet),
           'attitude' => $initial_attitude,
@@ -211,14 +232,18 @@ class NpcPsychologyService {
     }
     catch (\Exception $e) {
       $this->logger->error('Failed to create NPC psychology for @ref: @err', [
-        '@ref' => $entity_ref,
+        '@ref' => $canonical_ref,
         '@err' => $e->getMessage(),
       ]);
+      throw $e;
     }
 
-    return $this->loadProfile($campaign_id, $entity_ref) ?? [
+    return $this->loadProfile($campaign_id, $canonical_ref) ?? [
       'campaign_id' => $campaign_id,
-      'entity_ref' => $entity_ref,
+      'campaign_character_id' => (int) ($actor['id'] ?? 0),
+      'actor_instance_id' => $canonical_ref,
+      'actor_type' => (string) ($actor['type'] ?? 'npc'),
+      'entity_ref' => $canonical_ref,
       'display_name' => $display_name,
       'character_sheet' => $character_sheet,
       'attitude' => $initial_attitude,
@@ -256,10 +281,15 @@ class NpcPsychologyService {
     $fields['updated'] = time();
 
     try {
-      $affected = $this->database->update('dc_npc_psychology')
+      $candidates = $this->buildEntityRefCandidates($entity_ref);
+      $query = $this->database->update('dc_psychology')
         ->fields($fields)
-        ->condition('campaign_id', $campaign_id)
-        ->condition('entity_ref', $entity_ref)
+        ->condition('campaign_id', $campaign_id);
+      $match = $query->orConditionGroup()
+        ->condition('entity_ref', $candidates, 'IN')
+        ->condition('actor_instance_id', $candidates, 'IN');
+      $affected = $query
+        ->condition($match)
         ->execute();
       return $affected > 0;
     }
@@ -406,6 +436,10 @@ class NpcPsychologyService {
   protected function generateAiInnerThought(array $profile, string $event_type, string $event_description, array $context): array {
     $sheet = $this->buildCharacterSheetContext($profile);
     $recent_thoughts = $this->getRecentThoughts($profile, 3);
+    $action_availability_context = $this->buildActorActionAvailabilityPromptContext(
+      (int) ($profile['campaign_id'] ?? 0),
+      (string) ($profile['entity_ref'] ?? '')
+    );
 
     $prompt = "You are the inner mind of {$profile['display_name']}, an NPC.\n\n";
     $prompt .= "=== CHARACTER SHEET ===\n{$sheet}\n\n";
@@ -413,6 +447,9 @@ class NpcPsychologyService {
 
     if ($recent_thoughts) {
       $prompt .= "=== RECENT INNER THOUGHTS ===\n{$recent_thoughts}\n\n";
+    }
+    if ($action_availability_context !== '') {
+      $prompt .= "=== ACTION AVAILABILITY (AUTHORITATIVE) ===\n{$action_availability_context}\n\n";
     }
 
     $prompt .= "=== EVENT THAT JUST OCCURRED ===\n";
@@ -430,6 +467,7 @@ class NpcPsychologyService {
     $prompt .= "Your available tools are limited to the same player-facing lookup and action surfaces a player character has. ";
     $prompt .= "Lookup tools: spell/focus-spell lookups via /api/spells, /api/spells/{spell_id}, and /api/focus-spells, plus feat lookups via /api/feats and /api/feats/{feat_id}. ";
     $prompt .= "Action tools: only the player action-bar / coordinator actions move or stride, strike, interact, talk, search, cast_spell, consume_item, skill actions, feat actions, navigate, and end_turn, as represented by GameCoordinatorApi sendAction()/move()/strike()/interact()/talk()/search()/castSpell()/endTurn(), the direct action-rail handlers executeDirectAttack/executeDirectNavigate/executeDirectInteract/executeDirectSpell/executeDirectConsumable/executeDirectSkill/executeDirectFeat, and the matching player routes /api/game/{campaign_id}/action, /api/character/{character_id}/cast-spell, /api/character/{character_id}/actions, and /api/character/{character_id}/inventory. ";
+    $prompt .= "When action availability is provided, treat it as the authority for what is legal right now and avoid imagining actions outside that contract. ";
     $prompt .= "Do not assume any GM-only, admin-only, campaign-state mutation, library mutation, or code-changing tool exists for you.\n";
     $prompt .= "\nGenerate this NPC's private inner thought reaction. Consider their personality, motivations, internal conflict, coping habits, stress response, and current attitude.\n\n";
     $prompt .= "Respond ONLY with valid JSON:\n";
@@ -446,7 +484,7 @@ class NpcPsychologyService {
         'npc_inner_monologue',
         ['campaign_id' => $profile['campaign_id'], 'npc' => $profile['entity_ref']],
         [
-          'system_prompt' => "You generate NPC inner monologue as JSON. Stay in character. Be concise. This NPC has no authority to change code, campaign state, room state, character sheets, rules, or the content library. Its available tools are only the same player-facing lookup and action surfaces available to a player character: spell/focus-spell lookups via /api/spells, /api/spells/{spell_id}, and /api/focus-spells; feat lookups via /api/feats and /api/feats/{feat_id}; and the player action-bar / coordinator actions move/stride, strike/attack, interact, talk, search, cast_spell, consume_item, skill, feat, navigate, and end_turn via GameCoordinatorApi and the matching player routes. The attitude_shift should reflect how significant the event is — most events are 0 or ±1, only extreme events warrant ±2.",
+          'system_prompt' => "You generate NPC inner monologue as JSON. Stay in character. Be concise. This NPC has no authority to change code, campaign state, room state, character sheets, rules, or the content library. Its available tools are only the same player-facing lookup and action surfaces available to a player character: spell/focus-spell lookups via /api/spells, /api/spells/{spell_id}, and /api/focus-spells; feat lookups via /api/feats and /api/feats/{feat_id}; and the player action-bar / coordinator actions move/stride, strike/attack, interact, talk, search, cast_spell, consume_item, skill, feat, navigate, and end_turn via GameCoordinatorApi and the matching player routes. If the prompt includes action availability, treat it as authoritative and do not assume unsupported actions. The attitude_shift should reflect how significant the event is — most events are 0 or ±1, only extreme events warrant ±2.",
           'max_tokens' => 250,
           'skip_cache' => TRUE,
         ]
@@ -466,6 +504,34 @@ class NpcPsychologyService {
 
     // If AI response wasn't valid JSON, fall back.
     return $this->generateFallbackThought($profile, $event_type, $event_description, $context);
+  }
+
+  /**
+   * Build actor-scoped action availability prompt context when resolvable.
+   */
+  protected function buildActorActionAvailabilityPromptContext(int $campaign_id, string $actor_id): string {
+    $actor_id = trim($actor_id);
+    if ($campaign_id <= 0 || $actor_id === '' || !\Drupal::hasService('dungeoncrawler_content.game_coordinator')) {
+      return '';
+    }
+
+    /** @var \Drupal\dungeoncrawler_content\Service\GameCoordinatorService $coordinator */
+    $coordinator = \Drupal::service('dungeoncrawler_content.game_coordinator');
+    $availability = $coordinator->getActionAvailabilityForActor($campaign_id, $actor_id);
+    if (!is_array($availability)) {
+      return '';
+    }
+
+    $payload = [
+      'available_actions' => is_array($availability['available_actions'] ?? NULL)
+        ? $availability['available_actions']
+        : [],
+      'action_contract' => is_array($availability['action_contract'] ?? NULL)
+        ? $availability['action_contract']
+        : NULL,
+    ];
+
+    return json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) ?: '';
   }
 
   /**
@@ -882,7 +948,7 @@ class NpcPsychologyService {
    */
   public function getCampaignProfiles(int $campaign_id): array {
     try {
-      $rows = $this->database->select('dc_npc_psychology', 'p')
+      $rows = $this->database->select('dc_psychology', 'p')
         ->fields('p')
         ->condition('campaign_id', $campaign_id)
         ->execute()
@@ -1283,6 +1349,185 @@ class NpcPsychologyService {
       $normalized[] = $goal;
     }
     return $normalized;
+  }
+
+  /**
+   * Build acceptable reference candidates for canonical actor/profile lookup.
+   *
+   * @return array<int, string>
+   */
+  protected function buildEntityRefCandidates(string $entity_ref): array {
+    $entity_ref = trim($entity_ref);
+    if ($entity_ref === '') {
+      return [];
+    }
+
+    $candidates = [$entity_ref];
+    if (!str_starts_with($entity_ref, 'npc_')) {
+      $candidates[] = 'npc_' . $entity_ref;
+    }
+    elseif (str_starts_with($entity_ref, 'npc_')) {
+      $unprefixed = substr($entity_ref, 4);
+      if ($unprefixed !== '') {
+        $candidates[] = $unprefixed;
+      }
+    }
+
+    return array_values(array_unique(array_filter($candidates, static fn($value): bool => trim((string) $value) !== '')));
+  }
+
+  /**
+   * Resolve or create canonical actor row for psychology ownership.
+   *
+   * @param array<string, mixed> $seed_data
+   * @return array<string, mixed>
+   */
+  protected function resolveOrCreateCanonicalActor(int $campaign_id, string $entity_ref, array $seed_data = []): array {
+    $candidates = $this->buildEntityRefCandidates($entity_ref);
+    if ($candidates === []) {
+      throw new \InvalidArgumentException('Psychology profile requires a non-empty actor entity_ref.');
+    }
+
+    $query = $this->database->select('dc_campaign_characters', 'c')
+      ->fields('c')
+      ->condition('campaign_id', $campaign_id)
+      ->condition('instance_id', $candidates, 'IN')
+      ->orderBy('updated', 'DESC')
+      ->range(0, 1);
+    $row = $query->execute()->fetchAssoc();
+    if (is_array($row) && !empty($row)) {
+      return $row;
+    }
+
+    $display_name = trim((string) ($seed_data['display_name'] ?? ''));
+    if ($display_name !== '') {
+      $name_matches = $this->database->select('dc_campaign_characters', 'c')
+        ->fields('c')
+        ->condition('campaign_id', $campaign_id)
+        ->condition('name', $display_name)
+        ->range(0, 2)
+        ->execute()
+        ->fetchAll(\PDO::FETCH_ASSOC);
+      if (count($name_matches) === 1) {
+        return $name_matches[0];
+      }
+    }
+
+    $actor_type = $this->inferActorType($entity_ref, $seed_data);
+    if ($actor_type === 'pc') {
+      throw new \RuntimeException(sprintf(
+        'Psychology profile requires canonical PC actor row, but none exists for campaign_id=%d entity_ref=%s.',
+        $campaign_id,
+        $entity_ref
+      ));
+    }
+
+    return $this->createCanonicalActorRow($campaign_id, $entity_ref, $seed_data, $actor_type);
+  }
+
+  /**
+   * Infer actor type from seed payload and identifier.
+   *
+   * @param array<string, mixed> $seed_data
+   */
+  protected function inferActorType(string $entity_ref, array $seed_data = []): string {
+    $role = strtolower(trim((string) ($seed_data['role'] ?? '')));
+    $entity_type = strtolower(trim((string) ($seed_data['entity_type'] ?? '')));
+    if ($entity_type === 'pc' || $role === 'player' || str_starts_with($entity_ref, 'pc-')) {
+      return 'pc';
+    }
+    return 'npc';
+  }
+
+  /**
+   * Create a canonical actor row for a non-PC entity that needs psychology state.
+   *
+   * @param array<string, mixed> $seed_data
+   * @return array<string, mixed>
+   */
+  protected function createCanonicalActorRow(int $campaign_id, string $entity_ref, array $seed_data, string $actor_type = 'npc'): array {
+    $instance_id = str_starts_with($entity_ref, 'npc_') ? $entity_ref : 'npc_' . $entity_ref;
+    $name = trim((string) ($seed_data['display_name'] ?? $seed_data['name'] ?? $entity_ref));
+    if ($name === '') {
+      $name = $instance_id;
+    }
+
+    $stats = is_array($seed_data['stats'] ?? NULL) ? $seed_data['stats'] : [];
+    $role = trim((string) ($seed_data['role'] ?? 'npc'));
+    if ($role === '') {
+      $role = 'npc';
+    }
+
+    $now = time();
+    $state_data = [
+      'content_id' => $entity_ref,
+      'role' => $role,
+      'description' => (string) ($seed_data['description'] ?? ''),
+      'backstory' => (string) ($seed_data['backstory'] ?? ''),
+      'stats' => $stats,
+    ];
+    $character_data = [
+      'name' => $name,
+      'type' => $actor_type,
+      'role' => $role,
+      'level' => (int) ($seed_data['level'] ?? 1),
+      'description' => (string) ($seed_data['description'] ?? ''),
+      'backstory' => (string) ($seed_data['backstory'] ?? ''),
+      'stats' => $stats,
+    ];
+
+    $actor_id = (int) $this->database->insert('dc_campaign_characters')
+      ->fields([
+        'campaign_id' => $campaign_id,
+        'character_id' => 0,
+        'source_character_id' => NULL,
+        'uid' => 0,
+        'role' => $role,
+        'is_active' => 1,
+        'joined' => $now,
+        'instance_id' => $instance_id,
+        'type' => $actor_type,
+        'state_data' => json_encode($state_data, JSON_UNESCAPED_UNICODE),
+        'location_type' => 'global',
+        'location_ref' => '',
+        'updated' => $now,
+        'name' => $name,
+        'level' => max(1, (int) ($seed_data['level'] ?? 1)),
+        'ancestry' => (string) ($seed_data['ancestry'] ?? ''),
+        'class' => (string) ($seed_data['class'] ?? ''),
+        'character_data' => json_encode($character_data, JSON_UNESCAPED_UNICODE),
+        'default_character_data' => NULL,
+        'default_locations' => NULL,
+        'portrait' => NULL,
+        'status' => 1,
+        'created' => $now,
+        'changed' => $now,
+        'hp_current' => (int) ($stats['currentHp'] ?? $stats['hp'] ?? 0),
+        'hp_max' => (int) ($stats['maxHp'] ?? $stats['hp'] ?? 0),
+        'armor_class' => (int) ($stats['ac'] ?? 10),
+        'experience_points' => 0,
+        'position_q' => 0,
+        'position_r' => 0,
+        'last_room_id' => '',
+        'version' => 1,
+        'lifecycle_state' => $role === 'merchant' ? 'campaign_merchant' : 'campaign_npc',
+      ])
+      ->execute();
+
+    $row = $this->database->select('dc_campaign_characters', 'c')
+      ->fields('c')
+      ->condition('id', $actor_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    if (!is_array($row) || empty($row)) {
+      throw new \RuntimeException(sprintf(
+        'Failed to create canonical actor row for campaign_id=%d instance_id=%s.',
+        $campaign_id,
+        $instance_id
+      ));
+    }
+    return $row;
   }
 
 }

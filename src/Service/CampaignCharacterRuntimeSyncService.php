@@ -11,7 +11,7 @@ class CampaignCharacterRuntimeSyncService {
 
   protected Connection $database;
 
-  protected AnimalCompanionService $animalCompanionService;
+  protected FollowerSubsystemService $followerSubsystem;
 
   protected ?NpcSheetGenerationService $npcSheetGenerationService;
 
@@ -19,12 +19,12 @@ class CampaignCharacterRuntimeSyncService {
 
   public function __construct(
     Connection $database,
-    AnimalCompanionService $animal_companion_service,
+    FollowerSubsystemService $follower_subsystem,
     ?NpcSheetGenerationService $npc_sheet_generation_service = NULL,
     ?CharacterPortraitGenerationService $character_portrait_generator = NULL,
   ) {
     $this->database = $database;
-    $this->animalCompanionService = $animal_companion_service;
+    $this->followerSubsystem = $follower_subsystem;
     $this->npcSheetGenerationService = $npc_sheet_generation_service;
     $this->characterPortraitGenerator = $character_portrait_generator;
   }
@@ -75,12 +75,6 @@ class CampaignCharacterRuntimeSyncService {
       $record = $this->ensurePersistentRuntimeRecordIdentity($record, $campaign_id, 'pc');
       $room_id = $this->resolveRecordRoomId($record) ?: $active_room_id;
       $char_data = $this->decodeCharacterData($record);
-      $placement = $this->resolveCharacterPlacement($dungeon_payload, $room_id, $record, $occupied[$room_id] ?? []);
-      $occupied[$room_id][$placement['q'] . ',' . $placement['r']] = TRUE;
-
-      $hp_max = (int) ($record['hp_max'] ?: ($char_data['hp']['max'] ?? $char_data['calculated_stats']['max_hp'] ?? 20));
-      $hp_current = (int) ($record['hp_current'] ?: ($char_data['hp']['current'] ?? $hp_max));
-      $armor_class = (int) ($record['armor_class'] ?: ($char_data['ac'] ?? $char_data['calculated_stats']['ac'] ?? 10));
       $source_character_id = (int) ($record['source_character_id'] ?? 0);
       if ($source_character_id <= 0) {
         throw new \RuntimeException(sprintf(
@@ -88,6 +82,25 @@ class CampaignCharacterRuntimeSyncService {
           (int) ($record['id'] ?? 0)
         ));
       }
+      $backfill_result = $this->followerSubsystem->backfillPersistedActorRecordsOnCharacterData(
+        $char_data,
+        (string) $source_character_id
+      );
+      if (!empty($backfill_result['updated'])) {
+        $char_data = is_array($backfill_result['character_data'] ?? NULL) ? $backfill_result['character_data'] : $char_data;
+        $this->persistRuntimeCharacterData(
+          (int) ($record['id'] ?? 0),
+          $campaign_id,
+          $char_data
+        );
+        $record['character_data'] = json_encode($char_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+      }
+      $placement = $this->resolveCharacterPlacement($dungeon_payload, $room_id, $record, $occupied[$room_id] ?? []);
+      $occupied[$room_id][$placement['q'] . ',' . $placement['r']] = TRUE;
+
+      $hp_max = (int) ($record['hp_max'] ?: ($char_data['hp']['max'] ?? $char_data['calculated_stats']['max_hp'] ?? 20));
+      $hp_current = (int) ($record['hp_current'] ?: ($char_data['hp']['current'] ?? $hp_max));
+      $armor_class = (int) ($record['armor_class'] ?: ($char_data['ac'] ?? $char_data['calculated_stats']['ac'] ?? 10));
       $instance_id = (string) ($record['instance_id'] ?? '');
       if ($instance_id === '') {
         $instance_id = sprintf('pc-%d-%d', $campaign_id, (int) ($record['id'] ?? 0));
@@ -132,7 +145,7 @@ class CampaignCharacterRuntimeSyncService {
       ];
 
       $room_occupied = $occupied[$room_id] ?? [];
-      $this->injectOwnedAnimalCompanionEntity($dungeon_payload, $record, $char_data, $room_id, $placement['q'], $placement['r'], $room_occupied);
+      $this->injectOwnedRuntimeFollowerEntities($dungeon_payload, $record, $char_data, $room_id, $placement['q'], $placement['r'], $room_occupied);
       $occupied[$room_id] = $room_occupied;
     }
 
@@ -390,10 +403,13 @@ class CampaignCharacterRuntimeSyncService {
       return NULL;
     }
 
-    $existing_id = $this->database->select('dc_npc', 'n')
-      ->fields('n', ['id'])
+    $instance_id = str_starts_with($content_id, 'npc_') ? $content_id : 'npc_' . $content_id;
+
+    $existing_id = $this->database->select('dc_campaign_characters', 'lib')
+      ->fields('lib', ['id'])
       ->condition('campaign_id', $campaign_id)
-      ->condition('entity_ref', $content_id)
+      ->condition('type', 'npc')
+      ->condition('instance_id', $instance_id)
       ->range(0, 1)
       ->execute()
       ->fetchField();
@@ -401,29 +417,82 @@ class CampaignCharacterRuntimeSyncService {
       return (int) $existing_id;
     }
 
-    return (int) $this->database->insert('dc_npc')
-      ->fields([
-        'campaign_id' => $campaign_id,
-        'name' => (string) ($seed_data['name'] ?? $content_id),
-        'role' => (string) ($seed_data['role'] ?? 'neutral'),
-        'attitude' => (string) ($seed_data['attitude'] ?? 'indifferent'),
-        'level' => (int) ($seed_data['level'] ?? 1),
+    $now = time();
+    $role = (string) ($seed_data['role'] ?? 'npc');
+    $state_data = [
+      'content_id' => $content_id,
+      'role' => $role,
+      'description' => (string) ($seed_data['description'] ?? ''),
+      'backstory' => (string) ($seed_data['backstory'] ?? ''),
+      'stats' => [
         'perception' => (int) ($seed_data['stats']['perception'] ?? 0),
-        'armor_class' => (int) ($seed_data['stats']['ac'] ?? 10),
-        'hit_points' => (int) ($seed_data['stats']['maxHp'] ?? 0),
-        'fort_save' => (int) ($seed_data['stats']['fortitude'] ?? 0),
-        'ref_save' => (int) ($seed_data['stats']['reflex'] ?? 0),
-        'will_save' => (int) ($seed_data['stats']['will'] ?? 0),
+        'ac' => (int) ($seed_data['stats']['ac'] ?? 10),
+        'currentHp' => (int) ($seed_data['stats']['maxHp'] ?? 0),
+        'maxHp' => (int) ($seed_data['stats']['maxHp'] ?? 0),
+        'fortitude' => (int) ($seed_data['stats']['fortitude'] ?? 0),
+        'reflex' => (int) ($seed_data['stats']['reflex'] ?? 0),
+        'will' => (int) ($seed_data['stats']['will'] ?? 0),
+      ],
+      'npc_profile' => [
+        'attitude' => (string) ($seed_data['attitude'] ?? 'indifferent'),
+        'alignment' => (string) ($seed_data['alignment'] ?? 'N'),
         'lore_notes' => (string) ($seed_data['backstory'] ?? ''),
         'dialogue_notes' => (string) ($seed_data['description'] ?? ''),
-        'entity_ref' => $content_id,
-        'created' => time(),
-        'updated' => time(),
-        'npc_archetype' => '',
-        'alignment' => (string) ($seed_data['alignment'] ?? 'N'),
-        'is_gallery_entry' => 0,
-        'scene_ref' => '',
-        'gallery_source_id' => 0,
+      ],
+    ];
+    $character_data = [
+      'name' => (string) ($seed_data['name'] ?? $content_id),
+      'type' => 'npc',
+      'role' => $role,
+      'level' => (int) ($seed_data['level'] ?? 1),
+      'attitude' => (string) ($seed_data['attitude'] ?? 'indifferent'),
+      'alignment' => (string) ($seed_data['alignment'] ?? 'N'),
+      'description' => (string) ($seed_data['description'] ?? ''),
+      'backstory' => (string) ($seed_data['backstory'] ?? ''),
+      'stats' => is_array($seed_data['stats'] ?? NULL) ? $seed_data['stats'] : [],
+      'languages' => is_array($seed_data['languages'] ?? NULL) ? $seed_data['languages'] : ['Common'],
+      'senses' => is_array($seed_data['senses'] ?? NULL) ? $seed_data['senses'] : [],
+      'equipment' => is_array($seed_data['equipment'] ?? NULL) ? $seed_data['equipment'] : [],
+      'motivations' => (string) ($seed_data['motivations'] ?? ''),
+      'fears' => (string) ($seed_data['fears'] ?? ''),
+      'bonds' => (string) ($seed_data['bonds'] ?? ''),
+    ];
+
+    return (int) $this->database->insert('dc_campaign_characters')
+      ->fields([
+        'campaign_id' => $campaign_id,
+        'character_id' => 0,
+        'source_character_id' => NULL,
+        'name' => (string) ($seed_data['name'] ?? $content_id),
+        'role' => $role,
+        'uid' => 0,
+        'is_active' => 1,
+        'joined' => $now,
+        'instance_id' => $instance_id,
+        'type' => 'npc',
+        'state_data' => json_encode($state_data, JSON_UNESCAPED_UNICODE),
+        'location_type' => 'global',
+        'location_ref' => '',
+        'updated' => $now,
+        'level' => (int) ($seed_data['level'] ?? 1),
+        'armor_class' => (int) ($seed_data['stats']['ac'] ?? 10),
+        'hp_current' => (int) ($seed_data['stats']['maxHp'] ?? 0),
+        'hp_max' => (int) ($seed_data['stats']['maxHp'] ?? 0),
+        'experience_points' => 0,
+        'position_q' => 0,
+        'position_r' => 0,
+        'last_room_id' => '',
+        'ancestry' => (string) ($seed_data['ancestry'] ?? 'Humanoid'),
+        'class' => (string) ($seed_data['class'] ?? 'Commoner'),
+        'character_data' => json_encode($character_data, JSON_UNESCAPED_UNICODE),
+        'default_character_data' => NULL,
+        'default_locations' => NULL,
+        'portrait' => NULL,
+        'status' => 1,
+        'created' => $now,
+        'changed' => $now,
+        'version' => 1,
+        'lifecycle_state' => $role === 'merchant' ? 'campaign_merchant' : 'campaign_npc',
       ])
       ->execute();
   }
@@ -455,7 +524,7 @@ class CampaignCharacterRuntimeSyncService {
     $existing_link = $this->database->select('dc_generated_image_links', 'l')
       ->fields('l', ['image_id'])
       ->condition('campaign_id', $campaign_id)
-      ->condition('table_name', 'dc_npc')
+      ->condition('table_name', 'dc_campaign_characters')
       ->condition('object_id', (string) $library_npc_id)
       ->condition('slot', 'portrait')
       ->condition('variant', 'original')
@@ -472,7 +541,7 @@ class CampaignCharacterRuntimeSyncService {
         'image_id' => (int) $image_id,
         'scope_type' => 'campaign',
         'campaign_id' => $campaign_id,
-        'table_name' => 'dc_npc',
+        'table_name' => 'dc_campaign_characters',
         'object_id' => (string) $library_npc_id,
         'slot' => 'portrait',
         'variant' => 'original',
@@ -664,6 +733,22 @@ class CampaignCharacterRuntimeSyncService {
   }
 
   /**
+   * Persist updated runtime character_data for a campaign-character row.
+   */
+  protected function persistRuntimeCharacterData(int $record_id, int $campaign_id, array $character_data): void {
+    if ($record_id <= 0 || $campaign_id <= 0) {
+      return;
+    }
+    $this->database->update('dc_campaign_characters')
+      ->fields([
+        'character_data' => json_encode($character_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+      ])
+      ->condition('id', $record_id)
+      ->condition('campaign_id', $campaign_id)
+      ->execute();
+  }
+
+  /**
    * Build occupied hex lookup grouped by room.
    *
    * @return array<string, array<string, bool>>
@@ -787,66 +872,80 @@ class CampaignCharacterRuntimeSyncService {
   }
 
   /**
-   * Inject the owner's active animal companion as an ally NPC entity.
+   * Inject owner-linked runtime followers as ally NPC entities.
    */
-  protected function injectOwnedAnimalCompanionEntity(array &$dungeon_payload, array $record, array $char_data, string $room_id, int $owner_q, int $owner_r, array &$occupied): void {
-    $character_id = (string) ($record['id'] ?? '');
+  protected function injectOwnedRuntimeFollowerEntities(array &$dungeon_payload, array $record, array $char_data, string $room_id, int $owner_q, int $owner_r, array &$occupied): void {
+    $character_id = (string) ((int) ($record['source_character_id'] ?? 0));
+    if ($character_id === '' || $character_id === '0') {
+      $character_id = (string) ($record['id'] ?? '');
+    }
     if ($character_id === '') {
       return;
     }
 
-    $companion = $this->animalCompanionService->resolveCompanionFromCharacterData($char_data, $character_id);
-    if ($companion === NULL) {
+    $canonical_char_data = isset($char_data['character']) && is_array($char_data['character'])
+      ? $char_data['character']
+      : $char_data;
+    $profiles = $this->followerSubsystem->resolveRuntimeFollowerProfiles($canonical_char_data, $character_id);
+    if ($profiles === []) {
       return;
     }
 
-    $instance_id = 'animal-companion-' . $character_id;
-    foreach (($dungeon_payload['entities'] ?? []) as $entity) {
-      $existing_instance_id = (string) ($entity['instance_id'] ?? $entity['entity_instance_id'] ?? '');
-      if ($existing_instance_id === $instance_id) {
-        return;
+    foreach ($profiles as $profile) {
+      $instance_id = trim((string) ($profile['instance_id'] ?? ''));
+      if ($instance_id === '') {
+        continue;
       }
-    }
 
-    $placement = $this->findAdjacentCompanionHex($dungeon_payload, $room_id, $owner_q, $owner_r, $occupied);
-    $occupied[$placement['q'] . ',' . $placement['r']] = TRUE;
+      $already_present = FALSE;
+      foreach (($dungeon_payload['entities'] ?? []) as $entity) {
+        $existing_instance_id = (string) ($entity['instance_id'] ?? $entity['entity_instance_id'] ?? '');
+        if ($existing_instance_id === $instance_id) {
+          $already_present = TRUE;
+          break;
+        }
+      }
+      if ($already_present) {
+        continue;
+      }
 
-    $dungeon_payload['entities'][] = [
-      'entity_type' => 'npc',
-      'instance_id' => $instance_id,
-      'entity_instance_id' => $instance_id,
-      'entity_ref' => [
-        'content_type' => 'npc',
-        'content_id' => 'animal_companion_' . ($companion['species_id'] ?? 'unknown'),
-      ],
-      'placement' => [
-        'room_id' => $room_id,
-        'hex' => $placement,
-        'spawn_type' => 'npc',
-      ],
-      'state' => [
-        'active' => TRUE,
-        'metadata' => [
-          'display_name' => (string) ($companion['name'] ?? 'Animal Companion'),
-          'name' => (string) ($companion['name'] ?? 'Animal Companion'),
-          'role' => 'animal_companion',
-          'description' => (string) ($companion['support_benefit'] ?? ''),
-          'team' => 'ally',
-          'owner_character_id' => (int) $character_id,
-          'companion_species_id' => (string) ($companion['species_id'] ?? ''),
-          'companion_stage' => (string) ($companion['stage'] ?? 'young'),
-          'companion_specialization' => $companion['specialization'] ?? NULL,
-          'stats' => is_array($companion['stats'] ?? NULL) ? $companion['stats'] : [],
-          'movement_speed' => (int) ($companion['movement_speed'] ?? ($companion['stats']['speed'] ?? 25)),
-          'actions_per_turn' => (int) ($companion['actions_per_turn'] ?? 2),
-          'initiative_bonus' => (int) ($companion['stats']['initiative_bonus'] ?? $companion['stats']['perception'] ?? 0),
-          'traits' => is_array($companion['traits'] ?? NULL) ? $companion['traits'] : [],
-          'attacks' => is_array($companion['attacks'] ?? NULL) ? $companion['attacks'] : [],
-          'setting_state' => FALSE,
-          'spawn_policy' => 'owner_companion',
+      $placement = $this->findAdjacentCompanionHex($dungeon_payload, $room_id, $owner_q, $owner_r, $occupied);
+      $occupied[$placement['q'] . ',' . $placement['r']] = TRUE;
+
+      $extra_metadata = is_array($profile['metadata'] ?? NULL) ? $profile['metadata'] : [];
+      $dungeon_payload['entities'][] = [
+        'entity_type' => 'npc',
+        'instance_id' => $instance_id,
+        'entity_instance_id' => $instance_id,
+        'entity_ref' => [
+          'content_type' => 'npc',
+          'content_id' => (string) ($profile['content_id'] ?? ''),
         ],
-      ],
-    ];
+        'placement' => [
+          'room_id' => $room_id,
+          'hex' => $placement,
+          'spawn_type' => 'npc',
+        ],
+        'state' => [
+          'active' => TRUE,
+          'metadata' => array_merge($extra_metadata, [
+            'display_name' => (string) ($profile['display_name'] ?? 'Follower'),
+            'name' => (string) ($profile['display_name'] ?? 'Follower'),
+            'role' => (string) ($profile['role'] ?? 'follower'),
+            'description' => (string) ($profile['description'] ?? ''),
+            'team' => (string) ($profile['team'] ?? 'ally'),
+            'stats' => is_array($profile['stats'] ?? NULL) ? $profile['stats'] : [],
+            'movement_speed' => (int) ($profile['movement_speed'] ?? 25),
+            'actions_per_turn' => (int) ($profile['actions_per_turn'] ?? 2),
+            'initiative_bonus' => (int) ($profile['initiative_bonus'] ?? 0),
+            'traits' => is_array($profile['traits'] ?? NULL) ? $profile['traits'] : [],
+            'attacks' => is_array($profile['attacks'] ?? NULL) ? $profile['attacks'] : [],
+            'setting_state' => FALSE,
+            'spawn_policy' => (string) ($profile['spawn_policy'] ?? 'owner_follower'),
+          ]),
+        ],
+      ];
+    }
   }
 
   /**

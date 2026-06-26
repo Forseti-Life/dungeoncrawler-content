@@ -4,7 +4,6 @@ namespace Drupal\dungeoncrawler_content\Controller;
 
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Database\Connection;
-use Drupal\dungeoncrawler_content\Service\AnimalCompanionService;
 use Drupal\dungeoncrawler_content\Service\CampaignCharacterRuntimeResolverService;
 use Drupal\dungeoncrawler_content\Service\CampaignCharacterRuntimeSyncService;
 use Drupal\dungeoncrawler_content\Service\CharacterManager;
@@ -32,7 +31,6 @@ class HexMapController extends ControllerBase {
   protected RequestStack $requestStack;
 
   protected Connection $database;
-  protected AnimalCompanionService $animalCompanionService;
   protected CampaignCharacterRuntimeResolverService $campaignCharacterRuntimeResolver;
   protected CampaignCharacterRuntimeSyncService $campaignCharacterRuntimeSync;
   protected QuestTrackerService $questTracker;
@@ -53,10 +51,9 @@ class HexMapController extends ControllerBase {
    * @var array<string, array|null>
    */
   protected array $roomContentsCache = [];
-  public function __construct(RequestStack $request_stack, Connection $database, AnimalCompanionService $animal_companion_service, CampaignCharacterRuntimeResolverService $campaign_character_runtime_resolver, CampaignCharacterRuntimeSyncService $campaign_character_runtime_sync, QuestTrackerService $quest_tracker, QuestGeneratorService $quest_generator, GeneratedImageRepository $image_repository, MapVisualStateProjector $map_visual_state_projector, StorylineManagerService $storyline_manager, RelationshipManagerService $relationship_manager, StateValidationService $state_validation_service, CharacterManager $character_manager, CharacterStateService $character_state_service) {
+  public function __construct(RequestStack $request_stack, Connection $database, CampaignCharacterRuntimeResolverService $campaign_character_runtime_resolver, CampaignCharacterRuntimeSyncService $campaign_character_runtime_sync, QuestTrackerService $quest_tracker, QuestGeneratorService $quest_generator, GeneratedImageRepository $image_repository, MapVisualStateProjector $map_visual_state_projector, StorylineManagerService $storyline_manager, RelationshipManagerService $relationship_manager, StateValidationService $state_validation_service, CharacterManager $character_manager, CharacterStateService $character_state_service) {
     $this->requestStack = $request_stack;
     $this->database = $database;
-    $this->animalCompanionService = $animal_companion_service;
     $this->campaignCharacterRuntimeResolver = $campaign_character_runtime_resolver;
     $this->campaignCharacterRuntimeSync = $campaign_character_runtime_sync;
     $this->questTracker = $quest_tracker;
@@ -77,7 +74,6 @@ class HexMapController extends ControllerBase {
     return new static(
       $container->get('request_stack'),
       $container->get('database'),
-      $container->get('dungeoncrawler_content.animal_companion'),
       $container->get('dungeoncrawler_content.campaign_character_runtime_resolver'),
       $container->get('dungeoncrawler_content.campaign_character_runtime_sync'),
       $container->get('dungeoncrawler_content.quest_tracker'),
@@ -165,7 +161,12 @@ class HexMapController extends ControllerBase {
     return new JsonResponse([
       'success' => TRUE,
       'launch_context' => $launch_context,
+      'dungeon_payload' => $hexmap_state['dungeon_payload'],
       'map_visual_state' => $hexmap_state['map_visual_state'],
+      'launch_character' => $hexmap_state['launch_character'],
+      'quest_summary' => $hexmap_state['quest_summary'],
+      'storyline_contacts' => $hexmap_state['storyline_contacts'],
+      'campaign_title' => $hexmap_state['campaign_title'],
     ]);
   }
 
@@ -827,9 +828,9 @@ class HexMapController extends ControllerBase {
 
       $query->orderBy('updated', 'DESC');
       $query->orderBy('id', 'DESC');
-      $raw = $query->range(0, 1)->execute()->fetchField();
-      if ($raw !== FALSE) {
-        $decoded = json_decode($raw, TRUE);
+      $row = $query->range(0, 1)->execute()->fetchAssoc();
+      if (is_array($row) && isset($row['dungeon_data'])) {
+        $decoded = json_decode((string) $row['dungeon_data'], TRUE);
         if (is_array($decoded)) {
           $normalized = $this->normalizeDungeonPayload($decoded, $launch_context);
 
@@ -941,103 +942,6 @@ class HexMapController extends ControllerBase {
   }
 
   /**
-   * Inject the owner's active animal companion as an ally NPC entity.
-   */
-  protected function injectOwnedAnimalCompanionEntity(array &$dungeon_payload, array $record, array $char_data, string $room_id, int $owner_q, int $owner_r, array &$occupied): void {
-    $character_id = (string) ($record['id'] ?? '');
-    if ($character_id === '') {
-      return;
-    }
-
-    $companion = $this->animalCompanionService->resolveCompanionFromCharacterData($char_data, $character_id);
-    if ($companion === NULL) {
-      return;
-    }
-
-    $instance_id = 'animal-companion-' . $character_id;
-    foreach (($dungeon_payload['entities'] ?? []) as $entity) {
-      if (($entity['instance_id'] ?? '') === $instance_id) {
-        return;
-      }
-    }
-
-    $placement = $this->findAdjacentCompanionHex($dungeon_payload, $room_id, $owner_q, $owner_r, $occupied);
-    $occupied[$placement['q'] . ',' . $placement['r']] = TRUE;
-
-    $dungeon_payload['entities'][] = [
-      'entity_type' => 'npc',
-      'instance_id' => $instance_id,
-      'entity_ref' => [
-        'content_type' => 'npc',
-        'content_id' => 'animal_companion_' . ($companion['species_id'] ?? 'unknown'),
-      ],
-      'placement' => [
-        'room_id' => $room_id,
-        'hex' => $placement,
-        'spawn_type' => 'npc',
-      ],
-      'state' => [
-        'active' => TRUE,
-        'metadata' => [
-          'display_name' => (string) ($companion['name'] ?? 'Animal Companion'),
-          'name' => (string) ($companion['name'] ?? 'Animal Companion'),
-          'role' => 'animal_companion',
-          'description' => (string) ($companion['support_benefit'] ?? ''),
-          'team' => 'ally',
-          'owner_character_id' => (int) $character_id,
-          'companion_species_id' => (string) ($companion['species_id'] ?? ''),
-          'companion_stage' => (string) ($companion['stage'] ?? 'young'),
-          'companion_specialization' => $companion['specialization'] ?? NULL,
-          'stats' => is_array($companion['stats'] ?? NULL) ? $companion['stats'] : [],
-          'movement_speed' => (int) ($companion['movement_speed'] ?? ($companion['stats']['speed'] ?? 25)),
-          'actions_per_turn' => (int) ($companion['actions_per_turn'] ?? 2),
-          'initiative_bonus' => (int) ($companion['stats']['initiative_bonus'] ?? $companion['stats']['perception'] ?? 0),
-          'traits' => is_array($companion['traits'] ?? NULL) ? $companion['traits'] : [],
-          'attacks' => is_array($companion['attacks'] ?? NULL) ? $companion['attacks'] : [],
-          'setting_state' => FALSE,
-          'spawn_policy' => 'owner_companion',
-        ],
-      ],
-    ];
-  }
-
-  /**
-   * Find a free adjacent hex for the companion.
-   */
-  protected function findAdjacentCompanionHex(array $dungeon_payload, string $room_id, int $owner_q, int $owner_r, array $occupied): array {
-    $offsets = [
-      ['q' => 1, 'r' => 0],
-      ['q' => -1, 'r' => 0],
-      ['q' => 0, 'r' => 1],
-      ['q' => 0, 'r' => -1],
-      ['q' => 1, 'r' => -1],
-      ['q' => -1, 'r' => 1],
-    ];
-    $room_hexes = is_array($dungeon_payload['rooms'][$room_id]['hexes'] ?? NULL) ? $dungeon_payload['rooms'][$room_id]['hexes'] : [];
-    $room_lookup = [];
-    foreach ($room_hexes as $hex) {
-      if (!isset($hex['q'], $hex['r'])) {
-        continue;
-      }
-      $room_lookup[(int) $hex['q'] . ',' . (int) $hex['r']] = TRUE;
-    }
-
-    foreach ($offsets as $offset) {
-      $candidate = [
-        'q' => $owner_q + $offset['q'],
-        'r' => $owner_r + $offset['r'],
-      ];
-      $key = $candidate['q'] . ',' . $candidate['r'];
-      if (!isset($room_lookup[$key]) || isset($occupied[$key])) {
-        continue;
-      }
-      return $candidate;
-    }
-
-    return ['q' => $owner_q, 'r' => $owner_r];
-  }
-
-  /**
    * Attach portrait URLs to player and NPC entities for map token rendering.
    */
   protected function attachEntityPortraitUrls(array $dungeon_payload, array $launch_context): array {
@@ -1143,13 +1047,13 @@ class HexMapController extends ControllerBase {
       }
     }
 
-    // Path 4: Look up by exact campaign NPC/library bindings before name scans.
+    // Path 4: Look up by exact campaign actor/library bindings before name scans.
     if ($name !== '' && $campaign_id > 0) {
       $campaign_npc_id = $this->findCampaignNpcPortraitSourceId($campaign_id, $content_id, $name);
       if ($campaign_npc_id !== NULL) {
-        $rows = $this->imageRepository->loadImagesForObject('dc_npc', (string) $campaign_npc_id, $campaign_id, 'portrait', 'original');
+        $rows = $this->imageRepository->loadImagesForObject('dc_campaign_characters', (string) $campaign_npc_id, $campaign_id, 'portrait', 'original');
         if (empty($rows)) {
-          $rows = $this->imageRepository->loadImagesForObject('dc_npc', (string) $campaign_npc_id, NULL, 'portrait', 'original');
+          $rows = $this->imageRepository->loadImagesForObject('dc_campaign_characters', (string) $campaign_npc_id, NULL, 'portrait', 'original');
         }
         if (!empty($rows)) {
           return $this->normalizePortraitUrl($this->imageRepository->resolveClientUrl($rows[0]));
@@ -1216,19 +1120,17 @@ class HexMapController extends ControllerBase {
   }
 
   /**
-   * Resolve a campaign-local dc_npc row for a portrait lookup.
+   * Resolve a campaign-local NPC actor row for a portrait lookup.
    */
   protected function findCampaignNpcPortraitSourceId(int $campaign_id, string $content_id, string $name): ?int {
     if ($campaign_id <= 0 || ($content_id === '' && $name === '')) {
       return NULL;
     }
-    if (!$this->database->schema()->tableExists('dc_npc')) {
-      return NULL;
-    }
 
-    $query = $this->database->select('dc_npc', 'n')
-      ->fields('n', ['id'])
+    $query = $this->database->select('dc_campaign_characters', 'cc')
+      ->fields('cc', ['id'])
       ->condition('campaign_id', $campaign_id)
+      ->condition('type', 'npc')
       ->orderBy('updated', 'DESC')
       ->orderBy('id', 'DESC')
       ->range(0, 1);
@@ -1239,7 +1141,7 @@ class HexMapController extends ControllerBase {
       if (!str_starts_with($content_id, 'npc_')) {
         $entity_refs[] = 'npc_' . $content_id;
       }
-      $match_group->condition('entity_ref', array_values(array_unique($entity_refs)), 'IN');
+      $match_group->condition('instance_id', array_values(array_unique($entity_refs)), 'IN');
     }
     if ($name !== '') {
       $match_group->condition('name', $name);

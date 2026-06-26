@@ -44,7 +44,7 @@ $db = \Drupal::database();
 $test_campaign_id = 99999;
 
 // Clean up any previous test data.
-$db->delete('dc_npc_psychology')
+$db->delete('dc_psychology')
   ->condition('campaign_id', $test_campaign_id)
   ->execute();
 
@@ -116,7 +116,7 @@ echo "\n";
 echo "--- Test 2b: loadProfile repairs legacy motivation/goals structure ---\n";
 // ============================================================================
 $now = time();
-$db->insert('dc_npc_psychology')
+$db->insert('dc_psychology')
   ->fields([
     'campaign_id' => $test_campaign_id,
     'entity_ref' => 'legacy_contact_1',
@@ -157,7 +157,7 @@ assert_true(isset($legacy['personality_axes']['motivation']), 'Legacy profile no
 assert_true(in_array('Gain XP', $legacy['character_sheet']['goals'] ?? [], TRUE), 'Legacy profile now has Gain XP goal');
 assert_true(in_array('Gain Treasure', $legacy['character_sheet']['goals'] ?? [], TRUE), 'Legacy profile now has Gain Treasure goal');
 
-$legacy_row = $db->select('dc_npc_psychology', 'p')
+$legacy_row = $db->select('dc_psychology', 'p')
   ->fields('p', ['personality_axes', 'character_sheet'])
   ->condition('campaign_id', $test_campaign_id)
   ->condition('entity_ref', 'legacy_contact_1')
@@ -477,7 +477,7 @@ echo "\n";
 // ============================================================================
 // Cleanup.
 // ============================================================================
-$db->delete('dc_npc_psychology')
+$db->delete('dc_psychology')
   ->condition('campaign_id', $test_campaign_id)
   ->execute();
 

@@ -1460,14 +1460,14 @@ class StorylineGenerationService {
    * Build campaign NPC specs from storyline contacts and generated boss outline.
    *
    * @return array<int, array<string, mixed>>
-   *   Normalized NPC specs keyed for dc_npc persistence.
+   *   Normalized NPC specs keyed for canonical actor persistence.
    */
   protected function buildStorylineNpcSpecs(array $storyline_data): array {
     return $this->storylineRealizationService?->buildStorylineNpcSpecs($storyline_data) ?? [];
   }
 
   /**
-   * Normalize storyline-generated NPC fields for dc_npc persistence.
+   * Normalize storyline-generated NPC fields for canonical actor persistence.
    */
   protected function normalizeStorylineNpcFields(int $campaign_id, array $spec): ?array {
     return $this->storylineRealizationService?->normalizeStorylineNpcFields($campaign_id, $spec);

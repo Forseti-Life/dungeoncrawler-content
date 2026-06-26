@@ -33,23 +33,36 @@ class StorylineRealizationService {
       }
 
       $entity_ref = (string) $fields['entity_ref'];
-      $existing_id = $this->database->select('dc_npc', 'n')
-        ->fields('n', ['id'])
+      $instance_id = $this->normalizeNpcInstanceId($entity_ref);
+      $existing_id = $this->database->select('dc_campaign_characters', 'cc')
+        ->fields('cc', ['id'])
         ->condition('campaign_id', $campaign_id)
-        ->condition('entity_ref', $entity_ref)
+        ->condition('type', 'npc')
+        ->condition('instance_id', $instance_id)
         ->range(0, 1)
         ->execute()
         ->fetchField();
 
+      $existing = [];
       if ($existing_id !== FALSE && $existing_id !== NULL) {
-        $this->database->update('dc_npc')
-          ->fields($fields)
+        $existing = $this->database->select('dc_campaign_characters', 'cc')
+          ->fields('cc')
+          ->condition('id', (int) $existing_id)
+          ->range(0, 1)
+          ->execute()
+          ->fetchAssoc() ?: [];
+      }
+
+      $upsert_fields = $this->buildStorylineNpcActorFields($campaign_id, $instance_id, $fields, $existing);
+      if ($existing_id !== FALSE && $existing_id !== NULL) {
+        $this->database->update('dc_campaign_characters')
+          ->fields($upsert_fields)
           ->condition('id', (int) $existing_id)
           ->execute();
       }
       else {
-        $this->database->insert('dc_npc')
-          ->fields($fields + ['created' => time()])
+        $this->database->insert('dc_campaign_characters')
+          ->fields($upsert_fields)
           ->execute();
       }
 
@@ -362,7 +375,7 @@ class StorylineRealizationService {
    * Build campaign NPC specs from storyline contacts and generated boss outline.
    *
    * @return array<int, array<string, mixed>>
-   *   Normalized NPC specs keyed for dc_npc persistence.
+   *   Normalized NPC specs keyed for canonical actor persistence.
    */
   public function buildStorylineNpcSpecs(array $storyline_data): array {
     $specs = [];
@@ -474,7 +487,7 @@ class StorylineRealizationService {
   }
 
   /**
-   * Normalize storyline-generated NPC fields for dc_npc persistence.
+   * Normalize storyline-generated NPC fields for canonical actor persistence.
    */
   public function normalizeStorylineNpcFields(int $campaign_id, array $spec): ?array {
     $entity_ref = trim((string) ($spec['entity_ref'] ?? ''));
@@ -499,6 +512,113 @@ class StorylineRealizationService {
       'entity_ref' => $entity_ref,
       'updated' => time(),
     ];
+  }
+
+  /**
+   * Normalize a content/entity ref into the canonical NPC runtime instance id.
+   */
+  protected function normalizeNpcInstanceId(string $entity_ref): string {
+    $entity_ref = trim($entity_ref);
+    if ($entity_ref === '') {
+      return '';
+    }
+    return str_starts_with($entity_ref, 'npc_') ? $entity_ref : 'npc_' . $entity_ref;
+  }
+
+  /**
+   * Build dc_campaign_characters upsert fields from normalized storyline NPC data.
+   *
+   * @param array<string, mixed> $fields
+   * @param array<string, mixed> $existing
+   *
+   * @return array<string, mixed>
+   */
+  protected function buildStorylineNpcActorFields(int $campaign_id, string $instance_id, array $fields, array $existing = []): array {
+    $now = time();
+    $existing_state = json_decode((string) ($existing['state_data'] ?? '{}'), TRUE);
+    if (!is_array($existing_state)) {
+      $existing_state = [];
+    }
+    $existing_character_data = json_decode((string) ($existing['character_data'] ?? '{}'), TRUE);
+    if (!is_array($existing_character_data)) {
+      $existing_character_data = [];
+    }
+
+    $stats = is_array($existing_state['stats'] ?? NULL) ? $existing_state['stats'] : [];
+    $stats['perception'] = max(0, (int) ($fields['perception'] ?? 0));
+    $stats['ac'] = max(10, (int) ($fields['armor_class'] ?? 10));
+    $stats['currentHp'] = max(1, (int) ($fields['hit_points'] ?? 1));
+    $stats['maxHp'] = max(1, (int) ($fields['hit_points'] ?? 1));
+    $stats['fortitude'] = (int) ($fields['fort_save'] ?? 0);
+    $stats['reflex'] = (int) ($fields['ref_save'] ?? 0);
+    $stats['will'] = (int) ($fields['will_save'] ?? 0);
+
+    $state_data = $existing_state;
+    $state_data['content_id'] = (string) ($fields['entity_ref'] ?? '');
+    $state_data['role'] = (string) ($fields['role'] ?? 'neutral');
+    $state_data['description'] = (string) ($fields['dialogue_notes'] ?? '');
+    $state_data['backstory'] = (string) ($fields['lore_notes'] ?? '');
+    $state_data['stats'] = $stats;
+    $state_data['npc_profile'] = [
+      'attitude' => (string) ($fields['attitude'] ?? 'indifferent'),
+      'lore_notes' => (string) ($fields['lore_notes'] ?? ''),
+      'dialogue_notes' => (string) ($fields['dialogue_notes'] ?? ''),
+    ];
+
+    $character_data = $existing_character_data;
+    $character_data['name'] = (string) ($fields['name'] ?? $fields['entity_ref'] ?? '');
+    $character_data['type'] = 'npc';
+    $character_data['role'] = (string) ($fields['role'] ?? 'neutral');
+    $character_data['step'] = 8;
+    $character_data['level'] = max(1, (int) ($fields['level'] ?? 1));
+    $character_data['description'] = (string) ($fields['dialogue_notes'] ?? '');
+    $character_data['backstory'] = (string) ($fields['lore_notes'] ?? '');
+    $character_data['attitude'] = (string) ($fields['attitude'] ?? 'indifferent');
+    $character_data['stats'] = $stats;
+
+    $role = (string) ($fields['role'] ?? 'neutral');
+    $upsert = [
+      'campaign_id' => $campaign_id,
+      'character_id' => 0,
+      'source_character_id' => NULL,
+      'name' => (string) ($fields['name'] ?? $fields['entity_ref'] ?? ''),
+      'level' => max(1, (int) ($fields['level'] ?? 1)),
+      'ancestry' => (string) ($existing['ancestry'] ?? ''),
+      'class' => (string) ($existing['class'] ?? ''),
+      'hp_current' => max(1, (int) ($fields['hit_points'] ?? 1)),
+      'hp_max' => max(1, (int) ($fields['hit_points'] ?? 1)),
+      'armor_class' => max(10, (int) ($fields['armor_class'] ?? 10)),
+      'experience_points' => (int) ($existing['experience_points'] ?? 0),
+      'position_q' => (int) ($existing['position_q'] ?? 0),
+      'position_r' => (int) ($existing['position_r'] ?? 0),
+      'last_room_id' => (string) ($existing['last_room_id'] ?? ''),
+      'instance_id' => $instance_id,
+      'type' => 'npc',
+      'character_data' => json_encode($character_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+      'state_data' => json_encode($state_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+      'status' => 1,
+      'uid' => (int) ($existing['uid'] ?? 0),
+      'role' => $role,
+      'lifecycle_state' => $role === 'merchant' ? 'campaign_merchant' : 'campaign_npc',
+      'location_type' => (string) ($existing['location_type'] ?? 'global'),
+      'location_ref' => (string) ($existing['location_ref'] ?? ''),
+      'is_active' => (int) ($existing['is_active'] ?? 1),
+      'joined' => (int) ($existing['joined'] ?? $now),
+      'updated' => $now,
+      'changed' => $now,
+    ];
+
+    if (!isset($existing['id'])) {
+      $upsert += [
+        'created' => $now,
+        'version' => 1,
+        'default_character_data' => NULL,
+        'default_locations' => NULL,
+        'portrait' => NULL,
+      ];
+    }
+
+    return $upsert;
   }
 
   /**

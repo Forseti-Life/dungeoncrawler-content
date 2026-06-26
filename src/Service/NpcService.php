@@ -10,10 +10,11 @@ use Drupal\Core\Session\AccountInterface;
  *
  * Provides the canonical NPC entity layer for named campaign characters
  * (allies, contacts, merchants, villains, quest-givers). This is distinct from
- * dc_npc_psychology, which handles in-session attitude matrices for all
- * entities (including dungeon creatures). dc_npc is the GM-authored catalog.
+ * dc_psychology, which handles in-session attitude matrices for all
+ * entities (including dungeon creatures). NPC actor runtime rows are stored in
+ * dc_campaign_characters (type=npc).
  *
- * Tables: dc_npc (entity), dc_npc_history (audit trail for AC-005).
+ * Tables: dc_campaign_characters (entity), dc_actor_history (audit trail for AC-005).
  */
 class NpcService {
 
@@ -126,32 +127,39 @@ class NpcService {
     if ($entity_ref === '') {
       $entity_ref = $this->buildNpcEntityRef($campaign_id, $name);
     }
+    $entity_ref = $this->allocateUniqueNpcInstanceId($campaign_id, $entity_ref);
 
-    $fields = [
-      'campaign_id'   => $campaign_id,
-      'name'          => $name,
-      'role'          => $role,
-      'attitude'      => $attitude,
-      'level'         => (int) ($data['level'] ?? 1),
-      'perception'    => (int) ($data['perception'] ?? 0),
-      'armor_class'   => (int) ($data['armor_class'] ?? 10),
-      'hit_points'    => (int) ($data['hit_points'] ?? 0),
-      'fort_save'     => (int) ($data['fort_save'] ?? 0),
-      'ref_save'      => (int) ($data['ref_save'] ?? 0),
-      'will_save'     => (int) ($data['will_save'] ?? 0),
-      'lore_notes'    => $data['lore_notes'] ?? '',
-      'dialogue_notes' => $data['dialogue_notes'] ?? '',
-      'entity_ref'    => $entity_ref,
-      'created'       => $now,
-      'updated'       => $now,
+    $npc_payload = [
+      'name' => $name,
+      'role' => $role,
+      'attitude' => $attitude,
+      'level' => (int) ($data['level'] ?? 1),
+      'perception' => (int) ($data['perception'] ?? 0),
+      'armor_class' => (int) ($data['armor_class'] ?? 10),
+      'hit_points' => (int) ($data['hit_points'] ?? 0),
+      'fort_save' => (int) ($data['fort_save'] ?? 0),
+      'ref_save' => (int) ($data['ref_save'] ?? 0),
+      'will_save' => (int) ($data['will_save'] ?? 0),
+      'lore_notes' => (string) ($data['lore_notes'] ?? ''),
+      'dialogue_notes' => (string) ($data['dialogue_notes'] ?? ''),
+      'entity_ref' => $entity_ref,
+      'npc_archetype' => '',
+      'alignment' => 'N',
+      'is_gallery_entry' => 0,
+      'scene_ref' => '',
+      'gallery_source_id' => 0,
+      'elite_weak_template' => NULL,
+      'created' => $now,
+      'updated' => $now,
     ];
 
     $transaction = $this->database->startTransaction();
     try {
       $this->resolveNpcFactionCreateRequests($campaign_id, $data);
 
-      $npc_id = (int) $this->database->insert('dc_npc')->fields($fields)->execute();
-      $fields['id'] = $npc_id;
+      $actor_fields = $this->buildActorFieldsFromNpc($campaign_id, $npc_payload, $now);
+      $npc_id = (int) $this->database->insert('dc_campaign_characters')->fields($actor_fields)->execute();
+      $npc_payload['id'] = $npc_id;
 
       $this->institutionMembership->syncCampaignNpcMemberships($campaign_id, $entity_ref, $data);
 
@@ -159,17 +167,17 @@ class NpcService {
         'entity_ref' => $entity_ref,
         'name' => $name,
         'role' => $role,
-        'level' => (int) ($fields['level'] ?? 1),
+        'level' => (int) ($npc_payload['level'] ?? 1),
         'description' => (string) ($data['dialogue_notes'] ?? $data['lore_notes'] ?? ''),
         'attitude' => $attitude,
         'stats' => [
-          'perception' => (int) ($fields['perception'] ?? 0),
-          'ac' => (int) ($fields['armor_class'] ?? 10),
-          'currentHp' => (int) ($fields['hit_points'] ?? 0),
-          'maxHp' => (int) ($fields['hit_points'] ?? 0),
-          'fortitude' => (int) ($fields['fort_save'] ?? 0),
-          'reflex' => (int) ($fields['ref_save'] ?? 0),
-          'will' => (int) ($fields['will_save'] ?? 0),
+          'perception' => (int) ($npc_payload['perception'] ?? 0),
+          'ac' => (int) ($npc_payload['armor_class'] ?? 10),
+          'currentHp' => (int) ($npc_payload['hit_points'] ?? 0),
+          'maxHp' => (int) ($npc_payload['hit_points'] ?? 0),
+          'fortitude' => (int) ($npc_payload['fort_save'] ?? 0),
+          'reflex' => (int) ($npc_payload['ref_save'] ?? 0),
+          'will' => (int) ($npc_payload['will_save'] ?? 0),
         ],
       ]);
     }
@@ -180,7 +188,7 @@ class NpcService {
       throw $exception;
     }
 
-    return $fields;
+    return $npc_payload;
   }
 
   /**
@@ -262,14 +270,8 @@ class NpcService {
    */
   public function getNpc(int $campaign_id, int $npc_id): ?array {
     $this->validateCampaignAccess($campaign_id);
-    $row = $this->database->select('dc_npc', 'n')
-      ->fields('n')
-      ->condition('id', $npc_id)
-      ->condition('campaign_id', $campaign_id)
-      ->execute()
-      ->fetchAssoc();
-
-    return $row ?: NULL;
+    $actor_row = $this->loadNpcActorRow($campaign_id, $npc_id);
+    return $actor_row ? $this->mapActorRowToNpc($actor_row) : NULL;
   }
 
   /**
@@ -281,12 +283,14 @@ class NpcService {
    */
   public function getCampaignNpcs(int $campaign_id): array {
     $this->validateCampaignAccess($campaign_id);
-    return $this->database->select('dc_npc', 'n')
-      ->fields('n')
+    $rows = $this->database->select('dc_campaign_characters', 'c')
+      ->fields('c')
       ->condition('campaign_id', $campaign_id)
+      ->condition('type', 'npc')
       ->orderBy('name')
       ->execute()
       ->fetchAll(\PDO::FETCH_ASSOC);
+    return array_map(fn(array $row): array => $this->mapActorRowToNpc($row), $rows);
   }
 
   /**
@@ -302,10 +306,11 @@ class NpcService {
   public function updateNpc(int $campaign_id, int $npc_id, array $data): array {
     $this->validateCampaignAccess($campaign_id);
 
-    $existing = $this->getNpc($campaign_id, $npc_id);
-    if ($existing === NULL) {
+    $existing_actor = $this->loadNpcActorRow($campaign_id, $npc_id);
+    if ($existing_actor === NULL) {
       throw new \InvalidArgumentException("NPC {$npc_id} not found in campaign {$campaign_id}", 404);
     }
+    $existing = $this->mapActorRowToNpc($existing_actor);
 
     $allowed = ['name', 'role', 'attitude', 'level', 'perception', 'armor_class',
                 'hit_points', 'fort_save', 'ref_save', 'will_save',
@@ -325,11 +330,26 @@ class NpcService {
     }
 
     if (!empty($update)) {
-      $update['updated'] = time();
-      $this->database->update('dc_npc')
-        ->fields($update)
+      $now = time();
+      $merged = array_merge($existing, $update);
+      $merged['entity_ref'] = $this->allocateUniqueNpcInstanceId(
+        $campaign_id,
+        trim((string) ($merged['entity_ref'] ?? '')),
+        $npc_id
+      );
+      if ($merged['entity_ref'] === '') {
+        $merged['entity_ref'] = $this->allocateUniqueNpcInstanceId(
+          $campaign_id,
+          $this->buildNpcEntityRef($campaign_id, (string) ($merged['name'] ?? 'npc')),
+          $npc_id
+        );
+      }
+      $fields = $this->buildActorFieldsFromNpc($campaign_id, $merged, $now, $existing_actor);
+      $this->database->update('dc_campaign_characters')
+        ->fields($fields)
         ->condition('id', $npc_id)
         ->condition('campaign_id', $campaign_id)
+        ->condition('type', 'npc')
         ->execute();
     }
 
@@ -347,15 +367,18 @@ class NpcService {
   public function deleteNpc(int $campaign_id, int $npc_id): void {
     $this->validateCampaignAccess($campaign_id);
 
-    $existing = $this->getNpc($campaign_id, $npc_id);
-    if ($existing === NULL) {
+    if ($this->loadNpcActorRow($campaign_id, $npc_id) === NULL) {
       throw new \InvalidArgumentException("NPC {$npc_id} not found", 404);
     }
 
-    $this->database->delete('dc_npc_history')->condition('npc_id', $npc_id)->execute();
-    $this->database->delete('dc_npc')
+    $this->database->delete('dc_actor_history')
+      ->condition('campaign_character_id', $npc_id)
+      ->condition('actor_type', 'npc')
+      ->execute();
+    $this->database->delete('dc_campaign_characters')
       ->condition('id', $npc_id)
       ->condition('campaign_id', $campaign_id)
+      ->condition('type', 'npc')
       ->execute();
   }
 
@@ -419,9 +442,18 @@ class NpcService {
     }
 
     if ($attitude_changed) {
-      $this->database->update('dc_npc')
-        ->fields(['attitude' => $new_attitude, 'updated' => time()])
+      $actor_row = $this->loadNpcActorRow($campaign_id, $npc_id);
+      if ($actor_row === NULL) {
+        throw new \InvalidArgumentException("NPC {$npc_id} not found", 404);
+      }
+      $now = time();
+      $npc['attitude'] = $new_attitude;
+      $fields = $this->buildActorFieldsFromNpc($campaign_id, $npc, $now, $actor_row);
+      $this->database->update('dc_campaign_characters')
+        ->fields($fields)
         ->condition('id', $npc_id)
+        ->condition('campaign_id', $campaign_id)
+        ->condition('type', 'npc')
         ->execute();
 
       $trigger = sprintf('%s DC %d (rolled %d)%s',
@@ -430,8 +462,7 @@ class NpcService {
       );
       $this->logHistory($npc_id, $campaign_id, 'attitude', $old_attitude, $new_attitude, $session_id, $trigger);
 
-      $npc['attitude'] = $new_attitude;
-      $npc['updated'] = time();
+      $npc['updated'] = $now;
     }
 
     return [
@@ -465,16 +496,23 @@ class NpcService {
     int $session_id = 0,
     string $trigger = ''
   ): void {
-    $this->database->insert('dc_npc_history')
+    $actor_row = $this->loadNpcActorRow($campaign_id, $npc_id);
+    if ($actor_row === NULL) {
+      throw new \InvalidArgumentException("NPC {$npc_id} not found in campaign {$campaign_id}", 404);
+    }
+
+    $this->database->insert('dc_actor_history')
       ->fields([
-        'npc_id'      => $npc_id,
+        'campaign_character_id' => $npc_id,
         'campaign_id' => $campaign_id,
-        'session_id'  => $session_id,
+        'session_id' => $session_id,
+        'actor_type' => (string) ($actor_row['type'] ?? 'npc'),
+        'actor_instance_id' => (string) ($actor_row['instance_id'] ?? ''),
         'change_type' => $change_type,
-        'old_value'   => $old_value,
-        'new_value'   => $new_value,
-        'trigger'     => $trigger,
-        'created'     => time(),
+        'old_value' => $old_value,
+        'new_value' => $new_value,
+        'trigger' => $trigger,
+        'created' => time(),
       ])
       ->execute();
   }
@@ -487,9 +525,10 @@ class NpcService {
    * @return array[]
    */
   public function getHistory(int $npc_id): array {
-    return $this->database->select('dc_npc_history', 'h')
+    return $this->database->select('dc_actor_history', 'h')
       ->fields('h')
-      ->condition('npc_id', $npc_id)
+      ->condition('campaign_character_id', $npc_id)
+      ->condition('actor_type', 'npc')
       ->orderBy('created', 'ASC')
       ->execute()
       ->fetchAll(\PDO::FETCH_ASSOC);
@@ -597,31 +636,45 @@ class NpcService {
         'role must be one of: ' . implode(', ', self::VALID_ROLES), 400
       );
     }
+    $attitude = $data['attitude'] ?? 'indifferent';
+    if (!in_array($attitude, self::VALID_ATTITUDES, TRUE)) {
+      throw new \InvalidArgumentException(
+        'attitude must be one of: ' . implode(', ', self::VALID_ATTITUDES), 400
+      );
+    }
 
     $now = time();
-    $fields = [
-      'campaign_id'     => 0,
-      'name'            => $name,
-      'role'            => $role,
-      'attitude'        => $data['attitude'] ?? 'indifferent',
-      'level'           => (int) ($data['level'] ?? 1),
-      'perception'      => (int) ($data['perception'] ?? 0),
-      'armor_class'     => (int) ($data['armor_class'] ?? 10),
-      'hit_points'      => (int) ($data['hit_points'] ?? 0),
-      'fort_save'       => (int) ($data['fort_save'] ?? 0),
-      'ref_save'        => (int) ($data['ref_save'] ?? 0),
-      'will_save'       => (int) ($data['will_save'] ?? 0),
-      'lore_notes'      => $data['lore_notes'] ?? '',
-      'dialogue_notes'  => $data['dialogue_notes'] ?? '',
-      'entity_ref'      => $data['entity_ref'] ?? '',
-      'npc_archetype'   => $archetype,
-      'alignment'       => $alignment,
-      'is_gallery_entry' => 1,
-      'created'         => $now,
-      'updated'         => $now,
-    ];
+    $entity_ref = trim((string) ($data['entity_ref'] ?? ''));
+    if ($entity_ref === '') {
+      $entity_ref = $this->buildNpcEntityRef(0, $name);
+    }
+    $entity_ref = $this->allocateUniqueNpcInstanceId(0, $entity_ref);
 
-    $id = $this->database->insert('dc_npc')->fields($fields)->execute();
+    $npc_payload = [
+      'name' => $name,
+      'role' => $role,
+      'attitude' => $attitude,
+      'level' => (int) ($data['level'] ?? 1),
+      'perception' => (int) ($data['perception'] ?? 0),
+      'armor_class' => (int) ($data['armor_class'] ?? 10),
+      'hit_points' => (int) ($data['hit_points'] ?? 0),
+      'fort_save' => (int) ($data['fort_save'] ?? 0),
+      'ref_save' => (int) ($data['ref_save'] ?? 0),
+      'will_save' => (int) ($data['will_save'] ?? 0),
+      'lore_notes' => (string) ($data['lore_notes'] ?? ''),
+      'dialogue_notes' => (string) ($data['dialogue_notes'] ?? ''),
+      'entity_ref' => $entity_ref,
+      'npc_archetype' => $archetype,
+      'alignment' => $alignment,
+      'is_gallery_entry' => 1,
+      'scene_ref' => '',
+      'gallery_source_id' => 0,
+      'elite_weak_template' => NULL,
+      'created' => $now,
+      'updated' => $now,
+    ];
+    $fields = $this->buildActorFieldsFromNpc(0, $npc_payload, $now);
+    $id = $this->database->insert('dc_campaign_characters')->fields($fields)->execute();
     return $this->getById((int) $id);
   }
 
@@ -643,37 +696,64 @@ class NpcService {
    * @return array  Array of gallery NPC records.
    */
   public function searchGallery(array $filters = [], int $limit = 50): array {
-    $query = $this->database->select('dc_npc', 'n')
-      ->fields('n')
-      ->condition('n.is_gallery_entry', 1)
-      ->orderBy('n.level', 'ASC')
-      ->orderBy('n.npc_archetype', 'ASC')
-      ->range(0, $limit);
+    $rows = $this->database->select('dc_campaign_characters', 'c')
+      ->fields('c')
+      ->condition('campaign_id', 0)
+      ->condition('type', 'npc')
+      ->condition('lifecycle_state', 'npc_gallery_template')
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC);
 
-    if (isset($filters['level'])) {
-      $query->condition('n.level', (int) $filters['level']);
-    }
-    elseif (!empty($filters['level_range'])) {
-      $range = self::LEVEL_RANGES[$filters['level_range']] ?? NULL;
-      if ($range) {
-        $query->condition('n.level', $range[0], '>=');
-        $query->condition('n.level', $range[1], '<=');
+    $archetype_filter = strtolower(trim((string) ($filters['npc_archetype'] ?? '')));
+    $alignment_filter = strtoupper(trim((string) ($filters['alignment'] ?? '')));
+    $role_filter = trim((string) ($filters['role'] ?? ''));
+    $level_filter = array_key_exists('level', $filters) ? (int) $filters['level'] : NULL;
+    $level_range_filter = trim((string) ($filters['level_range'] ?? ''));
+    $range = self::LEVEL_RANGES[$level_range_filter] ?? NULL;
+
+    $matches = [];
+    foreach ($rows as $row) {
+      $npc = $this->mapActorRowToNpc($row);
+      if ((int) ($npc['is_gallery_entry'] ?? 0) !== 1) {
+        continue;
       }
+      if ($level_filter !== NULL && (int) ($npc['level'] ?? 0) !== $level_filter) {
+        continue;
+      }
+      if ($level_filter === NULL && is_array($range)) {
+        $level = (int) ($npc['level'] ?? 0);
+        if ($level < (int) $range[0] || $level > (int) $range[1]) {
+          continue;
+        }
+      }
+      if ($archetype_filter !== '' && strtolower((string) ($npc['npc_archetype'] ?? '')) !== $archetype_filter) {
+        continue;
+      }
+      if ($alignment_filter !== '' && strtoupper((string) ($npc['alignment'] ?? '')) !== $alignment_filter) {
+        continue;
+      }
+      if ($role_filter !== '' && (string) ($npc['role'] ?? '') !== $role_filter) {
+        continue;
+      }
+      $matches[] = $npc;
     }
 
-    if (!empty($filters['npc_archetype'])) {
-      $query->condition('n.npc_archetype', strtolower($filters['npc_archetype']));
-    }
+    usort($matches, static function (array $a, array $b): int {
+      $a_level = (int) ($a['level'] ?? 0);
+      $b_level = (int) ($b['level'] ?? 0);
+      if ($a_level !== $b_level) {
+        return $a_level <=> $b_level;
+      }
+      $a_arch = (string) ($a['npc_archetype'] ?? '');
+      $b_arch = (string) ($b['npc_archetype'] ?? '');
+      $cmp = strcmp($a_arch, $b_arch);
+      if ($cmp !== 0) {
+        return $cmp;
+      }
+      return strcmp((string) ($a['name'] ?? ''), (string) ($b['name'] ?? ''));
+    });
 
-    if (!empty($filters['alignment'])) {
-      $query->condition('n.alignment', strtoupper($filters['alignment']));
-    }
-
-    if (!empty($filters['role'])) {
-      $query->condition('n.role', $filters['role']);
-    }
-
-    return $query->execute()->fetchAll(\PDO::FETCH_ASSOC);
+    return array_slice($matches, 0, max(0, $limit));
   }
 
   /**
@@ -696,43 +776,42 @@ class NpcService {
   public function assignGalleryEntryToScene(int $gallery_npc_id, int $campaign_id, string $scene_ref): array {
     $this->validateCampaignAccess($campaign_id);
 
-    $template = $this->database->select('dc_npc', 'n')
-      ->fields('n')
-      ->condition('n.id', $gallery_npc_id)
-      ->condition('n.is_gallery_entry', 1)
-      ->execute()
-      ->fetchAssoc();
-
-    if (!$template) {
+    $template = $this->getById($gallery_npc_id);
+    if (!$template || (int) ($template['is_gallery_entry'] ?? 0) !== 1 || (int) ($template['campaign_id'] ?? 0) !== 0) {
       throw new \InvalidArgumentException("Gallery entry {$gallery_npc_id} not found", 404);
     }
 
     $now = time();
-    $fields = [
-      'campaign_id'     => $campaign_id,
-      'name'            => $template['name'],
-      'role'            => $template['role'],
-      'attitude'        => $template['attitude'],
-      'level'           => $template['level'],
-      'perception'      => $template['perception'],
-      'armor_class'     => $template['armor_class'],
-      'hit_points'      => $template['hit_points'],
-      'fort_save'       => $template['fort_save'],
-      'ref_save'        => $template['ref_save'],
-      'will_save'       => $template['will_save'],
-      'lore_notes'      => $template['lore_notes'],
-      'dialogue_notes'  => $template['dialogue_notes'],
-      'entity_ref'      => $template['entity_ref'],
-      'npc_archetype'   => $template['npc_archetype'],
-      'alignment'       => $template['alignment'],
+    $entity_ref = $this->allocateUniqueNpcInstanceId(
+      $campaign_id,
+      trim((string) ($template['entity_ref'] ?? $this->buildNpcEntityRef($campaign_id, (string) ($template['name'] ?? 'npc'))))
+    );
+    $npc_payload = [
+      'name' => (string) ($template['name'] ?? ''),
+      'role' => (string) ($template['role'] ?? 'neutral'),
+      'attitude' => (string) ($template['attitude'] ?? 'indifferent'),
+      'level' => (int) ($template['level'] ?? 1),
+      'perception' => (int) ($template['perception'] ?? 0),
+      'armor_class' => (int) ($template['armor_class'] ?? 10),
+      'hit_points' => (int) ($template['hit_points'] ?? 0),
+      'fort_save' => (int) ($template['fort_save'] ?? 0),
+      'ref_save' => (int) ($template['ref_save'] ?? 0),
+      'will_save' => (int) ($template['will_save'] ?? 0),
+      'lore_notes' => (string) ($template['lore_notes'] ?? ''),
+      'dialogue_notes' => (string) ($template['dialogue_notes'] ?? ''),
+      'entity_ref' => $entity_ref,
+      'npc_archetype' => (string) ($template['npc_archetype'] ?? ''),
+      'alignment' => (string) ($template['alignment'] ?? 'N'),
       'is_gallery_entry' => 0,
-      'scene_ref'       => $scene_ref,
+      'scene_ref' => $scene_ref,
       'gallery_source_id' => $gallery_npc_id,
-      'created'         => $now,
-      'updated'         => $now,
+      'elite_weak_template' => NULL,
+      'created' => $now,
+      'updated' => $now,
     ];
+    $fields = $this->buildActorFieldsFromNpc($campaign_id, $npc_payload, $now);
 
-    $id = $this->database->insert('dc_npc')->fields($fields)->execute();
+    $id = $this->database->insert('dc_campaign_characters')->fields($fields)->execute();
     return $this->getById((int) $id);
   }
 
@@ -776,10 +855,19 @@ class NpcService {
       throw new \InvalidArgumentException("NPC {$npc_id} not found in campaign {$campaign_id}", 404);
     }
 
-    $this->database->update('dc_npc')
-      ->fields(['elite_weak_template' => $template, 'updated' => time()])
+    $actor_row = $this->loadNpcActorRow($campaign_id, $npc_id);
+    if ($actor_row === NULL) {
+      throw new \InvalidArgumentException("NPC {$npc_id} not found in campaign {$campaign_id}", 404);
+    }
+
+    $now = time();
+    $npc['elite_weak_template'] = $template;
+    $fields = $this->buildActorFieldsFromNpc($campaign_id, $npc, $now, $actor_row);
+    $this->database->update('dc_campaign_characters')
+      ->fields($fields)
       ->condition('id', $npc_id)
       ->condition('campaign_id', $campaign_id)
+      ->condition('type', 'npc')
       ->execute();
 
     $updated = $this->getNpc($campaign_id, $npc_id);
@@ -863,18 +951,258 @@ class NpcService {
   // ── Private helpers ────────────────────────────────────────────────────────
 
   /**
-   * Load any dc_npc row by primary key (no campaign check — internal use only).
+   * Load any canonical NPC actor row by primary key (no campaign check).
    *
    * @param int $id
    * @return array|null
    */
   private function getById(int $id): ?array {
-    $row = $this->database->select('dc_npc', 'n')
-      ->fields('n')
+    $row = $this->database->select('dc_campaign_characters', 'c')
+      ->fields('c')
       ->condition('id', $id)
+      ->condition('type', 'npc')
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    return $row ? $this->mapActorRowToNpc($row) : NULL;
+  }
+
+  /**
+   * Load canonical actor row for a campaign-scoped NPC id.
+   */
+  private function loadNpcActorRow(int $campaign_id, int $npc_id): ?array {
+    $row = $this->database->select('dc_campaign_characters', 'c')
+      ->fields('c')
+      ->condition('id', $npc_id)
+      ->condition('campaign_id', $campaign_id)
+      ->condition('type', 'npc')
+      ->range(0, 1)
       ->execute()
       ->fetchAssoc();
     return $row ?: NULL;
+  }
+
+  /**
+   * Ensure campaign-scoped actor instance id uniqueness.
+   */
+  private function allocateUniqueNpcInstanceId(int $campaign_id, string $instance_id, int $ignore_actor_id = 0): string {
+    $base = trim($instance_id);
+    if ($base === '') {
+      $base = sprintf('campaign_%d_npc_%d', $campaign_id, time());
+    }
+
+    $candidate = $base;
+    $suffix = 2;
+    while ($this->actorInstanceExists($campaign_id, $candidate, $ignore_actor_id)) {
+      $candidate = sprintf('%s_%d', $base, $suffix);
+      $suffix++;
+      if ($suffix > 500) {
+        throw new \RuntimeException(sprintf(
+          'Unable to allocate unique NPC instance id for campaign_id=%d base=%s.',
+          $campaign_id,
+          $base
+        ));
+      }
+    }
+    return $candidate;
+  }
+
+  /**
+   * Check whether a campaign actor instance id already exists.
+   */
+  private function actorInstanceExists(int $campaign_id, string $instance_id, int $ignore_actor_id = 0): bool {
+    $query = $this->database->select('dc_campaign_characters', 'c')
+      ->fields('c', ['id'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('instance_id', $instance_id)
+      ->range(0, 1);
+    if ($ignore_actor_id > 0) {
+      $query->condition('id', $ignore_actor_id, '<>');
+    }
+    $found = $query->execute()->fetchField();
+    return $found !== FALSE;
+  }
+
+  /**
+   * Translate canonical actor row to legacy NPC response shape.
+   */
+  private function mapActorRowToNpc(array $row): array {
+    $state_data = $this->decodeJsonArray($row['state_data'] ?? NULL);
+    $character_data = $this->decodeJsonArray($row['character_data'] ?? NULL);
+    $stats = is_array($state_data['stats'] ?? NULL) ? $state_data['stats'] : [];
+    $profile = is_array($state_data['npc_profile'] ?? NULL) ? $state_data['npc_profile'] : [];
+
+    $is_gallery = (int) ($profile['is_gallery_entry'] ?? 0);
+    if ($is_gallery === 0 && (string) ($row['lifecycle_state'] ?? '') === 'npc_gallery_template') {
+      $is_gallery = 1;
+    }
+
+    return [
+      'id' => (int) ($row['id'] ?? 0),
+      'campaign_id' => (int) ($row['campaign_id'] ?? 0),
+      'name' => (string) ($row['name'] ?? ''),
+      'role' => (string) ($row['role'] ?? 'neutral'),
+      'attitude' => (string) ($profile['attitude'] ?? $character_data['attitude'] ?? 'indifferent'),
+      'level' => (int) ($row['level'] ?? 1),
+      'perception' => (int) ($stats['perception'] ?? 0),
+      'armor_class' => (int) ($row['armor_class'] ?? $stats['ac'] ?? 10),
+      'hit_points' => (int) ($row['hp_max'] ?? $row['hp_current'] ?? $stats['maxHp'] ?? $stats['currentHp'] ?? 0),
+      'fort_save' => (int) ($stats['fortitude'] ?? 0),
+      'ref_save' => (int) ($stats['reflex'] ?? 0),
+      'will_save' => (int) ($stats['will'] ?? 0),
+      'lore_notes' => (string) ($profile['lore_notes'] ?? $state_data['backstory'] ?? ''),
+      'dialogue_notes' => (string) ($profile['dialogue_notes'] ?? $state_data['description'] ?? ''),
+      'entity_ref' => (string) ($row['instance_id'] ?? ''),
+      'npc_archetype' => (string) ($profile['npc_archetype'] ?? ''),
+      'alignment' => (string) ($profile['alignment'] ?? $character_data['alignment'] ?? 'N'),
+      'is_gallery_entry' => $is_gallery,
+      'scene_ref' => (string) ($profile['scene_ref'] ?? ''),
+      'gallery_source_id' => (int) ($profile['gallery_source_id'] ?? 0),
+      'elite_weak_template' => $profile['elite_weak_template'] ?? NULL,
+      'created' => (int) ($row['created'] ?? 0),
+      'updated' => (int) ($row['updated'] ?? 0),
+    ];
+  }
+
+  /**
+   * Build canonical actor write fields from legacy NPC payload.
+   */
+  private function buildActorFieldsFromNpc(int $campaign_id, array $npc, int $now, ?array $existing_actor = NULL): array {
+    $existing_state_data = $this->decodeJsonArray($existing_actor['state_data'] ?? NULL);
+    $existing_character_data = $this->decodeJsonArray($existing_actor['character_data'] ?? NULL);
+
+    $state_data = $this->buildActorStateDataFromNpc($npc, $existing_state_data);
+    $character_data = $this->buildActorCharacterDataFromNpc($npc, $existing_character_data);
+
+    $role = trim((string) ($npc['role'] ?? 'neutral'));
+    if ($role === '') {
+      $role = 'neutral';
+    }
+    $is_gallery_entry = (int) ($npc['is_gallery_entry'] ?? 0) === 1;
+    $lifecycle_state = $is_gallery_entry || $campaign_id === 0
+      ? 'npc_gallery_template'
+      : ($role === 'merchant' ? 'campaign_merchant' : 'campaign_npc');
+
+    $level = max(1, (int) ($npc['level'] ?? 1));
+    $hit_points = (int) ($npc['hit_points'] ?? 0);
+    $fields = [
+      'name' => (string) ($npc['name'] ?? ''),
+      'instance_id' => (string) ($npc['entity_ref'] ?? ''),
+      'type' => 'npc',
+      'role' => $role,
+      'level' => $level,
+      'armor_class' => (int) ($npc['armor_class'] ?? 10),
+      'hp_current' => $hit_points,
+      'hp_max' => $hit_points,
+      'character_data' => json_encode($character_data, JSON_UNESCAPED_UNICODE),
+      'state_data' => json_encode($state_data, JSON_UNESCAPED_UNICODE),
+      'lifecycle_state' => $lifecycle_state,
+      'changed' => $now,
+      'updated' => $now,
+      'status' => $existing_actor === NULL ? 1 : (int) ($existing_actor['status'] ?? 1),
+    ];
+
+    if ($existing_actor === NULL) {
+      $fields += [
+        'campaign_id' => $campaign_id,
+        'character_id' => 0,
+        'source_character_id' => NULL,
+        'uid' => max(0, (int) $this->currentUser->id()),
+        'is_active' => 1,
+        'joined' => $now,
+        'created' => $now,
+        'location_type' => 'global',
+        'location_ref' => '',
+        'ancestry' => '',
+        'class' => '',
+        'experience_points' => 0,
+        'position_q' => 0,
+        'position_r' => 0,
+        'last_room_id' => '',
+        'version' => 1,
+      ];
+    }
+    else {
+      $fields['version'] = max(1, (int) ($existing_actor['version'] ?? 0) + 1);
+    }
+
+    return $fields;
+  }
+
+  /**
+   * Build state_data JSON payload from legacy NPC fields.
+   */
+  private function buildActorStateDataFromNpc(array $npc, array $existing_state_data = []): array {
+    $state_data = is_array($existing_state_data) ? $existing_state_data : [];
+    $stats = is_array($state_data['stats'] ?? NULL) ? $state_data['stats'] : [];
+    $stats['perception'] = (int) ($npc['perception'] ?? 0);
+    $stats['ac'] = (int) ($npc['armor_class'] ?? 10);
+    $stats['currentHp'] = (int) ($npc['hit_points'] ?? 0);
+    $stats['maxHp'] = (int) ($npc['hit_points'] ?? 0);
+    $stats['fortitude'] = (int) ($npc['fort_save'] ?? 0);
+    $stats['reflex'] = (int) ($npc['ref_save'] ?? 0);
+    $stats['will'] = (int) ($npc['will_save'] ?? 0);
+    $state_data['stats'] = $stats;
+
+    $profile = is_array($state_data['npc_profile'] ?? NULL) ? $state_data['npc_profile'] : [];
+    $profile['attitude'] = (string) ($npc['attitude'] ?? 'indifferent');
+    $profile['lore_notes'] = (string) ($npc['lore_notes'] ?? '');
+    $profile['dialogue_notes'] = (string) ($npc['dialogue_notes'] ?? '');
+    $profile['npc_archetype'] = (string) ($npc['npc_archetype'] ?? '');
+    $profile['alignment'] = (string) ($npc['alignment'] ?? 'N');
+    $profile['scene_ref'] = (string) ($npc['scene_ref'] ?? '');
+    $profile['is_gallery_entry'] = (int) ($npc['is_gallery_entry'] ?? 0);
+    $profile['gallery_source_id'] = (int) ($npc['gallery_source_id'] ?? 0);
+    $profile['elite_weak_template'] = $npc['elite_weak_template'] ?? NULL;
+    $state_data['npc_profile'] = $profile;
+
+    $state_data['content_id'] = (string) ($npc['entity_ref'] ?? '');
+    $state_data['role'] = (string) ($npc['role'] ?? 'neutral');
+    $state_data['description'] = (string) ($npc['dialogue_notes'] ?? '');
+    $state_data['backstory'] = (string) ($npc['lore_notes'] ?? '');
+
+    return $state_data;
+  }
+
+  /**
+   * Build character_data JSON payload from legacy NPC fields.
+   */
+  private function buildActorCharacterDataFromNpc(array $npc, array $existing_character_data = []): array {
+    $character_data = is_array($existing_character_data) ? $existing_character_data : [];
+    $stats = is_array($character_data['stats'] ?? NULL) ? $character_data['stats'] : [];
+    $stats['perception'] = (int) ($npc['perception'] ?? 0);
+    $stats['ac'] = (int) ($npc['armor_class'] ?? 10);
+    $stats['currentHp'] = (int) ($npc['hit_points'] ?? 0);
+    $stats['maxHp'] = (int) ($npc['hit_points'] ?? 0);
+    $stats['fortitude'] = (int) ($npc['fort_save'] ?? 0);
+    $stats['reflex'] = (int) ($npc['ref_save'] ?? 0);
+    $stats['will'] = (int) ($npc['will_save'] ?? 0);
+
+    $character_data['name'] = (string) ($npc['name'] ?? '');
+    $character_data['type'] = 'npc';
+    $character_data['role'] = (string) ($npc['role'] ?? 'neutral');
+    $character_data['level'] = (int) ($npc['level'] ?? 1);
+    $character_data['description'] = (string) ($npc['dialogue_notes'] ?? '');
+    $character_data['backstory'] = (string) ($npc['lore_notes'] ?? '');
+    $character_data['attitude'] = (string) ($npc['attitude'] ?? 'indifferent');
+    $character_data['alignment'] = (string) ($npc['alignment'] ?? 'N');
+    $character_data['stats'] = $stats;
+
+    return $character_data;
+  }
+
+  /**
+   * Decode a stored JSON payload into an array contract.
+   */
+  private function decodeJsonArray(mixed $raw): array {
+    if (is_array($raw)) {
+      return $raw;
+    }
+    if (!is_string($raw) || trim($raw) === '') {
+      return [];
+    }
+    $decoded = json_decode($raw, TRUE);
+    return is_array($decoded) ? $decoded : [];
   }
 
 }

@@ -49,9 +49,9 @@ Yes — the architecture includes a content generation system, and this section 
 | Room entities (creatures, NPCs, items, hazards/traps/obstacles) | `EntityPlacerService`, `RoomGeneratorService`, `MapGeneratorService` | Room `contents_data`, room state payloads, registry-backed content references |
 | Quest instances (including objective phases and rewards) | `QuestGeneratorService` | `dc_campaign_quests` (`generated_objectives`, `generated_rewards`, `quest_data`) |
 | Storyline definitions + async expansion jobs | `StorylineGenerationService` | Storyline runtime tables + `dc_storyline_expansion_jobs` |
-| Storyline-realized campaign assets (NPC references, dungeons, rooms, storyline items) | `StorylineRealizationService` | `dc_npc`, campaign/library dungeon+room tables, content registries |
+| Storyline-realized campaign assets (NPC references, dungeons, rooms, storyline items) | `StorylineRealizationService` | `dc_campaign_characters` (canonical actor rows, `type=npc`), campaign/library dungeon+room tables, content registries |
 | NPC sheets | `NpcSheetGenerationService` | `dc_npc_sheet_generation_jobs` + generated sheet persistence targets |
-| NPC psychology profiles (attitude, personality axes, motivations, goals) | `NpcPsychologyService` | `dc_npc_psychology` |
+| NPC psychology profiles (attitude, personality axes, motivations, goals) | `NpcPsychologyService` | `dc_psychology` (canonical psychology table for all actors) |
 | Factions / campaign subject instances from narrative needs | `FactionGenerationService` | `dc_library_institution_manifest`, campaign subject registry tables |
 | Generated portrait images for characters | `CharacterPortraitGenerationService` | Generated image repository + legacy portrait mirror fields |
 | Generated room/terrain/sprite visual assets | `RoomViewImageService`, `TerrainImageGenerationService`, `SpriteGenerationService` | Generated image repository / image cache manifests |

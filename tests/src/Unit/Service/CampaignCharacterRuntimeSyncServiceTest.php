@@ -5,9 +5,9 @@ namespace Drupal\Tests\dungeoncrawler_content\Unit\Service;
 use Drupal\Core\Database\Connection;
 use Drupal\Core\Database\Query\Select;
 use Drupal\Core\Database\StatementInterface;
-use Drupal\dungeoncrawler_content\Service\AnimalCompanionService;
 use Drupal\dungeoncrawler_content\Service\CampaignCharacterRuntimeSyncService;
 use Drupal\dungeoncrawler_content\Service\CharacterPortraitGenerationService;
+use Drupal\dungeoncrawler_content\Service\FollowerSubsystemService;
 use Drupal\dungeoncrawler_content\Service\NpcSheetGenerationService;
 use Drupal\Tests\UnitTestCase;
 
@@ -22,8 +22,8 @@ class CampaignCharacterRuntimeSyncServiceTest extends UnitTestCase {
    */
   public function testSyncActiveRoomPlayerEntitiesReplacesTemplatePlayersWithCampaignCharacterRows(): void {
     $database = $this->createMock(Connection::class);
-    $animal_companion_service = $this->createMock(AnimalCompanionService::class);
-    $animal_companion_service->method('resolveCompanionFromCharacterData')->willReturn(NULL);
+    $follower_subsystem = $this->createMock(FollowerSubsystemService::class);
+    $follower_subsystem->method('resolveRuntimeFollowerProfiles')->willReturn([]);
 
     $player_statement = $this->createMock(StatementInterface::class);
     $player_statement->method('fetchAll')->with(\PDO::FETCH_ASSOC)->willReturn([
@@ -65,7 +65,7 @@ class CampaignCharacterRuntimeSyncServiceTest extends UnitTestCase {
       throw new \RuntimeException(sprintf('Unexpected select %s %s', $table, $alias));
     });
 
-    $service = new CampaignCharacterRuntimeSyncService($database, $animal_companion_service);
+    $service = new CampaignCharacterRuntimeSyncService($database, $follower_subsystem);
 
     $payload = [
       'active_room_id' => 'room-bazaar',
@@ -118,8 +118,9 @@ class CampaignCharacterRuntimeSyncServiceTest extends UnitTestCase {
    */
   public function testSyncActiveRoomNpcEntitiesDoesNotMatchByName(): void {
     $database = $this->createMock(Connection::class);
-    $animal_companion_service = $this->createMock(AnimalCompanionService::class);
-    $service = new class($database, $animal_companion_service) extends CampaignCharacterRuntimeSyncService {
+    $follower_subsystem = $this->createMock(FollowerSubsystemService::class);
+    $follower_subsystem->method('resolveRuntimeFollowerProfiles')->willReturn([]);
+    $service = new class($database, $follower_subsystem) extends CampaignCharacterRuntimeSyncService {
       public function syncNpcEntities(array $payload, int $campaign_id, string $active_room_id): array {
         return $this->syncActiveRoomNpcEntities($payload, $campaign_id, $active_room_id);
       }
@@ -218,8 +219,9 @@ class CampaignCharacterRuntimeSyncServiceTest extends UnitTestCase {
    */
   public function testSyncActiveRoomNpcEntitiesEnrichesExistingEntityInPlace(): void {
     $database = $this->createMock(Connection::class);
-    $animal_companion_service = $this->createMock(AnimalCompanionService::class);
-    $service = new class($database, $animal_companion_service) extends CampaignCharacterRuntimeSyncService {
+    $follower_subsystem = $this->createMock(FollowerSubsystemService::class);
+    $follower_subsystem->method('resolveRuntimeFollowerProfiles')->willReturn([]);
+    $service = new class($database, $follower_subsystem) extends CampaignCharacterRuntimeSyncService {
       public function syncNpcEntities(array $payload, int $campaign_id, string $active_room_id): array {
         return $this->syncActiveRoomNpcEntities($payload, $campaign_id, $active_room_id);
       }
@@ -259,11 +261,11 @@ class CampaignCharacterRuntimeSyncServiceTest extends UnitTestCase {
       if ($table === 'dc_campaign_characters' && $alias === 'cc') {
         return $npc_select;
       }
+      if ($table === 'dc_campaign_characters' && $alias === 'lib') {
+        return $library_select;
+      }
       if ($table === 'dc_campaign_rooms' && $alias === 'r') {
         return $room_select;
-      }
-      if ($table === 'dc_npc' && $alias === 'n') {
-        return $library_select;
       }
       if ($table === 'dc_generated_image_links' && $alias === 'l') {
         $select_calls['dc_generated_image_links']++;
@@ -289,7 +291,7 @@ class CampaignCharacterRuntimeSyncServiceTest extends UnitTestCase {
           return $this;
         }
         public function execute(): int {
-          return $this->table === 'dc_npc' ? 777 : 1;
+          return $this->table === 'dc_campaign_characters' ? 777 : 1;
         }
       };
     });
@@ -343,8 +345,9 @@ class CampaignCharacterRuntimeSyncServiceTest extends UnitTestCase {
    */
   public function testSyncActiveRoomPlayerEntitiesStillSyncsNpcsWithoutActivePlayers(): void {
     $database = $this->createMock(Connection::class);
-    $animal_companion_service = $this->createMock(AnimalCompanionService::class);
-    $service = new CampaignCharacterRuntimeSyncService($database, $animal_companion_service);
+    $follower_subsystem = $this->createMock(FollowerSubsystemService::class);
+    $follower_subsystem->method('resolveRuntimeFollowerProfiles')->willReturn([]);
+    $service = new CampaignCharacterRuntimeSyncService($database, $follower_subsystem);
 
     $player_statement = $this->createMock(StatementInterface::class);
     $player_statement->method('fetchAll')->with(\PDO::FETCH_ASSOC)->willReturn([]);
@@ -430,10 +433,11 @@ class CampaignCharacterRuntimeSyncServiceTest extends UnitTestCase {
    */
   public function testSyncActiveRoomNpcEntitiesSeedsLibraryAndPortraitGeneration(): void {
     $database = $this->createMock(Connection::class);
-    $animal_companion_service = $this->createMock(AnimalCompanionService::class);
+    $follower_subsystem = $this->createMock(FollowerSubsystemService::class);
+    $follower_subsystem->method('resolveRuntimeFollowerProfiles')->willReturn([]);
     $npc_sheet_generation = $this->createMock(NpcSheetGenerationService::class);
     $portrait_generator = $this->createMock(CharacterPortraitGenerationService::class);
-    $service = new class($database, $animal_companion_service, $npc_sheet_generation, $portrait_generator) extends CampaignCharacterRuntimeSyncService {
+    $service = new class($database, $follower_subsystem, $npc_sheet_generation, $portrait_generator) extends CampaignCharacterRuntimeSyncService {
       public function syncNpcEntities(array $payload, int $campaign_id, string $active_room_id): array {
         return $this->syncActiveRoomNpcEntities($payload, $campaign_id, $active_room_id);
       }
@@ -488,11 +492,11 @@ class CampaignCharacterRuntimeSyncServiceTest extends UnitTestCase {
       if ($table === 'dc_campaign_characters' && $alias === 'cc') {
         return $npc_select;
       }
+      if ($table === 'dc_campaign_characters' && $alias === 'lib') {
+        return $library_select;
+      }
       if ($table === 'dc_campaign_rooms' && $alias === 'r') {
         return $room_select;
-      }
-      if ($table === 'dc_npc' && $alias === 'n') {
-        return $library_select;
       }
       if ($table === 'dc_generated_image_links' && $alias === 'l') {
         $generated_image_link_calls++;
@@ -518,7 +522,7 @@ class CampaignCharacterRuntimeSyncServiceTest extends UnitTestCase {
           return $this;
         }
         public function execute(): int {
-          return $this->table === 'dc_npc' ? 777 : 1;
+          return $this->table === 'dc_campaign_characters' ? 777 : 1;
         }
       };
     });
