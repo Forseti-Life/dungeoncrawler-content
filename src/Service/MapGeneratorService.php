@@ -489,7 +489,7 @@ class MapGeneratorService {
         static fn($entity) => is_array($entity)
       )),
       'connections' => $connections,
-      'navigation_capabilities' => $this->navigationService?->buildNavigationCapabilities($dungeon_data, $room_id) ?? [],
+      'navigation_capabilities' => $this->navigationService?->buildNavigationCapabilitiesWithRoadNetwork($dungeon_data, $room_id) ?? [],
       'entry_hex' => $entry_hex,
     ];
 

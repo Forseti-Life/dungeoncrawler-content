@@ -7109,7 +7109,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
     }
 
     $capabilities = $this->navigationService
-      ? $this->navigationService->buildNavigationCapabilities($dungeon_data, $active_room_id)
+      ? $this->navigationService->buildNavigationCapabilitiesWithRoadNetwork($dungeon_data, $active_room_id)
       : $this->buildFallbackNavigationCapabilities($dungeon_data, $active_room_id);
     $connection_id = isset($params['connection_id']) ? (string) $params['connection_id'] : '';
     if ($connection_id !== '') {
@@ -8444,7 +8444,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
     // to prevent contract drift when EncounterPhaseHandler is exercised in
     // isolation tests without injected navigationService wiring.
     $service = new NavigationService();
-    return $service->buildNavigationCapabilities($dungeon_data, $room_id);
+    return $service->buildNavigationCapabilitiesWithRoadNetwork($dungeon_data, $room_id);
   }
 
   /**

@@ -119,7 +119,7 @@ class NavigationService {
     ?string $connection_id = NULL,
     ?array $target_hex = NULL
   ): ?array {
-    $capabilities = $this->buildNavigationCapabilities($dungeon_data, $room_id);
+    $capabilities = $this->buildNavigationCapabilitiesWithRoadNetwork($dungeon_data, $room_id);
     $connection_id = trim((string) $connection_id);
 
     if ($connection_id !== '') {
@@ -442,7 +442,7 @@ class NavigationService {
     string $room_id,
     ?array $active_quests = NULL
   ): array {
-    $capabilities = $this->buildNavigationCapabilities($dungeon_data, $room_id);
+    $capabilities = $this->buildNavigationCapabilitiesWithRoadNetwork($dungeon_data, $room_id);
 
     if (empty($active_quests) || !is_array($active_quests)) {
       return $capabilities;
