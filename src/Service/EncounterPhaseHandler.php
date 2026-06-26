@@ -8440,57 +8440,11 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
    * Fallback navigation capability builder for isolated tests.
    */
   protected function buildFallbackNavigationCapabilities(array $dungeon_data, string $room_id): array {
-    $connections = $dungeon_data['hex_map']['connections'] ?? ($dungeon_data['connections'] ?? []);
-    $capabilities = [];
-    foreach ((array) $connections as $connection) {
-      if (!is_array($connection)) {
-        continue;
-      }
-      $from_room = (string) ($connection['from_room'] ?? ($connection['from']['room_id'] ?? ''));
-      $to_room = (string) ($connection['to_room'] ?? ($connection['to']['room_id'] ?? ''));
-      if ($from_room !== $room_id && $to_room !== $room_id) {
-        continue;
-      }
-      $target_room_id = $from_room === $room_id ? $to_room : $from_room;
-      $is_discovered = array_key_exists('is_discovered', $connection) ? !empty($connection['is_discovered']) : TRUE;
-      $is_passable = array_key_exists('is_passable', $connection) ? !empty($connection['is_passable']) : TRUE;
-      $distance = isset($connection['distance']) && is_numeric($connection['distance']) ? max(0, (int) $connection['distance']) : 0;
-      $blocked_reason = !$is_discovered ? 'undiscovered' : (!$is_passable ? 'blocked' : ($distance !== 0 ? 'invalid_distance_contract' : NULL));
-      $capabilities[] = [
-        'connection_id' => $this->deriveFallbackConnectionId($connection, $from_room, $to_room),
-        'target_room_id' => $target_room_id,
-        'destination_type' => 'room',
-        'destination_id' => $target_room_id,
-        'available' => $blocked_reason === NULL,
-        'blocked_reason' => $blocked_reason,
-        'distance' => $distance,
-        'travel_time_seconds' => $this->resolveTravelSeconds($connection, []),
-      ];
-    }
-    return $capabilities;
-  }
-
-  /**
-   * Derive a deterministic fallback connection id for transition capabilities.
-   */
-  protected function deriveFallbackConnectionId(array $connection, string $from_room, string $to_room): string {
-    $explicit = trim((string) ($connection['connection_id'] ?? ''));
-    if ($explicit !== '') {
-      return $explicit;
-    }
-
-    $type = trim((string) ($connection['type'] ?? 'passage')) ?: 'passage';
-    $from_hex = is_array($connection['from_hex'] ?? NULL) ? $connection['from_hex'] : NULL;
-    $to_hex = is_array($connection['to_hex'] ?? NULL) ? $connection['to_hex'] : NULL;
-    $scope_suffix = 'unscoped';
-    if (
-      is_array($from_hex) && array_key_exists('q', $from_hex) && array_key_exists('r', $from_hex)
-      && is_array($to_hex) && array_key_exists('q', $to_hex) && array_key_exists('r', $to_hex)
-    ) {
-      $scope_suffix = (int) $from_hex['q'] . ':' . (int) $from_hex['r'] . '__' . (int) $to_hex['q'] . ':' . (int) $to_hex['r'];
-    }
-
-    return $from_room . '__' . $to_room . '__' . $type . '__' . $scope_suffix;
+    // Fallback now delegates to the canonical navigation service implementation
+    // to prevent contract drift when EncounterPhaseHandler is exercised in
+    // isolation tests without injected navigationService wiring.
+    $service = new NavigationService();
+    return $service->buildNavigationCapabilities($dungeon_data, $room_id);
   }
 
   /**

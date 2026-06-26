@@ -7,6 +7,12 @@ namespace Drupal\dungeoncrawler_content\Service;
  */
 class NavigationService {
 
+  protected NavigationRoadGraphService $navigationRoadGraphService;
+
+  public function __construct(?NavigationRoadGraphService $navigation_road_graph_service = NULL) {
+    $this->navigationRoadGraphService = $navigation_road_graph_service ?? new NavigationRoadGraphService();
+  }
+
   /**
    * Build formalized navigation capabilities for one active room.
    *
@@ -26,6 +32,7 @@ class NavigationService {
         $capabilities[] = $capability;
       }
     }
+    $capabilities = $this->enforceDuplicateExitContractConflicts($capabilities);
 
     usort($capabilities, static function (array $left, array $right): int {
       $left_available = !empty($left['available']) ? 0 : 1;
@@ -38,6 +45,69 @@ class NavigationService {
     });
 
     return $capabilities;
+  }
+
+  /**
+   * Marks duplicate capability identities as blocked when their contracts differ.
+   *
+   * Duplicate exit entries are allowed only when destination + distance semantics
+   * remain identical. Conflicting duplicates are hard-failed.
+   *
+   * @param array<int, array<string, mixed>> $capabilities
+   *   Navigation capabilities.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Capabilities with duplicate conflicts blocked.
+   */
+  protected function enforceDuplicateExitContractConflicts(array $capabilities): array {
+    $indexes_by_identity = [];
+    foreach ($capabilities as $index => $capability) {
+      $origin_room_id = trim((string) ($capability['origin_room_id'] ?? ''));
+      $connection_id = trim((string) ($capability['connection_id'] ?? ''));
+      if ($origin_room_id === '' || $connection_id === '') {
+        continue;
+      }
+      $identity = $origin_room_id . '::' . $connection_id;
+      $indexes_by_identity[$identity][] = $index;
+    }
+
+    foreach ($indexes_by_identity as $indexes) {
+      if (count($indexes) < 2) {
+        continue;
+      }
+
+      $first_signature = $this->buildCapabilityConflictSignature($capabilities[$indexes[0]]);
+      $has_conflict = FALSE;
+      foreach ($indexes as $index) {
+        if ($this->buildCapabilityConflictSignature($capabilities[$index]) !== $first_signature) {
+          $has_conflict = TRUE;
+          break;
+        }
+      }
+      if (!$has_conflict) {
+        continue;
+      }
+
+      foreach ($indexes as $index) {
+        $capabilities[$index]['available'] = FALSE;
+        $capabilities[$index]['blocked_reason'] = 'duplicate_exit_conflict';
+      }
+    }
+
+    return $capabilities;
+  }
+
+  /**
+   * Build a normalized signature used to detect duplicate-contract conflicts.
+   */
+  protected function buildCapabilityConflictSignature(array $capability): string {
+    return implode('|', [
+      trim((string) ($capability['target_room_id'] ?? '')),
+      trim((string) ($capability['destination_type'] ?? '')),
+      trim((string) ($capability['destination_id'] ?? '')),
+      (string) (int) ($capability['distance'] ?? 0),
+      (string) (!empty($capability['bidirectional']) ? 1 : 0),
+    ]);
   }
 
   /**
@@ -109,30 +179,19 @@ class NavigationService {
     $is_discovered = array_key_exists('is_discovered', $connection) ? !empty($connection['is_discovered']) : TRUE;
     $is_passable = array_key_exists('is_passable', $connection) ? !empty($connection['is_passable']) : TRUE;
     $bidirectional = array_key_exists('bidirectional', $connection) ? !empty($connection['bidirectional']) : ($type !== 'one_way');
-    $requires_interaction = !$is_passable || in_array($type, ['door', 'locked_door', 'secret_door', 'trapped_door', 'barricade', 'collapsed', 'magical_barrier'], TRUE);
+    $requires_interaction = self::resolveRequiresInteraction($connection);
     $destination_type = $this->resolveDestinationType($connection);
     $destination_id = $this->resolveDestinationId($connection, $target_room_id, $destination_type);
     $distance = $this->resolveDistance($connection, $destination_type);
-
-    $blocked_reason = NULL;
-    if ($target_room_id === '') {
-      $blocked_reason = 'unresolved_destination';
-    }
-    elseif ($destination_type === '' || $destination_id === '') {
-      $blocked_reason = 'missing_destination_metadata';
-    }
-    elseif ($destination_type === 'room' && $distance !== 0) {
-      $blocked_reason = 'invalid_distance_contract';
-    }
-    elseif ($destination_type === 'road' && !$this->hasRoomRoadAnchor($dungeon_data, $room_id)) {
-      $blocked_reason = 'missing_road_anchor';
-    }
-    elseif (!$is_discovered) {
-      $blocked_reason = 'undiscovered';
-    }
-    elseif (!$is_passable) {
-      $blocked_reason = 'blocked';
-    }
+    $blocked_reason = self::resolveBlockedReason(
+      $target_room_id,
+      $destination_type,
+      $destination_id,
+      $distance,
+      $is_discovered,
+      $is_passable,
+      self::hasRoomRoadAnchorInPayload($dungeon_data, $room_id)
+    );
 
     return [
       'connection_id' => $this->deriveConnectionId($connection),
@@ -238,6 +297,34 @@ class NavigationService {
    * Resolves canonical destination type for one connection.
    */
   protected function resolveDestinationType(array $connection): string {
+    return self::normalizeDestinationType($connection);
+  }
+
+  /**
+   * Resolves canonical destination id for one connection.
+   */
+  protected function resolveDestinationId(array $connection, string $target_room_id, string $destination_type): string {
+    return self::normalizeDestinationId($connection, $target_room_id, $destination_type);
+  }
+
+  /**
+   * Resolves canonical edge distance for one connection.
+   */
+  protected function resolveDistance(array $connection, string $destination_type): int {
+    return self::normalizeDistance($connection, $destination_type);
+  }
+
+  /**
+   * Checks whether a room has a road anchor mapping for connections to roads.
+   */
+  protected function hasRoomRoadAnchor(array $dungeon_data, string $room_id): bool {
+    return self::hasRoomRoadAnchorInPayload($dungeon_data, $room_id);
+  }
+
+  /**
+   * Normalize canonical destination type for one connection payload.
+   */
+  public static function normalizeDestinationType(array $connection): string {
     $raw_type = strtolower(trim((string) ($connection['destination_type'] ?? $connection['to_type'] ?? '')));
     if (in_array($raw_type, ['road', 'room'], TRUE)) {
       return $raw_type;
@@ -247,9 +334,9 @@ class NavigationService {
   }
 
   /**
-   * Resolves canonical destination id for one connection.
+   * Normalize canonical destination id for one connection payload.
    */
-  protected function resolveDestinationId(array $connection, string $target_room_id, string $destination_type): string {
+  public static function normalizeDestinationId(array $connection, string $target_room_id, string $destination_type): string {
     if ($destination_type === 'road') {
       return trim((string) ($connection['road_node_id'] ?? $connection['road_id'] ?? $connection['to_id'] ?? ''));
     }
@@ -258,9 +345,9 @@ class NavigationService {
   }
 
   /**
-   * Resolves canonical edge distance for one connection.
+   * Normalize canonical edge distance for one connection payload.
    */
-  protected function resolveDistance(array $connection, string $destination_type): int {
+  public static function normalizeDistance(array $connection, string $destination_type): int {
     foreach (['distance', 'travel_distance', 'distance_units'] as $key) {
       if (isset($connection[$key]) && is_numeric($connection[$key])) {
         return max(0, (int) $connection[$key]);
@@ -279,9 +366,52 @@ class NavigationService {
   }
 
   /**
+   * Determine whether an edge requires interaction.
+   */
+  public static function resolveRequiresInteraction(array $connection): bool {
+    $type = trim((string) ($connection['type'] ?? 'passage')) ?: 'passage';
+    $is_passable = array_key_exists('is_passable', $connection) ? !empty($connection['is_passable']) : TRUE;
+    return !$is_passable || in_array($type, ['door', 'locked_door', 'secret_door', 'trapped_door', 'barricade', 'collapsed', 'magical_barrier'], TRUE);
+  }
+
+  /**
+   * Resolve canonical blocked_reason for a capability edge.
+   */
+  public static function resolveBlockedReason(
+    string $target_room_id,
+    string $destination_type,
+    string $destination_id,
+    int $distance,
+    bool $is_discovered,
+    bool $is_passable,
+    bool $has_room_road_anchor = TRUE
+  ): ?string {
+    if ($target_room_id === '' && $destination_type !== 'road') {
+      return 'unresolved_destination';
+    }
+    if ($destination_type === '' || $destination_id === '') {
+      return 'missing_destination_metadata';
+    }
+    if ($destination_type === 'room' && $distance !== 0) {
+      return 'invalid_distance_contract';
+    }
+    if ($destination_type === 'road' && !$has_room_road_anchor) {
+      return 'missing_road_anchor';
+    }
+    if (!$is_discovered) {
+      return 'undiscovered';
+    }
+    if (!$is_passable) {
+      return 'blocked';
+    }
+
+    return NULL;
+  }
+
+  /**
    * Checks whether a room has a road anchor mapping for connections to roads.
    */
-  protected function hasRoomRoadAnchor(array $dungeon_data, string $room_id): bool {
+  public static function hasRoomRoadAnchorInPayload(array $dungeon_data, string $room_id): bool {
     $anchors = (array) ($dungeon_data['room_road_anchors'] ?? $dungeon_data['road_anchors'] ?? []);
     foreach ($anchors as $anchor) {
       if (is_array($anchor) && (string) ($anchor['room_id'] ?? '') === $room_id) {
@@ -615,16 +745,19 @@ class NavigationService {
       return NULL;
     }
 
+    $resolved_distance = $this->navigationRoadGraphService->resolveRoomToRoomDistance($dungeon_data, $from_room_id, $to_room_id);
+    $available = $resolved_distance !== NULL;
+
     return [
       'connection_id' => "road-network-synthetic-{$from_room_id}-to-{$to_room_id}",
       'origin_room_id' => $from_room_id,
       'target_room_id' => $to_room_id,
       'destination_type' => 'room',
       'destination_id' => $to_room_id,
-      'distance' => 0, // Road network is abstract (distance handled by road system)
+      'distance' => $available ? (int) $resolved_distance : 0,
       'type' => 'road_network',
-      'available' => TRUE,
-      'blocked_reason' => NULL,
+      'available' => $available,
+      'blocked_reason' => $available ? NULL : 'missing_road_path',
       'is_discovered' => FALSE, // Not discovered until explicitly visited
       'is_passable' => TRUE,
       'bidirectional' => TRUE, // Road network is bidirectional

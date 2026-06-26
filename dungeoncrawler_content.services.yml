@@ -197,6 +197,16 @@ services:
       - '@dungeoncrawler_content.faction_generation'
       - '@?ai_conversation.ai_api_service'
 
+  dungeoncrawler_content.character_wizard_hardening:
+    class: Drupal\dungeoncrawler_content\Service\CharacterWizardHardeningService
+    arguments:
+      - '@dungeoncrawler_content.character_manager'
+      - '@database'
+      - '@dungeoncrawler_content.campaign_character_runtime_resolver'
+      - '@datetime.time'
+      - '@uuid'
+      - '@current_user'
+
   dungeoncrawler_content.feat_effect_manager:
     class: Drupal\dungeoncrawler_content\Service\FeatEffectManager
 
@@ -283,7 +293,7 @@ services:
     class: Drupal\dungeoncrawler_content\Service\CampaignCharacterRuntimeSyncService
     arguments:
       - '@database'
-      - '@dungeoncrawler_content.animal_companion'
+      - '@dungeoncrawler_content.follower_subsystem'
       - '@?dungeoncrawler_content.npc_sheet_generation'
       - '@?dungeoncrawler_content.character_portrait_generator'
 
@@ -511,6 +521,42 @@ services:
   dungeoncrawler_content.npc_attention_service:
     class: Drupal\dungeoncrawler_content\Service\NpcAttentionService
 
+  dungeoncrawler_content.gm_turn_intent_router:
+    class: Drupal\dungeoncrawler_content\Service\GmSubsystem\TurnIntentRouter
+
+  dungeoncrawler_content.gm_prompt_context_assembler:
+    class: Drupal\dungeoncrawler_content\Service\GmSubsystem\PromptContextAssembler
+
+  dungeoncrawler_content.gm_generation_policy:
+    class: Drupal\dungeoncrawler_content\Service\GmSubsystem\GmGenerationPolicy
+
+  dungeoncrawler_content.gm_narrative_post_processor:
+    class: Drupal\dungeoncrawler_content\Service\GmSubsystem\GmNarrativePostProcessor
+    arguments:
+      - '@ai_conversation.ai_api_service'
+
+  dungeoncrawler_content.gm_canonical_execution_pipeline:
+    class: Drupal\dungeoncrawler_content\Service\GmSubsystem\CanonicalExecutionPipeline
+    arguments:
+      - '@dungeoncrawler_content.gm_orchestration_broker'
+
+  dungeoncrawler_content.gm_state_mutation_pipeline:
+    class: Drupal\dungeoncrawler_content\Service\GmSubsystem\StateMutationPipeline
+    arguments:
+      - '@dungeoncrawler_content.gameplay_action_processor'
+
+  dungeoncrawler_content.gm_navigation_transition_pipeline:
+    class: Drupal\dungeoncrawler_content\Service\GmSubsystem\NavigationTransitionPipeline
+
+  dungeoncrawler_content.gm_transcript_persistence_pipeline:
+    class: Drupal\dungeoncrawler_content\Service\GmSubsystem\GmTranscriptPersistencePipeline
+    arguments:
+      - '@database'
+      - '@dungeoncrawler_content.ai_session_manager'
+
+  dungeoncrawler_content.gm_transcript_projector:
+    class: Drupal\dungeoncrawler_content\Service\GmSubsystem\GmTranscriptProjector
+
   dungeoncrawler_content.room_chat_service:
     class: Drupal\dungeoncrawler_content\Service\RoomChatService
     arguments:
@@ -541,6 +587,15 @@ services:
       - '@?dungeoncrawler_content.storyline_generation_service'
       - '@?dungeoncrawler_content.quest_touchpoint'
       - '@?dungeoncrawler_content.npc_attention_service'
+      - '@?dungeoncrawler_content.gm_turn_intent_router'
+      - '@?dungeoncrawler_content.gm_prompt_context_assembler'
+      - '@?dungeoncrawler_content.gm_generation_policy'
+      - '@?dungeoncrawler_content.gm_narrative_post_processor'
+      - '@?dungeoncrawler_content.gm_canonical_execution_pipeline'
+      - '@?dungeoncrawler_content.gm_state_mutation_pipeline'
+      - '@?dungeoncrawler_content.gm_navigation_transition_pipeline'
+      - '@?dungeoncrawler_content.gm_transcript_persistence_pipeline'
+      - '@?dungeoncrawler_content.gm_transcript_projector'
 
   dungeoncrawler_content.campaign_initialization:
     class: Drupal\dungeoncrawler_content\Service\CampaignInitializationService
@@ -567,8 +622,13 @@ services:
     class: Drupal\dungeoncrawler_content\Service\StateValidationService
     arguments: ['@logger.factory']
 
+  dungeoncrawler_content.navigation_road_graph_service:
+    class: Drupal\dungeoncrawler_content\Service\NavigationRoadGraphService
+
   dungeoncrawler_content.navigation_service:
     class: Drupal\dungeoncrawler_content\Service\NavigationService
+    arguments:
+      - '@dungeoncrawler_content.navigation_road_graph_service'
 
   # Procedural Generation Services
   dungeoncrawler_content.room_library:
@@ -920,6 +980,12 @@ services:
     class: Drupal\dungeoncrawler_content\Service\AnimalCompanionService
     arguments:
       - '@database'
+
+  dungeoncrawler_content.follower_subsystem:
+    class: Drupal\dungeoncrawler_content\Service\FollowerSubsystemService
+    arguments:
+      - '@dungeoncrawler_content.familiar'
+      - '@dungeoncrawler_content.animal_companion'
 
   dungeoncrawler_content.knowledge_acquisition:
     class: Drupal\dungeoncrawler_content\Service\KnowledgeAcquisitionService

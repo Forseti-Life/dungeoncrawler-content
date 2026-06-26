@@ -13,6 +13,13 @@ use Drupal\Tests\UnitTestCase;
  */
 class NavigationServiceTest extends UnitTestCase {
 
+  private NavigationService $service;
+
+  protected function setUp(): void {
+    parent::setUp();
+    $this->service = new NavigationService();
+  }
+
   /**
    * Verifies the service formalizes adjacent room capabilities deterministically.
    */
@@ -242,6 +249,133 @@ class NavigationServiceTest extends UnitTestCase {
     // Missing destination falls through to 'room' type, but empty to_room causes unresolved_destination
     $this->assertFalse($capabilities[0]['available']);
     $this->assertSame('unresolved_destination', $capabilities[0]['blocked_reason']);
+  }
+
+  /**
+   * Verifies conflicting duplicate exits are hard-failed.
+   */
+  public function testBuildNavigationCapabilitiesRejectsDuplicateExitDestinationConflict(): void {
+    $service = new NavigationService();
+
+    $capabilities = $service->buildNavigationCapabilities([
+      'hex_map' => [
+        'connections' => [
+          [
+            'connection_id' => 'north_gate',
+            'from_room' => 'hall',
+            'to_room' => 'atrium',
+            'type' => 'open_passage',
+            'distance' => 0,
+            'is_discovered' => TRUE,
+            'is_passable' => TRUE,
+          ],
+          [
+            'connection_id' => 'north_gate',
+            'from_room' => 'hall',
+            'to_room' => 'barracks',
+            'type' => 'open_passage',
+            'distance' => 0,
+            'is_discovered' => TRUE,
+            'is_passable' => TRUE,
+          ],
+        ],
+      ],
+    ], 'hall');
+
+    $this->assertCount(2, $capabilities);
+    $this->assertFalse($capabilities[0]['available']);
+    $this->assertFalse($capabilities[1]['available']);
+    $this->assertSame('duplicate_exit_conflict', $capabilities[0]['blocked_reason']);
+    $this->assertSame('duplicate_exit_conflict', $capabilities[1]['blocked_reason']);
+  }
+
+  /**
+   * Verifies duplicate exits with conflicting road distance are hard-failed.
+   */
+  public function testBuildNavigationCapabilitiesRejectsDuplicateExitDistanceConflict(): void {
+    $service = new NavigationService();
+
+    $capabilities = $service->buildNavigationCapabilities([
+      'hex_map' => [
+        'connections' => [
+          [
+            'connection_id' => 'hall_road_gate',
+            'from_room' => 'hall',
+            'to_room' => '',
+            'to_type' => 'road',
+            'road_node_id' => 'north_road_node_1',
+            'type' => 'gate',
+            'distance' => 2,
+            'is_discovered' => TRUE,
+            'is_passable' => TRUE,
+          ],
+          [
+            'connection_id' => 'hall_road_gate',
+            'from_room' => 'hall',
+            'to_room' => '',
+            'to_type' => 'road',
+            'road_node_id' => 'north_road_node_1',
+            'type' => 'gate',
+            'distance' => 5,
+            'is_discovered' => TRUE,
+            'is_passable' => TRUE,
+          ],
+        ],
+      ],
+      'room_road_anchors' => [
+        [
+          'room_id' => 'hall',
+          'road_node_id' => 'north_road_node_1',
+          'access_distance' => 2,
+        ],
+      ],
+    ], 'hall');
+
+    $this->assertCount(2, $capabilities);
+    $this->assertFalse($capabilities[0]['available']);
+    $this->assertFalse($capabilities[1]['available']);
+    $this->assertSame('duplicate_exit_conflict', $capabilities[0]['blocked_reason']);
+    $this->assertSame('duplicate_exit_conflict', $capabilities[1]['blocked_reason']);
+  }
+
+  /**
+   * Verifies identical duplicate exits are not falsely flagged as conflicts.
+   */
+  public function testBuildNavigationCapabilitiesAllowsIdenticalDuplicateExitContracts(): void {
+    $service = new NavigationService();
+
+    $capabilities = $service->buildNavigationCapabilities([
+      'hex_map' => [
+        'connections' => [
+          [
+            'connection_id' => 'north_gate',
+            'from_room' => 'hall',
+            'to_room' => 'atrium',
+            'type' => 'open_passage',
+            'distance' => 0,
+            'is_discovered' => TRUE,
+            'is_passable' => TRUE,
+            'bidirectional' => TRUE,
+          ],
+          [
+            'connection_id' => 'north_gate',
+            'from_room' => 'hall',
+            'to_room' => 'atrium',
+            'type' => 'open_passage',
+            'distance' => 0,
+            'is_discovered' => TRUE,
+            'is_passable' => TRUE,
+            'bidirectional' => TRUE,
+          ],
+        ],
+      ],
+    ], 'hall');
+
+    $this->assertCount(2, $capabilities);
+    $this->assertTrue($capabilities[0]['available']);
+    $this->assertTrue($capabilities[1]['available']);
+    $this->assertNotSame('duplicate_exit_conflict', $capabilities[0]['blocked_reason']);
+    $this->assertNotSame('duplicate_exit_conflict', $capabilities[1]['blocked_reason']);
   }
 
   /**
@@ -534,6 +668,15 @@ class NavigationServiceTest extends UnitTestCase {
         ['room_id' => 'market', 'name' => 'Market'],
         ['room_id' => 'garden', 'name' => 'Garden'],
       ],
+      'room_road_anchors' => [
+        ['room_id' => 'tavern', 'road_node_id' => 'road-node-1', 'access_distance' => 1],
+        ['room_id' => 'market', 'road_node_id' => 'road-node-2', 'access_distance' => 1],
+        ['room_id' => 'garden', 'road_node_id' => 'road-node-3', 'access_distance' => 2],
+      ],
+      'road_edges' => [
+        ['from_node_id' => 'road-node-1', 'to_node_id' => 'road-node-2', 'distance' => 4, 'bidirectional' => TRUE],
+        ['from_node_id' => 'road-node-1', 'to_node_id' => 'road-node-3', 'distance' => 2, 'bidirectional' => TRUE],
+      ],
     ];
 
     $capabilities = $this->service->buildNavigationCapabilitiesWithRoadNetwork(
@@ -556,6 +699,8 @@ class NavigationServiceTest extends UnitTestCase {
     );
     $this->assertCount(1, $market_cap);
     $this->assertTrue(($market_cap[array_key_first($market_cap)]['is_road_network'] ?? FALSE));
+    $this->assertTrue(($market_cap[array_key_first($market_cap)]['available'] ?? FALSE));
+    $this->assertSame(6, $market_cap[array_key_first($market_cap)]['distance'] ?? NULL);
 
     // Verify garden is there (road network)
     $garden_cap = array_filter($capabilities, fn($c) => 
@@ -563,6 +708,8 @@ class NavigationServiceTest extends UnitTestCase {
     );
     $this->assertCount(1, $garden_cap);
     $this->assertTrue(($garden_cap[array_key_first($garden_cap)]['is_road_network'] ?? FALSE));
+    $this->assertTrue(($garden_cap[array_key_first($garden_cap)]['available'] ?? FALSE));
+    $this->assertSame(5, $garden_cap[array_key_first($garden_cap)]['distance'] ?? NULL);
   }
 
   /**
@@ -635,6 +782,15 @@ class NavigationServiceTest extends UnitTestCase {
         ['room_id' => 'market', 'name' => 'Market'],
         ['room_id' => 'garden', 'name' => 'Garden'],
       ],
+      'room_road_anchors' => [
+        ['room_id' => 'tavern', 'road_node_id' => 'road-node-1', 'access_distance' => 1],
+        ['room_id' => 'market', 'road_node_id' => 'road-node-2', 'access_distance' => 1],
+        ['room_id' => 'garden', 'road_node_id' => 'road-node-3', 'access_distance' => 1],
+      ],
+      'road_edges' => [
+        ['from_node_id' => 'road-node-1', 'to_node_id' => 'road-node-2', 'distance' => 2, 'bidirectional' => TRUE],
+        ['from_node_id' => 'road-node-2', 'to_node_id' => 'road-node-3', 'distance' => 3, 'bidirectional' => TRUE],
+      ],
     ];
 
     $capabilities = $this->service->buildNavigationCapabilitiesWithRoadNetwork(
@@ -649,6 +805,10 @@ class NavigationServiceTest extends UnitTestCase {
       ($c['is_road_network'] ?? FALSE) === TRUE
     );
     $this->assertCount(2, $road_caps);
+    foreach ($road_caps as $capability) {
+      $this->assertTrue($capability['available'] ?? FALSE);
+      $this->assertGreaterThan(0, (int) ($capability['distance'] ?? 0));
+    }
   }
 
   /**
@@ -663,6 +823,13 @@ class NavigationServiceTest extends UnitTestCase {
       'rooms' => [
         ['room_id' => 'tavern', 'name' => 'Tavern'],
         ['room_id' => 'market', 'name' => 'Market'],
+      ],
+      'room_road_anchors' => [
+        ['room_id' => 'tavern', 'road_node_id' => 'road-node-1', 'access_distance' => 1],
+        ['room_id' => 'market', 'road_node_id' => 'road-node-2', 'access_distance' => 1],
+      ],
+      'road_edges' => [
+        ['from_node_id' => 'road-node-1', 'to_node_id' => 'road-node-2', 'distance' => 2, 'bidirectional' => TRUE],
       ],
     ];
 
@@ -690,6 +857,39 @@ class NavigationServiceTest extends UnitTestCase {
     // Both should be marked as road network
     $this->assertTrue(reset($tavern_to_market)['is_road_network'] ?? FALSE);
     $this->assertTrue(reset($market_to_tavern)['is_road_network'] ?? FALSE);
+    $this->assertSame(4, reset($tavern_to_market)['distance'] ?? NULL);
+    $this->assertSame(4, reset($market_to_tavern)['distance'] ?? NULL);
+    $this->assertTrue(reset($tavern_to_market)['available'] ?? FALSE);
+    $this->assertTrue(reset($market_to_tavern)['available'] ?? FALSE);
+  }
+
+  /**
+   * Tests synthetic road-network entries hard-fail when no road path exists.
+   */
+  public function testBuildNavigationCapabilitiesWithRoadNetworkMissingPathBlocked(): void {
+    $dungeon = [
+      'connections' => [
+        ['from_room' => 'tavern', 'destination_type' => 'road'],
+        ['from_room' => 'market', 'destination_type' => 'road'],
+      ],
+      'rooms' => [
+        ['room_id' => 'tavern', 'name' => 'Tavern'],
+        ['room_id' => 'market', 'name' => 'Market'],
+      ],
+      'room_road_anchors' => [
+        ['room_id' => 'tavern', 'road_node_id' => 'road-node-1', 'access_distance' => 1],
+        ['room_id' => 'market', 'road_node_id' => 'road-node-9', 'access_distance' => 1],
+      ],
+      'road_edges' => [
+        ['from_node_id' => 'road-node-1', 'to_node_id' => 'road-node-2', 'distance' => 2, 'bidirectional' => TRUE],
+      ],
+    ];
+
+    $capabilities = $this->service->buildNavigationCapabilitiesWithRoadNetwork($dungeon, 'tavern');
+    $market_cap = array_values(array_filter($capabilities, static fn(array $c): bool => ($c['target_room_id'] ?? '') === 'market'));
+    $this->assertCount(1, $market_cap);
+    $this->assertFalse($market_cap[0]['available'] ?? TRUE);
+    $this->assertSame('missing_road_path', $market_cap[0]['blocked_reason'] ?? NULL);
   }
 
   /**

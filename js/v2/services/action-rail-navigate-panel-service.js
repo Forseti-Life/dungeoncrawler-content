@@ -1,6 +1,10 @@
 /**
  * @file
  * Shared navigate-category Action Rail panel builders.
+ *
+ * This layer is presentation-only. It consumes authoritative navigation
+ * capabilities and visited-location feeds; it must not infer or enforce
+ * movement legality beyond what server contracts provide.
  */
 
 import { escapeQuestHtml } from '../utils/quest-utils.js';
@@ -26,10 +30,7 @@ export function buildNavigateActionRailPanel(panel, context) {
 
   // Current location: prefer the refreshed server snapshot, fall back to the live shell room.
   const serverActiveRoom = panel.navigateActiveRoom || null;
-  const serverCurrentLocationLabel = formatNavigationLocationTitle(
-    serverActiveRoom?.dungeonName || '',
-    serverActiveRoom?.roomName || ''
-  );
+  const serverCurrentLocationLabel = String(serverActiveRoom?.roomName || '').trim();
   const liveCurrentLocationLabel = resolveNavigateCurrentLocationLabel(context);
   const currentLocationLabel = serverCurrentLocationLabel || liveCurrentLocationLabel;
 
@@ -116,8 +117,7 @@ function resolveNavigateCurrentLocationLabel(context) {
   const visualRooms = typeof hexmap?.getVisualRooms === 'function' ? hexmap.getVisualRooms() : {};
   const rooms = visualRooms && typeof visualRooms === 'object' ? visualRooms : {};
   const activeRoom = rooms[activeRoomId] || null;
-  const roomName = String(activeRoom?.name || activeRoom?.title || activeRoomId).trim();
-  return formatNavigationLocationTitle(activeRoom?.dungeonName || '', roomName || activeRoomId);
+  return String(activeRoom?.name || activeRoom?.title || activeRoomId).trim();
 }
 
 function collectNavigateExitGroups(panel, context) {
@@ -152,6 +152,7 @@ function collectNavigateExitGroups(panel, context) {
       const room = rooms[targetRoomId] || null;
       const historyEntry = latestHistoryByRoomId.get(targetRoomId) || null;
       const destinationType = String(capability?.destination_type || 'room').trim().toLowerCase() || 'room';
+      const connectionType = String(capability?.type || '').trim().toLowerCase();
       const distanceValue = Number.isFinite(Number(capability?.distance)) ? Number(capability.distance) : 0;
       const isQuestTarget = capability?.quest_reference === true;
       const questIds = Array.isArray(capability?.quest_ids) ? capability.quest_ids : [];
@@ -163,7 +164,7 @@ function collectNavigateExitGroups(panel, context) {
         lastVisitedLabel: historyEntry?.timestamp ? `Seen ${historyEntry.timestamp}` : 'Linked from current room',
         meta: [
           `Destination: ${formatDestinationType(destinationType)}`,
-          `Distance: ${formatDistanceValue(distanceValue)}`,
+          `Distance: ${formatDistanceValue(distanceValue, destinationType, connectionType)}`,
           isQuestTarget ? '⭐ This location is a quest objective' : '',
           room?.description || room?.short_description || '',
           capability?.type ? `Connection: ${String(capability.type).replace(/_/g, ' ')}` : '',
@@ -227,7 +228,14 @@ function collectVisitedNavigateLocationGroups(panel, context, campaignId, exitGr
           dungeonLevelId,
           statusLabel: resolveNavigateKnownLocationStatusLabel(location),
           lastVisitedLabel: String(location?.lastVisitedLabel || 'Visited by party'),
-          meta: String(location?.meta || `Destination: ${formatDestinationType(String(location?.destinationType || 'room'))}. Distance: ${formatDistanceValue(location?.distance ?? 0)}.`),
+          meta: String(
+            location?.meta
+            || `Destination: ${formatDestinationType(String(location?.destinationType || 'room'))}. Distance: ${formatDistanceValue(
+              location?.distance ?? 0,
+              String(location?.destinationType || 'room').trim().toLowerCase() || 'room',
+              String(location?.connectionType || '').trim().toLowerCase(),
+            )}.`
+          ),
           navigable: location?.navigable !== false,
         }))
         .filter((location) => {
@@ -243,8 +251,8 @@ function collectVisitedNavigateLocationGroups(panel, context, campaignId, exitGr
 
       return {
         ...group,
-        title: `Known destinations — ${String(group?.dungeonName || group?.title || group?.dungeonId || 'Visited destinations')}`,
-        dungeonName: String(group?.dungeonName || group?.title || group?.dungeonId || 'Visited destinations'),
+        title: `Known destinations — ${resolveNavigateGroupLabel(group, panel)}`,
+        dungeonName: resolveNavigateGroupLabel(group, panel),
         mapId,
         dungeonLevelId,
         locations,
@@ -270,6 +278,15 @@ function resolveNavigateKnownLocationStatusLabel(location) {
   return 'Known';
 }
 
+function resolveNavigateGroupLabel(group, panel) {
+  const groupLabel = String(group?.dungeonName || group?.title || group?.dungeonId || 'Visited destinations').trim();
+  const normalized = groupLabel.toLowerCase();
+  if ((normalized === 'onboarding' || normalized === 'tavern entrance') && panel?.navigateActiveRoom?.roomName) {
+    return String(panel.navigateActiveRoom.roomName).trim();
+  }
+  return groupLabel;
+}
+
 function formatDestinationType(destinationType) {
   if (destinationType === 'road') {
     return 'Road';
@@ -277,8 +294,14 @@ function formatDestinationType(destinationType) {
   return 'Room';
 }
 
-function formatDistanceValue(distance) {
+function formatDistanceValue(distance, destinationType = 'room', connectionType = '') {
   const normalized = Number.isFinite(Number(distance)) ? Math.max(0, Math.trunc(Number(distance))) : 0;
+  if (destinationType === 'road') {
+    return `access ${normalized}`;
+  }
+  if (connectionType === 'road_network' && normalized > 0) {
+    return `road ${normalized}`;
+  }
   return String(normalized);
 }
 
