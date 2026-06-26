@@ -180,7 +180,14 @@ function collectNavigateExitGroups(panel, context) {
       };
     })
     .filter(Boolean)
-    .sort((a, b) => a.roomName.localeCompare(b.roomName));
+    .sort((a, b) => {
+      const aUnavailable = a.navigable === false ? 1 : 0;
+      const bUnavailable = b.navigable === false ? 1 : 0;
+      if (aUnavailable !== bUnavailable) {
+        return aUnavailable - bUnavailable;
+      }
+      return String(a.roomName || '').localeCompare(String(b.roomName || ''));
+    });
 
   if (!exits.length) {
     return [];
@@ -324,7 +331,7 @@ function formatBlockedReason(reason) {
 }
 
 function ensureNavigateLocationGroups(panel, campaignId) {
-  if (!campaignId || (panel.navigateLocationsCampaignId === campaignId && Array.isArray(panel.navigateLocationGroups) && panel.navigateLocationGroups.length)) {
+  if (!campaignId || (panel.navigateLocationsCampaignId === campaignId && Array.isArray(panel.navigateLocationGroups))) {
     return;
   }
   if (panel.navigateLocationsInflight) {

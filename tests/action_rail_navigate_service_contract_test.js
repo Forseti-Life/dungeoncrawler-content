@@ -39,6 +39,7 @@ assert(
 assert(
   navigatePanelServiceSource.includes("import { fetchVisitedNavigateLocationGroups } from './navigate-location-service.js';")
     && navigatePanelServiceSource.includes('panel.navigateLocationsInflight = fetchVisitedNavigateLocationGroups(campaignId)')
+    && navigatePanelServiceSource.includes('panel.navigateLocationsCampaignId === campaignId && Array.isArray(panel.navigateLocationGroups)')
     && !navigatePanelServiceSource.includes('fetch(`/api/campaign/${campaignId}/visited-locations`'),
   'navigate panel service owns visited-location preload behavior via shared navigate-location API service'
 );

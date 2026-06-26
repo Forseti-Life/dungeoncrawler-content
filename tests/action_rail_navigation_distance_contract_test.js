@@ -66,6 +66,12 @@ assert(
   'navigate dedupe key prefers connection identity to avoid collapsing distinct exits'
 );
 
+assert(
+  source.includes('const aUnavailable = a.navigable === false ? 1 : 0;')
+    && source.includes('const bUnavailable = b.navigable === false ? 1 : 0;'),
+  'navigate exits sort navigable routes ahead of unavailable routes'
+);
+
 console.log('\n===============================================');
 console.log(`Passed: ${passed}`);
 console.log(`Failed: ${failed}`);
