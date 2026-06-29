@@ -725,6 +725,213 @@ class StorylineManagerServiceTest extends UnitTestCase {
   }
 
   /**
+   * @covers ::advanceCampaignStoryline
+   */
+  public function testAdvanceCampaignStorylineRejectsInvalidRuntimeContractBeforePersist(): void {
+    $statement = $this->createMock(\Drupal\Core\Database\StatementInterface::class);
+    $statement->expects($this->once())
+      ->method('fetchAssoc')
+      ->willReturn([
+        'status' => 'active',
+        'current_chapter_id' => 'chapter-1',
+        'current_scene_id' => 'scene-1',
+        'storyline_data' => json_encode([
+          'schema_version' => StorylineManagerService::STORYLINE_RUNTIME_SCHEMA_VERSION,
+          'storyline_type' => 'questline',
+          'metadata' => [],
+          'chapters' => [],
+          'linked_quests' => [],
+          'questline' => [
+            'primary_quest_id' => '',
+            'ordered_quest_ids' => [],
+            'quest_nodes' => [],
+          ],
+          'asset_references' => [],
+          'contacts' => [],
+          'unlocked_chapter_ids' => ['chapter-1'],
+          'unlocked_scene_ids' => ['scene-1'],
+          'status' => 'active',
+          'variables' => [],
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        'variables' => json_encode([], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+      ]);
+
+    $select = $this->createMock(\Drupal\Core\Database\Query\SelectInterface::class);
+    $select->expects($this->once())
+      ->method('fields')
+      ->with('s')
+      ->willReturnSelf();
+    $select->expects($this->exactly(2))
+      ->method('condition')
+      ->willReturnSelf();
+    $select->expects($this->once())
+      ->method('execute')
+      ->willReturn($statement);
+
+    $database = $this->createMock(Connection::class);
+    $database->expects($this->once())
+      ->method('select')
+      ->with('dc_campaign_storylines', 's')
+      ->willReturn($select);
+    $database->expects($this->never())
+      ->method('update');
+
+    $uuid = $this->createMock(UuidInterface::class);
+    $service = new class($database, $this->buildLoggerFactory(), $uuid, $this->createMock(CampaignStateService::class)) extends StorylineManagerService {
+      protected function assertStorylineStorageReady(): void {}
+
+      protected function synchronizeStorylineProgress(array $row): array {
+        return $row;
+      }
+
+      public function validateRuntimeStorylineContract(array $storyline_data): array {
+        return [
+          'valid' => FALSE,
+          'errors' => ['forced-invalid-runtime'],
+        ];
+      }
+    };
+
+    $this->expectException(\InvalidArgumentException::class);
+    $this->expectExceptionMessage('Storyline runtime failed validation during advance: forced-invalid-runtime');
+
+    $service->advanceCampaignStoryline(65, 'existing-storyline', [
+      'chapter_id' => 'chapter-2',
+      'scene_id' => 'scene-2',
+      'status' => 'active',
+    ]);
+  }
+
+  /**
+   * @covers ::validateStorylineEndToEndContract
+   */
+  public function testValidateStorylineEndToEndContractReturnsStagedResultsForValidRuntime(): void {
+    $service = $this->buildService();
+    $normalize = new \ReflectionMethod(StorylineManagerService::class, 'normalizeTemplateDefinition');
+    $normalize->setAccessible(TRUE);
+
+    $normalized = $normalize->invoke($service, [
+      'name' => 'Valid Runtime Story',
+      'source' => 'npc-storyline-bootstrap',
+      'contacts' => [[
+        'contact_id' => 'eldric-contact',
+        'entity_type' => 'campaign_npc',
+        'entity_id' => 'npc_tavern_keeper',
+        'role' => 'quest_giver',
+        'display_name' => 'Eldric',
+        'attitude' => 'friendly',
+      ]],
+      'chapters' => [[
+        'name' => 'Bootstrap Chapter',
+        'scenes' => [[
+          'name' => 'Bootstrap Scene',
+          'quest_ids' => ['bootstrap-quest'],
+        ]],
+      ]],
+    ]);
+
+    $runtime = [
+      'schema_version' => StorylineManagerService::STORYLINE_RUNTIME_SCHEMA_VERSION,
+      'storyline_type' => 'questline',
+      'metadata' => $normalized['metadata'],
+      'chapters' => $normalized['chapters'],
+      'linked_quests' => $normalized['linked_quests'],
+      'questline' => $normalized['questline'],
+      'asset_references' => $normalized['asset_references'],
+      'contacts' => $normalized['contacts'],
+      'unlocked_chapter_ids' => ['bootstrap-chapter'],
+      'unlocked_scene_ids' => ['bootstrap-scene'],
+      'current_chapter_id' => 'bootstrap-chapter',
+      'current_scene_id' => 'bootstrap-scene',
+      'status' => 'active',
+      'variables' => [],
+    ];
+
+    $validation = $service->validateStorylineEndToEndContract($runtime, 'runtime');
+
+    $this->assertTrue($validation['valid']);
+    $this->assertSame('runtime', $validation['payload_type']);
+    $this->assertArrayHasKey('stages', $validation);
+    $this->assertTrue($validation['stages']['schema']['valid']);
+    $this->assertTrue($validation['stages']['cross_references']['valid']);
+    $this->assertTrue($validation['stages']['questline_progression']['valid']);
+    $this->assertTrue($validation['stages']['navigation_progression']['valid']);
+  }
+
+  /**
+   * @covers ::validateStorylineEndToEndContract
+   */
+  public function testValidateStorylineEndToEndContractRejectsUnreachableQuestNode(): void {
+    $service = $this->buildService();
+    $normalize = new \ReflectionMethod(StorylineManagerService::class, 'normalizeTemplateDefinition');
+    $normalize->setAccessible(TRUE);
+
+    $normalized = $normalize->invoke($service, [
+      'name' => 'Unreachable Quest Story',
+      'source' => 'npc-storyline-bootstrap',
+      'chapters' => [[
+        'name' => 'Entry Chapter',
+        'scenes' => [[
+          'name' => 'Entry Scene',
+          'quest_ids' => ['entry-quest'],
+        ]],
+      ]],
+    ]);
+
+    $runtime = [
+      'schema_version' => StorylineManagerService::STORYLINE_RUNTIME_SCHEMA_VERSION,
+      'storyline_type' => 'questline',
+      'metadata' => $normalized['metadata'],
+      'chapters' => $normalized['chapters'],
+      'linked_quests' => $normalized['linked_quests'],
+      'questline' => $normalized['questline'],
+      'asset_references' => $normalized['asset_references'],
+      'contacts' => $normalized['contacts'],
+      'unlocked_chapter_ids' => ['entry-chapter'],
+      'unlocked_scene_ids' => ['entry-scene'],
+      'current_chapter_id' => 'entry-chapter',
+      'current_scene_id' => 'entry-scene',
+      'status' => 'active',
+      'variables' => [],
+    ];
+
+    $runtime['linked_quests']['orphan-quest'] = [
+      'quest_id' => 'orphan-quest',
+      'chapter_id' => 'entry-chapter',
+      'scene_id' => 'entry-scene',
+      'status' => 'available',
+    ];
+    $runtime['questline']['ordered_quest_ids'][] = 'orphan-quest';
+    $runtime['questline']['quest_nodes'][] = [
+      'quest_id' => 'orphan-quest',
+      'required_chapter_id' => 'entry-chapter',
+      'required_scene_id' => 'entry-scene',
+      'unlocks_after' => [],
+      'unlocks_to' => [],
+    ];
+
+    $validation = $service->validateStorylineEndToEndContract($runtime, 'runtime');
+
+    $this->assertFalse($validation['valid']);
+    $this->assertFalse($validation['stages']['questline_progression']['valid']);
+    $this->assertStringContainsString(
+      "unreachable from primary quest",
+      implode('; ', $validation['stages']['questline_progression']['errors'] ?? [])
+    );
+  }
+
+  /**
+   * @covers ::validateStorylineEndToEndContract
+   */
+  public function testValidateStorylineEndToEndContractRejectsUnsupportedPayloadType(): void {
+    $service = $this->buildService();
+    $this->expectException(\InvalidArgumentException::class);
+    $this->expectExceptionMessage('Unsupported storyline payload type');
+
+    $service->validateStorylineEndToEndContract([], 'unsupported');
+  }
+
+  /**
    * Builds a lightweight service instance.
    */
   private function buildService(): StorylineManagerService {

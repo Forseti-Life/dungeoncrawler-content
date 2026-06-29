@@ -274,31 +274,75 @@ class StorylineManagerService {
    * Validate a normalized storyline definition when schema validation is wired.
    */
   public function validateNormalizedStorylineDefinition(array $definition): array {
-    $errors = [];
-    if ($this->stateValidationService !== NULL) {
-      $validation = $this->stateValidationService->validateStorylineDefinition($definition);
-      if (!($validation['valid'] ?? FALSE)) {
-        $errors = array_merge($errors, $validation['errors'] ?? []);
-      }
-    }
-
-    $errors = array_merge($errors, $this->validateStorylineCrossReferences($definition));
-    return ['valid' => $errors === [], 'errors' => $errors];
+    return $this->validateStorylineEndToEndContract($definition, 'definition');
   }
 
   /**
    * Validate storyline runtime payloads before they enter management flows.
    */
   public function validateRuntimeStorylineContract(array $storyline_data): array {
-    $errors = [];
-    $validation = $this->validateRuntimeStorylineData($storyline_data);
-    if (!($validation['valid'] ?? FALSE)) {
-      $errors = array_merge($errors, $validation['errors'] ?? []);
+    return $this->validateStorylineEndToEndContract($storyline_data, 'runtime');
+  }
+
+  /**
+   * Validate a storyline payload with explicit end-to-end stages.
+   *
+   * @param array $storyline_data
+   *   Storyline definition/runtime payload.
+   * @param string $payload_type
+   *   One of: definition, runtime.
+   *
+   * @return array{
+   *   valid: bool,
+   *   errors: array<int, string>,
+   *   stages: array<string, array{valid: bool, errors: array<int, string>}>,
+   *   payload_type: string
+   * }
+   *   Stage-by-stage validation results and aggregate status.
+   */
+  public function validateStorylineEndToEndContract(array $storyline_data, string $payload_type = 'runtime'): array {
+    $normalized_payload_type = strtolower(trim($payload_type));
+    if (!in_array($normalized_payload_type, ['definition', 'runtime'], TRUE)) {
+      throw new \InvalidArgumentException(sprintf('Unsupported storyline payload type "%s".', $payload_type), 400);
     }
 
-    $errors = array_merge($errors, $this->validateStorylineCrossReferences($storyline_data));
-    $errors = array_values(array_unique($errors));
-    return ['valid' => $errors === [], 'errors' => $errors];
+    $stages = [];
+
+    $schema_errors = $this->validateStorylineSchemaStage($storyline_data, $normalized_payload_type);
+    $stages['schema'] = [
+      'valid' => $schema_errors === [],
+      'errors' => $schema_errors,
+    ];
+
+    $cross_reference_errors = $this->validateStorylineCrossReferences($storyline_data);
+    $stages['cross_references'] = [
+      'valid' => $cross_reference_errors === [],
+      'errors' => $cross_reference_errors,
+    ];
+
+    $questline_progression_errors = $this->validateQuestlineProgressionFlow($storyline_data);
+    $stages['questline_progression'] = [
+      'valid' => $questline_progression_errors === [],
+      'errors' => $questline_progression_errors,
+    ];
+
+    $navigation_progression_errors = $this->validateNavigationProgressionFlow($storyline_data);
+    $stages['navigation_progression'] = [
+      'valid' => $navigation_progression_errors === [],
+      'errors' => $navigation_progression_errors,
+    ];
+
+    $errors = [];
+    foreach ($stages as $stage) {
+      $errors = array_merge($errors, $stage['errors']);
+    }
+
+    return [
+      'valid' => $errors === [],
+      'errors' => array_values(array_unique($errors)),
+      'stages' => $stages,
+      'payload_type' => $normalized_payload_type,
+    ];
   }
 
   /**
@@ -530,6 +574,11 @@ class StorylineManagerService {
     $storyline_data['variables'] = $variables;
     $storyline_data['unlocked_chapter_ids'] = $this->ensureUnlockedId($storyline_data['unlocked_chapter_ids'] ?? [], $current_chapter_id);
     $storyline_data['unlocked_scene_ids'] = $this->ensureUnlockedId($storyline_data['unlocked_scene_ids'] ?? [], $current_scene_id);
+
+    $validation = $this->validateRuntimeStorylineContract($storyline_data);
+    if (!($validation['valid'] ?? FALSE)) {
+      throw new \InvalidArgumentException('Storyline runtime failed validation during advance: ' . implode('; ', $validation['errors'] ?? []), 400);
+    }
 
     $fields = [
       'status' => $status,
@@ -1396,6 +1445,168 @@ class StorylineManagerService {
     }
 
     return $this->stateValidationService->validateStorylineRuntime($storyline_data);
+  }
+
+  /**
+   * Validate the schema stage for one storyline payload type.
+   *
+   * @return array<int, string>
+   *   Validation errors for this stage.
+   */
+  protected function validateStorylineSchemaStage(array $storyline_data, string $payload_type): array {
+    if ($this->stateValidationService === NULL) {
+      return [];
+    }
+
+    if ($payload_type === 'definition') {
+      $validation = $this->stateValidationService->validateStorylineDefinition($storyline_data);
+    }
+    else {
+      $validation = $this->stateValidationService->validateStorylineRuntime($storyline_data);
+    }
+
+    return !empty($validation['valid']) ? [] : array_values(array_filter(array_map('strval', (array) ($validation['errors'] ?? []))));
+  }
+
+  /**
+   * Validate questline start-to-finish progression integrity.
+   *
+   * @return array<int, string>
+   *   Validation errors for this stage.
+   */
+  protected function validateQuestlineProgressionFlow(array $storyline_data): array {
+    $errors = [];
+    $questline = is_array($storyline_data['questline'] ?? NULL) ? $storyline_data['questline'] : [];
+    $nodes = array_values(array_filter(is_array($questline['quest_nodes'] ?? NULL) ? $questline['quest_nodes'] : [], 'is_array'));
+    if ($nodes === []) {
+      return $errors;
+    }
+
+    $primary_quest_id = trim((string) ($questline['primary_quest_id'] ?? ''));
+    if ($primary_quest_id === '') {
+      $errors[] = 'Questline progression is missing primary_quest_id.';
+      return $errors;
+    }
+
+    $node_ids = [];
+    $adjacency = [];
+    $terminal_nodes = [];
+    foreach ($nodes as $node) {
+      $quest_id = trim((string) ($node['quest_id'] ?? ''));
+      if ($quest_id === '') {
+        $errors[] = 'Questline progression contains a quest node without quest_id.';
+        continue;
+      }
+      if (isset($node_ids[$quest_id])) {
+        $errors[] = "Questline progression duplicates quest node '{$quest_id}'.";
+        continue;
+      }
+
+      $node_ids[$quest_id] = TRUE;
+      $unlocks_to = array_values(array_filter(array_map('strval', is_array($node['unlocks_to'] ?? NULL) ? $node['unlocks_to'] : []), static fn(string $id): bool => trim($id) !== ''));
+      $unlocks_after = array_values(array_filter(array_map('strval', is_array($node['unlocks_after'] ?? NULL) ? $node['unlocks_after'] : []), static fn(string $id): bool => trim($id) !== ''));
+      $adjacency[$quest_id] = $unlocks_to;
+      if ($unlocks_to === []) {
+        $terminal_nodes[$quest_id] = TRUE;
+      }
+
+      foreach ($unlocks_after as $prerequisite_id) {
+        if ($prerequisite_id === $quest_id) {
+          $errors[] = "Questline node '{$quest_id}' cannot unlock after itself.";
+        }
+      }
+    }
+
+    if (!isset($node_ids[$primary_quest_id])) {
+      $errors[] = "Questline primary_quest_id '{$primary_quest_id}' is not present in quest_nodes.";
+      return $errors;
+    }
+
+    foreach ($adjacency as $quest_id => $targets) {
+      foreach ($targets as $target_id) {
+        if (!isset($node_ids[$target_id])) {
+          $errors[] = "Questline node '{$quest_id}' unlocks unknown quest '{$target_id}'.";
+        }
+      }
+    }
+
+    $ordered_quest_ids = array_values(array_filter(array_map('strval', is_array($questline['ordered_quest_ids'] ?? NULL) ? $questline['ordered_quest_ids'] : []), static fn(string $id): bool => trim($id) !== ''));
+    foreach ($ordered_quest_ids as $quest_id) {
+      if (!isset($node_ids[$quest_id])) {
+        $errors[] = "Questline ordered_quest_ids references unknown quest '{$quest_id}'.";
+      }
+    }
+
+    $visited = [];
+    $stack = [$primary_quest_id];
+    while ($stack !== []) {
+      $current = array_pop($stack);
+      if (!is_string($current) || $current === '' || isset($visited[$current])) {
+        continue;
+      }
+      $visited[$current] = TRUE;
+      foreach ($adjacency[$current] ?? [] as $next) {
+        if (!isset($visited[$next])) {
+          $stack[] = $next;
+        }
+      }
+    }
+
+    foreach (array_keys($node_ids) as $quest_id) {
+      if (!isset($visited[$quest_id])) {
+        $errors[] = "Questline node '{$quest_id}' is unreachable from primary quest '{$primary_quest_id}'.";
+      }
+    }
+
+    if ($terminal_nodes === []) {
+      $errors[] = 'Questline progression has no terminal quest node; define at least one end-of-storyline quest.';
+    }
+
+    return array_values(array_unique($errors));
+  }
+
+  /**
+   * Validate navigation handoff continuity from entry to connectors.
+   *
+   * @return array<int, string>
+   *   Validation errors for this stage.
+   */
+  protected function validateNavigationProgressionFlow(array $storyline_data): array {
+    $errors = [];
+    $outline = is_array($storyline_data['metadata']['generated_outline'] ?? NULL) ? $storyline_data['metadata']['generated_outline'] : [];
+    if ($outline === []) {
+      return $errors;
+    }
+
+    $entry_dungeon = is_array($outline['entry_dungeon'] ?? NULL) ? $outline['entry_dungeon'] : [];
+    if ($entry_dungeon !== []) {
+      $entry_dungeon_id = trim((string) ($entry_dungeon['dungeon_id'] ?? ''));
+      $entry_room_id = trim((string) ($entry_dungeon['entrance_room_id'] ?? ''));
+      if ($entry_dungeon_id === '' || $entry_room_id === '') {
+        $errors[] = 'Storyline entry_dungeon must define both dungeon_id and entrance_room_id.';
+      }
+    }
+
+    foreach (array_values(array_filter(is_array($outline['progression_connectors'] ?? NULL) ? $outline['progression_connectors'] : [], 'is_array')) as $index => $connector) {
+      $connector_path = "progression_connectors[{$index}]";
+      $connector_id = trim((string) ($connector['connector_id'] ?? ''));
+      if ($connector_id === '') {
+        $errors[] = "{$connector_path}: connector_id is required.";
+      }
+
+      $source_type = trim((string) ($connector['source_type'] ?? ''));
+      $source_id = trim((string) ($connector['source_id'] ?? ''));
+      $target_dungeon_id = trim((string) ($connector['target_dungeon_id'] ?? ''));
+      $target_room_id = trim((string) ($connector['target_room_id'] ?? ''));
+      if ($source_type === '' || $source_id === '') {
+        $errors[] = "{$connector_path}: source_type and source_id are required.";
+      }
+      if ($target_dungeon_id === '' || $target_room_id === '') {
+        $errors[] = "{$connector_path}: target_dungeon_id and target_room_id are required.";
+      }
+    }
+
+    return array_values(array_unique($errors));
   }
 
   /**
