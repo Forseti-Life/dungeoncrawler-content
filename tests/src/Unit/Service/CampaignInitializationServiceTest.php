@@ -57,6 +57,40 @@ class CampaignInitializationServiceTest extends UnitTestCase {
   }
 
   /**
+   * @covers ::buildStarterRoomSeedNarration
+   */
+  public function testBuildStarterRoomSeedNarrationPrefixesCanonicalEncounterEnvelope(): void {
+    $service = (new \ReflectionClass(CampaignInitializationService::class))
+      ->newInstanceWithoutConstructor();
+    $method = new \ReflectionMethod(CampaignInitializationService::class, 'buildStarterRoomSeedNarration');
+    $method->setAccessible(TRUE);
+
+    $message = $method->invoke(
+      $service,
+      'The Gilded Tankard',
+      'Warm light and low voices fill the tavern.'
+    );
+
+    $this->assertStringStartsWith('Round 0: Turn 1: Actor Narrator: ', $message);
+    $this->assertStringContainsString('Warm light and low voices fill the tavern.', $message);
+  }
+
+  /**
+   * @covers ::buildStarterRoomSeedNarration
+   */
+  public function testBuildStarterRoomSeedNarrationFallsBackToRoomArrivalTextWhenDescriptionMissing(): void {
+    $service = (new \ReflectionClass(CampaignInitializationService::class))
+      ->newInstanceWithoutConstructor();
+    $method = new \ReflectionMethod(CampaignInitializationService::class, 'buildStarterRoomSeedNarration');
+    $method->setAccessible(TRUE);
+
+    $message = $method->invoke($service, 'The Gilded Tankard', '');
+
+    $this->assertStringStartsWith('Round 0: Turn 1: Actor Narrator: ', $message);
+    $this->assertStringContainsString('You arrive at The Gilded Tankard. The adventure begins...', $message);
+  }
+
+  /**
    * Builds a logger factory mock returning a channel mock.
    */
   private function buildLoggerFactory(): LoggerChannelFactoryInterface {

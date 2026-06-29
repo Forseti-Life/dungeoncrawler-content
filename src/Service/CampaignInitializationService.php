@@ -1011,7 +1011,7 @@ class CampaignInitializationService {
 
           // Post a welcome message into the room session so the room
           // tab has something to show besides an empty state.
-          $seed_message = $this->buildStarterRoomIntroMessage($room_name, $room_description);
+          $seed_message = $this->buildStarterRoomSeedNarration($room_name, $room_description);
 
           $this->chatSessionManager->postMessage(
             (int) $room_session['id'],
@@ -1019,7 +1019,7 @@ class CampaignInitializationService {
             'Narrator',
             'narrator',
             '',
-            $this->prefixInitialEncounterNarration('Narrator', $seed_message),
+            $seed_message,
             'narrative',
             'all',
             ['event' => 'room_enter', 'room_id' => $room_id],
@@ -1104,10 +1104,7 @@ class CampaignInitializationService {
       $room['chat'] = is_array($room['chat'] ?? NULL) ? $room['chat'] : [];
       $resolved_room_name = trim((string) ($room['name'] ?? $room_name));
       $resolved_room_description = trim((string) ($room['description'] ?? $room_description));
-      $seed_message = $this->prefixInitialEncounterNarration(
-        'Narrator',
-        $this->buildStarterRoomIntroMessage($resolved_room_name, $resolved_room_description)
-      );
+      $seed_message = $this->buildStarterRoomSeedNarration($resolved_room_name, $resolved_room_description);
 
       foreach ($room['chat'] as $message) {
         if (($message['speaker'] ?? '') === 'Game Master'
@@ -1169,6 +1166,16 @@ class CampaignInitializationService {
     return $room_name !== ''
       ? "You arrive at {$room_name}. The adventure begins..."
       : 'You enter the room. The adventure begins...';
+  }
+
+  /**
+   * Build and prefix starter room narration for initial campaign room feeds.
+   */
+  private function buildStarterRoomSeedNarration(string $room_name, string $room_description): string {
+    return $this->prefixInitialEncounterNarration(
+      'Narrator',
+      $this->buildStarterRoomIntroMessage($room_name, $room_description)
+    );
   }
 
 }
