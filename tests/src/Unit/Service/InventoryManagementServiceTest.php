@@ -412,6 +412,30 @@ class InventoryManagementServiceTest extends UnitTestCase {
     ], $currency);
   }
 
+  /**
+   * @covers ::buildTransferItemSummary
+   */
+  public function testBuildTransferItemSummaryUsesCanonicalFallbacks(): void {
+    $service = new InspectableInventoryManagementService([]);
+
+    $named = $service->exposeBuildTransferItemSummary([
+      'item_id' => 'healing-potion',
+      'quantity' => 2,
+      'state_data' => json_encode(['name' => 'Healing Potion']),
+    ], 'fallback-1');
+    $unnamed = $service->exposeBuildTransferItemSummary([
+      'item_id' => 'longsword',
+      'quantity' => 1,
+      'state_data' => 'not-json',
+    ], 'fallback-2');
+
+    $this->assertSame('fallback-1', $named['item_instance_id']);
+    $this->assertSame('Healing Potion', $named['item_name']);
+    $this->assertSame(2, $named['available_quantity']);
+    $this->assertSame('fallback-2', $unnamed['item_instance_id']);
+    $this->assertSame('longsword', $unnamed['item_name']);
+  }
+
 }
 
 /**
@@ -478,6 +502,13 @@ class InspectableInventoryManagementService extends InventoryManagementService {
    */
   public function exposeLoadCharacterCurrency(array $character_data, ?array $runtime_state = NULL): array {
     return $this->loadCharacterCurrency('test-character', $character_data, $runtime_state);
+  }
+
+  /**
+   * Exposes transfer item summary builder for tests.
+   */
+  public function exposeBuildTransferItemSummary(array $item_row, string $fallback_item_instance_id): array {
+    return $this->buildTransferItemSummary($item_row, $fallback_item_instance_id);
   }
 
   /**

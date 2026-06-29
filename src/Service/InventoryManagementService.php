@@ -1019,19 +1019,14 @@ class InventoryManagementService {
       $this->validateOwner($dest['owner_id'], $dest['owner_type']);
       $source_item_row = $this->loadTransferItemRecord($item_instance_id, $source, $campaign_id);
       $preflight = $this->verifyTransferPreconditions($source, $dest, $source_item_row, $quantity, $campaign_id);
-      $state = json_decode($source_item_row['state_data'] ?? '{}', TRUE) ?: [];
+      $item_summary = $this->buildTransferItemSummary($source_item_row, $item_instance_id);
 
       return [
         'valid' => !empty($preflight['valid']),
         'errors' => $preflight['errors'] ?? [],
         'source' => $source,
         'destination' => $dest,
-        'item' => [
-          'item_instance_id' => $source_item_row['item_instance_id'] ?? $item_instance_id,
-          'item_id' => $source_item_row['item_id'] ?? '',
-          'item_name' => $state['name'] ?? ($source_item_row['item_id'] ?? 'Item'),
-          'available_quantity' => (int) ($source_item_row['quantity'] ?? 0),
-        ],
+        'item' => $item_summary,
       ];
     }
     catch (\Exception $e) {
@@ -1065,8 +1060,8 @@ class InventoryManagementService {
       throw new \InvalidArgumentException("Cannot consume {$quantity} items; only {$available_quantity} available.");
     }
 
-    $state = json_decode($source_item_row['state_data'] ?? '{}', TRUE) ?: [];
-    $item_name = $state['name'] ?? ($source_item_row['item_id'] ?? 'Item');
+    $item_summary = $this->buildTransferItemSummary($source_item_row, $item_instance_id);
+    $item_name = (string) ($item_summary['item_name'] ?? 'Item');
 
     $result = $this->removeItemFromInventory(
       $source['owner_id'],
@@ -1120,18 +1115,13 @@ class InventoryManagementService {
       $this->validateOwner($source['owner_id'], $source['owner_type']);
       $source_item_row = $this->loadTransferItemRecord($item_instance_id, $source, $campaign_id);
       $available_quantity = (int) ($source_item_row['quantity'] ?? 0);
-      $state = json_decode($source_item_row['state_data'] ?? '{}', TRUE) ?: [];
+      $item_summary = $this->buildTransferItemSummary($source_item_row, $item_instance_id);
 
       return [
         'valid' => $available_quantity >= $quantity,
         'errors' => $available_quantity >= $quantity ? [] : ["Cannot consume {$quantity} items; only {$available_quantity} available."],
         'source' => $source,
-        'item' => [
-          'item_instance_id' => $source_item_row['item_instance_id'] ?? $item_instance_id,
-          'item_id' => $source_item_row['item_id'] ?? '',
-          'item_name' => $state['name'] ?? ($source_item_row['item_id'] ?? 'Item'),
-          'available_quantity' => $available_quantity,
-        ],
+        'item' => $item_summary,
       ];
     }
     catch (\Exception $e) {
@@ -2410,6 +2400,29 @@ class InventoryManagementService {
       'owner_id' => $owner_id,
       'owner_type' => $owner_type,
       'location_type' => $location_type,
+    ];
+  }
+
+  /**
+   * Build a canonical item summary payload for transfer/consume flows.
+   *
+   * @return array{item_instance_id: string, item_id: string, item_name: string, available_quantity: int}
+   *   Item identity payload used by validation and transaction responses.
+   */
+  protected function buildTransferItemSummary(array $item_row, string $fallback_item_instance_id): array {
+    $state = json_decode($item_row['state_data'] ?? '{}', TRUE);
+    $decoded_state = is_array($state) ? $state : [];
+    $item_id = trim((string) ($item_row['item_id'] ?? ''));
+    $item_name = trim((string) ($decoded_state['name'] ?? ''));
+    if ($item_name === '') {
+      $item_name = $item_id !== '' ? $item_id : 'Item';
+    }
+
+    return [
+      'item_instance_id' => trim((string) ($item_row['item_instance_id'] ?? $fallback_item_instance_id)),
+      'item_id' => $item_id,
+      'item_name' => $item_name,
+      'available_quantity' => (int) ($item_row['quantity'] ?? 0),
     ];
   }
 
