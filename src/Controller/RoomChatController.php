@@ -252,37 +252,16 @@ class RoomChatController extends ControllerBase {
         ], 400);
       }
 
-      $speaker = $payload['speaker'] ?? '';
-      $message = $payload['message'] ?? '';
-      $type = $payload['type'] ?? 'player';
-      $character_id = isset($payload['character_id']) ? (int) $payload['character_id'] : null;
-      $channel = $payload['channel'] ?? 'room';
-      $client_request_id = (string) ($payload['client_request_id'] ?? '');
-
-      // Room transcript lines are encounter-governed: clients cannot inject NPC/system
-      // lines into the room channel. Player room chat must route via the canonical
-      // encounter Talk action.
-      if ($channel === 'room' && $type !== 'player') {
-        throw new \InvalidArgumentException('Only player messages may be posted to the room channel.', 400);
-      }
-
-      $is_player_turn = $type === 'player';
-
-      // stream: use NDJSON streaming for player turns so the client can render
-      // player ack, progress, primary reply, and any follow-up reactions
-      // incrementally instead of waiting for one large JSON response.
-      $stream = !empty($payload['stream']) && $is_player_turn;
-
-      // suppress_gm: persist the player's room message but intentionally skip
-      // response generation for this request because a turn is already in
-      // flight. The queued player messages are folded into one later
-      // continuation for the same channel.
-      $suppress_gm = !empty($payload['suppress_gm']) && $is_player_turn;
-
-      // continue_gm: run exactly one follow-up pass over queued player
-      // messages after the active turn settles. This keeps AI analysis
-      // serialized while still allowing the player to keep sending messages.
-      $continue_gm = !empty($payload['continue_gm']) && $is_player_turn;
+      $request_context = $this->normalizePostChatPayload($payload);
+      $speaker = $request_context['speaker'];
+      $message = $request_context['message'];
+      $type = $request_context['type'];
+      $character_id = $request_context['character_id'];
+      $channel = $request_context['channel'];
+      $client_request_id = $request_context['client_request_id'];
+      $stream = $request_context['stream'];
+      $suppress_gm = $request_context['suppress_gm'];
+      $continue_gm = $request_context['continue_gm'];
 
       if ($stream && $continue_gm) {
         return $this->streamQueuedGmContinuation($campaign_id, $room_id, $character_id, $channel, $client_request_id);
@@ -398,6 +377,57 @@ class RoomChatController extends ControllerBase {
         ],
       ], 500);
     }
+  }
+
+  /**
+   * Normalize room-chat POST payload into canonical request context.
+   *
+   * @return array<string, mixed>
+   *   Normalized payload fields used by the post-chat route.
+   */
+  protected function normalizePostChatPayload(array $payload): array {
+    $speaker = (string) ($payload['speaker'] ?? '');
+    $message = (string) ($payload['message'] ?? '');
+    $type = (string) ($payload['type'] ?? 'player');
+    $character_id = isset($payload['character_id']) ? (int) $payload['character_id'] : NULL;
+    $channel = (string) ($payload['channel'] ?? 'room');
+    $client_request_id = (string) ($payload['client_request_id'] ?? '');
+    $is_player_turn = $type === 'player';
+
+    // Room transcript lines are encounter-governed: clients cannot inject NPC/system
+    // lines into the room channel. Player room chat must route via the canonical
+    // encounter Talk action.
+    if ($channel === 'room' && !$is_player_turn) {
+      throw new \InvalidArgumentException('Only player messages may be posted to the room channel.', 400);
+    }
+
+    // stream: use NDJSON streaming for player turns so the client can render
+    // player ack, progress, primary reply, and any follow-up reactions
+    // incrementally instead of waiting for one large JSON response.
+    $stream = !empty($payload['stream']) && $is_player_turn;
+
+    // suppress_gm: persist the player's room message but intentionally skip
+    // response generation for this request because a turn is already in
+    // flight. The queued player messages are folded into one later
+    // continuation for the same channel.
+    $suppress_gm = !empty($payload['suppress_gm']) && $is_player_turn;
+
+    // continue_gm: run exactly one follow-up pass over queued player
+    // messages after the active turn settles. This keeps AI analysis
+    // serialized while still allowing the player to keep sending messages.
+    $continue_gm = !empty($payload['continue_gm']) && $is_player_turn;
+
+    return [
+      'speaker' => $speaker,
+      'message' => $message,
+      'type' => $type,
+      'character_id' => $character_id,
+      'channel' => $channel,
+      'client_request_id' => $client_request_id,
+      'stream' => $stream,
+      'suppress_gm' => $suppress_gm,
+      'continue_gm' => $continue_gm,
+    ];
   }
 
   /**

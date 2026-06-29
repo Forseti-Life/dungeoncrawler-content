@@ -465,4 +465,54 @@ class RoomChatControllerProgressTest extends UnitTestCase {
     $this->assertStringStartsWith('roomchat-', $events[0]['debug']['debug_id']);
   }
 
+  /**
+   * @covers ::normalizePostChatPayload
+   */
+  public function testNormalizePostChatPayloadBuildsCanonicalFlags(): void {
+    $controller = $this->createController($this->createMock(RoomChatService::class));
+    $method = new \ReflectionMethod(RoomChatController::class, 'normalizePostChatPayload');
+    $method->setAccessible(TRUE);
+
+    $context = $method->invoke($controller, [
+      'speaker' => 'Burasco',
+      'message' => 'What do you see?',
+      'type' => 'player',
+      'character_id' => 218,
+      'channel' => 'room',
+      'stream' => TRUE,
+      'suppress_gm' => TRUE,
+      'continue_gm' => TRUE,
+      'client_request_id' => 'req-42',
+    ]);
+
+    $this->assertSame('Burasco', $context['speaker']);
+    $this->assertSame('What do you see?', $context['message']);
+    $this->assertSame('player', $context['type']);
+    $this->assertSame(218, $context['character_id']);
+    $this->assertSame('room', $context['channel']);
+    $this->assertSame('req-42', $context['client_request_id']);
+    $this->assertTrue($context['stream']);
+    $this->assertTrue($context['suppress_gm']);
+    $this->assertTrue($context['continue_gm']);
+  }
+
+  /**
+   * @covers ::normalizePostChatPayload
+   */
+  public function testNormalizePostChatPayloadRejectsNonPlayerRoomMessage(): void {
+    $controller = $this->createController($this->createMock(RoomChatService::class));
+    $method = new \ReflectionMethod(RoomChatController::class, 'normalizePostChatPayload');
+    $method->setAccessible(TRUE);
+
+    $this->expectException(\InvalidArgumentException::class);
+    $this->expectExceptionMessage('Only player messages may be posted to the room channel.');
+
+    $method->invoke($controller, [
+      'speaker' => 'System',
+      'message' => 'Nope',
+      'type' => 'system',
+      'channel' => 'room',
+    ]);
+  }
+
 }
