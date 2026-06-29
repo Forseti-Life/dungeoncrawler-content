@@ -2393,12 +2393,8 @@ ENTRY_NARRATION_RULES;
       $dest_owner_id = (string) ($transfer['dest_owner_id'] ?? '');
       $quantity = max(1, (int) ($transfer['quantity'] ?? 1));
 
-      if (strtoupper($source_owner_id) === 'ACTING_CHARACTER') {
-        $source_owner_id = (string) $acting_character_id;
-      }
-      if (strtoupper($dest_owner_id) === 'ACTING_CHARACTER') {
-        $dest_owner_id = (string) $acting_character_id;
-      }
+      $source_owner_id = $this->resolveActorStorageOwnerId($source_owner_id, $acting_character_id);
+      $dest_owner_id = $this->resolveActorStorageOwnerId($dest_owner_id, $acting_character_id);
 
       $errors = [];
       if ($item_instance_id === '') {
@@ -2448,12 +2444,8 @@ ENTRY_NARRATION_RULES;
       $amount = max(0, (int) ($transfer['amount'] ?? 0));
       $denomination = strtolower((string) ($transfer['denomination'] ?? ''));
 
-      if (strtoupper($source_owner_id) === 'ACTING_CHARACTER') {
-        $source_owner_id = (string) $acting_character_id;
-      }
-      if (strtoupper($dest_owner_id) === 'ACTING_CHARACTER') {
-        $dest_owner_id = (string) $acting_character_id;
-      }
+      $source_owner_id = $this->resolveActorStorageOwnerId($source_owner_id, $acting_character_id);
+      $dest_owner_id = $this->resolveActorStorageOwnerId($dest_owner_id, $acting_character_id);
 
       $errors = [];
       if ($dest_owner_type === '' || $dest_owner_id === '') {
@@ -2502,9 +2494,7 @@ ENTRY_NARRATION_RULES;
       $source_owner_id = (string) ($consume['source_owner_id'] ?? $acting_character_id);
       $quantity = max(1, (int) ($consume['quantity'] ?? 1));
 
-      if (strtoupper($source_owner_id) === 'ACTING_CHARACTER') {
-        $source_owner_id = (string) $acting_character_id;
-      }
+      $source_owner_id = $this->resolveActorStorageOwnerId($source_owner_id, $acting_character_id);
 
       $errors = [];
       if ($item_instance_id === '') {
@@ -2525,6 +2515,15 @@ ENTRY_NARRATION_RULES;
           'location_type' => $consume['source_location_type'] ?? NULL,
         ],
       ];
+  }
+
+  /**
+   * Resolve ACTING_CHARACTER owner placeholders to the current actor ID.
+   */
+  protected function resolveActorStorageOwnerId(string $owner_id, int $acting_character_id): string {
+      return strtoupper($owner_id) === 'ACTING_CHARACTER'
+        ? (string) $acting_character_id
+        : $owner_id;
   }
 
   /**
