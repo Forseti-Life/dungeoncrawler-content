@@ -2037,13 +2037,20 @@ class StorylineGenerationService {
    */
   protected function parseLevelRange(string $level_range): array {
     if (preg_match('/(\d+)\s*-\s*(\d+)/', $level_range, $matches)) {
-      $min = max(1, min(20, (int) $matches[1]));
-      $max = max($min, min(20, (int) $matches[2]));
+      $min = $this->clampSupportedStorylineLevel((int) $matches[1]);
+      $max = max($min, $this->clampSupportedStorylineLevel((int) $matches[2]));
       return ['min' => $min, 'max' => $max];
     }
 
-    $level = max(1, min(20, (int) preg_replace('/\D+/', '', $level_range)));
+    $level = $this->clampSupportedStorylineLevel((int) preg_replace('/\D+/', '', $level_range));
     return ['min' => $level ?: 1, 'max' => max(1, $level ?: 4)];
+  }
+
+  /**
+   * Clamp storyline level bounds to supported level range.
+   */
+  protected function clampSupportedStorylineLevel(int $level): int {
+    return max(1, min(20, $level));
   }
 
   /**

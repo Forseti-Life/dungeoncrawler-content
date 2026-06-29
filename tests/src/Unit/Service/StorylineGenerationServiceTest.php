@@ -393,6 +393,37 @@ class StorylineGenerationServiceTest extends UnitTestCase {
   }
 
   /**
+   * Verifies level-range parsing clamps bounds and orders min/max safely.
+   */
+  public function testParseLevelRangeClampsAndOrdersBounds(): void {
+    $campaign_state = $this->createMock(CampaignStateService::class);
+    $campaign_state->method('getState')->willReturn([
+      'current_room_id' => 'tavern_entrance',
+      'characters' => [['level' => 2]],
+    ]);
+
+    $storyline_manager = $this->buildStorylineManager($campaign_state);
+
+    $service = new class(
+      $this->createMock(Connection::class),
+      $this->buildLoggerFactory(),
+      NULL,
+      $storyline_manager,
+      $campaign_state,
+      new TreasureByLevelService(),
+      $this->buildUuid()
+    ) extends StorylineGenerationService {
+      public function exposeParseLevelRange(string $level_range): array {
+        return $this->parseLevelRange($level_range);
+      }
+    };
+
+    $this->assertSame(['min' => 20, 'max' => 20], $service->exposeParseLevelRange('40-90'));
+    $this->assertSame(['min' => 1, 'max' => 1], $service->exposeParseLevelRange('0-0'));
+    $this->assertSame(['min' => 7, 'max' => 7], $service->exposeParseLevelRange('7-3'));
+  }
+
+  /**
    * Verifies bootstrap handoff activates the storyline and starts the first quest.
    */
   public function testBootstrapCampaignStorylineActivatesInitialQuestHandoff(): void {
