@@ -66,20 +66,9 @@ class CharacterViewController extends ControllerBase {
    * Renders a full character sheet.
    */
   public function viewCharacter(int $character_id) {
-    $campaign_id = (int) (\Drupal::request()->query->get('campaign_id') ?? 0);
-
-    $record = $this->characterManager->loadCharacter($character_id);
-
-    if (!$record) {
-      throw new NotFoundHttpException();
-    }
-
-    $is_admin = $this->currentUser()->hasPermission('administer site configuration');
-    $is_owner = $this->characterManager->isOwner($record);
-    $is_campaign_owner = $campaign_id > 0 ? $this->isCampaignOwner($campaign_id) : FALSE;
-    if (!$is_owner && !$is_admin && !$is_campaign_owner) {
-      throw new AccessDeniedHttpException();
-    }
+    $context = $this->resolveViewCharacterRequestContext($character_id);
+    $campaign_id = (int) $context['campaign_id'];
+    $record = $context['record'];
 
     // Decode character data via manager and normalize onto the canonical shape
     // used by the character sheet.
@@ -92,15 +81,16 @@ class CharacterViewController extends ControllerBase {
       $campaign_id > 0 ? $campaign_id : NULL,
       !empty($record->instance_id) ? (string) $record->instance_id : NULL
     );
-    $state_basic_info = is_array($state['basicInfo'] ?? NULL) ? $state['basicInfo'] : [];
-    $state_resources = is_array($state['resources'] ?? NULL) ? $state['resources'] : [];
-    $state_defenses = is_array($state['defenses'] ?? NULL) ? $state['defenses'] : [];
-    $state_skills = is_array($state['skills'] ?? NULL) ? $state['skills'] : [];
-    $state_features = is_array($state['features'] ?? NULL) ? $state['features'] : [];
-    $state_traits = is_array($state['traits'] ?? NULL) ? $state['traits'] : [];
-    $state_conditions = is_array($state['conditions'] ?? NULL) ? $state['conditions'] : [];
-    $state_descriptors = is_array($state['descriptors'] ?? NULL) ? $state['descriptors'] : [];
-    $state_spells = is_array($state['spells'] ?? NULL) ? $state['spells'] : [];
+    $state_slices = $this->splitCharacterStateForSheet($state);
+    $state_basic_info = $state_slices['basic_info'];
+    $state_resources = $state_slices['resources'];
+    $state_defenses = $state_slices['defenses'];
+    $state_skills = $state_slices['skills'];
+    $state_features = $state_slices['features'];
+    $state_traits = $state_slices['traits'];
+    $state_conditions = $state_slices['conditions'];
+    $state_descriptors = $state_slices['descriptors'];
+    $state_spells = $state_slices['spells'];
 
     $abilities = $this->buildAbilityDisplayData($char_data);
     if (is_array($state['abilities'] ?? NULL) && $state['abilities'] !== []) {
@@ -512,6 +502,53 @@ class CharacterViewController extends ControllerBase {
     ];
 
     return $build;
+  }
+
+  /**
+   * Resolve campaign scope and enforce access contract for character sheet views.
+   *
+   * @return array{campaign_id:int,record:object}
+   *   Request context for character sheet rendering.
+   */
+  private function resolveViewCharacterRequestContext(int $character_id): array {
+    $campaign_id = (int) (\Drupal::request()->query->get('campaign_id') ?? 0);
+    $record = $this->characterManager->loadCharacter($character_id);
+
+    if (!$record) {
+      throw new NotFoundHttpException();
+    }
+
+    $is_admin = $this->currentUser()->hasPermission('administer site configuration');
+    $is_owner = $this->characterManager->isOwner($record);
+    $is_campaign_owner = $campaign_id > 0 ? $this->isCampaignOwner($campaign_id) : FALSE;
+    if (!$is_owner && !$is_admin && !$is_campaign_owner) {
+      throw new AccessDeniedHttpException();
+    }
+
+    return [
+      'campaign_id' => $campaign_id,
+      'record' => $record,
+    ];
+  }
+
+  /**
+   * Normalize sheet state buckets to stable array contracts.
+   *
+   * @return array<string, array>
+   *   Canonicalized state slices keyed by sheet-facing names.
+   */
+  private function splitCharacterStateForSheet(array $state): array {
+    return [
+      'basic_info' => is_array($state['basicInfo'] ?? NULL) ? $state['basicInfo'] : [],
+      'resources' => is_array($state['resources'] ?? NULL) ? $state['resources'] : [],
+      'defenses' => is_array($state['defenses'] ?? NULL) ? $state['defenses'] : [],
+      'skills' => is_array($state['skills'] ?? NULL) ? $state['skills'] : [],
+      'features' => is_array($state['features'] ?? NULL) ? $state['features'] : [],
+      'traits' => is_array($state['traits'] ?? NULL) ? $state['traits'] : [],
+      'conditions' => is_array($state['conditions'] ?? NULL) ? $state['conditions'] : [],
+      'descriptors' => is_array($state['descriptors'] ?? NULL) ? $state['descriptors'] : [],
+      'spells' => is_array($state['spells'] ?? NULL) ? $state['spells'] : [],
+    ];
   }
 
   /**
