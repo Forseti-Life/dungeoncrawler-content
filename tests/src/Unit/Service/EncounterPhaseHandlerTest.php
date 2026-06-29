@@ -204,6 +204,33 @@ class EncounterPhaseHandlerTest extends UnitTestCase {
   }
 
   /**
+   * Rest action catalog remains aligned between legal intents and rest checks.
+   *
+   * @covers ::getLegalIntents
+   * @covers ::getRestActionTypes
+   * @covers ::isRestAction
+   */
+  public function testRestActionCatalogMatchesLegalAndRestChecks(): void {
+    $handler = $this->buildHandler();
+    $legal_intents = $handler->getLegalIntents();
+
+    $rest_action_method = new \ReflectionMethod($handler, 'getRestActionTypes');
+    $rest_action_method->setAccessible(TRUE);
+    $is_rest_action_method = new \ReflectionMethod($handler, 'isRestAction');
+    $is_rest_action_method->setAccessible(TRUE);
+
+    $rest_actions = $rest_action_method->invoke($handler);
+    $this->assertSame(['treat_wounds', 'refocus', 'repair', 'daily_preparations'], $rest_actions);
+
+    foreach ($rest_actions as $rest_action) {
+      $this->assertContains($rest_action, $legal_intents);
+      $this->assertTrue($is_rest_action_method->invoke($handler, $rest_action));
+    }
+
+    $this->assertFalse($is_rest_action_method->invoke($handler, 'talk'));
+  }
+
+  /**
    * Shared availability validation blocks one-action talk when the actor has no actions.
    *
    * @covers ::validateIntent

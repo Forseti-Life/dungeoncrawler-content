@@ -500,7 +500,10 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
       ? (int) $canonical_turn['actions_remaining']
       : (int) ($game_state['turn']['actions_remaining'] ?? 0);
     if ($this->isRoomSceneMode($game_state)) {
-      $room_scene_actions = ['talk', 'search', 'interact', 'delay', 'end_turn', 'choose_not_to_act', 'treat_wounds', 'refocus', 'repair', 'daily_preparations'];
+      $room_scene_actions = array_merge(
+        ['talk', 'search', 'interact', 'delay', 'end_turn', 'choose_not_to_act'],
+        $this->getRestActionTypes()
+      );
       if (!in_array($type, $room_scene_actions, TRUE)) {
         return [
           'valid' => FALSE,
@@ -7208,7 +7211,14 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
   }
 
   protected function isRestAction(string $type): bool {
-    return in_array($type, ['treat_wounds', 'refocus', 'repair', 'daily_preparations'], TRUE);
+    return in_array($type, $this->getRestActionTypes(), TRUE);
+  }
+
+  /**
+   * Return encounter actions that represent rest activities.
+   */
+  protected function getRestActionTypes(): array {
+    return ['treat_wounds', 'refocus', 'repair', 'daily_preparations'];
   }
 
   protected function isSafeRestAvailable(array $game_state, array $dungeon_data): bool {
