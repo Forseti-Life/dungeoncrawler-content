@@ -113,8 +113,7 @@ class HexMapController extends ControllerBase {
     $is_admin = in_array('administrator', $account->getRoles(), TRUE)
       || (int) $account->id() === 1;
 
-    $this->assertCampaignAccess($launch_context, $is_admin);
-    $hexmap_state = $this->buildHexmapStateBundle($launch_context);
+    $hexmap_state = $this->resolveLaunchStateBundle($launch_context, $is_admin);
     $dungeon_payload = $hexmap_state['dungeon_payload'];
     $launch_character = $hexmap_state['launch_character'];
     $quest_summary = $hexmap_state['quest_summary'];
@@ -155,10 +154,24 @@ class HexMapController extends ControllerBase {
    */
   public function visualState(): JsonResponse {
     $launch_context = $this->buildLaunchContextFromRequest();
-    $this->assertCampaignAccess($launch_context);
-    $hexmap_state = $this->buildHexmapStateBundle($launch_context);
+    $hexmap_state = $this->resolveLaunchStateBundle($launch_context);
 
-    return new JsonResponse([
+    return new JsonResponse($this->buildVisualStatePayload($launch_context, $hexmap_state));
+  }
+
+  /**
+   * Resolve canonical launch state bundle after access enforcement.
+   */
+  protected function resolveLaunchStateBundle(array $launch_context, bool $is_admin = FALSE): array {
+    $this->assertCampaignAccess($launch_context, $is_admin);
+    return $this->buildHexmapStateBundle($launch_context);
+  }
+
+  /**
+   * Build the canonical visual-state API response payload.
+   */
+  protected function buildVisualStatePayload(array $launch_context, array $hexmap_state): array {
+    return [
       'success' => TRUE,
       'launch_context' => $launch_context,
       'dungeon_payload' => $hexmap_state['dungeon_payload'],
@@ -167,7 +180,7 @@ class HexMapController extends ControllerBase {
       'quest_summary' => $hexmap_state['quest_summary'],
       'storyline_contacts' => $hexmap_state['storyline_contacts'],
       'campaign_title' => $hexmap_state['campaign_title'],
-    ]);
+    ];
   }
 
   /**
