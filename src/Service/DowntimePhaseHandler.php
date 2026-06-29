@@ -1846,65 +1846,90 @@ class DowntimePhaseHandler implements PhaseHandlerInterface {
     switch ($degree) {
       case 'critical_success':
         // CRB: crit success provides enough food/shelter for self AND one other.
-        return [
-          'success'     => TRUE,
-          'degree'      => $degree,
-          'skill'       => $skill,
-          'environment' => $environment,
-          'dc'          => $dc,
-          'covered'     => TRUE,
-          'extra_covered' => 1,
-          'penalty_cp'  => 0,
-          'days_elapsed' => $game_state['downtime']['days_elapsed'],
-        ];
+        return $this->buildSubsistResult(
+          $degree,
+          $skill,
+          $environment,
+          $dc,
+          TRUE,
+          1,
+          0,
+          $game_state['downtime']['days_elapsed']
+        );
 
       case 'success':
-        return [
-          'success'     => TRUE,
-          'degree'      => $degree,
-          'skill'       => $skill,
-          'environment' => $environment,
-          'dc'          => $dc,
-          'covered'     => TRUE,
-          'extra_covered' => 0,
-          'penalty_cp'  => 0,
-          'days_elapsed' => $game_state['downtime']['days_elapsed'],
-        ];
+        return $this->buildSubsistResult(
+          $degree,
+          $skill,
+          $environment,
+          $dc,
+          TRUE,
+          0,
+          0,
+          $game_state['downtime']['days_elapsed']
+        );
 
       case 'failure':
         // CRB: failure = must pay 1 sp (= 10 cp) for subsistence.
-        return [
-          'success'     => TRUE,
-          'degree'      => $degree,
-          'skill'       => $skill,
-          'environment' => $environment,
-          'dc'          => $dc,
-          'covered'     => FALSE,
-          'extra_covered' => 0,
-          'penalty_cp'  => 10,
-          'days_elapsed' => $game_state['downtime']['days_elapsed'],
-        ];
+        return $this->buildSubsistResult(
+          $degree,
+          $skill,
+          $environment,
+          $dc,
+          FALSE,
+          0,
+          10,
+          $game_state['downtime']['days_elapsed']
+        );
 
       case 'critical_failure':
         // CRB: crit failure = starving / no shelter. Fatigued condition applied.
         $game_state['downtime']['subsist_crit_fail_days'] = ($game_state['downtime']['subsist_crit_fail_days'] ?? 0) + 1;
-        return [
-          'success'       => TRUE,
-          'degree'        => $degree,
-          'skill'         => $skill,
-          'environment'   => $environment,
-          'dc'            => $dc,
-          'covered'       => FALSE,
-          'extra_covered' => 0,
-          'penalty_cp'    => 0,
+        return $this->buildSubsistResult(
+          $degree,
+          $skill,
+          $environment,
+          $dc,
+          FALSE,
+          0,
+          0,
+          $game_state['downtime']['days_elapsed'],
+          [
           'fatigued'      => TRUE,
           'message'       => 'Critical failure: character goes without food/shelter. Fatigue applied.',
-          'days_elapsed'  => $game_state['downtime']['days_elapsed'],
-        ];
+          ]
+        );
 
       default:
         return ['success' => FALSE, 'error' => 'invalid_degree', 'message' => "Invalid degree: {$degree}."];
     }
+  }
+
+  /**
+   * Build a normalized subsist result payload.
+   */
+  protected function buildSubsistResult(
+    string $degree,
+    string $skill,
+    string $environment,
+    int $dc,
+    bool $covered,
+    int $extra_covered,
+    int $penalty_cp,
+    int $days_elapsed,
+    array $extra = []
+  ): array {
+    return array_merge([
+      'success' => TRUE,
+      'degree' => $degree,
+      'skill' => $skill,
+      'environment' => $environment,
+      'dc' => $dc,
+      'covered' => $covered,
+      'extra_covered' => $extra_covered,
+      'penalty_cp' => $penalty_cp,
+      'days_elapsed' => $days_elapsed,
+    ], $extra);
   }
 
   /**

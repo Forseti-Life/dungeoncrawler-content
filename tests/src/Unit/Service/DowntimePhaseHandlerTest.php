@@ -561,6 +561,31 @@ class DowntimePhaseHandlerTest extends UnitTestCase {
   }
 
   /**
+   * Subsist critical failure marks the actor fatigued and tracks crit-fail days.
+   */
+  public function testSubsistCriticalFailureSetsFatigueFlag(): void {
+    $handler = $this->handler;
+    $game_state = $this->makeGameState();
+    $intent = [
+      'type' => 'subsist',
+      'actor' => NULL,
+      'params' => [
+        'skill' => 'survival',
+        'degree' => 'critical_failure',
+        'environment' => 'settled_town',
+      ],
+    ];
+
+    $dd = [];
+    $response = $handler->processIntent($intent, $game_state, $dd, 42);
+
+    $this->assertTrue($response['success']);
+    $this->assertFalse($response['result']['covered']);
+    $this->assertTrue($response['result']['fatigued']);
+    $this->assertSame(1, (int) ($game_state['downtime']['subsist_crit_fail_days'] ?? 0));
+  }
+
+  /**
    * Starvation advancement writes canonical survival state and syncs projection.
    */
   public function testAdvanceStarvationUsesCanonicalStateAndSyncsProjection(): void {
