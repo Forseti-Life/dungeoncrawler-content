@@ -701,8 +701,8 @@ class CombatEngine {
 
     // REQ 2274-2278: Detection state and light level checks.
     $detection_info = ['state' => self::DETECTION_STATE_OBSERVED, 'light_level' => self::LIGHT_BRIGHT, 'flat_check' => NULL];
-    $attacker_entity_data = !empty($attacker['entity_ref']) ? json_decode($attacker['entity_ref'], TRUE) : [];
-    $target_entity_data   = !empty($target['entity_ref'])   ? json_decode($target['entity_ref'],   TRUE) : [];
+    $attacker_entity_data = $this->decodeParticipantEntityRef($attacker);
+    $target_entity_data   = $this->decodeParticipantEntityRef($target);
     $attacker_entity_id   = $attacker_entity_data['entity_id'] ?? (string) $participant_id;
 
     // GAP-2227: Raise a Shield applies its AC bonus until start of target's next turn.
@@ -899,6 +899,17 @@ class CombatEngine {
   }
 
   /**
+   * Decode entity_ref JSON from a combat participant row.
+   *
+   * @return array|null
+   *   Decoded entity data when present, [] for empty entity_ref, or NULL when
+   *   JSON decoding fails.
+   */
+  protected function decodeParticipantEntityRef(array $participant_row) {
+    return !empty($participant_row['entity_ref']) ? json_decode($participant_row['entity_ref'], TRUE) : [];
+  }
+
+  /**
    * Determine whether the encounter has ended.
    */
   protected function evaluateEncounterOutcome(array $participants): array {
@@ -948,7 +959,7 @@ class CombatEngine {
    * @return string One of: observed, hidden, undetected, unnoticed.
    */
   public function getDetectionState(array $target_row, string $attacker_entity_id): string {
-    $entity_data = !empty($target_row['entity_ref']) ? json_decode($target_row['entity_ref'], TRUE) : [];
+    $entity_data = $this->decodeParticipantEntityRef($target_row);
     return $entity_data['detection_states'][$attacker_entity_id] ?? self::DETECTION_STATE_OBSERVED;
   }
 
@@ -961,7 +972,7 @@ class CombatEngine {
       ->condition('id', $target_participant_id)
       ->execute()
       ->fetchAssoc();
-    $entity_data = !empty($row['entity_ref']) ? json_decode($row['entity_ref'], TRUE) : [];
+    $entity_data = $this->decodeParticipantEntityRef($row);
     $entity_data['detection_states'][$attacker_entity_id] = $state;
     $this->database->update('combat_participants')
       ->fields(['entity_ref' => json_encode($entity_data), 'updated' => time()])
