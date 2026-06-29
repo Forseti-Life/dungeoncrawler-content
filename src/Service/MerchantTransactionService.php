@@ -79,28 +79,28 @@ class MerchantTransactionService {
     $seen_item_ids = [];
 
     foreach ($this->resolveMerchantExplicitSearchItems($merchant, $item_query) as $result) {
-      $item_id = (string) ($result['item_id'] ?? '');
-      if ($item_id !== '' && isset($seen_item_ids[$item_id])) {
-        continue;
-      }
-      if ($item_id !== '') {
-        $seen_item_ids[$item_id] = TRUE;
-      }
-      $results[] = $result;
+      $this->appendUniqueMerchantSearchResult($results, $seen_item_ids, $result);
     }
 
     foreach ($this->resolveMerchantCatalogSearchItems($merchant, $item_query) as $result) {
-      $item_id = (string) ($result['item_id'] ?? '');
-      if ($item_id !== '' && isset($seen_item_ids[$item_id])) {
-        continue;
-      }
-      if ($item_id !== '') {
-        $seen_item_ids[$item_id] = TRUE;
-      }
-      $results[] = $result;
+      $this->appendUniqueMerchantSearchResult($results, $seen_item_ids, $result);
     }
 
     return $results;
+  }
+
+  /**
+   * Append a merchant search result when it is unique by non-empty item id.
+   */
+  protected function appendUniqueMerchantSearchResult(array &$results, array &$seen_item_ids, array $result): void {
+    $item_id = (string) ($result['item_id'] ?? '');
+    if ($item_id !== '' && isset($seen_item_ids[$item_id])) {
+      return;
+    }
+    if ($item_id !== '') {
+      $seen_item_ids[$item_id] = TRUE;
+    }
+    $results[] = $result;
   }
 
   /**
