@@ -166,33 +166,10 @@ class CharacterLevelingService {
       throw new \InvalidArgumentException('No skill increase pending at this level', 400);
     }
 
-    $skill = strtolower(trim($skill));
-    if (!array_key_exists($skill, CharacterCalculator::SKILLS)) {
-      throw new \InvalidArgumentException("Unknown skill '{$skill}'", 400);
-    }
-
-    $current_rank = $this->getSkillRank($char_data, $skill);
-    $rank_idx = array_search($current_rank, self::RANK_ORDER, TRUE);
-    $rank_idx = $rank_idx === FALSE ? 0 : $rank_idx;
-    if ($rank_idx >= count(self::RANK_ORDER) - 1) {
-      throw new \InvalidArgumentException("Skill '{$skill}' is already at maximum rank", 400);
-    }
-
-    $new_rank = self::RANK_ORDER[$rank_idx + 1];
-    $target_level = (int) ($char_data['levelUpState']['transitionTo'] ?? 0);
-    if ($new_rank === 'master' && $target_level < 7) {
-      throw new \InvalidArgumentException("Cannot increase '{$skill}' to master before level 7", 400);
-    }
-    if ($new_rank === 'legendary' && $target_level < 15) {
-      throw new \InvalidArgumentException("Cannot increase '{$skill}' to legendary before level 15", 400);
-    }
+    $choice = $this->resolveSkillIncreaseChoice($char_data, $skill);
 
     $char_data['levelUpState']['pendingChoices'][$slot_idx]['resolved'] = TRUE;
-    $char_data['levelUpState']['pendingChoices'][$slot_idx]['choice'] = [
-      'skill' => $skill,
-      'previousRank' => $current_rank,
-      'newRank' => $new_rank,
-    ];
+    $char_data['levelUpState']['pendingChoices'][$slot_idx]['choice'] = $choice;
     $advancement['plan']['choice_slots'] = $char_data['levelUpState']['pendingChoices'];
     $this->updateAdvancementPlan((int) $advancement['id'], $advancement['plan'], $this->resolvePlanStatus($char_data));
 
@@ -831,6 +808,38 @@ class CharacterLevelingService {
       }
       $this->setSkillRank($char_data, $skill, $previous_rank, $level);
     }
+  }
+
+  /**
+   * Resolve and validate a pending skill increase choice payload.
+   */
+  private function resolveSkillIncreaseChoice(array $char_data, string $skill): array {
+    $skill = strtolower(trim($skill));
+    if (!array_key_exists($skill, CharacterCalculator::SKILLS)) {
+      throw new \InvalidArgumentException("Unknown skill '{$skill}'", 400);
+    }
+
+    $current_rank = $this->getSkillRank($char_data, $skill);
+    $rank_idx = array_search($current_rank, self::RANK_ORDER, TRUE);
+    $rank_idx = $rank_idx === FALSE ? 0 : $rank_idx;
+    if ($rank_idx >= count(self::RANK_ORDER) - 1) {
+      throw new \InvalidArgumentException("Skill '{$skill}' is already at maximum rank", 400);
+    }
+
+    $new_rank = self::RANK_ORDER[$rank_idx + 1];
+    $target_level = (int) ($char_data['levelUpState']['transitionTo'] ?? 0);
+    if ($new_rank === 'master' && $target_level < 7) {
+      throw new \InvalidArgumentException("Cannot increase '{$skill}' to master before level 7", 400);
+    }
+    if ($new_rank === 'legendary' && $target_level < 15) {
+      throw new \InvalidArgumentException("Cannot increase '{$skill}' to legendary before level 15", 400);
+    }
+
+    return [
+      'skill' => $skill,
+      'previousRank' => $current_rank,
+      'newRank' => $new_rank,
+    ];
   }
 
   /**

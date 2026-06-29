@@ -591,6 +591,55 @@ class CharacterLevelingServiceTest extends UnitTestCase {
   }
 
   /**
+   * Verifies skill increase choice resolution derives the next legal rank.
+   */
+  public function testResolveSkillIncreaseChoiceBuildsChoicePayload(): void {
+    $service = new CharacterLevelingService(
+      $this->createMock(Connection::class),
+      progression_registry: $this->createMock(CharacterProgressionRegistry::class)
+    );
+    $method = new \ReflectionMethod($service, 'resolveSkillIncreaseChoice');
+    $method->setAccessible(TRUE);
+
+    $choice = $method->invoke($service, [
+      'skills' => [
+        'athletics' => 'trained',
+      ],
+      'levelUpState' => [
+        'transitionTo' => 6,
+      ],
+    ], 'athletics');
+
+    $this->assertSame('athletics', $choice['skill']);
+    $this->assertSame('trained', $choice['previousRank']);
+    $this->assertSame('expert', $choice['newRank']);
+  }
+
+  /**
+   * Verifies skill increase choice resolution enforces level-gated rank caps.
+   */
+  public function testResolveSkillIncreaseChoiceRejectsMasterBeforeLevelSeven(): void {
+    $service = new CharacterLevelingService(
+      $this->createMock(Connection::class),
+      progression_registry: $this->createMock(CharacterProgressionRegistry::class)
+    );
+    $method = new \ReflectionMethod($service, 'resolveSkillIncreaseChoice');
+    $method->setAccessible(TRUE);
+
+    $this->expectException(\InvalidArgumentException::class);
+    $this->expectExceptionMessage("Cannot increase 'athletics' to master before level 7");
+
+    $method->invoke($service, [
+      'skills' => [
+        'athletics' => 'expert',
+      ],
+      'levelUpState' => [
+        'transitionTo' => 6,
+      ],
+    ], 'athletics');
+  }
+
+  /**
    * Build a select-query mock that returns one object record.
    */
   private function buildSelectObjectQueryMock(?object $record): object {
