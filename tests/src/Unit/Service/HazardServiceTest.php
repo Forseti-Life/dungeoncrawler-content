@@ -207,8 +207,36 @@ class HazardServiceTest extends UnitTestCase {
 
     $result = $service->disableHazard($hazard, 8, 1, ['has_thieves_tools' => TRUE]);
 
+    $this->assertSame('not_attempted', $result['degree']);
     $this->assertTrue($result['blocked']);
     $this->assertStringContainsString('detected', $result['blocked_reason']);
+    $this->assertSame(0, $result['roll']);
+    $this->assertSame(0, $result['total']);
+    $this->assertSame(0, $result['dc']);
+    $this->assertSame(0, $result['successes']);
+    $this->assertSame(0, $result['successes_needed']);
+  }
+
+  /**
+   * @covers ::disableHazard
+   */
+  public function testDisableAlreadyDisabledReturnsCanonicalNotAttemptedPayload(): void {
+    $hazard = $this->simplePitTrap([
+      'state' => ['detected' => TRUE, 'triggered' => FALSE, 'disabled' => TRUE, 'successes' => 0],
+    ]);
+    $service = new HazardService($this->mockDie(18));
+
+    $result = $service->disableHazard($hazard, 8, 1, ['has_thieves_tools' => TRUE]);
+
+    $this->assertSame('not_attempted', $result['degree']);
+    $this->assertTrue($result['disabled']);
+    $this->assertFalse($result['blocked']);
+    $this->assertNull($result['blocked_reason']);
+    $this->assertSame(0, $result['roll']);
+    $this->assertSame(0, $result['total']);
+    $this->assertSame(0, $result['dc']);
+    $this->assertSame(0, $result['successes']);
+    $this->assertSame(0, $result['successes_needed']);
   }
 
   /**

@@ -438,50 +438,32 @@ class HazardService {
   public function disableHazard(array &$hazard_entity, int $skill_bonus, int $skill_rank, array $params = []): array {
     // REQ 2388: Must have detected the hazard.
     if (empty($hazard_entity['state']['detected'])) {
-      return [
-        'degree'          => 'not_attempted',
-        'disabled'        => FALSE,
-        'triggered'       => FALSE,
-        'blocked'         => TRUE,
-        'blocked_reason'  => 'Cannot disable a hazard that has not been detected.',
-        'roll'            => 0,
-        'total'           => 0,
-        'dc'              => 0,
-        'successes'       => 0,
-        'successes_needed' => 0,
-      ];
+      return $this->buildDisableNotAttemptedResult(
+        FALSE,
+        FALSE,
+        TRUE,
+        'Cannot disable a hazard that has not been detected.'
+      );
     }
 
     if (!empty($hazard_entity['state']['disabled'])) {
-      return [
-        'degree'          => 'not_attempted',
-        'disabled'        => TRUE,
-        'triggered'       => FALSE,
-        'blocked'         => FALSE,
-        'blocked_reason'  => NULL,
-        'roll'            => 0,
-        'total'           => 0,
-        'dc'              => 0,
-        'successes'       => 0,
-        'successes_needed' => 0,
-      ];
+      return $this->buildDisableNotAttemptedResult(
+        TRUE,
+        FALSE,
+        FALSE,
+        NULL
+      );
     }
 
     // REQ 2387: Min proficiency gate.
     $min_rank = $this->getMinProfRank($hazard_entity, 'disable');
     if ($skill_rank < $min_rank) {
-      return [
-        'degree'          => 'not_attempted',
-        'disabled'        => FALSE,
-        'triggered'       => FALSE,
-        'blocked'         => TRUE,
-        'blocked_reason'  => 'Insufficient skill proficiency to attempt disabling this hazard.',
-        'roll'            => 0,
-        'total'           => 0,
-        'dc'              => 0,
-        'successes'       => 0,
-        'successes_needed' => 0,
-      ];
+      return $this->buildDisableNotAttemptedResult(
+        FALSE,
+        FALSE,
+        TRUE,
+        'Insufficient skill proficiency to attempt disabling this hazard.'
+      );
     }
 
     $dc = (int) ($hazard_entity['disable']['dc']
@@ -556,6 +538,29 @@ class HazardService {
       'dc'              => $dc,
       'successes'       => $hazard_entity['state']['successes'],
       'successes_needed' => $successes_needed,
+    ];
+  }
+
+  /**
+   * Build a canonical not-attempted disable response payload.
+   */
+  protected function buildDisableNotAttemptedResult(
+    bool $disabled,
+    bool $triggered,
+    bool $blocked,
+    ?string $blocked_reason
+  ): array {
+    return [
+      'degree'           => 'not_attempted',
+      'disabled'         => $disabled,
+      'triggered'        => $triggered,
+      'blocked'          => $blocked,
+      'blocked_reason'   => $blocked_reason,
+      'roll'             => 0,
+      'total'            => 0,
+      'dc'               => 0,
+      'successes'        => 0,
+      'successes_needed' => 0,
     ];
   }
 
