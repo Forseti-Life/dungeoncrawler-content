@@ -26,32 +26,26 @@ use Symfony\Component\HttpFoundation\Request;
 class CharacterCreationStepControllerTest extends TestCase {
 
   /**
-   * Tests campaign-scoped AJAX step saves are rejected.
+   * Install a translation container for controller t() responses.
    */
-  public function testSaveStepRejectsCampaignScopedAjaxFlow(): void {
-    $character_manager = $this->createMock(CharacterManager::class);
-    $character_manager->expects($this->never())->method('updateCharacter');
-
-    $csrf = $this->createMock(CsrfTokenGenerator::class);
-    $csrf->expects($this->exactly(2))
-      ->method('validate')
-      ->willReturnMap([
-        ['valid-token', 'X-CSRF-Token', TRUE],
-        ['valid-token', 'rest', TRUE],
-      ]);
-
-    $account = $this->createMock(AccountInterface::class);
-    $account->method('id')->willReturn(7);
-    $account->method('hasPermission')->with('administer dungeoncrawler content')->willReturn(FALSE);
-
+  private function installTranslationContainer(): void {
     $translation = $this->createMock(TranslationInterface::class);
     $translation->method('translate')
       ->willReturnCallback(static fn(string $string, array $args = [], array $options = []): string => strtr($string, $args));
     $container = new ContainerBuilder();
     $container->set('string_translation', $translation);
     Drupal::setContainer($container);
+  }
 
-    $controller = new class(
+  /**
+   * Build a controller test double with injected current user.
+   */
+  private function buildController(
+    CharacterManager $character_manager,
+    CsrfTokenGenerator $csrf,
+    AccountInterface $account,
+  ): CharacterCreationStepController {
+    return new class(
       $character_manager,
       $this->createMock(SchemaLoader::class),
       $csrf,
@@ -76,6 +70,29 @@ class CharacterCreationStepControllerTest extends TestCase {
         return $this->account;
       }
     };
+  }
+
+  /**
+   * Tests campaign-scoped AJAX step saves are rejected.
+   */
+  public function testSaveStepRejectsCampaignScopedAjaxFlow(): void {
+    $character_manager = $this->createMock(CharacterManager::class);
+    $character_manager->expects($this->never())->method('updateCharacter');
+
+    $csrf = $this->createMock(CsrfTokenGenerator::class);
+    $csrf->expects($this->exactly(2))
+      ->method('validate')
+      ->willReturnMap([
+        ['valid-token', 'X-CSRF-Token', TRUE],
+        ['valid-token', 'rest', TRUE],
+      ]);
+
+    $account = $this->createMock(AccountInterface::class);
+    $account->method('id')->willReturn(7);
+    $account->method('hasPermission')->with('administer dungeoncrawler content')->willReturn(FALSE);
+
+    $this->installTranslationContainer();
+    $controller = $this->buildController($character_manager, $csrf, $account);
 
     $request = new Request(['campaign_id' => 97]);
     $request->headers->set('X-CSRF-Token', 'valid-token');
@@ -84,6 +101,30 @@ class CharacterCreationStepControllerTest extends TestCase {
     $payload = json_decode((string) $response->getContent(), TRUE);
 
     $this->assertSame(400, $response->getStatusCode());
+    $this->assertFalse($payload['success'] ?? TRUE);
+  }
+
+  /**
+   * Tests requests missing CSRF token are rejected before any mutation path.
+   */
+  public function testSaveStepRejectsMissingCsrfToken(): void {
+    $character_manager = $this->createMock(CharacterManager::class);
+    $character_manager->expects($this->never())->method('updateCharacter');
+
+    $csrf = $this->createMock(CsrfTokenGenerator::class);
+    $csrf->expects($this->never())->method('validate');
+
+    $account = $this->createMock(AccountInterface::class);
+    $account->method('id')->willReturn(7);
+    $account->method('hasPermission')->willReturn(FALSE);
+
+    $this->installTranslationContainer();
+    $controller = $this->buildController($character_manager, $csrf, $account);
+
+    $response = $controller->saveStep(1, new Request());
+    $payload = json_decode((string) $response->getContent(), TRUE);
+
+    $this->assertSame(403, $response->getStatusCode());
     $this->assertFalse($payload['success'] ?? TRUE);
   }
 

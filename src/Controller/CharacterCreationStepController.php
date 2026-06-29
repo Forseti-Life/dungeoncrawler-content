@@ -167,41 +167,26 @@ class CharacterCreationStepController extends ControllerBase {
    * Requires CSRF token for security.
    */
   public function saveStep(int $step, Request $request) {
-    // Validate CSRF token
-    $token = $request->headers->get('X-CSRF-Token');
-    if (!$token
-      || (!$this->csrfToken->validate($token, CsrfRequestHeaderAccessCheck::TOKEN_KEY)
-        && !$this->csrfToken->validate($token, 'rest'))
-    ) {
-      return new JsonResponse([
-        'success' => FALSE,
-        'message' => $this->t('Invalid or missing CSRF token.'),
-      ], 403);
+    $csrf_error = $this->validateSaveStepCsrfToken($request);
+    if ($csrf_error instanceof JsonResponse) {
+      return $csrf_error;
     }
 
-    $character_id = $request->request->get('character_id') ?: $request->query->get('character_id');
-    $campaign_id = $request->request->get('campaign_id') ?: $request->query->get('campaign_id');
-    $data = $request->request->all();
-    
-    // Load existing character
-    $character = $character_id ? $this->characterManager->loadCharacter($character_id) : NULL;
-    $resolved_campaign_id = $character && !empty($character->campaign_id)
-      ? (int) $character->campaign_id
-      : (int) ($campaign_id ?? 0);
-    
-    if ($character && $character->uid != $this->currentUser()->id()
-      && !$this->currentUser()->hasPermission('administer dungeoncrawler content')) {
-      return new JsonResponse([
-        'success' => FALSE,
-        'message' => $this->t('Access denied.'),
-      ], 403);
+    $context = $this->resolveSaveStepRequestContext($request);
+    $character_id = $context['character_id'];
+    $campaign_id = $context['campaign_id'];
+    $data = $context['data'];
+    $character = $context['character'];
+    $resolved_campaign_id = $context['resolved_campaign_id'];
+
+    $access_error = $this->validateSaveStepAccess($character);
+    if ($access_error instanceof JsonResponse) {
+      return $access_error;
     }
 
-    if ($resolved_campaign_id > 0) {
-      return new JsonResponse([
-        'success' => FALSE,
-        'message' => $this->t('Campaign-scoped character creation saves must use the campaign wizard form submission path.'),
-      ], 400);
+    $campaign_scope_error = $this->validateSaveStepCampaignScope($resolved_campaign_id);
+    if ($campaign_scope_error instanceof JsonResponse) {
+      return $campaign_scope_error;
     }
 
     // Merge with existing data
@@ -307,6 +292,77 @@ class CharacterCreationStepController extends ControllerBase {
         'step' => $next_step,
       ])->setOption('query', $next_query)->toString(),
     ]);
+  }
+
+  /**
+   * Validate save-step CSRF contract.
+   */
+  private function validateSaveStepCsrfToken(Request $request): ?JsonResponse {
+    $token = $request->headers->get('X-CSRF-Token');
+    if (!$token
+      || (!$this->csrfToken->validate($token, CsrfRequestHeaderAccessCheck::TOKEN_KEY)
+        && !$this->csrfToken->validate($token, 'rest'))
+    ) {
+      return new JsonResponse([
+        'success' => FALSE,
+        'message' => $this->t('Invalid or missing CSRF token.'),
+      ], 403);
+    }
+
+    return NULL;
+  }
+
+  /**
+   * Resolve save-step request context payload.
+   *
+   * @return array<string, mixed>
+   *   Context payload with character/campaign identifiers and resolved draft row.
+   */
+  private function resolveSaveStepRequestContext(Request $request): array {
+    $character_id = $request->request->get('character_id') ?: $request->query->get('character_id');
+    $campaign_id = $request->request->get('campaign_id') ?: $request->query->get('campaign_id');
+    $data = $request->request->all();
+    $character = $character_id ? $this->characterManager->loadCharacter($character_id) : NULL;
+    $resolved_campaign_id = $character && !empty($character->campaign_id)
+      ? (int) $character->campaign_id
+      : (int) ($campaign_id ?? 0);
+
+    return [
+      'character_id' => $character_id,
+      'campaign_id' => $campaign_id,
+      'data' => $data,
+      'character' => $character,
+      'resolved_campaign_id' => $resolved_campaign_id,
+    ];
+  }
+
+  /**
+   * Enforce save-step access contract for existing draft rows.
+   */
+  private function validateSaveStepAccess($character): ?JsonResponse {
+    if ($character && $character->uid != $this->currentUser()->id()
+      && !$this->currentUser()->hasPermission('administer dungeoncrawler content')) {
+      return new JsonResponse([
+        'success' => FALSE,
+        'message' => $this->t('Access denied.'),
+      ], 403);
+    }
+
+    return NULL;
+  }
+
+  /**
+   * Enforce canonical campaign flow separation for AJAX save requests.
+   */
+  private function validateSaveStepCampaignScope(int $resolved_campaign_id): ?JsonResponse {
+    if ($resolved_campaign_id > 0) {
+      return new JsonResponse([
+        'success' => FALSE,
+        'message' => $this->t('Campaign-scoped character creation saves must use the campaign wizard form submission path.'),
+      ], 400);
+    }
+
+    return NULL;
   }
 
   /**
