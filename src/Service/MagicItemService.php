@@ -942,10 +942,7 @@ class MagicItemService {
     array $poison_data,
     array &$game_state
   ): array {
-    $game_state['characters'][$target_id]['pending_saves'][] = [
-      'type'        => 'contact_poison',
-      'poison_data' => $poison_data,
-    ];
+    $this->enqueuePendingPoisonSave($target_id, 'contact_poison', $poison_data, $game_state);
     return ['poison_applied' => TRUE, 'poison_data' => $poison_data];
   }
 
@@ -961,11 +958,23 @@ class MagicItemService {
     array $poison_data,
     array &$game_state
   ): array {
+    $this->enqueuePendingPoisonSave($target_id, 'ingested_poison', $poison_data, $game_state);
+    return ['poison_applied' => TRUE, 'poison_data' => $poison_data];
+  }
+
+  /**
+   * Queue one pending poison save payload for a target character.
+   */
+  protected function enqueuePendingPoisonSave(
+    string $target_id,
+    string $poison_type,
+    array $poison_data,
+    array &$game_state
+  ): void {
     $game_state['characters'][$target_id]['pending_saves'][] = [
-      'type'        => 'ingested_poison',
+      'type' => $poison_type,
       'poison_data' => $poison_data,
     ];
-    return ['poison_applied' => TRUE, 'poison_data' => $poison_data];
   }
 
   // ---------------------------------------------------------------------------
