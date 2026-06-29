@@ -459,21 +459,9 @@ class NpcSheetGenerationService {
       'backstory' => (string) ($sheet['backstory'] ?? $seed_data['backstory'] ?? ''),
       'personality_traits' => $personality_traits,
       'psychology' => $psychology,
-      'motivations' => $this->firstNonEmptyString([
-        $sheet['motivations'] ?? '',
-        $seed_data['motivations'] ?? '',
-        $this->deriveMotivationsFromPsychology($psychology),
-      ]),
-      'fears' => $this->firstNonEmptyString([
-        $sheet['fears'] ?? '',
-        $seed_data['fears'] ?? '',
-        $this->deriveFearsFromPsychology($psychology),
-      ]),
-      'bonds' => $this->firstNonEmptyString([
-        $sheet['bonds'] ?? '',
-        $seed_data['bonds'] ?? '',
-        $this->deriveBondsFromPsychology($psychology),
-      ]),
+      'motivations' => $this->resolveLegacyPsychologyField($sheet, $seed_data, $psychology, 'motivations'),
+      'fears' => $this->resolveLegacyPsychologyField($sheet, $seed_data, $psychology, 'fears'),
+      'bonds' => $this->resolveLegacyPsychologyField($sheet, $seed_data, $psychology, 'bonds'),
       'abilities' => [
         'strength' => (int) (($sheet['abilities']['strength'] ?? 10)),
         'dexterity' => (int) (($sheet['abilities']['dexterity'] ?? 10)),
@@ -492,6 +480,24 @@ class NpcSheetGenerationService {
       'source' => 'generated_npc_sheet',
       'generation_status' => 'completed',
       'generated_at' => date('c'),
+    ]);
+  }
+
+  /**
+   * Resolve one legacy psychology string with sheet/seed/derived precedence.
+   */
+  protected function resolveLegacyPsychologyField(array $sheet, array $seed_data, array $psychology, string $field): string {
+    $derived = match ($field) {
+      'motivations' => $this->deriveMotivationsFromPsychology($psychology),
+      'fears' => $this->deriveFearsFromPsychology($psychology),
+      'bonds' => $this->deriveBondsFromPsychology($psychology),
+      default => '',
+    };
+
+    return $this->firstNonEmptyString([
+      $sheet[$field] ?? '',
+      $seed_data[$field] ?? '',
+      $derived,
     ]);
   }
 
